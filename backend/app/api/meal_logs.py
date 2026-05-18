@@ -1,0 +1,128 @@
+from __future__ import annotations
+
+from decimal import Decimal
+
+from sqlalchemy import select
+from sqlalchemy.orm import Session, selectinload
+from fastapi import APIRouter, Depends, status
+
+from app.core.deps import get_current_auth
+from app.core.enums import ActivityAction
+from app.core.utils import create_id, utcnow
+from app.db.session import get_db
+from app.models.domain import Food, InventoryDeductionSuggestion, MealLog, MealLogFood, Recipe
+from app.repos.media import build_media_map, get_media_assets_for_family
+from app.schemas.domain import CreateMealLogRequest, MealLogOut
+from app.services.activity import log_activity
+from app.services.media import bind_media_assets
+from app.services.serializers import serialize_meal_log
+
+router = APIRouter(tags=["meal-logs"])
+
+MEAL_TYPE_LABELS = {
+    "breakfast": "早餐",
+    "lunch": "午餐",
+    "dinner": "晚餐",
+    "snack": "加餐/夜宵",
+}
+
+
+def _build_deduction_suggestions(db: Session, food_entries: list[MealLogFood]) -> list[InventoryDeductionSuggestion]:
+    suggestions: list[InventoryDeductionSuggestion] = []
+    food_ids = [entry.food_id for entry in food_entries]
+    foods = list(
+        db.scalars(
+            select(Food)
+            .where(Food.id.in_(food_ids))
+            .options(selectinload(Food.recipe).selectinload(Recipe.ingredient_items))
+        )
+    )
+    food_map = {food.id: food for food in foods}
+    for entry in food_entries:
+        food = food_map.get(entry.food_id)
+        if not food or not food.recipe:
+            continue
+        for ingredient in food.recipe.ingredient_items:
+            suggestions.append(
+                InventoryDeductionSuggestion(
+                    id=create_id("suggestion"),
+                    ingredient_name=ingredient.ingredient_name,
+                    suggested_amount=Decimal(str(ingredient.quantity)) * Decimal(str(entry.servings)),
+                    unit=ingredient.unit,
+                    based_on_food_name=food.name,
+                )
+            )
+    return suggestions
+
+
+@router.get("/api/meal-logs", response_model=list[MealLogOut])
+def list_meal_logs(auth: tuple = Depends(get_current_auth), db: Session = Depends(get_db)) -> list[dict]:
+    _, membership = auth
+    logs = list(
+        db.scalars(
+            select(MealLog)
+            .where(MealLog.family_id == membership.family_id)
+            .options(
+                selectinload(MealLog.food_entries).selectinload(MealLogFood.food),
+                selectinload(MealLog.deduction_suggestions),
+            )
+            .order_by(MealLog.date.desc(), MealLog.created_at.desc())
+        )
+    )
+    media_map = build_media_map(get_media_assets_for_family(db, membership.family_id))
+    return [serialize_meal_log(item, media_map) for item in logs]
+
+
+@router.post("/api/meal-logs", response_model=MealLogOut, status_code=status.HTTP_201_CREATED)
+def create_meal_log(
+    payload: CreateMealLogRequest,
+    auth: tuple = Depends(get_current_auth),
+    db: Session = Depends(get_db),
+) -> dict:
+    user, membership = auth
+    meal_log = MealLog(
+        id=create_id("meal"),
+        family_id=membership.family_id,
+        date=payload.date,
+        meal_type=payload.meal_type,
+        participant_user_ids=payload.participant_user_ids,
+        notes=payload.notes,
+        mood=payload.mood,
+        created_by=user.id,
+        updated_by=user.id,
+    )
+    db.add(meal_log)
+    db.flush()
+
+    entries: list[MealLogFood] = []
+    for item in payload.food_entries:
+        entry = MealLogFood(
+            id=create_id("meal-food"),
+            meal_log_id=meal_log.id,
+            food_id=item.food_id,
+            servings=item.servings,
+            note=item.note,
+        )
+        entries.append(entry)
+        db.add(entry)
+    db.flush()
+
+    for suggestion in _build_deduction_suggestions(db, entries):
+        suggestion.meal_log_id = meal_log.id
+        db.add(suggestion)
+
+    bind_media_assets(db, family_id=membership.family_id, media_ids=payload.media_ids, entity_type="meal_log", entity_id=meal_log.id)
+
+    log_activity(
+        db,
+        family_id=membership.family_id,
+        actor_id=user.id,
+        action=ActivityAction.CREATE,
+        entity_type="MealLog",
+        entity_id=meal_log.id,
+        summary=f"记录了{'今天' if payload.date == utcnow().date() else payload.date.isoformat()}的{MEAL_TYPE_LABELS.get(payload.meal_type.value, payload.meal_type.value)}",
+    )
+    db.commit()
+    db.refresh(meal_log)
+    media_map = build_media_map(get_media_assets_for_family(db, membership.family_id))
+    return serialize_meal_log(meal_log, media_map)

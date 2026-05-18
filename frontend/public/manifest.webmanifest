@@ -1,0 +1,17 @@
+{
+  "name": "Culina 家庭厨房",
+  "short_name": "Culina",
+  "description": "家庭菜谱、库存和每日饮食管理工具",
+  "theme_color": "#f28f60",
+  "background_color": "#fff7ef",
+  "display": "standalone",
+  "start_url": "/",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

@@ -1,0 +1,23 @@
+{
+  "name": "culina",
+  "private": true,
+  "scripts": {
+    "db:up": "docker compose up -d mysql",
+    "db:down": "docker compose down",
+    "db:logs": "docker compose logs -f mysql",
+    "frontend:install": "npm --prefix frontend install",
+    "dev": "npm --prefix frontend run dev --",
+    "build": "npm --prefix frontend run build --",
+    "preview": "npm --prefix frontend run preview --",
+    "test": "npm --prefix frontend run test --",
+    "frontend:dev": "npm --prefix frontend run dev --",
+    "frontend:build": "npm --prefix frontend run build --",
+    "frontend:preview": "npm --prefix frontend run preview --",
+    "frontend:test": "npm --prefix frontend run test --",
+    "backend:venv": "python3 -m venv backend/.venv && backend/.venv/bin/pip install -r backend/requirements.txt",
+    "backend:init-db": "cd backend && .venv/bin/python scripts/init_mysql.py",
+    "backend:migrate": "cd backend && .venv/bin/alembic upgrade head",
+    "backend:seed": "cd backend && .venv/bin/python scripts/seed_demo.py",
+    "backend:dev": "cd backend && .venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8010 --reload"
+  }
+}
