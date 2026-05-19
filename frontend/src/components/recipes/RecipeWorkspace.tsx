@@ -311,13 +311,13 @@ const RECIPE_STEP_ICON_OPTIONS = [
 
 const COOK_TIMER_PRESETS = [
   { label: '正计时', seconds: null },
+  { label: '自定义', seconds: 'custom' as const },
   { label: '30秒', seconds: 30 },
   { label: '1分钟', seconds: 60 },
   { label: '2分钟', seconds: 120 },
   { label: '3分钟', seconds: 180 },
   { label: '5分钟', seconds: 300 },
   { label: '10分钟', seconds: 600 },
-  { label: '自定义', seconds: 'custom' as const },
 ];
 
 function createEmptyRecipeStepDraft(id = newDraftId('step')): RecipeStepDraft {
