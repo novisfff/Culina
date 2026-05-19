@@ -32,13 +32,11 @@ import {
   type AiImageGenerationError,
   type AiRenderPayload,
 } from '../../lib/aiImages';
-import { buildIngredientPlaceholderSvg, emptyImages, formatDate, formatDateTime, MEAL_TYPE_LABELS, splitTags, todayKey } from '../../lib/ui';
+import { buildIngredientPlaceholderSvg, emptyImages, formatDate, formatDateTime, getImagePreview, MEAL_TYPE_LABELS, splitTags, todayKey } from '../../lib/ui';
 import {
   ActionButton,
   Badge,
   EmptyState,
-  ImageComposer,
-  SectionHeading,
   WorkspaceModal,
   WorkspaceSubpageHeader,
   WorkspaceSubpageShell,
@@ -250,6 +248,8 @@ const SHOPPING_UNIT_OPTIONS = ['个', '颗', '盒', '袋', '斤', '克', '瓶', 
 const FALLBACK_SCENES = ['工作日晚餐', '孩子也能吃', '周末轻食', '高蛋白', '早餐', '汤羹'];
 const DUPLICATED_TYPE_LABELS = new Set(['全部', '为你推荐', '快手', '快手菜', '下饭菜', '缺料', '可做', '常做', '家常菜']);
 const IDLE_IMAGE_GENERATION_STATE: ImageGenerationUiState = { isGenerating: false, errorMessage: null };
+const OPTIONAL_INGREDIENT_NOTE_PATTERN = /^(?:可选|选用|装饰|替代|没有可不放)[：:\s、，,]*/;
+const MAX_STEP_KEY_POINTS = 3;
 
 const DISCOVERY_SECTION_COPY: Record<RecipeQuickFilter, { title: string; description: string; emptyTitle: string; emptyDescription: string }> = {
   all: {
@@ -435,9 +435,12 @@ type RecipeUiIconName =
   | 'chevronRight'
   | 'clock'
   | 'clipboard'
+  | 'edit'
   | 'filter'
   | 'flame'
   | 'heart'
+  | 'image'
+  | 'info'
   | 'leaf'
   | 'minus'
   | 'pause'
@@ -448,7 +451,10 @@ type RecipeUiIconName =
   | 'search'
   | 'signal'
   | 'sparkle'
+  | 'star'
+  | 'tag'
   | 'utensils'
+  | 'users'
   | 'view'
   | 'warning'
   | 'zap';
@@ -516,6 +522,13 @@ function RecipeUiIcon(props: { name: RecipeUiIconName; className?: string }) {
           <path d="M8.2 12h7.6M8.2 15.5h5.4" />
         </svg>
       );
+    case 'edit':
+      return (
+        <svg {...common}>
+          <path d="M4.8 16.9 4 20l3.1-.8L18.5 7.8a2.1 2.1 0 0 0-3-3L4.8 16.9Z" />
+          <path d="m14.3 6 3.2 3.2M11.5 20h7.2" />
+        </svg>
+      );
     case 'filter':
       return (
         <svg {...common}>
@@ -533,6 +546,21 @@ function RecipeUiIcon(props: { name: RecipeUiIconName; className?: string }) {
       return (
         <svg {...common}>
           <path d="M12 20.2 5.1 13.6C2.9 11.5 2.8 8 4.8 6c1.9-1.9 5-1.7 6.7.4l.5.6.5-.6c1.7-2.1 4.8-2.3 6.7-.4 2 2 1.9 5.5-.3 7.6L12 20.2Z" />
+        </svg>
+      );
+    case 'image':
+      return (
+        <svg {...common}>
+          <rect x="4" y="5" width="16" height="14" rx="2.4" />
+          <path d="m7.5 16 3.4-3.4 2.4 2.4 2.1-2.1L19 16.5" />
+          <circle cx="8.7" cy="9" r="1.2" />
+        </svg>
+      );
+    case 'info':
+      return (
+        <svg {...common}>
+          <circle cx="12" cy="12" r="8.2" />
+          <path d="M12 10.8v5.1M12 8.1h.01" />
         </svg>
       );
     case 'leaf':
@@ -602,10 +630,31 @@ function RecipeUiIcon(props: { name: RecipeUiIconName; className?: string }) {
           <path d="M12 3.8 14 9l5.2 2-5.2 2-2 5.2-2-5.2-5.2-2 5.2-2L12 3.8Z" />
         </svg>
       );
+    case 'star':
+      return (
+        <svg {...common}>
+          <path d="m12 4.2 2.4 4.9 5.4.8-3.9 3.8.9 5.4-4.8-2.5-4.8 2.5.9-5.4-3.9-3.8 5.4-.8L12 4.2Z" />
+        </svg>
+      );
+    case 'tag':
+      return (
+        <svg {...common}>
+          <path d="M4.8 11.7V5.2h6.5l8.1 8.1a2.1 2.1 0 0 1 0 3l-3.1 3.1a2.1 2.1 0 0 1-3 0L4.8 11.7Z" />
+          <path d="M8.1 8.1h.01" />
+        </svg>
+      );
     case 'utensils':
       return (
         <svg {...common}>
           <path d="M7.2 4.5v6.2M4.8 4.5v6.2M9.6 4.5v6.2M4.8 10.7h4.8M7.2 10.7v8.8M15.2 4.5c2.2 1.6 3.3 3.5 3.3 5.8 0 2.2-1.1 3.8-3.3 4.8v4.4" />
+        </svg>
+      );
+    case 'users':
+      return (
+        <svg {...common}>
+          <path d="M9.6 11.1a3.1 3.1 0 1 0 0-6.2 3.1 3.1 0 0 0 0 6.2Z" />
+          <path d="M3.9 19.1c.5-3.1 2.5-5 5.7-5s5.2 1.9 5.7 5" />
+          <path d="M15.5 11.3a2.6 2.6 0 1 0-.5-5.1M17 14.2c1.8.6 2.9 2.2 3.1 4.7" />
         </svg>
       );
     case 'view':
@@ -844,6 +893,15 @@ export function buildRecipeShortageShoppingPayloads(card: Pick<RecipeCardViewMod
 
 export function getRecipeShoppingRequirement(item: Pick<RecipeIngredient, 'note'>): RecipeShoppingRequirement {
   return /可选|选用|装饰|替代|没有可不放/.test(item.note.trim()) ? 'optional' : 'required';
+}
+
+function stripRecipeIngredientRequirementNote(note: string) {
+  return note.trim().replace(OPTIONAL_INGREDIENT_NOTE_PATTERN, '').trim();
+}
+
+function applyRecipeIngredientRequirement(note: string, requirement: RecipeShoppingRequirement) {
+  const normalized = stripRecipeIngredientRequirementNote(note);
+  return requirement === 'optional' ? `可选${normalized ? `：${normalized}` : ''}` : normalized;
 }
 
 export function buildShoppingDraftsFromShortages(card: Pick<RecipeCardViewModel, 'recipe' | 'shortages'>): RecipeShoppingDraftItem[] {
@@ -1186,6 +1244,8 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
   });
   const [planDialogCard, setPlanDialogCard] = useState<RecipeCardViewModel | null>(null);
   const [isPlanDialogOpen, setIsPlanDialogOpen] = useState(false);
+  const [planRecipeSearch, setPlanRecipeSearch] = useState('');
+  const [isPlanRecipePickerOpen, setIsPlanRecipePickerOpen] = useState(false);
   const [cookCard, setCookCard] = useState<RecipeCardViewModel | null>(null);
   const [cookPreview, setCookPreview] = useState<CookRecipePreviewResponse | null>(null);
   const [cookPreviewError, setCookPreviewError] = useState<string | null>(null);
@@ -1202,6 +1262,9 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
   const [isShoppingIngredientPickerOpen, setIsShoppingIngredientPickerOpen] = useState(false);
   const [recipeNotice, setRecipeNotice] = useState<RecipeNotice | null>(null);
   const [recipeDraftAiForm, setRecipeDraftAiForm] = useState<RecipeDraftAiFormState>(() => ({ prompt: '', ingredientIds: [] }));
+  const [sceneTagDraft, setSceneTagDraft] = useState('');
+  const [visibleStepTips, setVisibleStepTips] = useState<Record<string, boolean>>({});
+  const [stepKeyPointSlots, setStepKeyPointSlots] = useState<Record<string, number>>({});
   const [isRecipeDraftGenerating, setIsRecipeDraftGenerating] = useState(false);
   const [recipeDraftError, setRecipeDraftError] = useState<string | null>(null);
   const [isSceneManagerOpen, setIsSceneManagerOpen] = useState(false);
@@ -1384,6 +1447,41 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
   const isCurrentPlanWeek = props.recipePlanWeekRange.start === currentWeekRange.start && props.recipePlanWeekRange.end === currentWeekRange.end;
   const planWeekLabel = isCurrentPlanWeek ? '本周菜单' : '当前周菜单';
   const selectedCard = selectedRecipeId ? cards.find((card) => card.recipe.id === selectedRecipeId) ?? null : null;
+  const selectedReadyCount = selectedCard?.ingredientAvailability.filter((item) => item.ready).length ?? 0;
+  const selectedIngredientCount = selectedCard?.ingredientAvailability.length ?? 0;
+  const selectedShortageCount = selectedCard?.shortages.length ?? 0;
+  const selectedRecipePlanItems = selectedCard ? props.recipePlanItems.filter((item) => item.recipe_id === selectedCard.recipe.id) : [];
+  const planRecipeQuery = planRecipeSearch.trim().toLowerCase();
+  const planRecipeOptions = useMemo(() => {
+    if (!planRecipeQuery) return cards;
+    return cards.filter((card) => card.searchText.includes(planRecipeQuery) || card.recipe.title.toLowerCase().includes(planRecipeQuery));
+  }, [cards, planRecipeQuery]);
+  const selectedRecentCookLog =
+    selectedCard?.recipe.cook_logs
+      .slice()
+      .sort((left, right) => right.cook_date.localeCompare(left.cook_date))[0] ?? null;
+  const selectedSceneTags = selectedCard
+    ? selectedCard.recipe.scene_tags.length > 0
+      ? selectedCard.recipe.scene_tags
+      : ['家庭日常']
+    : [];
+  const isSelectedFavorite = selectedCard ? homeViewModel.favoriteRecipeIds.has(selectedCard.recipe.id) : false;
+  const editorIngredientCount = ingredientRows.filter((item) => item.ingredient_id || item.ingredient_name.trim()).length;
+  const editorStepCount = form.steps.filter((step) => step.text.trim()).length;
+  const editorSceneTags = splitTags(form.sceneTags);
+  const editorCoverAsset = getImagePreview(form.images);
+  const editorCoverUrl = resolveAssetUrl(editorCoverAsset?.url);
+  const editorReferenceUrl = resolveAssetUrl(form.images.referenceAsset?.url);
+  const editorGeneratedUrl = resolveAssetUrl(form.images.generatedAsset?.url);
+  const editorCompletionItems = [
+    { label: '已填写基础信息', done: Boolean(form.title.trim() && Number(form.servings) > 0 && Number(form.prepMinutes) > 0) },
+    { label: '已添加原料', done: editorIngredientCount > 0 },
+    { label: '已添加步骤', done: editorStepCount > 0 },
+    { label: '已设置封面', done: Boolean(editorCoverAsset) },
+  ];
+  const editorCompletionPercent = Math.round(
+    (editorCompletionItems.filter((item) => item.done).length / editorCompletionItems.length) * 100
+  );
   const activeCookCard = cookCard ?? (view === 'cook' ? selectedCard : null);
   const cookSteps = activeCookCard?.recipe.steps.length
     ? activeCookCard.recipe.steps
@@ -1564,6 +1662,9 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
   function resetForm() {
     setForm(defaultRecipeForm());
     setIngredientRows(defaultIngredientRows());
+    setSceneTagDraft('');
+    setVisibleStepTips({});
+    setStepKeyPointSlots({});
   }
 
   function openCreate() {
@@ -1586,6 +1687,9 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
     setForm(next.form);
     setIngredientRows(next.ingredients);
     setRecipeImageState(IDLE_IMAGE_GENERATION_STATE);
+    setSceneTagDraft('');
+    setVisibleStepTips({});
+    setStepKeyPointSlots({});
     setView('edit');
   }
 
@@ -1785,6 +1889,59 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
     );
   }
 
+  function updateIngredientNote(id: string, value: string) {
+    setIngredientRows((current) =>
+      current.map((item) =>
+        item.id === id ? { ...item, note: applyRecipeIngredientRequirement(value, getRecipeShoppingRequirement(item)) } : item
+      )
+    );
+  }
+
+  function updateIngredientRequirement(id: string, requirement: RecipeShoppingRequirement) {
+    setIngredientRows((current) =>
+      current.map((item) => (item.id === id ? { ...item, note: applyRecipeIngredientRequirement(item.note, requirement) } : item))
+    );
+  }
+
+  function updateStepDraft(stepId: string, patch: Partial<RecipeStepDraft>) {
+    setForm((current) => ({
+      ...current,
+      steps: current.steps.map((item) => (item.id === stepId ? { ...item, ...patch } : item)),
+    }));
+  }
+
+  function getStepKeyPointValues(step: RecipeStepDraft) {
+    return step.keyPoints ? step.keyPoints.split('\n').slice(0, MAX_STEP_KEY_POINTS) : [];
+  }
+
+  function addStepTip(stepId: string) {
+    setVisibleStepTips((current) => ({ ...current, [stepId]: true }));
+  }
+
+  function getStepKeyPointRowCount(step: RecipeStepDraft) {
+    return Math.min(MAX_STEP_KEY_POINTS, Math.max(getStepKeyPointValues(step).length, stepKeyPointSlots[step.id] ?? 0));
+  }
+
+  function addStepKeyPoint(step: RecipeStepDraft) {
+    const nextCount = Math.min(MAX_STEP_KEY_POINTS, getStepKeyPointRowCount(step) + 1);
+    setStepKeyPointSlots((current) => ({ ...current, [step.id]: nextCount }));
+  }
+
+  function updateStepKeyPoint(step: RecipeStepDraft, index: number, value: string) {
+    const rowCount = Math.max(getStepKeyPointRowCount(step), index + 1);
+    const rows = Array.from({ length: Math.min(MAX_STEP_KEY_POINTS, rowCount) }, (_, rowIndex) => getStepKeyPointValues(step)[rowIndex] ?? '');
+    rows[index] = value;
+    updateStepDraft(step.id, { keyPoints: rows.join('\n') });
+    setStepKeyPointSlots((current) => ({ ...current, [step.id]: rows.length }));
+  }
+
+  function removeStepKeyPoint(step: RecipeStepDraft, index: number) {
+    const rowCount = getStepKeyPointRowCount(step);
+    const rows = Array.from({ length: rowCount }, (_, rowIndex) => getStepKeyPointValues(step)[rowIndex] ?? '').filter((_, rowIndex) => rowIndex !== index);
+    updateStepDraft(step.id, { keyPoints: rows.join('\n') });
+    setStepKeyPointSlots((current) => ({ ...current, [step.id]: rows.length }));
+  }
+
   function addIngredientRow() {
     setIngredientRows((current) => [
       ...current,
@@ -1794,6 +1951,16 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
 
   function removeIngredientRow(id: string) {
     setIngredientRows((current) => (current.length > 1 ? current.filter((item) => item.id !== id) : current));
+  }
+
+  function commitSceneTagDraft() {
+    const nextTags = splitTags(sceneTagDraft);
+    if (nextTags.length === 0) return;
+    setForm((current) => ({
+      ...current,
+      sceneTags: [...new Set([...splitTags(current.sceneTags), ...nextTags])].join('、'),
+    }));
+    setSceneTagDraft('');
   }
 
   function updateRecipeDraftIngredientSelection(ingredientId: string, checked: boolean) {
@@ -2002,6 +2169,8 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
 
   function openPlanDialog(card?: RecipeCardViewModel) {
     setPlanDialogCard(card ?? null);
+    setPlanRecipeSearch('');
+    setIsPlanRecipePickerOpen(false);
     setPlanForm({
       recipeId: card?.recipe.id ?? '',
       planDate: defaultPlanDateForSelectedWeek(),
@@ -2014,6 +2183,15 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
   function closePlanDialog() {
     setIsPlanDialogOpen(false);
     setPlanDialogCard(null);
+    setPlanRecipeSearch('');
+    setIsPlanRecipePickerOpen(false);
+  }
+
+  function selectPlanRecipe(card: RecipeCardViewModel) {
+    setPlanForm((current) => ({ ...current, recipeId: card.recipe.id }));
+    setPlanDialogCard(card);
+    setPlanRecipeSearch('');
+    setIsPlanRecipePickerOpen(false);
   }
 
   function buildRecipeScenePayload(scene: ManagedRecipeScene) {
@@ -2443,27 +2621,37 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
       )}
       {view === 'create' || view === 'edit' ? (
         <WorkspaceSubpageShell className="recipe-editor-subpage">
-          <WorkspaceSubpageHeader
-            eyebrow="菜谱"
-            title={isEditing ? '编辑菜谱' : '新增菜谱'}
-            description="把标题、用料、步骤和图片放在同一个录入工作台里。"
-            backLabel={isEditing ? '返回详情' : '返回菜谱'}
-            onBack={() => setView(isEditing ? 'detail' : 'library')}
-            meta={<Badge>{isEditing ? '编辑' : '新建'}</Badge>}
-            variant="compact"
-          />
-          <form className="page-columns page-columns-wide workspace-editor-layout recipe-editor-layout" onSubmit={submitRecipe}>
-            <div className="page-main-column workspace-editor-main">
-              <section className="form-panel-section recipe-form-section">
-                <div className="section-mini-title">基础信息</div>
-                <div className="form-grid nested-grid">
+          <div className="recipe-editor-topbar">
+            <button className="workspace-back-link recipe-detail-back-link" type="button" onClick={() => setView(isEditing ? 'detail' : 'library')}>
+              <RecipeUiIcon name="chevronLeft" />
+              {isEditing ? '返回详情' : '返回菜谱'}
+            </button>
+          </div>
+          <div className="recipe-editor-title-block">
+            <p className="eyebrow">菜谱</p>
+            <h2>{isEditing ? '编辑菜谱' : '新增菜谱'}</h2>
+            <p>把标题、用料、步骤和图片放在同一个录入工作台里。</p>
+          </div>
+
+          <form className="recipe-editor-workbench" onSubmit={submitRecipe}>
+            <main className="recipe-editor-main-column">
+              <section className="recipe-editor-card">
+                <div className="recipe-editor-card-head">
+                  <span className="recipe-editor-section-index">1</span>
+                  <h3>基础信息</h3>
+                </div>
+                <div className="recipe-editor-basic-grid">
                   <label>
                     <span>菜谱标题</span>
                     <input className="text-input" value={form.title} onChange={(event) => setForm({ ...form, title: event.target.value })} />
                   </label>
                   <label>
                     <span>份量</span>
-                    <input className="text-input" type="number" min="1" value={form.servings} onChange={(event) => setForm({ ...form, servings: event.target.value })} />
+                    <select className="text-input" value={form.servings} onChange={(event) => setForm({ ...form, servings: event.target.value })}>
+                      {[1, 2, 3, 4, 5, 6, 8].map((serving) => (
+                        <option key={serving} value={String(serving)}>{serving} 人份</option>
+                      ))}
+                    </select>
                   </label>
                   <label>
                     <span>准备时长（分钟）</span>
@@ -2477,21 +2665,64 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
                       <option value="hard">复杂</option>
                     </select>
                   </label>
+                  <div className="recipe-editor-tag-field">
+                    <span>适用场景标签</span>
+                    <div className="recipe-editor-tag-box">
+                      {editorSceneTags.map((tag) => (
+                        <button
+                          key={tag}
+                          type="button"
+                          onClick={() => setForm({ ...form, sceneTags: editorSceneTags.filter((item) => item !== tag).join('、') })}
+                        >
+                          {tag} ×
+                        </button>
+                      ))}
+                      <input
+                        value={sceneTagDraft}
+                        placeholder="+ 添加标签"
+                        onChange={(event) => setSceneTagDraft(event.target.value)}
+                        onBlur={commitSceneTagDraft}
+                        onKeyDown={(event) => {
+                          if (event.key === 'Enter' || event.key === ',' || event.key === '，' || event.key === '、') {
+                            event.preventDefault();
+                            commitSceneTagDraft();
+                          }
+                        }}
+                      />
+                    </div>
+                  </div>
+                  <label className="recipe-editor-tips-field">
+                    <span>技巧 / 说明（选填）</span>
+                    <textarea className="text-input" rows={3} value={form.tips} onChange={(event) => setForm({ ...form, tips: event.target.value })} />
+                    <small>{form.tips.length}/200</small>
+                  </label>
                 </div>
               </section>
 
-              <section className="form-panel-section recipe-form-section">
-                <div className="inline-between section-mini-title">
-                  <span>原料清单</span>
+              <section className="recipe-editor-card">
+                <div className="recipe-editor-card-head">
+                  <span className="recipe-editor-section-index">2</span>
+                  <h3>原料清单</h3>
                   <ActionButton tone="secondary" size="compact" type="button" onClick={addIngredientRow}>
+                    <RecipeUiIcon name="plus" />
                     添加原料
                   </ActionButton>
                 </div>
-                <div className="recipe-ingredient-editor-list">
+                <div className="recipe-editor-ingredient-table">
+                  <div className="recipe-editor-ingredient-head">
+                    <span />
+                    <span>原料</span>
+                    <span>数量</span>
+                    <span>单位</span>
+                    <span>类型</span>
+                    <span>备注（选填）</span>
+                    <span>操作</span>
+                  </div>
                   {ingredientRows.map((item, index) => (
-                    <div key={item.id} className="recipe-ingredient-editor-row">
+                    <div key={item.id} className="recipe-editor-ingredient-row">
+                      <span className="recipe-editor-drag-handle">::</span>
                       <select className="text-input" value={item.ingredient_id ?? ''} onChange={(event) => updateIngredientRow(item.id, 'ingredient_id', event.target.value)}>
-                        <option value="">选择食材 {index + 1}</option>
+                        <option value="">{item.ingredient_name || `选择原料 ${index + 1}`}</option>
                         {props.ingredients.map((ingredient) => (
                           <option key={ingredient.id} value={ingredient.id}>
                             {ingredient.name}
@@ -2499,47 +2730,67 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
                         ))}
                       </select>
                       <input className="text-input" type="number" min="0.1" step="0.1" value={item.quantity} onChange={(event) => updateIngredientRow(item.id, 'quantity', event.target.value)} />
-                      <input className="text-input" value={item.unit} onChange={(event) => updateIngredientRow(item.id, 'unit', event.target.value)} />
-                      <input className="text-input" value={item.note} placeholder="处理备注" onChange={(event) => updateIngredientRow(item.id, 'note', event.target.value)} />
-                      <ActionButton tone="tertiary" size="compact" type="button" onClick={() => removeIngredientRow(item.id)}>
-                        删除
-                      </ActionButton>
+                      <select className="text-input" value={item.unit} onChange={(event) => updateIngredientRow(item.id, 'unit', event.target.value)}>
+                        {[...new Set([item.unit, ...SHOPPING_UNIT_OPTIONS])].filter(Boolean).map((unit) => (
+                          <option key={unit} value={unit}>{unit}</option>
+                        ))}
+                      </select>
+                      <select
+                        className="text-input"
+                        value={getRecipeShoppingRequirement(item)}
+                        onChange={(event) => updateIngredientRequirement(item.id, event.target.value as RecipeShoppingRequirement)}
+                      >
+                        <option value="required">必须</option>
+                        <option value="optional">可选</option>
+                      </select>
+                      <input
+                        className="text-input"
+                        value={stripRecipeIngredientRequirementNote(item.note)}
+                        placeholder="处理备注"
+                        onChange={(event) => updateIngredientNote(item.id, event.target.value)}
+                      />
+                      <button className="recipe-editor-icon-button" type="button" onClick={() => removeIngredientRow(item.id)} aria-label={`删除原料 ${index + 1}`}>
+                        <RecipeUiIcon name="minus" />
+                      </button>
                     </div>
                   ))}
                 </div>
               </section>
 
-              <section className="form-panel-section recipe-form-section">
-                <div className="inline-between section-mini-title">
-                  <span>步骤</span>
+              <section className="recipe-editor-card">
+                <div className="recipe-editor-card-head">
+                  <span className="recipe-editor-section-index">3</span>
+                  <h3>步骤</h3>
                   <ActionButton tone="secondary" size="compact" type="button" onClick={() => setForm({ ...form, steps: [...form.steps, createEmptyRecipeStepDraft()] })}>
+                    <RecipeUiIcon name="plus" />
                     添加步骤
                   </ActionButton>
                 </div>
-                <div className="recipe-step-editor-list">
-                  {form.steps.map((step, index) => (
-                    <div key={step.id} className="recipe-step-editor-row">
-                      <span>{index + 1}</span>
-                      <div className="recipe-step-editor-fields">
-                        <div className="recipe-step-editor-inline-grid">
+                <div className="recipe-editor-step-list">
+                  {form.steps.map((step, index) => {
+                    const showTip = Boolean(step.tip.trim()) || Boolean(visibleStepTips[step.id]);
+                    const keyPointRowCount = getStepKeyPointRowCount(step);
+                    const keyPointRows = Array.from({ length: keyPointRowCount }, (_, rowIndex) => getStepKeyPointValues(step)[rowIndex] ?? '');
+                    return (
+                      <div key={step.id} className="recipe-editor-step-card">
+                        <span className="recipe-editor-step-index">{index + 1}</span>
+                        <div className="recipe-editor-step-fields">
                           <label>
                             <span>图标</span>
-                            <select
-                              className="text-input"
-                              value={step.icon}
-                              onChange={(event) =>
-                                setForm({
-                                  ...form,
-                                  steps: form.steps.map((item) => (item.id === step.id ? { ...item, icon: event.target.value } : item)),
-                                })
-                              }
-                            >
-                              {RECIPE_STEP_ICON_OPTIONS.map((option) => (
-                                <option key={option.value} value={option.value}>
-                                  {option.label}
-                                </option>
-                              ))}
-                            </select>
+                            <span className="recipe-editor-icon-select">
+                              <RecipeUiIcon name={getRecipeStepIconName(step.icon)} />
+                              <select
+                                className="text-input"
+                                value={step.icon}
+                                onChange={(event) => updateStepDraft(step.id, { icon: event.target.value })}
+                              >
+                                {RECIPE_STEP_ICON_OPTIONS.map((option) => (
+                                  <option key={option.value} value={option.value}>
+                                    {option.label}
+                                  </option>
+                                ))}
+                              </select>
+                            </span>
                           </label>
                           <label>
                             <span>预计用时（分钟）</span>
@@ -2549,113 +2800,226 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
                               min="0"
                               step="1"
                               value={step.estimatedMinutes}
-                              placeholder="例如：6"
-                              onChange={(event) =>
-                                setForm({
-                                  ...form,
-                                  steps: form.steps.map((item) => (item.id === step.id ? { ...item, estimatedMinutes: event.target.value } : item)),
-                                })
-                              }
+                              onChange={(event) => updateStepDraft(step.id, { estimatedMinutes: event.target.value })}
                             />
                           </label>
+                          <label>
+                            <span>步骤名称</span>
+                            <input
+                              className="text-input"
+                              value={step.title}
+                              placeholder="例如：冷蒸三文鱼"
+                              onChange={(event) => updateStepDraft(step.id, { title: event.target.value })}
+                            />
+                          </label>
+                          <label>
+                            <span>一句话说明</span>
+                            <input
+                              className="text-input"
+                              value={step.summary}
+                              placeholder="例如：蒸出嫩滑口感"
+                              onChange={(event) => updateStepDraft(step.id, { summary: event.target.value })}
+                            />
+                          </label>
+
+                          <section className="recipe-editor-step-detail recipe-editor-step-wide">
+                            <span className="recipe-editor-step-detail-icon"><RecipeUiIcon name="clipboard" /></span>
+                            <label>
+                              <span>详细操作</span>
+                              <textarea
+                                className="text-input"
+                                rows={3}
+                                value={step.text}
+                                placeholder="写清楚处理、火候和时间。"
+                                onChange={(event) => updateStepDraft(step.id, { text: event.target.value })}
+                              />
+                            </label>
+                          </section>
+
+                          <section className="recipe-editor-step-detail recipe-editor-step-wide">
+                            <span className="recipe-editor-step-detail-icon"><RecipeUiIcon name="sparkle" /></span>
+                            <div className="recipe-editor-step-extra-head">
+                              <div>
+                                <strong>烹饪小贴士（选填）</strong>
+                                <small>仅可添加 1 条</small>
+                              </div>
+                              {!showTip && (
+                                <button type="button" onClick={() => addStepTip(step.id)}>
+                                  <RecipeUiIcon name="plus" />
+                                  添加小贴士
+                                </button>
+                              )}
+                            </div>
+                            {showTip && (
+                              <textarea
+                                className="text-input"
+                                rows={2}
+                                value={step.tip}
+                                placeholder="例如：出锅前补一小勺热油，香气更明显。"
+                                onChange={(event) => updateStepDraft(step.id, { tip: event.target.value })}
+                              />
+                            )}
+                          </section>
+
+                          <section className="recipe-editor-step-detail recipe-editor-step-wide">
+                            <span className="recipe-editor-step-detail-icon"><RecipeUiIcon name="star" /></span>
+                            <div className="recipe-editor-step-extra-head">
+                              <div>
+                                <strong>关键要点（选填）</strong>
+                                <small>最多 3 条，每条一句</small>
+                              </div>
+                              {keyPointRowCount < MAX_STEP_KEY_POINTS && (
+                                <button type="button" onClick={() => addStepKeyPoint(step)}>
+                                  <RecipeUiIcon name="plus" />
+                                  添加要点
+                                </button>
+                              )}
+                            </div>
+                            <div className="recipe-editor-keypoint-list">
+                              {keyPointRows.map((point, pointIndex) => (
+                                <div key={`${step.id}-keypoint-${pointIndex}`} className="recipe-editor-keypoint-row">
+                                  <span className="recipe-editor-drag-handle">::</span>
+                                  <input
+                                    className="text-input"
+                                    value={point}
+                                    placeholder={`要点 ${pointIndex + 1}`}
+                                    onChange={(event) => updateStepKeyPoint(step, pointIndex, event.target.value)}
+                                  />
+                                  <button type="button" onClick={() => removeStepKeyPoint(step, pointIndex)} aria-label={`删除要点 ${pointIndex + 1}`}>
+                                    <RecipeUiIcon name="minus" />
+                                  </button>
+                                </div>
+                              ))}
+                              {keyPointRowCount === 0 && (
+                                <button className="recipe-editor-keypoint-placeholder" type="button" onClick={() => addStepKeyPoint(step)}>
+                                  还可添加 3 条（最多 3 条）
+                                </button>
+                              )}
+                              {keyPointRowCount > 0 && keyPointRowCount < MAX_STEP_KEY_POINTS && (
+                                <button className="recipe-editor-keypoint-placeholder" type="button" onClick={() => addStepKeyPoint(step)}>
+                                  还可添加 {MAX_STEP_KEY_POINTS - keyPointRowCount} 条（最多 3 条）
+                                </button>
+                              )}
+                            </div>
+                          </section>
                         </div>
-                        <input
-                          className="text-input"
-                          value={step.title}
-                          placeholder="步骤名称，例如：炒鸡蛋"
-                          onChange={(event) =>
-                            setForm({
-                              ...form,
-                              steps: form.steps.map((item) => (item.id === step.id ? { ...item, title: event.target.value } : item)),
-                            })
-                          }
-                        />
-                        <input
-                          className="text-input"
-                          value={step.summary}
-                          placeholder="一句话短说明，例如：先把蛋液炒到七分熟"
-                          onChange={(event) =>
-                            setForm({
-                              ...form,
-                              steps: form.steps.map((item) => (item.id === step.id ? { ...item, summary: event.target.value } : item)),
-                            })
-                          }
-                        />
-                        <textarea
-                          className="text-input"
-                          rows={2}
-                          value={step.text}
-                          placeholder="具体做法"
-                          onChange={(event) =>
-                            setForm({
-                              ...form,
-                              steps: form.steps.map((item) => (item.id === step.id ? { ...item, text: event.target.value } : item)),
-                            })
-                          }
-                        />
-                        <textarea
-                          className="text-input"
-                          rows={2}
-                          value={step.tip}
-                          placeholder="烹饪小贴士"
-                          onChange={(event) =>
-                            setForm({
-                              ...form,
-                              steps: form.steps.map((item) => (item.id === step.id ? { ...item, tip: event.target.value } : item)),
-                            })
-                          }
-                        />
-                        <textarea
-                          className="text-input"
-                          rows={3}
-                          value={step.keyPoints}
-                          placeholder="关键要点，每行一条"
-                          onChange={(event) =>
-                            setForm({
-                              ...form,
-                              steps: form.steps.map((item) => (item.id === step.id ? { ...item, keyPoints: event.target.value } : item)),
-                            })
-                          }
-                        />
+                        <button
+                          className="recipe-editor-icon-button"
+                          type="button"
+                          onClick={() => setForm({ ...form, steps: form.steps.length > 1 ? form.steps.filter((item) => item.id !== step.id) : form.steps })}
+                          aria-label={`删除步骤 ${index + 1}`}
+                        >
+                          <RecipeUiIcon name="minus" />
+                        </button>
                       </div>
-                      <ActionButton
-                        tone="tertiary"
-                        size="compact"
-                        type="button"
-                        onClick={() => setForm({ ...form, steps: form.steps.length > 1 ? form.steps.filter((item) => item.id !== step.id) : form.steps })}
-                      >
-                        删除
-                      </ActionButton>
-                    </div>
-                  ))}
-                </div>
-                <div className="form-grid nested-grid">
-                  <label className="span-two">
-                    <span>技巧 / 说明</span>
-                    <textarea className="text-input" rows={3} value={form.tips} onChange={(event) => setForm({ ...form, tips: event.target.value })} />
-                  </label>
-                  <label className="span-two">
-                    <span>适用场景标签</span>
-                    <input className="text-input" value={form.sceneTags} onChange={(event) => setForm({ ...form, sceneTags: event.target.value })} />
-                  </label>
+                    );
+                  })}
                 </div>
               </section>
 
-              <ImageComposer
-                title="菜谱封面"
-                value={form.images}
-                previewLabel={form.title || '菜谱封面'}
-                onUpload={(files) => void handleRecipeImageUpload(files)}
-                onGenerate={(mode) => void handleRecipeImageGenerate(mode)}
-                onReset={resetRecipeImageInput}
-                isGenerating={recipeImageState.isGenerating}
-                errorMessage={recipeImageState.errorMessage}
-                variant="workspace-inline"
-              />
-            </div>
-            <aside className="page-side-column workspace-editor-side">
+              <section className="recipe-editor-card recipe-editor-cover-card">
+                <div className="recipe-editor-card-head">
+                  <span className="recipe-editor-section-index">4</span>
+                  <h3>菜谱封面</h3>
+                </div>
+                <div className="recipe-editor-cover-grid">
+                  <div className="recipe-editor-cover-preview">
+                    {editorCoverUrl ? (
+                      <img src={editorCoverUrl} alt={form.title || '菜谱封面'} />
+                    ) : (
+                      <RecipeDishIllustration title={form.title || '菜谱封面'} tone={getRecipeVisualTone(selectedRecipeId ?? (form.title || 'draft'))} />
+                    )}
+                  </div>
+                  <div className="recipe-editor-cover-workspace">
+                    <div className="recipe-editor-cover-toolbar">
+                      <div>
+                        <h4>菜谱封面</h4>
+                        <p>可直接基于菜谱信息生成，也可以上传参考图后生成统一风格主图。</p>
+                      </div>
+                      <div className="recipe-editor-cover-actions">
+                        <button
+                          className="ghost-button"
+                          type="button"
+                          onClick={() => void handleRecipeImageGenerate('text')}
+                          disabled={recipeImageState.isGenerating}
+                        >
+                          {recipeImageState.isGenerating && !form.images.referenceAsset ? '生成中...' : '基于信息生成主图'}
+                        </button>
+                        <label className={recipeImageState.isGenerating ? 'ghost-button disabled' : 'ghost-button'}>
+                          <input
+                            type="file"
+                            accept="image/*,.svg"
+                            capture="environment"
+                            disabled={recipeImageState.isGenerating}
+                            onChange={(event) => {
+                              void handleRecipeImageUpload(event.target.files);
+                              event.currentTarget.value = '';
+                            }}
+                          />
+                          上传图片生成
+                        </label>
+                        {form.images.referenceAsset && (
+                          <button
+                            className="ghost-button"
+                            type="button"
+                            onClick={() => void handleRecipeImageGenerate('reference')}
+                            disabled={recipeImageState.isGenerating}
+                          >
+                            {recipeImageState.isGenerating ? '生成中...' : '基于参考图生成'}
+                          </button>
+                        )}
+                        <button className="ghost-button" type="button" onClick={resetRecipeImageInput} disabled={recipeImageState.isGenerating}>
+                          清空图片
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className={editorReferenceUrl ? 'recipe-editor-cover-result-grid has-reference' : 'recipe-editor-cover-result-grid'}>
+                      {editorReferenceUrl && (
+                        <label className="recipe-editor-cover-result recipe-editor-cover-upload-card">
+                          <input
+                            type="file"
+                            accept="image/*,.svg"
+                            capture="environment"
+                            disabled={recipeImageState.isGenerating}
+                            onChange={(event) => {
+                              void handleRecipeImageUpload(event.target.files);
+                              event.currentTarget.value = '';
+                            }}
+                          />
+                          <div className="recipe-editor-cover-result-head">
+                            <span>参考图</span>
+                            <small>{recipeImageState.isGenerating ? '正在生成' : '点按更换'}</small>
+                          </div>
+                          <img src={editorReferenceUrl} alt={`${form.title || '菜谱'}参考图`} />
+                        </label>
+                      )}
+                      <article className="recipe-editor-cover-result">
+                        <div className="recipe-editor-cover-result-head">
+                          <span>AI 主图</span>
+                          <small>{form.images.generatedAsset ? '已生成' : recipeImageState.isGenerating ? '生成中' : '未生成'}</small>
+                        </div>
+                        {editorGeneratedUrl ? (
+                          <img src={editorGeneratedUrl} alt={form.title || '菜谱封面'} />
+                        ) : (
+                          <div className="recipe-editor-cover-empty">
+                            {recipeImageState.isGenerating ? <span className="image-composer-loading-surface" aria-hidden="true" /> : <RecipeUiIcon name="image" />}
+                            <strong>{recipeImageState.isGenerating ? '正在生成主图' : '还没有 AI 主图'}</strong>
+                            <p>{form.images.referenceAsset ? '参考图已保留，可以重试生成主图。' : '先用文字信息生成，或上传参考图生成。'}</p>
+                          </div>
+                        )}
+                      </article>
+                    </div>
+                    {recipeImageState.errorMessage && <span className="image-composer-error">{recipeImageState.errorMessage}</span>}
+                    <p className="recipe-editor-cover-hint">推荐尺寸：16:9，JPG/PNG，5 MB 以内。</p>
+                  </div>
+                </div>
+              </section>
+            </main>
+
+            <aside className="recipe-editor-side-column">
               {!isEditing && (
-                <section className="form-panel-section workspace-action-rail recipe-ai-draft-panel">
+                <section className="recipe-editor-side-card recipe-ai-draft-panel">
                   <div className="workspace-action-rail-copy">
                     <p className="eyebrow">AI 草稿</p>
                     <h3>用现有食材生成菜谱</h3>
@@ -2693,17 +3057,26 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
                   </ActionButton>
                 </section>
               )}
-              <section className="form-panel-section workspace-action-rail sticky-panel">
-                <div className="workspace-action-rail-copy">
-                  <p className="eyebrow">当前菜谱</p>
-                  <h3>{form.title.trim() || '未命名菜谱'}</h3>
-                  <p className="subtle">保存后会进入菜谱工作台，并参与库存匹配。</p>
+              <section className="recipe-editor-side-card recipe-editor-summary-card">
+                <div className="recipe-editor-summary-head">
+                  <div>
+                    <h3>实时摘要</h3>
+                    <p className="subtle">{isEditing ? '根据当前表单内容预览' : '保存后进入菜谱工作台'}</p>
+                  </div>
+                  <span><RecipeUiIcon name="check" /> 表单实时更新</span>
                 </div>
-                <div className="workspace-summary-list">
-                  <div className="workspace-summary-row"><span>份量</span><strong>{form.servings || '2'} 人份</strong></div>
-                  <div className="workspace-summary-row"><span>原料</span><strong>{ingredientRows.filter((item) => item.ingredient_id || item.ingredient_name).length} 项</strong></div>
-                  <div className="workspace-summary-row"><span>步骤</span><strong>{form.steps.filter((item) => item.text.trim()).length} 步</strong></div>
-                  <div className="workspace-summary-row"><span>图片</span><strong>{form.images.generatedAsset ? '已有封面' : '暂未配图'}</strong></div>
+                <div className="recipe-editor-live-preview">
+                  {editorCoverUrl ? <img src={editorCoverUrl} alt={form.title || '菜谱封面'} /> : <RecipeDishIllustration title={form.title || '菜谱封面'} tone={getRecipeVisualTone(selectedRecipeId ?? (form.title || 'draft'))} />}
+                  <div>
+                    <strong>{form.title.trim() || '未命名菜谱'}</strong>
+                    <p>{form.tips.trim() || '填写技巧说明后，会在这里看到摘要。'}</p>
+                  </div>
+                </div>
+                <div className="recipe-editor-summary-list">
+                  <div><span><RecipeUiIcon name="users" /></span><small>份量</small><strong>{form.servings || '2'} 人份</strong></div>
+                  <div><span><RecipeUiIcon name="basket" /></span><small>原料</small><strong>{editorIngredientCount} 项</strong></div>
+                  <div><span><RecipeUiIcon name="clipboard" /></span><small>步骤</small><strong>{editorStepCount} 步</strong></div>
+                  <div><span><RecipeUiIcon name="image" /></span><small>图片</small><strong>{editorCoverAsset ? '已有封面' : '暂未配图'}</strong></div>
                 </div>
                 {!isEditing && (
                   <label className="checkbox-row checkbox-card">
@@ -2711,13 +3084,36 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
                     <span>保存后自动创建一份“自做菜”食物卡片</span>
                   </label>
                 )}
-                <div className="workspace-rail-actions">
+                <div className="recipe-editor-submit-stack">
                   <ActionButton tone="primary" type="submit" disabled={submitDisabled}>
                     {props.isCreatingRecipe || props.isUpdatingRecipe ? '保存中...' : recipeImageState.isGenerating ? '生成封面中...' : '保存菜谱'}
                   </ActionButton>
+                  {isEditing && (
+                    <ActionButton tone="secondary" type="button" onClick={() => setView('detail')}>
+                      预览菜谱
+                    </ActionButton>
+                  )}
                   <ActionButton tone="secondary" type="button" onClick={() => setView(isEditing ? 'detail' : 'library')}>
                     取消
                   </ActionButton>
+                </div>
+              </section>
+
+              <section className="recipe-editor-side-card recipe-editor-completion-card">
+                <div className="recipe-editor-completion-head">
+                  <h3>完成度</h3>
+                  <strong>{editorCompletionPercent}%</strong>
+                </div>
+                <div className="recipe-editor-progress-track">
+                  <span style={{ width: `${editorCompletionPercent}%` }} />
+                </div>
+                <div className="recipe-editor-completion-list">
+                  {editorCompletionItems.map((item) => (
+                    <span key={item.label} className={item.done ? 'done' : ''}>
+                      <RecipeUiIcon name="check" />
+                      {item.label}
+                    </span>
+                  ))}
                 </div>
               </section>
             </aside>
@@ -3011,89 +3407,257 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
         </main>
       ) : view === 'detail' && selectedCard ? (
         <WorkspaceSubpageShell className="recipe-detail-subpage">
-          <WorkspaceSubpageHeader
-            eyebrow="菜谱资料"
-            title={selectedCard.recipe.title}
-            description={`${selectedCard.recipe.prep_minutes} 分钟 · ${selectedCard.recipe.servings} 人份 · ${selectedCard.availabilityLabel}`}
-            backLabel="返回菜谱"
-            onBack={() => setView('library')}
-            meta={<Badge className={`recipe-availability-badge tone-${selectedCard.availability}`}>{selectedCard.availabilityLabel}</Badge>}
-            actions={
-              <div className="recipe-detail-actions">
-                <ActionButton tone="primary" type="button" onClick={() => openCook(selectedCard)}>开始做</ActionButton>
-                <ActionButton tone="secondary" type="button" onClick={() => openPlanDialog(selectedCard)}>加菜</ActionButton>
-                <ActionButton tone="secondary" type="button" onClick={() => void toggleRecipeFavorite(selectedCard)}>
-                  {homeViewModel.favoriteRecipeIds.has(selectedCard.recipe.id) ? '取消收藏' : '收藏'}
-                </ActionButton>
-                <ActionButton tone="secondary" type="button" onClick={() => openShoppingDialog(selectedCard)} disabled={props.isCreatingShopping}>缺料采购</ActionButton>
-                <ActionButton tone="secondary" type="button" onClick={() => openEdit(selectedCard)}>编辑</ActionButton>
-                <ActionButton tone="tertiary" type="button" onClick={() => void deleteSelectedRecipe()} disabled={props.isDeletingRecipe}>删除</ActionButton>
+          <div className="recipe-detail-topbar">
+            <button className="workspace-back-link recipe-detail-back-link" type="button" onClick={() => setView('library')}>
+              <RecipeUiIcon name="chevronLeft" />
+              返回菜谱
+            </button>
+            <Badge className={`recipe-availability-badge tone-${selectedCard.availability}`}>
+              {selectedCard.availabilityLabel}
+            </Badge>
+          </div>
+
+          <section className="recipe-detail-hero-panel">
+            <div className="recipe-detail-title-block">
+              <p className="eyebrow">菜谱资料</p>
+              <h2>{selectedCard.recipe.title}</h2>
+              <p className="recipe-detail-meta-line">
+                {selectedCard.recipe.prep_minutes} 分钟 · {selectedCard.recipe.servings} 人份 · {selectedCard.availabilityLabel}
+              </p>
+            </div>
+
+            <div className="recipe-detail-hero-grid">
+              <RecipeCover card={selectedCard} className="recipe-detail-cover" />
+              <div className="recipe-detail-hero-copy">
+                <div className="recipe-detail-tags">
+                  {selectedSceneTags.slice(0, 4).map((tag) => (
+                    <span key={tag} className="chip recipe-chip">{tag}</span>
+                  ))}
+                </div>
+                <p>{selectedCard.recipe.tips || '这份菜谱还没有补充烹饪提示，可以在编辑里记录口味、火候和替换建议。'}</p>
+                <div className="recipe-detail-metric-row">
+                  <span>
+                    <RecipeUiIcon name="clock" />
+                    <strong>{selectedCard.recipe.prep_minutes}</strong>
+                    分钟
+                  </span>
+                  <span>
+                    <RecipeUiIcon name="users" />
+                    <strong>{selectedCard.recipe.servings}</strong>
+                    人份
+                  </span>
+                  <span>
+                    <RecipeUiIcon name="signal" />
+                    <strong>{DIFFICULTY_LABELS[selectedCard.recipe.difficulty]}</strong>
+                    难度
+                  </span>
+                  <span>
+                    <RecipeUiIcon name="reset" />
+                    <strong>{selectedCard.mealUsageCount}</strong>
+                    次复做
+                  </span>
+                </div>
+                <div className="recipe-detail-actions">
+                  <ActionButton tone="primary" type="button" onClick={() => openCook(selectedCard)}>
+                    <RecipeUiIcon name="play" />
+                    开始做
+                  </ActionButton>
+                  <ActionButton tone="secondary" type="button" onClick={() => openPlanDialog(selectedCard)}>
+                    <RecipeUiIcon name="calendar" />
+                    加入计划
+                  </ActionButton>
+                  <ActionButton tone="secondary" type="button" onClick={() => openShoppingDialog(selectedCard)} disabled={props.isCreatingShopping}>
+                    <RecipeUiIcon name="basket" />
+                    加入采购
+                  </ActionButton>
+                  <ActionButton tone="secondary" type="button" onClick={() => void toggleRecipeFavorite(selectedCard)} disabled={props.isUpdatingFavorite}>
+                    <RecipeUiIcon name="star" />
+                    {isSelectedFavorite ? '已收藏' : '收藏'}
+                  </ActionButton>
+                  <ActionButton tone="secondary" type="button" onClick={() => openEdit(selectedCard)}>
+                    <RecipeUiIcon name="edit" />
+                    编辑
+                  </ActionButton>
+                </div>
               </div>
-            }
-            variant="compact"
-          />
-          <section className="recipe-detail-masthead">
-            <RecipeCover card={selectedCard} className="recipe-detail-cover" />
-            <div className="recipe-detail-masthead-copy">
-              <div className="recipe-tag-row">
-                {(selectedCard.recipe.scene_tags.length > 0 ? selectedCard.recipe.scene_tags : ['家庭日常']).map((tag) => <span key={tag} className="chip recipe-chip">{tag}</span>)}
-              </div>
-              <h3>{selectedCard.recipe.title}</h3>
-              <p>{selectedCard.recipe.tips || '还没有补充技巧。'}</p>
-              <div className="recipe-detail-metric-row">
-                <span><strong>{selectedCard.recipe.prep_minutes}</strong>分钟</span>
-                <span><strong>{selectedCard.recipe.servings}</strong>人份</span>
-                <span><strong>{DIFFICULTY_LABELS[selectedCard.recipe.difficulty]}</strong>难度</span>
-                <span><strong>{selectedCard.mealUsageCount}</strong>次复做</span>
-              </div>
-              <p className="subtle">最近更新：{formatDateTime(selectedCard.recipe.updated_at)}</p>
             </div>
           </section>
-          <div className="recipe-detail-grid">
-            <section className="recipe-detail-section">
-              <SectionHeading title="用料库存" description="按当前库存判断是否能直接开始做" />
-              <div className="recipe-availability-list">
-                {selectedCard.ingredientAvailability.map((item) => (
-                  <article key={item.item.id} className={item.ready ? 'recipe-availability-row ready' : 'recipe-availability-row missing'}>
-                    <div>
-                      <h3>{item.item.ingredient_name}</h3>
-                      <p>需要 {item.item.quantity}{item.item.unit}{item.item.note ? ` · ${item.item.note}` : ''}</p>
+
+          <div className="recipe-detail-content-grid">
+            <main className="recipe-detail-main-column">
+              <section className="recipe-detail-section recipe-detail-ingredients-section">
+                <div className="recipe-detail-section-head">
+                  <span><RecipeUiIcon name="basket" /></span>
+                  <div>
+                    <h3>用料与库存</h3>
+                    <p>根据当前库存判断，缺 {selectedShortageCount} 项</p>
+                  </div>
+                </div>
+                {selectedCard.ingredientAvailability.length > 0 ? (
+                  <div className="recipe-detail-ingredient-table">
+                    <div className="recipe-detail-ingredient-head">
+                      <span>食材与处理</span>
+                      <span>需要量</span>
+                      <span>备注</span>
+                      <span>库存状态</span>
                     </div>
-                    <Badge>{item.ready ? '已备齐' : `缺 ${item.missingQuantity}${item.unit}`}</Badge>
-                  </article>
-                ))}
-              </div>
-            </section>
-            <section className="recipe-detail-section">
-              <SectionHeading title="烹饪步骤" description="逐步完成这份菜谱" />
-              <ol className="recipe-step-list">
-                {selectedCard.recipe.steps.length > 0 ? selectedCard.recipe.steps.map((step, index) => (
-                  <li key={step.id}>
-                    <strong>{getRecipeStepTitle(step, index)}</strong>
-                    <span>{step.text}</span>
-                  </li>
-                )) : <li>还没有步骤。</li>}
-              </ol>
-            </section>
-            <section className="recipe-detail-section">
-              <SectionHeading title="复做记录" description="最近几次实际做菜时的调整和反馈" />
-              <div className="recipe-cook-log-list">
-                {selectedCard.recipe.cook_logs.length > 0 ? (
-                  selectedCard.recipe.cook_logs.map((log) => (
-                    <article key={log.id} className="recipe-cook-log-row">
-                      <div>
-                        <h3>{formatDate(log.cook_date)} · {MEAL_TYPE_LABELS[log.meal_type]}</h3>
-                        <p>{log.adjustments || log.result_note || '这次没有额外记录。'}</p>
-                        {log.result_note && log.adjustments && <small>{log.result_note}</small>}
-                      </div>
-                      <Badge>{log.rating ? `${log.rating}/5` : `${log.servings} 人份`}</Badge>
-                    </article>
-                  ))
+                    {selectedCard.ingredientAvailability.map((item) => (
+                      <article key={item.item.id} className="recipe-detail-ingredient-row">
+                        <div className="recipe-detail-ingredient-name">
+                          <img src={resolveIngredientImageUrl(item.ingredient, item.item.ingredient_name)} alt={item.item.ingredient_name} />
+                          <strong>{item.item.ingredient_name}</strong>
+                        </div>
+                        <span>{item.item.quantity}{item.item.unit}</span>
+                        <span>{item.item.note || '搭配主食'}</span>
+                        <Badge className={item.ready ? 'recipe-stock-badge ready' : 'recipe-stock-badge missing'}>
+                          {item.ready ? '已备齐' : `缺 ${item.missingQuantity}${item.unit}`}
+                        </Badge>
+                      </article>
+                    ))}
+                  </div>
                 ) : (
-                  <p className="subtle">做完一次后，这里会留下本次调整和满意度。</p>
+                  <p className="subtle">还没有录入用料。</p>
                 )}
-              </div>
-            </section>
+              </section>
+
+              <section className="recipe-detail-section">
+                <div className="recipe-detail-section-head">
+                  <span><RecipeUiIcon name="clipboard" /></span>
+                  <div>
+                    <h3>做法步骤</h3>
+                    <p>按顺序完成关键步骤</p>
+                  </div>
+                </div>
+                <ol className="recipe-detail-step-timeline">
+                  {selectedCard.recipe.steps.length > 0 ? selectedCard.recipe.steps.map((step, index) => (
+                    <li key={step.id}>
+                      <span className="recipe-detail-step-index">{index + 1}</span>
+                      <div>
+                        <strong>{getRecipeStepTitle(step, index)}</strong>
+                        <p>{getRecipeStepSummary(step)}</p>
+                        {step.tip ? <small>{step.tip}</small> : null}
+                      </div>
+                      {step.estimated_minutes ? <Badge>约 {step.estimated_minutes} 分钟</Badge> : null}
+                    </li>
+                  )) : (
+                    <li>
+                      <span className="recipe-detail-step-index">1</span>
+                      <div>
+                        <strong>还没有步骤</strong>
+                        <p>可以在编辑里补充烹饪流程。</p>
+                      </div>
+                    </li>
+                  )}
+                </ol>
+              </section>
+
+              <section className="recipe-detail-section">
+                <div className="recipe-detail-section-head">
+                  <span><RecipeUiIcon name="sparkle" /></span>
+                  <div>
+                    <h3>烹饪提示与复做记录</h3>
+                    <p>把口味调整和家人反馈留在这里</p>
+                  </div>
+                </div>
+                <div className="recipe-detail-note-grid">
+                  <article>
+                    <h4>烹饪提示</h4>
+                    <p>{selectedCard.recipe.tips || '暂无额外提示。'}</p>
+                  </article>
+                  <article>
+                    <h4>最近复做反馈</h4>
+                    {selectedRecentCookLog ? (
+                      <>
+                        <p>
+                          {formatDate(selectedRecentCookLog.cook_date)} · {selectedRecentCookLog.adjustments || selectedRecentCookLog.result_note || '这次没有额外记录。'}
+                        </p>
+                        <div className="recipe-detail-note-footer">
+                          <span>{MEAL_TYPE_LABELS[selectedRecentCookLog.meal_type]}</span>
+                          <Badge>{selectedRecentCookLog.rating ? `${selectedRecentCookLog.rating}/5` : `${selectedRecentCookLog.servings} 人份`}</Badge>
+                        </div>
+                      </>
+                    ) : (
+                      <p>做完一次后，这里会留下本次调整和满意度。</p>
+                    )}
+                  </article>
+                </div>
+              </section>
+            </main>
+
+            <aside className="recipe-detail-side-column">
+              <section className="recipe-detail-side-card">
+                <div className="recipe-detail-section-head">
+                  <span><RecipeUiIcon name="basket" /></span>
+                  <div>
+                    <h3>库存判断</h3>
+                    <p>当前库存覆盖 {selectedReadyCount} / {selectedIngredientCount} 项</p>
+                  </div>
+                </div>
+                <div className={`recipe-detail-stock-summary tone-${selectedCard.availability}`}>
+                  <span><RecipeUiIcon name={selectedShortageCount > 0 ? 'warning' : 'check'} /></span>
+                  <strong>{selectedShortageCount > 0 ? '需要先补齐食材' : '可以立即开始'}</strong>
+                  <small>共需 {selectedIngredientCount} 项食材，缺 {selectedShortageCount} 项</small>
+                </div>
+                {selectedCard.shortages.length > 0 ? (
+                  <div className="recipe-detail-shortage-list">
+                    <strong>缺少食材</strong>
+                    {selectedCard.shortages.slice(0, 3).map((item) => (
+                      <span key={`${item.ingredientName}-${item.unit}`}>· {item.ingredientName} {item.missingQuantity}{item.unit}</span>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="subtle">主要用料已经备齐。</p>
+                )}
+                <button className="recipe-detail-link-button" type="button" onClick={() => openShoppingDialog(selectedCard)}>
+                  查看采购清单 <RecipeUiIcon name="chevronRight" />
+                </button>
+              </section>
+
+              <section className="recipe-detail-side-card recipe-detail-plan-card">
+                <div className="recipe-detail-section-head">
+                  <span><RecipeUiIcon name="calendar" /></span>
+                  <div>
+                    <h3>菜谱计划</h3>
+                    <p>{selectedRecipePlanItems.length > 0 ? `已加入 ${selectedRecipePlanItems.length} 个计划` : '将此菜谱加入本周计划'}</p>
+                  </div>
+                </div>
+                <ActionButton tone="secondary" size="compact" type="button" onClick={() => openPlanDialog(selectedCard)}>
+                  加入计划
+                </ActionButton>
+              </section>
+
+              <section className="recipe-detail-side-card">
+                <div className="recipe-detail-section-head">
+                  <span><RecipeUiIcon name="info" /></span>
+                  <div>
+                    <h3>菜谱信息</h3>
+                  </div>
+                </div>
+                <dl className="recipe-detail-info-list">
+                  <div><dt>最近更新</dt><dd>{formatDateTime(selectedCard.recipe.updated_at)}</dd></div>
+                  <div><dt>创建时间</dt><dd>{formatDateTime(selectedCard.recipe.created_at)}</dd></div>
+                  <div><dt>创建者</dt><dd>{selectedCard.recipe.created_by || '家庭成员'}</dd></div>
+                  <div><dt>来源/备注</dt><dd>{selectedCard.linkedFood ? selectedCard.linkedFood.name : '家庭自制菜谱'}</dd></div>
+                </dl>
+                <ActionButton tone="tertiary" size="compact" type="button" onClick={() => void deleteSelectedRecipe()} disabled={props.isDeletingRecipe}>
+                  删除菜谱
+                </ActionButton>
+              </section>
+
+              <section className="recipe-detail-side-card">
+                <div className="recipe-detail-section-head">
+                  <span><RecipeUiIcon name="tag" /></span>
+                  <div>
+                    <h3>适合场景</h3>
+                  </div>
+                </div>
+                <div className="recipe-detail-side-tags">
+                  {selectedSceneTags.map((tag) => (
+                    <span key={tag} className="chip recipe-chip">{tag}</span>
+                  ))}
+                </div>
+              </section>
+            </aside>
           </div>
         </WorkspaceSubpageShell>
       ) : (
@@ -3429,52 +3993,113 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
             className="recipe-plan-modal"
           >
           <form className="recipe-plan-dialog-form" onSubmit={submitPlanItem}>
-            <select
-              className="text-input"
-              value={planForm.recipeId}
-              onChange={(event) => {
-                const nextRecipeId = event.target.value;
-                setPlanForm({ ...planForm, recipeId: nextRecipeId });
-                setPlanDialogCard(cards.find((card) => card.recipe.id === nextRecipeId) ?? null);
-              }}
-              required
-            >
-              <option value="">选择菜谱</option>
-              {cards.map((card) => (
-                <option key={card.recipe.id} value={card.recipe.id}>
-                  {card.recipe.title}
-                </option>
-              ))}
-            </select>
+            <div className="recipe-plan-dialog-hero">
+              <div className="recipe-plan-selected-cover">
+                {planDialogCard ? (
+                  <RecipeCover card={planDialogCard} />
+                ) : (
+                  <div className="recipe-plan-cover-empty">
+                    <RecipeUiIcon name="clipboard" />
+                  </div>
+                )}
+              </div>
+              <div>
+                <span className="recipe-plan-dialog-kicker">即将加入</span>
+                <strong>{planDialogCard?.recipe.title ?? '选择一道菜'}</strong>
+                <p>{planDialogCard ? `${planDialogCard.recipe.prep_minutes} 分钟 · ${planDialogCard.recipe.servings} 人份 · ${DIFFICULTY_LABELS[planDialogCard.recipe.difficulty]}` : '搜索菜名、食材或场景标签，找到要安排的菜谱。'}</p>
+              </div>
+            </div>
+
+            <div className="recipe-plan-picker">
+              <label htmlFor="recipe-plan-search">选择菜谱</label>
+              <div className="recipe-plan-combobox">
+                <RecipeUiIcon name="search" />
+                <input
+                  id="recipe-plan-search"
+                  className="recipe-plan-search-input"
+                  value={isPlanRecipePickerOpen || planRecipeSearch ? planRecipeSearch : planDialogCard?.recipe.title ?? ''}
+                  placeholder="搜索菜谱、食材或标签"
+                  onFocus={() => {
+                    setPlanRecipeSearch('');
+                    setIsPlanRecipePickerOpen(true);
+                  }}
+                  onChange={(event) => {
+                    setPlanRecipeSearch(event.target.value);
+                    setIsPlanRecipePickerOpen(true);
+                  }}
+                />
+                <button
+                  type="button"
+                  className="recipe-plan-picker-toggle"
+                  aria-label="展开菜谱列表"
+                  onClick={() => setIsPlanRecipePickerOpen((current) => !current)}
+                >
+                  <RecipeUiIcon name="chevronDown" className={isPlanRecipePickerOpen ? 'is-open' : undefined} />
+                </button>
+              </div>
+              {isPlanRecipePickerOpen && (
+                <div className="recipe-plan-option-panel">
+                  {planRecipeOptions.length > 0 ? (
+                    planRecipeOptions.slice(0, 8).map((card) => (
+                      <button
+                        key={card.recipe.id}
+                        type="button"
+                        className={card.recipe.id === planForm.recipeId ? 'recipe-plan-option active' : 'recipe-plan-option'}
+                        onClick={() => selectPlanRecipe(card)}
+                      >
+                        <RecipeCover card={card} className="recipe-plan-option-cover" />
+                        <span>
+                          <strong>{card.recipe.title}</strong>
+                          <small>{card.recipe.prep_minutes} 分钟 · {card.recipe.servings} 人份 · {card.ingredientPreview.slice(0, 3).join('、') || '暂无原料'}</small>
+                        </span>
+                        <Badge className={`recipe-plan-option-status tone-${card.availability}`}>{card.availabilityLabel}</Badge>
+                      </button>
+                    ))
+                  ) : (
+                    <div className="recipe-plan-option-empty">没有找到匹配的菜谱</div>
+                  )}
+                </div>
+              )}
+            </div>
+
             <div className="recipe-plan-form-row">
+              <label>
+                <span>计划日期</span>
+                <input
+                  className="text-input"
+                  type="date"
+                  value={planForm.planDate}
+                  min={props.recipePlanWeekRange.start}
+                  max={props.recipePlanWeekRange.end}
+                  onChange={(event) => setPlanForm({ ...planForm, planDate: event.target.value })}
+                />
+              </label>
+              <label>
+                <span>餐次</span>
+                <select
+                  className="text-input"
+                  value={planForm.mealType}
+                  onChange={(event) => setPlanForm({ ...planForm, mealType: event.target.value as MealType })}
+                >
+                  {MEAL_TYPE_OPTIONS.map((item) => (
+                    <option key={item.value} value={item.value}>
+                      {item.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+            <label className="recipe-plan-note-field">
+              <span>备注</span>
               <input
                 className="text-input"
-                type="date"
-                value={planForm.planDate}
-                min={props.recipePlanWeekRange.start}
-                max={props.recipePlanWeekRange.end}
-                onChange={(event) => setPlanForm({ ...planForm, planDate: event.target.value })}
+                value={planForm.note}
+                placeholder="比如：少油、提前解冻、留一份便当"
+                onChange={(event) => setPlanForm({ ...planForm, note: event.target.value })}
               />
-              <select
-                className="text-input"
-                value={planForm.mealType}
-                onChange={(event) => setPlanForm({ ...planForm, mealType: event.target.value as MealType })}
-              >
-                {MEAL_TYPE_OPTIONS.map((item) => (
-                  <option key={item.value} value={item.value}>
-                    {item.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <input
-              className="text-input"
-              value={planForm.note}
-              placeholder="备注（可选）"
-              onChange={(event) => setPlanForm({ ...planForm, note: event.target.value })}
-            />
+            </label>
             <div className="workspace-overlay-actions">
-              <ActionButton tone="primary" type="submit" disabled={props.isUpdatingPlan || cards.length === 0}>
+              <ActionButton tone="primary" type="submit" disabled={props.isUpdatingPlan || cards.length === 0 || !planForm.recipeId}>
                 加入菜单
               </ActionButton>
               <ActionButton tone="secondary" type="button" onClick={closePlanDialog}>
