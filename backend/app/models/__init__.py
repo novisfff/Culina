@@ -1,5 +1,6 @@
 from app.models.domain import (
     ActivityLog,
+    AIAgentRun,
     AIConversation,
     AIRecommendation,
     Base,
@@ -24,6 +25,7 @@ from app.models.domain import (
 
 __all__ = [
     "ActivityLog",
+    "AIAgentRun",
     "AIConversation",
     "AIRecommendation",
     "Base",

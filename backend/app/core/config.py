@@ -19,7 +19,7 @@ class Settings(BaseSettings):
     access_token_expire_minutes: int = 60 * 24 * 7
     media_root: str = "storage/uploads"
     ai_provider: str = "disabled"
-    ai_api_base: str = "https://dashscope.aliyuncs.com/api/v1"
+    ai_api_base: str = "https://api.openai.com/v1"
     ai_api_key: str = ""
     ai_model: str = ""
     ai_image_reference_provider: str = "disabled"

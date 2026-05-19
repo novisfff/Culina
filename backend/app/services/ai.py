@@ -410,108 +410,20 @@ def run_ai_query(
     food_id: str | None = None,
     ingredient_ids: list[str] | None = None,
 ) -> tuple[dict, dict | None]:
-    family = db.scalar(select(Family).where(Family.id == family_id))
-    inventory_items = list(
-        db.scalars(
-            select(InventoryItem)
-            .where(InventoryItem.family_id == family_id)
-            .options(selectinload(InventoryItem.ingredient))
-        )
-    )
-    meal_logs = list(
-        db.scalars(
-            select(MealLog)
-            .where(MealLog.family_id == family_id)
-            .options(selectinload(MealLog.food_entries).selectinload(MealLogFood.food))
-            .order_by(MealLog.date.desc(), MealLog.created_at.desc())
-            .limit(5)
-        )
-    )
-    food = (
-        db.scalar(
-            select(Food)
-            .where(Food.family_id == family_id, Food.id == food_id)
-            .options(selectinload(Food.recipe).selectinload(Recipe.ingredient_items))
-        )
-        if food_id
-        else None
-    )
-    ingredients = (
-        list(
-            db.scalars(
-                select(Ingredient)
-                .where(Ingredient.family_id == family_id, Ingredient.id.in_(ingredient_ids or []))
-            )
-        )
-        if ingredient_ids
-        else []
-    )
-    recommendation_foods = (
-        list(
-            db.scalars(
-                select(Food)
-                .where(Food.family_id == family_id, Food.type == FoodType.SELF_MADE)
-                .options(selectinload(Food.recipe).selectinload(Recipe.ingredient_items))
-            )
-        )
-        if mode == AiMode.RECOMMENDATION
-        else []
-    )
-    recommendation_model: AIRecommendation | None = None
-    if mode == AiMode.RECOMMENDATION:
-        recommendation_model = _pick_recommendation(family_id, recommendation_foods, inventory_items, meal_logs)
-        db.add(recommendation_model)
-    recipe_draft = _build_recipe_draft_payload(ingredients, prompt) if mode == AiMode.RECIPE_DRAFT else None
+    from app.ai.runner import CulinaAgentService
+    from app.ai.schemas import AgentRunRequest
 
-    response_text = _call_real_provider(
-        _build_provider_messages(
-            family=family,
-            mode=mode,
+    result = CulinaAgentService(db).run(
+        AgentRunRequest(
+            family_id=family_id,
+            user_id=user_id,
+            feature_key=mode.value,
             prompt=prompt,
-            inventory_items=inventory_items,
-            meal_logs=meal_logs,
-            food=food,
-            ingredients=ingredients,
-            recommendation=recommendation_model,
-            recommendation_foods=recommendation_foods if mode == AiMode.RECOMMENDATION else None,
+            mode=mode,
+            subject={"foodId": food_id, "ingredientIds": ingredient_ids or []},
+            persist_conversation=True,
         )
     )
-
-    if response_text is None:
-        if mode == AiMode.FOOD_QA:
-            response_text = _build_food_answer(food, prompt)
-        elif mode == AiMode.INVENTORY_QA:
-            response_text = _build_inventory_answer(inventory_items)
-        elif mode == AiMode.RECOMMENDATION:
-            response_text = (
-                f"{recommendation_model.title}。{recommendation_model.detail}"
-                if recommendation_model
-                else "先补齐常用食材后，系统会给出更准确的推荐。"
-            )
-        elif mode == AiMode.RECIPE_DRAFT:
-            response_text = _format_recipe_draft_response(recipe_draft, prompt)
-        else:
-            response_text = "当前 AI 模式尚未配置。"
-    elif mode == AiMode.RECOMMENDATION and recommendation_model is not None:
-        provider_detail = response_text.strip()
-        if provider_detail.startswith(recommendation_model.title):
-            provider_detail = provider_detail[len(recommendation_model.title) :].lstrip("：:，。 ")
-        recommendation_model.detail = provider_detail or recommendation_model.detail
-        response_text = f"{recommendation_model.title}。{recommendation_model.detail}"
-
-    conversation = AIConversation(
-        id=create_id("conversation"),
-        family_id=family_id,
-        mode=mode,
-        prompt=prompt or mode.value,
-        response=response_text,
-        context={"foodId": food_id, "ingredientIds": ingredient_ids or [], "recipeDraft": recipe_draft},
-        created_at=utcnow(),
-        created_by=user_id,
-    )
-    db.add(conversation)
-    db.flush()
-
-    return serialize_ai_conversation(conversation), (
-        serialize_ai_recommendation(recommendation_model) if recommendation_model else None
-    )
+    if result.conversation is None:
+        raise RuntimeError("AI query did not produce a conversation")
+    return result.conversation, result.recommendation

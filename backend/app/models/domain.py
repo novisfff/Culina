@@ -57,6 +57,7 @@ class Family(AuditMixin, Base):
     media_assets: Mapped[list["MediaAsset"]] = relationship(back_populates="family", cascade="all, delete-orphan")
     ai_conversations: Mapped[list["AIConversation"]] = relationship(back_populates="family", cascade="all, delete-orphan")
     ai_recommendations: Mapped[list["AIRecommendation"]] = relationship(back_populates="family", cascade="all, delete-orphan")
+    ai_agent_runs: Mapped[list["AIAgentRun"]] = relationship(back_populates="family", cascade="all, delete-orphan")
 
 
 class User(AuditMixin, Base):
@@ -432,3 +433,23 @@ class AIRecommendation(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
 
     family: Mapped["Family"] = relationship(back_populates="ai_recommendations")
+
+
+class AIAgentRun(Base):
+    __tablename__ = "ai_agent_runs"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True, default=lambda: create_id("agent_run"))
+    family_id: Mapped[str] = mapped_column(ForeignKey("families.id", ondelete="CASCADE"), nullable=False, index=True)
+    agent_key: Mapped[str] = mapped_column(String(80), nullable=False, index=True)
+    feature_key: Mapped[str] = mapped_column(String(80), nullable=False, index=True)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    model: Mapped[str] = mapped_column(String(120), default="", nullable=False)
+    input: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
+    output: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
+    tool_calls: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list, nullable=False)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    duration_ms: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+    created_by: Mapped[str | None] = mapped_column(String(64), nullable=True)
+
+    family: Mapped["Family"] = relationship(back_populates="ai_agent_runs")
