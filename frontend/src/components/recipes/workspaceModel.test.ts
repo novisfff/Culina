@@ -226,10 +226,21 @@ describe('recipe workspace model', () => {
 
     expect(home.favoriteCards.map((card) => card.recipe.id)).toEqual(['recipe-missing']);
     expect(home.recommendedCards[0]?.recipe.id).toBe('recipe-missing');
+    expect(home.recommendedCards[1]?.recipe.id).toBe('recipe-ready');
     expect(home.weeklyTop[0]?.card.recipe.id).toBe('recipe-ready');
     expect(home.weeklyTop[0]?.count).toBe(1);
     expect(home.quickRecipes.map((card) => card.recipe.id)).toEqual(['recipe-ready']);
     expect(home.planDays.find((day) => day.date === '2026-05-13')?.items).toEqual([planItem]);
     expect(home.popularCategories.map((item) => item.name)).toContain('晚餐');
+  });
+
+  it('keeps quick and available recipes ahead in fallback recommendations without favorites', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2026, 4, 13, 8, 0, 0));
+    const cards = buildRecipeCards(recipes, [tomato, flour], inventoryItems, mealLogs, foods);
+
+    const home = buildRecipeHomeViewModel(cards, [], [], mealLogs, foods, '2026-05-13');
+
+    expect(home.recommendedCards.map((card) => card.recipe.id)).toEqual(['recipe-ready', 'recipe-missing']);
   });
 });

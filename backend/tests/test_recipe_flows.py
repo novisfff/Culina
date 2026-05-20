@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import unittest
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 
 from fastapi.testclient import TestClient
@@ -10,10 +10,10 @@ from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.core.deps import get_current_auth
-from app.core.enums import FoodType, IngredientExpiryMode, InventoryStatus, MembershipStatus, UserRole
+from app.core.enums import FoodType, IngredientExpiryMode, InventoryStatus, MealType, MembershipStatus, UserRole
 from app.db.session import get_db
 from app.main import app
-from app.models.domain import Base, Family, Food, Ingredient, InventoryItem, Membership, User
+from app.models.domain import Base, Family, Food, Ingredient, InventoryItem, Membership, RecipeCookLog, RecipeFavorite, User
 
 
 class RecipeApiTestCase(unittest.TestCase):
@@ -96,15 +96,23 @@ class RecipeApiTestCase(unittest.TestCase):
         Base.metadata.drop_all(self.engine)
         self.engine.dispose()
 
-    def create_recipe(self, *, auto_create_food: bool = False) -> dict:
+    def create_recipe(
+        self,
+        *,
+        auto_create_food: bool = False,
+        title: str = "番茄炒蛋",
+        prep_minutes: int = 15,
+        difficulty: str = "easy",
+        ingredient_items: list[dict] | None = None,
+    ) -> dict:
         response = self.client.post(
             "/api/recipes",
             json={
-                "title": "番茄炒蛋",
+                "title": title,
                 "servings": 2,
-                "prep_minutes": 15,
-                "difficulty": "easy",
-                "ingredient_items": [
+                "prep_minutes": prep_minutes,
+                "difficulty": difficulty,
+                "ingredient_items": ingredient_items or [
                     {
                         "ingredient_id": self.tomato.id,
                         "ingredient_name": "番茄",
@@ -476,9 +484,126 @@ class RecipeApiTestCase(unittest.TestCase):
         self.assertEqual(stats.json()["recently_cooked"][0]["recipe_id"], recipe_id)
         self.assertEqual(stats.json()["frequent"][0]["count"], 1)
 
+    def test_recipe_discovery_recommendation_ranking_uses_household_context(self) -> None:
+        today = date.today()
+        favorite = self.create_recipe(title="收藏番茄", ingredient_items=[
+            {"ingredient_id": self.tomato.id, "ingredient_name": "番茄", "quantity": 2, "unit": "个", "note": ""}
+        ])
+        recent = self.create_recipe(title="刚吃番茄", ingredient_items=[
+            {"ingredient_id": self.tomato.id, "ingredient_name": "番茄", "quantity": 2, "unit": "个", "note": ""}
+        ])
+        expiring = self.create_recipe(title="临期鸡蛋", prep_minutes=25, difficulty="medium", ingredient_items=[
+            {"ingredient_id": self.egg.id, "ingredient_name": "鸡蛋", "quantity": 1, "unit": "个", "note": ""}
+        ])
+        rated = self.create_recipe(title="高分番茄", prep_minutes=25, difficulty="medium", ingredient_items=[
+            {"ingredient_id": self.tomato.id, "ingredient_name": "番茄", "quantity": 2, "unit": "个", "note": ""}
+        ])
+        plain = self.create_recipe(title="普通番茄", prep_minutes=25, difficulty="medium", ingredient_items=[
+            {"ingredient_id": self.tomato.id, "ingredient_name": "番茄", "quantity": 2, "unit": "个", "note": ""}
+        ])
+        missing = self.create_recipe(title="缺料鸡蛋", ingredient_items=[
+            {"ingredient_id": self.egg.id, "ingredient_name": "鸡蛋", "quantity": 99, "unit": "个", "note": ""}
+        ])
+
+        with self.SessionLocal() as db:
+            db.add_all(
+                [
+                    InventoryItem(
+                        id="inventory-tomato-ranking",
+                        family_id=self.family.id,
+                        ingredient_id=self.tomato.id,
+                        quantity=Decimal("30"),
+                        consumed_quantity=Decimal("0"),
+                        unit="个",
+                        status=InventoryStatus.FRESH,
+                        purchase_date=today,
+                        expiry_date=today + timedelta(days=10),
+                        storage_location="冷藏",
+                        notes="",
+                        low_stock_threshold=Decimal("0"),
+                        created_by=self.user.id,
+                        updated_by=self.user.id,
+                    ),
+                    InventoryItem(
+                        id="inventory-egg-ranking",
+                        family_id=self.family.id,
+                        ingredient_id=self.egg.id,
+                        quantity=Decimal("2"),
+                        consumed_quantity=Decimal("0"),
+                        unit="个",
+                        status=InventoryStatus.FRESH,
+                        purchase_date=today,
+                        expiry_date=today + timedelta(days=1),
+                        storage_location="冷藏",
+                        notes="",
+                        low_stock_threshold=Decimal("0"),
+                        created_by=self.user.id,
+                        updated_by=self.user.id,
+                    ),
+                    RecipeFavorite(
+                        id="favorite-ranking",
+                        family_id=self.family.id,
+                        user_id=self.user.id,
+                        recipe_id=favorite["id"],
+                    ),
+                    RecipeCookLog(
+                        id="cook-recent-today",
+                        family_id=self.family.id,
+                        recipe_id=recent["id"],
+                        cook_date=today,
+                        meal_type=MealType.DINNER,
+                        servings=Decimal("2"),
+                        result_note="刚吃过",
+                        adjustments="",
+                        rating=5,
+                        created_by=self.user.id,
+                        updated_by=self.user.id,
+                    ),
+                    RecipeCookLog(
+                        id="cook-recent-old",
+                        family_id=self.family.id,
+                        recipe_id=recent["id"],
+                        cook_date=today - timedelta(days=20),
+                        meal_type=MealType.DINNER,
+                        servings=Decimal("2"),
+                        result_note="常做",
+                        adjustments="",
+                        rating=5,
+                        created_by=self.user.id,
+                        updated_by=self.user.id,
+                    ),
+                    RecipeCookLog(
+                        id="cook-rated",
+                        family_id=self.family.id,
+                        recipe_id=rated["id"],
+                        cook_date=today - timedelta(days=20),
+                        meal_type=MealType.DINNER,
+                        servings=Decimal("2"),
+                        result_note="很好吃",
+                        adjustments="",
+                        rating=5,
+                        created_by=self.user.id,
+                        updated_by=self.user.id,
+                    ),
+                ]
+            )
+            db.commit()
+
+        response = self.client.get("/api/recipes/discovery?limit=10")
+        self.assertEqual(response.status_code, 200, response.text)
+        recommended_ids = response.json()["recommended"]["recipe_ids"]
+
+        self.assertEqual(recommended_ids[0], favorite["id"])
+        self.assertLess(recommended_ids.index(recent["id"]), len(recommended_ids))
+        self.assertGreater(recommended_ids.index(recent["id"]), recommended_ids.index(plain["id"]))
+        self.assertLess(recommended_ids.index(expiring["id"]), recommended_ids.index(plain["id"]))
+        self.assertLess(recommended_ids.index(rated["id"]), recommended_ids.index(plain["id"]))
+        self.assertLess(recommended_ids.index(plain["id"]), recommended_ids.index(missing["id"]))
+
     def test_cook_preview_returns_batches_without_deducting_inventory(self) -> None:
         recipe = self.create_recipe(auto_create_food=False)
         recipe_id = recipe["id"]
+        today = date.today()
         with self.SessionLocal() as db:
             db.add_all(
                 [
@@ -490,8 +615,8 @@ class RecipeApiTestCase(unittest.TestCase):
                         consumed_quantity=Decimal("0"),
                         unit="个",
                         status=InventoryStatus.FRESH,
-                        purchase_date=date(2026, 5, 12),
-                        expiry_date=date(2026, 5, 16),
+                        purchase_date=today - timedelta(days=2),
+                        expiry_date=today + timedelta(days=1),
                         storage_location="冷藏",
                         notes="",
                         low_stock_threshold=Decimal("0"),
@@ -506,8 +631,8 @@ class RecipeApiTestCase(unittest.TestCase):
                         consumed_quantity=Decimal("0"),
                         unit="个",
                         status=InventoryStatus.FRESH,
-                        purchase_date=date(2026, 5, 14),
-                        expiry_date=date(2026, 5, 20),
+                        purchase_date=today - timedelta(days=1),
+                        expiry_date=today + timedelta(days=5),
                         storage_location="冷藏",
                         notes="",
                         low_stock_threshold=Decimal("0"),
@@ -522,7 +647,7 @@ class RecipeApiTestCase(unittest.TestCase):
                         consumed_quantity=Decimal("0"),
                         unit="个",
                         status=InventoryStatus.FRESH,
-                        purchase_date=date(2026, 5, 14),
+                        purchase_date=today - timedelta(days=1),
                         storage_location="冷藏",
                         notes="",
                         low_stock_threshold=Decimal("0"),

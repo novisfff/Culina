@@ -262,7 +262,7 @@ const DISCOVERY_SECTION_COPY: Record<RecipeQuickFilter, { title: string; descrip
   },
   recommend: {
     title: '为你推荐',
-    description: '根据你的口味和习惯推荐',
+    description: '根据库存、收藏和最近记录推荐',
     emptyTitle: '还没有可推荐的菜谱',
     emptyDescription: '先新增几份常做菜，之后会按库存和记录推荐。',
   },

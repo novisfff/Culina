@@ -119,6 +119,11 @@ function isDateInRange(dateKey: string, start: string, end: string) {
   return dateKey >= start && dateKey <= end;
 }
 
+function daysBetweenDateKeys(laterDateKey: string, earlierDateKey: string) {
+  const millisecondsPerDay = 24 * 60 * 60 * 1000;
+  return Math.floor((parseDateKey(laterDateKey).getTime() - parseDateKey(earlierDateKey).getTime()) / millisecondsPerDay);
+}
+
 function getRecipeIdForFood(foodId: string, foods: Food[]) {
   return foods.find((food) => food.id === foodId)?.recipe_id ?? null;
 }
@@ -372,13 +377,39 @@ export function buildRecipeHomeViewModel(
     .filter((card) => card.recipe.prep_minutes <= 20)
     .sort((left, right) => left.recipe.prep_minutes - right.recipe.prep_minutes || right.updatedAt.localeCompare(left.updatedAt));
 
+  const plannedSoonRecipeIds = new Set(
+    planItems
+      .filter((item) => item.status === 'planned' && item.plan_date >= dateKey && item.plan_date <= addDateKeyDays(dateKey, 2))
+      .map((item) => item.recipe_id)
+  );
+  const getLastUsedDateKey = (card: RecipeCardViewModel) =>
+    [card.lastUsedAt, ...card.recipe.cook_logs.map((log) => log.cook_date)]
+      .filter((value): value is string => Boolean(value))
+      .sort((left, right) => right.localeCompare(left))[0] ?? null;
+  const getRatingBonus = (card: RecipeCardViewModel) => {
+    const ratings = card.recipe.cook_logs.map((log) => log.rating).filter((rating): rating is number => typeof rating === 'number');
+    if (ratings.length === 0) return 0;
+    return (ratings.reduce((sum, rating) => sum + rating, 0) / ratings.length) * 8;
+  };
   const recommendedCards = [...cards].sort((left, right) => {
-    const score = (card: RecipeCardViewModel) =>
-      (favoriteRecipeIds.has(card.recipe.id) ? 1000 : 0) +
-      card.mealUsageCount * 80 +
-      card.availabilityScore * 60 +
-      (card.recipe.prep_minutes <= 20 ? 20 : 0) +
-      (card.recipe.difficulty === 'easy' ? 8 : card.recipe.difficulty === 'medium' ? 3 : 0);
+    const score = (card: RecipeCardViewModel) => {
+      const lastUsedDateKey = getLastUsedDateKey(card);
+      const daysSinceUsed = lastUsedDateKey ? daysBetweenDateKeys(dateKey, lastUsedDateKey) : null;
+      const recentPenalty =
+        daysSinceUsed === null ? 0 : daysSinceUsed <= 0 ? 200 : daysSinceUsed <= 2 ? 80 : daysSinceUsed <= 7 ? 25 : 0;
+      const availabilityBand = card.availability === 'ready' ? 40 : card.availability === 'partial' ? 15 : 0;
+      return (
+        (favoriteRecipeIds.has(card.recipe.id) ? 120 : 0) +
+        card.availabilityScore * 100 +
+        availabilityBand +
+        Math.min(card.mealUsageCount * 15, 60) +
+        (card.recipe.prep_minutes <= 20 ? 20 : card.recipe.prep_minutes <= 35 ? 10 : 0) +
+        (card.recipe.difficulty === 'easy' ? 10 : card.recipe.difficulty === 'medium' ? 4 : 0) +
+        getRatingBonus(card) -
+        recentPenalty -
+        (plannedSoonRecipeIds.has(card.recipe.id) ? 60 : 0)
+      );
+    };
     return score(right) - score(left) || right.updatedAt.localeCompare(left.updatedAt);
   });
 

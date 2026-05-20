@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 
 from sqlalchemy import select
@@ -11,7 +11,7 @@ from app.core.deps import get_current_auth
 from app.core.enums import ActivityAction, Difficulty, FoodType, MealType
 from app.core.utils import create_id, utcnow
 from app.db.session import get_db
-from app.models.domain import Food, InventoryItem, MealLog, MealLogFood, MediaAsset, Recipe, RecipeCookLog, RecipeIngredient, RecipePlanItem, RecipeStep
+from app.models.domain import Food, InventoryItem, MealLog, MealLogFood, MediaAsset, Recipe, RecipeCookLog, RecipeFavorite, RecipeIngredient, RecipePlanItem, RecipeStep
 from app.repos.media import build_media_map, get_media_assets_for_family
 from app.schemas.domain import (
     CookRecipePreviewResponse,
@@ -387,6 +387,62 @@ def _recipe_usage_maps(meal_logs: list[MealLog], foods: list[Food]) -> tuple[dic
     return counts, last_used_at
 
 
+def _recipe_recommendation_usage_maps(
+    *,
+    recipes: list[Recipe],
+    meal_logs: list[MealLog],
+    foods: list[Food],
+    today: date,
+) -> tuple[dict[str, int], dict[str, date]]:
+    recipe_ids_by_food_id = {food.id: food.recipe_id for food in foods if food.recipe_id}
+    event_dates_by_recipe_id: dict[str, list[date]] = {recipe.id: [] for recipe in recipes}
+    for log in meal_logs:
+        recipe_ids = {
+            recipe_ids_by_food_id.get(entry.food_id)
+            for entry in log.food_entries
+            if recipe_ids_by_food_id.get(entry.food_id)
+        }
+        for recipe_id in recipe_ids:
+            if recipe_id:
+                event_dates_by_recipe_id.setdefault(recipe_id, []).append(log.date)
+    for recipe in recipes:
+        for cook_log in recipe.cook_logs:
+            event_dates_by_recipe_id.setdefault(recipe.id, []).append(cook_log.cook_date)
+
+    window_start = today - timedelta(days=90)
+    counts = {
+        recipe_id: sum(1 for event_date in event_dates if window_start <= event_date <= today)
+        for recipe_id, event_dates in event_dates_by_recipe_id.items()
+    }
+    last_used_at = {
+        recipe_id: max(event_dates)
+        for recipe_id, event_dates in event_dates_by_recipe_id.items()
+        if event_dates
+    }
+    return counts, last_used_at
+
+
+def _recipe_expiring_inventory_bonus(recipe: Recipe, inventory_items: list[InventoryItem], today: date) -> int:
+    ingredient_ids = {item.ingredient_id for item in recipe.ingredient_items if item.ingredient_id}
+    if not ingredient_ids:
+        return 0
+    bonus = 0
+    for item in inventory_items:
+        if item.ingredient_id not in ingredient_ids or item.expiry_date is None or _remaining_quantity(item) <= 0:
+            continue
+        days_until_expiry = (item.expiry_date - today).days
+        if 0 <= days_until_expiry <= 3:
+            bonus = max(bonus, 35 - days_until_expiry * 8)
+    return bonus
+
+
+def _recipe_rating_bonus(recipe: Recipe) -> float:
+    ratings = [cook_log.rating for cook_log in recipe.cook_logs if cook_log.rating is not None]
+    if not ratings:
+        return 0
+    return (sum(ratings) / len(ratings)) * 8
+
+
 def _serialize_discovery_section(recipes: list[Recipe], media_map: dict[tuple[str, str], list[MediaAsset]]) -> dict:
     return {
         "recipe_ids": [recipe.id for recipe in recipes],
@@ -453,9 +509,11 @@ def discover_recipes(
     auth: tuple = Depends(get_current_auth),
     db: Session = Depends(get_db),
 ) -> dict:
-    _, membership = auth
+    user, membership = auth
+    today = date.today()
     recipes = _load_recipes_for_family(db, membership.family_id)
     foods = list(db.scalars(select(Food).where(Food.family_id == membership.family_id)))
+    inventory_items = list(db.scalars(select(InventoryItem).where(InventoryItem.family_id == membership.family_id)))
     meal_logs = list(
         db.scalars(
             select(MealLog)
@@ -464,7 +522,30 @@ def discover_recipes(
             .order_by(MealLog.date.desc(), MealLog.created_at.desc())
         )
     )
-    usage_counts, _ = _recipe_usage_maps(meal_logs, foods)
+    usage_counts, last_used_at = _recipe_recommendation_usage_maps(
+        recipes=recipes,
+        meal_logs=meal_logs,
+        foods=foods,
+        today=today,
+    )
+    favorite_recipe_ids = set(
+        db.scalars(
+            select(RecipeFavorite.recipe_id).where(
+                RecipeFavorite.family_id == membership.family_id,
+                RecipeFavorite.user_id == user.id,
+            )
+        )
+    )
+    planned_recipe_ids = set(
+        db.scalars(
+            select(RecipePlanItem.recipe_id).where(
+                RecipePlanItem.family_id == membership.family_id,
+                RecipePlanItem.status == "planned",
+                RecipePlanItem.plan_date >= today,
+                RecipePlanItem.plan_date <= today + timedelta(days=2),
+            )
+        )
+    )
     availability_by_recipe_id = {
         recipe.id: _recipe_availability_summary(db, family_id=membership.family_id, recipe=recipe)
         for recipe in recipes
@@ -472,14 +553,39 @@ def discover_recipes(
 
     def score(recipe: Recipe) -> float:
         availability = availability_by_recipe_id[recipe.id]
+        availability_band = {"ready": 40, "partial": 15, "missing": 0}.get(availability["availability"], 0)
+        last_used = last_used_at.get(recipe.id)
+        recent_penalty = 0
+        if last_used is not None:
+            days_since_used = (today - last_used).days
+            if days_since_used <= 0:
+                recent_penalty = 200
+            elif days_since_used <= 2:
+                recent_penalty = 80
+            elif days_since_used <= 7:
+                recent_penalty = 25
         return (
-            usage_counts.get(recipe.id, 0) * 80
-            + availability["availability_score"] * 60
-            + (20 if recipe.prep_minutes <= 20 else 0)
-            + (8 if recipe.difficulty == Difficulty.EASY else 3 if recipe.difficulty == Difficulty.MEDIUM else 0)
+            (120 if recipe.id in favorite_recipe_ids else 0)
+            + availability["availability_score"] * 100
+            + availability_band
+            + min(usage_counts.get(recipe.id, 0) * 15, 60)
+            + (20 if recipe.prep_minutes <= 20 else 10 if recipe.prep_minutes <= 35 else 0)
+            + (10 if recipe.difficulty == Difficulty.EASY else 4 if recipe.difficulty == Difficulty.MEDIUM else 0)
+            + _recipe_expiring_inventory_bonus(recipe, inventory_items, today)
+            + _recipe_rating_bonus(recipe)
+            - recent_penalty
+            - (60 if recipe.id in planned_recipe_ids else 0)
         )
 
-    recommended = sorted(recipes, key=lambda recipe: (score(recipe), recipe.updated_at), reverse=True)[:limit]
+    recommended = sorted(
+        recipes,
+        key=lambda recipe: (
+            score(recipe),
+            availability_by_recipe_id[recipe.id]["availability_score"],
+            recipe.updated_at,
+        ),
+        reverse=True,
+    )[:limit]
     ready = sorted(
         [recipe for recipe in recipes if availability_by_recipe_id[recipe.id]["availability"] == "ready"],
         key=lambda recipe: (recipe.prep_minutes, recipe.updated_at),
