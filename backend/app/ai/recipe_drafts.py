@@ -310,8 +310,6 @@ def _normalize_ingredient_items(raw_items: Any, context: AgentContext, request: 
                 }
             )
 
-    if not items:
-        items.append({"ingredient_id": None, "ingredient_name": "常备食材", "quantity": 2, "unit": "份", "note": "按实际库存替换，提前清洗切配"})
     return items[:12]
 
 
@@ -437,26 +435,7 @@ def _normalize_steps(raw_steps: Any, context: AgentContext, request: AgentRunReq
             if fallback_step["title"] not in existing_titles:
                 steps.append(fallback_step)
                 existing_titles.add(fallback_step["title"])
-    return steps[:8] or fallback_steps
-
-
-def build_fallback_recipe_draft(context: AgentContext, request: AgentRunRequest) -> dict[str, Any]:
-    names = _draft_subject_names(context, request)
-    title = _string(request.subject.get("title")) or (f"{names[0]}家常快手菜" if names else "家庭快手菜")
-    scene_tags = _subject_list(request, "sceneTags") or _subject_list(request, "scene_tags") or ["家常菜", "快手菜"]
-    steps = _fallback_recipe_steps(names)
-    fallback_ingredients = _normalize_ingredient_items([], context, request)
-    return {
-        "title": title,
-        "servings": _int(request.subject.get("servings"), 2, minimum=1, maximum=12),
-        "prep_minutes": _int(request.subject.get("prepMinutes") or request.subject.get("prep_minutes"), 20, minimum=5, maximum=240),
-        "difficulty": request.subject.get("difficulty") if request.subject.get("difficulty") in DIFFICULTIES else Difficulty.EASY.value,
-        "ingredient_items": fallback_ingredients,
-        "steps": steps,
-        "tips": "这是一份可继续编辑的 AI 草稿，保存前建议按家庭口味微调用量、火候和调味。",
-        "scene_tags": scene_tags[:6],
-        "media_ids": [],
-    }
+    return steps[:8]
 
 
 def normalize_recipe_draft(raw_text: str, context: AgentContext, request: AgentRunRequest) -> dict[str, Any] | None:
@@ -464,21 +443,25 @@ def normalize_recipe_draft(raw_text: str, context: AgentContext, request: AgentR
     if payload is None:
         return None
 
-    fallback = build_fallback_recipe_draft(context, request)
     difficulty = payload.get("difficulty")
+    subject_names = _draft_subject_names(context, request)
+    default_title = _string(request.subject.get("title")) or (f"{subject_names[0]}家常菜" if subject_names else "")
+    default_scene_tags = _subject_list(request, "sceneTags") or _subject_list(request, "scene_tags")
+    ingredient_items = _normalize_ingredient_items(payload.get("ingredient_items"), context, request)
+    steps = _normalize_steps(payload.get("steps"), context, request)
+    if not _string(payload.get("title"), default_title) or not ingredient_items or len(steps) < QUALITY_MIN_STEP_COUNT:
+        return None
     draft = {
-        "title": _string(payload.get("title"), fallback["title"]),
-        "servings": _int(payload.get("servings"), fallback["servings"], minimum=1, maximum=12),
-        "prep_minutes": _int(payload.get("prep_minutes"), fallback["prep_minutes"], minimum=5, maximum=240),
-        "difficulty": difficulty if difficulty in DIFFICULTIES else fallback["difficulty"],
-        "ingredient_items": _normalize_ingredient_items(payload.get("ingredient_items"), context, request),
-        "steps": _normalize_steps(payload.get("steps"), context, request) or fallback["steps"],
-        "tips": _string(payload.get("tips"), fallback["tips"]),
-        "scene_tags": _list_of_strings(payload.get("scene_tags"), maximum=6) or fallback["scene_tags"],
+        "title": _string(payload.get("title"), default_title),
+        "servings": _int(payload.get("servings"), request.subject.get("servings") or 2, minimum=1, maximum=12),
+        "prep_minutes": _int(payload.get("prep_minutes"), request.subject.get("prepMinutes") or request.subject.get("prep_minutes") or 20, minimum=5, maximum=240),
+        "difficulty": difficulty if difficulty in DIFFICULTIES else request.subject.get("difficulty") if request.subject.get("difficulty") in DIFFICULTIES else Difficulty.EASY.value,
+        "ingredient_items": ingredient_items,
+        "steps": steps,
+        "tips": _string(payload.get("tips"), "保存前建议按家庭口味微调用量、火候和调味。"),
+        "scene_tags": _list_of_strings(payload.get("scene_tags"), maximum=6) or default_scene_tags[:6],
         "media_ids": [],
     }
-    if len(draft["steps"]) < QUALITY_MIN_STEP_COUNT:
-        draft["steps"] = fallback["steps"]
     return draft
 
 

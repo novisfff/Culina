@@ -12,6 +12,8 @@ import {
   getRecipeDraftGenerationButtonLabel,
   getRecipeDraftGenerationStepState,
   getRecipeShoppingRequirement,
+  hasRecipeDraftMinimumInput,
+  isAiGeneratedRecipeDraft,
   sanitizeCookSession,
   type RecipeDraftIngredient,
   type RecipeFormState,
@@ -191,6 +193,46 @@ describe('recipe workspace payload helpers', () => {
       { ingredient_id: tomato.id, ingredient_name: '番茄', quantity: 2, unit: '个', note: '切块' },
       { ingredient_id: '', ingredient_name: '葱花', quantity: 1, unit: '撮', note: '可选：出锅点缀' },
     ]);
+  });
+
+  it('validates AI recipe draft shape before filling the editor', () => {
+    expect(
+      isAiGeneratedRecipeDraft({
+        title: '番茄炖蛋',
+        servings: 2,
+        prep_minutes: 18,
+        difficulty: 'easy',
+        ingredient_items: [{ ingredient_id: tomato.id, ingredient_name: '番茄', quantity: 2, unit: '个', note: '切块' }],
+        steps: [{ title: '备菜', text: '洗净切块', icon: 'tomato', summary: '处理', estimated_minutes: 5, tip: '切均匀', key_points: ['切块'] }],
+        tips: '少油',
+        scene_tags: ['晚餐'],
+        media_ids: [],
+      })
+    ).toBe(true);
+    expect(isAiGeneratedRecipeDraft({ title: '旧结构', ingredient_items: [], steps: ['洗净切块'] })).toBe(false);
+    expect(
+      isAiGeneratedRecipeDraft({
+        title: '缺字段',
+        servings: 2,
+        prep_minutes: 18,
+        difficulty: 'easy',
+        ingredient_items: [],
+        steps: [],
+      })
+    ).toBe(false);
+  });
+
+  it('requires a title, ingredient, or prompt before requesting an AI recipe draft', () => {
+    expect(hasRecipeDraftMinimumInput(recipeForm({ title: '番茄炒蛋' }), [], '')).toBe(true);
+    expect(hasRecipeDraftMinimumInput(recipeForm(), [{ id: 'row-1', ingredient_id: tomato.id, ingredient_name: '', quantity: 1, unit: '个', note: '' }], '')).toBe(true);
+    expect(hasRecipeDraftMinimumInput(recipeForm(), [], ' 清淡少油 ')).toBe(true);
+    expect(
+      hasRecipeDraftMinimumInput(
+        recipeForm({ title: '', tips: '' }),
+        [{ id: 'row-1', ingredient_id: '', ingredient_name: ' ', quantity: 1, unit: '个', note: '' }],
+        ''
+      )
+    ).toBe(false);
   });
 
   it('returns clear AI recipe generation button labels for each stage', () => {

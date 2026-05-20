@@ -663,9 +663,9 @@ class GenerateRecipeDraftRequest(BaseModel):
 
 
 class GenerateRecipeDraftResponse(BaseModel):
-    draft: AIRecipeDraftOut
+    draft: AIRecipeDraftOut | None = None
     agent_run_id: str
-    status: Literal["completed", "fallback", "failed"]
+    status: Literal["completed", "failed"]
     error: str | None = None
     image_render_payload: dict | None = None
 

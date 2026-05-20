@@ -50,7 +50,7 @@ TOOLS: dict[str, ToolHandler] = {
 
 def select_tool_names(request: AgentRunRequest) -> list[str]:
     if request.response_format == "recipe_draft":
-        return ["inventory_snapshot", "ingredient_details"]
+        return ["ingredient_details"]
     if request.mode == AiMode.FOOD_QA:
         return ["inventory_snapshot", "recent_meals", "food_details"]
     if request.mode == AiMode.INVENTORY_QA:
@@ -58,7 +58,7 @@ def select_tool_names(request: AgentRunRequest) -> list[str]:
     if request.mode == AiMode.RECOMMENDATION:
         return ["inventory_snapshot", "recent_meals", "recommendation_candidates"]
     if request.mode == AiMode.RECIPE_DRAFT:
-        return ["inventory_snapshot", "ingredient_details"]
+        return ["ingredient_details"]
     return ["inventory_snapshot", "recent_meals"]
 
 

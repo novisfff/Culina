@@ -44,26 +44,36 @@ def load_agent_context(
     family_id: str,
     mode: AiMode | None,
     subject: dict[str, Any],
+    include_inventory: bool = True,
+    include_meal_logs: bool = True,
 ) -> AgentContext:
     food_id = _subject_value(subject, "foodId", "food_id")
     ingredient_ids = list(_subject_value(subject, "ingredientIds", "ingredient_ids", []) or [])
 
     family = db.scalar(select(Family).where(Family.id == family_id))
-    inventory_items = list(
-        db.scalars(
-            select(InventoryItem)
-            .where(InventoryItem.family_id == family_id)
-            .options(selectinload(InventoryItem.ingredient))
+    inventory_items = (
+        list(
+            db.scalars(
+                select(InventoryItem)
+                .where(InventoryItem.family_id == family_id)
+                .options(selectinload(InventoryItem.ingredient))
+            )
         )
+        if include_inventory
+        else []
     )
-    meal_logs = list(
-        db.scalars(
-            select(MealLog)
-            .where(MealLog.family_id == family_id)
-            .options(selectinload(MealLog.food_entries).selectinload(MealLogFood.food))
-            .order_by(MealLog.date.desc(), MealLog.created_at.desc())
-            .limit(5)
+    meal_logs = (
+        list(
+            db.scalars(
+                select(MealLog)
+                .where(MealLog.family_id == family_id)
+                .options(selectinload(MealLog.food_entries).selectinload(MealLogFood.food))
+                .order_by(MealLog.date.desc(), MealLog.created_at.desc())
+                .limit(5)
+            )
         )
+        if include_meal_logs
+        else []
     )
     food = (
         db.scalar(

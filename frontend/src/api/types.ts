@@ -436,23 +436,6 @@ export interface AiConversation {
   context: Record<string, unknown>;
 }
 
-export interface AiRecipeDraft {
-  title: string;
-  servings: number;
-  prep_minutes: number;
-  difficulty: Difficulty;
-  ingredient_items: Array<{
-    ingredient_id?: string | null;
-    ingredient_name: string;
-    quantity: number;
-    unit: string;
-    note: string;
-  }>;
-  steps: string[];
-  tips: string;
-  scene_tags: string[];
-}
-
 export interface AiGeneratedRecipeDraft extends RecipePayload {}
 
 export interface GenerateRecipeDraftPayload {
@@ -503,9 +486,9 @@ export interface CreateAiRenderRequest {
 export type AiRecipeImageRenderPayload = Omit<CreateAiRenderRequest, 'mode' | 'reference_media_id'>;
 
 export interface GenerateRecipeDraftResponse {
-  draft: AiGeneratedRecipeDraft;
+  draft?: AiGeneratedRecipeDraft | null;
   agent_run_id: string;
-  status: 'completed' | 'fallback' | 'failed';
+  status: 'completed' | 'failed';
   error?: string | null;
   image_render_payload?: AiRecipeImageRenderPayload | null;
 }

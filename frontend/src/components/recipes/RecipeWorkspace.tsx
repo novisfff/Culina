@@ -1068,10 +1068,52 @@ function buildShoppingRequirementLabel(requirement: RecipeShoppingRequirement) {
   return requirement === 'optional' ? '可选' : '必须';
 }
 
-function isAiGeneratedRecipeDraft(value: unknown): value is AiGeneratedRecipeDraft {
+function isStringArray(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every((item) => typeof item === 'string');
+}
+
+function isAiRecipeDraftIngredient(value: unknown): value is AiGeneratedRecipeDraft['ingredient_items'][number] {
+  if (!value || typeof value !== 'object') return false;
+  const item = value as Partial<AiGeneratedRecipeDraft['ingredient_items'][number]>;
+  return (
+    (typeof item.ingredient_id === 'string' || item.ingredient_id === null || item.ingredient_id === undefined) &&
+    typeof item.ingredient_name === 'string' &&
+    typeof item.quantity === 'number' &&
+    Number.isFinite(item.quantity) &&
+    typeof item.unit === 'string' &&
+    typeof item.note === 'string'
+  );
+}
+
+function isAiRecipeDraftStep(value: unknown): value is AiGeneratedRecipeDraft['steps'][number] {
+  if (!value || typeof value !== 'object') return false;
+  const step = value as Partial<AiGeneratedRecipeDraft['steps'][number]>;
+  return (
+    typeof step.title === 'string' &&
+    typeof step.text === 'string' &&
+    (typeof step.icon === 'string' || step.icon === undefined) &&
+    (typeof step.summary === 'string' || step.summary === undefined) &&
+    (typeof step.estimated_minutes === 'number' || step.estimated_minutes === null || step.estimated_minutes === undefined) &&
+    (typeof step.tip === 'string' || step.tip === undefined) &&
+    (isStringArray(step.key_points) || step.key_points === undefined)
+  );
+}
+
+export function isAiGeneratedRecipeDraft(value: unknown): value is AiGeneratedRecipeDraft {
   if (!value || typeof value !== 'object') return false;
   const draft = value as Partial<AiGeneratedRecipeDraft>;
-  return typeof draft.title === 'string' && Array.isArray(draft.ingredient_items) && Array.isArray(draft.steps);
+  return (
+    typeof draft.title === 'string' &&
+    typeof draft.servings === 'number' &&
+    typeof draft.prep_minutes === 'number' &&
+    typeof draft.difficulty === 'string' &&
+    Array.isArray(draft.ingredient_items) &&
+    draft.ingredient_items.every(isAiRecipeDraftIngredient) &&
+    Array.isArray(draft.steps) &&
+    draft.steps.every(isAiRecipeDraftStep) &&
+    typeof draft.tips === 'string' &&
+    isStringArray(draft.scene_tags)
+  );
 }
 
 export function buildRecipeFormFromGeneratedDraft(
@@ -1113,6 +1155,14 @@ export function buildRecipeFormFromGeneratedDraft(
           }))
         : defaultIngredientRows(),
   };
+}
+
+export function hasRecipeDraftMinimumInput(form: RecipeFormState, rows: RecipeDraftIngredient[], prompt: string) {
+  return (
+    Boolean(form.title.trim()) ||
+    Boolean(prompt.trim()) ||
+    rows.some((item) => Boolean(item.ingredient_id || item.ingredient_name.trim()))
+  );
 }
 
 function mapRecipeIdsToCards(recipeIds: string[] | undefined, cardByRecipeId: Map<string, RecipeCardViewModel>) {
@@ -2226,6 +2276,11 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
   async function generateRecipeDraftFromAi() {
     clearRecipeDraftStageTimer();
     clearRecipeDraftDialogCloseTimer();
+    if (!hasRecipeDraftMinimumInput(form, ingredientRows, recipeDraftAiForm.prompt)) {
+      setRecipeDraftGenerationStage('error');
+      setRecipeDraftError('请先填写菜名、添加至少一个食材，或写一句补充说明。');
+      return;
+    }
     setRecipeDraftGenerationStage('drafting');
     setRecipeDraftError(null);
     try {
@@ -2252,8 +2307,8 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
           setForm((current) => ({ ...current, images: { ...current.images, generatedAsset: images.generatedAsset } }));
           setRecipeImageState(IDLE_IMAGE_GENERATION_STATE);
           showRecipeNotice({
-            tone: response.status === 'fallback' ? 'warning' : 'success',
-            title: response.status === 'fallback' ? '已生成兜底草稿' : 'AI 菜谱已填入',
+            tone: 'success',
+            title: 'AI 菜谱已填入',
             message: '已补全基础信息、原料、步骤和技巧，可继续编辑后保存。',
           });
         } catch (reason) {
@@ -2267,8 +2322,8 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
         }
       } else {
         showRecipeNotice({
-          tone: response.status === 'fallback' ? 'warning' : 'success',
-          title: response.status === 'fallback' ? '已生成兜底草稿' : 'AI 菜谱已填入',
+          tone: 'success',
+          title: 'AI 菜谱已填入',
           message: '已补全基础信息、原料、步骤和技巧，可继续编辑后保存。',
         });
       }

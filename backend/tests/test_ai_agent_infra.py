@@ -224,7 +224,7 @@ class AIAgentInfraTestCase(unittest.TestCase):
                 if payload["mode"] == "recommendation":
                     self.assertIsNotNone(data["recommendation"])
 
-    def test_recipe_draft_api_returns_failed_and_records_run_when_provider_disabled(self) -> None:
+    def test_recipe_draft_api_returns_failed_without_fallback_draft_when_provider_disabled(self) -> None:
         response = self.client.post(
             "/api/ai/recipes/draft",
             json={
@@ -238,22 +238,21 @@ class AIAgentInfraTestCase(unittest.TestCase):
         self.assertEqual(response.status_code, 200, response.text)
         data = response.json()
         self.assertEqual(data["status"], "failed")
+        self.assertIsNone(data["draft"])
         self.assertIsNone(data["image_render_payload"])
-        self.assertEqual(data["draft"]["ingredient_items"][0]["ingredient_id"], "ingredient-tomato")
-        self.assertGreaterEqual(len(data["draft"]["steps"]), 4)
-        for step in data["draft"]["steps"]:
-            self.assertTrue(step["title"])
-            self.assertTrue(step["text"])
-            self.assertTrue(step["summary"])
-            self.assertIsNotNone(step["estimated_minutes"])
-            self.assertTrue(step["tip"])
-            self.assertTrue(step["key_points"])
         with self.SessionLocal() as db:
             run = db.scalar(select(AIAgentRun).where(AIAgentRun.id == data["agent_run_id"]))
             self.assertIsNotNone(run)
             assert run is not None
             self.assertEqual(run.feature_key, "aiRecipeDraft")
             self.assertEqual(run.status, "failed")
+            self.assertEqual(run.input["context"]["inventoryItemCount"], 0)
+            self.assertEqual(run.input["context"]["mealLogCount"], 0)
+
+    def test_recipe_draft_api_requires_minimum_input(self) -> None:
+        response = self.client.post("/api/ai/recipes/draft", json={})
+        self.assertEqual(response.status_code, 400, response.text)
+        self.assertIn("菜名", response.json()["detail"])
 
     def test_recipe_draft_runner_preserves_family_scoped_ingredients_from_valid_json(self) -> None:
         provider = FakeChatProvider(
@@ -382,7 +381,7 @@ class AIAgentInfraTestCase(unittest.TestCase):
         self.assertEqual(draft["title"], "清炒番茄")
         self.assertGreaterEqual(len(draft["steps"]), 4)
 
-    def test_recipe_draft_runner_falls_back_on_invalid_json(self) -> None:
+    def test_recipe_draft_runner_fails_without_fallback_on_invalid_json(self) -> None:
         with self.SessionLocal() as db:
             result = CulinaAgentService(db, provider=FakeChatProvider("不是 JSON")).run(
                 AgentRunRequest(
@@ -396,7 +395,7 @@ class AIAgentInfraTestCase(unittest.TestCase):
                 )
             )
         self.assertEqual(result.status, "failed")
-        self.assertEqual(result.data["recipeDraft"]["ingredient_items"][0]["ingredient_id"], "ingredient-tomato")
+        self.assertIsNone(result.data["recipeDraft"])
         self.assertEqual(result.error, "model returned invalid recipe draft JSON")
         self.assertIsNone(result.data["imageRenderPayload"])
 

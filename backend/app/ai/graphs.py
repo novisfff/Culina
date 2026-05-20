@@ -8,7 +8,6 @@ from sqlalchemy.orm import Session
 from app.ai.context import load_agent_context
 from app.ai.provider import BaseChatProvider
 from app.ai.recipe_drafts import (
-    build_fallback_recipe_draft,
     build_recipe_draft_messages,
     build_recipe_image_render_payload,
     normalize_recipe_draft,
@@ -69,7 +68,15 @@ def _fallback_text(state: AgentState) -> str:
 def build_kitchen_assistant_graph(db: Session, provider: BaseChatProvider):
     def load_context_node(state: AgentState) -> AgentState:
         request = state["request"]
-        context = load_agent_context(db, family_id=request.family_id, mode=request.mode, subject=request.subject)
+        is_recipe_draft = request.response_format == "recipe_draft" or request.mode == AiMode.RECIPE_DRAFT
+        context = load_agent_context(
+            db,
+            family_id=request.family_id,
+            mode=request.mode,
+            subject=request.subject,
+            include_inventory=not is_recipe_draft,
+            include_meal_logs=not is_recipe_draft,
+        )
         recommendation_model = None
         if request.mode == AiMode.RECOMMENDATION:
             recommendation_model = legacy_ai._pick_recommendation(
@@ -108,14 +115,13 @@ def build_kitchen_assistant_graph(db: Session, provider: BaseChatProvider):
             if text and status == "completed":
                 recipe_draft = normalize_recipe_draft(text, state["context"], request)
                 if recipe_draft is None:
-                    recipe_draft = build_fallback_recipe_draft(state["context"], request)
                     status = "failed"
                     error = error or "model returned invalid recipe draft JSON"
                     image_render_payload = None
                 else:
                     image_render_payload = build_recipe_image_render_payload(recipe_draft)
             else:
-                recipe_draft = build_fallback_recipe_draft(state["context"], request)
+                recipe_draft = None
                 status = "failed"
                 error = error or "AI recipe draft provider is unavailable"
                 image_render_payload = None

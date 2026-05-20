@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -56,6 +56,17 @@ def generate_recipe_draft(
     auth: tuple = Depends(get_current_auth),
     db: Session = Depends(get_db),
 ) -> dict:
+    has_minimum_input = bool(
+        payload.title.strip()
+        or payload.prompt.strip()
+        or payload.ingredient_ids
+        or any(item.strip() for item in payload.extra_ingredients)
+    )
+    if not has_minimum_input:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="请先填写菜名、添加至少一个食材，或写一句补充说明。",
+        )
     user, membership = auth
     result = CulinaAgentService(db).run(
         AgentRunRequest(
