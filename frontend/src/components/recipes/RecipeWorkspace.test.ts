@@ -3,11 +3,14 @@ import type { Ingredient } from '../../api/types';
 import {
   buildCookPayload,
   buildCustomShoppingDraft,
+  buildRecipeFormFromGeneratedDraft,
   buildRecipePayload,
   buildRecipeShortageShoppingPayloads,
   buildShoppingDraftFromRecipeIngredient,
   buildShoppingDraftsFromShortages,
   buildShoppingPayloadsFromDrafts,
+  getRecipeDraftGenerationButtonLabel,
+  getRecipeDraftGenerationStepState,
   getRecipeShoppingRequirement,
   sanitizeCookSession,
   type RecipeDraftIngredient,
@@ -139,6 +142,70 @@ describe('recipe workspace payload helpers', () => {
 
     expect(payload.ingredient_items).toEqual([{ ingredient_id: null, ingredient_name: '葱花', quantity: 0.5, unit: '个', note: '可选' }]);
     expect(payload.media_ids).toEqual([]);
+  });
+
+  it('maps generated AI recipe drafts into editable form state', () => {
+    const result = buildRecipeFormFromGeneratedDraft(
+      {
+        title: '番茄炖蛋',
+        servings: 3,
+        prep_minutes: 18,
+        difficulty: 'medium',
+        ingredient_items: [
+          { ingredient_id: tomato.id, ingredient_name: '番茄', quantity: 2, unit: '个', note: '切块' },
+          { ingredient_id: null, ingredient_name: '葱花', quantity: 1, unit: '撮', note: '可选：出锅点缀' },
+        ],
+        steps: [
+          {
+            title: '备菜',
+            text: '番茄洗净切块，鸡蛋打散。',
+            icon: 'tomato',
+            summary: '处理食材',
+            estimated_minutes: 5,
+            tip: '番茄切均匀。',
+            key_points: ['切块一致', '蛋液打散'],
+          },
+        ],
+        tips: '少油少盐，适合晚餐。',
+        scene_tags: ['晚餐', '清淡'],
+        media_ids: [],
+      },
+      recipeForm({ images: {} })
+    );
+
+    expect(result.form).toMatchObject({
+      title: '番茄炖蛋',
+      servings: '3',
+      prepMinutes: '18',
+      difficulty: 'medium',
+      tips: '少油少盐，适合晚餐。',
+      sceneTags: '晚餐、清淡',
+    });
+    expect(result.form.steps[0]).toMatchObject({
+      title: '备菜',
+      icon: 'tomato',
+      estimatedMinutes: '5',
+      keyPoints: '切块一致\n蛋液打散',
+    });
+    expect(result.ingredients).toMatchObject([
+      { ingredient_id: tomato.id, ingredient_name: '番茄', quantity: 2, unit: '个', note: '切块' },
+      { ingredient_id: '', ingredient_name: '葱花', quantity: 1, unit: '撮', note: '可选：出锅点缀' },
+    ]);
+  });
+
+  it('returns clear AI recipe generation button labels for each stage', () => {
+    expect(getRecipeDraftGenerationButtonLabel('idle')).toBe('AI 补全菜谱');
+    expect(getRecipeDraftGenerationButtonLabel('drafting')).toBe('正在生成菜谱');
+    expect(getRecipeDraftGenerationButtonLabel('imaging')).toBe('正在生成封面');
+    expect(getRecipeDraftGenerationButtonLabel('done')).toBe('已填入表单');
+    expect(getRecipeDraftGenerationButtonLabel('error')).toBe('重新生成');
+  });
+
+  it('keeps recipe generation progress on the failed drafting step', () => {
+    expect(getRecipeDraftGenerationStepState('error', 0)).toBe('completed');
+    expect(getRecipeDraftGenerationStepState('error', 1)).toBe('error');
+    expect(getRecipeDraftGenerationStepState('error', 2)).toBe('pending');
+    expect(getRecipeDraftGenerationStepState('done', 3)).toBe('completed');
   });
 
   it('builds cook payloads for plan-linked cook logs and empty optional rating', () => {

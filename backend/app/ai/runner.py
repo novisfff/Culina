@@ -30,6 +30,7 @@ class CulinaAgentService:
         tool_calls = state.get("tool_calls", [])
         context = state.get("context")
         recipe_draft = state.get("recipe_draft")
+        data = state.get("data") or {"recipeDraft": recipe_draft}
         recommendation_model = state.get("recommendation_model")
 
         run = AIAgentRun(
@@ -46,7 +47,7 @@ class CulinaAgentService:
                 "responseFormat": request.response_format,
                 "context": context.to_record() if context else {},
             },
-            output={"text": text, "data": {"recipeDraft": recipe_draft}},
+            output={"text": text, "data": data},
             tool_calls=[item.to_record() for item in tool_calls],
             error=error,
             duration_ms=duration_ms,
@@ -81,7 +82,7 @@ class CulinaAgentService:
 
         return AgentRunResult(
             text=text,
-            data={"recipeDraft": recipe_draft},
+            data=data,
             conversation=conversation,
             recommendation=serialize_ai_recommendation(recommendation_model) if recommendation_model else None,
             run_id=run.id,

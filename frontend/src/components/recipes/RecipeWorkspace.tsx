@@ -1,14 +1,15 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent } from 'react';
 import { API_BASE_URL } from '../../api/client';
 import type {
-  AiQueryResponse,
-  AiRecipeDraft,
+  AiGeneratedRecipeDraft,
   CookRecipePreviewResponse,
   CookRecipeRequest,
   CookRecipeResponse,
   CreateRecipePayload,
   Difficulty,
   Food,
+  GenerateRecipeDraftPayload,
+  GenerateRecipeDraftResponse,
   ImageInputValue,
   Ingredient,
   InventoryItem,
@@ -55,7 +56,7 @@ import {
   type RecipeWorkspaceView,
 } from './workspaceModel';
 
-export type RecipeDraftIngredient = RecipeIngredient;
+export type RecipeDraftIngredient = Omit<RecipeIngredient, 'quantity'> & { quantity: number | string };
 
 type RecipeStepDraft = {
   id: string;
@@ -72,7 +73,7 @@ export type RecipeFormState = {
   title: string;
   servings: string;
   prepMinutes: string;
-  difficulty: Difficulty;
+  difficulty: Difficulty | '';
   steps: RecipeStepDraft[];
   tips: string;
   sceneTags: string;
@@ -106,9 +107,10 @@ type ImageGenerationUiState = {
   errorMessage: string | null;
 };
 
+export type RecipeDraftGenerationStage = 'idle' | 'drafting' | 'imaging' | 'done' | 'error';
+
 type RecipeDraftAiFormState = {
   prompt: string;
-  ingredientIds: string[];
 };
 
 type RecipeSceneFormMode = 'create' | 'edit' | null;
@@ -184,7 +186,7 @@ type RecipeWorkspaceProps = {
   deleteRecipe: (recipeId: string) => Promise<void>;
   cookRecipe: (recipeId: string, payload: CookRecipeRequest) => Promise<CookRecipeResponse>;
   previewCookRecipe: (recipeId: string, payload: CookRecipeRequest) => Promise<CookRecipePreviewResponse>;
-  queryAi: (payload: { mode: 'recipeDraft'; prompt: string; ingredient_ids: string[] }) => Promise<AiQueryResponse>;
+  generateRecipeDraft: (payload: GenerateRecipeDraftPayload) => Promise<GenerateRecipeDraftResponse>;
   createShoppingItem: (payload: { title: string; quantity: number; unit: string; reason: string }) => Promise<ShoppingListItem>;
   addRecipeFavorite: (recipeId: string) => Promise<RecipeFavorite>;
   removeRecipeFavorite: (recipeId: string) => Promise<void>;
@@ -350,8 +352,8 @@ function defaultRecipeForm(): RecipeFormState {
   return {
     title: '',
     servings: '2',
-    prepMinutes: '20',
-    difficulty: 'easy',
+    prepMinutes: '',
+    difficulty: '',
     steps: [createEmptyRecipeStepDraft('step-1')],
     tips: '',
     sceneTags: '',
@@ -361,7 +363,89 @@ function defaultRecipeForm(): RecipeFormState {
 }
 
 function defaultIngredientRows(): RecipeDraftIngredient[] {
-  return [{ id: 'draft-1', ingredient_name: '', ingredient_id: '', quantity: 1, unit: '个', note: '' }];
+  return [{ id: 'draft-1', ingredient_name: '', ingredient_id: '', quantity: '', unit: '个', note: '' }];
+}
+
+function defaultRecipeDraftAiForm(): RecipeDraftAiFormState {
+  return {
+    prompt: '',
+  };
+}
+
+export function getRecipeDraftGenerationButtonLabel(stage: RecipeDraftGenerationStage) {
+  switch (stage) {
+    case 'drafting':
+      return '正在生成菜谱';
+    case 'imaging':
+      return '正在生成封面';
+    case 'done':
+      return '已填入表单';
+    case 'error':
+      return '重新生成';
+    default:
+      return 'AI 补全菜谱';
+  }
+}
+
+function getRecipeDraftGenerationActionLabel(stage: RecipeDraftGenerationStage) {
+  switch (stage) {
+    case 'drafting':
+      return '正在生成菜谱';
+    case 'imaging':
+      return '正在生成封面';
+    case 'done':
+      return '已填入表单';
+    case 'error':
+      return '重试生成';
+    default:
+      return '确定并填入';
+  }
+}
+
+function getRecipeDraftGenerationStatusCopy(stage: RecipeDraftGenerationStage) {
+  switch (stage) {
+    case 'drafting':
+      return {
+        title: '正在生成菜谱结构',
+        description: '会补全原料、步骤、技巧和标签。',
+      };
+    case 'imaging':
+      return {
+        title: '菜谱已生成，正在生成封面',
+        description: '图片失败不会影响文本草稿。',
+      };
+    case 'done':
+      return {
+        title: '已填入表单',
+        description: '可以继续调整后保存。',
+      };
+    case 'error':
+      return {
+        title: '生成失败',
+        description: '可以修改说明后重试。',
+      };
+    default:
+      return {
+        title: '',
+        description: '',
+      };
+  }
+}
+
+export function getRecipeDraftGenerationStepState(stage: RecipeDraftGenerationStage, index: number) {
+  const activeIndexByStage: Record<RecipeDraftGenerationStage, number> = {
+    idle: -1,
+    drafting: 1,
+    imaging: 2,
+    done: 3,
+    error: 1,
+  };
+  const activeIndex = activeIndexByStage[stage];
+  if (stage === 'done') return 'completed';
+  if (stage === 'error' && index === activeIndex) return 'error';
+  if (index < activeIndex) return 'completed';
+  if (index === activeIndex) return 'active';
+  return 'pending';
 }
 
 function buildFormFromRecipe(recipe: Recipe): { form: RecipeFormState; ingredients: RecipeDraftIngredient[] } {
@@ -424,6 +508,15 @@ function extractReferenceAsset(reason: unknown): ImageInputValue['referenceAsset
 
 function getRecipeMediaIds(images: ImageInputValue) {
   return images.generatedAsset ? [images.generatedAsset.id] : [];
+}
+
+function parsePositiveNumber(value: number | string, fallback: number) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function resolveRecipeDifficulty(value: RecipeFormState['difficulty']): Difficulty {
+  return value || 'easy';
 }
 
 type RecipeUiIconName =
@@ -708,8 +801,8 @@ export function buildRecipePayload(form: RecipeFormState, rows: RecipeDraftIngre
   return {
     title: form.title.trim(),
     servings: Number(form.servings),
-    prep_minutes: Number(form.prepMinutes),
-    difficulty: form.difficulty,
+    prep_minutes: parsePositiveNumber(form.prepMinutes, 20),
+    difficulty: resolveRecipeDifficulty(form.difficulty),
     ingredient_items: rows
       .filter((item) => item.ingredient_id || item.ingredient_name.trim())
       .map((item) => {
@@ -717,7 +810,7 @@ export function buildRecipePayload(form: RecipeFormState, rows: RecipeDraftIngre
         return {
           ingredient_id: item.ingredient_id || null,
           ingredient_name: ingredient?.name ?? item.ingredient_name.trim(),
-          quantity: Number(item.quantity),
+          quantity: parsePositiveNumber(item.quantity, 1),
           unit: item.unit.trim() || ingredient?.default_unit || '个',
           note: item.note.trim(),
         };
@@ -975,10 +1068,51 @@ function buildShoppingRequirementLabel(requirement: RecipeShoppingRequirement) {
   return requirement === 'optional' ? '可选' : '必须';
 }
 
-function isAiRecipeDraft(value: unknown): value is AiRecipeDraft {
+function isAiGeneratedRecipeDraft(value: unknown): value is AiGeneratedRecipeDraft {
   if (!value || typeof value !== 'object') return false;
-  const draft = value as Partial<AiRecipeDraft>;
+  const draft = value as Partial<AiGeneratedRecipeDraft>;
   return typeof draft.title === 'string' && Array.isArray(draft.ingredient_items) && Array.isArray(draft.steps);
+}
+
+export function buildRecipeFormFromGeneratedDraft(
+  draft: AiGeneratedRecipeDraft,
+  currentForm: RecipeFormState = defaultRecipeForm()
+): { form: RecipeFormState; ingredients: RecipeDraftIngredient[] } {
+  return {
+    form: {
+      ...currentForm,
+      title: draft.title,
+      servings: String(draft.servings || 2),
+      prepMinutes: String(draft.prep_minutes || 20),
+      difficulty: draft.difficulty || 'easy',
+      steps:
+        draft.steps.length > 0
+          ? draft.steps.map((step) => ({
+              id: newDraftId('step'),
+              title: step.title || '',
+              text: step.text || '',
+              icon: step.icon || 'pan',
+              summary: step.summary || '',
+              estimatedMinutes: step.estimated_minutes ? String(step.estimated_minutes) : '',
+              tip: step.tip || '',
+              keyPoints: (step.key_points ?? []).join('\n'),
+            }))
+          : currentForm.steps,
+      tips: draft.tips,
+      sceneTags: draft.scene_tags.join('、'),
+    },
+    ingredients:
+      draft.ingredient_items.length > 0
+        ? draft.ingredient_items.map((item) => ({
+            id: newDraftId('ingredient'),
+            ingredient_id: item.ingredient_id ?? '',
+            ingredient_name: item.ingredient_name,
+            quantity: item.quantity,
+            unit: item.unit,
+            note: item.note,
+          }))
+        : defaultIngredientRows(),
+  };
 }
 
 function mapRecipeIdsToCards(recipeIds: string[] | undefined, cardByRecipeId: Map<string, RecipeCardViewModel>) {
@@ -995,10 +1129,9 @@ function buildRecipeImagePayload(form: RecipeFormState, rows: RecipeDraftIngredi
     size: '1792*1008',
     notes: [
       form.tips.trim(),
-      '这张图专门用于做菜页面顶部横向 banner，生成 16:9 宽幅主图，界面会裁切成约 6:1 的长横幅。',
-      '画面左侧 55% 保持奶油白或浅暖色干净留白，不放主体、不放文字、不放餐具高光，方便叠放返回、标题和菜谱信息。',
-      '成菜或关键食材集中在右侧 35%，靠近右下区域，边缘轻微虚化，整体接近参考图那种浅色、通透、温暖的 banner 背景。',
-      '画面必须呈现这份菜谱做完后的成菜状态，保持家庭厨房静物摄影风格，避免卡片封面式居中构图。',
+      '画面必须呈现这份菜谱做完后的成菜状态，主菜清晰自然，周围有真实餐桌、浅色餐具或少量相关食材，不能出现大片空白。',
+      '构图保持自然均衡，主体不要压到边缘，画面中要有可看的食物或厨房环境细节。',
+      '保持家庭厨房静物摄影风格，浅色、通透、温暖，避免僵硬居中构图和商业广告摆拍。',
     ]
       .filter(Boolean)
       .join('\n'),
@@ -1053,6 +1186,8 @@ function RecipeCard(props: {
   onEdit: () => void;
   onCook: () => void;
   onShopping: () => void;
+  onDelete: () => void;
+  isDeleting?: boolean;
 }) {
   return (
     <article className={`recipe-work-card tone-${props.card.availability}`}>
@@ -1091,6 +1226,9 @@ function RecipeCard(props: {
           </ActionButton>
           <ActionButton tone="tertiary" size="compact" type="button" onClick={props.onEdit}>
             编辑
+          </ActionButton>
+          <ActionButton tone="tertiary" size="compact" type="button" onClick={props.onDelete} disabled={props.isDeleting}>
+            删除
           </ActionButton>
         </div>
       </div>
@@ -1226,6 +1364,9 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
   const discoverySectionRef = useRef<HTMLElement | null>(null);
   const planSectionRef = useRef<HTMLElement | null>(null);
   const recipeNoticeTimerRef = useRef<number | null>(null);
+  const recipeDraftStageTimerRef = useRef<number | null>(null);
+  const recipeDraftDialogCloseTimerRef = useRef<number | null>(null);
+  const recipeAiAppliedTimerRef = useRef<number | null>(null);
   const previewCookRecipeRef = useRef(props.previewCookRecipe);
   const [categoryScrollState, setCategoryScrollState] = useState({ canLeft: false, canRight: false });
   const [discoveryScrollState, setDiscoveryScrollState] = useState({ canLeft: false, canRight: false });
@@ -1246,6 +1387,13 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
   const [isPlanDialogOpen, setIsPlanDialogOpen] = useState(false);
   const [planRecipeSearch, setPlanRecipeSearch] = useState('');
   const [isPlanRecipePickerOpen, setIsPlanRecipePickerOpen] = useState(false);
+  const [expandedPlanDates, setExpandedPlanDates] = useState<Set<string>>(() => new Set([todayKey()]));
+  const [planDetailItemId, setPlanDetailItemId] = useState<string | null>(null);
+  const [planDetailForm, setPlanDetailForm] = useState<{ planDate: string; mealType: MealType; note: string }>(() => ({
+    planDate: '',
+    mealType: 'dinner',
+    note: '',
+  }));
   const [cookCard, setCookCard] = useState<RecipeCardViewModel | null>(null);
   const [cookPreview, setCookPreview] = useState<CookRecipePreviewResponse | null>(null);
   const [cookPreviewError, setCookPreviewError] = useState<string | null>(null);
@@ -1261,12 +1409,14 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
   const [shoppingCustomForm, setShoppingCustomForm] = useState<RecipeShoppingCustomForm>(() => ({ title: '', quantity: '1', unit: '个' }));
   const [isShoppingIngredientPickerOpen, setIsShoppingIngredientPickerOpen] = useState(false);
   const [recipeNotice, setRecipeNotice] = useState<RecipeNotice | null>(null);
-  const [recipeDraftAiForm, setRecipeDraftAiForm] = useState<RecipeDraftAiFormState>(() => ({ prompt: '', ingredientIds: [] }));
+  const [recipeDraftAiForm, setRecipeDraftAiForm] = useState<RecipeDraftAiFormState>(() => defaultRecipeDraftAiForm());
+  const [isRecipeDraftDialogOpen, setIsRecipeDraftDialogOpen] = useState(false);
   const [sceneTagDraft, setSceneTagDraft] = useState('');
   const [visibleStepTips, setVisibleStepTips] = useState<Record<string, boolean>>({});
   const [stepKeyPointSlots, setStepKeyPointSlots] = useState<Record<string, number>>({});
-  const [isRecipeDraftGenerating, setIsRecipeDraftGenerating] = useState(false);
+  const [recipeDraftGenerationStage, setRecipeDraftGenerationStage] = useState<RecipeDraftGenerationStage>('idle');
   const [recipeDraftError, setRecipeDraftError] = useState<string | null>(null);
+  const [isRecipeAiApplied, setIsRecipeAiApplied] = useState(false);
   const [isSceneManagerOpen, setIsSceneManagerOpen] = useState(false);
   const [sceneFormMode, setSceneFormMode] = useState<RecipeSceneFormMode>(null);
   const [editingSceneName, setEditingSceneName] = useState<string | null>(null);
@@ -1279,20 +1429,6 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
     () => buildRecipeCards(props.recipes, props.ingredients, props.inventoryItems, props.mealLogs, props.foods),
     [props.recipes, props.ingredients, props.inventoryItems, props.mealLogs, props.foods]
   );
-  const recipeDraftIngredientOptions = useMemo(() => {
-    const today = todayKey();
-    const availableIngredientIds = new Set(
-      props.inventoryItems
-        .filter((item) => item.quantity - (item.consumed_quantity ?? 0) > 0 && (!item.expiry_date || item.expiry_date >= today))
-        .map((item) => item.ingredient_id)
-    );
-    return [...props.ingredients].sort((left, right) => {
-      const leftAvailable = availableIngredientIds.has(left.id);
-      const rightAvailable = availableIngredientIds.has(right.id);
-      if (leftAvailable !== rightAvailable) return leftAvailable ? -1 : 1;
-      return left.name.localeCompare(right.name, 'zh-CN');
-    });
-  }, [props.ingredients, props.inventoryItems]);
   const homeViewModel = useMemo(
     () => buildRecipeHomeViewModel(cards, props.recipeFavorites, props.recipePlanItems, props.mealLogs, props.foods),
     [cards, props.recipeFavorites, props.recipePlanItems, props.mealLogs, props.foods]
@@ -1443,6 +1579,8 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
     homeViewModel.favoriteCards.length > 0 ? homeViewModel.favoriteCards.slice(0, 2) : homeViewModel.recommendedCards.slice(0, 2);
   const visiblePlanDays = planDays;
   const hiddenPlanDayCount = 0;
+  const activePlanDetailItem = planDetailItemId ? props.recipePlanItems.find((item) => item.id === planDetailItemId) ?? null : null;
+  const activePlanDetailCard = activePlanDetailItem ? cards.find((entry) => entry.recipe.id === activePlanDetailItem.recipe_id) ?? null : null;
   const currentWeekRange = getRecipeWeekRange();
   const isCurrentPlanWeek = props.recipePlanWeekRange.start === currentWeekRange.start && props.recipePlanWeekRange.end === currentWeekRange.end;
   const planWeekLabel = isCurrentPlanWeek ? '本周菜单' : '当前周菜单';
@@ -1473,8 +1611,24 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
   const editorCoverUrl = resolveAssetUrl(editorCoverAsset?.url);
   const editorReferenceUrl = resolveAssetUrl(form.images.referenceAsset?.url);
   const editorGeneratedUrl = resolveAssetUrl(form.images.generatedAsset?.url);
+  const aiSourceIngredients = ingredientRows
+    .filter((item) => item.ingredient_id || item.ingredient_name.trim())
+    .map((item) => {
+      const ingredient = props.ingredients.find((entry) => entry.id === item.ingredient_id);
+      return ingredient?.name ?? item.ingredient_name.trim();
+    })
+    .filter(Boolean);
+  const resolvedDifficulty = resolveRecipeDifficulty(form.difficulty);
+  const aiSourceSummary = [
+    { label: '菜名', value: form.title.trim() || '未填写' },
+    { label: '份量', value: `${form.servings || '2'} 人份` },
+    { label: '时长', value: form.prepMinutes ? `${form.prepMinutes} 分钟` : '未填写' },
+    { label: '难度', value: form.difficulty ? DIFFICULTY_LABELS[resolvedDifficulty] : '未填写' },
+    { label: '标签', value: editorSceneTags.join('、') || '未填写' },
+    { label: '食材', value: aiSourceIngredients.join('、') || '未填写' },
+  ];
   const editorCompletionItems = [
-    { label: '已填写基础信息', done: Boolean(form.title.trim() && Number(form.servings) > 0 && Number(form.prepMinutes) > 0) },
+    { label: '已填写基础信息', done: Boolean(form.title.trim() && Number(form.servings) > 0) },
     { label: '已添加原料', done: editorIngredientCount > 0 },
     { label: '已添加步骤', done: editorStepCount > 0 },
     { label: '已设置封面', done: Boolean(editorCoverAsset) },
@@ -1501,6 +1655,11 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
       : 0;
   const cookProgressPercent = cookSteps.length > 0 ? Math.round((((cookSession?.currentStepIndex ?? 0) + 1) / cookSteps.length) * 100) : 0;
   const isEditing = view === 'edit' && Boolean(selectedRecipeId);
+  const isRecipeDraftBusy = recipeDraftGenerationStage === 'drafting' || recipeDraftGenerationStage === 'imaging';
+  const recipeDraftButtonLabel = getRecipeDraftGenerationButtonLabel(recipeDraftGenerationStage);
+  const recipeDraftActionLabel = getRecipeDraftGenerationActionLabel(recipeDraftGenerationStage);
+  const recipeDraftStatusCopy = getRecipeDraftGenerationStatusCopy(recipeDraftGenerationStage);
+  const recipeDraftStatusSteps = ['读取当前表单', '生成规范菜谱', '生成封面', '填入编辑表单'];
   const submitDisabled = props.isCreatingRecipe || props.isUpdatingRecipe || recipeImageState.isGenerating;
   const recipeImagePayload = buildRecipeImagePayload(form, ingredientRows, props.ingredients);
   const activeDiscoveryCopy =
@@ -1547,6 +1706,23 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
   }, [quickFilter, sceneFilter, search, difficultyFilter, sortMode]);
 
   useEffect(() => {
+    const today = todayKey();
+    setExpandedPlanDates(today >= props.recipePlanWeekRange.start && today <= props.recipePlanWeekRange.end ? new Set([today]) : new Set());
+  }, [props.recipePlanWeekRange.start, props.recipePlanWeekRange.end]);
+
+  useEffect(() => {
+    if (!activePlanDetailItem) {
+      if (planDetailItemId) setPlanDetailItemId(null);
+      return;
+    }
+    setPlanDetailForm({
+      planDate: activePlanDetailItem.plan_date,
+      mealType: activePlanDetailItem.meal_type,
+      note: activePlanDetailItem.note ?? '',
+    });
+  }, [activePlanDetailItem?.id, activePlanDetailItem?.plan_date, activePlanDetailItem?.meal_type, activePlanDetailItem?.note, planDetailItemId]);
+
+  useEffect(() => {
     if (!isCookTimerCustomOpen) return;
     window.requestAnimationFrame(() => {
       cookTimerMinuteWheelRef.current?.scrollTo({ top: Math.max(cookTimerPicker.minutes * 38 - 52, 0), behavior: 'auto' });
@@ -1558,6 +1734,15 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
     return () => {
       if (recipeNoticeTimerRef.current !== null) {
         window.clearTimeout(recipeNoticeTimerRef.current);
+      }
+      if (recipeDraftStageTimerRef.current !== null) {
+        window.clearTimeout(recipeDraftStageTimerRef.current);
+      }
+      if (recipeDraftDialogCloseTimerRef.current !== null) {
+        window.clearTimeout(recipeDraftDialogCloseTimerRef.current);
+      }
+      if (recipeAiAppliedTimerRef.current !== null) {
+        window.clearTimeout(recipeAiAppliedTimerRef.current);
       }
     };
   }, []);
@@ -1662,6 +1847,8 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
   function resetForm() {
     setForm(defaultRecipeForm());
     setIngredientRows(defaultIngredientRows());
+    setRecipeDraftAiForm(defaultRecipeDraftAiForm());
+    setRecipeDraftError(null);
     setSceneTagDraft('');
     setVisibleStepTips({});
     setStepKeyPointSlots({});
@@ -1669,8 +1856,6 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
 
   function openCreate() {
     resetForm();
-    setRecipeDraftAiForm({ prompt: '', ingredientIds: [] });
-    setRecipeDraftError(null);
     setRecipeImageState(IDLE_IMAGE_GENERATION_STATE);
     setSelectedRecipeId(null);
     setView('create');
@@ -1686,6 +1871,8 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
     setSelectedRecipeId(card.recipe.id);
     setForm(next.form);
     setIngredientRows(next.ingredients);
+    setRecipeDraftAiForm(defaultRecipeDraftAiForm());
+    setRecipeDraftError(null);
     setRecipeImageState(IDLE_IMAGE_GENERATION_STATE);
     setSceneTagDraft('');
     setVisibleStepTips({});
@@ -1884,7 +2071,7 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
             unit: ingredient?.default_unit ?? item.unit,
           };
         }
-        return { ...item, [key]: key === 'quantity' ? Number(value) : value };
+        return { ...item, [key]: value };
       })
     );
   }
@@ -1945,7 +2132,7 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
   function addIngredientRow() {
     setIngredientRows((current) => [
       ...current,
-      { id: newDraftId('ingredient'), ingredient_name: '', ingredient_id: '', quantity: 1, unit: '个', note: '' },
+      { id: newDraftId('ingredient'), ingredient_name: '', ingredient_id: '', quantity: '', unit: '个', note: '' },
     ]);
   }
 
@@ -1963,61 +2150,132 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
     setSceneTagDraft('');
   }
 
-  function updateRecipeDraftIngredientSelection(ingredientId: string, checked: boolean) {
-    setRecipeDraftAiForm((current) => ({
-      ...current,
-      ingredientIds: checked
-        ? [...new Set([...current.ingredientIds, ingredientId])]
-        : current.ingredientIds.filter((id) => id !== ingredientId),
-    }));
+  function clearRecipeDraftStageTimer() {
+    if (recipeDraftStageTimerRef.current !== null) {
+      window.clearTimeout(recipeDraftStageTimerRef.current);
+      recipeDraftStageTimerRef.current = null;
+    }
   }
 
-  async function generateRecipeDraftFromInventory() {
-    if (recipeDraftAiForm.ingredientIds.length === 0) {
-      setRecipeDraftError('请选择至少一个食材。');
+  function clearRecipeDraftDialogCloseTimer() {
+    if (recipeDraftDialogCloseTimerRef.current !== null) {
+      window.clearTimeout(recipeDraftDialogCloseTimerRef.current);
+      recipeDraftDialogCloseTimerRef.current = null;
+    }
+  }
+
+  function scheduleRecipeDraftStageReset() {
+    clearRecipeDraftStageTimer();
+    recipeDraftStageTimerRef.current = window.setTimeout(() => {
+      setRecipeDraftGenerationStage('idle');
+      recipeDraftStageTimerRef.current = null;
+    }, 1800);
+  }
+
+  function pulseRecipeAiApplied() {
+    if (recipeAiAppliedTimerRef.current !== null) {
+      window.clearTimeout(recipeAiAppliedTimerRef.current);
+    }
+    setIsRecipeAiApplied(true);
+    recipeAiAppliedTimerRef.current = window.setTimeout(() => {
+      setIsRecipeAiApplied(false);
+      recipeAiAppliedTimerRef.current = null;
+    }, 1200);
+  }
+
+  function finishRecipeDraftGeneration() {
+    setRecipeDraftGenerationStage('done');
+    clearRecipeDraftDialogCloseTimer();
+    recipeDraftDialogCloseTimerRef.current = window.setTimeout(() => {
+      setIsRecipeDraftDialogOpen(false);
+      recipeDraftDialogCloseTimerRef.current = null;
+    }, 650);
+    scheduleRecipeDraftStageReset();
+  }
+
+  function closeRecipeDraftDialog() {
+    if (isRecipeDraftBusy) {
+      setRecipeDraftError('AI 正在生成中，请稍等完成后再关闭。');
       return;
     }
-    setIsRecipeDraftGenerating(true);
+    setIsRecipeDraftDialogOpen(false);
+  }
+
+  function buildAiRecipeDraftPayload(): GenerateRecipeDraftPayload {
+    const selectedIngredientIds = ingredientRows
+      .map((item) => item.ingredient_id)
+      .filter((item): item is string => Boolean(item));
+    const extraIngredients = ingredientRows
+      .filter((item) => !item.ingredient_id && item.ingredient_name.trim())
+      .map((item) => item.ingredient_name.trim());
+    const servings = Number(form.servings);
+    const prepMinutes = Number(form.prepMinutes);
+    return {
+      title: form.title.trim(),
+      prompt: recipeDraftAiForm.prompt.trim() || form.tips.trim(),
+      ingredient_ids: [...new Set(selectedIngredientIds)],
+      extra_ingredients: extraIngredients,
+      servings: Number.isFinite(servings) && servings > 0 ? servings : null,
+      prep_minutes: Number.isFinite(prepMinutes) && prepMinutes > 0 ? prepMinutes : null,
+      difficulty: form.difficulty || null,
+      scene_tags: splitTags(form.sceneTags),
+      generate_image: true,
+    };
+  }
+
+  async function generateRecipeDraftFromAi() {
+    clearRecipeDraftStageTimer();
+    clearRecipeDraftDialogCloseTimer();
+    setRecipeDraftGenerationStage('drafting');
     setRecipeDraftError(null);
     try {
-      const response = await props.queryAi({
-        mode: 'recipeDraft',
-        prompt: recipeDraftAiForm.prompt.trim(),
-        ingredient_ids: recipeDraftAiForm.ingredientIds,
-      });
-      const draft = response.conversation.context.recipeDraft;
-      if (!isAiRecipeDraft(draft)) {
+      const response = await props.generateRecipeDraft(buildAiRecipeDraftPayload());
+      if (response.status === 'failed') {
+        throw new Error(response.error || 'AI 菜谱生成失败，请稍后重试。');
+      }
+      const draft = response.draft;
+      if (!isAiGeneratedRecipeDraft(draft)) {
         throw new Error('AI 没有返回可填入表单的结构化草稿。');
       }
-      setForm((current) => ({
-        ...current,
-        title: draft.title,
-        servings: String(draft.servings || 2),
-        prepMinutes: String(draft.prep_minutes || 20),
-        difficulty: draft.difficulty || 'easy',
-        steps:
-          draft.steps.length > 0
-            ? draft.steps.map((text) => ({ ...createEmptyRecipeStepDraft(), text }))
-            : current.steps,
-        tips: draft.tips,
-        sceneTags: draft.scene_tags.join('、'),
-      }));
-      setIngredientRows(
-        draft.ingredient_items.length > 0
-          ? draft.ingredient_items.map((item) => ({
-              id: newDraftId('ingredient'),
-              ingredient_id: item.ingredient_id ?? '',
-              ingredient_name: item.ingredient_name,
-              quantity: item.quantity,
-              unit: item.unit,
-              note: item.note,
-            }))
-          : defaultIngredientRows()
-      );
+      const next = buildRecipeFormFromGeneratedDraft(draft, form);
+      setForm(next.form);
+      setIngredientRows(next.ingredients);
+      setVisibleStepTips({});
+      setStepKeyPointSlots({});
+      setSceneTagDraft('');
+      pulseRecipeAiApplied();
+      if (response.image_render_payload) {
+        setRecipeDraftGenerationStage('imaging');
+        setRecipeImageState({ isGenerating: true, errorMessage: null });
+        try {
+          const images = await generateImageFromText(response.image_render_payload);
+          setForm((current) => ({ ...current, images: { ...current.images, generatedAsset: images.generatedAsset } }));
+          setRecipeImageState(IDLE_IMAGE_GENERATION_STATE);
+          showRecipeNotice({
+            tone: response.status === 'fallback' ? 'warning' : 'success',
+            title: response.status === 'fallback' ? '已生成兜底草稿' : 'AI 菜谱已填入',
+            message: '已补全基础信息、原料、步骤和技巧，可继续编辑后保存。',
+          });
+        } catch (reason) {
+          const message = resolveErrorMessage(reason, 'AI 封面生成失败');
+          setRecipeImageState({ isGenerating: false, errorMessage: message });
+          showRecipeNotice({
+            tone: 'warning',
+            title: '菜谱已填入，封面生成失败',
+            message: '已保留 AI 生成的文本内容，可稍后重试封面。',
+          });
+        }
+      } else {
+        showRecipeNotice({
+          tone: response.status === 'fallback' ? 'warning' : 'success',
+          title: response.status === 'fallback' ? '已生成兜底草稿' : 'AI 菜谱已填入',
+          message: '已补全基础信息、原料、步骤和技巧，可继续编辑后保存。',
+        });
+      }
+      finishRecipeDraftGeneration();
     } catch (reason) {
-      setRecipeDraftError(resolveErrorMessage(reason, 'AI 菜谱草稿生成失败'));
-    } finally {
-      setIsRecipeDraftGenerating(false);
+      setRecipeDraftGenerationStage('error');
+      setRecipeDraftError(resolveErrorMessage(reason, 'AI 菜谱生成失败'));
     }
   }
 
@@ -2043,15 +2301,22 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
     }
   }
 
-  async function deleteSelectedRecipe() {
-    if (!selectedCard || !window.confirm(`确定删除「${selectedCard.recipe.title}」吗？`)) return;
+  async function deleteRecipeCard(card: RecipeCardViewModel) {
+    if (!window.confirm(`确定删除「${card.recipe.title}」吗？`)) return;
     try {
-      await props.deleteRecipe(selectedCard.recipe.id);
-      setSelectedRecipeId(null);
+      await props.deleteRecipe(card.recipe.id);
+      if (selectedRecipeId === card.recipe.id) {
+        setSelectedRecipeId(null);
+      }
       setView('library');
     } catch (reason) {
       window.alert(resolveErrorMessage(reason, '删除菜谱失败'));
     }
+  }
+
+  async function deleteSelectedRecipe() {
+    if (!selectedCard) return;
+    await deleteRecipeCard(selectedCard);
   }
 
   function openShoppingDialog(card: RecipeCardViewModel) {
@@ -2185,6 +2450,41 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
     setPlanDialogCard(null);
     setPlanRecipeSearch('');
     setIsPlanRecipePickerOpen(false);
+  }
+
+  function openPlanDetail(item: RecipePlanItem) {
+    setPlanDetailItemId(item.id);
+    setPlanDetailForm({
+      planDate: item.plan_date,
+      mealType: item.meal_type,
+      note: item.note ?? '',
+    });
+  }
+
+  function closePlanDetail() {
+    setPlanDetailItemId(null);
+  }
+
+  function togglePlanDay(date: string) {
+    setExpandedPlanDates((current) => {
+      const next = new Set(current);
+      if (next.has(date)) {
+        next.delete(date);
+      } else {
+        next.add(date);
+      }
+      return next;
+    });
+  }
+
+  function startPlanDetailCook(item: RecipePlanItem) {
+    const card = cards.find((entry) => entry.recipe.id === item.recipe_id);
+    if (!card) {
+      showRecipeNotice({ tone: 'warning', title: '找不到菜谱', message: '这条计划关联的菜谱不在当前列表里。' });
+      return;
+    }
+    closePlanDetail();
+    openCook(card, item.id);
   }
 
   function selectPlanRecipe(card: RecipeCardViewModel) {
@@ -2439,6 +2739,30 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
     }
   }
 
+  async function submitPlanDetail(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!activePlanDetailItem) return;
+    try {
+      await props.updateRecipePlanItem(activePlanDetailItem.id, {
+        plan_date: planDetailForm.planDate,
+        meal_type: planDetailForm.mealType,
+        note: planDetailForm.note.trim(),
+      });
+      closePlanDetail();
+    } catch (reason) {
+      window.alert(resolveErrorMessage(reason, '更新菜单计划失败'));
+    }
+  }
+
+  async function deletePlanDetailItem(item: RecipePlanItem) {
+    try {
+      await props.deleteRecipePlanItem(item.id);
+      closePlanDetail();
+    } catch (reason) {
+      window.alert(resolveErrorMessage(reason, '删除菜单计划失败'));
+    }
+  }
+
   async function submitCookRecipe(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!activeCookCard || !cookSession) return;
@@ -2550,6 +2874,8 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
             onEdit={() => openEdit(card)}
             onCook={() => openCook(card)}
             onShopping={() => openShoppingDialog(card)}
+            onDelete={() => void deleteRecipeCard(card)}
+            isDeleting={props.isDeletingRecipe}
           />
         ))}
       </div>
@@ -2633,7 +2959,7 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
             <p>把标题、用料、步骤和图片放在同一个录入工作台里。</p>
           </div>
 
-          <form className="recipe-editor-workbench" onSubmit={submitRecipe}>
+          <form className={isRecipeAiApplied ? 'recipe-editor-workbench ai-applied' : 'recipe-editor-workbench'} onSubmit={submitRecipe}>
             <main className="recipe-editor-main-column">
               <section className="recipe-editor-card">
                 <div className="recipe-editor-card-head">
@@ -3004,7 +3330,7 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
                         ) : (
                           <div className="recipe-editor-cover-empty">
                             {recipeImageState.isGenerating ? <span className="image-composer-loading-surface" aria-hidden="true" /> : <RecipeUiIcon name="image" />}
-                            <strong>{recipeImageState.isGenerating ? '正在生成主图' : '还没有 AI 主图'}</strong>
+                            <strong>{recipeImageState.isGenerating ? 'AI 正在生成封面' : '还没有 AI 主图'}</strong>
                             <p>{form.images.referenceAsset ? '参考图已保留，可以重试生成主图。' : '先用文字信息生成，或上传参考图生成。'}</p>
                           </div>
                         )}
@@ -3018,45 +3344,22 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
             </main>
 
             <aside className="recipe-editor-side-column">
-              {!isEditing && (
-                <section className="recipe-editor-side-card recipe-ai-draft-panel">
-                  <div className="workspace-action-rail-copy">
-                    <p className="eyebrow">AI 草稿</p>
-                    <h3>用现有食材生成菜谱</h3>
-                    <p className="subtle">选择 1-4 个食材，生成后会填入左侧表单。</p>
-                  </div>
-                  <label>
-                    <span>口味方向</span>
-                    <input
-                      className="text-input"
-                      value={recipeDraftAiForm.prompt}
-                      placeholder="例如：清淡、适合孩子、少油快手"
-                      onChange={(event) => setRecipeDraftAiForm((current) => ({ ...current, prompt: event.target.value }))}
-                    />
-                  </label>
-                  <div className="recipe-ai-ingredient-picker">
-                    {recipeDraftIngredientOptions.slice(0, 12).map((ingredient) => (
-                      <label key={ingredient.id} className="checkbox-row checkbox-card">
-                        <input
-                          type="checkbox"
-                          checked={recipeDraftAiForm.ingredientIds.includes(ingredient.id)}
-                          onChange={(event) => updateRecipeDraftIngredientSelection(ingredient.id, event.target.checked)}
-                        />
-                        <span>{ingredient.name}</span>
-                      </label>
-                    ))}
-                  </div>
-                  {recipeDraftError ? <p className="form-error">{recipeDraftError}</p> : null}
-                  <ActionButton
-                    tone="secondary"
-                    type="button"
-                    onClick={() => void generateRecipeDraftFromInventory()}
-                    disabled={isRecipeDraftGenerating || props.ingredients.length === 0}
-                  >
-                    {isRecipeDraftGenerating ? '生成中...' : '生成并填入'}
-                  </ActionButton>
-                </section>
-              )}
+              <section className="recipe-editor-side-card recipe-ai-draft-panel">
+                <div className="workspace-action-rail-copy">
+                  <p className="eyebrow">AI 生成</p>
+                  <h3>自动补全菜谱</h3>
+                  <p className="subtle">基于左侧已填写内容生成完整菜谱，保存前仍可继续编辑。</p>
+                </div>
+                {recipeDraftError ? <p className="form-error">{recipeDraftError}</p> : null}
+                <ActionButton
+                  tone="secondary"
+                  type="button"
+                  onClick={() => setIsRecipeDraftDialogOpen(true)}
+                  disabled={isRecipeDraftBusy || recipeImageState.isGenerating}
+                >
+                  {recipeImageState.isGenerating && recipeDraftGenerationStage === 'idle' ? '正在生成封面' : recipeDraftButtonLabel}
+                </ActionButton>
+              </section>
               <section className="recipe-editor-side-card recipe-editor-summary-card">
                 <div className="recipe-editor-summary-head">
                   <div>
@@ -3091,6 +3394,11 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
                   {isEditing && (
                     <ActionButton tone="secondary" type="button" onClick={() => setView('detail')}>
                       预览菜谱
+                    </ActionButton>
+                  )}
+                  {isEditing && selectedCard && (
+                    <ActionButton tone="tertiary" type="button" onClick={() => void deleteSelectedRecipe()} disabled={props.isDeletingRecipe}>
+                      {props.isDeletingRecipe ? '删除中...' : '删除菜谱'}
                     </ActionButton>
                   )}
                   <ActionButton tone="secondary" type="button" onClick={() => setView(isEditing ? 'detail' : 'library')}>
@@ -3910,75 +4218,146 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
                   加菜
                 </ActionButton>
                 <div className="recipe-plan-week">
-                  {visiblePlanDays.map((day) => (
-                    <div key={day.date} className="recipe-plan-day">
-                      <div className="recipe-plan-day-head">
-                        <strong>{day.label}</strong>
-                        <span>{formatDate(day.date).replace('周', '')}</span>
-                      </div>
-                      {day.items.length > 0 ? (
-                        day.items.map((item) => (
-                          <article key={item.id} className="recipe-plan-item">
-                            <div>
-                              <strong>{item.recipe_title}</strong>
-                              <span>
-                                {MEAL_TYPE_LABELS[item.meal_type]}
-                                {item.status === 'cooked' ? ' · 已完成' : ''}
-                              </span>
-                            </div>
-                            <div className="recipe-plan-item-controls">
-                              {item.status !== 'cooked' && (
+                  {visiblePlanDays.map((day) => {
+                    const isExpanded = expandedPlanDates.has(day.date);
+                    return (
+                      <div key={day.date} className={isExpanded ? 'recipe-plan-day expanded' : 'recipe-plan-day collapsed'}>
+                        <button className="recipe-plan-day-head" type="button" onClick={() => togglePlanDay(day.date)} aria-expanded={isExpanded}>
+                          <strong>{day.label}</strong>
+                          <span>{formatDate(day.date).replace('周', '')}</span>
+                        </button>
+                        {isExpanded ? (
+                          day.items.length > 0 ? (
+                            day.items.map((item) => (
+                              <article
+                                key={item.id}
+                                className="recipe-plan-item"
+                                role="button"
+                                tabIndex={0}
+                                onClick={() => openPlanDetail(item)}
+                                onKeyDown={(event) => {
+                                  if (event.key === 'Enter' || event.key === ' ') {
+                                    event.preventDefault();
+                                    openPlanDetail(item);
+                                  }
+                                }}
+                              >
+                                <div className="recipe-plan-item-summary">
+                                  <strong>{item.recipe_title}</strong>
+                                  <span>
+                                    {MEAL_TYPE_LABELS[item.meal_type]}
+                                    {item.status === 'cooked' ? ' · 已完成' : ''}
+                                  </span>
+                                </div>
                                 <button
+                                  className="recipe-plan-item-detail-button"
                                   type="button"
-                                  disabled={props.isCookingRecipe}
-                                  onClick={() => {
-                                    const card = cards.find((entry) => entry.recipe.id === item.recipe_id);
-                                    if (card) openCook(card, item.id);
+                                  aria-label={`开始做：${item.recipe_title}`}
+                                  disabled={props.isCookingRecipe || item.status === 'cooked'}
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    startPlanDetailCook(item);
                                   }}
                                 >
-                                  开始做
+                                  <RecipeUiIcon name="utensils" />
                                 </button>
-                              )}
-                              <select
-                                className="text-input"
-                                value={item.plan_date}
-                                onChange={(event) => void updatePlanDate(item, event.target.value)}
-                                disabled={props.isUpdatingPlan || item.status === 'cooked'}
-                              >
-                                {planDays.map((option) => (
-                                  <option key={option.date} value={option.date}>
-                                    {option.label}
-                                  </option>
-                                ))}
-                              </select>
-                              <select
-                                className="text-input"
-                                value={item.meal_type}
-                                onChange={(event) => void updatePlanMealType(item, event.target.value as MealType)}
-                                disabled={props.isUpdatingPlan || item.status === 'cooked'}
-                              >
-                                {MEAL_TYPE_OPTIONS.map((option) => (
-                                  <option key={option.value} value={option.value}>
-                                    {option.label}
-                                  </option>
-                                ))}
-                              </select>
-                              <button type="button" onClick={() => void deletePlanItem(item)} disabled={props.isUpdatingPlan}>
-                                ×
-                              </button>
-                            </div>
-                          </article>
-                        ))
-                      ) : (
-                        <div className="recipe-plan-empty-row">未安排</div>
-                      )}
-                    </div>
-                  ))}
+                              </article>
+                            ))
+                          ) : (
+                            <div className="recipe-plan-empty-row">未安排</div>
+                          )
+                        ) : (
+                          <button className="recipe-plan-day-summary" type="button" onClick={() => togglePlanDay(day.date)}>
+                            <strong>{day.items.length > 0 ? `${day.items.length} 项计划` : '未安排'}</strong>
+                            {day.items.length > 0 && <span>{day.items.map((item) => MEAL_TYPE_LABELS[item.meal_type]).join('、')}</span>}
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })}
                   {hiddenPlanDayCount > 0 && <div className="recipe-plan-collapsed-note">其余 {hiddenPlanDayCount} 天已收起</div>}
                 </div>
               </section>
             </aside>
           </div>
+        </div>
+      )}
+
+      {isRecipeDraftDialogOpen && (
+        <div className="workspace-overlay-root">
+          <div className="workspace-overlay-backdrop" onClick={closeRecipeDraftDialog} />
+          <WorkspaceModal
+            title="AI 补全菜谱"
+            description="AI 会基于当前编辑表单里的信息生成完整菜谱，确认后覆盖左侧表单内容。"
+            eyebrow="AI 生成"
+            onClose={closeRecipeDraftDialog}
+            className="recipe-ai-draft-modal"
+          >
+            <div className="recipe-ai-draft-modal-body">
+              <section className="recipe-ai-source-panel">
+                <h3>将基于这些信息生成</h3>
+                <div className="recipe-ai-source-grid">
+                  {aiSourceSummary.map((item) => (
+                    <div key={item.label}>
+                      <small>{item.label}</small>
+                      <strong>{item.value}</strong>
+                    </div>
+                  ))}
+                </div>
+              </section>
+
+              {recipeDraftGenerationStage !== 'idle' && (
+                <section className={`recipe-ai-generation-status stage-${recipeDraftGenerationStage}`} aria-live="polite">
+                  <div className="recipe-ai-generation-status-head">
+                    {isRecipeDraftBusy ? <span className="recipe-ai-generation-spinner" aria-hidden="true" /> : <RecipeUiIcon name={recipeDraftGenerationStage === 'error' ? 'warning' : 'check'} />}
+                    <div>
+                      <strong>{recipeDraftStatusCopy.title}</strong>
+                      <small>{recipeDraftStatusCopy.description}</small>
+                    </div>
+                  </div>
+                  <div className="recipe-ai-generation-steps">
+                    {recipeDraftStatusSteps.map((step, index) => {
+                      const stepState = getRecipeDraftGenerationStepState(recipeDraftGenerationStage, index);
+                      return (
+                        <span key={step} className={`recipe-ai-generation-step ${stepState}`}>
+                          <i>{stepState === 'completed' ? '✓' : index + 1}</i>
+                          {step}
+                        </span>
+                      );
+                    })}
+                  </div>
+                </section>
+              )}
+
+              <label className="recipe-ai-prompt-field">
+                <span>补充说明</span>
+                <textarea
+                  className="text-input"
+                  rows={5}
+                  value={recipeDraftAiForm.prompt}
+                  placeholder="例如：清淡少油，适合孩子，尽量 20 分钟内完成；步骤写得详细一点。"
+                  onChange={(event) => setRecipeDraftAiForm({ prompt: event.target.value })}
+                  disabled={isRecipeDraftBusy}
+                />
+              </label>
+
+              {recipeDraftError ? <p className="form-error">{recipeDraftError}</p> : null}
+
+              <div className="recipe-ai-draft-modal-actions">
+                <ActionButton tone="secondary" type="button" onClick={closeRecipeDraftDialog} disabled={isRecipeDraftBusy}>
+                  取消
+                </ActionButton>
+                <ActionButton
+                  tone="primary"
+                  type="button"
+                  onClick={() => void generateRecipeDraftFromAi()}
+                  disabled={isRecipeDraftBusy || recipeImageState.isGenerating || recipeDraftGenerationStage === 'done'}
+                >
+                  {recipeDraftActionLabel}
+                </ActionButton>
+              </div>
+            </div>
+          </WorkspaceModal>
         </div>
       )}
 
@@ -4107,6 +4486,100 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
               </ActionButton>
             </div>
           </form>
+          </WorkspaceModal>
+        </div>
+      )}
+
+      {activePlanDetailItem && (
+        <div className="workspace-overlay-root">
+          <div className="workspace-overlay-backdrop" onClick={closePlanDetail} />
+          <WorkspaceModal
+            title={activePlanDetailItem.recipe_title}
+            description={`${formatDate(activePlanDetailItem.plan_date)} · ${MEAL_TYPE_LABELS[activePlanDetailItem.meal_type]}${activePlanDetailItem.status === 'cooked' ? ' · 已完成' : ''}`}
+            eyebrow="菜单计划详情"
+            onClose={closePlanDetail}
+            className="recipe-plan-detail-modal"
+          >
+            <form className="recipe-plan-detail-form" onSubmit={submitPlanDetail}>
+              <section className="recipe-plan-detail-card">
+                <div className="recipe-plan-detail-cover">
+                  {activePlanDetailCard ? (
+                    <RecipeCover card={activePlanDetailCard} />
+                  ) : (
+                    <div className="recipe-plan-cover-empty">
+                      <RecipeUiIcon name="calendar" />
+                    </div>
+                  )}
+                </div>
+                <div className="recipe-plan-detail-summary">
+                  <span className={activePlanDetailItem.status === 'cooked' ? 'badge tone-ready' : 'badge'}>
+                    {activePlanDetailItem.status === 'cooked' ? '已完成' : '计划中'}
+                  </span>
+                  <strong>{activePlanDetailItem.recipe_title}</strong>
+                  <p>{(activePlanDetailItem.note ?? '').trim() || '暂无备注'}</p>
+                </div>
+              </section>
+
+              <div className="recipe-plan-form-row">
+                <label>
+                  <span>计划日期</span>
+                  <input
+                    className="text-input"
+                    type="date"
+                    value={planDetailForm.planDate}
+                    min={props.recipePlanWeekRange.start}
+                    max={props.recipePlanWeekRange.end}
+                    onChange={(event) => setPlanDetailForm({ ...planDetailForm, planDate: event.target.value })}
+                    disabled={props.isUpdatingPlan || activePlanDetailItem.status === 'cooked'}
+                  />
+                </label>
+                <label>
+                  <span>餐次</span>
+                  <select
+                    className="text-input"
+                    value={planDetailForm.mealType}
+                    onChange={(event) => setPlanDetailForm({ ...planDetailForm, mealType: event.target.value as MealType })}
+                    disabled={props.isUpdatingPlan || activePlanDetailItem.status === 'cooked'}
+                  >
+                    {MEAL_TYPE_OPTIONS.map((item) => (
+                      <option key={item.value} value={item.value}>
+                        {item.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+
+              <label className="recipe-plan-note-field">
+                <span>备注</span>
+                <input
+                  className="text-input"
+                  value={planDetailForm.note}
+                  placeholder="比如：少油、提前解冻、留一份便当"
+                  onChange={(event) => setPlanDetailForm({ ...planDetailForm, note: event.target.value })}
+                  disabled={props.isUpdatingPlan || activePlanDetailItem.status === 'cooked'}
+                />
+              </label>
+
+              <div className="recipe-plan-detail-actions">
+                <ActionButton
+                  tone="primary"
+                  type="button"
+                  onClick={() => startPlanDetailCook(activePlanDetailItem)}
+                  disabled={props.isCookingRecipe || activePlanDetailItem.status === 'cooked'}
+                >
+                  <RecipeUiIcon name="utensils" />
+                  开始做
+                </ActionButton>
+                <ActionButton tone="secondary" type="submit" disabled={props.isUpdatingPlan || activePlanDetailItem.status === 'cooked'}>
+                  <RecipeUiIcon name="edit" />
+                  保存修改
+                </ActionButton>
+                <ActionButton tone="tertiary" type="button" onClick={() => void deletePlanDetailItem(activePlanDetailItem)} disabled={props.isUpdatingPlan}>
+                  删除
+                </ActionButton>
+              </div>
+            </form>
           </WorkspaceModal>
         </div>
       )}

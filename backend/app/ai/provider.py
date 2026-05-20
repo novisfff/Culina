@@ -74,10 +74,11 @@ def get_chat_provider() -> BaseChatProvider:
     model_name = settings.ai_model or "gpt-4o-mini"
     if provider_name in {"", "disabled", "mock"} or not settings.ai_api_key:
         return DisabledChatProvider(model_name=model_name)
-    if provider_name in {"openai", "openai-compatible", "compatible", "custom", "dashscope"}:
+    if provider_name in {"enable", "enabled", "openai", "openai-compatible", "compatible", "custom", "dashscope"}:
         return OpenAICompatibleChatProvider(
             api_base=settings.ai_api_base or "https://api.openai.com/v1",
             api_key=settings.ai_api_key,
             model_name=model_name,
+            timeout_seconds=settings.ai_timeout_seconds,
         )
     return DisabledChatProvider(model_name=model_name)

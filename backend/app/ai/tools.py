@@ -49,6 +49,8 @@ TOOLS: dict[str, ToolHandler] = {
 
 
 def select_tool_names(request: AgentRunRequest) -> list[str]:
+    if request.response_format == "recipe_draft":
+        return ["inventory_snapshot", "ingredient_details"]
     if request.mode == AiMode.FOOD_QA:
         return ["inventory_snapshot", "recent_meals", "food_details"]
     if request.mode == AiMode.INVENTORY_QA:

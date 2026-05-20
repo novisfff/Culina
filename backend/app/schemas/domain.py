@@ -638,6 +638,38 @@ class AIQueryResponse(BaseModel):
     recommendation: AIRecommendationOut | None = None
 
 
+class AIRecipeDraftOut(BaseModel):
+    title: str
+    servings: int
+    prep_minutes: int
+    difficulty: Difficulty
+    ingredient_items: list[RecipeIngredientIn]
+    steps: list[RecipeStepIn]
+    tips: str = ""
+    scene_tags: list[str] = Field(default_factory=list)
+    media_ids: list[str] = Field(default_factory=list)
+
+
+class GenerateRecipeDraftRequest(BaseModel):
+    title: str = ""
+    prompt: str = ""
+    ingredient_ids: list[str] = Field(default_factory=list)
+    extra_ingredients: list[str] = Field(default_factory=list)
+    servings: int | None = None
+    prep_minutes: int | None = None
+    difficulty: Difficulty | None = None
+    scene_tags: list[str] = Field(default_factory=list)
+    generate_image: bool = True
+
+
+class GenerateRecipeDraftResponse(BaseModel):
+    draft: AIRecipeDraftOut
+    agent_run_id: str
+    status: Literal["completed", "fallback", "failed"]
+    error: str | None = None
+    image_render_payload: dict | None = None
+
+
 class FamilyDetailOut(BaseModel):
     id: str
     name: str

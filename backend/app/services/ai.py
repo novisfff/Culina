@@ -386,7 +386,7 @@ def _call_real_provider(messages: list[dict[str, str]]) -> str | None:
     }
     headers = {"Authorization": f"Bearer {settings.ai_api_key}"}
     try:
-        with httpx.Client(timeout=20.0) as client:
+        with httpx.Client(timeout=settings.ai_timeout_seconds) as client:
             response = client.post(f"{settings.ai_api_base.rstrip('/')}/chat/completions", json=payload, headers=headers)
             response.raise_for_status()
             data = response.json()

@@ -453,6 +453,20 @@ export interface AiRecipeDraft {
   scene_tags: string[];
 }
 
+export interface AiGeneratedRecipeDraft extends RecipePayload {}
+
+export interface GenerateRecipeDraftPayload {
+  title?: string;
+  prompt?: string;
+  ingredient_ids?: string[];
+  extra_ingredients?: string[];
+  servings?: number | null;
+  prep_minutes?: number | null;
+  difficulty?: Difficulty | null;
+  scene_tags?: string[];
+  generate_image?: boolean;
+}
+
 export interface AiQueryResponse {
   conversation: AiConversation;
   recommendation?: AiRecommendation | null;
@@ -484,6 +498,16 @@ export interface CreateAiRenderRequest {
   food_names?: string[];
   ingredient_names?: string[];
   size?: string;
+}
+
+export type AiRecipeImageRenderPayload = Omit<CreateAiRenderRequest, 'mode' | 'reference_media_id'>;
+
+export interface GenerateRecipeDraftResponse {
+  draft: AiGeneratedRecipeDraft;
+  agent_run_id: string;
+  status: 'completed' | 'fallback' | 'failed';
+  error?: string | null;
+  image_render_payload?: AiRecipeImageRenderPayload | null;
 }
 
 export interface AiRenderResponse {

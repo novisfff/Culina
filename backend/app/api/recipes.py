@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session, selectinload
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from app.core.deps import get_current_auth
-from app.core.enums import ActivityAction, FoodType, MealType
+from app.core.enums import ActivityAction, Difficulty, FoodType, MealType
 from app.core.utils import create_id, utcnow
 from app.db.session import get_db
 from app.models.domain import Food, InventoryItem, MealLog, MealLogFood, MediaAsset, Recipe, RecipeCookLog, RecipeIngredient, RecipePlanItem, RecipeStep

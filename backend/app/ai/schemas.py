@@ -55,6 +55,7 @@ class AgentState(TypedDict, total=False):
     context: Any
     recommendation_model: Any
     recipe_draft: dict[str, Any] | None
+    data: dict[str, Any]
     tool_calls: list[AgentToolCall]
     text: str
     status: AgentRunStatus

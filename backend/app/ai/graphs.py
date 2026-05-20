@@ -7,6 +7,12 @@ from sqlalchemy.orm import Session
 
 from app.ai.context import load_agent_context
 from app.ai.provider import BaseChatProvider
+from app.ai.recipe_drafts import (
+    build_fallback_recipe_draft,
+    build_recipe_draft_messages,
+    build_recipe_image_render_payload,
+    normalize_recipe_draft,
+)
 from app.ai.schemas import AgentState
 from app.ai.tools import run_readonly_tools
 from app.core.enums import AiMode
@@ -21,6 +27,8 @@ def _format_tool_outputs(state: AgentState) -> str:
 def _build_messages(state: AgentState) -> tuple[str, str]:
     request = state["request"]
     context = state["context"]
+    if request.response_format == "recipe_draft":
+        return build_recipe_draft_messages(context, request)
     messages = legacy_ai._build_provider_messages(
         family=context.family,
         mode=request.mode or AiMode.INVENTORY_QA,
@@ -40,6 +48,8 @@ def _build_messages(state: AgentState) -> tuple[str, str]:
 def _fallback_text(state: AgentState) -> str:
     request = state["request"]
     context = state["context"]
+    if request.response_format == "recipe_draft":
+        return "已生成可编辑的菜谱草稿。"
     if request.mode == AiMode.FOOD_QA:
         return legacy_ai._build_food_answer(context.food, request.prompt)
     if request.mode == AiMode.INVENTORY_QA:
@@ -93,6 +103,32 @@ def build_kitchen_assistant_graph(db: Session, provider: BaseChatProvider):
         request = state["request"]
         text = (state.get("text") or "").strip()
         status = state.get("status") or "fallback"
+        error = state.get("error")
+        if request.response_format == "recipe_draft":
+            if text and status == "completed":
+                recipe_draft = normalize_recipe_draft(text, state["context"], request)
+                if recipe_draft is None:
+                    recipe_draft = build_fallback_recipe_draft(state["context"], request)
+                    status = "failed"
+                    error = error or "model returned invalid recipe draft JSON"
+                    image_render_payload = None
+                else:
+                    image_render_payload = build_recipe_image_render_payload(recipe_draft)
+            else:
+                recipe_draft = build_fallback_recipe_draft(state["context"], request)
+                status = "failed"
+                error = error or "AI recipe draft provider is unavailable"
+                image_render_payload = None
+            return {
+                "text": "AI 菜谱生成失败，请稍后重试。" if status == "failed" else "已生成可编辑的菜谱草稿。",
+                "status": status,
+                "error": error,
+                "recipe_draft": recipe_draft,
+                "data": {
+                    "recipeDraft": recipe_draft,
+                    "imageRenderPayload": image_render_payload,
+                },
+            }
         if not text:
             text = _fallback_text(state)
             status = "fallback"

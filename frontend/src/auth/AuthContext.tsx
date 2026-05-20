@@ -64,7 +64,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
       user: meQuery.data?.user ?? null,
       membership: meQuery.data?.membership ?? null,
       family: meQuery.data?.family ?? null,
-      isLoading: !bootstrapped || meQuery.isFetching || loginMutation.isPending || logoutMutation.isPending,
+      isLoading: !bootstrapped || (meQuery.isLoading && !meQuery.data) || loginMutation.isPending || logoutMutation.isPending,
       isAuthenticated: Boolean(meQuery.data?.access_token ?? getAccessToken()),
       login: async (username: string, password: string) => {
         await loginMutation.mutateAsync({ username, password });
@@ -73,7 +73,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
         await logoutMutation.mutateAsync();
       },
     }),
-    [bootstrapped, loginMutation, logoutMutation, meQuery.data, meQuery.isFetching]
+    [bootstrapped, loginMutation, logoutMutation, meQuery.data, meQuery.isLoading]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

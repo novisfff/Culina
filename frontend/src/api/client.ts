@@ -1,6 +1,8 @@
 import type {
   ActivityLog,
   AiQueryResponse,
+  GenerateRecipeDraftPayload,
+  GenerateRecipeDraftResponse,
   AiRenderResponse,
   AiConversation,
   CookRecipePreviewResponse,
@@ -285,6 +287,11 @@ export const api = {
   getAiConversations: () => request<AiConversation[]>('/api/ai/conversations'),
   queryAi: (payload: { mode: string; prompt: string; food_id?: string; ingredient_ids?: string[] }) =>
     request<AiQueryResponse>('/api/ai/query', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+  generateRecipeDraft: (payload: GenerateRecipeDraftPayload) =>
+    request<GenerateRecipeDraftResponse>('/api/ai/recipes/draft', {
       method: 'POST',
       body: JSON.stringify(payload),
     }),

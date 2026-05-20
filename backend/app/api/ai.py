@@ -7,7 +7,9 @@ from sqlalchemy.orm import Session
 from app.core.deps import get_current_auth
 from app.db.session import get_db
 from app.models.domain import AIConversation
-from app.schemas.domain import AIConversationOut, AIQueryRequest, AIQueryResponse
+from app.schemas.domain import AIConversationOut, AIQueryRequest, AIQueryResponse, GenerateRecipeDraftRequest, GenerateRecipeDraftResponse
+from app.ai.runner import CulinaAgentService
+from app.ai.schemas import AgentRunRequest
 from app.services.ai import run_ai_query
 from app.services.serializers import serialize_ai_conversation
 
@@ -46,3 +48,39 @@ def query_ai(
     )
     db.commit()
     return {"conversation": conversation, "recommendation": recommendation}
+
+
+@router.post("/api/ai/recipes/draft", response_model=GenerateRecipeDraftResponse)
+def generate_recipe_draft(
+    payload: GenerateRecipeDraftRequest,
+    auth: tuple = Depends(get_current_auth),
+    db: Session = Depends(get_db),
+) -> dict:
+    user, membership = auth
+    result = CulinaAgentService(db).run(
+        AgentRunRequest(
+            family_id=membership.family_id,
+            user_id=user.id,
+            feature_key="aiRecipeDraft",
+            prompt=payload.prompt,
+            subject={
+                "title": payload.title,
+                "ingredientIds": payload.ingredient_ids,
+                "extraIngredients": payload.extra_ingredients,
+                "servings": payload.servings,
+                "prepMinutes": payload.prep_minutes,
+                "difficulty": payload.difficulty.value if payload.difficulty else None,
+                "sceneTags": payload.scene_tags,
+            },
+            response_format="recipe_draft",
+            persist_conversation=False,
+        )
+    )
+    db.commit()
+    return {
+        "draft": result.data["recipeDraft"],
+        "agent_run_id": result.run_id,
+        "status": result.status,
+        "error": result.error,
+        "image_render_payload": result.data.get("imageRenderPayload") if payload.generate_image and result.status != "failed" else None,
+    }

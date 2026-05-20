@@ -1524,7 +1524,7 @@ function App() {
               deleteRecipe={(recipeId) => deleteRecipeMutation.mutateAsync(recipeId)}
               cookRecipe={(recipeId, payload) => cookRecipeMutation.mutateAsync({ recipeId, payload })}
               previewCookRecipe={(recipeId, payload) => previewCookRecipeMutation.mutateAsync({ recipeId, payload })}
-              queryAi={(payload) => aiMutation.mutateAsync(payload)}
+              generateRecipeDraft={(payload) => api.generateRecipeDraft(payload)}
               createShoppingItem={(payload) => createShoppingMutation.mutateAsync(payload)}
               addRecipeFavorite={(recipeId) => addRecipeFavoriteMutation.mutateAsync(recipeId)}
               removeRecipeFavorite={(recipeId) => removeRecipeFavoriteMutation.mutateAsync(recipeId)}
