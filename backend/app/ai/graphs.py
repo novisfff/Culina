@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from app.ai.context import load_agent_context
 from app.ai.provider import BaseChatProvider
 from app.ai.recipe_drafts import (
+    RECIPE_DRAFT_JSON_SCHEMA,
     build_recipe_draft_messages,
     build_recipe_image_render_payload,
     normalize_recipe_draft,
@@ -98,7 +99,8 @@ def build_kitchen_assistant_graph(db: Session, provider: BaseChatProvider):
 
     def agent_node(state: AgentState) -> AgentState:
         system, user = _build_messages(state)
-        result = provider.generate(system=system, user=user)
+        response_schema = RECIPE_DRAFT_JSON_SCHEMA if state["request"].response_format == "recipe_draft" else None
+        result = provider.generate(system=system, user=user, response_schema=response_schema)
         return {
             "text": result.text or "",
             "status": result.status,

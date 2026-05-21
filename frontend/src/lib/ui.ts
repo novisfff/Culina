@@ -48,7 +48,7 @@ export function todayKey() {
 
 export function splitTags(value: string): string[] {
   return value
-    .split(/[,\n，]/)
+    .split(/[,，、/；;\n]+/)
     .map((item) => item.trim())
     .filter(Boolean);
 }

@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
 import type { Ingredient } from '../../api/types';
 import {
   buildCookPayload,
@@ -14,6 +14,8 @@ import {
   getRecipeShoppingRequirement,
   hasRecipeDraftMinimumInput,
   isAiGeneratedRecipeDraft,
+  loadCookSession,
+  recipeCookSessionKey,
   sanitizeCookSession,
   type RecipeDraftIngredient,
   type RecipeFormState,
@@ -101,6 +103,10 @@ function recipeForm(overrides: Partial<RecipeFormState> = {}): RecipeFormState {
 }
 
 describe('recipe workspace payload helpers', () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+  });
+
   it('builds trimmed recipe payloads with linked ingredient names, default units, tags, and media ids', () => {
     const rows: RecipeDraftIngredient[] = [
       { id: 'row-1', ingredient_id: tomato.id, ingredient_name: '旧番茄名', quantity: 2, unit: '', note: ' 去皮 ' },
@@ -340,6 +346,177 @@ describe('recipe workspace payload helpers', () => {
       resultNote: '成功',
       rating: '5',
     });
+  });
+
+  it('restores direct cook sessions saved within 24 hours', () => {
+    const recipe = {
+      id: 'recipe-1',
+      servings: 2,
+      steps: [{ id: 'step-1', title: '备菜', text: '备菜', icon: 'pan', summary: '', estimated_minutes: null, tip: '', key_points: [] }],
+    };
+    const now = Date.parse('2026-05-21T10:00:00Z');
+    window.localStorage.setItem(
+      recipeCookSessionKey(recipe.id),
+      JSON.stringify({
+        version: 2,
+        savedAt: '2026-05-20T11:00:00Z',
+        source: 'direct',
+        planItemId: null,
+        session: {
+          currentStepIndex: 0,
+          checkedIngredientIds: ['ri-1'],
+          completedStepIds: [],
+          timerSeconds: 8,
+          timerRunning: false,
+          timerMode: 'countup',
+          timerDurationSeconds: null,
+          servings: '2',
+          date: '2026-05-21',
+          mealType: 'dinner',
+          createMealLog: true,
+          planItemId: null,
+          adjustments: '少油',
+          resultNote: '',
+          rating: '',
+        },
+      })
+    );
+
+    const loaded = loadCookSession(recipe, null, now);
+
+    expect(loaded.restored).toBe(true);
+    expect(loaded.session.checkedIngredientIds).toEqual(['ri-1']);
+    expect(loaded.session.adjustments).toBe('少油');
+  });
+
+  it('does not restore direct cook sessions older than 24 hours', () => {
+    const recipe = {
+      id: 'recipe-2',
+      servings: 2,
+      steps: [],
+    };
+    const now = Date.parse('2026-05-21T10:00:00Z');
+    const key = recipeCookSessionKey(recipe.id);
+    window.localStorage.setItem(
+      key,
+      JSON.stringify({
+        version: 2,
+        savedAt: '2026-05-20T09:59:00Z',
+        source: 'direct',
+        planItemId: null,
+        session: { currentStepIndex: 0 },
+      })
+    );
+
+    const loaded = loadCookSession(recipe, null, now);
+
+    expect(loaded.restored).toBe(false);
+    expect(loaded.session.currentStepIndex).toBe(0);
+    expect(window.localStorage.getItem(key)).toBeNull();
+  });
+
+  it('restores plan-linked cook sessions saved within 7 days for the same plan item', () => {
+    const recipe = {
+      id: 'recipe-3',
+      servings: 4,
+      steps: [
+        { id: 'step-1', title: '备菜', text: '备菜', icon: 'pan', summary: '', estimated_minutes: null, tip: '', key_points: [] },
+        { id: 'step-2', title: '炒制', text: '炒制', icon: 'pan', summary: '', estimated_minutes: null, tip: '', key_points: [] },
+      ],
+    };
+    const now = Date.parse('2026-05-21T10:00:00Z');
+    window.localStorage.setItem(
+      recipeCookSessionKey(recipe.id, 'plan-1'),
+      JSON.stringify({
+        version: 2,
+        savedAt: '2026-05-15T10:00:00Z',
+        source: 'plan',
+        planItemId: 'plan-1',
+        session: {
+          currentStepIndex: 1,
+          checkedIngredientIds: [],
+          completedStepIds: ['step-1'],
+          timerSeconds: 0,
+          timerRunning: false,
+          timerMode: 'countup',
+          timerDurationSeconds: null,
+          servings: '4',
+          date: '2026-05-21',
+          mealType: 'dinner',
+          createMealLog: true,
+          planItemId: 'plan-1',
+          adjustments: '',
+          resultNote: '计划内继续做',
+          rating: '',
+        },
+      })
+    );
+
+    const loaded = loadCookSession(recipe, 'plan-1', now);
+
+    expect(loaded.restored).toBe(true);
+    expect(loaded.session.currentStepIndex).toBe(1);
+    expect(loaded.session.planItemId).toBe('plan-1');
+    expect(loaded.session.resultNote).toBe('计划内继续做');
+  });
+
+  it('does not restore expired plan sessions or sessions for another plan item', () => {
+    const recipe = {
+      id: 'recipe-4',
+      servings: 2,
+      steps: [],
+    };
+    const now = Date.parse('2026-05-21T10:00:00Z');
+    const expiredKey = recipeCookSessionKey(recipe.id, 'plan-old');
+    const otherPlanKey = recipeCookSessionKey(recipe.id, 'plan-2');
+    window.localStorage.setItem(
+      expiredKey,
+      JSON.stringify({
+        version: 2,
+        savedAt: '2026-05-14T09:59:00Z',
+        source: 'plan',
+        planItemId: 'plan-old',
+        session: { currentStepIndex: 0 },
+      })
+    );
+    window.localStorage.setItem(
+      otherPlanKey,
+      JSON.stringify({
+        version: 2,
+        savedAt: '2026-05-21T09:00:00Z',
+        source: 'plan',
+        planItemId: 'plan-2',
+        session: { currentStepIndex: 0 },
+      })
+    );
+
+    expect(loadCookSession(recipe, 'plan-old', now).restored).toBe(false);
+    expect(window.localStorage.getItem(expiredKey)).toBeNull();
+    expect(loadCookSession(recipe, 'plan-1', now).restored).toBe(false);
+    expect(window.localStorage.getItem(otherPlanKey)).not.toBeNull();
+  });
+
+  it('does not restore legacy cook session data without savedAt metadata', () => {
+    const recipe = {
+      id: 'recipe-5',
+      servings: 2,
+      steps: [],
+    };
+    const legacyKey = `culina-recipe-cook-session:${recipe.id}`;
+    window.localStorage.setItem(
+      legacyKey,
+      JSON.stringify({
+        currentStepIndex: 1,
+        checkedIngredientIds: ['ri-1'],
+        planItemId: null,
+      })
+    );
+
+    const loaded = loadCookSession(recipe, null, Date.parse('2026-05-21T10:00:00Z'));
+
+    expect(loaded.restored).toBe(false);
+    expect(loaded.session.checkedIngredientIds).toEqual([]);
+    expect(window.localStorage.getItem(legacyKey)).toBeNull();
   });
 
   it('builds editable shopping drafts from recipe shortages with requirement labels', () => {

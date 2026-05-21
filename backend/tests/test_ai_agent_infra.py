@@ -31,7 +31,7 @@ class FakeChatProvider(BaseChatProvider):
     def __init__(self, text: str | None = None) -> None:
         self.text = text or "模型回答：优先处理库存并安排清淡晚餐。"
 
-    def generate(self, *, system: str, user: str) -> ChatProviderResult:
+    def generate(self, *, system: str, user: str, response_schema: dict | None = None) -> ChatProviderResult:
         return ChatProviderResult(text=self.text, status="completed", model=self.model_name)
 
 
@@ -267,9 +267,9 @@ class AIAgentInfraTestCase(unittest.TestCase):
                 {"ingredient_id": "ingredient-secret", "ingredient_name": "其他家庭牛排", "quantity": 1, "unit": "块", "note": ""}
               ],
               "steps": [
-                {"title": "备菜", "text": "番茄洗净切块，鸡蛋或蛋液备好。", "icon": "tomato", "summary": "处理食材", "estimated_minutes": 5, "tip": "番茄切均匀。", "key_points": ["切块一致"]},
-                {"title": "炖煮", "text": "锅中少油炒出番茄汁，加少量水炖煮。", "icon": "pan", "summary": "炒出汤汁", "estimated_minutes": 8, "tip": "保持中火。", "key_points": ["中火"]},
-                {"title": "收尾", "text": "倒入蛋液或调味后煮熟，确认熟透后出锅。", "icon": "plate", "summary": "熟透出锅", "estimated_minutes": 5, "tip": "出锅前尝味。", "key_points": ["确认熟透"]}
+                {"title": "备菜", "text": "番茄洗净切成 2 厘米块，鸡蛋或蛋液提前备好。保持食材大小接近，后面中火炖煮 8 分钟时更容易均匀熟透。", "icon": "tomato", "summary": "处理食材", "estimated_minutes": 5, "tip": "番茄切均匀。", "key_points": ["切块一致"]},
+                {"title": "炖煮", "text": "锅中少油，中火炒番茄 3 分钟到出汁变软。加入少量水后继续炖煮 5 分钟，看到汤汁冒泡并略微浓稠。", "icon": "pan", "summary": "炒出汤汁", "estimated_minutes": 8, "tip": "保持中火。", "key_points": ["中火"]},
+                {"title": "收尾", "text": "倒入蛋液后保持小火 2 分钟，让蛋液完全凝固。确认没有透明蛋液、汤汁略收后再调味出锅。", "icon": "plate", "summary": "熟透出锅", "estimated_minutes": 5, "tip": "出锅前尝味。", "key_points": ["确认熟透"]}
               ],
               "tips": "少油少盐。",
               "scene_tags": ["晚餐", "清淡"]
@@ -338,6 +338,44 @@ class AIAgentInfraTestCase(unittest.TestCase):
         self.assertEqual(draft["title"], "番茄炒蛋")
         self.assertEqual(draft["ingredient_items"][0]["ingredient_id"], "ingredient-tomato")
 
+    def test_recipe_draft_runner_splits_merged_scene_tags(self) -> None:
+        provider = FakeChatProvider(
+            """
+            {
+              "title": "番茄快手菜",
+              "servings": 2,
+              "prep_minutes": 15,
+              "difficulty": "easy",
+              "ingredient_items": [
+                {"ingredient_id": "ingredient-tomato", "ingredient_name": "番茄", "quantity": 2, "unit": "个", "note": "洗净切块"}
+              ],
+              "steps": [
+                {"title": "备菜", "text": "番茄洗净切成 2 厘米块，蒜末提前备好。食材大小保持接近，后面中火快炒时更容易均匀熟透。", "icon": "tomato", "summary": "处理食材", "estimated_minutes": 5, "tip": "番茄切均匀。", "key_points": ["切块一致"]},
+                {"title": "翻炒", "text": "热锅少油，中火下番茄翻炒 3 到 4 分钟。看到番茄边缘变软并出汁后再调味。", "icon": "pan", "summary": "炒出汤汁", "estimated_minutes": 6, "tip": "保持中火。", "key_points": ["中火", "出汁"]},
+                {"title": "收尾", "text": "加盐后继续翻炒 1 分钟，让味道进入汤汁。确认番茄软而不碎、汤汁略收后装盘。", "icon": "plate", "summary": "调味装盘", "estimated_minutes": 3, "tip": "出锅前尝味。", "key_points": ["尝味", "装盘"]}
+              ],
+              "tips": "适合临时加一道清爽小菜。",
+              "scene_tags": ["家常菜、快手菜", "晚餐/午餐", "快手菜"]
+            }
+            """
+        )
+        with self.SessionLocal() as db:
+            result = CulinaAgentService(db, provider=provider).run(
+                AgentRunRequest(
+                    family_id=self.family.id,
+                    user_id=self.user.id,
+                    feature_key="aiRecipeDraft",
+                    prompt="快手",
+                    subject={"ingredientIds": ["ingredient-tomato"]},
+                    response_format="recipe_draft",
+                    persist_conversation=False,
+                )
+            )
+
+        draft = result.data["recipeDraft"]
+        self.assertEqual(result.status, "completed")
+        self.assertEqual(draft["scene_tags"], ["家常菜", "快手菜", "晚餐", "午餐"])
+
     def test_recipe_draft_runner_parses_json_surrounded_by_text(self) -> None:
         provider = FakeChatProvider(
             """
@@ -379,7 +417,7 @@ class AIAgentInfraTestCase(unittest.TestCase):
         draft = result.data["recipeDraft"]
         self.assertEqual(result.status, "completed")
         self.assertEqual(draft["title"], "清炒番茄")
-        self.assertGreaterEqual(len(draft["steps"]), 4)
+        self.assertGreaterEqual(len(draft["steps"]), 3)
 
     def test_recipe_draft_runner_fails_without_fallback_on_invalid_json(self) -> None:
         with self.SessionLocal() as db:
@@ -399,7 +437,7 @@ class AIAgentInfraTestCase(unittest.TestCase):
         self.assertEqual(result.error, "model returned invalid recipe draft JSON")
         self.assertIsNone(result.data["imageRenderPayload"])
 
-    def test_recipe_draft_runner_enhances_low_quality_steps_and_ingredients(self) -> None:
+    def test_recipe_draft_runner_rejects_low_quality_steps_without_local_fallback(self) -> None:
         provider = FakeChatProvider(
             """
             {
@@ -433,14 +471,9 @@ class AIAgentInfraTestCase(unittest.TestCase):
                 )
             )
 
-        draft = result.data["recipeDraft"]
-        self.assertEqual(result.status, "completed")
-        self.assertGreaterEqual(len(draft["steps"]), 4)
-        self.assertTrue(any("分钟" in step["text"] for step in draft["steps"]))
-        self.assertTrue(any("火" in step["text"] or "中火" in step["text"] for step in draft["steps"]))
-        self.assertTrue(any(step["summary"] for step in draft["steps"]))
-        self.assertTrue(all(item["quantity"] > 0 for item in draft["ingredient_items"]))
-        self.assertTrue(all(item["note"] for item in draft["ingredient_items"]))
+        self.assertEqual(result.status, "failed")
+        self.assertIsNone(result.data["recipeDraft"])
+        self.assertEqual(result.error, "model returned invalid recipe draft JSON")
 
     def test_recipe_draft_runner_keeps_selected_ingredient_ids_and_default_units(self) -> None:
         provider = FakeChatProvider(
@@ -455,10 +488,9 @@ class AIAgentInfraTestCase(unittest.TestCase):
                 {"ingredient_id": "ingredient-secret", "ingredient_name": "其他家庭牛排", "quantity": 1, "unit": "块", "note": ""}
               ],
               "steps": [
-                {"title": "处理", "text": "番茄切块，鸡蛋打散。", "icon": "tomato", "summary": "处理", "estimated_minutes": 4, "tip": "", "key_points": ["切块"]},
-                {"title": "煮汤", "text": "加水煮开后下番茄。", "icon": "pan", "summary": "煮汤", "estimated_minutes": 5, "tip": "", "key_points": ["煮开"]},
-                {"title": "收尾", "text": "加蛋液后出锅。", "icon": "plate", "summary": "收尾", "estimated_minutes": 3, "tip": "", "key_points": ["出锅"]},
-                {"title": "完成", "text": "装盘即可。", "icon": "plate", "summary": "完成", "estimated_minutes": 1, "tip": "", "key_points": ["装盘"]}
+                {"title": "处理", "text": "番茄切成小块，鸡蛋打散后加 1 勺清水。食材提前备好，后面中火煮 5 分钟时能更快熟透。", "icon": "tomato", "summary": "处理", "estimated_minutes": 4, "tip": "", "key_points": ["切块"]},
+                {"title": "煮汤", "text": "锅中加水煮到沸腾后下番茄，中火煮 5 分钟。看到番茄变软出汁、汤色微红后再倒蛋液。", "icon": "pan", "summary": "煮汤", "estimated_minutes": 5, "tip": "", "key_points": ["煮开"]},
+                {"title": "收尾", "text": "沿锅边倒入蛋液，小火保持 2 分钟让蛋花凝固。确认蛋液熟透、汤面重新冒泡后加盐调味出锅。", "icon": "plate", "summary": "收尾", "estimated_minutes": 3, "tip": "", "key_points": ["出锅"]}
               ],
               "tips": "清淡。",
               "scene_tags": ["午餐"]

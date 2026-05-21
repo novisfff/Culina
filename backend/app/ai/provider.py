@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
 
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
@@ -19,7 +20,7 @@ class ChatProviderResult:
 class BaseChatProvider:
     model_name: str = ""
 
-    def generate(self, *, system: str, user: str) -> ChatProviderResult:  # pragma: no cover - interface
+    def generate(self, *, system: str, user: str, response_schema: dict[str, Any] | None = None) -> ChatProviderResult:  # pragma: no cover - interface
         raise NotImplementedError
 
 
@@ -27,7 +28,7 @@ class DisabledChatProvider(BaseChatProvider):
     def __init__(self, model_name: str = "") -> None:
         self.model_name = model_name
 
-    def generate(self, *, system: str, user: str) -> ChatProviderResult:
+    def generate(self, *, system: str, user: str, response_schema: dict[str, Any] | None = None) -> ChatProviderResult:
         return ChatProviderResult(text=None, status="fallback", model=self.model_name, error=None)
 
 
@@ -50,21 +51,43 @@ class OpenAICompatibleChatProvider(BaseChatProvider):
             max_retries=1,
         )
 
-    def generate(self, *, system: str, user: str) -> ChatProviderResult:
-        try:
-            message = self.client.invoke([SystemMessage(content=system), HumanMessage(content=user)])
+    def generate(self, *, system: str, user: str, response_schema: dict[str, Any] | None = None) -> ChatProviderResult:
+        def invoke(client) -> str:
+            message = client.invoke([SystemMessage(content=system), HumanMessage(content=user)])
             content = message.content
             if isinstance(content, list):
-                text = "".join(
+                return "".join(
                     part.get("text", "") for part in content if isinstance(part, dict) and isinstance(part.get("text"), str)
+                ).strip()
+            return str(content or "").strip()
+
+        try:
+            client = (
+                self.client.bind(
+                    response_format={
+                        "type": "json_schema",
+                        "json_schema": {
+                            "name": "culina_recipe_draft",
+                            "schema": response_schema,
+                            "strict": True,
+                        },
+                    }
                 )
-            else:
-                text = str(content or "")
-            text = text.strip()
+                if response_schema
+                else self.client
+            )
+            text = invoke(client)
             if not text:
                 return ChatProviderResult(text=None, status="fallback", model=self.model_name, error="empty model response")
             return ChatProviderResult(text=text, status="completed", model=self.model_name)
         except Exception as exc:  # pragma: no cover - network/provider failure
+            if response_schema:
+                try:
+                    text = invoke(self.client)
+                    if text:
+                        return ChatProviderResult(text=text, status="completed", model=self.model_name)
+                except Exception:
+                    pass
             return ChatProviderResult(text=None, status="fallback", model=self.model_name, error=str(exc))
 
 

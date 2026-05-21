@@ -889,8 +889,29 @@ function clampStepIndex(index: number, stepCount: number) {
   return Math.min(Math.max(index, 0), Math.max(stepCount - 1, 0));
 }
 
-function recipeCookSessionKey(recipeId: string) {
+type RecipeCookSessionSource = 'direct' | 'plan';
+
+type PersistedRecipeCookSession = {
+  version: 2;
+  savedAt: string;
+  source: RecipeCookSessionSource;
+  planItemId: string | null;
+  session: RecipeCookSessionState;
+};
+
+const DIRECT_COOK_SESSION_RETENTION_MS = 24 * 60 * 60 * 1000;
+const PLAN_COOK_SESSION_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
+
+export function recipeCookSessionKey(recipeId: string, planItemId: string | null = null) {
+  return planItemId ? `culina-recipe-cook-session:${recipeId}:plan:${planItemId}` : `culina-recipe-cook-session:${recipeId}:direct`;
+}
+
+function legacyRecipeCookSessionKey(recipeId: string) {
   return `culina-recipe-cook-session:${recipeId}`;
+}
+
+function getCookSessionSource(planItemId: string | null): RecipeCookSessionSource {
+  return planItemId ? 'plan' : 'direct';
 }
 
 function buildDefaultCookSession(recipe: Pick<Recipe, 'servings'>, planItemId: string | null = null): RecipeCookSessionState {
@@ -940,22 +961,66 @@ export function sanitizeCookSession(
   };
 }
 
-function loadCookSession(recipe: Pick<Recipe, 'id' | 'servings' | 'steps'>, planItemId: string | null = null) {
+function parsePersistedCookSession(value: unknown): PersistedRecipeCookSession | null {
+  if (!value || typeof value !== 'object') return null;
+  const parsed = value as Partial<PersistedRecipeCookSession>;
+  if (parsed.version !== 2) return null;
+  if (typeof parsed.savedAt !== 'string' || !parsed.savedAt) return null;
+  if (parsed.source !== 'direct' && parsed.source !== 'plan') return null;
+  if (parsed.planItemId !== null && typeof parsed.planItemId !== 'string') return null;
+  if (!parsed.session || typeof parsed.session !== 'object') return null;
+  return parsed as PersistedRecipeCookSession;
+}
+
+function isCookSessionExpired(savedAt: string, source: RecipeCookSessionSource, now: number) {
+  const savedAtMs = Date.parse(savedAt);
+  if (!Number.isFinite(savedAtMs)) return true;
+  const age = now - savedAtMs;
+  if (age < 0) return false;
+  const retentionMs = source === 'plan' ? PLAN_COOK_SESSION_RETENTION_MS : DIRECT_COOK_SESSION_RETENTION_MS;
+  return age > retentionMs;
+}
+
+export function loadCookSession(recipe: Pick<Recipe, 'id' | 'servings' | 'steps'>, planItemId: string | null = null, now: number = Date.now()) {
+  const source = getCookSessionSource(planItemId);
+  const key = recipeCookSessionKey(recipe.id, planItemId);
   try {
-    const raw = window.localStorage.getItem(recipeCookSessionKey(recipe.id));
+    window.localStorage.removeItem(legacyRecipeCookSessionKey(recipe.id));
+    const raw = window.localStorage.getItem(key);
     if (!raw) return { session: buildDefaultCookSession(recipe, planItemId), restored: false };
-    return { session: sanitizeCookSession(JSON.parse(raw), recipe, planItemId), restored: true };
+    const persisted = parsePersistedCookSession(JSON.parse(raw));
+    if (
+      !persisted ||
+      persisted.source !== source ||
+      persisted.planItemId !== planItemId ||
+      isCookSessionExpired(persisted.savedAt, persisted.source, now)
+    ) {
+      window.localStorage.removeItem(key);
+      return { session: buildDefaultCookSession(recipe, planItemId), restored: false };
+    }
+    const session = sanitizeCookSession({ ...persisted.session, planItemId }, recipe, planItemId);
+    return { session, restored: true };
   } catch {
+    window.localStorage.removeItem(key);
     return { session: buildDefaultCookSession(recipe, planItemId), restored: false };
   }
 }
 
 function saveCookSession(recipeId: string, session: RecipeCookSessionState) {
-  window.localStorage.setItem(recipeCookSessionKey(recipeId), JSON.stringify({ ...session, timerRunning: false }));
+  const source = getCookSessionSource(session.planItemId);
+  const persisted: PersistedRecipeCookSession = {
+    version: 2,
+    savedAt: new Date().toISOString(),
+    source,
+    planItemId: session.planItemId,
+    session: { ...session, timerRunning: false },
+  };
+  window.localStorage.setItem(recipeCookSessionKey(recipeId, session.planItemId), JSON.stringify(persisted));
 }
 
-function clearCookSession(recipeId: string) {
-  window.localStorage.removeItem(recipeCookSessionKey(recipeId));
+function clearCookSession(recipeId: string, planItemId: string | null = null) {
+  window.localStorage.removeItem(recipeCookSessionKey(recipeId, planItemId));
+  window.localStorage.removeItem(legacyRecipeCookSessionKey(recipeId));
 }
 
 export function buildCookPayload(args: {
@@ -2045,7 +2110,7 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
     setCookSession(nextSession);
     setWasCookSessionRestored(false);
     setIsCookFinishOpen(false);
-    clearCookSession(activeCookCard.recipe.id);
+    clearCookSession(activeCookCard.recipe.id, cookSession?.planItemId ?? null);
   }
 
   function exitCookMode(target: 'detail' | 'library' = 'detail') {
@@ -2839,7 +2904,7 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
         showRecipeNotice({ tone: 'warning', title: '库存不足', message: response.shortages.map((item) => item.ingredient_name).join('、') });
         return;
       }
-      clearCookSession(activeCookCard.recipe.id);
+      clearCookSession(activeCookCard.recipe.id, cookSession.planItemId);
       setSelectedRecipeId(activeCookCard.recipe.id);
       closeCookDialog();
       setView('detail');
