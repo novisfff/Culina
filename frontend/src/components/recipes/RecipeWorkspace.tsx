@@ -1371,6 +1371,7 @@ function DiscoveryRecipeCard(props: {
         className={props.isFavorite ? 'recipe-favorite-button active' : 'recipe-favorite-button'}
         type="button"
         aria-label={props.isFavorite ? '取消收藏' : '收藏菜谱'}
+        aria-pressed={props.isFavorite}
         disabled={props.isFavoritePending}
         onClick={(event) => {
           event.stopPropagation();

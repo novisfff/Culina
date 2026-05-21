@@ -20043,6 +20043,15 @@ textarea:focus-visible {
   height: 21px;
 }
 
+.recipe-discovery-card .recipe-favorite-button.active {
+  color: #f1760d;
+}
+
+.recipe-discovery-card .recipe-favorite-button.active .recipe-ui-icon {
+  color: #f1760d;
+  fill: currentColor;
+}
+
 .recipe-discovery-card-body {
   display: grid;
   grid-template-rows: minmax(44px, auto) 34px 34px 34px 44px;
