@@ -24,11 +24,11 @@ class Settings(BaseSettings):
     ai_model: str = ""
     ai_timeout_seconds: float = 180.0
     ai_image_reference_provider: str = "disabled"
-    ai_image_reference_api_base: str = "https://dashscope.aliyuncs.com/api/v1"
+    ai_image_reference_api_base: str = ""
     ai_image_reference_api_key: str = ""
     ai_image_reference_model: str = "wan2.6-image"
     ai_image_text_provider: str = "disabled"
-    ai_image_text_api_base: str = "https://dashscope.aliyuncs.com/api/v1"
+    ai_image_text_api_base: str = ""
     ai_image_text_api_key: str = ""
     ai_image_text_model: str = "wan2.6-t2i"
     frontend_origin: str = "http://localhost:5173"

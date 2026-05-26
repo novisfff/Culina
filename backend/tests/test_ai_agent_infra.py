@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import base64
 import unittest
 from datetime import date
 from decimal import Decimal
 from unittest.mock import patch
 
+import httpx
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
@@ -22,7 +24,7 @@ from app.core.enums import AiMode, FoodType, ImageGenerationMode, IngredientExpi
 from app.db.session import get_db
 from app.main import app
 from app.models.domain import AIAgentRun, Base, Family, Food, Ingredient, InventoryItem, Membership, User
-from app.services.image_generation import ImageGenerationRequest, build_ai_image_prompt
+from app.services.image_generation import ImageGenerationRequest, ImageProviderConfig, OpenAIImageGenerationProvider, build_ai_image_prompt, _build_provider_config
 
 
 class FakeChatProvider(BaseChatProvider):
@@ -542,6 +544,73 @@ class AIAgentInfraTestCase(unittest.TestCase):
             with self.subTest(term=term):
                 self.assertNotIn(term, payload["notes"])
                 self.assertNotIn(term, prompt)
+
+    def test_openai_image_provider_uses_configured_endpoint_and_key(self) -> None:
+        calls: list[dict] = []
+
+        class FakeHttpxClient:
+            def __init__(self, *args, **kwargs) -> None:
+                pass
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, traceback) -> None:
+                return None
+
+            def post(self, url: str, **kwargs):
+                calls.append({"url": url, **kwargs})
+                return httpx.Response(
+                    200,
+                    json={"data": [{"b64_json": base64.b64encode(b"fake-image").decode("ascii")}]},
+                )
+
+        provider = OpenAIImageGenerationProvider(
+            ImageProviderConfig(
+                provider="openai",
+                api_base="https://example.test/v1",
+                api_key="test-key",
+                model="gpt-image-2",
+            )
+        )
+        with patch("app.services.image_generation.httpx.Client", FakeHttpxClient):
+            result = provider.generate_from_text(
+                ImageGenerationRequest(
+                    entity_type=MediaEntityType.FOOD,
+                    mode=ImageGenerationMode.TEXT,
+                    title="番茄炒蛋",
+                    size="1664*1040",
+                )
+            )
+
+        self.assertEqual(result.binary_content, b"fake-image")
+        self.assertEqual(result.file_extension, ".png")
+        self.assertEqual(result.mime_type, "image/png")
+        self.assertEqual(calls[0]["url"], "https://example.test/v1/images/generations")
+        self.assertEqual(calls[0]["headers"]["Authorization"], "Bearer test-key")
+        self.assertEqual(calls[0]["json"]["model"], "gpt-image-2")
+        self.assertEqual(calls[0]["json"]["size"], "1536x1024")
+        self.assertEqual(calls[0]["json"]["output_format"], "png")
+
+    def test_openai_image_provider_config_defaults_to_openai_base(self) -> None:
+        class FakeSettings:
+            ai_image_reference_provider = "openai"
+            ai_image_reference_api_base = ""
+            ai_image_reference_api_key = "reference-key"
+            ai_image_reference_model = ""
+            ai_image_text_provider = "openai"
+            ai_image_text_api_base = ""
+            ai_image_text_api_key = "text-key"
+            ai_image_text_model = ""
+
+        with patch("app.services.image_generation.get_settings", return_value=FakeSettings()):
+            text_config = _build_provider_config(ImageGenerationMode.TEXT)
+            reference_config = _build_provider_config(ImageGenerationMode.REFERENCE)
+
+        self.assertEqual(text_config.api_base, "https://api.openai.com/v1")
+        self.assertEqual(text_config.model, "gpt-image-2")
+        self.assertEqual(reference_config.api_base, "https://api.openai.com/v1")
+        self.assertEqual(reference_config.model, "gpt-image-2")
 
 
 if __name__ == "__main__":

@@ -14,7 +14,10 @@ from app.core.enums import ImageGenerationMode, MealType, MediaEntityType
 STYLE_KEY = "culina-still-life-v1"
 PROMPT_VERSION = "4"
 DEFAULT_DASHSCOPE_BASE_URL = "https://dashscope.aliyuncs.com/api/v1"
+DEFAULT_OPENAI_BASE_URL = "https://api.openai.com/v1"
 DASHSCOPE_SYNC_ENDPOINT = "/services/aigc/multimodal-generation/generation"
+OPENAI_IMAGE_GENERATIONS_ENDPOINT = "/images/generations"
+OPENAI_IMAGE_EDITS_ENDPOINT = "/images/edits"
 
 BASE_STYLE_PROMPT = """
 你是一名严格遵守 Culina 统一视觉语言的美食静物摄影师。
@@ -293,6 +296,11 @@ def _encode_reference_data_uri(binary_payload: bytes | None, filename: str | Non
 
 
 def _extract_provider_error(payload: dict) -> str | None:
+    error = payload.get("error")
+    if isinstance(error, dict):
+        message = error.get("message")
+        if isinstance(message, str) and message.strip():
+            return message.strip()
     for key in ("message", "msg"):
         value = payload.get(key)
         if isinstance(value, str) and value.strip():
@@ -338,6 +346,58 @@ def _infer_extension_from_url(url: str) -> str | None:
     path = Path(unquote(urlparse(url).path))
     suffix = path.suffix.lower()
     return suffix if suffix in {".png", ".jpg", ".jpeg", ".webp", ".bmp", ".svg"} else None
+
+
+def _format_openai_size(size: str) -> str:
+    if not size:
+        return "auto"
+    normalized = size.strip().lower().replace("*", "x")
+    if normalized in {"auto", "1024x1024", "1536x1024", "1024x1536"}:
+        return normalized
+    width_text, separator, height_text = normalized.partition("x")
+    if not separator:
+        return "auto"
+    try:
+        width = int(width_text)
+        height = int(height_text)
+    except ValueError:
+        return "auto"
+    if width <= 0 or height <= 0:
+        return "auto"
+    ratio = width / height
+    if ratio > 1.15:
+        return "1536x1024"
+    if ratio < 0.87:
+        return "1024x1536"
+    return "1024x1024"
+
+
+def _normalize_openai_output_format(output_format: str) -> str:
+    normalized = output_format.strip().lower().lstrip(".")
+    return normalized if normalized in {"png", "jpeg", "webp"} else "png"
+
+
+def _openai_mime_type(output_format: str) -> str:
+    return "image/jpeg" if output_format == "jpeg" else f"image/{output_format}"
+
+
+def _extract_openai_image_payload(payload: dict) -> tuple[bytes | None, str | None]:
+    data = payload.get("data")
+    if not isinstance(data, list):
+        raise RuntimeError(_extract_provider_error(payload) or "OpenAI 图像生成结果缺少 data")
+    for item in data:
+        if not isinstance(item, dict):
+            continue
+        b64_json = item.get("b64_json")
+        if isinstance(b64_json, str) and b64_json.strip():
+            try:
+                return base64.b64decode(b64_json), None
+            except ValueError as exc:
+                raise RuntimeError("OpenAI 图像生成返回了无效 base64 数据") from exc
+        image_url = item.get("url")
+        if isinstance(image_url, str) and image_url.strip():
+            return None, image_url.strip()
+    raise RuntimeError(_extract_provider_error(payload) or "OpenAI 图像生成结果中未找到图片数据")
 
 
 class BaseImageGenerationProvider:
@@ -451,20 +511,155 @@ class DashScopeImageGenerationProvider(BaseImageGenerationProvider):
         )
 
 
+class OpenAIImageGenerationProvider(BaseImageGenerationProvider):
+    def __init__(self, config: ImageProviderConfig) -> None:
+        self.base_url = (config.api_base or DEFAULT_OPENAI_BASE_URL).rstrip("/")
+        self.api_key = config.api_key
+        self.model = config.model or "gpt-image-2"
+        self.timeout = httpx.Timeout(180.0, connect=10.0, read=180.0, write=60.0)
+
+    def generate_from_text(self, request: ImageGenerationRequest) -> ImageGenerationResult:
+        normalized = _normalize_request(request)
+        prompt = build_ai_image_prompt(normalized)
+        output_format = _normalize_openai_output_format(normalized.output_format)
+        payload = {
+            "model": self.model,
+            "prompt": prompt,
+            "size": _format_openai_size(normalized.size),
+            "n": 1,
+            "output_format": output_format,
+        }
+        return self._post_json_image(
+            endpoint=OPENAI_IMAGE_GENERATIONS_ENDPOINT,
+            payload=payload,
+            prompt=prompt,
+            output_format=output_format,
+        )
+
+    def generate_from_reference(self, request: ImageGenerationRequest) -> ImageGenerationResult:
+        normalized = _normalize_request(request)
+        prompt = build_ai_image_prompt(normalized)
+        output_format = _normalize_openai_output_format(normalized.output_format)
+        if not normalized.reference_image_bytes:
+            raise ValueError("缺少参考图内容")
+        mime_type = _guess_reference_mime_type(normalized.reference_filename)
+        files = {
+            "image": (
+                normalized.reference_filename or "reference.png",
+                normalized.reference_image_bytes,
+                mime_type,
+            )
+        }
+        data = {
+            "model": self.model,
+            "prompt": prompt,
+            "size": _format_openai_size(normalized.size),
+            "n": "1",
+            "output_format": output_format,
+        }
+        return self._post_multipart_image(
+            endpoint=OPENAI_IMAGE_EDITS_ENDPOINT,
+            data=data,
+            files=files,
+            prompt=prompt,
+            output_format=output_format,
+        )
+
+    def _post_json_image(
+        self,
+        *,
+        endpoint: str,
+        payload: dict,
+        prompt: str,
+        output_format: str,
+    ) -> ImageGenerationResult:
+        try:
+            with httpx.Client(timeout=self.timeout) as client:
+                response = client.post(
+                    f"{self.base_url}{endpoint}",
+                    json=payload,
+                    headers={"Authorization": f"Bearer {self.api_key}"},
+                )
+                response_payload = response.json()
+                if response.is_error:
+                    raise RuntimeError(_extract_provider_error(response_payload) or "OpenAI 图像生成服务返回错误")
+                return self._result_from_payload(client, response_payload, prompt, output_format)
+        except httpx.HTTPError as exc:  # pragma: no cover - network failure
+            raise RuntimeError("调用 OpenAI 图片生成服务失败") from exc
+        except ValueError as exc:  # pragma: no cover - invalid provider response
+            raise RuntimeError("OpenAI 图像生成返回了无效响应") from exc
+
+    def _post_multipart_image(
+        self,
+        *,
+        endpoint: str,
+        data: dict[str, str],
+        files: dict[str, tuple[str, bytes, str]],
+        prompt: str,
+        output_format: str,
+    ) -> ImageGenerationResult:
+        try:
+            with httpx.Client(timeout=self.timeout) as client:
+                response = client.post(
+                    f"{self.base_url}{endpoint}",
+                    data=data,
+                    files=files,
+                    headers={"Authorization": f"Bearer {self.api_key}"},
+                )
+                response_payload = response.json()
+                if response.is_error:
+                    raise RuntimeError(_extract_provider_error(response_payload) or "OpenAI 图像编辑服务返回错误")
+                return self._result_from_payload(client, response_payload, prompt, output_format)
+        except httpx.HTTPError as exc:  # pragma: no cover - network failure
+            raise RuntimeError("调用 OpenAI 图片编辑服务失败") from exc
+        except ValueError as exc:  # pragma: no cover - invalid provider response
+            raise RuntimeError("OpenAI 图像编辑返回了无效响应") from exc
+
+    def _result_from_payload(
+        self,
+        client: httpx.Client,
+        payload: dict,
+        prompt: str,
+        output_format: str,
+    ) -> ImageGenerationResult:
+        binary_content, image_url = _extract_openai_image_payload(payload)
+        mime_type = _openai_mime_type(output_format)
+        file_extension = ".jpg" if output_format == "jpeg" else f".{output_format}"
+        if binary_content is None and image_url:
+            download_response = client.get(image_url, follow_redirects=True)
+            download_response.raise_for_status()
+            content_type = download_response.headers.get("content-type", "").split(";")[0].strip().lower()
+            binary_content = download_response.content
+            mime_type = content_type or mime_type
+            file_extension = CONTENT_TYPE_TO_EXTENSION.get(content_type) or _infer_extension_from_url(image_url) or file_extension
+        return ImageGenerationResult(
+            prompt=prompt,
+            binary_content=binary_content,
+            file_extension=file_extension,
+            mime_type=mime_type,
+        )
+
+
 def _build_provider_config(mode: ImageGenerationMode) -> ImageProviderConfig:
     settings = get_settings()
     if mode == ImageGenerationMode.REFERENCE:
+        reference_provider = settings.ai_image_reference_provider
+        reference_provider_name = reference_provider.strip().lower()
+        reference_is_openai = reference_provider_name in {"openai", "openai-compatible", "compatible", "custom"}
         return ImageProviderConfig(
-            provider=settings.ai_image_reference_provider,
-            api_base=settings.ai_image_reference_api_base or DEFAULT_DASHSCOPE_BASE_URL,
+            provider=reference_provider,
+            api_base=settings.ai_image_reference_api_base or (DEFAULT_OPENAI_BASE_URL if reference_is_openai else DEFAULT_DASHSCOPE_BASE_URL),
             api_key=settings.ai_image_reference_api_key,
-            model=settings.ai_image_reference_model or "wan2.6-image",
+            model=settings.ai_image_reference_model or ("gpt-image-2" if reference_is_openai else "wan2.6-image"),
         )
+    text_provider = settings.ai_image_text_provider
+    text_provider_name = text_provider.strip().lower()
+    text_is_openai = text_provider_name in {"openai", "openai-compatible", "compatible", "custom"}
     return ImageProviderConfig(
-        provider=settings.ai_image_text_provider,
-        api_base=settings.ai_image_text_api_base or DEFAULT_DASHSCOPE_BASE_URL,
+        provider=text_provider,
+        api_base=settings.ai_image_text_api_base or (DEFAULT_OPENAI_BASE_URL if text_is_openai else DEFAULT_DASHSCOPE_BASE_URL),
         api_key=settings.ai_image_text_api_key,
-        model=settings.ai_image_text_model or "wan2.6-t2i",
+        model=settings.ai_image_text_model or ("gpt-image-2" if text_is_openai else "wan2.6-t2i"),
     )
 
 
@@ -475,6 +670,8 @@ def _resolve_provider(mode: ImageGenerationMode) -> BaseImageGenerationProvider:
         return MockImageGenerationProvider()
     if provider_name == "dashscope":
         return DashScopeImageGenerationProvider(config)
+    if provider_name in {"openai", "openai-compatible", "compatible", "custom"}:
+        return OpenAIImageGenerationProvider(config)
     raise RuntimeError(f"Unsupported image provider: {config.provider}")
 
 
