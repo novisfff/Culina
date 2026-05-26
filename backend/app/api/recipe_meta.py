@@ -10,20 +10,20 @@ from app.core.deps import get_current_auth
 from app.core.enums import ActivityAction
 from app.core.utils import create_id
 from app.db.session import get_db
-from app.models.domain import Recipe, RecipeFavorite, RecipePlanItem, RecipeScene
+from app.models.domain import FoodScene, Recipe, RecipeFavorite, RecipePlanItem
 from app.repos.media import build_media_map, get_media_assets_for_family
 from app.schemas.domain import (
     CreateRecipePlanItemRequest,
-    CreateRecipeSceneRequest,
+    CreateFoodSceneRequest,
     RecipeFavoriteOut,
     RecipePlanItemOut,
-    RecipeSceneOut,
-    UpdateRecipeSceneRequest,
+    FoodSceneOut,
+    UpdateFoodSceneRequest,
     UpdateRecipePlanItemRequest,
 )
 from app.services.activity import log_activity
 from app.services.media import replace_media_assets
-from app.services.serializers import serialize_recipe_favorite, serialize_recipe_plan_item, serialize_recipe_scene
+from app.services.serializers import serialize_food_scene, serialize_recipe_favorite, serialize_recipe_plan_item
 
 router = APIRouter(tags=["recipe-meta"])
 
@@ -50,10 +50,10 @@ def _load_plan_item(db: Session, *, family_id: str, user_id: str, item_id: str) 
     return item
 
 
-def _load_scene(db: Session, *, family_id: str, scene_id: str) -> RecipeScene:
-    scene = db.scalar(select(RecipeScene).where(RecipeScene.family_id == family_id, RecipeScene.id == scene_id))
+def _load_scene(db: Session, *, family_id: str, scene_id: str) -> FoodScene:
+    scene = db.scalar(select(FoodScene).where(FoodScene.family_id == family_id, FoodScene.id == scene_id))
     if scene is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Recipe scene not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Food scene not found")
     return scene
 
 
@@ -61,23 +61,23 @@ def _scene_media_map(db: Session, family_id: str) -> dict:
     return build_media_map(get_media_assets_for_family(db, family_id))
 
 
-@router.get("/api/recipe-scenes", response_model=list[RecipeSceneOut])
-def list_recipe_scenes(auth: tuple = Depends(get_current_auth), db: Session = Depends(get_db)) -> list[dict]:
+@router.get("/api/food-scenes", response_model=list[FoodSceneOut])
+def list_food_scenes(auth: tuple = Depends(get_current_auth), db: Session = Depends(get_db)) -> list[dict]:
     _, membership = auth
     scenes = list(
         db.scalars(
-            select(RecipeScene)
-            .where(RecipeScene.family_id == membership.family_id)
-            .order_by(RecipeScene.sort_order.asc(), RecipeScene.created_at.asc())
+            select(FoodScene)
+            .where(FoodScene.family_id == membership.family_id)
+            .order_by(FoodScene.sort_order.asc(), FoodScene.created_at.asc())
         )
     )
     media_map = _scene_media_map(db, membership.family_id)
-    return [serialize_recipe_scene(item, media_map) for item in scenes]
+    return [serialize_food_scene(item, media_map) for item in scenes]
 
 
-@router.post("/api/recipe-scenes", response_model=RecipeSceneOut, status_code=status.HTTP_201_CREATED)
-def create_recipe_scene(
-    payload: CreateRecipeSceneRequest,
+@router.post("/api/food-scenes", response_model=FoodSceneOut, status_code=status.HTTP_201_CREATED)
+def create_food_scene(
+    payload: CreateFoodSceneRequest,
     auth: tuple = Depends(get_current_auth),
     db: Session = Depends(get_db),
 ) -> dict:
@@ -85,12 +85,12 @@ def create_recipe_scene(
     name = payload.name.strip()
     if not name:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Scene name is required")
-    existing = db.scalar(select(RecipeScene).where(RecipeScene.family_id == membership.family_id, RecipeScene.name == name))
+    existing = db.scalar(select(FoodScene).where(FoodScene.family_id == membership.family_id, FoodScene.name == name))
     if existing is not None:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Recipe scene already exists")
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Food scene already exists")
 
-    scene = RecipeScene(
-        id=create_id("recipe-scene"),
+    scene = FoodScene(
+        id=create_id("food-scene"),
         family_id=membership.family_id,
         name=name,
         description=payload.description.strip(),
@@ -107,7 +107,7 @@ def create_recipe_scene(
         db,
         family_id=membership.family_id,
         media_ids=[payload.image_asset_id] if payload.image_asset_id else [],
-        entity_type="recipe_scene",
+        entity_type="food_scene",
         entity_id=scene.id,
     )
     log_activity(
@@ -115,19 +115,19 @@ def create_recipe_scene(
         family_id=membership.family_id,
         actor_id=user.id,
         action=ActivityAction.CREATE,
-        entity_type="RecipeScene",
+        entity_type="FoodScene",
         entity_id=scene.id,
-        summary=f"新增菜谱场景 {scene.name}",
+        summary=f"新增食物场景 {scene.name}",
     )
     db.commit()
     db.refresh(scene)
-    return serialize_recipe_scene(scene, _scene_media_map(db, membership.family_id))
+    return serialize_food_scene(scene, _scene_media_map(db, membership.family_id))
 
 
-@router.patch("/api/recipe-scenes/{scene_id}", response_model=RecipeSceneOut)
-def update_recipe_scene(
+@router.patch("/api/food-scenes/{scene_id}", response_model=FoodSceneOut)
+def update_food_scene(
     scene_id: str,
-    payload: UpdateRecipeSceneRequest,
+    payload: UpdateFoodSceneRequest,
     auth: tuple = Depends(get_current_auth),
     db: Session = Depends(get_db),
 ) -> dict:
@@ -138,14 +138,14 @@ def update_recipe_scene(
         if not name:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Scene name is required")
         duplicate = db.scalar(
-            select(RecipeScene).where(
-                RecipeScene.family_id == membership.family_id,
-                RecipeScene.name == name,
-                RecipeScene.id != scene.id,
+            select(FoodScene).where(
+                FoodScene.family_id == membership.family_id,
+                FoodScene.name == name,
+                FoodScene.id != scene.id,
             )
         )
         if duplicate is not None:
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Recipe scene already exists")
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Food scene already exists")
         scene.name = name
     if payload.description is not None:
         scene.description = payload.description.strip()
@@ -163,7 +163,7 @@ def update_recipe_scene(
             db,
             family_id=membership.family_id,
             media_ids=[payload.image_asset_id] if payload.image_asset_id else [],
-            entity_type="recipe_scene",
+            entity_type="food_scene",
             entity_id=scene.id,
         )
     log_activity(
@@ -171,17 +171,17 @@ def update_recipe_scene(
         family_id=membership.family_id,
         actor_id=user.id,
         action=ActivityAction.UPDATE,
-        entity_type="RecipeScene",
+        entity_type="FoodScene",
         entity_id=scene.id,
-        summary=f"更新菜谱场景 {scene.name}",
+        summary=f"更新食物场景 {scene.name}",
     )
     db.commit()
     db.refresh(scene)
-    return serialize_recipe_scene(scene, _scene_media_map(db, membership.family_id))
+    return serialize_food_scene(scene, _scene_media_map(db, membership.family_id))
 
 
-@router.delete("/api/recipe-scenes/{scene_id}", status_code=status.HTTP_204_NO_CONTENT, response_model=None)
-def delete_recipe_scene(
+@router.delete("/api/food-scenes/{scene_id}", status_code=status.HTTP_204_NO_CONTENT, response_model=None)
+def delete_food_scene(
     scene_id: str,
     auth: tuple = Depends(get_current_auth),
     db: Session = Depends(get_db),
@@ -193,7 +193,7 @@ def delete_recipe_scene(
         db,
         family_id=membership.family_id,
         media_ids=[],
-        entity_type="recipe_scene",
+        entity_type="food_scene",
         entity_id=scene.id,
     )
     db.delete(scene)
@@ -202,9 +202,9 @@ def delete_recipe_scene(
         family_id=membership.family_id,
         actor_id=user.id,
         action=ActivityAction.UPDATE,
-        entity_type="RecipeScene",
+        entity_type="FoodScene",
         entity_id=scene_id,
-        summary=f"删除菜谱场景 {title}",
+        summary=f"删除食物场景 {title}",
     )
     db.commit()
     return None

@@ -1,6 +1,6 @@
 export type UserRole = 'Owner' | 'Member';
 
-export type FoodType = 'selfMade' | 'takeout' | 'diningOut' | 'packaged';
+export type FoodType = 'selfMade' | 'takeout' | 'diningOut' | 'readyMade' | 'instant' | 'packaged';
 
 export type MealType = 'breakfast' | 'lunch' | 'dinner' | 'snack';
 
@@ -136,10 +136,19 @@ export interface Food extends EntityMeta {
   type: FoodType;
   category: string;
   flavorTags: string[];
+  suitableMealTypes?: MealType[];
   sourceName: string;
+  purchaseSource?: string;
   scene: string;
   images: PhotoAsset[];
   notes: string;
+  routineNote?: string;
+  price?: number | null;
+  rating?: number | null;
+  repurchase?: boolean | null;
+  expiryDate?: string;
+  stockQuantity?: number | null;
+  stockUnit?: string;
   favorite: boolean;
   recipeId?: string;
 }

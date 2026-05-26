@@ -37,7 +37,7 @@ export function SectionHeading(props: { title: string; description: string; acti
 }
 
 export function PageHeader(props: {
-  eyebrow: string;
+  eyebrow?: string;
   title: string;
   description: string;
   actions?: ReactNode;
@@ -53,7 +53,7 @@ export function PageHeader(props: {
       }
     >
       <div className="page-header-copy">
-        <p className="eyebrow">{props.eyebrow}</p>
+        {props.eyebrow && <p className="eyebrow">{props.eyebrow}</p>}
         <h2>{props.title}</h2>
         <p className="subtle">{props.description}</p>
       </div>

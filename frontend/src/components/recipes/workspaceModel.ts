@@ -255,7 +255,6 @@ export function buildRecipeCards(
       searchText: [
         recipe.title,
         recipe.tips,
-        recipe.scene_tags.join(' '),
         recipe.ingredient_items.map((item) => `${item.ingredient_name} ${item.note}`).join(' '),
       ]
         .join(' ')
@@ -276,7 +275,7 @@ export function buildRecipeMetrics(cards: RecipeCardViewModel[]): RecipeWorkspac
 }
 
 export function getRecipeSceneFilters(cards: RecipeCardViewModel[]) {
-  return [...new Set(cards.flatMap((card) => card.recipe.scene_tags).filter(Boolean))].sort((left, right) =>
+  return [...new Set(cards.flatMap((card) => card.recipe.scene_tags ?? []).filter(Boolean))].sort((left, right) =>
     left.localeCompare(right, 'zh-CN')
   );
 }
@@ -304,7 +303,7 @@ export function filterRecipeCards(
         (card.mealUsageCount > 0 || card.linkedFood?.favorite || Boolean(options.favoriteRecipeIds?.has(card.recipe.id)))) ||
       (options.quickFilter === 'favorite' && Boolean(options.favoriteRecipeIds?.has(card.recipe.id))) ||
       (options.quickFilter === 'quick' && card.recipe.prep_minutes <= 20);
-    const sceneMatch = options.sceneFilter === 'all' || card.recipe.scene_tags.includes(options.sceneFilter);
+    const sceneMatch = options.sceneFilter === 'all';
     const difficultyMatch = options.difficultyFilter === 'all' || card.recipe.difficulty === options.difficultyFilter;
     return searchMatch && quickMatch && sceneMatch && difficultyMatch;
   });
@@ -415,7 +414,7 @@ export function buildRecipeHomeViewModel(
 
   const categoryCounts = new Map<string, number>();
   cards.forEach((card) => {
-    const tags = card.recipe.scene_tags.length > 0 ? card.recipe.scene_tags : ['家庭日常'];
+    const tags = (card.recipe.scene_tags ?? []).length > 0 ? card.recipe.scene_tags ?? [] : ['家庭日常'];
     tags.forEach((tag) => categoryCounts.set(tag, (categoryCounts.get(tag) ?? 0) + 1));
   });
   const popularCategories = [...categoryCounts.entries()]

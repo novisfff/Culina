@@ -52,6 +52,7 @@ ENTITY_SIZES_BY_MODE = {
         MediaEntityType.FOOD: "1664*1040",
         MediaEntityType.RECIPE: "1664*1040",
         MediaEntityType.RECIPE_SCENE: "1664*1040",
+        MediaEntityType.FOOD_SCENE: "1664*1040",
         MediaEntityType.MEAL_LOG: "1664*1040",
     },
     ImageGenerationMode.REFERENCE: {
@@ -59,6 +60,7 @@ ENTITY_SIZES_BY_MODE = {
         MediaEntityType.FOOD: "1280*800",
         MediaEntityType.RECIPE: "1280*800",
         MediaEntityType.RECIPE_SCENE: "1280*800",
+        MediaEntityType.FOOD_SCENE: "1280*800",
         MediaEntityType.MEAL_LOG: "1280*800",
     },
 }
@@ -172,16 +174,16 @@ def RECIPE_PROMPT_BUILDER(request: ImageGenerationRequest) -> str:
     )
 
 
-def RECIPE_SCENE_PROMPT_BUILDER(request: ImageGenerationRequest) -> str:
+def FOOD_SCENE_PROMPT_BUILDER(request: ImageGenerationRequest) -> str:
     detail = [
-        f"菜谱场景名称：{request.title or request.scene or '家庭用餐场景'}",
-        f"场景说明：{request.notes or '适合家庭日常安排的一组菜谱入口'}",
+        f"食物场景名称：{request.title or request.scene or '家庭用餐场景'}",
+        f"场景说明：{request.notes or '适合家庭日常安排的一组食物入口'}",
         f"场景标签：{_join(request.tags) or request.scene or '家庭日常'}",
         f"代表食材/菜品线索：{_join(request.ingredient_names + request.food_names) or '不指定具体菜品'}",
     ]
     return "\n".join(
         [
-            "为菜谱场景入口生成一张统一风格主图，画面表达这个用餐场景的氛围和食材方向，而不是某一道具体菜的广告图。",
+            "为食物场景入口生成一张统一风格主图，画面表达这个用餐场景的氛围和食材方向，而不是某一道具体菜的广告图。",
             *detail,
             "画面中可以出现一到三样相关家庭菜、食材或餐具作为线索，但主体仍要简洁、留白稳定、适合做圆角卡片封面。",
             "不要出现人物、手、文字、菜单、标签牌、品牌包装或复杂餐桌陈列。",
@@ -210,7 +212,8 @@ def build_ai_image_prompt(request: ImageGenerationRequest) -> str:
         MediaEntityType.INGREDIENT: INGREDIENT_PROMPT_BUILDER,
         MediaEntityType.FOOD: FOOD_PROMPT_BUILDER,
         MediaEntityType.RECIPE: RECIPE_PROMPT_BUILDER,
-        MediaEntityType.RECIPE_SCENE: RECIPE_SCENE_PROMPT_BUILDER,
+        MediaEntityType.RECIPE_SCENE: FOOD_SCENE_PROMPT_BUILDER,
+        MediaEntityType.FOOD_SCENE: FOOD_SCENE_PROMPT_BUILDER,
         MediaEntityType.MEAL_LOG: MEAL_LOG_PROMPT_BUILDER,
     }[request.entity_type](request)
 

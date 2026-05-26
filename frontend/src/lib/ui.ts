@@ -11,17 +11,19 @@ import type {
 import { getIngredientAvailableQuantityInDefault, getInventoryRemainingQuantity } from './ingredientUnits';
 
 export const FOOD_TYPE_LABELS: Record<FoodType, string> = {
-  selfMade: '自做菜',
+  selfMade: '家常菜',
   takeout: '外卖',
-  diningOut: '外出就餐',
-  packaged: '成品食品',
+  diningOut: '外食',
+  readyMade: '成品',
+  instant: '速食',
+  packaged: '成品',
 };
 
 export const MEAL_TYPE_LABELS: Record<MealType, string> = {
   breakfast: '早餐',
   lunch: '午餐',
   dinner: '晚餐',
-  snack: '加餐 / 夜宵',
+  snack: '加餐',
 };
 
 export const INVENTORY_STATUS_LABELS: Record<InventoryStatus, string> = {

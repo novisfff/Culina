@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections import defaultdict
 from decimal import Decimal
 
+from app.core.enums import normalize_food_type
 from app.models.domain import (
     ActivityLog,
     AIConversation,
@@ -19,7 +20,7 @@ from app.models.domain import (
     RecipeCookLog,
     RecipeFavorite,
     RecipePlanItem,
-    RecipeScene,
+    FoodScene,
     ShoppingListItem,
     User,
 )
@@ -205,7 +206,6 @@ def serialize_recipe(recipe: Recipe, media_map: dict[tuple[str, str], list[Media
             for step in recipe.steps
         ],
         "tips": recipe.tips,
-        "scene_tags": recipe.scene_tags,
         "images": [serialize_media(asset) for asset in media_map.get(("recipe", recipe.id), [])],
         "cook_logs": [serialize_recipe_cook_log(item) for item in list(recipe.cook_logs)[:5]],
         "created_at": recipe.created_at,
@@ -234,8 +234,8 @@ def serialize_recipe_cook_log(item: RecipeCookLog) -> dict:
     }
 
 
-def serialize_recipe_scene(item: RecipeScene, media_map: dict[tuple[str, str], list[MediaAsset]]) -> dict:
-    images = media_map.get(("recipe_scene", item.id), [])
+def serialize_food_scene(item: FoodScene, media_map: dict[tuple[str, str], list[MediaAsset]]) -> dict:
+    images = media_map.get(("food_scene", item.id), [])
     return {
         "id": item.id,
         "family_id": item.family_id,
@@ -288,13 +288,23 @@ def serialize_food(food: Food, media_map: dict[tuple[str, str], list[MediaAsset]
         "id": food.id,
         "family_id": food.family_id,
         "name": food.name,
-        "type": food.type,
+        "type": normalize_food_type(food.type),
         "category": food.category,
         "flavor_tags": list(food.flavor_tags or []),
+        "scene_tags": list(food.scene_tags or []),
+        "suitable_meal_types": list(food.suitable_meal_types or []),
         "source_name": food.source_name,
+        "purchase_source": food.purchase_source,
         "scene": food.scene,
         "images": [serialize_media(asset) for asset in media_map.get(("food", food.id), [])],
         "notes": food.notes,
+        "routine_note": food.routine_note,
+        "price": float(food.price) if food.price is not None else None,
+        "rating": food.rating,
+        "repurchase": food.repurchase,
+        "expiry_date": food.expiry_date,
+        "stock_quantity": float(food.stock_quantity) if food.stock_quantity is not None else None,
+        "stock_unit": food.stock_unit,
         "favorite": food.favorite,
         "recipe_id": food.recipe_id,
         "created_at": food.created_at,

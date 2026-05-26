@@ -392,18 +392,22 @@ def seed_demo_data(db: Session, *, force: bool = False) -> None:
                 )
             )
 
-    foods = [
+    recipe_foods = [
         Food(
             id=create_id("food"),
             family_id=family.id,
-            name="番茄炒蛋",
-            type=FoodType.SELF_MADE,
+            name=recipe_tomato_egg.title,
+            type=FoodType.SELF_MADE.value,
             category="家常菜",
-            flavor_tags=["酸甜", "下饭"],
+            flavor_tags=recipe_tomato_egg.scene_tags,
+            scene_tags=recipe_tomato_egg.scene_tags,
+            suitable_meal_types=[MealType.DINNER.value],
             source_name="家庭厨房",
-            scene="晚餐",
-            notes="适合工作日快速安排",
-            favorite=True,
+            purchase_source="家庭厨房",
+            scene=recipe_tomato_egg.scene_tags[0],
+            notes=recipe_tomato_egg.tips,
+            routine_note="",
+            favorite=False,
             recipe_id=recipe_tomato_egg.id,
             created_by=owner.id,
             updated_by=owner.id,
@@ -411,65 +415,27 @@ def seed_demo_data(db: Session, *, force: bool = False) -> None:
         Food(
             id=create_id("food"),
             family_id=family.id,
-            name="清蒸三文鱼",
-            type=FoodType.SELF_MADE,
-            category="轻食",
-            flavor_tags=["清淡", "高蛋白"],
+            name=recipe_salmon.title,
+            type=FoodType.SELF_MADE.value,
+            category="家常菜",
+            flavor_tags=recipe_salmon.scene_tags,
+            scene_tags=recipe_salmon.scene_tags,
+            suitable_meal_types=[MealType.DINNER.value],
             source_name="家庭厨房",
-            scene="周末晚餐",
-            notes="适合库存里有三文鱼时安排",
+            purchase_source="家庭厨房",
+            scene=recipe_salmon.scene_tags[0],
+            notes=recipe_salmon.tips,
+            routine_note="",
             favorite=False,
             recipe_id=recipe_salmon.id,
             created_by=owner.id,
             updated_by=owner.id,
         ),
-        Food(
-            id=create_id("food"),
-            family_id=family.id,
-            name="小龙虾外卖套餐",
-            type=FoodType.TAKEOUT,
-            category="夜宵",
-            flavor_tags=["香辣"],
-            source_name="夜宵小馆",
-            scene="周末聚餐",
-            notes="适合多人一起吃",
-            favorite=True,
-            created_by=owner.id,
-            updated_by=owner.id,
-        ),
-        Food(
-            id=create_id("food"),
-            family_id=family.id,
-            name="社区食堂午餐",
-            type=FoodType.DINING_OUT,
-            category="午餐",
-            flavor_tags=["省心"],
-            source_name="幸福食堂",
-            scene="工作日午餐",
-            notes="记录外出吃饭体验",
-            favorite=False,
-            created_by=owner.id,
-            updated_by=owner.id,
-        ),
-        Food(
-            id=create_id("food"),
-            family_id=family.id,
-            name="无糖酸奶",
-            type=FoodType.PACKAGED,
-            category="早餐",
-            flavor_tags=["清爽"],
-            source_name="鲜活牧场",
-            scene="早餐 / 加餐",
-            notes="适合配水果",
-            favorite=False,
-            created_by=owner.id,
-            updated_by=owner.id,
-        ),
     ]
-    db.add_all(foods)
+    db.add_all(recipe_foods)
     db.flush()
 
-    for item in [("番茄炒蛋", foods[0].id, "food"), ("清蒸三文鱼", foods[1].id, "food"), ("番茄炒蛋", recipe_tomato_egg.id, "recipe"), ("清蒸三文鱼", recipe_salmon.id, "recipe")]:
+    for item in [("番茄炒蛋", recipe_tomato_egg.id), ("清蒸三文鱼", recipe_salmon.id)]:
         asset = save_svg_asset(
             db,
             family_id=family.id,
@@ -478,7 +444,7 @@ def seed_demo_data(db: Session, *, force: bool = False) -> None:
             svg_markup=build_ai_cover_svg(item[0]),
             source=MediaSource.AI,
         )
-        asset.entity_type = item[2]
+        asset.entity_type = "recipe"
         asset.entity_id = item[1]
 
     db.add(
@@ -493,54 +459,6 @@ def seed_demo_data(db: Session, *, force: bool = False) -> None:
             created_by=owner.id,
             updated_by=owner.id,
         )
-    )
-
-    meal_log = MealLog(
-        id=create_id("meal"),
-        family_id=family.id,
-        date=utcnow().date(),
-        meal_type=MealType.DINNER,
-        participant_user_ids=[owner.id, anna.id],
-        notes="孩子更喜欢番茄多一点的版本。",
-        mood="满足",
-        created_by=owner.id,
-        updated_by=owner.id,
-    )
-    db.add(meal_log)
-    db.flush()
-    db.add_all(
-        [
-            MealLogFood(
-                id=create_id("meal-food"),
-                meal_log_id=meal_log.id,
-                food_id=foods[0].id,
-                servings=Decimal("2"),
-                note="今天做得更清淡",
-            ),
-            MealLogFood(
-                id=create_id("meal-food"),
-                meal_log_id=meal_log.id,
-                food_id=foods[4].id,
-                servings=Decimal("2"),
-                note="餐后加餐",
-            ),
-            InventoryDeductionSuggestion(
-                id=create_id("suggestion"),
-                meal_log_id=meal_log.id,
-                ingredient_name="番茄",
-                suggested_amount=Decimal("2"),
-                unit="个",
-                based_on_food_name="番茄炒蛋",
-            ),
-            InventoryDeductionSuggestion(
-                id=create_id("suggestion"),
-                meal_log_id=meal_log.id,
-                ingredient_name="鸡蛋",
-                suggested_amount=Decimal("3"),
-                unit="个",
-                based_on_food_name="番茄炒蛋",
-            ),
-        ]
     )
 
     db.add_all(
@@ -573,16 +491,6 @@ def seed_demo_data(db: Session, *, force: bool = False) -> None:
                 entity_type="Recipe",
                 entity_id=recipe_tomato_egg.id,
                 summary="新增菜谱 番茄炒蛋",
-                created_at=utcnow(),
-            ),
-            ActivityLog(
-                id=create_id("activity"),
-                family_id=family.id,
-                actor_id=owner.id,
-                action=ActivityAction.CREATE,
-                entity_type="MealLog",
-                entity_id=meal_log.id,
-                summary="记录了一顿晚餐",
                 created_at=utcnow(),
             ),
         ]

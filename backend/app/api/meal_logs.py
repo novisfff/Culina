@@ -4,7 +4,7 @@ from decimal import Decimal
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, HTTPException, status
 
 from app.core.deps import get_current_auth
 from app.core.enums import ActivityAction
@@ -12,7 +12,7 @@ from app.core.utils import create_id, utcnow
 from app.db.session import get_db
 from app.models.domain import Food, InventoryDeductionSuggestion, MealLog, MealLogFood, Recipe
 from app.repos.media import build_media_map, get_media_assets_for_family
-from app.schemas.domain import CreateMealLogRequest, MealLogOut
+from app.schemas.domain import CreateMealLogRequest, MealLogOut, QuickAddMealLogRequest
 from app.services.activity import log_activity
 from app.services.media import bind_media_assets
 from app.services.serializers import serialize_meal_log
@@ -121,6 +121,77 @@ def create_meal_log(
         entity_type="MealLog",
         entity_id=meal_log.id,
         summary=f"记录了{'今天' if payload.date == utcnow().date() else payload.date.isoformat()}的{MEAL_TYPE_LABELS.get(payload.meal_type.value, payload.meal_type.value)}",
+    )
+    db.commit()
+    db.refresh(meal_log)
+    media_map = build_media_map(get_media_assets_for_family(db, membership.family_id))
+    return serialize_meal_log(meal_log, media_map)
+
+
+@router.post("/api/meal-logs/quick-add", response_model=MealLogOut, status_code=status.HTTP_201_CREATED)
+def quick_add_meal_log(
+    payload: QuickAddMealLogRequest,
+    auth: tuple = Depends(get_current_auth),
+    db: Session = Depends(get_db),
+) -> dict:
+    user, membership = auth
+    food = db.scalar(select(Food).where(Food.id == payload.food_id, Food.family_id == membership.family_id))
+    if food is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Food not found")
+
+    meal_log = db.scalar(
+        select(MealLog)
+        .where(
+            MealLog.family_id == membership.family_id,
+            MealLog.date == payload.date,
+            MealLog.meal_type == payload.meal_type,
+        )
+        .options(
+            selectinload(MealLog.food_entries).selectinload(MealLogFood.food),
+            selectinload(MealLog.deduction_suggestions),
+        )
+        .order_by(MealLog.created_at.desc())
+    )
+    created = meal_log is None
+    if meal_log is None:
+        meal_log = MealLog(
+            id=create_id("meal"),
+            family_id=membership.family_id,
+            date=payload.date,
+            meal_type=payload.meal_type,
+            participant_user_ids=[user.id],
+            notes="",
+            mood="",
+            created_by=user.id,
+            updated_by=user.id,
+        )
+        db.add(meal_log)
+        db.flush()
+    else:
+        meal_log.updated_by = user.id
+
+    entry = MealLogFood(
+        id=create_id("meal-food"),
+        meal_log_id=meal_log.id,
+        food_id=food.id,
+        servings=payload.servings,
+        note=payload.note,
+    )
+    db.add(entry)
+    db.flush()
+
+    for suggestion in _build_deduction_suggestions(db, [entry]):
+        suggestion.meal_log_id = meal_log.id
+        db.add(suggestion)
+
+    log_activity(
+        db,
+        family_id=membership.family_id,
+        actor_id=user.id,
+        action=ActivityAction.CREATE if created else ActivityAction.UPDATE,
+        entity_type="MealLog",
+        entity_id=meal_log.id,
+        summary=f"{'记录' if created else '追加'}了{MEAL_TYPE_LABELS.get(payload.meal_type.value, payload.meal_type.value)}：{food.name}",
     )
     db.commit()
     db.refresh(meal_log)

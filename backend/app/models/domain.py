@@ -48,7 +48,7 @@ class Family(AuditMixin, Base):
     inventory_items: Mapped[list["InventoryItem"]] = relationship(back_populates="family", cascade="all, delete-orphan")
     shopping_items: Mapped[list["ShoppingListItem"]] = relationship(back_populates="family", cascade="all, delete-orphan")
     recipes: Mapped[list["Recipe"]] = relationship(back_populates="family", cascade="all, delete-orphan")
-    recipe_scenes: Mapped[list["RecipeScene"]] = relationship(back_populates="family", cascade="all, delete-orphan")
+    food_scenes: Mapped[list["FoodScene"]] = relationship(back_populates="family", cascade="all, delete-orphan")
     recipe_favorites: Mapped[list["RecipeFavorite"]] = relationship(back_populates="family", cascade="all, delete-orphan")
     recipe_plan_items: Mapped[list["RecipePlanItem"]] = relationship(back_populates="family", cascade="all, delete-orphan")
     foods: Mapped[list["Food"]] = relationship(back_populates="family", cascade="all, delete-orphan")
@@ -245,11 +245,11 @@ class RecipeStep(Base):
     recipe: Mapped["Recipe"] = relationship(back_populates="steps")
 
 
-class RecipeScene(AuditMixin, Base):
-    __tablename__ = "recipe_scenes"
-    __table_args__ = (UniqueConstraint("family_id", "name", name="uq_recipe_scenes_family_name"),)
+class FoodScene(AuditMixin, Base):
+    __tablename__ = "food_scenes"
+    __table_args__ = (UniqueConstraint("family_id", "name", name="uq_food_scenes_family_name"),)
 
-    id: Mapped[str] = mapped_column(String(64), primary_key=True, default=lambda: create_id("recipe-scene"))
+    id: Mapped[str] = mapped_column(String(64), primary_key=True, default=lambda: create_id("food-scene"))
     family_id: Mapped[str] = mapped_column(ForeignKey("families.id", ondelete="CASCADE"), nullable=False, index=True)
     name: Mapped[str] = mapped_column(String(120), nullable=False)
     description: Mapped[str] = mapped_column(String(255), default="", nullable=False)
@@ -258,7 +258,7 @@ class RecipeScene(AuditMixin, Base):
     custom: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     sort_order: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
 
-    family: Mapped["Family"] = relationship(back_populates="recipe_scenes")
+    family: Mapped["Family"] = relationship(back_populates="food_scenes")
 
 
 class RecipeFavorite(Base):
@@ -314,16 +314,27 @@ class RecipeCookLog(AuditMixin, Base):
 
 class Food(AuditMixin, Base):
     __tablename__ = "foods"
+    __table_args__ = (UniqueConstraint("recipe_id", name="uq_foods_recipe_id"),)
 
     id: Mapped[str] = mapped_column(String(64), primary_key=True, default=lambda: create_id("food"))
     family_id: Mapped[str] = mapped_column(ForeignKey("families.id", ondelete="CASCADE"), nullable=False, index=True)
     name: Mapped[str] = mapped_column(String(120), nullable=False)
-    type: Mapped[FoodType] = mapped_column(SqlEnum(FoodType, native_enum=False), nullable=False)
+    type: Mapped[str] = mapped_column(String(32), nullable=False)
     category: Mapped[str] = mapped_column(String(120), default="未分类", nullable=False)
     flavor_tags: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
+    scene_tags: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
+    suitable_meal_types: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
     source_name: Mapped[str] = mapped_column(String(120), default="", nullable=False)
+    purchase_source: Mapped[str] = mapped_column(String(120), default="", nullable=False)
     scene: Mapped[str] = mapped_column(String(120), default="", nullable=False)
     notes: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    routine_note: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    price: Mapped[Decimal | None] = mapped_column(Numeric(10, 2), nullable=True)
+    rating: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    repurchase: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    expiry_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    stock_quantity: Mapped[Decimal | None] = mapped_column(Numeric(10, 2), nullable=True)
+    stock_unit: Mapped[str] = mapped_column(String(32), default="", nullable=False)
     favorite: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     recipe_id: Mapped[str | None] = mapped_column(ForeignKey("recipes.id", ondelete="SET NULL"), nullable=True)
 

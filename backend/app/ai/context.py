@@ -6,7 +6,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
-from app.core.enums import AiMode, FoodType
+from app.core.enums import AiMode, FoodType, food_type_values
 from app.models.domain import Family, Food, Ingredient, InventoryItem, MealLog, MealLogFood, Recipe
 
 
@@ -97,7 +97,7 @@ def load_agent_context(
         list(
             db.scalars(
                 select(Food)
-                .where(Food.family_id == family_id, Food.type == FoodType.SELF_MADE)
+                .where(Food.family_id == family_id, Food.type.in_(food_type_values(FoodType.SELF_MADE)))
                 .options(selectinload(Food.recipe).selectinload(Recipe.ingredient_items))
             )
         )

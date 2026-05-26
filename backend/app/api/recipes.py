@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session, selectinload
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from app.core.deps import get_current_auth
-from app.core.enums import ActivityAction, Difficulty, FoodType, MealType
+from app.core.enums import ActivityAction, Difficulty, FoodType, MealType, food_type_values
 from app.core.utils import create_id, utcnow
 from app.db.session import get_db
 from app.models.domain import Food, InventoryItem, MealLog, MealLogFood, MediaAsset, Recipe, RecipeCookLog, RecipeFavorite, RecipeIngredient, RecipePlanItem, RecipeStep
@@ -268,54 +268,86 @@ def _serialize_cook_preview_item(plan: dict) -> dict:
     }
 
 
-def _sync_recipe_foods(
+def _sync_recipe_food(
     db: Session,
     *,
     family_id: str,
     user_id: str,
     recipe: Recipe,
     recipe_media_ids: list[str],
-) -> list[Food]:
-    synced_foods = [food for food in recipe.foods if food.type == FoodType.SELF_MADE]
-    if not synced_foods:
-        return []
+) -> tuple[Food, bool]:
+    food = db.scalar(
+        select(Food).where(
+            Food.family_id == family_id,
+            Food.recipe_id == recipe.id,
+            Food.type.in_(food_type_values(FoodType.SELF_MADE)),
+        )
+    )
+    created = food is None
+    if food is None:
+        food = db.scalar(
+            select(Food)
+            .where(
+                Food.family_id == family_id,
+                Food.recipe_id.is_(None),
+                Food.type.in_(food_type_values(FoodType.SELF_MADE)),
+                Food.name == recipe.title,
+            )
+            .order_by(Food.updated_at.desc())
+        )
+        if food is None:
+            food = Food(
+                id=create_id("food"),
+                family_id=family_id,
+                type=FoodType.SELF_MADE.value,
+                favorite=False,
+                created_by=user_id,
+                updated_by=user_id,
+            )
+            db.add(food)
+        food.recipe_id = recipe.id
 
     recipe_media = list(db.scalars(select(MediaAsset).where(MediaAsset.family_id == family_id, MediaAsset.id.in_(recipe_media_ids))))
-    for food in synced_foods:
-        food.name = recipe.title
-        food.flavor_tags = recipe.scene_tags
+    food.name = recipe.title
+    food.category = "家常菜"
+    food.source_name = "家庭厨房"
+    food.purchase_source = "家庭厨房"
+    if created:
+        food.flavor_tags = []
+        food.scene_tags = list(recipe.scene_tags or [])
+        food.suitable_meal_types = [MealType.DINNER.value]
         food.scene = recipe.scene_tags[0] if recipe.scene_tags else "日常"
         food.notes = recipe.tips
-        food.updated_by = user_id
-        replace_media_assets(db, family_id=family_id, media_ids=[], entity_type="food", entity_id=food.id)
-        for asset in recipe_media:
-            db.add(
-                MediaAsset(
-                    id=create_id("photo"),
-                    family_id=asset.family_id,
-                    name=asset.name,
-                    url=asset.url,
-                    file_path=asset.file_path,
-                    source=asset.source,
-                    alt=asset.alt,
-                    generation_mode=asset.generation_mode,
-                    reference_media_id=asset.reference_media_id,
-                    style_key=asset.style_key,
-                    prompt_version=asset.prompt_version,
-                    entity_type="food",
-                    entity_id=food.id,
-                    created_by=user_id,
-                )
+        food.routine_note = ""
+    food.updated_by = user_id
+    replace_media_assets(db, family_id=family_id, media_ids=[], entity_type="food", entity_id=food.id)
+    for asset in recipe_media:
+        db.add(
+            MediaAsset(
+                id=create_id("photo"),
+                family_id=asset.family_id,
+                name=asset.name,
+                url=asset.url,
+                file_path=asset.file_path,
+                source=asset.source,
+                alt=asset.alt,
+                generation_mode=asset.generation_mode,
+                reference_media_id=asset.reference_media_id,
+                style_key=asset.style_key,
+                prompt_version=asset.prompt_version,
+                entity_type="food",
+                entity_id=food.id,
+                created_by=user_id,
             )
+        )
     db.flush()
-    return synced_foods
+    return food, created
 
 
 def _recipe_search_text(recipe: Recipe) -> str:
     segments = [
         recipe.title,
         recipe.tips,
-        " ".join(recipe.scene_tags or []),
         " ".join(f"{item.ingredient_name} {item.note}" for item in recipe.ingredient_items),
         " ".join(step.text for step in recipe.steps),
     ]
@@ -466,12 +498,9 @@ def list_recipes(
     recipes = _load_recipes_for_family(db, membership.family_id)
 
     normalized_q = (q or "").strip().lower()
-    normalized_scene = (scene or "").strip()
     normalized_availability = (availability or "").strip()
     if normalized_q:
         recipes = [recipe for recipe in recipes if normalized_q in _recipe_search_text(recipe)]
-    if normalized_scene and normalized_scene != "all":
-        recipes = [recipe for recipe in recipes if normalized_scene in (recipe.scene_tags or [])]
     if difficulty is not None:
         recipes = [recipe for recipe in recipes if recipe.difficulty == difficulty]
 
@@ -678,7 +707,7 @@ def create_recipe(
         prep_minutes=payload.prep_minutes,
         difficulty=payload.difficulty,
         tips=payload.tips,
-        scene_tags=payload.scene_tags,
+        scene_tags=[],
         created_by=user.id,
         updated_by=user.id,
     )
@@ -698,33 +727,22 @@ def create_recipe(
         summary=f"新增菜谱 {recipe.title}",
     )
 
-    if payload.auto_create_food:
-        food = Food(
-            id=create_id("food"),
-            family_id=membership.family_id,
-            name=recipe.title,
-            type=FoodType.SELF_MADE,
-            category="家常菜",
-            flavor_tags=payload.scene_tags,
-            source_name="家庭厨房",
-            scene=payload.scene_tags[0] if payload.scene_tags else "日常",
-            notes=payload.tips,
-            favorite=False,
-            recipe_id=recipe.id,
-            created_by=user.id,
-            updated_by=user.id,
-        )
-        db.add(food)
-        db.flush()
-        log_activity(
-            db,
-            family_id=membership.family_id,
-            actor_id=user.id,
-            action=ActivityAction.CREATE,
-            entity_type="Food",
-            entity_id=food.id,
-            summary=f"自动创建自做菜 {food.name}",
-        )
+    food, _ = _sync_recipe_food(
+        db,
+        family_id=membership.family_id,
+        user_id=user.id,
+        recipe=recipe,
+        recipe_media_ids=payload.media_ids,
+    )
+    log_activity(
+        db,
+        family_id=membership.family_id,
+        actor_id=user.id,
+        action=ActivityAction.CREATE,
+        entity_type="Food",
+        entity_id=food.id,
+        summary=f"自动创建家常菜 {food.name}",
+    )
 
     db.commit()
     db.refresh(recipe)
@@ -746,7 +764,6 @@ def update_recipe(
     recipe.prep_minutes = payload.prep_minutes
     recipe.difficulty = payload.difficulty
     recipe.tips = payload.tips
-    recipe.scene_tags = payload.scene_tags
     recipe.updated_by = user.id
     _replace_recipe_children(db, recipe, payload)
     replace_media_assets(
@@ -756,7 +773,7 @@ def update_recipe(
         entity_type="recipe",
         entity_id=recipe.id,
     )
-    synced_foods = _sync_recipe_foods(
+    synced_food, synced_food_created = _sync_recipe_food(
         db,
         family_id=membership.family_id,
         user_id=user.id,
@@ -772,16 +789,15 @@ def update_recipe(
         entity_id=recipe.id,
         summary=f"更新菜谱 {recipe.title}",
     )
-    for food in synced_foods:
-        log_activity(
-            db,
-            family_id=membership.family_id,
-            actor_id=user.id,
-            action=ActivityAction.UPDATE,
-            entity_type="Food",
-            entity_id=food.id,
-            summary=f"同步更新自做菜 {food.name}",
-        )
+    log_activity(
+        db,
+        family_id=membership.family_id,
+        actor_id=user.id,
+        action=ActivityAction.CREATE if synced_food_created else ActivityAction.UPDATE,
+        entity_type="Food",
+        entity_id=synced_food.id,
+        summary=f"{'补建' if synced_food_created else '同步更新'}家常菜 {synced_food.name}",
+    )
     db.commit()
     db.refresh(recipe)
     media_map = build_media_map(get_media_assets_for_family(db, membership.family_id))
@@ -798,8 +814,14 @@ def delete_recipe(
     recipe = _load_recipe(db, family_id=membership.family_id, recipe_id=recipe_id)
     title = recipe.title
     for food in list(recipe.foods):
-        food.recipe_id = None
-        food.updated_by = user.id
+        replace_media_assets(
+            db,
+            family_id=membership.family_id,
+            media_ids=[],
+            entity_type="food",
+            entity_id=food.id,
+        )
+        db.delete(food)
     replace_media_assets(
         db,
         family_id=membership.family_id,
@@ -883,25 +905,13 @@ def cook_recipe(
 
     meal_log_id: str | None = None
     if payload.create_meal_log:
-        food = db.scalar(select(Food).where(Food.family_id == membership.family_id, Food.recipe_id == recipe.id))
-        if food is None:
-            food = Food(
-                id=create_id("food"),
-                family_id=membership.family_id,
-                name=recipe.title,
-                type=FoodType.SELF_MADE,
-                category="家常菜",
-                flavor_tags=recipe.scene_tags,
-                source_name="家庭厨房",
-                scene=recipe.scene_tags[0] if recipe.scene_tags else "日常",
-                notes=recipe.tips,
-                favorite=False,
-                recipe_id=recipe.id,
-                created_by=user.id,
-                updated_by=user.id,
-            )
-            db.add(food)
-            db.flush()
+        food, _ = _sync_recipe_food(
+            db,
+            family_id=membership.family_id,
+            user_id=user.id,
+            recipe=recipe,
+            recipe_media_ids=[],
+        )
 
         meal_log = MealLog(
             id=create_id("meal"),

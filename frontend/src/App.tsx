@@ -5,14 +5,16 @@ import type {
   AiMode,
   ImageInputValue,
   Ingredient,
+  FoodRecommendations,
   FoodType,
   MealType,
   Recipe,
   RecipeDiscovery,
-  RecipeScene,
+  FoodScene,
   RecipeStats,
 } from './api/types';
 import { useAuth } from './auth/AuthContext';
+import { FoodWorkspace } from './components/foods/FoodWorkspace';
 import { IngredientWorkspace } from './components/ingredients/IngredientWorkspace';
 import { LoginScreen } from './components/LoginScreen';
 import { RecipeWorkspace } from './components/recipes/RecipeWorkspace';
@@ -340,6 +342,7 @@ function App() {
   });
   const [foodWorkspaceView, setFoodWorkspaceView] = useState<FoodWorkspaceView>('list');
   const [familyOverlayMode, setFamilyOverlayMode] = useState<FamilyOverlayMode>(null);
+  const [pendingRecipeCookId, setPendingRecipeCookId] = useState<string | null>(null);
 
   useEffect(() => {
     localStorage.setItem('culina-active-tab', activeTab);
@@ -406,14 +409,19 @@ function App() {
     queryFn: () => api.getRecipePlan(recipePlanWeekRange.start, recipePlanWeekRange.end),
     enabled: isAuthenticated,
   });
-  const recipeScenesQuery = useQuery({
-    queryKey: ['recipe-scenes'],
-    queryFn: api.getRecipeScenes,
+  const foodScenesQuery = useQuery({
+    queryKey: ['food-scenes'],
+    queryFn: api.getFoodScenes,
     enabled: isAuthenticated,
   });
   const foodsQuery = useQuery({
     queryKey: ['foods'],
     queryFn: api.getFoods,
+    enabled: isAuthenticated,
+  });
+  const foodRecommendationsQuery = useQuery({
+    queryKey: ['food-recommendations'],
+    queryFn: () => api.getFoodRecommendations({ limit: 12, now: new Date().toISOString() }),
     enabled: isAuthenticated,
   });
   const mealLogsQuery = useQuery({
@@ -458,6 +466,7 @@ function App() {
     mutationFn: api.createInventory,
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['inventory'] });
+      void queryClient.invalidateQueries({ queryKey: ['food-recommendations'] });
       void queryClient.invalidateQueries({ queryKey: ['activity-logs'] });
     },
   });
@@ -465,6 +474,7 @@ function App() {
     mutationFn: api.consumeInventory,
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['inventory'] });
+      void queryClient.invalidateQueries({ queryKey: ['food-recommendations'] });
       void queryClient.invalidateQueries({ queryKey: ['activity-logs'] });
     },
   });
@@ -472,6 +482,7 @@ function App() {
     mutationFn: api.disposeExpiredInventory,
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['inventory'] });
+      void queryClient.invalidateQueries({ queryKey: ['food-recommendations'] });
       void queryClient.invalidateQueries({ queryKey: ['activity-logs'] });
     },
   });
@@ -496,6 +507,7 @@ function App() {
       void queryClient.invalidateQueries({ queryKey: ['recipe-discovery'] });
       void queryClient.invalidateQueries({ queryKey: ['recipe-stats'] });
       void queryClient.invalidateQueries({ queryKey: ['foods'] });
+      void queryClient.invalidateQueries({ queryKey: ['food-recommendations'] });
       void queryClient.invalidateQueries({ queryKey: ['activity-logs'] });
     },
   });
@@ -506,6 +518,8 @@ function App() {
       void queryClient.invalidateQueries({ queryKey: ['recipes'] });
       void queryClient.invalidateQueries({ queryKey: ['recipe-discovery'] });
       void queryClient.invalidateQueries({ queryKey: ['recipe-stats'] });
+      void queryClient.invalidateQueries({ queryKey: ['foods'] });
+      void queryClient.invalidateQueries({ queryKey: ['food-recommendations'] });
       void queryClient.invalidateQueries({ queryKey: ['activity-logs'] });
     },
   });
@@ -518,6 +532,7 @@ function App() {
       void queryClient.invalidateQueries({ queryKey: ['recipe-favorites'] });
       void queryClient.invalidateQueries({ queryKey: ['recipe-plan'] });
       void queryClient.invalidateQueries({ queryKey: ['foods'] });
+      void queryClient.invalidateQueries({ queryKey: ['food-recommendations'] });
       void queryClient.invalidateQueries({ queryKey: ['activity-logs'] });
     },
   });
@@ -527,6 +542,7 @@ function App() {
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['inventory'] });
       void queryClient.invalidateQueries({ queryKey: ['recipe-discovery'] });
+      void queryClient.invalidateQueries({ queryKey: ['food-recommendations'] });
       void queryClient.invalidateQueries({ queryKey: ['recipe-stats'] });
       void queryClient.invalidateQueries({ queryKey: ['foods'] });
       void queryClient.invalidateQueries({ queryKey: ['meal-logs'] });
@@ -574,25 +590,25 @@ function App() {
       void queryClient.invalidateQueries({ queryKey: ['activity-logs'] });
     },
   });
-  const createRecipeSceneMutation = useMutation({
-    mutationFn: api.createRecipeScene,
+  const createFoodSceneMutation = useMutation({
+    mutationFn: api.createFoodScene,
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['recipe-scenes'] });
+      void queryClient.invalidateQueries({ queryKey: ['food-scenes'] });
       void queryClient.invalidateQueries({ queryKey: ['activity-logs'] });
     },
   });
-  const updateRecipeSceneMutation = useMutation({
-    mutationFn: ({ sceneId, payload }: { sceneId: string; payload: Parameters<typeof api.updateRecipeScene>[1] }) =>
-      api.updateRecipeScene(sceneId, payload),
+  const updateFoodSceneMutation = useMutation({
+    mutationFn: ({ sceneId, payload }: { sceneId: string; payload: Parameters<typeof api.updateFoodScene>[1] }) =>
+      api.updateFoodScene(sceneId, payload),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['recipe-scenes'] });
+      void queryClient.invalidateQueries({ queryKey: ['food-scenes'] });
       void queryClient.invalidateQueries({ queryKey: ['activity-logs'] });
     },
   });
-  const deleteRecipeSceneMutation = useMutation({
-    mutationFn: api.deleteRecipeScene,
+  const deleteFoodSceneMutation = useMutation({
+    mutationFn: api.deleteFoodScene,
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['recipe-scenes'] });
+      void queryClient.invalidateQueries({ queryKey: ['food-scenes'] });
       void queryClient.invalidateQueries({ queryKey: ['activity-logs'] });
     },
   });
@@ -600,6 +616,16 @@ function App() {
     mutationFn: api.createFood,
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['foods'] });
+      void queryClient.invalidateQueries({ queryKey: ['food-recommendations'] });
+      void queryClient.invalidateQueries({ queryKey: ['activity-logs'] });
+    },
+  });
+  const updateFoodMutation = useMutation({
+    mutationFn: ({ foodId, payload }: { foodId: string; payload: Parameters<typeof api.updateFood>[1] }) =>
+      api.updateFood(foodId, payload),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['foods'] });
+      void queryClient.invalidateQueries({ queryKey: ['food-recommendations'] });
       void queryClient.invalidateQueries({ queryKey: ['activity-logs'] });
     },
   });
@@ -608,6 +634,7 @@ function App() {
       api.updateFoodFavorite(foodId, favorite),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['foods'] });
+      void queryClient.invalidateQueries({ queryKey: ['food-recommendations'] });
       void queryClient.invalidateQueries({ queryKey: ['activity-logs'] });
     },
   });
@@ -615,6 +642,15 @@ function App() {
     mutationFn: api.createMealLog,
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['meal-logs'] });
+      void queryClient.invalidateQueries({ queryKey: ['food-recommendations'] });
+      void queryClient.invalidateQueries({ queryKey: ['activity-logs'] });
+    },
+  });
+  const quickAddMealMutation = useMutation({
+    mutationFn: api.quickAddMealLog,
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['meal-logs'] });
+      void queryClient.invalidateQueries({ queryKey: ['food-recommendations'] });
       void queryClient.invalidateQueries({ queryKey: ['activity-logs'] });
     },
   });
@@ -636,8 +672,9 @@ function App() {
   const recipeStats: RecipeStats | null = recipeStatsQuery.data ?? null;
   const recipeFavorites = recipeFavoritesQuery.data ?? [];
   const recipePlanItems = recipePlanQuery.data ?? [];
-  const recipeScenes: RecipeScene[] = recipeScenesQuery.data ?? [];
+  const foodScenes: FoodScene[] = foodScenesQuery.data ?? [];
   const foods = foodsQuery.data ?? [];
+  const foodRecommendations: FoodRecommendations | null = foodRecommendationsQuery.data ?? null;
   const mealLogs = mealLogsQuery.data ?? [];
   const activityLogs = activityLogsQuery.data ?? [];
   const aiConversations = aiConversationsQuery.data ?? [];
@@ -657,7 +694,7 @@ function App() {
     recipesQuery.isLoading ||
     recipeFavoritesQuery.isLoading ||
     recipePlanQuery.isLoading ||
-    recipeScenesQuery.isLoading ||
+    foodScenesQuery.isLoading ||
     foodsQuery.isLoading ||
     mealLogsQuery.isLoading ||
     activityLogsQuery.isLoading ||
@@ -690,7 +727,7 @@ function App() {
     const searchMatch =
       food.name.includes(foodSearch) ||
       food.category.includes(foodSearch) ||
-      food.flavor_tags.some((tag) => tag.includes(foodSearch));
+      (food.scene_tags ?? []).some((tag) => tag.includes(foodSearch));
     const typeMatch = foodTypeFilter === 'all' || food.type === foodTypeFilter;
     return searchMatch && typeMatch;
   });
@@ -799,12 +836,22 @@ function App() {
         name,
         type: foodForm.type,
         category: foodForm.category || '未分类',
-        flavor_tags: splitTags(foodForm.flavorTags),
+        flavor_tags: [],
+        scene_tags: splitTags(foodForm.flavorTags),
+        suitable_meal_types: ['lunch', 'dinner'],
         source_name: foodForm.sourceName || (foodForm.type === 'selfMade' ? '家庭厨房' : ''),
+        purchase_source: foodForm.sourceName || (foodForm.type === 'selfMade' ? '家庭厨房' : ''),
         scene: foodForm.scene,
         notes: foodForm.notes,
+        routine_note: '',
+        price: null,
+        rating: null,
+        repurchase: null,
+        expiry_date: null,
+        stock_quantity: null,
+        stock_unit: '',
         favorite: foodForm.favorite,
-        recipe_id: foodForm.recipeId || undefined,
+        recipe_id: foodForm.recipeId || null,
         media_ids: getMediaIds(foodForm.images),
       });
       setFoodImageState(IDLE_IMAGE_GENERATION_STATE);
@@ -927,20 +974,7 @@ function App() {
     );
   }
 
-  function openFoodAi(foodId: string) {
-    setAiMode('foodQa');
-    setAiFoodId(foodId);
-    setActiveTab('ai');
-  }
-
   const headerName = currentUser?.display_name ?? '家庭成员';
-  const latestActivity = activityLogs[0];
-  const familyMotto = family?.motto ?? '今天吃得好，明天更有劲儿';
-  const activeNavItem = NAV_ITEMS.find((item) => item.key === activeTab) ?? NAV_ITEMS[0];
-  const shellHeaderClassName =
-    activeTab === 'ingredients' || activeTab === 'recipes'
-      ? 'card shell-header compact-shell-header shell-header-hide-on-large'
-      : 'card shell-header compact-shell-header';
   const dashboardStats = [
     { label: '今日记录', value: `${familyStats.mealsToday} 顿` },
     { label: '库存提醒', value: `${inventoryAlerts.length} 条` },
@@ -1023,46 +1057,6 @@ function App() {
         </aside>
 
         <div className="app-content">
-          <header className={shellHeaderClassName}>
-            <div className="shell-content-brand">
-              <div className="inline-cluster">
-                <p className="eyebrow">家庭工作台</p>
-                {family?.location && <Badge>{family.location}</Badge>}
-                <Badge className="shell-active-badge">
-                  <span className="badge-inline-icon">
-                    <ShellIcon name={activeNavItem.icon} />
-                  </span>
-                  {activeNavItem.label}
-                </Badge>
-              </div>
-              <div className="shell-title-row">
-                <strong>{family?.name ?? 'Culina 家庭厨房'}</strong>
-                <p className="subtle">{familyMotto}</p>
-              </div>
-            </div>
-            {latestActivity && (
-              <div className="shell-status-line">
-                <span className="eyebrow">最近动态</span>
-                <p>
-                  <strong>{latestActivity.actor_name ?? '家庭成员'}</strong> {latestActivity.summary}
-                </p>
-                <span className="subtle">{formatDateTime(latestActivity.created_at)}</span>
-              </div>
-            )}
-            <div className="topbar-actions shell-mobile-actions">
-              <div className="current-user-card topbar-user-card">
-                <Avatar label={headerName} seed={currentUser?.avatar_seed ?? headerName} large />
-                <div>
-                  <strong>{headerName}</strong>
-                  <p className="subtle">{membership?.role ?? 'Member'} · {currentUser?.username}</p>
-                </div>
-              </div>
-              <button className="ghost-button topbar-logout" type="button" onClick={() => void logout()}>
-                退出登录
-              </button>
-            </div>
-          </header>
-
           <nav className="tabbar">
             <div className="tabbar-scroll">
               {NAV_ITEMS.map((item) => (
@@ -1219,287 +1213,34 @@ function App() {
           </main>
         )}
 
-        {activeTab === 'foods' &&
-          (foodWorkspaceView === 'create' ? (
-            <main className="page-stack">
-              <WorkspaceSubpageShell className="workspace-editor-subpage">
-                <WorkspaceSubpageHeader
-                  eyebrow="食物"
-                  title="新增食物"
-                  description="把基础信息、图片和补充说明集中录入，保存后再回到食物库继续浏览。"
-                  backLabel="返回食物库"
-                  onBack={() => setFoodWorkspaceView('list')}
-                  meta={<Badge>食物子页</Badge>}
-                  variant="compact"
-                />
-                <form className="page-columns page-columns-wide workspace-editor-layout" onSubmit={submitFood}>
-                  <div className="page-main-column workspace-editor-main">
-                    <section className="form-panel-section">
-                      <div className="section-mini-title">基础信息</div>
-                      <div className="form-grid nested-grid">
-                        <label>
-                          <span>食物名称</span>
-                          <input
-                            className="text-input"
-                            value={foodForm.name}
-                            onChange={(event) => setFoodForm({ ...foodForm, name: event.target.value })}
-                          />
-                        </label>
-                        <label>
-                          <span>类型</span>
-                          <select
-                            className="text-input"
-                            value={foodForm.type}
-                            onChange={(event) =>
-                              setFoodForm({ ...foodForm, type: event.target.value as FoodType })
-                            }
-                          >
-                            {Object.entries(FOOD_TYPE_LABELS).map(([key, label]) => (
-                              <option key={key} value={key}>
-                                {label}
-                              </option>
-                            ))}
-                          </select>
-                        </label>
-                        <label>
-                          <span>分类</span>
-                          <input
-                            className="text-input"
-                            value={foodForm.category}
-                            onChange={(event) => setFoodForm({ ...foodForm, category: event.target.value })}
-                          />
-                        </label>
-                        <label>
-                          <span>来源信息</span>
-                          <input
-                            className="text-input"
-                            value={foodForm.sourceName}
-                            onChange={(event) => setFoodForm({ ...foodForm, sourceName: event.target.value })}
-                          />
-                        </label>
-                      </div>
-                    </section>
-
-                    <ImageComposer
-                      title="食物图片"
-                      value={foodForm.images}
-                      previewLabel={foodForm.name || '食物'}
-                      onUpload={(files) =>
-                        void handleImageUpload(files, foodImagePayload, (next) => setFoodForm({ ...foodForm, images: next }), setFoodImageState)
-                      }
-                      onGenerate={(mode) =>
-                        void handleGenerateImage(mode, foodForm.images, foodImagePayload, (next) => setFoodForm({ ...foodForm, images: next }), setFoodImageState)
-                      }
-                      onReset={() =>
-                        resetImageInput((value) => setFoodForm({ ...foodForm, images: value }), setFoodImageState)
-                      }
-                      isGenerating={foodImageState.isGenerating}
-                      errorMessage={foodImageState.errorMessage}
-                      variant="workspace-inline"
-                    />
-
-                    <section className="form-panel-section">
-                      <div className="section-mini-title">补充说明</div>
-                      <div className="form-grid nested-grid">
-                        <label>
-                          <span>就餐场景</span>
-                          <input
-                            className="text-input"
-                            value={foodForm.scene}
-                            onChange={(event) => setFoodForm({ ...foodForm, scene: event.target.value })}
-                          />
-                        </label>
-                        <label>
-                          <span>口味标签</span>
-                          <input
-                            className="text-input"
-                            value={foodForm.flavorTags}
-                            onChange={(event) => setFoodForm({ ...foodForm, flavorTags: event.target.value })}
-                          />
-                        </label>
-                        {foodForm.type === 'selfMade' && (
-                          <label className="span-two">
-                            <span>关联菜谱</span>
-                            <select
-                              className="text-input"
-                              value={foodForm.recipeId}
-                              onChange={(event) => setFoodForm({ ...foodForm, recipeId: event.target.value })}
-                            >
-                              <option value="">请选择已创建菜谱</option>
-                              {recipes.map((recipe) => (
-                                <option key={recipe.id} value={recipe.id}>
-                                  {recipe.title}
-                                </option>
-                              ))}
-                            </select>
-                          </label>
-                        )}
-                        <label className="span-two">
-                          <span>备注</span>
-                          <textarea
-                            className="text-input"
-                            rows={3}
-                            value={foodForm.notes}
-                            onChange={(event) => setFoodForm({ ...foodForm, notes: event.target.value })}
-                          />
-                        </label>
-                        <label className="checkbox-row span-two checkbox-card">
-                          <input
-                            type="checkbox"
-                            checked={foodForm.favorite}
-                            onChange={(event) =>
-                              setFoodForm({ ...foodForm, favorite: event.target.checked })
-                            }
-                          />
-                          <span>保存时同时加入收藏</span>
-                        </label>
-                      </div>
-                    </section>
-                  </div>
-
-                  <aside className="page-side-column workspace-editor-side">
-                    <section className="form-panel-section workspace-action-rail sticky-panel">
-                      <div className="workspace-action-rail-copy">
-                        <p className="eyebrow">当前录入</p>
-                        <h3>准备保存这份食物</h3>
-                        <p className="subtle">主图、类型和关联菜谱都会在保存时一起写入资料库。</p>
-                      </div>
-                      <div className="workspace-summary-list">
-                        {foodSummaryItems.map((item) => (
-                          <div key={item.label} className="workspace-summary-row">
-                            <span>{item.label}</span>
-                            <strong title={item.value}>{item.value}</strong>
-                          </div>
-                        ))}
-                        {!foodValidIngredientBinding && (
-                          <div className="workspace-inline-note">
-                            自做菜需要先关联一个已创建菜谱。
-                          </div>
-                        )}
-                      </div>
-                      <div className="workspace-rail-actions">
-                        <ActionButton tone="primary" type="submit" disabled={foodSubmitDisabled}>
-                          {createFoodMutation.isPending ? '保存中...' : foodImageState.isGenerating ? '生成主图中...' : '保存食物'}
-                        </ActionButton>
-                        <ActionButton tone="secondary" type="button" onClick={() => setFoodWorkspaceView('list')}>
-                          返回食物库
-                        </ActionButton>
-                      </div>
-                    </section>
-                  </aside>
-                </form>
-              </WorkspaceSubpageShell>
-            </main>
-          ) : (
-            <main className="page-stack">
-              <PageHeader
-                variant="compact"
-                eyebrow="食物"
-                title="管理家庭常吃的食物"
-                description={`已收录 ${foods.length} 份食物，最近共有 ${recentMeals.length} 条餐食记录。`}
-                actions={
-                  <div className="hero-actions">
-                    <ActionButton tone="primary" type="button" onClick={() => setFoodWorkspaceView('create')}>
-                      新增食物
-                    </ActionButton>
-                    <ActionButton tone="secondary" type="button" onClick={() => setActiveTab('logs')}>
-                      去记一餐
-                    </ActionButton>
-                  </div>
-                }
-              />
-              <section className="card page-section">
-                <WorkspaceToolbar
-                  actions={<p className="workspace-toolbar-summary">显示 {filteredFoods.length} / {foods.length} 份食物</p>}
-                >
-                  <div className="workspace-toolbar-stack">
-                    <div className="workspace-toolbar-copy">
-                      <h3>食物库</h3>
-                      <p className="subtle">按类型、分类和口味快速浏览常吃内容。</p>
-                    </div>
-                    <div className="toolbar toolbar-inline">
-                      <input
-                        className="text-input"
-                        placeholder="搜索食物、分类或口味"
-                        value={foodSearch}
-                        onChange={(event) => setFoodSearch(event.target.value)}
-                      />
-                      <SegmentedTabs
-                        options={[
-                          { value: 'all', label: '全部' },
-                          ...Object.entries(FOOD_TYPE_LABELS).map(([key, label]) => ({
-                            value: key as 'all' | FoodType,
-                            label,
-                          })),
-                        ]}
-                        value={foodTypeFilter}
-                        onChange={(value) => setFoodTypeFilter(value)}
-                      />
-                    </div>
-                  </div>
-                </WorkspaceToolbar>
-                {filteredFoods.length > 0 ? (
-                  <div className="food-grid">
-                    {filteredFoods.map((food) => (
-                      <article key={food.id} className="food-card">
-                        {getFoodCover(food, recipes) ? (
-                          <img
-                            className="cover-image"
-                            src={`${API_BASE_URL}${getFoodCover(food, recipes)}`}
-                            alt={food.name}
-                          />
-                        ) : (
-                          <div className="cover-placeholder">{food.name}</div>
-                        )}
-                        <div className="food-card-body">
-                          <div className="inline-between">
-                            <h3>{food.name}</h3>
-                            <button
-                              className={food.favorite ? 'chip active' : 'chip'}
-                              type="button"
-                              onClick={() =>
-                                void toggleFavoriteMutation.mutateAsync({
-                                  foodId: food.id,
-                                  favorite: !food.favorite,
-                                })
-                              }
-                            >
-                              {food.favorite ? '已收藏' : '收藏'}
-                            </button>
-                          </div>
-                          <p className="subtle">
-                            {FOOD_TYPE_LABELS[food.type]} · {food.category} · 最近出现 {countRecentMealUsage(food.id)} 次
-                          </p>
-                          <p>{food.notes || food.source_name || '等待补充更多描述'}</p>
-                          <div className="tag-row">
-                            {food.flavor_tags.map((tag) => (
-                              <Badge key={tag}>{tag}</Badge>
-                            ))}
-                          </div>
-                          <div className="inline-actions">
-                            <ActionButton tone="secondary" size="compact" type="button" onClick={() => openFoodAi(food.id)}>
-                              问 AI
-                            </ActionButton>
-                            {food.recipe_id && <Badge>已绑定菜谱</Badge>}
-                          </div>
-                        </div>
-                      </article>
-                    ))}
-                  </div>
-                ) : (
-                  <EmptyState
-                    title="没有匹配的食物"
-                    description="换个搜索词试试，或者直接新建一份常吃食物。"
-                    action={
-                      <ActionButton tone="primary" type="button" onClick={() => setFoodWorkspaceView('create')}>
-                        新增食物
-                      </ActionButton>
-                    }
-                  />
-                )}
-              </section>
-            </main>
-          ))}
+        {activeTab === 'foods' && (
+          <FoodWorkspace
+            foods={foods}
+            recipes={recipes}
+            ingredients={ingredients}
+            inventoryItems={inventoryItems}
+            mealLogs={mealLogs}
+            foodRecommendations={foodRecommendations}
+            foodScenes={foodScenes}
+            createFood={(payload) => createFoodMutation.mutateAsync(payload)}
+            updateFood={(foodId, payload) => updateFoodMutation.mutateAsync({ foodId, payload })}
+            updateFoodFavorite={(foodId, favorite) => toggleFavoriteMutation.mutateAsync({ foodId, favorite })}
+            quickAddMeal={(payload) => quickAddMealMutation.mutateAsync(payload)}
+            createFoodScene={(payload) => createFoodSceneMutation.mutateAsync(payload)}
+            updateFoodScene={(sceneId, payload) => updateFoodSceneMutation.mutateAsync({ sceneId, payload })}
+            deleteFoodScene={(sceneId) => deleteFoodSceneMutation.mutateAsync(sceneId)}
+            onOpenRecipes={() => setActiveTab('recipes')}
+            onStartRecipe={(recipeId) => {
+              setPendingRecipeCookId(recipeId);
+              setActiveTab('recipes');
+            }}
+            onOpenLogs={() => setActiveTab('logs')}
+            isSavingFood={createFoodMutation.isPending || updateFoodMutation.isPending}
+            isUpdatingFavorite={toggleFavoriteMutation.isPending}
+            isQuickAdding={quickAddMealMutation.isPending}
+            isUpdatingScene={createFoodSceneMutation.isPending || updateFoodSceneMutation.isPending || deleteFoodSceneMutation.isPending}
+          />
+        )}
 
         {activeTab === 'recipes' && (
           <main className="page-stack">
@@ -1514,8 +1255,10 @@ function App() {
               recipeDiscovery={recipeDiscovery}
               recipeStats={recipeStats}
               recipePlanItems={recipePlanItems}
-              recipeScenes={recipeScenes}
+              recipeScenes={foodScenes}
               recipePlanWeekRange={recipePlanWeekRange}
+              startRecipeId={pendingRecipeCookId}
+              onStartRecipeHandled={() => setPendingRecipeCookId(null)}
               onRecipePlanPreviousWeek={() => setSelectedRecipePlanDate(addDateKeyDays(recipePlanWeekRange.start, -7))}
               onRecipePlanCurrentWeek={() => setSelectedRecipePlanDate(todayKey())}
               onRecipePlanNextWeek={() => setSelectedRecipePlanDate(addDateKeyDays(recipePlanWeekRange.end, 1))}
@@ -1531,9 +1274,9 @@ function App() {
               createRecipePlanItem={(payload) => createRecipePlanItemMutation.mutateAsync(payload)}
               updateRecipePlanItem={(itemId, payload) => updateRecipePlanItemMutation.mutateAsync({ itemId, payload })}
               deleteRecipePlanItem={(itemId) => deleteRecipePlanItemMutation.mutateAsync(itemId)}
-              createRecipeScene={(payload) => createRecipeSceneMutation.mutateAsync(payload)}
-              updateRecipeScene={(sceneId, payload) => updateRecipeSceneMutation.mutateAsync({ sceneId, payload })}
-              deleteRecipeScene={(sceneId) => deleteRecipeSceneMutation.mutateAsync(sceneId)}
+              createRecipeScene={(payload) => createFoodSceneMutation.mutateAsync(payload)}
+              updateRecipeScene={(sceneId, payload) => updateFoodSceneMutation.mutateAsync({ sceneId, payload })}
+              deleteRecipeScene={(sceneId) => deleteFoodSceneMutation.mutateAsync(sceneId)}
               isCreatingRecipe={createRecipeMutation.isPending}
               isUpdatingRecipe={updateRecipeMutation.isPending}
               isDeletingRecipe={deleteRecipeMutation.isPending}
@@ -1546,9 +1289,9 @@ function App() {
                 deleteRecipePlanItemMutation.isPending
               }
               isUpdatingScene={
-                createRecipeSceneMutation.isPending ||
-                updateRecipeSceneMutation.isPending ||
-                deleteRecipeSceneMutation.isPending
+                createFoodSceneMutation.isPending ||
+                updateFoodSceneMutation.isPending ||
+                deleteFoodSceneMutation.isPending
               }
             />
           </main>

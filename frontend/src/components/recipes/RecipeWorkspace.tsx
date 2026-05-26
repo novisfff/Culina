@@ -178,6 +178,8 @@ type RecipeWorkspaceProps = {
   recipePlanItems: RecipePlanItem[];
   recipeScenes: RecipeScene[];
   recipePlanWeekRange: { start: string; end: string };
+  startRecipeId?: string | null;
+  onStartRecipeHandled?: () => void;
   onRecipePlanPreviousWeek: () => void;
   onRecipePlanCurrentWeek: () => void;
   onRecipePlanNextWeek: () => void;
@@ -457,7 +459,7 @@ function buildFormFromRecipe(recipe: Recipe): { form: RecipeFormState; ingredien
       difficulty: recipe.difficulty,
       steps: recipe.steps.length > 0 ? recipe.steps.map(buildRecipeStepDraft) : [createEmptyRecipeStepDraft('step-1')],
       tips: recipe.tips,
-      sceneTags: recipe.scene_tags.join('，'),
+      sceneTags: '',
       images: recipe.images[0] ? { generatedAsset: recipe.images[0] } : emptyImages(),
       autoCreateFood: false,
     },
@@ -827,7 +829,6 @@ export function buildRecipePayload(form: RecipeFormState, rows: RecipeDraftIngre
       }))
       .filter((step) => step.text),
     tips: form.tips.trim(),
-    scene_tags: splitTags(form.sceneTags),
     media_ids: getRecipeMediaIds(form.images),
   };
 }
@@ -1206,7 +1207,7 @@ export function buildRecipeFormFromGeneratedDraft(
             }))
           : currentForm.steps,
       tips: draft.tips,
-      sceneTags: draft.scene_tags.join('、'),
+      sceneTags: (draft.scene_tags ?? []).join('、'),
     },
     ingredients:
       draft.ingredient_items.length > 0
@@ -1237,7 +1238,6 @@ function mapRecipeIdsToCards(recipeIds: string[] | undefined, cardByRecipeId: Ma
 }
 
 function buildRecipeImagePayload(form: RecipeFormState, rows: RecipeDraftIngredient[], ingredients: Ingredient[]): AiRenderPayload {
-  const sceneTags = splitTags(form.sceneTags);
   return {
     entity_type: 'recipe',
     title: form.title.trim() || '家庭菜谱',
@@ -1250,8 +1250,8 @@ function buildRecipeImagePayload(form: RecipeFormState, rows: RecipeDraftIngredi
     ]
       .filter(Boolean)
       .join('\n'),
-    tags: sceneTags,
-    scene: sceneTags.join(' / ') || '家庭日常',
+    tags: [],
+    scene: '家庭日常',
     ingredient_names: rows
       .map((item) => {
         const matched = ingredients.find((ingredient) => ingredient.id === item.ingredient_id);
@@ -1317,13 +1317,6 @@ function RecipeCard(props: {
           </div>
           <Badge className={`recipe-availability-badge tone-${props.card.availability}`}>{props.card.availabilityLabel}</Badge>
         </div>
-        <div className="recipe-tag-row">
-          {(props.card.recipe.scene_tags.length > 0 ? props.card.recipe.scene_tags : ['家庭日常']).slice(0, 4).map((tag) => (
-            <span key={tag} className="chip recipe-chip">
-              {tag}
-            </span>
-          ))}
-        </div>
         <p className="recipe-work-ingredient-line">
           {props.card.ingredientPreview.join('、')}
           {props.card.hiddenIngredientCount > 0 ? `、+${props.card.hiddenIngredientCount}` : ''}
@@ -1360,9 +1353,6 @@ function DiscoveryRecipeCard(props: {
   onPlan: () => void;
   isFavoritePending?: boolean;
 }) {
-  const tags = props.card.recipe.scene_tags.length > 0 ? props.card.recipe.scene_tags : ['家庭日常'];
-  const visibleTags = tags.slice(0, 2);
-  const hiddenTagCount = Math.max(tags.length - visibleTags.length, 0);
   const canCook = props.card.availability === 'ready';
   return (
     <article className="recipe-discovery-card" onClick={props.onDetail}>
@@ -1382,14 +1372,6 @@ function DiscoveryRecipeCard(props: {
       </button>
       <div className="recipe-discovery-card-body">
         <h3 title={props.card.recipe.title}>{props.card.recipe.title}</h3>
-        <div className="recipe-discovery-tags">
-          {visibleTags.map((tag) => (
-            <span key={tag} className="recipe-discovery-pill" title={tag}>
-              {tag}
-            </span>
-          ))}
-          {hiddenTagCount > 0 && <span className="recipe-discovery-pill more">+{hiddenTagCount}</span>}
-        </div>
         <div className="recipe-discovery-meta">
           <span><RecipeUiIcon name="clock" />{props.card.recipe.prep_minutes} 分钟</span>
           <i aria-hidden="true">·</i>
@@ -1589,13 +1571,13 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
         ...homeViewModel.popularCategories.filter((category) => !DUPLICATED_TYPE_LABELS.has(category.name)),
         ...FALLBACK_SCENES.map((name) => ({
           name,
-          count: cards.filter((card) => card.recipe.scene_tags.includes(name)).length,
+          count: 0,
         })),
         ...managedScenes
           .filter((scene) => !scene.hidden && !DUPLICATED_TYPE_LABELS.has(scene.name))
           .map((scene) => ({
             name: scene.name,
-            count: cards.filter((card) => card.recipe.scene_tags.includes(scene.name)).length,
+            count: 0,
             description: scene.description,
             imagePrompt: scene.imagePrompt,
             imageAssetId: scene.imageAssetId,
@@ -1714,11 +1696,6 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
     selectedCard?.recipe.cook_logs
       .slice()
       .sort((left, right) => right.cook_date.localeCompare(left.cook_date))[0] ?? null;
-  const selectedSceneTags = selectedCard
-    ? selectedCard.recipe.scene_tags.length > 0
-      ? selectedCard.recipe.scene_tags
-      : ['家庭日常']
-    : [];
   const isSelectedFavorite = selectedCard ? homeViewModel.favoriteRecipeIds.has(selectedCard.recipe.id) : false;
   const editorIngredientCount = ingredientRows.filter((item) => item.ingredient_id || item.ingredient_name.trim()).length;
   const editorStepCount = form.steps.filter((step) => step.text.trim()).length;
@@ -2010,6 +1987,14 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
       window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
     });
   }
+
+  useEffect(() => {
+    if (!props.startRecipeId) return;
+    const targetCard = cards.find((card) => card.recipe.id === props.startRecipeId);
+    if (!targetCard) return;
+    openCook(targetCard);
+    props.onStartRecipeHandled?.();
+  }, [cards, props.startRecipeId]);
 
   function closeCookDialog() {
     setCookCard(null);
@@ -2334,7 +2319,7 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
       servings: Number.isFinite(servings) && servings > 0 ? servings : null,
       prep_minutes: Number.isFinite(prepMinutes) && prepMinutes > 0 ? prepMinutes : null,
       difficulty: form.difficulty || null,
-      scene_tags: splitTags(form.sceneTags),
+      scene_tags: [],
       generate_image: true,
     };
   }
@@ -2412,7 +2397,7 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
         await props.updateRecipe(selectedRecipeId, payload);
         setView('detail');
       } else {
-        const created = await props.createRecipe({ ...payload, auto_create_food: form.autoCreateFood });
+        const created = await props.createRecipe({ ...payload, auto_create_food: true });
         setSelectedRecipeId(created.id);
         resetForm();
         setView('detail');
@@ -2929,19 +2914,11 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
             </span>
             <input
               className="text-input"
-              placeholder="搜索菜谱、场景、食材或技巧"
+              placeholder="搜索菜谱、食材或技巧"
               value={search}
               onChange={(event) => setSearch(event.target.value)}
             />
           </label>
-          <select className="text-input recipe-filter-select" value={sceneFilter} onChange={(event) => setSceneFilter(event.target.value)}>
-            <option value="all">全部场景</option>
-            {sceneSelectOptions.map((scene) => (
-              <option key={scene} value={scene}>
-                {scene}
-              </option>
-            ))}
-          </select>
           <select
             className="text-input recipe-filter-select"
             value={difficultyFilter}
@@ -3112,32 +3089,6 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
                       <option value="hard">复杂</option>
                     </select>
                   </label>
-                  <div className="recipe-editor-tag-field">
-                    <span>适用场景标签</span>
-                    <div className="recipe-editor-tag-box">
-                      {editorSceneTags.map((tag) => (
-                        <button
-                          key={tag}
-                          type="button"
-                          onClick={() => setForm({ ...form, sceneTags: editorSceneTags.filter((item) => item !== tag).join('、') })}
-                        >
-                          {tag} ×
-                        </button>
-                      ))}
-                      <input
-                        value={sceneTagDraft}
-                        placeholder="+ 添加标签"
-                        onChange={(event) => setSceneTagDraft(event.target.value)}
-                        onBlur={commitSceneTagDraft}
-                        onKeyDown={(event) => {
-                          if (event.key === 'Enter' || event.key === ',' || event.key === '，' || event.key === '、') {
-                            event.preventDefault();
-                            commitSceneTagDraft();
-                          }
-                        }}
-                      />
-                    </div>
-                  </div>
                   <label className="recipe-editor-tips-field">
                     <span>技巧 / 说明（选填）</span>
                     <textarea className="text-input" rows={3} value={form.tips} onChange={(event) => setForm({ ...form, tips: event.target.value })} />
@@ -3502,12 +3453,6 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
                   <div><span><RecipeUiIcon name="clipboard" /></span><small>步骤</small><strong>{editorStepCount} 步</strong></div>
                   <div><span><RecipeUiIcon name="image" /></span><small>图片</small><strong>{editorCoverAsset ? '已有封面' : '暂未配图'}</strong></div>
                 </div>
-                {!isEditing && (
-                  <label className="checkbox-row checkbox-card">
-                    <input type="checkbox" checked={form.autoCreateFood} onChange={(event) => setForm({ ...form, autoCreateFood: event.target.checked })} />
-                    <span>保存后自动创建一份“自做菜”食物卡片</span>
-                  </label>
-                )}
                 <div className="recipe-editor-submit-stack">
                   <ActionButton tone="primary" type="submit" disabled={submitDisabled}>
                     {props.isCreatingRecipe || props.isUpdatingRecipe ? '保存中...' : recipeImageState.isGenerating ? '生成封面中...' : '保存菜谱'}
@@ -3858,11 +3803,6 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
             <div className="recipe-detail-hero-grid">
               <RecipeCover card={selectedCard} className="recipe-detail-cover" />
               <div className="recipe-detail-hero-copy">
-                <div className="recipe-detail-tags">
-                  {selectedSceneTags.slice(0, 4).map((tag) => (
-                    <span key={tag} className="chip recipe-chip">{tag}</span>
-                  ))}
-                </div>
                 <p>{selectedCard.recipe.tips || '这份菜谱还没有补充烹饪提示，可以在编辑里记录口味、火候和替换建议。'}</p>
                 <div className="recipe-detail-metric-row">
                   <span>
@@ -4073,19 +4013,6 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
                 </ActionButton>
               </section>
 
-              <section className="recipe-detail-side-card">
-                <div className="recipe-detail-section-head">
-                  <span><RecipeUiIcon name="tag" /></span>
-                  <div>
-                    <h3>适合场景</h3>
-                  </div>
-                </div>
-                <div className="recipe-detail-side-tags">
-                  {selectedSceneTags.map((tag) => (
-                    <span key={tag} className="chip recipe-chip">{tag}</span>
-                  ))}
-                </div>
-              </section>
             </aside>
           </div>
         </WorkspaceSubpageShell>
@@ -4166,11 +4093,6 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
                     <p className="subtle">{activeDiscoveryCopy.description}</p>
                   </div>
                   <div className="recipe-discovery-section-actions">
-                    {sceneFilter !== 'all' && (
-                      <ActionButton tone="secondary" size="compact" type="button" onClick={() => setSceneFilter('all')}>
-                        清除场景
-                      </ActionButton>
-                    )}
                     {shouldPageRecommendations && (
                       <ActionButton tone="secondary" size="compact" type="button" onClick={() => setRecommendationPage((current) => current + 1)}>
                         换一换
@@ -4227,58 +4149,6 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
                 )}
               </section>
 
-              <section className="recipe-discovery-section recipe-category-section">
-                <div className="recipe-discovery-section-head">
-                  <div>
-                    <h3>按场景探索<RecipeUiIcon name="flame" className="recipe-heading-icon" /></h3>
-                    <p className="subtle">从菜谱场景标签中整理</p>
-                  </div>
-                  <ActionButton tone="secondary" size="compact" type="button" onClick={() => setIsSceneManagerOpen(true)}>
-                    场景管理
-                  </ActionButton>
-                </div>
-                <div
-                  className={[
-                    'recipe-category-scroll-shell',
-                    categoryScrollState.canLeft ? 'can-left' : '',
-                    categoryScrollState.canRight ? 'can-right' : '',
-                  ]
-                    .filter(Boolean)
-                    .join(' ')}
-                >
-                  {categoryScrollState.canLeft && (
-                    <button className="recipe-category-scroll-cue left" type="button" aria-label="向左滑动分类" onClick={() => scrollCategories('left')}>
-                      <RecipeUiIcon name="chevronLeft" />
-                    </button>
-                  )}
-                  <div className="recipe-category-cloud" ref={categoryScrollRef} onScroll={updateCategoryScrollState}>
-                    {categoryCards.length > 0 ? (
-                      categoryCards.map((category) => (
-                        <button
-                          key={category.name}
-                          className={sceneFilter === category.name ? 'recipe-category-large active' : 'recipe-category-large'}
-                          type="button"
-                          onClick={() => {
-                            setSceneFilter(sceneFilter === category.name ? 'all' : category.name);
-                            setRecommendationPage(0);
-                          }}
-                        >
-                          {category.imageAssetUrl ? <img src={resolveAssetUrl(category.imageAssetUrl)} alt="" /> : <span className="recipe-category-image-placeholder"><RecipeUiIcon name="sparkle" /></span>}
-                          <strong>{category.name}</strong>
-                          <span>{category.description || (category.count > 0 ? `${category.count} 道菜谱` : '推荐场景')}</span>
-                        </button>
-                      ))
-                    ) : (
-                      <span className="subtle">暂无分类</span>
-                    )}
-                  </div>
-                  {categoryScrollState.canRight && (
-                    <button className="recipe-category-scroll-cue right" type="button" aria-label="向右滑动分类" onClick={() => scrollCategories('right')}>
-                      <RecipeUiIcon name="chevronRight" />
-                    </button>
-                  )}
-                </div>
-              </section>
             </main>
 
             <aside className="recipe-discovery-side">
@@ -5015,7 +4885,7 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
           <div className="workspace-overlay-backdrop" onClick={() => setIsSceneManagerOpen(false)} />
           <WorkspaceModal
             title="场景管理"
-            description="新增常用场景，或隐藏不想展示的场景入口。"
+            description="场景管理已迁移到食物页。"
             eyebrow="菜谱场景"
             onClose={() => setIsSceneManagerOpen(false)}
             className="recipe-scene-modal"

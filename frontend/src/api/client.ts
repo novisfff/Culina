@@ -15,19 +15,23 @@ import type {
   DisposeExpiredInventoryResponse,
   FamilyDetail,
   Food,
+  FoodRecommendations,
+  FoodPayload,
   Ingredient,
   InventoryItem,
   LoginResponse,
   MealLog,
+  MealType,
   Member,
   Recipe,
   RecipeAvailabilitySummary,
   RecipeDiscovery,
   RecipeFavorite,
   RecipePlanItem,
-  RecipeScene,
+  FoodScene,
   RecipePayload,
   RecipeStats,
+  QuickAddMealLogPayload,
   ShoppingListItem,
   UpdateRecipePlanItemPayload,
 } from './types';
@@ -232,8 +236,8 @@ export const api = {
     request<void>(`/api/recipe-plan/${itemId}`, {
       method: 'DELETE',
     }),
-  getRecipeScenes: () => request<RecipeScene[]>('/api/recipe-scenes'),
-  createRecipeScene: (payload: {
+  getFoodScenes: () => request<FoodScene[]>('/api/food-scenes'),
+  createFoodScene: (payload: {
     name: string;
     description: string;
     image_prompt: string;
@@ -242,11 +246,11 @@ export const api = {
     custom: boolean;
     sort_order: number;
   }) =>
-    request<RecipeScene>('/api/recipe-scenes', {
+    request<FoodScene>('/api/food-scenes', {
       method: 'POST',
       body: JSON.stringify(payload),
     }),
-  updateRecipeScene: (
+  updateFoodScene: (
     sceneId: string,
     payload: {
       name?: string;
@@ -258,18 +262,29 @@ export const api = {
       sort_order?: number;
     }
   ) =>
-    request<RecipeScene>(`/api/recipe-scenes/${sceneId}`, {
+    request<FoodScene>(`/api/food-scenes/${sceneId}`, {
       method: 'PATCH',
       body: JSON.stringify(payload),
     }),
-  deleteRecipeScene: (sceneId: string) =>
-    request<void>(`/api/recipe-scenes/${sceneId}`, {
+  deleteFoodScene: (sceneId: string) =>
+    request<void>(`/api/food-scenes/${sceneId}`, {
       method: 'DELETE',
     }),
   getFoods: () => request<Food[]>('/api/foods'),
-  createFood: (payload: Record<string, unknown>) =>
+  getFoodRecommendations: (params: { limit?: number; now?: string; meal_type?: MealType } = {}) => {
+    const search = new URLSearchParams({ limit: String(params.limit ?? 12) });
+    if (params.now) search.set('now', params.now);
+    if (params.meal_type) search.set('meal_type', params.meal_type);
+    return request<FoodRecommendations>(`/api/foods/recommendations?${search.toString()}`);
+  },
+  createFood: (payload: FoodPayload) =>
     request<Food>('/api/foods', {
       method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+  updateFood: (foodId: string, payload: FoodPayload) =>
+    request<Food>(`/api/foods/${foodId}`, {
+      method: 'PATCH',
       body: JSON.stringify(payload),
     }),
   updateFoodFavorite: (foodId: string, favorite: boolean) =>
@@ -280,6 +295,11 @@ export const api = {
   getMealLogs: () => request<MealLog[]>('/api/meal-logs'),
   createMealLog: (payload: Record<string, unknown>) =>
     request<MealLog>('/api/meal-logs', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+  quickAddMealLog: (payload: QuickAddMealLogPayload) =>
+    request<MealLog>('/api/meal-logs/quick-add', {
       method: 'POST',
       body: JSON.stringify(payload),
     }),

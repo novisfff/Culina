@@ -107,7 +107,7 @@ describe('recipe workspace payload helpers', () => {
     window.localStorage.clear();
   });
 
-  it('builds trimmed recipe payloads with linked ingredient names, default units, tags, and media ids', () => {
+  it('builds trimmed recipe payloads with linked ingredient names, default units, and media ids', () => {
     const rows: RecipeDraftIngredient[] = [
       { id: 'row-1', ingredient_id: tomato.id, ingredient_name: '旧番茄名', quantity: 2, unit: '', note: ' 去皮 ' },
       { id: 'row-2', ingredient_id: null, ingredient_name: '  盐  ', quantity: 1, unit: '小勺', note: '' },
@@ -136,7 +136,6 @@ describe('recipe workspace payload helpers', () => {
         { title: '炒制', text: '炒熟', icon: 'pan', summary: '', estimated_minutes: null, tip: '', key_points: [] },
       ],
       tips: '少油',
-      scene_tags: ['晚餐', '快手', '家常'],
       media_ids: ['media-cover'],
     });
   });

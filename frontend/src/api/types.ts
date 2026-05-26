@@ -1,5 +1,5 @@
 export type UserRole = 'Owner' | 'Member';
-export type FoodType = 'selfMade' | 'takeout' | 'diningOut' | 'packaged';
+export type FoodType = 'selfMade' | 'takeout' | 'diningOut' | 'readyMade' | 'instant' | 'packaged';
 export type MealType = 'breakfast' | 'lunch' | 'dinner' | 'snack';
 export type Difficulty = 'easy' | 'medium' | 'hard';
 export type InventoryStatus = 'fresh' | 'opened' | 'frozen' | 'expiring';
@@ -7,7 +7,7 @@ export type IngredientExpiryMode = 'days' | 'manual_date' | 'none';
 export type AiMode = 'foodQa' | 'inventoryQa' | 'recommendation' | 'recipeDraft';
 export type MediaSource = 'upload' | 'ai';
 export type ImageGenerationMode = 'reference' | 'text';
-export type MediaEntityType = 'ingredient' | 'food' | 'recipe' | 'recipe_scene' | 'meal_log';
+export type MediaEntityType = 'ingredient' | 'food' | 'recipe' | 'recipe_scene' | 'food_scene' | 'meal_log';
 
 export interface IngredientUnitConversion {
   unit: string;
@@ -153,7 +153,7 @@ export interface Recipe {
   ingredient_items: RecipeIngredient[];
   steps: RecipeStep[];
   tips: string;
-  scene_tags: string[];
+  scene_tags?: string[];
   images: MediaAsset[];
   cook_logs: RecipeCookLog[];
   created_at: string;
@@ -179,7 +179,7 @@ export interface RecipeCookLog {
   updated_by?: string | null;
 }
 
-export interface RecipeScene {
+export interface FoodScene {
   id: string;
   family_id: string;
   name: string;
@@ -194,6 +194,8 @@ export interface RecipeScene {
   created_by?: string | null;
   updated_by?: string | null;
 }
+
+export type RecipeScene = FoodScene;
 
 export interface RecipePayload {
   title: string;
@@ -217,12 +219,11 @@ export interface RecipePayload {
     key_points?: string[];
   }>;
   tips: string;
-  scene_tags: string[];
   media_ids: string[];
 }
 
 export interface CreateRecipePayload extends RecipePayload {
-  auto_create_food: boolean;
+  auto_create_food?: boolean;
 }
 
 export interface CookRecipeRequest {
@@ -368,16 +369,74 @@ export interface Food {
   type: FoodType;
   category: string;
   flavor_tags: string[];
+  scene_tags?: string[];
+  suitable_meal_types: MealType[];
   source_name: string;
+  purchase_source: string;
   scene: string;
   images: MediaAsset[];
   notes: string;
+  routine_note: string;
+  price?: number | null;
+  rating?: number | null;
+  repurchase?: boolean | null;
+  expiry_date?: string | null;
+  stock_quantity?: number | null;
+  stock_unit: string;
   favorite: boolean;
   recipe_id?: string | null;
   created_at: string;
   updated_at: string;
   created_by?: string | null;
   updated_by?: string | null;
+}
+
+export interface FoodPayload {
+  name: string;
+  type: FoodType;
+  category: string;
+  flavor_tags: string[];
+  scene_tags: string[];
+  suitable_meal_types: MealType[];
+  source_name: string;
+  purchase_source: string;
+  scene: string;
+  notes: string;
+  routine_note: string;
+  price?: number | null;
+  rating?: number | null;
+  repurchase?: boolean | null;
+  expiry_date?: string | null;
+  stock_quantity?: number | null;
+  stock_unit: string;
+  favorite: boolean;
+  recipe_id?: string | null;
+  media_ids: string[];
+}
+
+export type FoodRecommendationPrimaryAction = 'cook_recipe' | 'quick_add_meal' | 'review_food';
+
+export interface FoodRecommendationRecipeAvailability {
+  recipe_id: string;
+  availability: 'ready' | 'partial' | 'missing';
+  availability_score: number;
+  ready_count: number;
+  total_count: number;
+  shortages: CookRecipeShortage[];
+}
+
+export interface FoodRecommendationItem {
+  food: Food;
+  score: number;
+  reasons: string[];
+  primary_action: FoodRecommendationPrimaryAction;
+  recipe_availability?: FoodRecommendationRecipeAvailability | null;
+}
+
+export interface FoodRecommendations {
+  target_meal_type: MealType;
+  target_date: string;
+  items: FoodRecommendationItem[];
 }
 
 export interface MealFoodEntry {
@@ -413,6 +472,14 @@ export interface MealLog {
   updated_by?: string | null;
 }
 
+export interface QuickAddMealLogPayload {
+  food_id: string;
+  date: string;
+  meal_type: MealType;
+  servings: number;
+  note: string;
+}
+
 export interface ActivityLog {
   id: string;
   family_id: string;
@@ -436,7 +503,9 @@ export interface AiConversation {
   context: Record<string, unknown>;
 }
 
-export interface AiGeneratedRecipeDraft extends RecipePayload {}
+export interface AiGeneratedRecipeDraft extends RecipePayload {
+  scene_tags?: string[];
+}
 
 export interface GenerateRecipeDraftPayload {
   title?: string;

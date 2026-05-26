@@ -8,7 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
 from app.core.config import get_settings
-from app.core.enums import AiMode, Difficulty, FoodType, MealType
+from app.core.enums import AiMode, Difficulty, FoodType, MealType, normalize_food_type
 from app.core.utils import create_id, utcnow
 from app.models.domain import (
     AIConversation,
@@ -32,10 +32,12 @@ MEAL_TYPE_LABELS = {
 }
 
 FOOD_TYPE_LABELS = {
-    FoodType.SELF_MADE: "自做菜",
-    FoodType.TAKEOUT: "外卖",
-    FoodType.DINING_OUT: "外出就餐",
-    FoodType.PACKAGED: "成品食品",
+    FoodType.SELF_MADE.value: "家常菜",
+    FoodType.TAKEOUT.value: "外卖",
+    FoodType.DINING_OUT.value: "外出就餐",
+    FoodType.READY_MADE.value: "成品",
+    FoodType.INSTANT.value: "速食",
+    FoodType.PACKAGED.value: "成品食品",
 }
 
 DIFFICULTY_LABELS = {
@@ -171,9 +173,9 @@ def _build_food_context(food: Food | None) -> str:
 
     segments = [
         f"菜名：{food.name}",
-        f"类型：{FOOD_TYPE_LABELS.get(food.type, food.type.value)}",
+        f"类型：{FOOD_TYPE_LABELS.get(normalize_food_type(food.type), food.type)}",
         f"分类：{food.category}",
-        f"场景：{food.scene or '未填写'}",
+        f"场景：{'、'.join(food.scene_tags or []) or food.scene or '未填写'}",
         f"备注：{food.notes or '未填写'}",
     ]
 
@@ -186,7 +188,6 @@ def _build_food_context(food: Food | None) -> str:
             [
                 f"菜谱难度：{DIFFICULTY_LABELS.get(food.recipe.difficulty, food.recipe.difficulty.value)}",
                 f"准备时长：{food.recipe.prep_minutes} 分钟",
-                f"适用场景：{'、'.join(food.recipe.scene_tags or []) or '家庭日常'}",
                 f"原料：{ingredients_text or '未填写'}",
                 f"技巧：{food.recipe.tips or '未填写'}",
             ]
@@ -236,7 +237,7 @@ def _build_food_answer(food: Food | None, prompt: str) -> str:
     ingredients_text = "、".join(
         f"{item.ingredient_name}{float(item.quantity):g}{item.unit}" for item in recipe.ingredient_items
     )
-    scenes = "、".join(recipe.scene_tags or []) or "家庭日常"
+    scenes = "、".join(food.scene_tags or []) or food.scene or "家庭日常"
     return (
         f"{food.name} 适合 {scenes} 场景，当前难度是 {DIFFICULTY_LABELS.get(recipe.difficulty, recipe.difficulty.value)}，准备约 {recipe.prep_minutes} 分钟。"
         f"{lighter_tip} 现有原料包括 {ingredients_text}。"

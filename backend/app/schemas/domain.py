@@ -307,7 +307,6 @@ class RecipeOut(BaseModel):
     ingredient_items: list[RecipeIngredientOut]
     steps: list[RecipeStepOut]
     tips: str
-    scene_tags: list[str]
     images: list[MediaAssetOut]
     cook_logs: list[RecipeCookLogOut] = Field(default_factory=list)
     created_at: datetime
@@ -316,7 +315,7 @@ class RecipeOut(BaseModel):
     updated_by: str | None = None
 
 
-class RecipeSceneOut(BaseModel):
+class FoodSceneOut(BaseModel):
     id: str
     family_id: str
     name: str
@@ -332,7 +331,7 @@ class RecipeSceneOut(BaseModel):
     updated_by: str | None = None
 
 
-class CreateRecipeSceneRequest(BaseModel):
+class CreateFoodSceneRequest(BaseModel):
     name: str
     description: str = ""
     image_prompt: str = ""
@@ -342,7 +341,7 @@ class CreateRecipeSceneRequest(BaseModel):
     sort_order: int = 0
 
 
-class UpdateRecipeSceneRequest(BaseModel):
+class UpdateFoodSceneRequest(BaseModel):
     name: str | None = None
     description: str | None = None
     image_prompt: str | None = None
@@ -360,9 +359,8 @@ class CreateRecipeRequest(BaseModel):
     ingredient_items: list[RecipeIngredientIn]
     steps: list[RecipeStepIn]
     tips: str = ""
-    scene_tags: list[str] = Field(default_factory=list)
     media_ids: list[str] = Field(default_factory=list)
-    auto_create_food: bool = True
+    auto_create_food: bool | None = True
 
 
 class UpdateRecipeRequest(BaseModel):
@@ -373,7 +371,6 @@ class UpdateRecipeRequest(BaseModel):
     ingredient_items: list[RecipeIngredientIn]
     steps: list[RecipeStepIn]
     tips: str = ""
-    scene_tags: list[str] = Field(default_factory=list)
     media_ids: list[str] = Field(default_factory=list)
 
 
@@ -520,10 +517,20 @@ class FoodOut(BaseModel):
     type: FoodType
     category: str
     flavor_tags: list[str]
+    scene_tags: list[str] = Field(default_factory=list)
+    suitable_meal_types: list[MealType] = Field(default_factory=list)
     source_name: str
+    purchase_source: str
     scene: str
     images: list[MediaAssetOut]
     notes: str
+    routine_note: str
+    price: float | None = None
+    rating: int | None = None
+    repurchase: bool | None = None
+    expiry_date: date | None = None
+    stock_quantity: float | None = None
+    stock_unit: str
     favorite: bool
     recipe_id: str | None = None
     created_at: datetime
@@ -532,17 +539,64 @@ class FoodOut(BaseModel):
     updated_by: str | None = None
 
 
+class FoodRecommendationRecipeAvailabilityOut(BaseModel):
+    recipe_id: str
+    availability: Literal["ready", "partial", "missing"]
+    availability_score: float
+    ready_count: int
+    total_count: int
+    shortages: list[CookRecipeShortageOut] = Field(default_factory=list)
+
+
+class FoodRecommendationItemOut(BaseModel):
+    food: FoodOut
+    score: float
+    reasons: list[str] = Field(default_factory=list)
+    primary_action: Literal["cook_recipe", "quick_add_meal", "review_food"]
+    recipe_availability: FoodRecommendationRecipeAvailabilityOut | None = None
+
+
+class FoodRecommendationsOut(BaseModel):
+    target_meal_type: MealType
+    target_date: date
+    items: list[FoodRecommendationItemOut] = Field(default_factory=list)
+
+
 class CreateFoodRequest(BaseModel):
     name: str
     type: FoodType
     category: str
     flavor_tags: list[str] = Field(default_factory=list)
+    scene_tags: list[str] = Field(default_factory=list)
+    suitable_meal_types: list[MealType] = Field(default_factory=list)
     source_name: str = ""
+    purchase_source: str = ""
     scene: str = ""
     notes: str = ""
+    routine_note: str = ""
+    price: float | None = None
+    rating: int | None = None
+    repurchase: bool | None = None
+    expiry_date: date | None = None
+    stock_quantity: float | None = None
+    stock_unit: str = ""
     favorite: bool = False
     recipe_id: str | None = None
     media_ids: list[str] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def validate_food_details(self) -> "CreateFoodRequest":
+        if self.rating is not None and (self.rating < 1 or self.rating > 5):
+            raise ValueError("评分必须在 1 到 5 之间")
+        if self.price is not None and self.price < 0:
+            raise ValueError("价格不能为负数")
+        if self.stock_quantity is not None and self.stock_quantity < 0:
+            raise ValueError("剩余数量不能为负数")
+        return self
+
+
+class UpdateFoodRequest(CreateFoodRequest):
+    pass
 
 
 class UpdateFoodFavoriteRequest(BaseModel):
@@ -593,6 +647,21 @@ class CreateMealLogRequest(BaseModel):
     notes: str = ""
     mood: str = ""
     media_ids: list[str] = Field(default_factory=list)
+
+
+class QuickAddMealLogRequest(BaseModel):
+    food_id: str
+    date: date
+    meal_type: MealType
+    servings: float = 1
+    note: str = ""
+
+    @field_validator("servings")
+    @classmethod
+    def validate_servings(cls, value: float) -> float:
+        if value <= 0:
+            raise ValueError("份数必须大于 0")
+        return value
 
 
 class ActivityLogOut(BaseModel):
