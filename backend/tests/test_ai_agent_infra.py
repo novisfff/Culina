@@ -545,6 +545,77 @@ class AIAgentInfraTestCase(unittest.TestCase):
                 self.assertNotIn(term, payload["notes"])
                 self.assertNotIn(term, prompt)
 
+    def test_reference_image_prompt_prioritizes_unified_style_over_copying_source(self) -> None:
+        prompt = build_ai_image_prompt(
+            ImageGenerationRequest(
+                entity_type=MediaEntityType.INGREDIENT,
+                mode=ImageGenerationMode.REFERENCE,
+                title="番茄",
+                category="蔬菜",
+                notes="新鲜红番茄",
+                reference_image_bytes=b"fake",
+                reference_filename="tomato.jpg",
+            )
+        )
+
+        self.assertIn("参考图只用于识别主体", prompt)
+        self.assertIn("重新在 Culina 统一摄影棚里拍了一张标准主图", prompt)
+        self.assertIn("与纯文字生成模式一致", prompt)
+        self.assertIn("不要复制原图的拍摄角度", prompt)
+        self.assertIn("参考图仅作为主体识别补充", prompt)
+        self.assertIn("统一为约 4:3 卡片比例", prompt)
+
+    def test_image_generation_normalizes_all_modes_to_standard_card_size(self) -> None:
+        calls: list[dict] = []
+
+        class FakeHttpxClient:
+            def __init__(self, *args, **kwargs) -> None:
+                pass
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, traceback) -> None:
+                return None
+
+            def post(self, url: str, **kwargs):
+                calls.append({"url": url, **kwargs})
+                return httpx.Response(
+                    200,
+                    json={"data": [{"b64_json": base64.b64encode(b"fake-image").decode("ascii")}]},
+                )
+
+        provider = OpenAIImageGenerationProvider(
+            ImageProviderConfig(
+                provider="openai",
+                api_base="https://example.test/v1",
+                api_key="test-key",
+                model="gpt-image-2",
+            )
+        )
+        with patch("app.services.image_generation.httpx.Client", FakeHttpxClient):
+            provider.generate_from_text(
+                ImageGenerationRequest(
+                    entity_type=MediaEntityType.RECIPE,
+                    mode=ImageGenerationMode.TEXT,
+                    title="番茄炒蛋",
+                    size="1792*1008",
+                )
+            )
+            provider.generate_from_reference(
+                ImageGenerationRequest(
+                    entity_type=MediaEntityType.INGREDIENT,
+                    mode=ImageGenerationMode.REFERENCE,
+                    title="番茄",
+                    size="960*1280",
+                    reference_image_bytes=b"fake",
+                    reference_filename="tomato.jpg",
+                )
+            )
+
+        self.assertEqual(calls[0]["json"]["size"], "1536x1024")
+        self.assertEqual(calls[1]["data"]["size"], "1536x1024")
+
     def test_openai_image_provider_uses_configured_endpoint_and_key(self) -> None:
         calls: list[dict] = []
 

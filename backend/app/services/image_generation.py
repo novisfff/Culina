@@ -18,11 +18,13 @@ DEFAULT_OPENAI_BASE_URL = "https://api.openai.com/v1"
 DASHSCOPE_SYNC_ENDPOINT = "/services/aigc/multimodal-generation/generation"
 OPENAI_IMAGE_GENERATIONS_ENDPOINT = "/images/generations"
 OPENAI_IMAGE_EDITS_ENDPOINT = "/images/edits"
+STANDARD_IMAGE_SIZE = "1536*1152"
 
 BASE_STYLE_PROMPT = """
 你是一名严格遵守 Culina 统一视觉语言的美食静物摄影师。
 最终画面必须是半写实厨房静物摄影，不是插画，不是电商硬广，不是卡通，不是拼贴。
 主体必须单一明确，构图克制，留白稳定，适配卡片裁切，画面干净且易识别。
+输出必须统一为约 4:3 卡片比例，所有主体都按这个比例重新构图，不要生成竖图、方图、过宽画面或沿用参考图比例。
 主体与关键特征必须位于画面中央安全区，四周保留稳定边距，轻微裁切后仍应完整可辨识。
 不要把主体、器皿边缘、切面、关键纹理或主要高光压在画面边缘。
 布光固定为柔和自然侧光，整体色调固定为暖中性色，使用奶油白、浅鼠尾草、淡木色、低饱和橙棕。
@@ -34,12 +36,15 @@ BASE_STYLE_PROMPT = """
 """.strip()
 
 REFERENCE_MODE_APPENDIX = """
-保留参考图里的主体身份、形态、切面、颜色和可识别特征。
+参考图只用于识别主体是什么、有哪些必要的关键特征；不要把参考图当作构图、光线、背景、色调或摄影风格模板。
+生成结果必须像“重新在 Culina 统一摄影棚里拍了一张标准主图”，而不是对原照片做修图、抠图、临摹或风格迁移。
+只保留主体身份和必要可识别特征，例如食材品类、主要形状、典型颜色、切面或纹理；允许重新整理数量、摆放角度、容器和周边留白。
+必须重新构建为与纯文字生成模式一致的 Culina house style：柔和自然侧光、奶油白/浅木色/低饱和暖中性色背景、干净台面、少量克制辅助道具。
+不要复制原图的拍摄角度、取景比例、桌面材质、环境、阴影、滤镜、曝光、杂乱程度、手机随手拍质感或商品包装质感。
 移除原图里的杂物、噪点、桌面凌乱、手部、包装、标签、反射、环境色污染。
 如果参考图中存在任何文字、logo、包装印刷、标签贴纸、店名、菜单字样或水印，必须彻底清除，不能在生成图里保留。
-不要复制原背景和原构图，而是把主体统一归一到 Culina house style。
-目标是生成一张像同一家工作室拍摄的标准主图，而不是简单美化原图。
-即使参考图主体原本靠边，也要重新整理到中央安全区，保留主体完整轮廓和边距。
+即使参考图主体原本靠边、过暗、过曝、被遮挡、角度随意或背景复杂，也要重新整理到中央安全区，保留主体完整轮廓和稳定边距。
+如果参考图与文字信息冲突，以文字信息和 Culina 统一风格优先；参考图仅作为主体识别补充。
 """.strip()
 
 MEAL_TYPE_LABELS = {
@@ -51,20 +56,20 @@ MEAL_TYPE_LABELS = {
 
 ENTITY_SIZES_BY_MODE = {
     ImageGenerationMode.TEXT: {
-        MediaEntityType.INGREDIENT: "1536*1152",
-        MediaEntityType.FOOD: "1664*1040",
-        MediaEntityType.RECIPE: "1664*1040",
-        MediaEntityType.RECIPE_SCENE: "1664*1040",
-        MediaEntityType.FOOD_SCENE: "1664*1040",
-        MediaEntityType.MEAL_LOG: "1664*1040",
+        MediaEntityType.INGREDIENT: STANDARD_IMAGE_SIZE,
+        MediaEntityType.FOOD: STANDARD_IMAGE_SIZE,
+        MediaEntityType.RECIPE: STANDARD_IMAGE_SIZE,
+        MediaEntityType.RECIPE_SCENE: STANDARD_IMAGE_SIZE,
+        MediaEntityType.FOOD_SCENE: STANDARD_IMAGE_SIZE,
+        MediaEntityType.MEAL_LOG: STANDARD_IMAGE_SIZE,
     },
     ImageGenerationMode.REFERENCE: {
-        MediaEntityType.INGREDIENT: "1280*960",
-        MediaEntityType.FOOD: "1280*800",
-        MediaEntityType.RECIPE: "1280*800",
-        MediaEntityType.RECIPE_SCENE: "1280*800",
-        MediaEntityType.FOOD_SCENE: "1280*800",
-        MediaEntityType.MEAL_LOG: "1280*800",
+        MediaEntityType.INGREDIENT: STANDARD_IMAGE_SIZE,
+        MediaEntityType.FOOD: STANDARD_IMAGE_SIZE,
+        MediaEntityType.RECIPE: STANDARD_IMAGE_SIZE,
+        MediaEntityType.RECIPE_SCENE: STANDARD_IMAGE_SIZE,
+        MediaEntityType.FOOD_SCENE: STANDARD_IMAGE_SIZE,
+        MediaEntityType.MEAL_LOG: STANDARD_IMAGE_SIZE,
     },
 }
 
@@ -275,8 +280,6 @@ def _render_placeholder_svg(request: ImageGenerationRequest) -> str:
 
 
 def _normalize_request(request: ImageGenerationRequest) -> ImageGenerationRequest:
-    if request.size:
-        return request
     return replace(request, size=ENTITY_SIZES_BY_MODE[request.mode][request.entity_type])
 
 
