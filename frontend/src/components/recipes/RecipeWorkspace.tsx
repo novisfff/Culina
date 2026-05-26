@@ -3409,7 +3409,7 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
                       </article>
                     </div>
                     {recipeImageState.errorMessage && <span className="image-composer-error">{recipeImageState.errorMessage}</span>}
-                    <p className="recipe-editor-cover-hint">推荐尺寸：16:9，JPG/PNG，5 MB 以内。</p>
+                    <p className="recipe-editor-cover-hint">推荐尺寸：4:3，JPG/PNG，5 MB 以内。</p>
                   </div>
                 </div>
               </section>
