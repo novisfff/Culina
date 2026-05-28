@@ -12,7 +12,7 @@ from app.db.session import get_db
 from app.db.transactions import commit_session
 from app.models.domain import AIRecommendation, Membership, User, UserCredential
 from app.repos.auth import get_user_by_username
-from app.schemas.family import CreateMemberRequest, FamilyDetailOut, MemberOut
+from app.schemas.family import CreateMemberRequest, FamilyDetailOut, MemberOut, UpdateFamilyRequest
 from app.services.activity import log_activity
 from app.services.serializers import serialize_family, serialize_member
 
@@ -31,6 +31,35 @@ def get_family(auth: tuple = Depends(get_current_auth), db: Session = Depends(ge
         )
     )
     return serialize_family(membership.family, recommendations)
+
+
+@router.patch("/api/family", response_model=FamilyDetailOut)
+def update_family(
+    payload: UpdateFamilyRequest,
+    auth: tuple = Depends(require_owner),
+    db: Session = Depends(get_db),
+) -> dict:
+    user, membership = auth
+    name = payload.name.strip()
+    if not name:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Family name is required")
+    family = membership.family
+    family.name = name
+    family.motto = payload.motto.strip()
+    family.location = payload.location.strip()
+    family.updated_by = user.id
+    log_activity(
+        db,
+        family_id=membership.family_id,
+        actor_id=user.id,
+        action=ActivityAction.UPDATE,
+        entity_type="Family",
+        entity_id=family.id,
+        summary=f"更新家庭信息 {family.name}",
+    )
+    commit_session(db)
+    db.refresh(family)
+    return serialize_family(family, [])
 
 
 @router.get("/api/members", response_model=list[MemberOut])

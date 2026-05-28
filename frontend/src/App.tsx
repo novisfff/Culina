@@ -70,7 +70,7 @@ import {
 
 type TabKey = 'home' | 'foods' | 'recipes' | 'ingredients' | 'logs' | 'ai' | 'family';
 type FoodWorkspaceView = 'list' | 'create';
-type FamilyOverlayMode = 'invite' | null;
+type FamilyOverlayMode = 'invite' | 'profile' | 'password' | 'family' | null;
 type IngredientNavigationRequest = {
   view: 'catalog' | 'detail';
   ingredientId?: string;
@@ -130,6 +130,25 @@ type InviteFormState = {
   password: string;
   role: 'Owner' | 'Member';
   email: string;
+};
+
+type ProfileFormState = {
+  displayName: string;
+  email: string;
+  phone: string;
+  avatarSeed: string;
+};
+
+type PasswordFormState = {
+  currentPassword: string;
+  newPassword: string;
+  confirmPassword: string;
+};
+
+type FamilyFormState = {
+  name: string;
+  motto: string;
+  location: string;
 };
 
 type DashboardExpiryTodoInventoryItem = InventoryItem & { daysLeft: number };
@@ -681,9 +700,25 @@ function App() {
   const [inviteForm, setInviteForm] = useState<InviteFormState>({
     username: '',
     displayName: '',
-    password: 'Culina123!',
+    password: '',
     role: 'Member',
     email: '',
+  });
+  const [profileForm, setProfileForm] = useState<ProfileFormState>({
+    displayName: '',
+    email: '',
+    phone: '',
+    avatarSeed: '',
+  });
+  const [passwordForm, setPasswordForm] = useState<PasswordFormState>({
+    currentPassword: '',
+    newPassword: '',
+    confirmPassword: '',
+  });
+  const [familyForm, setFamilyForm] = useState<FamilyFormState>({
+    name: '',
+    motto: '',
+    location: '',
   });
   const [foodWorkspaceView, setFoodWorkspaceView] = useState<FoodWorkspaceView>('list');
   const [familyOverlayMode, setFamilyOverlayMode] = useState<FamilyOverlayMode>(null);
@@ -723,6 +758,16 @@ function App() {
   useEffect(() => {
     localStorage.setItem(SIDEBAR_COLLAPSED_KEY, sidebarCollapsed ? '1' : '0');
   }, [sidebarCollapsed]);
+
+  useEffect(() => {
+    if (!user) return;
+    setProfileForm({
+      displayName: user.display_name,
+      email: user.email ?? '',
+      phone: user.phone ?? '',
+      avatarSeed: user.avatar_seed ?? user.display_name,
+    });
+  }, [user?.id, user?.display_name, user?.email, user?.phone, user?.avatar_seed]);
 
   useEffect(() => {
     setSelectedParticipants((current) => {
@@ -813,10 +858,39 @@ function App() {
     enabled: isAuthenticated,
   });
 
+  useEffect(() => {
+    const familyData = familyQuery.data;
+    if (!familyData) return;
+    setFamilyForm({
+      name: familyData.name,
+      motto: familyData.motto,
+      location: familyData.location,
+    });
+  }, [familyQuery.data?.id, familyQuery.data?.name, familyQuery.data?.motto, familyQuery.data?.location]);
+
   const createMemberMutation = useMutation({
     mutationFn: api.createMember,
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['members'] });
+      void queryClient.invalidateQueries({ queryKey: ['activity-logs'] });
+    },
+  });
+  const updateProfileMutation = useMutation({
+    mutationFn: api.updateMe,
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['auth', 'me'] });
+      void queryClient.invalidateQueries({ queryKey: ['members'] });
+      void queryClient.invalidateQueries({ queryKey: ['activity-logs'] });
+    },
+  });
+  const updatePasswordMutation = useMutation({
+    mutationFn: api.updatePassword,
+  });
+  const updateFamilyMutation = useMutation({
+    mutationFn: api.updateFamily,
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['family'] });
+      void queryClient.invalidateQueries({ queryKey: ['auth', 'me'] });
       void queryClient.invalidateQueries({ queryKey: ['activity-logs'] });
     },
   });
@@ -1351,13 +1425,64 @@ function App() {
       setInviteForm({
         username: '',
         displayName: '',
-        password: 'Culina123!',
+        password: '',
         role: 'Member',
         email: '',
       });
       setFamilyOverlayMode(null);
     } catch (reason) {
       window.alert(reason instanceof Error ? reason.message : '创建成员账号失败');
+    }
+  }
+
+  async function submitProfile(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!profileForm.displayName.trim()) return;
+    try {
+      await updateProfileMutation.mutateAsync({
+        display_name: profileForm.displayName.trim(),
+        email: profileForm.email.trim() || null,
+        phone: profileForm.phone.trim() || null,
+        avatar_seed: profileForm.avatarSeed.trim() || profileForm.displayName.trim(),
+      });
+      setFamilyOverlayMode(null);
+    } catch (reason) {
+      window.alert(reason instanceof Error ? reason.message : '保存个人资料失败');
+    }
+  }
+
+  async function submitPassword(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!passwordForm.currentPassword || !passwordForm.newPassword) return;
+    if (passwordForm.newPassword !== passwordForm.confirmPassword) {
+      window.alert('两次输入的新密码不一致');
+      return;
+    }
+    try {
+      await updatePasswordMutation.mutateAsync({
+        current_password: passwordForm.currentPassword,
+        new_password: passwordForm.newPassword,
+      });
+      setPasswordForm({ currentPassword: '', newPassword: '', confirmPassword: '' });
+      setFamilyOverlayMode(null);
+      window.alert('密码已更新，下次登录请使用新密码。');
+    } catch (reason) {
+      window.alert(reason instanceof Error ? reason.message : '修改密码失败');
+    }
+  }
+
+  async function submitFamily(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!familyForm.name.trim()) return;
+    try {
+      await updateFamilyMutation.mutateAsync({
+        name: familyForm.name.trim(),
+        motto: familyForm.motto.trim(),
+        location: familyForm.location.trim(),
+      });
+      setFamilyOverlayMode(null);
+    } catch (reason) {
+      window.alert(reason instanceof Error ? reason.message : '保存家庭信息失败');
     }
   }
 
@@ -2827,15 +2952,62 @@ function App() {
               title="管理成员、邀请和活动流"
               description="成员信息和活动流留在主页面，创建成员账号收进统一弹窗。"
               actions={
-                isOwner ? (
-                  <div className="hero-actions">
+                <div className="hero-actions">
+                  <ActionButton tone="secondary" type="button" onClick={() => setFamilyOverlayMode('profile')}>
+                    编辑我的资料
+                  </ActionButton>
+                  <ActionButton tone="secondary" type="button" onClick={() => setFamilyOverlayMode('password')}>
+                    修改密码
+                  </ActionButton>
+                  {isOwner && (
+                    <ActionButton tone="secondary" type="button" onClick={() => setFamilyOverlayMode('family')}>
+                      编辑家庭信息
+                    </ActionButton>
+                  )}
+                  {isOwner && (
                     <ActionButton tone="primary" type="button" onClick={() => setFamilyOverlayMode('invite')}>
                       创建成员账号
                     </ActionButton>
-                  </div>
-                ) : undefined
+                  )}
+                </div>
               }
             />
+
+            <section className="card page-section">
+              <SectionHeading title="家庭信息" description="家庭名称、位置和口号会影响工作台展示和 AI 上下文" />
+              <div className="member-grid">
+                <div className="member-card">
+                  <span>家庭名称</span>
+                  <strong>{family?.name ?? '未设置'}</strong>
+                </div>
+                <div className="member-card">
+                  <span>所在位置</span>
+                  <strong>{family?.location || '未填写'}</strong>
+                </div>
+                <div className="member-card">
+                  <span>家庭口号</span>
+                  <strong>{family?.motto || '未填写'}</strong>
+                </div>
+              </div>
+            </section>
+
+            <section className="card page-section">
+              <SectionHeading title="我的资料" description="显示名称会出现在成员列表、活动流和餐食参与人中" />
+              <div className="member-grid">
+                {currentUser && (
+                  <article className="member-card">
+                    <Avatar label={currentUser.display_name} seed={currentUser.avatar_seed} large />
+                    <div>
+                      <h3>{currentUser.display_name}</h3>
+                      <p className="subtle">
+                        {membership?.role ?? 'Member'} · {currentUser.username}
+                      </p>
+                      <p className="subtle">{currentUser.email ?? '未填写邮箱'} · {currentUser.phone ?? '未填写手机号'}</p>
+                    </div>
+                  </article>
+                )}
+              </div>
+            </section>
 
             <section className="card page-section">
               <SectionHeading title="家庭成员" description="查看成员身份、账号和协作角色" />
@@ -2948,6 +3120,171 @@ function App() {
                       </ActionButton>
                       <ActionButton tone="primary" type="submit" disabled={createMemberMutation.isPending}>
                         {createMemberMutation.isPending ? '创建中...' : '创建成员账号'}
+                      </ActionButton>
+                    </div>
+                  </form>
+                </WorkspaceModal>
+              </div>
+            )}
+
+            {familyOverlayMode === 'profile' && (
+              <div className="workspace-overlay-root">
+                <div className="workspace-overlay-backdrop" onClick={() => setFamilyOverlayMode(null)} />
+                <WorkspaceModal
+                  title="编辑我的资料"
+                  description="更新你在家庭厨房里的显示信息。"
+                  onClose={() => setFamilyOverlayMode(null)}
+                >
+                  <form className="form-grid compact-grid" onSubmit={submitProfile}>
+                    <label>
+                      <span>显示名称</span>
+                      <input
+                        className="text-input"
+                        value={profileForm.displayName}
+                        onChange={(event) => setProfileForm({ ...profileForm, displayName: event.target.value })}
+                      />
+                    </label>
+                    <label>
+                      <span>头像种子</span>
+                      <input
+                        className="text-input"
+                        value={profileForm.avatarSeed}
+                        onChange={(event) => setProfileForm({ ...profileForm, avatarSeed: event.target.value })}
+                      />
+                    </label>
+                    <label>
+                      <span>邮箱</span>
+                      <input
+                        className="text-input"
+                        type="email"
+                        value={profileForm.email}
+                        onChange={(event) => setProfileForm({ ...profileForm, email: event.target.value })}
+                      />
+                    </label>
+                    <label>
+                      <span>手机号</span>
+                      <input
+                        className="text-input"
+                        value={profileForm.phone}
+                        onChange={(event) => setProfileForm({ ...profileForm, phone: event.target.value })}
+                      />
+                    </label>
+                    <div className="span-two workspace-overlay-actions">
+                      <ActionButton
+                        tone="secondary"
+                        type="button"
+                        onClick={() => setFamilyOverlayMode(null)}
+                        disabled={updateProfileMutation.isPending}
+                      >
+                        取消
+                      </ActionButton>
+                      <ActionButton tone="primary" type="submit" disabled={updateProfileMutation.isPending}>
+                        {updateProfileMutation.isPending ? '保存中...' : '保存资料'}
+                      </ActionButton>
+                    </div>
+                  </form>
+                </WorkspaceModal>
+              </div>
+            )}
+
+            {familyOverlayMode === 'password' && (
+              <div className="workspace-overlay-root">
+                <div className="workspace-overlay-backdrop" onClick={() => setFamilyOverlayMode(null)} />
+                <WorkspaceModal
+                  title="修改密码"
+                  description="输入当前密码并设置一个包含字母和数字的新密码。"
+                  onClose={() => setFamilyOverlayMode(null)}
+                >
+                  <form className="form-grid compact-grid" onSubmit={submitPassword}>
+                    <label className="span-two">
+                      <span>当前密码</span>
+                      <input
+                        className="text-input"
+                        type="password"
+                        value={passwordForm.currentPassword}
+                        onChange={(event) => setPasswordForm({ ...passwordForm, currentPassword: event.target.value })}
+                      />
+                    </label>
+                    <label>
+                      <span>新密码</span>
+                      <input
+                        className="text-input"
+                        type="password"
+                        value={passwordForm.newPassword}
+                        onChange={(event) => setPasswordForm({ ...passwordForm, newPassword: event.target.value })}
+                      />
+                    </label>
+                    <label>
+                      <span>确认新密码</span>
+                      <input
+                        className="text-input"
+                        type="password"
+                        value={passwordForm.confirmPassword}
+                        onChange={(event) => setPasswordForm({ ...passwordForm, confirmPassword: event.target.value })}
+                      />
+                    </label>
+                    <div className="span-two workspace-overlay-actions">
+                      <ActionButton
+                        tone="secondary"
+                        type="button"
+                        onClick={() => setFamilyOverlayMode(null)}
+                        disabled={updatePasswordMutation.isPending}
+                      >
+                        取消
+                      </ActionButton>
+                      <ActionButton tone="primary" type="submit" disabled={updatePasswordMutation.isPending}>
+                        {updatePasswordMutation.isPending ? '修改中...' : '修改密码'}
+                      </ActionButton>
+                    </div>
+                  </form>
+                </WorkspaceModal>
+              </div>
+            )}
+
+            {familyOverlayMode === 'family' && isOwner && (
+              <div className="workspace-overlay-root">
+                <div className="workspace-overlay-backdrop" onClick={() => setFamilyOverlayMode(null)} />
+                <WorkspaceModal
+                  title="编辑家庭信息"
+                  description="这些信息会显示在工作台，并作为 AI 生成家庭建议的上下文。"
+                  onClose={() => setFamilyOverlayMode(null)}
+                >
+                  <form className="form-grid compact-grid" onSubmit={submitFamily}>
+                    <label>
+                      <span>家庭名称</span>
+                      <input
+                        className="text-input"
+                        value={familyForm.name}
+                        onChange={(event) => setFamilyForm({ ...familyForm, name: event.target.value })}
+                      />
+                    </label>
+                    <label>
+                      <span>所在位置</span>
+                      <input
+                        className="text-input"
+                        value={familyForm.location}
+                        onChange={(event) => setFamilyForm({ ...familyForm, location: event.target.value })}
+                      />
+                    </label>
+                    <label className="span-two">
+                      <span>家庭口号</span>
+                      <input
+                        className="text-input"
+                        value={familyForm.motto}
+                        onChange={(event) => setFamilyForm({ ...familyForm, motto: event.target.value })}
+                      />
+                    </label>
+                    <div className="span-two workspace-overlay-actions">
+                      <ActionButton
+                        tone="secondary"
+                        type="button"
+                        onClick={() => setFamilyOverlayMode(null)}
+                        disabled={updateFamilyMutation.isPending}
+                      >
+                        取消
+                      </ActionButton>
+                      <ActionButton tone="primary" type="submit" disabled={updateFamilyMutation.isPending}>
+                        {updateFamilyMutation.isPending ? '保存中...' : '保存家庭信息'}
                       </ActionButton>
                     </div>
                   </form>

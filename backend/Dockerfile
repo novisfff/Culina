@@ -12,4 +12,4 @@ COPY backend/ .
 
 EXPOSE 8010
 
-CMD ["sh", "-c", "alembic upgrade head && if [ \"$SEED_DEMO\" = \"true\" ]; then python scripts/seed_demo.py; fi && uvicorn app.main:app --host 0.0.0.0 --port 8010"]
+CMD ["sh", "-c", "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8010"]

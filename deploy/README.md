@@ -31,6 +31,10 @@ cp deploy/.env.example deploy/.env
 - `MYSQL_ROOT_PASSWORD`
 - `MINIO_ROOT_PASSWORD`
 - `FRONTEND_ORIGIN`
+- `INITIAL_ADMIN_USERNAME`
+- `INITIAL_ADMIN_PASSWORD`
+- `INITIAL_ADMIN_DISPLAY_NAME`
+- `INITIAL_FAMILY_NAME`
 
 如果浏览器通过前端 nginx 同源访问后端，保持 `VITE_API_BASE_URL` 为空即可。只有后端 API 暴露在独立公网地址时，才需要设置这个变量。
 
@@ -79,20 +83,9 @@ npm run deploy:down
 
 该命令会停止容器，但保留命名卷。MySQL 数据保存在 `culina_mysql_data`，图片对象保存在 `culina_minio_data`。
 
-## 演示数据
+## 初始管理员
 
-如果希望迁移后自动写入演示账号，可在 `deploy/.env` 中设置：
-
-```bash
-SEED_DEMO=true
-```
-
-演示账号：
-
-```text
-用户名: linran
-密码: Culina123!
-```
+后端启动时，如果数据库中没有任何用户，会根据 `deploy/.env` 中的 `INITIAL_ADMIN_*` 和 `INITIAL_FAMILY_*` 配置自动创建初始家庭和 Owner 管理员。已有用户时不会覆盖现有数据。
 
 ## 迁移旧本地图片
 

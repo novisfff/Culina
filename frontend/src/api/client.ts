@@ -95,7 +95,22 @@ export const api = {
     }),
   me: () => request<LoginResponse>('/api/auth/me'),
   logout: () => request<void>('/api/auth/logout', { method: 'POST' }),
+  updateMe: (payload: { display_name: string; email?: string | null; phone?: string | null; avatar_seed?: string | null }) =>
+    request<LoginResponse['user']>('/api/auth/me', {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    }),
+  updatePassword: (payload: { current_password: string; new_password: string }) =>
+    request<void>('/api/auth/password', {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    }),
   getFamily: () => request<FamilyDetail>('/api/family'),
+  updateFamily: (payload: { name: string; motto: string; location: string }) =>
+    request<FamilyDetail>('/api/family', {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    }),
   getMembers: () => request<Member[]>('/api/members'),
   createMember: (payload: {
     username: string;

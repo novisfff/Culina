@@ -56,7 +56,6 @@ Compose 文件位于 [deploy/docker-compose.yml](/Users/zyf/IdeaProjects/Culina/
 npm run backend:venv
 npm run backend:init-db
 npm run backend:migrate
-npm run backend:seed
 ```
 
 启动后端：
@@ -66,13 +65,7 @@ npm run backend:dev
 ```
 
 后端默认端口是 `8010`，数据库配置写在 [backend/.env](/Users/zyf/IdeaProjects/Culina/backend/.env)。
-
-演示账号：
-
-```text
-用户名: linran
-密码: Culina123!
-```
+如果数据库中还没有用户，后端启动时会根据 [backend/.env](/Users/zyf/IdeaProjects/Culina/backend/.env) 中的 `INITIAL_ADMIN_*` 和 `INITIAL_FAMILY_*` 配置自动创建初始家庭和管理员。
 
 ## 构建与测试
 

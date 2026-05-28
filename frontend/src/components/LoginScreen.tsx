@@ -3,8 +3,8 @@ import { useAuth } from '../auth/AuthContext';
 
 export function LoginScreen() {
   const { login, isLoading } = useAuth();
-  const [username, setUsername] = useState('linran');
-  const [password, setPassword] = useState('Culina123!');
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
   const [error, setError] = useState('');
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -22,9 +22,7 @@ export function LoginScreen() {
       <section className="login-card">
         <p className="eyebrow">Culina 家庭厨房</p>
         <h1>登录家庭厨房</h1>
-        <p className="subtle">
-          当前已接入真实后端和 MySQL。演示账号可直接使用：`linran / Culina123!`
-        </p>
+        <p className="subtle">使用管理员配置或家庭成员账号登录。</p>
         <form className="form-grid" onSubmit={handleSubmit}>
           <label className="span-two">
             <span>用户名</span>

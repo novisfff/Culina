@@ -33,6 +33,12 @@ class CreateMemberRequest(BaseModel):
         return validate_password_strength(value)
 
 
+class UpdateFamilyRequest(BaseModel):
+    name: str
+    motto: str = ""
+    location: str = ""
+
+
 class FamilyDetailOut(BaseModel):
     id: str
     name: str

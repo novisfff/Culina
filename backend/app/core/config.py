@@ -40,6 +40,14 @@ class Settings(BaseSettings):
     ai_image_text_api_key: str = ""
     ai_image_text_model: str = "wan2.6-t2i"
     frontend_origin: str = "http://localhost:5173"
+    initial_admin_username: str = ""
+    initial_admin_password: str = ""
+    initial_admin_display_name: str = ""
+    initial_admin_email: str = ""
+    initial_admin_phone: str = ""
+    initial_family_name: str = ""
+    initial_family_motto: str = ""
+    initial_family_location: str = ""
 
     @model_validator(mode="after")
     def validate_safe_runtime_settings(self) -> "Settings":
