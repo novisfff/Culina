@@ -206,6 +206,7 @@ def serialize_recipe(recipe: Recipe, media_map: dict[tuple[str, str], list[Media
             for step in recipe.steps
         ],
         "tips": recipe.tips,
+        "scene_tags": list(recipe.scene_tags or []),
         "images": [serialize_media(asset) for asset in media_map.get(("recipe", recipe.id), [])],
         "cook_logs": [serialize_recipe_cook_log(item) for item in list(recipe.cook_logs)[:5]],
         "created_at": recipe.created_at,

@@ -2,36 +2,43 @@ from __future__ import annotations
 
 from typing import Callable
 
-from app.ai.context import AgentContext
-from app.ai.schemas import AgentRunRequest, AgentToolCall
+from app.ai.kitchen.context import AgentContext
+from app.ai.kitchen.formatters import (
+    build_alerts,
+    food_context,
+    ingredient_context,
+    inventory_snapshot,
+    recent_meal_snapshot,
+    recommendation_context,
+)
+from app.ai.runtime.schemas import AgentRunRequest, AgentToolCall
 from app.core.enums import AiMode
-from app.services import ai as legacy_ai
 
 ToolHandler = Callable[[AgentContext, AgentRunRequest], object]
 
 
 def _inventory_snapshot(context: AgentContext, request: AgentRunRequest) -> object:
     return {
-        "items": legacy_ai._inventory_snapshot(context.inventory_items),
-        "alerts": legacy_ai._build_alerts(context.inventory_items),
+        "items": inventory_snapshot(context.inventory_items),
+        "alerts": build_alerts(context.inventory_items),
     }
 
 
 def _recent_meals(context: AgentContext, request: AgentRunRequest) -> object:
-    return {"items": legacy_ai._build_recent_meal_snapshot(context.meal_logs)}
+    return {"items": recent_meal_snapshot(context.meal_logs)}
 
 
 def _food_details(context: AgentContext, request: AgentRunRequest) -> object:
-    return {"detail": legacy_ai._build_food_context(context.food)}
+    return {"detail": food_context(context.food)}
 
 
 def _ingredient_details(context: AgentContext, request: AgentRunRequest) -> object:
-    return {"detail": legacy_ai._build_ingredient_context(context.ingredients)}
+    return {"detail": ingredient_context(context.ingredients)}
 
 
 def _recommendation_candidates(context: AgentContext, request: AgentRunRequest) -> object:
     return {
-        "detail": legacy_ai._build_recommendation_context(
+        "detail": recommendation_context(
             context.recommendation_foods,
             context.inventory_items,
             context.meal_logs,

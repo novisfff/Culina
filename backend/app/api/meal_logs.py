@@ -10,10 +10,12 @@ from app.core.deps import get_current_auth
 from app.core.enums import ActivityAction
 from app.core.utils import create_id, utcnow
 from app.db.session import get_db
+from app.db.transactions import commit_session
 from app.models.domain import Food, FoodPlanItem, InventoryDeductionSuggestion, MealLog, MealLogFood, Recipe
-from app.repos.media import build_media_map, get_media_assets_for_family
-from app.schemas.domain import CreateMealLogRequest, MealLogOut, QuickAddMealLogRequest
+from app.repos.media import build_media_map, get_media_assets_for_entities
+from app.schemas.meal_logs import CreateMealLogRequest, MealLogOut, QuickAddMealLogRequest
 from app.services.activity import log_activity
+from app.services.clock import today_for_family
 from app.services.media import bind_media_assets
 from app.services.serializers import serialize_meal_log
 
@@ -69,7 +71,7 @@ def list_meal_logs(auth: tuple = Depends(get_current_auth), db: Session = Depend
             .order_by(MealLog.date.desc(), MealLog.created_at.desc())
         )
     )
-    media_map = build_media_map(get_media_assets_for_family(db, membership.family_id))
+    media_map = build_media_map(get_media_assets_for_entities(db, family_id=membership.family_id, entity_type="meal_log", entity_ids=[item.id for item in logs]))
     return [serialize_meal_log(item, media_map) for item in logs]
 
 
@@ -120,11 +122,11 @@ def create_meal_log(
         action=ActivityAction.CREATE,
         entity_type="MealLog",
         entity_id=meal_log.id,
-        summary=f"记录了{'今天' if payload.date == utcnow().date() else payload.date.isoformat()}的{MEAL_TYPE_LABELS.get(payload.meal_type.value, payload.meal_type.value)}",
+        summary=f"记录了{'今天' if payload.date == today_for_family(membership.family_id) else payload.date.isoformat()}的{MEAL_TYPE_LABELS.get(payload.meal_type.value, payload.meal_type.value)}",
     )
-    db.commit()
+    commit_session(db)
     db.refresh(meal_log)
-    media_map = build_media_map(get_media_assets_for_family(db, membership.family_id))
+    media_map = build_media_map(get_media_assets_for_entities(db, family_id=membership.family_id, entity_type="meal_log", entity_ids=[meal_log.id]))
     return serialize_meal_log(meal_log, media_map)
 
 
@@ -209,7 +211,7 @@ def quick_add_meal_log(
         entity_id=meal_log.id,
         summary=f"{'记录' if created else '追加'}了{MEAL_TYPE_LABELS.get(payload.meal_type.value, payload.meal_type.value)}：{food.name}",
     )
-    db.commit()
+    commit_session(db)
     db.refresh(meal_log)
-    media_map = build_media_map(get_media_assets_for_family(db, membership.family_id))
+    media_map = build_media_map(get_media_assets_for_entities(db, family_id=membership.family_id, entity_type="meal_log", entity_ids=[meal_log.id]))
     return serialize_meal_log(meal_log, media_map)

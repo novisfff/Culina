@@ -352,4 +352,5 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(payload),
     }),
+  getAiRenderJob: (jobId: string) => request<AiRenderResponse>(`/api/media/ai-render/${jobId}`),
 };

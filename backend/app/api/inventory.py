@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from datetime import date
 from decimal import Decimal
 
 from sqlalchemy import select
@@ -11,8 +10,9 @@ from app.core.deps import get_current_auth
 from app.core.enums import ActivityAction
 from app.core.utils import create_id
 from app.db.session import get_db
+from app.db.transactions import commit_session
 from app.models.domain import Ingredient, InventoryItem
-from app.schemas.domain import (
+from app.schemas.inventory import (
     ConsumeInventoryRequest,
     ConsumeInventoryResponse,
     CreateInventoryItemRequest,
@@ -21,30 +21,12 @@ from app.schemas.domain import (
     InventoryItemOut,
 )
 from app.services.activity import log_activity
-from app.services.ingredient_units import (
-    UnitConversionError,
-    convert_quantity_from_default_unit,
-    convert_quantity_to_default_unit,
-    normalize_unit_label,
-)
+from app.services.clock import today_for_family
+from app.services.ingredient_units import UnitConversionError, convert_quantity_from_default_unit, convert_quantity_to_default_unit, normalize_unit_label
+from app.services.inventory_usage import build_ingredient_consumption_plan, remaining_quantity
 from app.services.serializers import serialize_inventory_item
 
 router = APIRouter(tags=["inventory"])
-
-
-def _remaining_quantity(item: InventoryItem) -> Decimal:
-    return max(item.quantity - item.consumed_quantity, Decimal("0"))
-
-
-def _expiry_sort_key(expiry_date: date | None) -> tuple[int, date]:
-    return (1, date.max) if expiry_date is None else (0, expiry_date)
-
-
-def _remaining_quantity_in_default(item: InventoryItem, ingredient: Ingredient) -> Decimal:
-    remaining = _remaining_quantity(item)
-    if item.unit == ingredient.default_unit:
-        return remaining
-    return convert_quantity_to_default_unit(remaining, ingredient.default_unit, ingredient.unit_conversions, item.unit)
 
 
 @router.get("/api/inventory", response_model=list[InventoryItemOut])
@@ -73,9 +55,6 @@ def create_inventory_item(
     )
     if ingredient is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Ingredient not found")
-    if payload.quantity <= 0:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Quantity must be greater than 0")
-
     normalized_unit = normalize_unit_label(payload.unit)
     if not normalized_unit:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unit is required")
@@ -134,7 +113,7 @@ def create_inventory_item(
         entity_id=item.id,
         summary=f"录入库存 {item.ingredient.name if item.ingredient else '食材'} {float(item.entered_quantity or item.quantity):g}{item.entered_unit or item.unit}",
     )
-    db.commit()
+    commit_session(db)
     db.refresh(item)
     return serialize_inventory_item(item)
 
@@ -153,22 +132,9 @@ def consume_inventory(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Ingredient not found")
 
     requested_quantity = Decimal(str(payload.quantity))
-    if requested_quantity <= 0:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Quantity must be greater than 0")
-
     unit = normalize_unit_label(payload.unit)
     if not unit:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unit is required")
-    try:
-        requested_quantity_in_default = convert_quantity_to_default_unit(
-            requested_quantity,
-            ingredient.default_unit,
-            ingredient.unit_conversions,
-            unit,
-        )
-    except UnitConversionError as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
-
     items = list(
         db.scalars(
             select(InventoryItem)
@@ -178,26 +144,18 @@ def consume_inventory(
             )
         )
     )
-    today = date.today()
-    available_items: list[tuple[InventoryItem, Decimal]] = []
-    for item in items:
-        if item.expiry_date is not None and item.expiry_date < today:
-            continue
-        try:
-            remaining_in_default = _remaining_quantity_in_default(item, ingredient)
-        except UnitConversionError:
-            continue
-        if remaining_in_default > 0:
-            available_items.append((item, remaining_in_default))
-    available_items.sort(
-        key=lambda entry: (
-            *_expiry_sort_key(entry[0].expiry_date),
-            entry[0].purchase_date,
-            entry[0].created_at,
+    today = today_for_family(membership.family_id)
+    try:
+        requested_quantity_in_default, available_total, deductions = build_ingredient_consumption_plan(
+            ingredient=ingredient,
+            items=items,
+            requested_quantity=requested_quantity,
+            unit=unit,
+            today=today,
         )
-    )
+    except UnitConversionError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
-    available_total = sum((remaining for _, remaining in available_items), Decimal("0"))
     if available_total < requested_quantity_in_default:
         try:
             available_total_in_requested_unit = convert_quantity_from_default_unit(
@@ -213,32 +171,13 @@ def consume_inventory(
             detail=f"当前最多只能消费 {float(available_total_in_requested_unit):g}{unit}",
         )
 
-    remaining_to_consume = requested_quantity_in_default
     affected_item_ids: list[str] = []
 
-    for item, remaining_quantity_in_default in available_items:
-        if remaining_to_consume <= 0:
-            break
-        deduction_in_default = min(remaining_quantity_in_default, remaining_to_consume)
-        if deduction_in_default <= 0:
-            continue
-        try:
-            deduction_in_item_unit = (
-                deduction_in_default
-                if item.unit == ingredient.default_unit
-                else convert_quantity_from_default_unit(
-                    deduction_in_default,
-                    ingredient.default_unit,
-                    ingredient.unit_conversions,
-                    item.unit,
-                )
-            )
-        except UnitConversionError:
-            continue
-        item.consumed_quantity = item.consumed_quantity + deduction_in_item_unit
+    for deduction in deductions:
+        item = deduction.item
+        item.consumed_quantity = item.consumed_quantity + deduction.quantity
         item.updated_by = user.id
         affected_item_ids.append(item.id)
-        remaining_to_consume -= deduction_in_default
 
     log_activity(
         db,
@@ -249,7 +188,7 @@ def consume_inventory(
         entity_id=ingredient.id,
         summary=f"消费食材 {ingredient.name} {float(requested_quantity):g}{unit}",
     )
-    db.commit()
+    commit_session(db)
 
     return {
         "ingredient_id": ingredient.id,
@@ -288,7 +227,7 @@ def dispose_expired_inventory(
     if len(items_by_id) != len(requested_item_ids):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Some inventory items are invalid")
 
-    today = date.today()
+    today = today_for_family(membership.family_id)
     disposed_item_ids: list[str] = []
 
     for item_id in requested_item_ids:
@@ -297,7 +236,7 @@ def dispose_expired_inventory(
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Inventory item does not belong to ingredient")
         if item.expiry_date is None or item.expiry_date >= today:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Only expired inventory can be disposed")
-        if _remaining_quantity(item) <= 0:
+        if remaining_quantity(item) <= 0:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Inventory item has no remaining quantity")
 
         item.consumed_quantity = item.quantity
@@ -313,7 +252,7 @@ def dispose_expired_inventory(
         entity_id=ingredient.id,
         summary=f"销毁过期库存 {ingredient.name} {len(disposed_item_ids)} 条批次",
     )
-    db.commit()
+    commit_session(db)
 
     return {
         "ingredient_id": ingredient.id,

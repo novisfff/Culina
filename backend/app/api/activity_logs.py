@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends
 from app.core.deps import get_current_auth
 from app.db.session import get_db
 from app.models.domain import ActivityLog, Membership
-from app.schemas.domain import ActivityLogOut
+from app.schemas.activity import ActivityLogOut
 from app.services.serializers import serialize_activity
 
 router = APIRouter(tags=["activity-logs"])

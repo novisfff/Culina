@@ -4,8 +4,8 @@ import json
 import re
 from typing import Any
 
-from app.ai.context import AgentContext
-from app.ai.schemas import AgentRunRequest
+from app.ai.kitchen.context import AgentContext
+from app.ai.runtime.schemas import AgentRunRequest
 from app.core.enums import Difficulty, MediaEntityType
 from app.models.domain import Ingredient
 

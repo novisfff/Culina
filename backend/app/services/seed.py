@@ -19,6 +19,7 @@ from app.core.enums import (
 )
 from app.core.security import get_password_hash
 from app.core.utils import create_id, utcnow
+from app.db.transactions import commit_session
 from app.models.domain import (
     AIConversation,
     AIRecommendation,
@@ -107,7 +108,7 @@ def reset_all_data(db: Session) -> None:
         Family,
     ]:
         db.execute(delete(model))
-    db.commit()
+    commit_session(db)
 
 
 def seed_demo_data(db: Session, *, force: bool = False) -> None:
@@ -511,4 +512,4 @@ def seed_demo_data(db: Session, *, force: bool = False) -> None:
         created_at=utcnow(),
     )
     db.add_all([recommendation, reminder])
-    db.commit()
+    commit_session(db)

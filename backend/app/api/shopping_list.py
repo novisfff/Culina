@@ -8,8 +8,9 @@ from app.core.deps import get_current_auth
 from app.core.enums import ActivityAction
 from app.core.utils import create_id
 from app.db.session import get_db
+from app.db.transactions import commit_session
 from app.models.domain import ShoppingListItem
-from app.schemas.domain import CreateShoppingListItemRequest, ShoppingListItemOut, UpdateShoppingListItemRequest
+from app.schemas.shopping import CreateShoppingListItemRequest, ShoppingListItemOut, UpdateShoppingListItemRequest
 from app.services.activity import log_activity
 from app.services.serializers import serialize_shopping_item
 
@@ -57,7 +58,7 @@ def create_shopping_item(
         entity_id=item.id,
         summary=f"加入购物清单 {item.title}",
     )
-    db.commit()
+    commit_session(db)
     return serialize_shopping_item(item)
 
 
@@ -83,6 +84,6 @@ def update_shopping_item(
         entity_id=item.id,
         summary=f"{item.title}已标记为{'完成' if item.done else '待办'}",
     )
-    db.commit()
+    commit_session(db)
     db.refresh(item)
     return serialize_shopping_item(item)

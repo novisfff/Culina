@@ -10,13 +10,16 @@ from app.core.deps import get_current_auth
 from app.core.enums import ActivityAction, FoodType, MealType, food_type_values, normalize_food_type
 from app.core.utils import create_id
 from app.db.session import get_db
+from app.db.transactions import commit_session
 from app.models.domain import Food, MealLog, Recipe
-from app.repos.media import build_media_map, get_media_assets_for_family
-from app.schemas.domain import CreateFoodRequest, FoodOut, FoodRecommendationsOut, UpdateFoodFavoriteRequest, UpdateFoodRequest
+from app.repos.media import build_media_map, get_media_assets_for_entities
+from app.schemas.foods import CreateFoodRequest, FoodOut, FoodRecommendationsOut, UpdateFoodFavoriteRequest, UpdateFoodRequest
 from app.services.activity import log_activity
+from app.services.clock import now_for_family
+from app.services.ingredient_units import UnitConversionError
+from app.services.inventory_usage import load_available_inventory_by_ingredient, recipe_availability_summary
 from app.services.media import bind_media_assets, replace_media_assets
 from app.services.serializers import serialize_food
-from app.api.recipes import _recipe_availability_summary
 
 router = APIRouter(tags=["foods"])
 
@@ -124,13 +127,12 @@ def _reason_text(key: str, *, target_meal_type: MealType, days: int | None = Non
 
 
 def _score_food(
-    db: Session,
     *,
-    family_id: str,
     food: Food,
     meal_logs: list[MealLog],
     target_meal_type: MealType,
     target_date: date,
+    recipe_availability_by_id: dict[str, dict],
 ) -> dict:
     normalized_type = normalize_food_type(food.type)
     target_meal_value = target_meal_type.value
@@ -195,7 +197,7 @@ def _score_food(
         if food.recipe is None:
             add(-90)
         else:
-            recipe_availability = _recipe_availability_summary(db, family_id=family_id, recipe=food.recipe)
+            recipe_availability = recipe_availability_by_id.get(food.recipe.id)
             if recipe_availability["availability"] == "ready":
                 add(130, "recipe_ready")
             elif recipe_availability["availability"] == "partial":
@@ -308,7 +310,7 @@ def recommend_foods(
     db: Session = Depends(get_db),
 ) -> dict:
     _, membership = auth
-    resolved_now = now or datetime.now()
+    resolved_now = now or now_for_family(membership.family_id)
     foods = list(
         db.scalars(
             select(Food)
@@ -332,20 +334,35 @@ def recommend_foods(
     target_date = resolved_now.date()
     if meal_type is None and target_meal_type == MealType.BREAKFAST and resolved_now.time() >= time(20, 30):
         target_date = target_date + timedelta(days=1)
+    recipes = [food.recipe for food in foods if food.recipe is not None]
+    ingredient_ids = [item.ingredient_id for recipe in recipes for item in recipe.ingredient_items if item.ingredient_id]
+    inventory_by_ingredient = load_available_inventory_by_ingredient(db, family_id=membership.family_id, ingredient_ids=ingredient_ids, today=target_date)
+    try:
+        recipe_availability_by_id = {
+            recipe.id: recipe_availability_summary(
+                db,
+                family_id=membership.family_id,
+                recipe=recipe,
+                today=target_date,
+                inventory_by_ingredient=inventory_by_ingredient,
+            )
+            for recipe in recipes
+        }
+    except UnitConversionError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     scored = [
         _score_food(
-            db,
-            family_id=membership.family_id,
             food=food,
             meal_logs=meal_logs,
             target_meal_type=target_meal_type,
             target_date=target_date,
+            recipe_availability_by_id=recipe_availability_by_id,
         )
         for food in foods
     ]
     scored.sort(key=lambda item: (item["score"], item["food"].updated_at), reverse=True)
     selected = _diversify_recommendations(scored, limit)
-    media_map = build_media_map(get_media_assets_for_family(db, membership.family_id))
+    media_map = build_media_map(get_media_assets_for_entities(db, family_id=membership.family_id, entity_type="food", entity_ids=[item["food"].id for item in selected]))
     return {
         "target_meal_type": target_meal_type,
         "target_date": target_date,
@@ -366,7 +383,7 @@ def recommend_foods(
 def list_foods(auth: tuple = Depends(get_current_auth), db: Session = Depends(get_db)) -> list[dict]:
     _, membership = auth
     foods = list(db.scalars(select(Food).where(Food.family_id == membership.family_id).order_by(Food.updated_at.desc())))
-    media_map = build_media_map(get_media_assets_for_family(db, membership.family_id))
+    media_map = build_media_map(get_media_assets_for_entities(db, family_id=membership.family_id, entity_type="food", entity_ids=[food.id for food in foods]))
     return [serialize_food(food, media_map) for food in foods]
 
 
@@ -397,8 +414,8 @@ def create_food(
         entity_id=food.id,
         summary=f"新增{'家常菜' if food.type == FoodType.SELF_MADE.value else '食物'} {food.name}",
     )
-    db.commit()
-    media_map = build_media_map(get_media_assets_for_family(db, membership.family_id))
+    commit_session(db)
+    media_map = build_media_map(get_media_assets_for_entities(db, family_id=membership.family_id, entity_type="food", entity_ids=[food.id]))
     return serialize_food(food, media_map)
 
 
@@ -432,8 +449,8 @@ def update_food(
         entity_id=food.id,
         summary=f"更新食物 {food.name}",
     )
-    db.commit()
-    media_map = build_media_map(get_media_assets_for_family(db, membership.family_id))
+    commit_session(db)
+    media_map = build_media_map(get_media_assets_for_entities(db, family_id=membership.family_id, entity_type="food", entity_ids=[food.id]))
     return serialize_food(food, media_map)
 
 
@@ -459,6 +476,6 @@ def update_food_favorite(
         entity_id=food.id,
         summary=f"{food.name}已{'加入' if food.favorite else '移出'}收藏",
     )
-    db.commit()
-    media_map = build_media_map(get_media_assets_for_family(db, membership.family_id))
+    commit_session(db)
+    media_map = build_media_map(get_media_assets_for_entities(db, family_id=membership.family_id, entity_type="food", entity_ids=[food.id]))
     return serialize_food(food, media_map)

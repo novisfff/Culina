@@ -219,12 +219,11 @@ export interface RecipePayload {
     key_points?: string[];
   }>;
   tips: string;
+  scene_tags?: string[];
   media_ids: string[];
 }
 
-export interface CreateRecipePayload extends RecipePayload {
-  auto_create_food?: boolean;
-}
+export type CreateRecipePayload = RecipePayload;
 
 export interface CookRecipeRequest {
   servings: number;
@@ -585,10 +584,13 @@ export interface GenerateRecipeDraftResponse {
 }
 
 export interface AiRenderResponse {
-  generated_asset: MediaAsset;
+  job_id?: string | null;
+  status: 'queued' | 'running' | 'succeeded' | 'failed';
+  error?: string | null;
+  generated_asset?: MediaAsset | null;
   reference_asset?: MediaAsset | null;
-  style_key: string;
-  prompt_version: string;
+  style_key?: string | null;
+  prompt_version?: string | null;
   generation_mode: ImageGenerationMode;
 }
 

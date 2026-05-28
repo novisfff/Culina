@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-from time import perf_counter
-
 from sqlalchemy.orm import Session
 
-from app.ai.graphs import build_kitchen_assistant_graph
-from app.ai.provider import BaseChatProvider, get_chat_provider
-from app.ai.schemas import AgentRunRequest, AgentRunResult
+from app.ai.kitchen.graph import build_kitchen_assistant_graph
+from app.ai.runtime.provider import BaseChatProvider
+from app.ai.runtime.runner import AgentRuntime
+from app.ai.runtime.schemas import AgentRunRequest, AgentRunResult
+from app.core.enums import AiMode
 from app.core.utils import create_id, utcnow
 from app.models.domain import AIAgentRun, AIConversation
 from app.services.serializers import serialize_ai_conversation, serialize_ai_recommendation
@@ -15,23 +15,23 @@ from app.services.serializers import serialize_ai_conversation, serialize_ai_rec
 class CulinaAgentService:
     def __init__(self, db: Session, *, provider: BaseChatProvider | None = None) -> None:
         self.db = db
-        self.provider = provider or get_chat_provider()
+        self.runtime = AgentRuntime(provider=provider)
 
     def run(self, request: AgentRunRequest) -> AgentRunResult:
-        started = perf_counter()
-        graph = build_kitchen_assistant_graph(self.db, self.provider)
-        state = graph.invoke({"request": request})
-        duration_ms = int((perf_counter() - started) * 1000)
+        execution = self.runtime.run(self.db, request, build_kitchen_assistant_graph)
+        state = execution.state
 
         text = state.get("text", "")
         status = state.get("status", "fallback")
         error = state.get("error")
-        model = state.get("model", getattr(self.provider, "model_name", ""))
+        model = state.get("model", getattr(self.runtime.provider, "model_name", ""))
         tool_calls = state.get("tool_calls", [])
         context = state.get("context")
         recipe_draft = state.get("recipe_draft")
         data = state.get("data") or {"recipeDraft": recipe_draft}
         recommendation_model = state.get("recommendation_model")
+        if recommendation_model is not None:
+            self.db.add(recommendation_model)
 
         run = AIAgentRun(
             id=create_id("agent_run"),
@@ -50,7 +50,7 @@ class CulinaAgentService:
             output={"text": text, "data": data},
             tool_calls=[item.to_record() for item in tool_calls],
             error=error,
-            duration_ms=duration_ms,
+            duration_ms=execution.duration_ms,
             created_at=utcnow(),
             created_by=request.user_id,
         )
@@ -89,3 +89,29 @@ class CulinaAgentService:
             status=status,
             error=error,
         )
+
+
+def run_ai_query(
+    db: Session,
+    *,
+    family_id: str,
+    user_id: str,
+    mode: AiMode,
+    prompt: str,
+    food_id: str | None = None,
+    ingredient_ids: list[str] | None = None,
+) -> tuple[dict, dict | None]:
+    result = CulinaAgentService(db).run(
+        AgentRunRequest(
+            family_id=family_id,
+            user_id=user_id,
+            feature_key=mode.value,
+            prompt=prompt,
+            mode=mode,
+            subject={"foodId": food_id, "ingredientIds": ingredient_ids or []},
+            persist_conversation=True,
+        )
+    )
+    if result.conversation is None:
+        raise RuntimeError("AI query did not produce a conversation")
+    return result.conversation, result.recommendation

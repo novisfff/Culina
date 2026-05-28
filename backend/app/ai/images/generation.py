@@ -126,6 +126,7 @@ class ImageProviderConfig:
     api_base: str = DEFAULT_DASHSCOPE_BASE_URL
     api_key: str = ""
     model: str = ""
+    timeout_seconds: float = 180.0
 
 
 def INGREDIENT_PROMPT_BUILDER(request: ImageGenerationRequest) -> str:
@@ -436,7 +437,8 @@ class DashScopeImageGenerationProvider(BaseImageGenerationProvider):
         self.base_url = (config.api_base or DEFAULT_DASHSCOPE_BASE_URL).rstrip("/")
         self.api_key = config.api_key
         self.model = config.model
-        self.timeout = httpx.Timeout(120.0, connect=10.0, read=120.0, write=30.0)
+        timeout_seconds = max(float(config.timeout_seconds or 120.0), 30.0)
+        self.timeout = httpx.Timeout(timeout_seconds, connect=10.0, read=timeout_seconds, write=30.0)
 
     def generate_from_text(self, request: ImageGenerationRequest) -> ImageGenerationResult:
         normalized = _normalize_request(request)
@@ -519,7 +521,8 @@ class OpenAIImageGenerationProvider(BaseImageGenerationProvider):
         self.base_url = (config.api_base or DEFAULT_OPENAI_BASE_URL).rstrip("/")
         self.api_key = config.api_key
         self.model = config.model or "gpt-image-2"
-        self.timeout = httpx.Timeout(180.0, connect=10.0, read=180.0, write=60.0)
+        timeout_seconds = max(float(config.timeout_seconds or 180.0), 30.0)
+        self.timeout = httpx.Timeout(timeout_seconds, connect=10.0, read=timeout_seconds, write=60.0)
 
     def generate_from_text(self, request: ImageGenerationRequest) -> ImageGenerationResult:
         normalized = _normalize_request(request)
@@ -645,6 +648,7 @@ class OpenAIImageGenerationProvider(BaseImageGenerationProvider):
 
 def _build_provider_config(mode: ImageGenerationMode) -> ImageProviderConfig:
     settings = get_settings()
+    timeout_seconds = getattr(settings, "ai_timeout_seconds", 180.0)
     if mode == ImageGenerationMode.REFERENCE:
         reference_provider = settings.ai_image_reference_provider
         reference_provider_name = reference_provider.strip().lower()
@@ -654,6 +658,7 @@ def _build_provider_config(mode: ImageGenerationMode) -> ImageProviderConfig:
             api_base=settings.ai_image_reference_api_base or (DEFAULT_OPENAI_BASE_URL if reference_is_openai else DEFAULT_DASHSCOPE_BASE_URL),
             api_key=settings.ai_image_reference_api_key,
             model=settings.ai_image_reference_model or ("gpt-image-2" if reference_is_openai else "wan2.6-image"),
+            timeout_seconds=timeout_seconds,
         )
     text_provider = settings.ai_image_text_provider
     text_provider_name = text_provider.strip().lower()
@@ -663,6 +668,7 @@ def _build_provider_config(mode: ImageGenerationMode) -> ImageProviderConfig:
         api_base=settings.ai_image_text_api_base or (DEFAULT_OPENAI_BASE_URL if text_is_openai else DEFAULT_DASHSCOPE_BASE_URL),
         api_key=settings.ai_image_text_api_key,
         model=settings.ai_image_text_model or ("gpt-image-2" if text_is_openai else "wan2.6-t2i"),
+        timeout_seconds=timeout_seconds,
     )
 
 

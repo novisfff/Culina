@@ -13,6 +13,24 @@ def get_media_assets_for_family(db: Session, family_id: str) -> list[MediaAsset]
     return list(db.scalars(statement))
 
 
+def get_media_assets_for_entities(
+    db: Session,
+    *,
+    family_id: str,
+    entity_type: str,
+    entity_ids: list[str],
+) -> list[MediaAsset]:
+    ids = list(dict.fromkeys(entity_ids))
+    if not ids:
+        return []
+    statement = select(MediaAsset).where(
+        MediaAsset.family_id == family_id,
+        MediaAsset.entity_type == entity_type,
+        MediaAsset.entity_id.in_(ids),
+    )
+    return list(db.scalars(statement))
+
+
 def build_media_map(assets: list[MediaAsset]) -> dict[tuple[str, str], list[MediaAsset]]:
     media_map: dict[tuple[str, str], list[MediaAsset]] = defaultdict(list)
     for asset in assets:

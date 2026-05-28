@@ -13,18 +13,18 @@ from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 from sqlalchemy import create_engine
 
-from app.ai.context import load_agent_context
-from app.ai.provider import BaseChatProvider, ChatProviderResult, DisabledChatProvider
-from app.ai.recipe_drafts import build_recipe_image_render_payload
-from app.ai.runner import CulinaAgentService
-from app.ai.schemas import AgentRunRequest
-from app.ai.tools import run_readonly_tools
+from app.ai.kitchen.context import load_agent_context
+from app.ai.kitchen.recipe_drafts import build_recipe_image_render_payload
+from app.ai.kitchen.service import CulinaAgentService
+from app.ai.kitchen.tools import run_readonly_tools
+from app.ai.runtime.provider import BaseChatProvider, ChatProviderResult, DisabledChatProvider
+from app.ai.runtime.schemas import AgentRunRequest
 from app.core.deps import get_current_auth
 from app.core.enums import AiMode, FoodType, ImageGenerationMode, IngredientExpiryMode, InventoryStatus, MediaEntityType, MembershipStatus, UserRole
 from app.db.session import get_db
 from app.main import app
 from app.models.domain import AIAgentRun, Base, Family, Food, Ingredient, InventoryItem, Membership, User
-from app.services.image_generation import ImageGenerationRequest, ImageProviderConfig, OpenAIImageGenerationProvider, build_ai_image_prompt, _build_provider_config
+from app.ai.images.generation import ImageGenerationRequest, ImageProviderConfig, OpenAIImageGenerationProvider, build_ai_image_prompt, _build_provider_config
 
 
 class FakeChatProvider(BaseChatProvider):
@@ -39,7 +39,7 @@ class FakeChatProvider(BaseChatProvider):
 
 class AIAgentInfraTestCase(unittest.TestCase):
     def setUp(self) -> None:
-        self.provider_patcher = patch("app.ai.runner.get_chat_provider", return_value=DisabledChatProvider(model_name="test-model"))
+        self.provider_patcher = patch("app.ai.runtime.runner.get_chat_provider", return_value=DisabledChatProvider(model_name="test-model"))
         self.provider_patcher.start()
         self.engine = create_engine(
             "sqlite+pysqlite:///:memory:",
@@ -593,7 +593,7 @@ class AIAgentInfraTestCase(unittest.TestCase):
                 model="gpt-image-2",
             )
         )
-        with patch("app.services.image_generation.httpx.Client", FakeHttpxClient):
+        with patch("app.ai.images.generation.httpx.Client", FakeHttpxClient):
             provider.generate_from_text(
                 ImageGenerationRequest(
                     entity_type=MediaEntityType.RECIPE,
@@ -644,7 +644,7 @@ class AIAgentInfraTestCase(unittest.TestCase):
                 model="gpt-image-2",
             )
         )
-        with patch("app.services.image_generation.httpx.Client", FakeHttpxClient):
+        with patch("app.ai.images.generation.httpx.Client", FakeHttpxClient):
             result = provider.generate_from_text(
                 ImageGenerationRequest(
                     entity_type=MediaEntityType.FOOD,
@@ -674,7 +674,7 @@ class AIAgentInfraTestCase(unittest.TestCase):
             ai_image_text_api_key = "text-key"
             ai_image_text_model = ""
 
-        with patch("app.services.image_generation.get_settings", return_value=FakeSettings()):
+        with patch("app.ai.images.generation.get_settings", return_value=FakeSettings()):
             text_config = _build_provider_config(ImageGenerationMode.TEXT)
             reference_config = _build_provider_config(ImageGenerationMode.REFERENCE)
 

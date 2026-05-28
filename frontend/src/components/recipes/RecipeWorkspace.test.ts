@@ -136,6 +136,7 @@ describe('recipe workspace payload helpers', () => {
         { title: '炒制', text: '炒熟', icon: 'pan', summary: '', estimated_minutes: null, tip: '', key_points: [] },
       ],
       tips: '少油',
+      scene_tags: ['晚餐', '快手', '家常'],
       media_ids: ['media-cover'],
     });
   });

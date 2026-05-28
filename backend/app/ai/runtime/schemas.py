@@ -3,8 +3,6 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Literal, TypedDict
 
-from app.core.enums import AiMode
-
 AgentRunStatus = Literal["completed", "fallback", "failed"]
 
 
@@ -15,7 +13,7 @@ class AgentRunRequest:
     agent_key: str = "kitchen_assistant"
     feature_key: str = "ai_query"
     prompt: str = ""
-    mode: AiMode | None = None
+    mode: Any = None
     subject: dict[str, Any] = field(default_factory=dict)
     response_format: str = "text"
     persist_conversation: bool = True

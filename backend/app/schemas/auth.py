@@ -3,7 +3,7 @@ from __future__ import annotations
 from pydantic import BaseModel, ConfigDict
 
 from app.core.enums import UserRole
-from app.schemas.domain import FamilyDetailOut
+from app.schemas.family import FamilyDetailOut
 
 
 class UserSummary(BaseModel):

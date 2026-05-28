@@ -5,18 +5,25 @@ import json
 from langgraph.graph import END, START, StateGraph
 from sqlalchemy.orm import Session
 
-from app.ai.context import load_agent_context
-from app.ai.provider import BaseChatProvider
-from app.ai.recipe_drafts import (
+from app.ai.kitchen.context import load_agent_context
+from app.ai.kitchen.fallbacks import (
+    build_food_answer,
+    build_inventory_answer,
+    build_recipe_draft_payload,
+    format_recipe_draft_response,
+)
+from app.ai.runtime.provider import BaseChatProvider
+from app.ai.kitchen.prompts import build_provider_messages
+from app.ai.kitchen.recipe_drafts import (
     RECIPE_DRAFT_JSON_SCHEMA,
     build_recipe_draft_messages,
     build_recipe_image_render_payload,
     normalize_recipe_draft,
 )
-from app.ai.schemas import AgentState
-from app.ai.tools import run_readonly_tools
+from app.ai.kitchen.recommendations import pick_recommendation
+from app.ai.runtime.schemas import AgentState
+from app.ai.kitchen.tools import run_readonly_tools
 from app.core.enums import AiMode
-from app.services import ai as legacy_ai
 
 
 def _format_tool_outputs(state: AgentState) -> str:
@@ -29,7 +36,7 @@ def _build_messages(state: AgentState) -> tuple[str, str]:
     context = state["context"]
     if request.response_format == "recipe_draft":
         return build_recipe_draft_messages(context, request)
-    messages = legacy_ai._build_provider_messages(
+    messages = build_provider_messages(
         family=context.family,
         mode=request.mode or AiMode.INVENTORY_QA,
         prompt=request.prompt,
@@ -51,9 +58,9 @@ def _fallback_text(state: AgentState) -> str:
     if request.response_format == "recipe_draft":
         return "已生成可编辑的菜谱草稿。"
     if request.mode == AiMode.FOOD_QA:
-        return legacy_ai._build_food_answer(context.food, request.prompt)
+        return build_food_answer(context.food, request.prompt)
     if request.mode == AiMode.INVENTORY_QA:
-        return legacy_ai._build_inventory_answer(context.inventory_items)
+        return build_inventory_answer(context.inventory_items)
     if request.mode == AiMode.RECOMMENDATION:
         recommendation = state.get("recommendation_model")
         return (
@@ -62,7 +69,7 @@ def _fallback_text(state: AgentState) -> str:
             else "先补齐常用食材后，系统会给出更准确的推荐。"
         )
     if request.mode == AiMode.RECIPE_DRAFT:
-        return legacy_ai._format_recipe_draft_response(state.get("recipe_draft"), request.prompt)
+        return format_recipe_draft_response(state.get("recipe_draft"), request.prompt)
     return "当前 AI 模式尚未配置。"
 
 
@@ -80,15 +87,14 @@ def build_kitchen_assistant_graph(db: Session, provider: BaseChatProvider):
         )
         recommendation_model = None
         if request.mode == AiMode.RECOMMENDATION:
-            recommendation_model = legacy_ai._pick_recommendation(
+            recommendation_model = pick_recommendation(
                 request.family_id,
                 context.recommendation_foods,
                 context.inventory_items,
                 context.meal_logs,
             )
-            db.add(recommendation_model)
         recipe_draft = (
-            legacy_ai._build_recipe_draft_payload(context.ingredients, request.prompt)
+            build_recipe_draft_payload(context.ingredients, request.prompt)
             if request.mode == AiMode.RECIPE_DRAFT
             else None
         )

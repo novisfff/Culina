@@ -832,6 +832,7 @@ export function buildRecipePayload(form: RecipeFormState, rows: RecipeDraftIngre
       }))
       .filter((step) => step.text),
     tips: form.tips.trim(),
+    scene_tags: splitTags(form.sceneTags),
     media_ids: getRecipeMediaIds(form.images),
   };
 }
@@ -2401,7 +2402,7 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
         await props.updateRecipe(selectedRecipeId, payload);
         setView('detail');
       } else {
-        const created = await props.createRecipe({ ...payload, auto_create_food: true });
+        const created = await props.createRecipe(payload);
         setSelectedRecipeId(created.id);
         resetForm();
         setView('detail');

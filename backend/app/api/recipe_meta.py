@@ -10,9 +10,10 @@ from app.core.deps import get_current_auth
 from app.core.enums import ActivityAction
 from app.core.utils import create_id
 from app.db.session import get_db
+from app.db.transactions import commit_session
 from app.models.domain import Food, FoodPlanItem, FoodScene, Recipe, RecipeFavorite
-from app.repos.media import build_media_map, get_media_assets_for_family
-from app.schemas.domain import (
+from app.repos.media import build_media_map, get_media_assets_for_entities
+from app.schemas.recipes import (
     CreateFoodPlanItemRequest,
     CreateRecipePlanItemRequest,
     CreateFoodSceneRequest,
@@ -26,6 +27,7 @@ from app.schemas.domain import (
 )
 from app.services.activity import log_activity
 from app.services.media import replace_media_assets
+from app.services.recipe_food_sync import ensure_food_for_recipe
 from app.services.serializers import serialize_food_plan_item, serialize_food_scene, serialize_recipe_favorite, serialize_recipe_plan_item
 
 router = APIRouter(tags=["recipe-meta"])
@@ -45,35 +47,10 @@ def _load_food(db: Session, *, family_id: str, food_id: str) -> Food:
     return food
 
 
-def _load_food_for_recipe(db: Session, *, family_id: str, recipe_id: str) -> Food:
+def _load_food_for_recipe(db: Session, *, family_id: str, user_id: str, recipe_id: str) -> Food:
     recipe = _load_recipe(db, family_id=family_id, recipe_id=recipe_id)
-    food = db.scalar(
-        select(Food)
-        .where(Food.family_id == family_id, Food.recipe_id == recipe.id)
-        .options(selectinload(Food.recipe))
-        .order_by(Food.updated_at.desc())
-    )
-    if food is None:
-        food = Food(
-            id=create_id("food"),
-            family_id=family_id,
-            name=recipe.title,
-            type="selfMade",
-            category="家常菜",
-            flavor_tags=[],
-            scene_tags=list(recipe.scene_tags or []),
-            suitable_meal_types=[],
-            source_name="家庭厨房",
-            purchase_source="家庭厨房",
-            scene=(recipe.scene_tags or ["日常"])[0],
-            notes=recipe.tips,
-            routine_note="",
-            favorite=False,
-            recipe_id=recipe.id,
-        )
-        db.add(food)
-        db.flush()
-        food.recipe = recipe
+    food, _ = ensure_food_for_recipe(db, family_id=family_id, user_id=user_id, recipe=recipe, sync_media=False)
+    food.recipe = recipe
     return food
 
 
@@ -99,8 +76,8 @@ def _load_scene(db: Session, *, family_id: str, scene_id: str) -> FoodScene:
     return scene
 
 
-def _scene_media_map(db: Session, family_id: str) -> dict:
-    return build_media_map(get_media_assets_for_family(db, family_id))
+def _scene_media_map(db: Session, *, family_id: str, scene_ids: list[str]) -> dict:
+    return build_media_map(get_media_assets_for_entities(db, family_id=family_id, entity_type="food_scene", entity_ids=scene_ids))
 
 
 @router.get("/api/food-scenes", response_model=list[FoodSceneOut])
@@ -113,7 +90,7 @@ def list_food_scenes(auth: tuple = Depends(get_current_auth), db: Session = Depe
             .order_by(FoodScene.sort_order.asc(), FoodScene.created_at.asc())
         )
     )
-    media_map = _scene_media_map(db, membership.family_id)
+    media_map = _scene_media_map(db, family_id=membership.family_id, scene_ids=[item.id for item in scenes])
     return [serialize_food_scene(item, media_map) for item in scenes]
 
 
@@ -161,9 +138,9 @@ def create_food_scene(
         entity_id=scene.id,
         summary=f"新增食物场景 {scene.name}",
     )
-    db.commit()
+    commit_session(db)
     db.refresh(scene)
-    return serialize_food_scene(scene, _scene_media_map(db, membership.family_id))
+    return serialize_food_scene(scene, _scene_media_map(db, family_id=membership.family_id, scene_ids=[scene.id]))
 
 
 @router.patch("/api/food-scenes/{scene_id}", response_model=FoodSceneOut)
@@ -217,9 +194,9 @@ def update_food_scene(
         entity_id=scene.id,
         summary=f"更新食物场景 {scene.name}",
     )
-    db.commit()
+    commit_session(db)
     db.refresh(scene)
-    return serialize_food_scene(scene, _scene_media_map(db, membership.family_id))
+    return serialize_food_scene(scene, _scene_media_map(db, family_id=membership.family_id, scene_ids=[scene.id]))
 
 
 @router.delete("/api/food-scenes/{scene_id}", status_code=status.HTTP_204_NO_CONTENT, response_model=None)
@@ -248,7 +225,7 @@ def delete_food_scene(
         entity_id=scene_id,
         summary=f"删除食物场景 {title}",
     )
-    db.commit()
+    commit_session(db)
     return None
 
 
@@ -299,7 +276,7 @@ def add_recipe_favorite(
         entity_id=recipe.id,
         summary=f"收藏菜谱 {recipe.title}",
     )
-    db.commit()
+    commit_session(db)
     db.refresh(favorite)
     return serialize_recipe_favorite(favorite)
 
@@ -329,7 +306,7 @@ def remove_recipe_favorite(
             entity_id=recipe_id,
             summary="取消收藏菜谱",
         )
-        db.commit()
+        commit_session(db)
     return None
 
 
@@ -386,7 +363,7 @@ def create_food_plan_item(
         entity_id=item.id,
         summary=f"加入菜单计划 {food.name}",
     )
-    db.commit()
+    commit_session(db)
     db.refresh(item)
     item.food = food
     return serialize_food_plan_item(item)
@@ -427,7 +404,7 @@ def update_food_plan_item(
         entity_id=item.id,
         summary=f"更新菜单计划 {item.food.name if item.food else '食物'}",
     )
-    db.commit()
+    commit_session(db)
     db.refresh(item)
     return serialize_food_plan_item(item)
 
@@ -450,7 +427,7 @@ def delete_food_plan_item(
         entity_id=item.id,
         summary=f"移除菜单计划 {item.food.name if item.food else '食物'}",
     )
-    db.commit()
+    commit_session(db)
     return None
 
 
@@ -471,7 +448,7 @@ def create_recipe_plan_item(
     db: Session = Depends(get_db),
 ) -> dict:
     user, membership = auth
-    food = _load_food_for_recipe(db, family_id=membership.family_id, recipe_id=payload.recipe_id)
+    food = _load_food_for_recipe(db, family_id=membership.family_id, user_id=user.id, recipe_id=payload.recipe_id)
     return create_food_plan_item(
         CreateFoodPlanItemRequest(food_id=food.id, plan_date=payload.plan_date, meal_type=payload.meal_type, note=payload.note),
         auth=auth,
@@ -486,10 +463,10 @@ def update_recipe_plan_item(
     auth: tuple = Depends(get_current_auth),
     db: Session = Depends(get_db),
 ) -> dict:
-    _, membership = auth
+    user, membership = auth
     food_id = None
     if payload.recipe_id is not None:
-        food_id = _load_food_for_recipe(db, family_id=membership.family_id, recipe_id=payload.recipe_id).id
+        food_id = _load_food_for_recipe(db, family_id=membership.family_id, user_id=user.id, recipe_id=payload.recipe_id).id
     return update_food_plan_item(
         item_id,
         UpdateFoodPlanItemRequest(
@@ -511,4 +488,3 @@ def delete_recipe_plan_item(
     db: Session = Depends(get_db),
 ) -> None:
     return delete_food_plan_item(item_id, auth=auth, db=db)
-    FoodPlanItemOut,

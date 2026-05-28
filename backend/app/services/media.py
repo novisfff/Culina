@@ -1,4 +1,5 @@
 from __future__ import annotations
+from contextlib import suppress
 from pathlib import Path
 from typing import Iterable
 from uuid import uuid4
@@ -18,8 +19,21 @@ ALLOWED_CONTENT_TYPES = {
     "image/jpg": ".jpg",
     "image/webp": ".webp",
     "image/bmp": ".bmp",
-    "image/svg+xml": ".svg",
 }
+
+GENERATED_IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".bmp", ".svg"}
+
+
+def _detect_image_content_type(payload: bytes) -> str | None:
+    if payload.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "image/png"
+    if payload.startswith(b"\xff\xd8\xff"):
+        return "image/jpeg"
+    if payload.startswith(b"BM"):
+        return "image/bmp"
+    if len(payload) >= 12 and payload[:4] == b"RIFF" and payload[8:12] == b"WEBP":
+        return "image/webp"
+    return None
 
 
 def _sanitize_basename(name: str) -> str:
@@ -29,6 +43,31 @@ def _sanitize_basename(name: str) -> str:
 
 def _public_url(file_name: str) -> str:
     return f"/media/{file_name}"
+
+
+def delete_media_file(asset: MediaAsset) -> None:
+    if asset.file_path:
+        with suppress(OSError):
+            Path(asset.file_path).unlink()
+
+
+def _read_validated_upload(upload: UploadFile, max_bytes: int) -> tuple[bytes, str]:
+    declared_type = (upload.content_type or "").split(";")[0].strip().lower()
+    if declared_type == "image/jpg":
+        declared_type = "image/jpeg"
+    if declared_type not in ALLOWED_CONTENT_TYPES:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unsupported image type")
+
+    payload = upload.file.read(max_bytes + 1)
+    if len(payload) > max_bytes:
+        raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="Image file is too large")
+
+    detected_type = _detect_image_content_type(payload)
+    if detected_type is None:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid image file")
+    if detected_type != declared_type:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Image content does not match declared type")
+    return payload, detected_type
 
 
 def save_upload(
@@ -42,13 +81,11 @@ def save_upload(
 ) -> MediaAsset:
     settings = get_settings()
     media_root = ensure_directory(settings.resolved_media_root)
-    suffix = ALLOWED_CONTENT_TYPES.get(upload.content_type or "")
-    if not suffix:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unsupported image type")
+    payload, content_type = _read_validated_upload(upload, settings.media_max_upload_bytes)
+    suffix = ALLOWED_CONTENT_TYPES[content_type]
 
     file_name = f"{_sanitize_basename(Path(upload.filename or 'media').stem)}_{uuid4().hex}{suffix}"
     absolute_path = media_root / file_name
-    payload = upload.file.read()
     absolute_path.write_bytes(payload)
 
     asset = MediaAsset(
@@ -62,8 +99,13 @@ def save_upload(
         created_at=utcnow(),
         created_by=user_id,
     )
-    db.add(asset)
-    db.flush()
+    try:
+        db.add(asset)
+        db.flush()
+    except Exception:
+        with suppress(OSError):
+            absolute_path.unlink()
+        raise
     return asset
 
 
@@ -102,8 +144,13 @@ def save_svg_asset(
         created_at=utcnow(),
         created_by=user_id,
     )
-    db.add(asset)
-    db.flush()
+    try:
+        db.add(asset)
+        db.flush()
+    except Exception:
+        with suppress(OSError):
+            absolute_path.unlink()
+        raise
     return asset
 
 
@@ -127,7 +174,7 @@ def save_generated_asset(
     normalized_extension = file_extension.lower()
     if not normalized_extension.startswith("."):
         normalized_extension = f".{normalized_extension}"
-    if normalized_extension not in {".png", ".jpg", ".jpeg", ".webp", ".bmp", ".svg"}:
+    if normalized_extension not in GENERATED_IMAGE_EXTENSIONS:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unsupported generated image type")
 
     file_name = f"{_sanitize_basename(title)}_{uuid4().hex}{normalized_extension}"
@@ -149,8 +196,13 @@ def save_generated_asset(
         created_at=utcnow(),
         created_by=user_id,
     )
-    db.add(asset)
-    db.flush()
+    try:
+        db.add(asset)
+        db.flush()
+    except Exception:
+        with suppress(OSError):
+            absolute_path.unlink()
+        raise
     return asset
 
 

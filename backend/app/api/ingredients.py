@@ -8,9 +8,10 @@ from app.core.deps import get_current_auth
 from app.core.enums import ActivityAction
 from app.core.utils import create_id
 from app.db.session import get_db
+from app.db.transactions import commit_session
 from app.models.domain import Ingredient
-from app.repos.media import build_media_map, get_media_assets_for_family
-from app.schemas.domain import CreateIngredientRequest, IngredientOut, UpdateIngredientRequest
+from app.repos.media import build_media_map, get_media_assets_for_entities
+from app.schemas.ingredients import CreateIngredientRequest, IngredientOut, UpdateIngredientRequest
 from app.services.activity import log_activity
 from app.services.ingredient_units import UnitConversionError, validate_unit_conversions
 from app.services.media import bind_media_assets, replace_media_assets
@@ -25,7 +26,7 @@ def list_ingredients(auth: tuple = Depends(get_current_auth), db: Session = Depe
     ingredients = list(
         db.scalars(select(Ingredient).where(Ingredient.family_id == membership.family_id).order_by(Ingredient.updated_at.desc()))
     )
-    media_map = build_media_map(get_media_assets_for_family(db, membership.family_id))
+    media_map = build_media_map(get_media_assets_for_entities(db, family_id=membership.family_id, entity_type="ingredient", entity_ids=[item.id for item in ingredients]))
     return [serialize_ingredient(item, media_map) for item in ingredients]
 
 
@@ -70,8 +71,8 @@ def create_ingredient(
         entity_id=ingredient.id,
         summary=f"新增食材 {ingredient.name}",
     )
-    db.commit()
-    media_map = build_media_map(get_media_assets_for_family(db, membership.family_id))
+    commit_session(db)
+    media_map = build_media_map(get_media_assets_for_entities(db, family_id=membership.family_id, entity_type="ingredient", entity_ids=[ingredient.id]))
     return serialize_ingredient(ingredient, media_map)
 
 
@@ -129,6 +130,6 @@ def update_ingredient(
         entity_id=ingredient.id,
         summary=f"更新食材 {ingredient.name}",
     )
-    db.commit()
-    media_map = build_media_map(get_media_assets_for_family(db, membership.family_id))
+    commit_session(db)
+    media_map = build_media_map(get_media_assets_for_entities(db, family_id=membership.family_id, entity_type="ingredient", entity_ids=[ingredient.id]))
     return serialize_ingredient(ingredient, media_map)

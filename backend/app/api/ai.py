@@ -6,11 +6,11 @@ from sqlalchemy.orm import Session
 
 from app.core.deps import get_current_auth
 from app.db.session import get_db
+from app.db.transactions import commit_session
 from app.models.domain import AIConversation
-from app.schemas.domain import AIConversationOut, AIQueryRequest, AIQueryResponse, GenerateRecipeDraftRequest, GenerateRecipeDraftResponse
-from app.ai.runner import CulinaAgentService
-from app.ai.schemas import AgentRunRequest
-from app.services.ai import run_ai_query
+from app.schemas.ai import AIConversationOut, AIQueryRequest, AIQueryResponse, GenerateRecipeDraftRequest, GenerateRecipeDraftResponse
+from app.ai.kitchen.service import CulinaAgentService, run_ai_query
+from app.ai.runtime.schemas import AgentRunRequest
 from app.services.serializers import serialize_ai_conversation
 
 router = APIRouter(tags=["ai"])
@@ -46,7 +46,7 @@ def query_ai(
         food_id=payload.food_id,
         ingredient_ids=payload.ingredient_ids,
     )
-    db.commit()
+    commit_session(db)
     return {"conversation": conversation, "recommendation": recommendation}
 
 
@@ -87,7 +87,7 @@ def generate_recipe_draft(
             persist_conversation=False,
         )
     )
-    db.commit()
+    commit_session(db)
     return {
         "draft": result.data["recipeDraft"],
         "agent_run_id": result.run_id,

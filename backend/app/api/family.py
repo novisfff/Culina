@@ -9,9 +9,10 @@ from app.core.enums import ActivityAction
 from app.core.security import get_password_hash
 from app.core.utils import create_id
 from app.db.session import get_db
+from app.db.transactions import commit_session
 from app.models.domain import AIRecommendation, Membership, User, UserCredential
 from app.repos.auth import get_user_by_username
-from app.schemas.domain import CreateMemberRequest, FamilyDetailOut, MemberOut
+from app.schemas.family import CreateMemberRequest, FamilyDetailOut, MemberOut
 from app.services.activity import log_activity
 from app.services.serializers import serialize_family, serialize_member
 
@@ -93,7 +94,7 @@ def create_member(
         entity_id=member_membership.id,
         summary=f"邀请 {member_user.display_name} 成为{'管理员' if payload.role.value == 'Owner' else '成员'}",
     )
-    db.commit()
+    commit_session(db)
     db.refresh(member_user)
     db.refresh(member_membership)
     return serialize_member(member_user, member_membership)

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import datetime
 from pathlib import Path
 from uuid import uuid4
 
@@ -10,7 +10,9 @@ def create_id(prefix: str) -> str:
 
 
 def utcnow() -> datetime:
-    return datetime.now(UTC)
+    from app.services.clock import now_utc
+
+    return now_utc()
 
 
 def ensure_directory(path: Path) -> Path:

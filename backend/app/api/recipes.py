@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import date
 from decimal import Decimal
 
 from sqlalchemy import select
@@ -8,12 +8,13 @@ from sqlalchemy.orm import Session, selectinload
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from app.core.deps import get_current_auth
-from app.core.enums import ActivityAction, Difficulty, FoodType, MealType, food_type_values
+from app.core.enums import ActivityAction, Difficulty, MealType
 from app.core.utils import create_id, utcnow
 from app.db.session import get_db
-from app.models.domain import Food, FoodPlanItem, InventoryItem, MealLog, MealLogFood, MediaAsset, Recipe, RecipeCookLog, RecipeFavorite, RecipeIngredient, RecipeStep
-from app.repos.media import build_media_map, get_media_assets_for_family
-from app.schemas.domain import (
+from app.db.transactions import commit_session
+from app.models.domain import Food, FoodPlanItem, MealLog, MealLogFood, Recipe, RecipeCookLog, RecipeIngredient, RecipeStep
+from app.repos.media import build_media_map, get_media_assets_for_entities
+from app.schemas.recipes import (
     CookRecipePreviewResponse,
     CookRecipeRequest,
     CookRecipeResponse,
@@ -25,8 +26,12 @@ from app.schemas.domain import (
     UpdateRecipeRequest,
 )
 from app.services.activity import log_activity
-from app.services.ingredient_units import UnitConversionError, convert_quantity_from_default_unit, convert_quantity_to_default_unit
+from app.services.clock import today_for_family
+from app.services.ingredient_units import UnitConversionError
+from app.services.inventory_usage import build_cook_inventory_plan, load_available_inventory_by_ingredient, recipe_availability_rank, recipe_availability_summary, serialize_cook_preview_item
 from app.services.media import bind_media_assets, replace_media_assets
+from app.services.recipe_food_sync import ensure_food_for_recipe
+from app.services.recipe_recommendations import build_availability_map, build_recipe_discovery, build_recipe_stats, load_recipes_for_family, recipe_search_text
 from app.services.serializers import serialize_recipe
 
 router = APIRouter(tags=["recipes"])
@@ -79,403 +84,8 @@ def _replace_recipe_children(db: Session, recipe: Recipe, payload: CreateRecipeR
         )
 
 
-def _remaining_quantity(item: InventoryItem) -> Decimal:
-    return max(item.quantity - item.consumed_quantity, Decimal("0"))
 
-
-def _expiry_sort_key(expiry_date: date | None) -> tuple[int, date]:
-    return (1, date.max) if expiry_date is None else (0, expiry_date)
-
-
-def _available_inventory_for_ingredient(db: Session, *, family_id: str, ingredient_id: str, today: date) -> list[InventoryItem]:
-    items = list(
-        db.scalars(
-            select(InventoryItem)
-            .where(InventoryItem.family_id == family_id, InventoryItem.ingredient_id == ingredient_id)
-            .options(selectinload(InventoryItem.ingredient))
-        )
-    )
-    available = [item for item in items if (item.expiry_date is None or item.expiry_date >= today) and _remaining_quantity(item) > 0]
-    available.sort(key=lambda item: (*_expiry_sort_key(item.expiry_date), item.purchase_date, item.created_at))
-    return available
-
-
-def _inventory_remaining_in_default(item: InventoryItem, ingredient) -> Decimal:
-    if item.unit == ingredient.default_unit:
-        return _remaining_quantity(item)
-    return convert_quantity_to_default_unit(
-        _remaining_quantity(item),
-        ingredient.default_unit,
-        ingredient.unit_conversions,
-        item.unit,
-    )
-
-
-def _convert_default_to_item_unit(quantity: Decimal, item: InventoryItem, ingredient) -> Decimal:
-    if item.unit == ingredient.default_unit:
-        return quantity
-    return convert_quantity_from_default_unit(
-        quantity,
-        ingredient.default_unit,
-        ingredient.unit_conversions,
-        item.unit,
-    )
-
-
-def _validate_cook_payload(payload: CookRecipeRequest) -> None:
-    if payload.servings <= 0:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Servings must be greater than 0")
-    if payload.rating is not None and (payload.rating < 1 or payload.rating > 5):
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Rating must be between 1 and 5")
-
-
-def _build_cook_inventory_plan(db: Session, *, family_id: str, recipe: Recipe, payload: CookRecipeRequest) -> tuple[list[dict], list[dict]]:
-    scale = Decimal(str(payload.servings)) / Decimal(str(recipe.servings or 1))
-    today = date.today()
-    consumption_plan: list[dict] = []
-    shortages: list[dict] = []
-    reserved_quantities_by_inventory_item: dict[str, Decimal] = {}
-
-    for ingredient_item in recipe.ingredient_items:
-        requested_quantity = Decimal(str(ingredient_item.quantity)) * scale
-        if requested_quantity <= 0:
-            continue
-        if not ingredient_item.ingredient_id:
-            shortages.append(
-                {
-                    "ingredient_id": None,
-                    "ingredient_name": ingredient_item.ingredient_name,
-                    "required_quantity": float(requested_quantity),
-                    "available_quantity": 0,
-                    "missing_quantity": float(requested_quantity),
-                    "unit": ingredient_item.unit,
-                }
-            )
-            continue
-
-        available_items = _available_inventory_for_ingredient(
-            db,
-            family_id=family_id,
-            ingredient_id=ingredient_item.ingredient_id,
-            today=today,
-        )
-        ingredient = available_items[0].ingredient if available_items else None
-        if ingredient is None:
-            shortages.append(
-                {
-                    "ingredient_id": ingredient_item.ingredient_id,
-                    "ingredient_name": ingredient_item.ingredient_name,
-                    "required_quantity": float(requested_quantity),
-                    "available_quantity": 0,
-                    "missing_quantity": float(requested_quantity),
-                    "unit": ingredient_item.unit,
-                }
-            )
-            continue
-
-        try:
-            requested_in_default = convert_quantity_to_default_unit(
-                requested_quantity,
-                ingredient.default_unit,
-                ingredient.unit_conversions,
-                ingredient_item.unit,
-            )
-            available_in_default = sum(
-                max(_inventory_remaining_in_default(item, ingredient) - reserved_quantities_by_inventory_item.get(item.id, Decimal("0")), Decimal("0"))
-                for item in available_items
-            )
-        except UnitConversionError as exc:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
-
-        if available_in_default < requested_in_default:
-            try:
-                available_in_requested_unit = convert_quantity_from_default_unit(
-                    available_in_default,
-                    ingredient.default_unit,
-                    ingredient.unit_conversions,
-                    ingredient_item.unit,
-                )
-            except UnitConversionError:
-                available_in_requested_unit = available_in_default
-            available_quantity = Decimal(str(available_in_requested_unit))
-            shortages.append(
-                {
-                    "ingredient_id": ingredient_item.ingredient_id,
-                    "ingredient_name": ingredient_item.ingredient_name,
-                    "required_quantity": float(requested_quantity),
-                    "available_quantity": float(available_quantity),
-                    "missing_quantity": float(max(requested_quantity - available_quantity, Decimal("0"))),
-                    "unit": ingredient_item.unit,
-                }
-            )
-            continue
-
-        remaining_to_consume = requested_in_default
-        deductions: list[dict] = []
-        for item in available_items:
-            if remaining_to_consume <= 0:
-                break
-            remaining_in_default = max(
-                _inventory_remaining_in_default(item, ingredient) - reserved_quantities_by_inventory_item.get(item.id, Decimal("0")),
-                Decimal("0"),
-            )
-            deduction_in_default = min(remaining_in_default, remaining_to_consume)
-            if deduction_in_default <= 0:
-                continue
-            deduction_in_item_unit = _convert_default_to_item_unit(deduction_in_default, item, ingredient)
-            reserved_quantities_by_inventory_item[item.id] = reserved_quantities_by_inventory_item.get(item.id, Decimal("0")) + deduction_in_default
-            deductions.append(
-                {
-                    "item": item,
-                    "quantity": deduction_in_item_unit,
-                    "quantity_in_default": deduction_in_default,
-                }
-            )
-            remaining_to_consume -= deduction_in_default
-
-        consumption_plan.append(
-            {
-                "ingredient": ingredient,
-                "ingredient_item": ingredient_item,
-                "requested_quantity": requested_quantity,
-                "requested_in_default": requested_in_default,
-                "deductions": deductions,
-            }
-        )
-
-    return consumption_plan, shortages
-
-
-def _serialize_cook_preview_item(plan: dict) -> dict:
-    ingredient = plan["ingredient"]
-    ingredient_item = plan["ingredient_item"]
-    return {
-        "ingredient_id": ingredient.id,
-        "ingredient_name": ingredient_item.ingredient_name,
-        "requested_quantity": float(plan["requested_quantity"]),
-        "unit": ingredient_item.unit,
-        "batches": [
-            {
-                "inventory_item_id": deduction["item"].id,
-                "quantity": float(deduction["quantity"]),
-                "unit": deduction["item"].unit,
-                "purchase_date": deduction["item"].purchase_date,
-                "expiry_date": deduction["item"].expiry_date,
-                "storage_location": deduction["item"].storage_location,
-            }
-            for deduction in plan["deductions"]
-        ],
-    }
-
-
-def _sync_recipe_food(
-    db: Session,
-    *,
-    family_id: str,
-    user_id: str,
-    recipe: Recipe,
-    recipe_media_ids: list[str],
-) -> tuple[Food, bool]:
-    food = db.scalar(
-        select(Food).where(
-            Food.family_id == family_id,
-            Food.recipe_id == recipe.id,
-            Food.type.in_(food_type_values(FoodType.SELF_MADE)),
-        )
-    )
-    created = food is None
-    if food is None:
-        food = db.scalar(
-            select(Food)
-            .where(
-                Food.family_id == family_id,
-                Food.recipe_id.is_(None),
-                Food.type.in_(food_type_values(FoodType.SELF_MADE)),
-                Food.name == recipe.title,
-            )
-            .order_by(Food.updated_at.desc())
-        )
-        if food is None:
-            food = Food(
-                id=create_id("food"),
-                family_id=family_id,
-                type=FoodType.SELF_MADE.value,
-                favorite=False,
-                created_by=user_id,
-                updated_by=user_id,
-            )
-            db.add(food)
-        food.recipe_id = recipe.id
-
-    recipe_media = list(db.scalars(select(MediaAsset).where(MediaAsset.family_id == family_id, MediaAsset.id.in_(recipe_media_ids))))
-    food.name = recipe.title
-    food.category = "家常菜"
-    food.source_name = "家庭厨房"
-    food.purchase_source = "家庭厨房"
-    if created:
-        food.flavor_tags = []
-        food.scene_tags = list(recipe.scene_tags or [])
-        food.suitable_meal_types = [MealType.DINNER.value]
-        food.scene = recipe.scene_tags[0] if recipe.scene_tags else "日常"
-        food.notes = recipe.tips
-        food.routine_note = ""
-    food.updated_by = user_id
-    replace_media_assets(db, family_id=family_id, media_ids=[], entity_type="food", entity_id=food.id)
-    for asset in recipe_media:
-        db.add(
-            MediaAsset(
-                id=create_id("photo"),
-                family_id=asset.family_id,
-                name=asset.name,
-                url=asset.url,
-                file_path=asset.file_path,
-                source=asset.source,
-                alt=asset.alt,
-                generation_mode=asset.generation_mode,
-                reference_media_id=asset.reference_media_id,
-                style_key=asset.style_key,
-                prompt_version=asset.prompt_version,
-                entity_type="food",
-                entity_id=food.id,
-                created_by=user_id,
-            )
-        )
-    db.flush()
-    return food, created
-
-
-def _recipe_search_text(recipe: Recipe) -> str:
-    segments = [
-        recipe.title,
-        recipe.tips,
-        " ".join(f"{item.ingredient_name} {item.note}" for item in recipe.ingredient_items),
-        " ".join(step.text for step in recipe.steps),
-    ]
-    return " ".join(segments).lower()
-
-
-def _recipe_availability_summary(db: Session, *, family_id: str, recipe: Recipe) -> dict:
-    plan, shortages = _build_cook_inventory_plan(
-        db,
-        family_id=family_id,
-        recipe=recipe,
-        payload=CookRecipeRequest(servings=recipe.servings or 1, create_meal_log=False),
-    )
-    total_count = len(recipe.ingredient_items)
-    ready_count = max(total_count - len(shortages), 0)
-    availability_score = 0 if total_count == 0 else ready_count / total_count
-    if not shortages:
-        availability = "ready"
-    elif availability_score >= 0.5:
-        availability = "partial"
-    else:
-        availability = "missing"
-    return {
-        "recipe_id": recipe.id,
-        "availability": availability,
-        "availability_score": availability_score,
-        "ready_count": ready_count,
-        "total_count": total_count,
-        "shortages": shortages,
-        "plan_count": len(plan),
-    }
-
-
-def _recipe_availability(db: Session, *, family_id: str, recipe: Recipe) -> str:
-    return _recipe_availability_summary(db, family_id=family_id, recipe=recipe)["availability"]
-
-
-def _recipe_availability_rank(value: str) -> int:
-    return {"ready": 0, "partial": 1, "missing": 2}.get(value, 3)
-
-
-def _load_recipes_for_family(db: Session, family_id: str) -> list[Recipe]:
-    return list(
-        db.scalars(
-            select(Recipe)
-            .where(Recipe.family_id == family_id)
-            .options(selectinload(Recipe.ingredient_items), selectinload(Recipe.steps), selectinload(Recipe.cook_logs))
-            .order_by(Recipe.updated_at.desc())
-        )
-    )
-
-
-def _recipe_usage_maps(meal_logs: list[MealLog], foods: list[Food]) -> tuple[dict[str, int], dict[str, date]]:
-    recipe_ids_by_food_id = {food.id: food.recipe_id for food in foods if food.recipe_id}
-    counts: dict[str, int] = {}
-    last_used_at: dict[str, date] = {}
-    for log in meal_logs:
-        recipe_ids = {
-            recipe_ids_by_food_id.get(entry.food_id)
-            for entry in log.food_entries
-            if recipe_ids_by_food_id.get(entry.food_id)
-        }
-        for recipe_id in recipe_ids:
-            if recipe_id is None:
-                continue
-            counts[recipe_id] = counts.get(recipe_id, 0) + 1
-            if recipe_id not in last_used_at or log.date > last_used_at[recipe_id]:
-                last_used_at[recipe_id] = log.date
-    return counts, last_used_at
-
-
-def _recipe_recommendation_usage_maps(
-    *,
-    recipes: list[Recipe],
-    meal_logs: list[MealLog],
-    foods: list[Food],
-    today: date,
-) -> tuple[dict[str, int], dict[str, date]]:
-    recipe_ids_by_food_id = {food.id: food.recipe_id for food in foods if food.recipe_id}
-    event_dates_by_recipe_id: dict[str, list[date]] = {recipe.id: [] for recipe in recipes}
-    for log in meal_logs:
-        recipe_ids = {
-            recipe_ids_by_food_id.get(entry.food_id)
-            for entry in log.food_entries
-            if recipe_ids_by_food_id.get(entry.food_id)
-        }
-        for recipe_id in recipe_ids:
-            if recipe_id:
-                event_dates_by_recipe_id.setdefault(recipe_id, []).append(log.date)
-    for recipe in recipes:
-        for cook_log in recipe.cook_logs:
-            event_dates_by_recipe_id.setdefault(recipe.id, []).append(cook_log.cook_date)
-
-    window_start = today - timedelta(days=90)
-    counts = {
-        recipe_id: sum(1 for event_date in event_dates if window_start <= event_date <= today)
-        for recipe_id, event_dates in event_dates_by_recipe_id.items()
-    }
-    last_used_at = {
-        recipe_id: max(event_dates)
-        for recipe_id, event_dates in event_dates_by_recipe_id.items()
-        if event_dates
-    }
-    return counts, last_used_at
-
-
-def _recipe_expiring_inventory_bonus(recipe: Recipe, inventory_items: list[InventoryItem], today: date) -> int:
-    ingredient_ids = {item.ingredient_id for item in recipe.ingredient_items if item.ingredient_id}
-    if not ingredient_ids:
-        return 0
-    bonus = 0
-    for item in inventory_items:
-        if item.ingredient_id not in ingredient_ids or item.expiry_date is None or _remaining_quantity(item) <= 0:
-            continue
-        days_until_expiry = (item.expiry_date - today).days
-        if 0 <= days_until_expiry <= 3:
-            bonus = max(bonus, 35 - days_until_expiry * 8)
-    return bonus
-
-
-def _recipe_rating_bonus(recipe: Recipe) -> float:
-    ratings = [cook_log.rating for cook_log in recipe.cook_logs if cook_log.rating is not None]
-    if not ratings:
-        return 0
-    return (sum(ratings) / len(ratings)) * 8
-
-
-def _serialize_discovery_section(recipes: list[Recipe], media_map: dict[tuple[str, str], list[MediaAsset]]) -> dict:
+def _serialize_discovery_section(recipes: list[Recipe], media_map: dict[tuple[str, str], list[object]]) -> dict:
     return {
         "recipe_ids": [recipe.id for recipe in recipes],
         "recipes": [serialize_recipe(recipe, media_map) for recipe in recipes],
@@ -495,40 +105,59 @@ def list_recipes(
     db: Session = Depends(get_db),
 ) -> list[dict]:
     _, membership = auth
-    recipes = _load_recipes_for_family(db, membership.family_id)
-
     normalized_q = (q or "").strip().lower()
+    normalized_scene = (scene or "").strip()
     normalized_availability = (availability or "").strip()
+    needs_python_pagination = bool(normalized_q or normalized_scene or normalized_availability or sort == "availability")
+    recipes = load_recipes_for_family(
+        db,
+        membership.family_id,
+        difficulty=difficulty,
+        sort=sort,
+        limit=limit,
+        offset=offset,
+        defer_pagination=needs_python_pagination,
+    )
+
     if normalized_q:
-        recipes = [recipe for recipe in recipes if normalized_q in _recipe_search_text(recipe)]
-    if difficulty is not None:
-        recipes = [recipe for recipe in recipes if recipe.difficulty == difficulty]
+        recipes = [recipe for recipe in recipes if normalized_q in recipe_search_text(recipe)]
+    if normalized_scene:
+        recipes = [recipe for recipe in recipes if normalized_scene in (recipe.scene_tags or [])]
 
-    availability_map: dict[str, str] = {}
+    availability_map: dict[str, dict] = {}
     if normalized_availability or sort == "availability":
-        availability_map = {
-            recipe.id: _recipe_availability(db, family_id=membership.family_id, recipe=recipe)
-            for recipe in recipes
-        }
+        today = today_for_family(membership.family_id)
+        ingredient_ids = [item.ingredient_id for recipe in recipes for item in recipe.ingredient_items if item.ingredient_id]
+        inventory_by_ingredient = load_available_inventory_by_ingredient(db, family_id=membership.family_id, ingredient_ids=ingredient_ids, today=today)
+        try:
+            availability_map = build_availability_map(
+                db,
+                family_id=membership.family_id,
+                recipes=recipes,
+                today=today,
+                inventory_by_ingredient=inventory_by_ingredient,
+            )
+        except UnitConversionError as exc:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     if normalized_availability:
-        recipes = [recipe for recipe in recipes if availability_map.get(recipe.id) == normalized_availability]
+        recipes = [recipe for recipe in recipes if availability_map.get(recipe.id, {}).get("availability") == normalized_availability]
 
-    if sort == "time":
+    if needs_python_pagination and sort == "time":
         recipes.sort(key=lambda recipe: (recipe.prep_minutes, recipe.updated_at), reverse=False)
-    elif sort == "difficulty":
+    elif needs_python_pagination and sort == "difficulty":
         difficulty_weight = {Difficulty.EASY: 0, Difficulty.MEDIUM: 1, Difficulty.HARD: 2}
         recipes.sort(key=lambda recipe: (difficulty_weight.get(recipe.difficulty, 9), recipe.prep_minutes, recipe.updated_at))
     elif sort == "availability":
-        recipes.sort(key=lambda recipe: (_recipe_availability_rank(availability_map.get(recipe.id, "missing")), recipe.prep_minutes, recipe.updated_at))
-    else:
+        recipes.sort(key=lambda recipe: (recipe_availability_rank(availability_map.get(recipe.id, {}).get("availability", "missing")), recipe.prep_minutes, recipe.updated_at))
+    elif needs_python_pagination:
         recipes.sort(key=lambda recipe: recipe.updated_at, reverse=True)
 
-    if offset:
+    if needs_python_pagination and offset:
         recipes = recipes[offset:]
-    if limit is not None:
+    if needs_python_pagination and limit is not None:
         recipes = recipes[:limit]
 
-    media_map = build_media_map(get_media_assets_for_family(db, membership.family_id))
+    media_map = build_media_map(get_media_assets_for_entities(db, family_id=membership.family_id, entity_type="recipe", entity_ids=[recipe.id for recipe in recipes]))
     return [serialize_recipe(item, media_map) for item in recipes]
 
 
@@ -539,104 +168,36 @@ def discover_recipes(
     db: Session = Depends(get_db),
 ) -> dict:
     user, membership = auth
-    today = date.today()
-    recipes = _load_recipes_for_family(db, membership.family_id)
-    foods = list(db.scalars(select(Food).where(Food.family_id == membership.family_id)))
-    inventory_items = list(db.scalars(select(InventoryItem).where(InventoryItem.family_id == membership.family_id)))
-    meal_logs = list(
-        db.scalars(
-            select(MealLog)
-            .where(MealLog.family_id == membership.family_id)
-            .options(selectinload(MealLog.food_entries))
-            .order_by(MealLog.date.desc(), MealLog.created_at.desc())
+    today = today_for_family(membership.family_id)
+    recipes = load_recipes_for_family(db, membership.family_id)
+    ingredient_ids = [item.ingredient_id for recipe in recipes for item in recipe.ingredient_items if item.ingredient_id]
+    inventory_by_ingredient = load_available_inventory_by_ingredient(db, family_id=membership.family_id, ingredient_ids=ingredient_ids, today=today)
+    try:
+        availability_by_recipe_id = build_availability_map(
+            db,
+            family_id=membership.family_id,
+            recipes=recipes,
+            today=today,
+            inventory_by_ingredient=inventory_by_ingredient,
         )
-    )
-    usage_counts, last_used_at = _recipe_recommendation_usage_maps(
+    except UnitConversionError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    sections = build_recipe_discovery(
+        db,
+        family_id=membership.family_id,
+        user_id=user.id,
         recipes=recipes,
-        meal_logs=meal_logs,
-        foods=foods,
+        availability_by_recipe_id=availability_by_recipe_id,
         today=today,
+        limit=limit,
     )
-    favorite_recipe_ids = set(
-        db.scalars(
-            select(RecipeFavorite.recipe_id).where(
-                RecipeFavorite.family_id == membership.family_id,
-                RecipeFavorite.user_id == user.id,
-            )
-        )
-    )
-    planned_recipe_ids = set(
-        db.scalars(
-            select(Food.recipe_id)
-            .join(FoodPlanItem, FoodPlanItem.food_id == Food.id)
-            .where(
-                FoodPlanItem.family_id == membership.family_id,
-                FoodPlanItem.status == "planned",
-                FoodPlanItem.plan_date >= today,
-                FoodPlanItem.plan_date <= today + timedelta(days=2),
-                Food.recipe_id.is_not(None),
-            )
-        )
-    )
-    availability_by_recipe_id = {
-        recipe.id: _recipe_availability_summary(db, family_id=membership.family_id, recipe=recipe)
-        for recipe in recipes
-    }
-
-    def score(recipe: Recipe) -> float:
-        availability = availability_by_recipe_id[recipe.id]
-        availability_band = {"ready": 40, "partial": 15, "missing": 0}.get(availability["availability"], 0)
-        last_used = last_used_at.get(recipe.id)
-        recent_penalty = 0
-        if last_used is not None:
-            days_since_used = (today - last_used).days
-            if days_since_used <= 0:
-                recent_penalty = 200
-            elif days_since_used <= 2:
-                recent_penalty = 80
-            elif days_since_used <= 7:
-                recent_penalty = 25
-        return (
-            (120 if recipe.id in favorite_recipe_ids else 0)
-            + availability["availability_score"] * 100
-            + availability_band
-            + min(usage_counts.get(recipe.id, 0) * 15, 60)
-            + (20 if recipe.prep_minutes <= 20 else 10 if recipe.prep_minutes <= 35 else 0)
-            + (10 if recipe.difficulty == Difficulty.EASY else 4 if recipe.difficulty == Difficulty.MEDIUM else 0)
-            + _recipe_expiring_inventory_bonus(recipe, inventory_items, today)
-            + _recipe_rating_bonus(recipe)
-            - recent_penalty
-            - (60 if recipe.id in planned_recipe_ids else 0)
-        )
-
-    recommended = sorted(
-        recipes,
-        key=lambda recipe: (
-            score(recipe),
-            availability_by_recipe_id[recipe.id]["availability_score"],
-            recipe.updated_at,
-        ),
-        reverse=True,
-    )[:limit]
-    ready = sorted(
-        [recipe for recipe in recipes if availability_by_recipe_id[recipe.id]["availability"] == "ready"],
-        key=lambda recipe: (recipe.prep_minutes, recipe.updated_at),
-    )[:limit]
-    quick = sorted(
-        [recipe for recipe in recipes if recipe.prep_minutes <= 20],
-        key=lambda recipe: (recipe.prep_minutes, recipe.updated_at),
-    )[:limit]
-    missing = sorted(
-        [recipe for recipe in recipes if availability_by_recipe_id[recipe.id]["availability"] != "ready"],
-        key=lambda recipe: (availability_by_recipe_id[recipe.id]["availability_score"], recipe.updated_at),
-        reverse=True,
-    )[:limit]
-    media_map = build_media_map(get_media_assets_for_family(db, membership.family_id))
+    section_recipe_ids = list({recipe.id for values in sections.values() for recipe in values})
+    media_map = build_media_map(get_media_assets_for_entities(db, family_id=membership.family_id, entity_type="recipe", entity_ids=section_recipe_ids))
     return {
-        "recommended": _serialize_discovery_section(recommended, media_map),
-        "ready": _serialize_discovery_section(ready, media_map),
-        "quick": _serialize_discovery_section(quick, media_map),
-        "missing": _serialize_discovery_section(missing, media_map),
+        "recommended": _serialize_discovery_section(sections["recommended"], media_map),
+        "ready": _serialize_discovery_section(sections["ready"], media_map),
+        "quick": _serialize_discovery_section(sections["quick"], media_map),
+        "missing": _serialize_discovery_section(sections["missing"], media_map),
     }
 
 
@@ -648,7 +209,10 @@ def get_recipe_availability(
 ) -> dict:
     _, membership = auth
     recipe = _load_recipe(db, family_id=membership.family_id, recipe_id=recipe_id)
-    summary = _recipe_availability_summary(db, family_id=membership.family_id, recipe=recipe)
+    try:
+        summary = recipe_availability_summary(db, family_id=membership.family_id, recipe=recipe, today=today_for_family(membership.family_id))
+    except UnitConversionError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     return {key: value for key, value in summary.items() if key != "plan_count"}
 
 
@@ -661,38 +225,7 @@ def get_recipe_stats(
     db: Session = Depends(get_db),
 ) -> dict:
     _, membership = auth
-    foods = list(db.scalars(select(Food).where(Food.family_id == membership.family_id)))
-    statement = (
-        select(MealLog)
-        .where(MealLog.family_id == membership.family_id)
-        .options(selectinload(MealLog.food_entries))
-        .order_by(MealLog.date.desc(), MealLog.created_at.desc())
-    )
-    if date_from is not None:
-        statement = statement.where(MealLog.date >= date_from)
-    if date_to is not None:
-        statement = statement.where(MealLog.date <= date_to)
-    meal_logs = list(db.scalars(statement))
-    counts, last_used_at = _recipe_usage_maps(meal_logs, foods)
-    recipes_by_id = {recipe.id: recipe for recipe in _load_recipes_for_family(db, membership.family_id)}
-
-    items = [
-        {
-            "recipe_id": recipe_id,
-            "recipe_title": recipes_by_id[recipe_id].title,
-            "count": count,
-            "last_used_at": last_used_at.get(recipe_id),
-        }
-        for recipe_id, count in counts.items()
-        if recipe_id in recipes_by_id
-    ]
-    recently_cooked = sorted(items, key=lambda item: (item["last_used_at"] or date.min, item["count"]), reverse=True)[:limit]
-    frequent = sorted(items, key=lambda item: (item["count"], item["last_used_at"] or date.min), reverse=True)[:limit]
-    return {
-        "total_cooks": sum(counts.values()),
-        "recently_cooked": recently_cooked,
-        "frequent": frequent,
-    }
+    return build_recipe_stats(db, family_id=membership.family_id, date_from=date_from, date_to=date_to, limit=limit)
 
 
 @router.post("/api/recipes", response_model=RecipeOut, status_code=status.HTTP_201_CREATED)
@@ -710,7 +243,7 @@ def create_recipe(
         prep_minutes=payload.prep_minutes,
         difficulty=payload.difficulty,
         tips=payload.tips,
-        scene_tags=[],
+        scene_tags=list(dict.fromkeys(tag.strip() for tag in payload.scene_tags if tag.strip())),
         created_by=user.id,
         updated_by=user.id,
     )
@@ -730,12 +263,13 @@ def create_recipe(
         summary=f"新增菜谱 {recipe.title}",
     )
 
-    food, _ = _sync_recipe_food(
+    food, _ = ensure_food_for_recipe(
         db,
         family_id=membership.family_id,
         user_id=user.id,
         recipe=recipe,
         recipe_media_ids=payload.media_ids,
+        sync_media=True,
     )
     log_activity(
         db,
@@ -747,9 +281,9 @@ def create_recipe(
         summary=f"自动创建家常菜 {food.name}",
     )
 
-    db.commit()
+    commit_session(db)
     db.refresh(recipe)
-    media_map = build_media_map(get_media_assets_for_family(db, membership.family_id))
+    media_map = build_media_map(get_media_assets_for_entities(db, family_id=membership.family_id, entity_type="recipe", entity_ids=[recipe.id]))
     return serialize_recipe(recipe, media_map)
 
 
@@ -767,6 +301,7 @@ def update_recipe(
     recipe.prep_minutes = payload.prep_minutes
     recipe.difficulty = payload.difficulty
     recipe.tips = payload.tips
+    recipe.scene_tags = list(dict.fromkeys(tag.strip() for tag in payload.scene_tags if tag.strip()))
     recipe.updated_by = user.id
     _replace_recipe_children(db, recipe, payload)
     replace_media_assets(
@@ -776,12 +311,13 @@ def update_recipe(
         entity_type="recipe",
         entity_id=recipe.id,
     )
-    synced_food, synced_food_created = _sync_recipe_food(
+    synced_food, synced_food_created = ensure_food_for_recipe(
         db,
         family_id=membership.family_id,
         user_id=user.id,
         recipe=recipe,
         recipe_media_ids=payload.media_ids,
+        sync_media=True,
     )
     log_activity(
         db,
@@ -801,9 +337,9 @@ def update_recipe(
         entity_id=synced_food.id,
         summary=f"{'补建' if synced_food_created else '同步更新'}家常菜 {synced_food.name}",
     )
-    db.commit()
+    commit_session(db)
     db.refresh(recipe)
-    media_map = build_media_map(get_media_assets_for_family(db, membership.family_id))
+    media_map = build_media_map(get_media_assets_for_entities(db, family_id=membership.family_id, entity_type="recipe", entity_ids=[recipe.id]))
     return serialize_recipe(recipe, media_map)
 
 
@@ -842,7 +378,7 @@ def delete_recipe(
         entity_id=recipe_id,
         summary=f"删除菜谱 {title}",
     )
-    db.commit()
+    commit_session(db)
     return None
 
 
@@ -855,11 +391,19 @@ def preview_cook_recipe(
 ) -> dict:
     _, membership = auth
     recipe = _load_recipe(db, family_id=membership.family_id, recipe_id=recipe_id)
-    _validate_cook_payload(payload)
-    consumption_plan, shortages = _build_cook_inventory_plan(db, family_id=membership.family_id, recipe=recipe, payload=payload)
+    try:
+        consumption_plan, shortages = build_cook_inventory_plan(
+            db,
+            family_id=membership.family_id,
+            recipe=recipe,
+            servings=payload.servings,
+            today=today_for_family(membership.family_id),
+        )
+    except UnitConversionError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     return {
         "recipe_id": recipe.id,
-        "preview_items": [] if shortages else [_serialize_cook_preview_item(plan) for plan in consumption_plan],
+        "preview_items": [] if shortages else [serialize_cook_preview_item(plan) for plan in consumption_plan],
         "shortages": shortages,
     }
 
@@ -873,8 +417,16 @@ def cook_recipe(
 ) -> dict:
     user, membership = auth
     recipe = _load_recipe(db, family_id=membership.family_id, recipe_id=recipe_id)
-    _validate_cook_payload(payload)
-    consumption_plan, shortages = _build_cook_inventory_plan(db, family_id=membership.family_id, recipe=recipe, payload=payload)
+    try:
+        consumption_plan, shortages = build_cook_inventory_plan(
+            db,
+            family_id=membership.family_id,
+            recipe=recipe,
+            servings=payload.servings,
+            today=today_for_family(membership.family_id),
+        )
+    except UnitConversionError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
     if shortages:
         return {
@@ -886,40 +438,37 @@ def cook_recipe(
 
     consumed_items: list[dict] = []
     for plan in consumption_plan:
-        ingredient = plan["ingredient"]
-        ingredient_item = plan["ingredient_item"]
         affected_item_ids: list[str] = []
-        for deduction in plan["deductions"]:
-            item = deduction["item"]
-            deduction_in_item_unit = deduction["quantity"]
-            item.consumed_quantity = item.consumed_quantity + deduction_in_item_unit
+        for deduction in plan.deductions:
+            item = deduction.item
+            item.consumed_quantity = item.consumed_quantity + deduction.quantity
             item.updated_by = user.id
             affected_item_ids.append(item.id)
 
         consumed_items.append(
             {
-                "ingredient_id": ingredient.id,
-                "ingredient_name": ingredient_item.ingredient_name,
-                "requested_quantity": float(plan["requested_quantity"]),
-                "unit": ingredient_item.unit,
+                "ingredient_id": plan.ingredient.id,
+                "ingredient_name": plan.ingredient_item.ingredient_name,
+                "requested_quantity": float(plan.requested_quantity),
+                "unit": plan.ingredient_item.unit,
                 "affected_item_ids": affected_item_ids,
             }
         )
 
     meal_log_id: str | None = None
     if payload.create_meal_log:
-        food, _ = _sync_recipe_food(
+        food, _ = ensure_food_for_recipe(
             db,
             family_id=membership.family_id,
             user_id=user.id,
             recipe=recipe,
-            recipe_media_ids=[],
+            sync_media=False,
         )
 
         meal_log = MealLog(
             id=create_id("meal"),
             family_id=membership.family_id,
-            date=payload.date or utcnow().date(),
+            date=payload.date or today_for_family(membership.family_id),
             meal_type=payload.meal_type or MealType.DINNER,
             participant_user_ids=payload.participant_user_ids,
             notes=payload.notes,
@@ -964,7 +513,7 @@ def cook_recipe(
         family_id=membership.family_id,
         recipe_id=recipe.id,
         meal_log_id=meal_log_id,
-        cook_date=payload.date or utcnow().date(),
+        cook_date=payload.date or today_for_family(membership.family_id),
         meal_type=payload.meal_type or MealType.DINNER,
         servings=Decimal(str(payload.servings)),
         result_note=payload.result_note.strip(),
@@ -984,7 +533,7 @@ def cook_recipe(
         entity_id=recipe.id,
         summary=f"完成菜谱 {recipe.title}，扣减 {len(consumed_items)} 项食材",
     )
-    db.commit()
+    commit_session(db)
 
     return {
         "recipe_id": recipe.id,
