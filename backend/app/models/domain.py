@@ -50,7 +50,7 @@ class Family(AuditMixin, Base):
     recipes: Mapped[list["Recipe"]] = relationship(back_populates="family", cascade="all, delete-orphan")
     food_scenes: Mapped[list["FoodScene"]] = relationship(back_populates="family", cascade="all, delete-orphan")
     recipe_favorites: Mapped[list["RecipeFavorite"]] = relationship(back_populates="family", cascade="all, delete-orphan")
-    recipe_plan_items: Mapped[list["RecipePlanItem"]] = relationship(back_populates="family", cascade="all, delete-orphan")
+    food_plan_items: Mapped[list["FoodPlanItem"]] = relationship(back_populates="family", cascade="all, delete-orphan")
     foods: Mapped[list["Food"]] = relationship(back_populates="family", cascade="all, delete-orphan")
     meal_logs: Mapped[list["MealLog"]] = relationship(back_populates="family", cascade="all, delete-orphan")
     activity_logs: Mapped[list["ActivityLog"]] = relationship(back_populates="family", cascade="all, delete-orphan")
@@ -74,7 +74,7 @@ class User(AuditMixin, Base):
     credential: Mapped["UserCredential"] = relationship(back_populates="user", cascade="all, delete-orphan", uselist=False)
     memberships: Mapped[list["Membership"]] = relationship(back_populates="user", cascade="all, delete-orphan")
     recipe_favorites: Mapped[list["RecipeFavorite"]] = relationship(back_populates="user", cascade="all, delete-orphan")
-    recipe_plan_items: Mapped[list["RecipePlanItem"]] = relationship(back_populates="user", cascade="all, delete-orphan")
+    food_plan_items: Mapped[list["FoodPlanItem"]] = relationship(back_populates="user", cascade="all, delete-orphan")
 
 
 class UserCredential(Base):
@@ -205,7 +205,6 @@ class Recipe(AuditMixin, Base):
     )
     foods: Mapped[list["Food"]] = relationship(back_populates="recipe")
     favorites: Mapped[list["RecipeFavorite"]] = relationship(back_populates="recipe", cascade="all, delete-orphan")
-    plan_items: Mapped[list["RecipePlanItem"]] = relationship(back_populates="recipe", cascade="all, delete-orphan")
     cook_logs: Mapped[list["RecipeCookLog"]] = relationship(
         back_populates="recipe",
         cascade="all, delete-orphan",
@@ -276,13 +275,13 @@ class RecipeFavorite(Base):
     recipe: Mapped["Recipe"] = relationship(back_populates="favorites")
 
 
-class RecipePlanItem(AuditMixin, Base):
-    __tablename__ = "recipe_plan_items"
+class FoodPlanItem(AuditMixin, Base):
+    __tablename__ = "food_plan_items"
 
-    id: Mapped[str] = mapped_column(String(64), primary_key=True, default=lambda: create_id("recipe-plan"))
+    id: Mapped[str] = mapped_column(String(64), primary_key=True, default=lambda: create_id("food-plan"))
     family_id: Mapped[str] = mapped_column(ForeignKey("families.id", ondelete="CASCADE"), nullable=False, index=True)
     user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
-    recipe_id: Mapped[str] = mapped_column(ForeignKey("recipes.id", ondelete="CASCADE"), nullable=False, index=True)
+    food_id: Mapped[str] = mapped_column(ForeignKey("foods.id", ondelete="CASCADE"), nullable=False, index=True)
     plan_date: Mapped[date] = mapped_column(Date, nullable=False, index=True)
     meal_type: Mapped[MealType] = mapped_column(SqlEnum(MealType, native_enum=False), nullable=False)
     note: Mapped[str] = mapped_column(String(255), default="", nullable=False)
@@ -290,9 +289,9 @@ class RecipePlanItem(AuditMixin, Base):
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     meal_log_id: Mapped[str | None] = mapped_column(ForeignKey("meal_logs.id", ondelete="SET NULL"), nullable=True, index=True)
 
-    family: Mapped["Family"] = relationship(back_populates="recipe_plan_items")
-    user: Mapped["User"] = relationship(back_populates="recipe_plan_items")
-    recipe: Mapped["Recipe"] = relationship(back_populates="plan_items")
+    family: Mapped["Family"] = relationship(back_populates="food_plan_items")
+    user: Mapped["User"] = relationship(back_populates="food_plan_items")
+    food: Mapped["Food"] = relationship(back_populates="plan_items")
 
 
 class RecipeCookLog(AuditMixin, Base):
@@ -341,6 +340,7 @@ class Food(AuditMixin, Base):
     family: Mapped["Family"] = relationship(back_populates="foods")
     recipe: Mapped["Recipe | None"] = relationship(back_populates="foods")
     meal_entries: Mapped[list["MealLogFood"]] = relationship(back_populates="food")
+    plan_items: Mapped[list["FoodPlanItem"]] = relationship(back_populates="food", cascade="all, delete-orphan")
 
 
 class MealLog(AuditMixin, Base):

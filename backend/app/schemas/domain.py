@@ -381,6 +381,7 @@ class CookRecipeRequest(BaseModel):
     participant_user_ids: list[str] = Field(default_factory=list)
     notes: str = ""
     create_meal_log: bool = False
+    food_plan_item_id: str | None = None
     recipe_plan_item_id: str | None = None
     result_note: str = ""
     adjustments: str = ""
@@ -477,12 +478,15 @@ class RecipeFavoriteOut(BaseModel):
     created_at: datetime
 
 
-class RecipePlanItemOut(BaseModel):
+class FoodPlanItemOut(BaseModel):
     id: str
     family_id: str
     user_id: str
-    recipe_id: str
-    recipe_title: str
+    food_id: str
+    food_name: str
+    food_type: str
+    recipe_id: str | None = None
+    recipe_title: str = ""
     plan_date: date
     meal_type: MealType
     note: str
@@ -493,6 +497,25 @@ class RecipePlanItemOut(BaseModel):
     updated_at: datetime
     created_by: str | None = None
     updated_by: str | None = None
+
+
+class CreateFoodPlanItemRequest(BaseModel):
+    food_id: str
+    plan_date: date
+    meal_type: MealType
+    note: str = ""
+
+
+class UpdateFoodPlanItemRequest(BaseModel):
+    food_id: str | None = None
+    plan_date: date | None = None
+    meal_type: MealType | None = None
+    note: str | None = None
+    status: str | None = None
+
+
+class RecipePlanItemOut(FoodPlanItemOut):
+    pass
 
 
 class CreateRecipePlanItemRequest(BaseModel):
@@ -655,6 +678,7 @@ class QuickAddMealLogRequest(BaseModel):
     meal_type: MealType
     servings: float = 1
     note: str = ""
+    food_plan_item_id: str | None = None
 
     @field_validator("servings")
     @classmethod

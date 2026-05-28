@@ -168,6 +168,11 @@ type IngredientWorkspaceProps = {
   inventoryItems: InventoryItem[];
   recipes: Recipe[];
   shoppingItems: ShoppingListItem[];
+  navigationRequest?: {
+    view: 'catalog' | 'detail';
+    ingredientId?: string;
+    requestId: number;
+  } | null;
   createIngredient: (payload: {
     name: string;
     category: string;
@@ -2216,6 +2221,30 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
       setCatalogCategoryFilter('all');
     }
   }, [catalogCategories, catalogCategoryFilter]);
+
+  useEffect(() => {
+    if (!props.navigationRequest) {
+      return;
+    }
+
+    setActivePanel('catalog');
+    setCatalogSearch('');
+    setCatalogCategoryFilter('all');
+    setCatalogStatusFilter('all');
+
+    if (props.navigationRequest.ingredientId) {
+      setSelectedIngredientId(props.navigationRequest.ingredientId);
+      setExpandedCatalogIngredientId(
+        props.navigationRequest.view === 'catalog' ? props.navigationRequest.ingredientId : null
+      );
+    } else {
+      setExpandedCatalogIngredientId(null);
+    }
+
+    setWorkspaceView(
+      props.navigationRequest.view === 'detail' && props.navigationRequest.ingredientId ? 'detail' : 'hub'
+    );
+  }, [props.navigationRequest?.requestId]);
 
   useEffect(() => {
     const snapshot: PersistedIngredientWorkspaceState = {

@@ -9,6 +9,7 @@ import type {
   CookRecipeRequest,
   CookRecipeResponse,
   CreateRecipePlanItemPayload,
+  CreateFoodPlanItemPayload,
   ConsumeInventoryResponse,
   CreateRecipePayload,
   CreateAiRenderRequest,
@@ -28,12 +29,14 @@ import type {
   RecipeDiscovery,
   RecipeFavorite,
   RecipePlanItem,
+  FoodPlanItem,
   FoodScene,
   RecipePayload,
   RecipeStats,
   QuickAddMealLogPayload,
   ShoppingListItem,
   UpdateRecipePlanItemPayload,
+  UpdateFoodPlanItemPayload,
 } from './types';
 
 export const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? 'http://127.0.0.1:8010';
@@ -234,6 +237,22 @@ export const api = {
     }),
   deleteRecipePlanItem: (itemId: string) =>
     request<void>(`/api/recipe-plan/${itemId}`, {
+      method: 'DELETE',
+    }),
+  getFoodPlan: (dateFrom: string, dateTo: string) =>
+    request<FoodPlanItem[]>(`/api/food-plan?date_from=${encodeURIComponent(dateFrom)}&date_to=${encodeURIComponent(dateTo)}`),
+  createFoodPlanItem: (payload: CreateFoodPlanItemPayload) =>
+    request<FoodPlanItem>('/api/food-plan', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+  updateFoodPlanItem: (itemId: string, payload: UpdateFoodPlanItemPayload) =>
+    request<FoodPlanItem>(`/api/food-plan/${itemId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    }),
+  deleteFoodPlanItem: (itemId: string) =>
+    request<void>(`/api/food-plan/${itemId}`, {
       method: 'DELETE',
     }),
   getFoodScenes: () => request<FoodScene[]>('/api/food-scenes'),

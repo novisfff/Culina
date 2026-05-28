@@ -10,7 +10,7 @@ from app.core.deps import get_current_auth
 from app.core.enums import ActivityAction
 from app.core.utils import create_id, utcnow
 from app.db.session import get_db
-from app.models.domain import Food, InventoryDeductionSuggestion, MealLog, MealLogFood, Recipe
+from app.models.domain import Food, FoodPlanItem, InventoryDeductionSuggestion, MealLog, MealLogFood, Recipe
 from app.repos.media import build_media_map, get_media_assets_for_family
 from app.schemas.domain import CreateMealLogRequest, MealLogOut, QuickAddMealLogRequest
 from app.services.activity import log_activity
@@ -183,6 +183,22 @@ def quick_add_meal_log(
     for suggestion in _build_deduction_suggestions(db, [entry]):
         suggestion.meal_log_id = meal_log.id
         db.add(suggestion)
+
+    if payload.food_plan_item_id:
+        plan_item = db.scalar(
+            select(FoodPlanItem).where(
+                FoodPlanItem.family_id == membership.family_id,
+                FoodPlanItem.user_id == user.id,
+                FoodPlanItem.id == payload.food_plan_item_id,
+                FoodPlanItem.food_id == food.id,
+            )
+        )
+        if plan_item is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Food plan item not found")
+        plan_item.status = "cooked"
+        plan_item.completed_at = utcnow()
+        plan_item.meal_log_id = meal_log.id
+        plan_item.updated_by = user.id
 
     log_activity(
         db,

@@ -10,20 +10,23 @@ from app.core.deps import get_current_auth
 from app.core.enums import ActivityAction
 from app.core.utils import create_id
 from app.db.session import get_db
-from app.models.domain import FoodScene, Recipe, RecipeFavorite, RecipePlanItem
+from app.models.domain import Food, FoodPlanItem, FoodScene, Recipe, RecipeFavorite
 from app.repos.media import build_media_map, get_media_assets_for_family
 from app.schemas.domain import (
+    CreateFoodPlanItemRequest,
     CreateRecipePlanItemRequest,
     CreateFoodSceneRequest,
+    FoodPlanItemOut,
     RecipeFavoriteOut,
     RecipePlanItemOut,
     FoodSceneOut,
+    UpdateFoodPlanItemRequest,
     UpdateFoodSceneRequest,
     UpdateRecipePlanItemRequest,
 )
 from app.services.activity import log_activity
 from app.services.media import replace_media_assets
-from app.services.serializers import serialize_food_scene, serialize_recipe_favorite, serialize_recipe_plan_item
+from app.services.serializers import serialize_food_plan_item, serialize_food_scene, serialize_recipe_favorite, serialize_recipe_plan_item
 
 router = APIRouter(tags=["recipe-meta"])
 
@@ -35,18 +38,57 @@ def _load_recipe(db: Session, *, family_id: str, recipe_id: str) -> Recipe:
     return recipe
 
 
-def _load_plan_item(db: Session, *, family_id: str, user_id: str, item_id: str) -> RecipePlanItem:
-    item = db.scalar(
-        select(RecipePlanItem)
-        .where(
-            RecipePlanItem.family_id == family_id,
-            RecipePlanItem.user_id == user_id,
-            RecipePlanItem.id == item_id,
+def _load_food(db: Session, *, family_id: str, food_id: str) -> Food:
+    food = db.scalar(select(Food).where(Food.family_id == family_id, Food.id == food_id).options(selectinload(Food.recipe)))
+    if food is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Food not found")
+    return food
+
+
+def _load_food_for_recipe(db: Session, *, family_id: str, recipe_id: str) -> Food:
+    recipe = _load_recipe(db, family_id=family_id, recipe_id=recipe_id)
+    food = db.scalar(
+        select(Food)
+        .where(Food.family_id == family_id, Food.recipe_id == recipe.id)
+        .options(selectinload(Food.recipe))
+        .order_by(Food.updated_at.desc())
+    )
+    if food is None:
+        food = Food(
+            id=create_id("food"),
+            family_id=family_id,
+            name=recipe.title,
+            type="selfMade",
+            category="家常菜",
+            flavor_tags=[],
+            scene_tags=list(recipe.scene_tags or []),
+            suitable_meal_types=[],
+            source_name="家庭厨房",
+            purchase_source="家庭厨房",
+            scene=(recipe.scene_tags or ["日常"])[0],
+            notes=recipe.tips,
+            routine_note="",
+            favorite=False,
+            recipe_id=recipe.id,
         )
-        .options(selectinload(RecipePlanItem.recipe))
+        db.add(food)
+        db.flush()
+        food.recipe = recipe
+    return food
+
+
+def _load_plan_item(db: Session, *, family_id: str, user_id: str, item_id: str) -> FoodPlanItem:
+    item = db.scalar(
+        select(FoodPlanItem)
+        .where(
+            FoodPlanItem.family_id == family_id,
+            FoodPlanItem.user_id == user_id,
+            FoodPlanItem.id == item_id,
+        )
+        .options(selectinload(FoodPlanItem.food).selectinload(Food.recipe))
     )
     if item is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Recipe plan item not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Food plan item not found")
     return item
 
 
@@ -291,8 +333,8 @@ def remove_recipe_favorite(
     return None
 
 
-@router.get("/api/recipe-plan", response_model=list[RecipePlanItemOut])
-def list_recipe_plan(
+@router.get("/api/food-plan", response_model=list[FoodPlanItemOut])
+def list_food_plan(
     date_from: date = Query(...),
     date_to: date = Query(...),
     auth: tuple = Depends(get_current_auth),
@@ -301,33 +343,33 @@ def list_recipe_plan(
     user, membership = auth
     items = list(
         db.scalars(
-            select(RecipePlanItem)
+            select(FoodPlanItem)
             .where(
-                RecipePlanItem.family_id == membership.family_id,
-                RecipePlanItem.user_id == user.id,
-                RecipePlanItem.plan_date >= date_from,
-                RecipePlanItem.plan_date <= date_to,
+                FoodPlanItem.family_id == membership.family_id,
+                FoodPlanItem.user_id == user.id,
+                FoodPlanItem.plan_date >= date_from,
+                FoodPlanItem.plan_date <= date_to,
             )
-            .options(selectinload(RecipePlanItem.recipe))
-            .order_by(RecipePlanItem.plan_date.asc(), RecipePlanItem.meal_type.asc(), RecipePlanItem.created_at.asc())
+            .options(selectinload(FoodPlanItem.food).selectinload(Food.recipe))
+            .order_by(FoodPlanItem.plan_date.asc(), FoodPlanItem.meal_type.asc(), FoodPlanItem.created_at.asc())
         )
     )
-    return [serialize_recipe_plan_item(item) for item in items]
+    return [serialize_food_plan_item(item) for item in items]
 
 
-@router.post("/api/recipe-plan", response_model=RecipePlanItemOut, status_code=status.HTTP_201_CREATED)
-def create_recipe_plan_item(
-    payload: CreateRecipePlanItemRequest,
+@router.post("/api/food-plan", response_model=FoodPlanItemOut, status_code=status.HTTP_201_CREATED)
+def create_food_plan_item(
+    payload: CreateFoodPlanItemRequest,
     auth: tuple = Depends(get_current_auth),
     db: Session = Depends(get_db),
 ) -> dict:
     user, membership = auth
-    recipe = _load_recipe(db, family_id=membership.family_id, recipe_id=payload.recipe_id)
-    item = RecipePlanItem(
-        id=create_id("recipe-plan"),
+    food = _load_food(db, family_id=membership.family_id, food_id=payload.food_id)
+    item = FoodPlanItem(
+        id=create_id("food-plan"),
         family_id=membership.family_id,
         user_id=user.id,
-        recipe_id=payload.recipe_id,
+        food_id=payload.food_id,
         plan_date=payload.plan_date,
         meal_type=payload.meal_type,
         note=payload.note,
@@ -340,28 +382,28 @@ def create_recipe_plan_item(
         family_id=membership.family_id,
         actor_id=user.id,
         action=ActivityAction.CREATE,
-        entity_type="RecipePlanItem",
+        entity_type="FoodPlanItem",
         entity_id=item.id,
-        summary=f"加入菜单计划 {recipe.title}",
+        summary=f"加入菜单计划 {food.name}",
     )
     db.commit()
     db.refresh(item)
-    item.recipe = recipe
-    return serialize_recipe_plan_item(item)
+    item.food = food
+    return serialize_food_plan_item(item)
 
 
-@router.patch("/api/recipe-plan/{item_id}", response_model=RecipePlanItemOut)
-def update_recipe_plan_item(
+@router.patch("/api/food-plan/{item_id}", response_model=FoodPlanItemOut)
+def update_food_plan_item(
     item_id: str,
-    payload: UpdateRecipePlanItemRequest,
+    payload: UpdateFoodPlanItemRequest,
     auth: tuple = Depends(get_current_auth),
     db: Session = Depends(get_db),
 ) -> dict:
     user, membership = auth
     item = _load_plan_item(db, family_id=membership.family_id, user_id=user.id, item_id=item_id)
-    if payload.recipe_id is not None:
-        item.recipe = _load_recipe(db, family_id=membership.family_id, recipe_id=payload.recipe_id)
-        item.recipe_id = payload.recipe_id
+    if payload.food_id is not None:
+        item.food = _load_food(db, family_id=membership.family_id, food_id=payload.food_id)
+        item.food_id = payload.food_id
     if payload.plan_date is not None:
         item.plan_date = payload.plan_date
     if payload.meal_type is not None:
@@ -381,17 +423,17 @@ def update_recipe_plan_item(
         family_id=membership.family_id,
         actor_id=user.id,
         action=ActivityAction.UPDATE,
-        entity_type="RecipePlanItem",
+        entity_type="FoodPlanItem",
         entity_id=item.id,
-        summary=f"更新菜单计划 {item.recipe.title if item.recipe else '菜谱'}",
+        summary=f"更新菜单计划 {item.food.name if item.food else '食物'}",
     )
     db.commit()
     db.refresh(item)
-    return serialize_recipe_plan_item(item)
+    return serialize_food_plan_item(item)
 
 
-@router.delete("/api/recipe-plan/{item_id}", status_code=status.HTTP_204_NO_CONTENT, response_model=None)
-def delete_recipe_plan_item(
+@router.delete("/api/food-plan/{item_id}", status_code=status.HTTP_204_NO_CONTENT, response_model=None)
+def delete_food_plan_item(
     item_id: str,
     auth: tuple = Depends(get_current_auth),
     db: Session = Depends(get_db),
@@ -404,9 +446,69 @@ def delete_recipe_plan_item(
         family_id=membership.family_id,
         actor_id=user.id,
         action=ActivityAction.UPDATE,
-        entity_type="RecipePlanItem",
+        entity_type="FoodPlanItem",
         entity_id=item.id,
-        summary=f"移除菜单计划 {item.recipe.title if item.recipe else '菜谱'}",
+        summary=f"移除菜单计划 {item.food.name if item.food else '食物'}",
     )
     db.commit()
     return None
+
+
+@router.get("/api/recipe-plan", response_model=list[RecipePlanItemOut])
+def list_recipe_plan(
+    date_from: date = Query(...),
+    date_to: date = Query(...),
+    auth: tuple = Depends(get_current_auth),
+    db: Session = Depends(get_db),
+) -> list[dict]:
+    return list_food_plan(date_from=date_from, date_to=date_to, auth=auth, db=db)
+
+
+@router.post("/api/recipe-plan", response_model=RecipePlanItemOut, status_code=status.HTTP_201_CREATED)
+def create_recipe_plan_item(
+    payload: CreateRecipePlanItemRequest,
+    auth: tuple = Depends(get_current_auth),
+    db: Session = Depends(get_db),
+) -> dict:
+    user, membership = auth
+    food = _load_food_for_recipe(db, family_id=membership.family_id, recipe_id=payload.recipe_id)
+    return create_food_plan_item(
+        CreateFoodPlanItemRequest(food_id=food.id, plan_date=payload.plan_date, meal_type=payload.meal_type, note=payload.note),
+        auth=auth,
+        db=db,
+    )
+
+
+@router.patch("/api/recipe-plan/{item_id}", response_model=RecipePlanItemOut)
+def update_recipe_plan_item(
+    item_id: str,
+    payload: UpdateRecipePlanItemRequest,
+    auth: tuple = Depends(get_current_auth),
+    db: Session = Depends(get_db),
+) -> dict:
+    _, membership = auth
+    food_id = None
+    if payload.recipe_id is not None:
+        food_id = _load_food_for_recipe(db, family_id=membership.family_id, recipe_id=payload.recipe_id).id
+    return update_food_plan_item(
+        item_id,
+        UpdateFoodPlanItemRequest(
+            food_id=food_id,
+            plan_date=payload.plan_date,
+            meal_type=payload.meal_type,
+            note=payload.note,
+            status=payload.status,
+        ),
+        auth=auth,
+        db=db,
+    )
+
+
+@router.delete("/api/recipe-plan/{item_id}", status_code=status.HTTP_204_NO_CONTENT, response_model=None)
+def delete_recipe_plan_item(
+    item_id: str,
+    auth: tuple = Depends(get_current_auth),
+    db: Session = Depends(get_db),
+) -> None:
+    return delete_food_plan_item(item_id, auth=auth, db=db)
+    FoodPlanItemOut,

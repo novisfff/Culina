@@ -468,6 +468,64 @@ class RecipeApiTestCase(unittest.TestCase):
         self.assertEqual(second_add.json()["id"], first_add.json()["id"])
         self.assertEqual(len(second_add.json()["food_entries"]), 2)
 
+    def test_food_plan_supports_non_recipe_food_and_quick_add_completion(self) -> None:
+        food_response = self.client.post(
+            "/api/foods",
+            json={
+                "name": "周五常点披萨",
+                "type": "takeout",
+                "category": "外卖",
+                "flavor_tags": ["省心"],
+                "suitable_meal_types": ["dinner"],
+                "source_name": "楼下披萨",
+                "purchase_source": "外卖平台",
+                "scene": "周五晚餐",
+                "notes": "双拼",
+                "routine_note": "忙的时候点",
+                "price": 68,
+                "rating": 4,
+                "repurchase": True,
+                "expiry_date": None,
+                "stock_quantity": None,
+                "stock_unit": "",
+                "favorite": False,
+                "media_ids": [],
+            },
+        )
+        self.assertEqual(food_response.status_code, 201, food_response.text)
+        food = food_response.json()
+
+        plan_response = self.client.post(
+            "/api/food-plan",
+            json={"food_id": food["id"], "plan_date": "2026-05-15", "meal_type": "dinner", "note": "周五省心"},
+        )
+        self.assertEqual(plan_response.status_code, 201, plan_response.text)
+        plan = plan_response.json()
+        self.assertEqual(plan["food_id"], food["id"])
+        self.assertEqual(plan["food_name"], "周五常点披萨")
+        self.assertIsNone(plan["recipe_id"])
+
+        update_response = self.client.patch(f"/api/food-plan/{plan['id']}", json={"meal_type": "lunch"})
+        self.assertEqual(update_response.status_code, 200, update_response.text)
+        self.assertEqual(update_response.json()["meal_type"], "lunch")
+
+        quick_add = self.client.post(
+            "/api/meal-logs/quick-add",
+            json={
+                "food_id": food["id"],
+                "date": "2026-05-15",
+                "meal_type": "lunch",
+                "servings": 1,
+                "note": "完成计划",
+                "food_plan_item_id": plan["id"],
+            },
+        )
+        self.assertEqual(quick_add.status_code, 201, quick_add.text)
+        plan_items = self.client.get("/api/food-plan?date_from=2026-05-15&date_to=2026-05-15").json()
+        self.assertEqual(plan_items[0]["status"], "cooked")
+        self.assertEqual(plan_items[0]["meal_log_id"], quick_add.json()["id"])
+        self.assertIsNotNone(plan_items[0]["completed_at"])
+
     def test_meal_logs_can_load_ready_made_food_type_values(self) -> None:
         with self.SessionLocal() as db:
             food = Food(

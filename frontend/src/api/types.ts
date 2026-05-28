@@ -233,6 +233,7 @@ export interface CookRecipeRequest {
   participant_user_ids?: string[];
   notes?: string;
   create_meal_log: boolean;
+  food_plan_item_id?: string;
   recipe_plan_item_id?: string;
   result_note?: string;
   adjustments?: string;
@@ -329,11 +330,14 @@ export interface RecipeFavorite {
   created_at: string;
 }
 
-export interface RecipePlanItem {
+export interface FoodPlanItem {
   id: string;
   family_id: string;
   user_id: string;
-  recipe_id: string;
+  food_id: string;
+  food_name: string;
+  food_type: FoodType | string;
+  recipe_id?: string | null;
   recipe_title: string;
   plan_date: string;
   meal_type: MealType;
@@ -345,6 +349,23 @@ export interface RecipePlanItem {
   updated_at: string;
   created_by?: string | null;
   updated_by?: string | null;
+}
+
+export type RecipePlanItem = FoodPlanItem;
+
+export interface CreateFoodPlanItemPayload {
+  food_id: string;
+  plan_date: string;
+  meal_type: MealType;
+  note: string;
+}
+
+export interface UpdateFoodPlanItemPayload {
+  food_id?: string;
+  plan_date?: string;
+  meal_type?: MealType;
+  note?: string;
+  status?: 'planned' | 'cooked' | 'skipped';
 }
 
 export interface CreateRecipePlanItemPayload {
@@ -478,6 +499,7 @@ export interface QuickAddMealLogPayload {
   meal_type: MealType;
   servings: number;
   note: string;
+  food_plan_item_id?: string;
 }
 
 export interface ActivityLog {

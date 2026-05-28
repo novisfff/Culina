@@ -10,6 +10,7 @@ from app.models.domain import (
     AIRecommendation,
     Family,
     Food,
+    FoodPlanItem,
     Ingredient,
     InventoryDeductionSuggestion,
     InventoryItem,
@@ -19,7 +20,6 @@ from app.models.domain import (
     Recipe,
     RecipeCookLog,
     RecipeFavorite,
-    RecipePlanItem,
     FoodScene,
     ShoppingListItem,
     User,
@@ -263,13 +263,17 @@ def serialize_recipe_favorite(item: RecipeFavorite) -> dict:
     }
 
 
-def serialize_recipe_plan_item(item: RecipePlanItem) -> dict:
+def serialize_food_plan_item(item: FoodPlanItem) -> dict:
+    recipe = item.food.recipe if item.food else None
     return {
         "id": item.id,
         "family_id": item.family_id,
         "user_id": item.user_id,
-        "recipe_id": item.recipe_id,
-        "recipe_title": item.recipe.title if item.recipe else "",
+        "food_id": item.food_id,
+        "food_name": item.food.name if item.food else "",
+        "food_type": item.food.type if item.food else "",
+        "recipe_id": recipe.id if recipe else None,
+        "recipe_title": recipe.title if recipe else "",
         "plan_date": item.plan_date,
         "meal_type": item.meal_type,
         "note": item.note,
@@ -281,6 +285,9 @@ def serialize_recipe_plan_item(item: RecipePlanItem) -> dict:
         "created_by": item.created_by,
         "updated_by": item.updated_by,
     }
+
+
+serialize_recipe_plan_item = serialize_food_plan_item
 
 
 def serialize_food(food: Food, media_map: dict[tuple[str, str], list[MediaAsset]]) -> dict:

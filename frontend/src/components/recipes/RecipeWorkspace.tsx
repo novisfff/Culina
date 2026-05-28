@@ -56,6 +56,8 @@ import {
   type RecipeWorkspaceView,
 } from './workspaceModel';
 
+const SHOW_RECIPE_PLAN_MANAGEMENT = false;
+
 export type RecipeDraftIngredient = Omit<RecipeIngredient, 'quantity'> & { quantity: number | string };
 
 type RecipeStepDraft = {
@@ -179,6 +181,7 @@ type RecipeWorkspaceProps = {
   recipeScenes: RecipeScene[];
   recipePlanWeekRange: { start: string; end: string };
   startRecipeId?: string | null;
+  startFoodPlanItemId?: string | null;
   onStartRecipeHandled?: () => void;
   onRecipePlanPreviousWeek: () => void;
   onRecipePlanCurrentWeek: () => void;
@@ -1039,6 +1042,7 @@ export function buildCookPayload(args: {
     date: args.date,
     meal_type: args.mealType,
     create_meal_log: args.createMealLog,
+    food_plan_item_id: args.planItemId ?? undefined,
     recipe_plan_item_id: args.planItemId ?? undefined,
     result_note: args.resultNote.trim(),
     adjustments: args.adjustments.trim(),
@@ -1992,9 +1996,9 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
     if (!props.startRecipeId) return;
     const targetCard = cards.find((card) => card.recipe.id === props.startRecipeId);
     if (!targetCard) return;
-    openCook(targetCard);
+    openCook(targetCard, props.startFoodPlanItemId ?? undefined);
     props.onStartRecipeHandled?.();
-  }, [cards, props.startRecipeId]);
+  }, [cards, props.startFoodPlanItemId, props.startRecipeId]);
 
   function closeCookDialog() {
     setCookCard(null);
@@ -3982,6 +3986,7 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
                 </button>
               </section>
 
+              {SHOW_RECIPE_PLAN_MANAGEMENT && (
               <section className="recipe-detail-side-card recipe-detail-plan-card">
                 <div className="recipe-detail-section-head">
                   <span><RecipeUiIcon name="calendar" /></span>
@@ -3994,6 +3999,7 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
                   加入计划
                 </ActionButton>
               </section>
+              )}
 
               <section className="recipe-detail-side-card">
                 <div className="recipe-detail-section-head">
@@ -4176,6 +4182,7 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
                 </div>
               </section>
 
+              {SHOW_RECIPE_PLAN_MANAGEMENT && (
               <section className="recipe-side-panel" ref={planSectionRef}>
                 <div className="recipe-side-panel-head">
                   <h3><RecipeSideIcon name="calendar" />我的菜单计划</h3>
@@ -4269,6 +4276,7 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
                   {hiddenPlanDayCount > 0 && <div className="recipe-plan-collapsed-note">其余 {hiddenPlanDayCount} 天已收起</div>}
                 </div>
               </section>
+              )}
             </aside>
           </div>
         </div>
@@ -4352,7 +4360,7 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
         </div>
       )}
 
-      {isPlanDialogOpen && (
+      {SHOW_RECIPE_PLAN_MANAGEMENT && isPlanDialogOpen && (
         <div className="workspace-overlay-root">
           <div className="workspace-overlay-backdrop" onClick={closePlanDialog} />
           <WorkspaceModal
@@ -4481,7 +4489,7 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
         </div>
       )}
 
-      {activePlanDetailItem && (
+      {SHOW_RECIPE_PLAN_MANAGEMENT && activePlanDetailItem && (
         <div className="workspace-overlay-root">
           <div className="workspace-overlay-backdrop" onClick={closePlanDetail} />
           <WorkspaceModal

@@ -1,21 +1,33 @@
-import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode, type UIEvent } from 'react';
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { API_BASE_URL, api } from './api/client';
 import type {
   AiMode,
+  Food,
   ImageInputValue,
   Ingredient,
   FoodRecommendations,
   FoodType,
+  FoodPlanItem,
+  IngredientExpiryMode,
+  InventoryItem,
+  InventoryStatus,
+  MealLog,
   MealType,
   Recipe,
   RecipeDiscovery,
   FoodScene,
   RecipeStats,
+  ShoppingListItem,
 } from './api/types';
 import { useAuth } from './auth/AuthContext';
+import { FoodPlanDetailModal, type FoodPlanDetailFormState } from './components/foods/FoodPlanDetailModal';
 import { FoodWorkspace } from './components/foods/FoodWorkspace';
 import { IngredientWorkspace } from './components/ingredients/IngredientWorkspace';
+import {
+  buildDisposableExpiredInventoryItems,
+  buildIngredientSummaries,
+} from './components/ingredients/workspaceModel';
 import { LoginScreen } from './components/LoginScreen';
 import { RecipeWorkspace } from './components/recipes/RecipeWorkspace';
 import { addDateKeyDays, getRecipeWeekRange } from './components/recipes/workspaceModel';
@@ -38,6 +50,7 @@ import {
   FOOD_TYPE_LABELS,
   INVENTORY_STATUS_LABELS,
   MEAL_TYPE_LABELS,
+  buildIngredientPlaceholderSvg,
   buildInventoryAlerts,
   emptyImages,
   formatDate,
@@ -58,6 +71,11 @@ import {
 type TabKey = 'home' | 'foods' | 'recipes' | 'ingredients' | 'logs' | 'ai' | 'family';
 type FoodWorkspaceView = 'list' | 'create';
 type FamilyOverlayMode = 'invite' | null;
+type IngredientNavigationRequest = {
+  view: 'catalog' | 'detail';
+  ingredientId?: string;
+  requestId: number;
+};
 
 type FoodFormState = {
   name: string;
@@ -86,6 +104,26 @@ type MealFormState = {
   photos: ImageInputValue;
 };
 
+type HomeRestockFormState = {
+  ingredientId: string;
+  ingredientQuery: string;
+  quantity: string;
+  unit: string;
+  purchaseDate: string;
+  storageLocation: string;
+  expiryInputMode: IngredientExpiryMode;
+  expiryDays: string;
+  expiryDate: string;
+  status: InventoryStatus;
+  notes: string;
+};
+
+type HomePlanAddFormState = {
+  planDate: string;
+  mealType: MealType;
+  note: string;
+};
+
 type InviteFormState = {
   username: string;
   displayName: string;
@@ -93,6 +131,43 @@ type InviteFormState = {
   role: 'Owner' | 'Member';
   email: string;
 };
+
+type DashboardExpiryTodoInventoryItem = InventoryItem & { daysLeft: number };
+
+type DashboardTodoItem =
+  | {
+      type: 'expiry';
+      id: string;
+      title: string;
+      description: string;
+      status: string;
+      done: false;
+      dateLabel: string;
+      icon: DashboardIconName;
+      item: DashboardExpiryTodoInventoryItem;
+    }
+  | {
+      type: 'shopping';
+      id: string;
+      title: string;
+      description: string;
+      status: string;
+      done: false;
+      dateLabel: string;
+      icon: DashboardIconName;
+      item: ShoppingListItem;
+    }
+  | {
+      type: 'meal';
+      id: string;
+      title: string;
+      description: string;
+      status: string;
+      done: true;
+      dateLabel: string;
+      icon: DashboardIconName;
+      item: MealLog;
+    };
 
 type ShellIconName =
   | 'logo'
@@ -106,6 +181,26 @@ type ShellIconName =
   | 'panel-open'
   | 'panel-close'
   | 'logout';
+
+type DashboardIconName =
+  | 'leaf'
+  | 'bell'
+  | 'cart'
+  | 'pot'
+  | 'plus'
+  | 'receipt'
+  | 'list'
+  | 'chevron'
+  | 'arrow-left'
+  | 'arrow-right'
+  | 'edit'
+  | 'check'
+  | 'circle'
+  | 'calendar'
+  | 'flame';
+
+const DASHBOARD_PLAN_MEAL_TYPES: MealType[] = ['breakfast', 'lunch', 'dinner', 'snack'];
+const DASHBOARD_TODO_PAGE_SIZE = 4;
 
 function IconBase(props: { children: ReactNode }) {
   return (
@@ -220,6 +315,166 @@ function ShellIcon(props: { name: ShellIconName }) {
   }
 }
 
+function DashboardIcon(props: { name: DashboardIconName }) {
+  switch (props.name) {
+    case 'leaf':
+      return (
+        <IconBase>
+          <path d="M19 4c-6 1-10 5-11 11" />
+          <path d="M7 20c-2-4-2-8 1-11s7-4 11-5c1 4-1 8-4 11s-7 5-8 5Z" />
+        </IconBase>
+      );
+    case 'bell':
+      return (
+        <IconBase>
+          <path d="M6 9a6 6 0 0 1 12 0c0 7 3 6 3 8H3c0-2 3-1 3-8" />
+          <path d="M10 20a2 2 0 0 0 4 0" />
+        </IconBase>
+      );
+    case 'cart':
+      return (
+        <IconBase>
+          <path d="M5 5h2l1.5 10h8.5l2-7H8" />
+          <circle cx="10" cy="19" r="1" />
+          <circle cx="17" cy="19" r="1" />
+        </IconBase>
+      );
+    case 'pot':
+      return (
+        <IconBase>
+          <path d="M6 10h12" />
+          <path d="M7 10v4a5 5 0 0 0 10 0v-4" />
+          <path d="M17 12h1.5a2 2 0 0 1 0 4H17" />
+          <path d="M10 7V5" />
+          <path d="M14 7V5" />
+        </IconBase>
+      );
+    case 'plus':
+      return (
+        <IconBase>
+          <path d="M12 5v14" />
+          <path d="M5 12h14" />
+        </IconBase>
+      );
+    case 'receipt':
+      return (
+        <IconBase>
+          <path d="M7 4h10v16l-2-1.2-2 1.2-2-1.2-2 1.2-2-1.2V4Z" />
+          <path d="M10 9h4" />
+          <path d="M10 13h4" />
+        </IconBase>
+      );
+    case 'list':
+      return (
+        <IconBase>
+          <path d="M9 7h10" />
+          <path d="M9 12h10" />
+          <path d="M9 17h10" />
+          <path d="M5 7h.01" />
+          <path d="M5 12h.01" />
+          <path d="M5 17h.01" />
+        </IconBase>
+      );
+    case 'chevron':
+      return (
+        <IconBase>
+          <path d="m9 6 6 6-6 6" />
+        </IconBase>
+      );
+    case 'arrow-left':
+      return (
+        <IconBase>
+          <path d="m15 6-6 6 6 6" />
+        </IconBase>
+      );
+    case 'arrow-right':
+      return (
+        <IconBase>
+          <path d="m9 6 6 6-6 6" />
+        </IconBase>
+      );
+    case 'edit':
+      return (
+        <IconBase>
+          <path d="M12 20h9" />
+          <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L8 18l-4 1 1-4 11.5-11.5Z" />
+        </IconBase>
+      );
+    case 'check':
+      return (
+        <IconBase>
+          <path d="m7 12 3 3 7-7" />
+        </IconBase>
+      );
+    case 'circle':
+      return (
+        <IconBase>
+          <circle cx="12" cy="12" r="8" />
+        </IconBase>
+      );
+    case 'calendar':
+      return (
+        <IconBase>
+          <path d="M7 3v4" />
+          <path d="M17 3v4" />
+          <rect x="4" y="6" width="16" height="14" rx="2" />
+          <path d="M8 11h8" />
+        </IconBase>
+      );
+    case 'flame':
+      return (
+        <IconBase>
+          <path d="M12 22c4 0 7-3 7-7 0-3-2-5-4-7 .2 2-1 3-2 3-1.5 0-2.5-1.4-2-4-3 2-5 5-5 8 0 4 2 7 6 7Z" />
+        </IconBase>
+      );
+  }
+}
+
+function DashboardMealIcon(props: { mealType: MealType }) {
+  switch (props.mealType) {
+    case 'breakfast':
+      return (
+        <IconBase>
+          <circle cx="12" cy="12" r="3.2" />
+          <path d="M12 3.5v2" />
+          <path d="M12 18.5v2" />
+          <path d="M3.5 12h2" />
+          <path d="M18.5 12h2" />
+          <path d="m6 6 1.4 1.4" />
+          <path d="m16.6 16.6 1.4 1.4" />
+          <path d="m18 6-1.4 1.4" />
+          <path d="m7.4 16.6-1.4 1.4" />
+        </IconBase>
+      );
+    case 'lunch':
+      return (
+        <IconBase>
+          <path d="M5 12h14" />
+          <path d="M7 12a5 5 0 0 0 10 0" />
+          <path d="M9 8c0-1 1-1.4 1-2.4" />
+          <path d="M13 8c0-1 1-1.4 1-2.4" />
+          <path d="M8 17h8" />
+        </IconBase>
+      );
+    case 'dinner':
+      return (
+        <IconBase>
+          <path d="M18 14.5A6.5 6.5 0 0 1 9.5 6a7 7 0 1 0 8.5 8.5Z" />
+          <path d="M16.5 5.5h.01" />
+          <path d="M19 8h.01" />
+        </IconBase>
+      );
+    case 'snack':
+      return (
+        <IconBase>
+          <path d="M12 7c3 0 5 2.3 5 5.8 0 4.2-2.2 7-5 7s-5-2.8-5-7C7 9.3 9 7 12 7Z" />
+          <path d="M12 7c.2-2 1.3-3.2 3.2-3.6" />
+          <path d="M10 5.5c-1.2-.8-2.4-.9-3.7-.3" />
+        </IconBase>
+      );
+  }
+}
+
 const SIDEBAR_COLLAPSED_KEY = 'culina-large-shell-sidebar-collapsed-v3';
 
 const NAV_ITEMS: Array<{ key: TabKey; label: string; icon: ShellIconName }> = [
@@ -293,11 +548,101 @@ function defaultSidebarCollapsed() {
   return false;
 }
 
+function dateKeyTime(date: string) {
+  const [year, month, day] = date.slice(0, 10).split('-').map(Number);
+  return new Date(year, (month || 1) - 1, day || 1).getTime();
+}
+
+function getExpiryDaysLeft(expiryDate: string, referenceDate: string) {
+  return Math.round((dateKeyTime(expiryDate) - dateKeyTime(referenceDate)) / (1000 * 60 * 60 * 24));
+}
+
+function getDashboardExpiryBadge(daysLeft: number) {
+  if (daysLeft < 0) {
+    return { label: `已过期${Math.abs(daysLeft)}天`, className: 'dashboard-expiry-badge dashboard-expiry-badge-expired' };
+  }
+  if (daysLeft === 0) {
+    return { label: '今日过期', className: 'dashboard-expiry-badge dashboard-expiry-badge-today' };
+  }
+  if (daysLeft <= 3) {
+    return { label: `还有${daysLeft}天过期`, className: 'dashboard-expiry-badge dashboard-expiry-badge-soon' };
+  }
+  return { label: `还有${daysLeft}天过期`, className: 'dashboard-expiry-badge dashboard-expiry-badge-later' };
+}
+
+function formatDashboardPlanRange(range: { start: string; end: string }) {
+  const format = (dateKey: string) => {
+    const [, month, day] = dateKey.split('-');
+    return `${Number(month)}月${Number(day)}日`;
+  };
+  return `${format(range.start)} - ${format(range.end)}`;
+}
+
+function shiftDateKey(dateKey: string, offsetDays: number) {
+  const [year, month, day] = dateKey.split('-').map(Number);
+  const base = new Date(year, (month || 1) - 1, day || 1);
+  base.setDate(base.getDate() + offsetDays);
+  const nextYear = base.getFullYear();
+  const nextMonth = `${base.getMonth() + 1}`.padStart(2, '0');
+  const nextDay = `${base.getDate()}`.padStart(2, '0');
+  return `${nextYear}-${nextMonth}-${nextDay}`;
+}
+
+function resolveInventoryStatusForStorage(storageLocation: string): InventoryStatus {
+  return storageLocation.trim() === '冷冻' ? 'frozen' : 'fresh';
+}
+
+function resolveExpiryDateFromDays(purchaseDate: string, expiryDays: string) {
+  const safeDays = Number(expiryDays);
+  if (!purchaseDate || !Number.isFinite(safeDays) || safeDays <= 0) {
+    return '';
+  }
+  return shiftDateKey(purchaseDate, safeDays);
+}
+
+function parsePositiveNumber(value: string) {
+  const numeric = Number(value.trim());
+  return Number.isFinite(numeric) && numeric > 0 ? numeric : null;
+}
+
+function findShoppingIngredient(item: ShoppingListItem, ingredients: Ingredient[]) {
+  const title = item.title.trim();
+  return (
+    ingredients.find((ingredient) => ingredient.name === title) ??
+    ingredients.find((ingredient) => title.includes(ingredient.name) || ingredient.name.includes(title)) ??
+    null
+  );
+}
+
+function buildHomeRestockForm(item: ShoppingListItem, ingredients: Ingredient[]): HomeRestockFormState {
+  const ingredient = findShoppingIngredient(item, ingredients);
+  const purchaseDate = todayKey();
+  const expiryInputMode = ingredient?.default_expiry_mode ?? 'none';
+  const expiryDays =
+    expiryInputMode === 'days' && ingredient?.default_expiry_days !== null && ingredient?.default_expiry_days !== undefined
+      ? String(ingredient.default_expiry_days)
+      : '';
+  const storageLocation = ingredient?.default_storage || '冷藏';
+  return {
+    ingredientId: ingredient?.id ?? '',
+    ingredientQuery: ingredient?.name ?? item.title,
+    quantity: String(item.quantity || 1),
+    unit: item.unit || ingredient?.default_unit || '个',
+    purchaseDate,
+    storageLocation,
+    expiryInputMode,
+    expiryDays,
+    expiryDate: expiryInputMode === 'days' ? resolveExpiryDateFromDays(purchaseDate, expiryDays) : '',
+    status: resolveInventoryStatusForStorage(storageLocation),
+    notes: item.reason ? `来自采购提醒：${item.reason}` : '来自首页采购提醒',
+  };
+}
+
 function App() {
   const queryClient = useQueryClient();
   const { isAuthenticated, isLoading: authLoading, user, membership, logout } = useAuth();
   const [selectedRecipePlanDate, setSelectedRecipePlanDate] = useState(todayKey());
-  const recipePlanWeekRange = useMemo(() => getRecipeWeekRange(selectedRecipePlanDate), [selectedRecipePlanDate]);
+  const foodPlanWeekRange = useMemo(() => getRecipeWeekRange(selectedRecipePlanDate), [selectedRecipePlanDate]);
   const [activeTab, setActiveTab] = useState<TabKey>(() => {
     const cached = localStorage.getItem('culina-active-tab');
     return (cached as TabKey) || 'home';
@@ -343,6 +688,33 @@ function App() {
   const [foodWorkspaceView, setFoodWorkspaceView] = useState<FoodWorkspaceView>('list');
   const [familyOverlayMode, setFamilyOverlayMode] = useState<FamilyOverlayMode>(null);
   const [pendingRecipeCookId, setPendingRecipeCookId] = useState<string | null>(null);
+  const [pendingFoodPlanCookItemId, setPendingFoodPlanCookItemId] = useState<string | null>(null);
+  const [dashboardRecommendationPage, setDashboardRecommendationPage] = useState(0);
+  const [selectedDashboardPlanDate, setSelectedDashboardPlanDate] = useState(todayKey());
+  const [homePlanDetailItemId, setHomePlanDetailItemId] = useState<string | null>(null);
+  const [isHomePlanAddDialogOpen, setIsHomePlanAddDialogOpen] = useState(false);
+  const [homePlanAddFoodId, setHomePlanAddFoodId] = useState<string | null>(null);
+  const [homePlanAddFoodSearch, setHomePlanAddFoodSearch] = useState('');
+  const [homePlanAddForm, setHomePlanAddForm] = useState<HomePlanAddFormState>({
+    planDate: todayKey(),
+    mealType: 'dinner',
+    note: '',
+  });
+  const [homePlanDetailForm, setHomePlanDetailForm] = useState<FoodPlanDetailFormState>({
+    planDate: todayKey(),
+    mealType: 'dinner',
+    note: '',
+  });
+  const [isHomePlanDetailEditing, setIsHomePlanDetailEditing] = useState(false);
+  const [visibleExpiryCount, setVisibleExpiryCount] = useState(10);
+  const [visibleDashboardTodoCount, setVisibleDashboardTodoCount] = useState(DASHBOARD_TODO_PAGE_SIZE);
+  const [ingredientNavigationRequest, setIngredientNavigationRequest] = useState<IngredientNavigationRequest | null>(null);
+  const [homeExpiredDisposalIngredientId, setHomeExpiredDisposalIngredientId] = useState<string | null>(null);
+  const [homeExpiryReviewItemId, setHomeExpiryReviewItemId] = useState<string | null>(null);
+  const [homeRestockShoppingItemId, setHomeRestockShoppingItemId] = useState<string | null>(null);
+  const [homeRestockForm, setHomeRestockForm] = useState<HomeRestockFormState | null>(null);
+  const [homeMealDetailId, setHomeMealDetailId] = useState<string | null>(null);
+  const ingredientNavigationRequestIdRef = useRef(0);
 
   useEffect(() => {
     localStorage.setItem('culina-active-tab', activeTab);
@@ -404,10 +776,11 @@ function App() {
     queryFn: api.getRecipeFavorites,
     enabled: isAuthenticated,
   });
-  const recipePlanQuery = useQuery({
-    queryKey: ['recipe-plan', recipePlanWeekRange.start, recipePlanWeekRange.end],
-    queryFn: () => api.getRecipePlan(recipePlanWeekRange.start, recipePlanWeekRange.end),
+  const foodPlanQuery = useQuery({
+    queryKey: ['food-plan', foodPlanWeekRange.start, foodPlanWeekRange.end],
+    queryFn: () => api.getFoodPlan(foodPlanWeekRange.start, foodPlanWeekRange.end),
     enabled: isAuthenticated,
+    placeholderData: keepPreviousData,
   });
   const foodScenesQuery = useQuery({
     queryKey: ['food-scenes'],
@@ -530,7 +903,7 @@ function App() {
       void queryClient.invalidateQueries({ queryKey: ['recipe-discovery'] });
       void queryClient.invalidateQueries({ queryKey: ['recipe-stats'] });
       void queryClient.invalidateQueries({ queryKey: ['recipe-favorites'] });
-      void queryClient.invalidateQueries({ queryKey: ['recipe-plan'] });
+      void queryClient.invalidateQueries({ queryKey: ['food-plan'] });
       void queryClient.invalidateQueries({ queryKey: ['foods'] });
       void queryClient.invalidateQueries({ queryKey: ['food-recommendations'] });
       void queryClient.invalidateQueries({ queryKey: ['activity-logs'] });
@@ -546,7 +919,7 @@ function App() {
       void queryClient.invalidateQueries({ queryKey: ['recipe-stats'] });
       void queryClient.invalidateQueries({ queryKey: ['foods'] });
       void queryClient.invalidateQueries({ queryKey: ['meal-logs'] });
-      void queryClient.invalidateQueries({ queryKey: ['recipe-plan'] });
+      void queryClient.invalidateQueries({ queryKey: ['food-plan'] });
       void queryClient.invalidateQueries({ queryKey: ['activity-logs'] });
     },
   });
@@ -568,25 +941,25 @@ function App() {
       void queryClient.invalidateQueries({ queryKey: ['activity-logs'] });
     },
   });
-  const createRecipePlanItemMutation = useMutation({
-    mutationFn: api.createRecipePlanItem,
+  const createFoodPlanItemMutation = useMutation({
+    mutationFn: api.createFoodPlanItem,
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['recipe-plan'] });
+      void queryClient.invalidateQueries({ queryKey: ['food-plan'] });
       void queryClient.invalidateQueries({ queryKey: ['activity-logs'] });
     },
   });
-  const updateRecipePlanItemMutation = useMutation({
-    mutationFn: ({ itemId, payload }: { itemId: string; payload: Parameters<typeof api.updateRecipePlanItem>[1] }) =>
-      api.updateRecipePlanItem(itemId, payload),
+  const updateFoodPlanItemMutation = useMutation({
+    mutationFn: ({ itemId, payload }: { itemId: string; payload: Parameters<typeof api.updateFoodPlanItem>[1] }) =>
+      api.updateFoodPlanItem(itemId, payload),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['recipe-plan'] });
+      void queryClient.invalidateQueries({ queryKey: ['food-plan'] });
       void queryClient.invalidateQueries({ queryKey: ['activity-logs'] });
     },
   });
-  const deleteRecipePlanItemMutation = useMutation({
-    mutationFn: api.deleteRecipePlanItem,
+  const deleteFoodPlanItemMutation = useMutation({
+    mutationFn: api.deleteFoodPlanItem,
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['recipe-plan'] });
+      void queryClient.invalidateQueries({ queryKey: ['food-plan'] });
       void queryClient.invalidateQueries({ queryKey: ['activity-logs'] });
     },
   });
@@ -650,6 +1023,7 @@ function App() {
     mutationFn: api.quickAddMealLog,
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['meal-logs'] });
+      void queryClient.invalidateQueries({ queryKey: ['food-plan'] });
       void queryClient.invalidateQueries({ queryKey: ['food-recommendations'] });
       void queryClient.invalidateQueries({ queryKey: ['activity-logs'] });
     },
@@ -671,7 +1045,7 @@ function App() {
   const recipeDiscovery: RecipeDiscovery | null = recipeDiscoveryQuery.data ?? null;
   const recipeStats: RecipeStats | null = recipeStatsQuery.data ?? null;
   const recipeFavorites = recipeFavoritesQuery.data ?? [];
-  const recipePlanItems = recipePlanQuery.data ?? [];
+  const foodPlanItems = foodPlanQuery.data ?? [];
   const foodScenes: FoodScene[] = foodScenesQuery.data ?? [];
   const foods = foodsQuery.data ?? [];
   const foodRecommendations: FoodRecommendations | null = foodRecommendationsQuery.data ?? null;
@@ -679,6 +1053,50 @@ function App() {
   const activityLogs = activityLogsQuery.data ?? [];
   const aiConversations = aiConversationsQuery.data ?? [];
   const family = familyQuery.data;
+  const homePlanDetailItem = homePlanDetailItemId
+    ? foodPlanItems.find((item) => item.id === homePlanDetailItemId) ?? null
+    : null;
+  const homePlanDetailFood = homePlanDetailItem
+    ? foods.find((food) => food.id === homePlanDetailItem.food_id) ?? null
+    : null;
+  const homePlanAddFood = homePlanAddFoodId
+    ? foods.find((food) => food.id === homePlanAddFoodId) ?? null
+    : null;
+  const homePlanAddFoodOptions = foods
+    .filter((food) => {
+      const query = homePlanAddFoodSearch.trim().toLowerCase();
+      if (!query) return true;
+      return [food.name, food.category, food.source_name, food.purchase_source, food.scene, food.notes, food.routine_note]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase()
+        .includes(query);
+    })
+    .slice(0, 8);
+
+  useEffect(() => {
+    setVisibleExpiryCount(10);
+  }, [inventoryItems.length]);
+
+  useEffect(() => {
+    if (!homePlanDetailItem) {
+      return;
+    }
+    setHomePlanDetailForm({
+      planDate: homePlanDetailItem.plan_date < todayKey() ? todayKey() : homePlanDetailItem.plan_date,
+      mealType: homePlanDetailItem.meal_type,
+      note: homePlanDetailItem.note ?? '',
+    });
+  }, [homePlanDetailItem?.id, homePlanDetailItem?.meal_type, homePlanDetailItem?.note, homePlanDetailItem?.plan_date]);
+
+  useEffect(() => {
+    const defaultDate = todayKey();
+    if (defaultDate >= foodPlanWeekRange.start && defaultDate <= foodPlanWeekRange.end) {
+      setSelectedDashboardPlanDate(defaultDate);
+      return;
+    }
+    setSelectedDashboardPlanDate(foodPlanWeekRange.start);
+  }, [foodPlanWeekRange.end, foodPlanWeekRange.start]);
 
   if (!isAuthenticated) {
     return <LoginScreen />;
@@ -693,7 +1111,7 @@ function App() {
     shoppingQuery.isLoading ||
     recipesQuery.isLoading ||
     recipeFavoritesQuery.isLoading ||
-    recipePlanQuery.isLoading ||
+    (foodPlanQuery.isLoading && !foodPlanQuery.data) ||
     foodScenesQuery.isLoading ||
     foodsQuery.isLoading ||
     mealLogsQuery.isLoading ||
@@ -975,12 +1393,475 @@ function App() {
   }
 
   const headerName = currentUser?.display_name ?? '家庭成员';
+  const today = todayKey();
+  const ingredientById = new Map(ingredients.map((ingredient) => [ingredient.id, ingredient]));
+  const availableInventoryCount = inventoryItems.filter((item) => (item.remaining_quantity ?? item.quantity) > 0).length;
+  const expiringInventoryItems = inventoryItems
+    .filter((item) => (item.remaining_quantity ?? item.quantity) > 0 && item.expiry_date)
+    .map((item) => ({
+      ...item,
+      daysLeft: item.expiry_date ? getExpiryDaysLeft(item.expiry_date, today) : 99,
+    }))
+    .filter((item) => item.daysLeft <= 7)
+    .sort((left, right) => left.daysLeft - right.daysLeft);
+  const visibleExpiringInventoryItems = expiringInventoryItems.slice(0, visibleExpiryCount);
+  const activeFoodPlanItems = foodPlanItems.filter((item) => item.status !== 'skipped');
   const dashboardStats = [
-    { label: '今日记录', value: `${familyStats.mealsToday} 顿` },
-    { label: '库存提醒', value: `${inventoryAlerts.length} 条` },
-    { label: '待买清单', value: `${pendingShoppingCount} 项` },
-    { label: 'AI 建议', value: `${aiRecommendationCount} 条` },
+    {
+      label: '在库食材',
+      value: `${availableInventoryCount}`,
+      unit: '种',
+      detail: '库存充足',
+      icon: 'leaf' as const,
+      tone: 'green',
+    },
+    {
+      label: '临期提醒',
+      value: `${inventoryAlerts.length}`,
+      unit: '项',
+      detail: '已过期/7 天内到期',
+      icon: 'bell' as const,
+      tone: 'coral',
+    },
+    {
+      label: '待采购',
+      value: `${pendingShoppingCount}`,
+      unit: '项',
+      detail: pendingShoppingCount > 0 ? '建议尽快补齐' : '清单已完成',
+      icon: 'cart' as const,
+      tone: 'yellow',
+    },
+    {
+      label: '本周做菜',
+      value: `${activeFoodPlanItems.length}`,
+      unit: '餐',
+      detail: '计划进行中',
+      icon: 'pot' as const,
+      tone: 'violet',
+    },
   ];
+  const dashboardRecommendationItems = (foodRecommendations?.items ?? [])
+    .map((item) => ({
+      recommendation: item,
+      coverUrl: getFoodCover(item.food, recipes),
+    }));
+  const dashboardRecommendationPageCount = Math.max(1, Math.ceil(dashboardRecommendationItems.length / 3));
+  const dashboardRecommendations = dashboardRecommendationItems.slice(
+    (dashboardRecommendationPage % dashboardRecommendationPageCount) * 3,
+    (dashboardRecommendationPage % dashboardRecommendationPageCount) * 3 + 3
+  );
+  const dashboardTodoItems: DashboardTodoItem[] = [
+    ...expiringInventoryItems.map((item) => ({
+      type: 'expiry' as const,
+      id: `expiry-${item.id}`,
+      title: `处理临期${item.ingredient_name}`,
+      status: item.daysLeft <= 1 ? '紧急' : '待办',
+      done: false as const,
+      dateLabel: item.daysLeft <= 0 ? '今天' : formatRelativeDays(item.expiry_date ?? today),
+      description: `${item.storage_location || INVENTORY_STATUS_LABELS[item.status]} · ${
+        item.expiry_date ? formatDate(item.expiry_date) : '未记录到期日'
+      }到期`,
+      icon: 'bell' as const,
+      item,
+    })),
+    ...shoppingItems
+      .filter((item) => !item.done)
+      .map((item) => ({
+        type: 'shopping' as const,
+        id: `shopping-${item.id}`,
+        title: `补齐${item.title}`,
+        status: '待办',
+        done: false as const,
+        dateLabel: '今天',
+        description: `${item.quantity}${item.unit || ''}${item.reason ? ` · ${item.reason}` : ' · 采购后可快速入库'}`,
+        icon: 'cart' as const,
+        item,
+      })),
+    ...todaysMeals.map((meal) => ({
+      type: 'meal' as const,
+      id: `meal-${meal.id}`,
+      title: `记录${MEAL_TYPE_LABELS[meal.meal_type]}`,
+      status: '已完成',
+      done: true as const,
+      dateLabel: '今天',
+      description:
+        meal.food_entries.length > 0
+          ? meal.food_entries.map((entry) => entry.food_name).join('、')
+          : meal.notes || '查看这餐的记录详情',
+      icon: 'check' as const,
+      item: meal,
+    })),
+  ];
+  const visibleDashboardTodoItems = dashboardTodoItems.slice(0, visibleDashboardTodoCount);
+  const hasMoreDashboardTodoItems = visibleDashboardTodoItems.length < dashboardTodoItems.length;
+  const dashboardCompletedCount = dashboardTodoItems.filter((item) => item.done).length;
+  const dashboardWeekMealCapacity = 7 * DASHBOARD_PLAN_MEAL_TYPES.length;
+  const completedFoodPlanCount = activeFoodPlanItems.filter((item) => item.status === 'cooked').length;
+  const pendingFoodPlanSlots = Math.max(0, dashboardWeekMealCapacity - activeFoodPlanItems.length);
+  const dashboardPlanSummary = [
+    { label: '已安排', value: activeFoodPlanItems.length, icon: 'receipt' as const, tone: 'orange' },
+    { label: '待补充', value: pendingFoodPlanSlots, icon: 'flame' as const, tone: 'amber' },
+    { label: '已完成', value: completedFoodPlanCount, icon: 'check' as const, tone: 'green' },
+  ];
+  const dashboardPlanDays = Array.from({ length: 7 }, (_, index) => {
+    const date = addDateKeyDays(foodPlanWeekRange.start, index);
+    const dayItems = activeFoodPlanItems.filter((entry) => entry.plan_date === date);
+    const mealItems = DASHBOARD_PLAN_MEAL_TYPES.map((mealType) => {
+      const items = dayItems.filter((item) => item.meal_type === mealType);
+      return {
+        mealType,
+        items,
+      };
+    });
+    const plannedMealCount = mealItems.filter((entry) => entry.items.length > 0).length;
+    return {
+      date,
+      weekday: ['一', '二', '三', '四', '五', '六', '日'][index],
+      dayLabel: formatDate(date).replace('周', ''),
+      mealItems,
+      plannedMealCount,
+      totalCount: dayItems.length,
+      isToday: date === today,
+      isSelected: date === selectedDashboardPlanDate,
+    };
+  });
+  const selectedDashboardPlanDay =
+    dashboardPlanDays.find((day) => day.date === selectedDashboardPlanDate) ?? dashboardPlanDays[0];
+  const selectedDashboardPlanDateLabel = selectedDashboardPlanDay
+    ? `${selectedDashboardPlanDay.isToday ? '今天' : `周${selectedDashboardPlanDay.weekday}`} · ${selectedDashboardPlanDay.dayLabel}`
+    : '';
+  const pendingShoppingPreview = shoppingItems.filter((item) => !item.done);
+  const homeRestockShoppingItem = homeRestockShoppingItemId
+    ? shoppingItems.find((item) => item.id === homeRestockShoppingItemId) ?? null
+    : null;
+  const homeExpiryReviewItem = homeExpiryReviewItemId
+    ? expiringInventoryItems.find((item) => item.id === homeExpiryReviewItemId) ?? null
+    : null;
+  const homeExpiryReviewIngredient = homeExpiryReviewItem
+    ? ingredientById.get(homeExpiryReviewItem.ingredient_id) ?? null
+    : null;
+  const homeMealDetail = homeMealDetailId
+    ? mealLogs.find((item) => item.id === homeMealDetailId) ?? null
+    : null;
+  const homeMealDetailParticipants = homeMealDetail
+    ? members.filter((member) => homeMealDetail.participant_user_ids.includes(member.id))
+    : [];
+  const homeRestockIngredient =
+    homeRestockForm?.ingredientId ? ingredients.find((item) => item.id === homeRestockForm.ingredientId) ?? null : null;
+  const homeRestockIngredientImageUrl =
+    homeRestockIngredient?.image?.url ? resolveDashboardAssetUrl(homeRestockIngredient.image.url) : undefined;
+
+  function resolveDashboardAssetUrl(url?: string) {
+    if (!url) return undefined;
+    if (url.startsWith('http://') || url.startsWith('https://') || url.startsWith('data:')) return url;
+    return `${API_BASE_URL}${url}`;
+  }
+
+  function openIngredientsCatalog() {
+    ingredientNavigationRequestIdRef.current += 1;
+    setIngredientNavigationRequest({ view: 'catalog', requestId: ingredientNavigationRequestIdRef.current });
+    setActiveTab('ingredients');
+  }
+
+  function openIngredientDetail(ingredientId: string) {
+    ingredientNavigationRequestIdRef.current += 1;
+    setIngredientNavigationRequest({ view: 'detail', ingredientId, requestId: ingredientNavigationRequestIdRef.current });
+    setActiveTab('ingredients');
+  }
+
+  function openIngredientExpiredDisposal(ingredientId: string) {
+    setHomeExpiredDisposalIngredientId(ingredientId);
+  }
+
+  function openHomeExpiryReview(item: DashboardExpiryTodoInventoryItem) {
+    setHomeExpiryReviewItemId(item.id);
+  }
+
+  function closeHomeExpiryReview() {
+    setHomeExpiryReviewItemId(null);
+  }
+
+  function openHomeRestock(item: ShoppingListItem) {
+    setHomeRestockShoppingItemId(item.id);
+    setHomeRestockForm(buildHomeRestockForm(item, ingredients));
+  }
+
+  function closeHomeRestock() {
+    setHomeRestockShoppingItemId(null);
+    setHomeRestockForm(null);
+  }
+
+  function closeHomeMealDetail() {
+    setHomeMealDetailId(null);
+  }
+
+  function handleDashboardTodoClick(item: DashboardTodoItem) {
+    if (item.type === 'expiry') {
+      if (item.item.daysLeft < 0) {
+        openIngredientExpiredDisposal(item.item.ingredient_id);
+        return;
+      }
+      openHomeExpiryReview(item.item);
+      return;
+    }
+    if (item.type === 'shopping') {
+      openHomeRestock(item.item);
+      return;
+    }
+    setHomeMealDetailId(item.item.id);
+  }
+
+  function updateHomeRestockForm(next: HomeRestockFormState) {
+    setHomeRestockForm(next);
+  }
+
+  function openHomePlanDetail(item: FoodPlanItem) {
+    setHomePlanDetailItemId(item.id);
+    setHomePlanDetailForm({
+      planDate: item.plan_date < todayKey() ? todayKey() : item.plan_date,
+      mealType: item.meal_type,
+      note: item.note ?? '',
+    });
+    setIsHomePlanDetailEditing(false);
+  }
+
+  function closeHomePlanDetail() {
+    setHomePlanDetailItemId(null);
+    setIsHomePlanDetailEditing(false);
+  }
+
+  function resetHomePlanDetailForm() {
+    if (!homePlanDetailItem) return;
+    setHomePlanDetailForm({
+      planDate: homePlanDetailItem.plan_date < todayKey() ? todayKey() : homePlanDetailItem.plan_date,
+      mealType: homePlanDetailItem.meal_type,
+      note: homePlanDetailItem.note ?? '',
+    });
+    setIsHomePlanDetailEditing(false);
+  }
+
+  function getDefaultHomePlanMealType(food: Food, fallback: MealType = 'dinner') {
+    return food.suitable_meal_types[0] ?? fallback;
+  }
+
+  function openHomePlanAddDialog(food: Food, fallbackMealType: MealType = 'dinner') {
+    setIsHomePlanAddDialogOpen(true);
+    setHomePlanAddFoodId(food.id);
+    setHomePlanAddFoodSearch(food.name);
+    setHomePlanAddForm({
+      planDate: selectedDashboardPlanDate,
+      mealType: getDefaultHomePlanMealType(food, fallbackMealType),
+      note: '',
+    });
+  }
+
+  function openHomePlanAddEmptyDialog(planDate: string, mealType: MealType) {
+    setIsHomePlanAddDialogOpen(true);
+    setHomePlanAddFoodId(null);
+    setHomePlanAddFoodSearch('');
+    setHomePlanAddForm({
+      planDate,
+      mealType,
+      note: '',
+    });
+  }
+
+  function selectHomePlanAddFood(food: Food) {
+    setHomePlanAddFoodId(food.id);
+    setHomePlanAddFoodSearch(food.name);
+    setHomePlanAddForm((current) => ({
+      ...current,
+      mealType: getDefaultHomePlanMealType(food, current.mealType),
+    }));
+  }
+
+  function closeHomePlanAddDialog() {
+    setIsHomePlanAddDialogOpen(false);
+    setHomePlanAddFoodId(null);
+    setHomePlanAddFoodSearch('');
+    setHomePlanAddForm({
+      planDate: todayKey(),
+      mealType: 'dinner',
+      note: '',
+    });
+  }
+
+  async function startHomePlanDetailCook(item: FoodPlanItem) {
+    closeHomePlanDetail();
+    if (item.recipe_id) {
+      setPendingRecipeCookId(item.recipe_id);
+      setPendingFoodPlanCookItemId(item.id);
+      setActiveTab('recipes');
+      return;
+    }
+    try {
+      await quickAddMealMutation.mutateAsync({
+        food_id: item.food_id,
+        date: item.plan_date,
+        meal_type: item.meal_type,
+        servings: 1,
+        note: item.note || '来自菜单计划',
+        food_plan_item_id: item.id,
+      });
+    } catch (reason) {
+      window.alert(reason instanceof Error ? reason.message : '完成菜单计划失败');
+    }
+  }
+
+  function handleExpiryListScroll(event: UIEvent<HTMLDivElement>) {
+    const target = event.currentTarget;
+    if (target.scrollTop + target.clientHeight < target.scrollHeight - 24) {
+      return;
+    }
+    setVisibleExpiryCount((current) => Math.min(current + 10, expiringInventoryItems.length));
+  }
+
+  function handleDashboardTodoListScroll(event: UIEvent<HTMLDivElement>) {
+    const target = event.currentTarget;
+    if (target.scrollTop + target.clientHeight < target.scrollHeight - 18) {
+      return;
+    }
+    setVisibleDashboardTodoCount((current) => Math.min(current + DASHBOARD_TODO_PAGE_SIZE, dashboardTodoItems.length));
+  }
+
+  const ingredientSummaries = buildIngredientSummaries({
+    ingredients,
+    inventoryItems,
+    recipes,
+  });
+  const homeExpiredDisposalSummary =
+    ingredientSummaries.find((item) => item.ingredient.id === homeExpiredDisposalIngredientId) ?? null;
+  const homeExpiredDisposalItems = homeExpiredDisposalSummary
+    ? buildDisposableExpiredInventoryItems(homeExpiredDisposalSummary)
+    : [];
+
+  async function submitHomeExpiredDisposal(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!homeExpiredDisposalSummary) {
+      window.alert('这份食材暂时不可用，请稍后再试。');
+      return;
+    }
+    if (homeExpiredDisposalItems.length === 0) {
+      window.alert('当前没有可销毁的过期批次。');
+      return;
+    }
+
+    try {
+      await disposeExpiredInventoryMutation.mutateAsync({
+        ingredient_id: homeExpiredDisposalSummary.ingredient.id,
+        inventory_item_ids: homeExpiredDisposalItems.map((item) => item.id),
+      });
+      setHomeExpiredDisposalIngredientId(null);
+    } catch (reason) {
+      window.alert(reason instanceof Error ? reason.message : '销毁过期批次失败');
+    }
+  }
+
+  async function submitHomeRestock(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!homeRestockShoppingItem || !homeRestockForm) {
+      window.alert('先选择要登记的采购项。');
+      return;
+    }
+    if (!homeRestockForm.ingredientId) {
+      window.alert('请先匹配一份食材档案，再登记库存。');
+      return;
+    }
+    const quantity = parsePositiveNumber(homeRestockForm.quantity);
+    if (quantity === null) {
+      window.alert('数量要大于 0，才能把这批库存记进系统。');
+      return;
+    }
+    if (!homeRestockForm.purchaseDate) {
+      window.alert('请确认这批食材的购买日期。');
+      return;
+    }
+    if (!homeRestockForm.storageLocation.trim()) {
+      window.alert('请确认这批食材放在哪里。');
+      return;
+    }
+    if (homeRestockForm.expiryInputMode === 'days' && parsePositiveNumber(homeRestockForm.expiryDays) === null) {
+      window.alert('请填写这批食材大概几天后到期。');
+      return;
+    }
+    if (homeRestockForm.expiryInputMode === 'manual_date' && !homeRestockForm.expiryDate) {
+      window.alert('请填写包装上的到期日期。');
+      return;
+    }
+
+    try {
+      await createInventoryMutation.mutateAsync({
+        ingredient_id: homeRestockForm.ingredientId,
+        quantity,
+        unit: homeRestockForm.unit.trim() || homeRestockIngredient?.default_unit || '个',
+        status: homeRestockForm.status,
+        purchase_date: homeRestockForm.purchaseDate,
+        expiry_date: homeRestockForm.expiryDate || undefined,
+        storage_location: homeRestockForm.storageLocation.trim(),
+        notes: homeRestockForm.notes.trim(),
+      });
+      try {
+        await updateShoppingMutation.mutateAsync({ itemId: homeRestockShoppingItem.id, done: true });
+      } catch (reason) {
+        window.alert(
+          reason instanceof Error
+            ? `库存已登记，但待买项仍未标记完成：${reason.message}`
+            : '库存已登记，但待买项仍未标记为已买，请稍后再试。'
+        );
+      }
+      closeHomeRestock();
+    } catch (reason) {
+      window.alert(reason instanceof Error ? reason.message : '录入库存失败');
+    }
+  }
+
+  async function submitHomePlanDetail(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!homePlanDetailItem) {
+      return;
+    }
+    try {
+      await updateFoodPlanItemMutation.mutateAsync({
+        itemId: homePlanDetailItem.id,
+        payload: {
+          plan_date: homePlanDetailForm.planDate,
+          meal_type: homePlanDetailForm.mealType,
+          note: homePlanDetailForm.note.trim(),
+        },
+      });
+      setIsHomePlanDetailEditing(false);
+    } catch (reason) {
+      window.alert(reason instanceof Error ? reason.message : '更新菜单计划失败');
+    }
+  }
+
+  async function deleteHomePlanDetail(item: FoodPlanItem) {
+    try {
+      await deleteFoodPlanItemMutation.mutateAsync(item.id);
+      closeHomePlanDetail();
+    } catch (reason) {
+      window.alert(reason instanceof Error ? reason.message : '删除菜单计划失败');
+    }
+  }
+
+  async function submitHomePlanAdd(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!homePlanAddFood) {
+      window.alert('请选择要加入菜单的食物。');
+      return;
+    }
+    try {
+      await createFoodPlanItemMutation.mutateAsync({
+        food_id: homePlanAddFood.id,
+        plan_date: homePlanAddForm.planDate,
+        meal_type: homePlanAddForm.mealType,
+        note: homePlanAddForm.note.trim(),
+      });
+      closeHomePlanAddDialog();
+    } catch (reason) {
+      window.alert(reason instanceof Error ? reason.message : '加入菜单失败');
+    }
+  }
 
   return (
     <div className="app-shell">
@@ -1073,141 +1954,447 @@ function App() {
           </nav>
 
           {activeTab === 'home' && (
-          <main className="page-stack">
-            <section className="card dashboard-overview">
-              <div className="dashboard-overview-copy">
-                <p className="eyebrow">首页总览</p>
-                <h2>今天的家庭厨房</h2>
-                <p className="subtle">
-                  今日已记录 {familyStats.mealsToday} 顿，库存提醒 {inventoryAlerts.length} 条，待买 {pendingShoppingCount} 项，
-                  AI 建议 {aiRecommendationCount} 条。
-                </p>
+          <main className="dashboard-page">
+            <section className="card dashboard-hero">
+              <div className="dashboard-hero-head">
+                <div>
+                  <h1>首页</h1>
+                  <p>把今天要做、要买、要处理的事放在一个清晰工作台里。</p>
+                </div>
+                <div className="dashboard-hero-actions">
+                  <button className="solid-button dashboard-action-primary" type="button" onClick={() => setActiveTab('ingredients')}>
+                    <DashboardIcon name="plus" />
+                    新增食材
+                  </button>
+                  <button className="ghost-button dashboard-action-secondary" type="button" onClick={() => setActiveTab('logs')}>
+                    <DashboardIcon name="receipt" />
+                    记录一餐
+                  </button>
+                </div>
               </div>
-              <div className="dashboard-overview-side">
-                <div className="dashboard-overview-metrics">
-                  {dashboardStats.map((item) => (
-                    <div key={item.label} className="dashboard-metric-card">
+
+              <div className="dashboard-stat-grid">
+                {dashboardStats.map((item) => (
+                  <article key={item.label} className="dashboard-stat-card">
+                    <span className={`dashboard-stat-icon tone-${item.tone}`}>
+                      <DashboardIcon name={item.icon} />
+                    </span>
+                    <div>
                       <span>{item.label}</span>
-                      <strong>{item.value}</strong>
+                      <strong>
+                        {item.value}
+                        <small>{item.unit}</small>
+                      </strong>
+                      <p>{item.detail}</p>
                     </div>
-                  ))}
-                </div>
-                <div className="hero-actions">
-                  <button className="solid-button" type="button" onClick={() => setActiveTab('logs')}>
-                    快速记一餐
-                  </button>
-                  <button className="ghost-button" type="button" onClick={() => setActiveTab('ingredients')}>
-                    看库存提醒
-                  </button>
-                  <button className="ghost-button" type="button" onClick={() => setActiveTab('ai')}>
-                    获取 AI 推荐
-                  </button>
-                </div>
+                  </article>
+                ))}
               </div>
             </section>
 
-            <div className="dashboard-grid">
-              <div className="dashboard-main">
-                <section className="card page-section">
-                  <SectionHeading title="今日提醒" description="优先处理临期和低库存食材" />
-                  <div className="stack-list">
-                    {inventoryAlerts.length > 0 ? (
-                      inventoryAlerts.map((alert) => (
-                        <article key={alert.id} className={`alert-card ${alert.tone}`}>
-                          <h3>{alert.title}</h3>
-                          <p>{alert.detail}</p>
-                        </article>
-                      ))
-                    ) : (
-                      <EmptyState
-                        title="今天没有库存预警"
-                        description="库存状态稳定，可以直接安排今天的菜单。"
-                      />
-                    )}
+            <div className="dashboard-layout">
+              <div className="dashboard-left">
+                <section className="card dashboard-panel dashboard-recommend-panel">
+                  <div className="dashboard-panel-head">
+                    <h2>今天吃什么 <span>✦</span></h2>
+                    <button
+                      className="ghost-button button-compact"
+                      type="button"
+                      onClick={() => setDashboardRecommendationPage((current) => (current + 1) % dashboardRecommendationPageCount)}
+                      disabled={dashboardRecommendationItems.length <= 3}
+                    >
+                      换一批
+                    </button>
                   </div>
-                </section>
-
-                <section className="card page-section">
-                  <SectionHeading title="今日已吃" description="记录今天吃了什么，以及谁一起吃" />
-                  <div className="stack-list">
-                    {todaysMeals.length > 0 ? (
-                      todaysMeals.map((meal) => (
-                        <article key={meal.id} className="meal-card">
-                          <div className="inline-between">
-                            <div>
-                              <h3>{MEAL_TYPE_LABELS[meal.meal_type]}</h3>
-                              <p>{meal.food_entries.map((entry) => entry.food_name).join('、')}</p>
+                  {dashboardRecommendations.length > 0 ? (
+                    <div className="dashboard-food-row">
+                      {dashboardRecommendations.map(({ recommendation, coverUrl }) => {
+                        const food = recommendation.food;
+                        return (
+                          <article key={food.id} className="dashboard-food-card">
+                            <div
+                              className="dashboard-food-cover"
+                              style={
+                                resolveDashboardAssetUrl(coverUrl)
+                                  ? { backgroundImage: `url("${resolveDashboardAssetUrl(coverUrl)}")` }
+                                  : undefined
+                              }
+                            />
+                            <div className="dashboard-food-body">
+                              <h3>{food.name}</h3>
+                              <div className="dashboard-chip-row">
+                                <Badge>{FOOD_TYPE_LABELS[food.type]}</Badge>
+                                <Badge>{food.routine_note || `${food.suitable_meal_types.length || 1} 餐适合`}</Badge>
+                              </div>
+                              <p>{recommendation.reasons[0] ?? food.notes ?? '适合今天安排'}</p>
+                              <div className="dashboard-food-actions">
+                                <button
+                                  className="solid-button button-compact"
+                                  type="button"
+                                  onClick={() => {
+                                    if (food.recipe_id) {
+                                      setPendingRecipeCookId(food.recipe_id);
+                                      setActiveTab('recipes');
+                                      return;
+                                    }
+                                    void quickAddMealMutation.mutateAsync({
+                                      food_id: food.id,
+                                      date: today,
+                                      meal_type: foodRecommendations?.target_meal_type ?? 'dinner',
+                                      servings: 1,
+                                      note: '首页快捷记录',
+                                    });
+                                  }}
+                                  disabled={quickAddMealMutation.isPending}
+                                >
+                                  开始做
+                                </button>
+                                <button className="dashboard-icon-button" type="button" onClick={() => setActiveTab('foods')} aria-label="查看食物">
+                                  <DashboardIcon name="list" />
+                                </button>
+                                <button
+                                  className="dashboard-icon-button"
+                                  type="button"
+                                  onClick={() => openHomePlanAddDialog(food, foodRecommendations?.target_meal_type ?? 'dinner')}
+                                  disabled={createFoodPlanItemMutation.isPending}
+                                  aria-label={`加入菜单：${food.name}`}
+                                  title="加入菜单"
+                                >
+                                  <DashboardIcon name="calendar" />
+                                </button>
+                              </div>
                             </div>
-                            <Badge>{meal.mood}</Badge>
-                          </div>
-                          <p className="subtle">
-                            参与成员：
-                            {meal.participant_user_ids
-                              .map((id) => members.find((member) => member.id === id)?.display_name)
-                              .filter(Boolean)
-                              .join('、')}
-                          </p>
-                          {meal.deduction_suggestions.length > 0 && (
-                            <p className="subtle">
-                              建议扣减：
-                              {meal.deduction_suggestions
-                                .map((item) => `${item.ingredient_name}${item.suggested_amount}${item.unit}`)
-                                .join('、')}
-                            </p>
-                          )}
-                        </article>
-                      ))
-                    ) : (
-                      <EmptyState
-                        title="今天还没有餐食记录"
-                        description="从“快速记一餐”开始，先把今天这一餐记下来。"
-                        action={
-                          <button className="solid-button" type="button" onClick={() => setActiveTab('logs')}>
-                            去记录
-                          </button>
-                        }
-                      />
-                    )}
-                  </div>
-                </section>
-              </div>
-
-              <div className="dashboard-side">
-                <section className="card page-section">
-                  <SectionHeading title="AI 推荐" description="基于库存、历史记录和家庭偏好生成建议" />
-                  <div className="stack-list">
-                    {(family?.ai_recommendations ?? []).length > 0 ? (
-                      (family?.ai_recommendations ?? []).map((item) => (
-                        <article key={item.id} className="recommendation-card">
-                          <h3>{item.title}</h3>
-                          <p>{item.detail}</p>
-                        </article>
-                      ))
-                    ) : (
-                      <EmptyState
-                        title="还没有 AI 推荐"
-                        description="去 AI 页面发起一次问答，首页会展示最新建议。"
-                      />
-                    )}
-                  </div>
+                          </article>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <EmptyState title="暂无推荐" description="补充食材或菜谱后，这里会出现今日建议。" />
+                  )}
                 </section>
 
-                <section className="card page-section">
-                  <SectionHeading title="家庭动态" description="最近是谁更新了厨房记录" />
-                  <div className="stack-list">
-                    {activityLogs.slice(0, 6).map((log) => (
-                      <article key={log.id} className="activity-row">
-                        <Avatar label={log.actor_name ?? '成员'} seed={log.actor_name ?? '成员'} />
-                        <div>
-                          <p>
-                            <strong>{log.actor_name ?? '家庭成员'}</strong> {log.summary}
-                          </p>
-                          <span className="subtle">{formatDateTime(log.created_at)}</span>
+                <div className="dashboard-lower-grid">
+                  <div className="dashboard-lower-left">
+                    <section className="card dashboard-panel dashboard-expiry-panel">
+                      <div className="dashboard-panel-head">
+                        <h2>临期优先处理</h2>
+                        <button className="tertiary-button button-compact" type="button" onClick={openIngredientsCatalog}>
+                          查看全部
+                        </button>
+                      </div>
+                      <div className="dashboard-expiry-list" onScroll={handleExpiryListScroll}>
+                        {visibleExpiringInventoryItems.length > 0 ? (
+                          visibleExpiringInventoryItems.map((item) => {
+                            const ingredient = ingredientById.get(item.ingredient_id);
+                            const expiryBadge = getDashboardExpiryBadge(item.daysLeft);
+                            return (
+                              <article key={item.id} className="dashboard-expiry-item">
+                                <div className="dashboard-ingredient-thumb">
+                                  {ingredient?.image ? (
+                                    <img
+                                      src={resolveDashboardAssetUrl(ingredient.image.url)}
+                                      alt={item.ingredient_name}
+                                    />
+                                  ) : (
+                                    <span>{item.ingredient_name.slice(0, 1)}</span>
+                                  )}
+                                </div>
+                                <div>
+                                  <strong>{item.ingredient_name}</strong>
+                                  <p>{item.storage_location || INVENTORY_STATUS_LABELS[item.status]}</p>
+                                </div>
+                                <Badge className={expiryBadge.className}>
+                                  {expiryBadge.label}
+                                </Badge>
+                                <button
+                                  className="solid-button button-compact"
+                                  type="button"
+                                  onClick={() =>
+                                    item.daysLeft < 0
+                                      ? openIngredientExpiredDisposal(item.ingredient_id)
+                                      : openIngredientDetail(item.ingredient_id)
+                                  }
+                                >
+                                  去处理
+                                </button>
+                              </article>
+                            );
+                          })
+                        ) : (
+                          <EmptyState title="没有临期食材" description="库存状态很稳，可以放心安排菜单。" />
+                        )}
+                        {visibleExpiryCount < expiringInventoryItems.length && (
+                          <div className="dashboard-expiry-loading">继续下滑加载更多</div>
+                        )}
+                      </div>
+                    </section>
+
+                    <section className="card dashboard-panel dashboard-todo-panel">
+                      <div className="dashboard-panel-head">
+                        <h2>今日待办</h2>
+                        <Badge>{dashboardCompletedCount} / {dashboardTodoItems.length || 0}</Badge>
+                      </div>
+                      <div className="dashboard-todo-list" onScroll={handleDashboardTodoListScroll}>
+                        {dashboardTodoItems.length > 0 ? (
+                          <>
+                            {visibleDashboardTodoItems.map((item) => (
+                              <button
+                                key={item.id}
+                                type="button"
+                                className={item.done ? 'dashboard-todo-item done' : `dashboard-todo-item todo-${item.type}`}
+                                onClick={() => handleDashboardTodoClick(item)}
+                                aria-label={`${item.title}，${item.status}，点击处理`}
+                              >
+                                <span className="dashboard-todo-check">
+                                  <DashboardIcon name={item.icon} />
+                                </span>
+                                <span className="dashboard-todo-copy">
+                                  <strong>{item.title}</strong>
+                                  <span>{item.description}</span>
+                                </span>
+                                <span className="dashboard-todo-meta">
+                                  <Badge className={item.done ? 'dashboard-done-badge' : item.status === '紧急' ? 'dashboard-danger-badge' : 'dashboard-wait-badge'}>
+                                    {item.status}
+                                  </Badge>
+                                  <small>{item.dateLabel}</small>
+                                </span>
+                                <span className="dashboard-todo-arrow" aria-hidden="true">
+                                  <DashboardIcon name="chevron" />
+                                </span>
+                              </button>
+                            ))}
+                            {hasMoreDashboardTodoItems && (
+                              <div className="dashboard-todo-loading">继续下滑加载更多</div>
+                            )}
+                          </>
+                        ) : (
+                          <EmptyState title="今日没有待办" description="新的临期、采购和餐食记录会自动出现在这里。" />
+                        )}
+                      </div>
+                    </section>
+
+                    <section className="card dashboard-panel dashboard-activity-panel">
+                      <div className="dashboard-panel-head">
+                        <h2>最近记录</h2>
+                        <button className="tertiary-button button-compact" type="button" onClick={() => setActiveTab('logs')}>
+                          查看全部
+                        </button>
+                      </div>
+                      <div className="dashboard-activity-list">
+                        {activityLogs.slice(0, 4).map((log, index) => {
+                          const meal = recentMeals[index];
+                          const plannedFood = foods.find((item) => item.id === foodPlanItems[index]?.food_id);
+                          const imageUrl = meal?.photos[0]?.url ?? (plannedFood ? getFoodCover(plannedFood, recipes) : undefined);
+                          return (
+                            <article key={log.id} className="dashboard-activity-item">
+                              <span className={`dashboard-activity-mark tone-${index % 4}`}>
+                                {imageUrl ? (
+                                  <img src={resolveDashboardAssetUrl(imageUrl)} alt="" />
+                                ) : (
+                                  <DashboardIcon name={index % 2 === 0 ? 'check' : 'calendar'} />
+                                )}
+                              </span>
+                              <div>
+                                <strong>{log.summary}</strong>
+                                <p>{log.actor_name ?? '家庭成员'}</p>
+                              </div>
+                              <small>{formatDateTime(log.created_at)}</small>
+                            </article>
+                          );
+                        })}
+                        {activityLogs.length === 0 && <EmptyState title="暂无记录" description="开始记录餐食后，这里会展示厨房动态。" />}
+                      </div>
+                    </section>
+                  </div>
+
+                  <div className="dashboard-lower-right">
+                    <section className="card dashboard-panel dashboard-week-panel">
+                      <div className="dashboard-week-head">
+                        <div className="dashboard-week-title">
+                          <h2>本周菜单</h2>
+                          <span>
+                            <strong>{activeFoodPlanItems.length}</strong> / {dashboardWeekMealCapacity} 餐
+                          </span>
                         </div>
-                      </article>
-                    ))}
+                        <div className="dashboard-week-controls" aria-label="菜单周切换">
+                          <button
+                            className="dashboard-week-nav-button"
+                            type="button"
+                            onClick={() => setSelectedRecipePlanDate(addDateKeyDays(foodPlanWeekRange.start, -7))}
+                          >
+                            <DashboardIcon name="arrow-left" />
+                            上一周
+                          </button>
+                          <button
+                            className="dashboard-week-range-button"
+                            type="button"
+                            onClick={() => setSelectedRecipePlanDate(todayKey())}
+                            title="回到本周"
+                          >
+                            <DashboardIcon name="calendar" />
+                            {formatDashboardPlanRange(foodPlanWeekRange)}
+                          </button>
+                          <button
+                            className="dashboard-week-nav-button"
+                            type="button"
+                            onClick={() => setSelectedRecipePlanDate(addDateKeyDays(foodPlanWeekRange.end, 1))}
+                          >
+                            下一周
+                            <DashboardIcon name="arrow-right" />
+                          </button>
+                        </div>
+                        <button className="dashboard-week-edit-button" type="button" onClick={() => setActiveTab('foods')}>
+                          <DashboardIcon name="edit" />
+                          编辑计划
+                        </button>
+                      </div>
+                      <div className="dashboard-week-summary">
+                        {dashboardPlanSummary.map((item) => (
+                          <div key={item.label} className="dashboard-week-summary-item">
+                            <span className={`dashboard-week-summary-icon tone-${item.tone}`}>
+                              <DashboardIcon name={item.icon} />
+                            </span>
+                            <div>
+                              <span>{item.label}</span>
+                              <strong>{item.value}<small>餐</small></strong>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                      <div className="dashboard-week-grid">
+                        {dashboardPlanDays.map((day) => (
+                          <button
+                            key={day.date}
+                            className={[
+                              'dashboard-day-card',
+                              day.plannedMealCount > 0 ? 'filled' : '',
+                              day.isToday ? 'today' : '',
+                              day.isSelected ? 'selected' : '',
+                            ]
+                              .filter(Boolean)
+                              .join(' ')}
+                            type="button"
+                            onClick={() => setSelectedDashboardPlanDate(day.date)}
+                            aria-pressed={day.isSelected}
+                          >
+                            <span className="dashboard-day-weekday">{day.weekday}</span>
+                            {day.isSelected && <span className="dashboard-day-selected-mark">{day.weekday}</span>}
+                            <strong>{day.plannedMealCount}/{DASHBOARD_PLAN_MEAL_TYPES.length}</strong>
+                            <small>{day.dayLabel}</small>
+                            <div className="dashboard-day-meal-dots" aria-label="餐次安排状态">
+                              {day.mealItems.map((meal) => (
+                                <i
+                                  key={meal.mealType}
+                                  className={meal.items.length > 0 ? `is-filled meal-${meal.mealType}` : `meal-${meal.mealType}`}
+                                  title={MEAL_TYPE_LABELS[meal.mealType]}
+                                />
+                              ))}
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                      {selectedDashboardPlanDay && (
+                        <div className="dashboard-plan-detail">
+                          <div className="dashboard-plan-detail-head">
+                            <strong>{selectedDashboardPlanDateLabel}</strong>
+                            <span>{selectedDashboardPlanDay.totalCount} 项计划</span>
+                          </div>
+                          <div className="dashboard-plan-meal-list">
+                            {selectedDashboardPlanDay.mealItems.map((meal) => (
+                              <div
+                                key={meal.mealType}
+                                className={meal.items.length > 0 ? 'dashboard-plan-meal-row filled' : 'dashboard-plan-meal-row'}
+                                title={meal.items.length > 0 ? `查看${MEAL_TYPE_LABELS[meal.mealType]}计划` : `添加${MEAL_TYPE_LABELS[meal.mealType]}计划`}
+                              >
+                                <span className={`dashboard-plan-meal-label meal-${meal.mealType}`}>
+                                  <span className="dashboard-plan-meal-label-icon" aria-hidden="true">
+                                    <DashboardMealIcon mealType={meal.mealType} />
+                                  </span>
+                                  <strong>{MEAL_TYPE_LABELS[meal.mealType]}</strong>
+                                </span>
+                                <span className="dashboard-plan-meal-copy">
+                                  {meal.items.length > 0 ? (
+                                    <span className="dashboard-plan-dish-list">
+                                      {meal.items.slice(0, 4).map((item) => (
+                                        (() => {
+                                          const planFood = foods.find((food) => food.id === item.food_id);
+                                          const planCoverUrl = resolveDashboardAssetUrl(planFood ? getFoodCover(planFood, recipes) : undefined);
+                                          const planTitle = item.recipe_title || item.food_name || planFood?.name || '未命名食物';
+                                          return (
+                                            <button
+                                              key={item.id}
+                                              className={item.status === 'cooked' ? 'dashboard-plan-dish is-cooked' : 'dashboard-plan-dish'}
+                                              type="button"
+                                              onClick={() => openHomePlanDetail(item)}
+                                              title={planTitle}
+                                            >
+                                              {planCoverUrl && <img src={planCoverUrl} alt="" />}
+                                              <span>{planTitle}</span>
+                                            </button>
+                                          );
+                                        })()
+                                      ))}
+                                      {meal.items.length > 4 && <span className="dashboard-plan-dish is-more">+{meal.items.length - 4}</span>}
+                                    </span>
+                                  ) : (
+                                    <>
+                                      <strong>未安排</strong>
+                                      <small>去食物页添加计划</small>
+                                    </>
+                                  )}
+                                </span>
+                                <button
+                                  className="dashboard-plan-meal-action"
+                                  type="button"
+                                  onClick={() => openHomePlanAddEmptyDialog(selectedDashboardPlanDay.date, meal.mealType)}
+                                  aria-label={meal.items.length > 0 ? `查看${MEAL_TYPE_LABELS[meal.mealType]}计划` : `添加${MEAL_TYPE_LABELS[meal.mealType]}计划`}
+                                >
+                                  <DashboardIcon name="plus" />
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </section>
+
+                    <section className="card dashboard-panel dashboard-shopping-panel">
+                      <div className="dashboard-panel-head">
+                        <h2>采购提醒 <span>{pendingShoppingCount} 项待采购</span></h2>
+                        <button className="tertiary-button button-compact" type="button" onClick={() => setActiveTab('ingredients')}>
+                          查看清单
+                        </button>
+                      </div>
+                      <div className="dashboard-shopping-row">
+                        {pendingShoppingPreview.length > 0 ? (
+                          pendingShoppingPreview.map((item) => {
+                            const ingredient = findShoppingIngredient(item, ingredients);
+                            const imageUrl = ingredient?.image?.url ? resolveDashboardAssetUrl(ingredient.image.url) : buildIngredientPlaceholderSvg(item.title);
+                            return (
+                              <button
+                                key={item.id}
+                                className="dashboard-shopping-pill"
+                                type="button"
+                                onClick={() => openHomeRestock(item)}
+                                title={`登记库存：${item.title}`}
+                              >
+                                <span className="dashboard-shopping-image">
+                                  <img src={imageUrl} alt="" />
+                                </span>
+                                <span className="dashboard-shopping-copy">
+                                  <strong>{item.title}</strong>
+                                  <p>{item.quantity}{item.unit}</p>
+                                </span>
+                              </button>
+                            );
+                          })
+                        ) : (
+                          <p className="subtle">采购清单已清空。</p>
+                        )}
+                      </div>
+                    </section>
                   </div>
-                </section>
+                </div>
               </div>
             </div>
           </main>
@@ -1222,22 +2409,32 @@ function App() {
             mealLogs={mealLogs}
             foodRecommendations={foodRecommendations}
             foodScenes={foodScenes}
+            foodPlanItems={foodPlanItems}
+            foodPlanWeekRange={foodPlanWeekRange}
             createFood={(payload) => createFoodMutation.mutateAsync(payload)}
             updateFood={(foodId, payload) => updateFoodMutation.mutateAsync({ foodId, payload })}
             updateFoodFavorite={(foodId, favorite) => toggleFavoriteMutation.mutateAsync({ foodId, favorite })}
             quickAddMeal={(payload) => quickAddMealMutation.mutateAsync(payload)}
+            createFoodPlanItem={(payload) => createFoodPlanItemMutation.mutateAsync(payload)}
+            updateFoodPlanItem={(itemId, payload) => updateFoodPlanItemMutation.mutateAsync({ itemId, payload })}
+            deleteFoodPlanItem={(itemId) => deleteFoodPlanItemMutation.mutateAsync(itemId)}
             createFoodScene={(payload) => createFoodSceneMutation.mutateAsync(payload)}
             updateFoodScene={(sceneId, payload) => updateFoodSceneMutation.mutateAsync({ sceneId, payload })}
             deleteFoodScene={(sceneId) => deleteFoodSceneMutation.mutateAsync(sceneId)}
             onOpenRecipes={() => setActiveTab('recipes')}
-            onStartRecipe={(recipeId) => {
+            onStartRecipe={(recipeId, foodPlanItemId) => {
               setPendingRecipeCookId(recipeId);
+              setPendingFoodPlanCookItemId(foodPlanItemId ?? null);
               setActiveTab('recipes');
             }}
             onOpenLogs={() => setActiveTab('logs')}
+            onFoodPlanPreviousWeek={() => setSelectedRecipePlanDate(addDateKeyDays(foodPlanWeekRange.start, -7))}
+            onFoodPlanCurrentWeek={() => setSelectedRecipePlanDate(todayKey())}
+            onFoodPlanNextWeek={() => setSelectedRecipePlanDate(addDateKeyDays(foodPlanWeekRange.end, 1))}
             isSavingFood={createFoodMutation.isPending || updateFoodMutation.isPending}
             isUpdatingFavorite={toggleFavoriteMutation.isPending}
             isQuickAdding={quickAddMealMutation.isPending}
+            isUpdatingPlan={createFoodPlanItemMutation.isPending || updateFoodPlanItemMutation.isPending || deleteFoodPlanItemMutation.isPending}
             isUpdatingScene={createFoodSceneMutation.isPending || updateFoodSceneMutation.isPending || deleteFoodSceneMutation.isPending}
           />
         )}
@@ -1254,14 +2451,18 @@ function App() {
               recipeFavorites={recipeFavorites}
               recipeDiscovery={recipeDiscovery}
               recipeStats={recipeStats}
-              recipePlanItems={recipePlanItems}
+              recipePlanItems={[]}
               recipeScenes={foodScenes}
-              recipePlanWeekRange={recipePlanWeekRange}
+              recipePlanWeekRange={foodPlanWeekRange}
               startRecipeId={pendingRecipeCookId}
-              onStartRecipeHandled={() => setPendingRecipeCookId(null)}
-              onRecipePlanPreviousWeek={() => setSelectedRecipePlanDate(addDateKeyDays(recipePlanWeekRange.start, -7))}
+              startFoodPlanItemId={pendingFoodPlanCookItemId}
+              onStartRecipeHandled={() => {
+                setPendingRecipeCookId(null);
+                setPendingFoodPlanCookItemId(null);
+              }}
+              onRecipePlanPreviousWeek={() => setSelectedRecipePlanDate(addDateKeyDays(foodPlanWeekRange.start, -7))}
               onRecipePlanCurrentWeek={() => setSelectedRecipePlanDate(todayKey())}
-              onRecipePlanNextWeek={() => setSelectedRecipePlanDate(addDateKeyDays(recipePlanWeekRange.end, 1))}
+              onRecipePlanNextWeek={() => setSelectedRecipePlanDate(addDateKeyDays(foodPlanWeekRange.end, 1))}
               createRecipe={(payload) => createRecipeMutation.mutateAsync(payload)}
               updateRecipe={(recipeId, payload) => updateRecipeMutation.mutateAsync({ recipeId, payload })}
               deleteRecipe={(recipeId) => deleteRecipeMutation.mutateAsync(recipeId)}
@@ -1271,9 +2472,15 @@ function App() {
               createShoppingItem={(payload) => createShoppingMutation.mutateAsync(payload)}
               addRecipeFavorite={(recipeId) => addRecipeFavoriteMutation.mutateAsync(recipeId)}
               removeRecipeFavorite={(recipeId) => removeRecipeFavoriteMutation.mutateAsync(recipeId)}
-              createRecipePlanItem={(payload) => createRecipePlanItemMutation.mutateAsync(payload)}
-              updateRecipePlanItem={(itemId, payload) => updateRecipePlanItemMutation.mutateAsync({ itemId, payload })}
-              deleteRecipePlanItem={(itemId) => deleteRecipePlanItemMutation.mutateAsync(itemId)}
+              createRecipePlanItem={async () => {
+                throw new Error('菜单计划已迁移到食物页');
+              }}
+              updateRecipePlanItem={async () => {
+                throw new Error('菜单计划已迁移到食物页');
+              }}
+              deleteRecipePlanItem={async () => {
+                throw new Error('菜单计划已迁移到食物页');
+              }}
               createRecipeScene={(payload) => createFoodSceneMutation.mutateAsync(payload)}
               updateRecipeScene={(sceneId, payload) => updateFoodSceneMutation.mutateAsync({ sceneId, payload })}
               deleteRecipeScene={(sceneId) => deleteFoodSceneMutation.mutateAsync(sceneId)}
@@ -1284,9 +2491,9 @@ function App() {
               isCreatingShopping={createShoppingMutation.isPending}
               isUpdatingFavorite={addRecipeFavoriteMutation.isPending || removeRecipeFavoriteMutation.isPending}
               isUpdatingPlan={
-                createRecipePlanItemMutation.isPending ||
-                updateRecipePlanItemMutation.isPending ||
-                deleteRecipePlanItemMutation.isPending
+                createFoodPlanItemMutation.isPending ||
+                updateFoodPlanItemMutation.isPending ||
+                deleteFoodPlanItemMutation.isPending
               }
               isUpdatingScene={
                 createFoodSceneMutation.isPending ||
@@ -1303,6 +2510,7 @@ function App() {
             inventoryItems={inventoryItems}
             shoppingItems={shoppingItems}
             recipes={recipes}
+            navigationRequest={ingredientNavigationRequest}
             createIngredient={(payload) => createIngredientMutation.mutateAsync(payload)}
             updateIngredient={(ingredientId, payload) => updateIngredientMutation.mutateAsync({ ingredientId, payload })}
             createInventory={(payload) => createInventoryMutation.mutateAsync(payload)}
@@ -1747,6 +2955,769 @@ function App() {
               </div>
             )}
           </main>
+        )}
+
+        {homePlanDetailItem && (
+          <FoodPlanDetailModal
+            item={homePlanDetailItem}
+            food={homePlanDetailFood}
+            recipes={recipes}
+            form={homePlanDetailForm}
+            isEditing={isHomePlanDetailEditing}
+            isUpdatingPlan={updateFoodPlanItemMutation.isPending || deleteFoodPlanItemMutation.isPending}
+            isCompleting={cookRecipeMutation.isPending || quickAddMealMutation.isPending}
+            onClose={closeHomePlanDetail}
+            onChangeForm={setHomePlanDetailForm}
+            onEditingChange={setIsHomePlanDetailEditing}
+            onResetEdit={resetHomePlanDetailForm}
+            onSubmit={(event) => void submitHomePlanDetail(event)}
+            onComplete={() => void startHomePlanDetailCook(homePlanDetailItem)}
+            onDelete={() => void deleteHomePlanDetail(homePlanDetailItem)}
+            resolveAssetUrl={(url) => resolveDashboardAssetUrl(url) ?? url}
+          />
+        )}
+
+        {isHomePlanAddDialogOpen && (
+          <div className="workspace-overlay-root">
+            <div className="workspace-overlay-backdrop" onClick={closeHomePlanAddDialog} />
+            <WorkspaceModal
+              title="加食物到菜单"
+              description="选择日期和餐次后加入当前周菜单。"
+              eyebrow="菜单计划"
+              onClose={closeHomePlanAddDialog}
+              className="recipe-plan-modal food-plan-modal"
+            >
+              <form className="recipe-plan-dialog-form" onSubmit={(event) => void submitHomePlanAdd(event)}>
+                {homePlanAddFood ? (
+                  <div className="recipe-plan-dialog-hero">
+                    <div className="recipe-plan-selected-cover">
+                      {getFoodCover(homePlanAddFood, recipes) ? (
+                        <img src={resolveDashboardAssetUrl(getFoodCover(homePlanAddFood, recipes))} alt={homePlanAddFood.name} />
+                      ) : (
+                        <div className="recipe-plan-cover-empty">{homePlanAddFood.name.slice(0, 2)}</div>
+                      )}
+                    </div>
+                    <div className="recipe-plan-selected-copy">
+                      <span className="recipe-plan-dialog-kicker">即将加入</span>
+                      <strong>{homePlanAddFood.name}</strong>
+                      <div className="recipe-plan-selected-meta">
+                        <span>
+                          <DashboardIcon name="list" />
+                          {FOOD_TYPE_LABELS[homePlanAddFood.type]}
+                        </span>
+                        <span>
+                          <DashboardIcon name="calendar" />
+                          {homePlanAddFood.source_name || homePlanAddFood.purchase_source || homePlanAddFood.category || '常吃食物'}
+                        </span>
+                        <span>
+                          <DashboardIcon name={homePlanAddFood.recipe_id ? 'pot' : 'receipt'} />
+                          {homePlanAddFood.recipe_id ? '关联菜谱' : '可直接记录'}
+                        </span>
+                      </div>
+                    </div>
+                    <button className="recipe-plan-change-food" type="button" onClick={() => setHomePlanAddFoodId(null)}>
+                      修改
+                    </button>
+                  </div>
+                ) : (
+                  <div className="recipe-plan-picker">
+                    <label htmlFor="home-food-plan-search">选择食物</label>
+                    <div className="recipe-plan-combobox">
+                      <DashboardIcon name="list" />
+                      <input
+                        id="home-food-plan-search"
+                        className="recipe-plan-search-input"
+                        value={homePlanAddFoodSearch}
+                        placeholder="搜索食物、来源、场景或备注"
+                        onChange={(event) => setHomePlanAddFoodSearch(event.target.value)}
+                      />
+                    </div>
+                    <div className="recipe-plan-option-panel">
+                      {homePlanAddFoodOptions.length > 0 ? (
+                        homePlanAddFoodOptions.map((food) => {
+                          const cover = getFoodCover(food, recipes);
+                          return (
+                            <button
+                              key={food.id}
+                              type="button"
+                              className="recipe-plan-option"
+                              onClick={() => selectHomePlanAddFood(food)}
+                            >
+                              <span className="recipe-plan-option-cover recipe-work-cover">
+                                {cover ? <img src={resolveDashboardAssetUrl(cover)} alt="" /> : <span>{food.name.slice(0, 2)}</span>}
+                              </span>
+                              <span>
+                                <strong>{food.name}</strong>
+                                <small>{[FOOD_TYPE_LABELS[food.type], food.source_name || food.purchase_source || food.category, food.recipe_id ? '可开始做' : '可记到今天'].filter(Boolean).join(' · ')}</small>
+                              </span>
+                              <Badge className="recipe-plan-option-status">{MEAL_TYPE_LABELS[getDefaultHomePlanMealType(food, homePlanAddForm.mealType)]}</Badge>
+                            </button>
+                          );
+                        })
+                      ) : (
+                        <div className="recipe-plan-option-empty">没有找到匹配的食物</div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                <div className="recipe-plan-form-row">
+                  <label className="recipe-plan-date-field">
+                    <span>计划日期</span>
+                    <div className="recipe-plan-date-strip" role="radiogroup" aria-label="计划日期">
+                      {dashboardPlanDays.map((day) => (
+                        <button
+                          key={day.date}
+                          type="button"
+                          className={homePlanAddForm.planDate === day.date ? 'active' : ''}
+                          aria-pressed={homePlanAddForm.planDate === day.date}
+                          onClick={() => setHomePlanAddForm((current) => ({ ...current, planDate: day.date }))}
+                        >
+                          <span>{day.isToday ? '今天' : `周${day.weekday}`}</span>
+                          <strong>{day.date.slice(5).replace('-', '/')}</strong>
+                        </button>
+                      ))}
+                    </div>
+                  </label>
+                  <label className="recipe-plan-meal-field">
+                    <span>餐次</span>
+                    <div className="recipe-plan-meal-segment" role="radiogroup" aria-label="餐次">
+                      {DASHBOARD_PLAN_MEAL_TYPES.map((mealType) => (
+                        <button
+                          key={mealType}
+                          type="button"
+                          className={homePlanAddForm.mealType === mealType ? 'active' : ''}
+                          aria-pressed={homePlanAddForm.mealType === mealType}
+                          onClick={() => setHomePlanAddForm((current) => ({ ...current, mealType }))}
+                        >
+                          {MEAL_TYPE_LABELS[mealType]}
+                        </button>
+                      ))}
+                    </div>
+                  </label>
+                </div>
+                <label className="recipe-plan-note-field">
+                  <span>备注</span>
+                  <input
+                    className="text-input"
+                    value={homePlanAddForm.note}
+                    placeholder="比如：少油、常点套餐、提前解冻"
+                    onChange={(event) => setHomePlanAddForm((current) => ({ ...current, note: event.target.value }))}
+                  />
+                </label>
+                <div className="workspace-overlay-actions">
+                  <ActionButton tone="primary" type="submit" disabled={createFoodPlanItemMutation.isPending || !homePlanAddFood}>
+                    {createFoodPlanItemMutation.isPending ? '加入中...' : '加入菜单'}
+                  </ActionButton>
+                  <ActionButton tone="secondary" type="button" onClick={closeHomePlanAddDialog}>
+                    取消
+                  </ActionButton>
+                </div>
+              </form>
+            </WorkspaceModal>
+          </div>
+        )}
+
+        {homeExpiryReviewItem && (
+          <div className="workspace-overlay-root">
+            <div className="workspace-overlay-backdrop" onClick={closeHomeExpiryReview} />
+            <WorkspaceModal
+              title="处理临期食材"
+              description="先核对这批库存的信息；需要调整数量、位置或继续处理时进入食材详情。"
+              closeLabel="×"
+              closeAriaLabel="关闭"
+              className="dashboard-todo-modal"
+              onClose={closeHomeExpiryReview}
+            >
+              <div className="dashboard-todo-dialog">
+                <section className="dashboard-todo-dialog-hero">
+                  <div className="dashboard-todo-dialog-media">
+                    {homeExpiryReviewIngredient?.image?.url ? (
+                      <img
+                        src={resolveDashboardAssetUrl(homeExpiryReviewIngredient.image.url)}
+                        alt={homeExpiryReviewIngredient.name}
+                      />
+                    ) : (
+                      <span>{homeExpiryReviewItem.ingredient_name.slice(0, 1)}</span>
+                    )}
+                  </div>
+                  <div className="dashboard-todo-dialog-copy">
+                    <Badge className={homeExpiryReviewItem.daysLeft <= 1 ? 'dashboard-danger-badge' : 'dashboard-wait-badge'}>
+                      {homeExpiryReviewItem.daysLeft <= 0 ? '今天到期' : formatRelativeDays(homeExpiryReviewItem.expiry_date ?? today)}
+                    </Badge>
+                    <h3>{homeExpiryReviewItem.ingredient_name}</h3>
+                    <p>
+                      {homeExpiryReviewIngredient?.category || '未分类'} · {homeExpiryReviewItem.storage_location || '未记录位置'}
+                    </p>
+                  </div>
+                </section>
+
+                <div className="dashboard-todo-dialog-grid">
+                  <article>
+                    <span>剩余数量</span>
+                    <strong>{homeExpiryReviewItem.remaining_quantity ?? homeExpiryReviewItem.quantity}{homeExpiryReviewItem.unit}</strong>
+                  </article>
+                  <article>
+                    <span>库存状态</span>
+                    <strong>{INVENTORY_STATUS_LABELS[homeExpiryReviewItem.status]}</strong>
+                  </article>
+                  <article>
+                    <span>购买日期</span>
+                    <strong>{formatDate(homeExpiryReviewItem.purchase_date)}</strong>
+                  </article>
+                  <article>
+                    <span>到期日期</span>
+                    <strong>{homeExpiryReviewItem.expiry_date ? formatDate(homeExpiryReviewItem.expiry_date) : '未记录'}</strong>
+                  </article>
+                </div>
+
+                {homeExpiryReviewItem.notes && (
+                  <p className="dashboard-todo-dialog-note">{homeExpiryReviewItem.notes}</p>
+                )}
+
+                <div className="workspace-overlay-actions">
+                  <ActionButton
+                    tone="primary"
+                    type="button"
+                    onClick={() => {
+                      const ingredientId = homeExpiryReviewItem.ingredient_id;
+                      closeHomeExpiryReview();
+                      openIngredientDetail(ingredientId);
+                    }}
+                  >
+                    查看食材详情
+                  </ActionButton>
+                  <ActionButton tone="secondary" type="button" onClick={closeHomeExpiryReview}>
+                    关闭
+                  </ActionButton>
+                </div>
+              </div>
+            </WorkspaceModal>
+          </div>
+        )}
+
+        {homeMealDetail && (
+          <div className="workspace-overlay-root">
+            <div className="workspace-overlay-backdrop" onClick={closeHomeMealDetail} />
+            <WorkspaceModal
+              title="餐食详情"
+              description="这条今日待办已经完成，下面是本餐记录。"
+              closeLabel="×"
+              closeAriaLabel="关闭"
+              className="dashboard-todo-modal meal-detail-modal"
+              onClose={closeHomeMealDetail}
+            >
+              <div className="dashboard-todo-dialog meal-detail-dialog">
+                <section className="meal-detail-head">
+                  <div>
+                    <Badge className="dashboard-done-badge">已完成</Badge>
+                    <h3>{MEAL_TYPE_LABELS[homeMealDetail.meal_type]}</h3>
+                    <p>{formatDate(homeMealDetail.date)} · {formatDateTime(homeMealDetail.created_at)}</p>
+                  </div>
+                  {homeMealDetail.mood && <strong>{homeMealDetail.mood}</strong>}
+                </section>
+
+                <section className="meal-detail-section">
+                  <span>本餐食物</span>
+                  <div className="meal-detail-food-list">
+                    {homeMealDetail.food_entries.length > 0 ? (
+                      homeMealDetail.food_entries.map((entry) => (
+                        <article key={entry.id} className="meal-detail-food-item">
+                          <div>
+                            <strong>{entry.food_name}</strong>
+                            {entry.note && <p>{entry.note}</p>}
+                          </div>
+                          <Badge>{entry.servings} 份</Badge>
+                        </article>
+                      ))
+                    ) : (
+                      <p className="subtle">这餐没有关联具体食物。</p>
+                    )}
+                  </div>
+                </section>
+
+                <section className="meal-detail-section">
+                  <span>参与成员</span>
+                  <div className="meal-detail-member-row">
+                    {homeMealDetailParticipants.length > 0 ? (
+                      homeMealDetailParticipants.map((member) => (
+                        <span key={member.id} className="meal-detail-member">
+                          <Avatar label={member.display_name} seed={member.avatar_seed} />
+                          {member.display_name}
+                        </span>
+                      ))
+                    ) : (
+                      <p className="subtle">未记录参与成员。</p>
+                    )}
+                  </div>
+                </section>
+
+                {homeMealDetail.notes && (
+                  <section className="meal-detail-section">
+                    <span>备注</span>
+                    <p className="meal-detail-note">{homeMealDetail.notes}</p>
+                  </section>
+                )}
+
+                {homeMealDetail.photos.length > 0 && (
+                  <section className="meal-detail-section">
+                    <span>照片</span>
+                    <div className="meal-detail-photo-grid">
+                      {homeMealDetail.photos.map((photo) => (
+                        <img key={photo.id} src={resolveDashboardAssetUrl(photo.url)} alt={photo.alt || photo.name} />
+                      ))}
+                    </div>
+                  </section>
+                )}
+
+                <div className="workspace-overlay-actions">
+                  <ActionButton tone="primary" type="button" onClick={closeHomeMealDetail}>
+                    知道了
+                  </ActionButton>
+                </div>
+              </div>
+            </WorkspaceModal>
+          </div>
+        )}
+
+        {homeRestockShoppingItem && homeRestockForm && (
+          <div className="workspace-overlay-root">
+            <div className="workspace-overlay-backdrop" onClick={closeHomeRestock} />
+            <WorkspaceModal
+              title="登记这批库存"
+              description="从首页采购提醒快速入库，保存后会把这条采购项标记完成。"
+              closeLabel="×"
+              closeAriaLabel="关闭"
+              className="workspace-modal-wide inventory-restock-modal"
+              onClose={closeHomeRestock}
+            >
+              <form className="ingredients-restock-form" onSubmit={(event) => void submitHomeRestock(event)}>
+                <div className="ingredients-restock-scroll">
+                  <div className="ingredients-restock-source-note">
+                    <Badge>来自采购提醒</Badge>
+                    <span>{homeRestockShoppingItem.title}</span>
+                  </div>
+
+                  <section className="ingredients-restock-identity-card">
+                    <div className="ingredients-restock-identity-media">
+                      <img
+                        src={homeRestockIngredientImageUrl ?? buildIngredientPlaceholderSvg(homeRestockShoppingItem.title)}
+                        alt={homeRestockIngredient?.name ?? homeRestockShoppingItem.title}
+                      />
+                    </div>
+                    <div className="ingredients-restock-identity-copy">
+                      <div className="ingredients-restock-identity-head">
+                        <div>
+                          <h4>{homeRestockIngredient?.name ?? (homeRestockForm.ingredientQuery || homeRestockShoppingItem.title)}</h4>
+                          <p>
+                            {homeRestockIngredient
+                              ? `${homeRestockIngredient.category || '未分类'} · 默认 ${homeRestockIngredient.default_unit || '个'} · ${homeRestockIngredient.default_storage || '冷藏'}`
+                              : '先匹配一份食材档案'}
+                          </p>
+                        </div>
+                        <Badge>{homeRestockIngredient ? '已匹配食材' : '待匹配'}</Badge>
+                      </div>
+                    </div>
+                  </section>
+
+                  <label className="ingredients-restock-search-field">
+                    <span>食材</span>
+                    <input
+                      className="text-input"
+                      list="home-restock-ingredient-options"
+                      placeholder="搜索或选择食材"
+                      value={homeRestockForm.ingredientQuery}
+                      onChange={(event) => {
+                        const nextQuery = event.target.value;
+                        const ingredient = ingredients.find((item) => item.name === nextQuery) ?? null;
+                        const nextStorage = ingredient?.default_storage || homeRestockForm.storageLocation || '冷藏';
+                        const nextExpiryMode = ingredient?.default_expiry_mode ?? homeRestockForm.expiryInputMode;
+                        const nextExpiryDays =
+                          nextExpiryMode === 'days'
+                            ? ingredient?.default_expiry_days
+                              ? String(ingredient.default_expiry_days)
+                              : homeRestockForm.expiryDays || '3'
+                            : '';
+                        updateHomeRestockForm({
+                          ...homeRestockForm,
+                          ingredientId: ingredient?.id ?? '',
+                          ingredientQuery: nextQuery,
+                          unit: ingredient?.default_unit || homeRestockForm.unit,
+                          storageLocation: nextStorage,
+                          status: resolveInventoryStatusForStorage(nextStorage),
+                          expiryInputMode: nextExpiryMode,
+                          expiryDays: nextExpiryDays,
+                          expiryDate:
+                            nextExpiryMode === 'days'
+                              ? resolveExpiryDateFromDays(homeRestockForm.purchaseDate, nextExpiryDays)
+                              : '',
+                        });
+                      }}
+                    />
+                    <datalist id="home-restock-ingredient-options">
+                      {ingredients.map((ingredient) => (
+                        <option key={ingredient.id} value={ingredient.name} />
+                      ))}
+                    </datalist>
+                  </label>
+
+                  <section className="ingredients-restock-field-group ingredients-restock-quantity-section">
+                    <div className="form-grid compact-grid">
+                      <label>
+                        <span>数量</span>
+                        <input
+                          className="text-input"
+                          type="number"
+                          min="0.01"
+                          step="0.01"
+                          value={homeRestockForm.quantity}
+                          onChange={(event) => updateHomeRestockForm({ ...homeRestockForm, quantity: event.target.value })}
+                        />
+                      </label>
+                      <label>
+                        <span>单位</span>
+                        <input
+                          className="text-input"
+                          value={homeRestockForm.unit}
+                          onChange={(event) => updateHomeRestockForm({ ...homeRestockForm, unit: event.target.value })}
+                        />
+                      </label>
+                    </div>
+                  </section>
+
+                  <section className="ingredients-restock-field-group">
+                    <div className="ingredients-restock-field-head">
+                      <span>购买时间</span>
+                      <p className="subtle">默认今天，需要时再改。</p>
+                    </div>
+                    <div className="ingredients-restock-choice-row">
+                      {[
+                        { label: '今天', date: todayKey() },
+                        { label: '昨天', date: shiftDateKey(todayKey(), -1) },
+                      ].map((item) => (
+                        <button
+                          key={item.label}
+                          type="button"
+                          className={homeRestockForm.purchaseDate === item.date ? 'ingredients-choice-chip active' : 'ingredients-choice-chip'}
+                          onClick={() =>
+                            updateHomeRestockForm({
+                              ...homeRestockForm,
+                              purchaseDate: item.date,
+                              expiryDate:
+                                homeRestockForm.expiryInputMode === 'days'
+                                  ? resolveExpiryDateFromDays(item.date, homeRestockForm.expiryDays)
+                                  : homeRestockForm.expiryDate,
+                            })
+                          }
+                        >
+                          {item.label}
+                        </button>
+                      ))}
+                    </div>
+                    <label>
+                      <span>购买日期</span>
+                      <input
+                        className="text-input"
+                        type="date"
+                        value={homeRestockForm.purchaseDate}
+                        onChange={(event) =>
+                          updateHomeRestockForm({
+                            ...homeRestockForm,
+                            purchaseDate: event.target.value,
+                            expiryDate:
+                              homeRestockForm.expiryInputMode === 'days'
+                                ? resolveExpiryDateFromDays(event.target.value, homeRestockForm.expiryDays)
+                                : homeRestockForm.expiryDate,
+                          })
+                        }
+                      />
+                    </label>
+                  </section>
+
+                  <section className="ingredients-restock-field-group">
+                    <div className="ingredients-restock-field-head">
+                      <span>存放位置</span>
+                      <p className="subtle">按这次实际放的位置点一下。</p>
+                    </div>
+                    <div className="ingredients-restock-choice-row">
+                      {['冷藏', '冷冻', '常温'].map((storage) => (
+                        <button
+                          key={storage}
+                          type="button"
+                          className={homeRestockForm.storageLocation === storage ? 'ingredients-choice-chip active' : 'ingredients-choice-chip'}
+                          onClick={() =>
+                            updateHomeRestockForm({
+                              ...homeRestockForm,
+                              storageLocation: storage,
+                              status: resolveInventoryStatusForStorage(storage),
+                            })
+                          }
+                        >
+                          {storage}
+                        </button>
+                      ))}
+                    </div>
+                    <input
+                      className="text-input"
+                      placeholder="自定义位置"
+                      value={homeRestockForm.storageLocation}
+                      onChange={(event) =>
+                        updateHomeRestockForm({
+                          ...homeRestockForm,
+                          storageLocation: event.target.value,
+                          status: resolveInventoryStatusForStorage(event.target.value),
+                        })
+                      }
+                    />
+                  </section>
+
+                  <section className="ingredients-restock-field-group">
+                    <div className="ingredients-restock-field-head">
+                      <span>到期信息</span>
+                      <p className="subtle">确认这批食材怎么跟踪到期。</p>
+                    </div>
+                    <div className="ingredients-restock-choice-row">
+                      {[
+                        { value: 'none', label: '不记录' },
+                        { value: 'days', label: '几天后到期' },
+                        { value: 'manual_date', label: '包装到期日' },
+                      ].map((item) => (
+                        <button
+                          key={item.value}
+                          type="button"
+                          className={homeRestockForm.expiryInputMode === item.value ? 'ingredients-choice-chip active' : 'ingredients-choice-chip'}
+                          onClick={() => {
+                            const nextMode = item.value as IngredientExpiryMode;
+                            const nextDays = nextMode === 'days' ? homeRestockForm.expiryDays || '3' : '';
+                            updateHomeRestockForm({
+                              ...homeRestockForm,
+                              expiryInputMode: nextMode,
+                              expiryDays: nextDays,
+                              expiryDate:
+                                nextMode === 'days'
+                                  ? resolveExpiryDateFromDays(homeRestockForm.purchaseDate, nextDays)
+                                  : nextMode === 'manual_date'
+                                    ? homeRestockForm.expiryDate
+                                    : '',
+                            });
+                          }}
+                        >
+                          {item.label}
+                        </button>
+                      ))}
+                    </div>
+                    {homeRestockForm.expiryInputMode === 'days' && (
+                      <div className="form-grid compact-grid">
+                        <label>
+                          <span>买后几天到期</span>
+                          <input
+                            className="text-input"
+                            type="number"
+                            min="1"
+                            value={homeRestockForm.expiryDays}
+                            onChange={(event) =>
+                              updateHomeRestockForm({
+                                ...homeRestockForm,
+                                expiryDays: event.target.value,
+                                expiryDate: resolveExpiryDateFromDays(homeRestockForm.purchaseDate, event.target.value),
+                              })
+                            }
+                          />
+                        </label>
+                        <div className="ingredients-restock-result-card">
+                          <span>预计到期日</span>
+                          <strong>{homeRestockForm.expiryDate ? formatDate(homeRestockForm.expiryDate) : '先填天数'}</strong>
+                          <p>{homeRestockForm.purchaseDate} 购入</p>
+                        </div>
+                      </div>
+                    )}
+                    {homeRestockForm.expiryInputMode === 'manual_date' && (
+                      <label>
+                        <span>包装到期日</span>
+                        <input
+                          className="text-input"
+                          type="date"
+                          value={homeRestockForm.expiryDate}
+                          onChange={(event) => updateHomeRestockForm({ ...homeRestockForm, expiryDate: event.target.value })}
+                        />
+                      </label>
+                    )}
+                  </section>
+
+                  <section className="ingredients-modal-advanced">
+                    <div className="form-grid compact-grid ingredients-modal-advanced-fields">
+                      <label>
+                        <span>状态</span>
+                        <select
+                          className="text-input"
+                          value={homeRestockForm.status}
+                          onChange={(event) =>
+                            updateHomeRestockForm({ ...homeRestockForm, status: event.target.value as InventoryStatus })
+                          }
+                        >
+                          {Object.entries(INVENTORY_STATUS_LABELS).map(([key, label]) => (
+                            <option key={key} value={key}>
+                              {label}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <label className="span-two">
+                        <span>备注</span>
+                        <textarea
+                          className="text-input"
+                          rows={3}
+                          value={homeRestockForm.notes}
+                          onChange={(event) => updateHomeRestockForm({ ...homeRestockForm, notes: event.target.value })}
+                        />
+                      </label>
+                    </div>
+                  </section>
+                </div>
+
+                <div className="ingredients-restock-footer-bar">
+                  <div className="workspace-overlay-actions">
+                    <ActionButton tone="secondary" type="button" onClick={closeHomeRestock} disabled={createInventoryMutation.isPending}>
+                      取消
+                    </ActionButton>
+                    <ActionButton
+                      tone="primary"
+                      type="submit"
+                      disabled={createInventoryMutation.isPending || !homeRestockForm.ingredientId}
+                    >
+                      {createInventoryMutation.isPending ? '保存中...' : '保存这批库存'}
+                    </ActionButton>
+                  </div>
+                </div>
+              </form>
+            </WorkspaceModal>
+          </div>
+        )}
+
+        {homeExpiredDisposalSummary && (
+          <div className="workspace-overlay-root">
+            <div className="workspace-overlay-backdrop" onClick={() => setHomeExpiredDisposalIngredientId(null)} />
+            <WorkspaceModal
+              title="销毁已过期批次"
+              description="会将这些过期批次的剩余量清零，但保留批次历史记录和活动日志。"
+              closeLabel="×"
+              closeAriaLabel="关闭"
+              className="workspace-modal-wide destroy-expired-modal"
+              onClose={() => setHomeExpiredDisposalIngredientId(null)}
+            >
+              <form className="destroy-expired-form" onSubmit={(event) => void submitHomeExpiredDisposal(event)}>
+              <div className="destroy-expired-scroll">
+                <section className="ingredients-restock-identity-card destroy-expired-summary-card">
+                  <div className="ingredients-restock-identity-media">
+                    {homeExpiredDisposalSummary.ingredient.image?.url ? (
+                      <img
+                        src={resolveDashboardAssetUrl(homeExpiredDisposalSummary.ingredient.image.url)}
+                        alt={homeExpiredDisposalSummary.ingredient.name}
+                      />
+                    ) : (
+                      <span>{homeExpiredDisposalSummary.ingredient.name.slice(0, 1)}</span>
+                    )}
+                  </div>
+                  <div className="ingredients-restock-identity-copy">
+                    <div className="ingredients-restock-identity-head">
+                      <div>
+                        <h4>{homeExpiredDisposalSummary.ingredient.name}</h4>
+                        <p>{homeExpiredDisposalSummary.ingredient.category || '未分类'} · {homeExpiredDisposalSummary.primaryStorage}</p>
+                      </div>
+                      <div className="destroy-expired-summary-badges">
+                        <Badge>{homeExpiredDisposalItems.length} 条待销毁</Badge>
+                        <Badge>{homeExpiredDisposalSummary.quantitySummaries[0]?.label ?? '当前已空'}</Badge>
+                      </div>
+                    </div>
+                    <div className="destroy-expired-summary-grid">
+                      <article className="destroy-expired-summary-metric is-primary">
+                        <span>本次处理范围</span>
+                        <strong>{homeExpiredDisposalItems.length} 条过期批次</strong>
+                        <p>仅包含已经过期且当前仍有剩余量的批次。</p>
+                      </article>
+                      <article className="destroy-expired-summary-metric">
+                        <span>处理结果</span>
+                        <strong>清零剩余量</strong>
+                        <p>批次记录、备注和活动日志都会继续保留。</p>
+                      </article>
+                    </div>
+                  </div>
+                </section>
+
+                <section className="ingredients-restock-field-group destroy-expired-list-section">
+                  <div className="ingredients-restock-field-head">
+                    <span>将要销毁的批次</span>
+                    <p className="subtle">只列出到期日早于今天的剩余批次；今天到期和未来到期不会出现在这里。</p>
+                  </div>
+                  {homeExpiredDisposalItems.length > 0 ? (
+                    <div className="destroy-expired-list">
+                      {homeExpiredDisposalItems.map((item) => {
+                        const expiredDays = Math.abs(getExpiryDaysLeft(item.expiryDate, today));
+                        return (
+                          <article key={item.id} className="destroy-expired-item">
+                            <div className="destroy-expired-item-head">
+                              <div className="destroy-expired-item-title">
+                                <strong>{item.remainingLabel}</strong>
+                                <span>{item.storageLocation}</span>
+                              </div>
+                              <div className="destroy-expired-item-badges">
+                                <Badge className="destroy-expired-item-badge is-danger">
+                                  已过期 {expiredDays} 天
+                                </Badge>
+                                <Badge>{INVENTORY_STATUS_LABELS[item.status]}</Badge>
+                              </div>
+                            </div>
+                            <div className="destroy-expired-item-meta">
+                              <span>购买于 {formatDate(item.purchaseDate)}</span>
+                              <span>到期日 {formatDate(item.expiryDate)}</span>
+                            </div>
+                            <p className="destroy-expired-item-note" title={item.notes || '当前没有备注'}>
+                              {item.notes || '当前没有备注'}
+                            </p>
+                          </article>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <EmptyState
+                      title="当前没有可销毁的批次"
+                      description="这份食材现在没有“已过期且仍有剩余量”的批次，可以直接关闭这个面板。"
+                    />
+                  )}
+                </section>
+              </div>
+
+              <div className="destroy-expired-footer-bar">
+                <div className="destroy-expired-footer-summary">
+                  <span>确认后将处理</span>
+                  <strong>{homeExpiredDisposalItems.length} 条过期批次</strong>
+                  <p>
+                    {homeExpiredDisposalItems.length > 0
+                      ? '系统会把这些批次的剩余量清零，并在刷新后同步库存状态。'
+                      : '当前没有可销毁的过期批次。'}
+                  </p>
+                </div>
+                <div className="workspace-overlay-actions">
+                  <ActionButton
+                    tone="secondary"
+                    type="button"
+                    onClick={() => setHomeExpiredDisposalIngredientId(null)}
+                    disabled={disposeExpiredInventoryMutation.isPending}
+                  >
+                    取消
+                  </ActionButton>
+                  <ActionButton
+                    tone="primary"
+                    type="submit"
+                    disabled={disposeExpiredInventoryMutation.isPending || homeExpiredDisposalItems.length === 0}
+                  >
+                    {disposeExpiredInventoryMutation.isPending ? '销毁中...' : '确认销毁'}
+                  </ActionButton>
+                </div>
+              </div>
+              </form>
+            </WorkspaceModal>
+          </div>
         )}
       </div>
       </div>

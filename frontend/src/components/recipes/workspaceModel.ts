@@ -380,6 +380,7 @@ export function buildRecipeHomeViewModel(
     planItems
       .filter((item) => item.status === 'planned' && item.plan_date >= dateKey && item.plan_date <= addDateKeyDays(dateKey, 2))
       .map((item) => item.recipe_id)
+      .filter((recipeId): recipeId is string => Boolean(recipeId))
   );
   const getLastUsedDateKey = (card: RecipeCardViewModel) =>
     [card.lastUsedAt, ...card.recipe.cook_logs.map((log) => log.cook_date)]

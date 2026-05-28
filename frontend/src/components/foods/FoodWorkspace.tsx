@@ -2,6 +2,7 @@ import { useMemo, useState, type FormEvent, type PointerEvent } from 'react';
 import { API_BASE_URL } from '../../api/client';
 import type {
   Food,
+  FoodPlanItem,
   FoodPayload,
   FoodRecommendationItem,
   FoodRecommendations,
@@ -27,6 +28,7 @@ import {
   WorkspaceSubpageShell,
   WorkspaceToolbar,
 } from '../ui-kit';
+import { FoodPlanDetailModal, type FoodPlanDetailFormState } from './FoodPlanDetailModal';
 import { FOOD_TYPE_LABELS, MEAL_TYPE_LABELS, emptyImages, formatDate, getFoodCover, splitTags, todayKey } from '../../lib/ui';
 import {
   type AiRenderPayload,
@@ -42,9 +44,12 @@ type FoodWorkspaceLens = 'all' | 'today' | 'selfMade' | 'outside' | 'ready' | 'e
 export type FoodGovernanceIssue = 'image' | 'meal' | 'note' | 'source' | 'stock';
 type NormalizedFoodType = Exclude<FoodType, 'packaged'>;
 type FoodIconName =
+  | 'bookOpen'
   | 'bowl'
   | 'calendar'
+  | 'cloche'
   | 'heart'
+  | 'home'
   | 'clock'
   | 'plus'
   | 'receipt'
@@ -135,10 +140,15 @@ type Props = {
   mealLogs: MealLog[];
   foodRecommendations?: FoodRecommendations | null;
   foodScenes: FoodScene[];
+  foodPlanItems: FoodPlanItem[];
+  foodPlanWeekRange: { start: string; end: string };
   createFood: (payload: FoodPayload) => Promise<Food>;
   updateFood: (foodId: string, payload: FoodPayload) => Promise<Food>;
   updateFoodFavorite: (foodId: string, favorite: boolean) => Promise<Food>;
-  quickAddMeal: (payload: { food_id: string; date: string; meal_type: MealType; servings: number; note: string }) => Promise<MealLog>;
+  quickAddMeal: (payload: { food_id: string; date: string; meal_type: MealType; servings: number; note: string; food_plan_item_id?: string }) => Promise<MealLog>;
+  createFoodPlanItem: (payload: { food_id: string; plan_date: string; meal_type: MealType; note: string }) => Promise<FoodPlanItem>;
+  updateFoodPlanItem: (itemId: string, payload: { food_id?: string; plan_date?: string; meal_type?: MealType; note?: string; status?: 'planned' | 'cooked' | 'skipped' }) => Promise<FoodPlanItem>;
+  deleteFoodPlanItem: (itemId: string) => Promise<void>;
   createFoodScene: (payload: {
     name: string;
     description: string;
@@ -162,11 +172,15 @@ type Props = {
   ) => Promise<FoodScene>;
   deleteFoodScene: (sceneId: string) => Promise<void>;
   onOpenRecipes: () => void;
-  onStartRecipe: (recipeId: string) => void;
+  onStartRecipe: (recipeId: string, foodPlanItemId?: string) => void;
   onOpenLogs: () => void;
+  onFoodPlanPreviousWeek: () => void;
+  onFoodPlanCurrentWeek: () => void;
+  onFoodPlanNextWeek: () => void;
   isSavingFood?: boolean;
   isUpdatingFavorite?: boolean;
   isQuickAdding?: boolean;
+  isUpdatingPlan?: boolean;
   isUpdatingScene?: boolean;
 };
 
@@ -202,6 +216,23 @@ const MEAL_OPTIONS: Array<{ value: MealType; label: string }> = [
   { value: 'dinner', label: '晚餐' },
   { value: 'snack', label: '加餐' },
 ];
+
+function addFoodPlanDateDays(dateKey: string, days: number) {
+  const [year, month, day] = dateKey.split('-').map(Number);
+  const date = new Date(year, (month || 1) - 1, day || 1);
+  date.setDate(date.getDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+
+function getFoodPlanDateParts(dateKey: string) {
+  const [year, month, day] = dateKey.split('-').map(Number);
+  const date = new Date(year, (month || 1) - 1, day || 1);
+  return {
+    day: String(day || 1),
+    month: String(month || 1),
+    weekday: new Intl.DateTimeFormat('zh-CN', { weekday: 'short' }).format(date),
+  };
+}
 
 const FOOD_QUICK_VIEW_OPTIONS: Array<{ value: FoodWorkspaceLens; label: string }> = [
   { value: 'all', label: '全部' },
@@ -383,14 +414,36 @@ function FoodUiIcon(props: { name: FoodIconName; className?: string }) {
           <path {...strokeProps} d="M16 8c-.7-.8-.7-1.6 0-2.4" />
         </>
       )}
+      {props.name === 'bookOpen' && (
+        <>
+          <path {...strokeProps} d="M4 5.5A2.5 2.5 0 0 1 6.5 3H11v17H6.5A2.5 2.5 0 0 0 4 22V5.5Z" />
+          <path {...strokeProps} d="M20 5.5A2.5 2.5 0 0 0 17.5 3H13v17h4.5A2.5 2.5 0 0 1 20 22V5.5Z" />
+        </>
+      )}
       {props.name === 'calendar' && (
         <>
           <path {...strokeProps} d="M7 3v4M17 3v4M4 9h16" />
           <rect {...strokeProps} x="4" y="5" width="16" height="16" rx="2.5" />
         </>
       )}
+      {props.name === 'cloche' && (
+        <>
+          <path {...strokeProps} d="M4 17h16" />
+          <path {...strokeProps} d="M6 17a6 6 0 0 1 12 0" />
+          <path {...strokeProps} d="M12 8V5" />
+          <path {...strokeProps} d="M9.5 5h5" />
+          <path {...strokeProps} d="M3 20h18" />
+        </>
+      )}
       {props.name === 'heart' && (
         <path {...strokeProps} d="M20.4 5.6a5 5 0 0 0-7.1 0L12 6.9l-1.3-1.3a5 5 0 0 0-7.1 7.1L12 21l8.4-8.3a5 5 0 0 0 0-7.1Z" />
+      )}
+      {props.name === 'home' && (
+        <>
+          <path {...strokeProps} d="m3 11 9-8 9 8" />
+          <path {...strokeProps} d="M5 10v10h14V10" />
+          <path {...strokeProps} d="M10 20v-6h4v6" />
+        </>
       )}
       {props.name === 'clock' && (
         <>
@@ -1140,6 +1193,21 @@ export function FoodWorkspace(props: Props) {
   const [newSceneTagName, setNewSceneTagName] = useState('');
   const [imageState, setImageState] = useState<ImageGenerationUiState>(IDLE_IMAGE_GENERATION_STATE);
   const [feedback, setFeedback] = useState('');
+  const [isPlanDialogOpen, setIsPlanDialogOpen] = useState(false);
+  const [planFoodSearch, setPlanFoodSearch] = useState('');
+  const [planForm, setPlanForm] = useState<{ foodId: string; planDate: string; mealType: MealType; note: string }>(() => ({
+    foodId: '',
+    planDate: todayKey(),
+    mealType: 'dinner',
+    note: '',
+  }));
+  const [planDetailItemId, setPlanDetailItemId] = useState<string | null>(null);
+  const [planDetailForm, setPlanDetailForm] = useState<FoodPlanDetailFormState>(() => ({
+    planDate: todayKey(),
+    mealType: 'dinner',
+    note: '',
+  }));
+  const [isPlanDetailEditing, setIsPlanDetailEditing] = useState(false);
 
   const foodUsageCards = useMemo(
     () => props.foods.map((food) => ({ food, usage: getMealUsage(food, props.mealLogs) })),
@@ -1237,6 +1305,33 @@ export function FoodWorkspace(props: Props) {
   const nextGovernanceFood = governanceQueue[0] ?? null;
   const nextGovernanceSummary = nextGovernanceFood ? `${nextGovernanceFood.name} · ${getFoodGovernanceIssueLabels(nextGovernanceFood, props.recipes).join('、')}` : '资料已够完整';
   const hasFoodFilters = Boolean(search.trim()) || typeFilter !== 'all' || mealFilter !== 'all' || lensFilter !== 'all' || sceneFilter !== 'all' || governanceIssueFilter !== 'all';
+  const todayDate = todayKey();
+  const activePlanItems = props.foodPlanItems.filter((item) => item.status !== 'skipped');
+  const activePlanDetailItem = planDetailItemId ? props.foodPlanItems.find((item) => item.id === planDetailItemId) ?? null : null;
+  const activePlanDetailFood = activePlanDetailItem ? props.foods.find((food) => food.id === activePlanDetailItem.food_id) ?? null : null;
+  const foodPlanDays = Array.from({ length: 7 }, (_, index) => {
+    const date = addFoodPlanDateDays(props.foodPlanWeekRange.start, index);
+    const items = activePlanItems.filter((item) => item.plan_date === date);
+    return {
+      date,
+      label: date === todayKey() ? '今天' : formatDate(date),
+      items,
+    };
+  });
+  const planDateOptions = Array.from({ length: 7 }, (_, index) => addFoodPlanDateDays(todayDate, index));
+  const planFoodOptions = useMemo(() => {
+    const query = planFoodSearch.trim().toLowerCase();
+    return props.foods
+      .filter((food) => {
+        if (!query) return true;
+        return [food.name, food.category, food.source_name, food.purchase_source, food.scene, food.notes, food.routine_note, ...getFoodSceneTags(food)]
+          .join(' ')
+          .toLowerCase()
+          .includes(query);
+      })
+      .slice(0, 8);
+  }, [planFoodSearch, props.foods]);
+  const selectedPlanFood = planForm.foodId ? props.foods.find((food) => food.id === planForm.foodId) ?? null : null;
 
   const imagePayload = getFoodImagePayload(form, props.recipes);
   const currentRecipe = props.recipes.find((recipe) => recipe.id === form.recipeId);
@@ -1384,6 +1479,112 @@ export function FoodWorkspace(props: Props) {
   async function quickAdd(food: Food, mealType: MealType) {
     await props.quickAddMeal({ food_id: food.id, date: todayKey(), meal_type: mealType, servings: 1, note: '' });
     setFeedback(`${food.name} 已记到今天${MEAL_TYPE_LABELS[mealType]}`);
+  }
+
+  function openPlanDialog(food?: Food) {
+    setPlanForm({
+      foodId: food?.id ?? '',
+      planDate: todayKey(),
+      mealType: food ? getDefaultMealType(food) : 'dinner',
+      note: '',
+    });
+    setPlanFoodSearch(food?.name ?? '');
+    setIsPlanDialogOpen(true);
+  }
+
+  function clearPlanFoodSelection() {
+    setPlanForm((current) => ({ ...current, foodId: '' }));
+    setPlanFoodSearch('');
+  }
+
+  function closePlanDialog() {
+    setIsPlanDialogOpen(false);
+    setPlanFoodSearch('');
+  }
+
+  async function submitPlanItem(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!planForm.foodId) {
+      window.alert('请选择要加入菜单的食物。');
+      return;
+    }
+    try {
+      await props.createFoodPlanItem({
+        food_id: planForm.foodId,
+        plan_date: planForm.planDate,
+        meal_type: planForm.mealType,
+        note: planForm.note.trim(),
+      });
+      closePlanDialog();
+    } catch (reason) {
+      window.alert(reason instanceof Error ? reason.message : '添加菜单计划失败');
+    }
+  }
+
+  function openPlanDetail(item: FoodPlanItem) {
+    setPlanDetailItemId(item.id);
+    setPlanDetailForm({ planDate: item.plan_date < todayKey() ? todayKey() : item.plan_date, mealType: item.meal_type, note: item.note ?? '' });
+    setIsPlanDetailEditing(false);
+  }
+
+  function closePlanDetail() {
+    setPlanDetailItemId(null);
+    setIsPlanDetailEditing(false);
+  }
+
+  function resetPlanDetailForm() {
+    if (!activePlanDetailItem) return;
+    setPlanDetailForm({
+      planDate: activePlanDetailItem.plan_date < todayKey() ? todayKey() : activePlanDetailItem.plan_date,
+      mealType: activePlanDetailItem.meal_type,
+      note: activePlanDetailItem.note ?? '',
+    });
+    setIsPlanDetailEditing(false);
+  }
+
+  async function submitPlanDetail(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!activePlanDetailItem) return;
+    try {
+      await props.updateFoodPlanItem(activePlanDetailItem.id, {
+        plan_date: planDetailForm.planDate,
+        meal_type: planDetailForm.mealType,
+        note: planDetailForm.note.trim(),
+      });
+      setIsPlanDetailEditing(false);
+    } catch (reason) {
+      window.alert(reason instanceof Error ? reason.message : '更新菜单计划失败');
+    }
+  }
+
+  async function deletePlanDetail(item: FoodPlanItem) {
+    try {
+      await props.deleteFoodPlanItem(item.id);
+      closePlanDetail();
+    } catch (reason) {
+      window.alert(reason instanceof Error ? reason.message : '删除菜单计划失败');
+    }
+  }
+
+  async function completePlanItem(item: FoodPlanItem) {
+    if (item.recipe_id) {
+      props.onStartRecipe(item.recipe_id, item.id);
+      return;
+    }
+    try {
+      await props.quickAddMeal({
+        food_id: item.food_id,
+        date: item.plan_date,
+        meal_type: item.meal_type,
+        servings: 1,
+        note: item.note || '来自菜单计划',
+        food_plan_item_id: item.id,
+      });
+      setFeedback(`${item.food_name} 已完成菜单计划`);
+      closePlanDetail();
+    } catch (reason) {
+      window.alert(reason instanceof Error ? reason.message : '完成菜单计划失败');
+    }
   }
 
   function handleRecommendationPrimaryAction(item: RecommendationCardViewModel) {
@@ -1856,7 +2057,7 @@ export function FoodWorkspace(props: Props) {
               return (
                 <article key={item.food.id} className={`food-recommendation-card tone-${normalizedType}`}>
                   <div className="food-recommendation-media">
-                    {cover ? <img src={`${API_BASE_URL}${cover}`} alt="" /> : <span>{item.food.name.slice(0, 2)}</span>}
+                    {cover ? <img src={resolveFoodAssetUrl(cover)} alt="" /> : <span>{item.food.name.slice(0, 2)}</span>}
                   </div>
                   <div className="food-recommendation-body">
                     <div className="food-recommendation-heading">
@@ -1878,6 +2079,9 @@ export function FoodWorkspace(props: Props) {
                       </button>
                       <button className="icon-only" type="button" aria-label={`查看详情：${item.food.name}`} title="查看详情" onClick={() => openDetail(item.food)}>
                         <FoodUiIcon name="list" />
+                      </button>
+                      <button className="icon-only" type="button" aria-label={`加入菜单：${item.food.name}`} title="加入菜单" onClick={() => openPlanDialog(item.food)}>
+                        <FoodUiIcon name="calendar" />
                       </button>
                     </div>
                   </div>
@@ -1998,7 +2202,7 @@ export function FoodWorkspace(props: Props) {
             return (
               <article key={food.id} className={`food-work-card tone-${normalizedType}`}>
                 <div className="food-work-card-media">
-                  {cover ? <img src={`${API_BASE_URL}${cover}`} alt={food.name} /> : <span>{food.name.slice(0, 4)}</span>}
+                  {cover ? <img src={resolveFoodAssetUrl(cover)} alt={food.name} /> : <span>{food.name.slice(0, 4)}</span>}
                   <span className="food-type-overlay">{FOOD_TYPE_LABELS[normalizedType]}</span>
                   <button
                     className={food.favorite ? 'food-favorite-chip active' : 'food-favorite-chip'}
@@ -2043,6 +2247,9 @@ export function FoodWorkspace(props: Props) {
                     </ActionButton>
                     <button className="food-card-detail-button" type="button" aria-label={`查看详情：${food.name}`} title="查看详情" onClick={() => openDetail(food)}>
                       <FoodUiIcon name="list" />
+                    </button>
+                    <button className="food-card-detail-button" type="button" aria-label={`加入菜单：${food.name}`} title="加入菜单" onClick={() => openPlanDialog(food)}>
+                      <FoodUiIcon name="calendar" />
                     </button>
                   </div>
                 </div>
@@ -2110,6 +2317,63 @@ export function FoodWorkspace(props: Props) {
           </div>
           <div className="food-sidebar-section">
             <div className="food-sidebar-section-head">
+              <strong>菜单计划</strong>
+              <span>{props.foodPlanWeekRange.start.slice(5).replace('-', '/')} - {props.foodPlanWeekRange.end.slice(5).replace('-', '/')}</span>
+            </div>
+            <div className="recipe-plan-switcher food-plan-switcher" aria-label="切换菜单周">
+              <button type="button" onClick={props.onFoodPlanPreviousWeek}>
+                <FoodUiIcon name="arrowLeft" />
+                上一周
+              </button>
+              <button type="button" onClick={props.onFoodPlanCurrentWeek}>
+                本周
+              </button>
+              <button type="button" onClick={props.onFoodPlanNextWeek}>
+                下一周
+                <FoodUiIcon name="arrowRight" />
+              </button>
+            </div>
+            <ActionButton tone="primary" type="button" size="compact" className="recipe-plan-add-button food-plan-add-button" onClick={() => openPlanDialog()} disabled={props.isUpdatingPlan || props.foods.length === 0}>
+              <FoodUiIcon name="plus" />
+              加食物
+            </ActionButton>
+            <div className="recipe-plan-week food-plan-week">
+              {foodPlanDays.map((day) => (
+                <div key={day.date} className="recipe-plan-day expanded">
+                  <button className="recipe-plan-day-head" type="button">
+                    <strong>{day.label}</strong>
+                    <span>{day.items.length > 0 ? `${day.items.length} 项` : '未安排'}</span>
+                  </button>
+                  {day.items.length > 0 ? (
+                    day.items.map((item) => (
+                      <article key={item.id} className="recipe-plan-item" role="button" tabIndex={0} onClick={() => openPlanDetail(item)}>
+                        <div className="recipe-plan-item-summary">
+                          <strong>{item.food_name}</strong>
+                          <span>{MEAL_TYPE_LABELS[item.meal_type]}{item.status === 'cooked' ? ' · 已完成' : ''}</span>
+                        </div>
+                        <button
+                          className="recipe-plan-item-detail-button"
+                          type="button"
+                          aria-label={`${item.recipe_id ? '开始做' : '记到今天'}：${item.food_name}`}
+                          disabled={props.isQuickAdding || item.status === 'cooked'}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            void completePlanItem(item);
+                          }}
+                        >
+                          <FoodUiIcon name={item.recipe_id ? 'bowl' : 'check'} />
+                        </button>
+                      </article>
+                    ))
+                  ) : (
+                    <div className="recipe-plan-empty-row">未安排</div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+          <div className="food-sidebar-section">
+            <div className="food-sidebar-section-head">
               <strong>按场景探索</strong>
               <span>从食物场景标签中整理</span>
             </div>
@@ -2166,7 +2430,7 @@ export function FoodWorkspace(props: Props) {
             >
               <div className="food-detail-hero">
                 <div className="food-detail-cover">
-                  {cover ? <img src={`${API_BASE_URL}${cover}`} alt={detailFood.name} /> : <span>{detailFood.name.slice(0, 4)}</span>}
+                  {cover ? <img src={resolveFoodAssetUrl(cover)} alt={detailFood.name} /> : <span>{detailFood.name.slice(0, 4)}</span>}
                 </div>
                 <div className="food-detail-status-row">
                   <span className={`food-card-status tone-${status.tone}`}>
@@ -2322,6 +2586,9 @@ export function FoodWorkspace(props: Props) {
                 <ActionButton tone="secondary" type="button" onClick={() => openEdit(detailFood)}>
                   {getSecondaryFoodActionLabel(detailFood)}
                 </ActionButton>
+                <ActionButton tone="secondary" type="button" onClick={() => openPlanDialog(detailFood)}>
+                  加入菜单
+                </ActionButton>
                 <ActionButton tone="secondary" type="button" onClick={props.onOpenLogs}>
                   完整记一餐
                 </ActionButton>
@@ -2330,6 +2597,169 @@ export function FoodWorkspace(props: Props) {
           </div>
         );
       })()}
+
+      {isPlanDialogOpen && (
+        <div className="workspace-overlay-root">
+          <div className="workspace-overlay-backdrop" onClick={closePlanDialog} />
+          <WorkspaceModal
+            title="加食物到菜单"
+            description="选择日期和餐次后加入当前周菜单。"
+            eyebrow="菜单计划"
+            onClose={closePlanDialog}
+            className="recipe-plan-modal food-plan-modal"
+          >
+            <form className="recipe-plan-dialog-form" onSubmit={submitPlanItem}>
+              {selectedPlanFood ? (
+                <div className="recipe-plan-dialog-hero">
+                  <div className="recipe-plan-selected-cover">
+                    {getFoodCover(selectedPlanFood, props.recipes) ? (
+                      <img src={resolveFoodAssetUrl(getFoodCover(selectedPlanFood, props.recipes) ?? '')} alt={selectedPlanFood.name} />
+                    ) : (
+                      <div className="recipe-plan-cover-empty">{selectedPlanFood.name.slice(0, 2)}</div>
+                    )}
+                  </div>
+                  <div className="recipe-plan-selected-copy">
+                    <span className="recipe-plan-dialog-kicker">即将加入</span>
+                    <strong>{selectedPlanFood.name}</strong>
+                    <div className="recipe-plan-selected-meta">
+                      <span>
+                        <FoodUiIcon name="home" />
+                        {FOOD_TYPE_LABELS[normalizeFoodType(selectedPlanFood)]}
+                      </span>
+                      <span>
+                        <FoodUiIcon name="cloche" />
+                        {selectedPlanFood.source_name || selectedPlanFood.purchase_source || (normalizeFoodType(selectedPlanFood) === 'selfMade' ? '家庭厨房' : selectedPlanFood.category || '常吃食物')}
+                      </span>
+                      <span>
+                        <FoodUiIcon name={selectedPlanFood.recipe_id ? 'bookOpen' : 'clipboard'} />
+                        {selectedPlanFood.recipe_id ? '关联菜谱' : '可直接记录'}
+                      </span>
+                    </div>
+                  </div>
+                  <button className="recipe-plan-change-food" type="button" onClick={clearPlanFoodSelection}>
+                    修改
+                  </button>
+                  <FoodUiIcon name="cloche" className="recipe-plan-selected-ornament" />
+                </div>
+              ) : (
+                <div className="recipe-plan-picker">
+                  <label htmlFor="food-plan-search">选择食物</label>
+                  <div className="recipe-plan-combobox">
+                    <FoodUiIcon name="search" />
+                    <input
+                      id="food-plan-search"
+                      className="recipe-plan-search-input"
+                      value={planFoodSearch}
+                      placeholder="搜索食物、来源、场景或备注"
+                      onChange={(event) => setPlanFoodSearch(event.target.value)}
+                    />
+                  </div>
+                  <div className="recipe-plan-option-panel">
+                    {planFoodOptions.length > 0 ? (
+                      planFoodOptions.map((food) => {
+                        const cover = getFoodCover(food, props.recipes);
+                        return (
+                          <button
+                            key={food.id}
+                            type="button"
+                            className="recipe-plan-option"
+                            onClick={() => {
+                              setPlanForm((current) => ({ ...current, foodId: food.id, mealType: getDefaultMealType(food) }));
+                              setPlanFoodSearch(food.name);
+                            }}
+                          >
+                            <span className="recipe-plan-option-cover recipe-work-cover">
+                              {cover ? <img src={resolveFoodAssetUrl(cover)} alt="" /> : <span>{food.name.slice(0, 2)}</span>}
+                            </span>
+                            <span>
+                              <strong>{food.name}</strong>
+                              <small>{[FOOD_TYPE_LABELS[normalizeFoodType(food)], food.source_name || food.purchase_source || food.category, food.recipe_id ? '可开始做' : '可记到今天'].filter(Boolean).join(' · ')}</small>
+                            </span>
+                            <Badge className="recipe-plan-option-status">{MEAL_TYPE_LABELS[getDefaultMealType(food)]}</Badge>
+                          </button>
+                        );
+                      })
+                    ) : (
+                      <div className="recipe-plan-option-empty">没有找到匹配的食物</div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              <div className="recipe-plan-form-row">
+                <label className="recipe-plan-date-field">
+                  <span>计划日期</span>
+                  <div className="recipe-plan-date-strip" role="radiogroup" aria-label="计划日期">
+                    {planDateOptions.map((date) => {
+                      const dateParts = getFoodPlanDateParts(date);
+                      return (
+                        <button
+                          key={date}
+                          type="button"
+                          className={planForm.planDate === date ? 'active' : ''}
+                          aria-pressed={planForm.planDate === date}
+                          onClick={() => setPlanForm({ ...planForm, planDate: date })}
+                        >
+                          <span>{date === todayDate ? '今天' : dateParts.weekday}</span>
+                          <strong>{dateParts.month}/{dateParts.day}</strong>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </label>
+                <label className="recipe-plan-meal-field">
+                  <span>餐次</span>
+                  <div className="recipe-plan-meal-segment" role="radiogroup" aria-label="餐次">
+                    {MEAL_OPTIONS.map((item) => (
+                      <button
+                        key={item.value}
+                        type="button"
+                        className={planForm.mealType === item.value ? 'active' : ''}
+                        aria-pressed={planForm.mealType === item.value}
+                        onClick={() => setPlanForm({ ...planForm, mealType: item.value })}
+                      >
+                        {item.label}
+                      </button>
+                    ))}
+                  </div>
+                </label>
+              </div>
+              <label className="recipe-plan-note-field">
+                <span>备注</span>
+                <input className="text-input" value={planForm.note} placeholder="比如：少油、常点套餐、提前解冻" onChange={(event) => setPlanForm({ ...planForm, note: event.target.value })} />
+              </label>
+              <div className="workspace-overlay-actions">
+                <ActionButton tone="primary" type="submit" disabled={props.isUpdatingPlan || !planForm.foodId}>
+                  加入菜单
+                </ActionButton>
+                <ActionButton tone="secondary" type="button" onClick={closePlanDialog}>
+                  取消
+                </ActionButton>
+              </div>
+            </form>
+          </WorkspaceModal>
+        </div>
+      )}
+
+      {activePlanDetailItem && (
+        <FoodPlanDetailModal
+          item={activePlanDetailItem}
+          food={activePlanDetailFood}
+          recipes={props.recipes}
+          form={planDetailForm}
+          isEditing={isPlanDetailEditing}
+          isUpdatingPlan={props.isUpdatingPlan}
+          isCompleting={props.isQuickAdding}
+          onClose={closePlanDetail}
+          onChangeForm={setPlanDetailForm}
+          onEditingChange={setIsPlanDetailEditing}
+          onResetEdit={resetPlanDetailForm}
+          onSubmit={submitPlanDetail}
+          onComplete={() => void completePlanItem(activePlanDetailItem)}
+          onDelete={() => void deletePlanDetail(activePlanDetailItem)}
+          resolveAssetUrl={resolveFoodAssetUrl}
+        />
+      )}
 
       {isSceneManagerOpen && !sceneFormMode && (
         <div className="workspace-overlay-root">

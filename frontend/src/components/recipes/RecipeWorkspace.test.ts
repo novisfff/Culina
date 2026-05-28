@@ -272,6 +272,7 @@ describe('recipe workspace payload helpers', () => {
       date: '2026-05-14',
       meal_type: 'dinner',
       create_meal_log: true,
+      food_plan_item_id: 'plan-1',
       recipe_plan_item_id: 'plan-1',
       result_note: '很成功',
       adjustments: '少放盐',

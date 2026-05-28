@@ -11,7 +11,7 @@ from app.core.deps import get_current_auth
 from app.core.enums import ActivityAction, Difficulty, FoodType, MealType, food_type_values
 from app.core.utils import create_id, utcnow
 from app.db.session import get_db
-from app.models.domain import Food, InventoryItem, MealLog, MealLogFood, MediaAsset, Recipe, RecipeCookLog, RecipeFavorite, RecipeIngredient, RecipePlanItem, RecipeStep
+from app.models.domain import Food, FoodPlanItem, InventoryItem, MealLog, MealLogFood, MediaAsset, Recipe, RecipeCookLog, RecipeFavorite, RecipeIngredient, RecipeStep
 from app.repos.media import build_media_map, get_media_assets_for_family
 from app.schemas.domain import (
     CookRecipePreviewResponse,
@@ -567,11 +567,14 @@ def discover_recipes(
     )
     planned_recipe_ids = set(
         db.scalars(
-            select(RecipePlanItem.recipe_id).where(
-                RecipePlanItem.family_id == membership.family_id,
-                RecipePlanItem.status == "planned",
-                RecipePlanItem.plan_date >= today,
-                RecipePlanItem.plan_date <= today + timedelta(days=2),
+            select(Food.recipe_id)
+            .join(FoodPlanItem, FoodPlanItem.food_id == Food.id)
+            .where(
+                FoodPlanItem.family_id == membership.family_id,
+                FoodPlanItem.status == "planned",
+                FoodPlanItem.plan_date >= today,
+                FoodPlanItem.plan_date <= today + timedelta(days=2),
+                Food.recipe_id.is_not(None),
             )
         )
     )
@@ -937,17 +940,20 @@ def cook_recipe(
         )
         meal_log_id = meal_log.id
 
-    if payload.recipe_plan_item_id:
+    plan_item_id = payload.food_plan_item_id or payload.recipe_plan_item_id
+    if plan_item_id:
         plan_item = db.scalar(
-            select(RecipePlanItem).where(
-                RecipePlanItem.family_id == membership.family_id,
-                RecipePlanItem.user_id == user.id,
-                RecipePlanItem.id == payload.recipe_plan_item_id,
-                RecipePlanItem.recipe_id == recipe.id,
+            select(FoodPlanItem)
+            .join(Food, FoodPlanItem.food_id == Food.id)
+            .where(
+                FoodPlanItem.family_id == membership.family_id,
+                FoodPlanItem.user_id == user.id,
+                FoodPlanItem.id == plan_item_id,
+                Food.recipe_id == recipe.id,
             )
         )
         if plan_item is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Recipe plan item not found")
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Food plan item not found")
         plan_item.status = "cooked"
         plan_item.completed_at = utcnow()
         plan_item.meal_log_id = meal_log_id
