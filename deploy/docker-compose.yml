@@ -38,12 +38,6 @@ services:
       - "${MINIO_CONSOLE_PORT:-9001}:9001"
     volumes:
       - culina_minio_data:/data
-    healthcheck:
-      test: ["CMD-SHELL", "curl -f http://127.0.0.1:9000/minio/health/live"]
-      interval: 5s
-      timeout: 5s
-      retries: 20
-      start_period: 10s
 
   backend:
     build:
@@ -85,7 +79,7 @@ services:
       mysql:
         condition: service_healthy
       minio:
-        condition: service_healthy
+        condition: service_started
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8010/api/health', timeout=5).read()\""]
       interval: 10s
