@@ -1,0 +1,114 @@
+name: culina
+
+services:
+  mysql:
+    image: mysql:8.4
+    container_name: culina-mysql
+    restart: unless-stopped
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-culina_local_root}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-culina}
+      MYSQL_USER: ${MYSQL_USER:-culina}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-culina_local_password}
+      MYSQL_INITDB_SKIP_TZINFO: "1"
+    ports:
+      - "${MYSQL_PORT:-3306}:3306"
+    volumes:
+      - culina_mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$${MYSQL_ROOT_PASSWORD}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
+
+  minio:
+    image: minio/minio:RELEASE.2023-11-06T22-26-08Z
+    container_name: culina-minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-culina}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-culina_local_minio_secret}
+    ports:
+      - "${MINIO_API_PORT:-9000}:9000"
+      - "${MINIO_CONSOLE_PORT:-9001}:9001"
+    volumes:
+      - culina_minio_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://127.0.0.1:9000/minio/health/live"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+
+  backend:
+    build:
+      context: ..
+      dockerfile: backend/Dockerfile
+    container_name: culina-backend
+    restart: unless-stopped
+    environment:
+      ENVIRONMENT: ${ENVIRONMENT:-local}
+      MYSQL_HOST: mysql
+      MYSQL_PORT: 3306
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-culina}
+      MYSQL_USER: ${MYSQL_USER:-culina}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-culina_local_password}
+      JWT_SECRET: ${JWT_SECRET:-culina-local-dev-secret}
+      ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-10080}
+      MEDIA_MAX_UPLOAD_BYTES: ${MEDIA_MAX_UPLOAD_BYTES:-10485760}
+      MINIO_ENDPOINT: minio:9000
+      MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:-culina}
+      MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-culina_local_minio_secret}
+      MINIO_BUCKET: ${MINIO_BUCKET:-culina-media}
+      MINIO_SECURE: "false"
+      FRONTEND_ORIGIN: ${FRONTEND_ORIGIN:-http://localhost:8080}
+      AI_PROVIDER: ${AI_PROVIDER:-disabled}
+      AI_API_BASE: ${AI_API_BASE:-https://api.openai.com/v1}
+      AI_API_KEY: ${AI_API_KEY:-}
+      AI_MODEL: ${AI_MODEL:-}
+      AI_TIMEOUT_SECONDS: ${AI_TIMEOUT_SECONDS:-180}
+      AI_IMAGE_REFERENCE_PROVIDER: ${AI_IMAGE_REFERENCE_PROVIDER:-disabled}
+      AI_IMAGE_REFERENCE_API_BASE: ${AI_IMAGE_REFERENCE_API_BASE:-https://dashscope.aliyuncs.com/api/v1}
+      AI_IMAGE_REFERENCE_API_KEY: ${AI_IMAGE_REFERENCE_API_KEY:-}
+      AI_IMAGE_REFERENCE_MODEL: ${AI_IMAGE_REFERENCE_MODEL:-wan2.6-image}
+      AI_IMAGE_TEXT_PROVIDER: ${AI_IMAGE_TEXT_PROVIDER:-disabled}
+      AI_IMAGE_TEXT_API_BASE: ${AI_IMAGE_TEXT_API_BASE:-https://dashscope.aliyuncs.com/api/v1}
+      AI_IMAGE_TEXT_API_KEY: ${AI_IMAGE_TEXT_API_KEY:-}
+      AI_IMAGE_TEXT_MODEL: ${AI_IMAGE_TEXT_MODEL:-wan2.6-t2i}
+      SEED_DEMO: ${SEED_DEMO:-false}
+    depends_on:
+      mysql:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8010/api/health', timeout=5).read()\""]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+  frontend:
+    build:
+      context: ..
+      dockerfile: frontend/Dockerfile
+      args:
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-}
+    container_name: culina-frontend
+    restart: unless-stopped
+    environment:
+      MINIO_BUCKET: ${MINIO_BUCKET:-culina-media}
+    ports:
+      - "${FRONTEND_PORT:-8080}:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+
+volumes:
+  culina_mysql_data:
+  culina_minio_data:

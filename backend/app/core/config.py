@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from functools import lru_cache
-from pathlib import Path
 from urllib.parse import quote_plus
 
 from pydantic import computed_field, model_validator
@@ -21,8 +20,12 @@ class Settings(BaseSettings):
     mysql_password: str = ""
     jwt_secret: str = ""
     access_token_expire_minutes: int = 60 * 24 * 7
-    media_root: str = "storage/uploads"
     media_max_upload_bytes: int = 10 * 1024 * 1024
+    minio_endpoint: str = "127.0.0.1:9000"
+    minio_access_key: str = "culina"
+    minio_secret_key: str = "culina_local_minio_secret"
+    minio_bucket: str = "culina-media"
+    minio_secure: bool = False
     ai_provider: str = "disabled"
     ai_api_base: str = "https://api.openai.com/v1"
     ai_api_key: str = ""
@@ -51,6 +54,8 @@ class Settings(BaseSettings):
             missing.append("JWT_SECRET")
         if self.jwt_secret in {"change-me", "culina-local-dev-secret"}:
             missing.append("JWT_SECRET")
+        if not self.minio_secret_key or self.minio_secret_key == "culina_local_minio_secret":
+            missing.append("MINIO_SECRET_KEY")
         if missing:
             unique_missing = ", ".join(dict.fromkeys(missing))
             raise ValueError(f"Unsafe production settings: set {unique_missing}")
@@ -66,16 +71,6 @@ class Settings(BaseSettings):
             f"mysql+pymysql://{credentials}"
             f"@{self.mysql_host}:{self.mysql_port}/{self.mysql_database}?charset=utf8mb4"
         )
-
-    @computed_field  # type: ignore[misc]
-    @property
-    def backend_root(self) -> Path:
-        return Path(__file__).resolve().parents[2]
-
-    @computed_field  # type: ignore[misc]
-    @property
-    def resolved_media_root(self) -> Path:
-        return self.backend_root / self.media_root
 
 
 @lru_cache(maxsize=1)

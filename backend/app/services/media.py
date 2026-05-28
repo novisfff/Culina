@@ -1,16 +1,17 @@
 from __future__ import annotations
-from contextlib import suppress
 from pathlib import Path
 from typing import Iterable
 from uuid import uuid4
 
 from fastapi import HTTPException, UploadFile, status
+from minio import Minio
+from minio.error import S3Error
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.core.enums import ImageGenerationMode, MediaSource
-from app.core.utils import create_id, ensure_directory, utcnow
+from app.core.utils import create_id, utcnow
 from app.models.domain import MediaAsset
 
 ALLOWED_CONTENT_TYPES = {
@@ -41,14 +42,77 @@ def _sanitize_basename(name: str) -> str:
     return cleaned[:80] or "media"
 
 
-def _public_url(file_name: str) -> str:
-    return f"/media/{file_name}"
+def _storage_client() -> Minio:
+    settings = get_settings()
+    return Minio(
+        settings.minio_endpoint,
+        access_key=settings.minio_access_key,
+        secret_key=settings.minio_secret_key,
+        secure=settings.minio_secure,
+    )
+
+
+def ensure_media_bucket() -> None:
+    settings = get_settings()
+    client = _storage_client()
+    if not client.bucket_exists(settings.minio_bucket):
+        client.make_bucket(settings.minio_bucket)
+    policy = f"""{{
+      "Version": "2012-10-17",
+      "Statement": [
+        {{
+          "Effect": "Allow",
+          "Principal": {{"AWS": ["*"]}},
+          "Action": ["s3:GetObject"],
+          "Resource": ["arn:aws:s3:::{settings.minio_bucket}/*"]
+        }}
+      ]
+    }}"""
+    client.set_bucket_policy(settings.minio_bucket, policy)
+
+
+def _object_key(*, family_id: str, file_name: str) -> str:
+    return f"{family_id}/{file_name}"
+
+
+def _public_url(object_key: str) -> str:
+    return f"/media/{object_key}"
+
+
+def _put_media_object(*, object_key: str, payload: bytes, content_type: str) -> None:
+    from io import BytesIO
+
+    settings = get_settings()
+    ensure_media_bucket()
+    _storage_client().put_object(
+        settings.minio_bucket,
+        object_key,
+        BytesIO(payload),
+        length=len(payload),
+        content_type=content_type,
+    )
+
+
+def read_media_object(asset: MediaAsset) -> bytes:
+    settings = get_settings()
+    response = None
+    try:
+        response = _storage_client().get_object(settings.minio_bucket, asset.file_path)
+        return response.read()
+    except S3Error as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Reference media file not found") from exc
+    finally:
+        if response is not None:
+            response.close()
+            response.release_conn()
 
 
 def delete_media_file(asset: MediaAsset) -> None:
     if asset.file_path:
-        with suppress(OSError):
-            Path(asset.file_path).unlink()
+        try:
+            _storage_client().remove_object(get_settings().minio_bucket, asset.file_path)
+        except S3Error:
+            pass
 
 
 def _read_validated_upload(upload: UploadFile, max_bytes: int) -> tuple[bytes, str]:
@@ -80,20 +144,19 @@ def save_upload(
     alt: str,
 ) -> MediaAsset:
     settings = get_settings()
-    media_root = ensure_directory(settings.resolved_media_root)
     payload, content_type = _read_validated_upload(upload, settings.media_max_upload_bytes)
     suffix = ALLOWED_CONTENT_TYPES[content_type]
 
     file_name = f"{_sanitize_basename(Path(upload.filename or 'media').stem)}_{uuid4().hex}{suffix}"
-    absolute_path = media_root / file_name
-    absolute_path.write_bytes(payload)
+    object_key = _object_key(family_id=family_id, file_name=file_name)
+    _put_media_object(object_key=object_key, payload=payload, content_type=content_type)
 
     asset = MediaAsset(
         id=create_id("photo"),
         family_id=family_id,
         name=upload.filename or file_name,
-        url=_public_url(file_name),
-        file_path=str(absolute_path),
+        url=_public_url(object_key),
+        file_path=object_key,
         source=source,
         alt=alt or (upload.filename or file_name),
         created_at=utcnow(),
@@ -103,8 +166,7 @@ def save_upload(
         db.add(asset)
         db.flush()
     except Exception:
-        with suppress(OSError):
-            absolute_path.unlink()
+        delete_media_file(asset)
         raise
     return asset
 
@@ -123,18 +185,16 @@ def save_svg_asset(
     style_key: str | None = None,
     prompt_version: str | None = None,
 ) -> MediaAsset:
-    settings = get_settings()
-    media_root = ensure_directory(settings.resolved_media_root)
     file_name = f"{_sanitize_basename(title)}_{uuid4().hex}.svg"
-    absolute_path = media_root / file_name
-    absolute_path.write_text(svg_markup, encoding="utf-8")
+    object_key = _object_key(family_id=family_id, file_name=file_name)
+    _put_media_object(object_key=object_key, payload=svg_markup.encode("utf-8"), content_type="image/svg+xml")
 
     asset = MediaAsset(
         id=create_id("photo"),
         family_id=family_id,
         name=title,
-        url=_public_url(file_name),
-        file_path=str(absolute_path),
+        url=_public_url(object_key),
+        file_path=object_key,
         source=source,
         alt=alt or title,
         generation_mode=generation_mode,
@@ -148,8 +208,7 @@ def save_svg_asset(
         db.add(asset)
         db.flush()
     except Exception:
-        with suppress(OSError):
-            absolute_path.unlink()
+        delete_media_file(asset)
         raise
     return asset
 
@@ -169,8 +228,6 @@ def save_generated_asset(
     style_key: str | None = None,
     prompt_version: str | None = None,
 ) -> MediaAsset:
-    settings = get_settings()
-    media_root = ensure_directory(settings.resolved_media_root)
     normalized_extension = file_extension.lower()
     if not normalized_extension.startswith("."):
         normalized_extension = f".{normalized_extension}"
@@ -178,15 +235,27 @@ def save_generated_asset(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unsupported generated image type")
 
     file_name = f"{_sanitize_basename(title)}_{uuid4().hex}{normalized_extension}"
-    absolute_path = media_root / file_name
-    absolute_path.write_bytes(binary_payload)
+    object_key = _object_key(family_id=family_id, file_name=file_name)
+    content_type_by_extension = {
+        ".png": "image/png",
+        ".jpg": "image/jpeg",
+        ".jpeg": "image/jpeg",
+        ".webp": "image/webp",
+        ".bmp": "image/bmp",
+        ".svg": "image/svg+xml",
+    }
+    _put_media_object(
+        object_key=object_key,
+        payload=binary_payload,
+        content_type=content_type_by_extension.get(normalized_extension, "application/octet-stream"),
+    )
 
     asset = MediaAsset(
         id=create_id("photo"),
         family_id=family_id,
         name=title,
-        url=_public_url(file_name),
-        file_path=str(absolute_path),
+        url=_public_url(object_key),
+        file_path=object_key,
         source=source,
         alt=alt or title,
         generation_mode=generation_mode,
@@ -200,8 +269,7 @@ def save_generated_asset(
         db.add(asset)
         db.flush()
     except Exception:
-        with suppress(OSError):
-            absolute_path.unlink()
+        delete_media_file(asset)
         raise
     return asset
 

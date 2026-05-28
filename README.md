@@ -15,6 +15,7 @@ Culina 是一个移动优先的家庭菜谱管理工具原型，包含：
 Culina/
   frontend/   # React + Vite 前端
   backend/    # FastAPI + SQLAlchemy + Alembic 后端
+  deploy/     # Docker Compose 与部署配置示例
   docs/       # PRD 与项目文档
 ```
 
@@ -41,7 +42,13 @@ VITE_API_BASE_URL=http://127.0.0.1:8010
 npm run db:up
 ```
 
-默认会启动一个本地 `mysql:8.4` 容器，监听 `127.0.0.1:3306`，数据库名为 `culina`。后端当前默认读取 [backend/.env](/Users/zyf/IdeaProjects/Culina/backend/.env) 中的本地连接配置。
+Compose 文件位于 [deploy/docker-compose.yml](/Users/zyf/IdeaProjects/Culina/deploy/docker-compose.yml)。`npm run db:up` 会启动本地 MySQL 和 MinIO；MySQL 监听 `127.0.0.1:3306`，数据库名为 `culina`，默认应用账号为 `culina / culina_local_password`。
+
+如需覆盖端口、库名、密码或 MinIO 配置，可复制 [deploy/.env.example](/Users/zyf/IdeaProjects/Culina/deploy/.env.example) 为 `deploy/.env` 后修改；后端当前默认读取 [backend/.env](/Users/zyf/IdeaProjects/Culina/backend/.env) 中的本地连接配置，示例见 [backend/.env.example](/Users/zyf/IdeaProjects/Culina/backend/.env.example)。
+
+## Docker 部署整套系统
+
+部署配置位于 [deploy/](/Users/zyf/IdeaProjects/Culina/deploy)，包含 MySQL、FastAPI 后端和 nginx 前端。完整部署指南见 [deploy/README.md](/Users/zyf/IdeaProjects/Culina/deploy/README.md)。
 
 第一次启动：
 
@@ -88,6 +95,6 @@ npm test
 - 前端已从浏览器 `localStorage` 主状态切换为真实 REST API + React Query
 - 后端使用 MySQL 持久化家庭、成员、食材、库存、菜谱、食物、餐食记录、活动流和 AI 对话
 - 成员账号由 Owner 创建，当前不开放公开注册
-- 图片上传保存到 `backend/storage/uploads/`
+- 图片上传和 AI 生成图片保存到 MinIO，前端通过 nginx 的 `/media/...` 代理访问
 - AI 默认走后端降级逻辑；如果补齐 provider 配置，可继续接入真实模型
 - PRD 文档见 [docs/prd-v1-family-kitchen.md](/Users/zyf/IdeaProjects/Culina/docs/prd-v1-family-kitchen.md)

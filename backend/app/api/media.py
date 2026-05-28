@@ -16,7 +16,7 @@ from app.ai.images.jobs import (
     mark_image_generation_job_finalized,
     release_image_generation_job_result,
 )
-from app.services.media import delete_media_file, get_media_asset, save_generated_asset, save_svg_asset, save_upload
+from app.services.media import delete_media_file, get_media_asset, read_media_object, save_generated_asset, save_svg_asset, save_upload
 from app.services.serializers import serialize_media
 
 router = APIRouter(tags=["media"])
@@ -60,11 +60,7 @@ def _build_image_generation_request(
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Reference media not found")
         if reference_asset.source != MediaSource.UPLOAD:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Reference media must be an uploaded image")
-        try:
-            with open(reference_asset.file_path, "rb") as reference_file:
-                reference_bytes = reference_file.read()
-        except OSError as exc:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Reference media file not found") from exc
+        reference_bytes = read_media_object(reference_asset)
         reference_filename = reference_asset.name
 
     request = ImageGenerationRequest(

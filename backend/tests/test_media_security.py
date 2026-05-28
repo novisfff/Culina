@@ -1,9 +1,7 @@
 from __future__ import annotations
 
-import tempfile
 import time
 import unittest
-from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -37,7 +35,6 @@ class FakeImageGenerationClient:
 
 class MediaSecurityTestCase(unittest.TestCase):
     def setUp(self) -> None:
-        self.temp_dir = tempfile.TemporaryDirectory()
         self.engine = create_engine(
             "sqlite+pysqlite:///:memory:",
             connect_args={"check_same_thread": False},
@@ -80,11 +77,14 @@ class MediaSecurityTestCase(unittest.TestCase):
         self.settings_patcher = patch(
             "app.services.media.get_settings",
             return_value=SimpleNamespace(
-                resolved_media_root=Path(self.temp_dir.name),
                 media_max_upload_bytes=128,
             ),
         )
         self.settings_patcher.start()
+        self.put_object_patcher = patch("app.services.media._put_media_object")
+        self.put_object_patcher.start()
+        self.delete_object_patcher = patch("app.services.media.delete_media_file")
+        self.delete_object_patcher.start()
         self.client_patcher = patch("app.ai.images.jobs.ImageGenerationClient", FakeImageGenerationClient)
         self.client_patcher.start()
         app.dependency_overrides[get_db] = override_db
@@ -94,10 +94,11 @@ class MediaSecurityTestCase(unittest.TestCase):
     def tearDown(self) -> None:
         app.dependency_overrides.clear()
         self.client_patcher.stop()
+        self.delete_object_patcher.stop()
+        self.put_object_patcher.stop()
         self.settings_patcher.stop()
         Base.metadata.drop_all(self.engine)
         self.engine.dispose()
-        self.temp_dir.cleanup()
 
     def test_upload_rejects_svg(self) -> None:
         response = self.client.post(
