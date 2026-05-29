@@ -3619,7 +3619,7 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
               <div className="recipe-cook-progress-card">
                 <Badge className={`recipe-availability-badge tone-${activeCookCard.availability}`}>{activeCookCard.availabilityLabel}</Badge>
                 <strong>{cookProgressPercent}%</strong>
-                <span>第 {cookSession.currentStepIndex + 1} / {cookSteps.length} 步</span>
+                <span>步骤 {cookSession.currentStepIndex + 1} / {cookSteps.length}</span>
                 <ActionButton tone="secondary" type="button" onClick={() => exitCookMode('library')}>
                   退出烹饪
                 </ActionButton>
@@ -3713,7 +3713,7 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
                   ‹ 上一步
                 </ActionButton>
                 <ActionButton tone="primary" type="button" onClick={completeCurrentCookStepAndContinue}>
-                  {cookSession.currentStepIndex >= cookSteps.length - 1 ? '完成本步，完成烹饪 ✓' : '完成本步，进入下一步 ›'}
+                  {cookSession.currentStepIndex >= cookSteps.length - 1 ? '完成本步，完成烹饪' : '完成本步，进入下一步'}
                 </ActionButton>
               </div>
             </section>
@@ -3877,9 +3877,8 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
 
           <div className="recipe-cook-bottom-bar">
             <ActionButton tone="secondary" type="button" onClick={() => moveCookStep(-1)} disabled={cookSession.currentStepIndex <= 0}>‹ 上一步</ActionButton>
-            <ActionButton tone="secondary" type="button" onClick={() => openShoppingDialog(activeCookCard)} disabled={props.isCreatingShopping}>加采购</ActionButton>
-            <ActionButton tone="primary" type="button" onClick={() => setIsCookFinishOpen(true)}>
-              ✓ 完成烹饪
+            <ActionButton tone="primary" type="button" onClick={completeCurrentCookStepAndContinue}>
+              {cookSession.currentStepIndex >= cookSteps.length - 1 ? '完成本步，完成烹饪' : '完成本步，进入下一步'}
             </ActionButton>
           </div>
         </main>
