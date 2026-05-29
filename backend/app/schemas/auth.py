@@ -6,6 +6,7 @@ from app.core.security import validate_password_strength
 
 from app.core.enums import UserRole
 from app.schemas.family import FamilyDetailOut
+from app.schemas.media import MediaAssetOut
 
 
 class UserSummary(BaseModel):
@@ -17,6 +18,7 @@ class UserSummary(BaseModel):
     email: str | None = None
     phone: str | None = None
     avatar_seed: str
+    avatar_image: MediaAssetOut | None = None
 
 
 class MembershipSummary(BaseModel):
@@ -39,6 +41,7 @@ class UpdateProfileRequest(BaseModel):
     email: str | None = None
     phone: str | None = None
     avatar_seed: str | None = None
+    avatar_media_id: str | None = None
 
 
 class UpdatePasswordRequest(BaseModel):

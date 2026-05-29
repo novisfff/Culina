@@ -1898,6 +1898,7 @@ textarea:focus-visible {
 .avatar {
   width: 38px;
   height: 38px;
+  overflow: hidden;
   border-radius: 999px;
   display: grid;
   place-items: center;
@@ -1905,6 +1906,13 @@ textarea:focus-visible {
   font-weight: 800;
   font-size: 0.9rem;
   box-shadow: inset 0 -10px 18px rgba(0, 0, 0, 0.08);
+}
+
+.avatar img {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: cover;
 }
 
 .avatar.large {
@@ -3405,9 +3413,909 @@ textarea:focus-visible {
   background: #dda93c;
 }
 
+.family-workspace {
+  display: grid;
+  gap: 12px;
+}
+
+.family-hero,
+.family-profile-panel,
+.family-activity-panel,
+.family-invite-panel,
+.family-member-card {
+  border: 1px solid rgba(122, 85, 62, 0.11);
+  background: rgba(255, 255, 255, 0.8);
+  box-shadow: 0 12px 34px rgba(76, 56, 42, 0.055);
+}
+
+.family-hero {
+  display: grid;
+  gap: 16px;
+  padding: 20px 24px 18px;
+}
+
+.family-hero-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+}
+
+.family-hero-copy {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.family-hero h1 {
+  margin: 0;
+  color: #2d1f18;
+  font-size: 2.1rem;
+  line-height: 1.06;
+  font-weight: 800;
+}
+
+.family-hero p,
+.family-profile-copy p,
+.family-owner-copy p,
+.family-member-copy p,
+.family-member-copy span,
+.family-activity-item p,
+.family-invite-option p,
+.family-permission-note p {
+  margin: 0;
+  color: #776a61;
+}
+
+.family-hero-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.family-action-primary,
+.family-action-secondary,
+.family-icon-action {
+  min-height: 42px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  font-weight: 800;
+}
+
+.family-action-primary,
+.family-action-secondary {
+  padding-inline: 17px;
+}
+
+.family-action-primary svg,
+.family-action-secondary svg,
+.family-icon-action svg,
+.family-stat-icon svg,
+.family-profile-copy svg,
+.family-owner-copy svg,
+.family-owner-actions svg,
+.family-member-actions svg,
+.family-activity-icon svg,
+.family-invite-option svg,
+.family-permission-note svg {
+  width: 18px;
+  height: 18px;
+  display: block;
+}
+
+.family-icon-action {
+  width: 42px;
+  padding: 0;
+  border: 1px solid rgba(122, 85, 62, 0.12);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.72);
+  color: #6f5f55;
+}
+
+.family-stat-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.family-stat-card {
+  min-height: 92px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 14px;
+  padding: 14px 16px;
+  border: 1px solid var(--line-soft);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.78);
+}
+
+.family-stat-icon {
+  width: 54px;
+  height: 54px;
+  display: grid;
+  place-items: center;
+  border-radius: 16px;
+}
+
+.family-stat-icon.tone-green {
+  color: #4f9b57;
+  background: #e3f1dc;
+}
+
+.family-stat-icon.tone-orange {
+  color: #d9652c;
+  background: #fde5d7;
+}
+
+.family-stat-icon.tone-yellow {
+  color: #d38a1f;
+  background: #fff1c9;
+}
+
+.family-stat-icon.tone-purple {
+  color: #765bc5;
+  background: #e8e0f8;
+}
+
+.family-stat-card span,
+.family-stat-card p {
+  font-size: 0.84rem;
+  font-weight: 700;
+}
+
+.family-stat-card strong {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  margin: 1px 0 2px;
+  overflow: hidden;
+  color: #1f1712;
+  font-size: 1.45rem;
+  line-height: 1.05;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.family-stat-card small {
+  color: #4f4139;
+  font-size: 0.88rem;
+}
+
+.family-profile-panel {
+  display: grid;
+  grid-template-columns: 136px minmax(0, 1fr) minmax(320px, 0.95fr);
+  align-items: center;
+  gap: 26px;
+  padding: 18px 22px;
+}
+
+.family-cover-card {
+  width: 118px;
+  height: 118px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #f4e5d3;
+  box-shadow: inset 0 0 0 1px rgba(122, 85, 62, 0.08);
+}
+
+.family-cover-card img,
+.family-cover-placeholder {
+  width: 100%;
+  height: 100%;
+}
+
+.family-cover-card img {
+  display: block;
+  object-fit: cover;
+}
+
+.family-cover-placeholder {
+  display: grid;
+  place-items: center;
+  color: #d36d35;
+  background:
+    linear-gradient(135deg, rgba(226, 236, 216, 0.92), rgba(253, 229, 215, 0.92)),
+    #fff8ef;
+}
+
+.family-cover-placeholder svg {
+  width: 42px;
+  height: 42px;
+}
+
+.family-profile-copy {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.family-profile-copy h2 {
+  margin: 0;
+  color: #1f1712;
+  font-size: 1.78rem;
+  line-height: 1.12;
+  font-weight: 800;
+}
+
+.family-location,
+.family-chip-row,
+.family-owner-copy span {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.family-location {
+  color: #65564d;
+  font-weight: 800;
+}
+
+.family-chip-row {
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.family-chip-row .badge {
+  min-height: 30px;
+  gap: 6px;
+  border-radius: 8px;
+}
+
+.family-chip-row .badge svg {
+  width: 15px;
+  height: 15px;
+}
+
+.family-owner-panel {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 14px;
+  padding-left: 24px;
+  border-left: 1px solid rgba(122, 85, 62, 0.1);
+}
+
+.family-owner-copy {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.family-owner-copy h3,
+.family-member-card h3,
+.family-section-head h2,
+.family-invite-option strong,
+.family-permission-note strong,
+.family-activity-item strong {
+  margin: 0;
+  color: #211813;
+  line-height: 1.2;
+}
+
+.family-owner-copy h3 {
+  font-size: 1.2rem;
+}
+
+.family-owner-copy span {
+  color: #776a61;
+  font-size: 0.86rem;
+}
+
+.family-owner-actions {
+  display: grid;
+  gap: 10px;
+}
+
+.family-owner-actions button {
+  min-width: 132px;
+  justify-content: center;
+}
+
+.family-section {
+  display: grid;
+  gap: 10px;
+}
+
+.family-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.family-section-head h2 {
+  font-size: 1.02rem;
+  font-weight: 800;
+}
+
+.family-member-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.family-member-card {
+  min-height: 118px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-content: space-between;
+  gap: 18px;
+  padding: 18px;
+  border-radius: 16px;
+}
+
+.family-member-main {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 14px;
+}
+
+.family-member-copy {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.family-member-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.family-member-title h3 {
+  overflow: hidden;
+  font-size: 1.08rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.family-role-owner {
+  color: #ca5520;
+  background: #fff0e7;
+}
+
+.family-role-member {
+  color: #4e70b4;
+  background: #eaf0ff;
+}
+
+.family-member-copy p {
+  color: #2f251e;
+  font-weight: 800;
+}
+
+.family-member-copy span {
+  overflow: hidden;
+  font-size: 0.82rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.family-member-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.family-member-actions .ghost-button {
+  min-width: 126px;
+  justify-content: center;
+}
+
+.family-member-note {
+  min-height: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 0 12px;
+  border-radius: 12px;
+  color: #6f6258;
+  background: rgba(247, 241, 235, 0.92);
+  font-size: 0.82rem;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.family-member-note.owner {
+  color: #ca5520;
+  background: #fff0e7;
+}
+
+.family-bottom-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 0.98fr) minmax(360px, 1.02fr);
+  gap: 18px;
+}
+
+.family-activity-panel,
+.family-invite-panel {
+  display: grid;
+  align-content: start;
+  gap: 12px;
+  padding: 16px 18px;
+}
+
+.family-activity-list,
+.family-invite-list,
+.family-member-permission-list {
+  display: grid;
+  gap: 8px;
+}
+
+.family-activity-item {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+  min-height: 46px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid rgba(122, 85, 62, 0.08);
+}
+
+.family-activity-item:last-child {
+  padding-bottom: 0;
+  border-bottom: 0;
+}
+
+.family-activity-icon {
+  width: 38px;
+  height: 38px;
+  display: grid;
+  place-items: center;
+  border-radius: 12px;
+}
+
+.family-activity-icon.tone-0 {
+  color: #58a35d;
+  background: #e8f5e4;
+}
+
+.family-activity-icon.tone-1 {
+  color: #7058bd;
+  background: #eee8ff;
+}
+
+.family-activity-icon.tone-2 {
+  color: #d38a1f;
+  background: #fff1c9;
+}
+
+.family-activity-icon.tone-3 {
+  color: #d9652c;
+  background: #ffe8dd;
+}
+
+.family-activity-item strong {
+  display: block;
+  overflow: hidden;
+  font-size: 0.92rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.family-activity-item p {
+  font-size: 0.82rem;
+}
+
+.family-invite-option,
+.family-permission-note {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  border-radius: 12px;
+}
+
+.family-invite-option.tone-link {
+  background: linear-gradient(90deg, rgba(255, 238, 226, 0.96), rgba(255, 248, 240, 0.82));
+}
+
+.family-invite-option.tone-account {
+  background: linear-gradient(90deg, rgba(232, 245, 228, 0.96), rgba(249, 253, 247, 0.86));
+}
+
+.family-invite-option > span,
+.family-permission-note > span {
+  width: 44px;
+  height: 44px;
+  display: grid;
+  place-items: center;
+  border-radius: 12px;
+}
+
+.family-invite-option.tone-link > span {
+  color: #d9652c;
+  background: #ffe0cc;
+}
+
+.family-invite-option.tone-account > span {
+  color: #58a35d;
+  background: #d9efd3;
+}
+
+.family-invite-option button {
+  min-width: 118px;
+}
+
+.family-member-permission-card,
+.family-owner-contact-card {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  border-radius: 12px;
+  background: linear-gradient(90deg, rgba(232, 245, 228, 0.96), rgba(249, 253, 247, 0.86));
+}
+
+.family-member-permission-card.muted {
+  background: linear-gradient(90deg, rgba(247, 241, 235, 0.96), rgba(255, 250, 245, 0.86));
+}
+
+.family-member-permission-card > span {
+  width: 44px;
+  height: 44px;
+  display: grid;
+  place-items: center;
+  border-radius: 12px;
+  color: #58a35d;
+  background: #d9efd3;
+}
+
+.family-member-permission-card.muted > span {
+  color: #8a5a35;
+  background: #f6ddc3;
+}
+
+.family-member-permission-card strong,
+.family-owner-contact-card strong {
+  display: block;
+  margin: 0;
+  color: #211813;
+  line-height: 1.2;
+}
+
+.family-member-permission-card p,
+.family-owner-contact-card p {
+  margin: 3px 0 0;
+  color: #776a61;
+  font-size: 0.86rem;
+}
+
+.family-owner-contact-card {
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid rgba(122, 85, 62, 0.1);
+}
+
+.family-permission-note {
+  grid-template-columns: auto minmax(0, 1fr);
+  margin-top: 6px;
+  background: linear-gradient(90deg, rgba(245, 230, 214, 0.96), rgba(250, 241, 230, 0.88));
+}
+
+.family-permission-note > span {
+  color: #8a5a35;
+  background: #f6ddc3;
+}
+
+.profile-edit-modal.workspace-modal,
+.member-edit-modal.workspace-modal {
+  width: min(680px, calc(100vw - 24px));
+  padding: 22px;
+  background: linear-gradient(180deg, rgba(255, 254, 252, 0.99), rgba(255, 249, 243, 0.98));
+}
+
+.profile-edit-form,
+.member-edit-form,
+.family-edit-form {
+  display: grid;
+  gap: 14px;
+}
+
+.profile-edit-card,
+.member-edit-card,
+.profile-avatar-card,
+.family-edit-card,
+.family-image-card {
+  border: 1px solid rgba(122, 85, 62, 0.1);
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.82);
+}
+
+.profile-edit-card,
+.member-edit-card,
+.family-edit-card {
+  display: grid;
+  grid-template-columns: 156px minmax(0, 1fr);
+  gap: 16px;
+  align-items: stretch;
+  padding: 16px;
+}
+
+.profile-edit-preview,
+.member-edit-preview,
+.family-edit-preview {
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  gap: 10px;
+  min-height: 150px;
+  padding: 14px;
+  border-radius: 16px;
+  background:
+    linear-gradient(135deg, rgba(226, 236, 216, 0.88), rgba(253, 229, 215, 0.72)),
+    rgba(255, 250, 245, 0.92);
+  text-align: center;
+}
+
+.family-edit-preview {
+  overflow: hidden;
+}
+
+.family-edit-preview img,
+.family-edit-cover-placeholder {
+  width: 88px;
+  height: 88px;
+  border-radius: 999px;
+}
+
+.family-edit-preview img {
+  display: block;
+  object-fit: cover;
+}
+
+.family-edit-cover-placeholder {
+  display: grid;
+  place-items: center;
+  color: #d36d35;
+  background: rgba(255, 255, 255, 0.55);
+}
+
+.family-edit-cover-placeholder svg {
+  width: 34px;
+  height: 34px;
+}
+
+.profile-edit-preview .avatar.large {
+  width: 76px;
+  height: 76px;
+  font-size: 1.3rem;
+}
+
+.profile-edit-preview strong,
+.member-edit-preview strong,
+.family-edit-preview strong {
+  display: block;
+  color: #211813;
+  line-height: 1.2;
+}
+
+.profile-edit-preview p,
+.member-edit-preview p,
+.family-edit-preview p {
+  margin: 4px 0 0;
+  color: #7f7167;
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.profile-edit-basic-grid,
+.member-edit-basic-grid,
+.family-edit-basic-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  align-content: center;
+}
+
+.profile-edit-basic-grid label,
+.member-edit-basic-grid label,
+.family-edit-basic-grid label {
+  display: grid;
+  gap: 8px;
+}
+
+.profile-edit-wide-field,
+.member-edit-wide-field,
+.family-edit-wide-field {
+  grid-column: 1 / -1;
+}
+
+.profile-avatar-card,
+.family-image-card {
+  display: grid;
+  gap: 14px;
+  padding: 16px;
+}
+
+.profile-avatar-head,
+.family-image-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.profile-avatar-head span,
+.family-image-head span {
+  display: block;
+  color: #211813;
+  font-size: 1rem;
+  font-weight: 900;
+}
+
+.profile-avatar-head p,
+.family-image-head p {
+  margin: 4px 0 0;
+  color: #84766b;
+  font-size: 0.84rem;
+  font-weight: 700;
+}
+
+.profile-avatar-actions,
+.family-image-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.profile-avatar-upload-button,
+.family-image-upload-button {
+  position: relative;
+  min-height: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px 13px;
+  font-weight: 800;
+}
+
+.profile-avatar-upload-button input,
+.family-image-upload-button input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.profile-avatar-body,
+.family-image-body {
+  display: grid;
+  grid-template-columns: 134px minmax(0, 1fr);
+  gap: 14px;
+  align-items: stretch;
+}
+
+.profile-avatar-large-preview,
+.family-image-large-preview {
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 10px;
+  min-height: 156px;
+  border: 1px dashed rgba(122, 85, 62, 0.18);
+  border-radius: 18px;
+  background:
+    linear-gradient(135deg, rgba(226, 236, 216, 0.74), rgba(253, 229, 215, 0.58)),
+    rgba(255, 252, 248, 0.88);
+}
+
+.family-image-large-preview img,
+.family-image-empty {
+  width: 96px;
+  height: 96px;
+  border-radius: 999px;
+}
+
+.family-image-large-preview img {
+  display: block;
+  object-fit: cover;
+}
+
+.family-image-empty {
+  display: grid;
+  place-items: center;
+  color: #d36d35;
+  background: rgba(255, 255, 255, 0.62);
+}
+
+.family-image-empty svg {
+  width: 40px;
+  height: 40px;
+}
+
+.profile-avatar-large-preview .avatar.large {
+  width: 88px;
+  height: 88px;
+  font-size: 1.48rem;
+}
+
+.profile-avatar-large-preview span,
+.family-image-large-preview span {
+  color: #7c6d62;
+  font-size: 0.82rem;
+  font-weight: 800;
+}
+
+.profile-avatar-prompt-panel,
+.family-image-prompt-panel {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border-radius: 16px;
+  background: rgba(250, 245, 239, 0.94);
+  border: 1px solid rgba(122, 85, 62, 0.08);
+}
+
+.profile-avatar-prompt-panel label,
+.family-image-prompt-panel label {
+  display: grid;
+  gap: 8px;
+}
+
+.profile-avatar-prompt-panel textarea,
+.family-image-prompt-panel textarea {
+  min-height: 92px;
+  resize: vertical;
+}
+
+.profile-avatar-prompt-actions,
+.family-image-prompt-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.profile-edit-actions,
+.member-edit-actions,
+.family-edit-actions {
+  justify-content: flex-end;
+}
+
+.family-edit-modal.workspace-modal {
+  width: min(680px, calc(100vw - 24px));
+  padding: 22px;
+  background: linear-gradient(180deg, rgba(255, 254, 252, 0.99), rgba(255, 249, 243, 0.98));
+}
+
 @media (max-width: 1280px) {
   .dashboard-stat-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .family-stat-grid,
+  .family-member-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .family-profile-panel {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .family-owner-panel {
+    grid-column: 1 / -1;
+    padding-top: 16px;
+    padding-left: 0;
+    border-top: 1px solid rgba(122, 85, 62, 0.1);
+    border-left: 0;
+  }
+
+  .family-bottom-grid {
+    grid-template-columns: 1fr;
   }
 
   .dashboard-week-head {
@@ -3441,6 +4349,120 @@ textarea:focus-visible {
 }
 
 @media (max-width: 767px) {
+  .profile-edit-card,
+  .profile-edit-basic-grid,
+  .member-edit-card,
+  .member-edit-basic-grid,
+  .profile-avatar-body,
+  .family-edit-card,
+  .family-edit-basic-grid,
+  .family-image-body {
+    grid-template-columns: 1fr;
+  }
+
+  .profile-edit-modal.workspace-modal,
+  .member-edit-modal.workspace-modal,
+  .family-edit-modal.workspace-modal {
+    padding: 16px;
+  }
+
+  .profile-avatar-head,
+  .profile-avatar-actions,
+  .profile-avatar-prompt-actions,
+  .family-image-head,
+  .family-image-actions,
+  .family-image-prompt-actions {
+    display: grid;
+    grid-template-columns: 1fr;
+    justify-content: stretch;
+  }
+
+  .profile-avatar-actions .ghost-button,
+  .profile-avatar-actions .solid-button,
+  .profile-avatar-actions button,
+  .profile-avatar-upload-button,
+  .family-image-actions .ghost-button,
+  .family-image-actions .solid-button,
+  .family-image-actions button,
+  .family-image-upload-button {
+    width: 100%;
+  }
+
+  .family-hero {
+    padding: 18px;
+    gap: 14px;
+  }
+
+  .family-hero-head,
+  .family-hero-actions,
+  .family-profile-panel,
+  .family-owner-panel,
+  .family-invite-option {
+    grid-template-columns: 1fr;
+  }
+
+  .family-hero-head,
+  .family-hero-actions {
+    display: grid;
+    justify-content: stretch;
+  }
+
+  .family-hero h1 {
+    font-size: 1.82rem;
+  }
+
+  .family-action-primary,
+  .family-action-secondary,
+  .family-icon-action,
+  .family-owner-actions button,
+  .family-member-actions .ghost-button,
+  .family-invite-option button {
+    width: 100%;
+  }
+
+  .family-icon-action {
+    min-width: 100%;
+  }
+
+  .family-stat-grid,
+  .family-member-grid,
+  .family-bottom-grid,
+  .family-owner-actions,
+  .family-member-actions,
+  .family-member-main {
+    grid-template-columns: 1fr;
+  }
+
+  .family-profile-panel {
+    justify-items: start;
+    gap: 16px;
+  }
+
+  .family-cover-card {
+    width: 96px;
+    height: 96px;
+  }
+
+  .family-owner-panel {
+    justify-items: start;
+  }
+
+  .family-member-main,
+  .family-member-actions {
+    display: grid;
+    justify-items: start;
+    justify-content: stretch;
+  }
+
+  .family-member-actions .ghost-button,
+  .family-member-note {
+    width: 100%;
+  }
+
+  .family-invite-option {
+    justify-items: start;
+  }
+
   .dashboard-hero {
     padding: 18px;
     gap: 14px;

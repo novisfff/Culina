@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field, field_validator
 from app.core.enums import UserRole
 from app.core.security import validate_password_strength
 from app.schemas.ai import AIRecommendationOut
+from app.schemas.media import MediaAssetOut
 
 
 class MemberOut(BaseModel):
@@ -16,6 +17,7 @@ class MemberOut(BaseModel):
     email: str | None = None
     phone: str | None = None
     avatar_seed: str
+    avatar_image: MediaAssetOut | None = None
     role: UserRole
     status: str
 
@@ -33,10 +35,18 @@ class CreateMemberRequest(BaseModel):
         return validate_password_strength(value)
 
 
+class UpdateMemberRequest(BaseModel):
+    display_name: str
+    email: str | None = None
+    phone: str | None = None
+    avatar_media_id: str | None = None
+
+
 class UpdateFamilyRequest(BaseModel):
     name: str
     motto: str = ""
     location: str = ""
+    image_media_id: str | None = None
 
 
 class FamilyDetailOut(BaseModel):
@@ -44,6 +54,7 @@ class FamilyDetailOut(BaseModel):
     name: str
     motto: str
     location: str
+    image: MediaAssetOut | None = None
     created_at: datetime
     updated_at: datetime
     ai_recommendations: list[AIRecommendationOut] = Field(default_factory=list)

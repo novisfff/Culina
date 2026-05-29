@@ -20,7 +20,7 @@
     "backend:venv": "python3 -m venv backend/.venv && backend/.venv/bin/pip install -r backend/requirements.txt",
     "backend:init-db": "cd backend && .venv/bin/python scripts/init_mysql.py",
     "backend:migrate": "cd backend && .venv/bin/alembic upgrade head",
-    "backend:migrate-media": "cd backend && .venv/bin/python scripts/migrate_media_to_minio.py",
+    "backend:migrate-media": "cd backend && PYTHONPATH=. .venv/bin/python scripts/migrate_media_to_minio.py",
     "backend:dev": "cd backend && .venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8010 --reload"
   }
 }

@@ -56,6 +56,8 @@ MEAL_TYPE_LABELS = {
 
 ENTITY_SIZES_BY_MODE = {
     ImageGenerationMode.TEXT: {
+        MediaEntityType.USER: STANDARD_IMAGE_SIZE,
+        MediaEntityType.FAMILY: STANDARD_IMAGE_SIZE,
         MediaEntityType.INGREDIENT: STANDARD_IMAGE_SIZE,
         MediaEntityType.FOOD: STANDARD_IMAGE_SIZE,
         MediaEntityType.RECIPE: STANDARD_IMAGE_SIZE,
@@ -64,6 +66,8 @@ ENTITY_SIZES_BY_MODE = {
         MediaEntityType.MEAL_LOG: STANDARD_IMAGE_SIZE,
     },
     ImageGenerationMode.REFERENCE: {
+        MediaEntityType.USER: STANDARD_IMAGE_SIZE,
+        MediaEntityType.FAMILY: STANDARD_IMAGE_SIZE,
         MediaEntityType.INGREDIENT: STANDARD_IMAGE_SIZE,
         MediaEntityType.FOOD: STANDARD_IMAGE_SIZE,
         MediaEntityType.RECIPE: STANDARD_IMAGE_SIZE,
@@ -216,8 +220,44 @@ def MEAL_LOG_PROMPT_BUILDER(request: ImageGenerationRequest) -> str:
     )
 
 
+def USER_PROMPT_BUILDER(request: ImageGenerationRequest) -> str:
+    detail = [
+        f"成员显示名：{request.title or '家庭成员'}",
+        f"角色/身份：{request.category or '家庭成员'}",
+        f"补充信息：{request.notes or '无额外说明'}",
+    ]
+    return "\n".join(
+        [
+            "为家庭厨房应用生成一张温暖、克制的成员头像图。",
+            *detail,
+            "画面可以使用柔和人物插画、厨房相关小物或抽象头像构成，但不要生成可识别真人照片。",
+            "适合圆形裁切，主体居中，背景干净明亮。",
+            "不要出现文字、姓名、Logo、水印、手部或复杂背景。",
+        ]
+    )
+
+
+def FAMILY_PROMPT_BUILDER(request: ImageGenerationRequest) -> str:
+    detail = [
+        f"家庭名称：{request.title or '家庭厨房'}",
+        f"所在位置：{request.category or '未提供'}",
+        f"家庭口号/说明：{request.notes or '无额外说明'}",
+    ]
+    return "\n".join(
+        [
+            "为家庭厨房应用生成一张家庭头像或封面图，表达温暖、明亮、真实的家庭厨房氛围。",
+            *detail,
+            "主体可以是餐桌、厨房台面、绿植、餐具和少量家常食物，不出现人物。",
+            "适合圆形裁切和资料卡展示，主体清晰，周围有安全留白。",
+            "不要出现文字、Logo、水印、品牌包装、餐厅广告风或暗色背景。",
+        ]
+    )
+
+
 def build_ai_image_prompt(request: ImageGenerationRequest) -> str:
     entity_prompt = {
+        MediaEntityType.USER: USER_PROMPT_BUILDER,
+        MediaEntityType.FAMILY: FAMILY_PROMPT_BUILDER,
         MediaEntityType.INGREDIENT: INGREDIENT_PROMPT_BUILDER,
         MediaEntityType.FOOD: FOOD_PROMPT_BUILDER,
         MediaEntityType.RECIPE: RECIPE_PROMPT_BUILDER,
