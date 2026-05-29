@@ -1758,6 +1758,16 @@ function App() {
   }
 
   const headerName = currentUser?.display_name ?? '家庭成员';
+  const sidebarRoleLabel = membership?.role === 'Owner' ? 'Owner' : '成员';
+  const sidebarFamilyName = family?.name ?? 'Culina 家庭厨房';
+  const sidebarLocation = family?.location || '未设置位置';
+  const sidebarMotto = family?.motto || '把食物、食材、记录和协作放在一个安静的大屏工作区里。';
+  const sidebarMemberLabel = `${members.length} 位成员`;
+  const sidebarActivityLabel = weekActivityCount > 0 ? `本周协作 ${weekActivityCount} 次` : '协作中';
+  const sidebarUserMeta = currentUser?.username ? `${sidebarRoleLabel} · ${currentUser.username}` : sidebarRoleLabel;
+  const sidebarUserNote = family?.location
+    ? `${family.location} · ${sidebarFamilyName}`
+    : sidebarFamilyName;
   const today = todayKey();
   const ingredientById = new Map(ingredients.map((ingredient) => [ingredient.id, ingredient]));
   const availableInventoryCount = inventoryItems.filter((item) => (item.remaining_quantity ?? item.quantity) > 0).length;
@@ -2256,9 +2266,24 @@ function App() {
                 </button>
               </div>
               <div className="sidebar-family">
-                <p className="eyebrow">家庭工作台</p>
-                <h2>{family?.name ?? 'Culina 家庭厨房'}</h2>
-                <p className="subtle">把食物、食材、记录和协作放在一个安静的大屏工作区里。</p>
+                <div className="sidebar-family-title">
+                  <h2>{sidebarFamilyName}</h2>
+                </div>
+                <p className="subtle">{sidebarMotto}</p>
+                <div className="sidebar-family-meta" aria-label="家庭信息">
+                  <span>
+                    <DashboardIcon name="map-pin" />
+                    {sidebarLocation}
+                  </span>
+                  <span>
+                    <DashboardIcon name="family" />
+                    {sidebarMemberLabel}
+                  </span>
+                  <span className="sidebar-family-meta-active">
+                    <DashboardIcon name="check" />
+                    {sidebarActivityLabel}
+                  </span>
+                </div>
               </div>
             </div>
 
@@ -2283,15 +2308,27 @@ function App() {
 
           <div className="sidebar-footer">
             <div className="current-user-card sidebar-user-card">
-              <Avatar
-                label={headerName}
-                seed={currentUser?.avatar_seed ?? headerName}
-                imageUrl={currentUser?.avatar_image?.url}
-                large={!sidebarCollapsed}
-              />
-              <div className="sidebar-user-copy">
-                <strong>{headerName}</strong>
-                <p className="subtle">{membership?.role ?? 'Member'} · {currentUser?.username}</p>
+              <button
+                className="sidebar-user-settings"
+                type="button"
+                onClick={() => setFamilyOverlayMode('profile')}
+                aria-label="编辑个人信息"
+                title="编辑个人信息"
+              >
+                <DashboardIcon name="more" />
+              </button>
+              <div className="sidebar-user-main">
+                <Avatar
+                  label={headerName}
+                  seed={currentUser?.avatar_seed ?? headerName}
+                  imageUrl={currentUser?.avatar_image?.url}
+                  large={!sidebarCollapsed}
+                />
+                <div className="sidebar-user-copy">
+                  <strong>{headerName}</strong>
+                  <p className="subtle">{sidebarUserMeta}</p>
+                  <p className="sidebar-user-note">{sidebarUserNote}</p>
+                </div>
               </div>
             </div>
             <button
