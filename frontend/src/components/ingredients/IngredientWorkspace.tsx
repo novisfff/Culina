@@ -356,11 +356,13 @@ type ImageGenerationUiState = {
   errorMessage: string | null;
 };
 type CatalogStatusFilter = 'all' | 'expired' | 'expiring' | 'lowStock' | 'stable';
+type MobileIngredientFilter = 'all' | 'alerted' | 'empty' | 'stocked';
 type InventoryQuickFilter = 'all' | 'alerted';
 type InventoryStorageFocus = 'all' | '冷藏' | '冷冻' | '常温';
 type InventoryPurchasePreset = 'today' | 'yesterday' | 'custom';
 type InventorySortMode = 'default' | 'expiry';
 type IngredientWorkspaceIconName =
+  | 'logo'
   | 'archive'
   | 'inventory'
   | 'shopping'
@@ -392,6 +394,17 @@ type IngredientWorkspaceIconName =
 
 function IngredientWorkspaceIcon(props: { name: IngredientWorkspaceIconName }) {
   switch (props.name) {
+    case 'logo':
+      return (
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M6 10h12" />
+          <path d="M7 10v3a5 5 0 0 0 10 0v-3" />
+          <path d="M17 11h1a2 2 0 0 1 0 4h-1" />
+          <path d="M9 7V5" />
+          <path d="M12 7V4" />
+          <path d="M15 7V5" />
+        </svg>
+      );
     case 'archive':
       return (
         <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -420,8 +433,8 @@ function IngredientWorkspaceIcon(props: { name: IngredientWorkspaceIconName }) {
     case 'search':
       return (
         <svg viewBox="0 0 24 24" aria-hidden="true">
-          <circle cx="10.8" cy="10.8" r="5.2" />
-          <path d="m14.7 14.7 4.1 4.1" />
+          <circle cx="11" cy="11" r="6.5" />
+          <path d="m16 16 4 4" />
         </svg>
       );
     case 'filter':
@@ -461,10 +474,8 @@ function IngredientWorkspaceIcon(props: { name: IngredientWorkspaceIconName }) {
     case 'bell':
       return (
         <svg viewBox="0 0 24 24" aria-hidden="true">
-          <path d="M6.5 17h11" />
-          <path d="M8 17v-5.2a4 4 0 0 1 8 0V17" />
-          <path d="M10.5 19a1.8 1.8 0 0 0 3 0" />
-          <path d="M12 5.5V4" />
+          <path d="M6 9a6 6 0 0 1 12 0c0 7 3 6 3 8H3c0-2 3-1 3-8" />
+          <path d="M10 20a2 2 0 0 0 4 0" />
         </svg>
       );
     case 'check':
@@ -2054,6 +2065,8 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
   const [inventorySortMode, setInventorySortMode] = useState<InventorySortMode>('default');
   const [shoppingSearch, setShoppingSearch] = useState('');
   const [shoppingFocus, setShoppingFocus] = useState<ShoppingCardFocus>('all');
+  const [mobileIngredientFilter, setMobileIngredientFilter] = useState<MobileIngredientFilter>('all');
+  const [mobileStorageFocus, setMobileStorageFocus] = useState<InventoryStorageFocus>('all');
   const [ingredientForm, setIngredientForm] = useState<IngredientCreateFormState>(
     () => persistedWorkspaceState.ingredientForm ?? defaultIngredientForm()
   );
@@ -2125,6 +2138,43 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
     { label: '待买', value: `${pendingShopping.length} 项`, detail: '购物清单中尚未完成的项目' },
     { label: '在库食材', value: `${stockedIngredientCount} 种`, detail: '已经登记过库存的食材' },
   ];
+  const mobilePrioritySummaries = [...summaries]
+    .filter((summary) => summary.alerts.length > 0 || summary.quantitySummaries.length === 0)
+    .sort((left, right) => {
+      const leftStatus = buildInventoryCardStatus(left);
+      const rightStatus = buildInventoryCardStatus(right);
+      return (
+        rightStatus.priority - leftStatus.priority ||
+        right.alerts.length - left.alerts.length ||
+        right.latestUpdatedAt.localeCompare(left.latestUpdatedAt) ||
+        left.ingredient.name.localeCompare(right.ingredient.name, 'zh-CN')
+      );
+    })
+    .slice(0, 6);
+  const mobileStorageCards = buildInventoryStorageOverview(summaries).filter((item) =>
+    ['冷藏', '冷冻', '常温'].includes(item.key)
+  );
+  const mobileSearchSummaries = filterIngredientSummaries(summaries, catalogSearch, 'all');
+  const mobileCatalogSummaries = mobileSearchSummaries
+    .filter((summary) => {
+      if (mobileStorageFocus !== 'all' && summary.primaryStorage !== mobileStorageFocus) {
+        return false;
+      }
+      if (mobileIngredientFilter === 'alerted') {
+        return summary.alerts.length > 0;
+      }
+      if (mobileIngredientFilter === 'empty') {
+        return summary.quantitySummaries.length === 0;
+      }
+      if (mobileIngredientFilter === 'stocked') {
+        return summary.quantitySummaries.length > 0;
+      }
+      return true;
+    })
+    .slice(0, 6);
+  const mobileShoppingCards = pendingShoppingCards.slice(0, 4);
+  const mobileHasCatalogFilters =
+    Boolean(catalogSearch.trim()) || mobileIngredientFilter !== 'all' || mobileStorageFocus !== 'all';
   const quickRestockIngredients = (
     summaries
       .filter((item) => item.inventoryItems.length > 0 || item.latestPurchaseDate)
@@ -3820,6 +3870,298 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
 
   return (
     <div className="ingredients-workspace">
+      <section className="mobile-ingredient-page" aria-label="手机食材页">
+        <div className="mobile-ingredient-topbar">
+          <div className="mobile-ingredient-brand">
+            <span className="mobile-ingredient-logo">
+              <IngredientWorkspaceIcon name="logo" />
+            </span>
+            <span>
+              <strong>Culina</strong>
+              <small>家庭厨房工作台</small>
+            </span>
+          </div>
+          <div className="mobile-ingredient-top-actions">
+            <button type="button" aria-label="聚焦搜索" onClick={() => document.getElementById('mobile-ingredient-search')?.focus()}>
+              <IngredientWorkspaceIcon name="search" />
+            </button>
+            <button
+              type="button"
+              aria-label="查看食材提醒"
+              onClick={() => {
+                setMobileIngredientFilter('alerted');
+                setMobileStorageFocus('all');
+              }}
+            >
+              <IngredientWorkspaceIcon name="bell" />
+              {allAlerts.length > 0 && <i aria-hidden="true" />}
+            </button>
+          </div>
+        </div>
+
+        <header className="mobile-ingredient-hero">
+          <h1>食材</h1>
+          <p>先看家里还有什么，再处理临期、低库存和今天要买的东西。</p>
+          <div className="mobile-ingredient-metrics" aria-label="食材摘要">
+            <button type="button" onClick={() => setMobileIngredientFilter('stocked')}>
+              <strong>{stockedIngredientCount}</strong>
+              <span>在库</span>
+            </button>
+            <button type="button" onClick={() => setMobileIngredientFilter('alerted')}>
+              <strong>{allAlerts.length}</strong>
+              <span>提醒</span>
+            </button>
+            <button type="button" onClick={() => document.getElementById('mobile-ingredient-shopping')?.scrollIntoView({ block: 'start', behavior: 'smooth' })}>
+              <strong>{pendingShopping.length}</strong>
+              <span>待买</span>
+            </button>
+          </div>
+          <div className="mobile-ingredient-actions">
+            <button className="mobile-ingredient-primary" type="button" onClick={() => openInventoryOverlay()}>
+              <IngredientWorkspaceIcon name="plus" />
+              快速入库
+            </button>
+            <button className="mobile-ingredient-secondary" type="button" onClick={() => openShoppingOverlay()}>
+              <IngredientWorkspaceIcon name="shopping" />
+              加采购
+            </button>
+          </div>
+        </header>
+
+        <section className="mobile-ingredient-panel">
+          <div className="mobile-ingredient-section-head">
+            <h2>今天先处理 <span>{mobilePrioritySummaries.length} 项</span></h2>
+            <button
+              type="button"
+              onClick={() => {
+                setMobileIngredientFilter('alerted');
+                setMobileStorageFocus('all');
+              }}
+              disabled={mobilePrioritySummaries.length === 0}
+            >
+              看提醒
+              <IngredientWorkspaceIcon name="chevronDown" />
+            </button>
+          </div>
+          {mobilePrioritySummaries.length > 0 ? (
+            <div className="mobile-ingredient-priority-scroller">
+              {mobilePrioritySummaries.map((summary) => {
+                const imageUrl = resolveAssetUrl(summary.ingredient.image?.url) ?? buildIngredientPlaceholderSvg(summary.ingredient.name);
+                const status = buildInventoryCardStatus(summary);
+                const canConsume = summary.availableInventoryItems.length > 0;
+                const canDestroyExpired = buildDisposableExpiredInventoryItems(summary).length > 0;
+                return (
+                  <article key={summary.ingredient.id} className={`mobile-ingredient-priority-card tone-${status.tone}`}>
+                    <button className="mobile-ingredient-priority-cover" type="button" onClick={() => openDetailView(summary)}>
+                      <img src={imageUrl} alt={summary.ingredient.name} />
+                    </button>
+                    <div className="mobile-ingredient-priority-body">
+                      <div className="mobile-ingredient-card-head">
+                        <h3>{summary.ingredient.name}</h3>
+                        <span>{status.label}</span>
+                      </div>
+                      <p>{summary.alerts[0]?.detail ?? status.detail}</p>
+                      <div className="mobile-ingredient-chip-row">
+                        <span>{summary.primaryStorage}</span>
+                        <span>{buildInventorySummaryLine(summary)}</span>
+                      </div>
+                      <div className="mobile-ingredient-card-actions">
+                        <button
+                          className="mobile-ingredient-primary compact"
+                          type="button"
+                          onClick={() =>
+                            canDestroyExpired
+                              ? openDestroyExpiredOverlay(summary.ingredient.id)
+                              : canConsume
+                                ? openConsumeOverlay(summary.ingredient.id)
+                                : openShoppingOverlay({ ingredient: summary.ingredient, reason: resolveShoppingReason(summary) })
+                          }
+                        >
+                          {canDestroyExpired ? '处理' : canConsume ? '消费' : '采购'}
+                        </button>
+                        <button type="button" onClick={() => openInventoryOverlay(summary.ingredient.id)}>
+                          补货
+                        </button>
+                      </div>
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="mobile-ingredient-empty">
+              <strong>当前没有需要优先处理的食材</strong>
+              <span>可以继续浏览食材库，或直接登记一批新库存。</span>
+            </div>
+          )}
+        </section>
+
+        <section className="mobile-ingredient-panel">
+          <div className="mobile-ingredient-section-head">
+            <h2>按位置看库存</h2>
+            <button
+              type="button"
+              onClick={() => {
+                setMobileStorageFocus('all');
+                setMobileIngredientFilter('all');
+              }}
+            >
+              全部
+              <IngredientWorkspaceIcon name="reset" />
+            </button>
+          </div>
+          <div className="mobile-ingredient-storage-row" aria-label="库存位置">
+            {mobileStorageCards.map((item) => (
+              <button
+                key={item.key}
+                className={mobileStorageFocus === item.key ? `active tone-${item.tone}` : `tone-${item.tone}`}
+                type="button"
+                onClick={() => setMobileStorageFocus((current) => (current === item.key ? 'all' : (item.key as InventoryStorageFocus)))}
+              >
+                <span>
+                  <InventoryStorageIllustration storage={item.key} />
+                </span>
+                <strong>{item.label}</strong>
+                <small>{item.ingredientCount} 种 · {item.alertCount} 提醒</small>
+              </button>
+            ))}
+          </div>
+        </section>
+
+        <section className="mobile-ingredient-panel mobile-ingredient-library">
+          <div className="mobile-ingredient-section-head">
+            <h2>食材库</h2>
+            <button type="button" onClick={mobileHasCatalogFilters ? () => {
+              setCatalogSearch('');
+              setMobileIngredientFilter('all');
+              setMobileStorageFocus('all');
+            } : openCreateView}>
+              {mobileHasCatalogFilters ? '清除筛选' : '新增'}
+              <IngredientWorkspaceIcon name={mobileHasCatalogFilters ? 'reset' : 'plus'} />
+            </button>
+          </div>
+          <div className="mobile-ingredient-library-filters">
+            <label className="mobile-ingredient-search">
+              <IngredientWorkspaceIcon name="search" />
+              <input
+                id="mobile-ingredient-search"
+                value={catalogSearch}
+                placeholder="搜索食材、分类、备注或菜谱"
+                onChange={(event) => setCatalogSearch(event.target.value)}
+              />
+            </label>
+            <div className="mobile-ingredient-tabs" aria-label="食材筛选">
+              {[
+                { value: 'all' as const, label: '全部' },
+                { value: 'alerted' as const, label: '提醒' },
+                { value: 'empty' as const, label: '缺货' },
+                { value: 'stocked' as const, label: '在库' },
+              ].map((item) => (
+                <button
+                  key={item.value}
+                  className={mobileIngredientFilter === item.value ? 'active' : ''}
+                  type="button"
+                  onClick={() => setMobileIngredientFilter(item.value)}
+                >
+                  {item.label}
+                </button>
+              ))}
+            </div>
+          </div>
+          {mobileCatalogSummaries.length > 0 ? (
+            <div className="mobile-ingredient-library-grid">
+              {mobileCatalogSummaries.map((summary) => {
+                const imageUrl = resolveAssetUrl(summary.ingredient.image?.url) ?? buildIngredientPlaceholderSvg(summary.ingredient.name);
+                const status = buildCatalogCardStatus(summary);
+                const canConsume = summary.availableInventoryItems.length > 0;
+                return (
+                  <article key={summary.ingredient.id} className={`mobile-ingredient-library-card tone-${status.tone}`}>
+                    <button className="mobile-ingredient-library-cover" type="button" onClick={() => openDetailView(summary)}>
+                      <img src={imageUrl} alt={summary.ingredient.name} />
+                      {summary.alerts.length > 0 && <span>{summary.alerts.length} 提醒</span>}
+                    </button>
+                    <div className="mobile-ingredient-library-body">
+                      <h3>{summary.ingredient.name}</h3>
+                      <p>{summary.ingredient.category || '未分类'} · {summary.primaryStorage}</p>
+                      <div className="mobile-ingredient-chip-row">
+                        <span>{status.label}</span>
+                        <span>{buildInventorySummaryLine(summary)}</span>
+                      </div>
+                      <div className="mobile-ingredient-library-actions">
+                        <button
+                          className="mobile-ingredient-primary"
+                          type="button"
+                          onClick={() => (canConsume ? openConsumeOverlay(summary.ingredient.id) : openInventoryOverlay(summary.ingredient.id))}
+                        >
+                          {canConsume ? '消费' : '补货'}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => openShoppingOverlay({ ingredient: summary.ingredient, reason: resolveShoppingReason(summary) })}
+                        >
+                          采购
+                        </button>
+                      </div>
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="mobile-ingredient-empty">
+              <strong>{summaries.length === 0 ? '还没有食材档案' : '没有匹配的食材'}</strong>
+              <span>{summaries.length === 0 ? '先新增常用食材，后续补货、消费和采购都会更快。' : '换个关键词或清空筛选后再试。'}</span>
+              <button type="button" onClick={summaries.length === 0 ? openCreateView : () => {
+                setCatalogSearch('');
+                setMobileIngredientFilter('all');
+                setMobileStorageFocus('all');
+              }}>
+                {summaries.length === 0 ? '新增食材' : '清空筛选'}
+              </button>
+            </div>
+          )}
+        </section>
+
+        <section id="mobile-ingredient-shopping" className="mobile-ingredient-panel">
+          <div className="mobile-ingredient-section-head">
+            <h2>采购待办 <span>{pendingShopping.length} 项</span></h2>
+            <button type="button" onClick={() => openShoppingOverlay()}>
+              新增
+              <IngredientWorkspaceIcon name="plus" />
+            </button>
+          </div>
+          {mobileShoppingCards.length > 0 ? (
+            <div className="mobile-ingredient-shopping-list">
+              {mobileShoppingCards.map((card) => {
+                const imageUrl =
+                  resolveAssetUrl(card.linkedSummary?.ingredient.image?.url) ??
+                  buildIngredientPlaceholderSvg(card.title || '待买项');
+                return (
+                  <article key={card.shoppingItem.id} className={`mobile-ingredient-shopping-card tone-${card.statusTone}`}>
+                    <span className="mobile-ingredient-shopping-cover">
+                      <img src={imageUrl} alt={card.title} />
+                    </span>
+                    <div className="mobile-ingredient-shopping-copy">
+                      <strong>{card.title}</strong>
+                      <small>{card.quantityLabel} · {card.reasonLabel}</small>
+                    </div>
+                    <button type="button" disabled={props.isUpdatingShopping || props.isCreatingInventory} onClick={() => openInventoryFromShopping(card.shoppingItem)}>
+                      入库
+                    </button>
+                  </article>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="mobile-ingredient-empty">
+              <strong>当前没有待买项</strong>
+              <span>可以从低库存食材一键加入采购，或手动添加。</span>
+            </div>
+          )}
+        </section>
+      </section>
+
+      <div className="ingredients-desktop-view">
       <div className="ingredients-mobile-header">
         <PageHeader
           variant="workspace"
@@ -4442,6 +4784,7 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
           )}
         </div>
       </section>
+      </div>
 
       <MobileQuickBar
         onCreate={openCreateView}

@@ -526,6 +526,7 @@ function resolveRecipeDifficulty(value: RecipeFormState['difficulty']): Difficul
 
 type RecipeUiIconName =
   | 'basket'
+  | 'bell'
   | 'calendar'
   | 'check'
   | 'chevronDown'
@@ -540,6 +541,7 @@ type RecipeUiIconName =
   | 'image'
   | 'info'
   | 'leaf'
+  | 'logo'
   | 'minus'
   | 'pause'
   | 'play'
@@ -571,6 +573,13 @@ function RecipeUiIcon(props: { name: RecipeUiIconName; className?: string }) {
           <path d="M8 10.2 10.2 5M16 10.2 13.8 5" />
           <path d="M5.2 10.2h13.6l-1.3 8.1a2.2 2.2 0 0 1-2.2 1.9H8.7a2.2 2.2 0 0 1-2.2-1.9l-1.3-8.1Z" />
           <path d="M4 10.2h16M9.2 14v2.8M12 14v2.8M14.8 14v2.8" />
+        </svg>
+      );
+    case 'bell':
+      return (
+        <svg {...common}>
+          <path d="M6 9a6 6 0 0 1 12 0c0 7 3 6 3 8H3c0-2 3-1 3-8" />
+          <path d="M10 20a2 2 0 0 0 4 0" />
         </svg>
       );
     case 'calendar':
@@ -668,6 +677,17 @@ function RecipeUiIcon(props: { name: RecipeUiIconName; className?: string }) {
           <path d="M8.3 14.8c2.4-2.7 5-4.7 8.3-6.2" />
         </svg>
       );
+    case 'logo':
+      return (
+        <svg {...common}>
+          <path d="M6 10h12" />
+          <path d="M7 10v3a5 5 0 0 0 10 0v-3" />
+          <path d="M17 11h1a2 2 0 0 1 0 4h-1" />
+          <path d="M9 7V5" />
+          <path d="M12 7V4" />
+          <path d="M15 7V5" />
+        </svg>
+      );
     case 'plus':
       return (
         <svg {...common}>
@@ -695,8 +715,8 @@ function RecipeUiIcon(props: { name: RecipeUiIconName; className?: string }) {
     case 'search':
       return (
         <svg {...common}>
-          <circle cx="10.8" cy="10.8" r="5.8" />
-          <path d="m15.2 15.2 4 4" />
+          <circle cx="11" cy="11" r="6.5" />
+          <path d="m16 16 4 4" />
         </svg>
       );
     case 'plusThirty':
@@ -1736,6 +1756,7 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
   const recommendationSlots = displayCards;
   const mobileFeaturedCards = (displayCards.length > 0 ? displayCards : homeViewModel.recommendedCards).slice(0, 3);
   const mobileLibraryCards = visibleCards;
+  const hasMobileRecipeAlerts = cards.some((card) => card.shortages.length > 0);
   const mobileSceneCards = categoryCards.slice(0, 8).map((scene) => ({
     scene,
     coverUrl:
@@ -4127,19 +4148,20 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
           <div className="mobile-recipe-topbar">
             <div className="mobile-recipe-brand">
               <span className="mobile-recipe-logo">
-                <RecipeUiIcon name="leaf" />
+                <RecipeUiIcon name="logo" />
               </span>
               <span>
                 <strong>Culina</strong>
-                <small>家庭菜谱工作台</small>
+                <small>家庭厨房工作台</small>
               </span>
             </div>
             <div className="mobile-recipe-top-actions">
               <button type="button" aria-label="聚焦搜索" onClick={() => document.getElementById('mobile-recipe-search')?.focus()}>
                 <RecipeUiIcon name="search" />
               </button>
-              <button type="button" aria-label="新建菜谱" onClick={openCreate}>
-                <RecipeUiIcon name="plus" />
+              <button type="button" aria-label="查看提醒" onClick={() => showMobileRecipeFilter('missing')}>
+                <RecipeUiIcon name="bell" />
+                {hasMobileRecipeAlerts && <i aria-hidden="true" />}
               </button>
             </div>
           </div>
