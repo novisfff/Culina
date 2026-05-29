@@ -606,10 +606,10 @@ const NAV_ITEMS: Array<{ key: TabKey; label: string; icon: ShellIconName }> = [
 
 const MOBILE_NAV_ITEMS: Array<{ key: TabKey; label: string; icon: ShellIconName }> = [
   { key: 'home', label: '首页', icon: 'home' },
-  { key: 'ingredients', label: '食材', icon: 'ingredients' },
+  { key: 'foods', label: '食物', icon: 'foods' },
   { key: 'recipes', label: '菜谱', icon: 'recipes' },
-  { key: 'logs', label: '记录', icon: 'logs' },
-  { key: 'family', label: '我的家庭', icon: 'family' },
+  { key: 'ingredients', label: '食材', icon: 'ingredients' },
+  { key: 'family', label: '家庭', icon: 'family' },
 ];
 
 type ImageGenerationUiState = {
