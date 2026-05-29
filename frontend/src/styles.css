@@ -127,15 +127,15 @@ textarea:focus-visible {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
 }
 
 .sidebar-mark {
-  width: 38px;
-  height: 38px;
+  width: 34px;
+  height: 34px;
   display: grid;
   place-items: center;
-  border-radius: 12px;
+  border-radius: 10px;
   background: var(--accent);
   color: white;
   flex: 0 0 auto;
@@ -150,8 +150,8 @@ textarea:focus-visible {
 }
 
 .sidebar-mark svg {
-  width: 20px;
-  height: 20px;
+  width: 18px;
+  height: 18px;
   display: block;
 }
 
@@ -163,18 +163,18 @@ textarea:focus-visible {
 
 .sidebar-brand-copy {
   display: grid;
-  gap: 3px;
+  gap: 1px;
   min-width: 0;
 }
 
 .sidebar-brand-copy strong {
-  font-size: 0.98rem;
+  font-size: 0.92rem;
   line-height: 1.15;
 }
 
 .sidebar-brand-copy span {
   color: var(--text-faint);
-  font-size: 0.74rem;
+  font-size: 0.7rem;
 }
 
 .sidebar-toggle {
@@ -204,18 +204,69 @@ textarea:focus-visible {
 }
 
 .sidebar-family {
-  gap: 8px;
+  gap: 6px;
+}
+
+.sidebar-family-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
 }
 
 .sidebar-family h2 {
   margin: 0;
-  font-size: 1.04rem;
-  line-height: 1.2;
+  font-size: 1.02rem;
+  line-height: 1.12;
   font-weight: 700;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .sidebar-family .subtle {
-  line-height: 1.45;
+  margin: 0;
+  font-size: 0.76rem;
+  line-height: 1.28;
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-line-clamp: 1;
+  -webkit-box-orient: vertical;
+}
+
+.sidebar-family-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding-top: 1px;
+}
+
+.sidebar-family-meta span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  min-height: 22px;
+  padding: 4px 6px;
+  border: 1px solid rgba(147, 96, 63, 0.11);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.66);
+  color: var(--text-soft);
+  font-size: 0.68rem;
+  line-height: 1;
+}
+
+.sidebar-family-meta svg {
+  width: 12px;
+  height: 12px;
+  flex: 0 0 auto;
+}
+
+.sidebar-family-meta-active {
+  color: #3f8f4d;
+  background: rgba(226, 236, 216, 0.72);
+  border-color: rgba(63, 143, 77, 0.16);
 }
 
 .sidebar-nav {
@@ -272,13 +323,81 @@ textarea:focus-visible {
 }
 
 .sidebar-user-card {
+  position: relative;
+  display: block;
   width: 100%;
   min-width: 0;
+  padding: 10px 34px 10px 10px;
+  border-radius: 14px;
   background: rgba(255, 255, 255, 0.78);
+}
+
+.sidebar-user-main {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.sidebar-user-card .avatar.large {
+  width: 38px;
+  height: 38px;
+  font-size: 0.9rem;
 }
 
 .sidebar-user-copy {
   min-width: 0;
+  display: grid;
+  gap: 1px;
+}
+
+.sidebar-user-copy strong {
+  font-size: 0.9rem;
+  line-height: 1.1;
+}
+
+.sidebar-user-copy .subtle {
+  margin: 0;
+  font-size: 0.74rem;
+  line-height: 1.18;
+}
+
+.sidebar-user-note {
+  margin: 0;
+  color: var(--text-faint);
+  font-size: 0.72rem;
+  line-height: 1.18;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sidebar-user-settings {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 22px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 1px solid rgba(147, 96, 63, 0.12);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.76);
+  color: var(--text-faint);
+  box-shadow: var(--shadow-sm);
+  transition: color 140ms ease, border-color 140ms ease, background-color 140ms ease;
+}
+
+.sidebar-user-settings:hover {
+  border-color: rgba(210, 107, 51, 0.22);
+  background: rgba(252, 225, 212, 0.55);
+  color: var(--accent-strong);
+}
+
+.sidebar-user-settings svg {
+  width: 12px;
+  height: 12px;
 }
 
 .sidebar-activity {
@@ -16219,7 +16338,7 @@ textarea:focus-visible {
   }
 
   .app-frame.sidebar-expanded {
-    grid-template-columns: 232px minmax(0, 1fr);
+    grid-template-columns: 244px minmax(0, 1fr);
   }
 
   .app-frame.sidebar-collapsed {
@@ -16241,12 +16360,12 @@ textarea:focus-visible {
 
   .sidebar-top {
     grid-template-rows: auto minmax(0, 1fr);
-    gap: 12px;
+    gap: 8px;
     min-height: 0;
   }
 
   .sidebar-brand {
-    gap: 10px;
+    gap: 7px;
   }
 
   .sidebar-nav {
@@ -16352,7 +16471,8 @@ textarea:focus-visible {
   .sidebar-collapsed .sidebar-brand-copy,
   .sidebar-collapsed .sidebar-family,
   .sidebar-collapsed .sidebar-label,
-  .sidebar-collapsed .sidebar-user-copy {
+  .sidebar-collapsed .sidebar-user-copy,
+  .sidebar-collapsed .sidebar-user-settings {
     display: none;
   }
 
@@ -16411,6 +16531,10 @@ textarea:focus-visible {
     background: transparent;
     border-color: transparent;
     box-shadow: none;
+  }
+
+  .sidebar-collapsed .sidebar-user-main {
+    justify-content: center;
   }
 
   .sidebar-collapsed .sidebar-logout {
