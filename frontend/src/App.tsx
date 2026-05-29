@@ -217,6 +217,7 @@ type DashboardIconName =
   | 'family'
   | 'leaf'
   | 'bell'
+  | 'search'
   | 'cart'
   | 'pot'
   | 'plus'
@@ -378,6 +379,13 @@ function DashboardIcon(props: { name: DashboardIconName }) {
         <IconBase>
           <path d="M6 9a6 6 0 0 1 12 0c0 7 3 6 3 8H3c0-2 3-1 3-8" />
           <path d="M10 20a2 2 0 0 0 4 0" />
+        </IconBase>
+      );
+    case 'search':
+      return (
+        <IconBase>
+          <circle cx="11" cy="11" r="6.5" />
+          <path d="m16 16 4 4" />
         </IconBase>
       );
     case 'cart':
@@ -594,6 +602,14 @@ const NAV_ITEMS: Array<{ key: TabKey; label: string; icon: ShellIconName }> = [
   { key: 'logs', label: '记录', icon: 'logs' },
   { key: 'ai', label: 'AI', icon: 'ai' },
   { key: 'family', label: '我的家庭', icon: 'family' },
+];
+
+const MOBILE_NAV_ITEMS: Array<{ key: TabKey; label: string; icon: ShellIconName }> = [
+  { key: 'home', label: '首页', icon: 'home' },
+  { key: 'foods', label: '食物', icon: 'foods' },
+  { key: 'recipes', label: '菜谱', icon: 'recipes' },
+  { key: 'ingredients', label: '食材', icon: 'ingredients' },
+  { key: 'family', label: '家庭', icon: 'family' },
 ];
 
 type ImageGenerationUiState = {
@@ -2362,6 +2378,322 @@ function App() {
           </nav>
 
           {activeTab === 'home' && (
+          <>
+          <main className="mobile-dashboard-page" aria-label="手机首页">
+            <section className="mobile-dashboard-hero">
+              <div className="mobile-dashboard-kitchen" aria-hidden="true">
+                <img src="/assets/kitchen_transparent.png" alt="" />
+              </div>
+              <div className="mobile-dashboard-topbar">
+                <div className="mobile-dashboard-brand">
+                  <span className="mobile-dashboard-logo">
+                    <ShellIcon name="logo" />
+                  </span>
+                  <span>
+                    <strong>Culina</strong>
+                    <small>家庭厨房工作台</small>
+                  </span>
+                </div>
+                <div className="mobile-dashboard-icon-actions">
+                  <button type="button" onClick={() => setActiveTab('foods')} aria-label="搜索食物">
+                    <DashboardIcon name="search" />
+                  </button>
+                  <button type="button" onClick={() => setActiveTab('ingredients')} aria-label="查看提醒">
+                    <DashboardIcon name="bell" />
+                    {inventoryAlerts.length > 0 && <i aria-hidden="true" />}
+                  </button>
+                </div>
+              </div>
+
+              <div className="mobile-dashboard-family">
+                <div className="mobile-dashboard-family-copy">
+                  <h1>{sidebarFamilyName}</h1>
+                  <p>{sidebarMotto || '今天吃得好，明天更有劲儿'} <span aria-hidden="true">☀</span></p>
+                  <div className="mobile-dashboard-meta-row" aria-label="家庭信息">
+                    <span>
+                      <DashboardIcon name="map-pin" />
+                      {sidebarLocation}
+                    </span>
+                    <span>
+                      <DashboardIcon name="family" />
+                      {sidebarMemberLabel}
+                    </span>
+                    <span>
+                      <DashboardIcon name="check" />
+                      {sidebarActivityLabel}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="mobile-dashboard-actions">
+                <button className="mobile-dashboard-primary" type="button" onClick={() => setActiveTab('ingredients')}>
+                  <DashboardIcon name="plus" />
+                  新增食材
+                </button>
+                <button className="mobile-dashboard-secondary" type="button" onClick={() => setActiveTab('logs')}>
+                  <DashboardIcon name="receipt" />
+                  记录一餐
+                </button>
+              </div>
+            </section>
+
+            <section className="mobile-dashboard-stat-strip" aria-label="厨房状态">
+              {dashboardStats.map((item) => (
+                <article key={item.label} className="mobile-dashboard-stat-card">
+                  <span className={`mobile-dashboard-stat-icon tone-${item.tone}`}>
+                    <DashboardIcon name={item.icon} />
+                  </span>
+                  <span>{item.label}</span>
+                  <strong>
+                    {item.value}
+                    <small>{item.unit}</small>
+                  </strong>
+                  <p>{item.detail}</p>
+                </article>
+              ))}
+            </section>
+
+            <section className="mobile-dashboard-panel mobile-dashboard-recommend">
+              <div className="mobile-dashboard-section-head">
+                <h2>今天吃什么 <span>✦</span></h2>
+                <button
+                  type="button"
+                  onClick={() => setDashboardRecommendationPage((current) => (current + 1) % dashboardRecommendationPageCount)}
+                  disabled={dashboardRecommendationItems.length <= 3}
+                >
+                  换一换
+                </button>
+              </div>
+              {dashboardRecommendations.length > 0 ? (
+                <div className="mobile-dashboard-food-scroller">
+                  {dashboardRecommendations.map(({ recommendation, coverUrl }) => {
+                    const food = recommendation.food;
+                    const foodCoverUrl = resolveDashboardAssetUrl(coverUrl);
+                    return (
+                      <article key={food.id} className="mobile-dashboard-food-card">
+                        <div
+                          className="mobile-dashboard-food-cover"
+                          style={foodCoverUrl ? { backgroundImage: `url("${foodCoverUrl}")` } : undefined}
+                        />
+                        <div className="mobile-dashboard-food-body">
+                          <h3>{food.name}</h3>
+                          <div className="mobile-dashboard-chip-row">
+                            <Badge>{FOOD_TYPE_LABELS[food.type]}</Badge>
+                            <Badge>{food.routine_note || `${food.suitable_meal_types.length || 1} 餐适合`}</Badge>
+                          </div>
+                          <p>{recommendation.reasons[0] ?? food.notes ?? '适合今天安排'}</p>
+                          <div className="mobile-dashboard-food-actions">
+                            <button
+                              className="mobile-dashboard-primary compact"
+                              type="button"
+                              onClick={() => {
+                                if (food.recipe_id) {
+                                  setPendingRecipeCookId(food.recipe_id);
+                                  setActiveTab('recipes');
+                                  return;
+                                }
+                                void quickAddMealMutation.mutateAsync({
+                                  food_id: food.id,
+                                  date: today,
+                                  meal_type: foodRecommendations?.target_meal_type ?? 'dinner',
+                                  servings: 1,
+                                  note: '首页快捷记录',
+                                });
+                              }}
+                              disabled={quickAddMealMutation.isPending}
+                            >
+                              开始做
+                            </button>
+                            <button type="button" onClick={() => setActiveTab('foods')} aria-label="查看食物">
+                              <DashboardIcon name="list" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => openHomePlanAddDialog(food, foodRecommendations?.target_meal_type ?? 'dinner')}
+                              disabled={createFoodPlanItemMutation.isPending}
+                              aria-label={`加入菜单：${food.name}`}
+                            >
+                              <DashboardIcon name="calendar" />
+                            </button>
+                          </div>
+                        </div>
+                      </article>
+                    );
+                  })}
+                </div>
+              ) : (
+                <EmptyState title="暂无推荐" description="补充食材或菜谱后，这里会出现今日建议。" />
+              )}
+            </section>
+
+            <section className="mobile-dashboard-panel">
+              <div className="mobile-dashboard-section-head">
+                <h2>今日待办</h2>
+                <Badge>{dashboardCompletedCount} / {dashboardTodoItems.length || 0}</Badge>
+              </div>
+              <div className="mobile-dashboard-todo-list">
+                {dashboardTodoItems.length > 0 ? (
+                  dashboardTodoItems.slice(0, 4).map((item) => (
+                    <button
+                      key={item.id}
+                      type="button"
+                      className={item.done ? 'mobile-dashboard-todo-item done' : `mobile-dashboard-todo-item todo-${item.type}`}
+                      onClick={() => handleDashboardTodoClick(item)}
+                      aria-label={`${item.title}，${item.status}，点击处理`}
+                    >
+                      <span className="mobile-dashboard-todo-icon">
+                        <DashboardIcon name={item.icon} />
+                      </span>
+                      <span className="mobile-dashboard-todo-copy">
+                        <strong>{item.title}</strong>
+                        <small>{item.description}</small>
+                      </span>
+                      <span className="mobile-dashboard-todo-meta">
+                        <Badge className={item.done ? 'dashboard-done-badge' : item.status === '紧急' ? 'dashboard-danger-badge' : 'dashboard-wait-badge'}>
+                          {item.status}
+                        </Badge>
+                        <small>{item.dateLabel}</small>
+                      </span>
+                      <span className="mobile-dashboard-todo-arrow" aria-hidden="true">
+                        <DashboardIcon name="chevron" />
+                      </span>
+                    </button>
+                  ))
+                ) : (
+                  <EmptyState title="今日没有待办" description="新的临期、采购和餐食记录会自动出现在这里。" />
+                )}
+              </div>
+            </section>
+
+            <section className="mobile-dashboard-panel mobile-dashboard-week">
+              <div className="mobile-dashboard-section-head">
+                <h2>本周菜单 <span>{activeFoodPlanItems.length} / {dashboardWeekMealCapacity} 餐</span></h2>
+                <button type="button" onClick={() => setActiveTab('foods')}>
+                  <DashboardIcon name="edit" />
+                  编辑计划
+                </button>
+              </div>
+              <div className="mobile-dashboard-week-row">
+                {dashboardPlanDays.map((day) => (
+                  <button
+                    key={day.date}
+                    className={[
+                      'mobile-dashboard-day-card',
+                      day.plannedMealCount > 0 ? 'filled' : '',
+                      day.isToday ? 'today' : '',
+                      day.isSelected ? 'selected' : '',
+                    ]
+                      .filter(Boolean)
+                      .join(' ')}
+                    type="button"
+                    onClick={() => setSelectedDashboardPlanDate(day.date)}
+                    aria-pressed={day.isSelected}
+                  >
+                    <span>{day.weekday}</span>
+                    <strong>{day.plannedMealCount}/{DASHBOARD_PLAN_MEAL_TYPES.length}</strong>
+                    <small>{day.dayLabel}</small>
+                    <i aria-hidden="true">
+                      {day.mealItems.map((meal) => (
+                        <b
+                          key={meal.mealType}
+                          className={meal.items.length > 0 ? `is-filled meal-${meal.mealType}` : `meal-${meal.mealType}`}
+                        />
+                      ))}
+                    </i>
+                  </button>
+                ))}
+              </div>
+              {selectedDashboardPlanDay && (
+                <div className="mobile-dashboard-plan-detail">
+                  <div className="mobile-dashboard-plan-detail-head">
+                    <strong>{selectedDashboardPlanDateLabel}</strong>
+                    <span>{selectedDashboardPlanDay.totalCount} 项计划</span>
+                  </div>
+                  <div className="mobile-dashboard-plan-meals">
+                    {selectedDashboardPlanDay.mealItems.map((meal) => (
+                      <div
+                        key={meal.mealType}
+                        className={meal.items.length > 0 ? 'mobile-dashboard-plan-meal filled' : 'mobile-dashboard-plan-meal'}
+                      >
+                        <span className={`mobile-dashboard-plan-meal-label meal-${meal.mealType}`}>
+                          <DashboardMealIcon mealType={meal.mealType} />
+                          <strong>{MEAL_TYPE_LABELS[meal.mealType]}</strong>
+                        </span>
+                        <div className="mobile-dashboard-plan-meal-dishes">
+                          {meal.items.length > 0 ? (
+                            meal.items.slice(0, 3).map((item) => {
+                              const planFood = foods.find((food) => food.id === item.food_id);
+                              const planCoverUrl = resolveDashboardAssetUrl(planFood ? getFoodCover(planFood, recipes) : undefined);
+                              const planTitle = item.recipe_title || item.food_name || planFood?.name || '未命名食物';
+                              return (
+                                <button
+                                  key={item.id}
+                                  type="button"
+                                  className={item.status === 'cooked' ? 'mobile-dashboard-plan-dish cooked' : 'mobile-dashboard-plan-dish'}
+                                  onClick={() => openHomePlanDetail(item)}
+                                  title={planTitle}
+                                >
+                                  {planCoverUrl && <img src={planCoverUrl} alt="" />}
+                                  <span>{planTitle}</span>
+                                </button>
+                              );
+                            })
+                          ) : (
+                            <span className="mobile-dashboard-plan-empty">未安排</span>
+                          )}
+                          {meal.items.length > 3 && (
+                            <span className="mobile-dashboard-plan-more">+{meal.items.length - 3}</span>
+                          )}
+                        </div>
+                        <button
+                          className="mobile-dashboard-plan-add"
+                          type="button"
+                          onClick={() => openHomePlanAddEmptyDialog(selectedDashboardPlanDay.date, meal.mealType)}
+                          aria-label={`添加${MEAL_TYPE_LABELS[meal.mealType]}计划`}
+                        >
+                          <DashboardIcon name="plus" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </section>
+
+            <section className="mobile-dashboard-panel">
+              <div className="mobile-dashboard-section-head">
+                <h2>采购提醒 <span>{pendingShoppingCount} 项待采购</span></h2>
+                <button type="button" onClick={() => setActiveTab('ingredients')}>查看清单</button>
+              </div>
+              <div className="mobile-dashboard-shopping-row">
+                {pendingShoppingPreview.length > 0 ? (
+                  pendingShoppingPreview.map((item) => {
+                    const ingredient = findShoppingIngredient(item, ingredients);
+                    const imageUrl = ingredient?.image?.url ? resolveDashboardAssetUrl(ingredient.image.url) : buildIngredientPlaceholderSvg(item.title);
+                    return (
+                      <button
+                        key={item.id}
+                        className="mobile-dashboard-shopping-pill"
+                        type="button"
+                        onClick={() => openHomeRestock(item)}
+                        title={`登记库存：${item.title}`}
+                      >
+                        <span>
+                          <img src={imageUrl} alt="" />
+                        </span>
+                        <strong>{item.title}</strong>
+                        <small>{item.quantity}{item.unit}</small>
+                      </button>
+                    );
+                  })
+                ) : (
+                  <p className="subtle">采购清单已清空。</p>
+                )}
+              </div>
+            </section>
+          </main>
+
           <main className="dashboard-page">
             <section className="card dashboard-hero">
               <div className="dashboard-hero-head">
@@ -2806,6 +3138,7 @@ function App() {
               </div>
             </div>
           </main>
+          </>
         )}
 
         {activeTab === 'foods' && (
@@ -3229,6 +3562,214 @@ function App() {
 
         {activeTab === 'family' && (
           <main className="family-workspace">
+            <section className="mobile-family-page" aria-label="手机家庭页">
+              <div className="mobile-family-topbar">
+                <div className="mobile-family-brand">
+                  <span className="mobile-family-logo">
+                    <ShellIcon name="logo" />
+                  </span>
+                  <span>
+                    <strong>Culina</strong>
+                    <small>家庭厨房工作台</small>
+                  </span>
+                </div>
+                <div className="mobile-family-top-actions">
+                  <button type="button" aria-label="编辑我的资料" onClick={() => setFamilyOverlayMode('profile')}>
+                    <DashboardIcon name="more" />
+                  </button>
+                </div>
+              </div>
+
+              <header className="mobile-family-hero">
+                <div className="mobile-family-cover">
+                  <img src={resolveDashboardAssetUrl(familyHeroImageUrl)} alt={family?.name ?? '家庭厨房'} />
+                </div>
+                <div className="mobile-family-hero-copy">
+                  <h1>{family?.name ?? '我的家庭'}</h1>
+                  <p>{family?.motto || '管理家庭成员、权限和协作邀请，让一家人的厨房协作保持同步。'}</p>
+                  <div className="mobile-family-meta-row" aria-label="家庭信息">
+                    <span>
+                      <DashboardIcon name="map-pin" />
+                      {family?.location || '未填写位置'}
+                    </span>
+                    <span>
+                      <DashboardIcon name="family" />
+                      {members.length} 位成员
+                    </span>
+                  </div>
+                </div>
+                <div className="mobile-family-actions">
+                  {isOwner ? (
+                    <button className="mobile-family-primary" type="button" onClick={() => setFamilyOverlayMode('invite')}>
+                      <DashboardIcon name="plus" />
+                      邀请成员
+                    </button>
+                  ) : (
+                    <button className="mobile-family-primary" type="button" onClick={() => setFamilyOverlayMode('profile')}>
+                      <DashboardIcon name="user-plus" />
+                      编辑资料
+                    </button>
+                  )}
+                  <button className="mobile-family-secondary" type="button" onClick={() => setFamilyOverlayMode(isOwner ? 'family' : 'password')}>
+                    <DashboardIcon name={isOwner ? 'edit' : 'lock'} />
+                    {isOwner ? '家庭资料' : '修改密码'}
+                  </button>
+                </div>
+              </header>
+
+              <section className="mobile-family-stat-strip" aria-label="家庭摘要">
+                {familyStatCards.map((item) => (
+                  <button
+                    key={item.label}
+                    type="button"
+                    onClick={() => {
+                      if (item.label === '家庭成员') {
+                        document.getElementById('mobile-family-members')?.scrollIntoView({ block: 'start', behavior: 'smooth' });
+                      } else if (item.label === '家庭资料') {
+                        setFamilyOverlayMode(isOwner ? 'family' : 'profile');
+                      } else if (item.label === '待处理采购') {
+                        setActiveTab('ingredients');
+                      } else {
+                        document.getElementById('mobile-family-activity')?.scrollIntoView({ block: 'start', behavior: 'smooth' });
+                      }
+                    }}
+                  >
+                    <span className={`mobile-family-stat-icon tone-${item.tone}`}>
+                      <DashboardIcon name={item.icon} />
+                    </span>
+                    <strong>
+                      {item.value}
+                      {item.unit && <small>{item.unit}</small>}
+                    </strong>
+                    <span>{item.label}</span>
+                  </button>
+                ))}
+              </section>
+
+              {currentUser && (
+                <section className="mobile-family-panel mobile-family-me-card">
+                  <div className="mobile-family-section-head">
+                    <h2>我的账号</h2>
+                    <button type="button" onClick={() => setFamilyOverlayMode('profile')}>
+                      编辑
+                      <DashboardIcon name="edit" />
+                    </button>
+                  </div>
+                  <div className="mobile-family-me-row">
+                    <Avatar label={currentUser.display_name} seed={currentUser.avatar_seed} imageUrl={currentUser.avatar_image?.url} large />
+                    <div>
+                      <strong>{currentUser.display_name}</strong>
+                      <span>{membership?.role ?? 'Member'} · {currentUser.username}</span>
+                      <small>{currentUser.email ?? currentUser.phone ?? '还没有联系方式'}</small>
+                    </div>
+                  </div>
+                  <div className="mobile-family-account-actions">
+                    <button type="button" onClick={() => setFamilyOverlayMode('profile')}>编辑资料</button>
+                    <button type="button" onClick={() => setFamilyOverlayMode('password')}>修改密码</button>
+                  </div>
+                </section>
+              )}
+
+              <section id="mobile-family-members" className="mobile-family-panel">
+                <div className="mobile-family-section-head">
+                  <h2>家庭成员 <span>{members.length} 人</span></h2>
+                  {isOwner && (
+                    <button type="button" onClick={() => setFamilyOverlayMode('invite')}>
+                      新增
+                      <DashboardIcon name="plus" />
+                    </button>
+                  )}
+                </div>
+                <div className="mobile-family-member-list">
+                  {members.map((member) => (
+                    <article key={member.id} className="mobile-family-member-card">
+                      <Avatar label={member.display_name} seed={member.avatar_seed} imageUrl={member.avatar_image?.url} large />
+                      <div>
+                        <strong>{member.display_name}</strong>
+                        <span>{member.role === 'Owner' ? 'Owner' : member.id === currentUser?.id ? '这是你' : '成员'} · {member.username}</span>
+                        <small>{member.email ?? member.phone ?? '等待补充联系信息'}</small>
+                      </div>
+                      {isOwner ? (
+                        <button type="button" aria-label={`修改 ${member.display_name} 的信息`} onClick={() => openMemberEdit(member)}>
+                          <DashboardIcon name="edit" />
+                        </button>
+                      ) : (
+                        <i className={member.role === 'Owner' ? 'owner' : ''}>
+                          <DashboardIcon name={member.role === 'Owner' ? 'shield' : 'check'} />
+                        </i>
+                      )}
+                    </article>
+                  ))}
+                </div>
+              </section>
+
+              <section id="mobile-family-activity" className="mobile-family-panel">
+                <div className="mobile-family-section-head">
+                  <h2>家庭活动</h2>
+                  <button type="button" onClick={() => setActiveTab('logs')}>
+                    全部
+                    <DashboardIcon name="list" />
+                  </button>
+                </div>
+                {activityLogs.length > 0 ? (
+                  <div className="mobile-family-activity-list">
+                    {activityLogs.slice(0, 4).map((log, index) => (
+                      <article key={log.id} className="mobile-family-activity-item">
+                        <span className={`tone-${index % 4}`}>
+                          <DashboardIcon name={index % 3 === 0 ? 'edit' : index % 3 === 1 ? 'leaf' : 'cart'} />
+                        </span>
+                        <div>
+                          <strong>{log.actor_name ?? '家庭成员'} {log.summary}</strong>
+                          <small>{formatDateTime(log.created_at)}</small>
+                        </div>
+                      </article>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="mobile-family-empty">
+                    <strong>暂无家庭活动</strong>
+                    <span>记录餐食、采购和食材后，这里会自动更新。</span>
+                  </div>
+                )}
+              </section>
+
+              <section className="mobile-family-panel">
+                <div className="mobile-family-section-head">
+                  <h2>{isOwner ? '协作邀请' : '协作权限'}</h2>
+                </div>
+                {isOwner ? (
+                  <div className="mobile-family-action-list">
+                    <button type="button" onClick={() => setFamilyOverlayMode('invite')}>
+                      <span><DashboardIcon name="link" /></span>
+                      <strong>邀请成员</strong>
+                      <small>为家人创建账号并加入厨房协作</small>
+                    </button>
+                    <button type="button" onClick={() => setFamilyOverlayMode('family')}>
+                      <span><DashboardIcon name="edit" /></span>
+                      <strong>编辑家庭资料</strong>
+                      <small>维护家庭名称、位置、口号和家庭图</small>
+                    </button>
+                  </div>
+                ) : (
+                  <div className="mobile-family-action-list">
+                    <button type="button" onClick={() => setActiveTab('ingredients')}>
+                      <span><DashboardIcon name="check" /></span>
+                      <strong>参与厨房协作</strong>
+                      <small>添加食材、更新采购、记录餐食和查看菜谱</small>
+                    </button>
+                    {familyOwnerMember && (
+                      <button type="button" onClick={() => setFamilyOverlayMode('profile')}>
+                        <span><DashboardIcon name="shield" /></span>
+                        <strong>Owner 管理家庭资料</strong>
+                        <small>{familyOwnerMember.display_name} · {familyOwnerMember.username}</small>
+                      </button>
+                    )}
+                  </div>
+                )}
+              </section>
+            </section>
+
+            <div className="family-desktop-view">
             <section className="card family-hero">
               <div className="family-hero-head">
                 <div className="family-hero-copy">
@@ -3490,6 +4031,7 @@ function App() {
                   </div>
                 </div>
               </section>
+            </div>
             </div>
 
             {familyOverlayMode === 'invite' && (
@@ -4794,6 +5336,22 @@ function App() {
           </div>
         )}
       </div>
+      <nav className="mobile-bottom-nav" aria-label="手机主导航">
+        {MOBILE_NAV_ITEMS.map((item) => (
+          <button
+            key={item.key}
+            className={activeTab === item.key ? 'mobile-bottom-nav-item active' : 'mobile-bottom-nav-item'}
+            type="button"
+            onClick={() => setActiveTab(item.key)}
+            aria-current={activeTab === item.key ? 'page' : undefined}
+          >
+            <span>
+              <ShellIcon name={item.icon} />
+            </span>
+            <strong>{item.label}</strong>
+          </button>
+        ))}
+      </nav>
       </div>
     </div>
   );

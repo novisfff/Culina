@@ -44,6 +44,7 @@ type FoodWorkspaceLens = 'all' | 'today' | 'selfMade' | 'outside' | 'ready' | 'e
 export type FoodGovernanceIssue = 'image' | 'meal' | 'note' | 'source' | 'stock';
 type NormalizedFoodType = Exclude<FoodType, 'packaged'>;
 type FoodIconName =
+  | 'bell'
   | 'bookOpen'
   | 'bowl'
   | 'calendar'
@@ -55,6 +56,7 @@ type FoodIconName =
   | 'receipt'
   | 'search'
   | 'list'
+  | 'logo'
   | 'star'
   | 'refresh'
   | 'arrowLeft'
@@ -398,7 +400,7 @@ function FoodUiIcon(props: { name: FoodIconName; className?: string }) {
   };
   const strokeProps = {
     stroke: 'currentColor',
-    strokeWidth: 2,
+    strokeWidth: props.name === 'logo' ? 1.8 : 2,
     strokeLinecap: 'round' as const,
     strokeLinejoin: 'round' as const,
   };
@@ -414,16 +416,34 @@ function FoodUiIcon(props: { name: FoodIconName; className?: string }) {
           <path {...strokeProps} d="M16 8c-.7-.8-.7-1.6 0-2.4" />
         </>
       )}
+      {props.name === 'logo' && (
+        <>
+          <path {...strokeProps} d="M6 10h12" />
+          <path {...strokeProps} d="M7 10v3a5 5 0 0 0 10 0v-3" />
+          <path {...strokeProps} d="M17 11h1a2 2 0 0 1 0 4h-1" />
+          <path {...strokeProps} d="M9 7V5" />
+          <path {...strokeProps} d="M12 7V4" />
+          <path {...strokeProps} d="M15 7V5" />
+        </>
+      )}
       {props.name === 'bookOpen' && (
         <>
           <path {...strokeProps} d="M4 5.5A2.5 2.5 0 0 1 6.5 3H11v17H6.5A2.5 2.5 0 0 0 4 22V5.5Z" />
           <path {...strokeProps} d="M20 5.5A2.5 2.5 0 0 0 17.5 3H13v17h4.5A2.5 2.5 0 0 1 20 22V5.5Z" />
         </>
       )}
+      {props.name === 'bell' && (
+        <>
+          <path {...strokeProps} d="M6 9a6 6 0 0 1 12 0c0 7 3 6 3 8H3c0-2 3-1 3-8" />
+          <path {...strokeProps} d="M10 20a2 2 0 0 0 4 0" />
+        </>
+      )}
       {props.name === 'calendar' && (
         <>
-          <path {...strokeProps} d="M7 3v4M17 3v4M4 9h16" />
-          <rect {...strokeProps} x="4" y="5" width="16" height="16" rx="2.5" />
+          <path {...strokeProps} d="M7 3v4" />
+          <path {...strokeProps} d="M17 3v4" />
+          <rect {...strokeProps} x="4" y="6" width="16" height="14" rx="2" />
+          <path {...strokeProps} d="M8 11h8" />
         </>
       )}
       {props.name === 'cloche' && (
@@ -466,14 +486,19 @@ function FoodUiIcon(props: { name: FoodIconName; className?: string }) {
       )}
       {props.name === 'search' && (
         <>
-          <circle {...strokeProps} cx="11" cy="11" r="7" />
-          <path {...strokeProps} d="m20 20-3.5-3.5" />
+          <circle {...strokeProps} cx="11" cy="11" r="6.5" />
+          <path {...strokeProps} d="m16 16 4 4" />
         </>
       )}
       {props.name === 'list' && (
         <>
-          <path {...strokeProps} d="M9 7h11M9 12h11M9 17h11" />
-          <path {...strokeProps} d="M4 7h.01M4 12h.01M4 17h.01" />
+          <path {...strokeProps} d="M9 7h10" />
+          <path {...strokeProps} d="M9 12h10" />
+          <path {...strokeProps} d="M9 17h10" />
+          <path {...strokeProps} d="M5 7h.01" />
+          <path {...strokeProps} d="M5 7h.01" />
+          <path {...strokeProps} d="M5 12h.01" />
+          <path {...strokeProps} d="M5 17h.01" />
         </>
       )}
       {props.name === 'star' && (
@@ -1332,6 +1357,88 @@ export function FoodWorkspace(props: Props) {
       .slice(0, 8);
   }, [planFoodSearch, props.foods]);
   const selectedPlanFood = planForm.foodId ? props.foods.find((food) => food.id === planForm.foodId) ?? null : null;
+  const mobileDefaultSceneCards = [
+    {
+      key: 'protein',
+      title: '高蛋白',
+      count: props.foods.filter((food) => [food.name, food.category, food.notes, food.routine_note, ...getFoodSceneTags(food)].join(' ').includes('蛋白')).length || props.foods.filter((food) => normalizeFoodType(food) === 'selfMade').length,
+      imageFood: props.foods.find((food) => [food.name, food.category, food.notes, food.routine_note, ...getFoodSceneTags(food)].join(' ').includes('蛋白')) ?? props.foods.find((food) => normalizeFoodType(food) === 'selfMade') ?? props.foods[0],
+      onClick: () => {
+        setLensFilter('all');
+        setTypeFilter('all');
+        setMealFilter('all');
+        setSearch('高蛋白');
+      },
+    },
+    {
+      key: 'dinner',
+      title: '工作日晚餐',
+      count: props.foods.filter((food) => food.suitable_meal_types.includes('dinner')).length,
+      imageFood:
+        props.foods.find((food) => food.suitable_meal_types.includes('dinner') && food.id !== props.foods[0]?.id && ![food.name, ...getFoodSceneTags(food)].join(' ').includes('蛋白')) ??
+        props.foods.find((food) => food.suitable_meal_types.includes('dinner') && food.id !== props.foods[0]?.id) ??
+        props.foods[1] ??
+        props.foods[0],
+      onClick: () => {
+        setLensFilter('today');
+        setTypeFilter('all');
+        setMealFilter('dinner');
+        setSearch('');
+      },
+    },
+    {
+      key: 'kid',
+      title: '孩子也能吃',
+      count: props.foods.filter((food) => [food.notes, food.routine_note, ...getFoodSceneTags(food)].join(' ').includes('孩子')).length,
+      imageFood: props.foods.find((food) => [food.notes, food.routine_note, ...getFoodSceneTags(food)].join(' ').includes('孩子')) ?? props.foods[2] ?? props.foods[1] ?? props.foods[0],
+      onClick: () => {
+        setLensFilter('all');
+        setTypeFilter('all');
+        setMealFilter('all');
+        setSearch('孩子');
+      },
+    },
+    {
+      key: 'light',
+      title: '周末轻食',
+      count: props.foods.filter((food) => [food.name, food.category, food.notes, food.routine_note, ...getFoodSceneTags(food)].join(' ').includes('轻食')).length || props.foods.filter((food) => food.suitable_meal_types.includes('snack')).length,
+      imageFood:
+        props.foods.find((food) => [food.name, food.category, food.notes, food.routine_note, ...getFoodSceneTags(food)].join(' ').includes('轻食')) ??
+        props.foods.find((food) => food.suitable_meal_types.includes('snack')) ??
+        props.foods.find((food) => !['selfMade', 'takeout'].includes(normalizeFoodType(food))) ??
+        props.foods[3] ??
+        props.foods[0],
+      onClick: () => {
+        setLensFilter('all');
+        setTypeFilter('all');
+        setMealFilter('snack');
+        setSearch('');
+      },
+    },
+  ];
+  const mobileSceneExploreCards = [
+    ...mobileDefaultSceneCards,
+    ...sceneCards
+      .filter((scene) => !mobileDefaultSceneCards.some((card) => card.title === scene.name))
+      .map((scene) => ({
+        key: `scene-${scene.name}`,
+        title: scene.name,
+        count: scene.count,
+        imageFood: props.foods.find((food) => getFoodSceneTags(food).includes(scene.name)) ?? props.foods[0],
+        imageUrl: scene.imageUrl,
+        onClick: () => {
+          setSceneFilter(scene.name);
+          setLensFilter('all');
+          setTypeFilter('all');
+          setMealFilter('all');
+          setSearch('');
+        },
+      })),
+  ];
+  const mobileScenePages = Array.from({ length: Math.ceil(mobileSceneExploreCards.length / 4) || 1 }, (_, index) =>
+    mobileSceneExploreCards.slice(index * 4, index * 4 + 4)
+  );
+  const mobileLibraryFoods = filteredFoods.slice(0, 4);
 
   const imagePayload = getFoodImagePayload(form, props.recipes);
   const currentRecipe = props.recipes.find((recipe) => recipe.id === form.recipeId);
@@ -2011,6 +2118,237 @@ export function FoodWorkspace(props: Props) {
 
   return (
     <main className="food-workspace">
+      <section className="mobile-food-page" aria-label="手机食物页">
+        <div className="mobile-food-topbar">
+          <div className="mobile-food-brand">
+            <span className="mobile-food-logo">
+              <FoodUiIcon name="logo" />
+            </span>
+            <span>
+              <strong>Culina</strong>
+              <small>家庭厨房工作台</small>
+            </span>
+          </div>
+          <div className="mobile-food-top-actions">
+            <button type="button" aria-label="聚焦搜索" onClick={() => document.getElementById('mobile-food-search')?.focus()}>
+              <FoodUiIcon name="search" />
+            </button>
+            <button type="button" aria-label="查看食物提醒" onClick={() => openGovernanceIssue('all')}>
+              <FoodUiIcon name="bell" />
+              {managementIssueCount > 0 && <i aria-hidden="true" />}
+            </button>
+          </div>
+        </div>
+
+        <header className="mobile-food-hero">
+          <h1>食物</h1>
+          <p>从常吃、临期、外卖和记录里快速选一份今天想吃的。</p>
+        </header>
+
+        <section className="mobile-dashboard-panel mobile-dashboard-recommend">
+          <div className="mobile-dashboard-section-head">
+            <h2>今天吃什么 <span>✦</span></h2>
+            <button
+              type="button"
+              onClick={() => setRecommendationPage((current) => (current + 1) % recommendationPageCount)}
+              disabled={recommendationCards.length <= 3}
+            >
+              换一换
+            </button>
+          </div>
+          {visibleRecommendations.length > 0 ? (
+            <div className="mobile-dashboard-food-scroller">
+              {visibleRecommendations.map((item) => {
+                const food = item.food;
+                const foodCoverUrl = getFoodCover(food, props.recipes);
+                return (
+                  <article key={food.id} className="mobile-dashboard-food-card">
+                    <div
+                      className="mobile-dashboard-food-cover"
+                      style={foodCoverUrl ? { backgroundImage: `url("${resolveFoodAssetUrl(foodCoverUrl)}")` } : undefined}
+                    />
+                    <div className="mobile-dashboard-food-body">
+                      <h3>{food.name}</h3>
+                      <div className="mobile-dashboard-chip-row">
+                        <Badge>{FOOD_TYPE_LABELS[normalizeFoodType(food)]}</Badge>
+                        <Badge>{food.routine_note || `${food.suitable_meal_types.length || 1} 餐适合`}</Badge>
+                      </div>
+                      <p>{item.reasons[0] ?? food.notes ?? '适合今天安排'}</p>
+                      <div className="mobile-dashboard-food-actions">
+                        <button
+                          className="mobile-dashboard-primary compact"
+                          type="button"
+                          disabled={props.isQuickAdding}
+                          onClick={() => handleRecommendationPrimaryAction(item)}
+                        >
+                          {getRecommendationPrimaryActionLabel(item)}
+                        </button>
+                        <button type="button" onClick={() => openDetail(food)} aria-label={`查看食物：${food.name}`}>
+                          <FoodUiIcon name="list" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => openPlanDialog(food)}
+                          disabled={props.isUpdatingPlan}
+                          aria-label={`加入菜单：${food.name}`}
+                        >
+                          <FoodUiIcon name="calendar" />
+                        </button>
+                      </div>
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+          ) : (
+            <EmptyState title="暂无推荐" description="补充食物或菜谱后，这里会出现今日建议。" />
+          )}
+        </section>
+
+        <section className="mobile-food-panel">
+          <div className="mobile-food-section-head">
+            <h2>按场景探索</h2>
+            <button type="button" onClick={() => setIsSceneManagerOpen(true)}>
+              查看更多
+              <FoodUiIcon name="arrowRight" />
+            </button>
+          </div>
+          <div className="mobile-food-scene-scroller" aria-label="按场景探索">
+            {mobileScenePages.map((page, pageIndex) => (
+              <div className="mobile-food-scene-grid" key={`scene-page-${pageIndex}`}>
+                {page.map((item) => {
+                  const sceneImageUrl = 'imageUrl' in item && typeof item.imageUrl === 'string' ? item.imageUrl : undefined;
+                  const cover = sceneImageUrl ?? (item.imageFood ? getFoodCover(item.imageFood, props.recipes) : null);
+                  return (
+                    <button key={item.key} type="button" onClick={item.onClick}>
+                      {cover ? <img src={resolveFoodAssetUrl(cover)} alt="" /> : <i aria-hidden="true">{item.title.slice(0, 2)}</i>}
+                      <span>
+                        <strong>{item.title}</strong>
+                        <small>{item.count} 份食物</small>
+                      </span>
+                      <b aria-hidden="true">
+                        <FoodUiIcon name="arrowRight" />
+                      </b>
+                    </button>
+                  );
+                })}
+              </div>
+            ))}
+          </div>
+        </section>
+
+        <section className="mobile-food-panel mobile-food-library">
+          <div className="mobile-food-section-head">
+            <h2>食物库</h2>
+            <button type="button" onClick={hasFoodFilters ? clearFoodFilters : () => openCreate('takeout')}>
+              {hasFoodFilters ? '查看全部' : '新增'}
+              <FoodUiIcon name="arrowRight" />
+            </button>
+          </div>
+          <div className="mobile-food-library-filters">
+            <label className="mobile-food-search">
+              <FoodUiIcon name="search" />
+              <input id="mobile-food-search" value={search} placeholder="搜索食物、食材或菜谱" onChange={(event) => setSearch(event.target.value)} />
+            </label>
+            <div className="mobile-food-tabs" aria-label="食物分类">
+              {[
+                {
+                  label: '全部',
+                  active: lensFilter === 'all' && typeFilter === 'all' && mealFilter === 'all' && sceneFilter === 'all' && governanceIssueFilter === 'all',
+                  onClick: clearFoodFilters,
+                },
+                {
+                  label: '家常菜',
+                  active: typeFilter === 'selfMade',
+                  onClick: () => {
+                    setLensFilter('all');
+                    setTypeFilter('selfMade');
+                    setMealFilter('all');
+                    setSceneFilter('all');
+                    setGovernanceIssueFilter('all');
+                  },
+                },
+                {
+                  label: '外卖',
+                  active: typeFilter === 'takeout',
+                  onClick: () => {
+                    setLensFilter('all');
+                    setTypeFilter('takeout');
+                    setMealFilter('all');
+                    setSceneFilter('all');
+                    setGovernanceIssueFilter('all');
+                  },
+                },
+                {
+                  label: '临期待补',
+                  active: lensFilter === 'expiring' || lensFilter === 'needsInfo',
+                  onClick: () => {
+                    setLensFilter(expiringFoods.length > 0 ? 'expiring' : 'needsInfo');
+                    setTypeFilter('all');
+                    setMealFilter('all');
+                    setSceneFilter('all');
+                    setGovernanceIssueFilter('all');
+                  },
+                },
+                {
+                  label: '收藏',
+                  active: lensFilter === 'favorite',
+                  onClick: () => {
+                    setLensFilter('favorite');
+                    setTypeFilter('all');
+                    setMealFilter('all');
+                    setSceneFilter('all');
+                    setGovernanceIssueFilter('all');
+                  },
+                },
+              ].map((item) => (
+                <button key={item.label} className={item.active ? 'active' : ''} type="button" onClick={item.onClick}>
+                  {item.label}
+                </button>
+              ))}
+            </div>
+          </div>
+          {mobileLibraryFoods.length > 0 ? (
+            <div className="mobile-food-library-grid">
+              {mobileLibraryFoods.map((food) => {
+                const cover = getFoodCover(food, props.recipes);
+                const usage = getMealUsage(food, props.mealLogs);
+                return (
+                  <article key={food.id} className="mobile-food-library-card">
+                    <button className="mobile-food-library-cover" type="button" onClick={() => openDetail(food)}>
+                      {cover ? <img src={resolveFoodAssetUrl(cover)} alt={food.name} /> : <span>{food.name.slice(0, 2)}</span>}
+                    </button>
+                    <div className="mobile-food-library-body">
+                      <h3>{food.name}</h3>
+                      <p>{[FOOD_TYPE_LABELS[normalizeFoodType(food)], usage.count > 0 ? `最近做过` : '未记录'].join(' · ')}</p>
+                      <div className="mobile-food-chip-row">
+                        {(getFoodSceneTags(food).slice(0, 2).length ? getFoodSceneTags(food).slice(0, 2) : food.suitable_meal_types.slice(0, 2).map((meal) => MEAL_TYPE_LABELS[meal])).map((label) => (
+                          <span key={label}>{label}</span>
+                        ))}
+                      </div>
+                      <div className="mobile-food-card-actions">
+                        <button className="mobile-food-primary" type="button" disabled={props.isQuickAdding} onClick={() => handleFoodCardPrimaryAction(food, getDefaultMealType(food))}>
+                          {getFoodCardPrimaryActionLabel(food)}
+                        </button>
+                        <button type="button" aria-label={`收藏：${food.name}`} disabled={props.isUpdatingFavorite} onClick={() => void props.updateFoodFavorite(food.id, !food.favorite)}>
+                          <FoodUiIcon name={food.favorite ? 'heart' : 'star'} />
+                        </button>
+                      </div>
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="mobile-food-empty">
+              <strong>{currentLensCopy.emptyTitle}</strong>
+              <button type="button" onClick={clearFoodFilters}>清空筛选</button>
+            </div>
+          )}
+        </section>
+      </section>
+
+      <div className="food-desktop-view">
       <PageHeader
         variant="compact"
         title="食物"
@@ -2276,7 +2614,7 @@ export function FoodWorkspace(props: Props) {
         <aside className="food-task-sidebar" aria-label="食物页辅助操作">
           <div className="food-task-sidebar-head">
             <span className="eyebrow">辅助操作</span>
-            <strong>快捷入口</strong>
+            <strong>食物管理</strong>
           </div>
           <div className="food-sidebar-section">
             <div className="food-sidebar-section-head">
@@ -2401,6 +2739,7 @@ export function FoodWorkspace(props: Props) {
             </div>
           </div>
         </aside>
+      </div>
       </div>
 
       {detailFood && (() => {

@@ -526,6 +526,7 @@ function resolveRecipeDifficulty(value: RecipeFormState['difficulty']): Difficul
 
 type RecipeUiIconName =
   | 'basket'
+  | 'bell'
   | 'calendar'
   | 'check'
   | 'chevronDown'
@@ -540,6 +541,7 @@ type RecipeUiIconName =
   | 'image'
   | 'info'
   | 'leaf'
+  | 'logo'
   | 'minus'
   | 'pause'
   | 'play'
@@ -571,6 +573,13 @@ function RecipeUiIcon(props: { name: RecipeUiIconName; className?: string }) {
           <path d="M8 10.2 10.2 5M16 10.2 13.8 5" />
           <path d="M5.2 10.2h13.6l-1.3 8.1a2.2 2.2 0 0 1-2.2 1.9H8.7a2.2 2.2 0 0 1-2.2-1.9l-1.3-8.1Z" />
           <path d="M4 10.2h16M9.2 14v2.8M12 14v2.8M14.8 14v2.8" />
+        </svg>
+      );
+    case 'bell':
+      return (
+        <svg {...common}>
+          <path d="M6 9a6 6 0 0 1 12 0c0 7 3 6 3 8H3c0-2 3-1 3-8" />
+          <path d="M10 20a2 2 0 0 0 4 0" />
         </svg>
       );
     case 'calendar':
@@ -668,6 +677,17 @@ function RecipeUiIcon(props: { name: RecipeUiIconName; className?: string }) {
           <path d="M8.3 14.8c2.4-2.7 5-4.7 8.3-6.2" />
         </svg>
       );
+    case 'logo':
+      return (
+        <svg {...common}>
+          <path d="M6 10h12" />
+          <path d="M7 10v3a5 5 0 0 0 10 0v-3" />
+          <path d="M17 11h1a2 2 0 0 1 0 4h-1" />
+          <path d="M9 7V5" />
+          <path d="M12 7V4" />
+          <path d="M15 7V5" />
+        </svg>
+      );
     case 'plus':
       return (
         <svg {...common}>
@@ -695,8 +715,8 @@ function RecipeUiIcon(props: { name: RecipeUiIconName; className?: string }) {
     case 'search':
       return (
         <svg {...common}>
-          <circle cx="10.8" cy="10.8" r="5.8" />
-          <path d="m15.2 15.2 4 4" />
+          <circle cx="11" cy="11" r="6.5" />
+          <path d="m16 16 4 4" />
         </svg>
       );
     case 'plusThirty':
@@ -1459,6 +1479,80 @@ function RecipeSideIcon(props: { name: RecipeUiIconName }) {
   );
 }
 
+function MobileRecipeCard(props: {
+  card: RecipeCardViewModel;
+  featured?: boolean;
+  isFavorite: boolean;
+  isFavoritePending?: boolean;
+  onDetail: () => void;
+  onFavorite: () => void;
+  onCook: () => void;
+  onShopping: () => void;
+}) {
+  const hasShortages = props.card.shortages.length > 0;
+  return (
+    <article className={props.featured ? 'mobile-recipe-card mobile-recipe-card-featured' : 'mobile-recipe-card'}>
+      <button className="mobile-recipe-cover" type="button" onClick={props.onDetail} aria-label={`查看菜谱：${props.card.recipe.title}`}>
+        <RecipeCover card={props.card} />
+        <span className={`mobile-recipe-status tone-${props.card.availability}`}>{props.card.availabilityLabel}</span>
+      </button>
+      <div className="mobile-recipe-card-body">
+        <div className="mobile-recipe-card-head">
+          <button type="button" onClick={props.onDetail}>
+            <strong>{props.card.recipe.title}</strong>
+            <small>{props.card.recipe.prep_minutes} 分钟 · {DIFFICULTY_LABELS[props.card.recipe.difficulty]}</small>
+          </button>
+          <button
+            className={props.isFavorite ? 'mobile-recipe-favorite active' : 'mobile-recipe-favorite'}
+            type="button"
+            aria-label={props.isFavorite ? '取消收藏' : '收藏菜谱'}
+            aria-pressed={props.isFavorite}
+            disabled={props.isFavoritePending}
+            onClick={props.onFavorite}
+          >
+            <RecipeUiIcon name="heart" />
+          </button>
+        </div>
+        <p>{props.card.availabilityDetail}</p>
+        <div className="mobile-recipe-chip-row">
+          {(props.card.ingredientPreview.length > 0 ? props.card.ingredientPreview.slice(0, 2) : ['家庭菜谱']).map((label) => (
+            <span key={label}>{label}</span>
+          ))}
+        </div>
+        <div className="mobile-recipe-card-actions">
+          <button className="mobile-recipe-primary" type="button" onClick={props.onCook}>
+            <RecipeUiIcon name="utensils" />
+            开始做
+          </button>
+          <button type="button" onClick={hasShortages ? props.onShopping : props.onDetail}>
+            <RecipeUiIcon name={hasShortages ? 'basket' : 'view'} />
+            {hasShortages ? '采购' : '查看'}
+          </button>
+        </div>
+      </div>
+    </article>
+  );
+}
+
+function MobileRecipeSceneCard(props: {
+  scene: RecipeSceneCard;
+  coverUrl?: string;
+  onClick: () => void;
+}) {
+  return (
+    <button className="mobile-recipe-scene-card" type="button" onClick={props.onClick}>
+      {props.coverUrl ? <img src={resolveAssetUrl(props.coverUrl)} alt="" /> : <i aria-hidden="true">{props.scene.name.slice(0, 2)}</i>}
+      <span>
+        <strong>{props.scene.name}</strong>
+        <small>{props.scene.description || `${props.scene.count} 道菜谱`}</small>
+      </span>
+      <b aria-hidden="true">
+        <RecipeUiIcon name="chevronRight" />
+      </b>
+    </button>
+  );
+}
+
 export function RecipeWorkspace(props: RecipeWorkspaceProps) {
   const categoryScrollRef = useRef<HTMLDivElement | null>(null);
   const discoveryScrollRef = useRef<HTMLDivElement | null>(null);
@@ -1660,6 +1754,15 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
   const quickPreviewSlots = Array.from({ length: 5 }, (_, index) => quickPreviewCards[index] ?? null);
   const topPreviewSlots = Array.from({ length: 3 }, (_, index) => topPreviewItems[index] ?? null);
   const recommendationSlots = displayCards;
+  const mobileFeaturedCards = (displayCards.length > 0 ? displayCards : homeViewModel.recommendedCards).slice(0, 3);
+  const mobileLibraryCards = visibleCards;
+  const hasMobileRecipeAlerts = cards.some((card) => card.shortages.length > 0);
+  const mobileSceneCards = categoryCards.slice(0, 8).map((scene) => ({
+    scene,
+    coverUrl:
+      scene.imageAssetUrl ??
+      cards.find((card) => (card.recipe.scene_tags ?? []).includes(scene.name))?.coverUrl,
+  }));
   const shoppingIngredientOptions = useMemo<RecipeShoppingIngredientOption[]>(
     () =>
       props.ingredients.map((ingredient) => ({
@@ -3032,6 +3135,23 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
     });
   }
 
+  function showMobileRecipeFilter(filter: RecipeQuickFilter) {
+    setQuickFilter(filter);
+    setSceneFilter('all');
+    setRecommendationPage(0);
+  }
+
+  function showMobileRecipeScene(sceneName: string) {
+    if (quickFilter !== 'recommend' && quickFilter !== 'all') {
+      setQuickFilter('recommend');
+    }
+    setSceneFilter(sceneName);
+    setRecommendationPage(0);
+    window.requestAnimationFrame(() => {
+      document.getElementById('mobile-recipe-library')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+  }
+
   return (
     <div className={`recipe-workspace${view === 'cook' ? ' recipe-workspace-cook-mode' : ''}`}>
       {recipeNotice && (
@@ -3520,7 +3640,7 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
               <div className="recipe-cook-progress-card">
                 <Badge className={`recipe-availability-badge tone-${activeCookCard.availability}`}>{activeCookCard.availabilityLabel}</Badge>
                 <strong>{cookProgressPercent}%</strong>
-                <span>第 {cookSession.currentStepIndex + 1} / {cookSteps.length} 步</span>
+                <span>步骤 {cookSession.currentStepIndex + 1} / {cookSteps.length}</span>
                 <ActionButton tone="secondary" type="button" onClick={() => exitCookMode('library')}>
                   退出烹饪
                 </ActionButton>
@@ -3614,7 +3734,7 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
                   ‹ 上一步
                 </ActionButton>
                 <ActionButton tone="primary" type="button" onClick={completeCurrentCookStepAndContinue}>
-                  {cookSession.currentStepIndex >= cookSteps.length - 1 ? '完成本步，完成烹饪 ✓' : '完成本步，进入下一步 ›'}
+                  {cookSession.currentStepIndex >= cookSteps.length - 1 ? '完成本步，完成烹饪' : '完成本步，进入下一步'}
                 </ActionButton>
               </div>
             </section>
@@ -3778,9 +3898,8 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
 
           <div className="recipe-cook-bottom-bar">
             <ActionButton tone="secondary" type="button" onClick={() => moveCookStep(-1)} disabled={cookSession.currentStepIndex <= 0}>‹ 上一步</ActionButton>
-            <ActionButton tone="secondary" type="button" onClick={() => openShoppingDialog(activeCookCard)} disabled={props.isCreatingShopping}>加采购</ActionButton>
-            <ActionButton tone="primary" type="button" onClick={() => setIsCookFinishOpen(true)}>
-              ✓ 完成烹饪
+            <ActionButton tone="primary" type="button" onClick={completeCurrentCookStepAndContinue}>
+              {cookSession.currentStepIndex >= cookSteps.length - 1 ? '完成本步，完成烹饪' : '完成本步，进入下一步'}
             </ActionButton>
           </div>
         </main>
@@ -4024,6 +4143,152 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
           </div>
         </WorkspaceSubpageShell>
       ) : (
+        <>
+        <section className="mobile-recipe-page" aria-label="手机菜谱页">
+          <div className="mobile-recipe-topbar">
+            <div className="mobile-recipe-brand">
+              <span className="mobile-recipe-logo">
+                <RecipeUiIcon name="logo" />
+              </span>
+              <span>
+                <strong>Culina</strong>
+                <small>家庭厨房工作台</small>
+              </span>
+            </div>
+            <div className="mobile-recipe-top-actions">
+              <button type="button" aria-label="聚焦搜索" onClick={() => document.getElementById('mobile-recipe-search')?.focus()}>
+                <RecipeUiIcon name="search" />
+              </button>
+              <button type="button" aria-label="查看提醒" onClick={() => showMobileRecipeFilter('missing')}>
+                <RecipeUiIcon name="bell" />
+                {hasMobileRecipeAlerts && <i aria-hidden="true" />}
+              </button>
+            </div>
+          </div>
+
+          <header className="mobile-recipe-hero">
+            <h1>菜谱</h1>
+            <p>按库存、常做和快手程度，快速决定下一餐要做什么。</p>
+          </header>
+
+          <section className="mobile-recipe-panel mobile-recipe-featured-panel">
+            <div className="mobile-recipe-section-head">
+              <h2>今天可以做 <span>✦</span></h2>
+              <button
+                type="button"
+                onClick={() => setRecommendationPage((current) => current + 1)}
+                disabled={visibleCards.length <= 3}
+              >
+                换一换
+              </button>
+            </div>
+            {mobileFeaturedCards.length > 0 ? (
+              <div className="mobile-recipe-featured-scroller">
+                {mobileFeaturedCards.map((card) => (
+                  <MobileRecipeCard
+                    key={card.recipe.id}
+                    card={card}
+                    featured
+                    isFavorite={homeViewModel.favoriteRecipeIds.has(card.recipe.id)}
+                    isFavoritePending={props.isUpdatingFavorite}
+                    onDetail={() => openDetail(card)}
+                    onFavorite={() => void toggleRecipeFavorite(card)}
+                    onCook={() => openCook(card)}
+                    onShopping={() => openShoppingDialog(card)}
+                  />
+                ))}
+              </div>
+            ) : (
+              <EmptyState title="暂无推荐" description="新增几份常做菜后，这里会按库存和记录推荐。" />
+            )}
+          </section>
+
+          <section className="mobile-recipe-panel">
+            <div className="mobile-recipe-section-head">
+              <h2>按场景探索</h2>
+              <button type="button" onClick={() => setIsSceneManagerOpen(true)}>
+                管理
+                <RecipeUiIcon name="chevronRight" />
+              </button>
+            </div>
+            <div className="mobile-recipe-scene-scroller" aria-label="按场景探索">
+              <div className="mobile-recipe-scene-grid">
+                {mobileSceneCards.map((item) => (
+                  <MobileRecipeSceneCard
+                    key={item.scene.name}
+                    scene={item.scene}
+                    coverUrl={item.coverUrl}
+                    onClick={() => showMobileRecipeScene(item.scene.name)}
+                  />
+                ))}
+              </div>
+            </div>
+          </section>
+
+          <section className="mobile-recipe-panel mobile-recipe-library" id="mobile-recipe-library">
+            <div className="mobile-recipe-section-head">
+              <h2>{sceneFilter === 'all' ? '菜谱库' : sceneFilter}</h2>
+              <button type="button" onClick={openCreate}>
+                新增
+                <RecipeUiIcon name="chevronRight" />
+              </button>
+            </div>
+            <div className="mobile-recipe-library-filters">
+              <label className="mobile-recipe-search">
+                <RecipeUiIcon name="search" />
+                <input
+                  id="mobile-recipe-search"
+                  value={search}
+                  placeholder="搜索菜谱、食材或技巧"
+                  onChange={(event) => setSearch(event.target.value)}
+                />
+              </label>
+              <div className="mobile-recipe-tabs" aria-label="菜谱分类">
+                {[
+                  { value: 'recommend' as const, label: '推荐' },
+                  { value: 'ready' as const, label: '可做' },
+                  { value: 'quick' as const, label: '快手' },
+                  { value: 'favorite' as const, label: '收藏' },
+                  { value: 'missing' as const, label: '缺料' },
+                ].map((item) => (
+                  <button
+                    key={item.value}
+                    className={quickFilter === item.value && sceneFilter === 'all' ? 'active' : ''}
+                    type="button"
+                    onClick={() => showMobileRecipeFilter(item.value)}
+                  >
+                    {item.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            {mobileLibraryCards.length > 0 ? (
+              <div className="mobile-recipe-library-grid">
+                {mobileLibraryCards.map((card) => (
+                  <MobileRecipeCard
+                    key={card.recipe.id}
+                    card={card}
+                    isFavorite={homeViewModel.favoriteRecipeIds.has(card.recipe.id)}
+                    isFavoritePending={props.isUpdatingFavorite}
+                    onDetail={() => openDetail(card)}
+                    onFavorite={() => void toggleRecipeFavorite(card)}
+                    onCook={() => openCook(card)}
+                    onShopping={() => openShoppingDialog(card)}
+                  />
+                ))}
+              </div>
+            ) : (
+              <div className="mobile-recipe-empty">
+                <strong>{props.recipes.length === 0 ? '还没有菜谱' : activeDiscoveryCopy.emptyTitle}</strong>
+                <span>{props.recipes.length === 0 ? '先新增几份常做菜，之后就能按库存推荐。' : activeDiscoveryCopy.emptyDescription}</span>
+                <button type="button" onClick={props.recipes.length === 0 ? openCreate : () => showMobileRecipeFilter('recommend')}>
+                  {props.recipes.length === 0 ? '新增菜谱' : '清空筛选'}
+                </button>
+              </div>
+            )}
+          </section>
+        </section>
+
         <div className="recipe-discovery-page">
           <section className="recipe-discovery-shell">
             <div className="recipe-discovery-hero">
@@ -4281,6 +4546,7 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
             </aside>
           </div>
         </div>
+        </>
       )}
 
       {isRecipeDraftDialogOpen && (
