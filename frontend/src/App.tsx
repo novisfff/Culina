@@ -13,6 +13,8 @@ import type {
   InventoryItem,
   InventoryStatus,
   MealLog,
+  Member,
+  MediaAsset,
   MealType,
   Recipe,
   RecipeDiscovery,
@@ -70,7 +72,7 @@ import {
 
 type TabKey = 'home' | 'foods' | 'recipes' | 'ingredients' | 'logs' | 'ai' | 'family';
 type FoodWorkspaceView = 'list' | 'create';
-type FamilyOverlayMode = 'invite' | 'profile' | 'password' | 'family' | null;
+type FamilyOverlayMode = 'invite' | 'profile' | 'password' | 'family' | 'member' | null;
 type IngredientNavigationRequest = {
   view: 'catalog' | 'detail';
   ingredientId?: string;
@@ -136,7 +138,15 @@ type ProfileFormState = {
   displayName: string;
   email: string;
   phone: string;
-  avatarSeed: string;
+  avatarPrompt: string;
+  avatarImages: ImageInputValue;
+};
+
+type MemberEditFormState = {
+  memberId: string;
+  displayName: string;
+  email: string;
+  phone: string;
 };
 
 type PasswordFormState = {
@@ -149,6 +159,8 @@ type FamilyFormState = {
   name: string;
   motto: string;
   location: string;
+  imagePrompt: string;
+  images: ImageInputValue;
 };
 
 type DashboardExpiryTodoInventoryItem = InventoryItem & { daysLeft: number };
@@ -202,6 +214,7 @@ type ShellIconName =
   | 'logout';
 
 type DashboardIconName =
+  | 'family'
   | 'leaf'
   | 'bell'
   | 'cart'
@@ -216,7 +229,15 @@ type DashboardIconName =
   | 'check'
   | 'circle'
   | 'calendar'
-  | 'flame';
+  | 'flame'
+  | 'mail'
+  | 'map-pin'
+  | 'user-plus'
+  | 'lock'
+  | 'more'
+  | 'shield'
+  | 'bar-chart'
+  | 'link';
 
 const DASHBOARD_PLAN_MEAL_TYPES: MealType[] = ['breakfast', 'lunch', 'dinner', 'snack'];
 const DASHBOARD_TODO_PAGE_SIZE = 4;
@@ -336,6 +357,15 @@ function ShellIcon(props: { name: ShellIconName }) {
 
 function DashboardIcon(props: { name: DashboardIconName }) {
   switch (props.name) {
+    case 'family':
+      return (
+        <IconBase>
+          <path d="M16 20v-1a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v1" />
+          <circle cx="10" cy="8" r="3" />
+          <path d="M20 20v-1a4 4 0 0 0-3-3.87" />
+          <path d="M17 5.3a3 3 0 0 1 0 5.4" />
+        </IconBase>
+      );
     case 'leaf':
       return (
         <IconBase>
@@ -444,6 +474,66 @@ function DashboardIcon(props: { name: DashboardIconName }) {
       return (
         <IconBase>
           <path d="M12 22c4 0 7-3 7-7 0-3-2-5-4-7 .2 2-1 3-2 3-1.5 0-2.5-1.4-2-4-3 2-5 5-5 8 0 4 2 7 6 7Z" />
+        </IconBase>
+      );
+    case 'mail':
+      return (
+        <IconBase>
+          <rect x="4" y="6" width="16" height="12" rx="2" />
+          <path d="m4.5 7 7.5 6 7.5-6" />
+        </IconBase>
+      );
+    case 'map-pin':
+      return (
+        <IconBase>
+          <path d="M19 10c0 5-7 11-7 11s-7-6-7-11a7 7 0 0 1 14 0Z" />
+          <circle cx="12" cy="10" r="2.4" />
+        </IconBase>
+      );
+    case 'user-plus':
+      return (
+        <IconBase>
+          <path d="M15 20v-1a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v1" />
+          <circle cx="9" cy="8" r="3" />
+          <path d="M19 8v6" />
+          <path d="M16 11h6" />
+        </IconBase>
+      );
+    case 'lock':
+      return (
+        <IconBase>
+          <rect x="5" y="10" width="14" height="10" rx="2" />
+          <path d="M8 10V7a4 4 0 0 1 8 0v3" />
+        </IconBase>
+      );
+    case 'more':
+      return (
+        <IconBase>
+          <path d="M12 6h.01" />
+          <path d="M12 12h.01" />
+          <path d="M12 18h.01" />
+        </IconBase>
+      );
+    case 'shield':
+      return (
+        <IconBase>
+          <path d="M12 3 19 6v5c0 4.5-2.8 8-7 10-4.2-2-7-5.5-7-10V6l7-3Z" />
+          <path d="m9 12 2 2 4-5" />
+        </IconBase>
+      );
+    case 'bar-chart':
+      return (
+        <IconBase>
+          <path d="M6 20V10" />
+          <path d="M12 20V4" />
+          <path d="M18 20v-7" />
+        </IconBase>
+      );
+    case 'link':
+      return (
+        <IconBase>
+          <path d="M10 13a5 5 0 0 0 7.1 0l1.4-1.4a5 5 0 0 0-7.1-7.1L10.5 5" />
+          <path d="M14 11a5 5 0 0 0-7.1 0l-1.4 1.4a5 5 0 0 0 7.1 7.1l.9-.9" />
         </IconBase>
       );
   }
@@ -556,6 +646,31 @@ function buildMealImagePayload(
     food_names: entries
       .map((entry) => foods.find((food) => food.id === entry.food_id)?.name)
       .filter((name): name is string => Boolean(name)),
+  };
+}
+
+function buildProfileImagePayload(form: ProfileFormState, role: string): AiRenderPayload {
+  return {
+    entity_type: 'user',
+    title: form.displayName.trim() || '家庭成员',
+    category: role,
+    notes: [
+      form.avatarPrompt.trim() ? `用户希望头像呈现：${form.avatarPrompt.trim()}` : '',
+      form.email.trim() ? `邮箱：${form.email.trim()}` : '',
+      form.phone.trim() ? `手机号：${form.phone.trim()}` : '',
+    ].filter(Boolean).join('；'),
+  };
+}
+
+function buildFamilyImagePayload(form: FamilyFormState): AiRenderPayload {
+  return {
+    entity_type: 'family',
+    title: form.name.trim() || '家庭厨房',
+    category: form.location.trim(),
+    notes: [
+      form.imagePrompt.trim() ? `Owner 希望家庭图呈现：${form.imagePrompt.trim()}` : '',
+      form.motto.trim() ? `家庭口号：${form.motto.trim()}` : '',
+    ].filter(Boolean).join('；'),
   };
 }
 
@@ -708,7 +823,14 @@ function App() {
     displayName: '',
     email: '',
     phone: '',
-    avatarSeed: '',
+    avatarPrompt: '',
+    avatarImages: emptyImages(),
+  });
+  const [memberEditForm, setMemberEditForm] = useState<MemberEditFormState>({
+    memberId: '',
+    displayName: '',
+    email: '',
+    phone: '',
   });
   const [passwordForm, setPasswordForm] = useState<PasswordFormState>({
     currentPassword: '',
@@ -719,7 +841,13 @@ function App() {
     name: '',
     motto: '',
     location: '',
+    imagePrompt: '',
+    images: emptyImages(),
   });
+  const [profileImageState, setProfileImageState] = useState<ImageGenerationUiState>(IDLE_IMAGE_GENERATION_STATE);
+  const [familyImageState, setFamilyImageState] = useState<ImageGenerationUiState>(IDLE_IMAGE_GENERATION_STATE);
+  const [isProfileAvatarPromptOpen, setIsProfileAvatarPromptOpen] = useState(false);
+  const [isFamilyImagePromptOpen, setIsFamilyImagePromptOpen] = useState(false);
   const [foodWorkspaceView, setFoodWorkspaceView] = useState<FoodWorkspaceView>('list');
   const [familyOverlayMode, setFamilyOverlayMode] = useState<FamilyOverlayMode>(null);
   const [pendingRecipeCookId, setPendingRecipeCookId] = useState<string | null>(null);
@@ -765,9 +893,10 @@ function App() {
       displayName: user.display_name,
       email: user.email ?? '',
       phone: user.phone ?? '',
-      avatarSeed: user.avatar_seed ?? user.display_name,
+      avatarPrompt: '',
+      avatarImages: user.avatar_image ? { generatedAsset: user.avatar_image } : emptyImages(),
     });
-  }, [user?.id, user?.display_name, user?.email, user?.phone, user?.avatar_seed]);
+  }, [user?.id, user?.display_name, user?.email, user?.phone, user?.avatar_seed, user?.avatar_image?.id]);
 
   useEffect(() => {
     setSelectedParticipants((current) => {
@@ -865,8 +994,10 @@ function App() {
       name: familyData.name,
       motto: familyData.motto,
       location: familyData.location,
+      imagePrompt: '',
+      images: familyData.image ? { generatedAsset: familyData.image } : emptyImages(),
     });
-  }, [familyQuery.data?.id, familyQuery.data?.name, familyQuery.data?.motto, familyQuery.data?.location]);
+  }, [familyQuery.data?.id, familyQuery.data?.name, familyQuery.data?.motto, familyQuery.data?.location, familyQuery.data?.image?.id]);
 
   const createMemberMutation = useMutation({
     mutationFn: api.createMember,
@@ -880,6 +1011,15 @@ function App() {
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['auth', 'me'] });
       void queryClient.invalidateQueries({ queryKey: ['members'] });
+      void queryClient.invalidateQueries({ queryKey: ['activity-logs'] });
+    },
+  });
+  const updateMemberMutation = useMutation({
+    mutationFn: ({ memberId, payload }: { memberId: string; payload: Parameters<typeof api.updateMember>[1] }) =>
+      api.updateMember(memberId, payload),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['members'] });
+      void queryClient.invalidateQueries({ queryKey: ['auth', 'me'] });
       void queryClient.invalidateQueries({ queryKey: ['activity-logs'] });
     },
   });
@@ -1204,17 +1344,60 @@ function App() {
   }
 
   const currentUser = user;
+  const isOwner = membership?.role === 'Owner';
   const inventoryAlerts = buildInventoryAlerts(inventoryItems, ingredients);
-  const familyStats = {
-    foods: foods.length,
-    recipes: recipes.length,
-    ingredients: ingredients.length,
-    mealsToday: mealLogs.filter((item) => item.date === todayKey()).length,
-  };
   const pendingShoppingCount = shoppingItems.filter((item) => !item.done).length;
   const aiRecommendationCount = (family?.ai_recommendations ?? []).length;
   const todaysMeals = mealLogs.filter((item) => item.date === todayKey());
   const recentMeals = [...mealLogs].slice(0, 6);
+  const currentUserRecentLogs = currentUser
+    ? activityLogs.filter((log) => log.actor_name === currentUser.display_name).length
+    : 0;
+  const familyOwnerMember = members.find((member) => member.role === 'Owner') ?? members[0];
+  const editingMember = members.find((member) => member.id === memberEditForm.memberId);
+  const weekActivityCount = activityLogs.filter((log) => {
+    const timestamp = Date.parse(log.created_at);
+    return Number.isFinite(timestamp) && Date.now() - timestamp <= 7 * 24 * 60 * 60 * 1000;
+  }).length;
+  const familyHeroImageUrl =
+    family?.image?.url ??
+    recentMeals.find((item) => item.photos[0])?.photos[0]?.url ??
+    foods.map((food) => getFoodCover(food, recipes)).find(Boolean) ??
+    '/images/family-kitchen-cover.jpg';
+  const familyStatCards = [
+    {
+      label: '家庭成员',
+      value: members.length,
+      unit: '人',
+      detail: '一起管理厨房',
+      icon: 'family' as DashboardIconName,
+      tone: 'green',
+    },
+    {
+      label: isOwner ? '待处理采购' : '我的记录',
+      value: isOwner ? pendingShoppingCount : currentUserRecentLogs,
+      unit: isOwner ? '项' : '次',
+      detail: isOwner ? '等待家人确认' : '今日参与协作',
+      icon: (isOwner ? 'mail' : 'edit') as DashboardIconName,
+      tone: 'orange',
+    },
+    {
+      label: '本周协作',
+      value: weekActivityCount,
+      unit: '次',
+      detail: '做菜、采购和记录',
+      icon: 'bar-chart' as DashboardIconName,
+      tone: 'yellow',
+    },
+    {
+      label: '家庭资料',
+      value: family?.location || '未填写',
+      unit: '',
+      detail: family?.motto || '补充口号和位置',
+      icon: 'map-pin' as DashboardIconName,
+      tone: 'purple',
+    },
+  ];
   const filteredFoods = foods.filter((food) => {
     const searchMatch =
       food.name.includes(foodSearch) ||
@@ -1225,9 +1408,10 @@ function App() {
   });
   const foodImagePayload = buildFoodImagePayload(foodForm, recipes);
   const mealImagePayload = buildMealImagePayload(mealForm, mealFoodEntries, foods);
+  const profileImagePayload = buildProfileImagePayload(profileForm, membership?.role ?? 'Member');
+  const familyImagePayload = buildFamilyImagePayload(familyForm);
   const foodSubmitDisabled = createFoodMutation.isPending || foodImageState.isGenerating;
   const mealSubmitDisabled = createMealMutation.isPending || mealImageState.isGenerating;
-  const isOwner = membership?.role === 'Owner';
   const foodValidIngredientBinding = foodForm.type !== 'selfMade' || Boolean(foodForm.recipeId);
   const foodSummaryItems = [
     { label: '名称', value: foodForm.name.trim() || '未填写食物名称' },
@@ -1271,6 +1455,32 @@ function App() {
       setImageState({
         isGenerating: false,
         errorMessage: referenceAsset ? `${message}，参考图已保留，可重试生成主图。` : message,
+      });
+    }
+  }
+
+  async function handleDirectImageUpload(
+    files: FileList | null,
+    alt: string,
+    onChange: (next: ImageInputValue) => void,
+    setImageState: (next: ImageGenerationUiState) => void
+  ) {
+    if (!files || files.length === 0) {
+      return;
+    }
+    const [file] = Array.from(files);
+    if (!file) {
+      return;
+    }
+    setImageState({ isGenerating: true, errorMessage: null });
+    try {
+      const asset = await api.uploadMedia(file, 'upload', alt || file.name);
+      onChange({ generatedAsset: asset as MediaAsset });
+      setImageState(IDLE_IMAGE_GENERATION_STATE);
+    } catch (reason) {
+      setImageState({
+        isGenerating: false,
+        errorMessage: resolveImageGenerationErrorMessage(reason, '图片上传失败'),
       });
     }
   }
@@ -1443,11 +1653,40 @@ function App() {
         display_name: profileForm.displayName.trim(),
         email: profileForm.email.trim() || null,
         phone: profileForm.phone.trim() || null,
-        avatar_seed: profileForm.avatarSeed.trim() || profileForm.displayName.trim(),
+        avatar_seed: profileForm.displayName.trim(),
+        avatar_media_id: getMediaIds(profileForm.avatarImages)[0] ?? null,
       });
       setFamilyOverlayMode(null);
     } catch (reason) {
       window.alert(reason instanceof Error ? reason.message : '保存个人资料失败');
+    }
+  }
+
+  function openMemberEdit(member: Member) {
+    setMemberEditForm({
+      memberId: member.id,
+      displayName: member.display_name,
+      email: member.email ?? '',
+      phone: member.phone ?? '',
+    });
+    setFamilyOverlayMode('member');
+  }
+
+  async function submitMemberEdit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!isOwner || !memberEditForm.memberId || !memberEditForm.displayName.trim()) return;
+    try {
+      await updateMemberMutation.mutateAsync({
+        memberId: memberEditForm.memberId,
+        payload: {
+          display_name: memberEditForm.displayName.trim(),
+          email: memberEditForm.email.trim() || null,
+          phone: memberEditForm.phone.trim() || null,
+        },
+      });
+      setFamilyOverlayMode(null);
+    } catch (reason) {
+      window.alert(reason instanceof Error ? reason.message : '保存成员信息失败');
     }
   }
 
@@ -1479,6 +1718,7 @@ function App() {
         name: familyForm.name.trim(),
         motto: familyForm.motto.trim(),
         location: familyForm.location.trim(),
+        image_media_id: getMediaIds(familyForm.images)[0] ?? null,
       });
       setFamilyOverlayMode(null);
     } catch (reason) {
@@ -1679,6 +1919,7 @@ function App() {
   function resolveDashboardAssetUrl(url?: string) {
     if (!url) return undefined;
     if (url.startsWith('http://') || url.startsWith('https://') || url.startsWith('data:')) return url;
+    if (url.startsWith('/images/')) return url;
     return `${API_BASE_URL}${url}`;
   }
 
@@ -2042,7 +2283,12 @@ function App() {
 
           <div className="sidebar-footer">
             <div className="current-user-card sidebar-user-card">
-              <Avatar label={headerName} seed={currentUser?.avatar_seed ?? headerName} large={!sidebarCollapsed} />
+              <Avatar
+                label={headerName}
+                seed={currentUser?.avatar_seed ?? headerName}
+                imageUrl={currentUser?.avatar_image?.url}
+                large={!sidebarCollapsed}
+              />
               <div className="sidebar-user-copy">
                 <strong>{headerName}</strong>
                 <p className="subtle">{membership?.role ?? 'Member'} · {currentUser?.username}</p>
@@ -2945,104 +3191,269 @@ function App() {
         )}
 
         {activeTab === 'family' && (
-          <main className="page-stack">
-            <PageHeader
-              variant="compact"
-              eyebrow="我的家庭"
-              title="管理成员、邀请和活动流"
-              description="成员信息和活动流留在主页面，创建成员账号收进统一弹窗。"
-              actions={
-                <div className="hero-actions">
-                  <ActionButton tone="secondary" type="button" onClick={() => setFamilyOverlayMode('profile')}>
-                    编辑我的资料
-                  </ActionButton>
-                  <ActionButton tone="secondary" type="button" onClick={() => setFamilyOverlayMode('password')}>
-                    修改密码
-                  </ActionButton>
-                  {isOwner && (
-                    <ActionButton tone="secondary" type="button" onClick={() => setFamilyOverlayMode('family')}>
-                      编辑家庭信息
-                    </ActionButton>
-                  )}
-                  {isOwner && (
-                    <ActionButton tone="primary" type="button" onClick={() => setFamilyOverlayMode('invite')}>
-                      创建成员账号
-                    </ActionButton>
-                  )}
+          <main className="family-workspace">
+            <section className="card family-hero">
+              <div className="family-hero-head">
+                <div className="family-hero-copy">
+                  <h1>我的家庭</h1>
+                  <p>
+                    {isOwner
+                      ? '管理家庭成员、权限和协作邀请，让一家人的厨房协作保持同步。'
+                      : '查看家庭成员、协作权限和自己的账号资料，安心参与厨房日常。'}
+                  </p>
                 </div>
-              }
-            />
+                <div className="family-hero-actions">
+                  {isOwner ? (
+                    <button className="solid-button family-action-primary" type="button" onClick={() => setFamilyOverlayMode('invite')}>
+                      <DashboardIcon name="plus" />
+                      邀请成员
+                    </button>
+                  ) : (
+                    <button className="solid-button family-action-primary" type="button" onClick={() => setFamilyOverlayMode('profile')}>
+                      <DashboardIcon name="user-plus" />
+                      编辑我的资料
+                    </button>
+                  )}
+                  {isOwner ? (
+                    <button className="ghost-button family-action-secondary" type="button" onClick={() => setFamilyOverlayMode('family')}>
+                      <DashboardIcon name="edit" />
+                      编辑家庭资料
+                    </button>
+                  ) : (
+                    <button className="ghost-button family-action-secondary" type="button" onClick={() => setFamilyOverlayMode('password')}>
+                      <DashboardIcon name="lock" />
+                      修改密码
+                    </button>
+                  )}
+                  <button className="ghost-button family-icon-action" type="button" onClick={() => setFamilyOverlayMode('profile')} aria-label="编辑我的资料" title="编辑我的资料">
+                    <DashboardIcon name="more" />
+                  </button>
+                </div>
+              </div>
 
-            <section className="card page-section">
-              <SectionHeading title="家庭信息" description="家庭名称、位置和口号会影响工作台展示和 AI 上下文" />
-              <div className="member-grid">
-                <div className="member-card">
-                  <span>家庭名称</span>
-                  <strong>{family?.name ?? '未设置'}</strong>
-                </div>
-                <div className="member-card">
-                  <span>所在位置</span>
-                  <strong>{family?.location || '未填写'}</strong>
-                </div>
-                <div className="member-card">
-                  <span>家庭口号</span>
-                  <strong>{family?.motto || '未填写'}</strong>
-                </div>
+              <div className="family-stat-grid">
+                {familyStatCards.map((item) => (
+                  <article key={item.label} className="family-stat-card">
+                    <span className={`family-stat-icon tone-${item.tone}`}>
+                      <DashboardIcon name={item.icon} />
+                    </span>
+                    <div>
+                      <span>{item.label}</span>
+                      <strong>
+                        {item.value}
+                        {item.unit && <small>{item.unit}</small>}
+                      </strong>
+                      <p>{item.detail}</p>
+                    </div>
+                  </article>
+                ))}
               </div>
             </section>
 
-            <section className="card page-section">
-              <SectionHeading title="我的资料" description="显示名称会出现在成员列表、活动流和餐食参与人中" />
-              <div className="member-grid">
-                {currentUser && (
-                  <article className="member-card">
-                    <Avatar label={currentUser.display_name} seed={currentUser.avatar_seed} large />
-                    <div>
-                      <h3>{currentUser.display_name}</h3>
-                      <p className="subtle">
-                        {membership?.role ?? 'Member'} · {currentUser.username}
-                      </p>
-                      <p className="subtle">{currentUser.email ?? '未填写邮箱'} · {currentUser.phone ?? '未填写手机号'}</p>
-                    </div>
-                  </article>
+            <section className="card family-profile-panel">
+              <div className="family-cover-card">
+                {familyHeroImageUrl ? (
+                  <img src={resolveDashboardAssetUrl(familyHeroImageUrl)} alt={family?.name ?? '家庭厨房'} />
+                ) : (
+                  <div className="family-cover-placeholder">
+                    <ShellIcon name="logo" />
+                  </div>
                 )}
               </div>
+              <div className="family-profile-copy">
+                <h2>{family?.name ?? '未设置家庭名称'}</h2>
+                <p className="family-location">
+                  <DashboardIcon name="map-pin" />
+                  {family?.location || '未填写位置'}
+                </p>
+                <p>{family?.motto || '补充一句家庭口号，让厨房工作台更有归属感。'}</p>
+                <div className="family-chip-row">
+                  <Badge>
+                    <ShellIcon name="logo" />
+                    家庭厨房
+                  </Badge>
+                  <Badge>
+                    <ShellIcon name="family" />
+                    {members.length} 位成员
+                  </Badge>
+                  {!isOwner && (
+                    <Badge className="family-role-member">
+                      <DashboardIcon name="shield" />
+                      普通成员
+                    </Badge>
+                  )}
+                </div>
+              </div>
+              {currentUser && (
+                <div className="family-owner-panel">
+                  <Avatar label={currentUser.display_name} seed={currentUser.avatar_seed} imageUrl={currentUser.avatar_image?.url} large />
+                  <div className="family-owner-copy">
+                    <h3>{currentUser.display_name}</h3>
+                    <p>{membership?.role ?? 'Member'} · {currentUser.username}</p>
+                    <span>
+                      <DashboardIcon name="mail" />
+                      {currentUser.email ?? '未填写邮箱'}
+                    </span>
+                    <span>
+                      <DashboardIcon name="link" />
+                      {currentUser.phone ?? '未填写手机号'}
+                    </span>
+                  </div>
+                  <div className="family-owner-actions">
+                    <button className="ghost-button button-compact" type="button" onClick={() => setFamilyOverlayMode('profile')}>
+                      <DashboardIcon name="user-plus" />
+                      编辑资料
+                    </button>
+                    <button className="ghost-button button-compact" type="button" onClick={() => setFamilyOverlayMode('password')}>
+                      <DashboardIcon name="lock" />
+                      修改密码
+                    </button>
+                  </div>
+                </div>
+              )}
             </section>
 
-            <section className="card page-section">
-              <SectionHeading title="家庭成员" description="查看成员身份、账号和协作角色" />
-              <div className="member-grid">
+            <section className="family-section">
+              <div className="family-section-head">
+                <h2>家庭成员</h2>
+              </div>
+              <div className="family-member-grid">
                 {members.map((member) => (
-                  <article key={member.id} className="member-card">
-                    <Avatar label={member.display_name} seed={member.avatar_seed} large />
-                    <div>
-                      <h3>{member.display_name}</h3>
-                      <p className="subtle">
-                        {member.role} · {member.username}
-                      </p>
-                      <p className="subtle">{member.email ?? '未填写邮箱'}</p>
+                  <article key={member.id} className="family-member-card">
+                    <div className="family-member-main">
+                      <Avatar label={member.display_name} seed={member.avatar_seed} imageUrl={member.avatar_image?.url} large />
+                      <div className="family-member-copy">
+                        <div className="family-member-title">
+                          <h3>{member.display_name}</h3>
+                          <Badge className={member.role === 'Owner' ? 'family-role-owner' : 'family-role-member'}>
+                            {member.role === 'Owner' ? 'Owner' : '成员'}
+                          </Badge>
+                        </div>
+                        <p>{member.username}</p>
+                        <span>{member.id === currentUser?.id ? `今天记录 ${currentUserRecentLogs} 次` : member.email ?? member.phone ?? '等待补充联系信息'}</span>
+                      </div>
+                    </div>
+                    <div className="family-member-actions">
+                      {isOwner ? (
+                        <button
+                          className="ghost-button button-compact"
+                          type="button"
+                          onClick={() => openMemberEdit(member)}
+                          title={`修改 ${member.display_name} 的信息`}
+                        >
+                          <DashboardIcon name="edit" />
+                          修改信息
+                        </button>
+                      ) : (
+                        <span className={member.role === 'Owner' ? 'family-member-note owner' : 'family-member-note'}>
+                          <DashboardIcon name={member.role === 'Owner' ? 'shield' : 'check'} />
+                          {member.role === 'Owner' ? '家庭管理员' : member.id === currentUser?.id ? '这是你' : '协作成员'}
+                        </span>
+                      )}
                     </div>
                   </article>
                 ))}
               </div>
             </section>
 
-            <section className="card page-section">
-              <SectionHeading title="活动流" description="最近的厨房操作都会留在这里" />
-              <div className="stack-list">
-                {activityLogs.map((log) => (
-                  <article key={log.id} className="activity-row">
-                    <Avatar label={log.actor_name ?? '成员'} seed={log.actor_name ?? '成员'} />
-                    <div>
-                      <p>
-                        <strong>{log.actor_name ?? '家庭成员'}</strong> {log.summary}
-                      </p>
-                      <span className="subtle">{formatDateTime(log.created_at)}</span>
-                    </div>
-                  </article>
-                ))}
-              </div>
-            </section>
+            <div className="family-bottom-grid">
+              <section className="card family-activity-panel">
+                <div className="family-section-head">
+                  <h2>家庭活动</h2>
+                  <button className="tertiary-button button-compact" type="button" onClick={() => setActiveTab('logs')}>
+                    查看全部
+                  </button>
+                </div>
+                <div className="family-activity-list">
+                  {activityLogs.slice(0, 4).map((log, index) => (
+                    <article key={log.id} className="family-activity-item">
+                      <span className={`family-activity-icon tone-${index % 4}`}>
+                        <DashboardIcon name={index % 3 === 0 ? 'edit' : index % 3 === 1 ? 'leaf' : 'cart'} />
+                      </span>
+                      <div>
+                        <strong>{log.actor_name ?? '家庭成员'} {log.summary}</strong>
+                        <p>{formatDateTime(log.created_at)}</p>
+                      </div>
+                    </article>
+                  ))}
+                  {activityLogs.length === 0 && <EmptyState title="暂无家庭活动" description="记录餐食、采购和食材后，这里会自动更新。" />}
+                </div>
+              </section>
+
+              <section className="card family-invite-panel">
+                <div className="family-section-head">
+                  <h2>{isOwner ? '邀请家人一起协作' : '我的协作权限'}</h2>
+                </div>
+                {isOwner ? (
+                  <div className="family-invite-list">
+                    <article className="family-invite-option tone-link">
+                      <span>
+                        <DashboardIcon name="link" />
+                      </span>
+                      <div>
+                        <strong>发送邀请链接</strong>
+                        <p>适合已有邮箱或手机号的家人加入</p>
+                      </div>
+                      <button className="solid-button button-compact" type="button" onClick={() => setFamilyOverlayMode('invite')}>
+                        邀请成员
+                      </button>
+                    </article>
+                    <article className="family-invite-option tone-account">
+                      <span>
+                        <DashboardIcon name="user-plus" />
+                      </span>
+                      <div>
+                        <strong>创建家庭成员账号</strong>
+                        <p>适合老人、小孩或不方便自行注册的家庭成员</p>
+                      </div>
+                      <button className="solid-button button-compact" type="button" onClick={() => setFamilyOverlayMode('invite')}>
+                        创建成员账号
+                      </button>
+                    </article>
+                  </div>
+                ) : (
+                  <div className="family-member-permission-list">
+                    <article className="family-member-permission-card">
+                      <span>
+                        <DashboardIcon name="check" />
+                      </span>
+                      <div>
+                        <strong>可以参与厨房协作</strong>
+                        <p>添加食材、更新采购、记录餐食、查看菜谱和家庭活动。</p>
+                      </div>
+                    </article>
+                    <article className="family-member-permission-card muted">
+                      <span>
+                        <DashboardIcon name="lock" />
+                      </span>
+                      <div>
+                        <strong>家庭资料由 Owner 管理</strong>
+                        <p>成员邀请、家庭名称、位置和权限调整需要管理员处理。</p>
+                      </div>
+                    </article>
+                    {familyOwnerMember && (
+                      <article className="family-owner-contact-card">
+                        <Avatar label={familyOwnerMember.display_name} seed={familyOwnerMember.avatar_seed} imageUrl={familyOwnerMember.avatar_image?.url} />
+                        <div>
+                          <strong>{familyOwnerMember.display_name}</strong>
+                          <p>Owner · {familyOwnerMember.username}</p>
+                        </div>
+                        <Badge>管理员</Badge>
+                      </article>
+                    )}
+                  </div>
+                )}
+                <div className="family-permission-note">
+                  <span>
+                    <DashboardIcon name="shield" />
+                  </span>
+                  <div>
+                    <strong>权限说明</strong>
+                    <p>Owner 可管理家庭资料与成员权限；普通成员可参与食材、菜谱与记录协作。</p>
+                  </div>
+                </div>
+              </section>
+            </div>
 
             {familyOverlayMode === 'invite' && (
               <div className="workspace-overlay-root">
@@ -3132,54 +3543,228 @@ function App() {
                 <div className="workspace-overlay-backdrop" onClick={() => setFamilyOverlayMode(null)} />
                 <WorkspaceModal
                   title="编辑我的资料"
-                  description="更新你在家庭厨房里的显示信息。"
+                  description="更新联系方式与头像，头像可上传本地图片，也可以按你的说明生成。"
                   onClose={() => setFamilyOverlayMode(null)}
+                  className="profile-edit-modal"
                 >
-                  <form className="form-grid compact-grid" onSubmit={submitProfile}>
-                    <label>
-                      <span>显示名称</span>
-                      <input
-                        className="text-input"
-                        value={profileForm.displayName}
-                        onChange={(event) => setProfileForm({ ...profileForm, displayName: event.target.value })}
-                      />
-                    </label>
-                    <label>
-                      <span>头像种子</span>
-                      <input
-                        className="text-input"
-                        value={profileForm.avatarSeed}
-                        onChange={(event) => setProfileForm({ ...profileForm, avatarSeed: event.target.value })}
-                      />
-                    </label>
-                    <label>
-                      <span>邮箱</span>
-                      <input
-                        className="text-input"
-                        type="email"
-                        value={profileForm.email}
-                        onChange={(event) => setProfileForm({ ...profileForm, email: event.target.value })}
-                      />
-                    </label>
-                    <label>
-                      <span>手机号</span>
-                      <input
-                        className="text-input"
-                        value={profileForm.phone}
-                        onChange={(event) => setProfileForm({ ...profileForm, phone: event.target.value })}
-                      />
-                    </label>
-                    <div className="span-two workspace-overlay-actions">
+                  <form className="profile-edit-form" onSubmit={submitProfile}>
+                    <section className="profile-edit-card">
+                      <div className="profile-edit-preview">
+                        <Avatar
+                          label={profileForm.displayName || currentUser?.display_name || '成员'}
+                          seed={profileForm.displayName || currentUser?.avatar_seed || '成员'}
+                          imageUrl={profileForm.avatarImages.generatedAsset?.url ?? currentUser?.avatar_image?.url}
+                          large
+                        />
+                        <div>
+                          <strong>{profileForm.displayName || currentUser?.display_name || '家庭成员'}</strong>
+                          <p>{membership?.role ?? 'Member'} · {currentUser?.username}</p>
+                        </div>
+                      </div>
+                      <div className="profile-edit-basic-grid">
+                        <label>
+                          <span>显示名称</span>
+                          <input
+                            className="text-input"
+                            value={profileForm.displayName}
+                            onChange={(event) => setProfileForm({ ...profileForm, displayName: event.target.value })}
+                          />
+                        </label>
+                        <label>
+                          <span>邮箱</span>
+                          <input
+                            className="text-input"
+                            type="email"
+                            value={profileForm.email}
+                            onChange={(event) => setProfileForm({ ...profileForm, email: event.target.value })}
+                          />
+                        </label>
+                        <label className="profile-edit-wide-field">
+                          <span>手机号</span>
+                          <input
+                            className="text-input"
+                            value={profileForm.phone}
+                            onChange={(event) => setProfileForm({ ...profileForm, phone: event.target.value })}
+                          />
+                        </label>
+                      </div>
+                    </section>
+                    <section className="profile-avatar-card">
+                      <div className="profile-avatar-head">
+                        <div>
+                          <span>头像图片</span>
+                          <p>上传本地图片，或按资料和你的说明生成头像。</p>
+                        </div>
+                        <div className="profile-avatar-actions">
+                          <label className="ghost-button profile-avatar-upload-button">
+                            上传本地头像
+                            <input
+                              type="file"
+                              accept="image/*,.svg"
+                              disabled={profileImageState.isGenerating}
+                              onChange={(event) => {
+                                void handleDirectImageUpload(
+                                  event.target.files,
+                                  `${profileForm.displayName || '成员'}头像`,
+                                  (next) => setProfileForm({ ...profileForm, avatarImages: next }),
+                                  setProfileImageState
+                                );
+                                event.currentTarget.value = '';
+                              }}
+                            />
+                          </label>
+                          <ActionButton
+                            tone="secondary"
+                            type="button"
+                            onClick={() => setIsProfileAvatarPromptOpen(true)}
+                            disabled={profileImageState.isGenerating}
+                          >
+                            基于资料生成头像
+                          </ActionButton>
+                          <ActionButton
+                            tone="secondary"
+                            type="button"
+                            onClick={() =>
+                              resetImageInput(
+                                (next) => setProfileForm({ ...profileForm, avatarImages: next }),
+                                setProfileImageState
+                              )
+                            }
+                            disabled={profileImageState.isGenerating}
+                          >
+                            清空头像
+                          </ActionButton>
+                        </div>
+                      </div>
+                      <div className="profile-avatar-body">
+                        <div className="profile-avatar-large-preview">
+                          <Avatar
+                            label={profileForm.displayName || currentUser?.display_name || '成员'}
+                            seed={profileForm.displayName || currentUser?.avatar_seed || '成员'}
+                            imageUrl={profileForm.avatarImages.generatedAsset?.url ?? currentUser?.avatar_image?.url}
+                            large
+                          />
+                          <span>{profileImageState.isGenerating ? '生成中...' : profileForm.avatarImages.generatedAsset ? '已设置头像' : '当前预览'}</span>
+                        </div>
+                        {isProfileAvatarPromptOpen && (
+                          <div className="profile-avatar-prompt-panel">
+                            <label>
+                              <span>你希望头像怎么生成？</span>
+                              <textarea
+                                className="text-input"
+                                rows={3}
+                                placeholder="例如：温暖一点的厨房插画头像，绿色围裙，柔和明亮，不要真人照片"
+                                value={profileForm.avatarPrompt}
+                                onChange={(event) => setProfileForm({ ...profileForm, avatarPrompt: event.target.value })}
+                              />
+                            </label>
+                            <div className="profile-avatar-prompt-actions">
+                              <ActionButton tone="secondary" type="button" onClick={() => setIsProfileAvatarPromptOpen(false)} disabled={profileImageState.isGenerating}>
+                                取消
+                              </ActionButton>
+                              <ActionButton
+                                tone="primary"
+                                type="button"
+                                disabled={profileImageState.isGenerating}
+                                onClick={async () => {
+                                  await handleGenerateImage(
+                                    'text',
+                                    profileForm.avatarImages,
+                                    profileImagePayload,
+                                    (next) => setProfileForm({ ...profileForm, avatarImages: next }),
+                                    setProfileImageState
+                                  );
+                                  setIsProfileAvatarPromptOpen(false);
+                                }}
+                              >
+                                {profileImageState.isGenerating ? '生成中...' : '生成头像'}
+                              </ActionButton>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                      {profileImageState.errorMessage && <span className="image-composer-error">{profileImageState.errorMessage}</span>}
+                    </section>
+                    <div className="workspace-overlay-actions profile-edit-actions">
                       <ActionButton
                         tone="secondary"
                         type="button"
                         onClick={() => setFamilyOverlayMode(null)}
-                        disabled={updateProfileMutation.isPending}
+                        disabled={updateProfileMutation.isPending || profileImageState.isGenerating}
                       >
                         取消
                       </ActionButton>
-                      <ActionButton tone="primary" type="submit" disabled={updateProfileMutation.isPending}>
+                      <ActionButton tone="primary" type="submit" disabled={updateProfileMutation.isPending || profileImageState.isGenerating}>
                         {updateProfileMutation.isPending ? '保存中...' : '保存资料'}
+                      </ActionButton>
+                    </div>
+                  </form>
+                </WorkspaceModal>
+              </div>
+            )}
+
+            {familyOverlayMode === 'member' && isOwner && editingMember && (
+              <div className="workspace-overlay-root">
+                <div className="workspace-overlay-backdrop" onClick={() => setFamilyOverlayMode(null)} />
+                <WorkspaceModal
+                  title="修改成员信息"
+                  description="管理员可以维护成员昵称和联系方式，普通成员只能查看这些信息。"
+                  onClose={() => setFamilyOverlayMode(null)}
+                  className="member-edit-modal"
+                >
+                  <form className="member-edit-form" onSubmit={submitMemberEdit}>
+                    <section className="member-edit-card">
+                      <div className="member-edit-preview">
+                        <Avatar
+                          label={memberEditForm.displayName || editingMember.display_name}
+                          seed={memberEditForm.displayName || editingMember.avatar_seed}
+                          imageUrl={editingMember.avatar_image?.url}
+                          large
+                        />
+                        <div>
+                          <strong>{memberEditForm.displayName || editingMember.display_name}</strong>
+                          <p>{editingMember.role === 'Owner' ? 'Owner' : '成员'} · {editingMember.username}</p>
+                        </div>
+                      </div>
+                      <div className="member-edit-basic-grid">
+                        <label>
+                          <span>显示名称</span>
+                          <input
+                            className="text-input"
+                            value={memberEditForm.displayName}
+                            onChange={(event) => setMemberEditForm({ ...memberEditForm, displayName: event.target.value })}
+                          />
+                        </label>
+                        <label>
+                          <span>邮箱</span>
+                          <input
+                            className="text-input"
+                            type="email"
+                            value={memberEditForm.email}
+                            onChange={(event) => setMemberEditForm({ ...memberEditForm, email: event.target.value })}
+                          />
+                        </label>
+                        <label className="member-edit-wide-field">
+                          <span>手机号</span>
+                          <input
+                            className="text-input"
+                            value={memberEditForm.phone}
+                            onChange={(event) => setMemberEditForm({ ...memberEditForm, phone: event.target.value })}
+                          />
+                        </label>
+                      </div>
+                    </section>
+                    <div className="workspace-overlay-actions member-edit-actions">
+                      <ActionButton
+                        tone="secondary"
+                        type="button"
+                        onClick={() => setFamilyOverlayMode(null)}
+                        disabled={updateMemberMutation.isPending}
+                      >
+                        取消
+                      </ActionButton>
+                      <ActionButton tone="primary" type="submit" disabled={updateMemberMutation.isPending}>
+                        {updateMemberMutation.isPending ? '保存中...' : '保存信息'}
                       </ActionButton>
                     </div>
                   </form>
@@ -3246,44 +3831,159 @@ function App() {
                 <div className="workspace-overlay-backdrop" onClick={() => setFamilyOverlayMode(null)} />
                 <WorkspaceModal
                   title="编辑家庭信息"
-                  description="这些信息会显示在工作台，并作为 AI 生成家庭建议的上下文。"
+                  description="维护家庭资料与家庭头像，家庭图可上传本地照片，也可以按说明生成。"
                   onClose={() => setFamilyOverlayMode(null)}
+                  className="family-edit-modal"
                 >
-                  <form className="form-grid compact-grid" onSubmit={submitFamily}>
-                    <label>
-                      <span>家庭名称</span>
-                      <input
-                        className="text-input"
-                        value={familyForm.name}
-                        onChange={(event) => setFamilyForm({ ...familyForm, name: event.target.value })}
-                      />
-                    </label>
-                    <label>
-                      <span>所在位置</span>
-                      <input
-                        className="text-input"
-                        value={familyForm.location}
-                        onChange={(event) => setFamilyForm({ ...familyForm, location: event.target.value })}
-                      />
-                    </label>
-                    <label className="span-two">
-                      <span>家庭口号</span>
-                      <input
-                        className="text-input"
-                        value={familyForm.motto}
-                        onChange={(event) => setFamilyForm({ ...familyForm, motto: event.target.value })}
-                      />
-                    </label>
-                    <div className="span-two workspace-overlay-actions">
+                  <form className="family-edit-form" onSubmit={submitFamily}>
+                    <section className="family-edit-card">
+                      <div className="family-edit-preview">
+                        {familyForm.images.generatedAsset?.url || family?.image?.url ? (
+                          <img src={resolveDashboardAssetUrl(familyForm.images.generatedAsset?.url ?? family?.image?.url)} alt={familyForm.name || '家庭头像'} />
+                        ) : (
+                          <div className="family-edit-cover-placeholder">
+                            <ShellIcon name="logo" />
+                          </div>
+                        )}
+                        <div>
+                          <strong>{familyForm.name || family?.name || '家庭厨房'}</strong>
+                          <p>{familyForm.location || family?.location || '未填写位置'}</p>
+                        </div>
+                      </div>
+                      <div className="family-edit-basic-grid">
+                        <label>
+                          <span>家庭名称</span>
+                          <input
+                            className="text-input"
+                            value={familyForm.name}
+                            onChange={(event) => setFamilyForm({ ...familyForm, name: event.target.value })}
+                          />
+                        </label>
+                        <label>
+                          <span>所在位置</span>
+                          <input
+                            className="text-input"
+                            value={familyForm.location}
+                            onChange={(event) => setFamilyForm({ ...familyForm, location: event.target.value })}
+                          />
+                        </label>
+                        <label className="family-edit-wide-field">
+                          <span>家庭口号</span>
+                          <input
+                            className="text-input"
+                            value={familyForm.motto}
+                            onChange={(event) => setFamilyForm({ ...familyForm, motto: event.target.value })}
+                          />
+                        </label>
+                      </div>
+                    </section>
+                    <section className="family-image-card">
+                      <div className="family-image-head">
+                        <div>
+                          <span>家庭头像</span>
+                          <p>上传餐桌或厨房照片，或按家庭资料生成一张统一风格头像。</p>
+                        </div>
+                        <div className="family-image-actions">
+                          <label className="ghost-button family-image-upload-button">
+                            上传本地家庭图
+                            <input
+                              type="file"
+                              accept="image/*,.svg"
+                              disabled={familyImageState.isGenerating}
+                              onChange={(event) => {
+                                void handleDirectImageUpload(
+                                  event.target.files,
+                                  `${familyForm.name || '家庭'}头像`,
+                                  (next) => setFamilyForm({ ...familyForm, images: next }),
+                                  setFamilyImageState
+                                );
+                                event.currentTarget.value = '';
+                              }}
+                            />
+                          </label>
+                          <ActionButton
+                            tone="secondary"
+                            type="button"
+                            onClick={() => setIsFamilyImagePromptOpen(true)}
+                            disabled={familyImageState.isGenerating}
+                          >
+                            基于家庭资料生成
+                          </ActionButton>
+                          <ActionButton
+                            tone="secondary"
+                            type="button"
+                            onClick={() =>
+                              resetImageInput(
+                                (next) => setFamilyForm({ ...familyForm, images: next }),
+                                setFamilyImageState
+                              )
+                            }
+                            disabled={familyImageState.isGenerating}
+                          >
+                            清空家庭图
+                          </ActionButton>
+                        </div>
+                      </div>
+                      <div className="family-image-body">
+                        <div className="family-image-large-preview">
+                          {familyForm.images.generatedAsset?.url || family?.image?.url ? (
+                            <img src={resolveDashboardAssetUrl(familyForm.images.generatedAsset?.url ?? family?.image?.url)} alt={familyForm.name || '家庭头像'} />
+                          ) : (
+                            <div className="family-image-empty">
+                              <ShellIcon name="logo" />
+                            </div>
+                          )}
+                          <span>{familyImageState.isGenerating ? '生成中...' : familyForm.images.generatedAsset ? '已设置家庭图' : '当前预览'}</span>
+                        </div>
+                        {isFamilyImagePromptOpen && (
+                          <div className="family-image-prompt-panel">
+                            <label>
+                              <span>你希望家庭图怎么生成？</span>
+                              <textarea
+                                className="text-input"
+                                rows={3}
+                                placeholder="例如：明亮温暖的家庭餐桌，绿植和早餐，适合圆形裁切，不要人物和文字"
+                                value={familyForm.imagePrompt}
+                                onChange={(event) => setFamilyForm({ ...familyForm, imagePrompt: event.target.value })}
+                              />
+                            </label>
+                            <div className="family-image-prompt-actions">
+                              <ActionButton tone="secondary" type="button" onClick={() => setIsFamilyImagePromptOpen(false)} disabled={familyImageState.isGenerating}>
+                                取消
+                              </ActionButton>
+                              <ActionButton
+                                tone="primary"
+                                type="button"
+                                disabled={familyImageState.isGenerating}
+                                onClick={async () => {
+                                  await handleGenerateImage(
+                                    'text',
+                                    familyForm.images,
+                                    familyImagePayload,
+                                    (next) => setFamilyForm({ ...familyForm, images: next }),
+                                    setFamilyImageState
+                                  );
+                                  setIsFamilyImagePromptOpen(false);
+                                }}
+                              >
+                                {familyImageState.isGenerating ? '生成中...' : '生成家庭图'}
+                              </ActionButton>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                      {familyImageState.errorMessage && <span className="image-composer-error">{familyImageState.errorMessage}</span>}
+                    </section>
+                    <div className="workspace-overlay-actions family-edit-actions">
                       <ActionButton
                         tone="secondary"
                         type="button"
                         onClick={() => setFamilyOverlayMode(null)}
-                        disabled={updateFamilyMutation.isPending}
+                        disabled={updateFamilyMutation.isPending || familyImageState.isGenerating}
                       >
                         取消
                       </ActionButton>
-                      <ActionButton tone="primary" type="submit" disabled={updateFamilyMutation.isPending}>
+                      <ActionButton tone="primary" type="submit" disabled={updateFamilyMutation.isPending || familyImageState.isGenerating}>
                         {updateFamilyMutation.isPending ? '保存中...' : '保存家庭信息'}
                       </ActionButton>
                     </div>
@@ -3579,7 +4279,7 @@ function App() {
                     {homeMealDetailParticipants.length > 0 ? (
                       homeMealDetailParticipants.map((member) => (
                         <span key={member.id} className="meal-detail-member">
-                          <Avatar label={member.display_name} seed={member.avatar_seed} />
+                          <Avatar label={member.display_name} seed={member.avatar_seed} imageUrl={member.avatar_image?.url} />
                           {member.display_name}
                         </span>
                       ))

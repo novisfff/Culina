@@ -97,6 +97,8 @@ class ImageGenerationMode(str, Enum):
 
 
 class MediaEntityType(str, Enum):
+    USER = "user"
+    FAMILY = "family"
     FOOD = "food"
     INGREDIENT = "ingredient"
     RECIPE = "recipe"

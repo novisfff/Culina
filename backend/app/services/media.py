@@ -107,6 +107,36 @@ def read_media_object(asset: MediaAsset) -> bytes:
             response.release_conn()
 
 
+def read_media_object_by_key(object_key: str) -> tuple[bytes, str]:
+    settings = get_settings()
+    client = _storage_client()
+    response = None
+    try:
+        resolved_key = object_key
+        try:
+            stat = client.stat_object(settings.minio_bucket, resolved_key)
+        except S3Error:
+            if "/" in object_key:
+                raise
+            matches = [
+                item.object_name
+                for item in client.list_objects(settings.minio_bucket, recursive=True)
+                if item.object_name and item.object_name.endswith(f"/{object_key}")
+            ]
+            if len(matches) != 1:
+                raise
+            resolved_key = matches[0]
+            stat = client.stat_object(settings.minio_bucket, resolved_key)
+        response = client.get_object(settings.minio_bucket, resolved_key)
+        return response.read(), stat.content_type or "application/octet-stream"
+    except S3Error as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Media file not found") from exc
+    finally:
+        if response is not None:
+            response.close()
+            response.release_conn()
+
+
 def delete_media_file(asset: MediaAsset) -> None:
     if asset.file_path:
         try:

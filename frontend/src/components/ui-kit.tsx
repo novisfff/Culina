@@ -310,10 +310,10 @@ export function DenseListRow(props: {
   );
 }
 
-export function Avatar(props: { label: string; seed: string; large?: boolean }) {
+export function Avatar(props: { label: string; seed: string; large?: boolean; imageUrl?: string | null }) {
   return (
     <div className={props.large ? 'avatar large' : 'avatar'} style={{ backgroundColor: avatarColor(props.seed) }}>
-      {initials(props.label)}
+      {props.imageUrl ? <img src={resolveAssetUrl(props.imageUrl)} alt={props.label} /> : initials(props.label)}
     </div>
   );
 }
@@ -568,15 +568,20 @@ export function ImageComposer(props: {
   isGenerating?: boolean;
   errorMessage?: string | null;
   variant?: 'default' | 'workspace-inline';
+  uploadTitle?: string;
+  uploadHint?: string;
+  generatedTitle?: string;
+  generateLabel?: string;
+  clearLabel?: string;
 }) {
   const preview = getImagePreview(props.value);
   const hasReference = Boolean(props.value.referenceAsset);
   const hasGenerated = Boolean(props.value.generatedAsset);
-  const generateLabel = hasReference
+  const generateLabel = props.generateLabel ?? (hasReference
     ? hasGenerated
       ? '重新生成主图'
       : '重试生成主图'
-    : '基于信息生成主图';
+    : '基于信息生成主图');
   const ContainerTag = props.variant === 'workspace-inline' ? 'section' : 'div';
   const rootClassName =
     props.variant === 'workspace-inline'
@@ -601,7 +606,7 @@ export function ImageComposer(props: {
             {props.isGenerating ? '生成中...' : generateLabel}
           </button>
           <button className="ghost-button" type="button" onClick={props.onReset} disabled={props.isGenerating}>
-            清空图片
+            {props.clearLabel ?? '清空图片'}
           </button>
         </div>
       </div>
@@ -619,8 +624,8 @@ export function ImageComposer(props: {
               }}
             />
             <div className="image-composer-dropzone-copy">
-              <strong>上传参考图</strong>
-              <span>上传后自动生成统一风格主图</span>
+              <strong>{props.uploadTitle ?? '上传参考图'}</strong>
+              <span>{props.uploadHint ?? '上传后自动生成统一风格主图'}</span>
             </div>
           </label>
         ) : (
@@ -649,7 +654,7 @@ export function ImageComposer(props: {
 
             <article className="image-composer-result-card">
               <div className="image-composer-result-head">
-                <span>AI 主图</span>
+                <span>{props.generatedTitle ?? 'AI 主图'}</span>
                 <small>{aiStatusLabel}</small>
               </div>
               {hasGenerated ? (

@@ -148,6 +148,37 @@ class AccountManagementTestCase(unittest.TestCase):
         )
         self.assertEqual(forbidden.status_code, 403)
 
+    def test_owner_can_update_member_information(self) -> None:
+        response = self.client.patch(
+            f"/api/members/{self.member.id}",
+            json={"display_name": "新的成员", "email": "member@example.com", "phone": "13900000000"},
+        )
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["display_name"], "新的成员")
+        self.assertEqual(payload["email"], "member@example.com")
+        self.assertEqual(payload["phone"], "13900000000")
+
+        with self.SessionLocal() as db:
+            member = db.get(User, self.member.id)
+            assert member is not None
+            self.assertEqual(member.display_name, "新的成员")
+            self.assertEqual(member.updated_by, self.owner.id)
+
+    def test_member_update_member_information_requires_owner(self) -> None:
+        def override_member_auth(db: Session = Depends(get_db)):
+            user = db.get(User, self.member.id)
+            membership = db.get(Membership, "membership-member")
+            assert user is not None and membership is not None
+            return user, membership
+
+        app.dependency_overrides[get_current_auth] = override_member_auth
+        response = self.client.patch(
+            f"/api/members/{self.owner.id}",
+            json={"display_name": "普通成员不能改", "email": "", "phone": ""},
+        )
+        self.assertEqual(response.status_code, 403)
+
 
 class InitialAdminBootstrapTestCase(unittest.TestCase):
     def setUp(self) -> None:

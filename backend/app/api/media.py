@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Response, UploadFile, status
 from sqlalchemy.orm import Session
 
 from app.core.deps import get_current_auth
@@ -16,7 +16,15 @@ from app.ai.images.jobs import (
     mark_image_generation_job_finalized,
     release_image_generation_job_result,
 )
-from app.services.media import delete_media_file, get_media_asset, read_media_object, save_generated_asset, save_svg_asset, save_upload
+from app.services.media import (
+    delete_media_file,
+    get_media_asset,
+    read_media_object,
+    read_media_object_by_key,
+    save_generated_asset,
+    save_svg_asset,
+    save_upload,
+)
 from app.services.serializers import serialize_media
 
 router = APIRouter(tags=["media"])
@@ -222,3 +230,9 @@ def get_ai_image_render_job(
 ) -> dict:
     user, membership = auth
     return _render_job_response(job_id, db=db, family_id=membership.family_id, user_id=user.id)
+
+
+@router.get("/media/{object_key:path}")
+def get_media_object(object_key: str) -> Response:
+    payload, content_type = read_media_object_by_key(object_key)
+    return Response(content=payload, media_type=content_type)

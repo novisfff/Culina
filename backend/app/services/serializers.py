@@ -69,7 +69,8 @@ def group_media_by_entity(assets: list[MediaAsset]) -> dict[tuple[str, str], lis
     return grouped
 
 
-def serialize_user(user: User) -> dict:
+def serialize_user(user: User, media_map: dict[tuple[str, str], list[MediaAsset]] | None = None) -> dict:
+    media = (media_map or {}).get(("user", user.id), [])
     return {
         "id": user.id,
         "username": user.username,
@@ -77,6 +78,7 @@ def serialize_user(user: User) -> dict:
         "email": user.email,
         "phone": user.phone,
         "avatar_seed": user.avatar_seed,
+        "avatar_image": serialize_media(media[0]) if media else None,
     }
 
 
@@ -90,21 +92,27 @@ def serialize_membership(membership: Membership) -> dict:
     }
 
 
-def serialize_family(family: Family, recommendations: list[AIRecommendation] | None = None) -> dict:
+def serialize_family(
+    family: Family,
+    recommendations: list[AIRecommendation] | None = None,
+    media_map: dict[tuple[str, str], list[MediaAsset]] | None = None,
+) -> dict:
+    media = (media_map or {}).get(("family", family.id), [])
     return {
         "id": family.id,
         "name": family.name,
         "motto": family.motto,
         "location": family.location,
+        "image": serialize_media(media[0]) if media else None,
         "created_at": family.created_at,
         "updated_at": family.updated_at,
         "ai_recommendations": [serialize_ai_recommendation(item) for item in (recommendations or [])],
     }
 
 
-def serialize_member(user: User, membership: Membership) -> dict:
+def serialize_member(user: User, membership: Membership, media_map: dict[tuple[str, str], list[MediaAsset]] | None = None) -> dict:
     return {
-        **serialize_user(user),
+        **serialize_user(user, media_map),
         "role": membership.role,
         "status": membership.status.value if hasattr(membership.status, "value") else membership.status,
     }

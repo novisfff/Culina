@@ -7,7 +7,7 @@ export type IngredientExpiryMode = 'days' | 'manual_date' | 'none';
 export type AiMode = 'foodQa' | 'inventoryQa' | 'recommendation' | 'recipeDraft';
 export type MediaSource = 'upload' | 'ai';
 export type ImageGenerationMode = 'reference' | 'text';
-export type MediaEntityType = 'ingredient' | 'food' | 'recipe' | 'recipe_scene' | 'food_scene' | 'meal_log';
+export type MediaEntityType = 'user' | 'family' | 'ingredient' | 'food' | 'recipe' | 'recipe_scene' | 'food_scene' | 'meal_log';
 
 export interface IngredientUnitConversion {
   unit: string;
@@ -35,6 +35,7 @@ export interface UserSummary {
   email?: string | null;
   phone?: string | null;
   avatar_seed: string;
+  avatar_image?: MediaAsset | null;
 }
 
 export interface MembershipSummary {
@@ -50,6 +51,7 @@ export interface FamilyDetail {
   name: string;
   motto: string;
   location: string;
+  image?: MediaAsset | null;
   created_at: string;
   updated_at: string;
   ai_recommendations: AiRecommendation[];

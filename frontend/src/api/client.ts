@@ -21,6 +21,7 @@ import type {
   Ingredient,
   InventoryItem,
   LoginResponse,
+  MediaAsset,
   MealLog,
   MealType,
   Member,
@@ -95,7 +96,7 @@ export const api = {
     }),
   me: () => request<LoginResponse>('/api/auth/me'),
   logout: () => request<void>('/api/auth/logout', { method: 'POST' }),
-  updateMe: (payload: { display_name: string; email?: string | null; phone?: string | null; avatar_seed?: string | null }) =>
+  updateMe: (payload: { display_name: string; email?: string | null; phone?: string | null; avatar_seed?: string | null; avatar_media_id?: string | null }) =>
     request<LoginResponse['user']>('/api/auth/me', {
       method: 'PATCH',
       body: JSON.stringify(payload),
@@ -106,7 +107,7 @@ export const api = {
       body: JSON.stringify(payload),
     }),
   getFamily: () => request<FamilyDetail>('/api/family'),
-  updateFamily: (payload: { name: string; motto: string; location: string }) =>
+  updateFamily: (payload: { name: string; motto: string; location: string; image_media_id?: string | null }) =>
     request<FamilyDetail>('/api/family', {
       method: 'PATCH',
       body: JSON.stringify(payload),
@@ -121,6 +122,14 @@ export const api = {
   }) =>
     request<Member>('/api/members', {
       method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+  updateMember: (
+    memberId: string,
+    payload: { display_name: string; email?: string | null; phone?: string | null; avatar_media_id?: string | null }
+  ) =>
+    request<Member>(`/api/members/${memberId}`, {
+      method: 'PATCH',
       body: JSON.stringify(payload),
     }),
   getIngredients: () => request<Ingredient[]>('/api/ingredients'),
@@ -354,7 +363,7 @@ export const api = {
     formData.append('file', file);
     formData.append('source', source);
     formData.append('alt', alt);
-    return request<{ id: string; name: string; url: string; source: 'upload' | 'ai'; alt: string; created_at: string; created_by?: string | null }>(
+    return request<MediaAsset>(
       '/api/media/upload',
       {
         method: 'POST',

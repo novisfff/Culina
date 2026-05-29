@@ -164,6 +164,15 @@ class MediaSecurityTestCase(unittest.TestCase):
         with self.SessionLocal() as db:
             self.assertEqual(db.query(MediaAsset).filter(MediaAsset.source == "ai").count(), 1)
 
+    def test_media_route_reads_object_from_storage(self) -> None:
+        with patch("app.api.media.read_media_object_by_key", return_value=(b"png", "image/png")) as read_object:
+            response = self.client.get("/media/family-test/cover.png")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.content, b"png")
+        self.assertEqual(response.headers["content-type"], "image/png")
+        read_object.assert_called_once_with("family-test/cover.png")
+
 
 if __name__ == "__main__":
     unittest.main()

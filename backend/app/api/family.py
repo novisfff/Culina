@@ -11,9 +11,11 @@ from app.core.utils import create_id
 from app.db.session import get_db
 from app.db.transactions import commit_session
 from app.models.domain import AIRecommendation, Membership, User, UserCredential
+from app.repos.media import build_media_map, get_media_assets_for_entities
 from app.repos.auth import get_user_by_username
-from app.schemas.family import CreateMemberRequest, FamilyDetailOut, MemberOut, UpdateFamilyRequest
+from app.schemas.family import CreateMemberRequest, FamilyDetailOut, MemberOut, UpdateFamilyRequest, UpdateMemberRequest
 from app.services.activity import log_activity
+from app.services.media import replace_media_assets
 from app.services.serializers import serialize_family, serialize_member
 
 router = APIRouter(tags=["family"])
@@ -30,7 +32,8 @@ def get_family(auth: tuple = Depends(get_current_auth), db: Session = Depends(ge
             .limit(3)
         )
     )
-    return serialize_family(membership.family, recommendations)
+    media_map = build_media_map(get_media_assets_for_entities(db, family_id=membership.family_id, entity_type="family", entity_ids=[membership.family_id]))
+    return serialize_family(membership.family, recommendations, media_map)
 
 
 @router.patch("/api/family", response_model=FamilyDetailOut)
@@ -48,6 +51,14 @@ def update_family(
     family.motto = payload.motto.strip()
     family.location = payload.location.strip()
     family.updated_by = user.id
+    if "image_media_id" in payload.model_fields_set:
+        replace_media_assets(
+            db,
+            family_id=membership.family_id,
+            media_ids=[payload.image_media_id] if payload.image_media_id else [],
+            entity_type="family",
+            entity_id=family.id,
+        )
     log_activity(
         db,
         family_id=membership.family_id,
@@ -59,7 +70,8 @@ def update_family(
     )
     commit_session(db)
     db.refresh(family)
-    return serialize_family(family, [])
+    media_map = build_media_map(get_media_assets_for_entities(db, family_id=membership.family_id, entity_type="family", entity_ids=[family.id]))
+    return serialize_family(family, [], media_map)
 
 
 @router.get("/api/members", response_model=list[MemberOut])
@@ -72,7 +84,9 @@ def list_members(auth: tuple = Depends(get_current_auth), db: Session = Depends(
             .order_by(Membership.created_at.asc())
         )
     )
-    return [serialize_member(item.user, item) for item in memberships]
+    user_ids = [item.user_id for item in memberships]
+    media_map = build_media_map(get_media_assets_for_entities(db, family_id=membership.family_id, entity_type="user", entity_ids=user_ids))
+    return [serialize_member(item.user, item, media_map) for item in memberships]
 
 
 @router.post("/api/members", response_model=MemberOut, status_code=status.HTTP_201_CREATED)
@@ -126,4 +140,50 @@ def create_member(
     commit_session(db)
     db.refresh(member_user)
     db.refresh(member_membership)
-    return serialize_member(member_user, member_membership)
+    return serialize_member(member_user, member_membership, {})
+
+
+@router.patch("/api/members/{member_id}", response_model=MemberOut)
+def update_member(
+    member_id: str,
+    payload: UpdateMemberRequest,
+    auth: tuple = Depends(require_owner),
+    db: Session = Depends(get_db),
+) -> dict:
+    user, membership = auth
+    member_membership = db.scalar(
+        select(Membership).where(Membership.family_id == membership.family_id, Membership.user_id == member_id)
+    )
+    if member_membership is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Member not found")
+    member_user = member_membership.user
+    display_name = payload.display_name.strip()
+    if not display_name:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Display name is required")
+
+    member_user.display_name = display_name
+    member_user.email = payload.email.strip() if payload.email and payload.email.strip() else None
+    member_user.phone = payload.phone.strip() if payload.phone and payload.phone.strip() else None
+    member_user.avatar_seed = display_name
+    member_user.updated_by = user.id
+    if "avatar_media_id" in payload.model_fields_set:
+        replace_media_assets(
+            db,
+            family_id=membership.family_id,
+            media_ids=[payload.avatar_media_id] if payload.avatar_media_id else [],
+            entity_type="user",
+            entity_id=member_user.id,
+        )
+    log_activity(
+        db,
+        family_id=membership.family_id,
+        actor_id=user.id,
+        action=ActivityAction.UPDATE,
+        entity_type="User",
+        entity_id=member_user.id,
+        summary=f"更新成员信息 {member_user.display_name}",
+    )
+    commit_session(db)
+    db.refresh(member_user)
+    media_map = build_media_map(get_media_assets_for_entities(db, family_id=membership.family_id, entity_type="user", entity_ids=[member_user.id]))
+    return serialize_member(member_user, member_membership, media_map)
