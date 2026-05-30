@@ -7,7 +7,13 @@ from app.core.enums import normalize_food_type
 from app.models.domain import (
     ActivityLog,
     AIConversation,
+    AIAgentRun,
+    AIApprovalRequest,
+    AIMessage,
+    AIOperation,
     AIRecommendation,
+    AIRunEvent,
+    AITaskDraft,
     Family,
     Food,
     FoodPlanItem,
@@ -392,6 +398,11 @@ def serialize_ai_conversation(item: AIConversation) -> dict:
         "created_at": item.created_at,
         "created_by": item.created_by,
         "context": item.context,
+        "title": item.title,
+        "summary": item.summary,
+        "status": item.status,
+        "last_message_at": item.last_message_at,
+        "last_run_status": item.last_run_status,
     }
 
 
@@ -401,5 +412,106 @@ def serialize_ai_recommendation(item: AIRecommendation) -> dict:
         "family_id": item.family_id,
         "title": item.title,
         "detail": item.detail,
+        "created_at": item.created_at,
+    }
+
+
+def serialize_ai_message(item: AIMessage) -> dict:
+    return {
+        "id": item.id,
+        "conversation_id": item.conversation_id,
+        "role": item.role,
+        "content": item.content,
+        "content_type": item.content_type,
+        "parts": item.parts,
+        "run_id": item.run_id,
+        "status": item.status,
+        "metadata": item.message_metadata,
+        "client_message_id": item.client_message_id,
+        "created_at": item.created_at,
+    }
+
+
+def serialize_ai_run(item: AIAgentRun) -> dict:
+    return {
+        "id": item.id,
+        "agent_key": item.agent_key,
+        "intent": item.intent,
+        "status": item.status,
+        "model": item.model,
+        "created_at": item.created_at,
+    }
+
+
+def serialize_ai_run_event(item: AIRunEvent) -> dict:
+    return {
+        "id": item.id,
+        "run_id": item.run_id,
+        "type": item.type,
+        "internal_code": item.internal_code,
+        "user_message": item.user_message,
+        "status": item.status,
+        "created_at": item.created_at,
+    }
+
+
+def serialize_ai_task_draft(item: AITaskDraft) -> dict:
+    return {
+        "id": item.id,
+        "conversation_id": item.conversation_id,
+        "message_id": item.message_id,
+        "run_id": item.source_run_id,
+        "draft_type": item.draft_type,
+        "payload": item.payload,
+        "preview_summary": item.preview_summary,
+        "status": item.status,
+        "version": item.version,
+        "schema_version": item.schema_version,
+        "validation_errors": item.validation_errors,
+        "expires_at": item.expires_at,
+        "created_at": item.created_at,
+        "updated_at": item.updated_at,
+    }
+
+
+def serialize_ai_approval_request(item: AIApprovalRequest) -> dict:
+    request_payload = item.request_payload or {}
+    return {
+        "id": item.id,
+        "conversation_id": item.conversation_id,
+        "message_id": item.message_id,
+        "run_id": item.run_id,
+        "draft_id": item.draft_id,
+        "draft_version": item.draft_version,
+        "draft_schema_version": item.draft_schema_version,
+        "approval_type": item.approval_type,
+        "status": item.status,
+        "title": request_payload.get("title", ""),
+        "instruction": request_payload.get("instruction", ""),
+        "approve_label": request_payload.get("approveLabel", "确认"),
+        "reject_label": request_payload.get("rejectLabel", "拒绝"),
+        "require_reject_comment": bool(request_payload.get("requireRejectComment", False)),
+        "field_schema": item.field_schema,
+        "initial_values": item.initial_values,
+        "submitted_values": item.submitted_values,
+        "decision": item.decision,
+        "comment": item.comment,
+        "resolved_at": item.resolved_at,
+        "expires_at": item.expires_at,
+        "created_at": item.created_at,
+    }
+
+
+def serialize_ai_operation(item: AIOperation) -> dict:
+    return {
+        "id": item.id,
+        "approval_request_id": item.approval_request_id,
+        "draft_id": item.draft_id,
+        "operation_type": item.operation_type,
+        "status": item.status,
+        "business_entity_type": item.business_entity_type,
+        "business_entity_ids": item.business_entity_ids,
+        "error_message": item.error_message,
+        "completed_at": item.completed_at,
         "created_at": item.created_at,
     }

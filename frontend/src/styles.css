@@ -27829,7 +27829,279 @@ textarea:focus-visible {
   box-shadow: var(--brand-button-shadow-hover);
 }
 
+.ai-workspace {
+  display: grid;
+  gap: 18px;
+}
+
+.ai-workspace-grid {
+  display: grid;
+  grid-template-columns: minmax(220px, 0.7fr) minmax(420px, 1.8fr) minmax(240px, 0.8fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.ai-conversation-panel,
+.ai-chat-panel,
+.ai-context-panel {
+  background: var(--surface-2);
+  border: 1px solid var(--line-soft);
+  border-radius: 8px;
+  padding: 18px;
+  box-shadow: var(--shadow-md);
+}
+
+.ai-conversation-list,
+.ai-recommendation-list,
+.ai-context-summary {
+  display: grid;
+  gap: 10px;
+}
+
+.ai-new-chat {
+  width: 100%;
+  margin: 12px 0;
+}
+
+.ai-conversation-item {
+  display: grid;
+  gap: 4px;
+  width: 100%;
+  border: 1px solid var(--line-soft);
+  border-radius: 8px;
+  background: var(--surface-3);
+  color: var(--text);
+  padding: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.ai-conversation-item.active {
+  border-color: var(--line-strong);
+  background: var(--accent-soft);
+}
+
+.ai-conversation-item span {
+  color: var(--text-soft);
+  font-size: 0.86rem;
+  line-height: 1.4;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.ai-chat-panel {
+  min-height: 70vh;
+  display: grid;
+  grid-template-rows: auto auto 1fr auto auto;
+  gap: 12px;
+}
+
+.ai-shortcuts,
+.ai-run-timeline,
+.ai-evidence-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.ai-run-event,
+.ai-evidence-pill {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  border-radius: 999px;
+  padding: 4px 10px;
+  background: var(--surface-strong);
+  color: var(--text-soft);
+  font-size: 0.82rem;
+}
+
+.ai-thread {
+  display: grid;
+  align-content: start;
+  gap: 14px;
+  min-height: 360px;
+  max-height: 62vh;
+  overflow: auto;
+  padding: 4px;
+}
+
+.ai-message {
+  display: grid;
+  gap: 6px;
+  max-width: min(92%, 760px);
+}
+
+.ai-message-user {
+  justify-self: end;
+}
+
+.ai-message-assistant {
+  justify-self: start;
+}
+
+.ai-message-role {
+  color: var(--text-soft);
+  font-size: 0.82rem;
+}
+
+.ai-message-body {
+  display: grid;
+  gap: 10px;
+  border: 1px solid var(--line-soft);
+  border-radius: 8px;
+  background: var(--surface-3);
+  padding: 12px 14px;
+}
+
+.ai-message-user .ai-message-body {
+  background: var(--accent-soft);
+  border-color: var(--line-strong);
+}
+
+.ai-message-body p {
+  margin: 0;
+  line-height: 1.55;
+}
+
+.ai-result-card {
+  display: grid;
+  gap: 12px;
+  border: 1px solid var(--line-soft);
+  border-radius: 8px;
+  background: var(--surface-2);
+  padding: 14px;
+}
+
+.ai-result-card h3,
+.ai-recommendation-item strong {
+  margin: 0;
+}
+
+.ai-recipe-draft-summary,
+.ai-approval-actions,
+.ai-editor-grid,
+.ai-ingredient-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.ai-recipe-draft-summary span,
+.ai-approval-status {
+  border: 1px solid var(--line-soft);
+  border-radius: 999px;
+  padding: 4px 10px;
+  color: var(--text-soft);
+  background: var(--surface-strong);
+  font-size: 0.82rem;
+}
+
+.ai-approval-panel {
+  display: grid;
+  gap: 14px;
+  border: 1px solid var(--line-soft);
+  border-radius: 8px;
+  background: var(--surface-2);
+  padding: 14px;
+}
+
+.ai-approval-panel h3,
+.ai-approval-panel p {
+  margin: 0;
+}
+
+.ai-recipe-editor,
+.ai-editor-section,
+.ai-step-row {
+  display: grid;
+  gap: 10px;
+}
+
+.ai-recipe-editor label {
+  display: grid;
+  gap: 6px;
+  color: var(--text-soft);
+  font-size: 0.86rem;
+}
+
+.ai-editor-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(120px, 1fr));
+}
+
+.ai-ingredient-row {
+  display: grid;
+  grid-template-columns: minmax(120px, 1.2fr) minmax(72px, 0.5fr) minmax(72px, 0.5fr) minmax(140px, 1fr) auto;
+}
+
+.ai-step-row {
+  border-top: 1px solid var(--line-soft);
+  padding-top: 10px;
+}
+
+.ai-approval-actions {
+  justify-content: flex-end;
+}
+
+.ai-pending-approval-restore {
+  display: grid;
+  gap: 10px;
+  border-top: 1px solid var(--line-soft);
+  padding-top: 12px;
+}
+
+.ai-recommendation-item {
+  display: grid;
+  gap: 6px;
+  border-top: 1px solid var(--line-soft);
+  padding-top: 10px;
+}
+
+.ai-composer {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 10px;
+  align-items: end;
+}
+
+.ai-composer textarea {
+  min-height: 54px;
+  resize: vertical;
+}
+
+.ai-context-summary span {
+  border: 1px solid var(--line-soft);
+  border-radius: 8px;
+  padding: 10px 12px;
+  color: var(--text-soft);
+  background: var(--surface-3);
+}
+
 @media (max-width: 1023px) {
+  .ai-workspace-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .ai-context-panel {
+    order: 2;
+  }
+
+  .ai-chat-panel {
+    order: 1;
+  }
+
+  .ai-conversation-panel {
+    order: 3;
+  }
+
+  .ai-editor-grid,
+  .ai-ingredient-row {
+    grid-template-columns: 1fr;
+  }
+
   .ingredients-inventory-toolbar-main,
   .ingredients-inventory-toolbar-actions {
     display: grid;

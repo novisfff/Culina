@@ -23,7 +23,22 @@ from app.core.deps import get_current_auth
 from app.core.enums import AiMode, FoodType, ImageGenerationMode, IngredientExpiryMode, InventoryStatus, MediaEntityType, MembershipStatus, UserRole
 from app.db.session import get_db
 from app.main import app
-from app.models.domain import AIAgentRun, Base, Family, Food, Ingredient, InventoryItem, Membership, User
+from app.models.domain import (
+    AIAgentRun,
+    AIApprovalRequest,
+    AIMessage,
+    AIOperation,
+    AIRunEvent,
+    AITaskDraft,
+    Base,
+    Family,
+    Food,
+    Ingredient,
+    InventoryItem,
+    Membership,
+    Recipe,
+    User,
+)
 from app.ai.images.generation import ImageGenerationRequest, ImageProviderConfig, OpenAIImageGenerationProvider, build_ai_image_prompt, _build_provider_config
 
 
@@ -225,6 +240,255 @@ class AIAgentInfraTestCase(unittest.TestCase):
                 self.assertIn("response", data["conversation"])
                 if payload["mode"] == "recommendation":
                     self.assertIsNotNone(data["recommendation"])
+
+    def test_ai_workspace_chat_returns_today_recommendation_card_and_persists_lifecycle(self) -> None:
+        response = self.client.post(
+            "/api/ai/chat",
+            json={"message": "今日吃什么？", "quick_task": "today_recommendation"},
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        data = response.json()
+        self.assertIn("conversation_id", data)
+        self.assertEqual(data["run"]["agent_key"], "today_recommendation_agent")
+        self.assertEqual(data["run"]["intent"], "today_recommendation")
+        self.assertGreaterEqual(len(data["events"]), 3)
+        card_parts = [part for part in data["message"]["parts"] if part["type"] == "result_card"]
+        self.assertEqual(card_parts[0]["card"]["type"], "today_recommendation")
+        recommendations = card_parts[0]["card"]["data"]["recommendations"]
+        self.assertGreaterEqual(len(recommendations), 1)
+        self.assertIn("reason", recommendations[0])
+        self.assertIn("evidence", recommendations[0])
+
+        with self.SessionLocal() as db:
+            messages = list(db.scalars(select(AIMessage).where(AIMessage.conversation_id == data["conversation_id"])))
+            events = list(db.scalars(select(AIRunEvent).where(AIRunEvent.run_id == data["run"]["id"])))
+            run = db.get(AIAgentRun, data["run"]["id"])
+            self.assertEqual(len(messages), 2)
+            self.assertGreaterEqual(len(events), 3)
+            self.assertIsNotNone(run)
+            assert run is not None
+            self.assertEqual(run.intent, "today_recommendation")
+            self.assertEqual(run.context_summary["inventoryItemCount"], 1)
+
+    def test_ai_workspace_messages_are_family_scoped(self) -> None:
+        create_response = self.client.post("/api/ai/chat", json={"message": "随便聊聊"})
+        self.assertEqual(create_response.status_code, 200, create_response.text)
+        conversation_id = create_response.json()["conversation_id"]
+
+        response = self.client.get(f"/api/ai/conversations/{conversation_id}/messages")
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(len(response.json()), 2)
+
+    def test_ai_workspace_recipe_draft_approval_creates_recipe_after_decision(self) -> None:
+        provider = FakeChatProvider(
+            """
+            {
+              "title": "番茄鸡蛋面",
+              "servings": 2,
+              "prep_minutes": 20,
+              "difficulty": "easy",
+              "ingredient_items": [
+                {"ingredient_id": "ingredient-tomato", "ingredient_name": "番茄", "quantity": 2, "unit": "个", "note": "切块"},
+                {"ingredient_id": null, "ingredient_name": "鸡蛋", "quantity": 2, "unit": "个", "note": "打散"},
+                {"ingredient_id": null, "ingredient_name": "面条", "quantity": 200, "unit": "克", "note": "提前备好"}
+              ],
+              "steps": [
+                {"title": "备菜", "text": "番茄洗净后处理 5 分钟，切成 2 厘米块，鸡蛋打到没有透明蛋清。面条提前称好，葱花和调味料放在手边，方便后续连续操作。", "icon": "bowl", "summary": "处理食材", "estimated_minutes": 5, "tip": "番茄切均匀。", "key_points": ["番茄切块", "鸡蛋打散"]},
+                {"title": "炒汤底", "text": "锅中放少量油，中火加热 30 秒后倒入蛋液炒到刚凝固盛出。继续用中火炒番茄 3 分钟，看到出汁变软后加入热水煮沸。", "icon": "pan", "summary": "炒出汤底", "estimated_minutes": 8, "tip": "番茄要炒出汁。", "key_points": ["中火", "炒出汁"]},
+                {"title": "煮面收尾", "text": "汤汁沸腾后下面条煮 5 分钟，保持微沸并不时搅动防止粘连。面条变软熟透后倒回鸡蛋，加盐调味，确认汤汁冒泡后出锅。", "icon": "plate", "summary": "煮熟装盘", "estimated_minutes": 7, "tip": "出锅前尝味。", "key_points": ["煮熟", "尝味"]}
+              ],
+              "tips": "少油少盐，适合晚餐。",
+              "scene_tags": ["家常菜", "快手菜"]
+            }
+            """
+        )
+        with patch("app.ai.workspace_service.get_chat_provider", return_value=provider):
+            response = self.client.post(
+                "/api/ai/chat",
+                json={"message": "帮我生成一份番茄鸡蛋面的菜谱，2 人份。", "quick_task": "recipe_draft"},
+            )
+        self.assertEqual(response.status_code, 200, response.text)
+        data = response.json()
+        self.assertEqual(data["run"]["agent_key"], "recipe_draft_agent")
+        self.assertEqual(data["run"]["intent"], "recipe_draft")
+        self.assertEqual(len(data["included"]["drafts"]), 1)
+        self.assertEqual(len(data["included"]["approvals"]), 1)
+        approval = data["included"]["approvals"][0]
+        draft = data["included"]["drafts"][0]
+        self.assertEqual(approval["status"], "pending")
+        self.assertEqual(draft["status"], "pending")
+
+        with self.SessionLocal() as db:
+            self.assertEqual(db.query(Recipe).count(), 0)
+            self.assertEqual(db.query(AITaskDraft).count(), 1)
+            self.assertEqual(db.query(AIApprovalRequest).count(), 1)
+
+        pending_response = self.client.get(f"/api/ai/conversations/{data['conversation_id']}/approvals/pending")
+        self.assertEqual(pending_response.status_code, 200, pending_response.text)
+        self.assertEqual(pending_response.json()[0]["id"], approval["id"])
+
+        recipe_payload = draft["payload"]
+        recipe_payload["title"] = "番茄鸡蛋面（确认版）"
+        decision_response = self.client.post(
+            f"/api/ai/conversations/{data['conversation_id']}/approvals/{approval['id']}/decision",
+            json={
+                "decision": "approved",
+                "draft_version": draft["version"],
+                "values": {"recipe": recipe_payload},
+            },
+        )
+        self.assertEqual(decision_response.status_code, 200, decision_response.text)
+        decision_data = decision_response.json()
+        self.assertEqual(decision_data["approval"]["status"], "approved")
+        self.assertEqual(decision_data["draft"]["status"], "confirmed")
+        self.assertEqual(decision_data["operation"]["status"], "succeeded")
+        self.assertEqual(decision_data["business_entity"]["title"], "番茄鸡蛋面（确认版）")
+
+        repeat_response = self.client.post(
+            f"/api/ai/conversations/{data['conversation_id']}/approvals/{approval['id']}/decision",
+            json={
+                "decision": "approved",
+                "draft_version": draft["version"],
+                "values": {"recipe": recipe_payload},
+            },
+        )
+        self.assertEqual(repeat_response.status_code, 409, repeat_response.text)
+        with self.SessionLocal() as db:
+            self.assertEqual(db.query(Recipe).count(), 1)
+            self.assertEqual(db.query(AIOperation).count(), 1)
+
+    def test_ai_workspace_approval_rejects_stale_draft_version(self) -> None:
+        provider = FakeChatProvider(
+            """
+            {
+              "title": "番茄小炒",
+              "servings": 2,
+              "prep_minutes": 18,
+              "difficulty": "easy",
+              "ingredient_items": [{"ingredient_id": "ingredient-tomato", "ingredient_name": "番茄", "quantity": 2, "unit": "个", "note": "切块"}],
+              "steps": [
+                {"title": "备菜", "text": "番茄洗净后处理 5 分钟，切成均匀小块并沥干到表面没有透明水膜。调味料提前放好，这样下锅后可以连续操作，避免中途停顿导致受热不均。", "icon": "bowl", "summary": "备菜", "estimated_minutes": 5, "tip": "切块一致。", "key_points": ["切块"]},
+                {"title": "翻炒", "text": "锅中少油中火加热 30 秒，倒入番茄翻炒 3 分钟。看到番茄变软出汁后加入少量水，保持冒泡继续煮 5 分钟。", "icon": "pan", "summary": "炒软", "estimated_minutes": 8, "tip": "保持中火。", "key_points": ["中火"]},
+                {"title": "收尾", "text": "汤汁略微浓稠后加盐调味，再继续翻炒 1 分钟。确认番茄软烂且汤汁冒泡后关火装盘。", "icon": "plate", "summary": "装盘", "estimated_minutes": 5, "tip": "先少量盐。", "key_points": ["尝味"]}
+              ],
+              "tips": "清淡少油。",
+              "scene_tags": ["家常菜"]
+            }
+            """
+        )
+        with patch("app.ai.workspace_service.get_chat_provider", return_value=provider):
+            response = self.client.post(
+                "/api/ai/chat",
+                json={"message": "帮我生成一份番茄小炒的菜谱", "quick_task": "recipe_draft"},
+            )
+        self.assertEqual(response.status_code, 200, response.text)
+        data = response.json()
+        approval = data["included"]["approvals"][0]
+        draft = data["included"]["drafts"][0]
+        stale_response = self.client.post(
+            f"/api/ai/conversations/{data['conversation_id']}/approvals/{approval['id']}/decision",
+            json={
+                "decision": "approved",
+                "draft_version": draft["version"] + 1,
+                "values": {"recipe": draft["payload"]},
+            },
+        )
+        self.assertEqual(stale_response.status_code, 409, stale_response.text)
+        self.assertIn("草稿已更新", stale_response.json()["detail"])
+
+    def test_ai_workspace_operation_failure_returns_recoverable_state(self) -> None:
+        provider = FakeChatProvider(
+            """
+            {
+              "title": "番茄汤",
+              "servings": 2,
+              "prep_minutes": 18,
+              "difficulty": "easy",
+              "ingredient_items": [{"ingredient_id": "ingredient-tomato", "ingredient_name": "番茄", "quantity": 2, "unit": "个", "note": "切块"}],
+              "steps": [
+                {"title": "备菜", "text": "番茄洗净后处理 5 分钟，切成均匀小块并沥干到表面没有透明水膜。调味料提前放好，这样下锅后可以连续操作，避免中途停顿导致受热不均。", "icon": "bowl", "summary": "备菜", "estimated_minutes": 5, "tip": "切块一致。", "key_points": ["切块"]},
+                {"title": "煮汤", "text": "锅中少油中火加热 30 秒，倒入番茄翻炒 3 分钟。看到番茄变软出汁后加入热水，保持冒泡继续煮 8 分钟。", "icon": "pan", "summary": "煮汤", "estimated_minutes": 8, "tip": "保持中火。", "key_points": ["出汁"]},
+                {"title": "调味", "text": "汤汁沸腾且略微浓稠后加盐调味，再继续煮 1 分钟。确认番茄软烂且汤汁冒泡后关火装碗。", "icon": "plate", "summary": "装碗", "estimated_minutes": 5, "tip": "先少量盐。", "key_points": ["尝味"]}
+              ],
+              "tips": "清淡少油。",
+              "scene_tags": ["家常菜"]
+            }
+            """
+        )
+        with patch("app.ai.workspace_service.get_chat_provider", return_value=provider):
+            response = self.client.post(
+                "/api/ai/chat",
+                json={"message": "帮我生成一份番茄汤的菜谱", "quick_task": "recipe_draft"},
+            )
+        self.assertEqual(response.status_code, 200, response.text)
+        data = response.json()
+        approval = data["included"]["approvals"][0]
+        draft = data["included"]["drafts"][0]
+
+        with patch("app.ai.workspace_service.ensure_food_for_recipe", side_effect=RuntimeError("sync failed")):
+            decision_response = self.client.post(
+                f"/api/ai/conversations/{data['conversation_id']}/approvals/{approval['id']}/decision",
+                json={
+                    "decision": "approved",
+                    "draft_version": draft["version"],
+                    "values": {"recipe": draft["payload"]},
+                },
+            )
+        self.assertEqual(decision_response.status_code, 200, decision_response.text)
+        decision_data = decision_response.json()
+        self.assertEqual(decision_data["approval"]["status"], "pending")
+        self.assertEqual(decision_data["approval"]["approval_type"], "recipe.create.retry")
+        self.assertEqual(decision_data["draft"]["status"], "pending_retry")
+        self.assertEqual(decision_data["operation"]["status"], "failed")
+        self.assertIn("sync failed", decision_data["operation"]["error_message"])
+        pending_response = self.client.get(f"/api/ai/conversations/{data['conversation_id']}/approvals/pending")
+        self.assertEqual(pending_response.status_code, 200, pending_response.text)
+        self.assertEqual(pending_response.json()[0]["id"], decision_data["approval"]["id"])
+        with self.SessionLocal() as db:
+            self.assertEqual(db.query(Recipe).count(), 0)
+            self.assertEqual(db.query(AIOperation).count(), 1)
+            self.assertEqual(db.query(AIApprovalRequest).count(), 2)
+
+    def test_ai_workspace_reject_does_not_validate_broken_recipe_payload(self) -> None:
+        provider = FakeChatProvider(
+            """
+            {
+              "title": "番茄汤",
+              "servings": 2,
+              "prep_minutes": 18,
+              "difficulty": "easy",
+              "ingredient_items": [{"ingredient_id": "ingredient-tomato", "ingredient_name": "番茄", "quantity": 2, "unit": "个", "note": "切块"}],
+              "steps": [
+                {"title": "备菜", "text": "番茄洗净后处理 5 分钟，切成均匀小块并沥干到表面没有透明水膜。调味料提前放好，这样下锅后可以连续操作，避免中途停顿导致受热不均。", "icon": "bowl", "summary": "备菜", "estimated_minutes": 5, "tip": "切块一致。", "key_points": ["切块"]},
+                {"title": "煮汤", "text": "锅中少油中火加热 30 秒，倒入番茄翻炒 3 分钟。看到番茄变软出汁后加入热水，保持冒泡继续煮 8 分钟。", "icon": "pan", "summary": "煮汤", "estimated_minutes": 8, "tip": "保持中火。", "key_points": ["出汁"]},
+                {"title": "调味", "text": "汤汁沸腾且略微浓稠后加盐调味，再继续煮 1 分钟。确认番茄软烂且汤汁冒泡后关火装碗。", "icon": "plate", "summary": "装碗", "estimated_minutes": 5, "tip": "先少量盐。", "key_points": ["尝味"]}
+              ],
+              "tips": "清淡少油。",
+              "scene_tags": ["家常菜"]
+            }
+            """
+        )
+        with patch("app.ai.workspace_service.get_chat_provider", return_value=provider):
+            response = self.client.post(
+                "/api/ai/chat",
+                json={"message": "帮我生成一份番茄汤的菜谱", "quick_task": "recipe_draft"},
+            )
+        self.assertEqual(response.status_code, 200, response.text)
+        data = response.json()
+        approval = data["included"]["approvals"][0]
+        draft = data["included"]["drafts"][0]
+        reject_response = self.client.post(
+            f"/api/ai/conversations/{data['conversation_id']}/approvals/{approval['id']}/decision",
+            json={
+                "decision": "rejected",
+                "draft_version": draft["version"],
+                "values": {"recipe": {"title": ""}},
+            },
+        )
+        self.assertEqual(reject_response.status_code, 200, reject_response.text)
+        reject_data = reject_response.json()
+        self.assertEqual(reject_data["approval"]["status"], "rejected")
+        self.assertEqual(reject_data["draft"]["status"], "rejected")
 
     def test_recipe_draft_api_returns_failed_without_fallback_draft_when_provider_disabled(self) -> None:
         response = self.client.post(

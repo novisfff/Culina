@@ -1,5 +1,9 @@
 import type {
   ActivityLog,
+  AiChatResponse,
+  AiApprovalDecisionResponse,
+  AiApprovalRequest,
+  AiMessage,
   AiQueryResponse,
   GenerateRecipeDraftPayload,
   GenerateRecipeDraftResponse,
@@ -348,6 +352,24 @@ export const api = {
     }),
   getActivityLogs: () => request<ActivityLog[]>('/api/activity-logs'),
   getAiConversations: () => request<AiConversation[]>('/api/ai/conversations'),
+  chatAi: (payload: { message: string; conversation_id?: string; client_message_id?: string; quick_task?: string; subject?: Record<string, unknown> }) =>
+    request<AiChatResponse>('/api/ai/chat', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+  getAiMessages: (conversationId: string) =>
+    request<AiMessage[]>(`/api/ai/conversations/${conversationId}/messages`),
+  getPendingAiApprovals: (conversationId: string) =>
+    request<AiApprovalRequest[]>(`/api/ai/conversations/${conversationId}/approvals/pending`),
+  decideAiApproval: (
+    conversationId: string,
+    approvalId: string,
+    payload: { decision: 'approved' | 'rejected'; draft_version: number; values: Record<string, unknown>; comment?: string }
+  ) =>
+    request<AiApprovalDecisionResponse>(`/api/ai/conversations/${conversationId}/approvals/${approvalId}/decision`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
   queryAi: (payload: { mode: string; prompt: string; food_id?: string; ingredient_ids?: string[] }) =>
     request<AiQueryResponse>('/api/ai/query', {
       method: 'POST',

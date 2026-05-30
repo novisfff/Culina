@@ -524,6 +524,11 @@ export interface AiConversation {
   created_at: string;
   created_by?: string | null;
   context: Record<string, unknown>;
+  title: string;
+  summary: string;
+  status: string;
+  last_message_at?: string | null;
+  last_run_status: string;
 }
 
 export interface AiGeneratedRecipeDraft extends RecipePayload {
@@ -545,6 +550,161 @@ export interface GenerateRecipeDraftPayload {
 export interface AiQueryResponse {
   conversation: AiConversation;
   recommendation?: AiRecommendation | null;
+}
+
+export type AiMessageRole = 'user' | 'assistant' | 'system';
+export type AiMessagePartType = 'text' | 'result_card' | 'draft' | 'approval_request' | 'error_recovery';
+export type AiResultCardType = 'today_recommendation' | 'recipe_draft' | 'approval_request' | 'error_recovery';
+export type AiTaskDraftType = 'recipe';
+export type AiApprovalDecision = 'approved' | 'rejected';
+
+export interface AiEvidenceItem {
+  type: string;
+  id?: string;
+  label: string;
+  status?: string;
+  detail?: string;
+}
+
+export interface AiTodayRecommendationItem {
+  title: string;
+  reason: string;
+  evidence: AiEvidenceItem[];
+}
+
+export interface AiResultCard {
+  id: string;
+  type: AiResultCardType;
+  title: string;
+  data: {
+    recommendations?: AiTodayRecommendationItem[];
+    contextSummary?: {
+      inventoryCount?: number;
+      expiringCount?: number;
+      recentMealCount?: number;
+      recipeCount?: number;
+    };
+    message?: string;
+    draftId?: string;
+    approvalId?: string;
+    summary?: string;
+    draft?: AiGeneratedRecipeDraft;
+    [key: string]: unknown;
+  };
+}
+
+export interface AiTaskDraft {
+  id: string;
+  conversation_id: string;
+  message_id?: string | null;
+  run_id?: string | null;
+  draft_type: AiTaskDraftType;
+  payload: AiGeneratedRecipeDraft;
+  preview_summary: string;
+  status: string;
+  version: number;
+  schema_version: string;
+  validation_errors: Array<Record<string, unknown>>;
+  expires_at?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AiApprovalField {
+  name: string;
+  label: string;
+  type: 'string' | 'number' | 'integer' | 'boolean' | 'array' | 'object';
+  widget: 'input' | 'textarea' | 'switch' | 'select' | 'radio' | 'checkbox_group' | 'tag_selector' | 'date' | 'time' | 'recipe_draft_editor';
+  options?: Array<string | { value: string; label: string; description?: string }> | null;
+  allow_custom?: boolean;
+  placeholder?: string | null;
+  required?: boolean;
+}
+
+export interface AiApprovalRequest {
+  id: string;
+  conversation_id: string;
+  message_id?: string | null;
+  run_id?: string | null;
+  draft_id: string;
+  draft_version: number;
+  draft_schema_version: string;
+  approval_type: string;
+  status: string;
+  title: string;
+  instruction: string;
+  approve_label: string;
+  reject_label: string;
+  require_reject_comment: boolean;
+  field_schema: AiApprovalField[];
+  initial_values: { recipe?: AiGeneratedRecipeDraft; [key: string]: unknown };
+  submitted_values: { recipe?: AiGeneratedRecipeDraft; [key: string]: unknown };
+  decision?: AiApprovalDecision | null;
+  comment?: string | null;
+  resolved_at?: string | null;
+  expires_at?: string | null;
+  created_at: string;
+}
+
+export interface AiMessagePart {
+  id: string;
+  type: AiMessagePartType;
+  text?: string | null;
+  card?: AiResultCard | null;
+  draft?: AiTaskDraft | null;
+  approval?: AiApprovalRequest | null;
+}
+
+export interface AiMessage {
+  id: string;
+  conversation_id: string;
+  role: AiMessageRole;
+  content: string;
+  content_type: string;
+  parts: AiMessagePart[];
+  run_id?: string | null;
+  status: string;
+  metadata: Record<string, unknown>;
+  client_message_id?: string | null;
+  created_at: string;
+}
+
+export interface AiRun {
+  id: string;
+  agent_key: string;
+  intent: string;
+  status: string;
+  model: string;
+  created_at: string;
+}
+
+export interface AiRunEvent {
+  id: string;
+  run_id: string;
+  type: string;
+  internal_code: string;
+  user_message: string;
+  status: 'pending' | 'running' | 'completed' | 'failed';
+  created_at: string;
+}
+
+export interface AiChatResponse {
+  conversation_id: string;
+  message: AiMessage;
+  run: AiRun;
+  events: AiRunEvent[];
+  included: {
+    result_cards: AiResultCard[];
+    drafts: AiTaskDraft[];
+    approvals: AiApprovalRequest[];
+  };
+}
+
+export interface AiApprovalDecisionResponse {
+  approval: AiApprovalRequest;
+  draft: AiTaskDraft;
+  operation?: Record<string, unknown> | null;
+  business_entity?: Recipe | null;
 }
 
 export interface AiRecommendation {
