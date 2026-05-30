@@ -1,13 +1,22 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select
+from fastapi import APIRouter, Depends, HTTPException, Response, status
+from sqlalchemy import delete, select, update
 from sqlalchemy.orm import Session
 
 from app.core.deps import get_current_auth
 from app.db.session import get_db
 from app.db.transactions import commit_session
-from app.models.domain import AIConversation, AIMessage, AIRunEvent
+from app.models.domain import (
+    AIAgentRun,
+    AIApprovalRequest,
+    AIConversation,
+    AIMessage,
+    AIOperation,
+    AIRunEvent,
+    AITaskDraft,
+    AIUserApproval,
+)
 from app.schemas.ai import (
     AIApprovalDecisionRequest,
     AIApprovalDecisionResponse,
@@ -42,6 +51,78 @@ def list_ai_conversations(auth: tuple = Depends(get_current_auth), db: Session =
         )
     )
     return [serialize_ai_conversation(item) for item in conversations]
+
+
+@router.delete("/api/ai/conversations/{conversation_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_ai_conversation(
+    conversation_id: str,
+    auth: tuple = Depends(get_current_auth),
+    db: Session = Depends(get_db),
+) -> Response:
+    _, membership = auth
+    conversation = db.scalar(
+        select(AIConversation).where(AIConversation.id == conversation_id, AIConversation.family_id == membership.family_id)
+    )
+    if conversation is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="会话不存在")
+
+    approval_ids = list(
+        db.scalars(
+            select(AIApprovalRequest.id).where(
+                AIApprovalRequest.conversation_id == conversation_id,
+                AIApprovalRequest.family_id == membership.family_id,
+            )
+        )
+    )
+    draft_ids = list(
+        db.scalars(
+            select(AITaskDraft.id).where(
+                AITaskDraft.conversation_id == conversation_id,
+                AITaskDraft.family_id == membership.family_id,
+            )
+        )
+    )
+    if approval_ids:
+        db.execute(
+            delete(AIOperation).where(
+                AIOperation.approval_request_id.in_(approval_ids),
+                AIOperation.family_id == membership.family_id,
+            )
+        )
+        db.execute(
+            delete(AIUserApproval).where(
+                AIUserApproval.approval_request_id.in_(approval_ids),
+                AIUserApproval.family_id == membership.family_id,
+            )
+        )
+        db.execute(
+            delete(AIApprovalRequest).where(
+                AIApprovalRequest.id.in_(approval_ids),
+                AIApprovalRequest.family_id == membership.family_id,
+            )
+        )
+    if draft_ids:
+        db.execute(delete(AITaskDraft).where(AITaskDraft.id.in_(draft_ids), AITaskDraft.family_id == membership.family_id))
+    db.execute(
+        delete(AIRunEvent).where(
+            AIRunEvent.conversation_id == conversation_id,
+            AIRunEvent.family_id == membership.family_id,
+        )
+    )
+    db.execute(
+        delete(AIMessage).where(
+            AIMessage.conversation_id == conversation_id,
+            AIMessage.family_id == membership.family_id,
+        )
+    )
+    db.execute(
+        update(AIAgentRun)
+        .where(AIAgentRun.conversation_id == conversation_id, AIAgentRun.family_id == membership.family_id)
+        .values(conversation_id=None)
+    )
+    db.delete(conversation)
+    commit_session(db)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.post("/api/ai/query", response_model=AIQueryResponse)

@@ -608,7 +608,7 @@ const NAV_ITEMS: Array<{ key: TabKey; label: string; icon: ShellIconName }> = [
 const MOBILE_NAV_ITEMS: Array<{ key: TabKey; label: string; icon: ShellIconName }> = [
   { key: 'home', label: '首页', icon: 'home' },
   { key: 'foods', label: '食物', icon: 'foods' },
-  { key: 'recipes', label: '菜谱', icon: 'recipes' },
+  { key: 'ai', label: 'AI', icon: 'ai' },
   { key: 'ingredients', label: '食材', icon: 'ingredients' },
   { key: 'family', label: '家庭', icon: 'family' },
 ];
@@ -3452,7 +3452,7 @@ function App() {
         )}
 
         {activeTab === 'ai' && (
-          <AiWorkspace conversations={aiConversations} isLoading={aiConversationsQuery.isLoading} />
+          <AiWorkspace conversations={aiConversations} isLoading={aiConversationsQuery.isLoading} currentUser={user} />
         )}
 
         {activeTab === 'family' && (

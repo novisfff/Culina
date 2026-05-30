@@ -226,4 +226,23 @@ describe('AiWorkspace pending approval restore', () => {
     expect(rendered.container.querySelector<HTMLInputElement>('input.text-input')?.value).toBe('原始草稿');
     rendered.unmount();
   });
+
+  it('shows a confirmation modal before deleting a conversation from history', async () => {
+    vi.spyOn(api, 'getAiMessages').mockResolvedValue([]);
+    vi.spyOn(api, 'getPendingAiApprovals').mockResolvedValue([]);
+    const deleteSpy = vi.spyOn(api, 'deleteAiConversation').mockResolvedValue(undefined);
+    const rendered = await renderWithQuery(<AiWorkspace conversations={[conversation()]} isLoading={false} />);
+    await act(async () => {
+      rendered.container.querySelector<HTMLButtonElement>('.ai-conversation-delete')?.click();
+    });
+    await flush();
+    expect(rendered.container.textContent).toContain('删除这条历史？');
+    expect(rendered.container.textContent).toContain('帮我生成菜谱');
+    await act(async () => {
+      rendered.container.querySelector<HTMLButtonElement>('.ai-delete-confirm-actions .solid-button')?.click();
+    });
+    await flush();
+    expect(deleteSpy.mock.calls[0]?.[0]).toBe('conversation-1');
+    rendered.unmount();
+  });
 });

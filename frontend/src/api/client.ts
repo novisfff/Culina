@@ -352,6 +352,10 @@ export const api = {
     }),
   getActivityLogs: () => request<ActivityLog[]>('/api/activity-logs'),
   getAiConversations: () => request<AiConversation[]>('/api/ai/conversations'),
+  deleteAiConversation: (conversationId: string) =>
+    request<void>(`/api/ai/conversations/${conversationId}`, {
+      method: 'DELETE',
+    }),
   chatAi: (payload: { message: string; conversation_id?: string; client_message_id?: string; quick_task?: string; subject?: Record<string, unknown> }) =>
     request<AiChatResponse>('/api/ai/chat', {
       method: 'POST',
