@@ -23,6 +23,7 @@ import type {
   ShoppingListItem,
 } from './api/types';
 import { useAuth } from './auth/AuthContext';
+import { AiWorkspace } from './components/ai/AiWorkspace';
 import { FoodPlanDetailModal, type FoodPlanDetailFormState } from './components/foods/FoodPlanDetailModal';
 import { FoodWorkspace } from './components/foods/FoodWorkspace';
 import { IngredientWorkspace } from './components/ingredients/IngredientWorkspace';
@@ -607,7 +608,7 @@ const NAV_ITEMS: Array<{ key: TabKey; label: string; icon: ShellIconName }> = [
 const MOBILE_NAV_ITEMS: Array<{ key: TabKey; label: string; icon: ShellIconName }> = [
   { key: 'home', label: '首页', icon: 'home' },
   { key: 'foods', label: '食物', icon: 'foods' },
-  { key: 'recipes', label: '菜谱', icon: 'recipes' },
+  { key: 'ai', label: 'AI', icon: 'ai' },
   { key: 'ingredients', label: '食材', icon: 'ingredients' },
   { key: 'family', label: '家庭', icon: 'family' },
 ];
@@ -3451,113 +3452,7 @@ function App() {
         )}
 
         {activeTab === 'ai' && (
-          <main className="page-stack">
-            <PageHeader
-              variant="compact"
-              eyebrow="AI"
-              title="围绕这个家庭的库存和菜谱提问"
-              description="只保留对这个厨房有帮助的问答和建议。"
-            />
-            <div className="page-columns page-columns-split">
-              <section className="card page-section page-main-column">
-                <SectionHeading title="提问面板" description="选择模式后，用一句话说明你要解决的问题" />
-                <form className="form-grid" onSubmit={submitAi}>
-                  <section className="form-panel-section span-two">
-                    <div className="section-mini-title">对话设置</div>
-                    <div className="form-grid nested-grid">
-                      <label>
-                        <span>能力模式</span>
-                        <select
-                          className="text-input"
-                          value={aiMode}
-                          onChange={(event) => setAiMode(event.target.value as AiMode)}
-                        >
-                          {Object.entries(AI_MODE_LABELS).map(([key, label]) => (
-                            <option key={key} value={key}>
-                              {label}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                      {aiMode === 'foodQa' && (
-                        <label>
-                          <span>选择菜品</span>
-                          <select
-                            className="text-input"
-                            value={aiFoodId}
-                            onChange={(event) => setAiFoodId(event.target.value)}
-                          >
-                            <option value="">请选择一个食物</option>
-                            {foods.map((food) => (
-                              <option key={food.id} value={food.id}>
-                                {food.name}
-                              </option>
-                            ))}
-                          </select>
-                        </label>
-                      )}
-                      <label className="span-two">
-                        <span>问题 / 指令</span>
-                        <textarea
-                          className="text-input"
-                          rows={3}
-                          value={aiPrompt}
-                          onChange={(event) => setAiPrompt(event.target.value)}
-                        />
-                      </label>
-                    </div>
-                  </section>
-                  {aiMode === 'recipeDraft' && (
-                    <section className="form-panel-section span-two">
-                      <div className="section-mini-title">选择现有食材</div>
-                      <div className="member-row">
-                        {ingredients.map((ingredient) => (
-                          <label key={ingredient.id} className="checkbox-row member-pill">
-                            <input
-                              type="checkbox"
-                              checked={selectedAiIngredientIds.includes(ingredient.id)}
-                              onChange={(event) =>
-                                updateAiIngredients(ingredient.id, event.target.checked)
-                              }
-                            />
-                            <span>{ingredient.name}</span>
-                          </label>
-                        ))}
-                      </div>
-                    </section>
-                  )}
-                  <div className="span-two form-actions">
-                    <button className="solid-button" type="submit">
-                      发送给 AI
-                    </button>
-                  </div>
-                </form>
-              </section>
-
-              <aside className="card page-section page-side-column">
-                <SectionHeading title="结果面板" description="保留本家庭最近的 AI 对话与建议" />
-                <div className="stack-list">
-                  {aiConversations.length > 0 ? (
-                    aiConversations.map((item) => (
-                      <article key={item.id} className="conversation-card">
-                        <div className="inline-between">
-                          <h3>{AI_MODE_LABELS[item.mode]}</h3>
-                          <span className="subtle">{formatDateTime(item.created_at)}</span>
-                        </div>
-                        <p className="prompt-line">你问：{item.prompt}</p>
-                        <p>{item.response}</p>
-                      </article>
-                    ))
-                  ) : (
-                      <EmptyState
-                        title="还没有 AI 对话"
-                        description="可以先从库存问答或今晚吃什么开始。"
-                      />
-                    )}
-                  </div>
-                </aside>
-              </div>
-          </main>
+          <AiWorkspace conversations={aiConversations} isLoading={aiConversationsQuery.isLoading} currentUser={user} />
         )}
 
         {activeTab === 'family' && (

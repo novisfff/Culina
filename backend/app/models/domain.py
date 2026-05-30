@@ -58,6 +58,12 @@ class Family(AuditMixin, Base):
     ai_conversations: Mapped[list["AIConversation"]] = relationship(back_populates="family", cascade="all, delete-orphan")
     ai_recommendations: Mapped[list["AIRecommendation"]] = relationship(back_populates="family", cascade="all, delete-orphan")
     ai_agent_runs: Mapped[list["AIAgentRun"]] = relationship(back_populates="family", cascade="all, delete-orphan")
+    ai_messages: Mapped[list["AIMessage"]] = relationship(back_populates="family", cascade="all, delete-orphan")
+    ai_run_events: Mapped[list["AIRunEvent"]] = relationship(back_populates="family", cascade="all, delete-orphan")
+    ai_task_drafts: Mapped[list["AITaskDraft"]] = relationship(back_populates="family", cascade="all, delete-orphan")
+    ai_approval_requests: Mapped[list["AIApprovalRequest"]] = relationship(back_populates="family", cascade="all, delete-orphan")
+    ai_user_approvals: Mapped[list["AIUserApproval"]] = relationship(back_populates="family", cascade="all, delete-orphan")
+    ai_operations: Mapped[list["AIOperation"]] = relationship(back_populates="family", cascade="all, delete-orphan")
 
 
 class User(AuditMixin, Base):
@@ -428,10 +434,20 @@ class AIConversation(Base):
     prompt: Mapped[str] = mapped_column(Text, nullable=False)
     response: Mapped[str] = mapped_column(Text, nullable=False)
     context: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
+    title: Mapped[str] = mapped_column(String(120), default="", nullable=False)
+    summary: Mapped[str] = mapped_column(String(255), default="", nullable=False)
+    status: Mapped[str] = mapped_column(String(32), default="active", nullable=False, index=True)
+    last_message_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_run_status: Mapped[str] = mapped_column(String(32), default="", nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
     created_by: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
     family: Mapped["Family"] = relationship(back_populates="ai_conversations")
+    messages: Mapped[list["AIMessage"]] = relationship(
+        back_populates="conversation",
+        cascade="all, delete-orphan",
+        order_by=lambda: AIMessage.created_at,
+    )
 
 
 class AIRecommendation(Base):
@@ -451,8 +467,15 @@ class AIAgentRun(Base):
 
     id: Mapped[str] = mapped_column(String(64), primary_key=True, default=lambda: create_id("agent_run"))
     family_id: Mapped[str] = mapped_column(ForeignKey("families.id", ondelete="CASCADE"), nullable=False, index=True)
+    conversation_id: Mapped[str | None] = mapped_column(ForeignKey("ai_conversations.id", ondelete="SET NULL"), nullable=True, index=True)
+    message_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     agent_key: Mapped[str] = mapped_column(String(80), nullable=False, index=True)
     feature_key: Mapped[str] = mapped_column(String(80), nullable=False, index=True)
+    intent: Mapped[str] = mapped_column(String(80), default="", nullable=False, index=True)
+    input_summary: Mapped[str] = mapped_column(String(255), default="", nullable=False)
+    context_summary: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
+    output_summary: Mapped[str] = mapped_column(String(255), default="", nullable=False)
+    error_code: Mapped[str | None] = mapped_column(String(80), nullable=True)
     status: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
     model: Mapped[str] = mapped_column(String(120), default="", nullable=False)
     input: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
@@ -464,3 +487,132 @@ class AIAgentRun(Base):
     created_by: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
     family: Mapped["Family"] = relationship(back_populates="ai_agent_runs")
+
+
+class AIMessage(Base):
+    __tablename__ = "ai_messages"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True, default=lambda: create_id("ai_message"))
+    family_id: Mapped[str] = mapped_column(ForeignKey("families.id", ondelete="CASCADE"), nullable=False, index=True)
+    conversation_id: Mapped[str] = mapped_column(ForeignKey("ai_conversations.id", ondelete="CASCADE"), nullable=False, index=True)
+    role: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    content: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    content_type: Mapped[str] = mapped_column(String(32), default="text", nullable=False)
+    parts: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list, nullable=False)
+    run_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    status: Mapped[str] = mapped_column(String(32), default="completed", nullable=False, index=True)
+    message_metadata: Mapped[dict[str, Any]] = mapped_column("metadata", JSON, default=dict, nullable=False)
+    client_message_id: Mapped[str | None] = mapped_column(String(120), nullable=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+    created_by: Mapped[str | None] = mapped_column(String(64), nullable=True)
+
+    family: Mapped["Family"] = relationship(back_populates="ai_messages")
+    conversation: Mapped["AIConversation"] = relationship(back_populates="messages")
+
+
+class AIRunEvent(Base):
+    __tablename__ = "ai_run_events"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True, default=lambda: create_id("ai_run_event"))
+    family_id: Mapped[str] = mapped_column(ForeignKey("families.id", ondelete="CASCADE"), nullable=False, index=True)
+    run_id: Mapped[str] = mapped_column(ForeignKey("ai_agent_runs.id", ondelete="CASCADE"), nullable=False, index=True)
+    conversation_id: Mapped[str | None] = mapped_column(ForeignKey("ai_conversations.id", ondelete="CASCADE"), nullable=True, index=True)
+    type: Mapped[str] = mapped_column(String(64), nullable=False)
+    internal_code: Mapped[str] = mapped_column(String(120), nullable=False)
+    user_message: Mapped[str] = mapped_column(String(255), nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    payload: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+
+    family: Mapped["Family"] = relationship(back_populates="ai_run_events")
+
+
+class AITaskDraft(Base):
+    __tablename__ = "ai_task_drafts"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True, default=lambda: create_id("ai_draft"))
+    family_id: Mapped[str] = mapped_column(ForeignKey("families.id", ondelete="CASCADE"), nullable=False, index=True)
+    conversation_id: Mapped[str] = mapped_column(ForeignKey("ai_conversations.id", ondelete="CASCADE"), nullable=False, index=True)
+    source_run_id: Mapped[str | None] = mapped_column(ForeignKey("ai_agent_runs.id", ondelete="SET NULL"), nullable=True, index=True)
+    message_id: Mapped[str | None] = mapped_column(ForeignKey("ai_messages.id", ondelete="SET NULL"), nullable=True, index=True)
+    draft_type: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    payload: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
+    preview_summary: Mapped[str] = mapped_column(String(255), default="", nullable=False)
+    status: Mapped[str] = mapped_column(String(32), default="pending", nullable=False, index=True)
+    version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    schema_version: Mapped[str] = mapped_column(String(32), default="recipe.v1", nullable=False)
+    validation_errors: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list, nullable=False)
+    idempotency_key: Mapped[str] = mapped_column(String(120), nullable=False, unique=True, index=True)
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False)
+    created_by: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    updated_by: Mapped[str | None] = mapped_column(String(64), nullable=True)
+
+    family: Mapped["Family"] = relationship(back_populates="ai_task_drafts")
+
+
+class AIApprovalRequest(Base):
+    __tablename__ = "ai_approval_requests"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True, default=lambda: create_id("ai_approval"))
+    family_id: Mapped[str] = mapped_column(ForeignKey("families.id", ondelete="CASCADE"), nullable=False, index=True)
+    conversation_id: Mapped[str] = mapped_column(ForeignKey("ai_conversations.id", ondelete="CASCADE"), nullable=False, index=True)
+    message_id: Mapped[str | None] = mapped_column(ForeignKey("ai_messages.id", ondelete="SET NULL"), nullable=True, index=True)
+    run_id: Mapped[str | None] = mapped_column(ForeignKey("ai_agent_runs.id", ondelete="SET NULL"), nullable=True, index=True)
+    draft_id: Mapped[str] = mapped_column(ForeignKey("ai_task_drafts.id", ondelete="CASCADE"), nullable=False, index=True)
+    draft_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    draft_schema_version: Mapped[str] = mapped_column(String(32), nullable=False)
+    approval_type: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    status: Mapped[str] = mapped_column(String(32), default="pending", nullable=False, index=True)
+    request_payload: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
+    field_schema: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list, nullable=False)
+    initial_values: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
+    submitted_values: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
+    decision: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    comment: Mapped[str | None] = mapped_column(Text, nullable=True)
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False)
+    created_by: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    updated_by: Mapped[str | None] = mapped_column(String(64), nullable=True)
+
+    family: Mapped["Family"] = relationship(back_populates="ai_approval_requests")
+
+
+class AIUserApproval(Base):
+    __tablename__ = "ai_user_approvals"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True, default=lambda: create_id("ai_user_approval"))
+    family_id: Mapped[str] = mapped_column(ForeignKey("families.id", ondelete="CASCADE"), nullable=False, index=True)
+    approval_request_id: Mapped[str] = mapped_column(ForeignKey("ai_approval_requests.id", ondelete="CASCADE"), nullable=False, index=True)
+    draft_id: Mapped[str] = mapped_column(ForeignKey("ai_task_drafts.id", ondelete="CASCADE"), nullable=False, index=True)
+    approved_by: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    approved_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+    decision: Mapped[str] = mapped_column(String(32), nullable=False)
+    approval_payload: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
+    operation_summary: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
+    comment: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    family: Mapped["Family"] = relationship(back_populates="ai_user_approvals")
+
+
+class AIOperation(Base):
+    __tablename__ = "ai_operations"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True, default=lambda: create_id("ai_operation"))
+    family_id: Mapped[str] = mapped_column(ForeignKey("families.id", ondelete="CASCADE"), nullable=False, index=True)
+    approval_request_id: Mapped[str] = mapped_column(ForeignKey("ai_approval_requests.id", ondelete="CASCADE"), nullable=False, index=True)
+    draft_id: Mapped[str] = mapped_column(ForeignKey("ai_task_drafts.id", ondelete="CASCADE"), nullable=False, index=True)
+    operation_type: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    status: Mapped[str] = mapped_column(String(32), default="pending", nullable=False, index=True)
+    business_entity_type: Mapped[str] = mapped_column(String(64), default="", nullable=False)
+    business_entity_ids: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
+    idempotency_key: Mapped[str] = mapped_column(String(120), nullable=False, unique=True, index=True)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False)
+
+    family: Mapped["Family"] = relationship(back_populates="ai_operations")
