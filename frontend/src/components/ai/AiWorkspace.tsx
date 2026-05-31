@@ -9,6 +9,7 @@ type AiWorkspaceProps = {
   conversations: AiConversation[];
   isLoading: boolean;
   currentUser?: UserSummary | null;
+  onBackHome?: () => void;
 };
 
 const WELCOME_SUGGESTIONS = [
@@ -357,7 +358,7 @@ function MessageBubble({ message, user, onApprovalSettled }: { message: AiMessag
   );
 }
 
-export function AiWorkspace({ conversations, isLoading, currentUser = null }: AiWorkspaceProps) {
+export function AiWorkspace({ conversations, isLoading, currentUser = null, onBackHome }: AiWorkspaceProps) {
   const queryClient = useQueryClient();
   const [activeConversationId, setActiveConversationId] = useState<string | null>(conversations[0]?.id ?? null);
   const [isStartingNewConversation, setIsStartingNewConversation] = useState(false);
@@ -635,17 +636,22 @@ export function AiWorkspace({ conversations, isLoading, currentUser = null }: Ai
 
       <section className="ai-main-panel">
         <div className="ai-mobile-topbar">
-          <button className="ai-mobile-icon-button" type="button" aria-label="打开历史记录" onClick={() => setIsMobileHistoryOpen(true)}>
-            ☰
+          <button className="ai-mobile-icon-button" type="button" aria-label="返回首页" onClick={onBackHome}>
+            ‹
           </button>
           <div className="ai-mobile-title">
             <strong>AI 厨房助手</strong>
             <span><i aria-hidden="true" />在线 · 可随时帮你安排做饭</span>
           </div>
-          <button className="ai-mobile-new-session" type="button" aria-label="新会话" onClick={startNewConversation}>
-            <span aria-hidden="true">⊕</span>
-            新会话
-          </button>
+          <div className="ai-mobile-actions">
+            <button className="ai-mobile-history-trigger" type="button" aria-label="打开历史记录" onClick={() => setIsMobileHistoryOpen(true)}>
+              <span className="ai-mobile-menu-mark" aria-hidden="true" />
+            </button>
+            <button className="ai-mobile-new-session" type="button" aria-label="新会话" onClick={startNewConversation}>
+              <span aria-hidden="true">⊕</span>
+              新会话
+            </button>
+          </div>
         </div>
         <div className="ai-main-head">
           <div className="ai-hero-bar">
