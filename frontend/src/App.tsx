@@ -699,6 +699,13 @@ function defaultSidebarCollapsed() {
   return false;
 }
 
+function resetPageScroll() {
+  window.requestAnimationFrame(() => {
+    window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
+    document.scrollingElement?.scrollTo({ top: 0, left: 0, behavior: 'auto' });
+  });
+}
+
 function dateKeyTime(date: string) {
   const [year, month, day] = date.slice(0, 10).split('-').map(Number);
   return new Date(year, (month || 1) - 1, day || 1).getTime();
@@ -898,6 +905,7 @@ function App() {
 
   useEffect(() => {
     localStorage.setItem('culina-active-tab', activeTab);
+    resetPageScroll();
   }, [activeTab]);
 
   useEffect(() => {
@@ -3452,7 +3460,7 @@ function App() {
         )}
 
         {activeTab === 'ai' && (
-          <AiWorkspace conversations={aiConversations} isLoading={aiConversationsQuery.isLoading} currentUser={user} />
+          <AiWorkspace conversations={aiConversations} isLoading={aiConversationsQuery.isLoading} currentUser={user} onBackHome={() => setActiveTab('home')} />
         )}
 
         {activeTab === 'family' && (
