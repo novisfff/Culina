@@ -28924,18 +28924,6 @@ textarea:focus-visible {
     background: linear-gradient(180deg, #fffaf5 0%, #fffdfb 42%, #fff 100%);
   }
 
-  .app-shell:has(.ai-composer textarea:focus) {
-    --ai-mobile-nav-space: calc(8px + env(safe-area-inset-bottom, 0px));
-  }
-
-  .app-shell:has(.ai-composer textarea:focus) .mobile-bottom-nav {
-    display: none;
-  }
-
-  .app-shell:has(.ai-workspace-shell) .mobile-bottom-nav {
-    display: none;
-  }
-
   .app-frame:has(.ai-workspace-shell),
   .app-content:has(.ai-workspace-shell) {
     height: 100%;
@@ -33706,6 +33694,9 @@ textarea:focus-visible {
   }
 
   .mobile-bottom-nav {
+    --mobile-nav-surface: rgba(255, 253, 249, 0.96);
+    --mobile-nav-border: rgba(226, 211, 198, 0.98);
+    --mobile-nav-ai-ring-size: 64px;
     position: fixed;
     left: 12px;
     right: 12px;
@@ -33713,16 +33704,39 @@ textarea:focus-visible {
     z-index: 60;
     display: grid;
     grid-template-columns: repeat(5, minmax(0, 1fr));
+    align-items: center;
     gap: 2px;
+    overflow: visible;
+    isolation: isolate;
     padding: 8px 8px 7px;
-    border: 1px solid rgba(226, 205, 189, 0.9);
+    border: 0;
     border-radius: 26px;
-    background: rgba(255, 253, 249, 0.94);
+    background: transparent;
     box-shadow: 0 18px 38px rgba(63, 42, 28, 0.16);
     backdrop-filter: blur(18px);
   }
 
+  .mobile-bottom-nav-frame {
+    position: absolute;
+    inset: -26px 0 0;
+    z-index: 0;
+    width: 100%;
+    height: calc(100% + 26px);
+    overflow: visible;
+    fill: var(--mobile-nav-surface);
+    stroke: var(--mobile-nav-border);
+    stroke-width: 1.7px;
+    vector-effect: non-scaling-stroke;
+    pointer-events: none;
+  }
+
+  .mobile-bottom-nav::after {
+    content: none;
+  }
+
   .mobile-bottom-nav-item {
+    position: relative;
+    z-index: 2;
     min-width: 0;
     min-height: 54px;
     display: grid;
@@ -33733,7 +33747,7 @@ textarea:focus-visible {
     border: 0;
     border-radius: 18px;
     background: transparent;
-    color: #756459;
+    color: #6f6258;
     font: inherit;
   }
 
@@ -33747,6 +33761,7 @@ textarea:focus-visible {
   .mobile-bottom-nav-item strong {
     max-width: 100%;
     overflow: hidden;
+    color: currentColor;
     font-size: 0.73rem;
     font-weight: 900;
     line-height: 1;
@@ -33754,18 +33769,60 @@ textarea:focus-visible {
     white-space: nowrap;
   }
 
+  .mobile-bottom-nav-ai-item {
+    align-self: stretch;
+    align-content: end;
+    gap: 0;
+    padding-top: 0;
+    padding-bottom: 0;
+    color: #6f6258;
+  }
+
+  .mobile-bottom-nav-ai-item .mobile-bottom-nav-ai-avatar {
+    position: absolute;
+    top: -22px;
+    left: 50%;
+    width: var(--mobile-nav-ai-ring-size);
+    height: var(--mobile-nav-ai-ring-size);
+    overflow: hidden;
+    border: 4px solid rgba(255, 255, 255, 0.97);
+    border-radius: 999px;
+    background: #fff7ef;
+    box-shadow:
+      0 14px 24px rgba(211, 101, 43, 0.16),
+      0 0 0 1px rgba(255, 255, 255, 0.85) inset;
+    transform: translateX(-50%);
+  }
+
+  .mobile-bottom-nav-ai-avatar img {
+    width: 100%;
+    height: 100%;
+    display: block;
+    object-fit: cover;
+  }
+
+  .mobile-bottom-nav-ai-item strong {
+    padding-top: 42px;
+    font-size: 0.78rem;
+    font-weight: 950;
+  }
+
+  .mobile-bottom-nav-ai-item.active {
+    color: #e36a21;
+  }
+
   .mobile-bottom-nav-item.active {
     color: #dc6f34;
   }
 
-  .mobile-bottom-nav-item.active span {
+  .mobile-bottom-nav-item.active:not(.mobile-bottom-nav-ai-item) span {
     color: #fff;
     border-radius: 999px;
     background: linear-gradient(180deg, #e17738, #d66b2f);
     box-shadow: 0 8px 18px rgba(211, 101, 43, 0.22);
   }
 
-  .mobile-bottom-nav-item.active svg {
+  .mobile-bottom-nav-item.active:not(.mobile-bottom-nav-ai-item) svg {
     width: 17px;
     height: 17px;
   }
