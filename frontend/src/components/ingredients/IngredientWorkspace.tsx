@@ -11,7 +11,6 @@ import {
 import type {
   ConsumeInventoryResponse,
   DisposeExpiredInventoryResponse,
-  ImageInputValue,
   Ingredient,
   IngredientExpiryMode,
   IngredientUnitConversion,
@@ -25,13 +24,11 @@ import { addDateKeyDays } from '../../lib/date';
 import { readJsonStorage, writeJsonStorage } from '../../lib/storage';
 import {
   buildIngredientPlaceholderSvg,
-  emptyImages,
   formatDate,
   formatDateTime,
   formatRelativeDays,
   getImagePreview,
   INVENTORY_STATUS_LABELS,
-  todayKey,
 } from '../../lib/ui';
 import {
   type AiRenderPayload,
@@ -54,7 +51,6 @@ import {
   SectionHeading,
   TouchRangeField,
   TouchStepperField,
-  WorkspaceModal,
   WorkspaceSubnav,
   WorkspaceSubpageShell,
 } from '../ui-kit';
@@ -93,73 +89,46 @@ import {
   type ShoppingCardViewModel,
 } from './workspaceModel';
 import {
-  buildConsumeQuickValues,
-  clampConsumeQuantity,
-  getConsumeRemainingQuantity,
-  isConsumeAllSelected,
-  resolveConsumeStep,
-  resolveInitialConsumeQuantity,
-} from './consumeQuickHelpers';
-
-type IngredientCreateFormState = {
-  name: string;
-  category: string;
-  defaultUnit: string;
-  unitConversions: IngredientUnitConversionDraft[];
-  defaultStorage: string;
-  defaultExpiryMode: IngredientExpiryMode;
-  defaultExpiryDays: string;
-  defaultLowStockThreshold: string;
-  notes: string;
-  images: ImageInputValue;
-};
-
-type InventoryDrawerFormState = {
-  ingredientId: string;
-  ingredientQuery: string;
-  ingredientLocked: boolean;
-  quantity: string;
-  unit: string;
-  status: InventoryStatus;
-  statusDirty: boolean;
-  purchaseDate: string;
-  purchaseDatePreset: InventoryPurchasePreset;
-  expiryInputMode: IngredientExpiryMode;
-  expiryDays: string;
-  expiryDate: string;
-  storageLocation: string;
-  notes: string;
-};
-
-type ShoppingDialogFormState = {
-  title: string;
-  quantity: string;
-  unit: string;
-  reason: string;
-};
-
-type ConsumeDialogFormState = {
-  ingredientId: string;
-  unit: string;
-  quantity: string;
-};
-
-type PendingShoppingCompletion = {
-  itemId: string;
-  title: string;
-};
-
-type ConsumeUnitOption = {
-  unit: string;
-  available: number;
-  ratioToDefault: number;
-};
-
-type IngredientUnitConversionDraft = {
-  id: string;
-  unit: string;
-  ratioToDefault: string;
-};
+  buildConsumeUnitOptions,
+  buildIngredientForm,
+  buildInventoryForm,
+  buildShoppingForm,
+  buildUnitPresetOptions,
+  clampNumber,
+  createIngredientUnitConversionDraft,
+  defaultConsumeForm,
+  defaultIngredientForm,
+  formatNumericString,
+  INVENTORY_STORAGE_PRESETS,
+  isCustomChoiceValue,
+  parseOptionalNumber,
+  parsePositiveNumber,
+  resolveClampedDaysValue,
+  resolveExpiryDateFromDays,
+  resolveInventoryStatusForStorage,
+  resolveTouchDefaultValue,
+  resolveTouchQuickValues,
+  resolveTouchStep,
+  restoreIngredientForm,
+  sanitizeIngredientUnitConversions,
+  type ConsumeDialogFormState,
+  type IngredientCreateFormState,
+  type IngredientUnitConversionDraft,
+  type InventoryDrawerFormState,
+  type InventorySortMode,
+  type InventoryStorageFocus,
+  type ShoppingDialogFormState,
+} from './ingredientWorkspaceForms';
+import {
+  IngredientInventoryPanel,
+  IngredientMobileQuickBar,
+  IngredientShoppingPanel,
+} from './IngredientWorkspacePanels';
+import {
+  IngredientWorkspaceOverlays,
+  type PendingShoppingCompletion,
+} from './IngredientWorkspaceOverlays';
+import { resolveInitialConsumeQuantity } from './consumeQuickHelpers';
 
 type ScrollableChipRailProps = {
   ariaLabel: string;
@@ -240,106 +209,6 @@ type IngredientWorkspaceProps = {
   isUpdatingShopping?: boolean;
 };
 
-function defaultIngredientForm(): IngredientCreateFormState {
-  return {
-    name: '',
-    category: '',
-    defaultUnit: '个',
-    unitConversions: [],
-    defaultStorage: '冷藏',
-    defaultExpiryMode: 'none',
-    defaultExpiryDays: '',
-    defaultLowStockThreshold: '',
-    notes: '',
-    images: emptyImages(),
-  };
-}
-
-function buildIngredientForm(ingredient?: Ingredient | null): IngredientCreateFormState {
-  if (!ingredient) {
-    return defaultIngredientForm();
-  }
-  const defaultExpiryMode =
-    ingredient.default_expiry_mode === 'days' ||
-    ingredient.default_expiry_mode === 'manual_date' ||
-    ingredient.default_expiry_mode === 'none'
-      ? ingredient.default_expiry_mode
-      : 'none';
-  return {
-    name: ingredient.name,
-    category: ingredient.category,
-    defaultUnit: ingredient.default_unit,
-    unitConversions: buildIngredientUnitConversionDrafts(ingredient.unit_conversions),
-    defaultStorage: ingredient.default_storage,
-    defaultExpiryMode,
-    defaultExpiryDays:
-      ingredient.default_expiry_days === null || ingredient.default_expiry_days === undefined
-        ? ''
-        : String(clampNumber(ingredient.default_expiry_days, 1, 30)),
-    defaultLowStockThreshold:
-      ingredient.default_low_stock_threshold === null || ingredient.default_low_stock_threshold === undefined
-        ? ''
-        : String(ingredient.default_low_stock_threshold),
-    notes: ingredient.notes,
-    images: ingredient.image ? { generatedAsset: ingredient.image } : emptyImages(),
-  };
-}
-
-function buildInventoryForm(
-  ingredients: Ingredient[],
-  ingredientId?: string,
-  overrides: Partial<InventoryDrawerFormState> = {}
-): InventoryDrawerFormState {
-  const selectedIngredient =
-    ingredientId ? ingredients.find((item) => item.id === ingredientId) : undefined;
-  const purchaseDate = overrides.purchaseDate ?? todayKey();
-  const storageLocation = selectedIngredient?.default_storage ?? '冷藏';
-  const expiryInputMode = overrides.expiryInputMode ?? selectedIngredient?.default_expiry_mode ?? 'none';
-  const expiryDays =
-    overrides.expiryDays ??
-    (expiryInputMode === 'days' && selectedIngredient?.default_expiry_days !== null && selectedIngredient?.default_expiry_days !== undefined
-      ? String(clampNumber(selectedIngredient.default_expiry_days, 1, 30))
-      : '');
-  const expiryDate =
-    overrides.expiryDate ??
-    (expiryInputMode === 'days' ? resolveExpiryDateFromDays(purchaseDate, expiryDays) : '');
-
-  return {
-    ingredientId: selectedIngredient?.id ?? '',
-    ingredientQuery: selectedIngredient?.name ?? '',
-    ingredientLocked: false,
-    quantity: '1',
-    unit: resolvePreferredIngredientUnit(selectedIngredient, overrides.unit) || selectedIngredient?.default_unit || '个',
-    status: resolveInventoryStatusForStorage(storageLocation),
-    statusDirty: false,
-    purchaseDate,
-    purchaseDatePreset: resolveInventoryPurchasePreset(purchaseDate),
-    expiryInputMode,
-    expiryDays,
-    expiryDate,
-    storageLocation,
-    notes: '',
-    ...overrides,
-  };
-}
-
-function buildShoppingForm(ingredient?: Ingredient, reason = ''): ShoppingDialogFormState {
-  return {
-    title: ingredient?.name ?? '',
-    quantity: '1',
-    unit: resolvePreferredIngredientUnit(ingredient, ingredient?.default_unit) || '个',
-    reason,
-  };
-}
-
-function defaultConsumeForm(): ConsumeDialogFormState {
-  return {
-    ingredientId: '',
-    unit: '',
-    quantity: '',
-  };
-}
-
 function resolveErrorMessage(reason: unknown, fallback: string) {
   return reason instanceof Error && reason.message.trim() ? reason.message : fallback;
 }
@@ -352,9 +221,6 @@ type IngredientAlertTone = 'warning' | 'danger';
 type CatalogStatusFilter = 'all' | 'expired' | 'expiring' | 'lowStock' | 'stable';
 type MobileIngredientFilter = 'all' | 'alerted' | 'empty' | 'stocked';
 type InventoryQuickFilter = 'all' | 'alerted';
-type InventoryStorageFocus = 'all' | '冷藏' | '冷冻' | '常温';
-type InventoryPurchasePreset = 'today' | 'yesterday' | 'custom';
-type InventorySortMode = 'default' | 'expiry';
 type IngredientWorkspaceIconName =
   | 'logo'
   | 'archive'
@@ -637,9 +503,6 @@ const STORAGE_SHELF_MAX_WIDTH = 318;
 const STORAGE_SHELF_GAP = 18;
 const STORAGE_SHELF_MAX_DISPLAY_COLUMNS = 4;
 const INGREDIENT_WORKSPACE_STATE_KEY = 'culina-ingredient-workspace-state-v1';
-const INVENTORY_STORAGE_PRESETS = ['冷藏', '冷冻', '常温'] as const;
-const COMMON_UNIT_PRESETS = ['个', '份', '盒', '袋', '瓶', '包', '块', '罐', '根', '条', '颗', '枚', '把', 'ml', 'g', 'kg'] as const;
-const INTEGER_STEP_UNITS = new Set(['个', '份', '盒', '袋', '瓶', '包', '块', '罐', '根', '条', '颗', '枚', '把']);
 const EXPIRY_DAY_MARKS = [1, 3, 7, 14, 30];
 const CATALOG_STATUS_FILTERS: Array<{ value: CatalogStatusFilter; label: string }> = [
   { value: 'all', label: '全部' },
@@ -648,131 +511,6 @@ const CATALOG_STATUS_FILTERS: Array<{ value: CatalogStatusFilter; label: string 
   { value: 'lowStock', label: '库存不足' },
   { value: 'stable', label: '正常' },
 ];
-let ingredientUnitConversionDraftCounter = 0;
-
-function createIngredientUnitConversionDraft(
-  entry?: Partial<Pick<IngredientUnitConversion, 'unit' | 'ratio_to_default'>>
-): IngredientUnitConversionDraft {
-  ingredientUnitConversionDraftCounter += 1;
-  return {
-    id: `ingredient-unit-conversion-${ingredientUnitConversionDraftCounter}`,
-    unit: entry?.unit ?? '',
-    ratioToDefault:
-      entry?.ratio_to_default === null || entry?.ratio_to_default === undefined ? '' : String(entry.ratio_to_default),
-  };
-}
-
-function buildIngredientUnitConversionDrafts(entries: IngredientUnitConversion[] = []) {
-  return entries.map((entry) => createIngredientUnitConversionDraft(entry));
-}
-
-function resolveInventoryStatusForStorage(storageLocation: string): InventoryStatus {
-  return storageLocation.trim() === '冷冻' ? 'frozen' : 'fresh';
-}
-
-function resolveExpiryDateFromDays(purchaseDate: string, expiryDays: string) {
-  const safeDays = Number(expiryDays);
-  if (!purchaseDate || !Number.isFinite(safeDays) || safeDays <= 0) {
-    return '';
-  }
-  return addDateKeyDays(purchaseDate, safeDays);
-}
-
-function parseOptionalNumber(value: string) {
-  const trimmed = value.trim();
-  if (!trimmed) {
-    return null;
-  }
-  const numeric = Number(trimmed);
-  return Number.isFinite(numeric) ? numeric : null;
-}
-
-function parsePositiveNumber(value: string) {
-  const numeric = parseOptionalNumber(value);
-  return numeric !== null && numeric > 0 ? numeric : null;
-}
-
-function clampNumber(value: number, min: number, max: number) {
-  return Math.min(max, Math.max(min, value));
-}
-
-function formatNumericString(value: number) {
-  return String(Number(value.toFixed(2)));
-}
-
-function buildUnitPresetOptions(preferred?: string) {
-  const normalizedPreferred = normalizeIngredientUnit(preferred);
-  return [
-    ...new Set(
-      [normalizedPreferred, ...COMMON_UNIT_PRESETS]
-        .map((item) => item?.trim() ?? '')
-        .filter(Boolean)
-    ),
-  ];
-}
-
-function isCustomChoiceValue(value: string, presets: readonly string[]) {
-  const normalized = value.trim();
-  return !normalized || !presets.includes(normalized);
-}
-
-function resolveTouchStep(unit: string) {
-  return INTEGER_STEP_UNITS.has(unit.trim()) ? 1 : 0.5;
-}
-
-function resolveTouchQuickValues(unit: string, mode: 'quantity' | 'threshold') {
-  const usesIntegerStep = INTEGER_STEP_UNITS.has(unit.trim());
-  if (mode === 'quantity') {
-    return usesIntegerStep ? [1, 2, 3, 5, 8] : [0.5, 1, 1.5, 2, 3];
-  }
-  return usesIntegerStep ? [1, 2, 3, 5] : [0.5, 1, 1.5, 2];
-}
-
-function resolveTouchDefaultValue(unit: string, mode: 'quantity' | 'threshold') {
-  return resolveTouchQuickValues(unit, mode)[0] ?? resolveTouchStep(unit);
-}
-
-function buildConsumeUnitOptions(
-  ingredient: Pick<Ingredient, 'default_unit' | 'unit_conversions'> | null | undefined,
-  inventoryItems: InventoryItem[],
-  preferredUnit?: string
-): ConsumeUnitOption[] {
-  const totalAvailableInDefault = getIngredientAvailableQuantityInDefault(ingredient, inventoryItems);
-  const options = getIngredientUnitOptions(ingredient).map((entry) => ({
-    unit: entry.unit,
-    ratioToDefault: entry.ratio_to_default,
-    available:
-      convertQuantityFromDefaultUnit(ingredient, totalAvailableInDefault, entry.unit) ?? totalAvailableInDefault,
-  }));
-
-  return options
-    .filter((entry) => entry.available > 0)
-    .sort((left, right) => {
-      if (preferredUnit && left.unit === preferredUnit && right.unit !== preferredUnit) {
-        return -1;
-      }
-      if (preferredUnit && right.unit === preferredUnit && left.unit !== preferredUnit) {
-        return 1;
-      }
-      return left.ratioToDefault - right.ratioToDefault || left.unit.localeCompare(right.unit, 'zh-CN');
-    });
-}
-
-function resolveClampedDaysValue(value: string, fallback = 3) {
-  const parsed = parsePositiveNumber(value);
-  return clampNumber(parsed ?? fallback, 1, 30);
-}
-
-function resolveInventoryPurchasePreset(purchaseDate: string): InventoryPurchasePreset {
-  if (purchaseDate === todayKey()) {
-    return 'today';
-  }
-  if (purchaseDate === addDateKeyDays(todayKey(), -1)) {
-    return 'yesterday';
-  }
-  return 'custom';
-}
-
 function formatExpiryRuleLabel(ingredient: Ingredient) {
   const expiryMode =
     ingredient.default_expiry_mode === 'days' ||
@@ -795,40 +533,6 @@ function formatLowStockRuleLabel(ingredient: Ingredient) {
     : '未设置低库存提醒';
 }
 
-function sanitizeIngredientUnitConversions(
-  defaultUnit: string,
-  unitConversions: IngredientUnitConversionDraft[]
-): IngredientUnitConversion[] {
-  const normalizedDefaultUnit = normalizeIngredientUnit(defaultUnit);
-  const seenUnits = new Set(normalizedDefaultUnit ? [normalizedDefaultUnit] : []);
-  const normalizedEntries: IngredientUnitConversion[] = [];
-
-  for (const entry of unitConversions) {
-    const unit = normalizeIngredientUnit(entry.unit);
-    const ratio = parsePositiveNumber(entry.ratioToDefault);
-    const isEmptyEntry = !unit && !entry.ratioToDefault.trim();
-    if (isEmptyEntry) {
-      continue;
-    }
-    if (!unit) {
-      throw new Error('请先填写副单位名称。');
-    }
-    if (ratio === null) {
-      throw new Error(`请确认 ${unit} 对主单位的换算值。`);
-    }
-    if (seenUnits.has(unit)) {
-      throw new Error(`单位 ${unit} 已重复，副单位不能与主单位或其他单位重复。`);
-    }
-    seenUnits.add(unit);
-    normalizedEntries.push({
-      unit,
-      ratio_to_default: ratio,
-    });
-  }
-
-  return normalizedEntries;
-}
-
 type PersistedIngredientWorkspaceState = {
   workspaceView?: IngredientWorkspaceView;
   activePanel?: IngredientWorkspacePanel;
@@ -846,71 +550,6 @@ function isWorkspaceView(value: unknown): value is IngredientWorkspaceView {
 
 function isWorkspacePanel(value: unknown): value is IngredientWorkspacePanel {
   return value === 'catalog' || value === 'inventory' || value === 'shopping';
-}
-
-function isMediaAssetLike(
-  value: unknown
-): value is NonNullable<ImageInputValue['referenceAsset']> | NonNullable<ImageInputValue['generatedAsset']> {
-  return Boolean(
-    value &&
-      typeof value === 'object' &&
-      'id' in value &&
-      typeof (value as { id?: unknown }).id === 'string' &&
-      'url' in value &&
-      typeof (value as { url?: unknown }).url === 'string'
-  );
-}
-
-function restoreIngredientForm(raw: unknown): IngredientCreateFormState {
-  const fallback = defaultIngredientForm();
-  if (!raw || typeof raw !== 'object') {
-    return fallback;
-  }
-  const candidate = raw as Partial<IngredientCreateFormState>;
-  const candidateImages =
-    candidate.images && typeof candidate.images === 'object'
-      ? {
-          referenceAsset: isMediaAssetLike(candidate.images.referenceAsset) ? candidate.images.referenceAsset : undefined,
-          generatedAsset: isMediaAssetLike(candidate.images.generatedAsset) ? candidate.images.generatedAsset : undefined,
-        }
-      : fallback.images;
-  const candidateUnitConversions = Array.isArray(candidate.unitConversions)
-    ? candidate.unitConversions.flatMap((entry) => {
-        if (!entry || typeof entry !== 'object') {
-          return [];
-        }
-        const unit = typeof entry.unit === 'string' ? entry.unit : '';
-        const ratioToDefault =
-          typeof entry.ratioToDefault === 'string'
-            ? entry.ratioToDefault
-            : typeof entry.ratioToDefault === 'number'
-              ? String(entry.ratioToDefault)
-              : '';
-        return [createIngredientUnitConversionDraft({ unit, ratio_to_default: parseOptionalNumber(ratioToDefault) ?? undefined })];
-      })
-    : fallback.unitConversions;
-
-  return {
-    name: typeof candidate.name === 'string' ? candidate.name : fallback.name,
-    category: typeof candidate.category === 'string' ? candidate.category : fallback.category,
-    defaultUnit: typeof candidate.defaultUnit === 'string' ? candidate.defaultUnit : fallback.defaultUnit,
-    unitConversions: candidateUnitConversions,
-    defaultStorage: typeof candidate.defaultStorage === 'string' ? candidate.defaultStorage : fallback.defaultStorage,
-    defaultExpiryMode:
-      candidate.defaultExpiryMode === 'days' ||
-      candidate.defaultExpiryMode === 'manual_date' ||
-      candidate.defaultExpiryMode === 'none'
-        ? candidate.defaultExpiryMode
-        : fallback.defaultExpiryMode,
-    defaultExpiryDays:
-      typeof candidate.defaultExpiryDays === 'string' ? candidate.defaultExpiryDays : fallback.defaultExpiryDays,
-    defaultLowStockThreshold:
-      typeof candidate.defaultLowStockThreshold === 'string'
-        ? candidate.defaultLowStockThreshold
-        : fallback.defaultLowStockThreshold,
-    notes: typeof candidate.notes === 'string' ? candidate.notes : fallback.notes,
-    images: candidateImages,
-  };
 }
 
 function readPersistedWorkspaceState(): PersistedIngredientWorkspaceState {
@@ -3336,12 +2975,12 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
             </aside>
           </form>
         </WorkspaceSubpageShell>
-        <MobileQuickBar
+        <IngredientMobileQuickBar
           onCreate={openCreateView}
           onInventory={() => openInventoryOverlay()}
           onShopping={() => openShoppingOverlay()}
         />
-        <OverlayLayer
+        <IngredientWorkspaceOverlays
           overlayMode={overlayMode}
           closeOverlay={closeOverlay}
           inventoryForm={inventoryForm}
@@ -3742,7 +3381,7 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
           </div>
         </WorkspaceSubpageShell>
 
-        <MobileQuickBar
+        <IngredientMobileQuickBar
           onCreate={openCreateView}
           onInventory={() => openInventoryOverlay(selectedIngredient.ingredient.id)}
           onShopping={() =>
@@ -3752,7 +3391,7 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
             })
           }
         />
-        <OverlayLayer
+        <IngredientWorkspaceOverlays
           overlayMode={overlayMode}
           closeOverlay={closeOverlay}
           inventoryForm={inventoryForm}
@@ -4291,422 +3930,83 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
           )}
 
           {activePanel === 'inventory' && (
-            <div className="ingredients-panel-stack ingredients-inventory-stack">
-              <div className="ingredients-panel-toolbar ingredients-inventory-toolbar">
-                <div className="ingredients-inventory-toolbar-main">
-                  <label className="ingredients-search-field ingredients-inventory-search-field">
-                    <span className="ingredients-toolbar-label ingredients-catalog-label-with-icon">
-                      库存检索
-                    </span>
-                    <span className="ingredients-catalog-search-input-shell">
-                      <span className="ingredients-catalog-search-input-icon" aria-hidden="true">
-                        <IngredientWorkspaceIcon name="search" />
-                      </span>
-                      <input
-                        className="text-input"
-                        placeholder="搜索食材名称、分类、位置或提醒"
-                        value={inventorySearch}
-                        onChange={(event) => setInventorySearch(event.target.value)}
-                      />
-                    </span>
-                  </label>
-                  <div className="ingredients-inventory-filter-row">
-                    <button
-                      className={
-                        inventoryQuickFilter === 'all'
-                          ? 'chip ingredients-inventory-filter-chip active'
-                          : 'chip ingredients-inventory-filter-chip'
-                      }
-                      type="button"
-                      onClick={() => setInventoryQuickFilter('all')}
-                    >
-                      全部库存
-                    </button>
-                    <button
-                      className={
-                        inventoryQuickFilter === 'alerted'
-                          ? 'chip ingredients-inventory-filter-chip active'
-                          : 'chip ingredients-inventory-filter-chip'
-                      }
-                      type="button"
-                      onClick={() => setInventoryQuickFilter('alerted')}
-                    >
-                      仅看提醒
-                    </button>
-                    <button
-                      className="chip ingredients-inventory-filter-chip ingredients-inventory-clear-filter"
-                      type="button"
-                      onClick={() => {
-                        setInventorySearch('');
-                        setInventoryQuickFilter('all');
-                        setInventoryStorageFocus('冷藏');
-                        setInventorySortMode('default');
-                      }}
-                    >
-                      清空筛选
-                    </button>
-                  </div>
-                </div>
-                <div className="ingredients-panel-toolbar-actions ingredients-inventory-toolbar-actions">
-                  <p className="ingredients-toolbar-summary">
-                    当前显示 {focusedInventorySummaries.length} 种食材
-                    {inventoryStorageFocus !== 'all' ? ` · ${inventoryStorageFocus}` : ''}
-                  </p>
-                  <ActionButton tone="primary" type="button" onClick={() => openInventoryOverlay()}>
-                    快速入库
-                  </ActionButton>
-                </div>
-              </div>
-
-              <section className="ingredients-inventory-overview-shell">
-                <div className="ingredients-inventory-overview-head">
-                  <div className="ingredients-inventory-overview-headline">
-                    <h3>位置总览</h3>
-                    <p className="ingredients-inventory-overview-summary">
-                      {inventoryStorageFocus === 'all'
-                        ? '点击任一位置卡可聚焦查看'
-                        : `当前分区：${inventoryStorageFocus}`}
-                    </p>
-                  </div>
-                  <p className="ingredients-inventory-overview-tip subtle">
-                    先看各位置库存压力，再进入对应卡片直接处理。
-                  </p>
-                </div>
-                <div className="ingredients-inventory-overview-strip">
-                  {inventoryStorageOverview.map((item) => (
-                    <InventoryStorageOverviewCard
-                      key={item.key}
-                      item={item}
-                      active={inventoryStorageFocus === item.key}
-                      onSelect={() =>
-                        setInventoryStorageFocus((current) =>
-                          current === item.key ? current : (item.key as InventoryStorageFocus)
-                        )
-                      }
-                    />
-                  ))}
-                </div>
-              </section>
-
-              <div className="ingredients-storage-groups ingredients-inventory-groups">
-                {inventoryGroups.length > 0 ? (
-                  inventoryGroups.map((group) => (
-                    <section
-                      key={group.key}
-                      className={`ingredients-storage-group ingredients-inventory-storage-group storage-${group.key}`}
-                    >
-                      <div className="ingredients-storage-head ingredients-inventory-storage-head">
-                        <div className="ingredients-inventory-storage-titleblock">
-                          <h3>
-                            <span>位置分区</span>
-                            <small>/</small>
-                            {group.label}
-                          </h3>
-                          <p className="subtle">
-                            {group.items.length} 种食材 · {group.totalBatches} 条批次 · {group.alertCount} 条提醒
-                          </p>
-                        </div>
-                        <div className="ingredients-inventory-storage-head-side" aria-label="库存分区筛选和排序">
-                          <button
-                            className={
-                              inventoryQuickFilter === 'alerted'
-                                ? 'chip ingredients-inventory-filter-chip active ingredients-inventory-filter-chip-icon'
-                                : 'chip ingredients-inventory-filter-chip ingredients-inventory-filter-chip-icon'
-                            }
-                            type="button"
-                            onClick={() =>
-                              setInventoryQuickFilter((current) => (current === 'alerted' ? 'all' : 'alerted'))
-                            }
-                          >
-                            <IngredientWorkspaceIcon name="bell" />
-                            仅看提醒
-                          </button>
-                          <button
-                            className={
-                              inventorySortMode === 'expiry'
-                                ? 'chip ingredients-inventory-filter-chip active ingredients-inventory-filter-chip-icon'
-                                : 'chip ingredients-inventory-filter-chip ingredients-inventory-filter-chip-icon'
-                            }
-                            type="button"
-                            onClick={() =>
-                              setInventorySortMode((current) => (current === 'expiry' ? 'default' : 'expiry'))
-                            }
-                          >
-                            <IngredientWorkspaceIcon name="sort" />
-                            按到期时间排序
-                          </button>
-                        </div>
-                      </div>
-                      <div className="ingredients-inventory-grid ingredients-storage-workbench-density-compact">
-                        {group.items.map((summary) => (
-                          <InventoryIngredientCard
-                            key={summary.ingredient.id}
-                            summary={summary}
-                            onRestock={() => openInventoryOverlay(summary.ingredient.id)}
-                            onConsume={() => openConsumeOverlay(summary.ingredient.id)}
-                            onAddShopping={() =>
-                              openShoppingOverlay({
-                                ingredient: summary.ingredient,
-                                reason: resolveShoppingReason(summary),
-                              })
-                            }
-                            onDetail={() => openDetailView(summary)}
-                            onDestroyExpired={() => openDestroyExpiredOverlay(summary.ingredient.id)}
-                          />
-                        ))}
-                      </div>
-                    </section>
-                  ))
-                ) : (
-                  <EmptyState
-                    title={summaries.length === 0 ? '还没有库存对象' : '没有匹配的库存食材'}
-                    description={
-                      summaries.length === 0
-                        ? '先新增常用食材，再开始补库存和查看当前状态。'
-                        : inventoryStorageFocus !== 'all'
-                          ? `当前 ${inventoryStorageFocus} 位置下没有匹配结果，试试切回全部位置或换个关键词。`
-                          : '试试新的搜索词，或者先为常用食材登记一批库存。'
-                    }
-                    action={
-                      summaries.length === 0 ? (
-                        <ActionButton tone="secondary" type="button" onClick={openCreateView}>
-                          新增食材
-                        </ActionButton>
-                      ) : undefined
-                    }
-                  />
-                )}
-              </div>
-            </div>
+            <IngredientInventoryPanel
+              summariesCount={summaries.length}
+              inventorySearch={inventorySearch}
+              inventoryQuickFilter={inventoryQuickFilter}
+              inventoryStorageFocus={inventoryStorageFocus}
+              inventorySortMode={inventorySortMode}
+              focusedInventorySummaries={focusedInventorySummaries}
+              inventoryStorageOverview={inventoryStorageOverview}
+              inventoryGroups={inventoryGroups}
+              onInventorySearchChange={setInventorySearch}
+              onInventoryQuickFilterChange={setInventoryQuickFilter}
+              onInventoryStorageFocusChange={setInventoryStorageFocus}
+              onInventorySortModeChange={setInventorySortMode}
+              onResetFilters={() => {
+                setInventorySearch('');
+                setInventoryQuickFilter('all');
+                setInventoryStorageFocus('冷藏');
+                setInventorySortMode('default');
+              }}
+              onOpenInventoryOverlay={openInventoryOverlay}
+              onOpenConsumeOverlay={openConsumeOverlay}
+              onOpenShoppingForSummary={(summary) =>
+                openShoppingOverlay({
+                  ingredient: summary.ingredient,
+                  reason: resolveShoppingReason(summary),
+                })
+              }
+              onOpenDetailView={openDetailView}
+              onOpenDestroyExpiredOverlay={openDestroyExpiredOverlay}
+              onOpenCreateView={openCreateView}
+              IngredientWorkspaceIcon={IngredientWorkspaceIcon}
+              InventoryStorageOverviewCard={InventoryStorageOverviewCard}
+              InventoryIngredientCard={InventoryIngredientCard}
+            />
           )}
 
           {activePanel === 'shopping' && (
-            <div className="ingredients-panel-stack ingredients-shopping-stack">
-              <section className="ingredients-shopping-toolbar-shell">
-                <div className="ingredients-shopping-toolbar-head">
-                  <div className="ingredients-shopping-toolbar-copy">
-                    <div className="ingredients-shopping-title-line">
-                      <span className="ingredients-shopping-title-icon" aria-hidden="true">
-                        <IngredientWorkspaceIcon name="shopping" />
-                      </span>
-                      <div>
-                        <h3>采购工作台</h3>
-                        <p className="subtle">先处理待买项，买完后可直接入库。</p>
-                      </div>
-                    </div>
-                  </div>
-                  <div className="ingredients-shopping-toolbar-actions">
-                    <ActionButton tone="primary" type="button" onClick={() => openShoppingOverlay()}>
-                      <span className="ingredients-shopping-action-icon" aria-hidden="true">
-                        <IngredientWorkspaceIcon name="plus" />
-                      </span>
-                      新增采购项
-                    </ActionButton>
-                  </div>
-                </div>
-                <div className="ingredients-shopping-toolbar-metrics" aria-label="采购摘要">
-                  {shoppingOverview.map((item) => (
-                    <div
-                      key={item.key}
-                      className={
-                        item.key === shoppingFocus
-                          ? `ingredients-shopping-toolbar-metric active tone-${item.key}`
-                          : `ingredients-shopping-toolbar-metric tone-${item.key}`
-                      }
-                    >
-                      <span className="ingredients-shopping-toolbar-metric-icon" aria-hidden="true">
-                        <IngredientWorkspaceIcon
-                          name={
-                            item.key === 'all'
-                              ? 'metricList'
-                              : item.key === 'attention'
-                                ? 'star'
-                                : item.key === 'linked'
-                                  ? 'link'
-                                  : 'metricCircle'
-                          }
-                        />
-                      </span>
-                      <strong>
-                        {item.key === 'all'
-                          ? `共 ${item.count} 项`
-                          : item.key === 'attention'
-                            ? `${item.count} 项优先`
-                            : item.key === 'linked'
-                              ? `${item.count} 项关联档案`
-                              : `${item.count} 项自由项`}
-                      </strong>
-                    </div>
-                  ))}
-                </div>
-              </section>
-
-              <section className="ingredients-shopping-filter-shell" aria-label="采购筛选">
-                <div className="ingredients-shopping-toolbar-tools">
-                  <label className="ingredients-search-field ingredients-shopping-search-field">
-                    <span className="ingredients-shopping-search-input-shell">
-                      <span className="ingredients-shopping-search-input-icon" aria-hidden="true">
-                        <IngredientWorkspaceIcon name="search" />
-                      </span>
-                      <input
-                        className="text-input"
-                        placeholder="搜索待买名称、原因、分类或关联食材"
-                        value={shoppingSearch}
-                        onChange={(event) => setShoppingSearch(event.target.value)}
-                      />
-                    </span>
-                  </label>
-                  <div className="ingredients-shopping-filter-group">
-                    <div className="ingredients-shopping-filter-row">
-                      {shoppingOverview.map((item) => (
-                        <button
-                          key={item.key}
-                          className={
-                            shoppingFocus === item.key
-                              ? 'chip ingredients-shopping-filter-chip active'
-                              : 'chip ingredients-shopping-filter-chip'
-                          }
-                          type="button"
-                          onClick={() =>
-                            setShoppingFocus((current) => (current === item.key ? 'all' : item.key))
-                          }
-                        >
-                          {item.label}
-                          <span>{item.count}</span>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                  <button
-                    className="ingredients-shopping-clear-filter"
-                    type="button"
-                    onClick={() => {
-                      setShoppingSearch('');
-                      setShoppingFocus('all');
-                    }}
-                    disabled={!shoppingSearch.trim() && shoppingFocus === 'all'}
-                  >
-                    <span className="ingredients-shopping-clear-filter-icon" aria-hidden="true">
-                      <IngredientWorkspaceIcon name="reset" />
-                    </span>
-                    清空筛选
-                  </button>
-                </div>
-              </section>
-
-              <section className="ingredients-workbench-section ingredients-shopping-stage">
-                <div className="ingredients-purchase-section-head ingredients-shopping-stage-head">
-                  <div>
-                    <div className="ingredients-shopping-stage-title-line">
-                      <h3>待采购清单</h3>
-                      <span>
-                      {visiblePendingShoppingCards.length} 项待买 ·{' '}
-                      {visiblePendingShoppingCards.filter((card) => card.hasAttention).length} 项需优先处理
-                      </span>
-                    </div>
-                  </div>
-                </div>
-
-                {visiblePendingShoppingCards.length > 0 ? (
-                  <div className="shopping-work-row-list">
-                    {visiblePendingShoppingCards.map((card) => (
-                      <ShoppingWorkRow
-                        key={card.shoppingItem.id}
-                        card={card}
-                        onComplete={() => openInventoryFromShopping(card.shoppingItem)}
-                        onDetail={
-                          card.linkedSummary ? () => openDetailView(card.linkedSummary as IngredientSummaryViewModel) : undefined
-                        }
-                        isBusy={props.isUpdatingShopping || props.isCreatingInventory}
-                      />
-                    ))}
-                  </div>
-                ) : (
-                  <EmptyState
-                    title={pendingShoppingCards.length === 0 ? '待买区很清爽' : '没找到匹配的待买项'}
-                    description={
-                      pendingShoppingCards.length === 0
-                        ? '当前没有待买项，可以从库存提醒或档案卡片一键加入采购。'
-                        : shoppingFocus !== 'all'
-                          ? `当前 ${activeShoppingOverview?.label ?? '筛选'} 下没有匹配结果，试试切回全部或换个关键词。`
-                          : '换个关键词试试，或者直接新增一条新的待买项。'
-                    }
-                    action={
-                      pendingShoppingCards.length === 0 ? (
-                        <ActionButton tone="secondary" type="button" onClick={() => openShoppingOverlay()}>
-                          新增采购项
-                        </ActionButton>
-                      ) : undefined
-                    }
-                  />
-                )}
-              </section>
-
-              {completedShoppingCards.length > 0 && (
-                <section className="ingredients-workbench-section shopping-history-shell">
-                  <div className="ingredients-purchase-section-head shopping-history-head">
-                    <div className="shopping-history-title-line">
-                      <h3>已买回顾</h3>
-                      <p className="subtle">已完成的采购项，助你回顾与补充。</p>
-                    </div>
-                    <div className="shopping-history-head-actions">
-                      <Badge>{completedShoppingCards.length} 项</Badge>
-                      <ActionButton
-                        tone="tertiary"
-                        size="compact"
-                        type="button"
-                        onClick={() => setShowCompletedShopping((current) => !current)}
-                      >
-                        {showCompletedShopping ? '收起已买' : '展开已买'}
-                        <span className={showCompletedShopping ? 'shopping-history-toggle-icon is-open' : 'shopping-history-toggle-icon'} aria-hidden="true">
-                          <IngredientWorkspaceIcon name="chevronDown" />
-                        </span>
-                      </ActionButton>
-                    </div>
-                  </div>
-
-                  {showCompletedShopping ? (
-                    visibleCompletedShoppingCards.length > 0 ? (
-                      <div className="shopping-history-row-list">
-                        {visibleCompletedShoppingCards.map((card) => (
-                          <ShoppingHistoryRow
-                            key={card.shoppingItem.id}
-                            card={card}
-                            onRestore={() =>
-                              void props.updateShoppingItem({
-                                itemId: card.shoppingItem.id,
-                                done: false,
-                              })
-                            }
-                            onDetail={
-                              card.linkedSummary ? () => openDetailView(card.linkedSummary as IngredientSummaryViewModel) : undefined
-                            }
-                            isBusy={props.isUpdatingShopping}
-                          />
-                        ))}
-                      </div>
-                    ) : (
-                      <EmptyState
-                        title="没有匹配的已买记录"
-                        description="当前搜索词下没有已买项目，试试清空搜索后再查看。"
-                      />
-                    )
-                  ) : null}
-                </section>
-              )}
-            </div>
+            <IngredientShoppingPanel
+              shoppingOverview={shoppingOverview}
+              shoppingFocus={shoppingFocus}
+              shoppingSearch={shoppingSearch}
+              pendingShoppingCards={pendingShoppingCards}
+              visiblePendingShoppingCards={visiblePendingShoppingCards}
+              completedShoppingCards={completedShoppingCards}
+              visibleCompletedShoppingCards={visibleCompletedShoppingCards}
+              activeShoppingOverview={activeShoppingOverview}
+              showCompletedShopping={showCompletedShopping}
+              isUpdatingShopping={props.isUpdatingShopping}
+              isCreatingInventory={props.isCreatingInventory}
+              onShoppingSearchChange={setShoppingSearch}
+              onShoppingFocusChange={setShoppingFocus}
+              onOpenShoppingOverlay={() => openShoppingOverlay()}
+              onOpenInventoryFromShopping={openInventoryFromShopping}
+              onOpenDetailView={openDetailView}
+              onToggleCompletedShopping={() => setShowCompletedShopping((current) => !current)}
+              onRestoreShopping={(itemId) =>
+                void props.updateShoppingItem({
+                  itemId,
+                  done: false,
+                })
+              }
+              IngredientWorkspaceIcon={IngredientWorkspaceIcon}
+              ShoppingWorkRow={ShoppingWorkRow}
+              ShoppingHistoryRow={ShoppingHistoryRow}
+            />
           )}
         </div>
       </section>
       </div>
 
-      <MobileQuickBar
+      <IngredientMobileQuickBar
         onCreate={openCreateView}
         onInventory={() => openInventoryOverlay()}
         onShopping={() => openShoppingOverlay()}
       />
 
-      <OverlayLayer
+      <IngredientWorkspaceOverlays
         overlayMode={overlayMode}
         closeOverlay={closeOverlay}
         inventoryForm={inventoryForm}
@@ -4731,1207 +4031,6 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
         isDisposingExpiredInventory={props.isDisposingExpiredInventory}
         isCreatingShopping={props.isCreatingShopping}
       />
-    </div>
-  );
-}
-
-function MobileQuickBar(props: {
-  onCreate: () => void;
-  onInventory: () => void;
-  onShopping: () => void;
-}) {
-  return (
-    <div className="ingredients-mobile-bar">
-      <button className="solid-button" type="button" onClick={props.onCreate}>
-        新增食材
-      </button>
-      <button className="ghost-button" type="button" onClick={props.onInventory}>
-        补库存
-      </button>
-      <button className="ghost-button" type="button" onClick={props.onShopping}>
-        加采购
-      </button>
-    </div>
-  );
-}
-
-function OverlayLayer(props: {
-  overlayMode: IngredientOverlayMode;
-  closeOverlay: () => void;
-  inventoryForm: InventoryDrawerFormState;
-  setInventoryForm: (next: InventoryDrawerFormState) => void;
-  inventoryAdvancedOpen: boolean;
-  setInventoryAdvancedOpen: (next: boolean) => void;
-  consumeForm: ConsumeDialogFormState;
-  setConsumeForm: (next: ConsumeDialogFormState) => void;
-  shoppingForm: ShoppingDialogFormState;
-  setShoppingForm: (next: ShoppingDialogFormState) => void;
-  destroyExpiredIngredientId: string | null;
-  ingredients: Ingredient[];
-  ingredientSummaries: IngredientSummaryViewModel[];
-  quickRestockIngredients: Ingredient[];
-  submitInventory: (event: FormEvent<HTMLFormElement>) => Promise<void>;
-  submitConsume: (event: FormEvent<HTMLFormElement>) => Promise<void>;
-  submitShopping: (event: FormEvent<HTMLFormElement>) => Promise<void>;
-  submitDestroyExpired: (event: FormEvent<HTMLFormElement>) => Promise<void>;
-  pendingShoppingToComplete: PendingShoppingCompletion | null;
-  isCreatingInventory?: boolean;
-  isConsumingInventory?: boolean;
-  isDisposingExpiredInventory?: boolean;
-  isCreatingShopping?: boolean;
-}) {
-  if (!props.overlayMode) {
-    return null;
-  }
-
-  const selectedInventoryIngredient =
-    props.ingredients.find((item) => item.id === props.inventoryForm.ingredientId) ?? null;
-  const selectedConsumeSummary =
-    props.ingredientSummaries.find((item) => item.ingredient.id === props.consumeForm.ingredientId) ?? null;
-  const selectedDestroyExpiredSummary =
-    props.destroyExpiredIngredientId
-      ? props.ingredientSummaries.find((item) => item.ingredient.id === props.destroyExpiredIngredientId) ?? null
-      : null;
-  const destroyExpiredItems = selectedDestroyExpiredSummary
-    ? buildDisposableExpiredInventoryItems(selectedDestroyExpiredSummary)
-    : [];
-  const destroyExpiredPresentation = selectedDestroyExpiredSummary
-    ? buildInventoryCardPresentation(selectedDestroyExpiredSummary)
-    : null;
-  const consumeUnitOptions = buildConsumeUnitOptions(
-    selectedConsumeSummary?.ingredient,
-    selectedConsumeSummary?.availableInventoryItems ?? [],
-    selectedConsumeSummary?.ingredient.default_unit
-  );
-  const selectedConsumeUnit =
-    consumeUnitOptions.find((item) => item.unit === props.consumeForm.unit) ?? consumeUnitOptions[0] ?? null;
-  const consumeAvailableQuantity = selectedConsumeUnit?.available ?? 0;
-  const consumeStep = resolveConsumeStep(consumeAvailableQuantity);
-  const parsedConsumeQuantity = parseOptionalNumber(props.consumeForm.quantity);
-  const consumeSuggestedQuantity = resolveInitialConsumeQuantity(consumeAvailableQuantity);
-  const consumeQuantityValue =
-    parsedConsumeQuantity !== null ? clampConsumeQuantity(parsedConsumeQuantity, consumeAvailableQuantity) : 0;
-  const consumeQuickValues =
-    selectedConsumeUnit && consumeAvailableQuantity > 0
-      ? buildConsumeQuickValues(selectedConsumeUnit.unit, consumeAvailableQuantity)
-      : [];
-  const consumeRemainingQuantity = getConsumeRemainingQuantity(consumeAvailableQuantity, consumeQuantityValue);
-  const consumeIsAllState = isConsumeAllSelected(consumeQuantityValue, consumeAvailableQuantity);
-  const consumeCanSubmit = Boolean(selectedConsumeUnit) && parsedConsumeQuantity !== null && consumeQuantityValue > 0;
-  const consumeRangeProgress =
-    consumeAvailableQuantity > 0 ? (consumeQuantityValue / consumeAvailableQuantity) * 100 : 0;
-  const consumeRangeStyle = {
-    '--touch-range-progress': `${clampNumber(consumeRangeProgress, 0, 100)}%`,
-  } as CSSProperties;
-  const consumeTotalRemainingLabel =
-    selectedConsumeSummary?.quantitySummaries[0]?.label ??
-    (selectedConsumeUnit ? `${formatNumericString(consumeAvailableQuantity)}${selectedConsumeUnit.unit}` : '暂无库存');
-  const usesCustomStorage = !INVENTORY_STORAGE_PRESETS.includes(
-    props.inventoryForm.storageLocation as (typeof INVENTORY_STORAGE_PRESETS)[number]
-  );
-  const inventoryUnitOptions = selectedInventoryIngredient
-    ? getIngredientUnitOptions(selectedInventoryIngredient)
-    : [];
-  const selectedInventoryUnit =
-    inventoryUnitOptions.find((item) => item.unit === props.inventoryForm.unit) ?? inventoryUnitOptions[0] ?? null;
-  const inventoryNormalizedQuantity =
-    selectedInventoryIngredient && parsePositiveNumber(props.inventoryForm.quantity) !== null
-      ? convertQuantityToDefaultUnit(
-          selectedInventoryIngredient,
-          parsePositiveNumber(props.inventoryForm.quantity) ?? 0,
-          props.inventoryForm.unit
-        )
-      : null;
-  const inventoryQuantityValue =
-    parsePositiveNumber(props.inventoryForm.quantity) ??
-    resolveTouchDefaultValue(props.inventoryForm.unit || selectedInventoryIngredient?.default_unit || '个', 'quantity');
-  const inventoryQuantityStep = resolveTouchStep(
-    props.inventoryForm.unit || selectedInventoryIngredient?.default_unit || '个'
-  );
-  const inventoryQuantityQuickValues = resolveTouchQuickValues(
-    props.inventoryForm.unit || selectedInventoryIngredient?.default_unit || '个',
-    'quantity'
-  );
-  const inventoryExpiryDaysValue = resolveClampedDaysValue(
-    props.inventoryForm.expiryDays,
-    selectedInventoryIngredient?.default_expiry_days ?? 3
-  );
-  const shoppingUnitOptions = buildUnitPresetOptions(props.shoppingForm.unit || '个');
-  const shoppingQuantityValue =
-    parsePositiveNumber(props.shoppingForm.quantity) ??
-    resolveTouchDefaultValue(props.shoppingForm.unit || '个', 'quantity');
-  const shoppingQuantityStep = resolveTouchStep(props.shoppingForm.unit || '个');
-  const shoppingQuantityQuickValues = resolveTouchQuickValues(props.shoppingForm.unit || '个', 'quantity');
-  const selectedShoppingIngredient = props.shoppingForm.title.trim()
-    ? props.ingredients.find((item) => item.name === props.shoppingForm.title.trim()) ?? null
-    : null;
-  const shoppingIngredientUnitOptions = selectedShoppingIngredient
-    ? getIngredientUnitOptions(selectedShoppingIngredient)
-    : [];
-  const selectedShoppingIngredientPreview =
-    selectedShoppingIngredient?.image?.url
-      ? resolveAssetUrl(selectedShoppingIngredient.image.url)
-      : buildIngredientPlaceholderSvg((selectedShoppingIngredient?.name ?? props.shoppingForm.title) || '待买项');
-  const selectedShoppingIngredientMeta = selectedShoppingIngredient
-    ? [
-        selectedShoppingIngredient.category || '未分类',
-        `默认 ${selectedShoppingIngredient.default_unit || '个'}`,
-        selectedShoppingIngredient.default_storage || '常温',
-      ]
-    : [];
-  const selectedIngredientPreview =
-    selectedInventoryIngredient?.image?.url
-      ? resolveAssetUrl(selectedInventoryIngredient.image.url)
-      : buildIngredientPlaceholderSvg(selectedInventoryIngredient?.name ?? '食材');
-  const selectedIngredientMeta = selectedInventoryIngredient
-    ? [
-        selectedInventoryIngredient.category || '未分类',
-        `默认 ${selectedInventoryIngredient.default_unit || '个'}`,
-        selectedInventoryIngredient.default_storage || '常温',
-      ]
-    : [];
-  const selectedConsumePreview =
-    selectedConsumeSummary?.ingredient.image?.url
-      ? resolveAssetUrl(selectedConsumeSummary.ingredient.image.url)
-      : buildIngredientPlaceholderSvg(selectedConsumeSummary?.ingredient.name ?? '食材');
-  const selectedConsumeMeta = selectedConsumeSummary
-    ? [
-        selectedConsumeSummary.ingredient.category || '未分类',
-        `默认 ${selectedConsumeSummary.ingredient.default_unit || '个'}`,
-        selectedConsumeSummary.primaryStorage || selectedConsumeSummary.ingredient.default_storage || '常温',
-      ]
-    : [];
-  const selectedDestroyExpiredPreview =
-    selectedDestroyExpiredSummary?.ingredient.image?.url
-      ? resolveAssetUrl(selectedDestroyExpiredSummary.ingredient.image.url)
-      : buildIngredientPlaceholderSvg(selectedDestroyExpiredSummary?.ingredient.name ?? '食材');
-  const selectedDestroyExpiredMeta = selectedDestroyExpiredSummary
-    ? [
-        selectedDestroyExpiredSummary.ingredient.category || '未分类',
-        `默认 ${selectedDestroyExpiredSummary.ingredient.default_unit || '个'}`,
-        selectedDestroyExpiredSummary.primaryStorage || selectedDestroyExpiredSummary.ingredient.default_storage || '常温',
-      ]
-    : [];
-
-  if (props.overlayMode === 'destroyExpired' && !selectedDestroyExpiredSummary) {
-    return null;
-  }
-
-  function syncInventoryIngredient(ingredient: Ingredient | null, ingredientQuery = ingredient?.name ?? '') {
-    props.setInventoryForm(
-      buildInventoryForm(props.ingredients, ingredient?.id, {
-        ingredientQuery,
-        ingredientLocked: props.inventoryForm.ingredientLocked && Boolean(ingredient),
-        quantity: props.inventoryForm.quantity,
-        unit: resolvePreferredIngredientUnit(ingredient, props.inventoryForm.unit),
-        purchaseDate: props.inventoryForm.purchaseDate,
-        purchaseDatePreset: props.inventoryForm.purchaseDatePreset,
-        notes: props.inventoryForm.notes,
-      })
-    );
-  }
-
-  function updateConsumeUnit(unit: string) {
-    const nextUnit = consumeUnitOptions.find((item) => item.unit === unit) ?? null;
-    if (!nextUnit) {
-      props.setConsumeForm({ ...props.consumeForm, unit });
-      return;
-    }
-    const currentQuantity = parsePositiveNumber(props.consumeForm.quantity) ?? resolveInitialConsumeQuantity(nextUnit.available);
-    props.setConsumeForm({
-      ...props.consumeForm,
-      unit,
-      quantity: formatNumericString(clampConsumeQuantity(currentQuantity, nextUnit.available)),
-    });
-  }
-
-  function updateConsumeQuantity(value: number) {
-    props.setConsumeForm({
-      ...props.consumeForm,
-      unit: selectedConsumeUnit?.unit ?? props.consumeForm.unit,
-      quantity: formatNumericString(clampConsumeQuantity(value, consumeAvailableQuantity)),
-    });
-  }
-
-  function updateConsumeQuantityInput(value: string) {
-    if (!value.trim()) {
-      props.setConsumeForm({
-        ...props.consumeForm,
-        unit: selectedConsumeUnit?.unit ?? props.consumeForm.unit,
-        quantity: '',
-      });
-      return;
-    }
-
-    const parsedValue = Number(value);
-    if (!Number.isFinite(parsedValue)) {
-      props.setConsumeForm({
-        ...props.consumeForm,
-        unit: selectedConsumeUnit?.unit ?? props.consumeForm.unit,
-        quantity: value,
-      });
-      return;
-    }
-
-    updateConsumeQuantity(parsedValue);
-  }
-
-  return (
-    <div className="workspace-overlay-root">
-      <div className="workspace-overlay-backdrop" onClick={props.closeOverlay} />
-
-      {props.overlayMode === 'inventory' && (
-        <WorkspaceModal
-          title="登记这批库存"
-          description="把这次买回来的这一批快速记下来。"
-          closeLabel="×"
-          closeAriaLabel="关闭"
-          className="workspace-modal-wide inventory-restock-modal"
-          onClose={props.closeOverlay}
-        >
-          <form className="ingredients-restock-form" onSubmit={(event) => void props.submitInventory(event)}>
-            <div className="ingredients-restock-scroll">
-              {props.pendingShoppingToComplete && (
-                <div className="ingredients-restock-source-note">
-                  <Badge>来自待买项</Badge>
-                  <span>{props.pendingShoppingToComplete.title}</span>
-                </div>
-              )}
-              {!props.inventoryForm.ingredientLocked && !selectedInventoryIngredient && props.quickRestockIngredients.length > 0 && (
-                <section className="ingredients-restock-field-group ingredients-restock-selection-strip">
-                  <div className="ingredients-restock-field-head">
-                    <span>最近常补</span>
-                    <p className="subtle">常用食材点一下就行。</p>
-                  </div>
-                  <div className="ingredients-restock-choice-row">
-                    {props.quickRestockIngredients.map((ingredient) => (
-                      <button
-                        key={ingredient.id}
-                        type="button"
-                        className={
-                          props.inventoryForm.ingredientId === ingredient.id
-                            ? 'ingredients-choice-chip active'
-                            : 'ingredients-choice-chip'
-                        }
-                        onClick={() => syncInventoryIngredient(ingredient, ingredient.name)}
-                      >
-                        {ingredient.name}
-                      </button>
-                    ))}
-                  </div>
-                </section>
-              )}
-
-              {!props.inventoryForm.ingredientLocked && !selectedInventoryIngredient && (
-                <label className="ingredients-restock-search-field">
-                  <span>食材</span>
-                  <input
-                    className="text-input"
-                    list="ingredient-restock-options"
-                    placeholder="搜索或选择食材"
-                    value={props.inventoryForm.ingredientQuery}
-                    onChange={(event) => {
-                      const nextQuery = event.target.value;
-                      const ingredient = props.ingredients.find((item) => item.name === nextQuery) ?? null;
-                      syncInventoryIngredient(ingredient, nextQuery);
-                    }}
-                  />
-                  <datalist id="ingredient-restock-options">
-                    {props.ingredients.map((ingredient) => (
-                      <option key={ingredient.id} value={ingredient.name} />
-                    ))}
-                  </datalist>
-                </label>
-              )}
-
-              {selectedInventoryIngredient && (
-                <section className="ingredients-restock-identity-card">
-                  <div className="ingredients-restock-identity-media">
-                    <img src={selectedIngredientPreview} alt={selectedInventoryIngredient.name} />
-                  </div>
-                  <div className="ingredients-restock-identity-copy">
-                    <div className="ingredients-restock-identity-head">
-                      <div>
-                        <h4>{selectedInventoryIngredient.name}</h4>
-                        <p>{selectedIngredientMeta.join(' · ')}</p>
-                      </div>
-                      <Badge>{props.inventoryForm.ingredientLocked ? '当前食材' : '已选食材'}</Badge>
-                    </div>
-                    {!props.inventoryForm.ingredientLocked && (
-                      <ActionButton
-                        tone="tertiary"
-                        size="compact"
-                        type="button"
-                        className="ingredients-restock-identity-switch"
-                        onClick={() => syncInventoryIngredient(null, '')}
-                      >
-                        换一个食材
-                      </ActionButton>
-                    )}
-                  </div>
-                </section>
-              )}
-
-              <section className="ingredients-restock-field-group ingredients-restock-quantity-section">
-                <div className="ingredients-restock-quantity-row">
-                  <TouchStepperField
-                    label="数量"
-                    value={inventoryQuantityValue}
-                    min={inventoryQuantityStep}
-                    step={inventoryQuantityStep}
-                    quickValues={inventoryQuantityQuickValues}
-                    allowCustomInput
-                    customInputMode="inline"
-                    customInputLabel="直接输入"
-                    inputMin={inventoryQuantityStep}
-                    inputStep={inventoryQuantityStep}
-                    formatValue={(value) => formatNumericString(value)}
-                    onChange={(value) =>
-                      props.setInventoryForm({
-                        ...props.inventoryForm,
-                        quantity: formatNumericString(value),
-                      })
-                    }
-                  />
-                  <section className="ingredients-restock-unit-card">
-                    <div className="ingredients-restock-unit-card-head">
-                      <span>单位</span>
-                      <strong>{props.inventoryForm.unit || selectedInventoryIngredient?.default_unit || '个'}</strong>
-                    </div>
-                    <p className="subtle">
-                      {selectedInventoryIngredient
-                        ? selectedInventoryUnit?.unit === selectedInventoryIngredient.default_unit
-                          ? '默认按主单位直接记库存'
-                          : inventoryNormalizedQuantity !== null
-                            ? `将记为 ${formatNumericString(inventoryNormalizedQuantity)}${selectedInventoryIngredient.default_unit} 库存`
-                            : '切换单位后会自动折算到主单位'
-                        : '先选食材，再切换这次录入单位。'}
-                    </p>
-                    <div className="ingredients-restock-unit-chip-row">
-                      {(selectedInventoryIngredient
-                        ? inventoryUnitOptions
-                        : [{ unit: props.inventoryForm.unit || '个', ratio_to_default: 1 }]
-                      ).map((option) => (
-                        <button
-                          key={`inventory-unit-${option.unit}`}
-                          type="button"
-                          className={
-                            props.inventoryForm.unit === option.unit
-                              ? 'ingredients-choice-chip ingredients-unit-chip active'
-                              : 'ingredients-choice-chip ingredients-unit-chip'
-                          }
-                          onClick={() =>
-                            props.setInventoryForm({
-                              ...props.inventoryForm,
-                              unit: option.unit,
-                            })
-                          }
-                          disabled={!selectedInventoryIngredient}
-                        >
-                          {option.unit}
-                        </button>
-                      ))}
-                    </div>
-                  </section>
-                </div>
-              </section>
-
-              <section className="ingredients-restock-field-group">
-                <div className="ingredients-restock-field-head">
-                  <span>购买时间</span>
-                  <p className="subtle">默认今天，需要时再改。</p>
-                </div>
-                <div className="ingredients-restock-choice-row">
-                  {[
-                    { value: 'today', label: '今天', date: todayKey() },
-                    { value: 'yesterday', label: '昨天', date: addDateKeyDays(todayKey(), -1) },
-                    { value: 'custom', label: '自定义', date: props.inventoryForm.purchaseDate },
-                  ].map((item) => (
-                    <button
-                      key={item.value}
-                      type="button"
-                      className={
-                        props.inventoryForm.purchaseDatePreset === item.value
-                          ? 'ingredients-choice-chip active'
-                          : 'ingredients-choice-chip'
-                      }
-                      onClick={() =>
-                        props.setInventoryForm({
-                          ...props.inventoryForm,
-                          purchaseDatePreset: item.value as InventoryPurchasePreset,
-                          purchaseDate: item.value === 'custom' ? props.inventoryForm.purchaseDate : item.date,
-                        })
-                      }
-                    >
-                      {item.label}
-                    </button>
-                  ))}
-                </div>
-                {props.inventoryForm.purchaseDatePreset === 'custom' && (
-                  <label>
-                    <span>购买日期</span>
-                    <input
-                      className="text-input"
-                      type="date"
-                      required
-                      value={props.inventoryForm.purchaseDate}
-                      onChange={(event) =>
-                        props.setInventoryForm({
-                          ...props.inventoryForm,
-                          purchaseDate: event.target.value,
-                          purchaseDatePreset: 'custom',
-                        })
-                      }
-                    />
-                  </label>
-                )}
-              </section>
-
-              <section className="ingredients-restock-field-group">
-                <div className="ingredients-restock-field-head">
-                  <span>存放位置</span>
-                  <p className="subtle">按这次实际放的位置点一下。</p>
-                </div>
-                <div className="ingredients-restock-choice-row">
-                  {INVENTORY_STORAGE_PRESETS.map((storage) => (
-                    <button
-                      key={storage}
-                      type="button"
-                      className={
-                        props.inventoryForm.storageLocation === storage
-                          ? 'ingredients-choice-chip active'
-                          : 'ingredients-choice-chip'
-                      }
-                      onClick={() =>
-                        props.setInventoryForm({
-                          ...props.inventoryForm,
-                          storageLocation: storage,
-                        })
-                      }
-                    >
-                      {storage}
-                    </button>
-                  ))}
-                  <button
-                    type="button"
-                    className={usesCustomStorage ? 'ingredients-choice-chip active' : 'ingredients-choice-chip'}
-                    onClick={() =>
-                      props.setInventoryForm({
-                        ...props.inventoryForm,
-                        storageLocation:
-                          usesCustomStorage && props.inventoryForm.storageLocation
-                            ? props.inventoryForm.storageLocation
-                            : '',
-                      })
-                    }
-                  >
-                    其他
-                  </button>
-                </div>
-                {usesCustomStorage && (
-                  <label>
-                    <span>自定义位置</span>
-                    <input
-                      className="text-input"
-                      value={props.inventoryForm.storageLocation}
-                      placeholder="例如 门边小冰箱"
-                      onChange={(event) =>
-                        props.setInventoryForm({
-                          ...props.inventoryForm,
-                          storageLocation: event.target.value,
-                        })
-                      }
-                    />
-                  </label>
-                )}
-              </section>
-
-              <section className="ingredients-restock-field-group">
-                <div className="ingredients-restock-field-head">
-                  <span>到期信息</span>
-                  <p className="subtle">确认这批食材怎么跟踪到期。</p>
-                </div>
-                <div className="ingredients-restock-choice-row">
-                  {[
-                    { value: 'none', label: '不记录' },
-                    { value: 'days', label: '几天后到期' },
-                    { value: 'manual_date', label: '包装到期日' },
-                  ].map((item) => (
-                    <button
-                      key={item.value}
-                      type="button"
-                      className={
-                        props.inventoryForm.expiryInputMode === item.value
-                          ? 'ingredients-choice-chip active'
-                          : 'ingredients-choice-chip'
-                      }
-                      onClick={() =>
-                        props.setInventoryForm({
-                          ...props.inventoryForm,
-                          expiryInputMode: item.value as IngredientExpiryMode,
-                          expiryDays:
-                            item.value === 'days'
-                              ? props.inventoryForm.expiryDays ||
-                                (selectedInventoryIngredient?.default_expiry_days
-                                  ? String(selectedInventoryIngredient.default_expiry_days)
-                                  : '3')
-                              : '',
-                          expiryDate:
-                            item.value === 'manual_date'
-                              ? props.inventoryForm.expiryDate
-                              : item.value === 'days'
-                                ? resolveExpiryDateFromDays(
-                                    props.inventoryForm.purchaseDate,
-                                    props.inventoryForm.expiryDays ||
-                                      (selectedInventoryIngredient?.default_expiry_days
-                                        ? String(selectedInventoryIngredient.default_expiry_days)
-                                        : '3')
-                                  )
-                                : '',
-                        })
-                      }
-                    >
-                      {item.label}
-                    </button>
-                  ))}
-                </div>
-                {props.inventoryForm.expiryInputMode === 'days' ? (
-                  <div className="ingredients-restock-expiry-grid">
-                    <TouchRangeField
-                      label="买后几天到期"
-                      value={inventoryExpiryDaysValue}
-                      min={1}
-                      max={30}
-                      step={1}
-                      marks={EXPIRY_DAY_MARKS}
-                      formatValue={(value) => `${value} 天`}
-                      onChange={(value) =>
-                        props.setInventoryForm({
-                          ...props.inventoryForm,
-                          expiryDays: String(value),
-                        })
-                      }
-                    />
-                    <div className="ingredients-restock-result-card">
-                      <span>预计到期日</span>
-                      <strong>
-                        {props.inventoryForm.expiryDate ? formatDate(props.inventoryForm.expiryDate) : '先选天数'}
-                      </strong>
-                      <p>
-                        {props.inventoryForm.expiryDate
-                          ? `${props.inventoryForm.purchaseDate} 购入`
-                          : '拖动后会自动换算日期'}
-                      </p>
-                    </div>
-                  </div>
-                ) : props.inventoryForm.expiryInputMode === 'manual_date' ? (
-                  <label>
-                    <span>包装到期日</span>
-                    <input
-                      className="text-input"
-                      type="date"
-                      required
-                      value={props.inventoryForm.expiryDate}
-                      onChange={(event) =>
-                        props.setInventoryForm({ ...props.inventoryForm, expiryDate: event.target.value })
-                      }
-                    />
-                  </label>
-                ) : (
-                  <p className="ingredients-restock-field-note">这批不跟踪到期提醒。</p>
-                )}
-              </section>
-
-              <section className="ingredients-modal-advanced">
-                <button
-                  className="ghost-button ingredients-modal-advanced-toggle"
-                  type="button"
-                  onClick={() => props.setInventoryAdvancedOpen(!props.inventoryAdvancedOpen)}
-                >
-                  {props.inventoryAdvancedOpen ? '收起更多选项' : '更多选项'}
-                </button>
-                {props.inventoryAdvancedOpen && (
-                  <div className="form-grid compact-grid ingredients-modal-advanced-fields">
-                    <label>
-                      <span>状态</span>
-                      <select
-                        className="text-input"
-                        value={props.inventoryForm.status}
-                        onChange={(event) =>
-                          props.setInventoryForm({
-                            ...props.inventoryForm,
-                            status: event.target.value as InventoryStatus,
-                            statusDirty: true,
-                          })
-                        }
-                      >
-                        {Object.entries(INVENTORY_STATUS_LABELS).map(([key, label]) => (
-                          <option key={key} value={key}>
-                            {label}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    <label className="span-two">
-                      <span>备注</span>
-                      <textarea
-                        className="text-input"
-                        rows={3}
-                        value={props.inventoryForm.notes}
-                        onChange={(event) =>
-                          props.setInventoryForm({ ...props.inventoryForm, notes: event.target.value })
-                        }
-                      />
-                    </label>
-                  </div>
-                )}
-              </section>
-            </div>
-
-            <div className="ingredients-restock-footer-bar">
-              <div className="workspace-overlay-actions">
-                <ActionButton tone="secondary" type="button" onClick={props.closeOverlay}>
-                  取消
-                </ActionButton>
-                <ActionButton
-                  tone="primary"
-                  type="submit"
-                  disabled={props.isCreatingInventory || !props.inventoryForm.ingredientId}
-                >
-                  {props.isCreatingInventory ? '保存中...' : '保存这批库存'}
-                </ActionButton>
-              </div>
-            </div>
-          </form>
-        </WorkspaceModal>
-      )}
-
-      {props.overlayMode === 'consume' && selectedConsumeSummary && (
-        <WorkspaceModal
-          title="快速消费"
-          description="记下这次实际用掉多少，系统会自动从更早到期的批次开始扣减。"
-          closeLabel="×"
-          closeAriaLabel="关闭"
-          className="consume-quick-modal"
-          onClose={props.closeOverlay}
-        >
-          <form className="consume-quick-form" onSubmit={(event) => void props.submitConsume(event)}>
-            <div className="consume-quick-scroll">
-              <section className="ingredients-restock-identity-card ingredients-consume-identity-card">
-                <div className="ingredients-restock-identity-media">
-                  <img src={selectedConsumePreview} alt={selectedConsumeSummary.ingredient.name} />
-                </div>
-                <div className="ingredients-restock-identity-copy">
-                  <div className="ingredients-restock-identity-head">
-                    <div>
-                      <h4>{selectedConsumeSummary.ingredient.name}</h4>
-                      <p>{selectedConsumeMeta.join(' · ')}</p>
-                    </div>
-                    <div className="consume-quick-identity-badges">
-                      <Badge>{selectedConsumeSummary.inventoryItems.length} 条批次</Badge>
-                      {consumeIsAllState && <Badge className="consume-quick-state-badge">接近清空</Badge>}
-                    </div>
-                  </div>
-                  <div className="consume-quick-identity-summary">
-                    <article className="consume-quick-summary-card is-primary">
-                      <span>当前总剩余</span>
-                      <strong>{consumeTotalRemainingLabel}</strong>
-                      <p>{selectedConsumeSummary.inventoryItems.length} 条批次会参与这次扣减</p>
-                    </article>
-                    <article className="consume-quick-summary-card">
-                      <span>扣减方式</span>
-                      <strong>优先更早到期</strong>
-                      <p>系统会自动从更早到期的批次开始扣减。</p>
-                    </article>
-                  </div>
-                  <div className="ingredients-consume-stock-strip consume-quick-stock-strip">
-                    {consumeUnitOptions.map((item) => (
-                      <span key={`${selectedConsumeSummary.ingredient.id}-${item.unit}`} className="ingredient-visual-pill">
-                        可按 {item.unit} 记 {formatNumericString(item.available)}
-                        {item.unit}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              </section>
-
-              <section className="ingredients-restock-field-group ingredients-consume-unit-section">
-                <div className="ingredients-restock-field-head">
-                  <span>记录单位</span>
-                  <p className="subtle">
-                    {consumeUnitOptions.length > 1
-                      ? '先选这次实际用掉的是哪种单位，切换后数量会自动对齐到该单位剩余量。'
-                      : '直接按这个单位记录就行，系统会自动处理批次扣减。'}
-                  </p>
-                </div>
-                {consumeUnitOptions.length === 1 && selectedConsumeUnit ? (
-                  <div className="ingredients-consume-unit-single">
-                    <div className="ingredients-consume-unit-single-main">
-                      <span>当前单位</span>
-                      <strong>{selectedConsumeUnit.unit}</strong>
-                    </div>
-                    <div className="ingredients-consume-unit-single-meta">
-                      <span>当前剩余</span>
-                      <strong>
-                        {formatNumericString(selectedConsumeUnit.available)}
-                        {selectedConsumeUnit.unit}
-                      </strong>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="ingredients-restock-choice-row ingredients-consume-unit-row">
-                    {consumeUnitOptions.map((item) => (
-                      <button
-                        key={`${selectedConsumeSummary.ingredient.id}-${item.unit}`}
-                        type="button"
-                        className={
-                          selectedConsumeUnit?.unit === item.unit
-                            ? 'ingredients-choice-chip ingredients-consume-unit-chip active'
-                            : 'ingredients-choice-chip ingredients-consume-unit-chip'
-                        }
-                        onClick={() => updateConsumeUnit(item.unit)}
-                      >
-                        <span className="ingredients-consume-unit-chip-label">{item.unit}</span>
-                        <small>
-                          当前剩余 {formatNumericString(item.available)}
-                          {item.unit}
-                        </small>
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </section>
-
-              <section
-                className={
-                  consumeIsAllState
-                    ? 'ingredients-restock-field-group ingredients-consume-amount-section is-all'
-                    : 'ingredients-restock-field-group ingredients-consume-amount-section'
-                }
-              >
-                <div className="ingredients-restock-field-head">
-                  <span>消费量</span>
-                  <p className="subtle">拖动滑条快速操作，也可以点快捷值或直接输入来微调。</p>
-                </div>
-                <div className="consume-quick-live-row">
-                  <article className="consume-quick-live-card is-active">
-                    <span>本次消费</span>
-                    <strong>
-                      {selectedConsumeUnit ? `${formatNumericString(consumeQuantityValue)}${selectedConsumeUnit.unit}` : '先选单位'}
-                    </strong>
-                    <p>滑动时会实时同步到提交结果。</p>
-                  </article>
-                  <article className={consumeIsAllState ? 'consume-quick-live-card is-warning' : 'consume-quick-live-card'}>
-                    <span>消费后剩余</span>
-                    <strong>
-                      {selectedConsumeUnit
-                        ? `${formatNumericString(consumeRemainingQuantity)}${selectedConsumeUnit.unit}`
-                        : '先选单位'}
-                    </strong>
-                    <p>{consumeIsAllState ? '这次会把当前单位库存几乎用完。' : '保留量会随着拖动即时更新。'}</p>
-                  </article>
-                </div>
-                <div
-                  className={consumeIsAllState ? 'touch-field touch-range-field consume-quick-range-field is-all' : 'touch-field touch-range-field consume-quick-range-field'}
-                >
-                  <div className="touch-field-head consume-quick-range-head">
-                    <span>拖拉条</span>
-                    <label className="consume-quick-range-editor-shell">
-                      <input
-                        className="consume-quick-range-editor-input"
-                        type="number"
-                        min={0}
-                        max={consumeAvailableQuantity || undefined}
-                        step={consumeStep}
-                        inputMode="decimal"
-                        aria-label="消费量输入"
-                        placeholder={formatNumericString(consumeSuggestedQuantity)}
-                        value={props.consumeForm.quantity}
-                        disabled={!selectedConsumeUnit}
-                        onChange={(event) => updateConsumeQuantityInput(event.target.value)}
-                      />
-                      <strong>{(selectedConsumeUnit?.unit ?? props.consumeForm.unit) || '单位'}</strong>
-                    </label>
-                  </div>
-                  <div className="touch-field-helper">
-                    {selectedConsumeUnit
-                      ? `当前最多 ${formatNumericString(consumeAvailableQuantity)}${selectedConsumeUnit.unit}，拖动或直接改数字都会同步预估剩余量。`
-                      : '先选择单位'}
-                  </div>
-                  <div className="touch-range-main">
-                    <ActionButton
-                      tone="secondary"
-                      size="compact"
-                      type="button"
-                      className="touch-stepper-button"
-                      aria-label="消费量减少"
-                      disabled={!selectedConsumeUnit}
-                      onClick={() => updateConsumeQuantity(consumeQuantityValue - consumeStep)}
-                    >
-                      -
-                    </ActionButton>
-                    <input
-                      className="touch-range-input"
-                      type="range"
-                      min={0}
-                      max={consumeAvailableQuantity || consumeStep}
-                      step={consumeStep}
-                      value={consumeQuantityValue}
-                      style={consumeRangeStyle}
-                      disabled={!selectedConsumeUnit}
-                      aria-valuetext={
-                        selectedConsumeUnit
-                          ? `${formatNumericString(consumeQuantityValue)}${selectedConsumeUnit.unit}`
-                          : formatNumericString(consumeQuantityValue)
-                      }
-                      onChange={(event) => updateConsumeQuantity(Number(event.target.value))}
-                    />
-                    <ActionButton
-                      tone="secondary"
-                      size="compact"
-                      type="button"
-                      className="touch-stepper-button"
-                      aria-label="消费量增加"
-                      disabled={!selectedConsumeUnit}
-                      onClick={() => updateConsumeQuantity(consumeQuantityValue + consumeStep)}
-                    >
-                      +
-                    </ActionButton>
-                  </div>
-                </div>
-                {consumeQuickValues.length > 0 && (
-                  <div className="consume-quick-shortcut-row">
-                    {consumeQuickValues.map((item) => {
-                      const isActive = item.isAll
-                        ? consumeIsAllState
-                        : Math.abs(consumeQuantityValue - item.value) < 0.001;
-                      const className = [
-                        'consume-quick-shortcut',
-                        isActive ? 'active' : '',
-                        item.isAll ? 'is-all' : '',
-                      ]
-                        .filter(Boolean)
-                        .join(' ');
-
-                      return (
-                        <button
-                          key={item.key}
-                          type="button"
-                          className={className}
-                          disabled={!selectedConsumeUnit}
-                          onClick={() => updateConsumeQuantity(item.value)}
-                        >
-                          {item.label}
-                        </button>
-                      );
-                    })}
-                  </div>
-                )}
-              </section>
-            </div>
-
-            <div className="consume-quick-footer-bar">
-              <div className="consume-quick-footer-summary">
-                <span>本次将记录</span>
-                <strong>
-                  {selectedConsumeUnit ? `${formatNumericString(consumeQuantityValue)}${selectedConsumeUnit.unit}` : '先选单位'}
-                </strong>
-                <p>
-                  {selectedConsumeUnit
-                    ? consumeIsAllState
-                      ? '提交后这一单位库存会接近清空。'
-                      : `提交后剩余 ${formatNumericString(consumeRemainingQuantity)}${selectedConsumeUnit.unit}。`
-                    : '系统会自动优先扣减更早到期批次。'}
-                </p>
-              </div>
-              <div className="workspace-overlay-actions">
-                <ActionButton tone="secondary" type="button" onClick={props.closeOverlay}>
-                  取消
-                </ActionButton>
-                <ActionButton
-                  tone="primary"
-                  type="submit"
-                  disabled={props.isConsumingInventory || !consumeCanSubmit}
-                >
-                  {props.isConsumingInventory ? '保存中...' : '记录这次消费'}
-                </ActionButton>
-              </div>
-            </div>
-          </form>
-        </WorkspaceModal>
-      )}
-
-      {props.overlayMode === 'destroyExpired' && selectedDestroyExpiredSummary && (
-        <WorkspaceModal
-          title="销毁已过期批次"
-          description="会将这些过期批次的剩余量清零，但保留批次历史记录和活动日志。"
-          closeLabel="×"
-          closeAriaLabel="关闭"
-          className="workspace-modal-wide destroy-expired-modal"
-          onClose={props.closeOverlay}
-        >
-          <form className="destroy-expired-form" onSubmit={(event) => void props.submitDestroyExpired(event)}>
-            <div className="destroy-expired-scroll">
-              <section className="ingredients-restock-identity-card destroy-expired-summary-card">
-                <div className="ingredients-restock-identity-media">
-                  <img src={selectedDestroyExpiredPreview} alt={selectedDestroyExpiredSummary.ingredient.name} />
-                </div>
-                <div className="ingredients-restock-identity-copy">
-                  <div className="ingredients-restock-identity-head">
-                    <div>
-                      <h4>{selectedDestroyExpiredSummary.ingredient.name}</h4>
-                      <p>{selectedDestroyExpiredMeta.join(' · ')}</p>
-                    </div>
-                    <div className="destroy-expired-summary-badges">
-                      <Badge>{destroyExpiredItems.length} 条待销毁</Badge>
-                      <Badge>{destroyExpiredPresentation?.headline ?? '未登记'}</Badge>
-                    </div>
-                  </div>
-                  <div className="destroy-expired-summary-grid">
-                    <article className="destroy-expired-summary-metric is-primary">
-                      <span>本次处理范围</span>
-                      <strong>{destroyExpiredItems.length} 条过期批次</strong>
-                      <p>仅包含已经过期且当前仍有剩余量的批次。</p>
-                    </article>
-                    <article className="destroy-expired-summary-metric">
-                      <span>处理结果</span>
-                      <strong>清零剩余量</strong>
-                      <p>批次记录、备注和活动日志都会继续保留。</p>
-                    </article>
-                  </div>
-                </div>
-              </section>
-
-              <section className="ingredients-restock-field-group destroy-expired-list-section">
-                <div className="ingredients-restock-field-head">
-                  <span>将要销毁的批次</span>
-                  <p className="subtle">
-                    只列出到期日早于今天的剩余批次；今天到期和未来到期不会出现在这里。
-                  </p>
-                </div>
-                {destroyExpiredItems.length > 0 ? (
-                  <div className="destroy-expired-list">
-                    {destroyExpiredItems.map((item) => (
-                      <article key={item.id} className="destroy-expired-item">
-                        <div className="destroy-expired-item-head">
-                          <div className="destroy-expired-item-title">
-                            <strong>{item.remainingLabel}</strong>
-                            <span>{item.storageLocation}</span>
-                          </div>
-                          <div className="destroy-expired-item-badges">
-                            <Badge className="destroy-expired-item-badge is-danger">
-                              已过期 {formatRelativeDays(item.expiryDate)}
-                            </Badge>
-                            <Badge>{INVENTORY_STATUS_LABELS[item.status]}</Badge>
-                          </div>
-                        </div>
-                        <div className="destroy-expired-item-meta">
-                          <span>购买于 {formatDate(item.purchaseDate)}</span>
-                          <span>到期日 {formatDate(item.expiryDate)}</span>
-                        </div>
-                        <p className="destroy-expired-item-note" title={item.notes || '当前没有备注'}>
-                          {item.notes || '当前没有备注'}
-                        </p>
-                      </article>
-                    ))}
-                  </div>
-                ) : (
-                  <EmptyState
-                    title="当前没有可销毁的批次"
-                    description="这份食材现在没有“已过期且仍有剩余量”的批次，可以直接关闭这个面板。"
-                  />
-                )}
-              </section>
-            </div>
-
-            <div className="destroy-expired-footer-bar">
-              <div className="destroy-expired-footer-summary">
-                <span>确认后将处理</span>
-                <strong>{destroyExpiredItems.length} 条过期批次</strong>
-                <p>
-                  {destroyExpiredItems.length > 0
-                    ? '系统会把这些批次的剩余量清零，并在刷新后同步库存状态。'
-                    : '当前没有可销毁的过期批次。'}
-                </p>
-              </div>
-              <div className="workspace-overlay-actions">
-                <ActionButton tone="secondary" type="button" onClick={props.closeOverlay}>
-                  取消
-                </ActionButton>
-                <ActionButton
-                  tone="primary"
-                  type="submit"
-                  disabled={props.isDisposingExpiredInventory || destroyExpiredItems.length === 0}
-                >
-                  {props.isDisposingExpiredInventory ? '销毁中...' : '确认销毁'}
-                </ActionButton>
-              </div>
-            </div>
-          </form>
-        </WorkspaceModal>
-      )}
-
-      {props.overlayMode === 'shopping' && (
-        <WorkspaceModal
-          title="新增采购项"
-          description="把这次要买的数量和原因快速记下来。"
-          closeLabel="×"
-          closeAriaLabel="关闭"
-          className="workspace-modal-wide shopping-quick-modal"
-          onClose={props.closeOverlay}
-        >
-          <form className="shopping-quick-form" onSubmit={(event) => void props.submitShopping(event)}>
-            <div className="shopping-quick-scroll">
-              {selectedShoppingIngredient ? (
-                <section className="ingredients-restock-identity-card">
-                  <div className="ingredients-restock-identity-media">
-                    <img src={selectedShoppingIngredientPreview} alt={selectedShoppingIngredient.name} />
-                  </div>
-                  <div className="ingredients-restock-identity-copy">
-                    <div className="ingredients-restock-identity-head">
-                      <div>
-                        <h4>{selectedShoppingIngredient.name}</h4>
-                        <p>{selectedShoppingIngredientMeta.join(' · ')}</p>
-                      </div>
-                      <Badge>档案食材</Badge>
-                    </div>
-                  </div>
-                </section>
-              ) : (
-                <label className="shopping-quick-name-field">
-                  <span>名称</span>
-                  <input
-                    className="text-input"
-                    list="shopping-ingredient-options"
-                    placeholder="输入名称或直接选食材"
-                    value={props.shoppingForm.title}
-                    onChange={(event) => {
-                      const nextTitle = event.target.value;
-                      const matchedIngredient = props.ingredients.find((item) => item.name === nextTitle) ?? null;
-                      props.setShoppingForm({
-                        ...props.shoppingForm,
-                        title: nextTitle,
-                        unit: matchedIngredient
-                          ? resolvePreferredIngredientUnit(matchedIngredient, props.shoppingForm.unit) ||
-                            matchedIngredient.default_unit
-                          : props.shoppingForm.unit,
-                      });
-                    }}
-                  />
-                  <datalist id="shopping-ingredient-options">
-                    {props.ingredients.map((ingredient) => (
-                      <option key={ingredient.id} value={ingredient.name} />
-                    ))}
-                  </datalist>
-                </label>
-              )}
-
-              <section className="ingredients-restock-field-group ingredients-restock-quantity-section">
-                <div className="ingredients-restock-quantity-row">
-                  <TouchStepperField
-                    label="数量"
-                    value={shoppingQuantityValue}
-                    min={shoppingQuantityStep}
-                    step={shoppingQuantityStep}
-                    quickValues={shoppingQuantityQuickValues}
-                    allowCustomInput
-                    customInputMode="inline"
-                    customInputLabel="直接输入"
-                    inputMin={shoppingQuantityStep}
-                    inputStep={shoppingQuantityStep}
-                    formatValue={(value) => formatNumericString(value)}
-                    helper="常见数量点一下就能完成。"
-                    onChange={(value) =>
-                      props.setShoppingForm({
-                        ...props.shoppingForm,
-                        quantity: formatNumericString(value),
-                      })
-                    }
-                  />
-                  <section className="ingredients-restock-unit-card">
-                    <div className="ingredients-restock-unit-card-head">
-                      <span>单位</span>
-                      <strong>{props.shoppingForm.unit || selectedShoppingIngredient?.default_unit || '个'}</strong>
-                    </div>
-                    {selectedShoppingIngredient ? (
-                      <>
-                        <p className="subtle">默认先用主单位，常用副单位点一下就能切换。</p>
-                        <div className="ingredients-restock-unit-chip-row">
-                          {shoppingIngredientUnitOptions.map((option) => (
-                            <button
-                              key={`shopping-unit-${option.unit}`}
-                              type="button"
-                              className={
-                                props.shoppingForm.unit === option.unit
-                                  ? 'ingredients-choice-chip ingredients-unit-chip active'
-                                  : 'ingredients-choice-chip ingredients-unit-chip'
-                              }
-                              onClick={() =>
-                                props.setShoppingForm({
-                                  ...props.shoppingForm,
-                                  unit: option.unit,
-                                })
-                              }
-                            >
-                              {option.unit}
-                            </button>
-                          ))}
-                        </div>
-                      </>
-                    ) : (
-                      <>
-                        <p className="subtle">默认值不对时再改。</p>
-                        <details className="ingredients-restock-unit-editor">
-                          <summary>修改单位</summary>
-                          <input
-                            className="text-input"
-                            list="shopping-unit-options"
-                            value={props.shoppingForm.unit}
-                            onChange={(event) =>
-                              props.setShoppingForm({ ...props.shoppingForm, unit: event.target.value })
-                            }
-                          />
-                          <datalist id="shopping-unit-options">
-                            {shoppingUnitOptions.map((unit) => (
-                              <option key={unit} value={unit} />
-                            ))}
-                          </datalist>
-                        </details>
-                      </>
-                    )}
-                  </section>
-                </div>
-              </section>
-
-              <section className="ingredients-restock-field-group">
-                <div className="ingredients-restock-field-head">
-                  <span>原因</span>
-                  <p className="subtle">留一句自己回头能看懂的备注就行。</p>
-                </div>
-                <input
-                  className="text-input"
-                  placeholder="例如 备一份新的，替换临期库存"
-                  value={props.shoppingForm.reason}
-                  onChange={(event) =>
-                    props.setShoppingForm({ ...props.shoppingForm, reason: event.target.value })
-                  }
-                />
-              </section>
-            </div>
-
-            <div className="shopping-quick-footer-bar">
-              <div className="workspace-overlay-actions">
-                <ActionButton tone="secondary" type="button" onClick={props.closeOverlay}>
-                  取消
-                </ActionButton>
-                <ActionButton tone="primary" type="submit" disabled={props.isCreatingShopping}>
-                  {props.isCreatingShopping ? '保存中...' : '加入清单'}
-                </ActionButton>
-              </div>
-            </div>
-          </form>
-        </WorkspaceModal>
-      )}
     </div>
   );
 }
