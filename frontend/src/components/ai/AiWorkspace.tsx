@@ -289,7 +289,7 @@ export function AiWorkspace({ conversations, isLoading, currentUser = null, onBa
               <div className="ai-empty-prompt">
                 <section className="ai-welcome-card">
                   <div className="ai-welcome-visual" aria-hidden="true">
-                    <img src="/assets/bot_area.png" alt="" />
+                    <img src="/assets/bot_area.webp" alt="" />
                   </div>
                   <div className="ai-welcome-copy">
                     <strong>你好，我是你的 AI 厨房助手 👋</strong>

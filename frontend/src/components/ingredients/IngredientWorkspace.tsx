@@ -855,12 +855,12 @@ function InventoryStorageIcon(props: { storage: string }) {
 
 function resolveInventoryStorageAsset(storage: string) {
   if (storage === '冷冻') {
-    return '/assets/asset_storage_freezer_frozen.png';
+    return '/assets/asset_storage_freezer_frozen.webp';
   }
   if (storage === '常温') {
-    return '/assets/asset_storage_pantry_roomtemp.png';
+    return '/assets/asset_storage_pantry_roomtemp.webp';
   }
-  return '/assets/asset_storage_fridge_chilled.png';
+  return '/assets/asset_storage_fridge_chilled.webp';
 }
 
 function InventoryStorageIllustration(props: { storage: string }) {

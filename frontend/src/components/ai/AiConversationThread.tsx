@@ -287,7 +287,7 @@ export function MessageBubble({ message, user, onApprovalSettled }: { message: A
             </span>
           )
         ) : (
-          <img src="/assets/chatbot.png" alt="" />
+          <img src="/assets/chatbot.webp" alt="" />
         )}
       </div>
       <div className="ai-message-content">

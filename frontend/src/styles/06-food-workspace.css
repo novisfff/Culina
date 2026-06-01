@@ -4887,7 +4887,7 @@
     border-radius: 0;
     background:
       linear-gradient(90deg, rgba(255, 251, 246, 0.94), rgba(255, 248, 241, 0.58)),
-      url("/assets/ai_head.png") center / cover no-repeat;
+      url("/assets/ai_head.webp") center / cover no-repeat;
     padding: 0 10px 0 10px;
     box-shadow: none;
     backdrop-filter: none;

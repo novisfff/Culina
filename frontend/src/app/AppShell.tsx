@@ -193,7 +193,7 @@ export function AppShell({
               >
                 {isAiTab ? (
                   <span className="mobile-bottom-nav-ai-avatar" aria-hidden="true">
-                    <img src="/assets/ai-tab-chef-bot-active.png" alt="" />
+                    <img src="/assets/ai-tab-chef-bot-active.webp" alt="" />
                   </span>
                 ) : (
                   <span>
