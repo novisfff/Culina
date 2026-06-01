@@ -1,6 +1,25 @@
-import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode, type UIEvent } from 'react';
+import { lazy, Suspense, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode, type UIEvent } from 'react';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { API_BASE_URL, api } from './api/client';
+import {
+  invalidateAfterFamilyChanged,
+  invalidateAfterFoodChanged,
+  invalidateAfterFoodPlanChanged,
+  invalidateAfterFoodSceneChanged,
+  invalidateAfterIngredientChanged,
+  invalidateAfterInventoryChanged,
+  invalidateAfterLegacyAiQuery,
+  invalidateAfterMealLogChanged,
+  invalidateAfterMemberChanged,
+  invalidateAfterProfileChanged,
+  invalidateAfterQuickMealAdded,
+  invalidateAfterRecipeChanged,
+  invalidateAfterRecipeCooked,
+  invalidateAfterRecipeDeleted,
+  invalidateAfterRecipeFavoriteChanged,
+  invalidateAfterShoppingChanged,
+} from './api/cacheInvalidation';
+import { queryKeys } from './api/queryKeys';
 import type {
   AiMode,
   Food,
@@ -14,7 +33,6 @@ import type {
   InventoryStatus,
   MealLog,
   Member,
-  MediaAsset,
   MealType,
   Recipe,
   RecipeDiscovery,
@@ -23,16 +41,12 @@ import type {
   ShoppingListItem,
 } from './api/types';
 import { useAuth } from './auth/AuthContext';
-import { AiWorkspace } from './components/ai/AiWorkspace';
 import { FoodPlanDetailModal, type FoodPlanDetailFormState } from './components/foods/FoodPlanDetailModal';
-import { FoodWorkspace } from './components/foods/FoodWorkspace';
-import { IngredientWorkspace } from './components/ingredients/IngredientWorkspace';
 import {
   buildDisposableExpiredInventoryItems,
   buildIngredientSummaries,
 } from './components/ingredients/workspaceModel';
 import { LoginScreen } from './components/LoginScreen';
-import { RecipeWorkspace } from './components/recipes/RecipeWorkspace';
 import { addDateKeyDays, getRecipeWeekRange } from './components/recipes/workspaceModel';
 import {
   ActionButton,
@@ -65,11 +79,25 @@ import {
 } from './lib/ui';
 import {
   type AiRenderPayload,
-  generateImageFromText,
   getMediaIds,
-  regenerateImageFromReference,
-  uploadReferenceAndGenerateImage,
 } from './lib/aiImages';
+import {
+  IDLE_IMAGE_GENERATION_STATE,
+  useImageComposer,
+} from './hooks/useImageComposer';
+
+const AiWorkspace = lazy(() =>
+  import('./components/ai/AiWorkspace').then((module) => ({ default: module.AiWorkspace }))
+);
+const FoodWorkspace = lazy(() =>
+  import('./components/foods/FoodWorkspace').then((module) => ({ default: module.FoodWorkspace }))
+);
+const IngredientWorkspace = lazy(() =>
+  import('./components/ingredients/IngredientWorkspace').then((module) => ({ default: module.IngredientWorkspace }))
+);
+const RecipeWorkspace = lazy(() =>
+  import('./components/recipes/RecipeWorkspace').then((module) => ({ default: module.RecipeWorkspace }))
+);
 
 type TabKey = 'home' | 'foods' | 'recipes' | 'ingredients' | 'logs' | 'ai' | 'family';
 type FoodWorkspaceView = 'list' | 'create';
@@ -613,30 +641,6 @@ const MOBILE_NAV_ITEMS: Array<{ key: TabKey; label: string; icon: ShellIconName 
   { key: 'family', label: '家庭', icon: 'family' },
 ];
 
-type ImageGenerationUiState = {
-  isGenerating: boolean;
-  errorMessage: string | null;
-};
-
-const IDLE_IMAGE_GENERATION_STATE: ImageGenerationUiState = {
-  isGenerating: false,
-  errorMessage: null,
-};
-
-function resolveImageGenerationErrorMessage(reason: unknown, fallback: string) {
-  if (reason instanceof Error && reason.message.trim()) {
-    return reason.message;
-  }
-  return fallback;
-}
-
-function extractReferenceAsset(reason: unknown): ImageInputValue['referenceAsset'] {
-  if (reason && typeof reason === 'object' && 'referenceAsset' in reason) {
-    return (reason as { referenceAsset?: ImageInputValue['referenceAsset'] }).referenceAsset;
-  }
-  return undefined;
-}
-
 function buildFoodImagePayload(form: FoodFormState, recipes: Recipe[]): AiRenderPayload {
   const linkedRecipe = recipes.find((recipe) => recipe.id === form.recipeId);
   return {
@@ -704,6 +708,16 @@ function resetPageScroll() {
     window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
     document.scrollingElement?.scrollTo({ top: 0, left: 0, behavior: 'auto' });
   });
+}
+
+function WorkspaceLoadingFallback() {
+  return (
+    <main className="page-stack">
+      <section className="card page-section">
+        <EmptyState title="正在加载工作台" description="首次打开需要加载对应模块，请稍候。" />
+      </section>
+    </main>
+  );
 }
 
 function dateKeyTime(date: string) {
@@ -834,8 +848,7 @@ function App() {
     mood: '满足',
     photos: emptyImages(),
   });
-  const [foodImageState, setFoodImageState] = useState<ImageGenerationUiState>(IDLE_IMAGE_GENERATION_STATE);
-  const [mealImageState, setMealImageState] = useState<ImageGenerationUiState>(IDLE_IMAGE_GENERATION_STATE);
+  const [foodImageState, setFoodImageState] = useState(IDLE_IMAGE_GENERATION_STATE);
   const [inviteForm, setInviteForm] = useState<InviteFormState>({
     username: '',
     displayName: '',
@@ -868,8 +881,6 @@ function App() {
     imagePrompt: '',
     images: emptyImages(),
   });
-  const [profileImageState, setProfileImageState] = useState<ImageGenerationUiState>(IDLE_IMAGE_GENERATION_STATE);
-  const [familyImageState, setFamilyImageState] = useState<ImageGenerationUiState>(IDLE_IMAGE_GENERATION_STATE);
   const [isProfileAvatarPromptOpen, setIsProfileAvatarPromptOpen] = useState(false);
   const [isFamilyImagePromptOpen, setIsFamilyImagePromptOpen] = useState(false);
   const [foodWorkspaceView, setFoodWorkspaceView] = useState<FoodWorkspaceView>('list');
@@ -931,83 +942,83 @@ function App() {
   }, [user?.id]);
 
   const familyQuery = useQuery({
-    queryKey: ['family'],
+    queryKey: queryKeys.family,
     queryFn: api.getFamily,
     enabled: isAuthenticated,
   });
   const membersQuery = useQuery({
-    queryKey: ['members'],
+    queryKey: queryKeys.members,
     queryFn: api.getMembers,
     enabled: isAuthenticated,
   });
   const ingredientsQuery = useQuery({
-    queryKey: ['ingredients'],
+    queryKey: queryKeys.ingredients,
     queryFn: api.getIngredients,
     enabled: isAuthenticated,
   });
   const inventoryQuery = useQuery({
-    queryKey: ['inventory'],
+    queryKey: queryKeys.inventory,
     queryFn: api.getInventory,
     enabled: isAuthenticated,
   });
   const shoppingQuery = useQuery({
-    queryKey: ['shopping-list'],
+    queryKey: queryKeys.shoppingList,
     queryFn: api.getShoppingList,
     enabled: isAuthenticated,
   });
   const recipesQuery = useQuery({
-    queryKey: ['recipes'],
+    queryKey: queryKeys.recipes,
     queryFn: api.getRecipes,
     enabled: isAuthenticated,
   });
   const recipeDiscoveryQuery = useQuery({
-    queryKey: ['recipe-discovery'],
+    queryKey: queryKeys.recipeDiscovery,
     queryFn: () => api.getRecipeDiscovery(8),
     enabled: isAuthenticated,
   });
   const recipeStatsQuery = useQuery({
-    queryKey: ['recipe-stats'],
+    queryKey: queryKeys.recipeStats,
     queryFn: () => api.getRecipeStats(undefined, undefined, 10),
     enabled: isAuthenticated,
   });
   const recipeFavoritesQuery = useQuery({
-    queryKey: ['recipe-favorites'],
+    queryKey: queryKeys.recipeFavorites,
     queryFn: api.getRecipeFavorites,
     enabled: isAuthenticated,
   });
   const foodPlanQuery = useQuery({
-    queryKey: ['food-plan', foodPlanWeekRange.start, foodPlanWeekRange.end],
+    queryKey: queryKeys.foodPlan(foodPlanWeekRange.start, foodPlanWeekRange.end),
     queryFn: () => api.getFoodPlan(foodPlanWeekRange.start, foodPlanWeekRange.end),
     enabled: isAuthenticated,
     placeholderData: keepPreviousData,
   });
   const foodScenesQuery = useQuery({
-    queryKey: ['food-scenes'],
+    queryKey: queryKeys.foodScenes,
     queryFn: api.getFoodScenes,
     enabled: isAuthenticated,
   });
   const foodsQuery = useQuery({
-    queryKey: ['foods'],
+    queryKey: queryKeys.foods,
     queryFn: api.getFoods,
     enabled: isAuthenticated,
   });
   const foodRecommendationsQuery = useQuery({
-    queryKey: ['food-recommendations'],
+    queryKey: queryKeys.foodRecommendations,
     queryFn: () => api.getFoodRecommendations({ limit: 12, now: new Date().toISOString() }),
     enabled: isAuthenticated,
   });
   const mealLogsQuery = useQuery({
-    queryKey: ['meal-logs'],
+    queryKey: queryKeys.mealLogs,
     queryFn: api.getMealLogs,
     enabled: isAuthenticated,
   });
   const activityLogsQuery = useQuery({
-    queryKey: ['activity-logs'],
+    queryKey: queryKeys.activityLogs,
     queryFn: api.getActivityLogs,
     enabled: isAuthenticated,
   });
   const aiConversationsQuery = useQuery({
-    queryKey: ['ai-conversations'],
+    queryKey: queryKeys.aiConversations,
     queryFn: api.getAiConversations,
     enabled: isAuthenticated,
   });
@@ -1027,25 +1038,20 @@ function App() {
   const createMemberMutation = useMutation({
     mutationFn: api.createMember,
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['members'] });
-      void queryClient.invalidateQueries({ queryKey: ['activity-logs'] });
+      invalidateAfterMemberChanged(queryClient);
     },
   });
   const updateProfileMutation = useMutation({
     mutationFn: api.updateMe,
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['auth', 'me'] });
-      void queryClient.invalidateQueries({ queryKey: ['members'] });
-      void queryClient.invalidateQueries({ queryKey: ['activity-logs'] });
+      invalidateAfterProfileChanged(queryClient);
     },
   });
   const updateMemberMutation = useMutation({
     mutationFn: ({ memberId, payload }: { memberId: string; payload: Parameters<typeof api.updateMember>[1] }) =>
       api.updateMember(memberId, payload),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['members'] });
-      void queryClient.invalidateQueries({ queryKey: ['auth', 'me'] });
-      void queryClient.invalidateQueries({ queryKey: ['activity-logs'] });
+      invalidateAfterProfileChanged(queryClient);
     },
   });
   const updatePasswordMutation = useMutation({
@@ -1054,112 +1060,76 @@ function App() {
   const updateFamilyMutation = useMutation({
     mutationFn: api.updateFamily,
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['family'] });
-      void queryClient.invalidateQueries({ queryKey: ['auth', 'me'] });
-      void queryClient.invalidateQueries({ queryKey: ['activity-logs'] });
+      invalidateAfterFamilyChanged(queryClient);
     },
   });
   const createIngredientMutation = useMutation({
     mutationFn: api.createIngredient,
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['ingredients'] });
-      void queryClient.invalidateQueries({ queryKey: ['activity-logs'] });
+      invalidateAfterIngredientChanged(queryClient);
     },
   });
   const updateIngredientMutation = useMutation({
     mutationFn: ({ ingredientId, payload }: { ingredientId: string; payload: Parameters<typeof api.updateIngredient>[1] }) =>
       api.updateIngredient(ingredientId, payload),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['ingredients'] });
-      void queryClient.invalidateQueries({ queryKey: ['activity-logs'] });
+      invalidateAfterIngredientChanged(queryClient);
     },
   });
   const createInventoryMutation = useMutation({
     mutationFn: api.createInventory,
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['inventory'] });
-      void queryClient.invalidateQueries({ queryKey: ['food-recommendations'] });
-      void queryClient.invalidateQueries({ queryKey: ['activity-logs'] });
+      invalidateAfterInventoryChanged(queryClient);
     },
   });
   const consumeInventoryMutation = useMutation({
     mutationFn: api.consumeInventory,
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['inventory'] });
-      void queryClient.invalidateQueries({ queryKey: ['food-recommendations'] });
-      void queryClient.invalidateQueries({ queryKey: ['activity-logs'] });
+      invalidateAfterInventoryChanged(queryClient);
     },
   });
   const disposeExpiredInventoryMutation = useMutation({
     mutationFn: api.disposeExpiredInventory,
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['inventory'] });
-      void queryClient.invalidateQueries({ queryKey: ['food-recommendations'] });
-      void queryClient.invalidateQueries({ queryKey: ['activity-logs'] });
+      invalidateAfterInventoryChanged(queryClient);
     },
   });
   const createShoppingMutation = useMutation({
     mutationFn: api.createShoppingItem,
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['shopping-list'] });
-      void queryClient.invalidateQueries({ queryKey: ['activity-logs'] });
+      invalidateAfterShoppingChanged(queryClient);
     },
   });
   const updateShoppingMutation = useMutation({
     mutationFn: ({ itemId, done }: { itemId: string; done: boolean }) => api.updateShoppingItem(itemId, done),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['shopping-list'] });
-      void queryClient.invalidateQueries({ queryKey: ['activity-logs'] });
+      invalidateAfterShoppingChanged(queryClient);
     },
   });
   const createRecipeMutation = useMutation({
     mutationFn: api.createRecipe,
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['recipes'] });
-      void queryClient.invalidateQueries({ queryKey: ['recipe-discovery'] });
-      void queryClient.invalidateQueries({ queryKey: ['recipe-stats'] });
-      void queryClient.invalidateQueries({ queryKey: ['foods'] });
-      void queryClient.invalidateQueries({ queryKey: ['food-recommendations'] });
-      void queryClient.invalidateQueries({ queryKey: ['activity-logs'] });
+      invalidateAfterRecipeChanged(queryClient);
     },
   });
   const updateRecipeMutation = useMutation({
     mutationFn: ({ recipeId, payload }: { recipeId: string; payload: Parameters<typeof api.updateRecipe>[1] }) =>
       api.updateRecipe(recipeId, payload),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['recipes'] });
-      void queryClient.invalidateQueries({ queryKey: ['recipe-discovery'] });
-      void queryClient.invalidateQueries({ queryKey: ['recipe-stats'] });
-      void queryClient.invalidateQueries({ queryKey: ['foods'] });
-      void queryClient.invalidateQueries({ queryKey: ['food-recommendations'] });
-      void queryClient.invalidateQueries({ queryKey: ['activity-logs'] });
+      invalidateAfterRecipeChanged(queryClient);
     },
   });
   const deleteRecipeMutation = useMutation({
     mutationFn: api.deleteRecipe,
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['recipes'] });
-      void queryClient.invalidateQueries({ queryKey: ['recipe-discovery'] });
-      void queryClient.invalidateQueries({ queryKey: ['recipe-stats'] });
-      void queryClient.invalidateQueries({ queryKey: ['recipe-favorites'] });
-      void queryClient.invalidateQueries({ queryKey: ['food-plan'] });
-      void queryClient.invalidateQueries({ queryKey: ['foods'] });
-      void queryClient.invalidateQueries({ queryKey: ['food-recommendations'] });
-      void queryClient.invalidateQueries({ queryKey: ['activity-logs'] });
+      invalidateAfterRecipeDeleted(queryClient);
     },
   });
   const cookRecipeMutation = useMutation({
     mutationFn: ({ recipeId, payload }: { recipeId: string; payload: Parameters<typeof api.cookRecipe>[1] }) =>
       api.cookRecipe(recipeId, payload),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['inventory'] });
-      void queryClient.invalidateQueries({ queryKey: ['recipe-discovery'] });
-      void queryClient.invalidateQueries({ queryKey: ['food-recommendations'] });
-      void queryClient.invalidateQueries({ queryKey: ['recipe-stats'] });
-      void queryClient.invalidateQueries({ queryKey: ['foods'] });
-      void queryClient.invalidateQueries({ queryKey: ['meal-logs'] });
-      void queryClient.invalidateQueries({ queryKey: ['food-plan'] });
-      void queryClient.invalidateQueries({ queryKey: ['activity-logs'] });
+      invalidateAfterRecipeCooked(queryClient);
     },
   });
   const previewCookRecipeMutation = useMutation({
@@ -1169,110 +1139,89 @@ function App() {
   const addRecipeFavoriteMutation = useMutation({
     mutationFn: api.addRecipeFavorite,
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['recipe-favorites'] });
-      void queryClient.invalidateQueries({ queryKey: ['activity-logs'] });
+      invalidateAfterRecipeFavoriteChanged(queryClient);
     },
   });
   const removeRecipeFavoriteMutation = useMutation({
     mutationFn: api.removeRecipeFavorite,
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['recipe-favorites'] });
-      void queryClient.invalidateQueries({ queryKey: ['activity-logs'] });
+      invalidateAfterRecipeFavoriteChanged(queryClient);
     },
   });
   const createFoodPlanItemMutation = useMutation({
     mutationFn: api.createFoodPlanItem,
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['food-plan'] });
-      void queryClient.invalidateQueries({ queryKey: ['activity-logs'] });
+      invalidateAfterFoodPlanChanged(queryClient);
     },
   });
   const updateFoodPlanItemMutation = useMutation({
     mutationFn: ({ itemId, payload }: { itemId: string; payload: Parameters<typeof api.updateFoodPlanItem>[1] }) =>
       api.updateFoodPlanItem(itemId, payload),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['food-plan'] });
-      void queryClient.invalidateQueries({ queryKey: ['activity-logs'] });
+      invalidateAfterFoodPlanChanged(queryClient);
     },
   });
   const deleteFoodPlanItemMutation = useMutation({
     mutationFn: api.deleteFoodPlanItem,
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['food-plan'] });
-      void queryClient.invalidateQueries({ queryKey: ['activity-logs'] });
+      invalidateAfterFoodPlanChanged(queryClient);
     },
   });
   const createFoodSceneMutation = useMutation({
     mutationFn: api.createFoodScene,
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['food-scenes'] });
-      void queryClient.invalidateQueries({ queryKey: ['activity-logs'] });
+      invalidateAfterFoodSceneChanged(queryClient);
     },
   });
   const updateFoodSceneMutation = useMutation({
     mutationFn: ({ sceneId, payload }: { sceneId: string; payload: Parameters<typeof api.updateFoodScene>[1] }) =>
       api.updateFoodScene(sceneId, payload),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['food-scenes'] });
-      void queryClient.invalidateQueries({ queryKey: ['activity-logs'] });
+      invalidateAfterFoodSceneChanged(queryClient);
     },
   });
   const deleteFoodSceneMutation = useMutation({
     mutationFn: api.deleteFoodScene,
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['food-scenes'] });
-      void queryClient.invalidateQueries({ queryKey: ['activity-logs'] });
+      invalidateAfterFoodSceneChanged(queryClient);
     },
   });
   const createFoodMutation = useMutation({
     mutationFn: api.createFood,
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['foods'] });
-      void queryClient.invalidateQueries({ queryKey: ['food-recommendations'] });
-      void queryClient.invalidateQueries({ queryKey: ['activity-logs'] });
+      invalidateAfterFoodChanged(queryClient);
     },
   });
   const updateFoodMutation = useMutation({
     mutationFn: ({ foodId, payload }: { foodId: string; payload: Parameters<typeof api.updateFood>[1] }) =>
       api.updateFood(foodId, payload),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['foods'] });
-      void queryClient.invalidateQueries({ queryKey: ['food-recommendations'] });
-      void queryClient.invalidateQueries({ queryKey: ['activity-logs'] });
+      invalidateAfterFoodChanged(queryClient);
     },
   });
   const toggleFavoriteMutation = useMutation({
     mutationFn: ({ foodId, favorite }: { foodId: string; favorite: boolean }) =>
       api.updateFoodFavorite(foodId, favorite),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['foods'] });
-      void queryClient.invalidateQueries({ queryKey: ['food-recommendations'] });
-      void queryClient.invalidateQueries({ queryKey: ['activity-logs'] });
+      invalidateAfterFoodChanged(queryClient);
     },
   });
   const createMealMutation = useMutation({
     mutationFn: api.createMealLog,
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['meal-logs'] });
-      void queryClient.invalidateQueries({ queryKey: ['food-recommendations'] });
-      void queryClient.invalidateQueries({ queryKey: ['activity-logs'] });
+      invalidateAfterMealLogChanged(queryClient);
     },
   });
   const quickAddMealMutation = useMutation({
     mutationFn: api.quickAddMealLog,
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['meal-logs'] });
-      void queryClient.invalidateQueries({ queryKey: ['food-plan'] });
-      void queryClient.invalidateQueries({ queryKey: ['food-recommendations'] });
-      void queryClient.invalidateQueries({ queryKey: ['activity-logs'] });
+      invalidateAfterQuickMealAdded(queryClient);
     },
   });
   const aiMutation = useMutation({
     mutationFn: api.queryAi,
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['ai-conversations'] });
-      void queryClient.invalidateQueries({ queryKey: ['family'] });
-      void queryClient.invalidateQueries({ queryKey: ['activity-logs'] });
+      invalidateAfterLegacyAiQuery(queryClient);
     },
   });
 
@@ -1312,6 +1261,25 @@ function App() {
         .includes(query);
     })
     .slice(0, 8);
+  const foodImagePayload = buildFoodImagePayload(foodForm, recipes);
+  const mealImagePayload = buildMealImagePayload(mealForm, mealFoodEntries, foods);
+  const profileImagePayload = buildProfileImagePayload(profileForm, membership?.role ?? 'Member');
+  const familyImagePayload = buildFamilyImagePayload(familyForm);
+  const mealImageComposer = useImageComposer({
+    value: mealForm.photos,
+    payload: mealImagePayload,
+    onChange: (next) => setMealForm((current) => ({ ...current, photos: next })),
+  });
+  const profileImageComposer = useImageComposer({
+    value: profileForm.avatarImages,
+    payload: profileImagePayload,
+    onChange: (next) => setProfileForm((current) => ({ ...current, avatarImages: next })),
+  });
+  const familyImageComposer = useImageComposer({
+    value: familyForm.images,
+    payload: familyImagePayload,
+    onChange: (next) => setFamilyForm((current) => ({ ...current, images: next })),
+  });
 
   useEffect(() => {
     setVisibleExpiryCount(10);
@@ -1431,12 +1399,8 @@ function App() {
     const typeMatch = foodTypeFilter === 'all' || food.type === foodTypeFilter;
     return searchMatch && typeMatch;
   });
-  const foodImagePayload = buildFoodImagePayload(foodForm, recipes);
-  const mealImagePayload = buildMealImagePayload(mealForm, mealFoodEntries, foods);
-  const profileImagePayload = buildProfileImagePayload(profileForm, membership?.role ?? 'Member');
-  const familyImagePayload = buildFamilyImagePayload(familyForm);
   const foodSubmitDisabled = createFoodMutation.isPending || foodImageState.isGenerating;
-  const mealSubmitDisabled = createMealMutation.isPending || mealImageState.isGenerating;
+  const mealSubmitDisabled = createMealMutation.isPending || mealImageComposer.state.isGenerating;
   const foodValidIngredientBinding = foodForm.type !== 'selfMade' || Boolean(foodForm.recipeId);
   const foodSummaryItems = [
     { label: '名称', value: foodForm.name.trim() || '未填写食物名称' },
@@ -1453,95 +1417,6 @@ function App() {
   ];
   function countRecentMealUsage(foodId: string) {
     return mealLogs.filter((log) => log.food_entries.some((entry) => entry.food_id === foodId)).length;
-  }
-
-  async function handleImageUpload(
-    files: FileList | null,
-    payload: AiRenderPayload,
-    onChange: (next: ImageInputValue) => void,
-    setImageState: (next: ImageGenerationUiState) => void
-  ) {
-    if (!files || files.length === 0) {
-      return;
-    }
-    const [file] = Array.from(files);
-    if (!file) {
-      return;
-    }
-    setImageState({ isGenerating: true, errorMessage: null });
-    try {
-      const nextImages = await uploadReferenceAndGenerateImage(file, payload);
-      onChange(nextImages);
-      setImageState(IDLE_IMAGE_GENERATION_STATE);
-    } catch (reason) {
-      const message = resolveImageGenerationErrorMessage(reason, '参考图上传或 AI 主图生成失败');
-      const referenceAsset = extractReferenceAsset(reason);
-      onChange(referenceAsset ? { referenceAsset } : emptyImages());
-      setImageState({
-        isGenerating: false,
-        errorMessage: referenceAsset ? `${message}，参考图已保留，可重试生成主图。` : message,
-      });
-    }
-  }
-
-  async function handleDirectImageUpload(
-    files: FileList | null,
-    alt: string,
-    onChange: (next: ImageInputValue) => void,
-    setImageState: (next: ImageGenerationUiState) => void
-  ) {
-    if (!files || files.length === 0) {
-      return;
-    }
-    const [file] = Array.from(files);
-    if (!file) {
-      return;
-    }
-    setImageState({ isGenerating: true, errorMessage: null });
-    try {
-      const asset = await api.uploadMedia(file, 'upload', alt || file.name);
-      onChange({ generatedAsset: asset as MediaAsset });
-      setImageState(IDLE_IMAGE_GENERATION_STATE);
-    } catch (reason) {
-      setImageState({
-        isGenerating: false,
-        errorMessage: resolveImageGenerationErrorMessage(reason, '图片上传失败'),
-      });
-    }
-  }
-
-  async function handleGenerateImage(
-    mode: 'reference' | 'text',
-    currentValue: ImageInputValue,
-    payload: AiRenderPayload,
-    onChange: (next: ImageInputValue) => void,
-    setImageState: (next: ImageGenerationUiState) => void
-  ) {
-    setImageState({ isGenerating: true, errorMessage: null });
-    try {
-      const nextImages =
-        mode === 'reference' && currentValue.referenceAsset
-          ? await regenerateImageFromReference(currentValue.referenceAsset.id, payload)
-          : await generateImageFromText(payload);
-      onChange({
-        referenceAsset: nextImages.referenceAsset ?? currentValue.referenceAsset,
-        generatedAsset: nextImages.generatedAsset,
-      });
-      setImageState(IDLE_IMAGE_GENERATION_STATE);
-    } catch (reason) {
-      setImageState({
-        isGenerating: false,
-        errorMessage: resolveImageGenerationErrorMessage(reason, 'AI 主图生成失败'),
-      });
-    }
-  }
-
-  function resetImageInput(
-    onChange: (value: ImageInputValue) => void,
-    setImageState: (next: ImageGenerationUiState) => void
-  ) {
-    onChange(emptyImages());
-    setImageState(IDLE_IMAGE_GENERATION_STATE);
   }
 
   async function submitFood(event: FormEvent<HTMLFormElement>) {
@@ -1616,7 +1491,7 @@ function App() {
         mood: mealForm.mood,
         media_ids: getMediaIds(mealForm.photos),
       });
-      setMealImageState(IDLE_IMAGE_GENERATION_STATE);
+      mealImageComposer.setState(IDLE_IMAGE_GENERATION_STATE);
       setMealForm({
         date: todayKey(),
         mealType: 'dinner',
@@ -3151,131 +3026,137 @@ function App() {
         )}
 
         {activeTab === 'foods' && (
-          <FoodWorkspace
-            foods={foods}
-            recipes={recipes}
-            ingredients={ingredients}
-            inventoryItems={inventoryItems}
-            mealLogs={mealLogs}
-            foodRecommendations={foodRecommendations}
-            foodScenes={foodScenes}
-            foodPlanItems={foodPlanItems}
-            foodPlanWeekRange={foodPlanWeekRange}
-            createFood={(payload) => createFoodMutation.mutateAsync(payload)}
-            updateFood={(foodId, payload) => updateFoodMutation.mutateAsync({ foodId, payload })}
-            updateFoodFavorite={(foodId, favorite) => toggleFavoriteMutation.mutateAsync({ foodId, favorite })}
-            quickAddMeal={(payload) => quickAddMealMutation.mutateAsync(payload)}
-            createFoodPlanItem={(payload) => createFoodPlanItemMutation.mutateAsync(payload)}
-            updateFoodPlanItem={(itemId, payload) => updateFoodPlanItemMutation.mutateAsync({ itemId, payload })}
-            deleteFoodPlanItem={(itemId) => deleteFoodPlanItemMutation.mutateAsync(itemId)}
-            createFoodScene={(payload) => createFoodSceneMutation.mutateAsync(payload)}
-            updateFoodScene={(sceneId, payload) => updateFoodSceneMutation.mutateAsync({ sceneId, payload })}
-            deleteFoodScene={(sceneId) => deleteFoodSceneMutation.mutateAsync(sceneId)}
-            onOpenRecipes={() => setActiveTab('recipes')}
-            onStartRecipe={(recipeId, foodPlanItemId) => {
-              setPendingRecipeCookId(recipeId);
-              setPendingFoodPlanCookItemId(foodPlanItemId ?? null);
-              setActiveTab('recipes');
-            }}
-            onOpenLogs={() => setActiveTab('logs')}
-            onFoodPlanPreviousWeek={() => setSelectedRecipePlanDate(addDateKeyDays(foodPlanWeekRange.start, -7))}
-            onFoodPlanCurrentWeek={() => setSelectedRecipePlanDate(todayKey())}
-            onFoodPlanNextWeek={() => setSelectedRecipePlanDate(addDateKeyDays(foodPlanWeekRange.end, 1))}
-            isSavingFood={createFoodMutation.isPending || updateFoodMutation.isPending}
-            isUpdatingFavorite={toggleFavoriteMutation.isPending}
-            isQuickAdding={quickAddMealMutation.isPending}
-            isUpdatingPlan={createFoodPlanItemMutation.isPending || updateFoodPlanItemMutation.isPending || deleteFoodPlanItemMutation.isPending}
-            isUpdatingScene={createFoodSceneMutation.isPending || updateFoodSceneMutation.isPending || deleteFoodSceneMutation.isPending}
-          />
-        )}
-
-        {activeTab === 'recipes' && (
-          <main className="page-stack">
-            <RecipeWorkspace
+          <Suspense fallback={<WorkspaceLoadingFallback />}>
+            <FoodWorkspace
+              foods={foods}
               recipes={recipes}
               ingredients={ingredients}
               inventoryItems={inventoryItems}
               mealLogs={mealLogs}
-              foods={foods}
-              shoppingItems={shoppingItems}
-              recipeFavorites={recipeFavorites}
-              recipeDiscovery={recipeDiscovery}
-              recipeStats={recipeStats}
-              recipePlanItems={[]}
-              recipeScenes={foodScenes}
-              recipePlanWeekRange={foodPlanWeekRange}
-              startRecipeId={pendingRecipeCookId}
-              startFoodPlanItemId={pendingFoodPlanCookItemId}
-              onStartRecipeHandled={() => {
-                setPendingRecipeCookId(null);
-                setPendingFoodPlanCookItemId(null);
+              foodRecommendations={foodRecommendations}
+              foodScenes={foodScenes}
+              foodPlanItems={foodPlanItems}
+              foodPlanWeekRange={foodPlanWeekRange}
+              createFood={(payload) => createFoodMutation.mutateAsync(payload)}
+              updateFood={(foodId, payload) => updateFoodMutation.mutateAsync({ foodId, payload })}
+              updateFoodFavorite={(foodId, favorite) => toggleFavoriteMutation.mutateAsync({ foodId, favorite })}
+              quickAddMeal={(payload) => quickAddMealMutation.mutateAsync(payload)}
+              createFoodPlanItem={(payload) => createFoodPlanItemMutation.mutateAsync(payload)}
+              updateFoodPlanItem={(itemId, payload) => updateFoodPlanItemMutation.mutateAsync({ itemId, payload })}
+              deleteFoodPlanItem={(itemId) => deleteFoodPlanItemMutation.mutateAsync(itemId)}
+              createFoodScene={(payload) => createFoodSceneMutation.mutateAsync(payload)}
+              updateFoodScene={(sceneId, payload) => updateFoodSceneMutation.mutateAsync({ sceneId, payload })}
+              deleteFoodScene={(sceneId) => deleteFoodSceneMutation.mutateAsync(sceneId)}
+              onOpenRecipes={() => setActiveTab('recipes')}
+              onStartRecipe={(recipeId, foodPlanItemId) => {
+                setPendingRecipeCookId(recipeId);
+                setPendingFoodPlanCookItemId(foodPlanItemId ?? null);
+                setActiveTab('recipes');
               }}
-              onRecipePlanPreviousWeek={() => setSelectedRecipePlanDate(addDateKeyDays(foodPlanWeekRange.start, -7))}
-              onRecipePlanCurrentWeek={() => setSelectedRecipePlanDate(todayKey())}
-              onRecipePlanNextWeek={() => setSelectedRecipePlanDate(addDateKeyDays(foodPlanWeekRange.end, 1))}
-              createRecipe={(payload) => createRecipeMutation.mutateAsync(payload)}
-              updateRecipe={(recipeId, payload) => updateRecipeMutation.mutateAsync({ recipeId, payload })}
-              deleteRecipe={(recipeId) => deleteRecipeMutation.mutateAsync(recipeId)}
-              cookRecipe={(recipeId, payload) => cookRecipeMutation.mutateAsync({ recipeId, payload })}
-              previewCookRecipe={(recipeId, payload) => previewCookRecipeMutation.mutateAsync({ recipeId, payload })}
-              generateRecipeDraft={(payload) => api.generateRecipeDraft(payload)}
-              createShoppingItem={(payload) => createShoppingMutation.mutateAsync(payload)}
-              addRecipeFavorite={(recipeId) => addRecipeFavoriteMutation.mutateAsync(recipeId)}
-              removeRecipeFavorite={(recipeId) => removeRecipeFavoriteMutation.mutateAsync(recipeId)}
-              createRecipePlanItem={async () => {
-                throw new Error('菜单计划已迁移到食物页');
-              }}
-              updateRecipePlanItem={async () => {
-                throw new Error('菜单计划已迁移到食物页');
-              }}
-              deleteRecipePlanItem={async () => {
-                throw new Error('菜单计划已迁移到食物页');
-              }}
-              createRecipeScene={(payload) => createFoodSceneMutation.mutateAsync(payload)}
-              updateRecipeScene={(sceneId, payload) => updateFoodSceneMutation.mutateAsync({ sceneId, payload })}
-              deleteRecipeScene={(sceneId) => deleteFoodSceneMutation.mutateAsync(sceneId)}
-              isCreatingRecipe={createRecipeMutation.isPending}
-              isUpdatingRecipe={updateRecipeMutation.isPending}
-              isDeletingRecipe={deleteRecipeMutation.isPending}
-              isCookingRecipe={cookRecipeMutation.isPending}
-              isCreatingShopping={createShoppingMutation.isPending}
-              isUpdatingFavorite={addRecipeFavoriteMutation.isPending || removeRecipeFavoriteMutation.isPending}
-              isUpdatingPlan={
-                createFoodPlanItemMutation.isPending ||
-                updateFoodPlanItemMutation.isPending ||
-                deleteFoodPlanItemMutation.isPending
-              }
-              isUpdatingScene={
-                createFoodSceneMutation.isPending ||
-                updateFoodSceneMutation.isPending ||
-                deleteFoodSceneMutation.isPending
-              }
+              onOpenLogs={() => setActiveTab('logs')}
+              onFoodPlanPreviousWeek={() => setSelectedRecipePlanDate(addDateKeyDays(foodPlanWeekRange.start, -7))}
+              onFoodPlanCurrentWeek={() => setSelectedRecipePlanDate(todayKey())}
+              onFoodPlanNextWeek={() => setSelectedRecipePlanDate(addDateKeyDays(foodPlanWeekRange.end, 1))}
+              isSavingFood={createFoodMutation.isPending || updateFoodMutation.isPending}
+              isUpdatingFavorite={toggleFavoriteMutation.isPending}
+              isQuickAdding={quickAddMealMutation.isPending}
+              isUpdatingPlan={createFoodPlanItemMutation.isPending || updateFoodPlanItemMutation.isPending || deleteFoodPlanItemMutation.isPending}
+              isUpdatingScene={createFoodSceneMutation.isPending || updateFoodSceneMutation.isPending || deleteFoodSceneMutation.isPending}
             />
-          </main>
+          </Suspense>
+        )}
+
+        {activeTab === 'recipes' && (
+          <Suspense fallback={<WorkspaceLoadingFallback />}>
+            <main className="page-stack">
+              <RecipeWorkspace
+                recipes={recipes}
+                ingredients={ingredients}
+                inventoryItems={inventoryItems}
+                mealLogs={mealLogs}
+                foods={foods}
+                shoppingItems={shoppingItems}
+                recipeFavorites={recipeFavorites}
+                recipeDiscovery={recipeDiscovery}
+                recipeStats={recipeStats}
+                recipePlanItems={[]}
+                recipeScenes={foodScenes}
+                recipePlanWeekRange={foodPlanWeekRange}
+                startRecipeId={pendingRecipeCookId}
+                startFoodPlanItemId={pendingFoodPlanCookItemId}
+                onStartRecipeHandled={() => {
+                  setPendingRecipeCookId(null);
+                  setPendingFoodPlanCookItemId(null);
+                }}
+                onRecipePlanPreviousWeek={() => setSelectedRecipePlanDate(addDateKeyDays(foodPlanWeekRange.start, -7))}
+                onRecipePlanCurrentWeek={() => setSelectedRecipePlanDate(todayKey())}
+                onRecipePlanNextWeek={() => setSelectedRecipePlanDate(addDateKeyDays(foodPlanWeekRange.end, 1))}
+                createRecipe={(payload) => createRecipeMutation.mutateAsync(payload)}
+                updateRecipe={(recipeId, payload) => updateRecipeMutation.mutateAsync({ recipeId, payload })}
+                deleteRecipe={(recipeId) => deleteRecipeMutation.mutateAsync(recipeId)}
+                cookRecipe={(recipeId, payload) => cookRecipeMutation.mutateAsync({ recipeId, payload })}
+                previewCookRecipe={(recipeId, payload) => previewCookRecipeMutation.mutateAsync({ recipeId, payload })}
+                generateRecipeDraft={(payload) => api.generateRecipeDraft(payload)}
+                createShoppingItem={(payload) => createShoppingMutation.mutateAsync(payload)}
+                addRecipeFavorite={(recipeId) => addRecipeFavoriteMutation.mutateAsync(recipeId)}
+                removeRecipeFavorite={(recipeId) => removeRecipeFavoriteMutation.mutateAsync(recipeId)}
+                createRecipePlanItem={async () => {
+                  throw new Error('菜单计划已迁移到食物页');
+                }}
+                updateRecipePlanItem={async () => {
+                  throw new Error('菜单计划已迁移到食物页');
+                }}
+                deleteRecipePlanItem={async () => {
+                  throw new Error('菜单计划已迁移到食物页');
+                }}
+                createRecipeScene={(payload) => createFoodSceneMutation.mutateAsync(payload)}
+                updateRecipeScene={(sceneId, payload) => updateFoodSceneMutation.mutateAsync({ sceneId, payload })}
+                deleteRecipeScene={(sceneId) => deleteFoodSceneMutation.mutateAsync(sceneId)}
+                isCreatingRecipe={createRecipeMutation.isPending}
+                isUpdatingRecipe={updateRecipeMutation.isPending}
+                isDeletingRecipe={deleteRecipeMutation.isPending}
+                isCookingRecipe={cookRecipeMutation.isPending}
+                isCreatingShopping={createShoppingMutation.isPending}
+                isUpdatingFavorite={addRecipeFavoriteMutation.isPending || removeRecipeFavoriteMutation.isPending}
+                isUpdatingPlan={
+                  createFoodPlanItemMutation.isPending ||
+                  updateFoodPlanItemMutation.isPending ||
+                  deleteFoodPlanItemMutation.isPending
+                }
+                isUpdatingScene={
+                  createFoodSceneMutation.isPending ||
+                  updateFoodSceneMutation.isPending ||
+                  deleteFoodSceneMutation.isPending
+                }
+              />
+            </main>
+          </Suspense>
         )}
 
         {activeTab === 'ingredients' && (
-          <IngredientWorkspace
-            ingredients={ingredients}
-            inventoryItems={inventoryItems}
-            shoppingItems={shoppingItems}
-            recipes={recipes}
-            navigationRequest={ingredientNavigationRequest}
-            createIngredient={(payload) => createIngredientMutation.mutateAsync(payload)}
-            updateIngredient={(ingredientId, payload) => updateIngredientMutation.mutateAsync({ ingredientId, payload })}
-            createInventory={(payload) => createInventoryMutation.mutateAsync(payload)}
-            consumeInventory={(payload) => consumeInventoryMutation.mutateAsync(payload)}
-            disposeExpiredInventory={(payload) => disposeExpiredInventoryMutation.mutateAsync(payload)}
-            createShoppingItem={(payload) => createShoppingMutation.mutateAsync(payload)}
-            updateShoppingItem={(payload) => updateShoppingMutation.mutateAsync(payload)}
-            isCreatingIngredient={createIngredientMutation.isPending}
-            isUpdatingIngredient={updateIngredientMutation.isPending}
-            isCreatingInventory={createInventoryMutation.isPending}
-            isConsumingInventory={consumeInventoryMutation.isPending}
-            isDisposingExpiredInventory={disposeExpiredInventoryMutation.isPending}
-            isCreatingShopping={createShoppingMutation.isPending}
-            isUpdatingShopping={updateShoppingMutation.isPending}
-          />
+          <Suspense fallback={<WorkspaceLoadingFallback />}>
+            <IngredientWorkspace
+              ingredients={ingredients}
+              inventoryItems={inventoryItems}
+              shoppingItems={shoppingItems}
+              recipes={recipes}
+              navigationRequest={ingredientNavigationRequest}
+              createIngredient={(payload) => createIngredientMutation.mutateAsync(payload)}
+              updateIngredient={(ingredientId, payload) => updateIngredientMutation.mutateAsync({ ingredientId, payload })}
+              createInventory={(payload) => createInventoryMutation.mutateAsync(payload)}
+              consumeInventory={(payload) => consumeInventoryMutation.mutateAsync(payload)}
+              disposeExpiredInventory={(payload) => disposeExpiredInventoryMutation.mutateAsync(payload)}
+              createShoppingItem={(payload) => createShoppingMutation.mutateAsync(payload)}
+              updateShoppingItem={(payload) => updateShoppingMutation.mutateAsync(payload)}
+              isCreatingIngredient={createIngredientMutation.isPending}
+              isUpdatingIngredient={updateIngredientMutation.isPending}
+              isCreatingInventory={createInventoryMutation.isPending}
+              isConsumingInventory={consumeInventoryMutation.isPending}
+              isDisposingExpiredInventory={disposeExpiredInventoryMutation.isPending}
+              isCreatingShopping={createShoppingMutation.isPending}
+              isUpdatingShopping={updateShoppingMutation.isPending}
+            />
+          </Suspense>
         )}
 
         {activeTab === 'logs' && (
@@ -3407,20 +3288,16 @@ function App() {
                     title="餐食照片"
                     value={mealForm.photos}
                     previewLabel="餐食照片"
-                    onUpload={(files) =>
-                      void handleImageUpload(files, mealImagePayload, (next) => setMealForm({ ...mealForm, photos: next }), setMealImageState)
-                    }
-                    onGenerate={(mode) =>
-                      void handleGenerateImage(mode, mealForm.photos, mealImagePayload, (next) => setMealForm({ ...mealForm, photos: next }), setMealImageState)
-                    }
-                    onReset={() => resetImageInput((value) => setMealForm({ ...mealForm, photos: value }), setMealImageState)}
-                    isGenerating={mealImageState.isGenerating}
-                    errorMessage={mealImageState.errorMessage}
+                    onUpload={(files) => void mealImageComposer.upload(files)}
+                    onGenerate={(mode) => void mealImageComposer.generate(mode)}
+                    onReset={mealImageComposer.reset}
+                    isGenerating={mealImageComposer.state.isGenerating}
+                    errorMessage={mealImageComposer.state.errorMessage}
                   />
 
                   <div className="span-two form-actions">
                     <button className="solid-button" type="submit" disabled={mealSubmitDisabled}>
-                      {createMealMutation.isPending ? '保存中...' : mealImageState.isGenerating ? '生成主图中...' : '保存餐食记录'}
+                      {createMealMutation.isPending ? '保存中...' : mealImageComposer.state.isGenerating ? '生成主图中...' : '保存餐食记录'}
                     </button>
                   </div>
                 </form>
@@ -3460,7 +3337,9 @@ function App() {
         )}
 
         {activeTab === 'ai' && (
-          <AiWorkspace conversations={aiConversations} isLoading={aiConversationsQuery.isLoading} currentUser={user} onBackHome={() => setActiveTab('home')} />
+          <Suspense fallback={<WorkspaceLoadingFallback />}>
+            <AiWorkspace conversations={aiConversations} isLoading={aiConversationsQuery.isLoading} currentUser={user} onBackHome={() => setActiveTab('home')} />
+          </Suspense>
         )}
 
         {activeTab === 'family' && (
@@ -4083,14 +3962,9 @@ function App() {
                             <input
                               type="file"
                               accept="image/*,.svg"
-                              disabled={profileImageState.isGenerating}
+                              disabled={profileImageComposer.state.isGenerating}
                               onChange={(event) => {
-                                void handleDirectImageUpload(
-                                  event.target.files,
-                                  `${profileForm.displayName || '成员'}头像`,
-                                  (next) => setProfileForm({ ...profileForm, avatarImages: next }),
-                                  setProfileImageState
-                                );
+                                void profileImageComposer.uploadDirect(event.target.files, `${profileForm.displayName || '成员'}头像`);
                                 event.currentTarget.value = '';
                               }}
                             />
@@ -4099,20 +3973,15 @@ function App() {
                             tone="secondary"
                             type="button"
                             onClick={() => setIsProfileAvatarPromptOpen(true)}
-                            disabled={profileImageState.isGenerating}
+                            disabled={profileImageComposer.state.isGenerating}
                           >
                             基于资料生成头像
                           </ActionButton>
                           <ActionButton
                             tone="secondary"
                             type="button"
-                            onClick={() =>
-                              resetImageInput(
-                                (next) => setProfileForm({ ...profileForm, avatarImages: next }),
-                                setProfileImageState
-                              )
-                            }
-                            disabled={profileImageState.isGenerating}
+                            onClick={profileImageComposer.reset}
+                            disabled={profileImageComposer.state.isGenerating}
                           >
                             清空头像
                           </ActionButton>
@@ -4126,7 +3995,7 @@ function App() {
                             imageUrl={profileForm.avatarImages.generatedAsset?.url ?? currentUser?.avatar_image?.url}
                             large
                           />
-                          <span>{profileImageState.isGenerating ? '生成中...' : profileForm.avatarImages.generatedAsset ? '已设置头像' : '当前预览'}</span>
+                          <span>{profileImageComposer.state.isGenerating ? '生成中...' : profileForm.avatarImages.generatedAsset ? '已设置头像' : '当前预览'}</span>
                         </div>
                         {isProfileAvatarPromptOpen && (
                           <div className="profile-avatar-prompt-panel">
@@ -4141,42 +4010,36 @@ function App() {
                               />
                             </label>
                             <div className="profile-avatar-prompt-actions">
-                              <ActionButton tone="secondary" type="button" onClick={() => setIsProfileAvatarPromptOpen(false)} disabled={profileImageState.isGenerating}>
+                              <ActionButton tone="secondary" type="button" onClick={() => setIsProfileAvatarPromptOpen(false)} disabled={profileImageComposer.state.isGenerating}>
                                 取消
                               </ActionButton>
                               <ActionButton
                                 tone="primary"
                                 type="button"
-                                disabled={profileImageState.isGenerating}
+                                disabled={profileImageComposer.state.isGenerating}
                                 onClick={async () => {
-                                  await handleGenerateImage(
-                                    'text',
-                                    profileForm.avatarImages,
-                                    profileImagePayload,
-                                    (next) => setProfileForm({ ...profileForm, avatarImages: next }),
-                                    setProfileImageState
-                                  );
+                                  await profileImageComposer.generate('text');
                                   setIsProfileAvatarPromptOpen(false);
                                 }}
                               >
-                                {profileImageState.isGenerating ? '生成中...' : '生成头像'}
+                                {profileImageComposer.state.isGenerating ? '生成中...' : '生成头像'}
                               </ActionButton>
                             </div>
                           </div>
                         )}
                       </div>
-                      {profileImageState.errorMessage && <span className="image-composer-error">{profileImageState.errorMessage}</span>}
+                      {profileImageComposer.state.errorMessage && <span className="image-composer-error">{profileImageComposer.state.errorMessage}</span>}
                     </section>
                     <div className="workspace-overlay-actions profile-edit-actions">
                       <ActionButton
                         tone="secondary"
                         type="button"
                         onClick={() => setFamilyOverlayMode(null)}
-                        disabled={updateProfileMutation.isPending || profileImageState.isGenerating}
+                        disabled={updateProfileMutation.isPending || profileImageComposer.state.isGenerating}
                       >
                         取消
                       </ActionButton>
-                      <ActionButton tone="primary" type="submit" disabled={updateProfileMutation.isPending || profileImageState.isGenerating}>
+                      <ActionButton tone="primary" type="submit" disabled={updateProfileMutation.isPending || profileImageComposer.state.isGenerating}>
                         {updateProfileMutation.isPending ? '保存中...' : '保存资料'}
                       </ActionButton>
                     </div>
@@ -4371,14 +4234,9 @@ function App() {
                             <input
                               type="file"
                               accept="image/*,.svg"
-                              disabled={familyImageState.isGenerating}
+                              disabled={familyImageComposer.state.isGenerating}
                               onChange={(event) => {
-                                void handleDirectImageUpload(
-                                  event.target.files,
-                                  `${familyForm.name || '家庭'}头像`,
-                                  (next) => setFamilyForm({ ...familyForm, images: next }),
-                                  setFamilyImageState
-                                );
+                                void familyImageComposer.uploadDirect(event.target.files, `${familyForm.name || '家庭'}头像`);
                                 event.currentTarget.value = '';
                               }}
                             />
@@ -4387,20 +4245,15 @@ function App() {
                             tone="secondary"
                             type="button"
                             onClick={() => setIsFamilyImagePromptOpen(true)}
-                            disabled={familyImageState.isGenerating}
+                            disabled={familyImageComposer.state.isGenerating}
                           >
                             基于家庭资料生成
                           </ActionButton>
                           <ActionButton
                             tone="secondary"
                             type="button"
-                            onClick={() =>
-                              resetImageInput(
-                                (next) => setFamilyForm({ ...familyForm, images: next }),
-                                setFamilyImageState
-                              )
-                            }
-                            disabled={familyImageState.isGenerating}
+                            onClick={familyImageComposer.reset}
+                            disabled={familyImageComposer.state.isGenerating}
                           >
                             清空家庭图
                           </ActionButton>
@@ -4415,7 +4268,7 @@ function App() {
                               <ShellIcon name="logo" />
                             </div>
                           )}
-                          <span>{familyImageState.isGenerating ? '生成中...' : familyForm.images.generatedAsset ? '已设置家庭图' : '当前预览'}</span>
+                          <span>{familyImageComposer.state.isGenerating ? '生成中...' : familyForm.images.generatedAsset ? '已设置家庭图' : '当前预览'}</span>
                         </div>
                         {isFamilyImagePromptOpen && (
                           <div className="family-image-prompt-panel">
@@ -4430,42 +4283,36 @@ function App() {
                               />
                             </label>
                             <div className="family-image-prompt-actions">
-                              <ActionButton tone="secondary" type="button" onClick={() => setIsFamilyImagePromptOpen(false)} disabled={familyImageState.isGenerating}>
+                              <ActionButton tone="secondary" type="button" onClick={() => setIsFamilyImagePromptOpen(false)} disabled={familyImageComposer.state.isGenerating}>
                                 取消
                               </ActionButton>
                               <ActionButton
                                 tone="primary"
                                 type="button"
-                                disabled={familyImageState.isGenerating}
+                                disabled={familyImageComposer.state.isGenerating}
                                 onClick={async () => {
-                                  await handleGenerateImage(
-                                    'text',
-                                    familyForm.images,
-                                    familyImagePayload,
-                                    (next) => setFamilyForm({ ...familyForm, images: next }),
-                                    setFamilyImageState
-                                  );
+                                  await familyImageComposer.generate('text');
                                   setIsFamilyImagePromptOpen(false);
                                 }}
                               >
-                                {familyImageState.isGenerating ? '生成中...' : '生成家庭图'}
+                                {familyImageComposer.state.isGenerating ? '生成中...' : '生成家庭图'}
                               </ActionButton>
                             </div>
                           </div>
                         )}
                       </div>
-                      {familyImageState.errorMessage && <span className="image-composer-error">{familyImageState.errorMessage}</span>}
+                      {familyImageComposer.state.errorMessage && <span className="image-composer-error">{familyImageComposer.state.errorMessage}</span>}
                     </section>
                     <div className="workspace-overlay-actions family-edit-actions">
                       <ActionButton
                         tone="secondary"
                         type="button"
                         onClick={() => setFamilyOverlayMode(null)}
-                        disabled={updateFamilyMutation.isPending || familyImageState.isGenerating}
+                        disabled={updateFamilyMutation.isPending || familyImageComposer.state.isGenerating}
                       >
                         取消
                       </ActionButton>
-                      <ActionButton tone="primary" type="submit" disabled={updateFamilyMutation.isPending || familyImageState.isGenerating}>
+                      <ActionButton tone="primary" type="submit" disabled={updateFamilyMutation.isPending || familyImageComposer.state.isGenerating}>
                         {updateFamilyMutation.isPending ? '保存中...' : '保存家庭信息'}
                       </ActionButton>
                     </div>

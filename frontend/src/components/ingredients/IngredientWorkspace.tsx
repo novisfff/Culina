@@ -33,11 +33,12 @@ import {
 } from '../../lib/ui';
 import {
   type AiRenderPayload,
-  generateImageFromText,
   getMediaIds,
-  regenerateImageFromReference,
-  uploadReferenceAndGenerateImage,
 } from '../../lib/aiImages';
+import {
+  IDLE_IMAGE_GENERATION_STATE,
+  useImageComposer,
+} from '../../hooks/useImageComposer';
 import {
   ActionButton,
   Avatar,
@@ -351,10 +352,6 @@ function isPendingShopping(item: ShoppingListItem) {
 }
 
 type IngredientAlertTone = 'warning' | 'danger';
-type ImageGenerationUiState = {
-  isGenerating: boolean;
-  errorMessage: string | null;
-};
 type CatalogStatusFilter = 'all' | 'expired' | 'expiring' | 'lowStock' | 'stable';
 type MobileIngredientFilter = 'all' | 'alerted' | 'empty' | 'stocked';
 type InventoryQuickFilter = 'all' | 'alerted';
@@ -637,11 +634,6 @@ const PANEL_ITEMS: Array<{ value: IngredientWorkspacePanel; label: string; icon:
   { value: 'inventory', label: '库存', icon: 'inventory' },
   { value: 'shopping', label: '采购', icon: 'shopping' },
 ];
-const IDLE_IMAGE_GENERATION_STATE: ImageGenerationUiState = {
-  isGenerating: false,
-  errorMessage: null,
-};
-
 const STORAGE_SHELF_MIN_WIDTH = 226;
 const STORAGE_SHELF_IDEAL_WIDTH = 260;
 const STORAGE_SHELF_MAX_WIDTH = 318;
@@ -1025,20 +1017,6 @@ function resolveStorageShelfLayout(availableWidth: number, maxGroupItems: number
     columns: bestColumns,
     cardWidth: Number(bestCardWidth.toFixed(2)),
   };
-}
-
-function resolveImageGenerationErrorMessage(reason: unknown, fallback: string) {
-  if (reason instanceof Error && reason.message.trim()) {
-    return reason.message;
-  }
-  return fallback;
-}
-
-function extractReferenceAsset(reason: unknown): ImageInputValue['referenceAsset'] {
-  if (reason && typeof reason === 'object' && 'referenceAsset' in reason) {
-    return (reason as { referenceAsset?: ImageInputValue['referenceAsset'] }).referenceAsset;
-  }
-  return undefined;
 }
 
 function buildIngredientImagePayload(form: IngredientCreateFormState): AiRenderPayload {
@@ -2070,9 +2048,6 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
   const [ingredientForm, setIngredientForm] = useState<IngredientCreateFormState>(
     () => persistedWorkspaceState.ingredientForm ?? defaultIngredientForm()
   );
-  const [ingredientImageState, setIngredientImageState] = useState<ImageGenerationUiState>(
-    IDLE_IMAGE_GENERATION_STATE
-  );
   const [catalogColumns, setCatalogColumns] = useState(1);
   const [catalogCardWidth, setCatalogCardWidth] = useState(STORAGE_SHELF_IDEAL_WIDTH);
   const catalogMeasureRef = useRef<HTMLDivElement | null>(null);
@@ -2351,69 +2326,11 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
     };
   }, [activePanel, workspaceView, maxCatalogItems]);
 
-  async function handleImageUpload(
-    files: FileList | null,
-    payload: AiRenderPayload,
-    onChange: (next: ImageInputValue) => void
-  ) {
-    if (!files || files.length === 0) {
-      return;
-    }
-    const [file] = Array.from(files);
-    if (!file) {
-      return;
-    }
-    setIngredientImageState({ isGenerating: true, errorMessage: null });
-    try {
-      const nextImages = await uploadReferenceAndGenerateImage(file, payload);
-      onChange(nextImages);
-      setIngredientImageState(IDLE_IMAGE_GENERATION_STATE);
-    } catch (reason) {
-      const message = resolveImageGenerationErrorMessage(reason, '参考图上传或 AI 主图生成失败');
-      const referenceAsset = extractReferenceAsset(reason);
-      onChange(referenceAsset ? { referenceAsset } : emptyImages());
-      setIngredientImageState({
-        isGenerating: false,
-        errorMessage: referenceAsset ? `${message}，参考图已保留，可重试生成主图。` : message,
-      });
-    }
-  }
-
-  async function handleGenerateImage(
-    mode: 'reference' | 'text',
-    currentValue: ImageInputValue,
-    payload: AiRenderPayload,
-    onChange: (next: ImageInputValue) => void
-  ) {
-    setIngredientImageState({ isGenerating: true, errorMessage: null });
-    try {
-      const nextImages =
-        mode === 'reference' && currentValue.referenceAsset
-          ? await regenerateImageFromReference(currentValue.referenceAsset.id, payload)
-          : await generateImageFromText(payload);
-      onChange({
-        referenceAsset: nextImages.referenceAsset ?? currentValue.referenceAsset,
-        generatedAsset: nextImages.generatedAsset,
-      });
-      setIngredientImageState(IDLE_IMAGE_GENERATION_STATE);
-    } catch (reason) {
-      setIngredientImageState({
-        isGenerating: false,
-        errorMessage: resolveImageGenerationErrorMessage(reason, 'AI 主图生成失败'),
-      });
-    }
-  }
-
-  function resetImageInput(onChange: (next: ImageInputValue) => void) {
-    onChange(emptyImages());
-    setIngredientImageState(IDLE_IMAGE_GENERATION_STATE);
-  }
-
   function openCreateView() {
     setEditingIngredientId(null);
     setIngredientForm(defaultIngredientForm());
     setIngredientUnitAdvancedOpen(false);
-    setIngredientImageState(IDLE_IMAGE_GENERATION_STATE);
+    ingredientImageComposer.setState(IDLE_IMAGE_GENERATION_STATE);
     setWorkspaceView('create');
   }
 
@@ -2422,7 +2339,7 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
     setSelectedIngredientId(ingredient.id);
     setIngredientForm(buildIngredientForm(ingredient));
     setIngredientUnitAdvancedOpen((ingredient.unit_conversions?.length ?? 0) > 0);
-    setIngredientImageState(IDLE_IMAGE_GENERATION_STATE);
+    ingredientImageComposer.setState(IDLE_IMAGE_GENERATION_STATE);
     setWorkspaceView('create');
   }
 
@@ -2638,7 +2555,7 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
       if (!editingIngredientId) {
         setTransientIngredient(saved);
       }
-      setIngredientImageState(IDLE_IMAGE_GENERATION_STATE);
+      ingredientImageComposer.setState(IDLE_IMAGE_GENERATION_STATE);
       setIngredientForm(defaultIngredientForm());
       setIngredientUnitAdvancedOpen(false);
       setEditingIngredientId(null);
@@ -2843,6 +2760,11 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
     '--ingredients-catalog-card-width': `${catalogCardWidth}px`,
   } as CSSProperties;
   const ingredientImagePayload = buildIngredientImagePayload(ingredientForm);
+  const ingredientImageComposer = useImageComposer({
+    value: ingredientForm.images,
+    payload: ingredientImagePayload,
+    onChange: (next) => setIngredientForm((current) => ({ ...current, images: next })),
+  });
   const isEditingIngredient = Boolean(editingIngredientId);
   const trimmedIngredientName = ingredientForm.name.trim();
   const trimmedIngredientCategory = ingredientForm.category.trim();
@@ -2877,7 +2799,7 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
     ingredientRulesValid &&
     !props.isCreatingIngredient &&
     !props.isUpdatingIngredient &&
-    !ingredientImageState.isGenerating;
+    !ingredientImageComposer.state.isGenerating;
   const createSummaryItems = [
     { label: '名称', value: trimmedIngredientName || '未填写食材名称' },
     { label: '分类', value: trimmedIngredientCategory || '未设置分类' },
@@ -3300,21 +3222,11 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
                     title="食材图片"
                     value={ingredientForm.images}
                     previewLabel={ingredientForm.name || '食材'}
-                    onUpload={(files) =>
-                      void handleImageUpload(files, ingredientImagePayload, (next) =>
-                        setIngredientForm({ ...ingredientForm, images: next })
-                      )
-                    }
-                    onGenerate={(mode) =>
-                      void handleGenerateImage(mode, ingredientForm.images, ingredientImagePayload, (next) =>
-                        setIngredientForm({ ...ingredientForm, images: next })
-                      )
-                    }
-                    onReset={() =>
-                      resetImageInput((value) => setIngredientForm({ ...ingredientForm, images: value }))
-                    }
-                    isGenerating={ingredientImageState.isGenerating}
-                    errorMessage={ingredientImageState.errorMessage}
+                    onUpload={(files) => void ingredientImageComposer.upload(files)}
+                    onGenerate={(mode) => void ingredientImageComposer.generate(mode)}
+                    onReset={ingredientImageComposer.reset}
+                    isGenerating={ingredientImageComposer.state.isGenerating}
+                    errorMessage={ingredientImageComposer.state.errorMessage}
                     variant="workspace-inline"
                   />
                 </div>
@@ -3396,7 +3308,7 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
                   <button className="solid-button" type="submit" disabled={!createCanSubmit}>
                     {props.isCreatingIngredient || props.isUpdatingIngredient
                       ? '保存中...'
-                      : ingredientImageState.isGenerating
+                      : ingredientImageComposer.state.isGenerating
                         ? '生成主图中...'
                         : isEditingIngredient
                           ? '保存修改并登记库存'
@@ -3410,7 +3322,7 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
                   >
                     {props.isCreatingIngredient || props.isUpdatingIngredient
                       ? '保存中...'
-                      : ingredientImageState.isGenerating
+                      : ingredientImageComposer.state.isGenerating
                         ? '生成主图中...'
                         : isEditingIngredient
                           ? '仅保存修改'

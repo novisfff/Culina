@@ -34,9 +34,12 @@ import {
   type AiRenderPayload,
   generateImageFromText,
   getMediaIds,
-  regenerateImageFromReference,
-  uploadReferenceAndGenerateImage,
 } from '../../lib/aiImages';
+import {
+  IDLE_IMAGE_GENERATION_STATE,
+  useImageComposer,
+  type ImageGenerationUiState,
+} from '../../hooks/useImageComposer';
 import { buildRecipeCards, type RecipeCardViewModel } from '../recipes/workspaceModel';
 
 type FoodWorkspaceView = 'list' | 'create' | 'edit';
@@ -127,11 +130,6 @@ export type FoodFormState = {
   favorite: boolean;
   recipeId: string;
   images: ImageInputValue;
-};
-
-type ImageGenerationUiState = {
-  isGenerating: boolean;
-  errorMessage: string | null;
 };
 
 type Props = {
@@ -301,8 +299,6 @@ const FOOD_LENS_COPY: Record<FoodWorkspaceLens, { title: string; description: st
     emptyDescription: '当前没有明显缺少决策信息的食物。',
   },
 };
-
-const IDLE_IMAGE_GENERATION_STATE: ImageGenerationUiState = { isGenerating: false, errorMessage: null };
 
 function resolveFoodAssetUrl(url: string) {
   if (url.startsWith('http://') || url.startsWith('https://') || url.startsWith('data:')) {
@@ -569,13 +565,6 @@ function resolveImageGenerationErrorMessage(reason: unknown, fallback: string) {
     return reason.message;
   }
   return fallback;
-}
-
-function extractReferenceAsset(reason: unknown): ImageInputValue['referenceAsset'] {
-  if (reason && typeof reason === 'object' && 'referenceAsset' in reason) {
-    return (reason as { referenceAsset?: ImageInputValue['referenceAsset'] }).referenceAsset;
-  }
-  return undefined;
 }
 
 function makeBlankFoodForm(type: FoodType = 'takeout'): FoodFormState {
@@ -1216,7 +1205,6 @@ export function FoodWorkspace(props: Props) {
   const [sceneImageState, setSceneImageState] = useState<ImageGenerationUiState>(IDLE_IMAGE_GENERATION_STATE);
   const [isSceneTagPickerOpen, setIsSceneTagPickerOpen] = useState(false);
   const [newSceneTagName, setNewSceneTagName] = useState('');
-  const [imageState, setImageState] = useState<ImageGenerationUiState>(IDLE_IMAGE_GENERATION_STATE);
   const [feedback, setFeedback] = useState('');
   const [isPlanDialogOpen, setIsPlanDialogOpen] = useState(false);
   const [planFoodSearch, setPlanFoodSearch] = useState('');
@@ -1441,13 +1429,20 @@ export function FoodWorkspace(props: Props) {
   const mobileLibraryFoods = filteredFoods.slice(0, 4);
 
   const imagePayload = getFoodImagePayload(form, props.recipes);
+  const imageComposer = useImageComposer({
+    value: form.images,
+    payload: imagePayload,
+    onChange: (next) => setForm((current) => ({ ...current, images: next })),
+    uploadErrorMessage: '图片上传成功，但生成主图失败。',
+    generateErrorMessage: '生成主图失败，请稍后再试。',
+  });
   const currentRecipe = props.recipes.find((recipe) => recipe.id === form.recipeId);
   const isSelfMade = form.type === 'selfMade';
   const editorProfile = getFoodEditorProfile(form.type);
   const editorCompletionItems = getFoodFormCompletionItems(form, editingFood, props.recipes);
   const editorCompletedCount = editorCompletionItems.filter((item) => item.done).length;
   const editorCompletionPercent = Math.round((editorCompletedCount / editorCompletionItems.length) * 100);
-  const canSubmit = !props.isSavingFood && !imageState.isGenerating;
+  const canSubmit = !props.isSavingFood && !imageComposer.state.isGenerating;
   const editorSceneTags = splitTags(form.sceneTags);
   const sceneTagOptions = useMemo(() => {
     const names = new Set<string>();
@@ -1508,7 +1503,7 @@ export function FoodWorkspace(props: Props) {
     }
     setEditingFood(null);
     setForm(makeBlankFoodForm(type));
-    setImageState(IDLE_IMAGE_GENERATION_STATE);
+    imageComposer.setState(IDLE_IMAGE_GENERATION_STATE);
     setFeedback('');
     setIsSceneTagPickerOpen(false);
     setNewSceneTagName('');
@@ -1519,7 +1514,7 @@ export function FoodWorkspace(props: Props) {
     setDetailFoodId(null);
     setEditingFood(food);
     setForm(foodToForm(food));
-    setImageState(IDLE_IMAGE_GENERATION_STATE);
+    imageComposer.setState(IDLE_IMAGE_GENERATION_STATE);
     setFeedback('');
     setIsSceneTagPickerOpen(false);
     setNewSceneTagName('');
@@ -1528,36 +1523,6 @@ export function FoodWorkspace(props: Props) {
 
   function openDetail(food: Food) {
     setDetailFoodId(food.id);
-  }
-
-  async function handleImageUpload(files: FileList | null) {
-    if (!files || files.length === 0) return;
-    setImageState({ isGenerating: true, errorMessage: null });
-    try {
-      const next = await uploadReferenceAndGenerateImage(files[0], imagePayload);
-      setForm((current) => ({ ...current, images: next }));
-      setImageState(IDLE_IMAGE_GENERATION_STATE);
-    } catch (reason) {
-      const referenceAsset = extractReferenceAsset(reason);
-      if (referenceAsset) {
-        setForm((current) => ({ ...current, images: { ...current.images, referenceAsset } }));
-      }
-      setImageState({ isGenerating: false, errorMessage: resolveImageGenerationErrorMessage(reason, '图片上传成功，但生成主图失败。') });
-    }
-  }
-
-  async function handleGenerateImage(mode: 'reference' | 'text') {
-    setImageState({ isGenerating: true, errorMessage: null });
-    try {
-      const nextImages =
-        mode === 'reference' && form.images.referenceAsset
-          ? await regenerateImageFromReference(form.images.referenceAsset.id, imagePayload)
-          : await generateImageFromText(imagePayload);
-      setForm((current) => ({ ...current, images: { ...current.images, ...nextImages } }));
-      setImageState(IDLE_IMAGE_GENERATION_STATE);
-    } catch (reason) {
-      setImageState({ isGenerating: false, errorMessage: resolveImageGenerationErrorMessage(reason, '生成主图失败，请稍后再试。') });
-    }
   }
 
   async function submitFood(event: FormEvent<HTMLFormElement>) {
@@ -1895,14 +1860,11 @@ export function FoodWorkspace(props: Props) {
                   title="食物图片"
                   value={form.images}
                   previewLabel={form.name || currentRecipe?.title || '食物'}
-                  onUpload={(files) => void handleImageUpload(files)}
-                  onGenerate={(mode) => void handleGenerateImage(mode)}
-                  onReset={() => {
-                    setForm({ ...form, images: emptyImages() });
-                    setImageState(IDLE_IMAGE_GENERATION_STATE);
-                  }}
-                  isGenerating={imageState.isGenerating}
-                  errorMessage={imageState.errorMessage}
+                  onUpload={(files) => void imageComposer.upload(files)}
+                  onGenerate={(mode) => void imageComposer.generate(mode)}
+                  onReset={imageComposer.reset}
+                  isGenerating={imageComposer.state.isGenerating}
+                  errorMessage={imageComposer.state.errorMessage}
                   variant="workspace-inline"
                 />
               )}
@@ -2101,7 +2063,7 @@ export function FoodWorkspace(props: Props) {
                 <div className="workspace-rail-actions">
                   <ActionButton tone="primary" type="submit" disabled={!canSubmit}>
                     <FoodUiIcon name="save" />
-                    <span>{props.isSavingFood ? '保存中...' : imageState.isGenerating ? '生成主图中...' : view === 'create' ? '保存食物' : '保存修改'}</span>
+                    <span>{props.isSavingFood ? '保存中...' : imageComposer.state.isGenerating ? '生成主图中...' : view === 'create' ? '保存食物' : '保存修改'}</span>
                   </ActionButton>
                   <ActionButton tone="secondary" type="button" onClick={() => setView('list')}>
                     <FoodUiIcon name="arrowLeft" />

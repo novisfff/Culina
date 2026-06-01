@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { invalidateAfterAiApprovalSettled, invalidateAfterAiMessageSent } from '../../api/cacheInvalidation';
 import { API_BASE_URL, api } from '../../api/client';
+import { queryKeys } from '../../api/queryKeys';
 import type { AiApprovalRequest, AiConversation, AiGeneratedRecipeDraft, AiMessage, AiResultCard, Difficulty, UserSummary } from '../../api/types';
 import { avatarColor, initials } from '../../lib/ui';
 import { EmptyState, WorkspaceModal } from '../ui-kit';
@@ -159,10 +161,7 @@ export function ApprovalPanel({ approval, onSettled }: { approval: AiApprovalReq
       const operationStatus = typeof response.operation?.status === 'string' ? response.operation.status : '';
       const operationError = typeof response.operation?.error_message === 'string' ? response.operation.error_message : '';
       setError(operationStatus === 'failed' ? operationError || '业务写入失败，草稿已保留。' : null);
-      void queryClient.invalidateQueries({ queryKey: ['ai-messages', approval.conversation_id] });
-      void queryClient.invalidateQueries({ queryKey: ['ai-pending-approvals', approval.conversation_id] });
-      void queryClient.invalidateQueries({ queryKey: ['ai-conversations'] });
-      void queryClient.invalidateQueries({ queryKey: ['recipes'] });
+      invalidateAfterAiApprovalSettled(queryClient, approval.conversation_id);
       onSettled();
     },
     onError: (reason) => setError(reason instanceof Error ? reason.message : '提交失败'),
@@ -375,12 +374,12 @@ export function AiWorkspace({ conversations, isLoading, currentUser = null, onBa
   }, [activeConversationId, conversations, isStartingNewConversation]);
 
   const messagesQuery = useQuery({
-    queryKey: ['ai-messages', activeConversationId],
+    queryKey: queryKeys.aiMessages(activeConversationId),
     queryFn: () => api.getAiMessages(activeConversationId as string),
     enabled: Boolean(activeConversationId),
   });
   const pendingApprovalsQuery = useQuery({
-    queryKey: ['ai-pending-approvals', activeConversationId],
+    queryKey: queryKeys.aiPendingApprovals(activeConversationId),
     queryFn: () => api.getPendingAiApprovals(activeConversationId as string),
     enabled: Boolean(activeConversationId),
   });
@@ -415,9 +414,7 @@ export function AiWorkspace({ conversations, isLoading, currentUser = null, onBa
       setActiveConversationId(response.conversation_id);
       setIsStartingNewConversation(false);
       setLocalMessages((items) => [...items.filter((item) => item.id !== response.message.id), response.message]);
-      void queryClient.invalidateQueries({ queryKey: ['ai-conversations'] });
-      void queryClient.invalidateQueries({ queryKey: ['ai-messages', response.conversation_id] });
-      void queryClient.invalidateQueries({ queryKey: ['ai-pending-approvals', response.conversation_id] });
+      invalidateAfterAiMessageSent(queryClient, response.conversation_id);
     },
   });
   const deleteConversationMutation = useMutation({
@@ -430,9 +427,9 @@ export function AiWorkspace({ conversations, isLoading, currentUser = null, onBa
         setIsStartingNewConversation(!nextConversation);
         setLocalMessages([]);
       }
-      await queryClient.invalidateQueries({ queryKey: ['ai-conversations'] });
-      queryClient.removeQueries({ queryKey: ['ai-messages', conversationId] });
-      queryClient.removeQueries({ queryKey: ['ai-pending-approvals', conversationId] });
+      await queryClient.invalidateQueries({ queryKey: queryKeys.aiConversations });
+      queryClient.removeQueries({ queryKey: queryKeys.aiMessages(conversationId) });
+      queryClient.removeQueries({ queryKey: queryKeys.aiPendingApprovals(conversationId) });
       setPendingDeleteConversation(null);
     },
     onSettled: () => setDeletingConversationId(null),

@@ -8,6 +8,7 @@ import {
 } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, getAccessToken, setAccessToken } from '../api/client';
+import { queryKeys } from '../api/queryKeys';
 import type { FamilyDetail, MembershipSummary, UserSummary } from '../api/types';
 
 type AuthContextValue = {
@@ -27,7 +28,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
   const [bootstrapped, setBootstrapped] = useState(false);
 
   const meQuery = useQuery({
-    queryKey: ['auth', 'me'],
+    queryKey: queryKeys.authMe,
     queryFn: () => api.me(),
     enabled: Boolean(getAccessToken()),
     retry: false,
@@ -46,7 +47,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
       api.login(username, password),
     onSuccess: (payload) => {
       setAccessToken(payload.access_token);
-      queryClient.setQueryData(['auth', 'me'], payload);
+      queryClient.setQueryData(queryKeys.authMe, payload);
     },
   });
 
