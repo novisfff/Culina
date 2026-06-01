@@ -1,0 +1,290 @@
+import type { PointerEvent } from 'react';
+
+export type FoodIconName =
+  | 'bell'
+  | 'bookOpen'
+  | 'bowl'
+  | 'calendar'
+  | 'cloche'
+  | 'heart'
+  | 'home'
+  | 'clock'
+  | 'plus'
+  | 'receipt'
+  | 'search'
+  | 'list'
+  | 'logo'
+  | 'star'
+  | 'refresh'
+  | 'arrowLeft'
+  | 'arrowRight'
+  | 'check'
+  | 'clipboard'
+  | 'moon'
+  | 'save'
+  | 'sun'
+  | 'tag'
+  | 'trash';
+
+function parseRatingValue(value: string): number | null {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  const parsed = Number(trimmed);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+export function FoodRatingInput(props: { value: string; onChange: (value: string) => void }) {
+  const rating = parseRatingValue(props.value) ?? 0;
+  const display = rating > 0 ? `${rating.toFixed(1).replace(/\.0$/, '')} 分` : '未评分';
+  const stars = Array.from({ length: 5 }, (_, index) => <span key={index}>★</span>);
+
+  function updateRatingFromClientX(element: HTMLDivElement, clientX: number) {
+    const rect = element.getBoundingClientRect();
+    const ratio = Math.min(1, Math.max(0, (clientX - rect.left) / rect.width));
+    const nextRating = Math.max(0.5, Math.round(ratio * 10) / 2);
+    props.onChange(String(nextRating));
+  }
+
+  function updateRatingFromPointer(event: PointerEvent<HTMLDivElement>) {
+    updateRatingFromClientX(event.currentTarget, event.clientX);
+  }
+
+  return (
+    <div className="food-rating-input">
+      <div
+        className="food-rating-stars"
+        role="slider"
+        aria-label="评分"
+        aria-valuemin={0}
+        aria-valuemax={5}
+        aria-valuenow={rating}
+        tabIndex={0}
+        style={{ ['--rating-width' as string]: `${(rating / 5) * 100}%` }}
+        onPointerDown={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          event.currentTarget.setPointerCapture(event.pointerId);
+          updateRatingFromPointer(event);
+        }}
+        onPointerMove={(event) => {
+          if (event.buttons === 1) {
+            event.preventDefault();
+            event.stopPropagation();
+            updateRatingFromPointer(event);
+          }
+        }}
+        onClick={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+        }}
+        onKeyDown={(event) => {
+          if (event.key === 'ArrowRight' || event.key === 'ArrowUp') {
+            event.preventDefault();
+            props.onChange(String(Math.min(5, rating + 0.5 || 0.5)));
+          }
+          if (event.key === 'ArrowLeft' || event.key === 'ArrowDown') {
+            event.preventDefault();
+            const nextRating = Math.max(0, rating - 0.5);
+            props.onChange(nextRating > 0 ? String(nextRating) : '');
+          }
+        }}
+      >
+        <div className="food-rating-star-layer" aria-hidden="true">
+          {stars}
+        </div>
+        <div className="food-rating-star-layer filled" aria-hidden="true">
+          {stars}
+        </div>
+      </div>
+      <strong>{display}</strong>
+      {rating > 0 && (
+        <button
+          className="food-rating-clear"
+          type="button"
+          onClick={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            props.onChange('');
+          }}
+        >
+          清除
+        </button>
+      )}
+    </div>
+  );
+}
+
+export function FoodUiIcon(props: { name: FoodIconName; className?: string }) {
+  const common = {
+    width: 20,
+    height: 20,
+    viewBox: '0 0 24 24',
+    fill: 'none',
+    xmlns: 'http://www.w3.org/2000/svg',
+    'aria-hidden': true,
+  };
+  const strokeProps = {
+    stroke: 'currentColor',
+    strokeWidth: props.name === 'logo' ? 1.8 : 2,
+    strokeLinecap: 'round' as const,
+    strokeLinejoin: 'round' as const,
+  };
+
+  return (
+    <svg {...common} className={props.className}>
+      {props.name === 'bowl' && (
+        <>
+          <path {...strokeProps} d="M5 12h14a7 7 0 0 1-14 0Z" />
+          <path {...strokeProps} d="M8 19h8" />
+          <path {...strokeProps} d="M8 8c-.7-.8-.7-1.6 0-2.4" />
+          <path {...strokeProps} d="M12 8c-.7-.8-.7-1.6 0-2.4" />
+          <path {...strokeProps} d="M16 8c-.7-.8-.7-1.6 0-2.4" />
+        </>
+      )}
+      {props.name === 'logo' && (
+        <>
+          <path {...strokeProps} d="M6 10h12" />
+          <path {...strokeProps} d="M7 10v3a5 5 0 0 0 10 0v-3" />
+          <path {...strokeProps} d="M17 11h1a2 2 0 0 1 0 4h-1" />
+          <path {...strokeProps} d="M9 7V5" />
+          <path {...strokeProps} d="M12 7V4" />
+          <path {...strokeProps} d="M15 7V5" />
+        </>
+      )}
+      {props.name === 'bookOpen' && (
+        <>
+          <path {...strokeProps} d="M4 5.5A2.5 2.5 0 0 1 6.5 3H11v17H6.5A2.5 2.5 0 0 0 4 22V5.5Z" />
+          <path {...strokeProps} d="M20 5.5A2.5 2.5 0 0 0 17.5 3H13v17h4.5A2.5 2.5 0 0 1 20 22V5.5Z" />
+        </>
+      )}
+      {props.name === 'bell' && (
+        <>
+          <path {...strokeProps} d="M6 9a6 6 0 0 1 12 0c0 7 3 6 3 8H3c0-2 3-1 3-8" />
+          <path {...strokeProps} d="M10 20a2 2 0 0 0 4 0" />
+        </>
+      )}
+      {props.name === 'calendar' && (
+        <>
+          <path {...strokeProps} d="M7 3v4" />
+          <path {...strokeProps} d="M17 3v4" />
+          <rect {...strokeProps} x="4" y="6" width="16" height="14" rx="2" />
+          <path {...strokeProps} d="M8 11h8" />
+        </>
+      )}
+      {props.name === 'cloche' && (
+        <>
+          <path {...strokeProps} d="M4 17h16" />
+          <path {...strokeProps} d="M6 17a6 6 0 0 1 12 0" />
+          <path {...strokeProps} d="M12 8V5" />
+          <path {...strokeProps} d="M9.5 5h5" />
+          <path {...strokeProps} d="M3 20h18" />
+        </>
+      )}
+      {props.name === 'heart' && (
+        <path {...strokeProps} d="M20.4 5.6a5 5 0 0 0-7.1 0L12 6.9l-1.3-1.3a5 5 0 0 0-7.1 7.1L12 21l8.4-8.3a5 5 0 0 0 0-7.1Z" />
+      )}
+      {props.name === 'home' && (
+        <>
+          <path {...strokeProps} d="m3 11 9-8 9 8" />
+          <path {...strokeProps} d="M5 10v10h14V10" />
+          <path {...strokeProps} d="M10 20v-6h4v6" />
+        </>
+      )}
+      {props.name === 'clock' && (
+        <>
+          <circle {...strokeProps} cx="12" cy="12" r="9" />
+          <path {...strokeProps} d="M12 7v5l3.5 2" />
+        </>
+      )}
+      {props.name === 'plus' && (
+        <>
+          <circle {...strokeProps} cx="12" cy="12" r="9" />
+          <path {...strokeProps} d="M12 8v8M8 12h8" />
+        </>
+      )}
+      {props.name === 'receipt' && (
+        <>
+          <path {...strokeProps} d="M6 3h12v18l-3-2-3 2-3-2-3 2V3Z" />
+          <path {...strokeProps} d="M9 8h6M9 12h3" />
+          <path {...strokeProps} d="M15.5 13.5 17 15l3-3" />
+        </>
+      )}
+      {props.name === 'search' && (
+        <>
+          <circle {...strokeProps} cx="11" cy="11" r="6.5" />
+          <path {...strokeProps} d="m16 16 4 4" />
+        </>
+      )}
+      {props.name === 'list' && (
+        <>
+          <path {...strokeProps} d="M9 7h10" />
+          <path {...strokeProps} d="M9 12h10" />
+          <path {...strokeProps} d="M9 17h10" />
+          <path {...strokeProps} d="M5 7h.01" />
+          <path {...strokeProps} d="M5 7h.01" />
+          <path {...strokeProps} d="M5 12h.01" />
+          <path {...strokeProps} d="M5 17h.01" />
+        </>
+      )}
+      {props.name === 'star' && (
+        <path {...strokeProps} d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2-5.6-3-5.6 3 1.1-6.2L3 9.6l6.2-.9L12 3Z" />
+      )}
+      {props.name === 'refresh' && (
+        <>
+          <path {...strokeProps} d="M20 11a8 8 0 0 0-14.4-4.7L4 8" />
+          <path {...strokeProps} d="M4 4v4h4" />
+          <path {...strokeProps} d="M4 13a8 8 0 0 0 14.4 4.7L20 16" />
+          <path {...strokeProps} d="M20 20v-4h-4" />
+        </>
+      )}
+      {props.name === 'arrowLeft' && (
+        <>
+          <path {...strokeProps} d="M19 12H5" />
+          <path {...strokeProps} d="m12 19-7-7 7-7" />
+        </>
+      )}
+      {props.name === 'arrowRight' && (
+        <>
+          <path {...strokeProps} d="M5 12h14" />
+          <path {...strokeProps} d="m12 5 7 7-7 7" />
+        </>
+      )}
+      {props.name === 'check' && <path {...strokeProps} d="m5 12 4 4L19 6" />}
+      {props.name === 'clipboard' && (
+        <>
+          <path {...strokeProps} d="M9 4h6l1 2h2a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h2l1-2Z" />
+          <path {...strokeProps} d="M9 4h6v4H9z" />
+          <path {...strokeProps} d="M9 13h6M9 17h4" />
+        </>
+      )}
+      {props.name === 'moon' && <path {...strokeProps} d="M20 14.5A7.5 7.5 0 0 1 9.5 4 8 8 0 1 0 20 14.5Z" />}
+      {props.name === 'save' && (
+        <>
+          <path {...strokeProps} d="M5 4h12l2 2v14H5V4Z" />
+          <path {...strokeProps} d="M8 4v6h8V4" />
+          <path {...strokeProps} d="M8 20v-6h8v6" />
+        </>
+      )}
+      {props.name === 'sun' && (
+        <>
+          <circle {...strokeProps} cx="12" cy="12" r="4" />
+          <path {...strokeProps} d="M12 2v2M12 20v2M4.93 4.93l1.42 1.42M17.65 17.65l1.42 1.42M2 12h2M20 12h2M4.93 19.07l1.42-1.42M17.65 6.35l1.42-1.42" />
+        </>
+      )}
+      {props.name === 'tag' && (
+        <>
+          <path {...strokeProps} d="M20 13.5 13.5 20 4 10.5V4h6.5L20 13.5Z" />
+          <circle {...strokeProps} cx="8.5" cy="8.5" r="1" />
+        </>
+      )}
+      {props.name === 'trash' && (
+        <>
+          <path {...strokeProps} d="M4 7h16" />
+          <path {...strokeProps} d="M10 11v6M14 11v6" />
+          <path {...strokeProps} d="M6 7l1 14h10l1-14" />
+          <path {...strokeProps} d="M9 7V4h6v3" />
+        </>
+      )}
+    </svg>
+  );
+}

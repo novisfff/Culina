@@ -1,14 +1,7 @@
 import type { ButtonHTMLAttributes, CSSProperties, ReactNode } from 'react';
-import { API_BASE_URL } from '../api/client';
 import type { ImageInputValue } from '../api/types';
+import { resolveAssetUrl } from '../lib/assets';
 import { avatarColor, getImagePreview, initials } from '../lib/ui';
-
-function resolveAssetUrl(url: string) {
-  if (url.startsWith('http://') || url.startsWith('https://') || url.startsWith('data:')) {
-    return url;
-  }
-  return `${API_BASE_URL}${url}`;
-}
 
 type TouchValueMark = number | { value: number; label: string };
 

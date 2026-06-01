@@ -8,7 +8,10 @@ import type {
   MealType,
   Recipe,
 } from '../api/types';
+import { todayKey } from './date';
 import { getIngredientAvailableQuantityInDefault, getInventoryRemainingQuantity } from './ingredientUnits';
+
+export { todayKey };
 
 export const FOOD_TYPE_LABELS: Record<FoodType, string> = {
   selfMade: '家常菜',
@@ -39,14 +42,6 @@ export const AI_MODE_LABELS = {
   recommendation: '今日吃什么',
   recipeDraft: '菜谱草稿',
 } as const;
-
-export function todayKey() {
-  const today = new Date();
-  const year = today.getFullYear();
-  const month = `${today.getMonth() + 1}`.padStart(2, '0');
-  const day = `${today.getDate()}`.padStart(2, '0');
-  return `${year}-${month}-${day}`;
-}
 
 export function splitTags(value: string): string[] {
   return value

@@ -5,9 +5,12 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build",
+    "build": "tsc -b && vite build && node scripts/check-bundle-budgets.mjs",
     "preview": "vite preview",
-    "test": "vitest run"
+    "test": "vitest run",
+    "smoke": "node scripts/smoke.mjs",
+    "check:size": "node scripts/check-file-budgets.mjs",
+    "check:bundle": "node scripts/check-bundle-budgets.mjs"
   },
   "dependencies": {
     "@tanstack/react-query": "^5.64.2",

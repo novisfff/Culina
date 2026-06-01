@@ -1,6 +1,6 @@
 import type { Difficulty, Food, Ingredient, InventoryItem, MealLog, Recipe, RecipeFavorite, RecipeIngredient, RecipePlanItem } from '../../api/types';
 import { getIngredientAvailableQuantityInDefault, convertQuantityToDefaultUnit } from '../../lib/ingredientUnits';
-import { todayKey } from '../../lib/ui';
+import { addDateKeyDays, daysBetweenDateKeys, getWeekRange, parseDateKey, todayKey } from '../../lib/date';
 
 export type RecipeWorkspaceView = 'library' | 'cookable' | 'detail' | 'create' | 'edit' | 'cook';
 export type RecipeAvailability = 'ready' | 'partial' | 'missing';
@@ -89,39 +89,14 @@ const DIFFICULTY_WEIGHT: Record<Difficulty, number> = {
 
 const DAY_LABELS = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
 
-function parseDateKey(dateKey: string) {
-  const [year, month, day] = dateKey.split('-').map(Number);
-  return new Date(year, (month ?? 1) - 1, day ?? 1);
-}
-
-function toDateKey(date: Date) {
-  const year = date.getFullYear();
-  const month = `${date.getMonth() + 1}`.padStart(2, '0');
-  const day = `${date.getDate()}`.padStart(2, '0');
-  return `${year}-${month}-${day}`;
-}
-
-export function addDateKeyDays(dateKey: string, days: number) {
-  const date = parseDateKey(dateKey);
-  date.setDate(date.getDate() + days);
-  return toDateKey(date);
-}
+export { addDateKeyDays };
 
 export function getRecipeWeekRange(dateKey = todayKey()) {
-  const date = parseDateKey(dateKey);
-  const day = date.getDay();
-  const mondayOffset = day === 0 ? -6 : 1 - day;
-  const start = addDateKeyDays(dateKey, mondayOffset);
-  return { start, end: addDateKeyDays(start, 6) };
+  return getWeekRange(dateKey);
 }
 
 function isDateInRange(dateKey: string, start: string, end: string) {
   return dateKey >= start && dateKey <= end;
-}
-
-function daysBetweenDateKeys(laterDateKey: string, earlierDateKey: string) {
-  const millisecondsPerDay = 24 * 60 * 60 * 1000;
-  return Math.floor((parseDateKey(laterDateKey).getTime() - parseDateKey(earlierDateKey).getTime()) / millisecondsPerDay);
 }
 
 function getRecipeIdForFood(foodId: string, foods: Food[]) {
