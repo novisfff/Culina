@@ -14,6 +14,9 @@ import type {
   PhotoAsset,
   Recipe
 } from './types';
+import { todayKey } from './date';
+
+export { todayKey };
 
 export const STORAGE_KEY = 'culina-app-state-v1';
 
@@ -53,14 +56,6 @@ export function createId(prefix: string): string {
 
 export function nowIso(): string {
   return new Date().toISOString();
-}
-
-export function todayKey(): string {
-  const today = new Date();
-  const year = today.getFullYear();
-  const month = `${today.getMonth() + 1}`.padStart(2, '0');
-  const day = `${today.getDate()}`.padStart(2, '0');
-  return `${year}-${month}-${day}`;
 }
 
 export function formatDate(date: string): string {

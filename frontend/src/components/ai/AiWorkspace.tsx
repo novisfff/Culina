@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { invalidateAfterAiApprovalSettled, invalidateAfterAiMessageSent } from '../../api/cacheInvalidation';
-import { API_BASE_URL, api } from '../../api/client';
+import { api } from '../../api/client';
 import { queryKeys } from '../../api/queryKeys';
 import type { AiApprovalRequest, AiConversation, AiGeneratedRecipeDraft, AiMessage, AiResultCard, Difficulty, UserSummary } from '../../api/types';
+import { resolveAssetUrl } from '../../lib/assets';
 import { avatarColor, initials } from '../../lib/ui';
 import { EmptyState, WorkspaceModal } from '../ui-kit';
 
@@ -21,9 +22,7 @@ const WELCOME_SUGGESTIONS = [
 ];
 
 function resolveAiAvatarUrl(url: string | null | undefined) {
-  if (!url) return null;
-  if (url.startsWith('http://') || url.startsWith('https://') || url.startsWith('data:')) return url;
-  return `${API_BASE_URL}${url}`;
+  return resolveAssetUrl(url) ?? null;
 }
 
 function TrashIcon() {

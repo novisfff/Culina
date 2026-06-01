@@ -1,0 +1,552 @@
+import type { Dispatch, ReactNode, Ref, SetStateAction } from 'react';
+import type { RecipePlanItem } from '../../api/types';
+import { formatDate, MEAL_TYPE_LABELS } from '../../lib/ui';
+import { ActionButton, EmptyState } from '../ui-kit';
+import { SHOW_RECIPE_PLAN_MANAGEMENT } from './RecipeWorkspaceOptions';
+import {
+  DiscoveryRecipeCard,
+  MobileRecipeCard,
+  MobileRecipeSceneCard,
+  RecipeCover,
+  RecipeMiniPlaceholder,
+  RecipeMiniThumb,
+  RecipeSideIcon,
+  RecipeTopItem,
+  RecipeTopPlaceholder,
+  RecipeUiIcon,
+} from './RecipeWorkspaceCards';
+import type { RecipeCardViewModel, RecipePlanDayViewModel, RecipeQuickFilter, RecipeSortMode } from './workspaceModel';
+import type { RecipeSceneCard } from './RecipeWorkspaceModel';
+
+type DiscoveryCopy = {
+  title: string;
+  description: string;
+  emptyTitle: string;
+  emptyDescription: string;
+};
+
+type RecipeLibraryViewProps = {
+  recipes: unknown[];
+  search: string;
+  quickFilter: RecipeQuickFilter;
+  sceneFilter: string;
+  visibleCards: RecipeCardViewModel[];
+  mobileFeaturedCards: RecipeCardViewModel[];
+  mobileSceneCards: Array<{ scene: RecipeSceneCard; coverUrl?: string }>;
+  mobileLibraryCards: RecipeCardViewModel[];
+  hasMobileRecipeAlerts: boolean;
+  favoriteRecipeIds: Set<string>;
+  isUpdatingFavorite?: boolean;
+  activeDiscoveryCopy: DiscoveryCopy;
+  renderFilters: () => ReactNode;
+  displayCards: RecipeCardViewModel[];
+  shouldPageRecommendations: boolean;
+  shouldScrollDiscoveryCards: boolean;
+  discoveryScrollState: { canLeft: boolean; canRight: boolean };
+  recommendationSlots: RecipeCardViewModel[];
+  discoverySectionRef: Ref<HTMLElement>;
+  discoveryScrollRef: Ref<HTMLDivElement>;
+  recentPreviewSlots: Array<RecipeCardViewModel | null>;
+  topPreviewSlots: Array<{ card: RecipeCardViewModel; count: number } | null>;
+  quickPreviewSlots: Array<RecipeCardViewModel | null>;
+  favoriteSidebarCards: RecipeCardViewModel[];
+  planSectionRef: Ref<HTMLElement>;
+  visiblePlanDays: RecipePlanDayViewModel[];
+  expandedPlanDates: Set<string>;
+  hiddenPlanDayCount: number;
+  planWeekLabel: string;
+  recipePlanWeekRange: { start: string; end: string };
+  plannedDayCount: number;
+  isCurrentPlanWeek: boolean;
+  isUpdatingPlan?: boolean;
+  isCookingRecipe?: boolean;
+  cardsLength: number;
+  onOpenCreate: () => void;
+  onOpenDetail: (card: RecipeCardViewModel) => void;
+  onOpenCook: (card: RecipeCardViewModel) => void;
+  onOpenShopping: (card: RecipeCardViewModel) => void;
+  onOpenPlanDialog: (card?: RecipeCardViewModel) => void;
+  onToggleRecipeFavorite: (card: RecipeCardViewModel) => Promise<void> | void;
+  onOpenSceneManager: () => void;
+  onSearchChange: (value: string) => void;
+  onShowMobileRecipeFilter: (filter: RecipeQuickFilter) => void;
+  onShowMobileRecipeScene: (sceneName: string) => void;
+  onShowDiscoveryFilter: (filter: RecipeQuickFilter, options?: { sort?: RecipeSortMode }) => void;
+  onSetRecommendationPage: Dispatch<SetStateAction<number>>;
+  onScrollDiscoveryCards: (direction: 'left' | 'right') => void;
+  onUpdateDiscoveryScrollState: () => void;
+  onShowPlanSection: () => void;
+  onRecipePlanPreviousWeek: () => void;
+  onRecipePlanCurrentWeek: () => void;
+  onRecipePlanNextWeek: () => void;
+  onTogglePlanDay: (date: string) => void;
+  onOpenPlanDetail: (item: RecipePlanItem) => void;
+  onStartPlanDetailCook: (item: RecipePlanItem) => void;
+};
+
+export function RecipeLibraryView({
+  recipes,
+  search,
+  quickFilter,
+  sceneFilter,
+  visibleCards,
+  mobileFeaturedCards,
+  mobileSceneCards,
+  mobileLibraryCards,
+  hasMobileRecipeAlerts,
+  favoriteRecipeIds,
+  isUpdatingFavorite,
+  activeDiscoveryCopy,
+  renderFilters,
+  displayCards,
+  shouldPageRecommendations,
+  shouldScrollDiscoveryCards,
+  discoveryScrollState,
+  recommendationSlots,
+  discoverySectionRef,
+  discoveryScrollRef,
+  recentPreviewSlots,
+  topPreviewSlots,
+  quickPreviewSlots,
+  favoriteSidebarCards,
+  planSectionRef,
+  visiblePlanDays,
+  expandedPlanDates,
+  hiddenPlanDayCount,
+  planWeekLabel,
+  recipePlanWeekRange,
+  plannedDayCount,
+  isCurrentPlanWeek,
+  isUpdatingPlan,
+  isCookingRecipe,
+  cardsLength,
+  onOpenCreate,
+  onOpenDetail,
+  onOpenCook,
+  onOpenShopping,
+  onOpenPlanDialog,
+  onToggleRecipeFavorite,
+  onOpenSceneManager,
+  onSearchChange,
+  onShowMobileRecipeFilter,
+  onShowMobileRecipeScene,
+  onShowDiscoveryFilter,
+  onSetRecommendationPage,
+  onScrollDiscoveryCards,
+  onUpdateDiscoveryScrollState,
+  onShowPlanSection,
+  onRecipePlanPreviousWeek,
+  onRecipePlanCurrentWeek,
+  onRecipePlanNextWeek,
+  onTogglePlanDay,
+  onOpenPlanDetail,
+  onStartPlanDetailCook,
+}: RecipeLibraryViewProps) {
+  return (
+        <>
+        <section className="mobile-recipe-page" aria-label="手机菜谱页">
+          <div className="mobile-recipe-topbar">
+            <div className="mobile-recipe-brand">
+              <span className="mobile-recipe-logo">
+                <RecipeUiIcon name="logo" />
+              </span>
+              <span>
+                <strong>Culina</strong>
+                <small>家庭厨房工作台</small>
+              </span>
+            </div>
+            <div className="mobile-recipe-top-actions">
+              <button type="button" aria-label="聚焦搜索" onClick={() => document.getElementById('mobile-recipe-search')?.focus()}>
+                <RecipeUiIcon name="search" />
+              </button>
+              <button type="button" aria-label="查看提醒" onClick={() => onShowMobileRecipeFilter('missing')}>
+                <RecipeUiIcon name="bell" />
+                {hasMobileRecipeAlerts && <i aria-hidden="true" />}
+              </button>
+            </div>
+          </div>
+
+          <header className="mobile-recipe-hero">
+            <h1>菜谱</h1>
+            <p>按库存、常做和快手程度，快速决定下一餐要做什么。</p>
+          </header>
+
+          <section className="mobile-recipe-panel mobile-recipe-featured-panel">
+            <div className="mobile-recipe-section-head">
+              <h2>今天可以做 <span>✦</span></h2>
+              <button
+                type="button"
+                onClick={() => onSetRecommendationPage((current) => current + 1)}
+                disabled={visibleCards.length <= 3}
+              >
+                换一换
+              </button>
+            </div>
+            {mobileFeaturedCards.length > 0 ? (
+              <div className="mobile-recipe-featured-scroller">
+                {mobileFeaturedCards.map((card) => (
+                  <MobileRecipeCard
+                    key={card.recipe.id}
+                    card={card}
+                    featured
+                    isFavorite={favoriteRecipeIds.has(card.recipe.id)}
+                    isFavoritePending={isUpdatingFavorite}
+                    onDetail={() => onOpenDetail(card)}
+                    onFavorite={() => void onToggleRecipeFavorite(card)}
+                    onCook={() => onOpenCook(card)}
+                    onShopping={() => onOpenShopping(card)}
+                  />
+                ))}
+              </div>
+            ) : (
+              <EmptyState title="暂无推荐" description="新增几份常做菜后，这里会按库存和记录推荐。" />
+            )}
+          </section>
+
+          <section className="mobile-recipe-panel">
+            <div className="mobile-recipe-section-head">
+              <h2>按场景探索</h2>
+              <button type="button" onClick={() => onOpenSceneManager()}>
+                管理
+                <RecipeUiIcon name="chevronRight" />
+              </button>
+            </div>
+            <div className="mobile-recipe-scene-scroller" aria-label="按场景探索">
+              <div className="mobile-recipe-scene-grid">
+                {mobileSceneCards.map((item) => (
+                  <MobileRecipeSceneCard
+                    key={item.scene.name}
+                    scene={item.scene}
+                    coverUrl={item.coverUrl}
+                    onClick={() => onShowMobileRecipeScene(item.scene.name)}
+                  />
+                ))}
+              </div>
+            </div>
+          </section>
+
+          <section className="mobile-recipe-panel mobile-recipe-library" id="mobile-recipe-library">
+            <div className="mobile-recipe-section-head">
+              <h2>{sceneFilter === 'all' ? '菜谱库' : sceneFilter}</h2>
+              <button type="button" onClick={onOpenCreate}>
+                新增
+                <RecipeUiIcon name="chevronRight" />
+              </button>
+            </div>
+            <div className="mobile-recipe-library-filters">
+              <label className="mobile-recipe-search">
+                <RecipeUiIcon name="search" />
+                <input
+                  id="mobile-recipe-search"
+                  value={search}
+                  placeholder="搜索菜谱、食材或技巧"
+                  onChange={(event) => onSearchChange(event.target.value)}
+                />
+              </label>
+              <div className="mobile-recipe-tabs" aria-label="菜谱分类">
+                {[
+                  { value: 'recommend' as const, label: '推荐' },
+                  { value: 'ready' as const, label: '可做' },
+                  { value: 'quick' as const, label: '快手' },
+                  { value: 'favorite' as const, label: '收藏' },
+                  { value: 'missing' as const, label: '缺料' },
+                ].map((item) => (
+                  <button
+                    key={item.value}
+                    className={quickFilter === item.value && sceneFilter === 'all' ? 'active' : ''}
+                    type="button"
+                    onClick={() => onShowMobileRecipeFilter(item.value)}
+                  >
+                    {item.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            {mobileLibraryCards.length > 0 ? (
+              <div className="mobile-recipe-library-grid">
+                {mobileLibraryCards.map((card) => (
+                  <MobileRecipeCard
+                    key={card.recipe.id}
+                    card={card}
+                    isFavorite={favoriteRecipeIds.has(card.recipe.id)}
+                    isFavoritePending={isUpdatingFavorite}
+                    onDetail={() => onOpenDetail(card)}
+                    onFavorite={() => void onToggleRecipeFavorite(card)}
+                    onCook={() => onOpenCook(card)}
+                    onShopping={() => onOpenShopping(card)}
+                  />
+                ))}
+              </div>
+            ) : (
+              <div className="mobile-recipe-empty">
+                <strong>{recipes.length === 0 ? '还没有菜谱' : activeDiscoveryCopy.emptyTitle}</strong>
+                <span>{recipes.length === 0 ? '先新增几份常做菜，之后就能按库存推荐。' : activeDiscoveryCopy.emptyDescription}</span>
+                <button type="button" onClick={recipes.length === 0 ? onOpenCreate : () => onShowMobileRecipeFilter('recommend')}>
+                  {recipes.length === 0 ? '新增菜谱' : '清空筛选'}
+                </button>
+              </div>
+            )}
+          </section>
+        </section>
+
+        <div className="recipe-discovery-page">
+          <section className="recipe-discovery-shell">
+            <div className="recipe-discovery-hero">
+              <div>
+                <h2>菜谱<RecipeUiIcon name="leaf" className="recipe-title-mark" /></h2>
+                <p>发现灵感，轻松做出美味每一餐</p>
+              </div>
+              <ActionButton tone="primary" type="button" onClick={onOpenCreate} className="recipe-create-button">
+                <span><RecipeUiIcon name="plus" /></span>
+                新建菜谱
+              </ActionButton>
+            </div>
+
+            <div className="recipe-inspiration-grid">
+              <article className="recipe-inspiration-card compact-gallery">
+                <div className="recipe-inspiration-head">
+                  <h3 className="recipe-inspiration-title"><RecipeUiIcon name="clock" />最近做过</h3>
+                  <button type="button" onClick={() => onShowDiscoveryFilter('common', { sort: 'updated' })}>查看全部</button>
+                </div>
+                <div className="recipe-mini-gallery">
+                  {recentPreviewSlots.map((card, index) => (
+                    card ? (
+                      <RecipeMiniThumb key={`${card.recipe.id}-${index}`} card={card} onClick={() => onOpenDetail(card)} />
+                    ) : (
+                      <RecipeMiniPlaceholder key={`recent-empty-${index}`} />
+                    )
+                  ))}
+                </div>
+              </article>
+              <article className="recipe-inspiration-card top-list">
+                <div className="recipe-inspiration-head">
+                  <h3 className="recipe-inspiration-title"><RecipeUiIcon name="flame" />本周常做 <span>TOP3</span></h3>
+                </div>
+                <div className="recipe-top-list">
+                  {topPreviewSlots.map((item, index) => (
+                    item ? (
+                      <RecipeTopItem key={`${item.card.recipe.id}-${index}`} card={item.card} rank={index + 1} count={item.count} onClick={() => onOpenDetail(item.card)} />
+                    ) : (
+                      <RecipeTopPlaceholder key={`top-empty-${index}`} rank={index + 1} />
+                    )
+                  ))}
+                </div>
+              </article>
+              <article className="recipe-inspiration-card compact-gallery">
+                <div className="recipe-inspiration-head">
+                  <h3 className="recipe-inspiration-title"><RecipeUiIcon name="zap" />快手菜 <span>10-20 分钟搞定</span></h3>
+                  <button
+                    type="button"
+                    onClick={() => onShowDiscoveryFilter('quick', { sort: 'time' })}
+                  >
+                    更多 <RecipeUiIcon name="chevronRight" />
+                  </button>
+                </div>
+                <div className="recipe-mini-gallery quick">
+                  {quickPreviewSlots.map((card, index) => (
+                    card ? (
+                      <RecipeMiniThumb key={`${card.recipe.id}-${index}`} card={card} onClick={() => onOpenDetail(card)} />
+                    ) : (
+                      <RecipeMiniPlaceholder key={`quick-empty-${index}`} />
+                    )
+                  ))}
+                </div>
+              </article>
+            </div>
+          </section>
+
+          <div className="recipe-discovery-layout">
+            <main className="recipe-discovery-main">
+              {renderFilters()}
+              <section className="recipe-discovery-section recipe-recommendation-section" ref={discoverySectionRef}>
+                <div className="recipe-discovery-section-head">
+                  <div>
+                    <h3>{activeDiscoveryCopy.title}<RecipeUiIcon name="sparkle" className="recipe-heading-icon" /></h3>
+                    <p className="subtle">{activeDiscoveryCopy.description}</p>
+                  </div>
+                  <div className="recipe-discovery-section-actions">
+                    {shouldPageRecommendations && (
+                      <ActionButton tone="secondary" size="compact" type="button" onClick={() => onSetRecommendationPage((current) => current + 1)}>
+                        换一换
+                      </ActionButton>
+                    )}
+                  </div>
+                </div>
+                {displayCards.length > 0 ? (
+                  <div
+                    className={[
+                      'recipe-discovery-card-scroll-shell',
+                      'is-paged',
+                      discoveryScrollState.canLeft ? 'can-left' : '',
+                      discoveryScrollState.canRight ? 'can-right' : '',
+                    ]
+                      .filter(Boolean)
+                      .join(' ')}
+                  >
+                    {shouldScrollDiscoveryCards && discoveryScrollState.canLeft && (
+                      <button className="recipe-discovery-scroll-cue left" type="button" aria-label="向左滑动菜谱" onClick={() => onScrollDiscoveryCards('left')}>
+                        <RecipeUiIcon name="chevronLeft" />
+                      </button>
+                    )}
+                    <div className="recipe-discovery-card-grid" ref={discoveryScrollRef} onScroll={onUpdateDiscoveryScrollState}>
+                      {recommendationSlots.map((card, index) => (
+                        <DiscoveryRecipeCard
+                          key={`${card.recipe.id}-${index}`}
+                          card={card}
+                          isFavorite={favoriteRecipeIds.has(card.recipe.id)}
+                          isFavoritePending={isUpdatingFavorite}
+                          onDetail={() => onOpenDetail(card)}
+                          onFavorite={() => void onToggleRecipeFavorite(card)}
+                          onCook={() => onOpenCook(card)}
+                          onPlan={() => onOpenPlanDialog(card)}
+                        />
+                      ))}
+                    </div>
+                    {shouldScrollDiscoveryCards && discoveryScrollState.canRight && (
+                      <button className="recipe-discovery-scroll-cue right" type="button" aria-label="向右滑动菜谱" onClick={() => onScrollDiscoveryCards('right')}>
+                        <RecipeUiIcon name="chevronRight" />
+                      </button>
+                    )}
+                  </div>
+                ) : (
+                  <EmptyState
+                    title={recipes.length === 0 ? '还没有菜谱' : activeDiscoveryCopy.emptyTitle}
+                    description={recipes.length === 0 ? '先新增几份常做菜，之后会按库存和记录推荐。' : activeDiscoveryCopy.emptyDescription}
+                    action={
+                      <ActionButton tone="primary" type="button" onClick={onOpenCreate}>
+                        新增菜谱
+                      </ActionButton>
+                    }
+                  />
+                )}
+              </section>
+
+            </main>
+
+            <aside className="recipe-discovery-side">
+              <section className="recipe-side-panel">
+                <div className="recipe-side-panel-head">
+                  <h3><RecipeSideIcon name="heart" />我的收藏</h3>
+                  <button type="button" aria-label="查看收藏" onClick={() => onShowDiscoveryFilter('favorite', { sort: 'updated' })}>
+                    <RecipeUiIcon name="chevronRight" />
+                  </button>
+                </div>
+                <div className="recipe-side-list">
+                  {favoriteSidebarCards.length > 0 ? (
+                    favoriteSidebarCards.map((card) => (
+                      <button key={card.recipe.id} className="recipe-side-list-item" type="button" onClick={() => onOpenDetail(card)}>
+                        <RecipeCover card={card} className="recipe-side-thumb" />
+                        <span>
+                          <strong>{card.recipe.title}</strong>
+                          <small>{favoriteRecipeIds.has(card.recipe.id) ? '已收藏' : '推荐收藏'}</small>
+                        </span>
+                      </button>
+                    ))
+                  ) : (
+                    <p className="subtle">还没有收藏菜谱。</p>
+                  )}
+                </div>
+              </section>
+
+              {SHOW_RECIPE_PLAN_MANAGEMENT && (
+              <section className="recipe-side-panel" ref={planSectionRef}>
+                <div className="recipe-side-panel-head">
+                  <h3><RecipeSideIcon name="calendar" />我的菜单计划</h3>
+                  <button type="button" onClick={onShowPlanSection}>查看全部</button>
+                </div>
+                <div className="recipe-plan-switcher" aria-label="切换菜单周">
+                  <button type="button" onClick={onRecipePlanPreviousWeek}>
+                    <RecipeUiIcon name="chevronLeft" />
+                    上一周
+                  </button>
+                  <button type="button" onClick={onRecipePlanCurrentWeek} className={isCurrentPlanWeek ? 'active' : ''}>
+                    本周
+                  </button>
+                  <button type="button" onClick={onRecipePlanNextWeek}>
+                    下一周
+                    <RecipeUiIcon name="chevronRight" />
+                  </button>
+                </div>
+                <div className="recipe-plan-range">
+                  <span>{planWeekLabel}</span>
+                  <strong>{recipePlanWeekRange.start.slice(5).replace('-', '/')} - {recipePlanWeekRange.end.slice(5).replace('-', '/')}</strong>
+                  <small>{plannedDayCount} 天已安排</small>
+                </div>
+                <ActionButton
+                  tone="primary"
+                  type="button"
+                  className="recipe-plan-add-button"
+                  onClick={() => onOpenPlanDialog()}
+                  disabled={isUpdatingPlan || cardsLength === 0}
+                >
+                  加菜
+                </ActionButton>
+                <div className="recipe-plan-week">
+                  {visiblePlanDays.map((day) => {
+                    const isExpanded = expandedPlanDates.has(day.date);
+                    return (
+                      <div key={day.date} className={isExpanded ? 'recipe-plan-day expanded' : 'recipe-plan-day collapsed'}>
+                        <button className="recipe-plan-day-head" type="button" onClick={() => onTogglePlanDay(day.date)} aria-expanded={isExpanded}>
+                          <strong>{day.label}</strong>
+                          <span>{formatDate(day.date).replace('周', '')}</span>
+                        </button>
+                        {isExpanded ? (
+                          day.items.length > 0 ? (
+                            day.items.map((item) => (
+                              <article
+                                key={item.id}
+                                className="recipe-plan-item"
+                                role="button"
+                                tabIndex={0}
+                                onClick={() => onOpenPlanDetail(item)}
+                                onKeyDown={(event) => {
+                                  if (event.key === 'Enter' || event.key === ' ') {
+                                    event.preventDefault();
+                                    onOpenPlanDetail(item);
+                                  }
+                                }}
+                              >
+                                <div className="recipe-plan-item-summary">
+                                  <strong>{item.recipe_title}</strong>
+                                  <span>
+                                    {MEAL_TYPE_LABELS[item.meal_type]}
+                                    {item.status === 'cooked' ? ' · 已完成' : ''}
+                                  </span>
+                                </div>
+                                <button
+                                  className="recipe-plan-item-detail-button"
+                                  type="button"
+                                  aria-label={`开始做：${item.recipe_title}`}
+                                  disabled={isCookingRecipe || item.status === 'cooked'}
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    onStartPlanDetailCook(item);
+                                  }}
+                                >
+                                  <RecipeUiIcon name="utensils" />
+                                </button>
+                              </article>
+                            ))
+                          ) : (
+                            <div className="recipe-plan-empty-row">未安排</div>
+                          )
+                        ) : (
+                          <button className="recipe-plan-day-summary" type="button" onClick={() => onTogglePlanDay(day.date)}>
+                            <strong>{day.items.length > 0 ? `${day.items.length} 项计划` : '未安排'}</strong>
+                            {day.items.length > 0 && <span>{day.items.map((item) => MEAL_TYPE_LABELS[item.meal_type]).join('、')}</span>}
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })}
+                  {hiddenPlanDayCount > 0 && <div className="recipe-plan-collapsed-note">其余 {hiddenPlanDayCount} 天已收起</div>}
+                </div>
+              </section>
+              )}
+            </aside>
+          </div>
+        </div>
+        </>
+
+  );
+}

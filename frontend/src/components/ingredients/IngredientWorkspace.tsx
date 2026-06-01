@@ -8,7 +8,6 @@ import {
   type KeyboardEvent,
   type ReactNode,
 } from 'react';
-import { API_BASE_URL } from '../../api/client';
 import type {
   ConsumeInventoryResponse,
   DisposeExpiredInventoryResponse,
@@ -21,6 +20,9 @@ import type {
   Recipe,
   ShoppingListItem,
 } from '../../api/types';
+import { resolveAssetUrl } from '../../lib/assets';
+import { addDateKeyDays } from '../../lib/date';
+import { readJsonStorage, writeJsonStorage } from '../../lib/storage';
 import {
   buildIngredientPlaceholderSvg,
   emptyImages,
@@ -39,6 +41,7 @@ import {
   IDLE_IMAGE_GENERATION_STATE,
   useImageComposer,
 } from '../../hooks/useImageComposer';
+import { useNotice } from '../../hooks/useNotice';
 import {
   ActionButton,
   Avatar,
@@ -337,14 +340,8 @@ function defaultConsumeForm(): ConsumeDialogFormState {
   };
 }
 
-function resolveAssetUrl(url?: string | null) {
-  if (!url) {
-    return undefined;
-  }
-  if (url.startsWith('http://') || url.startsWith('https://') || url.startsWith('data:')) {
-    return url;
-  }
-  return `${API_BASE_URL}${url}`;
+function resolveErrorMessage(reason: unknown, fallback: string) {
+  return reason instanceof Error && reason.message.trim() ? reason.message : fallback;
 }
 
 function isPendingShopping(item: ShoppingListItem) {
@@ -669,20 +666,6 @@ function buildIngredientUnitConversionDrafts(entries: IngredientUnitConversion[]
   return entries.map((entry) => createIngredientUnitConversionDraft(entry));
 }
 
-function formatDateKey(date: Date) {
-  const year = date.getFullYear();
-  const month = `${date.getMonth() + 1}`.padStart(2, '0');
-  const day = `${date.getDate()}`.padStart(2, '0');
-  return `${year}-${month}-${day}`;
-}
-
-function shiftDateKey(dateKey: string, offsetDays: number) {
-  const [year, month, day] = dateKey.split('-').map(Number);
-  const base = new Date(year, month - 1, day);
-  base.setDate(base.getDate() + offsetDays);
-  return formatDateKey(base);
-}
-
 function resolveInventoryStatusForStorage(storageLocation: string): InventoryStatus {
   return storageLocation.trim() === '冷冻' ? 'frozen' : 'fresh';
 }
@@ -692,7 +675,7 @@ function resolveExpiryDateFromDays(purchaseDate: string, expiryDays: string) {
   if (!purchaseDate || !Number.isFinite(safeDays) || safeDays <= 0) {
     return '';
   }
-  return shiftDateKey(purchaseDate, safeDays);
+  return addDateKeyDays(purchaseDate, safeDays);
 }
 
 function parseOptionalNumber(value: string) {
@@ -784,7 +767,7 @@ function resolveInventoryPurchasePreset(purchaseDate: string): InventoryPurchase
   if (purchaseDate === todayKey()) {
     return 'today';
   }
-  if (purchaseDate === shiftDateKey(todayKey(), -1)) {
+  if (purchaseDate === addDateKeyDays(todayKey(), -1)) {
     return 'yesterday';
   }
   return 'custom';
@@ -931,33 +914,25 @@ function restoreIngredientForm(raw: unknown): IngredientCreateFormState {
 }
 
 function readPersistedWorkspaceState(): PersistedIngredientWorkspaceState {
-  try {
-    const raw = localStorage.getItem(INGREDIENT_WORKSPACE_STATE_KEY);
-    if (!raw) {
-      return {};
-    }
-    const parsed = JSON.parse(raw) as PersistedIngredientWorkspaceState;
-    const rawActivePanel = (parsed as { activePanel?: string }).activePanel;
-    return {
-      workspaceView: isWorkspaceView(parsed.workspaceView) ? parsed.workspaceView : undefined,
-      activePanel: rawActivePanel === 'hub' ? 'catalog' : isWorkspacePanel(rawActivePanel) ? rawActivePanel : undefined,
-      editingIngredientId:
-        typeof parsed.editingIngredientId === 'string' || parsed.editingIngredientId === null
-          ? parsed.editingIngredientId
-          : undefined,
-      selectedIngredientId:
-        typeof parsed.selectedIngredientId === 'string' || parsed.selectedIngredientId === null
-          ? parsed.selectedIngredientId
-          : undefined,
-      catalogSearch: typeof parsed.catalogSearch === 'string' ? parsed.catalogSearch : undefined,
-      catalogCategoryFilter:
-        typeof parsed.catalogCategoryFilter === 'string' ? parsed.catalogCategoryFilter : undefined,
-      inventorySearch: typeof parsed.inventorySearch === 'string' ? parsed.inventorySearch : undefined,
-      ingredientForm: parsed.ingredientForm ? restoreIngredientForm(parsed.ingredientForm) : undefined,
-    };
-  } catch {
-    return {};
-  }
+  const parsed = readJsonStorage<PersistedIngredientWorkspaceState>(INGREDIENT_WORKSPACE_STATE_KEY, {});
+  const rawActivePanel = (parsed as { activePanel?: string }).activePanel;
+  return {
+    workspaceView: isWorkspaceView(parsed.workspaceView) ? parsed.workspaceView : undefined,
+    activePanel: rawActivePanel === 'hub' ? 'catalog' : isWorkspacePanel(rawActivePanel) ? rawActivePanel : undefined,
+    editingIngredientId:
+      typeof parsed.editingIngredientId === 'string' || parsed.editingIngredientId === null
+        ? parsed.editingIngredientId
+        : undefined,
+    selectedIngredientId:
+      typeof parsed.selectedIngredientId === 'string' || parsed.selectedIngredientId === null
+        ? parsed.selectedIngredientId
+        : undefined,
+    catalogSearch: typeof parsed.catalogSearch === 'string' ? parsed.catalogSearch : undefined,
+    catalogCategoryFilter:
+      typeof parsed.catalogCategoryFilter === 'string' ? parsed.catalogCategoryFilter : undefined,
+    inventorySearch: typeof parsed.inventorySearch === 'string' ? parsed.inventorySearch : undefined,
+    ingredientForm: parsed.ingredientForm ? restoreIngredientForm(parsed.ingredientForm) : undefined,
+  };
 }
 
 function getStorageShelfCardWidth(availableWidth: number, columns: number) {
@@ -2062,6 +2037,7 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
   const [shoppingForm, setShoppingForm] = useState<ShoppingDialogFormState>(buildShoppingForm());
   const [pendingShoppingToComplete, setPendingShoppingToComplete] = useState<PendingShoppingCompletion | null>(null);
   const [destroyExpiredIngredientId, setDestroyExpiredIngredientId] = useState<string | null>(null);
+  const { notice, showNotice, clearNotice } = useNotice();
   const [inventoryAdvancedOpen, setInventoryAdvancedOpen] = useState(false);
   const [ingredientUnitAdvancedOpen, setIngredientUnitAdvancedOpen] = useState(false);
   const [ingredientCustomCategoryOpen, setIngredientCustomCategoryOpen] = useState(false);
@@ -2282,7 +2258,7 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
       inventorySearch,
       ingredientForm,
     };
-    localStorage.setItem(INGREDIENT_WORKSPACE_STATE_KEY, JSON.stringify(snapshot));
+    writeJsonStorage(INGREDIENT_WORKSPACE_STATE_KEY, snapshot);
   }, [
     workspaceView,
     activePanel,
@@ -2525,11 +2501,11 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
         : null;
     const lowStockThreshold = parseOptionalNumber(ingredientForm.defaultLowStockThreshold);
     if (ingredientForm.defaultExpiryMode === 'days' && !parsePositiveNumber(ingredientForm.defaultExpiryDays)) {
-      window.alert('请先填写默认保质期天数，方便以后补库存时自动带出到期建议。');
+      showNotice({ tone: 'warning', title: '还不能保存食材', message: '请先填写默认保质期天数，方便以后补库存时自动带出到期建议。' });
       return;
     }
     if (lowStockThreshold !== null && lowStockThreshold <= 0) {
-      window.alert('默认低库存提醒值需要大于 0；如果不需要提醒，请切换为不提醒。');
+      showNotice({ tone: 'warning', title: '低库存提醒无效', message: '默认低库存提醒值需要大于 0；如果不需要提醒，请切换为不提醒。' });
       return;
     }
     try {
@@ -2571,7 +2547,11 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
         setOverlayMode('inventory');
       }
     } catch (reason) {
-      window.alert(reason instanceof Error ? reason.message : editingIngredientId ? '更新食材失败' : '新增食材失败');
+      showNotice({
+        tone: 'danger',
+        title: editingIngredientId ? '更新食材失败' : '新增食材失败',
+        message: resolveErrorMessage(reason, editingIngredientId ? '更新食材失败' : '新增食材失败'),
+      });
     }
   }
 
@@ -2583,28 +2563,28 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
   async function submitInventory(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!inventoryForm.ingredientId) {
-      window.alert('先选中这次补的是哪种食材，再保存这批库存。');
+      showNotice({ tone: 'warning', title: '还不能录入库存', message: '先选中这次补的是哪种食材，再保存这批库存。' });
       return;
     }
     const quantity = parsePositiveNumber(inventoryForm.quantity);
     if (quantity === null) {
-      window.alert('数量要大于 0，才能把这批库存记进系统。');
+      showNotice({ tone: 'warning', title: '库存数量无效', message: '数量要大于 0，才能把这批库存记进系统。' });
       return;
     }
     if (!inventoryForm.purchaseDate) {
-      window.alert('请确认这批食材的购买日期。');
+      showNotice({ tone: 'warning', title: '缺少购买日期', message: '请确认这批食材的购买日期。' });
       return;
     }
     if (!inventoryForm.storageLocation.trim()) {
-      window.alert('请确认这批食材放在哪里，后面的提醒才会更准确。');
+      showNotice({ tone: 'warning', title: '缺少存放位置', message: '请确认这批食材放在哪里，后面的提醒才会更准确。' });
       return;
     }
     if (inventoryForm.expiryInputMode === 'days' && parsePositiveNumber(inventoryForm.expiryDays) === null) {
-      window.alert('请填写这批食材大概几天后到期，系统才能自动算出到期日。');
+      showNotice({ tone: 'warning', title: '缺少保质期', message: '请填写这批食材大概几天后到期，系统才能自动算出到期日。' });
       return;
     }
     if (inventoryForm.expiryInputMode === 'manual_date' && !inventoryForm.expiryDate) {
-      window.alert('请填写包装上的到期日期，系统才能继续帮你监控临期。');
+      showNotice({ tone: 'warning', title: '缺少到期日期', message: '请填写包装上的到期日期，系统才能继续帮你监控临期。' });
       return;
     }
     try {
@@ -2625,11 +2605,14 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
             done: true,
           });
         } catch (reason) {
-          window.alert(
-            reason instanceof Error
-              ? `库存已登记，但待买项仍未标记完成：${reason.message}`
-              : '库存已登记，但待买项仍未标记为已买，请稍后再试。'
-          );
+          showNotice({
+            tone: 'warning',
+            title: '库存已登记',
+            message:
+              reason instanceof Error
+                ? `待买项仍未标记完成：${reason.message}`
+                : '待买项仍未标记为已买，请稍后再试。',
+          });
         }
       }
       setSelectedIngredientId(inventoryForm.ingredientId);
@@ -2637,7 +2620,7 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
       setInventoryAdvancedOpen(false);
       closeOverlay();
     } catch (reason) {
-      window.alert(reason instanceof Error ? reason.message : '录入库存失败');
+      showNotice({ tone: 'danger', title: '录入库存失败', message: resolveErrorMessage(reason, '录入库存失败') });
     }
   }
 
@@ -2648,7 +2631,7 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
     }
     const quantity = parsePositiveNumber(shoppingForm.quantity);
     if (quantity === null) {
-      window.alert('请确认待买数量，至少要大于 0。');
+      showNotice({ tone: 'warning', title: '待买数量无效', message: '请确认待买数量，至少要大于 0。' });
       return;
     }
     try {
@@ -2661,20 +2644,20 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
       setShoppingForm(buildShoppingForm());
       closeOverlay();
     } catch (reason) {
-      window.alert(reason instanceof Error ? reason.message : '加入购物清单失败');
+      showNotice({ tone: 'danger', title: '加入购物清单失败', message: resolveErrorMessage(reason, '加入购物清单失败') });
     }
   }
 
   async function submitConsume(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!consumeForm.ingredientId) {
-      window.alert('先确认是要消费哪种食材。');
+      showNotice({ tone: 'warning', title: '还不能记录消费', message: '先确认是要消费哪种食材。' });
       return;
     }
 
     const selectedSummary = summaries.find((item) => item.ingredient.id === consumeForm.ingredientId) ?? null;
     if (!selectedSummary) {
-      window.alert('这份食材暂时不可用，请稍后再试。');
+      showNotice({ tone: 'warning', title: '食材不可用', message: '这份食材暂时不可用，请稍后再试。' });
       return;
     }
 
@@ -2685,20 +2668,22 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
     );
     const selectedUnitOption = unitOptions.find((item) => item.unit === consumeForm.unit) ?? unitOptions[0] ?? null;
     if (!selectedUnitOption) {
-      window.alert('这份食材当前没有可消费的库存。');
+      showNotice({ tone: 'warning', title: '没有可消费库存', message: '这份食材当前没有可消费的库存。' });
       return;
     }
 
     const quantity = parsePositiveNumber(consumeForm.quantity);
     if (quantity === null) {
-      window.alert('请确认这次实际消费了多少。');
+      showNotice({ tone: 'warning', title: '消费数量无效', message: '请确认这次实际消费了多少。' });
       return;
     }
 
     if (quantity - selectedUnitOption.available > 0.0001) {
-      window.alert(
-        `当前最多还能消费 ${formatNumericString(selectedUnitOption.available)}${selectedUnitOption.unit}。`
-      );
+      showNotice({
+        tone: 'warning',
+        title: '超过可用库存',
+        message: `当前最多还能消费 ${formatNumericString(selectedUnitOption.available)}${selectedUnitOption.unit}。`,
+      });
       return;
     }
 
@@ -2711,26 +2696,26 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
       setSelectedIngredientId(consumeForm.ingredientId);
       closeOverlay();
     } catch (reason) {
-      window.alert(reason instanceof Error ? reason.message : '记录消费失败');
+      showNotice({ tone: 'danger', title: '记录消费失败', message: resolveErrorMessage(reason, '记录消费失败') });
     }
   }
 
   async function submitDestroyExpired(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!destroyExpiredIngredientId) {
-      window.alert('先确认要处理哪种食材。');
+      showNotice({ tone: 'warning', title: '还不能销毁过期批次', message: '先确认要处理哪种食材。' });
       return;
     }
 
     const selectedSummary = summaries.find((item) => item.ingredient.id === destroyExpiredIngredientId) ?? null;
     if (!selectedSummary) {
-      window.alert('这份食材暂时不可用，请稍后再试。');
+      showNotice({ tone: 'warning', title: '食材不可用', message: '这份食材暂时不可用，请稍后再试。' });
       return;
     }
 
     const expiredItems = buildDisposableExpiredInventoryItems(selectedSummary);
     if (expiredItems.length === 0) {
-      window.alert('当前没有可销毁的过期批次。');
+      showNotice({ tone: 'warning', title: '没有可销毁批次', message: '当前没有可销毁的过期批次。' });
       return;
     }
 
@@ -2742,7 +2727,7 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
       setSelectedIngredientId(selectedSummary.ingredient.id);
       closeOverlay();
     } catch (reason) {
-      window.alert(reason instanceof Error ? reason.message : '销毁过期批次失败');
+      showNotice({ tone: 'danger', title: '销毁过期批次失败', message: resolveErrorMessage(reason, '销毁过期批次失败') });
     }
   }
 
@@ -2825,10 +2810,25 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
     },
     { label: '已生成 AI 主图（可选）', done: ingredientHasGeneratedImage, optional: true },
   ];
+  const noticeToast = notice ? (
+    <div className={`recipe-notice-toast tone-${notice.tone}`} role={notice.tone === 'danger' ? 'alert' : 'status'} aria-live="polite">
+      <span className="recipe-notice-icon">
+        <IngredientWorkspaceIcon name={notice.tone === 'success' ? 'check' : 'alert'} />
+      </span>
+      <span className="recipe-notice-copy">
+        <strong>{notice.title}</strong>
+        <small>{notice.message}</small>
+      </span>
+      <button type="button" onClick={clearNotice} aria-label="关闭提示">
+        ×
+      </button>
+    </div>
+  ) : null;
 
   if (workspaceView === 'create') {
     return (
       <div className="ingredients-workspace">
+        {noticeToast}
         <WorkspaceSubpageShell className="ingredients-workspace-subpage ingredients-create-workspace">
           <header className="ingredients-create-header">
             <div className="ingredients-create-titleblock">
@@ -3402,6 +3402,7 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
 
     return (
       <div className="ingredients-workspace">
+        {noticeToast}
         <WorkspaceSubpageShell className="ingredients-workspace-subpage ingredients-detail-page">
           <header className="ingredient-detail-header">
             <div className="ingredient-detail-titleblock">
@@ -3782,6 +3783,7 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
 
   return (
     <div className="ingredients-workspace">
+      {noticeToast}
       <section className="mobile-ingredient-page" aria-label="手机食材页">
         <div className="mobile-ingredient-topbar">
           <div className="mobile-ingredient-brand">
@@ -5142,7 +5144,7 @@ function OverlayLayer(props: {
                 <div className="ingredients-restock-choice-row">
                   {[
                     { value: 'today', label: '今天', date: todayKey() },
-                    { value: 'yesterday', label: '昨天', date: shiftDateKey(todayKey(), -1) },
+                    { value: 'yesterday', label: '昨天', date: addDateKeyDays(todayKey(), -1) },
                     { value: 'custom', label: '自定义', date: props.inventoryForm.purchaseDate },
                   ].map((item) => (
                     <button
