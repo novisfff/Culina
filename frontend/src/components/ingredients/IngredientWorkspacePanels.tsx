@@ -1,4 +1,4 @@
-import type { ComponentType } from 'react';
+import type { ComponentType, CSSProperties, ReactNode, RefObject } from 'react';
 import type { ShoppingListItem } from '../../api/types';
 import {
   ActionButton,
@@ -13,10 +13,14 @@ import type {
   StorageGroupViewModel,
 } from './workspaceModel';
 import type { InventoryStorageFocus, InventorySortMode } from './ingredientWorkspaceForms';
+import type { CatalogStatusFilter } from './useIngredientWorkspaceState';
 
 type IngredientWorkspaceIconName =
   | 'search'
+  | 'filter'
+  | 'status'
   | 'bell'
+  | 'alert'
   | 'sort'
   | 'shopping'
   | 'plus'
@@ -25,7 +29,9 @@ type IngredientWorkspaceIconName =
   | 'link'
   | 'metricCircle'
   | 'reset'
-  | 'chevronDown';
+  | 'chevronDown'
+  | 'stocked'
+  | 'total';
 
 type IngredientWorkspaceIconComponent = ComponentType<{ name: IngredientWorkspaceIconName }>;
 type InventoryStorageOverviewCardComponent = ComponentType<{
@@ -53,6 +59,210 @@ type ShoppingHistoryRowComponent = ComponentType<{
   onDetail?: () => void;
   isBusy?: boolean;
 }>;
+type IngredientCatalogCardComponent = ComponentType<{
+  summary: IngredientSummaryViewModel;
+  expanded: boolean;
+  onToggle: () => void;
+  onRestock: () => void;
+  onConsume: () => void;
+  onAddShopping: () => void;
+  onHandleAlert: () => void;
+  onDetail: () => void;
+}>;
+
+type CatalogStatusItem = {
+  value: CatalogStatusFilter;
+  label: string;
+};
+
+type CatalogPanelProps = {
+  summariesCount: number;
+  allAlertsCount: number;
+  pendingShoppingCount: number;
+  stockedIngredientCount: number;
+  catalogCountLabel: string;
+  catalogSearch: string;
+  catalogCategoryFilter: string;
+  catalogStatusFilter: CatalogStatusFilter;
+  catalogCategories: string[];
+  catalogStatusItems: CatalogStatusItem[];
+  catalogStatusCounts: Record<CatalogStatusFilter, number>;
+  filteredSummaries: IngredientSummaryViewModel[];
+  expandedCatalogIngredientId: string | null;
+  catalogGridStyle: CSSProperties | undefined;
+  onCatalogSearchChange: (value: string) => void;
+  onCatalogCategoryFilterChange: (value: string) => void;
+  onCatalogStatusFilterChange: (value: CatalogStatusFilter) => void;
+  onResetCatalogFilters: () => void;
+  onOpenInventoryPanelAlerted: () => void;
+  onOpenShoppingPanel: () => void;
+  onOpenInventoryPanelAll: () => void;
+  onOpenCreateView: () => void;
+  onToggleCatalogCard: (ingredientId: string) => void;
+  onOpenInventoryOverlay: (ingredientId?: string) => void;
+  onOpenConsumeOverlay: (ingredientId: string) => void;
+  onOpenShoppingForSummary: (summary: IngredientSummaryViewModel) => void;
+  onOpenHandleAlert: (summary: IngredientSummaryViewModel) => void;
+  onOpenDetailView: (ingredientId: string) => void;
+  catalogMeasureRef: RefObject<HTMLDivElement>;
+  ScrollableChipRail: ComponentType<{
+    ariaLabel: string;
+    railClassName: string;
+    children: ReactNode;
+  }>;
+  IngredientWorkspaceIcon: IngredientWorkspaceIconComponent;
+  IngredientCatalogCard: IngredientCatalogCardComponent;
+};
+
+export function IngredientCatalogPanel(props: CatalogPanelProps) {
+  return (
+    <div className="ingredients-panel-stack ingredients-catalog-workbench">
+      <section className="ingredients-catalog-toolbar">
+        <div className="ingredients-catalog-toolbar-head">
+          <div className="ingredients-catalog-title-group">
+            <div className="ingredients-catalog-title-line">
+              <h3>食材档案</h3>
+            </div>
+            <div className="ingredients-catalog-mini-metrics" aria-label="档案快捷摘要">
+              <button type="button">
+                <span className="ingredients-catalog-mini-metric-icon">
+                  <props.IngredientWorkspaceIcon name="total" />
+                </span>
+                {props.catalogCountLabel}
+              </button>
+              <button type="button" onClick={props.onOpenInventoryPanelAlerted}>
+                <span className="ingredients-catalog-mini-metric-icon">
+                  <props.IngredientWorkspaceIcon name="alert" />
+                </span>
+                {props.allAlertsCount} 个提醒
+              </button>
+              <button type="button" onClick={props.onOpenShoppingPanel}>
+                <span className="ingredients-catalog-mini-metric-icon">
+                  <props.IngredientWorkspaceIcon name="shopping" />
+                </span>
+                {props.pendingShoppingCount} 项待买
+              </button>
+              <button type="button" onClick={props.onOpenInventoryPanelAll}>
+                <span className="ingredients-catalog-mini-metric-icon">
+                  <props.IngredientWorkspaceIcon name="stocked" />
+                </span>
+                {props.stockedIngredientCount} 个在库
+              </button>
+            </div>
+          </div>
+          <ActionButton tone="primary" type="button" className="ingredients-catalog-create-button" onClick={props.onOpenCreateView}>
+            <span aria-hidden="true">+</span>
+            新增食材
+          </ActionButton>
+        </div>
+        <div className="ingredients-catalog-search-row">
+          <label className="ingredients-search-field ingredients-catalog-search-field">
+            <span className="ingredients-toolbar-label ingredients-catalog-label-with-icon">
+              <props.IngredientWorkspaceIcon name="search" />
+              档案检索
+            </span>
+            <span className="ingredients-catalog-search-input-shell">
+              <span className="ingredients-catalog-search-input-icon" aria-hidden="true">
+                <props.IngredientWorkspaceIcon name="search" />
+              </span>
+              <input
+                className="text-input"
+                placeholder="搜索食材、分类、备注或关联菜谱"
+                value={props.catalogSearch}
+                onChange={(event) => props.onCatalogSearchChange(event.target.value)}
+              />
+            </span>
+          </label>
+        </div>
+        <div className="ingredients-catalog-filter-bar">
+          <div className="ingredients-catalog-filter-section ingredients-catalog-filter-section-category">
+            <span className="ingredients-catalog-filter-label ingredients-catalog-label-with-icon">
+              <props.IngredientWorkspaceIcon name="filter" />
+              分类筛选
+            </span>
+            <props.ScrollableChipRail ariaLabel="按分类筛选食材档案" railClassName="ingredients-category-rail">
+              <button
+                className={props.catalogCategoryFilter === 'all' ? 'chip ingredients-category-chip active' : 'chip ingredients-category-chip'}
+                type="button"
+                onClick={() => props.onCatalogCategoryFilterChange('all')}
+              >
+                全部
+              </button>
+              {props.catalogCategories.map((category) => (
+                <button
+                  key={category}
+                  className={props.catalogCategoryFilter === category ? 'chip ingredients-category-chip active' : 'chip ingredients-category-chip'}
+                  type="button"
+                  onClick={() => props.onCatalogCategoryFilterChange(category)}
+                >
+                  {category}
+                </button>
+              ))}
+            </props.ScrollableChipRail>
+          </div>
+          <div className="ingredients-catalog-filter-section ingredients-catalog-filter-section-status" aria-label="按库存状态筛选食材档案">
+            <span className="ingredients-catalog-label-with-icon">
+              <props.IngredientWorkspaceIcon name="status" />
+              状态筛选
+            </span>
+            <div className="ingredients-catalog-status-filter-row">
+              {props.catalogStatusItems.map((item) => {
+                return (
+                  <button
+                    key={item.value}
+                    className={props.catalogStatusFilter === item.value ? `chip ingredients-status-chip tone-${item.value} active` : `chip ingredients-status-chip tone-${item.value}`}
+                    type="button"
+                    onClick={() => props.onCatalogStatusFilterChange(item.value)}
+                  >
+                    {item.label}
+                    <small>{props.catalogStatusCounts[item.value]}</small>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+          <button className="ingredients-catalog-clear-filter" type="button" onClick={props.onResetCatalogFilters}>
+            <span className="ingredients-catalog-clear-filter-icon" aria-hidden="true">
+              <props.IngredientWorkspaceIcon name="reset" />
+            </span>
+            清空筛选
+          </button>
+        </div>
+      </section>
+      <div ref={props.catalogMeasureRef} className="ingredient-grid ingredient-grid-catalog ingredients-catalog-grid" style={props.catalogGridStyle}>
+        {props.filteredSummaries.length > 0 ? (
+          props.filteredSummaries.map((summary) => (
+            <props.IngredientCatalogCard
+              key={summary.ingredient.id}
+              summary={summary}
+              expanded={props.expandedCatalogIngredientId === summary.ingredient.id}
+              onToggle={() => props.onToggleCatalogCard(summary.ingredient.id)}
+              onRestock={() => props.onOpenInventoryOverlay(summary.ingredient.id)}
+              onConsume={() => props.onOpenConsumeOverlay(summary.ingredient.id)}
+              onAddShopping={() => props.onOpenShoppingForSummary(summary)}
+              onHandleAlert={() => props.onOpenHandleAlert(summary)}
+              onDetail={() => props.onOpenDetailView(summary.ingredient.id)}
+            />
+          ))
+        ) : (
+          <EmptyState
+            title={props.summariesCount === 0 ? '还没有食材档案' : '没找到匹配的食材'}
+            description={
+              props.summariesCount === 0
+                ? '先新增几张常用食材资料卡，后面补货、消费和采购都会直接很多。'
+                : '换个关键词试试，或者直接新建一张资料卡。'
+            }
+            action={
+              <button className="solid-button" type="button" onClick={props.onOpenCreateView}>
+                新增食材
+              </button>
+            }
+          />
+        )}
+      </div>
+    </div>
+  );
+}
 
 type InventoryPanelProps = {
   summariesCount: number;

@@ -3772,6 +3772,14 @@
   min-width: 0;
 }
 
+.ai-mobile-page {
+  display: none;
+}
+
+.ai-desktop-view {
+  display: contents;
+}
+
 .ai-main-panel {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto;
@@ -4838,6 +4846,14 @@
     overflow: hidden;
   }
 
+  .ai-desktop-view {
+    display: none;
+  }
+
+  .ai-mobile-page {
+    display: block;
+  }
+
   .ai-main-panel {
     position: fixed;
     inset: 0;
@@ -5408,4 +5424,3 @@
 .mobile-bottom-nav {
   display: none;
 }
-

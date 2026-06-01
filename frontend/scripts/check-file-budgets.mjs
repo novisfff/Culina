@@ -5,9 +5,9 @@ const rootDir = resolve(new URL('..', import.meta.url).pathname);
 const srcDir = resolve(rootDir, 'src');
 const maxNewReactFileLines = 1000;
 const trackedLargeFiles = new Map([
-  ['src/App.tsx', 5000],
-  ['src/components/foods/FoodWorkspace.tsx', 3400],
-  ['src/components/ingredients/IngredientWorkspace.tsx', 6200],
+  ['src/App.tsx', 2200],
+  ['src/components/foods/FoodWorkspace.tsx', 2400],
+  ['src/components/ingredients/IngredientWorkspace.tsx', 3400],
   ['src/components/recipes/RecipeWorkspace.tsx', 2200],
 ]);
 

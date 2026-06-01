@@ -206,6 +206,171 @@
     opacity: 0.45;
   }
 
+  .meal-log-desktop-view {
+    display: none;
+  }
+
+  .mobile-log-page {
+    display: grid;
+    gap: 12px;
+    width: min(100%, 480px);
+    margin: 0 auto;
+    padding: 14px 0 0;
+  }
+
+  .mobile-log-topbar,
+  .mobile-log-brand,
+  .mobile-log-section-head,
+  .mobile-log-meta {
+    display: flex;
+    align-items: center;
+  }
+
+  .mobile-log-topbar {
+    justify-content: space-between;
+    gap: 12px;
+    padding: 0 10px;
+  }
+
+  .mobile-log-brand {
+    min-width: 0;
+    gap: 10px;
+  }
+
+  .mobile-log-logo {
+    width: 46px;
+    height: 46px;
+    display: grid;
+    place-items: center;
+    flex: 0 0 auto;
+    border-radius: 15px;
+    background: linear-gradient(180deg, #4f8c78, #3b7462);
+    color: #fff;
+    font-size: 1.16rem;
+    font-weight: 900;
+    box-shadow: 0 14px 28px rgba(59, 116, 98, 0.2);
+  }
+
+  .mobile-log-brand strong,
+  .mobile-log-brand small {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .mobile-log-brand strong {
+    color: #2d211a;
+    font-size: 1.08rem;
+    line-height: 1.12;
+    font-weight: 900;
+  }
+
+  .mobile-log-brand small {
+    margin-top: 3px;
+    color: #7e6f64;
+    font-size: 0.78rem;
+    font-weight: 700;
+  }
+
+  .mobile-log-anchor {
+    flex: 0 0 auto;
+    min-height: 38px;
+    padding: 0 13px;
+    border: 1px solid rgba(207, 221, 214, 0.9);
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.74);
+    color: #446657;
+    font: inherit;
+    font-size: 0.84rem;
+    font-weight: 900;
+  }
+
+  .mobile-log-hero {
+    display: grid;
+    gap: 10px;
+    padding: 24px 22px 8px;
+  }
+
+  .mobile-log-hero h1 {
+    margin: 0;
+    color: #2b201b;
+    font-size: clamp(2.04rem, 9.2vw, 2.72rem);
+    line-height: 1.04;
+    font-weight: 950;
+  }
+
+  .mobile-log-hero p {
+    max-width: 26ch;
+    margin: 0;
+    color: #5d5048;
+    font-size: clamp(1.02rem, 4.6vw, 1.2rem);
+    font-weight: 800;
+    line-height: 1.28;
+  }
+
+  .mobile-log-panel {
+    display: grid;
+    gap: 14px;
+    padding: 18px 14px;
+    border: 1px solid rgba(215, 227, 221, 0.88);
+    border-radius: 23px;
+    background: rgba(255, 255, 255, 0.84);
+    box-shadow: 0 14px 34px rgba(75, 52, 34, 0.055);
+  }
+
+  .mobile-log-panel .page-main-column {
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+  }
+
+  .mobile-log-section-head {
+    justify-content: space-between;
+    gap: 12px;
+  }
+
+  .mobile-log-section-head h2 {
+    margin: 0;
+    color: #2b201b;
+    font-size: 1.32rem;
+    line-height: 1.16;
+    font-weight: 950;
+  }
+
+  .mobile-log-section-head span {
+    color: #6d7f76;
+    font-size: 0.84rem;
+    font-weight: 900;
+  }
+
+  .mobile-log-recent-list {
+    display: grid;
+    gap: 12px;
+  }
+
+  .mobile-log-card {
+    border-radius: 20px;
+  }
+
+  .mobile-log-meta {
+    justify-content: space-between;
+    gap: 12px;
+    color: #7f7066;
+    font-size: 0.78rem;
+    font-weight: 700;
+  }
+
+  .mobile-log-empty {
+    padding: 18px 14px;
+    border-radius: 18px;
+    background: rgba(247, 242, 236, 0.8);
+    color: #74665c;
+    font-weight: 700;
+  }
+
   .mobile-recipe-section-head svg,
   .mobile-recipe-card-actions svg,
   .mobile-recipe-favorite svg {

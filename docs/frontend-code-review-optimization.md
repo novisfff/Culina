@@ -38,7 +38,7 @@
 | 部分完成 | 拆薄 `App.tsx` | 已完成数据 key/失效规则抽离、工作台懒加载、图片状态机抽离、应用壳 `AppShell` 与壳层图标抽离、首页 `HomeDashboard` 展示层抽离、首页 view model 构造抽离、首页 UI state hook 第一阶段、首页计划/详情/补货/过期处理 action hook 第一阶段、餐食记录表单与状态/提交 hook 抽离、食物创建遗留死代码清理、家庭设置展示容器与弹窗抽离、家庭设置 state hook 与 submit 行为下沉 | `frontend/src/App.tsx`、`frontend/src/app/AppShell.tsx`、`frontend/src/app/shellIcons.tsx`、`frontend/src/features/home/HomeDashboard.tsx`、`frontend/src/features/home/homeDashboardModel.ts`、`frontend/src/features/home/useHomeDashboardState.ts`、`frontend/src/features/home/useHomeDashboardActions.ts`、`frontend/src/features/meals/MealLogComposer.tsx`、`frontend/src/features/meals/useMealLogComposerState.ts`、`frontend/src/features/family/FamilySettings.tsx`、`frontend/src/features/family/FamilySettingsModals.tsx`、`frontend/src/features/family/useFamilySettingsState.ts` | `npm --prefix frontend run check:size`、`npm --prefix frontend run test`、`npm --prefix frontend run build`、`npm --prefix frontend run smoke` |
 | 部分完成 | `FoodWorkspace` 内部拆分第一阶段 | 抽出食物工作台纯 UI primitives、工作台配置常量、食物表单 model/helper、菜单计划 hook、场景管理 hook、详情抽屉组件和编辑表单组件，保留 `FoodWorkspace` 兼容导出，主文件从约 3,218 行降到约 2,061 行 | `frontend/src/components/foods/FoodWorkspace.tsx`、`frontend/src/components/foods/FoodEditorForm.tsx`、`frontend/src/components/foods/FoodWorkspacePrimitives.tsx`、`frontend/src/components/foods/FoodWorkspaceOptions.ts`、`frontend/src/components/foods/FoodWorkspaceModel.ts`、`frontend/src/components/foods/useFoodPlanState.ts`、`frontend/src/components/foods/useFoodSceneState.ts`、`frontend/src/components/foods/FoodDetailDrawer.tsx` | `npm --prefix frontend run check:size`、`npm --prefix frontend run test`、`npm --prefix frontend run build`、`npm --prefix frontend run smoke` |
 | 部分完成 | `RecipeWorkspace` 内部拆分第二阶段 | 抽出菜谱工作台静态配置、表单/payload/做菜 session/购物草稿/AI 草稿等 model helper，封面/卡片等展示组件，AI 草稿、菜单计划、购物确认、做菜完成确认和场景管理弹窗，以及新增/编辑、详情、做菜、library/移动端首页视图；主文件从约 5,161 行降到约 2,109 行 | `frontend/src/components/recipes/RecipeWorkspace.tsx`、`frontend/src/components/recipes/RecipeWorkspaceOptions.ts`、`frontend/src/components/recipes/RecipeWorkspaceModel.ts`、`frontend/src/components/recipes/RecipeWorkspaceCards.tsx`、`frontend/src/components/recipes/RecipeLibraryView.tsx`、`frontend/src/components/recipes/RecipeEditorView.tsx`、`frontend/src/components/recipes/RecipeDetailView.tsx`、`frontend/src/components/recipes/RecipeCookView.tsx`、`frontend/src/components/recipes/RecipeDraftDialog.tsx`、`frontend/src/components/recipes/RecipePlanDialogs.tsx`、`frontend/src/components/recipes/RecipeShoppingDialog.tsx`、`frontend/src/components/recipes/RecipeCookFinishDialog.tsx`、`frontend/src/components/recipes/RecipeSceneManagerDialog.tsx` | `npm --prefix frontend run check:size`、`npm --prefix frontend run test`、`npm --prefix frontend run build` |
-| 部分完成 | 菜谱图片入口统一化 | `RecipeWorkspace` 的菜谱封面已接入统一 hook；AI 草稿封面、场景封面仍保留独立业务流程 | `frontend/src/components/recipes/RecipeWorkspace.tsx` | `npm --prefix frontend run test`、`npm --prefix frontend run build` |
+| 已完成 | 菜谱/场景图片入口统一化 | `RecipeWorkspace` 的菜谱封面上传、AI 草稿封面生成、菜谱场景封面生成已接入统一 `useImageComposer` 状态机；`FoodWorkspace` 的食物场景封面生成也已接入统一 hook，移除重复生成状态与错误处理 | `frontend/src/components/recipes/RecipeWorkspace.tsx`、`frontend/src/components/recipes/useRecipeSceneState.ts`、`frontend/src/components/foods/useFoodSceneState.ts`、`frontend/src/hooks/useImageComposer.ts` | `npm --prefix frontend run build` |
 | 部分完成 | 文件体量预算检查 | 新增无外部依赖的 `check:size`，限制新增 React 文件超过 1000 行，并为现有超大文件建立收敛预算；`App.tsx` 预算已随应用壳抽离从 5500 收紧到 5000 行 | `frontend/scripts/check-file-budgets.mjs`、`frontend/package.json` | `npm --prefix frontend run check:size` |
 | 已完成 | API client 按资源拆分与错误边界第一阶段 | 新增 `request.ts` 承载 request/token/`ApiError`，按资源拆出 `authApi`、`familyApi`、`ingredientsApi`、`foodsApi`、`recipesApi`、`aiApi`、`mediaApi`，聚合 `api` 保持兼容；request 失败时携带 `status`、`detail`、`path`、`payload`，401 自动清理 token | `frontend/src/api/request.ts`、`frontend/src/api/*Api.ts`、`frontend/src/api/client.ts`、`frontend/src/api/client.test.ts` | `npm --prefix frontend run check:size`、`npm --prefix frontend run test`、`npm --prefix frontend run build` |
 | 已完成 | 表单错误提示层第一阶段 | 新增 `useNotice`，并将 `App.tsx`、`FoodWorkspace`、`RecipeWorkspace`、`IngredientWorkspace` 中的直接 `window.alert` 迁移为非阻塞 notice toast | `frontend/src/hooks/useNotice.ts`、`frontend/src/App.tsx`、`frontend/src/components/foods/FoodWorkspace.tsx`、`frontend/src/components/recipes/RecipeWorkspace.tsx`、`frontend/src/components/ingredients/IngredientWorkspace.tsx` | `npm --prefix frontend run check:size`、`npm --prefix frontend run test`、`npm --prefix frontend run build` |
@@ -357,7 +357,8 @@ frontend/src/styles/
 - `FoodWorkspace` 的食物图片入口已接入该 hook。
 - `IngredientWorkspace` 的食材图片入口已接入该 hook。
 - `App.tsx` 中餐食照片、个人头像、家庭头像已接入该 hook。
-- `RecipeWorkspace` 中菜谱封面上传、参考图重试、文本生成已接入该 hook；食物/菜谱场景封面生成目前保留独立逻辑。
+- `RecipeWorkspace` 中菜谱封面上传、参考图重试、文本生成、AI 草稿封面生成与菜谱场景封面生成已接入该 hook。
+- `FoodWorkspace` 中食物场景封面生成也已接入该 hook，统一生成中状态、错误文案和重置行为。
 
 ### 2. 建立表单校验与错误提示层
 
@@ -427,7 +428,7 @@ frontend/src/styles/
 - `App.tsx`、`AiWorkspace`、`FoodWorkspace`、`RecipeWorkspace`、`IngredientWorkspace`、`ui-kit` 已迁移到统一 `resolveAssetUrl`。
 - `workspaceModel` 的菜谱周范围计算、`App.tsx` 与 `IngredientWorkspace` 的日期偏移已迁移到 `lib/date.ts`，`ui.ts`、`helpers.ts` 的 `todayKey` 已统一复用。
 - `IngredientWorkspace` 持久化工作台状态、`RecipeWorkspace` 做菜会话缓存、`App.tsx` 活跃 tab 和侧边栏折叠状态已迁移到 `readJsonStorage`、`writeJsonStorage`、`readStringStorage`、`writeStringStorage`、`removeStorage`。
-- `frontend/src/lib/store.ts` 仍是旧本地 mock store，保留待后续判断是否继续使用或移除。
+- 未再发现业务代码直接依赖旧本地 mock store；`frontend/src/lib/store.ts` 已删除。
 
 验收标准：
 

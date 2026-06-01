@@ -86,18 +86,20 @@ export function useImageComposer(options: {
     }
   }
 
-  async function generate(mode: 'reference' | 'text') {
+  async function generateWithResult(mode: 'reference' | 'text', payloadOverride?: AiRenderPayload) {
     setState({ isGenerating: true, errorMessage: null });
     try {
+      const payload = payloadOverride ?? options.payload;
       const nextImages =
         mode === 'reference' && options.value.referenceAsset
-          ? await regenerateImageFromReference(options.value.referenceAsset.id, options.payload)
-          : await generateImageFromText(options.payload);
+          ? await regenerateImageFromReference(options.value.referenceAsset.id, payload)
+          : await generateImageFromText(payload);
       options.onChange({
         referenceAsset: nextImages.referenceAsset ?? options.value.referenceAsset,
         generatedAsset: nextImages.generatedAsset,
       });
       setState(IDLE_IMAGE_GENERATION_STATE);
+      return nextImages;
     } catch (reason) {
       setState({
         isGenerating: false,
@@ -106,7 +108,12 @@ export function useImageComposer(options: {
           options.generateErrorMessage ?? 'AI 主图生成失败'
         ),
       });
+      throw reason;
     }
+  }
+
+  async function generate(mode: 'reference' | 'text', payloadOverride?: AiRenderPayload) {
+    await generateWithResult(mode, payloadOverride);
   }
 
   function reset() {
@@ -119,6 +126,7 @@ export function useImageComposer(options: {
     setState,
     upload,
     uploadDirect,
+    generateWithResult,
     generate,
     reset,
   };

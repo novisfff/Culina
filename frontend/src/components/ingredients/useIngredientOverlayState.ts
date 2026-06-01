@@ -1,0 +1,203 @@
+import { useEffect, useState } from 'react';
+import type { Ingredient, ShoppingListItem } from '../../api/types';
+import { resolvePreferredIngredientUnit } from '../../lib/ingredientUnits';
+import type { PendingShoppingCompletion } from './IngredientWorkspaceOverlayTypes';
+import {
+  buildConsumeUnitOptions,
+  buildInventoryForm,
+  buildShoppingForm,
+  defaultConsumeForm,
+  formatNumericString,
+  parsePositiveNumber,
+  resolveExpiryDateFromDays,
+  resolveInventoryStatusForStorage,
+  type ConsumeDialogFormState,
+  type InventoryDrawerFormState,
+  type InventoryStorageFocus,
+  type ShoppingDialogFormState,
+} from './ingredientWorkspaceForms';
+import { buildDisposableExpiredInventoryItems, type IngredientOverlayMode, type IngredientSummaryViewModel } from './workspaceModel';
+import { resolveInitialConsumeQuantity } from './consumeQuickHelpers';
+
+type UseIngredientOverlayStateArgs = {
+  ingredientOptions: Ingredient[];
+  summaries: IngredientSummaryViewModel[];
+  onRequireCreate: () => void;
+};
+
+export function useIngredientOverlayState(args: UseIngredientOverlayStateArgs) {
+  const [overlayMode, setOverlayMode] = useState<IngredientOverlayMode>(null);
+  const [inventoryForm, setInventoryForm] = useState<InventoryDrawerFormState>(
+    buildInventoryForm(args.ingredientOptions)
+  );
+  const [consumeForm, setConsumeForm] = useState<ConsumeDialogFormState>(defaultConsumeForm());
+  const [shoppingForm, setShoppingForm] = useState<ShoppingDialogFormState>(buildShoppingForm());
+  const [pendingShoppingToComplete, setPendingShoppingToComplete] = useState<PendingShoppingCompletion | null>(null);
+  const [destroyExpiredIngredientId, setDestroyExpiredIngredientId] = useState<string | null>(null);
+  const [inventoryAdvancedOpen, setInventoryAdvancedOpen] = useState(false);
+
+  useEffect(() => {
+    if (inventoryForm.ingredientId && !args.ingredientOptions.some((item) => item.id === inventoryForm.ingredientId)) {
+      setInventoryForm(buildInventoryForm(args.ingredientOptions));
+    }
+  }, [args.ingredientOptions, inventoryForm.ingredientId]);
+
+  useEffect(() => {
+    if (
+      destroyExpiredIngredientId &&
+      !args.summaries.some((item) => item.ingredient.id === destroyExpiredIngredientId)
+    ) {
+      setDestroyExpiredIngredientId(null);
+      if (overlayMode === 'destroyExpired') {
+        setOverlayMode(null);
+      }
+    }
+  }, [destroyExpiredIngredientId, overlayMode, args.summaries]);
+
+  useEffect(() => {
+    if (inventoryForm.expiryInputMode === 'days') {
+      const nextExpiryDate = resolveExpiryDateFromDays(inventoryForm.purchaseDate, inventoryForm.expiryDays);
+      if (inventoryForm.expiryDate !== nextExpiryDate) {
+        setInventoryForm((current) => ({ ...current, expiryDate: nextExpiryDate }));
+      }
+      return;
+    }
+    if (inventoryForm.expiryInputMode === 'none' && inventoryForm.expiryDate) {
+      setInventoryForm((current) => ({ ...current, expiryDate: '' }));
+    }
+  }, [inventoryForm.expiryDate, inventoryForm.expiryDays, inventoryForm.expiryInputMode, inventoryForm.purchaseDate]);
+
+  useEffect(() => {
+    if (inventoryForm.statusDirty) {
+      return;
+    }
+    const recommendedStatus = resolveInventoryStatusForStorage(inventoryForm.storageLocation);
+    if (inventoryForm.status !== recommendedStatus) {
+      setInventoryForm((current) => ({ ...current, status: recommendedStatus }));
+    }
+  }, [inventoryForm.status, inventoryForm.statusDirty, inventoryForm.storageLocation]);
+
+  function openInventoryOverlay(ingredientId?: string, quantity = '1') {
+    if (args.ingredientOptions.length === 0) {
+      setPendingShoppingToComplete(null);
+      setDestroyExpiredIngredientId(null);
+      args.onRequireCreate();
+      return;
+    }
+    setPendingShoppingToComplete(null);
+    setDestroyExpiredIngredientId(null);
+    setInventoryForm(
+      buildInventoryForm(args.ingredientOptions, ingredientId, {
+        quantity,
+        ingredientLocked: Boolean(ingredientId),
+      })
+    );
+    setInventoryAdvancedOpen(false);
+    setOverlayMode('inventory');
+  }
+
+  function buildConsumeFormForIngredient(ingredientId: string): ConsumeDialogFormState {
+    const summary = args.summaries.find((item) => item.ingredient.id === ingredientId) ?? null;
+    const unitOptions = buildConsumeUnitOptions(
+      summary?.ingredient,
+      summary?.availableInventoryItems ?? [],
+      summary?.ingredient.default_unit
+    );
+    const selectedUnit = unitOptions[0]?.unit ?? '';
+    const availableQuantity = unitOptions[0]?.available ?? 0;
+
+    return {
+      ingredientId,
+      unit: selectedUnit,
+      quantity: availableQuantity > 0 ? formatNumericString(resolveInitialConsumeQuantity(availableQuantity)) : '',
+    };
+  }
+
+  function openConsumeOverlay(ingredientId: string) {
+    const summary = args.summaries.find((item) => item.ingredient.id === ingredientId) ?? null;
+    if (!summary || summary.availableInventoryItems.length === 0) {
+      return;
+    }
+    setPendingShoppingToComplete(null);
+    setDestroyExpiredIngredientId(null);
+    setConsumeForm(buildConsumeFormForIngredient(ingredientId));
+    setOverlayMode('consume');
+  }
+
+  function openInventoryFromShopping(item: ShoppingListItem) {
+    if (args.ingredientOptions.length === 0) {
+      setPendingShoppingToComplete(null);
+      setDestroyExpiredIngredientId(null);
+      args.onRequireCreate();
+      return;
+    }
+    const normalizedTitle = item.title.trim();
+    const matchedIngredient =
+      args.ingredientOptions.find((ingredient) => ingredient.name === normalizedTitle) ?? null;
+
+    setPendingShoppingToComplete({
+      itemId: item.id,
+      title: normalizedTitle || item.title,
+    });
+    setInventoryForm(
+      buildInventoryForm(args.ingredientOptions, matchedIngredient?.id, {
+        ingredientQuery: matchedIngredient?.name ?? normalizedTitle,
+        ingredientLocked: Boolean(matchedIngredient),
+        quantity: formatNumericString(item.quantity),
+        unit:
+          resolvePreferredIngredientUnit(matchedIngredient, item.unit) ||
+          matchedIngredient?.default_unit ||
+          item.unit.trim() ||
+          '个',
+      })
+    );
+    setInventoryAdvancedOpen(false);
+    setOverlayMode('inventory');
+  }
+
+  function openShoppingOverlay(options?: { ingredient?: Ingredient; reason?: string }) {
+    setPendingShoppingToComplete(null);
+    setDestroyExpiredIngredientId(null);
+    setShoppingForm(buildShoppingForm(options?.ingredient, options?.reason));
+    setOverlayMode('shopping');
+  }
+
+  function openDestroyExpiredOverlay(ingredientId: string) {
+    const summary = args.summaries.find((item) => item.ingredient.id === ingredientId) ?? null;
+    if (!summary || buildDisposableExpiredInventoryItems(summary).length === 0) {
+      return;
+    }
+    setPendingShoppingToComplete(null);
+    setDestroyExpiredIngredientId(ingredientId);
+    setOverlayMode('destroyExpired');
+  }
+
+  function closeOverlay() {
+    setOverlayMode(null);
+    setPendingShoppingToComplete(null);
+    setDestroyExpiredIngredientId(null);
+    setInventoryAdvancedOpen(false);
+    setConsumeForm(defaultConsumeForm());
+  }
+
+  return {
+    overlayMode,
+    setOverlayMode,
+    inventoryForm,
+    setInventoryForm,
+    consumeForm,
+    setConsumeForm,
+    shoppingForm,
+    setShoppingForm,
+    pendingShoppingToComplete,
+    destroyExpiredIngredientId,
+    inventoryAdvancedOpen,
+    setInventoryAdvancedOpen,
+    openInventoryOverlay,
+    openConsumeOverlay,
+    openInventoryFromShopping,
+    openShoppingOverlay,
+    openDestroyExpiredOverlay,
+    closeOverlay,
+  };
+}

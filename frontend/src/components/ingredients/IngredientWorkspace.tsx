@@ -4,7 +4,6 @@ import {
   useRef,
   useState,
   type CSSProperties,
-  type FormEvent,
   type KeyboardEvent,
   type ReactNode,
 } from 'react';
@@ -21,7 +20,6 @@ import type {
 } from '../../api/types';
 import { resolveAssetUrl } from '../../lib/assets';
 import { addDateKeyDays } from '../../lib/date';
-import { readJsonStorage, writeJsonStorage } from '../../lib/storage';
 import {
   buildIngredientPlaceholderSvg,
   formatDate,
@@ -43,16 +41,7 @@ import {
   ActionButton,
   Avatar,
   Badge,
-  CompactMetric,
-  EmptyState,
-  ImageComposer,
-  PageHeader,
-  SegmentedTabs,
   SectionHeading,
-  TouchRangeField,
-  TouchStepperField,
-  WorkspaceSubnav,
-  WorkspaceSubpageShell,
 } from '../ui-kit';
 import {
   convertQuantityFromDefaultUnit,
@@ -80,12 +69,9 @@ import {
   getIngredientCategoryPreset,
   INGREDIENT_CATEGORY_PRESETS,
   sortInventorySummariesByExpiry,
-  type IngredientOverlayMode,
   type IngredientSummaryViewModel,
   type IngredientWorkspacePanel,
-  type IngredientWorkspaceView,
   type InventoryStorageOverviewViewModel,
-  type ShoppingCardFocus,
   type ShoppingCardViewModel,
 } from './workspaceModel';
 import {
@@ -109,26 +95,34 @@ import {
   resolveTouchDefaultValue,
   resolveTouchQuickValues,
   resolveTouchStep,
-  restoreIngredientForm,
   sanitizeIngredientUnitConversions,
-  type ConsumeDialogFormState,
   type IngredientCreateFormState,
   type IngredientUnitConversionDraft,
-  type InventoryDrawerFormState,
-  type InventorySortMode,
   type InventoryStorageFocus,
-  type ShoppingDialogFormState,
 } from './ingredientWorkspaceForms';
 import {
+  IngredientCatalogPanel,
   IngredientInventoryPanel,
-  IngredientMobileQuickBar,
   IngredientShoppingPanel,
 } from './IngredientWorkspacePanels';
+import { IngredientCreatePage } from './IngredientCreatePage';
+import { IngredientDetailPage } from './IngredientDetailPage';
+import { IngredientHubPage } from './IngredientHubPage';
+import { useIngredientWorkspaceEffects } from './useIngredientWorkspaceEffects';
+import { useIngredientWorkspaceData } from './useIngredientWorkspaceData';
+import { useIngredientEditorState } from './useIngredientEditorState';
+import { useIngredientActionState } from './useIngredientActionState';
+import { useIngredientOverlayState } from './useIngredientOverlayState';
 import {
-  IngredientWorkspaceOverlays,
-  type PendingShoppingCompletion,
-} from './IngredientWorkspaceOverlays';
-import { resolveInitialConsumeQuantity } from './consumeQuickHelpers';
+  readPersistedIngredientWorkspaceState,
+  STORAGE_SHELF_IDEAL_WIDTH,
+  STORAGE_SHELF_MAX_DISPLAY_COLUMNS,
+  type CatalogStatusFilter,
+  type InventoryQuickFilter,
+  type MobileIngredientFilter,
+  type PersistedIngredientWorkspaceState,
+  useIngredientWorkspaceState,
+} from './useIngredientWorkspaceState';
 
 type ScrollableChipRailProps = {
   ariaLabel: string;
@@ -218,9 +212,6 @@ function isPendingShopping(item: ShoppingListItem) {
 }
 
 type IngredientAlertTone = 'warning' | 'danger';
-type CatalogStatusFilter = 'all' | 'expired' | 'expiring' | 'lowStock' | 'stable';
-type MobileIngredientFilter = 'all' | 'alerted' | 'empty' | 'stocked';
-type InventoryQuickFilter = 'all' | 'alerted';
 type IngredientWorkspaceIconName =
   | 'logo'
   | 'archive'
@@ -497,13 +488,6 @@ const PANEL_ITEMS: Array<{ value: IngredientWorkspacePanel; label: string; icon:
   { value: 'inventory', label: '库存', icon: 'inventory' },
   { value: 'shopping', label: '采购', icon: 'shopping' },
 ];
-const STORAGE_SHELF_MIN_WIDTH = 226;
-const STORAGE_SHELF_IDEAL_WIDTH = 260;
-const STORAGE_SHELF_MAX_WIDTH = 318;
-const STORAGE_SHELF_GAP = 18;
-const STORAGE_SHELF_MAX_DISPLAY_COLUMNS = 4;
-const INGREDIENT_WORKSPACE_STATE_KEY = 'culina-ingredient-workspace-state-v1';
-const EXPIRY_DAY_MARKS = [1, 3, 7, 14, 30];
 const CATALOG_STATUS_FILTERS: Array<{ value: CatalogStatusFilter; label: string }> = [
   { value: 'all', label: '全部' },
   { value: 'expired', label: '已过期' },
@@ -531,106 +515,6 @@ function formatLowStockRuleLabel(ingredient: Ingredient) {
   return ingredient.default_low_stock_threshold !== null && ingredient.default_low_stock_threshold !== undefined
     ? `少于 ${ingredient.default_low_stock_threshold}${ingredient.default_unit} 时提醒`
     : '未设置低库存提醒';
-}
-
-type PersistedIngredientWorkspaceState = {
-  workspaceView?: IngredientWorkspaceView;
-  activePanel?: IngredientWorkspacePanel;
-  editingIngredientId?: string | null;
-  selectedIngredientId?: string | null;
-  catalogSearch?: string;
-  catalogCategoryFilter?: 'all' | string;
-  inventorySearch?: string;
-  ingredientForm?: IngredientCreateFormState;
-};
-
-function isWorkspaceView(value: unknown): value is IngredientWorkspaceView {
-  return value === 'hub' || value === 'catalog' || value === 'detail' || value === 'create';
-}
-
-function isWorkspacePanel(value: unknown): value is IngredientWorkspacePanel {
-  return value === 'catalog' || value === 'inventory' || value === 'shopping';
-}
-
-function readPersistedWorkspaceState(): PersistedIngredientWorkspaceState {
-  const parsed = readJsonStorage<PersistedIngredientWorkspaceState>(INGREDIENT_WORKSPACE_STATE_KEY, {});
-  const rawActivePanel = (parsed as { activePanel?: string }).activePanel;
-  return {
-    workspaceView: isWorkspaceView(parsed.workspaceView) ? parsed.workspaceView : undefined,
-    activePanel: rawActivePanel === 'hub' ? 'catalog' : isWorkspacePanel(rawActivePanel) ? rawActivePanel : undefined,
-    editingIngredientId:
-      typeof parsed.editingIngredientId === 'string' || parsed.editingIngredientId === null
-        ? parsed.editingIngredientId
-        : undefined,
-    selectedIngredientId:
-      typeof parsed.selectedIngredientId === 'string' || parsed.selectedIngredientId === null
-        ? parsed.selectedIngredientId
-        : undefined,
-    catalogSearch: typeof parsed.catalogSearch === 'string' ? parsed.catalogSearch : undefined,
-    catalogCategoryFilter:
-      typeof parsed.catalogCategoryFilter === 'string' ? parsed.catalogCategoryFilter : undefined,
-    inventorySearch: typeof parsed.inventorySearch === 'string' ? parsed.inventorySearch : undefined,
-    ingredientForm: parsed.ingredientForm ? restoreIngredientForm(parsed.ingredientForm) : undefined,
-  };
-}
-
-function getStorageShelfCardWidth(availableWidth: number, columns: number) {
-  if (availableWidth <= 0 || columns <= 0) {
-    return STORAGE_SHELF_IDEAL_WIDTH;
-  }
-
-  return (availableWidth - STORAGE_SHELF_GAP * (columns - 1)) / columns;
-}
-
-function resolveStorageShelfLayout(availableWidth: number, maxGroupItems: number) {
-  const safeMaxGroupItems = Math.max(1, maxGroupItems);
-  const maxDisplayColumns = Math.min(safeMaxGroupItems, STORAGE_SHELF_MAX_DISPLAY_COLUMNS);
-  if (availableWidth <= 0) {
-    return {
-      columns: 1,
-      cardWidth: STORAGE_SHELF_IDEAL_WIDTH,
-    };
-  }
-
-  const minColumns = Math.max(
-    1,
-    Math.ceil((availableWidth + STORAGE_SHELF_GAP) / (STORAGE_SHELF_MAX_WIDTH + STORAGE_SHELF_GAP))
-  );
-  const maxColumns = Math.max(
-    1,
-    Math.floor((availableWidth + STORAGE_SHELF_GAP) / (STORAGE_SHELF_MIN_WIDTH + STORAGE_SHELF_GAP))
-  );
-  const lowerBound = Math.min(maxDisplayColumns, minColumns);
-  const upperBound = Math.min(
-    maxDisplayColumns,
-    Math.max(lowerBound, maxColumns)
-  );
-  const candidates =
-    lowerBound <= upperBound
-      ? Array.from({ length: upperBound - lowerBound + 1 }, (_, index) => lowerBound + index)
-      : Array.from({ length: maxDisplayColumns }, (_, index) => index + 1);
-
-  let bestColumns = candidates[0] ?? 1;
-  let bestCardWidth = getStorageShelfCardWidth(availableWidth, bestColumns);
-
-  for (const candidate of candidates) {
-    const nextCardWidth = getStorageShelfCardWidth(availableWidth, candidate);
-    const nextDeviation = Math.abs(nextCardWidth - STORAGE_SHELF_IDEAL_WIDTH);
-    const bestDeviation = Math.abs(bestCardWidth - STORAGE_SHELF_IDEAL_WIDTH);
-
-    if (
-      nextDeviation < bestDeviation - 0.01 ||
-      (Math.abs(nextDeviation - bestDeviation) < 0.01 && candidate > bestColumns)
-    ) {
-      bestColumns = candidate;
-      bestCardWidth = nextCardWidth;
-    }
-  }
-
-  return {
-    columns: bestColumns,
-    cardWidth: Number(bestCardWidth.toFixed(2)),
-  };
 }
 
 function buildIngredientImagePayload(form: IngredientCreateFormState): AiRenderPayload {
@@ -1630,749 +1514,227 @@ function IngredientCatalogCard(props: IngredientCatalogCardProps) {
 }
 
 export function IngredientWorkspace(props: IngredientWorkspaceProps) {
-  const [persistedWorkspaceState] = useState<PersistedIngredientWorkspaceState>(readPersistedWorkspaceState);
+  const [persistedWorkspaceState] = useState<PersistedIngredientWorkspaceState>(readPersistedIngredientWorkspaceState);
   const [transientIngredient, setTransientIngredient] = useState<Ingredient | null>(null);
-  const [workspaceView, setWorkspaceView] = useState<IngredientWorkspaceView>(
-    persistedWorkspaceState.workspaceView ?? 'hub'
-  );
-  const [activePanel, setActivePanel] = useState<IngredientWorkspacePanel>(
-    persistedWorkspaceState.activePanel ?? 'catalog'
-  );
-  const [overlayMode, setOverlayMode] = useState<IngredientOverlayMode>(null);
   const [editingIngredientId, setEditingIngredientId] = useState<string | null>(
     persistedWorkspaceState.editingIngredientId ?? null
   );
-  const [selectedIngredientId, setSelectedIngredientId] = useState<string | null>(
-    persistedWorkspaceState.selectedIngredientId ?? props.ingredients[0]?.id ?? null
-  );
-  const [expandedCatalogIngredientId, setExpandedCatalogIngredientId] = useState<string | null>(null);
-  const [catalogSearch, setCatalogSearch] = useState(persistedWorkspaceState.catalogSearch ?? '');
-  const [catalogCategoryFilter, setCatalogCategoryFilter] = useState<'all' | string>(
-    persistedWorkspaceState.catalogCategoryFilter ?? 'all'
-  );
-  const [catalogStatusFilter, setCatalogStatusFilter] = useState<CatalogStatusFilter>('all');
-  const [inventorySearch, setInventorySearch] = useState(persistedWorkspaceState.inventorySearch ?? '');
-  const [inventoryQuickFilter, setInventoryQuickFilter] = useState<InventoryQuickFilter>('all');
-  const [inventoryStorageFocus, setInventoryStorageFocus] = useState<InventoryStorageFocus>('冷藏');
-  const [inventorySortMode, setInventorySortMode] = useState<InventorySortMode>('default');
-  const [shoppingSearch, setShoppingSearch] = useState('');
-  const [shoppingFocus, setShoppingFocus] = useState<ShoppingCardFocus>('all');
-  const [mobileIngredientFilter, setMobileIngredientFilter] = useState<MobileIngredientFilter>('all');
-  const [mobileStorageFocus, setMobileStorageFocus] = useState<InventoryStorageFocus>('all');
   const [ingredientForm, setIngredientForm] = useState<IngredientCreateFormState>(
     () => persistedWorkspaceState.ingredientForm ?? defaultIngredientForm()
   );
-  const [catalogColumns, setCatalogColumns] = useState(1);
-  const [catalogCardWidth, setCatalogCardWidth] = useState(STORAGE_SHELF_IDEAL_WIDTH);
-  const catalogMeasureRef = useRef<HTMLDivElement | null>(null);
   const ingredientOptions =
     transientIngredient && !props.ingredients.some((item) => item.id === transientIngredient.id)
       ? [transientIngredient, ...props.ingredients]
       : props.ingredients;
-  const [inventoryForm, setInventoryForm] = useState<InventoryDrawerFormState>(
-    buildInventoryForm(ingredientOptions)
-  );
-  const [consumeForm, setConsumeForm] = useState<ConsumeDialogFormState>(defaultConsumeForm());
-  const [shoppingForm, setShoppingForm] = useState<ShoppingDialogFormState>(buildShoppingForm());
-  const [pendingShoppingToComplete, setPendingShoppingToComplete] = useState<PendingShoppingCompletion | null>(null);
-  const [destroyExpiredIngredientId, setDestroyExpiredIngredientId] = useState<string | null>(null);
   const { notice, showNotice, clearNotice } = useNotice();
-  const [inventoryAdvancedOpen, setInventoryAdvancedOpen] = useState(false);
-  const [ingredientUnitAdvancedOpen, setIngredientUnitAdvancedOpen] = useState(false);
-  const [ingredientCustomCategoryOpen, setIngredientCustomCategoryOpen] = useState(false);
-  const [showCompletedShopping, setShowCompletedShopping] = useState(false);
-  const selectedInventoryIngredient =
-    ingredientOptions.find((item) => item.id === inventoryForm.ingredientId) ?? null;
+  const {
+    workspaceView,
+    setWorkspaceView,
+    activePanel,
+    setActivePanel,
+    selectedIngredientId,
+    setSelectedIngredientId,
+    expandedCatalogIngredientId,
+    setExpandedCatalogIngredientId,
+    catalogSearch,
+    setCatalogSearch,
+    catalogCategoryFilter,
+    setCatalogCategoryFilter,
+    catalogStatusFilter,
+    setCatalogStatusFilter,
+    inventorySearch,
+    setInventorySearch,
+    inventoryQuickFilter,
+    setInventoryQuickFilter,
+    inventoryStorageFocus,
+    setInventoryStorageFocus,
+    inventorySortMode,
+    setInventorySortMode,
+    shoppingSearch,
+    setShoppingSearch,
+    shoppingFocus,
+    setShoppingFocus,
+    mobileIngredientFilter,
+    setMobileIngredientFilter,
+    mobileStorageFocus,
+    setMobileStorageFocus,
+    showCompletedShopping,
+    setShowCompletedShopping,
+    catalogColumns,
+    setCatalogColumns,
+    catalogCardWidth,
+    setCatalogCardWidth,
+    catalogMeasureRef,
+    openWorkspacePanel,
+    openInventoryPanel,
+    openShoppingPanel,
+    toggleCatalogCard,
+    openDetailView,
+    goBackToWorkspace,
+    goBackToCatalog,
+  } = useIngredientWorkspaceState({
+    persistedWorkspaceState,
+    ingredientIds: props.ingredients.map((item) => item.id),
+    navigationRequest: props.navigationRequest,
+    editingIngredientId,
+    ingredientForm,
+  });
 
-  const summaries = buildIngredientSummaries({
+  const {
+    summaries,
+    catalogCategories,
+    filteredSummaries,
+    catalogCountLabel,
+    catalogStatusCounts,
+    inventoryStorageOverview,
+    focusedInventorySummaries,
+    inventoryGroups,
+    selectedIngredient,
+    allAlerts,
+    pendingShopping,
+    completedShoppingCards,
+    pendingShoppingCards,
+    visiblePendingShoppingCards,
+    visibleCompletedShoppingCards,
+    shoppingOverview,
+    activeShoppingOverview,
+    stockedIngredientCount,
+    workspaceMetrics,
+    mobilePrioritySummaries,
+    mobileStorageCards,
+    mobileCatalogSummaries,
+    mobileShoppingCards,
+    mobileHasCatalogFilters,
+    quickRestockIngredients,
+  } = useIngredientWorkspaceData({
     ingredients: props.ingredients,
     inventoryItems: props.inventoryItems,
     recipes: props.recipes,
-  });
-  const catalogCategories = buildIngredientCategoryFilters(props.ingredients);
-  const catalogBaseSummaries = filterIngredientSummaries(summaries, catalogSearch, catalogCategoryFilter);
-  const filteredSummaries = filterIngredientSummariesByCatalogStatus(catalogBaseSummaries, catalogStatusFilter);
-  const maxCatalogItems = Math.max(STORAGE_SHELF_MAX_DISPLAY_COLUMNS, filteredSummaries.length);
-  const catalogHasActiveFilter =
-    Boolean(catalogSearch.trim()) || catalogCategoryFilter !== 'all' || catalogStatusFilter !== 'all';
-  const catalogCountLabel = catalogHasActiveFilter
-    ? `当前筛选 ${filteredSummaries.length} 项`
-    : `共 ${summaries.length} 项`;
-  const inventorySourceSummaries =
-    inventoryQuickFilter === 'alerted' ? summaries.filter((item) => item.alerts.length > 0) : summaries;
-  const filteredInventorySummaries = filterIngredientSummariesForInventory(inventorySourceSummaries, inventorySearch);
-  const inventoryStorageOverview = buildInventoryStorageOverview(filteredInventorySummaries);
-  const focusedInventorySummaries =
-    inventoryStorageFocus === 'all'
-      ? filteredInventorySummaries
-      : filteredInventorySummaries.filter((item) => item.primaryStorage === inventoryStorageFocus);
-  const inventoryGroups = buildStorageGroups(focusedInventorySummaries).map((group) => ({
-    ...group,
-    items: inventorySortMode === 'expiry' ? sortInventorySummariesByExpiry(group.items) : group.items,
-  }));
-  const selectedIngredient =
-    summaries.find((item) => item.ingredient.id === selectedIngredientId) ?? summaries[0] ?? null;
-  const allAlerts = summaries.flatMap((item) => item.alerts);
-  const pendingShopping = props.shoppingItems.filter(isPendingShopping);
-  const completedShopping = props.shoppingItems.filter((item) => item.done);
-  const pendingShoppingCards = buildShoppingCards(pendingShopping, summaries);
-  const completedShoppingCards = buildShoppingCards(completedShopping, summaries, { completed: true });
-  const shoppingOverview = buildShoppingOverview(pendingShoppingCards);
-  const visiblePendingShoppingCards = filterShoppingCards(pendingShoppingCards, shoppingSearch, shoppingFocus);
-  const visibleCompletedShoppingCards = filterShoppingCards(completedShoppingCards, shoppingSearch, 'all');
-  const activeShoppingOverview =
-    shoppingOverview.find((item) => item.key === shoppingFocus) ?? shoppingOverview[0] ?? null;
-  const stockedIngredientCount = summaries.filter((item) => item.quantitySummaries.length > 0).length;
-  const workspaceMetrics = [
-    { label: '提醒', value: `${allAlerts.length} 条`, detail: '低库存与临期需要优先处理' },
-    { label: '待买', value: `${pendingShopping.length} 项`, detail: '购物清单中尚未完成的项目' },
-    { label: '在库食材', value: `${stockedIngredientCount} 种`, detail: '已经登记过库存的食材' },
-  ];
-  const mobilePrioritySummaries = [...summaries]
-    .filter((summary) => summary.alerts.length > 0 || summary.quantitySummaries.length === 0)
-    .sort((left, right) => {
-      const leftStatus = buildInventoryCardStatus(left);
-      const rightStatus = buildInventoryCardStatus(right);
-      return (
-        rightStatus.priority - leftStatus.priority ||
-        right.alerts.length - left.alerts.length ||
-        right.latestUpdatedAt.localeCompare(left.latestUpdatedAt) ||
-        left.ingredient.name.localeCompare(right.ingredient.name, 'zh-CN')
-      );
-    })
-    .slice(0, 6);
-  const mobileStorageCards = buildInventoryStorageOverview(summaries).filter((item) =>
-    ['冷藏', '冷冻', '常温'].includes(item.key)
-  );
-  const mobileSearchSummaries = filterIngredientSummaries(summaries, catalogSearch, 'all');
-  const mobileCatalogSummaries = mobileSearchSummaries
-    .filter((summary) => {
-      if (mobileStorageFocus !== 'all' && summary.primaryStorage !== mobileStorageFocus) {
-        return false;
-      }
-      if (mobileIngredientFilter === 'alerted') {
-        return summary.alerts.length > 0;
-      }
-      if (mobileIngredientFilter === 'empty') {
-        return summary.quantitySummaries.length === 0;
-      }
-      if (mobileIngredientFilter === 'stocked') {
-        return summary.quantitySummaries.length > 0;
-      }
-      return true;
-    })
-    .slice(0, 6);
-  const mobileShoppingCards = pendingShoppingCards.slice(0, 4);
-  const mobileHasCatalogFilters =
-    Boolean(catalogSearch.trim()) || mobileIngredientFilter !== 'all' || mobileStorageFocus !== 'all';
-  const quickRestockIngredients = (
-    summaries
-      .filter((item) => item.inventoryItems.length > 0 || item.latestPurchaseDate)
-      .sort(
-        (left, right) =>
-          (right.latestPurchaseDate ?? '').localeCompare(left.latestPurchaseDate ?? '') ||
-          right.latestUpdatedAt.localeCompare(left.latestUpdatedAt) ||
-          left.ingredient.name.localeCompare(right.ingredient.name, 'zh-CN')
-      )
-      .map((item) => item.ingredient)
-      .concat(ingredientOptions)
-  ).filter((ingredient, index, list) => list.findIndex((entry) => entry.id === ingredient.id) === index).slice(0, 6);
-
-  useEffect(() => {
-    if (transientIngredient && props.ingredients.some((item) => item.id === transientIngredient.id)) {
-      setTransientIngredient(null);
-    }
-  }, [props.ingredients, transientIngredient]);
-
-  useEffect(() => {
-    if (!selectedIngredientId && summaries[0]) {
-      setSelectedIngredientId(summaries[0].ingredient.id);
-      return;
-    }
-    if (selectedIngredientId && !summaries.some((item) => item.ingredient.id === selectedIngredientId)) {
-      setSelectedIngredientId(summaries[0]?.ingredient.id ?? null);
-    }
-  }, [selectedIngredientId, summaries]);
-
-  useEffect(() => {
-    if (
-      expandedCatalogIngredientId &&
-      !filteredSummaries.some((item) => item.ingredient.id === expandedCatalogIngredientId)
-    ) {
-      setExpandedCatalogIngredientId(null);
-    }
-  }, [expandedCatalogIngredientId, filteredSummaries]);
-
-  useEffect(() => {
-    if (editingIngredientId && !ingredientOptions.some((item) => item.id === editingIngredientId)) {
-      setEditingIngredientId(null);
-      if (workspaceView === 'create') {
-        setIngredientForm(defaultIngredientForm());
-      }
-    }
-  }, [editingIngredientId, ingredientOptions, workspaceView]);
-
-  useEffect(() => {
-    if (inventoryForm.ingredientId && !ingredientOptions.some((item) => item.id === inventoryForm.ingredientId)) {
-      setInventoryForm(buildInventoryForm(ingredientOptions));
-    }
-  }, [ingredientOptions, inventoryForm.ingredientId]);
-
-  useEffect(() => {
-    if (destroyExpiredIngredientId && !summaries.some((item) => item.ingredient.id === destroyExpiredIngredientId)) {
-      setDestroyExpiredIngredientId(null);
-      if (overlayMode === 'destroyExpired') {
-        setOverlayMode(null);
-      }
-    }
-  }, [destroyExpiredIngredientId, overlayMode, summaries]);
-
-  useEffect(() => {
-    if (showCompletedShopping && completedShoppingCards.length === 0) {
-      setShowCompletedShopping(false);
-    }
-  }, [completedShoppingCards.length, showCompletedShopping]);
-
-  useEffect(() => {
-    if (inventoryForm.expiryInputMode === 'days') {
-      const nextExpiryDate = resolveExpiryDateFromDays(inventoryForm.purchaseDate, inventoryForm.expiryDays);
-      if (inventoryForm.expiryDate !== nextExpiryDate) {
-        setInventoryForm((current) => ({ ...current, expiryDate: nextExpiryDate }));
-      }
-      return;
-    }
-    if (inventoryForm.expiryInputMode === 'none' && inventoryForm.expiryDate) {
-      setInventoryForm((current) => ({ ...current, expiryDate: '' }));
-    }
-  }, [inventoryForm.expiryDate, inventoryForm.expiryDays, inventoryForm.expiryInputMode, inventoryForm.purchaseDate]);
-
-  useEffect(() => {
-    if (inventoryForm.statusDirty) {
-      return;
-    }
-    const recommendedStatus = resolveInventoryStatusForStorage(inventoryForm.storageLocation);
-    if (inventoryForm.status !== recommendedStatus) {
-      setInventoryForm((current) => ({ ...current, status: recommendedStatus }));
-    }
-  }, [inventoryForm.status, inventoryForm.statusDirty, inventoryForm.storageLocation]);
-
-  useEffect(() => {
-    if (catalogCategoryFilter !== 'all' && !catalogCategories.includes(catalogCategoryFilter)) {
-      setCatalogCategoryFilter('all');
-    }
-  }, [catalogCategories, catalogCategoryFilter]);
-
-  useEffect(() => {
-    if (!props.navigationRequest) {
-      return;
-    }
-
-    setActivePanel('catalog');
-    setCatalogSearch('');
-    setCatalogCategoryFilter('all');
-    setCatalogStatusFilter('all');
-
-    if (props.navigationRequest.ingredientId) {
-      setSelectedIngredientId(props.navigationRequest.ingredientId);
-      setExpandedCatalogIngredientId(
-        props.navigationRequest.view === 'catalog' ? props.navigationRequest.ingredientId : null
-      );
-    } else {
-      setExpandedCatalogIngredientId(null);
-    }
-
-    setWorkspaceView(
-      props.navigationRequest.view === 'detail' && props.navigationRequest.ingredientId ? 'detail' : 'hub'
-    );
-  }, [props.navigationRequest?.requestId]);
-
-  useEffect(() => {
-    const snapshot: PersistedIngredientWorkspaceState = {
-      workspaceView,
-      activePanel,
-      editingIngredientId,
-      selectedIngredientId,
-      catalogSearch,
-      catalogCategoryFilter,
-      inventorySearch,
-      ingredientForm,
-    };
-    writeJsonStorage(INGREDIENT_WORKSPACE_STATE_KEY, snapshot);
-  }, [
-    workspaceView,
-    activePanel,
-    editingIngredientId,
+    shoppingItems: props.shoppingItems,
+    ingredientOptions,
     selectedIngredientId,
     catalogSearch,
     catalogCategoryFilter,
+    catalogStatusFilter,
+    inventoryQuickFilter,
     inventorySearch,
+    inventoryStorageFocus,
+    inventorySortMode,
+    shoppingSearch,
+    shoppingFocus,
+    mobileIngredientFilter,
+    mobileStorageFocus,
+    filterIngredientSummariesByCatalogStatus,
+    isPendingShopping,
+  });
+  const maxCatalogItems = Math.max(STORAGE_SHELF_MAX_DISPLAY_COLUMNS, filteredSummaries.length);
+
+  const editorState = useIngredientEditorState({
+    editingIngredientId,
+    setEditingIngredientId,
     ingredientForm,
-  ]);
+    setIngredientForm,
+    ingredientOptions,
+    setTransientIngredient,
+    setSelectedIngredientId,
+    setWorkspaceView,
+    setInventoryForm: (value) => setInventoryForm(value),
+    setInventoryAdvancedOpen: (value) => setInventoryAdvancedOpen(value),
+    setOverlayMode: (value) => setOverlayMode(value),
+    isCreatingIngredient: props.isCreatingIngredient,
+    isUpdatingIngredient: props.isUpdatingIngredient,
+    createIngredient: props.createIngredient,
+    updateIngredient: props.updateIngredient,
+    showNotice,
+    resolveErrorMessage,
+  });
 
-  useEffect(() => {
-    if (activePanel !== 'catalog' || workspaceView !== 'hub') {
-      return;
-    }
-
-    const target = catalogMeasureRef.current;
-    if (!target) {
-      return;
-    }
-
-    const updateLayout = (availableWidth: number) => {
-      const next = resolveStorageShelfLayout(availableWidth, maxCatalogItems);
-      setCatalogColumns((current) => (current === next.columns ? current : next.columns));
-      setCatalogCardWidth((current) =>
-        Math.abs(current - next.cardWidth) < 0.01 ? current : next.cardWidth
-      );
-    };
-
-    updateLayout(target.clientWidth);
-
-    const observer = new ResizeObserver((entries) => {
-      const entry = entries[0];
-      updateLayout(entry?.contentRect.width ?? target.clientWidth);
-    });
-
-    observer.observe(target);
-
-    return () => {
-      observer.disconnect();
-    };
-  }, [activePanel, workspaceView, maxCatalogItems]);
-
-  function openCreateView() {
-    setEditingIngredientId(null);
-    setIngredientForm(defaultIngredientForm());
-    setIngredientUnitAdvancedOpen(false);
-    ingredientImageComposer.setState(IDLE_IMAGE_GENERATION_STATE);
-    setWorkspaceView('create');
-  }
-
-  function openEditView(ingredient: Ingredient) {
-    setEditingIngredientId(ingredient.id);
-    setSelectedIngredientId(ingredient.id);
-    setIngredientForm(buildIngredientForm(ingredient));
-    setIngredientUnitAdvancedOpen((ingredient.unit_conversions?.length ?? 0) > 0);
-    ingredientImageComposer.setState(IDLE_IMAGE_GENERATION_STATE);
-    setWorkspaceView('create');
-  }
-
-  function openWorkspacePanel(panel: IngredientWorkspacePanel) {
-    if (panel === 'inventory') {
-      setInventoryQuickFilter('all');
-      setInventoryStorageFocus('冷藏');
-    }
-    if (panel === 'catalog') {
-      setCatalogStatusFilter('all');
-    }
-    setActivePanel(panel);
-    setWorkspaceView('hub');
-  }
-
-  function openInventoryPanel(filter: InventoryQuickFilter = 'all') {
-    setInventorySearch('');
-    setInventoryQuickFilter(filter);
-    setInventoryStorageFocus('冷藏');
-    setActivePanel('inventory');
-    setWorkspaceView('hub');
-  }
-
-  function openShoppingPanel() {
-    setActivePanel('shopping');
-    setWorkspaceView('hub');
-  }
-
-  function toggleCatalogCard(summary: IngredientSummaryViewModel) {
-    setSelectedIngredientId(summary.ingredient.id);
-    setExpandedCatalogIngredientId((current) =>
-      current === summary.ingredient.id ? null : summary.ingredient.id
-    );
-  }
-
-  function openDetailView(summary: IngredientSummaryViewModel) {
-    setSelectedIngredientId(summary.ingredient.id);
-    if (activePanel === 'catalog') {
-      setExpandedCatalogIngredientId(summary.ingredient.id);
-    }
-    setWorkspaceView('detail');
-  }
-
-  function openInventoryOverlay(ingredientId?: string, quantity = '1') {
-    if (ingredientOptions.length === 0) {
-      setPendingShoppingToComplete(null);
-      setDestroyExpiredIngredientId(null);
+  const {
+    overlayMode,
+    setOverlayMode,
+    inventoryForm,
+    setInventoryForm,
+    consumeForm,
+    setConsumeForm,
+    shoppingForm,
+    setShoppingForm,
+    pendingShoppingToComplete,
+    destroyExpiredIngredientId,
+    inventoryAdvancedOpen,
+    setInventoryAdvancedOpen,
+    openInventoryOverlay,
+    openConsumeOverlay,
+    openInventoryFromShopping,
+    openShoppingOverlay,
+    openDestroyExpiredOverlay,
+    closeOverlay,
+  } = useIngredientOverlayState({
+    ingredientOptions,
+    summaries,
+    onRequireCreate: () => {
       setActivePanel('catalog');
-      openCreateView();
-      return;
-    }
-    setPendingShoppingToComplete(null);
-    setDestroyExpiredIngredientId(null);
-    setInventoryForm(
-      buildInventoryForm(ingredientOptions, ingredientId, {
-        quantity,
-        ingredientLocked: Boolean(ingredientId),
-      })
-    );
-    setInventoryAdvancedOpen(false);
-    setOverlayMode('inventory');
-  }
+      editorState.openCreateView();
+    },
+  });
+  const selectedInventoryIngredient =
+    ingredientOptions.find((item) => item.id === inventoryForm.ingredientId) ?? null;
 
-  function buildConsumeFormForIngredient(ingredientId: string): ConsumeDialogFormState {
-    const summary = summaries.find((item) => item.ingredient.id === ingredientId) ?? null;
-    const unitOptions = buildConsumeUnitOptions(
-      summary?.ingredient,
-      summary?.availableInventoryItems ?? [],
-      summary?.ingredient.default_unit
-    );
-    const selectedUnit = unitOptions[0]?.unit ?? '';
-    const availableQuantity = unitOptions[0]?.available ?? 0;
+  useIngredientWorkspaceEffects({
+    ingredients: props.ingredients,
+    transientIngredient,
+    setTransientIngredient,
+    selectedIngredientId,
+    setSelectedIngredientId,
+    summaries,
+    expandedCatalogIngredientId,
+    setExpandedCatalogIngredientId,
+    filteredSummaries,
+    editingIngredientId,
+    setEditingIngredientId,
+    ingredientOptions,
+    workspaceView,
+    setIngredientForm,
+    showCompletedShopping,
+    setShowCompletedShopping,
+    completedShoppingCount: completedShoppingCards.length,
+    catalogCategoryFilter,
+    catalogCategories,
+    setCatalogCategoryFilter,
+    activePanel,
+    catalogMeasureRef,
+    maxCatalogItems,
+    setCatalogColumns,
+    setCatalogCardWidth,
+    storageShelfIdealWidth: STORAGE_SHELF_IDEAL_WIDTH,
+    storageShelfMaxDisplayColumns: STORAGE_SHELF_MAX_DISPLAY_COLUMNS,
+  });
 
-    return {
-      ingredientId,
-      unit: selectedUnit,
-      quantity: availableQuantity > 0 ? formatNumericString(resolveInitialConsumeQuantity(availableQuantity)) : '',
-    };
-  }
-
-  function openConsumeOverlay(ingredientId: string) {
-    const summary = summaries.find((item) => item.ingredient.id === ingredientId) ?? null;
-    if (!summary || summary.availableInventoryItems.length === 0) {
-      return;
-    }
-    setPendingShoppingToComplete(null);
-    setDestroyExpiredIngredientId(null);
-    setConsumeForm(buildConsumeFormForIngredient(ingredientId));
-    setOverlayMode('consume');
-  }
-
-  function openInventoryFromShopping(item: ShoppingListItem) {
-    if (ingredientOptions.length === 0) {
-      setPendingShoppingToComplete(null);
-      setDestroyExpiredIngredientId(null);
-      setActivePanel('catalog');
-      openCreateView();
-      return;
-    }
-    const normalizedTitle = item.title.trim();
-    const matchedIngredient =
-      ingredientOptions.find((ingredient) => ingredient.name === normalizedTitle) ?? null;
-
-    setPendingShoppingToComplete({
-      itemId: item.id,
-      title: normalizedTitle || item.title,
-    });
-    setInventoryForm(
-      buildInventoryForm(ingredientOptions, matchedIngredient?.id, {
-        ingredientQuery: matchedIngredient?.name ?? normalizedTitle,
-        ingredientLocked: Boolean(matchedIngredient),
-        quantity: formatNumericString(item.quantity),
-        unit: resolvePreferredIngredientUnit(matchedIngredient, item.unit) || matchedIngredient?.default_unit || item.unit.trim() || '个',
-      })
-    );
-    setInventoryAdvancedOpen(false);
-    setOverlayMode('inventory');
-  }
-
-  function openShoppingOverlay(options?: { ingredient?: Ingredient; reason?: string }) {
-    setPendingShoppingToComplete(null);
-    setDestroyExpiredIngredientId(null);
-    setShoppingForm(buildShoppingForm(options?.ingredient, options?.reason));
-    setOverlayMode('shopping');
-  }
-
-  function openDestroyExpiredOverlay(ingredientId: string) {
-    const summary = summaries.find((item) => item.ingredient.id === ingredientId) ?? null;
-    if (!summary || buildDisposableExpiredInventoryItems(summary).length === 0) {
-      return;
-    }
-    setPendingShoppingToComplete(null);
-    setDestroyExpiredIngredientId(ingredientId);
-    setOverlayMode('destroyExpired');
-  }
-
-  function closeOverlay() {
-    setOverlayMode(null);
-    setPendingShoppingToComplete(null);
-    setDestroyExpiredIngredientId(null);
-    setInventoryAdvancedOpen(false);
-    setConsumeForm(defaultConsumeForm());
-  }
-
-  function goBackToWorkspace() {
-    setWorkspaceView('hub');
-  }
-
-  function goBackFromIngredientForm() {
-    if (editingIngredientId) {
-      setSelectedIngredientId(editingIngredientId);
-      setWorkspaceView('detail');
-      return;
-    }
-    setWorkspaceView('hub');
-  }
-
-  function goBackToCatalog() {
-    setActivePanel('catalog');
-    setWorkspaceView('hub');
-  }
-
-  function applyIngredientCategoryPreset(category: string) {
-    const preset = getIngredientCategoryPreset(category);
-    setIngredientForm((current) => ({
-      ...current,
-      category,
-      defaultUnit: preset?.defaultUnit ?? current.defaultUnit,
-      defaultStorage: preset?.defaultStorage ?? current.defaultStorage,
-    }));
-  }
-
-  async function submitIngredient(restockAfterSave: boolean) {
-    if (props.isCreatingIngredient || props.isUpdatingIngredient) {
-      return;
-    }
-    if (!ingredientForm.name.trim()) {
-      return;
-    }
-    const defaultExpiryDays =
-      ingredientForm.defaultExpiryMode === 'days'
-        ? clampNumber(parsePositiveNumber(ingredientForm.defaultExpiryDays) ?? 0, 1, 30)
-        : null;
-    const lowStockThreshold = parseOptionalNumber(ingredientForm.defaultLowStockThreshold);
-    if (ingredientForm.defaultExpiryMode === 'days' && !parsePositiveNumber(ingredientForm.defaultExpiryDays)) {
-      showNotice({ tone: 'warning', title: '还不能保存食材', message: '请先填写默认保质期天数，方便以后补库存时自动带出到期建议。' });
-      return;
-    }
-    if (lowStockThreshold !== null && lowStockThreshold <= 0) {
-      showNotice({ tone: 'warning', title: '低库存提醒无效', message: '默认低库存提醒值需要大于 0；如果不需要提醒，请切换为不提醒。' });
-      return;
-    }
-    try {
-      const unitConversions = sanitizeIngredientUnitConversions(
-        ingredientForm.defaultUnit,
-        ingredientForm.unitConversions
-      );
-      const payload = {
-        name: ingredientForm.name.trim(),
-        category: ingredientForm.category.trim() || '未分类',
-        default_unit: ingredientForm.defaultUnit.trim() || '个',
-        unit_conversions: unitConversions,
-        default_storage: ingredientForm.defaultStorage.trim() || '冷藏',
-        default_expiry_mode: ingredientForm.defaultExpiryMode,
-        default_expiry_days: defaultExpiryDays,
-        default_low_stock_threshold: lowStockThreshold,
-        notes: ingredientForm.notes.trim(),
-        media_ids: getMediaIds(ingredientForm.images),
-      };
-      const saved = editingIngredientId
-        ? await props.updateIngredient(editingIngredientId, payload)
-        : await props.createIngredient(payload);
-      if (!editingIngredientId) {
-        setTransientIngredient(saved);
-      }
-      ingredientImageComposer.setState(IDLE_IMAGE_GENERATION_STATE);
-      setIngredientForm(defaultIngredientForm());
-      setIngredientUnitAdvancedOpen(false);
-      setEditingIngredientId(null);
-      setSelectedIngredientId(saved.id);
-      setWorkspaceView('detail');
-      if (restockAfterSave) {
-        setInventoryForm(
-          buildInventoryForm([saved, ...ingredientOptions], saved.id, {
-            ingredientLocked: true,
-          })
-        );
-        setInventoryAdvancedOpen(false);
-        setOverlayMode('inventory');
-      }
-    } catch (reason) {
-      showNotice({
-        tone: 'danger',
-        title: editingIngredientId ? '更新食材失败' : '新增食材失败',
-        message: resolveErrorMessage(reason, editingIngredientId ? '更新食材失败' : '新增食材失败'),
-      });
-    }
-  }
-
-  function handleCreateSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    void submitIngredient(true);
-  }
-
-  async function submitInventory(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!inventoryForm.ingredientId) {
-      showNotice({ tone: 'warning', title: '还不能录入库存', message: '先选中这次补的是哪种食材，再保存这批库存。' });
-      return;
-    }
-    const quantity = parsePositiveNumber(inventoryForm.quantity);
-    if (quantity === null) {
-      showNotice({ tone: 'warning', title: '库存数量无效', message: '数量要大于 0，才能把这批库存记进系统。' });
-      return;
-    }
-    if (!inventoryForm.purchaseDate) {
-      showNotice({ tone: 'warning', title: '缺少购买日期', message: '请确认这批食材的购买日期。' });
-      return;
-    }
-    if (!inventoryForm.storageLocation.trim()) {
-      showNotice({ tone: 'warning', title: '缺少存放位置', message: '请确认这批食材放在哪里，后面的提醒才会更准确。' });
-      return;
-    }
-    if (inventoryForm.expiryInputMode === 'days' && parsePositiveNumber(inventoryForm.expiryDays) === null) {
-      showNotice({ tone: 'warning', title: '缺少保质期', message: '请填写这批食材大概几天后到期，系统才能自动算出到期日。' });
-      return;
-    }
-    if (inventoryForm.expiryInputMode === 'manual_date' && !inventoryForm.expiryDate) {
-      showNotice({ tone: 'warning', title: '缺少到期日期', message: '请填写包装上的到期日期，系统才能继续帮你监控临期。' });
-      return;
-    }
-    try {
-      await props.createInventory({
-        ingredient_id: inventoryForm.ingredientId,
-        quantity,
-        unit: inventoryForm.unit.trim() || selectedInventoryIngredient?.default_unit || '个',
-        status: inventoryForm.status,
-        purchase_date: inventoryForm.purchaseDate,
-        expiry_date: inventoryForm.expiryDate || undefined,
-        storage_location: inventoryForm.storageLocation.trim(),
-        notes: inventoryForm.notes.trim(),
-      });
-      if (pendingShoppingToComplete) {
-        try {
-          await props.updateShoppingItem({
-            itemId: pendingShoppingToComplete.itemId,
-            done: true,
-          });
-        } catch (reason) {
-          showNotice({
-            tone: 'warning',
-            title: '库存已登记',
-            message:
-              reason instanceof Error
-                ? `待买项仍未标记完成：${reason.message}`
-                : '待买项仍未标记为已买，请稍后再试。',
-          });
-        }
-      }
-      setSelectedIngredientId(inventoryForm.ingredientId);
-      setInventoryForm(buildInventoryForm(ingredientOptions, inventoryForm.ingredientId));
-      setInventoryAdvancedOpen(false);
-      closeOverlay();
-    } catch (reason) {
-      showNotice({ tone: 'danger', title: '录入库存失败', message: resolveErrorMessage(reason, '录入库存失败') });
-    }
-  }
-
-  async function submitShopping(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!shoppingForm.title.trim()) {
-      return;
-    }
-    const quantity = parsePositiveNumber(shoppingForm.quantity);
-    if (quantity === null) {
-      showNotice({ tone: 'warning', title: '待买数量无效', message: '请确认待买数量，至少要大于 0。' });
-      return;
-    }
-    try {
-      await props.createShoppingItem({
-        title: shoppingForm.title.trim(),
-        quantity,
-        unit: shoppingForm.unit.trim() || '个',
-        reason: shoppingForm.reason.trim(),
-      });
-      setShoppingForm(buildShoppingForm());
-      closeOverlay();
-    } catch (reason) {
-      showNotice({ tone: 'danger', title: '加入购物清单失败', message: resolveErrorMessage(reason, '加入购物清单失败') });
-    }
-  }
-
-  async function submitConsume(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!consumeForm.ingredientId) {
-      showNotice({ tone: 'warning', title: '还不能记录消费', message: '先确认是要消费哪种食材。' });
-      return;
-    }
-
-    const selectedSummary = summaries.find((item) => item.ingredient.id === consumeForm.ingredientId) ?? null;
-    if (!selectedSummary) {
-      showNotice({ tone: 'warning', title: '食材不可用', message: '这份食材暂时不可用，请稍后再试。' });
-      return;
-    }
-
-    const unitOptions = buildConsumeUnitOptions(
-      selectedSummary.ingredient,
-      selectedSummary.availableInventoryItems,
-      selectedSummary.ingredient.default_unit
-    );
-    const selectedUnitOption = unitOptions.find((item) => item.unit === consumeForm.unit) ?? unitOptions[0] ?? null;
-    if (!selectedUnitOption) {
-      showNotice({ tone: 'warning', title: '没有可消费库存', message: '这份食材当前没有可消费的库存。' });
-      return;
-    }
-
-    const quantity = parsePositiveNumber(consumeForm.quantity);
-    if (quantity === null) {
-      showNotice({ tone: 'warning', title: '消费数量无效', message: '请确认这次实际消费了多少。' });
-      return;
-    }
-
-    if (quantity - selectedUnitOption.available > 0.0001) {
-      showNotice({
-        tone: 'warning',
-        title: '超过可用库存',
-        message: `当前最多还能消费 ${formatNumericString(selectedUnitOption.available)}${selectedUnitOption.unit}。`,
-      });
-      return;
-    }
-
-    try {
-      await props.consumeInventory({
-        ingredient_id: consumeForm.ingredientId,
-        quantity,
-        unit: selectedUnitOption.unit,
-      });
-      setSelectedIngredientId(consumeForm.ingredientId);
-      closeOverlay();
-    } catch (reason) {
-      showNotice({ tone: 'danger', title: '记录消费失败', message: resolveErrorMessage(reason, '记录消费失败') });
-    }
-  }
-
-  async function submitDestroyExpired(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!destroyExpiredIngredientId) {
-      showNotice({ tone: 'warning', title: '还不能销毁过期批次', message: '先确认要处理哪种食材。' });
-      return;
-    }
-
-    const selectedSummary = summaries.find((item) => item.ingredient.id === destroyExpiredIngredientId) ?? null;
-    if (!selectedSummary) {
-      showNotice({ tone: 'warning', title: '食材不可用', message: '这份食材暂时不可用，请稍后再试。' });
-      return;
-    }
-
-    const expiredItems = buildDisposableExpiredInventoryItems(selectedSummary);
-    if (expiredItems.length === 0) {
-      showNotice({ tone: 'warning', title: '没有可销毁批次', message: '当前没有可销毁的过期批次。' });
-      return;
-    }
-
-    try {
-      await props.disposeExpiredInventory({
-        ingredient_id: selectedSummary.ingredient.id,
-        inventory_item_ids: expiredItems.map((item) => item.id),
-      });
-      setSelectedIngredientId(selectedSummary.ingredient.id);
-      closeOverlay();
-    } catch (reason) {
-      showNotice({ tone: 'danger', title: '销毁过期批次失败', message: resolveErrorMessage(reason, '销毁过期批次失败') });
-    }
-  }
+  const { submitInventory, submitShopping, submitConsume, submitDestroyExpired } = useIngredientActionState({
+    ingredientOptions,
+    summaries,
+    inventoryForm,
+    setInventoryForm,
+    setInventoryAdvancedOpen,
+    consumeForm,
+    shoppingForm,
+    setShoppingForm,
+    pendingShoppingToComplete,
+    destroyExpiredIngredientId,
+    selectedInventoryIngredient,
+    setSelectedIngredientId,
+    closeOverlay,
+    createInventory: props.createInventory,
+    consumeInventory: props.consumeInventory,
+    disposeExpiredInventory: props.disposeExpiredInventory,
+    createShoppingItem: props.createShoppingItem,
+    updateShoppingItem: props.updateShoppingItem,
+    showNotice,
+    resolveErrorMessage,
+  });
 
   const desktopActions = (
     <div className="ingredients-actions">
-      <ActionButton tone="primary" type="button" onClick={openCreateView}>
+      <ActionButton tone="primary" type="button" onClick={editorState.openCreateView}>
         新增食材
       </ActionButton>
     </div>
@@ -2383,72 +1745,6 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
     '--ingredients-catalog-columns': String(catalogColumns),
     '--ingredients-catalog-card-width': `${catalogCardWidth}px`,
   } as CSSProperties;
-  const ingredientImagePayload = buildIngredientImagePayload(ingredientForm);
-  const ingredientImageComposer = useImageComposer({
-    value: ingredientForm.images,
-    payload: ingredientImagePayload,
-    onChange: (next) => setIngredientForm((current) => ({ ...current, images: next })),
-  });
-  const isEditingIngredient = Boolean(editingIngredientId);
-  const trimmedIngredientName = ingredientForm.name.trim();
-  const trimmedIngredientCategory = ingredientForm.category.trim();
-  const trimmedIngredientUnit = ingredientForm.defaultUnit.trim();
-  const trimmedIngredientStorage = ingredientForm.defaultStorage.trim();
-  const ingredientVisibleCategoryPresets = INGREDIENT_CATEGORY_PRESETS.slice(0, 5);
-  const ingredientCategoryIsVisiblePreset = ingredientVisibleCategoryPresets.some(
-    (item) => item.label === trimmedIngredientCategory
-  );
-  const showIngredientCategoryCustomInput =
-    ingredientCustomCategoryOpen || (Boolean(trimmedIngredientCategory) && !ingredientCategoryIsVisiblePreset);
-  const ingredientDefaultExpiryDays = parseOptionalNumber(ingredientForm.defaultExpiryDays);
-  const ingredientDefaultExpiryRangeValue = resolveClampedDaysValue(ingredientForm.defaultExpiryDays);
-  const ingredientUnitOptions = buildUnitPresetOptions(ingredientForm.defaultUnit);
-  const ingredientUsesCustomUnit = isCustomChoiceValue(ingredientForm.defaultUnit, ingredientUnitOptions);
-  const ingredientUsesCustomStorage = !INVENTORY_STORAGE_PRESETS.includes(
-    ingredientForm.defaultStorage as (typeof INVENTORY_STORAGE_PRESETS)[number]
-  );
-  const ingredientLowStockEnabled = Boolean(ingredientForm.defaultLowStockThreshold.trim());
-  const ingredientLowStockValue =
-    parsePositiveNumber(ingredientForm.defaultLowStockThreshold) ??
-    resolveTouchDefaultValue(ingredientForm.defaultUnit || '个', 'threshold');
-  const ingredientLowStockStep = resolveTouchStep(ingredientForm.defaultUnit || '个');
-  const ingredientLowStockQuickValues = resolveTouchQuickValues(ingredientForm.defaultUnit || '个', 'threshold');
-  const ingredientRulesValid =
-    ingredientForm.defaultExpiryMode !== 'days' || (ingredientDefaultExpiryDays !== null && ingredientDefaultExpiryDays > 0);
-  const ingredientHasGeneratedImage = getMediaIds(ingredientForm.images).length > 0;
-  const ingredientHasReferenceImage = Boolean(ingredientForm.images.referenceAsset);
-  const ingredientPreviewImage = getImagePreview(ingredientForm.images);
-  const createCanSubmit =
-    Boolean(trimmedIngredientName) &&
-    ingredientRulesValid &&
-    !props.isCreatingIngredient &&
-    !props.isUpdatingIngredient &&
-    !ingredientImageComposer.state.isGenerating;
-  const createSummaryItems = [
-    { label: '名称', value: trimmedIngredientName || '未填写食材名称' },
-    { label: '分类', value: trimmedIngredientCategory || '未设置分类' },
-    { label: '默认位置', value: trimmedIngredientStorage || '未设置位置' },
-    { label: '默认保质期', value: ingredientForm.defaultExpiryMode === 'days' ? (ingredientDefaultExpiryDays ? `买后 ${ingredientDefaultExpiryDays} 天` : '待设置天数') : ingredientForm.defaultExpiryMode === 'manual_date' ? '录入包装日期' : '不跟踪到期' },
-    {
-      label: '图片',
-      value: ingredientHasGeneratedImage
-        ? 'AI 主图已就绪'
-        : ingredientHasReferenceImage
-          ? '已上传参考图，待生成主图'
-          : '暂未生成主图',
-    },
-  ];
-  const createChecklistItems = [
-    { label: '已填写食材名称', done: Boolean(trimmedIngredientName) },
-    { label: '已选择或输入分类', done: Boolean(trimmedIngredientCategory) },
-    { label: '已设置常用单位', done: Boolean(trimmedIngredientUnit) },
-    {
-      label: '已补充默认保质期规则（可选）',
-      done: ingredientForm.defaultExpiryMode !== 'days' || Boolean(ingredientDefaultExpiryDays),
-      optional: true,
-    },
-    { label: '已生成 AI 主图（可选）', done: ingredientHasGeneratedImage, optional: true },
-  ];
   const noticeToast = notice ? (
     <div className={`recipe-notice-toast tone-${notice.tone}`} role={notice.tone === 'danger' ? 'alert' : 'status'} aria-live="polite">
       <span className="recipe-notice-icon">
@@ -2463,549 +1759,104 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
       </button>
     </div>
   ) : null;
+  const openCreateView = editorState.openCreateView;
+  const openEditView = editorState.openEditView;
+  const goBackFromIngredientForm = editorState.goBackFromIngredientForm;
+  const applyIngredientCategoryPreset = editorState.applyIngredientCategoryPreset;
+  const submitIngredient = editorState.submitIngredient;
+  const handleCreateSubmit = editorState.handleCreateSubmit;
+  const isEditingIngredient = editorState.isEditingIngredient;
+  const ingredientVisibleCategoryPresets = editorState.ingredientVisibleCategoryPresets;
+  const ingredientCategoryIsVisiblePreset = editorState.ingredientCategoryIsVisiblePreset;
+  const showIngredientCategoryCustomInput = editorState.showIngredientCategoryCustomInput;
+  const ingredientUnitAdvancedOpen = editorState.ingredientUnitAdvancedOpen;
+  const setIngredientUnitAdvancedOpen = editorState.setIngredientUnitAdvancedOpen;
+  const setIngredientCustomCategoryOpen = editorState.setIngredientCustomCategoryOpen;
+  const ingredientUsesCustomUnit = editorState.ingredientUsesCustomUnit;
+  const ingredientUnitOptions = editorState.ingredientUnitOptions;
+  const ingredientUsesCustomStorage = editorState.ingredientUsesCustomStorage;
+  const ingredientDefaultExpiryRangeValue = editorState.ingredientDefaultExpiryRangeValue;
+  const ingredientLowStockEnabled = editorState.ingredientLowStockEnabled;
+  const ingredientLowStockValue = editorState.ingredientLowStockValue;
+  const ingredientLowStockStep = editorState.ingredientLowStockStep;
+  const ingredientLowStockQuickValues = editorState.ingredientLowStockQuickValues;
+  const ingredientImageComposer = editorState.ingredientImageComposer;
+  const ingredientPreviewImage = editorState.ingredientPreviewImage;
+  const createSummaryItems = editorState.createSummaryItems;
+  const createChecklistItems = editorState.createChecklistItems;
+  const createCanSubmit = editorState.createCanSubmit;
+  const trimmedIngredientUnit = editorState.trimmedIngredientUnit;
+  const overlayLayerProps = {
+    overlayMode,
+    closeOverlay,
+    inventoryForm,
+    setInventoryForm,
+    inventoryAdvancedOpen,
+    setInventoryAdvancedOpen,
+    consumeForm,
+    setConsumeForm,
+    shoppingForm,
+    setShoppingForm,
+    destroyExpiredIngredientId,
+    ingredients: ingredientOptions,
+    ingredientSummaries: summaries,
+    quickRestockIngredients,
+    submitInventory,
+    submitConsume,
+    submitShopping,
+    submitDestroyExpired,
+    pendingShoppingToComplete,
+    isCreatingInventory: props.isCreatingInventory,
+    isConsumingInventory: props.isConsumingInventory,
+    isDisposingExpiredInventory: props.isDisposingExpiredInventory,
+    isCreatingShopping: props.isCreatingShopping,
+  } as const;
 
   if (workspaceView === 'create') {
     return (
-      <div className="ingredients-workspace">
-        {noticeToast}
-        <WorkspaceSubpageShell className="ingredients-workspace-subpage ingredients-create-workspace">
-          <header className="ingredients-create-header">
-            <div className="ingredients-create-titleblock">
-              <button className="workspace-back-link ingredient-detail-back" type="button" onClick={goBackFromIngredientForm}>
-                ← {isEditingIngredient ? '返回食材详情' : activePanelBackLabel}
-              </button>
-              <p className="eyebrow">{isEditingIngredient ? '编辑食材' : '新增食材'}</p>
-              <h2>{isEditingIngredient ? '编辑食材资料卡' : '新增食材资料卡'}</h2>
-              <p className="subtle">
-                {isEditingIngredient
-                  ? '调整名称、分类、图片和备注后，可以直接保存这张资料卡。'
-                  : '填写基础信息、图片和备注后，就能继续登记第一批库存。'}
-              </p>
-            </div>
-            <Badge className="ingredients-create-page-badge">{isEditingIngredient ? '资料卡编辑' : '资料卡子页'}</Badge>
-          </header>
-          <form className="ingredients-create-layout" onSubmit={handleCreateSubmit}>
-            <div className="ingredients-create-main">
-              <section className="form-panel-section ingredients-create-section ingredients-create-basic-section">
-                <div className="section-mini-title">基础信息</div>
-                <div className="ingredients-create-form-stack">
-                  <label className="ingredients-create-name-field">
-                    <span>食材名称</span>
-                    <input
-                      className="text-input"
-                      placeholder="请输入食材名称"
-                      value={ingredientForm.name}
-                      onChange={(event) => setIngredientForm({ ...ingredientForm, name: event.target.value })}
-                    />
-                  </label>
-                  <div className="ingredients-category-field">
-                    <span>分类</span>
-                    <ScrollableChipRail ariaLabel="常见食材分类" railClassName="ingredients-category-presets">
-                      {ingredientVisibleCategoryPresets.map((item) => (
-                        <button
-                          key={item.label}
-                          className={
-                            ingredientForm.category.trim() === item.label
-                              ? 'chip ingredients-category-chip active'
-                              : 'chip ingredients-category-chip'
-                          }
-                          type="button"
-                          onClick={() => {
-                            setIngredientCustomCategoryOpen(false);
-                            applyIngredientCategoryPreset(item.label);
-                          }}
-                        >
-                          {item.label}
-                        </button>
-                      ))}
-                      {showIngredientCategoryCustomInput ? (
-                        <input
-                          className="ingredients-category-custom-input"
-                          placeholder="自定义分类"
-                          value={ingredientCategoryIsVisiblePreset ? '' : ingredientForm.category}
-                          onChange={(event) => setIngredientForm({ ...ingredientForm, category: event.target.value })}
-                          autoFocus
-                        />
-                      ) : (
-                        <button
-                          className="chip ingredients-category-chip"
-                          type="button"
-                          onClick={() => {
-                            setIngredientCustomCategoryOpen(true);
-                            setIngredientForm({ ...ingredientForm, category: '' });
-                          }}
-                        >
-                          + 自定义
-                        </button>
-                      )}
-                    </ScrollableChipRail>
-                  </div>
-                  <div className="form-grid compact-grid">
-                    <div className="ingredients-restock-field-group">
-                      <div className="ingredients-restock-field-head">
-                        <div>
-                          <span>常用单位</span>
-                          <p className="subtle">常见单位直接点选，特殊单位再补充输入。</p>
-                        </div>
-                        <button
-                          className="ghost-button ingredients-modal-advanced-toggle ingredients-unit-conversion-inline-toggle"
-                          type="button"
-                          onClick={() => setIngredientUnitAdvancedOpen(!ingredientUnitAdvancedOpen)}
-                        >
-                          {ingredientUnitAdvancedOpen ? '收起换算' : '更多单位与换算'}
-                        </button>
-                      </div>
-                      <div className="ingredients-restock-choice-row">
-                        {ingredientUnitOptions.map((unit) => (
-                          <button
-                            key={unit}
-                            className={
-                              ingredientForm.defaultUnit.trim() === unit
-                                ? 'ingredients-choice-chip active'
-                                : 'ingredients-choice-chip'
-                            }
-                            type="button"
-                            onClick={() => setIngredientForm({ ...ingredientForm, defaultUnit: unit })}
-                          >
-                            {unit}
-                          </button>
-                        ))}
-                        <button
-                          className={ingredientUsesCustomUnit ? 'ingredients-choice-chip active' : 'ingredients-choice-chip'}
-                          type="button"
-                          onClick={() =>
-                            setIngredientForm({
-                              ...ingredientForm,
-                              defaultUnit: ingredientUsesCustomUnit ? ingredientForm.defaultUnit : '',
-                            })
-                          }
-                        >
-                          自定义
-                        </button>
-                      </div>
-                      {ingredientUsesCustomUnit && (
-                        <label>
-                          <span>自定义单位</span>
-                          <input
-                            className="text-input"
-                            value={ingredientForm.defaultUnit}
-                            onChange={(event) =>
-                              setIngredientForm({ ...ingredientForm, defaultUnit: event.target.value })
-                            }
-                          />
-                        </label>
-                      )}
-                      <section className="ingredients-unit-conversion-panel">
-                        {ingredientUnitAdvancedOpen && (
-                          <div className="ingredients-unit-conversion-list">
-                            {ingredientForm.unitConversions.length > 0 ? (
-                              ingredientForm.unitConversions.map((entry) => (
-                                <div key={entry.id} className="ingredients-unit-conversion-row">
-                                  <label>
-                                    <span>副单位</span>
-                                    <input
-                                      className="text-input"
-                                      placeholder="例如 袋"
-                                      value={entry.unit}
-                                      onChange={(event) =>
-                                        setIngredientForm({
-                                          ...ingredientForm,
-                                          unitConversions: ingredientForm.unitConversions.map((item) =>
-                                            item.id === entry.id ? { ...item, unit: event.target.value } : item
-                                          ),
-                                        })
-                                      }
-                                    />
-                                  </label>
-                                  <label>
-                                    <span>换算值</span>
-                                    <input
-                                      className="text-input"
-                                      type="number"
-                                      min="0.01"
-                                      step="0.01"
-                                      placeholder="500"
-                                      value={entry.ratioToDefault}
-                                      onChange={(event) =>
-                                        setIngredientForm({
-                                          ...ingredientForm,
-                                          unitConversions: ingredientForm.unitConversions.map((item) =>
-                                            item.id === entry.id
-                                              ? { ...item, ratioToDefault: event.target.value }
-                                              : item
-                                          ),
-                                        })
-                                      }
-                                    />
-                                  </label>
-                                  <div className="ingredients-unit-conversion-preview">
-                                    <span>预览</span>
-                                    <strong>
-                                      {normalizeIngredientUnit(entry.unit)
-                                        ? `1 ${normalizeIngredientUnit(entry.unit)} = ${entry.ratioToDefault.trim() || '?'} ${trimmedIngredientUnit || '主单位'}`
-                                        : `1 副单位 = ${entry.ratioToDefault.trim() || '?'} ${trimmedIngredientUnit || '主单位'}`}
-                                    </strong>
-                                  </div>
-                                  <ActionButton
-                                    tone="tertiary"
-                                    size="compact"
-                                    type="button"
-                                    className="ingredients-unit-conversion-remove"
-                                    onClick={() =>
-                                      setIngredientForm({
-                                        ...ingredientForm,
-                                        unitConversions: ingredientForm.unitConversions.filter((item) => item.id !== entry.id),
-                                      })
-                                    }
-                                  >
-                                    删除
-                                  </ActionButton>
-                                </div>
-                              ))
-                            ) : (
-                              <div className="ingredients-create-rule-note ingredients-unit-conversion-empty">
-                                <span>先按主单位建档就够用</span>
-                                <p>只有像“袋、盒、个”需要换成主单位时，再补充这里的高级设置。</p>
-                              </div>
-                            )}
-                            <ActionButton
-                              tone="secondary"
-                              size="compact"
-                              type="button"
-                              className="ingredients-unit-conversion-add"
-                              onClick={() =>
-                                setIngredientForm({
-                                  ...ingredientForm,
-                                  unitConversions: [...ingredientForm.unitConversions, createIngredientUnitConversionDraft()],
-                                })
-                              }
-                            >
-                              添加副单位
-                            </ActionButton>
-                          </div>
-                        )}
-                      </section>
-                    </div>
-                    <div className="ingredients-restock-field-group">
-                      <div className="ingredients-restock-field-head">
-                        <span>默认存放位置</span>
-                        <p className="subtle">以后补库存时会先带出这里的建议位置。</p>
-                      </div>
-                      <div className="ingredients-restock-choice-row">
-                        {INVENTORY_STORAGE_PRESETS.map((storage) => (
-                          <button
-                            key={storage}
-                            className={
-                              ingredientForm.defaultStorage === storage
-                                ? `ingredients-choice-chip ingredients-storage-choice-chip tone-${storage} active`
-                                : `ingredients-choice-chip ingredients-storage-choice-chip tone-${storage}`
-                            }
-                            type="button"
-                            onClick={() =>
-                              setIngredientForm({ ...ingredientForm, defaultStorage: storage })
-                            }
-                          >
-                            <span className="ingredients-storage-choice-icon" aria-hidden="true">
-                              <InventoryStorageIcon storage={storage} />
-                            </span>
-                            {storage}
-                          </button>
-                        ))}
-                        <button
-                          className={
-                            ingredientUsesCustomStorage
-                              ? 'ingredients-choice-chip ingredients-storage-choice-chip tone-other active'
-                              : 'ingredients-choice-chip ingredients-storage-choice-chip tone-other'
-                          }
-                          type="button"
-                          onClick={() =>
-                            setIngredientForm({
-                              ...ingredientForm,
-                              defaultStorage: ingredientUsesCustomStorage ? ingredientForm.defaultStorage : '',
-                            })
-                          }
-                        >
-                          <span className="ingredients-storage-choice-icon" aria-hidden="true">
-                            <IngredientWorkspaceIcon name="plus" />
-                          </span>
-                          其他
-                        </button>
-                      </div>
-                      {ingredientUsesCustomStorage && (
-                        <label>
-                          <span>自定义位置</span>
-                          <input
-                            className="text-input"
-                            value={ingredientForm.defaultStorage}
-                            placeholder="例如 阳台储物柜"
-                            onChange={(event) =>
-                              setIngredientForm({ ...ingredientForm, defaultStorage: event.target.value })
-                            }
-                          />
-                        </label>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              </section>
-
-              <section className="form-panel-section ingredients-create-section ingredients-create-rules-section">
-                <div className="section-mini-title">补货默认值</div>
-                <div className="form-grid compact-grid">
-                  <div className="ingredients-restock-field-group ingredients-create-expiry-rule-card">
-                    <div className="ingredients-restock-field-head">
-                      <span>默认保质期规则</span>
-                      <p className="subtle">把长期规则留在资料卡里，补库存时就不用每次重想。</p>
-                    </div>
-                    <SegmentedTabs
-                      options={[
-                        { value: 'none', label: '不跟踪到期' },
-                        { value: 'days', label: '买后几天' },
-                        { value: 'manual_date', label: '包装到期日' },
-                      ]}
-                      value={ingredientForm.defaultExpiryMode}
-                      onChange={(value) =>
-                        setIngredientForm({
-                          ...ingredientForm,
-                          defaultExpiryMode: value,
-                          defaultExpiryDays:
-                            value === 'days'
-                              ? String(ingredientDefaultExpiryRangeValue || 3)
-                              : '',
-                        })
-                      }
-                    />
-                  </div>
-                  <div className="ingredients-restock-field-group ingredients-create-lowstock-card">
-                    <div className="ingredients-restock-field-head">
-                      <span>默认低库存提醒</span>
-                      <p className="subtle">按食材总量提醒，值越小越接近“快没了”。</p>
-                    </div>
-                    <SegmentedTabs
-                      options={[
-                        { value: 'off', label: '不提醒' },
-                        { value: 'on', label: '设置提醒' },
-                      ]}
-                      value={ingredientLowStockEnabled ? 'on' : 'off'}
-                      onChange={(value) =>
-                        setIngredientForm({
-                          ...ingredientForm,
-                          defaultLowStockThreshold:
-                            value === 'on'
-                              ? formatNumericString(ingredientLowStockValue)
-                              : '',
-                        })
-                      }
-                    />
-                    {ingredientLowStockEnabled ? (
-                      <TouchStepperField
-                        label="提醒阈值"
-                        value={ingredientLowStockValue}
-                        min={ingredientLowStockStep}
-                        step={ingredientLowStockStep}
-                        quickValues={ingredientLowStockQuickValues}
-                        allowCustomInput
-                        customInputLabel="自定义提醒值"
-                        inputMin={ingredientLowStockStep}
-                        inputStep={ingredientLowStockStep}
-                        formatValue={(value) => `${formatNumericString(value)}${ingredientForm.defaultUnit || '个'}`}
-                        helper="库存汇总少于这个值时，档案和提醒区会提示你补货。"
-                        onChange={(value) =>
-                          setIngredientForm({
-                            ...ingredientForm,
-                            defaultLowStockThreshold: formatNumericString(value),
-                          })
-                        }
-                      />
-                    ) : (
-                      <div className="ingredients-create-rule-note ingredients-create-lowstock-note">
-                        <span>提醒状态</span>
-                        <p>当前不做低库存提醒；需要时点一下就能开启，平时不用额外维护。</p>
-                      </div>
-                    )}
-                  </div>
-                  {ingredientForm.defaultExpiryMode === 'days' ? (
-                    <TouchRangeField
-                      label="默认几天到期"
-                      value={ingredientDefaultExpiryRangeValue}
-                      min={1}
-                      max={30}
-                      step={1}
-                      marks={EXPIRY_DAY_MARKS}
-                      helper="以后补库存时会先带出这个天数。"
-                      formatValue={(value) => `${value} 天`}
-                      onChange={(value) =>
-                        setIngredientForm({ ...ingredientForm, defaultExpiryDays: String(value) })
-                      }
-                    />
-                  ) : (
-                    <div className="ingredients-create-rule-note ingredients-create-expiry-note">
-                      <span>到期录入方式</span>
-                      <p>
-                        {ingredientForm.defaultExpiryMode === 'manual_date'
-                          ? '以后补库存时会直接让你填写包装上的具体日期。'
-                          : '以后补库存默认不要求到期信息，也不会自动做临期提醒。'}
-                      </p>
-                    </div>
-                  )}
-                  <div className="ingredients-create-rule-note ingredients-create-default-note">
-                    <span>补库存时自动带出</span>
-                    <p>这些默认值会在以后登记新批次时预填，你仍然可以按这次买回来的实际情况修改。</p>
-                  </div>
-                </div>
-              </section>
-
-              <div className="ingredients-create-secondary">
-                <div className="ingredients-create-media-section">
-                  <ImageComposer
-                    title="食材图片"
-                    value={ingredientForm.images}
-                    previewLabel={ingredientForm.name || '食材'}
-                    onUpload={(files) => void ingredientImageComposer.upload(files)}
-                    onGenerate={(mode) => void ingredientImageComposer.generate(mode)}
-                    onReset={ingredientImageComposer.reset}
-                    isGenerating={ingredientImageComposer.state.isGenerating}
-                    errorMessage={ingredientImageComposer.state.errorMessage}
-                    variant="workspace-inline"
-                  />
-                </div>
-
-                <section className="form-panel-section ingredients-create-section ingredients-create-notes-section">
-                  <div className="section-mini-title">备注</div>
-                  <div className="form-grid">
-                    <label className="span-two">
-                      <span>补充说明</span>
-                      <textarea
-                        className="text-input"
-                        placeholder="请输入补充说明（可选）"
-                        rows={4}
-                        value={ingredientForm.notes}
-                        onChange={(event) =>
-                          setIngredientForm({ ...ingredientForm, notes: event.target.value })
-                        }
-                      />
-                    </label>
-                  </div>
-                </section>
-              </div>
-            </div>
-
-            <aside className="ingredients-create-side">
-              <section className="form-panel-section ingredients-create-side-panel ingredients-create-action-rail">
-                <div className="ingredients-create-rail-head">
-                  <div className="ingredients-create-rail-copy">
-                    <p className="eyebrow">录入摘要</p>
-                    <h3>{isEditingIngredient ? '准备保存这次修改' : '准备保存这张资料卡'}</h3>
-                    <p className="subtle">
-                      {isEditingIngredient ? '保存后会回到详情页，也可以顺手继续登记新批次。' : '填完后直接保存，或继续进入首批库存登记。'}
-                    </p>
-                  </div>
-                </div>
-
-                <div className="ingredients-create-preview-card">
-                  {ingredientPreviewImage?.url ? (
-                    <img src={resolveAssetUrl(ingredientPreviewImage.url)} alt={ingredientForm.name || '食材图片'} />
-                  ) : (
-                    <div className="ingredients-create-preview-placeholder">
-                      <IngredientWorkspaceIcon name="image" />
-                      <span>未配图</span>
-                    </div>
-                  )}
-                </div>
-
-                <div className="ingredients-create-summary-list">
-                  {createSummaryItems.map((item) => (
-                    <div key={item.label} className="ingredients-create-summary-row">
-                      <span>{item.label}</span>
-                      <strong title={item.value}>{item.value}</strong>
-                    </div>
-                  ))}
-                </div>
-
-                <div className="ingredients-create-progress">
-                  <p className="ingredients-create-progress-title">完成度</p>
-                  <div className="ingredients-create-progress-list">
-                    {createChecklistItems.map((item) => (
-                      <div
-                        key={item.label}
-                        className={
-                          item.done
-                            ? 'ingredients-create-progress-item is-done'
-                            : item.optional
-                              ? 'ingredients-create-progress-item is-optional'
-                              : 'ingredients-create-progress-item'
-                        }
-                      >
-                        <span className="ingredients-create-progress-indicator" aria-hidden="true" />
-                        <span>{item.label}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                <div className="ingredients-create-footer ingredients-create-footer-rail">
-                  <button className="solid-button" type="submit" disabled={!createCanSubmit}>
-                    {props.isCreatingIngredient || props.isUpdatingIngredient
-                      ? '保存中...'
-                      : ingredientImageComposer.state.isGenerating
-                        ? '生成主图中...'
-                        : isEditingIngredient
-                          ? '保存修改并登记库存'
-                          : '保存并登记库存'}
-                  </button>
-                  <button
-                    className="ghost-button"
-                    type="button"
-                    disabled={!createCanSubmit}
-                    onClick={() => void submitIngredient(false)}
-                  >
-                    {props.isCreatingIngredient || props.isUpdatingIngredient
-                      ? '保存中...'
-                      : ingredientImageComposer.state.isGenerating
-                        ? '生成主图中...'
-                        : isEditingIngredient
-                          ? '仅保存修改'
-                          : '仅保存资料卡'}
-                  </button>
-                  <button className="ingredients-create-link-button" type="button" onClick={isEditingIngredient ? goBackFromIngredientForm : goBackToCatalog}>
-                    {isEditingIngredient ? '返回详情' : '返回档案'}
-                  </button>
-                </div>
-              </section>
-            </aside>
-          </form>
-        </WorkspaceSubpageShell>
-        <IngredientMobileQuickBar
-          onCreate={openCreateView}
-          onInventory={() => openInventoryOverlay()}
-          onShopping={() => openShoppingOverlay()}
-        />
-        <IngredientWorkspaceOverlays
-          overlayMode={overlayMode}
-          closeOverlay={closeOverlay}
-          inventoryForm={inventoryForm}
-          setInventoryForm={setInventoryForm}
-          inventoryAdvancedOpen={inventoryAdvancedOpen}
-          setInventoryAdvancedOpen={setInventoryAdvancedOpen}
-          consumeForm={consumeForm}
-          setConsumeForm={setConsumeForm}
-          shoppingForm={shoppingForm}
-          setShoppingForm={setShoppingForm}
-          destroyExpiredIngredientId={destroyExpiredIngredientId}
-          ingredients={ingredientOptions}
-          ingredientSummaries={summaries}
-          quickRestockIngredients={quickRestockIngredients}
-          submitInventory={submitInventory}
-          submitConsume={submitConsume}
-          submitShopping={submitShopping}
-          submitDestroyExpired={submitDestroyExpired}
-          pendingShoppingToComplete={pendingShoppingToComplete}
-          isCreatingInventory={props.isCreatingInventory}
-          isConsumingInventory={props.isConsumingInventory}
-          isDisposingExpiredInventory={props.isDisposingExpiredInventory}
-          isCreatingShopping={props.isCreatingShopping}
-        />
-      </div>
+      <IngredientCreatePage
+        noticeToast={noticeToast}
+        overlays={overlayLayerProps}
+        activePanelBackLabel={activePanelBackLabel}
+        ingredientForm={ingredientForm}
+        setIngredientForm={setIngredientForm}
+        ingredientVisibleCategoryPresets={ingredientVisibleCategoryPresets}
+        ingredientCategoryIsVisiblePreset={ingredientCategoryIsVisiblePreset}
+        showIngredientCategoryCustomInput={showIngredientCategoryCustomInput}
+        setIngredientCustomCategoryOpen={setIngredientCustomCategoryOpen}
+        applyIngredientCategoryPreset={applyIngredientCategoryPreset}
+        ingredientUnitAdvancedOpen={ingredientUnitAdvancedOpen}
+        setIngredientUnitAdvancedOpen={setIngredientUnitAdvancedOpen}
+        ingredientUnitOptions={ingredientUnitOptions}
+        ingredientUsesCustomUnit={ingredientUsesCustomUnit}
+        ingredientUsesCustomStorage={ingredientUsesCustomStorage}
+        trimmedIngredientUnit={trimmedIngredientUnit}
+        ingredientDefaultExpiryRangeValue={ingredientDefaultExpiryRangeValue}
+        ingredientLowStockEnabled={ingredientLowStockEnabled}
+        ingredientLowStockValue={ingredientLowStockValue}
+        ingredientLowStockStep={ingredientLowStockStep}
+        ingredientLowStockQuickValues={ingredientLowStockQuickValues}
+        ingredientPreviewImage={ingredientPreviewImage}
+        createSummaryItems={createSummaryItems}
+        createChecklistItems={createChecklistItems}
+        createCanSubmit={createCanSubmit}
+        ingredientImageState={ingredientImageComposer.state}
+        onOpenInventoryOverlay={() => openInventoryOverlay()}
+        onOpenShoppingOverlay={() => openShoppingOverlay()}
+        onUploadImage={(files) => void ingredientImageComposer.upload(files)}
+        onGenerateImage={(mode) => void ingredientImageComposer.generate(mode)}
+        onResetImage={ingredientImageComposer.reset}
+        onSubmit={handleCreateSubmit}
+        onSaveWithoutRestock={() => void submitIngredient(false)}
+        onOpenCreateView={openCreateView}
+        onBack={isEditingIngredient ? goBackFromIngredientForm : goBackToCatalog}
+        isEditingIngredient={isEditingIngredient}
+        isCreatingIngredient={props.isCreatingIngredient}
+        isUpdatingIngredient={props.isUpdatingIngredient}
+        renderIcon={(name) => <IngredientWorkspaceIcon name={name as IngredientWorkspaceIconName} />}
+        renderStorageIcon={(storage) => <InventoryStorageIcon storage={storage} />}
+        ScrollableChipRail={ScrollableChipRail}
+      />
     );
   }
 
@@ -3040,997 +1891,114 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
     const detailStorageLabel = selectedIngredient.primaryStorage || selectedIngredient.ingredient.default_storage || '常温';
 
     return (
-      <div className="ingredients-workspace">
-        {noticeToast}
-        <WorkspaceSubpageShell className="ingredients-workspace-subpage ingredients-detail-page">
-          <header className="ingredient-detail-header">
-            <div className="ingredient-detail-titleblock">
-              <button className="workspace-back-link ingredient-detail-back" type="button" onClick={goBackToWorkspace}>
-                ← {activePanelBackLabel}
-              </button>
-              <p className="eyebrow">食材详情</p>
-              <h2>{selectedIngredient.ingredient.name}</h2>
-              <p className="subtle">
-                {selectedIngredient.ingredient.category || '未分类'} · 默认 {selectedIngredient.ingredient.default_unit || '个'} · 默认放在{' '}
-                {selectedIngredient.ingredient.default_storage || '常温'}
-              </p>
-            </div>
-            <div className="ingredient-detail-header-side">
-              <Badge className="ingredient-detail-storage-badge">{detailStorageLabel}</Badge>
-              <div className="ingredient-detail-primary-actions">
-                <button
-                  className="solid-button"
-                  type="button"
-                  onClick={() => openInventoryOverlay(selectedIngredient.ingredient.id)}
-                >
-                  <span className="ingredient-detail-button-icon" aria-hidden="true">
-                    <IngredientWorkspaceIcon name="plus" />
-                  </span>
-                  补货
-                </button>
-                <button
-                  className="ghost-button"
-                  type="button"
-                  onClick={() => openConsumeOverlay(selectedIngredient.ingredient.id)}
-                  disabled={selectedIngredient.availableInventoryItems.length === 0}
-                >
-                  <span className="ingredient-detail-button-icon" aria-hidden="true">
-                    <IngredientWorkspaceIcon name="check" />
-                  </span>
-                  快速消费
-                </button>
-                <button
-                  className="tertiary-button"
-                  type="button"
-                  onClick={() =>
-                    openShoppingOverlay({
-                      ingredient: selectedIngredient.ingredient,
-                      reason: '库存偏低，准备补货',
-                    })
-                  }
-                >
-                  <span className="ingredient-detail-button-icon" aria-hidden="true">
-                    <IngredientWorkspaceIcon name="shopping" />
-                  </span>
-                  加入购物清单
-                </button>
-              </div>
-            </div>
-          </header>
-
-          <article className="ingredient-detail-hero">
-            <div className="ingredient-detail-cover">
-              {selectedIngredient.ingredient.image?.url ? (
-                <img
-                  src={resolveAssetUrl(selectedIngredient.ingredient.image.url)}
-                  alt={selectedIngredient.ingredient.name}
-                />
-              ) : (
-                <Avatar
-                  label={selectedIngredient.ingredient.name}
-                  seed={selectedIngredient.ingredient.name}
-                  large
-                />
-              )}
-            </div>
-            <div className="ingredient-detail-copy">
-              <h3>{selectedIngredient.ingredient.notes || '适合搭配肉片和鸡蛋'}</h3>
-              <div className="ingredient-detail-metric-grid" aria-label="食材摘要">
-                {detailMetricItems.map((item) => (
-                  <div key={item.label} className={`ingredient-detail-metric tone-${item.tone}`}>
-                    <span className="ingredient-detail-metric-icon" aria-hidden="true">
-                      <IngredientWorkspaceIcon name={item.icon} />
-                    </span>
-                    <span>{item.label}</span>
-                    <strong>{item.value}</strong>
-                  </div>
-                ))}
-              </div>
-              <div className="inline-actions">
-                <button
-                  className="ghost-button"
-                  type="button"
-                  onClick={() => openEditView(selectedIngredient.ingredient)}
-                >
-                  <span className="ingredient-detail-button-icon" aria-hidden="true">
-                    <IngredientWorkspaceIcon name="edit" />
-                  </span>
-                  编辑资料卡
-                </button>
-              </div>
-            </div>
-          </article>
-
-          <div className="ingredient-detail-grid">
-            <section className="card ingredient-detail-section">
-              <SectionHeading title="补货默认规则" description="以后登记新批次时，系统会先带出这些建议" />
-              <div className="stack-list">
-                <article className="ingredient-related-row">
-                  <span className="ingredient-detail-row-icon tone-brown" aria-hidden="true">
-                    <IngredientWorkspaceIcon name="calendar" />
-                  </span>
-                  <div>
-                    <h3>默认保质期</h3>
-                    <p className="subtle">{formatExpiryRuleLabel(selectedIngredient.ingredient)}</p>
-                  </div>
-                  <Badge>{selectedIngredient.ingredient.default_expiry_mode === 'days' ? '自动带日期' : selectedIngredient.ingredient.default_expiry_mode === 'manual_date' ? '填写包装日期' : '不自动提醒'}</Badge>
-                </article>
-                <article className="ingredient-related-row">
-                  <span className="ingredient-detail-row-icon tone-orange" aria-hidden="true">
-                    <IngredientWorkspaceIcon name="bell" />
-                  </span>
-                  <div>
-                    <h3>低库存提醒</h3>
-                    <p className="subtle">{formatLowStockRuleLabel(selectedIngredient.ingredient)}</p>
-                  </div>
-                  <Badge>
-                    {selectedIngredient.ingredient.default_low_stock_threshold !== null &&
-                    selectedIngredient.ingredient.default_low_stock_threshold !== undefined
-                      ? '按食材总量判断'
-                      : '暂未开启'}
-                  </Badge>
-                </article>
-                <article className="ingredient-related-row">
-                  <span className="ingredient-detail-row-icon tone-green" aria-hidden="true">
-                    <IngredientWorkspaceIcon name="swap" />
-                  </span>
-                  <div>
-                    <h3>更多单位与换算</h3>
-                    <p className="subtle">
-                      {selectedIngredient.ingredient.unit_conversions.length > 0
-                        ? selectedIngredient.ingredient.unit_conversions
-                            .map(
-                              (item) =>
-                                `1 ${item.unit} = ${formatNumericString(item.ratio_to_default)}${selectedIngredient.ingredient.default_unit}`
-                            )
-                            .join(' · ')
-                        : '当前只使用主单位，不额外做换算。'}
-                    </p>
-                  </div>
-                  <Badge>
-                    {selectedIngredient.ingredient.unit_conversions.length > 0
-                      ? `${selectedIngredient.ingredient.unit_conversions.length} 个副单位`
-                      : '高级功能未启用'}
-                  </Badge>
-                </article>
-              </div>
-            </section>
-
-            <section className="card ingredient-detail-section">
-              <SectionHeading
-                title="当前提醒"
-                description="优先处理临期和不足量食材"
-              />
-              <div className="stack-list">
-                {selectedIngredient.alerts.length > 0 ? (
-                  <>
-                    {selectedIngredient.alerts.map((alert) => (
-                      <article key={alert.id} className={`alert-card ${alert.tone}`}>
-                        <span className="ingredient-detail-alert-icon" aria-hidden="true">
-                          <IngredientWorkspaceIcon name="exclamation" />
-                        </span>
-                        <div>
-                          <h3>{alert.title}</h3>
-                          <p>{alert.detail}</p>
-                        </div>
-                      </article>
-                    ))}
-                    <div className="ingredient-detail-tip">
-                      <span className="ingredient-detail-row-icon tone-brown" aria-hidden="true">
-                        <IngredientWorkspaceIcon name="lightbulb" />
-                      </span>
-                      <strong>优先处理临期和不足量食材</strong>
-                    </div>
-                  </>
-                ) : (
-                  <EmptyState
-                    title="状态很安稳"
-                    description="这份食材当前没有低库存或临期提醒。"
-                  />
-                )}
-              </div>
-            </section>
-
-            <section className="card ingredient-detail-section">
-              <SectionHeading
-                title="库存批次"
-                description="按批次记录入库，并持续跟踪每批剩余量"
-              />
-              <div className="stack-list">
-                {selectedIngredient.inventoryItems.length > 0 ? (
-                  selectedIngredient.inventoryItems.map((item) => (
-                    <article key={item.id} className={`inventory-card inventory-card-rich tone-${item.status}`}>
-                      <span className="ingredient-detail-row-icon tone-green" aria-hidden="true">
-                        <IngredientWorkspaceIcon name="stocked" />
-                      </span>
-                      <div>
-                        <div className="inline-between">
-                          <h3>
-                            剩余{' '}
-                            {formatNumericString(
-                              convertQuantityToDefaultUnit(
-                                selectedIngredient.ingredient,
-                                getInventoryRemainingQuantity(item),
-                                item.unit
-                              ) ?? getInventoryRemainingQuantity(item)
-                            )}
-                            {selectedIngredient.ingredient.default_unit || item.unit}
-                          </h3>
-                          <Badge>{INVENTORY_STATUS_LABELS[item.status]}</Badge>
-                        </div>
-                        <p className="subtle ingredient-detail-icon-line">
-                          <span aria-hidden="true">
-                            <IngredientWorkspaceIcon name="calendar" />
-                          </span>
-                          {item.storage_location} · 购于 {formatDate(item.purchase_date)}
-                          {item.expiry_date ? ` · ${formatRelativeDays(item.expiry_date)}` : ''}
-                        </p>
-                        <p>
-                          {getInventoryConsumedQuantity(item) > 0
-                            ? `原始入库 ${formatNumericString(
-                                convertQuantityToDefaultUnit(selectedIngredient.ingredient, item.quantity, item.unit) ?? item.quantity
-                              )}${selectedIngredient.ingredient.default_unit || item.unit}，已消费 ${formatNumericString(
-                                convertQuantityToDefaultUnit(
-                                  selectedIngredient.ingredient,
-                                  getInventoryConsumedQuantity(item),
-                                  item.unit
-                                ) ?? getInventoryConsumedQuantity(item)
-                              )}${selectedIngredient.ingredient.default_unit || item.unit}${
-                                item.entered_quantity !== null &&
-                                item.entered_quantity !== undefined &&
-                                item.entered_unit &&
-                                (Math.abs(item.entered_quantity - item.quantity) > 0.0001 ||
-                                  item.entered_unit !== item.unit)
-                                  ? ` · 登记时 ${formatNumericString(item.entered_quantity)}${item.entered_unit}`
-                                  : ''
-                              }${item.notes ? ` · ${item.notes}` : ''}`
-                            : item.notes ||
-                              `原始入库 ${formatNumericString(
-                                convertQuantityToDefaultUnit(selectedIngredient.ingredient, item.quantity, item.unit) ?? item.quantity
-                              )}${selectedIngredient.ingredient.default_unit || item.unit}${
-                                item.entered_quantity !== null &&
-                                item.entered_quantity !== undefined &&
-                                item.entered_unit &&
-                                (Math.abs(item.entered_quantity - item.quantity) > 0.0001 ||
-                                  item.entered_unit !== item.unit)
-                                  ? ` · 登记时 ${formatNumericString(item.entered_quantity)}${item.entered_unit}`
-                                  : ''
-                              }`}
-                        </p>
-                      </div>
-                    </article>
-                  ))
-                ) : (
-                  <EmptyState
-                    title="还没有库存批次"
-                    description="先登记第一批库存，这张资料卡就会更有用了。"
-                    action={
-                      <button
-                        className="solid-button"
-                        type="button"
-                        onClick={() => openInventoryOverlay(selectedIngredient.ingredient.id)}
-                      >
-                        立即登记
-                      </button>
-                    }
-                  />
-                )}
-              </div>
-            </section>
-
-            <section className="card ingredient-detail-section">
-              <SectionHeading title="关联菜谱" description="这份食材已经被哪些菜谱引用" />
-              <div className="stack-list">
-                {selectedIngredient.recipeReferences.length > 0 ? (
-                  selectedIngredient.recipeReferences.map((item) => (
-                    <article key={item.id} className="ingredient-related-row">
-                      {props.recipes.find((recipe) => recipe.id === item.id)?.images[0]?.url ? (
-                        <img
-                          className="ingredient-related-thumb"
-                          src={resolveAssetUrl(props.recipes.find((recipe) => recipe.id === item.id)?.images[0]?.url)}
-                          alt={item.title}
-                        />
-                      ) : null}
-                      {!props.recipes.find((recipe) => recipe.id === item.id)?.images[0]?.url ? (
-                        <span className="ingredient-detail-row-icon tone-brown" aria-hidden="true">
-                          <IngredientWorkspaceIcon name="link" />
-                        </span>
-                      ) : null}
-                      <div>
-                        <h3>{item.title}</h3>
-                        <p className="subtle">已在菜谱库中引用，可用于做饭推荐与食材串联。</p>
-                      </div>
-                      <Badge>已引用</Badge>
-                    </article>
-                  ))
-                ) : (
-                  <EmptyState
-                    title="还没有菜谱引用"
-                    description="后续在新建菜谱时选择这份食材，这里就会形成关联。"
-                  />
-                )}
-              </div>
-            </section>
-
-            <section className="card ingredient-detail-section ingredient-detail-section-wide">
-              <SectionHeading title="资料信息" description="谁在什么时候补充了这张资料卡" />
-              <div className="ingredient-metadata">
-                <p>
-                  <span className="ingredient-metadata-icon" aria-hidden="true">
-                    <IngredientWorkspaceIcon name="calendar" />
-                  </span>
-                  <strong>创建时间：</strong>
-                  {formatDateTime(selectedIngredient.ingredient.created_at)}
-                </p>
-                <p>
-                  <span className="ingredient-metadata-icon" aria-hidden="true">
-                    <IngredientWorkspaceIcon name="clock" />
-                  </span>
-                  <strong>最近更新：</strong>
-                  {formatDateTime(selectedIngredient.latestUpdatedAt || selectedIngredient.ingredient.updated_at)}
-                </p>
-                <p>
-                  <span className="ingredient-metadata-icon" aria-hidden="true">
-                    <IngredientWorkspaceIcon name="inventory" />
-                  </span>
-                  <strong>涉及位置：</strong>
-                  {selectedIngredient.storageLocations.join('、')}
-                </p>
-              </div>
-            </section>
-          </div>
-        </WorkspaceSubpageShell>
-
-        <IngredientMobileQuickBar
-          onCreate={openCreateView}
-          onInventory={() => openInventoryOverlay(selectedIngredient.ingredient.id)}
-          onShopping={() =>
-            openShoppingOverlay({
-              ingredient: selectedIngredient.ingredient,
-              reason: '库存偏低，准备补货',
-            })
-          }
-        />
-        <IngredientWorkspaceOverlays
-          overlayMode={overlayMode}
-          closeOverlay={closeOverlay}
-          inventoryForm={inventoryForm}
-          setInventoryForm={setInventoryForm}
-          inventoryAdvancedOpen={inventoryAdvancedOpen}
-          setInventoryAdvancedOpen={setInventoryAdvancedOpen}
-          consumeForm={consumeForm}
-          setConsumeForm={setConsumeForm}
-          shoppingForm={shoppingForm}
-          setShoppingForm={setShoppingForm}
-          destroyExpiredIngredientId={destroyExpiredIngredientId}
-          ingredients={ingredientOptions}
-          ingredientSummaries={summaries}
-          quickRestockIngredients={quickRestockIngredients}
-          submitInventory={submitInventory}
-          submitConsume={submitConsume}
-          submitShopping={submitShopping}
-          submitDestroyExpired={submitDestroyExpired}
-          pendingShoppingToComplete={pendingShoppingToComplete}
-          isCreatingInventory={props.isCreatingInventory}
-          isConsumingInventory={props.isConsumingInventory}
-          isDisposingExpiredInventory={props.isDisposingExpiredInventory}
-          isCreatingShopping={props.isCreatingShopping}
-        />
-      </div>
+      <IngredientDetailPage
+        noticeToast={noticeToast}
+        overlays={overlayLayerProps}
+        activePanelBackLabel={activePanelBackLabel}
+        selectedIngredient={selectedIngredient}
+        detailStorageLabel={detailStorageLabel}
+        detailMetricItems={detailMetricItems}
+        recipes={props.recipes}
+        onOpenCreateView={openCreateView}
+        goBackToWorkspace={goBackToWorkspace}
+        openInventoryOverlay={openInventoryOverlay}
+        openConsumeOverlay={openConsumeOverlay}
+        openShoppingOverlay={openShoppingOverlay}
+        openEditView={openEditView}
+        renderIcon={(name) => <IngredientWorkspaceIcon name={name as IngredientWorkspaceIconName} />}
+        formatExpiryRuleLabel={formatExpiryRuleLabel}
+        formatLowStockRuleLabel={formatLowStockRuleLabel}
+      />
     );
   }
 
   return (
-    <div className="ingredients-workspace">
-      {noticeToast}
-      <section className="mobile-ingredient-page" aria-label="手机食材页">
-        <div className="mobile-ingredient-topbar">
-          <div className="mobile-ingredient-brand">
-            <span className="mobile-ingredient-logo">
-              <IngredientWorkspaceIcon name="logo" />
-            </span>
-            <span>
-              <strong>Culina</strong>
-              <small>家庭厨房工作台</small>
-            </span>
-          </div>
-          <div className="mobile-ingredient-top-actions">
-            <button type="button" aria-label="聚焦搜索" onClick={() => document.getElementById('mobile-ingredient-search')?.focus()}>
-              <IngredientWorkspaceIcon name="search" />
-            </button>
-            <button
-              type="button"
-              aria-label="查看食材提醒"
-              onClick={() => {
-                setMobileIngredientFilter('alerted');
-                setMobileStorageFocus('all');
-              }}
-            >
-              <IngredientWorkspaceIcon name="bell" />
-              {allAlerts.length > 0 && <i aria-hidden="true" />}
-            </button>
-          </div>
-        </div>
-
-        <header className="mobile-ingredient-hero">
-          <h1>食材</h1>
-          <p>先看家里还有什么，再处理临期、低库存和今天要买的东西。</p>
-          <div className="mobile-ingredient-metrics" aria-label="食材摘要">
-            <button type="button" onClick={() => setMobileIngredientFilter('stocked')}>
-              <strong>{stockedIngredientCount}</strong>
-              <span>在库</span>
-            </button>
-            <button type="button" onClick={() => setMobileIngredientFilter('alerted')}>
-              <strong>{allAlerts.length}</strong>
-              <span>提醒</span>
-            </button>
-            <button type="button" onClick={() => document.getElementById('mobile-ingredient-shopping')?.scrollIntoView({ block: 'start', behavior: 'smooth' })}>
-              <strong>{pendingShopping.length}</strong>
-              <span>待买</span>
-            </button>
-          </div>
-          <div className="mobile-ingredient-actions">
-            <button className="mobile-ingredient-primary" type="button" onClick={() => openInventoryOverlay()}>
-              <IngredientWorkspaceIcon name="plus" />
-              快速入库
-            </button>
-            <button className="mobile-ingredient-secondary" type="button" onClick={() => openShoppingOverlay()}>
-              <IngredientWorkspaceIcon name="shopping" />
-              加采购
-            </button>
-          </div>
-        </header>
-
-        <section className="mobile-ingredient-panel">
-          <div className="mobile-ingredient-section-head">
-            <h2>今天先处理 <span>{mobilePrioritySummaries.length} 项</span></h2>
-            <button
-              type="button"
-              onClick={() => {
-                setMobileIngredientFilter('alerted');
-                setMobileStorageFocus('all');
-              }}
-              disabled={mobilePrioritySummaries.length === 0}
-            >
-              看提醒
-              <IngredientWorkspaceIcon name="chevronDown" />
-            </button>
-          </div>
-          {mobilePrioritySummaries.length > 0 ? (
-            <div className="mobile-ingredient-priority-scroller">
-              {mobilePrioritySummaries.map((summary) => {
-                const imageUrl = resolveAssetUrl(summary.ingredient.image?.url) ?? buildIngredientPlaceholderSvg(summary.ingredient.name);
-                const status = buildInventoryCardStatus(summary);
-                const canConsume = summary.availableInventoryItems.length > 0;
-                const canDestroyExpired = buildDisposableExpiredInventoryItems(summary).length > 0;
-                return (
-                  <article key={summary.ingredient.id} className={`mobile-ingredient-priority-card tone-${status.tone}`}>
-                    <button className="mobile-ingredient-priority-cover" type="button" onClick={() => openDetailView(summary)}>
-                      <img src={imageUrl} alt={summary.ingredient.name} />
-                    </button>
-                    <div className="mobile-ingredient-priority-body">
-                      <div className="mobile-ingredient-card-head">
-                        <h3>{summary.ingredient.name}</h3>
-                        <span>{status.label}</span>
-                      </div>
-                      <p>{summary.alerts[0]?.detail ?? status.detail}</p>
-                      <div className="mobile-ingredient-chip-row">
-                        <span>{summary.primaryStorage}</span>
-                        <span>{buildInventorySummaryLine(summary)}</span>
-                      </div>
-                      <div className="mobile-ingredient-card-actions">
-                        <button
-                          className="mobile-ingredient-primary compact"
-                          type="button"
-                          onClick={() =>
-                            canDestroyExpired
-                              ? openDestroyExpiredOverlay(summary.ingredient.id)
-                              : canConsume
-                                ? openConsumeOverlay(summary.ingredient.id)
-                                : openShoppingOverlay({ ingredient: summary.ingredient, reason: resolveShoppingReason(summary) })
-                          }
-                        >
-                          {canDestroyExpired ? '处理' : canConsume ? '消费' : '采购'}
-                        </button>
-                        <button type="button" onClick={() => openInventoryOverlay(summary.ingredient.id)}>
-                          补货
-                        </button>
-                      </div>
-                    </div>
-                  </article>
-                );
-              })}
-            </div>
-          ) : (
-            <div className="mobile-ingredient-empty">
-              <strong>当前没有需要优先处理的食材</strong>
-              <span>可以继续浏览食材库，或直接登记一批新库存。</span>
-            </div>
-          )}
-        </section>
-
-        <section className="mobile-ingredient-panel">
-          <div className="mobile-ingredient-section-head">
-            <h2>按位置看库存</h2>
-            <button
-              type="button"
-              onClick={() => {
-                setMobileStorageFocus('all');
-                setMobileIngredientFilter('all');
-              }}
-            >
-              全部
-              <IngredientWorkspaceIcon name="reset" />
-            </button>
-          </div>
-          <div className="mobile-ingredient-storage-row" aria-label="库存位置">
-            {mobileStorageCards.map((item) => (
-              <button
-                key={item.key}
-                className={mobileStorageFocus === item.key ? `active tone-${item.tone}` : `tone-${item.tone}`}
-                type="button"
-                onClick={() => setMobileStorageFocus((current) => (current === item.key ? 'all' : (item.key as InventoryStorageFocus)))}
-              >
-                <span>
-                  <InventoryStorageIllustration storage={item.key} />
-                </span>
-                <strong>{item.label}</strong>
-                <small>{item.ingredientCount} 种 · {item.alertCount} 提醒</small>
-              </button>
-            ))}
-          </div>
-        </section>
-
-        <section className="mobile-ingredient-panel mobile-ingredient-library">
-          <div className="mobile-ingredient-section-head">
-            <h2>食材库</h2>
-            <button type="button" onClick={mobileHasCatalogFilters ? () => {
-              setCatalogSearch('');
-              setMobileIngredientFilter('all');
-              setMobileStorageFocus('all');
-            } : openCreateView}>
-              {mobileHasCatalogFilters ? '清除筛选' : '新增'}
-              <IngredientWorkspaceIcon name={mobileHasCatalogFilters ? 'reset' : 'plus'} />
-            </button>
-          </div>
-          <div className="mobile-ingredient-library-filters">
-            <label className="mobile-ingredient-search">
-              <IngredientWorkspaceIcon name="search" />
-              <input
-                id="mobile-ingredient-search"
-                value={catalogSearch}
-                placeholder="搜索食材、分类、备注或菜谱"
-                onChange={(event) => setCatalogSearch(event.target.value)}
-              />
-            </label>
-            <div className="mobile-ingredient-tabs" aria-label="食材筛选">
-              {[
-                { value: 'all' as const, label: '全部' },
-                { value: 'alerted' as const, label: '提醒' },
-                { value: 'empty' as const, label: '缺货' },
-                { value: 'stocked' as const, label: '在库' },
-              ].map((item) => (
-                <button
-                  key={item.value}
-                  className={mobileIngredientFilter === item.value ? 'active' : ''}
-                  type="button"
-                  onClick={() => setMobileIngredientFilter(item.value)}
-                >
-                  {item.label}
-                </button>
-              ))}
-            </div>
-          </div>
-          {mobileCatalogSummaries.length > 0 ? (
-            <div className="mobile-ingredient-library-grid">
-              {mobileCatalogSummaries.map((summary) => {
-                const imageUrl = resolveAssetUrl(summary.ingredient.image?.url) ?? buildIngredientPlaceholderSvg(summary.ingredient.name);
-                const status = buildCatalogCardStatus(summary);
-                const canConsume = summary.availableInventoryItems.length > 0;
-                return (
-                  <article key={summary.ingredient.id} className={`mobile-ingredient-library-card tone-${status.tone}`}>
-                    <button className="mobile-ingredient-library-cover" type="button" onClick={() => openDetailView(summary)}>
-                      <img src={imageUrl} alt={summary.ingredient.name} />
-                      {summary.alerts.length > 0 && <span>{summary.alerts.length} 提醒</span>}
-                    </button>
-                    <div className="mobile-ingredient-library-body">
-                      <h3>{summary.ingredient.name}</h3>
-                      <p>{summary.ingredient.category || '未分类'} · {summary.primaryStorage}</p>
-                      <div className="mobile-ingredient-chip-row">
-                        <span>{status.label}</span>
-                        <span>{buildInventorySummaryLine(summary)}</span>
-                      </div>
-                      <div className="mobile-ingredient-library-actions">
-                        <button
-                          className="mobile-ingredient-primary"
-                          type="button"
-                          onClick={() => (canConsume ? openConsumeOverlay(summary.ingredient.id) : openInventoryOverlay(summary.ingredient.id))}
-                        >
-                          {canConsume ? '消费' : '补货'}
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => openShoppingOverlay({ ingredient: summary.ingredient, reason: resolveShoppingReason(summary) })}
-                        >
-                          采购
-                        </button>
-                      </div>
-                    </div>
-                  </article>
-                );
-              })}
-            </div>
-          ) : (
-            <div className="mobile-ingredient-empty">
-              <strong>{summaries.length === 0 ? '还没有食材档案' : '没有匹配的食材'}</strong>
-              <span>{summaries.length === 0 ? '先新增常用食材，后续补货、消费和采购都会更快。' : '换个关键词或清空筛选后再试。'}</span>
-              <button type="button" onClick={summaries.length === 0 ? openCreateView : () => {
-                setCatalogSearch('');
-                setMobileIngredientFilter('all');
-                setMobileStorageFocus('all');
-              }}>
-                {summaries.length === 0 ? '新增食材' : '清空筛选'}
-              </button>
-            </div>
-          )}
-        </section>
-
-        <section id="mobile-ingredient-shopping" className="mobile-ingredient-panel">
-          <div className="mobile-ingredient-section-head">
-            <h2>采购待办 <span>{pendingShopping.length} 项</span></h2>
-            <button type="button" onClick={() => openShoppingOverlay()}>
-              新增
-              <IngredientWorkspaceIcon name="plus" />
-            </button>
-          </div>
-          {mobileShoppingCards.length > 0 ? (
-            <div className="mobile-ingredient-shopping-list">
-              {mobileShoppingCards.map((card) => {
-                const imageUrl =
-                  resolveAssetUrl(card.linkedSummary?.ingredient.image?.url) ??
-                  buildIngredientPlaceholderSvg(card.title || '待买项');
-                return (
-                  <article key={card.shoppingItem.id} className={`mobile-ingredient-shopping-card tone-${card.statusTone}`}>
-                    <span className="mobile-ingredient-shopping-cover">
-                      <img src={imageUrl} alt={card.title} />
-                    </span>
-                    <div className="mobile-ingredient-shopping-copy">
-                      <strong>{card.title}</strong>
-                      <small>{card.quantityLabel} · {card.reasonLabel}</small>
-                    </div>
-                    <button type="button" disabled={props.isUpdatingShopping || props.isCreatingInventory} onClick={() => openInventoryFromShopping(card.shoppingItem)}>
-                      入库
-                    </button>
-                  </article>
-                );
-              })}
-            </div>
-          ) : (
-            <div className="mobile-ingredient-empty">
-              <strong>当前没有待买项</strong>
-              <span>可以从低库存食材一键加入采购，或手动添加。</span>
-            </div>
-          )}
-        </section>
-      </section>
-
-      <div className="ingredients-desktop-view">
-      <div className="ingredients-mobile-header">
-        <PageHeader
-          variant="workspace"
-          eyebrow="食材档案"
-          title="食材档案工作台"
-          description="先找到食材，再直接补货、消费或加入采购；库存和采购页只做辅助处理。"
-          meta={
-            <div className="compact-metric-strip ingredients-header-metrics">
-              {workspaceMetrics.map((item) => (
-                <CompactMetric key={item.label} label={item.label} value={item.value} detail={item.detail} />
-              ))}
-            </div>
-          }
-          actions={desktopActions}
-        />
-      </div>
-
-      <section className="ingredients-panel ingredients-panel-shell card">
-        <div className="ingredients-panel-subnav">
-          <WorkspaceSubnav
-            items={PANEL_ITEMS.map((item) => ({
-              ...item,
-              icon: <IngredientWorkspaceIcon name={item.icon} />,
-            }))}
-            value={activePanel}
-            onChange={openWorkspacePanel}
-          />
-        </div>
-        <div className="ingredients-panel-body">
-          {activePanel === 'catalog' && (
-            <div className="ingredients-panel-stack ingredients-catalog-workbench">
-              <section className="ingredients-catalog-toolbar">
-                <div className="ingredients-catalog-toolbar-head">
-                  <div className="ingredients-catalog-title-group">
-                    <div className="ingredients-catalog-title-line">
-                      <h3>食材档案</h3>
-                    </div>
-                    <div className="ingredients-catalog-mini-metrics" aria-label="档案快捷摘要">
-                      <button type="button">
-                        <span className="ingredients-catalog-mini-metric-icon">
-                          <IngredientWorkspaceIcon name="total" />
-                        </span>
-                        {catalogCountLabel}
-                      </button>
-                      <button type="button" onClick={() => openInventoryPanel('alerted')}>
-                        <span className="ingredients-catalog-mini-metric-icon">
-                          <IngredientWorkspaceIcon name="alert" />
-                        </span>
-                        {allAlerts.length} 个提醒
-                      </button>
-                      <button type="button" onClick={openShoppingPanel}>
-                        <span className="ingredients-catalog-mini-metric-icon">
-                          <IngredientWorkspaceIcon name="shopping" />
-                        </span>
-                        {pendingShopping.length} 项待买
-                      </button>
-                      <button type="button" onClick={() => openInventoryPanel('all')}>
-                        <span className="ingredients-catalog-mini-metric-icon">
-                          <IngredientWorkspaceIcon name="stocked" />
-                        </span>
-                        {stockedIngredientCount} 个在库
-                      </button>
-                    </div>
-                  </div>
-                  <ActionButton tone="primary" type="button" className="ingredients-catalog-create-button" onClick={openCreateView}>
-                    <span aria-hidden="true">+</span>
-                    新增食材
-                  </ActionButton>
-                </div>
-                <div className="ingredients-catalog-search-row">
-                  <label className="ingredients-search-field ingredients-catalog-search-field">
-                    <span className="ingredients-toolbar-label ingredients-catalog-label-with-icon">
-                      <IngredientWorkspaceIcon name="search" />
-                      档案检索
-                    </span>
-                    <span className="ingredients-catalog-search-input-shell">
-                      <span className="ingredients-catalog-search-input-icon" aria-hidden="true">
-                        <IngredientWorkspaceIcon name="search" />
-                      </span>
-                      <input
-                        className="text-input"
-                        placeholder="搜索食材、分类、备注或关联菜谱"
-                        value={catalogSearch}
-                        onChange={(event) => setCatalogSearch(event.target.value)}
-                      />
-                    </span>
-                  </label>
-                </div>
-                <div className="ingredients-catalog-filter-bar">
-                  <div className="ingredients-catalog-filter-section ingredients-catalog-filter-section-category">
-                    <span className="ingredients-catalog-filter-label ingredients-catalog-label-with-icon">
-                      <IngredientWorkspaceIcon name="filter" />
-                      分类筛选
-                    </span>
-                    <ScrollableChipRail ariaLabel="按分类筛选食材档案" railClassName="ingredients-category-rail">
-                      <button
-                        className={
-                          catalogCategoryFilter === 'all'
-                            ? 'chip ingredients-category-chip active'
-                            : 'chip ingredients-category-chip'
-                        }
-                        type="button"
-                        onClick={() => setCatalogCategoryFilter('all')}
-                      >
-                        全部
-                      </button>
-                      {catalogCategories.map((category) => (
-                        <button
-                          key={category}
-                          className={
-                            catalogCategoryFilter === category
-                              ? 'chip ingredients-category-chip active'
-                              : 'chip ingredients-category-chip'
-                          }
-                          type="button"
-                          onClick={() => setCatalogCategoryFilter(category)}
-                        >
-                          {category}
-                        </button>
-                      ))}
-                    </ScrollableChipRail>
-                  </div>
-                  <div
-                    className="ingredients-catalog-filter-section ingredients-catalog-filter-section-status"
-                    aria-label="按库存状态筛选食材档案"
-                  >
-                    <span className="ingredients-catalog-label-with-icon">
-                      <IngredientWorkspaceIcon name="status" />
-                      状态筛选
-                    </span>
-                    <div className="ingredients-catalog-status-filter-row">
-                      {CATALOG_STATUS_FILTERS.map((item) => {
-                        const count = filterIngredientSummariesByCatalogStatus(catalogBaseSummaries, item.value).length;
-                        return (
-                          <button
-                            key={item.value}
-                            className={
-                              catalogStatusFilter === item.value
-                                ? `chip ingredients-status-chip tone-${item.value} active`
-                                : `chip ingredients-status-chip tone-${item.value}`
-                            }
-                            type="button"
-                            onClick={() => setCatalogStatusFilter(item.value)}
-                          >
-                            {item.label}
-                            <small>{count}</small>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-                  <button
-                    className="ingredients-catalog-clear-filter"
-                    type="button"
-                    onClick={() => {
-                      setCatalogSearch('');
-                      setCatalogCategoryFilter('all');
-                      setCatalogStatusFilter('all');
-                    }}
-                  >
-                    <span className="ingredients-catalog-clear-filter-icon" aria-hidden="true">
-                      <IngredientWorkspaceIcon name="reset" />
-                    </span>
-                    清空筛选
-                  </button>
-                </div>
-              </section>
-              <div
-                ref={catalogMeasureRef}
-                className="ingredient-grid ingredient-grid-catalog ingredients-catalog-grid"
-                style={catalogGridStyle}
-              >
-                {filteredSummaries.length > 0 ? (
-                  filteredSummaries.map((summary) => (
-                    <IngredientCatalogCard
-                      key={summary.ingredient.id}
-                      summary={summary}
-                      expanded={expandedCatalogIngredientId === summary.ingredient.id}
-                      onToggle={() => toggleCatalogCard(summary)}
-                      onRestock={() => openInventoryOverlay(summary.ingredient.id)}
-                      onConsume={() => openConsumeOverlay(summary.ingredient.id)}
-                      onAddShopping={() =>
-                        openShoppingOverlay({
-                          ingredient: summary.ingredient,
-                          reason: resolveShoppingReason(summary),
-                        })
-                      }
-                      onHandleAlert={() =>
-                        buildDisposableExpiredInventoryItems(summary).length > 0
-                          ? openDestroyExpiredOverlay(summary.ingredient.id)
-                          : openDetailView(summary)
-                      }
-                      onDetail={() => openDetailView(summary)}
-                    />
-                  ))
-                ) : (
-                  <EmptyState
-                    title={summaries.length === 0 ? '还没有食材档案' : '没找到匹配的食材'}
-                    description={
-                      summaries.length === 0
-                        ? '先新增几张常用食材资料卡，后面补货、消费和采购都会直接很多。'
-                        : '换个关键词试试，或者直接新建一张资料卡。'
-                    }
-                    action={
-                      <button className="solid-button" type="button" onClick={openCreateView}>
-                        新增食材
-                      </button>
-                    }
-                  />
-                )}
-              </div>
-            </div>
-          )}
-
-          {activePanel === 'inventory' && (
-            <IngredientInventoryPanel
-              summariesCount={summaries.length}
-              inventorySearch={inventorySearch}
-              inventoryQuickFilter={inventoryQuickFilter}
-              inventoryStorageFocus={inventoryStorageFocus}
-              inventorySortMode={inventorySortMode}
-              focusedInventorySummaries={focusedInventorySummaries}
-              inventoryStorageOverview={inventoryStorageOverview}
-              inventoryGroups={inventoryGroups}
-              onInventorySearchChange={setInventorySearch}
-              onInventoryQuickFilterChange={setInventoryQuickFilter}
-              onInventoryStorageFocusChange={setInventoryStorageFocus}
-              onInventorySortModeChange={setInventorySortMode}
-              onResetFilters={() => {
-                setInventorySearch('');
-                setInventoryQuickFilter('all');
-                setInventoryStorageFocus('冷藏');
-                setInventorySortMode('default');
-              }}
-              onOpenInventoryOverlay={openInventoryOverlay}
-              onOpenConsumeOverlay={openConsumeOverlay}
-              onOpenShoppingForSummary={(summary) =>
-                openShoppingOverlay({
-                  ingredient: summary.ingredient,
-                  reason: resolveShoppingReason(summary),
-                })
-              }
-              onOpenDetailView={openDetailView}
-              onOpenDestroyExpiredOverlay={openDestroyExpiredOverlay}
-              onOpenCreateView={openCreateView}
-              IngredientWorkspaceIcon={IngredientWorkspaceIcon}
-              InventoryStorageOverviewCard={InventoryStorageOverviewCard}
-              InventoryIngredientCard={InventoryIngredientCard}
-            />
-          )}
-
-          {activePanel === 'shopping' && (
-            <IngredientShoppingPanel
-              shoppingOverview={shoppingOverview}
-              shoppingFocus={shoppingFocus}
-              shoppingSearch={shoppingSearch}
-              pendingShoppingCards={pendingShoppingCards}
-              visiblePendingShoppingCards={visiblePendingShoppingCards}
-              completedShoppingCards={completedShoppingCards}
-              visibleCompletedShoppingCards={visibleCompletedShoppingCards}
-              activeShoppingOverview={activeShoppingOverview}
-              showCompletedShopping={showCompletedShopping}
-              isUpdatingShopping={props.isUpdatingShopping}
-              isCreatingInventory={props.isCreatingInventory}
-              onShoppingSearchChange={setShoppingSearch}
-              onShoppingFocusChange={setShoppingFocus}
-              onOpenShoppingOverlay={() => openShoppingOverlay()}
-              onOpenInventoryFromShopping={openInventoryFromShopping}
-              onOpenDetailView={openDetailView}
-              onToggleCompletedShopping={() => setShowCompletedShopping((current) => !current)}
-              onRestoreShopping={(itemId) =>
-                void props.updateShoppingItem({
-                  itemId,
-                  done: false,
-                })
-              }
-              IngredientWorkspaceIcon={IngredientWorkspaceIcon}
-              ShoppingWorkRow={ShoppingWorkRow}
-              ShoppingHistoryRow={ShoppingHistoryRow}
-            />
-          )}
-        </div>
-      </section>
-      </div>
-
-      <IngredientMobileQuickBar
-        onCreate={openCreateView}
-        onInventory={() => openInventoryOverlay()}
-        onShopping={() => openShoppingOverlay()}
-      />
-
-      <IngredientWorkspaceOverlays
-        overlayMode={overlayMode}
-        closeOverlay={closeOverlay}
-        inventoryForm={inventoryForm}
-        setInventoryForm={setInventoryForm}
-        inventoryAdvancedOpen={inventoryAdvancedOpen}
-        setInventoryAdvancedOpen={setInventoryAdvancedOpen}
-        consumeForm={consumeForm}
-        setConsumeForm={setConsumeForm}
-        shoppingForm={shoppingForm}
-        setShoppingForm={setShoppingForm}
-        destroyExpiredIngredientId={destroyExpiredIngredientId}
-        ingredients={ingredientOptions}
-        ingredientSummaries={summaries}
-        quickRestockIngredients={quickRestockIngredients}
-        submitInventory={submitInventory}
-        submitConsume={submitConsume}
-        submitShopping={submitShopping}
-        submitDestroyExpired={submitDestroyExpired}
-        pendingShoppingToComplete={pendingShoppingToComplete}
-        isCreatingInventory={props.isCreatingInventory}
-        isConsumingInventory={props.isConsumingInventory}
-        isDisposingExpiredInventory={props.isDisposingExpiredInventory}
-        isCreatingShopping={props.isCreatingShopping}
-      />
-    </div>
+    <IngredientHubPage
+      noticeToast={noticeToast}
+      overlays={overlayLayerProps}
+      workspaceMetrics={workspaceMetrics}
+      desktopActions={desktopActions}
+      panelItems={PANEL_ITEMS.map((item) => ({
+        ...item,
+        icon: <IngredientWorkspaceIcon name={item.icon} />,
+      }))}
+      activePanel={activePanel}
+      openWorkspacePanel={openWorkspacePanel}
+      allAlertsCount={allAlerts.length}
+      stockedIngredientCount={stockedIngredientCount}
+      pendingShoppingCount={pendingShopping.length}
+      summariesCount={summaries.length}
+      catalogSearch={catalogSearch}
+      setCatalogSearch={setCatalogSearch}
+      mobileIngredientFilter={mobileIngredientFilter}
+      setMobileIngredientFilter={setMobileIngredientFilter}
+      mobileStorageFocus={mobileStorageFocus}
+      setMobileStorageFocus={setMobileStorageFocus}
+      mobilePrioritySummaries={mobilePrioritySummaries}
+      mobileStorageCards={mobileStorageCards}
+      mobileCatalogSummaries={mobileCatalogSummaries}
+      mobileShoppingCards={mobileShoppingCards}
+      mobileHasCatalogFilters={mobileHasCatalogFilters}
+      openDetailView={openDetailView}
+      openInventoryOverlay={openInventoryOverlay}
+      openConsumeOverlay={openConsumeOverlay}
+      openShoppingOverlay={openShoppingOverlay}
+      openDestroyExpiredOverlay={openDestroyExpiredOverlay}
+      openCreateView={openCreateView}
+      openInventoryFromShopping={openInventoryFromShopping}
+      buildPriorityStatus={buildInventoryCardStatus}
+      buildCatalogStatus={buildCatalogCardStatus}
+      buildInventorySummaryLine={buildInventorySummaryLine}
+      buildShoppingReason={resolveShoppingReason}
+      countDisposableExpiredItems={(summary) => buildDisposableExpiredInventoryItems(summary).length}
+      renderStorageIllustration={InventoryStorageIllustration}
+      renderIcon={(name) => <IngredientWorkspaceIcon name={name as IngredientWorkspaceIconName} />}
+      isUpdatingShopping={props.isUpdatingShopping}
+      isCreatingInventory={props.isCreatingInventory}
+      catalogCountLabel={catalogCountLabel}
+      catalogCategoryFilter={catalogCategoryFilter}
+      catalogStatusFilter={catalogStatusFilter}
+      catalogCategories={catalogCategories}
+      catalogStatusItems={CATALOG_STATUS_FILTERS}
+      catalogStatusCounts={catalogStatusCounts}
+      filteredSummaries={filteredSummaries}
+      expandedCatalogIngredientId={expandedCatalogIngredientId}
+      catalogGridStyle={catalogGridStyle}
+      setCatalogCategoryFilter={setCatalogCategoryFilter}
+      setCatalogStatusFilter={setCatalogStatusFilter}
+      openInventoryPanel={openInventoryPanel}
+      toggleCatalogCard={toggleCatalogCard}
+      catalogMeasureRef={catalogMeasureRef}
+      ScrollableChipRail={ScrollableChipRail}
+      IngredientCatalogCard={IngredientCatalogCard}
+      inventorySearch={inventorySearch}
+      setInventorySearch={setInventorySearch}
+      inventoryQuickFilter={inventoryQuickFilter}
+      setInventoryQuickFilter={setInventoryQuickFilter}
+      inventoryStorageFocus={inventoryStorageFocus}
+      setInventoryStorageFocus={setInventoryStorageFocus}
+      inventorySortMode={inventorySortMode}
+      setInventorySortMode={setInventorySortMode}
+      focusedInventorySummaries={focusedInventorySummaries}
+      inventoryStorageOverview={inventoryStorageOverview}
+      inventoryGroups={inventoryGroups}
+      InventoryStorageOverviewCard={InventoryStorageOverviewCard}
+      InventoryIngredientCard={InventoryIngredientCard}
+      shoppingOverview={shoppingOverview}
+      shoppingFocus={shoppingFocus}
+      setShoppingFocus={setShoppingFocus}
+      shoppingSearch={shoppingSearch}
+      setShoppingSearch={setShoppingSearch}
+      pendingShoppingCards={pendingShoppingCards}
+      visiblePendingShoppingCards={visiblePendingShoppingCards}
+      completedShoppingCards={completedShoppingCards}
+      visibleCompletedShoppingCards={visibleCompletedShoppingCards}
+      activeShoppingOverview={activeShoppingOverview}
+      showCompletedShopping={showCompletedShopping}
+      setShowCompletedShopping={setShowCompletedShopping}
+      onUpdateShoppingItem={props.updateShoppingItem}
+      ShoppingWorkRow={ShoppingWorkRow}
+      ShoppingHistoryRow={ShoppingHistoryRow}
+    />
   );
 }

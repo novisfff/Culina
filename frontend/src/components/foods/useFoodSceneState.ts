@@ -1,9 +1,8 @@
 import { useMemo, useState, type FormEvent } from 'react';
 import type { Food, FoodScene } from '../../api/types';
-import { generateImageFromText } from '../../lib/aiImages';
 import {
   IDLE_IMAGE_GENERATION_STATE,
-  type ImageGenerationUiState,
+  useImageComposer,
 } from '../../hooks/useImageComposer';
 import { buildFoodSceneImagePayload } from './FoodWorkspaceModel';
 
@@ -64,7 +63,6 @@ export function useFoodSceneState(input: {
   const [isSceneManagerOpen, setIsSceneManagerOpen] = useState(false);
   const [sceneFormMode, setSceneFormMode] = useState<FoodSceneFormMode>(null);
   const [sceneDraft, setSceneDraft] = useState<ManagedFoodScene>(() => blankFoodSceneDraft());
-  const [sceneImageState, setSceneImageState] = useState<ImageGenerationUiState>(IDLE_IMAGE_GENERATION_STATE);
 
   const sceneCards = useMemo(() => {
     const counts = new Map<string, number>();
@@ -88,10 +86,33 @@ export function useFoodSceneState(input: {
         .map(([name, count]) => ({ id: '', name, description: '', imagePrompt: '', imageUrl: undefined, custom: true, count })),
     ].sort((a, b) => b.count - a.count || a.name.localeCompare(b.name, 'zh-CN')).slice(0, 12);
   }, [input.foodScenes, input.foods]);
+  const sceneImageComposer = useImageComposer({
+    value: {
+      generatedAsset:
+        sceneDraft.imageAssetId && sceneDraft.imageAssetUrl
+          ? {
+              id: sceneDraft.imageAssetId,
+              name: sceneDraft.name,
+              url: sceneDraft.imageAssetUrl,
+              source: 'ai',
+              alt: sceneDraft.name,
+              created_at: '',
+            }
+          : undefined,
+    },
+    payload: buildFoodSceneImagePayload(sceneDraft),
+    onChange: (next) =>
+      setSceneDraft((current) => ({
+        ...current,
+        imageAssetId: next.generatedAsset?.id,
+        imageAssetUrl: next.generatedAsset?.url,
+      })),
+    generateErrorMessage: '场景封面生成失败',
+  });
 
   function openCreateScene(name = '') {
     setSceneDraft(blankFoodSceneDraft(name));
-    setSceneImageState(IDLE_IMAGE_GENERATION_STATE);
+    sceneImageComposer.setState(IDLE_IMAGE_GENERATION_STATE);
     setSceneFormMode('create');
     setIsSceneManagerOpen(true);
   }
@@ -99,7 +120,7 @@ export function useFoodSceneState(input: {
   function closeSceneForm() {
     setSceneFormMode(null);
     setSceneDraft(blankFoodSceneDraft());
-    setSceneImageState(IDLE_IMAGE_GENERATION_STATE);
+    sceneImageComposer.setState(IDLE_IMAGE_GENERATION_STATE);
   }
 
   function openEditScene(scene: {
@@ -123,7 +144,7 @@ export function useFoodSceneState(input: {
       custom: scene.custom ?? true,
       hidden: false,
     });
-    setSceneImageState(IDLE_IMAGE_GENERATION_STATE);
+    sceneImageComposer.setState(IDLE_IMAGE_GENERATION_STATE);
     setSceneFormMode('edit');
     setIsSceneManagerOpen(true);
   }
@@ -159,28 +180,17 @@ export function useFoodSceneState(input: {
   async function generateFoodSceneImage() {
     const name = sceneDraft.name.trim();
     if (!name) {
-      setSceneImageState({ isGenerating: false, errorMessage: '请先填写场景名称。' });
+      sceneImageComposer.setState({ isGenerating: false, errorMessage: '请先填写场景名称。' });
       return;
     }
-    setSceneImageState({ isGenerating: true, errorMessage: null });
-    try {
-      const nextImages = await generateImageFromText(buildFoodSceneImagePayload(sceneDraft));
-      const generatedAsset = nextImages.generatedAsset;
-      if (!generatedAsset) {
-        throw new Error('AI 封面生成失败');
-      }
-      setSceneDraft((current) => ({
-        ...current,
-        name,
-        description: current.description.trim(),
-        imagePrompt: current.imagePrompt.trim(),
-        imageAssetId: generatedAsset.id,
-        imageAssetUrl: generatedAsset.url,
-      }));
-      setSceneImageState(IDLE_IMAGE_GENERATION_STATE);
-    } catch (reason) {
-      setSceneImageState({ isGenerating: false, errorMessage: resolveErrorMessage(reason, '场景封面生成失败') });
-    }
+    const nextDraft = {
+      ...sceneDraft,
+      name,
+      description: sceneDraft.description.trim(),
+      imagePrompt: sceneDraft.imagePrompt.trim(),
+    };
+    setSceneDraft(nextDraft);
+    await sceneImageComposer.generate('text', buildFoodSceneImagePayload(nextDraft));
   }
 
   return {
@@ -193,7 +203,7 @@ export function useFoodSceneState(input: {
     sceneCards,
     sceneDraft,
     sceneFormMode,
-    sceneImageState,
+    sceneImageState: sceneImageComposer.state,
     setIsSceneManagerOpen,
     setSceneDraft,
     submitScene,
