@@ -5241,9 +5241,6 @@ function App() {
       </div>
       {activeTab !== 'ai' && (
         <nav className="mobile-bottom-nav" aria-label="手机主导航">
-          <svg className="mobile-bottom-nav-frame" viewBox="0 0 360 112" preserveAspectRatio="none" aria-hidden="true">
-            <path d="M18 43H140C153 43 152 11 180 11C208 11 207 43 220 43H342C352 43 359 51 359 61V94C359 104 352 111 342 111H18C8 111 1 104 1 94V61C1 51 8 43 18 43Z" />
-          </svg>
           {MOBILE_NAV_ITEMS.map((item) => {
             const isActive = activeTab === item.key;
             const isAiTab = item.key === 'ai';
