@@ -1,9 +1,11 @@
-import type { Dispatch, SetStateAction, UIEvent } from 'react';
+import { useMemo, useState, type Dispatch, type FormEvent, type SetStateAction, type UIEvent } from 'react';
 import type { ActivityLog, Food, FoodPlanItem, FoodRecommendations, Ingredient, InventoryItem, MealLog, MealType, Recipe, ShoppingListItem } from '../../api/types';
 import type { TabKey } from '../../app/AppShell';
 import { DashboardIcon, DashboardMealIcon, ShellIcon } from '../../app/shellIcons';
-import { Badge, EmptyState } from '../../components/ui-kit';
-import { buildIngredientPlaceholderSvg, FOOD_TYPE_LABELS, formatDate, formatDateTime, getFoodCover, INVENTORY_STATUS_LABELS, MEAL_TYPE_LABELS } from '../../lib/ui';
+import { ActionButton, Badge, EmptyState, WorkspaceModal } from '../../components/ui-kit';
+import { MEAL_OPTIONS } from '../../components/foods/FoodWorkspaceOptions';
+import { addDateKeyDays } from '../../lib/date';
+import { buildIngredientPlaceholderSvg, FOOD_TYPE_LABELS, formatDate, formatDateTime, getFoodCover, INVENTORY_STATUS_LABELS, MEAL_TYPE_LABELS, todayKey } from '../../lib/ui';
 import {
   DASHBOARD_PLAN_MEAL_TYPES,
   findShoppingIngredient,
@@ -30,7 +32,6 @@ export type HomeDashboardProps = {
   dashboardRecommendationPageCount: number;
   dashboardRecommendations: DashboardRecommendation[];
   foodRecommendations?: FoodRecommendations | null;
-  today: string;
   dashboardCompletedCount: number;
   dashboardTodoItems: DashboardTodoItem[];
   visibleDashboardTodoItems: DashboardTodoItem[];
@@ -56,9 +57,10 @@ export type HomeDashboardProps = {
   isCreatingFoodPlanItem: boolean;
   resolveAssetUrl: (url?: string) => string | undefined;
   quickAddMeal: (payload: { food_id: string; date: string; meal_type: MealType; servings: number; note: string }) => Promise<unknown>;
+  createFoodPlanItem: (payload: { food_id: string; plan_date: string; meal_type: MealType; note: string }) => Promise<FoodPlanItem>;
   onNavigate: (tab: TabKey) => void;
   onRecommendationPageChange: Dispatch<SetStateAction<number>>;
-  onPendingRecipeCookChange: (recipeId: string | null) => void;
+  onStartRecipe: (recipeId: string, foodPlanItemId?: string) => void;
   onSelectedPlanDateChange: (date: string) => void;
   onHomePlanAddDialogOpen: (food: Food, fallbackMealType?: MealType) => void;
   onHomePlanAddEmptyDialogOpen: (planDate: string, mealType: MealType) => void;
@@ -75,6 +77,36 @@ export type HomeDashboardProps = {
   onFoodPlanNextWeek: () => void;
 };
 
+type HomeQuickMealDialogState = {
+  date: string;
+  food: Food;
+  mealType: MealType;
+};
+
+function getHomeQuickMealDateParts(dateKey: string) {
+  const [year, month, day] = dateKey.split('-').map(Number);
+  const date = new Date(year, (month || 1) - 1, day || 1);
+  return {
+    day: String(day || 1),
+    month: String(month || 1),
+    weekday: new Intl.DateTimeFormat('zh-CN', { weekday: 'short' }).format(date),
+  };
+}
+
+function getSuggestedHomeMealType(hour = new Date().getHours()): MealType {
+  if (hour < 10) return 'breakfast';
+  if (hour < 15) return 'lunch';
+  if (hour < 22) return 'dinner';
+  return 'snack';
+}
+
+function getHomeQuickDefaultMealType(food: Food, fallbackMealType?: MealType): MealType {
+  const suggestedMealType = fallbackMealType ?? getSuggestedHomeMealType();
+  if (food.suitable_meal_types.includes(suggestedMealType)) return suggestedMealType;
+  if (food.suitable_meal_types.length === 0) return suggestedMealType;
+  return food.suitable_meal_types[0] ?? suggestedMealType;
+}
+
 export function HomeDashboard(props: HomeDashboardProps) {
   const {
     sidebarFamilyName,
@@ -88,7 +120,6 @@ export function HomeDashboard(props: HomeDashboardProps) {
     dashboardRecommendationPageCount,
     dashboardRecommendations,
     foodRecommendations,
-    today,
     dashboardCompletedCount,
     dashboardTodoItems,
     visibleDashboardTodoItems,
@@ -114,9 +145,10 @@ export function HomeDashboard(props: HomeDashboardProps) {
     isCreatingFoodPlanItem,
     resolveAssetUrl,
     quickAddMeal,
+    createFoodPlanItem,
     onNavigate,
     onRecommendationPageChange,
-    onPendingRecipeCookChange,
+    onStartRecipe,
     onSelectedPlanDateChange,
     onHomePlanAddDialogOpen: openHomePlanAddDialog,
     onHomePlanAddEmptyDialogOpen: openHomePlanAddEmptyDialog,
@@ -132,6 +164,48 @@ export function HomeDashboard(props: HomeDashboardProps) {
     onFoodPlanCurrentWeek,
     onFoodPlanNextWeek,
   } = props;
+  const [quickMealDialog, setQuickMealDialog] = useState<HomeQuickMealDialogState | null>(null);
+  const quickMealDateOptions = useMemo(
+    () => Array.from({ length: 7 }, (_, index) => addDateKeyDays(todayKey(), index)),
+    []
+  );
+
+  function openQuickMealDialog(food: Food, fallbackMealType?: MealType) {
+    setQuickMealDialog({
+      date: todayKey(),
+      food,
+      mealType: getHomeQuickDefaultMealType(food, fallbackMealType),
+    });
+  }
+
+  function updateQuickMealDialog(patch: Partial<Pick<HomeQuickMealDialogState, 'date' | 'mealType'>>) {
+    setQuickMealDialog((current) => (current ? { ...current, ...patch } : current));
+  }
+
+  async function submitQuickMealDialog(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!quickMealDialog) return;
+    const current = quickMealDialog;
+    if (current.food.recipe_id) {
+      const planItem = await createFoodPlanItem({
+        food_id: current.food.id,
+        plan_date: current.date,
+        meal_type: current.mealType,
+        note: '',
+      });
+      setQuickMealDialog(null);
+      onStartRecipe(current.food.recipe_id, planItem.id);
+      return;
+    }
+    await quickAddMeal({
+      food_id: current.food.id,
+      date: current.date,
+      meal_type: current.mealType,
+      servings: 1,
+      note: '首页快捷记录',
+    });
+    setQuickMealDialog(null);
+  }
 
   return (
     <>
@@ -147,7 +221,6 @@ export function HomeDashboard(props: HomeDashboardProps) {
             dashboardRecommendationPageCount={dashboardRecommendationPageCount}
             dashboardRecommendations={dashboardRecommendations}
             foodRecommendations={foodRecommendations}
-            today={today}
             dashboardCompletedCount={dashboardCompletedCount}
             dashboardTodoItems={dashboardTodoItems}
             activeFoodPlanItems={activeFoodPlanItems}
@@ -163,17 +236,98 @@ export function HomeDashboard(props: HomeDashboardProps) {
             isQuickAdding={isQuickAdding}
             isCreatingFoodPlanItem={isCreatingFoodPlanItem}
             resolveAssetUrl={resolveAssetUrl}
-            quickAddMeal={quickAddMeal}
             onNavigate={onNavigate}
             onRecommendationPageChange={onRecommendationPageChange}
-            onPendingRecipeCookChange={onPendingRecipeCookChange}
             onSelectedPlanDateChange={onSelectedPlanDateChange}
+            onFoodPlanPreviousWeek={onFoodPlanPreviousWeek}
+            onFoodPlanNextWeek={onFoodPlanNextWeek}
+            onQuickStartFood={openQuickMealDialog}
             onHomePlanAddDialogOpen={openHomePlanAddDialog}
             onHomePlanAddEmptyDialogOpen={openHomePlanAddEmptyDialog}
             onHomePlanDetailOpen={openHomePlanDetail}
             onHomeRestockOpen={openHomeRestock}
             onDashboardTodoClick={handleDashboardTodoClick}
           />
+
+          {quickMealDialog && (() => {
+            const cover = resolveAssetUrl(getFoodCover(quickMealDialog.food, recipes));
+            const isCookAction = Boolean(quickMealDialog.food.recipe_id);
+            const isSubmitting = Boolean(isQuickAdding || (isCookAction && isCreatingFoodPlanItem));
+
+            return (
+              <div className="workspace-overlay-root">
+                <div className="workspace-overlay-backdrop" onClick={() => setQuickMealDialog(null)} />
+                <WorkspaceModal
+                  title={isCookAction ? '开始做这道菜' : '开始做'}
+                  description="确认日期和餐次，点一下就完成。"
+                  eyebrow="快速操作"
+                  className="food-quick-meal-modal"
+                  onClose={() => setQuickMealDialog(null)}
+                >
+                  <form className="food-quick-meal-form" onSubmit={submitQuickMealDialog}>
+                    <div className="food-quick-meal-hero">
+                      <span className="food-quick-meal-cover">
+                        {cover ? <img src={cover} alt="" /> : <span>{quickMealDialog.food.name.slice(0, 2)}</span>}
+                      </span>
+                      <span className="food-quick-meal-copy">
+                        <strong>{quickMealDialog.food.name}</strong>
+                        <small>
+                          {FOOD_TYPE_LABELS[quickMealDialog.food.type]}
+                          {quickMealDialog.food.source_name || quickMealDialog.food.purchase_source ? ` · ${quickMealDialog.food.source_name || quickMealDialog.food.purchase_source}` : ''}
+                        </small>
+                      </span>
+                    </div>
+
+                    <div className="food-quick-meal-field">
+                      <span>日期</span>
+                      <div className="food-quick-meal-date-strip" role="listbox" aria-label="选择日期">
+                        {quickMealDateOptions.map((dateKey, index) => {
+                          const parts = getHomeQuickMealDateParts(dateKey);
+                          const label = index === 0 ? '今天' : index === 1 ? '明天' : parts.weekday;
+                          return (
+                            <button
+                              key={dateKey}
+                              type="button"
+                              className={quickMealDialog.date === dateKey ? 'active' : ''}
+                              onClick={() => updateQuickMealDialog({ date: dateKey })}
+                            >
+                              <span>{label}</span>
+                              <strong>{parts.month}/{parts.day}</strong>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    <div className="food-quick-meal-field">
+                      <span>餐次</span>
+                      <div className="food-quick-meal-segments" role="radiogroup" aria-label="选择餐次">
+                        {MEAL_OPTIONS.map((meal) => (
+                          <button
+                            key={meal.value}
+                            type="button"
+                            className={quickMealDialog.mealType === meal.value ? 'active' : ''}
+                            onClick={() => updateQuickMealDialog({ mealType: meal.value })}
+                          >
+                            {meal.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="workspace-overlay-actions food-quick-meal-actions">
+                      <ActionButton tone="secondary" type="button" onClick={() => setQuickMealDialog(null)}>
+                        取消
+                      </ActionButton>
+                      <ActionButton tone="primary" type="submit" disabled={isSubmitting}>
+                        {isCookAction ? '开始做' : '记这一餐'}
+                      </ActionButton>
+                    </div>
+                  </form>
+                </WorkspaceModal>
+              </div>
+            );
+          })()}
 
           <main className="dashboard-page">
             <section className="card dashboard-hero">
@@ -252,21 +406,8 @@ export function HomeDashboard(props: HomeDashboardProps) {
                                 <button
                                   className="solid-button button-compact"
                                   type="button"
-                                  onClick={() => {
-                                    if (food.recipe_id) {
-                                      onPendingRecipeCookChange(food.recipe_id);
-                                      onNavigate('recipes');
-                                      return;
-                                    }
-                                    void quickAddMeal({
-                                      food_id: food.id,
-                                      date: today,
-                                      meal_type: foodRecommendations?.target_meal_type ?? 'dinner',
-                                      servings: 1,
-                                      note: '首页快捷记录',
-                                    });
-                                  }}
-                                  disabled={isQuickAdding}
+                                  onClick={() => openQuickMealDialog(food, foodRecommendations?.target_meal_type)}
+                                  disabled={isQuickAdding || isCreatingFoodPlanItem}
                                 >
                                   开始做
                                 </button>

@@ -193,8 +193,8 @@ export function FoodDetailDrawer(props: Props) {
 
         <section className="food-detail-section">
           <div className="food-detail-section-head">
-            <h4>加入今天</h4>
-            <span>快速记录一餐</span>
+            <h4>快速记录</h4>
+            <span>选择日期和餐次</span>
           </div>
           <div className="food-detail-meal-actions">
             {props.detailMealOptions.map((item) => (

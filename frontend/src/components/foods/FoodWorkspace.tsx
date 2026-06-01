@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useState, type FormEvent } from 'react';
 import type {
   Food,
   FoodPlanItem,
@@ -14,6 +14,7 @@ import type {
   Recipe,
 } from '../../api/types';
 import { resolveAssetUrl } from '../../lib/assets';
+import { addDateKeyDays } from '../../lib/date';
 import {
   ActionButton,
   Badge,
@@ -145,6 +146,14 @@ type RecommendationCardViewModel = {
   reasons: string[];
   primaryAction: 'cook_recipe' | 'quick_add_meal' | 'review_food';
   recipeAvailability?: FoodRecommendationItem['recipe_availability'];
+};
+
+type QuickMealDialogState = {
+  action: 'cook' | 'eat';
+  date: string;
+  food: Food;
+  mealType: MealType;
+  recipeId?: string;
 };
 
 function getFoodPlanDateParts(dateKey: string) {
@@ -300,6 +309,12 @@ function getDefaultMealType(food: Food): MealType {
   if (food.suitable_meal_types.includes('dinner')) return 'dinner';
   if (food.suitable_meal_types.includes('lunch')) return 'lunch';
   return food.suitable_meal_types[0] ?? 'dinner';
+}
+
+function getQuickDefaultMealType(food: Food, suggestedMealType: MealType): MealType {
+  if (food.suitable_meal_types.includes(suggestedMealType)) return suggestedMealType;
+  if (food.suitable_meal_types.length === 0) return suggestedMealType;
+  return getDefaultMealType(food);
 }
 
 function getPrimaryFoodActionLabel(food: Food) {
@@ -833,6 +848,11 @@ export function FoodWorkspace(props: Props) {
   const nextGovernanceSummary = nextGovernanceFood ? `${nextGovernanceFood.name} · ${getFoodGovernanceIssueLabels(nextGovernanceFood, props.recipes).join('、')}` : '资料已够完整';
   const hasFoodFilters = Boolean(search.trim()) || typeFilter !== 'all' || mealFilter !== 'all' || lensFilter !== 'all' || sceneFilter !== 'all' || governanceIssueFilter !== 'all';
   const todayDate = todayKey();
+  const [quickMealDialog, setQuickMealDialog] = useState<QuickMealDialogState | null>(null);
+  const quickMealDateOptions = useMemo(
+    () => Array.from({ length: 7 }, (_, index) => addDateKeyDays(todayDate, index)),
+    [todayDate]
+  );
   const mobileDefaultSceneCards = [
     {
       key: 'protein',
@@ -1009,24 +1029,59 @@ export function FoodWorkspace(props: Props) {
     imageComposer.setState(IDLE_IMAGE_GENERATION_STATE);
   }
 
+  function openQuickMealDialog(food: Food, mealType: MealType, action: QuickMealDialogState['action']) {
+    setQuickMealDialog({
+      action,
+      date: todayKey(),
+      food,
+      mealType,
+      recipeId: action === 'cook' ? food.recipe_id ?? undefined : undefined,
+    });
+  }
+
+  function updateQuickMealDialog(patch: Partial<Pick<QuickMealDialogState, 'date' | 'mealType'>>) {
+    setQuickMealDialog((current) => (current ? { ...current, ...patch } : current));
+  }
+
+  async function submitQuickMealDialog(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!quickMealDialog) return;
+    const current = quickMealDialog;
+    if (current.action === 'cook' && current.recipeId) {
+      const planItem = await props.createFoodPlanItem({
+        food_id: current.food.id,
+        plan_date: current.date,
+        meal_type: current.mealType,
+        note: '',
+      });
+      setFeedback(`${current.food.name} 已安排到${current.date === todayKey() ? '今天' : formatDate(current.date)}${MEAL_TYPE_LABELS[current.mealType]}`);
+      setQuickMealDialog(null);
+      props.onStartRecipe(current.recipeId, planItem.id);
+      return;
+    }
+    await quickAdd(current.food, current.mealType, current.date);
+    setQuickMealDialog(null);
+  }
+
   function handleRecommendationPrimaryAction(item: RecommendationCardViewModel) {
     if (item.primaryAction === 'cook_recipe' && item.food.recipe_id) {
-      props.onStartRecipe(item.food.recipe_id);
+      openQuickMealDialog(item.food, item.mealType, 'cook');
       return;
     }
     if (item.primaryAction === 'quick_add_meal') {
-      void quickAdd(item.food, item.mealType);
+      openQuickMealDialog(item.food, item.mealType, 'eat');
       return;
     }
     openDetail(item.food);
   }
 
   function handleFoodCardPrimaryAction(food: Food, mealType: MealType) {
+    const initialMealType = getQuickDefaultMealType(food, suggestedMealType);
     if (normalizeFoodType(food) === 'selfMade' && food.recipe_id) {
-      props.onStartRecipe(food.recipe_id);
+      openQuickMealDialog(food, initialMealType, 'cook');
       return;
     }
-    void quickAdd(food, mealType);
+    openQuickMealDialog(food, initialMealType, 'eat');
   }
 
   function openNextGovernanceFood() {
@@ -1313,7 +1368,7 @@ export function FoodWorkspace(props: Props) {
                     disabled={props.isUpdatingFavorite}
                     onClick={() => void props.updateFoodFavorite(food.id, !food.favorite)}
                   >
-                    <FoodUiIcon name="heart" />
+                    <FoodUiIcon name={food.favorite ? 'heartFilled' : 'heart'} />
                   </button>
                 </div>
                 <div className="food-work-card-body">
@@ -1504,6 +1559,87 @@ export function FoodWorkspace(props: Props) {
         </aside>}
       />
 
+      {quickMealDialog && (() => {
+        const cover = getFoodCover(quickMealDialog.food, props.recipes);
+        const isCookAction = quickMealDialog.action === 'cook' && quickMealDialog.recipeId;
+        const title = isCookAction ? '开始做这道菜' : getPrimaryFoodActionLabel(quickMealDialog.food);
+        const isSubmitting = Boolean(props.isQuickAdding || (isCookAction && props.isUpdatingPlan));
+
+        return (
+          <div className="workspace-overlay-root">
+            <div className="workspace-overlay-backdrop" onClick={() => setQuickMealDialog(null)} />
+            <WorkspaceModal
+              title={title}
+              description="确认日期和餐次，点一下就完成。"
+              eyebrow="快速操作"
+              className="food-quick-meal-modal"
+              onClose={() => setQuickMealDialog(null)}
+            >
+              <form className="food-quick-meal-form" onSubmit={submitQuickMealDialog}>
+                <div className="food-quick-meal-hero">
+                  <span className="food-quick-meal-cover">
+                    {cover ? <img src={resolveFoodAssetUrl(cover)} alt="" /> : <span>{quickMealDialog.food.name.slice(0, 2)}</span>}
+                  </span>
+                  <span className="food-quick-meal-copy">
+                    <strong>{quickMealDialog.food.name}</strong>
+                    <small>
+                      {FOOD_TYPE_LABELS[normalizeFoodType(quickMealDialog.food)]}
+                      {quickMealDialog.food.source_name || quickMealDialog.food.purchase_source ? ` · ${quickMealDialog.food.source_name || quickMealDialog.food.purchase_source}` : ''}
+                    </small>
+                  </span>
+                </div>
+
+                <div className="food-quick-meal-field">
+                  <span>日期</span>
+                  <div className="food-quick-meal-date-strip" role="listbox" aria-label="选择日期">
+                    {quickMealDateOptions.map((dateKey, index) => {
+                      const parts = getFoodPlanDateParts(dateKey);
+                      const label = index === 0 ? '今天' : index === 1 ? '明天' : parts.weekday;
+                      return (
+                        <button
+                          key={dateKey}
+                          type="button"
+                          className={quickMealDialog.date === dateKey ? 'active' : ''}
+                          onClick={() => updateQuickMealDialog({ date: dateKey })}
+                        >
+                          <span>{label}</span>
+                          <strong>{parts.month}/{parts.day}</strong>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div className="food-quick-meal-field">
+                  <span>餐次</span>
+                  <div className="food-quick-meal-segments" role="radiogroup" aria-label="选择餐次">
+                    {MEAL_OPTIONS.map((meal) => (
+                      <button
+                        key={meal.value}
+                        type="button"
+                        className={quickMealDialog.mealType === meal.value ? 'active' : ''}
+                        onClick={() => updateQuickMealDialog({ mealType: meal.value })}
+                      >
+                        {meal.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="workspace-overlay-actions food-quick-meal-actions">
+                  <ActionButton tone="secondary" type="button" onClick={() => setQuickMealDialog(null)}>
+                    取消
+                  </ActionButton>
+                  <ActionButton tone="primary" type="submit" disabled={isSubmitting}>
+                    {isCookAction ? '开始做' : '记这一餐'}
+                  </ActionButton>
+                </div>
+              </form>
+            </WorkspaceModal>
+          </div>
+        );
+      })()}
+
       {detailFood && (() => {
         const usage = getMealUsage(detailFood, props.mealLogs);
         const expiry = describeExpiry(detailFood);
@@ -1546,7 +1682,7 @@ export function FoodWorkspace(props: Props) {
             onOpenLogs={props.onOpenLogs}
             onOpenPlanDialog={openPlanDialog}
             onOpenRecipes={props.onOpenRecipes}
-            onQuickAdd={(food, mealType) => void quickAdd(food, mealType)}
+            onQuickAdd={(food, mealType) => openQuickMealDialog(food, mealType, 'eat')}
             resolveAssetUrl={resolveFoodAssetUrl}
           />
         );

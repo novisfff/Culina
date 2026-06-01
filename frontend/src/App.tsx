@@ -479,7 +479,6 @@ function App() {
             dashboardRecommendationPageCount={dashboardRecommendationPageCount}
             dashboardRecommendations={dashboardRecommendations}
             foodRecommendations={foodRecommendations}
-            today={today}
             dashboardCompletedCount={dashboardCompletedCount}
             dashboardTodoItems={dashboardTodoItems}
             visibleDashboardTodoItems={visibleDashboardTodoItems}
@@ -505,9 +504,14 @@ function App() {
             isCreatingFoodPlanItem={createFoodPlanItemMutation.isPending}
             resolveAssetUrl={resolveDashboardAssetUrl}
             quickAddMeal={(payload) => quickAddMealMutation.mutateAsync(payload)}
+            createFoodPlanItem={(payload) => createFoodPlanItemMutation.mutateAsync(payload)}
             onNavigate={setActiveTab}
             onRecommendationPageChange={setDashboardRecommendationPage}
-            onPendingRecipeCookChange={setPendingRecipeCookId}
+            onStartRecipe={(recipeId, foodPlanItemId) => {
+              setPendingRecipeCookId(recipeId);
+              setPendingFoodPlanCookItemId(foodPlanItemId ?? null);
+              setActiveTab('recipes');
+            }}
             onSelectedPlanDateChange={setSelectedDashboardPlanDate}
             onHomePlanAddDialogOpen={openHomePlanAddDialog}
             onHomePlanAddEmptyDialogOpen={openHomePlanAddEmptyDialog}

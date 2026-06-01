@@ -1,7 +1,8 @@
-import type { FormEvent } from 'react';
+import { useMemo, useState, type FormEvent } from 'react';
 import type { Ingredient, IngredientExpiryMode, IngredientUnitConversion, InventoryStatus } from '../../api/types';
+import { resolveAssetUrl } from '../../lib/assets';
 import { addDateKeyDays } from '../../lib/date';
-import { formatDate, INVENTORY_STATUS_LABELS, todayKey } from '../../lib/ui';
+import { buildIngredientPlaceholderSvg, formatDate, INVENTORY_STATUS_LABELS, todayKey } from '../../lib/ui';
 import {
   ActionButton,
   Badge,
@@ -44,6 +45,18 @@ type IngredientInventoryOverlayProps = {
 };
 
 export function IngredientInventoryOverlay(props: IngredientInventoryOverlayProps) {
+  const [ingredientPickerOpen, setIngredientPickerOpen] = useState(false);
+  const visibleIngredientOptions = useMemo(() => {
+    const query = props.inventoryForm.ingredientQuery.trim().toLowerCase();
+    const matched = props.ingredients.filter((ingredient) => {
+      if (!query) return true;
+      return [ingredient.name, ingredient.category, ingredient.default_storage, ingredient.notes]
+        .filter(Boolean)
+        .some((value) => String(value).toLowerCase().includes(query));
+    });
+    return matched.slice(0, 8);
+  }, [props.ingredients, props.inventoryForm.ingredientQuery]);
+
   return (
     <WorkspaceModal
       title="登记这批库存"
@@ -89,25 +102,65 @@ export function IngredientInventoryOverlay(props: IngredientInventoryOverlayProp
             )}
 
           {!props.inventoryForm.ingredientLocked && !props.selectedInventoryIngredient && (
-            <label className="ingredients-restock-search-field">
+            <div className="ingredients-restock-search-field ingredients-restock-picker-field">
               <span>食材</span>
-              <input
-                className="text-input"
-                list="ingredient-restock-options"
-                placeholder="搜索或选择食材"
-                value={props.inventoryForm.ingredientQuery}
-                onChange={(event) => {
-                  const nextQuery = event.target.value;
-                  const ingredient = props.ingredients.find((item) => item.name === nextQuery) ?? null;
-                  props.syncInventoryIngredient(ingredient, nextQuery);
-                }}
-              />
-              <datalist id="ingredient-restock-options">
-                {props.ingredients.map((ingredient) => (
-                  <option key={ingredient.id} value={ingredient.name} />
-                ))}
-              </datalist>
-            </label>
+              <div className="ingredients-restock-picker-shell">
+                <input
+                  className="text-input"
+                  placeholder="搜索或选择食材"
+                  value={props.inventoryForm.ingredientQuery}
+                  onFocus={() => setIngredientPickerOpen(true)}
+                  onBlur={() => window.setTimeout(() => setIngredientPickerOpen(false), 120)}
+                  onChange={(event) => {
+                    const nextQuery = event.target.value;
+                    const ingredient = props.ingredients.find((item) => item.name === nextQuery) ?? null;
+                    props.syncInventoryIngredient(ingredient, nextQuery);
+                    setIngredientPickerOpen(true);
+                  }}
+                />
+                <button
+                  className="ingredients-restock-picker-toggle"
+                  type="button"
+                  aria-label="展开食材选择"
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={() => setIngredientPickerOpen((current) => !current)}
+                >
+                  ▼
+                </button>
+                {ingredientPickerOpen && (
+                  <div className="ingredients-restock-picker-menu" role="listbox" aria-label="选择食材">
+                    {visibleIngredientOptions.length > 0 ? (
+                      visibleIngredientOptions.map((ingredient) => {
+                        const imageUrl =
+                          resolveAssetUrl(ingredient.image?.url) ?? buildIngredientPlaceholderSvg(ingredient.name);
+                        return (
+                          <button
+                            key={ingredient.id}
+                            type="button"
+                            role="option"
+                            onMouseDown={(event) => event.preventDefault()}
+                            onClick={() => {
+                              props.syncInventoryIngredient(ingredient, ingredient.name);
+                              setIngredientPickerOpen(false);
+                            }}
+                          >
+                            <img src={imageUrl} alt="" />
+                            <span>
+                              <strong>{ingredient.name}</strong>
+                              <small>
+                                {ingredient.category || '未分类'} · 默认 {ingredient.default_unit || '个'} · {ingredient.default_storage || '常温'}
+                              </small>
+                            </span>
+                          </button>
+                        );
+                      })
+                    ) : (
+                      <div className="ingredients-restock-picker-empty">没有匹配的食材</div>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
           )}
 
           {props.selectedInventoryIngredient && (

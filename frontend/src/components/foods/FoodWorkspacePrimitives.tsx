@@ -7,6 +7,7 @@ export type FoodIconName =
   | 'calendar'
   | 'cloche'
   | 'heart'
+  | 'heartFilled'
   | 'home'
   | 'clock'
   | 'plus'
@@ -182,6 +183,16 @@ export function FoodUiIcon(props: { name: FoodIconName; className?: string }) {
       )}
       {props.name === 'heart' && (
         <path {...strokeProps} d="M20.4 5.6a5 5 0 0 0-7.1 0L12 6.9l-1.3-1.3a5 5 0 0 0-7.1 7.1L12 21l8.4-8.3a5 5 0 0 0 0-7.1Z" />
+      )}
+      {props.name === 'heartFilled' && (
+        <path
+          d="M20.4 5.6a5 5 0 0 0-7.1 0L12 6.9l-1.3-1.3a5 5 0 0 0-7.1 7.1L12 21l8.4-8.3a5 5 0 0 0 0-7.1Z"
+          fill="currentColor"
+          stroke="currentColor"
+          strokeWidth={2}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
       )}
       {props.name === 'home' && (
         <>

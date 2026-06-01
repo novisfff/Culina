@@ -114,17 +114,6 @@ export function IngredientMobileView(props: IngredientMobileViewProps) {
       <section className="mobile-ingredient-panel">
         <div className="mobile-ingredient-section-head">
           <h2>今天先处理 <span>{props.mobilePrioritySummaries.length} 项</span></h2>
-          <button
-            type="button"
-            onClick={() => {
-              props.setMobileIngredientFilter('alerted');
-              props.setMobileStorageFocus('all');
-            }}
-            disabled={props.mobilePrioritySummaries.length === 0}
-          >
-            看提醒
-            {props.renderIcon('chevronDown')}
-          </button>
         </div>
         {props.mobilePrioritySummaries.length > 0 ? (
           <div className="mobile-ingredient-priority-scroller">

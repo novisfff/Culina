@@ -1,7 +1,7 @@
 import { useMemo, useState, type FormEvent } from 'react';
 import type { Food, FoodPlanItem, MealLog, MealType } from '../../api/types';
 import type { NoticeState } from '../../hooks/useNotice';
-import { todayKey } from '../../lib/ui';
+import { addDateKeyDays, todayKey } from '../../lib/date';
 import type { FoodPlanDetailFormState } from './FoodPlanDetailModal';
 
 type PlanFormState = {
@@ -10,13 +10,6 @@ type PlanFormState = {
   mealType: MealType;
   note: string;
 };
-
-function addFoodPlanDateDays(dateKey: string, days: number) {
-  const [year, month, day] = dateKey.split('-').map(Number);
-  const date = new Date(year, (month || 1) - 1, day || 1);
-  date.setDate(date.getDate() + days);
-  return date.toISOString().slice(0, 10);
-}
 
 function resolveErrorMessage(reason: unknown, fallback: string) {
   if (reason instanceof Error && reason.message.trim()) {
@@ -67,7 +60,7 @@ export function useFoodPlanState(input: {
     ? input.foods.find((food) => food.id === activePlanDetailItem.food_id) ?? null
     : null;
   const foodPlanDays = Array.from({ length: 7 }, (_, index) => {
-    const date = addFoodPlanDateDays(input.foodPlanWeekRange.start, index);
+    const date = addDateKeyDays(input.foodPlanWeekRange.start, index);
     const items = activePlanItems.filter((item) => item.plan_date === date);
     return {
       date,
@@ -75,7 +68,7 @@ export function useFoodPlanState(input: {
       items,
     };
   });
-  const planDateOptions = Array.from({ length: 7 }, (_, index) => addFoodPlanDateDays(todayDate, index));
+  const planDateOptions = Array.from({ length: 90 }, (_, index) => addDateKeyDays(todayDate, index));
   const planFoodOptions = useMemo(() => {
     const query = planFoodSearch.trim().toLowerCase();
     return input.foods

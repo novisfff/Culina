@@ -43,8 +43,8 @@ export function RecipeShoppingDialog(props: RecipeShoppingDialogProps) {
     <div className="workspace-overlay-root">
       <div className="workspace-overlay-backdrop" onClick={props.onClose} />
       <WorkspaceModal
-        title={`加入采购：${props.card.recipe.title}`}
-        description="先确认要买什么，再加入采购清单。"
+        title="加入采购清单"
+        description={props.card.recipe.title}
         eyebrow="采购确认"
         closeLabel="×"
         closeAriaLabel="关闭采购确认"
@@ -56,7 +56,7 @@ export function RecipeShoppingDialog(props: RecipeShoppingDialogProps) {
             <div className="recipe-shopping-section-head">
               <div>
                 <h3>待加入采购清单</h3>
-                <p>缺料已自动列出，可改数量或删除。</p>
+                <p>确认数量和单位后加入清单。</p>
               </div>
               <Badge>{props.drafts.length} 项</Badge>
             </div>
@@ -126,7 +126,7 @@ export function RecipeShoppingDialog(props: RecipeShoppingDialogProps) {
             <div className="recipe-shopping-section-head compact">
               <div>
                 <h3>菜谱已有食材</h3>
-                <p>空间压缩显示，点加号也可加入采购。</p>
+                <p>点加号补进待买项。</p>
               </div>
             </div>
             <div className="recipe-shopping-candidate-list">
@@ -160,7 +160,7 @@ export function RecipeShoppingDialog(props: RecipeShoppingDialogProps) {
             <div className="recipe-shopping-section-head compact">
               <div>
                 <h3>添加任意食材</h3>
-                <p>适合顺手补调料、纸巾等自由项。</p>
+                <p>顺手补其他要买的东西。</p>
               </div>
             </div>
             <div className="recipe-shopping-custom-row">

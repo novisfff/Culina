@@ -45,7 +45,7 @@ export function FoodPlanDialog(props: FoodPlanDialogProps) {
       <div className="workspace-overlay-backdrop" onClick={props.onClose} />
       <WorkspaceModal
         title="加食物到菜单"
-        description="选择日期和餐次后加入当前周菜单。"
+        description="选择日期和餐次后加入菜单计划。"
         eyebrow="菜单计划"
         onClose={props.onClose}
         className="recipe-plan-modal food-plan-modal"

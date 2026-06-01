@@ -38,7 +38,7 @@ export function IngredientConsumeOverlay(props: IngredientConsumeOverlayProps) {
   return (
     <WorkspaceModal
       title="快速消费"
-      description="记下这次实际用掉多少，系统会自动从更早到期的批次开始扣减。"
+      description="输入这次用掉的量，系统自动扣减库存。"
       closeLabel="×"
       closeAriaLabel="关闭"
       className="consume-quick-modal"
@@ -57,57 +57,28 @@ export function IngredientConsumeOverlay(props: IngredientConsumeOverlayProps) {
                   <p>{props.selectedConsumeMeta.join(' · ')}</p>
                 </div>
                 <div className="consume-quick-identity-badges">
-                  <Badge>{props.selectedConsumeSummary.inventoryItems.length} 条批次</Badge>
+                  <Badge>剩余 {props.consumeTotalRemainingLabel}</Badge>
                   {props.consumeIsAllState && <Badge className="consume-quick-state-badge">接近清空</Badge>}
                 </div>
               </div>
-              <div className="consume-quick-identity-summary">
-                <article className="consume-quick-summary-card is-primary">
-                  <span>当前总剩余</span>
-                  <strong>{props.consumeTotalRemainingLabel}</strong>
-                  <p>{props.selectedConsumeSummary.inventoryItems.length} 条批次会参与这次扣减</p>
-                </article>
-                <article className="consume-quick-summary-card">
-                  <span>扣减方式</span>
-                  <strong>优先更早到期</strong>
-                  <p>系统会自动从更早到期的批次开始扣减。</p>
-                </article>
-              </div>
-              <div className="ingredients-consume-stock-strip consume-quick-stock-strip">
-                {props.consumeUnitOptions.map((item) => (
-                  <span key={`${props.selectedConsumeSummary.ingredient.id}-${item.unit}`} className="ingredient-visual-pill">
-                    可按 {item.unit} 记 {formatNumericString(item.available)}
-                    {item.unit}
-                  </span>
-                ))}
-              </div>
+              {props.consumeUnitOptions.length > 1 && (
+                <div className="ingredients-consume-stock-strip consume-quick-stock-strip">
+                  {props.consumeUnitOptions.map((item) => (
+                    <span key={`${props.selectedConsumeSummary.ingredient.id}-${item.unit}`} className="ingredient-visual-pill">
+                      {item.unit} · {formatNumericString(item.available)}
+                      {item.unit}
+                    </span>
+                  ))}
+                </div>
+              )}
             </div>
           </section>
 
-          <section className="ingredients-restock-field-group ingredients-consume-unit-section">
-            <div className="ingredients-restock-field-head">
-              <span>记录单位</span>
-              <p className="subtle">
-                {props.consumeUnitOptions.length > 1
-                  ? '先选这次实际用掉的是哪种单位，切换后数量会自动对齐到该单位剩余量。'
-                  : '直接按这个单位记录就行，系统会自动处理批次扣减。'}
-              </p>
-            </div>
-            {props.consumeUnitOptions.length === 1 && props.selectedConsumeUnit ? (
-              <div className="ingredients-consume-unit-single">
-                <div className="ingredients-consume-unit-single-main">
-                  <span>当前单位</span>
-                  <strong>{props.selectedConsumeUnit.unit}</strong>
-                </div>
-                <div className="ingredients-consume-unit-single-meta">
-                  <span>当前剩余</span>
-                  <strong>
-                    {formatNumericString(props.selectedConsumeUnit.available)}
-                    {props.selectedConsumeUnit.unit}
-                  </strong>
-                </div>
+          {props.consumeUnitOptions.length > 1 && (
+            <section className="ingredients-restock-field-group ingredients-consume-unit-section">
+              <div className="ingredients-restock-field-head">
+                <span>记录单位</span>
               </div>
-            ) : (
               <div className="ingredients-restock-choice-row ingredients-consume-unit-row">
                 {props.consumeUnitOptions.map((item) => (
                   <button
@@ -128,8 +99,8 @@ export function IngredientConsumeOverlay(props: IngredientConsumeOverlayProps) {
                   </button>
                 ))}
               </div>
-            )}
-          </section>
+            </section>
+          )}
 
           <section
             className={
@@ -139,28 +110,7 @@ export function IngredientConsumeOverlay(props: IngredientConsumeOverlayProps) {
             }
           >
             <div className="ingredients-restock-field-head">
-              <span>消费量</span>
-              <p className="subtle">拖动滑条快速操作，也可以点快捷值或直接输入来微调。</p>
-            </div>
-            <div className="consume-quick-live-row">
-              <article className="consume-quick-live-card is-active">
-                <span>本次消费</span>
-                <strong>
-                  {props.selectedConsumeUnit
-                    ? `${formatNumericString(props.consumeQuantityValue)}${props.selectedConsumeUnit.unit}`
-                    : '先选单位'}
-                </strong>
-                <p>滑动时会实时同步到提交结果。</p>
-              </article>
-              <article className={props.consumeIsAllState ? 'consume-quick-live-card is-warning' : 'consume-quick-live-card'}>
-                <span>消费后剩余</span>
-                <strong>
-                  {props.selectedConsumeUnit
-                    ? `${formatNumericString(props.consumeRemainingQuantity)}${props.selectedConsumeUnit.unit}`
-                    : '先选单位'}
-                </strong>
-                <p>{props.consumeIsAllState ? '这次会把当前单位库存几乎用完。' : '保留量会随着拖动即时更新。'}</p>
-              </article>
+              <span>本次用量</span>
             </div>
             <div
               className={
@@ -190,7 +140,7 @@ export function IngredientConsumeOverlay(props: IngredientConsumeOverlayProps) {
               </div>
               <div className="touch-field-helper">
                 {props.selectedConsumeUnit
-                  ? `当前最多 ${formatNumericString(props.consumeAvailableQuantity)}${props.selectedConsumeUnit.unit}，拖动或直接改数字都会同步预估剩余量。`
+                  ? `最多 ${formatNumericString(props.consumeAvailableQuantity)}${props.selectedConsumeUnit.unit}`
                   : '先选择单位'}
               </div>
               <div className="touch-range-main">

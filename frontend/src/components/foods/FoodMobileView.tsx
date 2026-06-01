@@ -231,12 +231,13 @@ export function FoodMobileView(props: {
                         {props.getFoodCardPrimaryActionLabel(food)}
                       </button>
                       <button
+                        className={food.favorite ? 'active' : undefined}
                         type="button"
                         aria-label={`收藏：${food.name}`}
                         disabled={props.isUpdatingFavorite}
                         onClick={() => props.onToggleFavorite(food)}
                       >
-                        <FoodUiIcon name={food.favorite ? 'heart' : 'star'} />
+                        <FoodUiIcon name={food.favorite ? 'heartFilled' : 'heart'} />
                       </button>
                     </div>
                   </div>

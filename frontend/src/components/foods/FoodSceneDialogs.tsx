@@ -68,9 +68,8 @@ export function FoodSceneDialogs(props: FoodSceneDialogsProps) {
                           <strong>{scene.name}</strong>
                           <span>{scene.id ? '自定义' : '推荐'}</span>
                         </div>
-                        <p>{scene.description || `${scene.count} 份食物`}</p>
+                        {scene.description && <p>{scene.description}</p>}
                       </div>
-                      <div className="food-scene-row-meta">{scene.count} 份食物</div>
                       <div className="food-scene-row-actions">
                         <button type="button" onClick={() => props.onOpenEditScene(scene)}>
                           {scene.id ? '编辑' : '创建'}
