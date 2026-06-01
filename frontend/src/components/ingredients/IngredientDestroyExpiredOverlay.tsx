@@ -28,7 +28,7 @@ export function IngredientDestroyExpiredOverlay(props: IngredientDestroyExpiredO
   return (
     <WorkspaceModal
       title="销毁已过期批次"
-      description="会将这些过期批次的剩余量清零，但保留批次历史记录和活动日志。"
+      description="清零过期批次剩余量，历史记录会保留。"
       closeLabel="×"
       closeAriaLabel="关闭"
       className="workspace-modal-wide destroy-expired-modal"
@@ -55,12 +55,7 @@ export function IngredientDestroyExpiredOverlay(props: IngredientDestroyExpiredO
                 <article className="destroy-expired-summary-metric is-primary">
                   <span>本次处理范围</span>
                   <strong>{props.destroyExpiredItems.length} 条过期批次</strong>
-                  <p>仅包含已经过期且当前仍有剩余量的批次。</p>
-                </article>
-                <article className="destroy-expired-summary-metric">
-                  <span>处理结果</span>
-                  <strong>清零剩余量</strong>
-                  <p>批次记录、备注和活动日志都会继续保留。</p>
+                  <p>确认后清零剩余量。</p>
                 </article>
               </div>
             </div>
@@ -68,8 +63,7 @@ export function IngredientDestroyExpiredOverlay(props: IngredientDestroyExpiredO
 
           <section className="ingredients-restock-field-group destroy-expired-list-section">
             <div className="ingredients-restock-field-head">
-              <span>将要销毁的批次</span>
-              <p className="subtle">只列出到期日早于今天的剩余批次；今天到期和未来到期不会出现在这里。</p>
+              <span>待处理批次</span>
             </div>
             {props.destroyExpiredItems.length > 0 ? (
               <div className="destroy-expired-list">
@@ -108,11 +102,11 @@ export function IngredientDestroyExpiredOverlay(props: IngredientDestroyExpiredO
 
         <div className="destroy-expired-footer-bar">
           <div className="destroy-expired-footer-summary">
-            <span>确认后将处理</span>
+            <span>将处理</span>
             <strong>{props.destroyExpiredItems.length} 条过期批次</strong>
             <p>
               {props.destroyExpiredItems.length > 0
-                ? '系统会把这些批次的剩余量清零，并在刷新后同步库存状态。'
+                ? '剩余量会清零，历史记录和日志保留。'
                 : '当前没有可销毁的过期批次。'}
             </p>
           </div>

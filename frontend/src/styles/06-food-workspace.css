@@ -3315,6 +3315,148 @@
   border-radius: 12px;
 }
 
+.food-quick-meal-modal.workspace-modal {
+  width: min(430px, calc(100vw - 28px));
+}
+
+.food-quick-meal-form {
+  display: grid;
+  gap: 14px;
+}
+
+.food-quick-meal-hero {
+  display: grid;
+  grid-template-columns: 58px minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+  padding: 10px;
+  border: 1px solid rgba(92, 67, 48, 0.08);
+  border-radius: 16px;
+  background: #fffdfa;
+}
+
+.food-quick-meal-cover {
+  display: grid;
+  width: 58px;
+  height: 58px;
+  overflow: hidden;
+  place-items: center;
+  border-radius: 14px;
+  background: #f4e7db;
+  color: #9a5b2f;
+  font-size: 0.95rem;
+  font-weight: 920;
+}
+
+.food-quick-meal-cover img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.food-quick-meal-copy {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+}
+
+.food-quick-meal-copy strong,
+.food-quick-meal-copy small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.food-quick-meal-copy strong {
+  color: #33241d;
+  font-size: 1rem;
+  font-weight: 920;
+}
+
+.food-quick-meal-copy small {
+  color: #8b7d72;
+  font-size: 0.8rem;
+  font-weight: 760;
+}
+
+.food-quick-meal-field {
+  display: grid;
+  gap: 8px;
+}
+
+.food-quick-meal-field > span {
+  color: #6f6156;
+  font-size: 0.78rem;
+  font-weight: 900;
+}
+
+.food-quick-meal-date-strip {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.food-quick-meal-date-strip button,
+.food-quick-meal-segments button {
+  min-width: 0;
+  border: 1px solid rgba(92, 67, 48, 0.1);
+  background: #fffdfa;
+  color: #7a6a5f;
+  font-weight: 860;
+}
+
+.food-quick-meal-date-strip button {
+  display: grid;
+  min-height: 56px;
+  gap: 3px;
+  align-content: center;
+  padding: 7px 4px;
+  border-radius: 12px;
+}
+
+.food-quick-meal-date-strip span {
+  font-size: 0.72rem;
+}
+
+.food-quick-meal-date-strip strong {
+  font-size: 0.78rem;
+  font-weight: 920;
+}
+
+.food-quick-meal-segments {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.food-quick-meal-segments button {
+  min-height: 40px;
+  border-radius: 999px;
+  font-size: 0.84rem;
+}
+
+.food-quick-meal-date-strip button.active,
+.food-quick-meal-segments button.active {
+  border-color: rgba(209, 105, 51, 0.44);
+  background: #fff1e6;
+  color: #b35122;
+  box-shadow: inset 0 0 0 1px rgba(209, 105, 51, 0.14);
+}
+
+.food-quick-meal-actions {
+  display: grid;
+  grid-template-columns: minmax(0, 0.82fr) minmax(0, 1.18fr);
+  gap: 10px;
+  padding-top: 2px;
+}
+
+.food-quick-meal-actions .solid-button,
+.food-quick-meal-actions .ghost-button {
+  min-height: 44px;
+  border-radius: 12px;
+}
+
 @media (max-width: 1180px) {
   .food-toolbar-controls {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -3469,6 +3611,14 @@
   .food-detail-history article {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .food-quick-meal-modal.workspace-modal {
+    width: min(430px, calc(100vw - 20px));
+  }
+
+  .food-quick-meal-date-strip {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
   }
 }
 

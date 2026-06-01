@@ -25,7 +25,6 @@ export function HomeMobileDashboard(props: {
   dashboardRecommendationPageCount: number;
   dashboardRecommendations: DashboardRecommendation[];
   foodRecommendations?: FoodRecommendations | null;
-  today: string;
   dashboardCompletedCount: number;
   dashboardTodoItems: DashboardTodoItem[];
   activeFoodPlanItems: FoodPlanItem[];
@@ -41,11 +40,12 @@ export function HomeMobileDashboard(props: {
   isQuickAdding: boolean;
   isCreatingFoodPlanItem: boolean;
   resolveAssetUrl: (url?: string) => string | undefined;
-  quickAddMeal: (payload: { food_id: string; date: string; meal_type: MealType; servings: number; note: string }) => Promise<unknown>;
   onNavigate: (tab: TabKey) => void;
   onRecommendationPageChange: Dispatch<SetStateAction<number>>;
-  onPendingRecipeCookChange: (recipeId: string | null) => void;
   onSelectedPlanDateChange: (date: string) => void;
+  onFoodPlanPreviousWeek: () => void;
+  onFoodPlanNextWeek: () => void;
+  onQuickStartFood: (food: Food, fallbackMealType?: MealType) => void;
   onHomePlanAddDialogOpen: (food: Food, fallbackMealType?: MealType) => void;
   onHomePlanAddEmptyDialogOpen: (planDate: string, mealType: MealType) => void;
   onHomePlanDetailOpen: (item: FoodPlanItem) => void;
@@ -161,21 +161,8 @@ export function HomeMobileDashboard(props: {
                       <button
                         className="mobile-dashboard-primary compact"
                         type="button"
-                        onClick={() => {
-                          if (food.recipe_id) {
-                            props.onPendingRecipeCookChange(food.recipe_id);
-                            props.onNavigate('recipes');
-                            return;
-                          }
-                          void props.quickAddMeal({
-                            food_id: food.id,
-                            date: props.today,
-                            meal_type: props.foodRecommendations?.target_meal_type ?? 'dinner',
-                            servings: 1,
-                            note: '首页快捷记录',
-                          });
-                        }}
-                        disabled={props.isQuickAdding}
+                        onClick={() => props.onQuickStartFood(food, props.foodRecommendations?.target_meal_type)}
+                        disabled={props.isQuickAdding || props.isCreatingFoodPlanItem}
                       >
                         开始做
                       </button>
@@ -243,10 +230,16 @@ export function HomeMobileDashboard(props: {
       <section className="mobile-dashboard-panel mobile-dashboard-week">
         <div className="mobile-dashboard-section-head">
           <h2>本周菜单 <span>{props.activeFoodPlanItems.length} / {props.dashboardWeekMealCapacity} 餐</span></h2>
-          <button type="button" onClick={() => props.onNavigate('foods')}>
-            <DashboardIcon name="edit" />
-            编辑计划
-          </button>
+          <div className="mobile-dashboard-week-switcher" aria-label="切换菜单周">
+            <button type="button" onClick={props.onFoodPlanPreviousWeek} aria-label="上一周">
+              <DashboardIcon name="arrow-left" />
+              上周
+            </button>
+            <button type="button" onClick={props.onFoodPlanNextWeek} aria-label="下一周">
+              下周
+              <DashboardIcon name="arrow-right" />
+            </button>
+          </div>
         </div>
         <div className="mobile-dashboard-week-row">
           {props.dashboardPlanDays.map((day) => (

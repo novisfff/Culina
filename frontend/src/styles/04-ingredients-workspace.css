@@ -5214,6 +5214,125 @@
   border-radius: 18px;
 }
 
+.ingredients-restock-picker-shell {
+  position: relative;
+  display: grid;
+  min-width: 0;
+}
+
+.ingredients-restock-picker-shell .text-input {
+  padding-right: 52px;
+}
+
+.ingredients-restock-picker-toggle {
+  position: absolute;
+  top: 50%;
+  right: 12px;
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  color: #4f372b;
+  font-size: 0.9rem;
+  transform: translateY(-50%);
+}
+
+.ingredients-restock-picker-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  right: 0;
+  z-index: 20;
+  display: grid;
+  gap: 6px;
+  max-height: min(330px, 44vh);
+  overflow: auto;
+  padding: 8px;
+  border: 1px solid rgba(92, 67, 48, 0.1);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.98);
+  box-shadow: 0 18px 42px rgba(74, 54, 40, 0.16);
+}
+
+.ingredients-restock-picker-menu::before {
+  content: "";
+  position: absolute;
+  top: -8px;
+  left: 50%;
+  width: 18px;
+  height: 18px;
+  border-top: 1px solid rgba(92, 67, 48, 0.1);
+  border-left: 1px solid rgba(92, 67, 48, 0.1);
+  background: rgba(255, 255, 255, 0.98);
+  transform: translateX(-50%) rotate(45deg);
+}
+
+.ingredients-restock-picker-menu button {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+  min-height: 62px;
+  padding: 7px;
+  border: 0;
+  border-radius: 14px;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.ingredients-restock-picker-menu button:hover {
+  background: #fff7ef;
+}
+
+.ingredients-restock-picker-menu img {
+  width: 48px;
+  height: 48px;
+  display: block;
+  border-radius: 12px;
+  object-fit: cover;
+  background: #fff3e8;
+}
+
+.ingredients-restock-picker-menu span {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.ingredients-restock-picker-menu strong,
+.ingredients-restock-picker-menu small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ingredients-restock-picker-menu strong {
+  color: #211713;
+  font-size: 0.96rem;
+  font-weight: 900;
+}
+
+.ingredients-restock-picker-menu small {
+  color: #9e9289;
+  font-size: 0.78rem;
+  font-weight: 740;
+}
+
+.ingredients-restock-picker-empty {
+  padding: 16px;
+  color: var(--text-soft);
+  font-size: 0.9rem;
+  font-weight: 760;
+  text-align: center;
+}
+
 .shopping-quick-name-field > span {
   font-size: 0.92rem;
   color: var(--text-soft);
@@ -6542,6 +6661,329 @@
     padding: 16px 16px 0;
   }
 
+  .consume-quick-modal.workspace-modal {
+    max-height: calc(100vh - 24px);
+    padding-top: 14px;
+  }
+
+  .consume-quick-modal .workspace-overlay-head {
+    grid-template-columns: minmax(0, 1fr) 42px;
+    gap: 10px;
+    padding-bottom: 10px;
+  }
+
+  .consume-quick-modal .workspace-overlay-titleblock h3 {
+    font-size: 1.42rem;
+    line-height: 1.16;
+  }
+
+  .consume-quick-modal .workspace-overlay-titleblock .subtle {
+    max-width: 18em;
+    font-size: 0.92rem;
+    line-height: 1.45;
+  }
+
+  .consume-quick-scroll {
+    gap: 10px;
+    padding-bottom: 10px;
+  }
+
+  .consume-quick-modal .ingredients-restock-field-group {
+    padding: 12px;
+    border-radius: 18px;
+  }
+
+  .consume-quick-modal .ingredients-restock-field-head {
+    margin-bottom: 0;
+  }
+
+  .ingredients-restock-identity-card.ingredients-consume-identity-card {
+    grid-template-columns: 72px minmax(0, 1fr);
+    gap: 10px;
+    align-items: center;
+    padding: 10px;
+    border-radius: 20px;
+  }
+
+  .ingredients-consume-identity-card .ingredients-restock-identity-media {
+    border-radius: 15px;
+  }
+
+  .ingredients-consume-identity-card .ingredients-restock-identity-media img {
+    padding: 4px;
+    object-fit: cover;
+  }
+
+  .ingredients-consume-identity-card .ingredients-restock-identity-copy {
+    gap: 7px;
+  }
+
+  .ingredients-consume-identity-card .ingredients-restock-identity-head {
+    display: grid;
+    gap: 7px;
+  }
+
+  .ingredients-consume-identity-card .ingredients-restock-identity-head h4 {
+    font-size: 1.08rem;
+  }
+
+  .ingredients-consume-identity-card .ingredients-restock-identity-head p {
+    margin-top: 2px;
+    font-size: 0.82rem;
+    line-height: 1.35;
+  }
+
+  .consume-quick-identity-badges {
+    justify-content: flex-start;
+    gap: 6px;
+  }
+
+  .consume-quick-identity-badges .badge {
+    min-height: 28px;
+    padding: 4px 10px;
+    font-size: 0.78rem;
+  }
+
+  .consume-quick-stock-strip {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    padding-bottom: 2px;
+    scrollbar-width: none;
+  }
+
+  .consume-quick-stock-strip::-webkit-scrollbar {
+    display: none;
+  }
+
+  .consume-quick-stock-strip .ingredient-visual-pill {
+    flex: 0 0 auto;
+    min-height: 30px;
+    padding-inline: 10px;
+    font-size: 0.78rem;
+  }
+
+  .ingredients-consume-unit-row {
+    display: flex;
+    gap: 8px;
+    overflow-x: auto;
+    padding-bottom: 2px;
+    scrollbar-width: none;
+  }
+
+  .ingredients-consume-unit-row::-webkit-scrollbar {
+    display: none;
+  }
+
+  .ingredients-consume-unit-chip {
+    flex: 0 0 auto;
+    min-width: 104px;
+    min-height: 58px;
+    gap: 3px;
+    padding: 10px 12px;
+    border-radius: 16px;
+  }
+
+  .ingredients-consume-unit-chip-label {
+    font-size: 1.05rem;
+  }
+
+  .ingredients-consume-unit-chip small {
+    font-size: 0.74rem;
+  }
+
+  .ingredients-consume-amount-section {
+    gap: 10px;
+  }
+
+  .consume-quick-range-field {
+    gap: 10px;
+    padding: 12px;
+    border-radius: 18px;
+  }
+
+  .consume-quick-range-head {
+    gap: 8px;
+  }
+
+  .consume-quick-range-field .touch-field-head > span {
+    display: none;
+  }
+
+  .consume-quick-range-editor-shell {
+    width: 100%;
+    min-width: 0;
+    min-height: 56px;
+    padding: 0 14px;
+    border-radius: 16px;
+  }
+
+  .consume-quick-range-editor-input {
+    font-size: 1.7rem;
+  }
+
+  .consume-quick-range-field .touch-field-helper {
+    font-size: 0.8rem;
+  }
+
+  .consume-quick-range-field .touch-range-main {
+    grid-template-columns: 42px minmax(0, 1fr) 42px;
+    padding: 10px;
+    border-radius: 18px;
+  }
+
+  .consume-quick-shortcut-row {
+    gap: 8px;
+  }
+
+  .consume-quick-shortcut {
+    min-height: 40px;
+    padding: 7px 12px;
+    border-radius: 14px;
+    font-size: 0.88rem;
+  }
+
+  .destroy-expired-modal.workspace-modal {
+    max-height: calc(100vh - 24px);
+    padding-top: 14px;
+  }
+
+  .destroy-expired-modal .workspace-overlay-head {
+    grid-template-columns: minmax(0, 1fr) 42px;
+    gap: 10px;
+    padding-bottom: 10px;
+  }
+
+  .destroy-expired-modal .workspace-overlay-titleblock h3 {
+    font-size: 1.36rem;
+    line-height: 1.18;
+  }
+
+  .destroy-expired-modal .workspace-overlay-titleblock .subtle {
+    max-width: 18em;
+    font-size: 0.9rem;
+    line-height: 1.42;
+  }
+
+  .destroy-expired-scroll {
+    gap: 10px;
+    padding-bottom: 10px;
+  }
+
+  .destroy-expired-modal .ingredients-restock-field-group {
+    padding: 12px;
+    border-radius: 18px;
+  }
+
+  .ingredients-restock-identity-card.destroy-expired-summary-card {
+    grid-template-columns: 72px minmax(0, 1fr);
+    gap: 10px;
+    align-items: center;
+    padding: 10px;
+    border-radius: 20px;
+  }
+
+  .destroy-expired-summary-card .ingredients-restock-identity-media {
+    border-radius: 15px;
+  }
+
+  .destroy-expired-summary-card .ingredients-restock-identity-media img {
+    padding: 4px;
+    object-fit: cover;
+  }
+
+  .destroy-expired-summary-card .ingredients-restock-identity-copy,
+  .destroy-expired-summary-card .ingredients-restock-identity-head {
+    display: grid;
+    gap: 7px;
+  }
+
+  .destroy-expired-summary-card .ingredients-restock-identity-head h4 {
+    font-size: 1.08rem;
+  }
+
+  .destroy-expired-summary-card .ingredients-restock-identity-head p {
+    margin-top: 2px;
+    font-size: 0.82rem;
+    line-height: 1.35;
+  }
+
+  .destroy-expired-summary-badges {
+    justify-content: flex-start;
+    gap: 6px;
+  }
+
+  .destroy-expired-summary-badges .badge {
+    min-height: 28px;
+    padding: 4px 10px;
+    font-size: 0.78rem;
+  }
+
+  .destroy-expired-summary-grid {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+
+  .destroy-expired-summary-metric {
+    min-height: 0;
+    gap: 4px;
+    padding: 10px 12px;
+    border-radius: 16px;
+  }
+
+  .destroy-expired-summary-metric strong {
+    font-size: 1.02rem;
+  }
+
+  .destroy-expired-summary-metric p {
+    font-size: 0.8rem;
+  }
+
+  .destroy-expired-list-section {
+    gap: 10px;
+  }
+
+  .destroy-expired-list {
+    gap: 8px;
+    max-height: 220px;
+    overflow: auto;
+    padding-right: 2px;
+  }
+
+  .destroy-expired-item {
+    gap: 8px;
+    padding: 10px 12px;
+    border-radius: 16px;
+  }
+
+  .destroy-expired-item-head {
+    display: grid;
+    gap: 8px;
+  }
+
+  .destroy-expired-item-title strong {
+    font-size: 1rem;
+  }
+
+  .destroy-expired-item-badges {
+    justify-content: flex-start;
+    gap: 6px;
+  }
+
+  .destroy-expired-item-badges .badge {
+    min-height: 26px;
+    padding: 4px 8px;
+    font-size: 0.74rem;
+  }
+
+  .destroy-expired-item-meta {
+    gap: 4px 10px;
+    font-size: 0.78rem;
+  }
+
+  .destroy-expired-item-note {
+    font-size: 0.78rem;
+  }
+
   .ingredients-restock-identity-card,
   .ingredients-restock-quantity-row,
   .ingredients-restock-expiry-grid {
@@ -6839,6 +7281,50 @@
     flex-direction: column;
     align-items: stretch;
     gap: 12px;
+  }
+
+  .consume-quick-footer-bar {
+    gap: 10px;
+  }
+
+  .consume-quick-footer-summary {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 4px 10px;
+    flex-basis: auto;
+  }
+
+  .consume-quick-footer-summary strong {
+    font-size: 1.04rem;
+  }
+
+  .consume-quick-footer-summary p {
+    flex-basis: 100%;
+    font-size: 0.78rem;
+    line-height: 1.35;
+  }
+
+  .destroy-expired-footer-bar {
+    gap: 10px;
+  }
+
+  .destroy-expired-footer-summary {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 4px 10px;
+    flex-basis: auto;
+  }
+
+  .destroy-expired-footer-summary strong {
+    font-size: 1.04rem;
+  }
+
+  .destroy-expired-footer-summary p {
+    flex-basis: 100%;
+    font-size: 0.78rem;
+    line-height: 1.35;
   }
 
   .ingredients-restock-footer-bar .workspace-overlay-actions,
@@ -7505,4 +7991,3 @@
   border-radius: 22px;
   background: rgba(255, 255, 255, 0.78);
 }
-
