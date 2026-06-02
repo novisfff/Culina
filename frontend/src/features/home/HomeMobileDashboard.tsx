@@ -107,7 +107,7 @@ export function HomeMobileDashboard(props: {
           </button>
           <button className="mobile-dashboard-secondary" type="button" onClick={() => props.onNavigate('logs')}>
             <DashboardIcon name="receipt" />
-            记录一下
+            查看记录
           </button>
         </div>
       </section>
