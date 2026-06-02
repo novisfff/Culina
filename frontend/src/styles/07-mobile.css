@@ -366,12 +366,7 @@
     gap: 14px;
     width: min(100%, 480px);
     margin: 0 auto;
-    padding: 0 0 24px;
-  }
-
-  .mobile-log-header-shell {
-    min-height: 0;
-    padding-bottom: 14px;
+    padding: 14px 0 24px;
   }
 
   .mobile-log-stat-grid {
@@ -380,7 +375,7 @@
     gap: 10px;
   }
 
-  .mobile-dashboard-icon-actions .mobile-log-home-button {
+  .mobile-food-top-actions .mobile-log-home-button {
     width: auto;
     padding: 0 12px;
     border: 1px solid rgba(226, 215, 205, 0.88);

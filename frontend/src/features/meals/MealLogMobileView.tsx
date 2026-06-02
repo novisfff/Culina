@@ -1,6 +1,6 @@
 import type { MealLog } from '../../api/types';
-import { ShellIcon } from '../../app/shellIcons';
 import { Badge } from '../../components/ui-kit';
+import { FoodUiIcon } from '../../components/foods/FoodWorkspacePrimitives';
 import { formatDate, MEAL_TYPE_LABELS } from '../../lib/ui';
 import type { MealSource } from './MealLogEnrichment';
 import {
@@ -46,24 +46,22 @@ export function MealLogMobileView(props: Props) {
 
   return (
     <main className="mobile-log-page" aria-label="手机记录页">
-      <section className="mobile-dashboard-hero mobile-log-header-shell">
-        <div className="mobile-dashboard-topbar">
-          <div className="mobile-dashboard-brand">
-            <span className="mobile-dashboard-logo" aria-hidden="true">
-              <ShellIcon name="logo" />
-            </span>
-            <span>
-              <strong>餐食记录</strong>
-              <small>评价、照片和家人反馈</small>
-            </span>
-          </div>
-          <span className="mobile-dashboard-icon-actions">
-            <button className="mobile-log-home-button" type="button" onClick={props.onBackHome} aria-label="返回首页">
-              首页
-            </button>
+      <div className="mobile-food-topbar">
+        <div className="mobile-food-brand">
+          <span className="mobile-food-logo">
+            <FoodUiIcon name="logo" />
+          </span>
+          <span>
+            <strong>餐食记录</strong>
+            <small>评价、照片和家人反馈</small>
           </span>
         </div>
-      </section>
+        <div className="mobile-food-top-actions">
+          <button className="mobile-log-home-button" type="button" onClick={props.onBackHome} aria-label="返回首页">
+            首页
+          </button>
+        </div>
+      </div>
 
       <section className="mobile-log-stat-grid" aria-label="记录概览">
         {mobileStats.map((item) => (
