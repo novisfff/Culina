@@ -29,12 +29,9 @@ export function getMealLogStatusLabel(meal: MealLog) {
   return status === 'done' ? '已补充' : '待补充';
 }
 
-export function getMealIcon(mealType: MealLogMealFilter) {
-  if (mealType === 'breakfast') return '☀';
-  if (mealType === 'lunch') return '⇧';
-  if (mealType === 'dinner') return '◖';
-  if (mealType === 'snack') return '♨';
-  return '●';
+export function getMealIconName(mealType: MealLogMealFilter) {
+  if (mealType === 'all') return 'all';
+  return mealType;
 }
 
 export function getMealTone(mealType: MealLogMealFilter) {

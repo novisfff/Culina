@@ -12,6 +12,7 @@ import type {
   MealLog,
   MealType,
   Recipe,
+  RecipePayload,
 } from '../../api/types';
 import { resolveAssetUrl } from '../../lib/assets';
 import { addDateKeyDays } from '../../lib/date';
@@ -27,13 +28,23 @@ import { FoodPlanDetailModal } from './FoodPlanDetailModal';
 import { FoodPlanDialog } from './FoodPlanDialog';
 import { FoodSceneDialogs } from './FoodSceneDialogs';
 import { FoodHubView } from './FoodHubView';
-import { FOOD_TYPE_LABELS, MEAL_TYPE_LABELS, emptyImages, formatDate, getFoodCover, splitTags, todayKey } from '../../lib/ui';
+import { FOOD_TYPE_LABELS, MEAL_TYPE_LABELS, emptyImages, formatDate, getFoodCover, getImagePreview, splitTags, todayKey } from '../../lib/ui';
 import {
   IDLE_IMAGE_GENERATION_STATE,
   useImageComposer,
 } from '../../hooks/useImageComposer';
 import { useNotice } from '../../hooks/useNotice';
-import { buildRecipeCards, type RecipeCardViewModel } from '../recipes/workspaceModel';
+import { DIFFICULTY_LABELS, buildRecipeCards, type RecipeCardViewModel } from '../recipes/workspaceModel';
+import { RecipeEditorView } from '../recipes/RecipeEditorView';
+import { RecipeDetailView } from '../recipes/RecipeDetailView';
+import { useRecipeEditorState } from '../recipes/useRecipeEditorState';
+import {
+  buildRecipeImagePayload,
+  buildRecipePayload,
+  getRecipeDraftGenerationButtonLabel,
+  resolveErrorMessage,
+  resolveRecipeDifficulty,
+} from '../recipes/RecipeWorkspaceModel';
 import { FoodRatingInput, FoodUiIcon } from './FoodWorkspacePrimitives';
 import {
   FOOD_CREATE_TYPE_DETAILS,
@@ -100,6 +111,7 @@ type Props = {
   createFood: (payload: FoodPayload) => Promise<Food>;
   updateFood: (foodId: string, payload: FoodPayload) => Promise<Food>;
   updateFoodFavorite: (foodId: string, favorite: boolean) => Promise<Food>;
+  updateRecipe: (recipeId: string, payload: RecipePayload) => Promise<Recipe>;
   quickAddMeal: (payload: { food_id: string; date: string; meal_type: MealType; servings: number; note: string; food_plan_item_id?: string }) => Promise<MealLog>;
   createFoodPlanItem: (payload: { food_id: string; plan_date: string; meal_type: MealType; note: string }) => Promise<FoodPlanItem>;
   updateFoodPlanItem: (itemId: string, payload: { food_id?: string; plan_date?: string; meal_type?: MealType; note?: string; status?: 'planned' | 'cooked' | 'skipped' }) => Promise<FoodPlanItem>;
@@ -133,6 +145,7 @@ type Props = {
   onFoodPlanCurrentWeek: () => void;
   onFoodPlanNextWeek: () => void;
   isSavingFood?: boolean;
+  isUpdatingRecipe?: boolean;
   isUpdatingFavorite?: boolean;
   isQuickAdding?: boolean;
   isUpdatingPlan?: boolean;
@@ -771,6 +784,7 @@ export function FoodWorkspace(props: Props) {
     quickAddMeal: props.quickAddMeal,
     onStartRecipe: props.onStartRecipe,
   });
+  const recipeEditor = useRecipeEditorState({ ingredients: props.ingredients });
 
   const foodUsageCards = useMemo(
     () => props.foods.map((food) => ({ food, usage: getMealUsage(food, props.mealLogs) })),
@@ -849,6 +863,8 @@ export function FoodWorkspace(props: Props) {
   const hasFoodFilters = Boolean(search.trim()) || typeFilter !== 'all' || mealFilter !== 'all' || lensFilter !== 'all' || sceneFilter !== 'all' || governanceIssueFilter !== 'all';
   const todayDate = todayKey();
   const [quickMealDialog, setQuickMealDialog] = useState<QuickMealDialogState | null>(null);
+  const [isFoodRecipeEditorOpen, setIsFoodRecipeEditorOpen] = useState(false);
+  const [activeFoodRecipeDetailCard, setActiveFoodRecipeDetailCard] = useState<RecipeCardViewModel | null>(null);
   const quickMealDateOptions = useMemo(
     () => Array.from({ length: 7 }, (_, index) => addDateKeyDays(todayDate, index)),
     [todayDate]
@@ -996,6 +1012,7 @@ export function FoodWorkspace(props: Props) {
     generateErrorMessage: '生成主图失败，请稍后再试。',
   });
   const currentRecipe = props.recipes.find((recipe) => recipe.id === form.recipeId);
+  const currentRecipeCard = currentRecipe ? recipeCards.find((card) => card.recipe.id === currentRecipe.id) ?? null : null;
   const isSelfMade = form.type === 'selfMade';
   const editorProfile = getFoodEditorProfile(form.type);
   const editorCompletionItems = getFoodFormCompletionItems(form, editingFood, props.recipes);
@@ -1013,6 +1030,44 @@ export function FoodWorkspace(props: Props) {
   const editorFoodTitle = isSelfMade ? currentRecipe?.title || form.name || '选择一个菜谱' : form.name || '新的食物';
   const editorRecipeCover = currentRecipe?.images[0]?.url ?? (editingFood ? getFoodCover(editingFood, props.recipes) : undefined);
   const editorRecipeMeta = currentRecipe ? `${currentRecipe.ingredient_items.length} 个原料 · ${currentRecipe.steps.length} 个步骤` : '还没有关联菜谱';
+  const recipeEditorIngredientCount = recipeEditor.ingredientRows.filter((item) => item.ingredient_id || item.ingredient_name.trim()).length;
+  const recipeEditorStepCount = recipeEditor.form.steps.filter((step) => step.text.trim()).length;
+  const recipeEditorSceneTags = splitTags(recipeEditor.form.sceneTags);
+  const recipeEditorCoverAsset = getImagePreview(recipeEditor.form.images);
+  const recipeEditorCoverUrl = resolveAssetUrl(recipeEditorCoverAsset?.url);
+  const recipeEditorReferenceUrl = resolveAssetUrl(recipeEditor.form.images.referenceAsset?.url);
+  const recipeEditorGeneratedUrl = resolveAssetUrl(recipeEditor.form.images.generatedAsset?.url);
+  const recipeEditorCompletionItems = [
+    { label: '已填写基础信息', done: Boolean(recipeEditor.form.title.trim() && Number(recipeEditor.form.servings) > 0) },
+    { label: '已添加原料', done: recipeEditorIngredientCount > 0 },
+    { label: '已添加步骤', done: recipeEditorStepCount > 0 },
+    { label: '已设置封面', done: Boolean(recipeEditorCoverAsset) },
+  ];
+  const recipeEditorCompletionPercent = Math.round(
+    (recipeEditorCompletionItems.filter((item) => item.done).length / recipeEditorCompletionItems.length) * 100
+  );
+  const recipeEditorSceneSelectOptions = useMemo(() => {
+    const names = new Set<string>();
+    props.foodScenes.filter((scene) => !scene.hidden).forEach((scene) => names.add(scene.name));
+    props.recipes.forEach((recipe) => recipe.scene_tags?.forEach((tag) => names.add(tag)));
+    return Array.from(names).sort((left, right) => left.localeCompare(right, 'zh-CN'));
+  }, [props.foodScenes, props.recipes]);
+  const recipeEditorAiSourceSummary = [
+    { label: '菜名', value: recipeEditor.form.title.trim() || '未填写' },
+    { label: '份量', value: `${recipeEditor.form.servings || '2'} 人份` },
+    { label: '时长', value: recipeEditor.form.prepMinutes ? `${recipeEditor.form.prepMinutes} 分钟` : '未填写' },
+    { label: '难度', value: recipeEditor.form.difficulty ? DIFFICULTY_LABELS[resolveRecipeDifficulty(recipeEditor.form.difficulty)] : '未填写' },
+    { label: '标签', value: recipeEditorSceneTags.join('、') || '未填写' },
+  ];
+  const recipeEditorImagePayload = buildRecipeImagePayload(recipeEditor.form, recipeEditor.ingredientRows, props.ingredients);
+  const recipeEditorImageComposer = useImageComposer({
+    value: recipeEditor.form.images,
+    payload: recipeEditorImagePayload,
+    onChange: (images) => recipeEditor.setForm((current) => ({ ...current, images })),
+    uploadErrorMessage: '参考图上传或 AI 主图生成失败',
+    generateErrorMessage: 'AI 主图生成失败',
+  });
+  const recipeEditorSubmitDisabled = Boolean(props.isUpdatingRecipe || recipeEditorImageComposer.state.isGenerating);
 
   function handleOpenCreate(type: FoodType = 'takeout') {
     imageComposer.setState(IDLE_IMAGE_GENERATION_STATE);
@@ -1024,9 +1079,54 @@ export function FoodWorkspace(props: Props) {
     openEdit(food);
   }
 
+  function handleOpenRecipeEditor() {
+    if (!currentRecipeCard) {
+      showNotice({ tone: 'warning', title: '还没有关联菜谱', message: '请先在菜谱页创建并关联菜谱。' });
+      return;
+    }
+    recipeEditorImageComposer.setState(IDLE_IMAGE_GENERATION_STATE);
+    recipeEditor.openEdit(currentRecipeCard);
+    setIsFoodRecipeEditorOpen(true);
+  }
+
+  function closeFoodRecipeEditor() {
+    setIsFoodRecipeEditorOpen(false);
+    recipeEditorImageComposer.setState(IDLE_IMAGE_GENERATION_STATE);
+  }
+
+  function openFoodRecipeDetail(card: RecipeCardViewModel | null) {
+    if (!card) {
+      showNotice({ tone: 'warning', title: '还没有关联菜谱', message: '这份食物还没有可查看的菜谱详情。' });
+      return;
+    }
+    setActiveFoodRecipeDetailCard(card);
+  }
+
+  function closeFoodRecipeDetail() {
+    setActiveFoodRecipeDetailCard(null);
+  }
+
   async function handleSubmitFood(event: Parameters<typeof submitFood>[0]) {
     await submitFood(event, canSubmit);
     imageComposer.setState(IDLE_IMAGE_GENERATION_STATE);
+  }
+
+  async function submitFoodRecipeEditor(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!recipeEditor.selectedRecipeId) return;
+    const payload = buildRecipePayload(recipeEditor.form, recipeEditor.ingredientRows, props.ingredients);
+    if (!payload.title || payload.ingredient_items.length === 0) {
+      showNotice({ tone: 'warning', title: '还不能保存菜谱', message: '菜谱至少要有标题和一个食材。' });
+      return;
+    }
+    try {
+      await props.updateRecipe(recipeEditor.selectedRecipeId, payload);
+      setIsFoodRecipeEditorOpen(false);
+      recipeEditorImageComposer.setState(IDLE_IMAGE_GENERATION_STATE);
+      showNotice({ tone: 'success', title: '菜谱已更新', message: `${payload.title} 的菜谱信息已保存。` });
+    } catch (reason) {
+      showNotice({ tone: 'danger', title: '更新菜谱失败', message: resolveErrorMessage(reason, '更新菜谱失败') });
+    }
   }
 
   function openQuickMealDialog(food: Food, mealType: MealType, action: QuickMealDialogState['action']) {
@@ -1092,40 +1192,125 @@ export function FoodWorkspace(props: Props) {
 
   if (view !== 'list') {
     return (
-      <FoodEditorForm
-        availableSceneTagOptions={availableSceneTagOptions}
-        canSubmit={canSubmit}
-        completionItems={editorCompletionItems}
-        completionPercent={editorCompletionPercent}
-        currentRecipe={currentRecipe}
-        editorFoodTitle={editorFoodTitle}
-        editorProfile={editorProfile}
-        editorRecipeCover={editorRecipeCover}
-        editorRecipeMeta={editorRecipeMeta}
-        form={form}
-        imageState={imageComposer.state}
-        isSavingFood={props.isSavingFood}
-        isSceneTagPickerOpen={isSceneTagPickerOpen}
-        isSelfMade={isSelfMade}
-        isUpdatingScene={props.isUpdatingScene}
-        newSceneTagName={newSceneTagName}
-        sceneTags={editorSceneTags}
-        view={view}
-        onAddSceneTag={addSceneTag}
-        onBack={() => setView('list')}
-        onCreateAndAddSceneTag={() => void createAndAddSceneTag()}
-        onFormChange={setForm}
-        onGenerateImage={(mode) => void imageComposer.generate(mode)}
-        onOpenRecipes={props.onOpenRecipes}
-        onRemoveSceneTag={removeSceneTag}
-        onResetImage={imageComposer.reset}
-        onSceneTagPickerToggle={() => setIsSceneTagPickerOpen((current) => !current)}
-        onSubmit={(event) => void handleSubmitFood(event)}
-        onToggleMealType={toggleMealType}
-        onUploadImage={(files) => void imageComposer.upload(files)}
-        resolveAssetUrl={resolveFoodAssetUrl}
-        setNewSceneTagName={setNewSceneTagName}
-      />
+      <>
+        {notice && (
+          <div className={`recipe-notice-toast tone-${notice.tone}`} role={notice.tone === 'danger' ? 'alert' : 'status'} aria-live="polite">
+            <span className="recipe-notice-icon">
+              <FoodUiIcon name={notice.tone === 'success' ? 'check' : 'bell'} />
+            </span>
+            <span className="recipe-notice-copy">
+              <strong>{notice.title}</strong>
+              <small>{notice.message}</small>
+            </span>
+            <button type="button" onClick={clearNotice} aria-label="关闭提示">
+              ×
+            </button>
+          </div>
+        )}
+        <FoodEditorForm
+          availableSceneTagOptions={availableSceneTagOptions}
+          canSubmit={canSubmit}
+          completionItems={editorCompletionItems}
+          completionPercent={editorCompletionPercent}
+          currentRecipe={currentRecipe}
+          editorFoodTitle={editorFoodTitle}
+          editorProfile={editorProfile}
+          editorRecipeCover={editorRecipeCover}
+          editorRecipeMeta={editorRecipeMeta}
+          form={form}
+          imageState={imageComposer.state}
+          isSavingFood={props.isSavingFood}
+          isSceneTagPickerOpen={isSceneTagPickerOpen}
+          isSelfMade={isSelfMade}
+          isUpdatingScene={props.isUpdatingScene}
+          newSceneTagName={newSceneTagName}
+          sceneTags={editorSceneTags}
+          view={view}
+          onAddSceneTag={addSceneTag}
+          onBack={() => setView('list')}
+          onCreateAndAddSceneTag={() => void createAndAddSceneTag()}
+          onFormChange={setForm}
+          onGenerateImage={(mode) => void imageComposer.generate(mode)}
+          onEditRecipe={handleOpenRecipeEditor}
+          onRemoveSceneTag={removeSceneTag}
+          onResetImage={imageComposer.reset}
+          onSceneTagPickerToggle={() => setIsSceneTagPickerOpen((current) => !current)}
+          onSubmit={(event) => void handleSubmitFood(event)}
+          onToggleMealType={toggleMealType}
+          onUploadImage={(files) => void imageComposer.upload(files)}
+          resolveAssetUrl={resolveFoodAssetUrl}
+          setNewSceneTagName={setNewSceneTagName}
+        />
+        {isFoodRecipeEditorOpen && (
+          <div className="workspace-overlay-root">
+            <div className="workspace-overlay-backdrop" onClick={closeFoodRecipeEditor} />
+            <WorkspaceModal
+              title="编辑菜谱"
+              description={currentRecipe ? `正在编辑「${currentRecipe.title}」` : undefined}
+              eyebrow="食物关联菜谱"
+              className="food-recipe-editor-modal"
+              closeLabel="关闭"
+              onClose={closeFoodRecipeEditor}
+            >
+              <RecipeEditorView
+                isEditing
+                isRecipeAiApplied={false}
+                selectedRecipeId={recipeEditor.selectedRecipeId}
+                form={recipeEditor.form}
+                setForm={recipeEditor.setForm}
+                ingredientRows={recipeEditor.ingredientRows}
+                ingredients={props.ingredients}
+                sceneTagDraft={recipeEditor.sceneTagDraft}
+                setSceneTagDraft={recipeEditor.setSceneTagDraft}
+                sceneSelectOptions={recipeEditorSceneSelectOptions}
+                editorSceneTags={recipeEditorSceneTags}
+                visibleStepTips={recipeEditor.visibleStepTips}
+                stepKeyPointSlots={recipeEditor.stepKeyPointSlots}
+                editorCoverUrl={recipeEditorCoverUrl}
+                editorReferenceUrl={recipeEditorReferenceUrl}
+                editorGeneratedUrl={recipeEditorGeneratedUrl}
+                editorCoverAsset={recipeEditorCoverAsset}
+                editorIngredientCount={recipeEditorIngredientCount}
+                editorStepCount={recipeEditorStepCount}
+                editorCompletionItems={recipeEditorCompletionItems}
+                editorCompletionPercent={recipeEditorCompletionPercent}
+                aiSourceSummary={recipeEditorAiSourceSummary}
+                recipeDraftError={recipeEditor.recipeDraftError}
+                isRecipeDraftBusy={false}
+                recipeImageState={recipeEditorImageComposer.state}
+                recipeDraftGenerationStage={recipeEditor.recipeDraftGenerationStage}
+                recipeDraftButtonLabel={getRecipeDraftGenerationButtonLabel(recipeEditor.recipeDraftGenerationStage)}
+                recipeImagePayload={recipeEditorImagePayload}
+                submitDisabled={recipeEditorSubmitDisabled}
+                isUpdatingRecipe={props.isUpdatingRecipe}
+                showAiDraftAction={false}
+                showDeleteAction={false}
+                compactHeader
+                onBack={closeFoodRecipeEditor}
+                onSubmit={(event) => void submitFoodRecipeEditor(event)}
+                onDelete={() => undefined}
+                onOpenDraftDialog={() => undefined}
+                updateIngredientRow={recipeEditor.updateIngredientRow}
+                updateIngredientNote={recipeEditor.updateIngredientNote}
+                updateIngredientRequirement={recipeEditor.updateIngredientRequirement}
+                addIngredientRow={recipeEditor.addIngredientRow}
+                removeIngredientRow={recipeEditor.removeIngredientRow}
+                updateStepDraft={recipeEditor.updateStepDraft}
+                getStepKeyPointValues={recipeEditor.getStepKeyPointValues}
+                getStepKeyPointRowCount={recipeEditor.getStepKeyPointRowCount}
+                addStepTip={recipeEditor.addStepTip}
+                addStepKeyPoint={recipeEditor.addStepKeyPoint}
+                updateStepKeyPoint={recipeEditor.updateStepKeyPoint}
+                removeStepKeyPoint={recipeEditor.removeStepKeyPoint}
+                commitSceneTagDraft={recipeEditor.commitSceneTagDraft}
+                handleRecipeImageUpload={(files) => recipeEditorImageComposer.upload(files)}
+                handleRecipeImageGenerate={(mode) => recipeEditorImageComposer.generate(mode)}
+                resetRecipeImageInput={recipeEditorImageComposer.reset}
+              />
+            </WorkspaceModal>
+          </div>
+        )}
+      </>
     );
   }
 
@@ -1681,12 +1866,61 @@ export function FoodWorkspace(props: Props) {
             onEdit={handleOpenEdit}
             onOpenLogs={props.onOpenLogs}
             onOpenPlanDialog={openPlanDialog}
-            onOpenRecipes={props.onOpenRecipes}
+            onOpenRecipeDetail={openFoodRecipeDetail}
             onQuickAdd={(food, mealType) => openQuickMealDialog(food, mealType, 'eat')}
             resolveAssetUrl={resolveFoodAssetUrl}
           />
         );
       })()}
+
+      {activeFoodRecipeDetailCard && (
+        <div className="workspace-overlay-root">
+          <div className="workspace-overlay-backdrop" onClick={closeFoodRecipeDetail} />
+          <WorkspaceModal
+            title={activeFoodRecipeDetailCard.recipe.title}
+            description={`${activeFoodRecipeDetailCard.recipe.prep_minutes} 分钟 · ${activeFoodRecipeDetailCard.recipe.servings} 人份`}
+            eyebrow="关联菜谱"
+            className="food-recipe-detail-modal"
+            closeLabel="关闭"
+            onClose={closeFoodRecipeDetail}
+          >
+            <RecipeDetailView
+              selectedCard={activeFoodRecipeDetailCard}
+              selectedReadyCount={activeFoodRecipeDetailCard.ingredientAvailability.filter((item) => item.ready).length}
+              selectedIngredientCount={activeFoodRecipeDetailCard.ingredientAvailability.length}
+              selectedShortageCount={activeFoodRecipeDetailCard.shortages.length}
+              isSelectedFavorite={false}
+              selectedRecentCookLog={
+                activeFoodRecipeDetailCard.recipe.cook_logs
+                  .slice()
+                  .sort((left, right) => right.cook_date.localeCompare(left.cook_date))[0] ?? null
+              }
+              selectedRecipePlanItems={[]}
+              compactHeader
+              showPlanAction={false}
+              showShoppingAction={false}
+              showFavoriteAction={false}
+              showDeleteAction={false}
+              onBack={closeFoodRecipeDetail}
+              onCook={(card) => {
+                closeFoodRecipeDetail();
+                closeDetail();
+                props.onStartRecipe(card.recipe.id);
+              }}
+              onPlan={() => undefined}
+              onShopping={() => undefined}
+              onToggleFavorite={() => undefined}
+              onEdit={(card) => {
+                closeFoodRecipeDetail();
+                recipeEditorImageComposer.setState(IDLE_IMAGE_GENERATION_STATE);
+                recipeEditor.openEdit(card);
+                setIsFoodRecipeEditorOpen(true);
+              }}
+              onDelete={() => undefined}
+            />
+          </WorkspaceModal>
+        </div>
+      )}
 
       <FoodPlanDialog
         isOpen={isPlanDialogOpen}

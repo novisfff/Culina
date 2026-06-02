@@ -21,6 +21,9 @@
 }
 
 .meal-log-metric-card span {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
   color: var(--text-soft);
   font-size: 0.86rem;
   font-weight: 800;
@@ -115,7 +118,6 @@
 
 .meal-log-search span {
   color: var(--text-faint);
-  font-weight: 900;
 }
 
 .meal-log-search input {
@@ -819,16 +821,16 @@
 
 .meal-dish-rating-list {
   display: grid;
-  gap: 12px;
+  gap: 10px;
 }
 
 .meal-dish-rating-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(260px, auto);
   align-items: center;
-  gap: 14px;
+  gap: 12px;
   min-width: 0;
-  padding: 12px;
+  padding: 10px 12px;
   border: 1px solid rgba(147, 96, 63, 0.13);
   border-radius: 14px;
   background: rgba(255, 255, 255, 0.78);
@@ -836,7 +838,7 @@
 
 .meal-dish-rating-copy {
   display: grid;
-  gap: 4px;
+  gap: 2px;
   min-width: 0;
 }
 
@@ -849,26 +851,32 @@
 
 .meal-dish-rating-copy strong {
   color: #2f251e;
-  font-size: 0.98rem;
 }
 
 .meal-dish-rating-copy small {
   color: var(--text-faint);
-  font-size: 0.82rem;
   font-weight: 760;
 }
 
 .meal-log-enrich-modal .meal-dish-rating-row .food-rating-input {
-  min-height: 46px;
-  padding: 0 12px;
+  min-height: 40px;
+  padding: 0 10px;
   border-color: rgba(210, 107, 51, 0.16);
   box-shadow: none;
 }
 
 .meal-log-enrich-modal .meal-dish-rating-row .food-rating-stars {
-  width: 128px;
-  height: 28px;
-  font-size: 1.34rem;
+  height: 26px;
+  font-size: 1.28rem;
+}
+
+.meal-log-enrich-modal .meal-dish-rating-row .food-rating-input strong {
+  min-width: 42px;
+}
+
+.meal-log-enrich-modal .meal-dish-rating-row .food-rating-clear {
+  min-height: 24px;
+  padding: 0 8px;
 }
 
 .meal-enrichment-member-pills {

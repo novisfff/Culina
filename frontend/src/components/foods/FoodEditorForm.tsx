@@ -45,7 +45,7 @@ type Props = {
   onCreateAndAddSceneTag: () => void;
   onFormChange: Dispatch<SetStateAction<FoodFormState>>;
   onGenerateImage: (mode: 'reference' | 'text') => void;
-  onOpenRecipes: () => void;
+  onEditRecipe: () => void;
   onRemoveSceneTag: (tag: string) => void;
   onResetImage: () => void;
   onSceneTagPickerToggle: () => void;
@@ -117,8 +117,8 @@ export function FoodEditorForm(props: Props) {
                     <strong>{props.currentRecipe?.title || props.form.name || '还没有关联菜谱'}</strong>
                     <span>名称、主图、食材和做法来自菜谱；这里维护餐别、场景和备注。</span>
                   </div>
-                  <ActionButton tone="secondary" size="compact" type="button" onClick={props.onOpenRecipes}>
-                    <span>去菜谱页</span>
+                  <ActionButton tone="secondary" size="compact" type="button" onClick={props.onEditRecipe}>
+                    <span>编辑菜谱</span>
                     <FoodUiIcon name="arrowRight" />
                   </ActionButton>
                 </div>
@@ -232,86 +232,104 @@ export function FoodEditorForm(props: Props) {
 
             <div className={props.isSelfMade ? 'food-form-panel food-editor-notes-panel' : 'food-form-panel'}>
               <div className="section-mini-title">餐别、场景标签和备注</div>
-              <div className="food-editor-field-row food-editor-meal-row">
-                <span>适合餐别</span>
-                <div className="food-meal-checks">
-                  {MEAL_OPTIONS.map((item) => (
-                    <label key={item.value} className="food-check-pill">
-                      <input
-                        type="checkbox"
-                        checked={props.form.suitableMealTypes.includes(item.value)}
-                        onChange={(event) => props.onToggleMealType(item.value, event.target.checked)}
-                      />
-                      <FoodUiIcon name={item.value === 'dinner' ? 'moon' : item.value === 'snack' ? 'bowl' : 'sun'} />
-                      <span>{item.label}</span>
-                    </label>
-                  ))}
-                </div>
-              </div>
-              <div className="food-editor-field-row">
-                <span>场景标签</span>
-                <div className="food-editor-tag-stack">
-                  <div className="food-editor-scene-tags">
-                    {props.sceneTags.map((tag) => (
-                      <button key={tag} type="button" onClick={() => props.onRemoveSceneTag(tag)}>
-                        {tag}
-                        <span>×</span>
-                      </button>
-                    ))}
-                    <button className="food-editor-add-tag" type="button" onClick={props.onSceneTagPickerToggle}>
-                      <FoodUiIcon name="plus" />
-                      添加标签
-                    </button>
+              <div className="food-editor-meta-grid">
+                <section className="food-editor-meta-card food-editor-meal-card">
+                  <div className="food-editor-field-head">
+                    <span>适合餐别</span>
+                    <small>最多可选多个，用于推荐和筛选</small>
                   </div>
-                  {props.isSceneTagPickerOpen && (
-                    <div className="food-scene-tag-picker">
-                      <div className="food-scene-tag-picker-head">
-                        <strong>选择已有标签</strong>
-                        <span>{props.availableSceneTagOptions.length > 0 ? '点击后加入当前食物' : '已有标签都已选中'}</span>
-                      </div>
-                      {props.availableSceneTagOptions.length > 0 ? (
-                        <div className="food-scene-tag-options">
-                          {props.availableSceneTagOptions.map((tag) => (
-                            <button key={tag} type="button" onClick={() => props.onAddSceneTag(tag)}>
-                              {tag}
-                            </button>
-                          ))}
-                        </div>
-                      ) : (
-                        <p className="food-scene-tag-empty">暂无可选标签，可以创建一个新标签。</p>
-                      )}
-                      <div className="food-scene-tag-create">
-                        <input className="text-input" value={props.newSceneTagName} placeholder="创建新标签，例如：周末轻食" onChange={(event) => props.setNewSceneTagName(event.target.value)} />
-                        <ActionButton tone="secondary" size="compact" type="button" disabled={props.isUpdatingScene || !props.newSceneTagName.trim()} onClick={props.onCreateAndAddSceneTag}>
-                          创建并添加
-                        </ActionButton>
-                      </div>
+                  <div className="food-meal-checks">
+                    {MEAL_OPTIONS.map((item) => (
+                      <label key={item.value} className="food-check-pill">
+                        <input
+                          type="checkbox"
+                          checked={props.form.suitableMealTypes.includes(item.value)}
+                          onChange={(event) => props.onToggleMealType(item.value, event.target.checked)}
+                        />
+                        <FoodUiIcon name={item.value === 'dinner' ? 'moon' : item.value === 'snack' ? 'bowl' : 'sun'} />
+                        <span>{item.label}</span>
+                      </label>
+                    ))}
+                  </div>
+                </section>
+
+                <label className="food-editor-meta-card food-editor-favorite-row">
+                  <div className="food-editor-field-head">
+                    <span>加入收藏</span>
+                    <small>收藏后可在食物库快速找到</small>
+                  </div>
+                  <input type="checkbox" checked={props.form.favorite} onChange={(event) => props.onFormChange({ ...props.form, favorite: event.target.checked })} />
+                  <i aria-hidden="true" />
+                </label>
+
+                <section className="food-editor-meta-card food-editor-tag-card">
+                  <div className="food-editor-field-head">
+                    <span>场景标签</span>
+                    <small>比如家常菜、快手菜、工作日午餐</small>
+                  </div>
+                  <div className="food-editor-tag-stack">
+                    <div className="food-editor-scene-tags">
+                      {props.sceneTags.map((tag) => (
+                        <button key={tag} type="button" onClick={() => props.onRemoveSceneTag(tag)}>
+                          {tag}
+                          <span>×</span>
+                        </button>
+                      ))}
+                      <button className="food-editor-add-tag" type="button" onClick={props.onSceneTagPickerToggle}>
+                        <FoodUiIcon name="plus" />
+                        添加标签
+                      </button>
                     </div>
-                  )}
-                </div>
+                    {props.isSceneTagPickerOpen && (
+                      <div className="food-scene-tag-picker">
+                        <div className="food-scene-tag-picker-head">
+                          <strong>选择已有标签</strong>
+                          <span>{props.availableSceneTagOptions.length > 0 ? '点击后加入当前食物' : '已有标签都已选中'}</span>
+                        </div>
+                        {props.availableSceneTagOptions.length > 0 ? (
+                          <div className="food-scene-tag-options">
+                            {props.availableSceneTagOptions.map((tag) => (
+                              <button key={tag} type="button" onClick={() => props.onAddSceneTag(tag)}>
+                                {tag}
+                              </button>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="food-scene-tag-empty">暂无可选标签，可以创建一个新标签。</p>
+                        )}
+                        <div className="food-scene-tag-create">
+                          <input className="text-input" value={props.newSceneTagName} placeholder="创建新标签，例如：周末轻食" onChange={(event) => props.setNewSceneTagName(event.target.value)} />
+                          <ActionButton tone="secondary" size="compact" type="button" disabled={props.isUpdatingScene || !props.newSceneTagName.trim()} onClick={props.onCreateAndAddSceneTag}>
+                            创建并添加
+                          </ActionButton>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </section>
+
+                <section className="food-editor-meta-card">
+                  <div className="food-editor-field-head">
+                    <span>常用备注</span>
+                    <small>一句话提示家庭成员或复吃场景</small>
+                  </div>
+                  <div className="food-editor-note-input">
+                    <input className="text-input" maxLength={50} value={props.form.routineNote} placeholder="例如：孩子也能吃、适合减脂、少油少盐" onChange={(event) => props.onFormChange({ ...props.form, routineNote: event.target.value })} />
+                    <small>{props.form.routineNote.length}/50</small>
+                  </div>
+                </section>
+
+                <section className="food-editor-meta-card food-editor-detail-card">
+                  <div className="food-editor-field-head">
+                    <span>详细备注</span>
+                    <small>补充口味、保存方式、复热提醒等</small>
+                  </div>
+                  <div className="food-editor-note-input">
+                    <textarea className="text-input" maxLength={200} rows={3} value={props.form.notes} onChange={(event) => props.onFormChange({ ...props.form, notes: event.target.value })} />
+                    <small>{props.form.notes.length}/200</small>
+                  </div>
+                </section>
               </div>
-              <div className="food-editor-field-row">
-                <span>常用备注</span>
-                <div className="food-editor-note-input">
-                  <input className="text-input" maxLength={50} value={props.form.routineNote} placeholder="例如：孩子也能吃、适合减脂、少油少盐" onChange={(event) => props.onFormChange({ ...props.form, routineNote: event.target.value })} />
-                  <small>{props.form.routineNote.length}/50</small>
-                </div>
-              </div>
-              <div className="food-editor-field-row">
-                <span>详细备注</span>
-                <div className="food-editor-note-input">
-                  <textarea className="text-input" maxLength={200} rows={3} value={props.form.notes} onChange={(event) => props.onFormChange({ ...props.form, notes: event.target.value })} />
-                  <small>{props.form.notes.length}/200</small>
-                </div>
-              </div>
-              <label className="food-editor-favorite-row">
-                <div>
-                  <span>加入收藏</span>
-                  <small>收藏后可在食物库快速找到</small>
-                </div>
-                <input type="checkbox" checked={props.form.favorite} onChange={(event) => props.onFormChange({ ...props.form, favorite: event.target.checked })} />
-                <i aria-hidden="true" />
-              </label>
             </div>
           </section>
 

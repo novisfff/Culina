@@ -69,6 +69,9 @@ type RecipeEditorViewProps = {
   isCreatingRecipe?: boolean;
   isUpdatingRecipe?: boolean;
   isDeletingRecipe?: boolean;
+  showAiDraftAction?: boolean;
+  showDeleteAction?: boolean;
+  compactHeader?: boolean;
   onBack: () => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
   onDelete: () => Promise<void> | void;
@@ -124,6 +127,9 @@ export function RecipeEditorView({
   isCreatingRecipe,
   isUpdatingRecipe,
   isDeletingRecipe,
+  showAiDraftAction = true,
+  showDeleteAction = true,
+  compactHeader = false,
   onBack,
   onSubmit,
   onDelete,
@@ -147,17 +153,21 @@ export function RecipeEditorView({
 }: RecipeEditorViewProps) {
   return (
         <WorkspaceSubpageShell className="recipe-editor-subpage">
-          <div className="recipe-editor-topbar">
-            <button className="workspace-back-link recipe-detail-back-link" type="button" onClick={() => onBack()}>
-              <RecipeUiIcon name="chevronLeft" />
-              {isEditing ? '返回详情' : '返回菜谱'}
-            </button>
-          </div>
-          <div className="recipe-editor-title-block">
-            <p className="eyebrow">菜谱</p>
-            <h2>{isEditing ? '编辑菜谱' : '新增菜谱'}</h2>
-            <p>把标题、用料、步骤和图片放在同一个录入工作台里。</p>
-          </div>
+          {!compactHeader && (
+            <>
+              <div className="recipe-editor-topbar">
+                <button className="workspace-back-link recipe-detail-back-link" type="button" onClick={() => onBack()}>
+                  <RecipeUiIcon name="chevronLeft" />
+                  {isEditing ? '返回详情' : '返回菜谱'}
+                </button>
+              </div>
+              <div className="recipe-editor-title-block">
+                <p className="eyebrow">菜谱</p>
+                <h2>{isEditing ? '编辑菜谱' : '新增菜谱'}</h2>
+                <p>把标题、用料、步骤和图片放在同一个录入工作台里。</p>
+              </div>
+            </>
+          )}
 
           <form className={isRecipeAiApplied ? 'recipe-editor-workbench ai-applied' : 'recipe-editor-workbench'} onSubmit={onSubmit}>
             <main className="recipe-editor-main-column">
@@ -518,22 +528,24 @@ export function RecipeEditorView({
             </main>
 
             <aside className="recipe-editor-side-column">
-              <section className="recipe-editor-side-card recipe-ai-draft-panel">
-                <div className="workspace-action-rail-copy">
-                  <p className="eyebrow">AI 生成</p>
-                  <h3>自动补全菜谱</h3>
-                  <p className="subtle">基于左侧已填写内容生成完整菜谱，保存前仍可继续编辑。</p>
-                </div>
-                {recipeDraftError ? <p className="form-error">{recipeDraftError}</p> : null}
-                <ActionButton
-                  tone="secondary"
-                  type="button"
-                  onClick={() => onOpenDraftDialog()}
-                  disabled={isRecipeDraftBusy || recipeImageState.isGenerating}
-                >
-                  {recipeImageState.isGenerating && recipeDraftGenerationStage === 'idle' ? '正在生成封面' : recipeDraftButtonLabel}
-                </ActionButton>
-              </section>
+              {showAiDraftAction && (
+                <section className="recipe-editor-side-card recipe-ai-draft-panel">
+                  <div className="workspace-action-rail-copy">
+                    <p className="eyebrow">AI 生成</p>
+                    <h3>自动补全菜谱</h3>
+                    <p className="subtle">基于左侧已填写内容生成完整菜谱，保存前仍可继续编辑。</p>
+                  </div>
+                  {recipeDraftError ? <p className="form-error">{recipeDraftError}</p> : null}
+                  <ActionButton
+                    tone="secondary"
+                    type="button"
+                    onClick={() => onOpenDraftDialog()}
+                    disabled={isRecipeDraftBusy || recipeImageState.isGenerating}
+                  >
+                    {recipeImageState.isGenerating && recipeDraftGenerationStage === 'idle' ? '正在生成封面' : recipeDraftButtonLabel}
+                  </ActionButton>
+                </section>
+              )}
               <section className="recipe-editor-side-card recipe-editor-summary-card">
                 <div className="recipe-editor-summary-head">
                   <div>
@@ -564,7 +576,7 @@ export function RecipeEditorView({
                       预览菜谱
                     </ActionButton>
                   )}
-                  {isEditing && selectedRecipeId && (
+                  {showDeleteAction && isEditing && selectedRecipeId && (
                     <ActionButton tone="tertiary" type="button" onClick={() => void onDelete()} disabled={isDeletingRecipe}>
                       {isDeletingRecipe ? '删除中...' : '删除菜谱'}
                     </ActionButton>
