@@ -92,6 +92,7 @@ export function MealLogWorkspace(props: Props) {
         isUpdatingMeal={props.isUpdatingMeal}
         showManualComposer={showManualComposer}
         onSelectMeal={setSelectedMealId}
+        onOpenMealRecord={openMealRecord}
         onToggleManualComposer={() => setShowManualComposer((current) => !current)}
         updateMealLog={props.updateMealLog}
         onBackHome={props.onBackHome}

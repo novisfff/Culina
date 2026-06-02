@@ -1289,13 +1289,11 @@
     font-size: 1.7rem;
   }
 
-  .meal-log-enrich-modal .meal-enrichment-form,
-  .mobile-log-page .meal-enrichment-form {
+  .meal-log-enrich-modal .meal-enrichment-form {
     gap: 18px;
   }
 
-  .meal-log-enrich-modal .meal-enrichment-summary,
-  .mobile-log-page .meal-enrichment-summary {
+  .meal-log-enrich-modal .meal-enrichment-summary {
     grid-template-columns: minmax(0, 1fr);
     gap: 10px;
     min-height: 0;
@@ -1364,8 +1362,7 @@
     white-space: normal;
   }
 
-  .meal-log-enrich-modal .meal-dish-rating-row .food-rating-input,
-  .mobile-log-page .meal-dish-rating-row .food-rating-input {
+  .meal-log-enrich-modal .meal-dish-rating-row .food-rating-input {
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto;
     gap: 8px 10px;
@@ -1374,8 +1371,7 @@
     border-radius: 16px;
   }
 
-  .meal-log-enrich-modal .meal-dish-rating-row .food-rating-stars,
-  .mobile-log-page .meal-dish-rating-row .food-rating-stars {
+  .meal-log-enrich-modal .meal-dish-rating-row .food-rating-stars {
     width: 132px;
     height: 30px;
     font-size: 1.38rem;
@@ -1419,8 +1415,7 @@
     margin-left: auto;
   }
 
-  .meal-log-enrich-modal .meal-enrichment-notes textarea,
-  .mobile-log-page .meal-enrichment-notes textarea {
+  .meal-log-enrich-modal .meal-enrichment-notes textarea {
     min-height: 112px;
     padding: 14px 14px 30px;
     border-radius: 18px;

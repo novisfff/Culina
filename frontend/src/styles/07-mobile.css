@@ -371,8 +371,7 @@
 
   .mobile-log-topbar,
   .mobile-log-brand,
-  .mobile-log-section-head,
-  .mobile-log-meta {
+  .mobile-log-section-head {
     display: flex;
     align-items: center;
   }
@@ -445,26 +444,46 @@
   }
 
   .mobile-log-hero {
+    display: flex;
+    align-items: end;
+    justify-content: space-between;
+    gap: 14px;
+    padding: 24px 14px 4px;
+  }
+
+  .mobile-log-hero > div {
     display: grid;
-    gap: 10px;
-    padding: 24px 22px 8px;
+    min-width: 0;
+    gap: 8px;
   }
 
   .mobile-log-hero h1 {
     margin: 0;
     color: #2b201b;
-    font-size: clamp(2.04rem, 9.2vw, 2.72rem);
+    font-size: 2.08rem;
     line-height: 1.04;
     font-weight: 950;
   }
 
   .mobile-log-hero p {
-    max-width: 26ch;
     margin: 0;
     color: #5d5048;
-    font-size: clamp(1.02rem, 4.6vw, 1.2rem);
+    font-size: 0.96rem;
     font-weight: 800;
-    line-height: 1.28;
+    line-height: 1.35;
+  }
+
+  .mobile-log-primary-action {
+    min-width: 92px;
+    min-height: 42px;
+    padding: 0 14px;
+    border: 0;
+    border-radius: 14px;
+    background: #3f7d67;
+    color: #fff;
+    font: inherit;
+    font-size: 0.88rem;
+    font-weight: 950;
   }
 
   .mobile-log-panel {
@@ -475,18 +494,6 @@
     border-radius: 23px;
     background: rgba(255, 255, 255, 0.84);
     box-shadow: 0 14px 34px rgba(75, 52, 34, 0.055);
-  }
-
-  .mobile-log-enrichment-panel {
-    padding: 12px;
-  }
-
-  .mobile-log-panel .page-main-column {
-    padding: 0;
-    border: 0;
-    border-radius: 0;
-    background: transparent;
-    box-shadow: none;
   }
 
   .mobile-log-section-head {
@@ -522,38 +529,55 @@
   }
 
   .mobile-log-queue {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    display: flex;
     gap: 10px;
+    margin: 0 -14px;
+    padding: 0 14px 2px;
+    overflow-x: auto;
+    scroll-snap-type: x proximity;
   }
 
   .mobile-log-queue-card {
     display: grid;
-    gap: 5px;
-    min-height: 112px;
-    padding: 13px;
+    flex: 0 0 72%;
+    gap: 9px;
+    min-height: 138px;
+    padding: 14px;
     border: 1px solid rgba(224, 211, 199, 0.9);
-    border-radius: 18px;
+    border-radius: 20px;
     background: rgba(255, 255, 255, 0.78);
     color: #2b201b;
     text-align: left;
     box-shadow: none;
+    scroll-snap-align: start;
   }
 
   .mobile-log-queue-card.active {
     border-color: rgba(210, 107, 51, 0.48);
     background: rgba(255, 241, 231, 0.96);
-    box-shadow: 0 12px 24px rgba(210, 107, 51, 0.12);
   }
 
-  .mobile-log-queue-card span {
+  .mobile-log-meal-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    width: fit-content;
+    min-height: 28px;
+    padding: 0 9px;
+    border-radius: 999px;
+    background: rgba(255, 244, 234, 0.92);
     color: #b35122;
     font-size: 0.76rem;
     font-weight: 950;
   }
 
+  .mobile-log-meal-chip i {
+    font-style: normal;
+  }
+
   .mobile-log-queue-card strong,
-  .mobile-log-queue-card small {
+  .mobile-log-queue-card small,
+  .mobile-log-queue-card em {
     overflow: hidden;
     text-overflow: ellipsis;
   }
@@ -576,59 +600,101 @@
     white-space: nowrap;
   }
 
-  .mobile-log-page .meal-enrichment-form {
-    gap: 13px;
-    padding: 0;
-    border: 0;
-    border-radius: 0;
-    background: transparent;
-  }
-
-  .mobile-log-page .meal-enrichment-head {
-    align-items: start;
-  }
-
-  .mobile-log-page .meal-enrichment-head h3 {
-    font-size: 1.34rem;
-  }
-
-  .mobile-log-page .meal-enrichment-actions .solid-button {
-    width: 100%;
-  }
-
-  .mobile-log-page .image-composer {
-    padding: 12px;
-    border-radius: 18px;
-  }
-
-  .mobile-log-page .image-composer .inline-between {
-    align-items: start;
-  }
-
-  .mobile-log-page .image-composer .inline-actions {
-    flex-wrap: wrap;
-    justify-content: flex-end;
+  .mobile-log-queue-card em {
+    align-self: end;
+    color: #3f7d67;
+    font-size: 0.78rem;
+    font-style: normal;
+    font-weight: 950;
   }
 
   .mobile-log-recent-list {
     display: grid;
-    gap: 12px;
+    gap: 10px;
   }
 
-  .mobile-log-card {
+  .mobile-log-record-card {
+    display: grid;
+    grid-template-columns: 42px minmax(0, 1fr);
+    gap: 12px;
     width: 100%;
+    min-height: 112px;
+    padding: 12px;
+    border: 1px solid rgba(226, 215, 205, 0.9);
     border-radius: 20px;
+    background: rgba(255, 255, 255, 0.82);
     color: inherit;
     text-align: left;
     box-shadow: none;
   }
 
-  .mobile-log-meta {
+  .mobile-log-record-card.active {
+    border-color: rgba(63, 125, 103, 0.36);
+    background: rgba(242, 249, 246, 0.96);
+  }
+
+  .mobile-log-record-icon {
+    display: grid;
+    place-items: center;
+    width: 42px;
+    height: 42px;
+    border-radius: 15px;
+    background: rgba(255, 245, 237, 0.94);
+    color: #b35122;
+    font-size: 1.1rem;
+    font-weight: 950;
+  }
+
+  .mobile-log-record-copy {
+    display: grid;
+    min-width: 0;
+    gap: 6px;
+  }
+
+  .mobile-log-record-copy > div {
+    display: flex;
+    align-items: center;
     justify-content: space-between;
-    gap: 12px;
+    gap: 8px;
+  }
+
+  .mobile-log-record-copy span,
+  .mobile-log-record-copy small {
     color: #7f7066;
     font-size: 0.78rem;
-    font-weight: 700;
+    font-weight: 850;
+  }
+
+  .mobile-log-record-copy strong,
+  .mobile-log-record-copy p {
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .mobile-log-record-copy strong {
+    color: #2b201b;
+    font-size: 1.02rem;
+    line-height: 1.22;
+    font-weight: 950;
+    white-space: nowrap;
+  }
+
+  .mobile-log-record-copy p {
+    display: -webkit-box;
+    margin: 0;
+    color: #5f5148;
+    font-size: 0.86rem;
+    line-height: 1.32;
+    font-weight: 780;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+  }
+
+  .mobile-log-record-copy .badge {
+    flex: 0 0 auto;
+    min-height: 24px;
+    padding: 0 8px;
+    font-size: 0.72rem;
   }
 
   .mobile-log-empty {
