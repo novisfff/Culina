@@ -4,7 +4,7 @@ import { Avatar, Badge, PageHeader, WorkspaceModal } from '../../components/ui-k
 import { resolveAssetUrl } from '../../lib/assets';
 import { formatDateTime, MEAL_TYPE_LABELS } from '../../lib/ui';
 import { MealEnrichmentForm, MealPhotoLightbox } from './MealLogEnrichment';
-import { MealLogComposer, type LocalMealFoodEntry, type MealFormState } from './MealLogComposer';
+import type { LocalMealFoodEntry, MealFormState } from './MealLogComposer';
 import { MealLogMobileView } from './MealLogMobileView';
 import {
   MEAL_FILTERS,
@@ -48,12 +48,11 @@ type Props = {
   onResetPhoto: () => void;
 };
 
-type MealLogModalMode = 'manual' | 'enrich' | 'preview' | null;
+type MealLogModalMode = 'enrich' | 'preview' | null;
 
 export function MealLogWorkspace(props: Props) {
   const initialPendingMealId = props.recentMeals.find((meal) => !isMealLogEnriched(meal))?.id;
   const [selectedMealId, setSelectedMealId] = useState<string | null>(initialPendingMealId ?? props.recentMeals[0]?.id ?? null);
-  const [showManualComposer, setShowManualComposer] = useState(false);
   const [modalMode, setModalMode] = useState<MealLogModalMode>(null);
   const [activePreviewPhotoId, setActivePreviewPhotoId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
@@ -84,18 +83,22 @@ export function MealLogWorkspace(props: Props) {
   return (
     <>
       <MealLogMobileView
-        {...props}
-        foodPlanItems={props.foodPlanItems}
+        recentMeals={props.recentMeals}
         pendingMeals={viewModel.pendingMeals}
         selectedMeal={viewModel.selectedMeal}
         mealSources={viewModel.mealSources}
-        isUpdatingMeal={props.isUpdatingMeal}
-        showManualComposer={showManualComposer}
+        todayMealCount={viewModel.todayMeals.length}
+        enrichedCount={viewModel.enrichedCount}
+        weekRecordCount={viewModel.weekRecordCount}
+        groupedMeals={viewModel.groupedMeals}
+        searchQuery={searchQuery}
+        statusFilter={statusFilter}
+        mealFilter={mealFilter}
         onSelectMeal={setSelectedMealId}
         onOpenMealRecord={openMealRecord}
-        onToggleManualComposer={() => setShowManualComposer((current) => !current)}
-        updateMealLog={props.updateMealLog}
-        onBackHome={props.onBackHome}
+        onSearchChange={setSearchQuery}
+        onStatusFilterChange={setStatusFilter}
+        onMealFilterChange={setMealFilter}
       />
 
       <main className="meal-log-desktop-view meal-log-center-page">
@@ -207,39 +210,18 @@ export function MealLogWorkspace(props: Props) {
         <div className="workspace-overlay-root">
           <div className="workspace-overlay-backdrop" onClick={() => setModalMode(null)} />
           <WorkspaceModal
-            title={modalMode === 'manual' ? '手动补录一餐' : modalMode === 'preview' ? '记录预览' : '补充记录'}
+            title={modalMode === 'preview' ? '记录预览' : '补充记录'}
             description={
-              modalMode === 'manual'
-                ? '用于外卖、外出就餐或临时加餐。'
-                  : modalMode === 'preview'
-                    ? '查看这次餐食的来源、评价、评论和照片。'
-                    : '为这次待补充记录添加评价、家人、照片和评论'
+              modalMode === 'preview'
+                ? '查看这次餐食的来源、评价、评论和照片。'
+                : '为这次待补充记录添加评价、家人、照片和评论'
             }
             eyebrow={modalMode === 'enrich' ? undefined : '记录'}
-            className={modalMode === 'enrich' || modalMode === 'preview' ? 'meal-log-modal meal-log-enrich-modal meal-log-preview-modal' : 'meal-log-modal'}
-            closeLabel={modalMode === 'enrich' || modalMode === 'preview' ? '×' : undefined}
+            className="meal-log-modal meal-log-enrich-modal meal-log-preview-modal"
+            closeLabel="×"
             onClose={() => setModalMode(null)}
           >
-            {modalMode === 'manual' ? (
-              <MealLogComposer
-                form={props.form}
-                foods={props.foods}
-                members={props.members}
-                entries={props.entries}
-                selectedParticipants={props.selectedParticipants}
-                isSubmitting={props.isSubmitting}
-                isGeneratingPhoto={props.isGeneratingPhoto}
-                photoErrorMessage={props.photoErrorMessage}
-                onSubmit={props.onSubmit}
-                onFormChange={props.onFormChange}
-                onToggleFood={props.onToggleFood}
-                onUpdateFood={props.onUpdateFood}
-                onUpdateParticipant={props.onUpdateParticipant}
-                onUploadPhoto={props.onUploadPhoto}
-                onGeneratePhoto={props.onGeneratePhoto}
-                onResetPhoto={props.onResetPhoto}
-              />
-            ) : modalMode === 'preview' && viewModel.selectedMeal && viewModel.selectedSource ? (
+            {modalMode === 'preview' && viewModel.selectedMeal && viewModel.selectedSource ? (
               <div className="meal-log-preview-detail">
                 <div className="meal-enrichment-summary meal-log-preview-summary">
                   <span className={`meal-enrichment-meal-pill ${getMealTone(viewModel.selectedMeal.meal_type)}`}>
@@ -323,9 +305,6 @@ export function MealLogWorkspace(props: Props) {
                 <div className="meal-log-preview-modal-actions">
                   <button className="solid-button" type="button" onClick={() => setModalMode('enrich')}>
                     继续补充
-                  </button>
-                  <button className="ghost-button" type="button" onClick={() => setModalMode('manual')}>
-                    手动补录一餐
                   </button>
                 </div>
               </div>
