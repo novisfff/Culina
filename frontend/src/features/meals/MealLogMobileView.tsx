@@ -3,13 +3,14 @@ import { Badge } from '../../components/ui-kit';
 import { FoodUiIcon } from '../../components/foods/FoodWorkspacePrimitives';
 import { formatDate, MEAL_TYPE_LABELS } from '../../lib/ui';
 import type { MealSource } from './MealLogEnrichment';
+import { MealLogIcon } from './MealLogIcons';
 import {
   MEAL_FILTERS,
   STATUS_FILTERS,
   buildMealTitle,
   formatDateGroupLabel,
   formatMealTime,
-  getMealIcon,
+  getMealIconName,
   getMealLogStatusLabel,
   getMealTone,
   type MealLogMealFilter,
@@ -36,12 +37,30 @@ type Props = {
   onMealFilterChange: (value: MealLogMealFilter) => void;
 };
 
+const iconSlotStyle = {
+  width: 20,
+  height: 20,
+  display: 'inline-grid',
+  placeItems: 'center',
+  lineHeight: 0,
+  flex: '0 0 20px',
+} as const;
+
+const compactIconSlotStyle = {
+  width: 18,
+  height: 18,
+  display: 'inline-grid',
+  placeItems: 'center',
+  lineHeight: 0,
+  flex: '0 0 18px',
+} as const;
+
 export function MealLogMobileView(props: Props) {
   const mobileStats = [
-    { label: '今日已记录', value: props.todayMealCount, detail: '来自计划记录', tone: 'orange', icon: '□' },
-    { label: '待补充', value: props.pendingMeals.length, detail: '需要补充评价/家人/照片/评论', tone: 'amber', icon: '✎' },
-    { label: '已补充', value: props.enrichedCount, detail: '已有评价、照片或评论', tone: 'green', icon: '✓' },
-    { label: '本周记录', value: props.weekRecordCount, detail: `较上周 ↑ ${Math.min(props.weekRecordCount, 4)}`, tone: 'blue', icon: '▥' },
+    { label: '今日已记录', value: props.todayMealCount, detail: '来自计划记录', tone: 'orange', icon: 'today' as const },
+    { label: '待补充', value: props.pendingMeals.length, detail: '需要补充评价/家人/照片/评论', tone: 'amber', icon: 'pending' as const },
+    { label: '已补充', value: props.enrichedCount, detail: '已有评价、照片或评论', tone: 'green', icon: 'done' as const },
+    { label: '本周记录', value: props.weekRecordCount, detail: `较上周 ↑ ${Math.min(props.weekRecordCount, 4)}`, tone: 'blue', icon: 'trend' as const },
   ];
 
   return (
@@ -71,7 +90,9 @@ export function MealLogMobileView(props: Props) {
       <section className="mobile-log-stat-grid" aria-label="记录概览">
         {mobileStats.map((item) => (
           <article key={item.label} className={`mobile-log-stat-card tone-${item.tone}`}>
-            <span aria-hidden="true">{item.icon}</span>
+            <span aria-hidden="true">
+              <MealLogIcon name={item.icon} className="meal-log-ui-icon" />
+            </span>
             <div>
               <strong>{item.label}</strong>
               <b>{item.value}</b>
@@ -82,7 +103,9 @@ export function MealLogMobileView(props: Props) {
       </section>
 
       <label className="mobile-log-search-field">
-        <span aria-hidden="true">⌕</span>
+        <span aria-hidden="true">
+          <MealLogIcon name="search" className="meal-log-ui-icon" />
+        </span>
         <input value={props.searchQuery} placeholder="搜索菜品、食材或备注" onChange={(event) => props.onSearchChange(event.target.value)} />
       </label>
 
@@ -97,7 +120,9 @@ export function MealLogMobileView(props: Props) {
         <div className="mobile-log-filter-row meal-filter">
           {MEAL_FILTERS.map((item) => (
             <button key={item.key} type="button" className={props.mealFilter === item.key ? 'active' : ''} onClick={() => props.onMealFilterChange(item.key)}>
-              <span>{item.key === 'all' ? '▦' : getMealIcon(item.key)}</span>
+              <span style={iconSlotStyle}>
+                <MealLogIcon name={getMealIconName(item.key)} className="meal-log-ui-icon" />
+              </span>
               {item.key === 'all' ? '全部餐次' : item.label}
             </button>
           ))}
@@ -127,19 +152,22 @@ export function MealLogMobileView(props: Props) {
                       }}
                     >
                       <span className={`mobile-log-record-meal ${getMealTone(meal.meal_type)}`}>
-                        <i>{getMealIcon(meal.meal_type)}</i>
+                        <i style={iconSlotStyle}>
+                          <MealLogIcon name={getMealIconName(meal.meal_type)} className="meal-log-ui-icon" />
+                        </i>
                         {MEAL_TYPE_LABELS[meal.meal_type]}
                       </span>
                       <span className="mobile-log-record-main">
                         <strong>{buildMealTitle(meal)}</strong>
-                        <small>{formatMealTime(meal)} <em>{source?.status === 'planned' ? '来自菜单计划' : '手动记录'}</em></small>
+                        <small>
+                          {formatMealTime(meal)} <em>{source?.status === 'planned' ? '来自菜单计划' : '手动记录'}</em>
+                          <span className="mobile-log-record-meta">
+                            <small><span style={compactIconSlotStyle}><MealLogIcon name="photo" className="meal-log-ui-icon" /></span>{meal.photos.length}</small>
+                            <small><span style={compactIconSlotStyle}><MealLogIcon name="note" className="meal-log-ui-icon" /></span>{meal.notes.trim() ? 1 : 0}</small>
+                          </span>
+                        </small>
                       </span>
                       <Badge className={isEnriched ? 'mobile-log-status done' : 'mobile-log-status pending'}>{getMealLogStatusLabel(meal)}</Badge>
-                      <span className="mobile-log-record-meta">
-                        <small>▧ {meal.photos.length}</small>
-                        <small>○ {meal.notes.trim() ? 1 : 0}</small>
-                      </span>
-                      <span className="mobile-log-record-action">{isEnriched ? '查看详情' : '补充记录'}</span>
                     </button>
                   );
                 })}

@@ -57,7 +57,7 @@ type Props = {
   onClose: () => void;
   onOpenLogs: () => void;
   onOpenPlanDialog: (food: Food) => void;
-  onOpenRecipes: () => void;
+  onOpenRecipeDetail: (card: RecipeCardViewModel | null) => void;
   onQuickAdd: (food: Food, mealType: MealType) => void;
   onEdit: (food: Food) => void;
   resolveAssetUrl: (url: string) => string;
@@ -154,7 +154,7 @@ export function FoodDetailDrawer(props: Props) {
                 {props.relation.shortagePreview.map((item) => <Badge key={item}>{item}</Badge>)}
               </div>
             )}
-            <ActionButton tone="secondary" size="compact" type="button" onClick={props.onOpenRecipes}>
+            <ActionButton tone="secondary" size="compact" type="button" onClick={() => props.onOpenRecipeDetail(linkedRecipeCard)}>
               看菜谱
             </ActionButton>
           </section>

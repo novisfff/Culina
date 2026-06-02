@@ -16,6 +16,12 @@ type RecipeDetailViewProps = {
   isUpdatingFavorite?: boolean;
   isCreatingShopping?: boolean;
   isDeletingRecipe?: boolean;
+  compactHeader?: boolean;
+  showPlanAction?: boolean;
+  showShoppingAction?: boolean;
+  showFavoriteAction?: boolean;
+  showEditAction?: boolean;
+  showDeleteAction?: boolean;
   onBack: () => void;
   onCook: (card: RecipeCardViewModel) => void;
   onPlan: (card: RecipeCardViewModel) => void;
@@ -36,6 +42,12 @@ export function RecipeDetailView({
   isUpdatingFavorite,
   isCreatingShopping,
   isDeletingRecipe,
+  compactHeader = false,
+  showPlanAction = true,
+  showShoppingAction = true,
+  showFavoriteAction = true,
+  showEditAction = true,
+  showDeleteAction = true,
   onBack,
   onCook,
   onPlan,
@@ -46,15 +58,17 @@ export function RecipeDetailView({
 }: RecipeDetailViewProps) {
   return (
         <WorkspaceSubpageShell className="recipe-detail-subpage">
-          <div className="recipe-detail-topbar">
-            <button className="workspace-back-link recipe-detail-back-link" type="button" onClick={() => onBack()}>
-              <RecipeUiIcon name="chevronLeft" />
-              返回菜谱
-            </button>
-            <Badge className={`recipe-availability-badge tone-${selectedCard.availability}`}>
-              {selectedCard.availabilityLabel}
-            </Badge>
-          </div>
+          {!compactHeader && (
+            <div className="recipe-detail-topbar">
+              <button className="workspace-back-link recipe-detail-back-link" type="button" onClick={() => onBack()}>
+                <RecipeUiIcon name="chevronLeft" />
+                返回菜谱
+              </button>
+              <Badge className={`recipe-availability-badge tone-${selectedCard.availability}`}>
+                {selectedCard.availabilityLabel}
+              </Badge>
+            </div>
+          )}
 
           <section className="recipe-detail-hero-panel">
             <div className="recipe-detail-title-block">
@@ -96,22 +110,30 @@ export function RecipeDetailView({
                     <RecipeUiIcon name="play" />
                     开始做
                   </ActionButton>
-                  <ActionButton tone="secondary" type="button" onClick={() => onPlan(selectedCard)}>
-                    <RecipeUiIcon name="calendar" />
-                    加入计划
-                  </ActionButton>
-                  <ActionButton tone="secondary" type="button" onClick={() => onShopping(selectedCard)} disabled={isCreatingShopping}>
-                    <RecipeUiIcon name="basket" />
-                    加入采购
-                  </ActionButton>
-                  <ActionButton tone="secondary" type="button" onClick={() => void onToggleFavorite(selectedCard)} disabled={isUpdatingFavorite}>
-                    <RecipeUiIcon name="star" />
-                    {isSelectedFavorite ? '已收藏' : '收藏'}
-                  </ActionButton>
-                  <ActionButton tone="secondary" type="button" onClick={() => onEdit(selectedCard)}>
-                    <RecipeUiIcon name="edit" />
-                    编辑
-                  </ActionButton>
+                  {showPlanAction && (
+                    <ActionButton tone="secondary" type="button" onClick={() => onPlan(selectedCard)}>
+                      <RecipeUiIcon name="calendar" />
+                      加入计划
+                    </ActionButton>
+                  )}
+                  {showShoppingAction && (
+                    <ActionButton tone="secondary" type="button" onClick={() => onShopping(selectedCard)} disabled={isCreatingShopping}>
+                      <RecipeUiIcon name="basket" />
+                      加入采购
+                    </ActionButton>
+                  )}
+                  {showFavoriteAction && (
+                    <ActionButton tone="secondary" type="button" onClick={() => void onToggleFavorite(selectedCard)} disabled={isUpdatingFavorite}>
+                      <RecipeUiIcon name="star" />
+                      {isSelectedFavorite ? '已收藏' : '收藏'}
+                    </ActionButton>
+                  )}
+                  {showEditAction && (
+                    <ActionButton tone="secondary" type="button" onClick={() => onEdit(selectedCard)}>
+                      <RecipeUiIcon name="edit" />
+                      编辑
+                    </ActionButton>
+                  )}
                 </div>
               </div>
             </div>
@@ -242,12 +264,14 @@ export function RecipeDetailView({
                 ) : (
                   <p className="subtle">主要用料已经备齐。</p>
                 )}
-                <button className="recipe-detail-link-button" type="button" onClick={() => onShopping(selectedCard)}>
-                  查看采购清单 <RecipeUiIcon name="chevronRight" />
-                </button>
+                {showShoppingAction && (
+                  <button className="recipe-detail-link-button" type="button" onClick={() => onShopping(selectedCard)}>
+                    查看采购清单 <RecipeUiIcon name="chevronRight" />
+                  </button>
+                )}
               </section>
 
-              {SHOW_RECIPE_PLAN_MANAGEMENT && (
+              {SHOW_RECIPE_PLAN_MANAGEMENT && showPlanAction && (
               <section className="recipe-detail-side-card recipe-detail-plan-card">
                 <div className="recipe-detail-section-head">
                   <span><RecipeUiIcon name="calendar" /></span>
@@ -275,9 +299,11 @@ export function RecipeDetailView({
                   <div><dt>创建者</dt><dd>{selectedCard.recipe.created_by || '家庭成员'}</dd></div>
                   <div><dt>来源/备注</dt><dd>{selectedCard.linkedFood ? selectedCard.linkedFood.name : '家庭自制菜谱'}</dd></div>
                 </dl>
-                <ActionButton tone="tertiary" size="compact" type="button" onClick={() => void onDelete()} disabled={isDeletingRecipe}>
-                  删除菜谱
-                </ActionButton>
+                {showDeleteAction && (
+                  <ActionButton tone="tertiary" size="compact" type="button" onClick={() => void onDelete()} disabled={isDeletingRecipe}>
+                    删除菜谱
+                  </ActionButton>
+                )}
               </section>
 
             </aside>

@@ -2790,34 +2790,30 @@
 }
 
 .food-editor-notes-panel {
-  gap: 20px;
+  gap: 16px;
 }
 
-.food-editor-field-row {
+.food-editor-meta-grid {
   display: grid;
-  grid-template-columns: 110px minmax(0, 1fr);
-  gap: 18px;
-  align-items: start;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
 }
 
-.food-editor-field-row > span {
-  padding-top: 10px;
-  color: #6f6258;
-  font-weight: 820;
+.food-editor-meta-card {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
 }
 
-.food-editor-meal-row {
-  align-items: center;
-}
-
-.food-editor-meal-row > span {
-  padding-top: 0;
+.food-editor-tag-card,
+.food-editor-detail-card {
+  grid-column: 1 / -1;
 }
 
 .food-editor-tag-stack,
 .food-editor-note-input {
   display: grid;
-  gap: 10px;
+  gap: 8px;
   min-width: 0;
 }
 
@@ -2825,15 +2821,15 @@
   display: flex;
   min-width: 0;
   flex-wrap: wrap;
-  gap: 10px;
+  gap: 8px;
 }
 
 .food-editor-scene-tags button {
   display: inline-flex;
-  min-height: 34px;
+  min-height: 32px;
   align-items: center;
   gap: 8px;
-  padding: 0 13px;
+  padding: 0 12px;
   border: 1px solid rgba(210, 107, 51, 0.12);
   border-radius: 999px;
   background: #fff0e7;
@@ -2861,8 +2857,8 @@
 
 .food-scene-tag-picker {
   display: grid;
-  gap: 14px;
-  padding: 16px;
+  gap: 12px;
+  padding: 14px;
   border: 1px solid rgba(92, 67, 48, 0.1);
   border-radius: 16px;
   background: #fffdfa;
@@ -2927,9 +2923,9 @@
 .food-scene-tag-create {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
-  gap: 10px;
+  gap: 8px;
   align-items: center;
-  padding-top: 12px;
+  padding-top: 10px;
   border-top: 1px solid rgba(92, 67, 48, 0.08);
 }
 
@@ -2949,11 +2945,13 @@
 }
 
 .food-editor-note-input .text-input {
+  min-height: 44px;
   padding-right: 58px;
 }
 
 .food-editor-note-input textarea.text-input {
-  min-height: 90px;
+  min-height: 76px;
+  padding-top: 11px;
   resize: vertical;
 }
 
@@ -2969,27 +2967,9 @@
 .food-editor-favorite-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
-  gap: 18px;
+  gap: 16px;
   align-items: center;
-  padding-top: 18px;
-  border-top: 1px solid rgba(92, 67, 48, 0.08);
   cursor: pointer;
-}
-
-.food-editor-favorite-row div {
-  display: grid;
-  gap: 4px;
-}
-
-.food-editor-favorite-row span {
-  color: #6f6258;
-  font-weight: 820;
-}
-
-.food-editor-favorite-row small {
-  color: #9c9088;
-  font-size: 0.82rem;
-  font-weight: 700;
 }
 
 .food-editor-favorite-row input {
@@ -3324,6 +3304,85 @@
   width: min(430px, calc(100vw - 28px));
 }
 
+.food-recipe-editor-modal.workspace-modal {
+  display: flex;
+  flex-direction: column;
+  width: min(1120px, calc(100vw - 24px));
+  max-height: calc(100vh - 32px);
+  overflow: hidden;
+}
+
+.food-recipe-editor-modal .workspace-overlay-head {
+  margin-bottom: 12px;
+  padding-bottom: 12px;
+}
+
+.food-recipe-editor-modal .workspace-overlay-close {
+  min-height: 40px;
+  padding: 0 14px;
+  font-size: 0.9rem;
+}
+
+.food-recipe-editor-modal .workspace-overlay-body {
+  min-height: 0;
+  overflow: auto;
+}
+
+.food-recipe-editor-modal .recipe-editor-subpage {
+  margin: 0;
+  padding: 0;
+}
+
+.food-recipe-editor-modal .recipe-editor-workbench {
+  grid-template-columns: minmax(0, 1fr) minmax(250px, 300px);
+  gap: 16px;
+}
+
+.food-recipe-detail-modal.workspace-modal {
+  display: flex;
+  flex-direction: column;
+  width: min(1080px, calc(100vw - 24px));
+  max-height: calc(100vh - 32px);
+  overflow: hidden;
+}
+
+.food-recipe-detail-modal .workspace-overlay-body {
+  min-height: 0;
+  overflow: auto;
+}
+
+.food-recipe-detail-modal .recipe-detail-subpage {
+  margin: 0;
+  padding: 0;
+}
+
+@media (max-width: 1199px) {
+  .food-recipe-editor-modal .recipe-editor-workbench,
+  .food-recipe-editor-modal .recipe-editor-side-column,
+  .food-recipe-detail-modal .recipe-detail-content-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 767px) {
+  .food-recipe-editor-modal.workspace-modal {
+    width: calc(100vw - 16px);
+    max-height: calc(100vh - 16px);
+    padding: 14px;
+  }
+
+  .food-recipe-editor-modal .workspace-overlay-head {
+    margin-bottom: 10px;
+    padding-bottom: 10px;
+  }
+
+  .food-recipe-detail-modal.workspace-modal {
+    width: calc(100vw - 16px);
+    max-height: calc(100vh - 16px);
+    padding: 14px;
+  }
+}
+
 .food-quick-meal-form {
   display: grid;
   gap: 14px;
@@ -3517,6 +3576,10 @@
   .food-type-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+
+  .food-editor-meta-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 @media (max-width: 767px) {
@@ -3525,6 +3588,37 @@
   .food-form-panel,
   .food-editor-summary {
     padding: 18px;
+  }
+
+  .food-editor-meta-card {
+    padding: 14px;
+  }
+
+  .food-meal-checks {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+    align-items: stretch;
+  }
+
+  .food-check-pill {
+    width: 100%;
+    min-width: 0;
+    justify-content: center;
+    padding: 0 12px;
+  }
+
+  .food-scene-tag-picker-head {
+    display: grid;
+    justify-content: start;
+  }
+
+  .food-scene-tag-create {
+    grid-template-columns: 1fr;
+  }
+
+  .food-editor-note-input .text-input {
+    padding-right: 54px;
   }
 
   .food-filter-shell {

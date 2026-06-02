@@ -4,6 +4,7 @@ import { Avatar, Badge, PageHeader, WorkspaceModal } from '../../components/ui-k
 import { resolveAssetUrl } from '../../lib/assets';
 import { formatDateTime, MEAL_TYPE_LABELS } from '../../lib/ui';
 import { MealEnrichmentForm, MealPhotoLightbox } from './MealLogEnrichment';
+import { MealLogIcon } from './MealLogIcons';
 import type { LocalMealFoodEntry, MealFormState } from './MealLogComposer';
 import { MealLogMobileView } from './MealLogMobileView';
 import {
@@ -13,7 +14,7 @@ import {
   buildMealTitle,
   formatDateGroupLabel,
   formatMealTime,
-  getMealIcon,
+  getMealIconName,
   getMealLogStatus,
   getMealLogStatusLabel,
   getMealRatingSummary,
@@ -49,6 +50,24 @@ type Props = {
 };
 
 type MealLogModalMode = 'enrich' | 'preview' | null;
+
+const iconSlotStyle = {
+  width: 20,
+  height: 20,
+  display: 'inline-grid',
+  placeItems: 'center',
+  lineHeight: 0,
+  flex: '0 0 20px',
+} as const;
+
+const compactIconSlotStyle = {
+  width: 18,
+  height: 18,
+  display: 'inline-grid',
+  placeItems: 'center',
+  lineHeight: 0,
+  flex: '0 0 18px',
+} as const;
 
 export function MealLogWorkspace(props: Props) {
   const initialPendingMealId = props.recentMeals.find((meal) => !isMealLogEnriched(meal))?.id;
@@ -111,23 +130,23 @@ export function MealLogWorkspace(props: Props) {
         />
 
         <section className="meal-log-command-grid">
-          <article className="meal-log-metric-card">
-            <span>今日已记录</span>
+          <article className="meal-log-metric-card tone-orange">
+            <span><MealLogIcon name="today" className="meal-log-ui-icon" />今日已记录</span>
             <strong>{viewModel.todayMeals.length}</strong>
             <p>来自计划与手动补录</p>
           </article>
-          <article className="meal-log-metric-card">
-            <span>待补充</span>
+          <article className="meal-log-metric-card tone-amber">
+            <span><MealLogIcon name="pending" className="meal-log-ui-icon" />待补充</span>
             <strong>{viewModel.pendingMeals.length}</strong>
             <p>需要补充评价/家人/照片/评论</p>
           </article>
-          <article className="meal-log-metric-card">
-            <span>已补充</span>
+          <article className="meal-log-metric-card tone-green">
+            <span><MealLogIcon name="done" className="meal-log-ui-icon" />已补充</span>
             <strong>{viewModel.enrichedCount}</strong>
             <p>已有评价、照片或评论</p>
           </article>
-          <article className="meal-log-metric-card">
-            <span>本周记录</span>
+          <article className="meal-log-metric-card tone-blue">
+            <span><MealLogIcon name="trend" className="meal-log-ui-icon" />本周记录</span>
             <strong>{viewModel.weekRecordCount}</strong>
             <p>较上周 ↑ {Math.min(viewModel.weekRecordCount, 4)}</p>
           </article>
@@ -136,7 +155,7 @@ export function MealLogWorkspace(props: Props) {
         <section className="card meal-log-record-panel">
             <div className="meal-log-filter-bar">
               <label className="meal-log-search">
-                <span>⌕</span>
+                <span><MealLogIcon name="search" className="meal-log-ui-icon" /></span>
                 <input value={searchQuery} placeholder="搜索菜品、食材或者备注" onChange={(event) => setSearchQuery(event.target.value)} />
               </label>
               <div className="meal-log-segment" aria-label="记录状态筛选">
@@ -149,7 +168,7 @@ export function MealLogWorkspace(props: Props) {
               <div className="meal-log-meal-filter" aria-label="餐别筛选">
                 {MEAL_FILTERS.map((item) => (
                   <button key={item.key} type="button" className={mealFilter === item.key ? 'active' : ''} onClick={() => setMealFilter(item.key)}>
-                    {item.key !== 'all' && <span>{getMealIcon(item.key)}</span>}
+                    <span style={iconSlotStyle}><MealLogIcon name={getMealIconName(item.key)} className="meal-log-ui-icon" /></span>
                     {item.label}
                   </button>
                 ))}
@@ -181,7 +200,7 @@ export function MealLogWorkspace(props: Props) {
                             onClick={() => openMealRecord(meal)}
                           >
                             <span className={`meal-log-meal-pill ${getMealTone(meal.meal_type)}`}>
-                              <span>{getMealIcon(meal.meal_type)}</span>
+                              <span style={iconSlotStyle}><MealLogIcon name={getMealIconName(meal.meal_type)} className="meal-log-ui-icon" /></span>
                               {MEAL_TYPE_LABELS[meal.meal_type]}
                             </span>
                             <strong>{buildMealTitle(meal)}</strong>
@@ -190,8 +209,8 @@ export function MealLogWorkspace(props: Props) {
                             <span className={`meal-record-status status-${getMealLogStatus(meal)}`}>{getMealLogStatusLabel(meal)}</span>
                             <span className="meal-log-row-rating">{getMealRatingSummary(meal) ? `★ ${getMealRatingSummary(meal)}` : '☆ -'}</span>
                             <span className="meal-log-row-meta">
-                              <span>▧ {meal.photos.length}</span>
-                              <span>○ {meal.notes.trim() ? 1 : 0}</span>
+                              <span><span style={compactIconSlotStyle}><MealLogIcon name="photo" className="meal-log-ui-icon" /></span>{meal.photos.length}</span>
+                              <span><span style={compactIconSlotStyle}><MealLogIcon name="note" className="meal-log-ui-icon" /></span>{meal.notes.trim() ? 1 : 0}</span>
                             </span>
                             <span className="meal-log-row-action">{isMealLogEnriched(meal) ? '查看详情' : '补充记录'}</span>
                           </button>
@@ -226,7 +245,7 @@ export function MealLogWorkspace(props: Props) {
               <div className="meal-log-preview-detail">
                 <div className="meal-enrichment-summary meal-log-preview-summary">
                   <span className={`meal-enrichment-meal-pill ${getMealTone(viewModel.selectedMeal.meal_type)}`}>
-                    <span>✓</span>
+                    <span style={iconSlotStyle}><MealLogIcon name="done" className="meal-log-ui-icon" /></span>
                     {MEAL_TYPE_LABELS[viewModel.selectedMeal.meal_type]}
                   </span>
                   <strong>{buildMealTitle(viewModel.selectedMeal)}</strong>

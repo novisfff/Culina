@@ -596,6 +596,7 @@ function App() {
               createFood={(payload) => createFoodMutation.mutateAsync(payload)}
               updateFood={(foodId, payload) => updateFoodMutation.mutateAsync({ foodId, payload })}
               updateFoodFavorite={(foodId, favorite) => toggleFavoriteMutation.mutateAsync({ foodId, favorite })}
+              updateRecipe={(recipeId, payload) => updateRecipeMutation.mutateAsync({ recipeId, payload })}
               quickAddMeal={(payload) => quickAddMealMutation.mutateAsync(payload)}
               createFoodPlanItem={(payload) => createFoodPlanItemMutation.mutateAsync(payload)}
               updateFoodPlanItem={(itemId, payload) => updateFoodPlanItemMutation.mutateAsync({ itemId, payload })}
@@ -614,6 +615,7 @@ function App() {
               onFoodPlanCurrentWeek={() => setSelectedRecipePlanDate(todayKey())}
               onFoodPlanNextWeek={() => setSelectedRecipePlanDate(addDateKeyDays(foodPlanWeekRange.end, 1))}
               isSavingFood={createFoodMutation.isPending || updateFoodMutation.isPending}
+              isUpdatingRecipe={updateRecipeMutation.isPending}
               isUpdatingFavorite={toggleFavoriteMutation.isPending}
               isQuickAdding={quickAddMealMutation.isPending}
               isUpdatingPlan={createFoodPlanItemMutation.isPending || updateFoodPlanItemMutation.isPending || deleteFoodPlanItemMutation.isPending}

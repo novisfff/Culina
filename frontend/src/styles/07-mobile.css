@@ -410,10 +410,10 @@
 
   .mobile-log-stat-card {
     display: grid;
-    grid-template-columns: 58px minmax(0, 1fr);
-    gap: 12px;
-    min-height: 112px;
-    padding: 16px 14px;
+    grid-template-columns: 52px minmax(0, 1fr);
+    gap: 10px;
+    min-height: 96px;
+    padding: 14px 13px;
     border: 1px solid rgba(226, 215, 205, 0.86);
     border-radius: 20px;
     background: rgba(255, 255, 255, 0.9);
@@ -423,17 +423,15 @@
   .mobile-log-stat-card > span {
     display: grid;
     place-items: center;
-    width: 58px;
-    height: 58px;
-    border-radius: 17px;
-    font-size: 1.5rem;
-    font-weight: 950;
+    width: 52px;
+    height: 52px;
+    border-radius: 15px;
   }
 
   .mobile-log-stat-card > div {
     display: grid;
     min-width: 0;
-    gap: 4px;
+    gap: 2px;
   }
 
   .mobile-log-stat-card strong,
@@ -445,20 +443,20 @@
 
   .mobile-log-stat-card strong {
     color: #2b201b;
-    font-size: 1rem;
+    font-size: 0.94rem;
     font-weight: 950;
   }
 
   .mobile-log-stat-card b {
     color: #2f251e;
-    font-size: 1.9rem;
-    line-height: 1;
+    font-size: 1.72rem;
+    line-height: 0.96;
     font-weight: 950;
   }
 
   .mobile-log-stat-card small {
     color: #7a6a61;
-    font-size: 0.78rem;
+    font-size: 0.74rem;
     font-weight: 800;
   }
 
@@ -496,8 +494,6 @@
 
   .mobile-log-search-field span {
     color: #9b7d6e;
-    font-size: 1.18rem;
-    font-weight: 900;
   }
 
   .mobile-log-search-field input {
@@ -551,7 +547,6 @@
   }
 
   .mobile-log-filter-row span {
-    font-size: 1rem;
   }
 
   .mobile-log-timeline-list,
@@ -587,11 +582,11 @@
   .mobile-log-record-row {
     display: grid;
     grid-template-columns: 84px minmax(0, 1fr) auto;
-    align-items: center;
-    gap: 10px;
+    align-items: start;
+    gap: 8px;
     width: 100%;
-    min-height: 78px;
-    padding: 12px 12px;
+    min-height: 0;
+    padding: 8px 12px;
     border: 0;
     border-bottom: 1px solid rgba(226, 215, 205, 0.7);
     background: transparent;
@@ -624,7 +619,7 @@
   .mobile-log-record-main {
     display: grid;
     min-width: 0;
-    gap: 4px;
+    gap: 2px;
   }
 
   .mobile-log-record-main strong,
@@ -643,16 +638,23 @@
   .mobile-log-record-main small,
   .mobile-log-record-main em {
     color: #7a6a61;
-    font-size: 0.8rem;
+    font-size: 0.78rem;
     font-style: normal;
     font-weight: 800;
   }
 
+  .mobile-log-record-main small {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+  }
+
   .mobile-log-status {
-    min-height: 32px;
-    padding: 0 12px;
+    min-height: 28px;
+    padding: 0 10px;
     border-radius: 999px;
-    font-size: 0.82rem;
+    font-size: 0.8rem;
   }
 
   .mobile-log-status.pending {
@@ -666,19 +668,13 @@
   }
 
   .mobile-log-record-meta {
-    display: flex;
+    display: inline-flex;
+    align-items: center;
     gap: 8px;
-    justify-self: end;
     color: #7a6a61;
-    font-size: 0.82rem;
+    font-size: 0.78rem;
     font-weight: 800;
-  }
-
-  .mobile-log-record-action {
-    justify-self: end;
-    color: #d85b1e;
-    font-size: 0.9rem;
-    font-weight: 950;
+    white-space: nowrap;
   }
 
   .mobile-log-empty {
