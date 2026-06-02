@@ -13,10 +13,10 @@ from app.db.session import get_db
 from app.db.transactions import commit_session
 from app.models.domain import Food, FoodPlanItem, InventoryDeductionSuggestion, MealLog, MealLogFood, Recipe
 from app.repos.media import build_media_map, get_media_assets_for_entities
-from app.schemas.meal_logs import CreateMealLogRequest, MealLogOut, QuickAddMealLogRequest
+from app.schemas.meal_logs import CreateMealLogRequest, MealLogOut, QuickAddMealLogRequest, UpdateMealLogRequest
 from app.services.activity import log_activity
 from app.services.clock import today_for_family
-from app.services.media import bind_media_assets
+from app.services.media import bind_media_assets, replace_media_assets
 from app.services.serializers import serialize_meal_log
 
 router = APIRouter(tags=["meal-logs"])
@@ -104,6 +104,7 @@ def create_meal_log(
             food_id=item.food_id,
             servings=item.servings,
             note=item.note,
+            rating=item.rating,
         )
         entries.append(entry)
         db.add(entry)
@@ -130,6 +131,64 @@ def create_meal_log(
     return serialize_meal_log(meal_log, media_map)
 
 
+@router.patch("/api/meal-logs/{meal_log_id}", response_model=MealLogOut)
+def update_meal_log(
+    meal_log_id: str,
+    payload: UpdateMealLogRequest,
+    auth: tuple = Depends(get_current_auth),
+    db: Session = Depends(get_db),
+) -> dict:
+    user, membership = auth
+    meal_log = db.scalar(
+        select(MealLog)
+        .where(MealLog.id == meal_log_id, MealLog.family_id == membership.family_id)
+        .options(
+            selectinload(MealLog.food_entries).selectinload(MealLogFood.food),
+            selectinload(MealLog.deduction_suggestions),
+        )
+    )
+    if meal_log is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Meal log not found")
+
+    if payload.participant_user_ids is not None:
+        meal_log.participant_user_ids = payload.participant_user_ids
+    if payload.notes is not None:
+        meal_log.notes = payload.notes
+    if payload.mood is not None:
+        meal_log.mood = payload.mood
+    if payload.food_entry_ratings is not None:
+        entries_by_id = {entry.id: entry for entry in meal_log.food_entries}
+        for item in payload.food_entry_ratings:
+            entry = entries_by_id.get(item.id)
+            if entry is None:
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Meal food entry not found")
+            entry.rating = item.rating
+    meal_log.updated_by = user.id
+
+    if payload.media_ids is not None:
+        replace_media_assets(
+            db,
+            family_id=membership.family_id,
+            media_ids=payload.media_ids,
+            entity_type="meal_log",
+            entity_id=meal_log.id,
+        )
+
+    log_activity(
+        db,
+        family_id=membership.family_id,
+        actor_id=user.id,
+        action=ActivityAction.UPDATE,
+        entity_type="MealLog",
+        entity_id=meal_log.id,
+        summary=f"补充了{MEAL_TYPE_LABELS.get(meal_log.meal_type.value, meal_log.meal_type.value)}记录",
+    )
+    commit_session(db)
+    db.refresh(meal_log)
+    media_map = build_media_map(get_media_assets_for_entities(db, family_id=membership.family_id, entity_type="meal_log", entity_ids=[meal_log.id]))
+    return serialize_meal_log(meal_log, media_map)
+
+
 @router.post("/api/meal-logs/quick-add", response_model=MealLogOut, status_code=status.HTTP_201_CREATED)
 def quick_add_meal_log(
     payload: QuickAddMealLogRequest,
@@ -141,19 +200,45 @@ def quick_add_meal_log(
     if food is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Food not found")
 
-    meal_log = db.scalar(
-        select(MealLog)
-        .where(
-            MealLog.family_id == membership.family_id,
-            MealLog.date == payload.date,
-            MealLog.meal_type == payload.meal_type,
+    plan_item: FoodPlanItem | None = None
+    if payload.food_plan_item_id:
+        plan_item = db.scalar(
+            select(FoodPlanItem).where(
+                FoodPlanItem.family_id == membership.family_id,
+                FoodPlanItem.user_id == user.id,
+                FoodPlanItem.id == payload.food_plan_item_id,
+                FoodPlanItem.food_id == food.id,
+            )
         )
-        .options(
-            selectinload(MealLog.food_entries).selectinload(MealLogFood.food),
-            selectinload(MealLog.deduction_suggestions),
+        if plan_item is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Food plan item not found")
+
+    meal_log = None
+    if plan_item is not None and plan_item.meal_log_id:
+        meal_log = db.scalar(
+            select(MealLog)
+            .where(MealLog.id == plan_item.meal_log_id, MealLog.family_id == membership.family_id)
+            .options(
+                selectinload(MealLog.food_entries).selectinload(MealLogFood.food),
+                selectinload(MealLog.deduction_suggestions),
+            )
         )
-        .order_by(MealLog.created_at.desc())
-    )
+
+    if meal_log is None and plan_item is None:
+        meal_log = db.scalar(
+            select(MealLog)
+            .where(
+                MealLog.family_id == membership.family_id,
+                MealLog.date == payload.date,
+                MealLog.meal_type == payload.meal_type,
+            )
+            .options(
+                selectinload(MealLog.food_entries).selectinload(MealLogFood.food),
+                selectinload(MealLog.deduction_suggestions),
+            )
+            .order_by(MealLog.created_at.desc())
+        )
+
     created = meal_log is None
     if meal_log is None:
         meal_log = MealLog(
@@ -172,31 +257,25 @@ def quick_add_meal_log(
     else:
         meal_log.updated_by = user.id
 
-    entry = MealLogFood(
-        id=create_id("meal-food"),
-        meal_log_id=meal_log.id,
-        food_id=food.id,
-        servings=payload.servings,
-        note=payload.note,
-    )
-    db.add(entry)
-    db.flush()
-
-    for suggestion in _build_deduction_suggestions(db, [entry]):
-        suggestion.meal_log_id = meal_log.id
-        db.add(suggestion)
-
-    if payload.food_plan_item_id:
-        plan_item = db.scalar(
-            select(FoodPlanItem).where(
-                FoodPlanItem.family_id == membership.family_id,
-                FoodPlanItem.user_id == user.id,
-                FoodPlanItem.id == payload.food_plan_item_id,
-                FoodPlanItem.food_id == food.id,
-            )
+    entry = None
+    if plan_item is not None:
+        entry = next((item for item in meal_log.food_entries if item.food_id == food.id and item.note == payload.note), None)
+    if entry is None:
+        entry = MealLogFood(
+            id=create_id("meal-food"),
+            meal_log_id=meal_log.id,
+            food_id=food.id,
+            servings=payload.servings,
+            note=payload.note,
         )
-        if plan_item is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Food plan item not found")
+        db.add(entry)
+        db.flush()
+
+        for suggestion in _build_deduction_suggestions(db, [entry]):
+            suggestion.meal_log_id = meal_log.id
+            db.add(suggestion)
+
+    if plan_item is not None:
         plan_item.status = "cooked"
         plan_item.completed_at = utcnow()
         plan_item.meal_log_id = meal_log.id

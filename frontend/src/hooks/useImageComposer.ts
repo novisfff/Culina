@@ -131,3 +131,39 @@ export function useImageComposer(options: {
     reset,
   };
 }
+
+export function useDirectImageUploader(options?: { uploadErrorMessage?: string }) {
+  const [state, setState] = useState<ImageGenerationUiState>(IDLE_IMAGE_GENERATION_STATE);
+
+  async function uploadFiles(files: File[], alt: string) {
+    if (files.length === 0) return [];
+
+    setState({ isGenerating: true, errorMessage: null });
+    try {
+      const assets = await Promise.all(files.map((file) => api.uploadMedia(file, 'upload', alt || file.name)));
+      setState(IDLE_IMAGE_GENERATION_STATE);
+      return assets;
+    } catch (reason) {
+      setState({
+        isGenerating: false,
+        errorMessage: resolveImageGenerationErrorMessage(reason, options?.uploadErrorMessage ?? '图片上传失败'),
+      });
+      return [];
+    }
+  }
+
+  function setError(errorMessage: string) {
+    setState({ isGenerating: false, errorMessage });
+  }
+
+  function reset() {
+    setState(IDLE_IMAGE_GENERATION_STATE);
+  }
+
+  return {
+    state,
+    uploadFiles,
+    setError,
+    reset,
+  };
+}

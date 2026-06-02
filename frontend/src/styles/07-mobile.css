@@ -363,76 +363,30 @@
 
   .mobile-log-page {
     display: grid;
-    gap: 12px;
+    gap: 14px;
     width: min(100%, 480px);
     margin: 0 auto;
-    padding: 14px 0 0;
+    padding: 14px 0 24px;
   }
 
-  .mobile-log-topbar,
-  .mobile-log-brand,
-  .mobile-log-section-head,
-  .mobile-log-meta {
-    display: flex;
-    align-items: center;
+  .mobile-log-header-shell {
+    min-height: 82px;
+    padding-bottom: 14px;
+    border-radius: 0 0 18px 18px;
   }
 
-  .mobile-log-topbar {
-    justify-content: space-between;
-    gap: 12px;
-    padding: 0 10px;
-  }
-
-  .mobile-log-brand {
-    min-width: 0;
+  .mobile-log-stat-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 10px;
   }
 
-  .mobile-log-logo {
-    width: 46px;
-    height: 46px;
-    display: grid;
-    place-items: center;
-    flex: 0 0 auto;
-    border-radius: 15px;
-    background: linear-gradient(180deg, #4f8c78, #3b7462);
-    color: #fff;
-    font-size: 1.16rem;
-    font-weight: 900;
-    box-shadow: 0 14px 28px rgba(59, 116, 98, 0.2);
-  }
-
-  .mobile-log-brand strong,
-  .mobile-log-brand small {
-    display: block;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .mobile-log-brand strong {
-    color: #2d211a;
-    font-size: 1.08rem;
-    line-height: 1.12;
-    font-weight: 900;
-  }
-
-  .mobile-log-brand small {
-    margin-top: 3px;
-    color: #7e6f64;
-    font-size: 0.78rem;
-    font-weight: 700;
-  }
-
-  .mobile-log-anchor {
-    flex: 0 0 auto;
-    min-height: 38px;
-    padding: 0 13px;
-    border: 1px solid rgba(207, 221, 214, 0.9);
-    border-radius: 999px;
-    background: rgba(255, 255, 255, 0.74);
-    color: #446657;
-    font: inherit;
+  .mobile-log-top-actions .mobile-log-home-button {
+    width: auto;
+    padding: 0 12px;
+    border: 1px solid rgba(226, 215, 205, 0.88);
+    background: rgba(255, 255, 255, 0.76);
+    color: #b94c12;
     font-size: 0.84rem;
     font-weight: 900;
   }
@@ -452,7 +406,7 @@
   }
 
   .mobile-log-hero p {
-    max-width: 26ch;
+    max-width: 28ch;
     margin: 0;
     color: #5d5048;
     font-size: clamp(1.02rem, 4.6vw, 1.2rem);
@@ -460,58 +414,277 @@
     line-height: 1.28;
   }
 
-  .mobile-log-panel {
+  .mobile-log-stat-card {
     display: grid;
-    gap: 14px;
-    padding: 18px 14px;
-    border: 1px solid rgba(215, 227, 221, 0.88);
-    border-radius: 23px;
-    background: rgba(255, 255, 255, 0.84);
-    box-shadow: 0 14px 34px rgba(75, 52, 34, 0.055);
-  }
-
-  .mobile-log-panel .page-main-column {
-    padding: 0;
-    border: 0;
-    border-radius: 0;
-    background: transparent;
-    box-shadow: none;
-  }
-
-  .mobile-log-section-head {
-    justify-content: space-between;
+    grid-template-columns: 58px minmax(0, 1fr);
     gap: 12px;
+    min-height: 112px;
+    padding: 16px 14px;
+    border: 1px solid rgba(226, 215, 205, 0.86);
+    border-radius: 20px;
+    background: rgba(255, 255, 255, 0.9);
+    box-shadow: 0 12px 28px rgba(75, 52, 34, 0.055);
   }
 
-  .mobile-log-section-head h2 {
-    margin: 0;
-    color: #2b201b;
-    font-size: 1.32rem;
-    line-height: 1.16;
+  .mobile-log-stat-card > span {
+    display: grid;
+    place-items: center;
+    width: 58px;
+    height: 58px;
+    border-radius: 17px;
+    font-size: 1.5rem;
     font-weight: 950;
   }
 
-  .mobile-log-section-head span {
-    color: #6d7f76;
-    font-size: 0.84rem;
+  .mobile-log-stat-card > div {
+    display: grid;
+    min-width: 0;
+    gap: 4px;
+  }
+
+  .mobile-log-stat-card strong,
+  .mobile-log-stat-card small {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .mobile-log-stat-card strong {
+    color: #2b201b;
+    font-size: 1rem;
+    font-weight: 950;
+  }
+
+  .mobile-log-stat-card b {
+    color: #2f251e;
+    font-size: 1.9rem;
+    line-height: 1;
+    font-weight: 950;
+  }
+
+  .mobile-log-stat-card small {
+    color: #7a6a61;
+    font-size: 0.78rem;
+    font-weight: 800;
+  }
+
+  .mobile-log-stat-card.tone-orange > span {
+    background: #fff0e7;
+    color: #c04f10;
+  }
+
+  .mobile-log-stat-card.tone-amber > span {
+    background: #fff7e2;
+    color: #d38500;
+  }
+
+  .mobile-log-stat-card.tone-green > span {
+    background: #eaf8ed;
+    color: #2f8b3a;
+  }
+
+  .mobile-log-stat-card.tone-blue > span {
+    background: #edf5ff;
+    color: #3b84d8;
+  }
+
+  .mobile-log-search-field {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: center;
+    gap: 10px;
+    min-height: 56px;
+    padding: 0 18px;
+    border: 1px solid rgba(226, 215, 205, 0.88);
+    border-radius: 20px;
+    background: rgba(255, 255, 255, 0.9);
+  }
+
+  .mobile-log-search-field span {
+    color: #9b7d6e;
+    font-size: 1.18rem;
     font-weight: 900;
   }
 
-  .mobile-log-recent-list {
+  .mobile-log-search-field input {
+    width: 100%;
+    border: 0;
+    background: transparent;
+    color: #2b201b;
+    font: inherit;
+    font-size: 0.98rem;
+    font-weight: 800;
+    outline: none;
+  }
+
+  .mobile-log-filter-stack {
     display: grid;
-    gap: 12px;
+    gap: 10px;
   }
 
-  .mobile-log-card {
-    border-radius: 20px;
+  .mobile-log-filter-row {
+    display: flex;
+    gap: 10px;
+    overflow-x: auto;
+    padding-bottom: 1px;
+    scrollbar-width: none;
   }
 
-  .mobile-log-meta {
-    justify-content: space-between;
-    gap: 12px;
-    color: #7f7066;
-    font-size: 0.78rem;
-    font-weight: 700;
+  .mobile-log-filter-row::-webkit-scrollbar {
+    display: none;
+  }
+
+  .mobile-log-filter-row button {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    flex: 0 0 auto;
+    min-height: 40px;
+    padding: 0 16px;
+    border: 1px solid rgba(226, 215, 205, 0.88);
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.82);
+    color: #6b584b;
+    font: inherit;
+    font-size: 0.9rem;
+    font-weight: 900;
+  }
+
+  .mobile-log-filter-row button.active {
+    border-color: rgba(229, 106, 43, 0.45);
+    background: #fff7f1;
+    color: #c04f10;
+  }
+
+  .mobile-log-filter-row span {
+    font-size: 1rem;
+  }
+
+  .mobile-log-timeline-list,
+  .mobile-log-day-group {
+    display: grid;
+    gap: 10px;
+  }
+
+  .mobile-log-day-title {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    color: #3a2a22;
+    font-size: 1.02rem;
+    font-weight: 950;
+  }
+
+  .mobile-log-day-title span {
+    width: 10px;
+    height: 10px;
+    border: 2px solid rgba(255, 237, 226, 0.95);
+    border-radius: 999px;
+    background: #de641f;
+  }
+
+  .mobile-log-day-card {
+    overflow: hidden;
+    border: 1px solid rgba(226, 215, 205, 0.84);
+    border-radius: 18px;
+    background: rgba(255, 255, 255, 0.9);
+  }
+
+  .mobile-log-record-row {
+    display: grid;
+    grid-template-columns: 84px minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    min-height: 78px;
+    padding: 12px 12px;
+    border: 0;
+    border-bottom: 1px solid rgba(226, 215, 205, 0.7);
+    background: transparent;
+    color: inherit;
+    text-align: left;
+  }
+
+  .mobile-log-record-row:last-child {
+    border-bottom: 0;
+  }
+
+  .mobile-log-record-meal {
+    display: inline-flex;
+    justify-content: center;
+    align-items: center;
+    gap: 6px;
+    min-height: 36px;
+    padding: 0 10px;
+    border-radius: 14px;
+    background: rgba(239, 226, 255, 0.82);
+    color: #7444b1;
+    font-size: 0.88rem;
+    font-weight: 950;
+  }
+
+  .mobile-log-record-meal i {
+    font-style: normal;
+  }
+
+  .mobile-log-record-main {
+    display: grid;
+    min-width: 0;
+    gap: 4px;
+  }
+
+  .mobile-log-record-main strong,
+  .mobile-log-record-main small {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .mobile-log-record-main strong {
+    color: #2b201b;
+    font-size: 0.98rem;
+    font-weight: 950;
+  }
+
+  .mobile-log-record-main small,
+  .mobile-log-record-main em {
+    color: #7a6a61;
+    font-size: 0.8rem;
+    font-style: normal;
+    font-weight: 800;
+  }
+
+  .mobile-log-status {
+    min-height: 32px;
+    padding: 0 12px;
+    border-radius: 999px;
+    font-size: 0.82rem;
+  }
+
+  .mobile-log-status.pending {
+    background: #fff0e7;
+    color: #c04f10;
+  }
+
+  .mobile-log-status.done {
+    background: #eaf8ed;
+    color: #2f8b3a;
+  }
+
+  .mobile-log-record-meta {
+    display: flex;
+    gap: 8px;
+    justify-self: end;
+    color: #7a6a61;
+    font-size: 0.82rem;
+    font-weight: 800;
+  }
+
+  .mobile-log-record-action {
+    justify-self: end;
+    color: #d85b1e;
+    font-size: 0.9rem;
+    font-weight: 950;
   }
 
   .mobile-log-empty {
@@ -3589,13 +3762,14 @@
   }
 
   .mobile-dashboard-hero {
+    --mobile-dashboard-hero-inline: 22px;
     position: relative;
     isolation: isolate;
     overflow: hidden;
     gap: 10px;
     min-height: 316px;
     margin: 0 -12px;
-    padding: 14px 22px 16px;
+    padding: 0 var(--mobile-dashboard-hero-inline) 16px;
     border-radius: 0 0 26px 26px;
     background:
       linear-gradient(90deg, rgba(255, 252, 248, 0.99) 0%, rgba(255, 252, 248, 0.97) 42%, rgba(255, 252, 248, 0.72) 64%, rgba(255, 252, 248, 0.08) 100%),
@@ -4719,8 +4893,8 @@
 
 @media (max-width: 360px) {
   .mobile-dashboard-hero {
+    --mobile-dashboard-hero-inline: 18px;
     min-height: 300px;
-    padding-inline: 18px;
   }
 
   .mobile-dashboard-kitchen {
@@ -4756,17 +4930,11 @@
 }
 
 @media (max-width: 767px) {
-  .mobile-food-page,
-  .mobile-recipe-page,
-  .mobile-ingredient-page,
-  .mobile-family-page {
+  :is(.mobile-food-page, .mobile-recipe-page, .mobile-ingredient-page, .mobile-log-page, .mobile-dashboard-page, .mobile-family-page) {
     padding-top: 0;
   }
 
-  .mobile-food-topbar,
-  .mobile-recipe-topbar,
-  .mobile-ingredient-topbar,
-  .mobile-family-topbar {
+  :is(.mobile-food-topbar, .mobile-recipe-topbar, .mobile-ingredient-topbar, .mobile-log-topbar, .mobile-dashboard-topbar, .mobile-family-topbar) {
     position: relative;
     z-index: 2;
     display: flex;
@@ -4778,20 +4946,14 @@
     padding: 14px 22px 0;
   }
 
-  .mobile-food-brand,
-  .mobile-recipe-brand,
-  .mobile-ingredient-brand,
-  .mobile-family-brand {
+  :is(.mobile-food-brand, .mobile-recipe-brand, .mobile-ingredient-brand, .mobile-log-brand, .mobile-dashboard-brand, .mobile-family-brand) {
     min-width: 0;
     display: flex;
     align-items: center;
     gap: 10px;
   }
 
-  .mobile-food-logo,
-  .mobile-recipe-logo,
-  .mobile-ingredient-logo,
-  .mobile-family-logo {
+  :is(.mobile-food-logo, .mobile-recipe-logo, .mobile-ingredient-logo, .mobile-log-logo, .mobile-dashboard-logo, .mobile-family-logo) {
     width: 46px;
     height: 46px;
     display: grid;
@@ -4803,63 +4965,41 @@
     box-shadow: 0 14px 28px rgba(203, 96, 42, 0.22);
   }
 
-  .mobile-food-logo svg,
-  .mobile-recipe-logo svg,
-  .mobile-ingredient-logo svg,
-  .mobile-family-logo svg {
+  :is(.mobile-food-logo, .mobile-recipe-logo, .mobile-ingredient-logo, .mobile-log-logo, .mobile-dashboard-logo, .mobile-family-logo) svg {
     width: 24px;
     height: 24px;
     stroke-width: 1.8;
   }
 
-  .mobile-food-brand strong,
-  .mobile-food-brand small,
-  .mobile-recipe-brand strong,
-  .mobile-recipe-brand small,
-  .mobile-ingredient-brand strong,
-  .mobile-ingredient-brand small,
-  .mobile-family-brand strong,
-  .mobile-family-brand small {
+  :is(.mobile-food-brand, .mobile-recipe-brand, .mobile-ingredient-brand, .mobile-log-brand, .mobile-dashboard-brand, .mobile-family-brand) :is(strong, small) {
     display: block;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
 
-  .mobile-food-brand strong,
-  .mobile-recipe-brand strong,
-  .mobile-ingredient-brand strong,
-  .mobile-family-brand strong {
+  :is(.mobile-food-brand, .mobile-recipe-brand, .mobile-ingredient-brand, .mobile-log-brand, .mobile-dashboard-brand, .mobile-family-brand) strong {
     color: #2d211a;
     font-size: 1.08rem;
     line-height: 1.12;
     font-weight: 900;
   }
 
-  .mobile-food-brand small,
-  .mobile-recipe-brand small,
-  .mobile-ingredient-brand small,
-  .mobile-family-brand small {
+  :is(.mobile-food-brand, .mobile-recipe-brand, .mobile-ingredient-brand, .mobile-log-brand, .mobile-dashboard-brand, .mobile-family-brand) small {
     margin-top: 3px;
     color: #7e6f64;
     font-size: 0.78rem;
     font-weight: 700;
   }
 
-  .mobile-food-top-actions,
-  .mobile-recipe-top-actions,
-  .mobile-ingredient-top-actions,
-  .mobile-family-top-actions {
+  :is(.mobile-food-top-actions, .mobile-recipe-top-actions, .mobile-ingredient-top-actions, .mobile-log-top-actions, .mobile-dashboard-icon-actions, .mobile-family-top-actions) {
     flex: 0 0 auto;
     display: flex;
     align-items: center;
     gap: 10px;
   }
 
-  .mobile-food-top-actions button,
-  .mobile-recipe-top-actions button,
-  .mobile-ingredient-top-actions button,
-  .mobile-family-top-actions button {
+  :is(.mobile-food-top-actions, .mobile-recipe-top-actions, .mobile-ingredient-top-actions, .mobile-log-top-actions, .mobile-dashboard-icon-actions, .mobile-family-top-actions) button {
     position: relative;
     width: 38px;
     height: 38px;
@@ -4872,19 +5012,13 @@
     color: #18110d;
   }
 
-  .mobile-food-top-actions svg,
-  .mobile-recipe-top-actions svg,
-  .mobile-ingredient-top-actions svg,
-  .mobile-family-top-actions svg {
+  :is(.mobile-food-top-actions, .mobile-recipe-top-actions, .mobile-ingredient-top-actions, .mobile-log-top-actions, .mobile-dashboard-icon-actions, .mobile-family-top-actions) svg {
     width: 26px;
     height: 26px;
     stroke-width: 2;
   }
 
-  .mobile-food-top-actions i,
-  .mobile-recipe-top-actions i,
-  .mobile-ingredient-top-actions i,
-  .mobile-family-top-actions i {
+  :is(.mobile-food-top-actions, .mobile-recipe-top-actions, .mobile-ingredient-top-actions, .mobile-log-top-actions, .mobile-dashboard-icon-actions, .mobile-family-top-actions) i {
     position: absolute;
     top: 7px;
     right: 6px;
@@ -4893,5 +5027,10 @@
     border: 2px solid #fff8f0;
     border-radius: 999px;
     background: #de7336;
+  }
+
+  .mobile-dashboard-hero > .mobile-dashboard-topbar {
+    align-self: start;
+    margin: 0 calc(-1 * var(--mobile-dashboard-hero-inline));
   }
 }

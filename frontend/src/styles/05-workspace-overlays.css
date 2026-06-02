@@ -6689,7 +6689,7 @@
 
 .recipe-plan-detail-actions {
   display: grid;
-  grid-template-columns: 1fr 1fr auto;
+  grid-template-columns: repeat(auto-fit, minmax(118px, 1fr));
   gap: 10px;
   align-items: center;
 }
@@ -6697,6 +6697,8 @@
 .recipe-plan-detail-actions .solid-button,
 .recipe-plan-detail-actions .ghost-button,
 .recipe-plan-detail-actions .tertiary-button {
+  width: 100%;
+  min-width: 0;
   min-height: 42px;
   border-radius: 12px;
 }

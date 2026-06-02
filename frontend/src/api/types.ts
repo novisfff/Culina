@@ -467,6 +467,7 @@ export interface MealFoodEntry {
   food_name: string;
   servings: number;
   note: string;
+  rating?: number | null;
 }
 
 export interface DeductionSuggestion {
@@ -501,6 +502,14 @@ export interface QuickAddMealLogPayload {
   servings: number;
   note: string;
   food_plan_item_id?: string;
+}
+
+export interface UpdateMealLogPayload {
+  participant_user_ids?: string[];
+  notes?: string;
+  mood?: string;
+  media_ids?: string[];
+  food_entry_ratings?: Array<{ id: string; rating: number | null }>;
 }
 
 export interface ActivityLog {

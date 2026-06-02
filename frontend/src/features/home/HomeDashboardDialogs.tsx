@@ -8,6 +8,7 @@ import type {
   Member,
   Recipe,
   ShoppingListItem,
+  UpdateMealLogPayload,
 } from '../../api/types';
 import { DashboardIcon } from '../../app/shellIcons';
 import { FoodPlanDetailModal, type FoodPlanDetailFormState } from '../../components/foods/FoodPlanDetailModal';
@@ -42,7 +43,8 @@ import {
   type DashboardPlanDay,
   type HomeRestockFormState,
 } from './homeDashboardModel';
-import { getDefaultHomePlanMealType, type HomePlanAddFormState } from './useHomeDashboardState';
+import type { HomePlanAddFormState } from './useHomeDashboardState';
+import { MealEnrichmentForm, type MealSource } from '../meals/MealLogEnrichment';
 
 type Props = {
   recipes: Recipe[];
@@ -56,10 +58,19 @@ type Props = {
   resetHomePlanDetailForm: (item?: FoodPlanItem | null) => void;
   submitHomePlanDetail: (event: FormEvent<HTMLFormElement>) => Promise<void>;
   startHomePlanDetailCook: (item: FoodPlanItem) => Promise<void>;
+  supplementHomePlanDetailRecord: (item: FoodPlanItem) => Promise<void>;
   deleteHomePlanDetail: (item: FoodPlanItem) => Promise<void>;
   closeHomePlanDetail: () => void;
   isUpdatingHomePlanDetail: boolean;
   isCompletingHomePlanDetail: boolean;
+  isSupplementingHomePlanDetail: boolean;
+  homeMealEnrichmentMeal: MealLog | null;
+  homeMealEnrichmentSource: MealSource | null;
+  homeMealEnrichmentMembers: Member[];
+  closeHomeMealEnrichment: () => void;
+  updateMealLog: (mealLogId: string, payload: UpdateMealLogPayload) => Promise<unknown>;
+  onInvalidMealEnrichmentSave: () => void;
+  isUpdatingMeal: boolean;
   isHomePlanAddDialogOpen: boolean;
   homePlanAddFood: Food | null;
   homePlanAddFoodSearch: string;
@@ -114,12 +125,14 @@ export function HomeDashboardDialogs(props: Props) {
           isEditing={props.isHomePlanDetailEditing}
           isUpdatingPlan={props.isUpdatingHomePlanDetail}
           isCompleting={props.isCompletingHomePlanDetail}
+          isSupplementing={props.isSupplementingHomePlanDetail}
           onClose={props.closeHomePlanDetail}
           onChangeForm={props.setHomePlanDetailForm}
           onEditingChange={props.setIsHomePlanDetailEditing}
           onResetEdit={() => props.resetHomePlanDetailForm(homePlanDetailItem)}
           onSubmit={(event) => void props.submitHomePlanDetail(event)}
           onComplete={() => void props.startHomePlanDetailCook(homePlanDetailItem)}
+          onSupplementRecord={() => void props.supplementHomePlanDetailRecord(homePlanDetailItem)}
           onDelete={() => void props.deleteHomePlanDetail(homePlanDetailItem)}
           resolveAssetUrl={(url) => props.resolveAssetUrl(url) ?? url}
         />
@@ -210,7 +223,7 @@ export function HomeDashboardDialogs(props: Props) {
                               </small>
                             </span>
                             <Badge className="recipe-plan-option-status">
-                              {MEAL_TYPE_LABELS[getDefaultHomePlanMealType(food, props.homePlanAddForm.mealType)]}
+                              {MEAL_TYPE_LABELS[props.homePlanAddForm.mealType]}
                             </Badge>
                           </button>
                         );
@@ -275,6 +288,31 @@ export function HomeDashboardDialogs(props: Props) {
                 </ActionButton>
               </div>
             </form>
+          </WorkspaceModal>
+        </div>
+      )}
+
+      {props.homeMealEnrichmentMeal && props.homeMealEnrichmentSource && (
+        <div className="workspace-overlay-root">
+          <div className="workspace-overlay-backdrop" onClick={props.closeHomeMealEnrichment} />
+          <WorkspaceModal
+            title="补充记录"
+            description="为这次菜单安排添加评价、家人、照片和评论。"
+            className="meal-log-modal meal-log-enrich-modal"
+            closeLabel="×"
+            onClose={props.closeHomeMealEnrichment}
+          >
+            <MealEnrichmentForm
+              meal={props.homeMealEnrichmentMeal}
+              members={props.homeMealEnrichmentMembers}
+              source={props.homeMealEnrichmentSource}
+              isUpdating={props.isUpdatingMeal}
+              updateMealLog={props.updateMealLog}
+              requireMeaningfulInput={props.homeMealEnrichmentMeal.id.startsWith('draft-')}
+              onInvalidSave={props.onInvalidMealEnrichmentSave}
+              onCancel={props.closeHomeMealEnrichment}
+              onSaved={props.closeHomeMealEnrichment}
+            />
           </WorkspaceModal>
         </div>
       )}

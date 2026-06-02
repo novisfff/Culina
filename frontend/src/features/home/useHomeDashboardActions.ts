@@ -5,6 +5,7 @@ import type {
   FoodPlanItem,
   Ingredient,
   InventoryItem,
+  MealLog,
   QuickAddMealLogPayload,
   ShoppingListItem,
   UpdateFoodPlanItemPayload,
@@ -28,6 +29,12 @@ type CreateInventoryPayload = {
   notes: string;
 };
 
+export type HomeMealEnrichmentOpenRequest = {
+  mealLogId?: string;
+  mealLog?: MealLog;
+  planItem?: FoodPlanItem;
+};
+
 export function useHomeDashboardActions(input: {
   showNotice: (notice: NoticeState) => void;
   homeExpiredDisposalSummary: IngredientSummaryViewModel | null;
@@ -45,13 +52,14 @@ export function useHomeDashboardActions(input: {
   updateFoodPlanItem: (itemId: string, payload: UpdateFoodPlanItemPayload) => Promise<unknown>;
   deleteFoodPlanItem: (itemId: string) => Promise<unknown>;
   createFoodPlanItem: (payload: CreateFoodPlanItemPayload) => Promise<unknown>;
-  quickAddMeal: (payload: QuickAddMealLogPayload) => Promise<unknown>;
+  quickAddMeal: (payload: QuickAddMealLogPayload) => Promise<MealLog>;
   closeHomeRestock: () => void;
   closeHomeExpiredDisposal: () => void;
   closeHomePlanDetail: () => void;
   closeHomePlanAddDialog: () => void;
   setIsHomePlanDetailEditing: (isEditing: boolean) => void;
   startRecipeCook: (recipeId: string, foodPlanItemId: string) => void;
+  openMealLogEnrichment: (request: HomeMealEnrichmentOpenRequest) => void;
 }) {
   async function startHomePlanDetailCook(item: FoodPlanItem) {
     input.closeHomePlanDetail();
@@ -71,6 +79,42 @@ export function useHomeDashboardActions(input: {
     } catch (reason) {
       input.showNotice({ tone: 'danger', title: '完成菜单计划失败', message: reason instanceof Error ? reason.message : '完成菜单计划失败' });
     }
+  }
+
+  async function supplementHomePlanDetailRecord(item: FoodPlanItem) {
+    input.closeHomePlanDetail();
+    if (item.meal_log_id) {
+      input.openMealLogEnrichment({ mealLogId: item.meal_log_id, planItem: item });
+      return;
+    }
+
+    const now = new Date().toISOString();
+    input.openMealLogEnrichment({
+      mealLog: {
+        id: `draft-${item.id}`,
+        family_id: item.family_id,
+        date: item.plan_date,
+        meal_type: item.meal_type,
+        food_entries: [
+          {
+            id: `draft-entry-${item.id}`,
+            food_id: item.food_id,
+            food_name: item.food_name,
+            servings: 1,
+            note: item.note || '来自菜单计划',
+            rating: null,
+          },
+        ],
+        participant_user_ids: [],
+        notes: '',
+        mood: '',
+        photos: [],
+        deduction_suggestions: [],
+        created_at: now,
+        updated_at: now,
+      },
+      planItem: item,
+    });
   }
 
   async function submitHomeExpiredDisposal(event: FormEvent<HTMLFormElement>) {
@@ -202,6 +246,7 @@ export function useHomeDashboardActions(input: {
 
   return {
     startHomePlanDetailCook,
+    supplementHomePlanDetailRecord,
     submitHomeExpiredDisposal,
     submitHomeRestock,
     submitHomePlanDetail,

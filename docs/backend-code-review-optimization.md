@@ -85,7 +85,7 @@
 
 落地：
 
-- 上传入口已限制最大文件大小，默认 10MB，可通过 `MEDIA_MAX_UPLOAD_BYTES` 调整。
+- 上传入口已限制最大文件大小，默认 30MB，可通过 `MEDIA_MAX_UPLOAD_BYTES` 调整。
 - 上传入口已基于 PNG/JPEG/WEBP/BMP 文件签名校验真实内容，并要求与声明的 content type 匹配。
 - 用户上传 SVG 已禁用；AI 生成 SVG 仍走后端生成资产保存路径。
 - 新增测试覆盖 SVG 拒绝和伪造 content type 拒绝。

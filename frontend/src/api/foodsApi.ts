@@ -10,6 +10,7 @@ import type {
   MealLog,
   MealType,
   QuickAddMealLogPayload,
+  UpdateMealLogPayload,
   UpdateFoodPlanItemPayload,
 } from './types';
 
@@ -90,6 +91,11 @@ export const foodsApi = {
   createMealLog: (payload: Record<string, unknown>) =>
     request<MealLog>('/api/meal-logs', {
       method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+  updateMealLog: (mealLogId: string, payload: UpdateMealLogPayload) =>
+    request<MealLog>(`/api/meal-logs/${mealLogId}`, {
+      method: 'PATCH',
       body: JSON.stringify(payload),
     }),
   quickAddMealLog: (payload: QuickAddMealLogPayload) =>

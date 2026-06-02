@@ -381,6 +381,7 @@ class MealLogFood(Base):
     food_id: Mapped[str] = mapped_column(ForeignKey("foods.id", ondelete="CASCADE"), nullable=False, index=True)
     servings: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
     note: Mapped[str] = mapped_column(String(255), default="", nullable=False)
+    rating: Mapped[Decimal | None] = mapped_column(Numeric(2, 1), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
 
     meal_log: Mapped["MealLog"] = relationship(back_populates="food_entries")

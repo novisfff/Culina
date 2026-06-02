@@ -359,6 +359,7 @@ def serialize_meal_log(meal_log: MealLog, media_map: dict[tuple[str, str], list[
                 "food_name": entry.food.name if entry.food else "",
                 "servings": _to_float(entry.servings),
                 "note": entry.note,
+                "rating": _to_optional_float(entry.rating),
             }
             for entry in meal_log.food_entries
         ],

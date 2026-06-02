@@ -1,0 +1,1503 @@
+.mobile-log-page {
+  display: none;
+}
+
+.meal-log-command-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.meal-log-metric-card {
+  display: grid;
+  gap: 6px;
+  min-height: 128px;
+  padding: 18px;
+  border: 1px solid rgba(147, 96, 63, 0.11);
+  border-radius: 18px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(250, 246, 240, 0.86));
+  box-shadow: var(--shadow-sm);
+}
+
+.meal-log-metric-card span {
+  color: var(--text-soft);
+  font-size: 0.86rem;
+  font-weight: 800;
+}
+
+.meal-log-metric-card strong {
+  color: #2f251e;
+  font-size: 2rem;
+  line-height: 1;
+}
+
+.meal-log-metric-card p {
+  margin: 0;
+  color: var(--text-faint);
+  font-size: 0.82rem;
+  font-weight: 650;
+}
+
+.meal-enrichment-notes > span {
+  color: var(--accent-strong);
+  font-size: 0.78rem;
+  font-weight: 850;
+}
+
+.meal-enrichment-form {
+  display: grid;
+  gap: 16px;
+  padding: 16px;
+  border: 1px solid rgba(147, 96, 63, 0.1);
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.meal-enrichment-notes {
+  display: grid;
+  gap: 8px;
+}
+
+.meal-enrichment-form .image-composer {
+  grid-column: auto;
+}
+
+.meal-log-empty-panel {
+  padding: 20px;
+  border-radius: 18px;
+  background: rgba(247, 242, 236, 0.8);
+  color: var(--text-soft);
+  font-weight: 750;
+}
+
+.meal-log-center-page {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 18px;
+  align-items: start;
+}
+
+.meal-log-center-page > .page-header,
+.meal-log-command-grid,
+.meal-log-record-panel {
+  grid-column: 1 / -1;
+}
+
+.meal-log-record-panel {
+  display: grid;
+  gap: 22px;
+  padding: 16px;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.meal-log-filter-bar {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) auto auto;
+  gap: 10px;
+  align-items: center;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.meal-log-search {
+  min-height: 42px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px;
+  border: 1px solid var(--line-soft);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.82);
+}
+
+.meal-log-search span {
+  color: var(--text-faint);
+  font-weight: 900;
+}
+
+.meal-log-search input {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  outline: none;
+}
+
+.meal-log-segment,
+.meal-log-meal-filter {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px;
+  border: 1px solid var(--line-soft);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.meal-log-meal-filter {
+  justify-content: flex-end;
+  white-space: nowrap;
+  min-width: 0;
+  overflow: auto;
+}
+
+.meal-log-segment button,
+.meal-log-meal-filter button {
+  min-height: 34px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--text-soft);
+  font-weight: 800;
+  white-space: nowrap;
+  box-shadow: none;
+}
+
+.meal-log-segment button.active,
+.meal-log-meal-filter button.active {
+  background: #fff;
+  color: var(--accent-strong);
+  box-shadow: 0 4px 12px rgba(74, 54, 40, 0.06);
+}
+
+.meal-log-timeline-head {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+}
+
+.meal-log-timeline-head h2 {
+  margin: 0;
+  color: #2f251e;
+  font-size: 1.18rem;
+  line-height: 1.2;
+}
+
+.meal-log-timeline-head span {
+  margin: 0;
+  color: var(--text-faint);
+  font-size: 0.84rem;
+  font-weight: 700;
+}
+
+.meal-log-record-timeline {
+  display: grid;
+  gap: 18px;
+}
+
+.meal-log-day-group {
+  display: grid;
+  grid-template-columns: 118px minmax(0, 1fr);
+  gap: 12px;
+}
+
+.meal-log-day-label {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  gap: 10px;
+  color: var(--text-soft);
+  font-weight: 850;
+}
+
+.meal-log-day-label span {
+  width: 11px;
+  height: 11px;
+  margin-top: 5px;
+  border-radius: 999px;
+  background: var(--accent);
+  box-shadow: 0 0 0 4px rgba(210, 107, 51, 0.14);
+}
+
+.meal-log-day-label strong {
+  min-width: 0;
+  font-size: 0.9rem;
+  line-height: 1.28;
+}
+
+.meal-log-record-list {
+  display: grid;
+  overflow-x: auto;
+  overflow-y: hidden;
+  min-width: 0;
+  border: 1px solid rgba(147, 96, 63, 0.11);
+  border-radius: 15px;
+  background: rgba(255, 255, 255, 0.74);
+  overscroll-behavior-x: contain;
+  scrollbar-gutter: stable;
+}
+
+.meal-log-record-list::-webkit-scrollbar {
+  height: 8px;
+}
+
+.meal-log-record-list::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: rgba(210, 107, 51, 0.22);
+}
+
+.meal-log-record-row {
+  width: max(100%, 880px);
+  min-height: 54px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  border: 0;
+  border-bottom: 1px solid rgba(147, 96, 63, 0.08);
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  box-shadow: none;
+}
+
+.meal-log-record-row:last-child {
+  border-bottom: 0;
+}
+
+.meal-log-record-row.active,
+.meal-log-record-row:hover {
+  background: rgba(255, 244, 236, 0.72);
+}
+
+.meal-log-record-row > strong,
+.meal-log-record-row time,
+.meal-log-row-rating,
+.meal-log-row-meta,
+.meal-log-row-action {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.meal-log-record-row > strong {
+  flex: 1 1 180px;
+  min-width: 120px;
+  font-size: 0.92rem;
+}
+
+.meal-log-record-row time,
+.meal-log-row-meta {
+  flex: 0 0 auto;
+  color: var(--text-faint);
+  font-size: 0.82rem;
+  font-weight: 750;
+}
+
+.meal-log-record-row > .badge {
+  flex: 0 0 106px;
+  justify-content: center;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.meal-log-meal-pill {
+  flex: 0 0 132px;
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 5px 9px;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 900;
+}
+
+.meal-tone-breakfast {
+  background: #fff2d7;
+  color: #b9631d;
+}
+
+.meal-tone-lunch {
+  background: #e5f7e8;
+  color: #3f8b4d;
+}
+
+.meal-tone-dinner {
+  background: #eee6ff;
+  color: #6852b7;
+}
+
+.meal-tone-snack {
+  background: #ffe8d8;
+  color: #b75a25;
+}
+
+.meal-record-status {
+  flex: 0 0 94px;
+  display: inline-flex;
+  justify-content: center;
+  padding: 5px 8px;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 900;
+}
+
+.meal-record-status.status-done {
+  background: #e6f7e8;
+  color: #3d8d4d;
+}
+
+.meal-record-status.status-pending {
+  background: #fff1e8;
+  color: var(--accent-strong);
+}
+
+.meal-log-row-rating {
+  flex: 1 1 92px;
+  min-width: 52px;
+  max-width: 128px;
+  color: var(--accent-strong);
+  font-size: 0.82rem;
+  font-weight: 800;
+}
+
+.meal-log-row-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 58px;
+}
+
+.meal-log-row-action {
+  flex: 0 0 auto;
+  justify-self: end;
+  padding: 6px 9px;
+  border: 1px solid rgba(210, 107, 51, 0.26);
+  border-radius: 999px;
+  color: var(--accent-strong);
+  font-size: 0.78rem;
+  font-weight: 900;
+}
+
+.meal-log-preview-detail {
+  display: grid;
+  gap: 28px;
+}
+
+.meal-log-preview-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 500px;
+  gap: 38px;
+}
+
+.meal-log-preview-main,
+.meal-log-preview-photo-side {
+  display: grid;
+  align-content: start;
+  gap: 26px;
+}
+
+.meal-log-preview-photo-side {
+  padding-left: 38px;
+  border-left: 1px solid rgba(210, 107, 51, 0.16);
+}
+
+.meal-log-preview-panel {
+  display: grid;
+  gap: 14px;
+}
+
+.meal-log-preview-section-head {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  color: #2f251e;
+}
+
+.meal-log-preview-section-head > span {
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  background: #ffe2d2;
+  color: var(--accent);
+  font-weight: 950;
+}
+
+.meal-log-preview-section-head strong {
+  font-size: 1.06rem;
+}
+
+.meal-log-preview-panel > p,
+.meal-log-preview-photo-side > p {
+  margin: 0;
+  color: var(--text-soft);
+  font-weight: 750;
+  line-height: 1.72;
+}
+
+.meal-log-preview-members {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.meal-log-preview-members {
+  min-height: 48px;
+  padding: 12px;
+  border: 1px solid rgba(147, 96, 63, 0.13);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.78);
+}
+
+.meal-log-preview-member {
+  min-height: 40px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px 0 6px;
+  border: 1px solid rgba(147, 96, 63, 0.12);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.82);
+  color: var(--text-soft);
+  font-size: 0.88rem;
+  font-weight: 850;
+}
+
+.meal-log-preview-member .avatar {
+  width: 28px;
+  min-width: 28px;
+  height: 28px;
+  min-height: 28px;
+  font-size: 0.82rem;
+}
+
+.meal-log-preview-member.empty {
+  padding: 0 12px;
+  color: var(--text-faint);
+}
+
+.meal-log-preview-rating {
+  width: fit-content;
+  padding: 7px 10px;
+  border-radius: 999px;
+  background: #fff1e8;
+  color: var(--accent-strong);
+  font-size: 0.88rem;
+}
+
+.meal-log-preview-ratings {
+  display: grid;
+  gap: 8px;
+}
+
+.meal-log-preview-ratings > div {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 10px;
+  border: 1px solid rgba(147, 96, 63, 0.11);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.76);
+}
+
+.meal-log-preview-ratings strong,
+.meal-log-preview-ratings span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.meal-log-preview-ratings strong {
+  color: #2f251e;
+  font-size: 0.9rem;
+}
+
+.meal-log-preview-ratings span {
+  color: var(--accent-strong);
+  font-size: 0.86rem;
+  font-weight: 900;
+}
+
+.meal-log-preview-photo-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+  margin-top: -2px;
+}
+
+.meal-log-preview-photo-grid img,
+.meal-log-preview-photo-grid .meal-log-photo-placeholder {
+  border-radius: 15px;
+}
+
+.meal-log-preview-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 14px;
+  padding-top: 24px;
+  border-top: 1px dashed rgba(210, 107, 51, 0.2);
+}
+
+.meal-log-preview-modal-actions button {
+  min-width: 148px;
+  min-height: 50px;
+  border-radius: 12px;
+  font-size: 0.98rem;
+  font-weight: 900;
+}
+
+.meal-log-photo-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.meal-log-photo-grid img,
+.meal-log-photo-placeholder {
+  width: 100%;
+  aspect-ratio: 1;
+  border-radius: 10px;
+}
+
+.meal-log-photo-grid img,
+.meal-photo-open-button img {
+  object-fit: cover;
+}
+
+.meal-photo-open-button {
+  width: 100%;
+  aspect-ratio: 1;
+  display: block;
+  overflow: hidden;
+  padding: 0;
+  border: 0;
+  border-radius: inherit;
+  background: transparent;
+  box-shadow: none;
+  cursor: zoom-in;
+}
+
+.meal-photo-open-button img {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.meal-log-photo-placeholder {
+  display: grid;
+  place-items: center;
+  border: 1px dashed rgba(147, 96, 63, 0.18);
+  background: rgba(250, 246, 240, 0.8);
+  color: var(--text-faint);
+  font-size: 0.82rem;
+  font-weight: 800;
+}
+
+.meal-log-modal .page-main-column,
+.meal-log-modal .meal-enrichment-form {
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.meal-log-modal .page-main-column {
+  width: min(860px, 100%);
+}
+
+.meal-log-enrich-modal.workspace-modal {
+  width: min(1184px, calc(100vw - 64px));
+  padding: 36px 42px 28px;
+  border: 1px solid rgba(255, 255, 255, 0.72);
+  border-radius: 22px;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 24px 70px rgba(37, 25, 18, 0.24);
+}
+
+.meal-log-enrich-modal .workspace-overlay-head {
+  align-items: start;
+  padding-bottom: 0;
+  border-bottom: 0;
+  margin-bottom: 26px;
+}
+
+.meal-log-enrich-modal .workspace-overlay-titleblock .eyebrow {
+  display: none;
+}
+
+.meal-log-enrich-modal .workspace-overlay-titleblock h3 {
+  margin: 0;
+  color: #261c16;
+  font-family: var(--font-sans);
+  font-size: clamp(2.35rem, 3vw, 2.85rem);
+  font-weight: 950;
+  line-height: 1.06;
+  letter-spacing: 0;
+}
+
+.meal-log-enrich-modal .workspace-overlay-titleblock .subtle {
+  margin-top: 6px;
+  color: #8a796e;
+  font-size: 1.02rem;
+  font-weight: 760;
+}
+
+.meal-log-enrich-modal .workspace-overlay-close {
+  width: 48px;
+  min-width: 48px;
+  height: 48px;
+  min-height: 48px;
+  border: 0;
+  background: transparent;
+  color: #5f5148;
+  font-size: 2.35rem;
+  line-height: 1;
+  box-shadow: none;
+}
+
+.meal-log-enrich-modal .workspace-overlay-body {
+  overflow: visible;
+}
+
+.meal-log-enrich-modal .meal-enrichment-form {
+  gap: 28px;
+}
+
+.meal-enrichment-icon {
+  width: 1em;
+  height: 1em;
+  display: block;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.meal-log-enrich-modal .meal-enrichment-summary {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) 1px auto auto;
+  align-items: center;
+  gap: 20px;
+  min-height: 76px;
+  padding: 14px 16px 14px 18px;
+  border: 1px solid rgba(210, 107, 51, 0.18);
+  border-radius: 16px;
+  background: rgba(255, 252, 248, 0.86);
+}
+
+.meal-enrichment-summary strong,
+.meal-enrichment-summary small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.meal-enrichment-summary strong {
+  color: #2f251e;
+  font-size: 1.04rem;
+}
+
+.meal-enrichment-summary small {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-soft);
+  font-size: 0.96rem;
+  font-weight: 750;
+}
+
+.meal-enrichment-summary small .meal-enrichment-icon {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 auto;
+  color: #76675f;
+}
+
+.meal-enrichment-summary-divider {
+  width: 1px;
+  height: 28px;
+  background: rgba(210, 107, 51, 0.18);
+}
+
+.meal-enrichment-meal-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  padding: 0 14px;
+  border-radius: 999px;
+  background: #dff6df;
+  color: #3c9a4a;
+  font-weight: 900;
+}
+
+.meal-enrichment-meal-pill span {
+  width: 20px;
+  height: 20px;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  background: #4caf50;
+  color: #fff;
+}
+
+.meal-enrichment-meal-pill .meal-enrichment-icon {
+  width: 13px;
+  height: 13px;
+  stroke-width: 2.4;
+}
+
+.meal-enrichment-source-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 38px;
+  padding: 0 14px;
+  border: 1px solid rgba(147, 96, 63, 0.12);
+  border-radius: 11px;
+  color: #8a796e;
+  background: rgba(255, 255, 255, 0.74);
+  font-size: 0.92rem;
+  font-weight: 820;
+  white-space: nowrap;
+}
+
+.meal-log-enrich-modal .meal-enrichment-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 500px;
+  gap: 38px;
+}
+
+.meal-enrichment-main,
+.meal-enrichment-photo-side {
+  display: grid;
+  align-content: start;
+  gap: 26px;
+}
+
+.meal-enrichment-photo-side {
+  padding-left: 38px;
+  border-left: 1px solid rgba(210, 107, 51, 0.16);
+}
+
+.meal-enrichment-step {
+  display: grid;
+  gap: 14px;
+}
+
+.meal-enrichment-step-title {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  color: #2f251e;
+}
+
+.meal-enrichment-step-title > span {
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  background: #ffe2d2;
+  color: var(--accent);
+  font-weight: 950;
+}
+
+.meal-enrichment-step-title strong {
+  font-size: 1.06rem;
+}
+
+.meal-enrichment-step-title small {
+  color: var(--text-faint);
+  font-size: 0.86rem;
+}
+
+.meal-dish-rating-list {
+  display: grid;
+  gap: 12px;
+}
+
+.meal-dish-rating-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(260px, auto);
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid rgba(147, 96, 63, 0.13);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.78);
+}
+
+.meal-dish-rating-copy {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.meal-dish-rating-copy strong,
+.meal-dish-rating-copy small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.meal-dish-rating-copy strong {
+  color: #2f251e;
+  font-size: 0.98rem;
+}
+
+.meal-dish-rating-copy small {
+  color: var(--text-faint);
+  font-size: 0.82rem;
+  font-weight: 760;
+}
+
+.meal-log-enrich-modal .meal-dish-rating-row .food-rating-input {
+  min-height: 46px;
+  padding: 0 12px;
+  border-color: rgba(210, 107, 51, 0.16);
+  box-shadow: none;
+}
+
+.meal-log-enrich-modal .meal-dish-rating-row .food-rating-stars {
+  width: 128px;
+  height: 28px;
+  font-size: 1.34rem;
+}
+
+.meal-enrichment-member-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.meal-enrichment-member-pills button {
+  min-height: 48px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 14px;
+  border: 1px solid rgba(147, 96, 63, 0.13);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.86);
+  color: var(--text-soft);
+  font-weight: 850;
+  box-shadow: none;
+}
+
+.meal-enrichment-member-pills button.active {
+  border-color: rgba(210, 107, 51, 0.58);
+  color: #2f251e;
+  box-shadow: inset 0 0 0 1px rgba(210, 107, 51, 0.24);
+}
+
+.meal-enrichment-member-pills button .avatar {
+  width: 28px;
+  min-width: 28px;
+  height: 28px;
+  min-height: 28px;
+  font-size: 0.82rem;
+}
+
+.meal-enrichment-member-pills button i {
+  width: 18px;
+  height: 18px;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(147, 96, 63, 0.18);
+  border-radius: 999px;
+  color: var(--accent);
+  font-style: normal;
+}
+
+.meal-enrichment-member-pills button i .meal-enrichment-icon {
+  width: 12px;
+  height: 12px;
+  stroke-width: 2.5;
+}
+
+.meal-log-enrich-modal .meal-enrichment-notes {
+  position: relative;
+}
+
+.meal-log-enrich-modal .meal-enrichment-notes textarea {
+  min-height: 98px;
+  padding: 16px 18px 28px;
+  border-radius: 14px;
+  resize: none;
+}
+
+.meal-log-enrich-modal .meal-enrichment-notes small {
+  position: absolute;
+  right: 14px;
+  bottom: 10px;
+  color: var(--text-faint);
+  font-size: 0.78rem;
+  font-weight: 750;
+}
+
+.meal-enrichment-photo-side > p {
+  margin: -12px 0 0 39px;
+  color: var(--text-soft);
+  font-weight: 750;
+}
+
+.meal-enrichment-photo-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+  margin-top: -2px;
+}
+
+.meal-enrichment-photo-thumb,
+.meal-enrichment-photo-add {
+  position: relative;
+  aspect-ratio: 1;
+  overflow: hidden;
+  border-radius: 15px;
+}
+
+.meal-enrichment-photo-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.meal-photo-remove-button {
+  position: absolute;
+  top: 7px;
+  right: 7px;
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.92);
+  color: #66564b;
+  line-height: 1;
+}
+
+.meal-photo-remove-button .meal-enrichment-icon {
+  width: 14px;
+  height: 14px;
+  stroke-width: 2.4;
+}
+
+.meal-photo-remove-button:disabled {
+  opacity: 0.9;
+}
+
+.meal-photo-lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 1400;
+  display: grid;
+  place-items: center;
+  padding: 28px;
+}
+
+.meal-photo-lightbox-backdrop {
+  position: absolute;
+  inset: 0;
+  border: 0;
+  background: rgba(34, 24, 18, 0.68);
+  box-shadow: none;
+}
+
+.meal-photo-lightbox-panel {
+  position: relative;
+  z-index: 1;
+  width: min(1040px, calc(100vw - 56px));
+  max-height: calc(100vh - 56px);
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 16px;
+  padding: 18px;
+  border: 1px solid rgba(255, 255, 255, 0.62);
+  border-radius: 22px;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 24px 70px rgba(21, 14, 10, 0.36);
+}
+
+.meal-photo-lightbox-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.meal-photo-lightbox-head > div:first-child {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.meal-photo-lightbox-head strong,
+.meal-photo-lightbox-head span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.meal-photo-lightbox-head strong {
+  color: #2f251e;
+  font-size: 1.02rem;
+}
+
+.meal-photo-lightbox-head span {
+  color: var(--text-faint);
+  font-size: 0.82rem;
+  font-weight: 760;
+}
+
+.meal-photo-lightbox-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  flex: 0 0 auto;
+}
+
+.meal-photo-lightbox-actions a,
+.meal-photo-lightbox-actions button {
+  min-height: 40px;
+  border-radius: 11px;
+  text-decoration: none;
+}
+
+.meal-photo-lightbox-panel > img {
+  width: 100%;
+  max-height: calc(100vh - 160px);
+  display: block;
+  object-fit: contain;
+  border-radius: 16px;
+  background: #1f1712;
+}
+
+.meal-enrichment-photo-add {
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  gap: 7px;
+  padding: 18px;
+  border: 1px dashed rgba(210, 107, 51, 0.28);
+  background: rgba(255, 252, 248, 0.86);
+  color: var(--text-soft);
+  text-align: center;
+  cursor: pointer;
+}
+
+.meal-enrichment-photo-add.disabled {
+  opacity: 0.58;
+  cursor: default;
+}
+
+.meal-enrichment-photo-add input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.meal-photo-add-icon {
+  width: 44px;
+  height: 44px;
+  display: grid;
+  place-items: center;
+  border-radius: 14px;
+  background: #fff4df;
+  color: #4d4038;
+}
+
+.meal-photo-add-icon .meal-enrichment-icon {
+  width: 28px;
+  height: 28px;
+}
+
+.meal-enrichment-photo-add strong {
+  color: #6a5548;
+}
+
+.meal-enrichment-photo-add small,
+.meal-enrichment-photo-error {
+  color: var(--text-faint);
+  font-weight: 750;
+}
+
+.meal-enrichment-photo-error {
+  margin: 0;
+}
+
+.meal-enrichment-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 18px;
+  padding-top: 24px;
+  border-top: 1px dashed rgba(210, 107, 51, 0.2);
+}
+
+.meal-enrichment-footer > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-soft);
+  font-weight: 750;
+}
+
+.meal-enrichment-footer > span i {
+  width: 18px;
+  height: 18px;
+  display: inline-grid;
+  place-items: center;
+  border: 1px solid rgba(210, 107, 51, 0.36);
+  border-radius: 999px;
+  color: var(--accent);
+  font-style: normal;
+  font-weight: 950;
+}
+
+.meal-enrichment-footer > span i .meal-enrichment-icon {
+  width: 12px;
+  height: 12px;
+  stroke-width: 2.4;
+}
+
+.meal-enrichment-footer > div {
+  display: inline-flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.meal-enrichment-footer button {
+  min-width: 148px;
+  min-height: 50px;
+  border-radius: 12px;
+  font-size: 0.98rem;
+  font-weight: 900;
+}
+
+@media (max-width: 1120px) {
+  .meal-log-enrich-modal.workspace-modal {
+    width: min(920px, calc(100vw - 36px));
+    max-height: calc(100vh - 28px);
+    overflow: auto;
+  }
+
+  .meal-log-enrich-modal .meal-enrichment-summary {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .meal-enrichment-summary-divider {
+    display: none;
+  }
+
+  .meal-enrichment-summary small,
+  .meal-enrichment-source-pill {
+    grid-column: 2;
+  }
+
+  .meal-log-enrich-modal .meal-enrichment-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .meal-log-preview-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .meal-enrichment-photo-side {
+    padding: 24px 0 0;
+    border-top: 1px solid rgba(210, 107, 51, 0.16);
+    border-left: 0;
+  }
+
+  .meal-log-preview-photo-side {
+    padding: 24px 0 0;
+    border-top: 1px solid rgba(210, 107, 51, 0.16);
+    border-left: 0;
+  }
+
+  .meal-enrichment-footer {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .meal-enrichment-footer > div {
+    justify-content: flex-end;
+  }
+
+  .meal-log-preview-modal-actions {
+    justify-content: flex-end;
+  }
+
+  .meal-dish-rating-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .meal-log-enrich-modal .meal-dish-rating-row .food-rating-input {
+    width: 100%;
+  }
+}
+
+@media (max-width: 640px) {
+  .meal-log-enrich-modal.workspace-modal {
+    width: calc(100vw - 20px);
+    max-height: calc(100dvh - 20px);
+    padding: 18px 16px 14px;
+    border-radius: 26px;
+    overflow: auto;
+  }
+
+  .meal-log-enrich-modal .workspace-overlay-head {
+    position: sticky;
+    top: -18px;
+    z-index: 2;
+    align-items: start;
+    gap: 12px;
+    margin: -18px -16px 14px;
+    padding: 18px 16px 12px;
+    background: rgba(255, 255, 255, 0.96);
+    backdrop-filter: blur(12px);
+  }
+
+  .meal-log-enrich-modal .workspace-overlay-titleblock h3 {
+    font-size: 1.88rem;
+    line-height: 1.04;
+  }
+
+  .meal-log-enrich-modal .workspace-overlay-titleblock .subtle {
+    max-width: 260px;
+    margin-top: 4px;
+    font-size: 0.92rem;
+    line-height: 1.45;
+  }
+
+  .meal-log-enrich-modal .workspace-overlay-close {
+    width: 42px;
+    min-width: 42px;
+    height: 42px;
+    min-height: 42px;
+    border: 1px solid rgba(92, 67, 48, 0.1);
+    border-radius: 14px;
+    background: #fff;
+    font-size: 1.7rem;
+  }
+
+  .meal-log-enrich-modal .meal-enrichment-form {
+    gap: 18px;
+  }
+
+  .meal-log-enrich-modal .meal-enrichment-summary {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 10px;
+    min-height: 0;
+    padding: 14px;
+    border-radius: 18px;
+  }
+
+  .meal-enrichment-summary strong {
+    order: 1;
+    font-size: 1.06rem;
+    white-space: normal;
+  }
+
+  .meal-enrichment-meal-pill {
+    width: fit-content;
+    min-height: 32px;
+    padding: 0 12px 0 8px;
+    font-size: 0.9rem;
+  }
+
+  .meal-enrichment-meal-pill span {
+    width: 20px;
+    height: 20px;
+  }
+
+  .meal-enrichment-summary small,
+  .meal-enrichment-source-pill {
+    grid-column: auto;
+    width: fit-content;
+    max-width: 100%;
+    min-height: 32px;
+    font-size: 0.84rem;
+  }
+
+  .meal-enrichment-source-pill {
+    padding: 0 10px;
+    border-radius: 10px;
+  }
+
+  .meal-enrichment-step {
+    gap: 10px;
+  }
+
+  .meal-enrichment-step-title {
+    gap: 10px;
+  }
+
+  .meal-enrichment-step-title > span {
+    width: 30px;
+    height: 30px;
+    font-size: 0.95rem;
+  }
+
+  .meal-enrichment-step-title strong {
+    font-size: 1.06rem;
+  }
+
+  .meal-dish-rating-row {
+    gap: 12px;
+    padding: 14px;
+    border-radius: 18px;
+  }
+
+  .meal-dish-rating-copy strong,
+  .meal-dish-rating-copy small {
+    white-space: normal;
+  }
+
+  .meal-log-enrich-modal .meal-dish-rating-row .food-rating-input {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 8px 10px;
+    min-height: 0;
+    padding: 12px;
+    border-radius: 16px;
+  }
+
+  .meal-log-enrich-modal .meal-dish-rating-row .food-rating-stars {
+    width: 132px;
+    height: 30px;
+    font-size: 1.38rem;
+  }
+
+  .meal-dish-rating-row .food-rating-input > strong {
+    min-width: 0;
+    justify-self: end;
+    font-size: 0.86rem;
+  }
+
+  .meal-dish-rating-row .food-rating-clear {
+    grid-column: 1 / -1;
+    width: 100%;
+    min-height: 30px;
+    margin-left: 0;
+  }
+
+  .meal-enrichment-member-pills {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+  }
+
+  .meal-enrichment-member-pills button {
+    min-width: 0;
+    min-height: 46px;
+    justify-content: start;
+    padding: 0 10px;
+    border-radius: 16px;
+  }
+
+  .meal-enrichment-member-pills button .avatar {
+    width: 30px;
+    min-width: 30px;
+    height: 30px;
+    min-height: 30px;
+  }
+
+  .meal-enrichment-member-pills button i {
+    margin-left: auto;
+  }
+
+  .meal-log-enrich-modal .meal-enrichment-notes textarea {
+    min-height: 112px;
+    padding: 14px 14px 30px;
+    border-radius: 18px;
+    font-size: 1rem;
+  }
+
+  .meal-enrichment-photo-side {
+    gap: 12px;
+    padding-top: 18px;
+  }
+
+  .meal-enrichment-photo-side > p {
+    margin: -6px 0 0;
+    font-size: 0.86rem;
+  }
+
+  .meal-enrichment-photo-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+  }
+
+  .meal-enrichment-photo-add {
+    min-height: 132px;
+    padding: 12px;
+    border-radius: 18px;
+  }
+
+  .meal-photo-add-icon {
+    width: 38px;
+    height: 38px;
+    border-radius: 12px;
+  }
+
+  .meal-enrichment-footer {
+    position: sticky;
+    bottom: -14px;
+    z-index: 2;
+    gap: 12px;
+    margin: 0 -16px -14px;
+    padding: 12px 16px 14px;
+    background: rgba(255, 255, 255, 0.96);
+    backdrop-filter: blur(12px);
+  }
+
+  .meal-enrichment-footer > span {
+    display: none;
+  }
+
+  .meal-enrichment-footer > div {
+    display: grid;
+    grid-template-columns: 0.9fr 1.1fr;
+    width: 100%;
+    gap: 10px;
+  }
+
+  .meal-enrichment-footer button {
+    width: 100%;
+    min-width: 0;
+    min-height: 46px;
+    border-radius: 14px;
+    font-size: 0.95rem;
+  }
+
+  .meal-photo-lightbox {
+    padding: 12px;
+  }
+
+  .meal-photo-lightbox-panel {
+    width: calc(100vw - 24px);
+    max-height: calc(100dvh - 24px);
+    gap: 12px;
+    padding: 12px;
+    border-radius: 20px;
+  }
+
+  .meal-photo-lightbox-head {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .meal-photo-lightbox-actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+  }
+}

@@ -343,7 +343,7 @@ export function HomeDashboard(props: HomeDashboardProps) {
                   </button>
                   <button className="ghost-button dashboard-action-secondary" type="button" onClick={() => onNavigate('logs')}>
                     <DashboardIcon name="receipt" />
-                    记录一餐
+                    查看记录
                   </button>
                 </div>
               </div>

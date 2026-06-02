@@ -2345,6 +2345,11 @@
   font-weight: 850;
 }
 
+.food-rating-clear.hidden {
+  visibility: hidden;
+  pointer-events: none;
+}
+
 .food-editor-recipe-card {
   display: grid;
   grid-template-columns: 76px minmax(0, 1fr) auto;
