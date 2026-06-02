@@ -17,12 +17,14 @@ type Props = {
   isEditing: boolean;
   isUpdatingPlan?: boolean;
   isCompleting?: boolean;
+  isSupplementing?: boolean;
   onClose: () => void;
   onChangeForm: (form: FoodPlanDetailFormState) => void;
   onEditingChange: (isEditing: boolean) => void;
   onResetEdit: () => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
   onComplete: () => void;
+  onSupplementRecord?: () => void;
   onDelete: () => void;
   resolveAssetUrl: (url: string) => string;
 };
@@ -219,6 +221,11 @@ export function FoodPlanDetailModal(props: Props) {
                 <ActionButton tone="primary" type="button" onClick={props.onComplete} disabled={props.isCompleting || props.item.status === 'cooked'}>
                   {props.item.recipe_id ? '开始做' : '记到今天'}
                 </ActionButton>
+                {props.onSupplementRecord && (
+                  <ActionButton tone="secondary" type="button" onClick={props.onSupplementRecord} disabled={props.isSupplementing}>
+                    {props.isSupplementing ? '打开中...' : '补充记录'}
+                  </ActionButton>
+                )}
                 <ActionButton tone="secondary" type="button" onClick={() => props.onEditingChange(true)} disabled={props.isUpdatingPlan || props.item.status === 'cooked'}>
                   修改
                 </ActionButton>

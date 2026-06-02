@@ -36,7 +36,9 @@ type Props = {
   isUpdatingMeal: boolean;
   isGeneratingPhoto: boolean;
   photoErrorMessage?: string | null;
+  focusMealLogId?: string | null;
   updateMealLog: (mealLogId: string, payload: UpdateMealLogPayload) => Promise<unknown>;
+  onMealLogFocusHandled?: () => void;
   onBackHome: () => void;
   onSubmit: FormEventHandler<HTMLFormElement>;
   onFormChange: (form: MealFormState) => void;
@@ -75,6 +77,15 @@ export function MealLogWorkspace(props: Props) {
       setSelectedMealId(viewModel.selectedMeal.id);
     }
   }, [selectedMealId, viewModel.selectedMeal?.id]);
+
+  useEffect(() => {
+    if (!props.focusMealLogId) return;
+    const focusedMeal = props.recentMeals.find((meal) => meal.id === props.focusMealLogId);
+    if (!focusedMeal) return;
+    setSelectedMealId(focusedMeal.id);
+    setModalMode('enrich');
+    props.onMealLogFocusHandled?.();
+  }, [props.focusMealLogId, props.recentMeals, props.onMealLogFocusHandled]);
 
   function openMealRecord(meal: MealLog) {
     setSelectedMealId(meal.id);

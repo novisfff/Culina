@@ -95,6 +95,7 @@ function App() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState<boolean>(defaultSidebarCollapsed);
   const [pendingRecipeCookId, setPendingRecipeCookId] = useState<string | null>(null);
   const [pendingFoodPlanCookItemId, setPendingFoodPlanCookItemId] = useState<string | null>(null);
+  const [pendingMealLogEnrichmentId, setPendingMealLogEnrichmentId] = useState<string | null>(null);
   const {
     dashboardRecommendationPage,
     setDashboardRecommendationPage,
@@ -365,6 +366,11 @@ function App() {
     return resolveAssetUrl(url, { passthroughPrefixes: ['/images/'] });
   }
 
+  function openMealLogEnrichment(mealLogId: string) {
+    setPendingMealLogEnrichmentId(mealLogId);
+    setActiveTab('logs');
+  }
+
   const {
     openIngredientsCatalog,
     openIngredientDetail,
@@ -399,6 +405,7 @@ function App() {
     submitHomeExpiredDisposal,
     submitHomeRestock,
     submitHomePlanDetail,
+    supplementHomePlanDetailRecord,
     deleteHomePlanDetail,
     submitHomePlanAdd,
   } = useHomeDashboardActions({
@@ -429,6 +436,7 @@ function App() {
       setPendingFoodPlanCookItemId(foodPlanItemId);
       setActiveTab('recipes');
     },
+    openMealLogEnrichment,
   });
 
   const noticeToast = notice ? (
@@ -677,7 +685,9 @@ function App() {
             isUpdatingMeal={updateMealMutation.isPending}
             isGeneratingPhoto={mealLogComposer.imageComposer.state.isGenerating}
             photoErrorMessage={mealLogComposer.imageComposer.state.errorMessage}
+            focusMealLogId={pendingMealLogEnrichmentId}
             updateMealLog={(mealLogId, payload) => updateMealMutation.mutateAsync({ mealLogId, payload })}
+            onMealLogFocusHandled={() => setPendingMealLogEnrichmentId(null)}
             onBackHome={() => setActiveTab('home')}
             onSubmit={mealLogComposer.submit}
             onFormChange={mealLogComposer.setForm}
@@ -753,10 +763,12 @@ function App() {
           resetHomePlanDetailForm={resetHomePlanDetailForm}
           submitHomePlanDetail={submitHomePlanDetail}
           startHomePlanDetailCook={startHomePlanDetailCook}
+          supplementHomePlanDetailRecord={supplementHomePlanDetailRecord}
           deleteHomePlanDetail={deleteHomePlanDetail}
           closeHomePlanDetail={closeHomePlanDetail}
           isUpdatingHomePlanDetail={updateFoodPlanItemMutation.isPending || deleteFoodPlanItemMutation.isPending}
           isCompletingHomePlanDetail={cookRecipeMutation.isPending || quickAddMealMutation.isPending}
+          isSupplementingHomePlanDetail={quickAddMealMutation.isPending}
           isHomePlanAddDialogOpen={isHomePlanAddDialogOpen}
           homePlanAddFood={homePlanAddFood}
           homePlanAddFoodSearch={homePlanAddFoodSearch}

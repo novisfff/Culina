@@ -56,10 +56,12 @@ type Props = {
   resetHomePlanDetailForm: (item?: FoodPlanItem | null) => void;
   submitHomePlanDetail: (event: FormEvent<HTMLFormElement>) => Promise<void>;
   startHomePlanDetailCook: (item: FoodPlanItem) => Promise<void>;
+  supplementHomePlanDetailRecord: (item: FoodPlanItem) => Promise<void>;
   deleteHomePlanDetail: (item: FoodPlanItem) => Promise<void>;
   closeHomePlanDetail: () => void;
   isUpdatingHomePlanDetail: boolean;
   isCompletingHomePlanDetail: boolean;
+  isSupplementingHomePlanDetail: boolean;
   isHomePlanAddDialogOpen: boolean;
   homePlanAddFood: Food | null;
   homePlanAddFoodSearch: string;
@@ -114,12 +116,14 @@ export function HomeDashboardDialogs(props: Props) {
           isEditing={props.isHomePlanDetailEditing}
           isUpdatingPlan={props.isUpdatingHomePlanDetail}
           isCompleting={props.isCompletingHomePlanDetail}
+          isSupplementing={props.isSupplementingHomePlanDetail}
           onClose={props.closeHomePlanDetail}
           onChangeForm={props.setHomePlanDetailForm}
           onEditingChange={props.setIsHomePlanDetailEditing}
           onResetEdit={() => props.resetHomePlanDetailForm(homePlanDetailItem)}
           onSubmit={(event) => void props.submitHomePlanDetail(event)}
           onComplete={() => void props.startHomePlanDetailCook(homePlanDetailItem)}
+          onSupplementRecord={() => void props.supplementHomePlanDetailRecord(homePlanDetailItem)}
           onDelete={() => void props.deleteHomePlanDetail(homePlanDetailItem)}
           resolveAssetUrl={(url) => props.resolveAssetUrl(url) ?? url}
         />

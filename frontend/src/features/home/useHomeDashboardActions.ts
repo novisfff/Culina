@@ -5,6 +5,7 @@ import type {
   FoodPlanItem,
   Ingredient,
   InventoryItem,
+  MealLog,
   QuickAddMealLogPayload,
   ShoppingListItem,
   UpdateFoodPlanItemPayload,
@@ -45,13 +46,14 @@ export function useHomeDashboardActions(input: {
   updateFoodPlanItem: (itemId: string, payload: UpdateFoodPlanItemPayload) => Promise<unknown>;
   deleteFoodPlanItem: (itemId: string) => Promise<unknown>;
   createFoodPlanItem: (payload: CreateFoodPlanItemPayload) => Promise<unknown>;
-  quickAddMeal: (payload: QuickAddMealLogPayload) => Promise<unknown>;
+  quickAddMeal: (payload: QuickAddMealLogPayload) => Promise<MealLog>;
   closeHomeRestock: () => void;
   closeHomeExpiredDisposal: () => void;
   closeHomePlanDetail: () => void;
   closeHomePlanAddDialog: () => void;
   setIsHomePlanDetailEditing: (isEditing: boolean) => void;
   startRecipeCook: (recipeId: string, foodPlanItemId: string) => void;
+  openMealLogEnrichment: (mealLogId: string) => void;
 }) {
   async function startHomePlanDetailCook(item: FoodPlanItem) {
     input.closeHomePlanDetail();
@@ -70,6 +72,28 @@ export function useHomeDashboardActions(input: {
       });
     } catch (reason) {
       input.showNotice({ tone: 'danger', title: '完成菜单计划失败', message: reason instanceof Error ? reason.message : '完成菜单计划失败' });
+    }
+  }
+
+  async function supplementHomePlanDetailRecord(item: FoodPlanItem) {
+    input.closeHomePlanDetail();
+    if (item.meal_log_id) {
+      input.openMealLogEnrichment(item.meal_log_id);
+      return;
+    }
+
+    try {
+      const mealLog = await input.quickAddMeal({
+        food_id: item.food_id,
+        date: item.plan_date,
+        meal_type: item.meal_type,
+        servings: 1,
+        note: item.note || '来自菜单计划',
+        food_plan_item_id: item.id,
+      });
+      input.openMealLogEnrichment(mealLog.id);
+    } catch (reason) {
+      input.showNotice({ tone: 'danger', title: '打开补充记录失败', message: reason instanceof Error ? reason.message : '打开补充记录失败' });
     }
   }
 
@@ -202,6 +226,7 @@ export function useHomeDashboardActions(input: {
 
   return {
     startHomePlanDetailCook,
+    supplementHomePlanDetailRecord,
     submitHomeExpiredDisposal,
     submitHomeRestock,
     submitHomePlanDetail,
