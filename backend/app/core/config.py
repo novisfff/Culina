@@ -20,7 +20,7 @@ class Settings(BaseSettings):
     mysql_password: str = ""
     jwt_secret: str = ""
     access_token_expire_minutes: int = 60 * 24 * 7
-    media_max_upload_bytes: int = 10 * 1024 * 1024
+    media_max_upload_bytes: int = 30 * 1024 * 1024
     minio_endpoint: str = "127.0.0.1:9000"
     minio_access_key: str = "culina"
     minio_secret_key: str = "culina_local_minio_secret"
