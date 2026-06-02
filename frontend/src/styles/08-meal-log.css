@@ -1244,3 +1244,265 @@
     width: 100%;
   }
 }
+
+@media (max-width: 640px) {
+  .meal-log-enrich-modal.workspace-modal {
+    width: calc(100vw - 20px);
+    max-height: calc(100dvh - 20px);
+    padding: 18px 16px 14px;
+    border-radius: 26px;
+    overflow: auto;
+  }
+
+  .meal-log-enrich-modal .workspace-overlay-head {
+    position: sticky;
+    top: -18px;
+    z-index: 2;
+    align-items: start;
+    gap: 12px;
+    margin: -18px -16px 14px;
+    padding: 18px 16px 12px;
+    background: rgba(255, 255, 255, 0.96);
+    backdrop-filter: blur(12px);
+  }
+
+  .meal-log-enrich-modal .workspace-overlay-titleblock h3 {
+    font-size: 1.88rem;
+    line-height: 1.04;
+  }
+
+  .meal-log-enrich-modal .workspace-overlay-titleblock .subtle {
+    max-width: 260px;
+    margin-top: 4px;
+    font-size: 0.92rem;
+    line-height: 1.45;
+  }
+
+  .meal-log-enrich-modal .workspace-overlay-close {
+    width: 42px;
+    min-width: 42px;
+    height: 42px;
+    min-height: 42px;
+    border: 1px solid rgba(92, 67, 48, 0.1);
+    border-radius: 14px;
+    background: #fff;
+    font-size: 1.7rem;
+  }
+
+  .meal-log-enrich-modal .meal-enrichment-form,
+  .mobile-log-page .meal-enrichment-form {
+    gap: 18px;
+  }
+
+  .meal-log-enrich-modal .meal-enrichment-summary,
+  .mobile-log-page .meal-enrichment-summary {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 10px;
+    min-height: 0;
+    padding: 14px;
+    border-radius: 18px;
+  }
+
+  .meal-enrichment-summary strong {
+    order: 1;
+    font-size: 1.06rem;
+    white-space: normal;
+  }
+
+  .meal-enrichment-meal-pill {
+    width: fit-content;
+    min-height: 32px;
+    padding: 0 12px 0 8px;
+    font-size: 0.9rem;
+  }
+
+  .meal-enrichment-meal-pill span {
+    width: 20px;
+    height: 20px;
+  }
+
+  .meal-enrichment-summary small,
+  .meal-enrichment-source-pill {
+    grid-column: auto;
+    width: fit-content;
+    max-width: 100%;
+    min-height: 32px;
+    font-size: 0.84rem;
+  }
+
+  .meal-enrichment-source-pill {
+    padding: 0 10px;
+    border-radius: 10px;
+  }
+
+  .meal-enrichment-step {
+    gap: 10px;
+  }
+
+  .meal-enrichment-step-title {
+    gap: 10px;
+  }
+
+  .meal-enrichment-step-title > span {
+    width: 30px;
+    height: 30px;
+    font-size: 0.95rem;
+  }
+
+  .meal-enrichment-step-title strong {
+    font-size: 1.06rem;
+  }
+
+  .meal-dish-rating-row {
+    gap: 12px;
+    padding: 14px;
+    border-radius: 18px;
+  }
+
+  .meal-dish-rating-copy strong,
+  .meal-dish-rating-copy small {
+    white-space: normal;
+  }
+
+  .meal-log-enrich-modal .meal-dish-rating-row .food-rating-input,
+  .mobile-log-page .meal-dish-rating-row .food-rating-input {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 8px 10px;
+    min-height: 0;
+    padding: 12px;
+    border-radius: 16px;
+  }
+
+  .meal-log-enrich-modal .meal-dish-rating-row .food-rating-stars,
+  .mobile-log-page .meal-dish-rating-row .food-rating-stars {
+    width: 132px;
+    height: 30px;
+    font-size: 1.38rem;
+  }
+
+  .meal-dish-rating-row .food-rating-input > strong {
+    min-width: 0;
+    justify-self: end;
+    font-size: 0.86rem;
+  }
+
+  .meal-dish-rating-row .food-rating-clear {
+    grid-column: 1 / -1;
+    width: 100%;
+    min-height: 30px;
+    margin-left: 0;
+  }
+
+  .meal-enrichment-member-pills {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+  }
+
+  .meal-enrichment-member-pills button {
+    min-width: 0;
+    min-height: 46px;
+    justify-content: start;
+    padding: 0 10px;
+    border-radius: 16px;
+  }
+
+  .meal-enrichment-member-pills button .avatar {
+    width: 30px;
+    min-width: 30px;
+    height: 30px;
+    min-height: 30px;
+  }
+
+  .meal-enrichment-member-pills button i {
+    margin-left: auto;
+  }
+
+  .meal-log-enrich-modal .meal-enrichment-notes textarea,
+  .mobile-log-page .meal-enrichment-notes textarea {
+    min-height: 112px;
+    padding: 14px 14px 30px;
+    border-radius: 18px;
+    font-size: 1rem;
+  }
+
+  .meal-enrichment-photo-side {
+    gap: 12px;
+    padding-top: 18px;
+  }
+
+  .meal-enrichment-photo-side > p {
+    margin: -6px 0 0;
+    font-size: 0.86rem;
+  }
+
+  .meal-enrichment-photo-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+  }
+
+  .meal-enrichment-photo-add {
+    min-height: 132px;
+    padding: 12px;
+    border-radius: 18px;
+  }
+
+  .meal-photo-add-icon {
+    width: 38px;
+    height: 38px;
+    border-radius: 12px;
+  }
+
+  .meal-enrichment-footer {
+    position: sticky;
+    bottom: -14px;
+    z-index: 2;
+    gap: 12px;
+    margin: 0 -16px -14px;
+    padding: 12px 16px 14px;
+    background: rgba(255, 255, 255, 0.96);
+    backdrop-filter: blur(12px);
+  }
+
+  .meal-enrichment-footer > span {
+    display: none;
+  }
+
+  .meal-enrichment-footer > div {
+    display: grid;
+    grid-template-columns: 0.9fr 1.1fr;
+    width: 100%;
+    gap: 10px;
+  }
+
+  .meal-enrichment-footer button {
+    width: 100%;
+    min-width: 0;
+    min-height: 46px;
+    border-radius: 14px;
+    font-size: 0.95rem;
+  }
+
+  .meal-photo-lightbox {
+    padding: 12px;
+  }
+
+  .meal-photo-lightbox-panel {
+    width: calc(100vw - 24px);
+    max-height: calc(100dvh - 24px);
+    gap: 12px;
+    padding: 12px;
+    border-radius: 20px;
+  }
+
+  .meal-photo-lightbox-head {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .meal-photo-lightbox-actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+  }
+}
