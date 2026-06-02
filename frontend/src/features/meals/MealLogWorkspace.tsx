@@ -96,6 +96,7 @@ export function MealLogWorkspace(props: Props) {
         mealFilter={mealFilter}
         onSelectMeal={setSelectedMealId}
         onOpenMealRecord={openMealRecord}
+        onBackHome={props.onBackHome}
         onSearchChange={setSearchQuery}
         onStatusFilterChange={setStatusFilter}
         onMealFilterChange={setMealFilter}

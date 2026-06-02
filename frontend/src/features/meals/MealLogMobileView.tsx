@@ -29,6 +29,7 @@ type Props = {
   mealFilter: MealLogMealFilter;
   onSelectMeal: (mealId: string) => void;
   onOpenMealRecord: (meal: MealLog) => void;
+  onBackHome: () => void;
   onSearchChange: (value: string) => void;
   onStatusFilterChange: (value: MealLogStatusFilter) => void;
   onMealFilterChange: (value: MealLogMealFilter) => void;
@@ -44,6 +45,19 @@ export function MealLogMobileView(props: Props) {
 
   return (
     <main className="mobile-log-page" aria-label="手机记录页">
+      <div className="mobile-dashboard-topbar mobile-log-topbar">
+        <div className="mobile-dashboard-brand">
+          <span className="mobile-dashboard-logo" aria-hidden="true">记</span>
+          <span>
+            <strong>餐食记录</strong>
+            <small>评价、照片和家人反馈</small>
+          </span>
+        </div>
+        <div className="mobile-dashboard-icon-actions">
+          <button type="button" onClick={props.onBackHome} aria-label="返回首页">首页</button>
+        </div>
+      </div>
+
       <section className="mobile-log-stat-grid" aria-label="记录概览">
         {mobileStats.map((item) => (
           <article key={item.label} className={`mobile-log-stat-card tone-${item.tone}`}>
