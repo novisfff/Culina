@@ -46,22 +46,27 @@ export function MealLogMobileView(props: Props) {
 
   return (
     <main className="mobile-log-page" aria-label="手机记录页">
-      <div className="mobile-food-topbar">
-        <div className="mobile-food-brand">
-          <span className="mobile-food-logo">
+      <div className="mobile-log-topbar">
+        <div className="mobile-log-brand">
+          <span className="mobile-log-logo">
             <FoodUiIcon name="logo" />
           </span>
           <span>
-            <strong>餐食记录</strong>
-            <small>评价、照片和家人反馈</small>
+            <strong>Culina</strong>
+            <small>家庭厨房工作台</small>
           </span>
         </div>
-        <div className="mobile-food-top-actions">
+        <div className="mobile-log-top-actions">
           <button className="mobile-log-home-button" type="button" onClick={props.onBackHome} aria-label="返回首页">
             首页
           </button>
         </div>
       </div>
+
+      <header className="mobile-log-hero">
+        <h1>记录</h1>
+        <p>补充照片、评价和家人反馈，回看每一餐实际吃了什么。</p>
+      </header>
 
       <section className="mobile-log-stat-grid" aria-label="记录概览">
         {mobileStats.map((item) => (

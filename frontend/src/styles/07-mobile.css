@@ -381,7 +381,7 @@
     gap: 10px;
   }
 
-  .mobile-food-top-actions .mobile-log-home-button {
+  .mobile-log-top-actions .mobile-log-home-button {
     width: auto;
     padding: 0 12px;
     border: 1px solid rgba(226, 215, 205, 0.88);
@@ -389,6 +389,29 @@
     color: #b94c12;
     font-size: 0.84rem;
     font-weight: 900;
+  }
+
+  .mobile-log-hero {
+    display: grid;
+    gap: 10px;
+    padding: 24px 22px 8px;
+  }
+
+  .mobile-log-hero h1 {
+    margin: 0;
+    color: #2b201b;
+    font-size: clamp(2.04rem, 9.2vw, 2.72rem);
+    line-height: 1.04;
+    font-weight: 950;
+  }
+
+  .mobile-log-hero p {
+    max-width: 28ch;
+    margin: 0;
+    color: #5d5048;
+    font-size: clamp(1.02rem, 4.6vw, 1.2rem);
+    font-weight: 800;
+    line-height: 1.28;
   }
 
   .mobile-log-stat-card {
@@ -3739,13 +3762,14 @@
   }
 
   .mobile-dashboard-hero {
+    --mobile-dashboard-hero-inline: 22px;
     position: relative;
     isolation: isolate;
     overflow: hidden;
     gap: 10px;
     min-height: 316px;
     margin: 0 -12px;
-    padding: 14px 22px 16px;
+    padding: 0 var(--mobile-dashboard-hero-inline) 16px;
     border-radius: 0 0 26px 26px;
     background:
       linear-gradient(90deg, rgba(255, 252, 248, 0.99) 0%, rgba(255, 252, 248, 0.97) 42%, rgba(255, 252, 248, 0.72) 64%, rgba(255, 252, 248, 0.08) 100%),
@@ -4869,8 +4893,8 @@
 
 @media (max-width: 360px) {
   .mobile-dashboard-hero {
+    --mobile-dashboard-hero-inline: 18px;
     min-height: 300px;
-    padding-inline: 18px;
   }
 
   .mobile-dashboard-kitchen {
@@ -4906,17 +4930,11 @@
 }
 
 @media (max-width: 767px) {
-  .mobile-food-page,
-  .mobile-recipe-page,
-  .mobile-ingredient-page,
-  .mobile-family-page {
+  :is(.mobile-food-page, .mobile-recipe-page, .mobile-ingredient-page, .mobile-log-page, .mobile-dashboard-page, .mobile-family-page) {
     padding-top: 0;
   }
 
-  .mobile-food-topbar,
-  .mobile-recipe-topbar,
-  .mobile-ingredient-topbar,
-  .mobile-family-topbar {
+  :is(.mobile-food-topbar, .mobile-recipe-topbar, .mobile-ingredient-topbar, .mobile-log-topbar, .mobile-dashboard-topbar, .mobile-family-topbar) {
     position: relative;
     z-index: 2;
     display: flex;
@@ -4928,20 +4946,14 @@
     padding: 14px 22px 0;
   }
 
-  .mobile-food-brand,
-  .mobile-recipe-brand,
-  .mobile-ingredient-brand,
-  .mobile-family-brand {
+  :is(.mobile-food-brand, .mobile-recipe-brand, .mobile-ingredient-brand, .mobile-log-brand, .mobile-dashboard-brand, .mobile-family-brand) {
     min-width: 0;
     display: flex;
     align-items: center;
     gap: 10px;
   }
 
-  .mobile-food-logo,
-  .mobile-recipe-logo,
-  .mobile-ingredient-logo,
-  .mobile-family-logo {
+  :is(.mobile-food-logo, .mobile-recipe-logo, .mobile-ingredient-logo, .mobile-log-logo, .mobile-dashboard-logo, .mobile-family-logo) {
     width: 46px;
     height: 46px;
     display: grid;
@@ -4953,63 +4965,41 @@
     box-shadow: 0 14px 28px rgba(203, 96, 42, 0.22);
   }
 
-  .mobile-food-logo svg,
-  .mobile-recipe-logo svg,
-  .mobile-ingredient-logo svg,
-  .mobile-family-logo svg {
+  :is(.mobile-food-logo, .mobile-recipe-logo, .mobile-ingredient-logo, .mobile-log-logo, .mobile-dashboard-logo, .mobile-family-logo) svg {
     width: 24px;
     height: 24px;
     stroke-width: 1.8;
   }
 
-  .mobile-food-brand strong,
-  .mobile-food-brand small,
-  .mobile-recipe-brand strong,
-  .mobile-recipe-brand small,
-  .mobile-ingredient-brand strong,
-  .mobile-ingredient-brand small,
-  .mobile-family-brand strong,
-  .mobile-family-brand small {
+  :is(.mobile-food-brand, .mobile-recipe-brand, .mobile-ingredient-brand, .mobile-log-brand, .mobile-dashboard-brand, .mobile-family-brand) :is(strong, small) {
     display: block;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
 
-  .mobile-food-brand strong,
-  .mobile-recipe-brand strong,
-  .mobile-ingredient-brand strong,
-  .mobile-family-brand strong {
+  :is(.mobile-food-brand, .mobile-recipe-brand, .mobile-ingredient-brand, .mobile-log-brand, .mobile-dashboard-brand, .mobile-family-brand) strong {
     color: #2d211a;
     font-size: 1.08rem;
     line-height: 1.12;
     font-weight: 900;
   }
 
-  .mobile-food-brand small,
-  .mobile-recipe-brand small,
-  .mobile-ingredient-brand small,
-  .mobile-family-brand small {
+  :is(.mobile-food-brand, .mobile-recipe-brand, .mobile-ingredient-brand, .mobile-log-brand, .mobile-dashboard-brand, .mobile-family-brand) small {
     margin-top: 3px;
     color: #7e6f64;
     font-size: 0.78rem;
     font-weight: 700;
   }
 
-  .mobile-food-top-actions,
-  .mobile-recipe-top-actions,
-  .mobile-ingredient-top-actions,
-  .mobile-family-top-actions {
+  :is(.mobile-food-top-actions, .mobile-recipe-top-actions, .mobile-ingredient-top-actions, .mobile-log-top-actions, .mobile-dashboard-icon-actions, .mobile-family-top-actions) {
     flex: 0 0 auto;
     display: flex;
     align-items: center;
     gap: 10px;
   }
 
-  .mobile-food-top-actions button,
-  .mobile-recipe-top-actions button,
-  .mobile-ingredient-top-actions button,
-  .mobile-family-top-actions button {
+  :is(.mobile-food-top-actions, .mobile-recipe-top-actions, .mobile-ingredient-top-actions, .mobile-log-top-actions, .mobile-dashboard-icon-actions, .mobile-family-top-actions) button {
     position: relative;
     width: 38px;
     height: 38px;
@@ -5022,19 +5012,13 @@
     color: #18110d;
   }
 
-  .mobile-food-top-actions svg,
-  .mobile-recipe-top-actions svg,
-  .mobile-ingredient-top-actions svg,
-  .mobile-family-top-actions svg {
+  :is(.mobile-food-top-actions, .mobile-recipe-top-actions, .mobile-ingredient-top-actions, .mobile-log-top-actions, .mobile-dashboard-icon-actions, .mobile-family-top-actions) svg {
     width: 26px;
     height: 26px;
     stroke-width: 2;
   }
 
-  .mobile-food-top-actions i,
-  .mobile-recipe-top-actions i,
-  .mobile-ingredient-top-actions i,
-  .mobile-family-top-actions i {
+  :is(.mobile-food-top-actions, .mobile-recipe-top-actions, .mobile-ingredient-top-actions, .mobile-log-top-actions, .mobile-dashboard-icon-actions, .mobile-family-top-actions) i {
     position: absolute;
     top: 7px;
     right: 6px;
@@ -5043,5 +5027,10 @@
     border: 2px solid #fff8f0;
     border-radius: 999px;
     background: #de7336;
+  }
+
+  .mobile-dashboard-hero > .mobile-dashboard-topbar {
+    align-self: start;
+    margin: 0 calc(-1 * var(--mobile-dashboard-hero-inline));
   }
 }
