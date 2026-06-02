@@ -43,7 +43,7 @@ import {
   type DashboardPlanDay,
   type HomeRestockFormState,
 } from './homeDashboardModel';
-import { getDefaultHomePlanMealType, type HomePlanAddFormState } from './useHomeDashboardState';
+import type { HomePlanAddFormState } from './useHomeDashboardState';
 import { MealEnrichmentForm, type MealSource } from '../meals/MealLogEnrichment';
 
 type Props = {
@@ -222,7 +222,7 @@ export function HomeDashboardDialogs(props: Props) {
                               </small>
                             </span>
                             <Badge className="recipe-plan-option-status">
-                              {MEAL_TYPE_LABELS[getDefaultHomePlanMealType(food, props.homePlanAddForm.mealType)]}
+                              {MEAL_TYPE_LABELS[props.homePlanAddForm.mealType]}
                             </Badge>
                           </button>
                         );

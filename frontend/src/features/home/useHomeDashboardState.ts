@@ -108,10 +108,6 @@ export function useHomeDashboardState(input: {
   function selectHomePlanAddFood(food: Food) {
     setHomePlanAddFoodId(food.id);
     setHomePlanAddFoodSearch(food.name);
-    setHomePlanAddForm((current) => ({
-      ...current,
-      mealType: getDefaultHomePlanMealType(food, current.mealType),
-    }));
   }
 
   function closeHomePlanAddDialog() {
