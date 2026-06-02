@@ -13,10 +13,10 @@ from app.db.session import get_db
 from app.db.transactions import commit_session
 from app.models.domain import Food, FoodPlanItem, InventoryDeductionSuggestion, MealLog, MealLogFood, Recipe
 from app.repos.media import build_media_map, get_media_assets_for_entities
-from app.schemas.meal_logs import CreateMealLogRequest, MealLogOut, QuickAddMealLogRequest
+from app.schemas.meal_logs import CreateMealLogRequest, MealLogOut, QuickAddMealLogRequest, UpdateMealLogRequest
 from app.services.activity import log_activity
 from app.services.clock import today_for_family
-from app.services.media import bind_media_assets
+from app.services.media import bind_media_assets, replace_media_assets
 from app.services.serializers import serialize_meal_log
 
 router = APIRouter(tags=["meal-logs"])
@@ -104,6 +104,7 @@ def create_meal_log(
             food_id=item.food_id,
             servings=item.servings,
             note=item.note,
+            rating=item.rating,
         )
         entries.append(entry)
         db.add(entry)
@@ -123,6 +124,64 @@ def create_meal_log(
         entity_type="MealLog",
         entity_id=meal_log.id,
         summary=f"记录了{'今天' if payload.date == today_for_family(membership.family_id) else payload.date.isoformat()}的{MEAL_TYPE_LABELS.get(payload.meal_type.value, payload.meal_type.value)}",
+    )
+    commit_session(db)
+    db.refresh(meal_log)
+    media_map = build_media_map(get_media_assets_for_entities(db, family_id=membership.family_id, entity_type="meal_log", entity_ids=[meal_log.id]))
+    return serialize_meal_log(meal_log, media_map)
+
+
+@router.patch("/api/meal-logs/{meal_log_id}", response_model=MealLogOut)
+def update_meal_log(
+    meal_log_id: str,
+    payload: UpdateMealLogRequest,
+    auth: tuple = Depends(get_current_auth),
+    db: Session = Depends(get_db),
+) -> dict:
+    user, membership = auth
+    meal_log = db.scalar(
+        select(MealLog)
+        .where(MealLog.id == meal_log_id, MealLog.family_id == membership.family_id)
+        .options(
+            selectinload(MealLog.food_entries).selectinload(MealLogFood.food),
+            selectinload(MealLog.deduction_suggestions),
+        )
+    )
+    if meal_log is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Meal log not found")
+
+    if payload.participant_user_ids is not None:
+        meal_log.participant_user_ids = payload.participant_user_ids
+    if payload.notes is not None:
+        meal_log.notes = payload.notes
+    if payload.mood is not None:
+        meal_log.mood = payload.mood
+    if payload.food_entry_ratings is not None:
+        entries_by_id = {entry.id: entry for entry in meal_log.food_entries}
+        for item in payload.food_entry_ratings:
+            entry = entries_by_id.get(item.id)
+            if entry is None:
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Meal food entry not found")
+            entry.rating = item.rating
+    meal_log.updated_by = user.id
+
+    if payload.media_ids is not None:
+        replace_media_assets(
+            db,
+            family_id=membership.family_id,
+            media_ids=payload.media_ids,
+            entity_type="meal_log",
+            entity_id=meal_log.id,
+        )
+
+    log_activity(
+        db,
+        family_id=membership.family_id,
+        actor_id=user.id,
+        action=ActivityAction.UPDATE,
+        entity_type="MealLog",
+        entity_id=meal_log.id,
+        summary=f"补充了{MEAL_TYPE_LABELS.get(meal_log.meal_type.value, meal_log.meal_type.value)}记录",
     )
     commit_session(db)
     db.refresh(meal_log)

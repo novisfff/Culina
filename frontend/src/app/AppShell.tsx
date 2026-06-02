@@ -178,7 +178,7 @@ export function AppShell({
           {children}
         </div>
       </div>
-      {activeTab !== 'ai' && (
+      {activeTab !== 'ai' && activeTab !== 'logs' && (
         <nav className="mobile-bottom-nav" aria-label="手机主导航">
           {MOBILE_NAV_ITEMS.map((item) => {
             const isActive = activeTab === item.key;

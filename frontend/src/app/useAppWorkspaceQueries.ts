@@ -35,7 +35,7 @@ export function useAppWorkspaceQueries(args: {
   const needsShopping = matchesTabWindow(args.activeTab, ['home', 'recipes', 'ingredients']);
   const needsRecipes = matchesTabWindow(args.activeTab, ['home', 'foods', 'recipes', 'ingredients', 'family']);
   const needsRecipeInsights = args.activeTab === 'recipes';
-  const needsFoodPlan = matchesTabWindow(args.activeTab, ['home', 'foods', 'recipes']);
+  const needsFoodPlan = matchesTabWindow(args.activeTab, ['home', 'foods', 'recipes', 'logs']);
   const needsFoodScenes = matchesTabWindow(args.activeTab, ['foods', 'recipes']);
   const needsFoods = matchesTabWindow(args.activeTab, ['home', 'foods', 'recipes', 'logs', 'family']);
   const needsFoodRecommendations = matchesTabWindow(args.activeTab, ['home', 'foods']);

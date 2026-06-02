@@ -388,6 +388,13 @@
     gap: 10px;
   }
 
+  .mobile-log-top-actions {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    flex: 0 0 auto;
+  }
+
   .mobile-log-logo {
     width: 46px;
     height: 46px;
@@ -470,6 +477,10 @@
     box-shadow: 0 14px 34px rgba(75, 52, 34, 0.055);
   }
 
+  .mobile-log-enrichment-panel {
+    padding: 12px;
+  }
+
   .mobile-log-panel .page-main-column {
     padding: 0;
     border: 0;
@@ -497,13 +508,119 @@
     font-weight: 900;
   }
 
+  .mobile-log-section-head button {
+    min-height: 36px;
+    padding: 0 13px;
+    border: 1px solid rgba(226, 205, 189, 0.88);
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.74);
+    color: #6b584b;
+    font: inherit;
+    font-size: 0.84rem;
+    font-weight: 900;
+    box-shadow: none;
+  }
+
+  .mobile-log-queue {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+  }
+
+  .mobile-log-queue-card {
+    display: grid;
+    gap: 5px;
+    min-height: 112px;
+    padding: 13px;
+    border: 1px solid rgba(224, 211, 199, 0.9);
+    border-radius: 18px;
+    background: rgba(255, 255, 255, 0.78);
+    color: #2b201b;
+    text-align: left;
+    box-shadow: none;
+  }
+
+  .mobile-log-queue-card.active {
+    border-color: rgba(210, 107, 51, 0.48);
+    background: rgba(255, 241, 231, 0.96);
+    box-shadow: 0 12px 24px rgba(210, 107, 51, 0.12);
+  }
+
+  .mobile-log-queue-card span {
+    color: #b35122;
+    font-size: 0.76rem;
+    font-weight: 950;
+  }
+
+  .mobile-log-queue-card strong,
+  .mobile-log-queue-card small {
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .mobile-log-queue-card strong {
+    display: -webkit-box;
+    min-height: 40px;
+    color: #2b201b;
+    font-size: 0.98rem;
+    line-height: 1.22;
+    font-weight: 950;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+  }
+
+  .mobile-log-queue-card small {
+    color: #817167;
+    font-size: 0.76rem;
+    font-weight: 800;
+    white-space: nowrap;
+  }
+
+  .mobile-log-page .meal-enrichment-form {
+    gap: 13px;
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+  }
+
+  .mobile-log-page .meal-enrichment-head {
+    align-items: start;
+  }
+
+  .mobile-log-page .meal-enrichment-head h3 {
+    font-size: 1.34rem;
+  }
+
+  .mobile-log-page .meal-enrichment-actions .solid-button {
+    width: 100%;
+  }
+
+  .mobile-log-page .image-composer {
+    padding: 12px;
+    border-radius: 18px;
+  }
+
+  .mobile-log-page .image-composer .inline-between {
+    align-items: start;
+  }
+
+  .mobile-log-page .image-composer .inline-actions {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+
   .mobile-log-recent-list {
     display: grid;
     gap: 12px;
   }
 
   .mobile-log-card {
+    width: 100%;
     border-radius: 20px;
+    color: inherit;
+    text-align: left;
+    box-shadow: none;
   }
 
   .mobile-log-meta {

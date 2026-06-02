@@ -210,6 +210,7 @@ function App() {
     updateFoodMutation,
     toggleFavoriteMutation,
     createMealMutation,
+    updateMealMutation,
     quickAddMealMutation,
   } = useAppMutations();
   const {
@@ -667,13 +668,17 @@ function App() {
           <MealLogWorkspace
             form={mealLogComposer.form}
             foods={foods}
+            foodPlanItems={foodPlanItems}
             members={members}
             entries={mealLogComposer.entries}
             selectedParticipants={mealLogComposer.selectedParticipants}
             recentMeals={recentMeals}
             isSubmitting={createMealMutation.isPending}
+            isUpdatingMeal={updateMealMutation.isPending}
             isGeneratingPhoto={mealLogComposer.imageComposer.state.isGenerating}
             photoErrorMessage={mealLogComposer.imageComposer.state.errorMessage}
+            updateMealLog={(mealLogId, payload) => updateMealMutation.mutateAsync({ mealLogId, payload })}
+            onBackHome={() => setActiveTab('home')}
             onSubmit={mealLogComposer.submit}
             onFormChange={mealLogComposer.setForm}
             onToggleFood={mealLogComposer.toggleFood}

@@ -98,19 +98,22 @@ export function FoodRatingInput(props: { value: string; onChange: (value: string
         </div>
       </div>
       <strong>{display}</strong>
-      {rating > 0 && (
-        <button
-          className="food-rating-clear"
-          type="button"
-          onClick={(event) => {
-            event.preventDefault();
-            event.stopPropagation();
+      <button
+        className={rating > 0 ? 'food-rating-clear' : 'food-rating-clear hidden'}
+        type="button"
+        disabled={rating <= 0}
+        aria-hidden={rating <= 0}
+        tabIndex={rating > 0 ? 0 : -1}
+        onClick={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          if (rating > 0) {
             props.onChange('');
-          }}
-        >
-          清除
-        </button>
-      )}
+          }
+        }}
+      >
+        清除
+      </button>
     </div>
   );
 }
