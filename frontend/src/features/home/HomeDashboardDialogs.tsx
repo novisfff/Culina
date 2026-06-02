@@ -8,6 +8,7 @@ import type {
   Member,
   Recipe,
   ShoppingListItem,
+  UpdateMealLogPayload,
 } from '../../api/types';
 import { DashboardIcon } from '../../app/shellIcons';
 import { FoodPlanDetailModal, type FoodPlanDetailFormState } from '../../components/foods/FoodPlanDetailModal';
@@ -43,6 +44,7 @@ import {
   type HomeRestockFormState,
 } from './homeDashboardModel';
 import { getDefaultHomePlanMealType, type HomePlanAddFormState } from './useHomeDashboardState';
+import { MealEnrichmentForm, type MealSource } from '../meals/MealLogEnrichment';
 
 type Props = {
   recipes: Recipe[];
@@ -62,6 +64,12 @@ type Props = {
   isUpdatingHomePlanDetail: boolean;
   isCompletingHomePlanDetail: boolean;
   isSupplementingHomePlanDetail: boolean;
+  homeMealEnrichmentMeal: MealLog | null;
+  homeMealEnrichmentSource: MealSource | null;
+  homeMealEnrichmentMembers: Member[];
+  closeHomeMealEnrichment: () => void;
+  updateMealLog: (mealLogId: string, payload: UpdateMealLogPayload) => Promise<unknown>;
+  isUpdatingMeal: boolean;
   isHomePlanAddDialogOpen: boolean;
   homePlanAddFood: Food | null;
   homePlanAddFoodSearch: string;
@@ -279,6 +287,29 @@ export function HomeDashboardDialogs(props: Props) {
                 </ActionButton>
               </div>
             </form>
+          </WorkspaceModal>
+        </div>
+      )}
+
+      {props.homeMealEnrichmentMeal && props.homeMealEnrichmentSource && (
+        <div className="workspace-overlay-root">
+          <div className="workspace-overlay-backdrop" onClick={props.closeHomeMealEnrichment} />
+          <WorkspaceModal
+            title="补充记录"
+            description="为这次菜单安排添加评价、家人、照片和评论。"
+            className="meal-log-modal meal-log-enrich-modal"
+            closeLabel="×"
+            onClose={props.closeHomeMealEnrichment}
+          >
+            <MealEnrichmentForm
+              meal={props.homeMealEnrichmentMeal}
+              members={props.homeMealEnrichmentMembers}
+              source={props.homeMealEnrichmentSource}
+              isUpdating={props.isUpdatingMeal}
+              updateMealLog={props.updateMealLog}
+              onCancel={props.closeHomeMealEnrichment}
+              onSaved={props.closeHomeMealEnrichment}
+            />
           </WorkspaceModal>
         </div>
       )}

@@ -11,6 +11,7 @@ import {
 } from './app/shellIcons';
 import type {
   Food,
+  MealLog,
 } from './api/types';
 import { useAuth } from './auth/AuthContext';
 import { LoginScreen } from './components/LoginScreen';
@@ -34,6 +35,8 @@ import {
 import { HomeDashboardDialogs } from './features/home/HomeDashboardDialogs';
 import { useHomeDashboardState } from './features/home/useHomeDashboardState';
 import { useHomeDashboardActions } from './features/home/useHomeDashboardActions';
+import type { HomeMealEnrichmentOpenRequest } from './features/home/useHomeDashboardActions';
+import { resolveMealSource } from './features/meals/MealLogEnrichmentModel';
 import { useNotice } from './hooks/useNotice';
 import { resolveAssetUrl } from './lib/assets';
 import { readStringStorage, writeStringStorage } from './lib/storage';
@@ -95,7 +98,7 @@ function App() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState<boolean>(defaultSidebarCollapsed);
   const [pendingRecipeCookId, setPendingRecipeCookId] = useState<string | null>(null);
   const [pendingFoodPlanCookItemId, setPendingFoodPlanCookItemId] = useState<string | null>(null);
-  const [pendingMealLogEnrichmentId, setPendingMealLogEnrichmentId] = useState<string | null>(null);
+  const [homeMealEnrichmentRequest, setHomeMealEnrichmentRequest] = useState<HomeMealEnrichmentOpenRequest | null>(null);
   const {
     dashboardRecommendationPage,
     setDashboardRecommendationPage,
@@ -366,11 +369,6 @@ function App() {
     return resolveAssetUrl(url, { passthroughPrefixes: ['/images/'] });
   }
 
-  function openMealLogEnrichment(mealLogId: string) {
-    setPendingMealLogEnrichmentId(mealLogId);
-    setActiveTab('logs');
-  }
-
   const {
     openIngredientsCatalog,
     openIngredientDetail,
@@ -436,8 +434,17 @@ function App() {
       setPendingFoodPlanCookItemId(foodPlanItemId);
       setActiveTab('recipes');
     },
-    openMealLogEnrichment,
+    openMealLogEnrichment: setHomeMealEnrichmentRequest,
   });
+
+  const homeMealEnrichmentMeal =
+    homeMealEnrichmentRequest?.mealLog ??
+    mealLogs.find((meal) => meal.id === homeMealEnrichmentRequest?.mealLogId) ??
+    null;
+  const homeMealEnrichmentPlanItems = homeMealEnrichmentRequest?.planItem
+    ? [homeMealEnrichmentRequest.planItem, ...foodPlanItems.filter((item) => item.id !== homeMealEnrichmentRequest.planItem?.id)]
+    : foodPlanItems;
+  const homeMealEnrichmentSource = homeMealEnrichmentMeal ? resolveMealSource(homeMealEnrichmentMeal, homeMealEnrichmentPlanItems) : null;
 
   const noticeToast = notice ? (
     <div className={`recipe-notice-toast tone-${notice.tone}`} role={notice.tone === 'danger' ? 'alert' : 'status'} aria-live="polite">
@@ -685,9 +692,7 @@ function App() {
             isUpdatingMeal={updateMealMutation.isPending}
             isGeneratingPhoto={mealLogComposer.imageComposer.state.isGenerating}
             photoErrorMessage={mealLogComposer.imageComposer.state.errorMessage}
-            focusMealLogId={pendingMealLogEnrichmentId}
             updateMealLog={(mealLogId, payload) => updateMealMutation.mutateAsync({ mealLogId, payload })}
-            onMealLogFocusHandled={() => setPendingMealLogEnrichmentId(null)}
             onBackHome={() => setActiveTab('home')}
             onSubmit={mealLogComposer.submit}
             onFormChange={mealLogComposer.setForm}
@@ -769,6 +774,12 @@ function App() {
           isUpdatingHomePlanDetail={updateFoodPlanItemMutation.isPending || deleteFoodPlanItemMutation.isPending}
           isCompletingHomePlanDetail={cookRecipeMutation.isPending || quickAddMealMutation.isPending}
           isSupplementingHomePlanDetail={quickAddMealMutation.isPending}
+          homeMealEnrichmentMeal={homeMealEnrichmentMeal}
+          homeMealEnrichmentSource={homeMealEnrichmentSource}
+          homeMealEnrichmentMembers={members}
+          closeHomeMealEnrichment={() => setHomeMealEnrichmentRequest(null)}
+          updateMealLog={(mealLogId, payload) => updateMealMutation.mutateAsync({ mealLogId, payload })}
+          isUpdatingMeal={updateMealMutation.isPending}
           isHomePlanAddDialogOpen={isHomePlanAddDialogOpen}
           homePlanAddFood={homePlanAddFood}
           homePlanAddFoodSearch={homePlanAddFoodSearch}

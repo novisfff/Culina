@@ -29,6 +29,12 @@ type CreateInventoryPayload = {
   notes: string;
 };
 
+export type HomeMealEnrichmentOpenRequest = {
+  mealLogId: string;
+  mealLog?: MealLog;
+  planItem?: FoodPlanItem;
+};
+
 export function useHomeDashboardActions(input: {
   showNotice: (notice: NoticeState) => void;
   homeExpiredDisposalSummary: IngredientSummaryViewModel | null;
@@ -53,7 +59,7 @@ export function useHomeDashboardActions(input: {
   closeHomePlanAddDialog: () => void;
   setIsHomePlanDetailEditing: (isEditing: boolean) => void;
   startRecipeCook: (recipeId: string, foodPlanItemId: string) => void;
-  openMealLogEnrichment: (mealLogId: string) => void;
+  openMealLogEnrichment: (request: HomeMealEnrichmentOpenRequest) => void;
 }) {
   async function startHomePlanDetailCook(item: FoodPlanItem) {
     input.closeHomePlanDetail();
@@ -78,7 +84,7 @@ export function useHomeDashboardActions(input: {
   async function supplementHomePlanDetailRecord(item: FoodPlanItem) {
     input.closeHomePlanDetail();
     if (item.meal_log_id) {
-      input.openMealLogEnrichment(item.meal_log_id);
+      input.openMealLogEnrichment({ mealLogId: item.meal_log_id, planItem: item });
       return;
     }
 
@@ -91,7 +97,7 @@ export function useHomeDashboardActions(input: {
         note: item.note || '来自菜单计划',
         food_plan_item_id: item.id,
       });
-      input.openMealLogEnrichment(mealLog.id);
+      input.openMealLogEnrichment({ mealLogId: mealLog.id, mealLog, planItem: item });
     } catch (reason) {
       input.showNotice({ tone: 'danger', title: '打开补充记录失败', message: reason instanceof Error ? reason.message : '打开补充记录失败' });
     }
