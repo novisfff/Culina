@@ -6,12 +6,10 @@ import { useAppHomeHandlers } from './app/useAppHomeHandlers';
 import { useAppHomeViewModel } from './app/useAppHomeViewModel';
 import { useAppMutations } from './app/useAppMutations';
 import { useAppWorkspaceQueries } from './app/useAppWorkspaceQueries';
-import {
-  DashboardIcon,
-} from './app/shellIcons';
 import type {
   Food,
   MealLog,
+  UpdateMealLogPayload,
 } from './api/types';
 import { useAuth } from './auth/AuthContext';
 import { LoginScreen } from './components/LoginScreen';
@@ -32,7 +30,6 @@ import { useFamilySettingsState } from './features/family/useFamilySettingsState
 import {
   type HomeRestockFormState,
 } from './features/home/homeDashboardModel';
-import { HomeDashboardDialogs } from './features/home/HomeDashboardDialogs';
 import { useHomeDashboardState } from './features/home/useHomeDashboardState';
 import { useHomeDashboardActions } from './features/home/useHomeDashboardActions';
 import type { HomeMealEnrichmentOpenRequest } from './features/home/useHomeDashboardActions';
@@ -53,6 +50,9 @@ const IngredientWorkspace = lazy(() =>
 );
 const RecipeWorkspace = lazy(() =>
   import('./components/recipes/RecipeWorkspace').then((module) => ({ default: module.RecipeWorkspace }))
+);
+const HomeDashboardDialogs = lazy(() =>
+  import('./features/home/HomeDashboardDialogs').then((module) => ({ default: module.HomeDashboardDialogs }))
 );
 const FamilySettings = lazy(() =>
   import('./features/family/FamilySettings').then((module) => ({ default: module.FamilySettings }))
@@ -444,7 +444,43 @@ function App() {
   const homeMealEnrichmentPlanItems = homeMealEnrichmentRequest?.planItem
     ? [homeMealEnrichmentRequest.planItem, ...foodPlanItems.filter((item) => item.id !== homeMealEnrichmentRequest.planItem?.id)]
     : foodPlanItems;
-  const homeMealEnrichmentSource = homeMealEnrichmentMeal ? resolveMealSource(homeMealEnrichmentMeal, homeMealEnrichmentPlanItems) : null;
+  const homeMealEnrichmentSource = homeMealEnrichmentMeal
+    ? homeMealEnrichmentRequest?.planItem
+      ? { label: '来自菜单计划', status: 'planned' as const, planItem: homeMealEnrichmentRequest.planItem }
+      : resolveMealSource(homeMealEnrichmentMeal, homeMealEnrichmentPlanItems)
+    : null;
+
+  async function saveHomeMealEnrichment(meal: MealLog, payload: UpdateMealLogPayload) {
+    const planItem = homeMealEnrichmentRequest?.planItem;
+    if (!meal.id.startsWith('draft-') || !planItem) {
+      await updateMealMutation.mutateAsync({ mealLogId: meal.id, payload });
+      return;
+    }
+
+    const createdMeal = await quickAddMealMutation.mutateAsync({
+      food_id: planItem.food_id,
+      date: planItem.plan_date,
+      meal_type: planItem.meal_type,
+      servings: 1,
+      note: planItem.note || '来自菜单计划',
+      food_plan_item_id: planItem.id,
+    });
+    const foodEntryRatings = payload.food_entry_ratings?.map((rating, index) => {
+      const draftEntry = meal.food_entries[index];
+      const createdEntry =
+        createdMeal.food_entries.find((entry) => draftEntry && entry.food_id === draftEntry.food_id && entry.note === draftEntry.note) ??
+        createdMeal.food_entries[index];
+      return createdEntry ? { id: createdEntry.id, rating: rating.rating } : null;
+    }).filter((item): item is { id: string; rating: number | null } => item !== null);
+
+    await updateMealMutation.mutateAsync({
+      mealLogId: createdMeal.id,
+      payload: {
+        ...payload,
+        ...(foodEntryRatings ? { food_entry_ratings: foodEntryRatings } : {}),
+      },
+    });
+  }
 
   const noticeToast = notice ? (
     <div className={`recipe-notice-toast tone-${notice.tone}`} role={notice.tone === 'danger' ? 'alert' : 'status'} aria-live="polite">
@@ -756,65 +792,68 @@ function App() {
           </Suspense>
         )}
 
-        <HomeDashboardDialogs
-          recipes={recipes}
-          ingredients={ingredients}
-          homePlanDetailItem={homePlanDetailItem}
-          homePlanDetailFood={homePlanDetailFood}
-          homePlanDetailForm={homePlanDetailForm}
-          isHomePlanDetailEditing={isHomePlanDetailEditing}
-          setHomePlanDetailForm={setHomePlanDetailForm}
-          setIsHomePlanDetailEditing={setIsHomePlanDetailEditing}
-          resetHomePlanDetailForm={resetHomePlanDetailForm}
-          submitHomePlanDetail={submitHomePlanDetail}
-          startHomePlanDetailCook={startHomePlanDetailCook}
-          supplementHomePlanDetailRecord={supplementHomePlanDetailRecord}
-          deleteHomePlanDetail={deleteHomePlanDetail}
-          closeHomePlanDetail={closeHomePlanDetail}
-          isUpdatingHomePlanDetail={updateFoodPlanItemMutation.isPending || deleteFoodPlanItemMutation.isPending}
-          isCompletingHomePlanDetail={cookRecipeMutation.isPending || quickAddMealMutation.isPending}
-          isSupplementingHomePlanDetail={quickAddMealMutation.isPending}
-          homeMealEnrichmentMeal={homeMealEnrichmentMeal}
-          homeMealEnrichmentSource={homeMealEnrichmentSource}
-          homeMealEnrichmentMembers={members}
-          closeHomeMealEnrichment={() => setHomeMealEnrichmentRequest(null)}
-          updateMealLog={(mealLogId, payload) => updateMealMutation.mutateAsync({ mealLogId, payload })}
-          isUpdatingMeal={updateMealMutation.isPending}
-          isHomePlanAddDialogOpen={isHomePlanAddDialogOpen}
-          homePlanAddFood={homePlanAddFood}
-          homePlanAddFoodSearch={homePlanAddFoodSearch}
-          setHomePlanAddFoodSearch={setHomePlanAddFoodSearch}
-          homePlanAddFoodOptions={homePlanAddFoodOptions}
-          selectHomePlanAddFood={selectHomePlanAddFood}
-          setHomePlanAddFoodId={setHomePlanAddFoodId}
-          homePlanAddForm={homePlanAddForm}
-          setHomePlanAddForm={setHomePlanAddForm}
-          dashboardPlanDays={dashboardPlanDays}
-          submitHomePlanAdd={submitHomePlanAdd}
-          closeHomePlanAddDialog={closeHomePlanAddDialog}
-          isCreatingFoodPlanItem={createFoodPlanItemMutation.isPending}
-          homeExpiryReviewItem={homeExpiryReviewItem}
-          homeExpiryReviewIngredient={homeExpiryReviewIngredient}
-          closeHomeExpiryReview={closeHomeExpiryReview}
-          openIngredientDetail={openIngredientDetail}
-          homeMealDetail={homeMealDetail}
-          homeMealDetailParticipants={homeMealDetailParticipants}
-          closeHomeMealDetail={closeHomeMealDetail}
-          homeRestockShoppingItem={homeRestockShoppingItem}
-          homeRestockForm={homeRestockForm}
-          homeRestockIngredient={homeRestockIngredient}
-          homeRestockIngredientImageUrl={homeRestockIngredientImageUrl}
-          updateHomeRestockForm={updateHomeRestockForm}
-          closeHomeRestock={closeHomeRestock}
-          submitHomeRestock={submitHomeRestock}
-          isCreatingInventory={createInventoryMutation.isPending}
-          homeExpiredDisposalSummary={homeExpiredDisposalSummary}
-          homeExpiredDisposalItems={homeExpiredDisposalItems}
-          setHomeExpiredDisposalIngredientId={setHomeExpiredDisposalIngredientId}
-          submitHomeExpiredDisposal={submitHomeExpiredDisposal}
-          isDisposingExpiredInventory={disposeExpiredInventoryMutation.isPending}
-          resolveAssetUrl={resolveDashboardAssetUrl}
-        />
+        <Suspense fallback={null}>
+          <HomeDashboardDialogs
+            recipes={recipes}
+            ingredients={ingredients}
+            homePlanDetailItem={homePlanDetailItem}
+            homePlanDetailFood={homePlanDetailFood}
+            homePlanDetailForm={homePlanDetailForm}
+            isHomePlanDetailEditing={isHomePlanDetailEditing}
+            setHomePlanDetailForm={setHomePlanDetailForm}
+            setIsHomePlanDetailEditing={setIsHomePlanDetailEditing}
+            resetHomePlanDetailForm={resetHomePlanDetailForm}
+            submitHomePlanDetail={submitHomePlanDetail}
+            startHomePlanDetailCook={startHomePlanDetailCook}
+            supplementHomePlanDetailRecord={supplementHomePlanDetailRecord}
+            deleteHomePlanDetail={deleteHomePlanDetail}
+            closeHomePlanDetail={closeHomePlanDetail}
+            isUpdatingHomePlanDetail={updateFoodPlanItemMutation.isPending || deleteFoodPlanItemMutation.isPending}
+            isCompletingHomePlanDetail={cookRecipeMutation.isPending || quickAddMealMutation.isPending}
+            isSupplementingHomePlanDetail={quickAddMealMutation.isPending}
+            homeMealEnrichmentMeal={homeMealEnrichmentMeal}
+            homeMealEnrichmentSource={homeMealEnrichmentSource}
+            homeMealEnrichmentMembers={members}
+            closeHomeMealEnrichment={() => setHomeMealEnrichmentRequest(null)}
+            updateMealLog={(mealLogId, payload) => saveHomeMealEnrichment(homeMealEnrichmentMeal ?? { id: mealLogId } as MealLog, payload)}
+            onInvalidMealEnrichmentSave={() => showNotice({ tone: 'warning', title: '还没有补充内容', message: '请先填写评分、家人、评论或照片，再保存这顿饭。' })}
+            isUpdatingMeal={updateMealMutation.isPending || quickAddMealMutation.isPending}
+            isHomePlanAddDialogOpen={isHomePlanAddDialogOpen}
+            homePlanAddFood={homePlanAddFood}
+            homePlanAddFoodSearch={homePlanAddFoodSearch}
+            setHomePlanAddFoodSearch={setHomePlanAddFoodSearch}
+            homePlanAddFoodOptions={homePlanAddFoodOptions}
+            selectHomePlanAddFood={selectHomePlanAddFood}
+            setHomePlanAddFoodId={setHomePlanAddFoodId}
+            homePlanAddForm={homePlanAddForm}
+            setHomePlanAddForm={setHomePlanAddForm}
+            dashboardPlanDays={dashboardPlanDays}
+            submitHomePlanAdd={submitHomePlanAdd}
+            closeHomePlanAddDialog={closeHomePlanAddDialog}
+            isCreatingFoodPlanItem={createFoodPlanItemMutation.isPending}
+            homeExpiryReviewItem={homeExpiryReviewItem}
+            homeExpiryReviewIngredient={homeExpiryReviewIngredient}
+            closeHomeExpiryReview={closeHomeExpiryReview}
+            openIngredientDetail={openIngredientDetail}
+            homeMealDetail={homeMealDetail}
+            homeMealDetailParticipants={homeMealDetailParticipants}
+            closeHomeMealDetail={closeHomeMealDetail}
+            homeRestockShoppingItem={homeRestockShoppingItem}
+            homeRestockForm={homeRestockForm}
+            homeRestockIngredient={homeRestockIngredient}
+            homeRestockIngredientImageUrl={homeRestockIngredientImageUrl}
+            updateHomeRestockForm={updateHomeRestockForm}
+            closeHomeRestock={closeHomeRestock}
+            submitHomeRestock={submitHomeRestock}
+            isCreatingInventory={createInventoryMutation.isPending}
+            homeExpiredDisposalSummary={homeExpiredDisposalSummary}
+            homeExpiredDisposalItems={homeExpiredDisposalItems}
+            setHomeExpiredDisposalIngredientId={setHomeExpiredDisposalIngredientId}
+            submitHomeExpiredDisposal={submitHomeExpiredDisposal}
+            isDisposingExpiredInventory={disposeExpiredInventoryMutation.isPending}
+            resolveAssetUrl={resolveDashboardAssetUrl}
+          />
+        </Suspense>
 
     </AppShell>
   );

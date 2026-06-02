@@ -30,7 +30,7 @@ type CreateInventoryPayload = {
 };
 
 export type HomeMealEnrichmentOpenRequest = {
-  mealLogId: string;
+  mealLogId?: string;
   mealLog?: MealLog;
   planItem?: FoodPlanItem;
 };
@@ -88,19 +88,33 @@ export function useHomeDashboardActions(input: {
       return;
     }
 
-    try {
-      const mealLog = await input.quickAddMeal({
-        food_id: item.food_id,
+    const now = new Date().toISOString();
+    input.openMealLogEnrichment({
+      mealLog: {
+        id: `draft-${item.id}`,
+        family_id: item.family_id,
         date: item.plan_date,
         meal_type: item.meal_type,
-        servings: 1,
-        note: item.note || '来自菜单计划',
-        food_plan_item_id: item.id,
-      });
-      input.openMealLogEnrichment({ mealLogId: mealLog.id, mealLog, planItem: item });
-    } catch (reason) {
-      input.showNotice({ tone: 'danger', title: '打开补充记录失败', message: reason instanceof Error ? reason.message : '打开补充记录失败' });
-    }
+        food_entries: [
+          {
+            id: `draft-entry-${item.id}`,
+            food_id: item.food_id,
+            food_name: item.food_name,
+            servings: 1,
+            note: item.note || '来自菜单计划',
+            rating: null,
+          },
+        ],
+        participant_user_ids: [],
+        notes: '',
+        mood: '',
+        photos: [],
+        deduction_suggestions: [],
+        created_at: now,
+        updated_at: now,
+      },
+      planItem: item,
+    });
   }
 
   async function submitHomeExpiredDisposal(event: FormEvent<HTMLFormElement>) {

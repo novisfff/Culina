@@ -94,6 +94,8 @@ export function MealEnrichmentForm(props: {
   source: MealSource;
   isUpdating: boolean;
   updateMealLog: (mealLogId: string, payload: UpdateMealLogPayload) => Promise<unknown>;
+  requireMeaningfulInput?: boolean;
+  onInvalidSave?: () => void;
   onCancel?: () => void;
   onSaved?: () => void;
 }) {
@@ -101,6 +103,8 @@ export function MealEnrichmentForm(props: {
     meal: props.meal,
     isUpdating: props.isUpdating,
     updateMealLog: props.updateMealLog,
+    requireMeaningfulInput: props.requireMeaningfulInput,
+    onInvalidSave: props.onInvalidSave,
     onSaved: props.onSaved,
   });
 

@@ -69,6 +69,7 @@ type Props = {
   homeMealEnrichmentMembers: Member[];
   closeHomeMealEnrichment: () => void;
   updateMealLog: (mealLogId: string, payload: UpdateMealLogPayload) => Promise<unknown>;
+  onInvalidMealEnrichmentSave: () => void;
   isUpdatingMeal: boolean;
   isHomePlanAddDialogOpen: boolean;
   homePlanAddFood: Food | null;
@@ -307,6 +308,8 @@ export function HomeDashboardDialogs(props: Props) {
               source={props.homeMealEnrichmentSource}
               isUpdating={props.isUpdatingMeal}
               updateMealLog={props.updateMealLog}
+              requireMeaningfulInput={props.homeMealEnrichmentMeal.id.startsWith('draft-')}
+              onInvalidSave={props.onInvalidMealEnrichmentSave}
               onCancel={props.closeHomeMealEnrichment}
               onSaved={props.closeHomeMealEnrichment}
             />

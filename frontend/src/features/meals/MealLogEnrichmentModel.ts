@@ -36,6 +36,26 @@ export function parseMealRatingValue(value: string) {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
 }
 
+export function hasMeaningfulMealLogInput(args: {
+  meal: MealLog;
+  participants: string[];
+  notes: string;
+  entryRatings: Record<string, string>;
+  mediaIds?: string[];
+}) {
+  const initialParticipants = new Set(args.meal.participant_user_ids);
+  const participantsChanged =
+    args.participants.length !== args.meal.participant_user_ids.length ||
+    args.participants.some((memberId) => !initialParticipants.has(memberId));
+
+  return Boolean(
+    args.notes.trim() ||
+      participantsChanged ||
+      (args.mediaIds?.length ?? 0) > args.meal.photos.length ||
+      args.meal.food_entries.some((entry) => parseMealRatingValue(args.entryRatings[entry.id] ?? '') !== null)
+  );
+}
+
 export function getMealRatingSummary(meal: MealLog) {
   const ratings = meal.food_entries
     .map((entry) => entry.rating)

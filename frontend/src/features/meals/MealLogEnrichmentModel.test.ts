@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { MealLog } from '../../api/types';
-import { buildUpdateMealLogPayload, getMealRatingSummary, isMealLogEnriched } from './MealLogEnrichmentModel';
+import { buildUpdateMealLogPayload, getMealRatingSummary, hasMeaningfulMealLogInput, isMealLogEnriched } from './MealLogEnrichmentModel';
 
 function makeMealLog(overrides: Partial<MealLog> = {}): MealLog {
   return {
@@ -49,6 +49,23 @@ describe('MealLogEnrichmentModel', () => {
     expect(isMealLogEnriched(makeMealLog())).toBe(false);
     expect(isMealLogEnriched(makeMealLog({ notes: '不错' }))).toBe(true);
     expect(isMealLogEnriched(makeMealLog({ food_entries: [{ id: 'entry-1', food_id: 'food-1', food_name: '饭', servings: 1, note: '', rating: 5 }] }))).toBe(true);
+  });
+
+  it('requires meaningful input before saving a draft enrichment', () => {
+    const meal = makeMealLog();
+    const baseInput = {
+      meal,
+      participants: [],
+      notes: '',
+      entryRatings: { 'entry-1': '', 'entry-2': '' },
+      mediaIds: [],
+    };
+
+    expect(hasMeaningfulMealLogInput(baseInput)).toBe(false);
+    expect(hasMeaningfulMealLogInput({ ...baseInput, notes: '下次少油' })).toBe(true);
+    expect(hasMeaningfulMealLogInput({ ...baseInput, participants: ['user-1'] })).toBe(true);
+    expect(hasMeaningfulMealLogInput({ ...baseInput, entryRatings: { ...baseInput.entryRatings, 'entry-1': '4' } })).toBe(true);
+    expect(hasMeaningfulMealLogInput({ ...baseInput, mediaIds: ['media-1'] })).toBe(true);
   });
 
   it('summarizes multiple dish ratings by average', () => {

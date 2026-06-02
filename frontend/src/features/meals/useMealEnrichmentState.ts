@@ -1,12 +1,14 @@
 import { useEffect, useState } from 'react';
 import type { MealLog, MediaAsset, UpdateMealLogPayload } from '../../api/types';
 import { useDirectImageUploader } from '../../hooks/useImageComposer';
-import { buildMealEntryRatingDraft, buildMealTitle, buildUpdateMealLogPayload, MAX_MEAL_PHOTOS } from './MealLogEnrichmentModel';
+import { buildMealEntryRatingDraft, buildMealTitle, buildUpdateMealLogPayload, hasMeaningfulMealLogInput, MAX_MEAL_PHOTOS } from './MealLogEnrichmentModel';
 
 export function useMealEnrichmentState(args: {
   meal: MealLog;
   isUpdating: boolean;
   updateMealLog: (mealLogId: string, payload: UpdateMealLogPayload) => Promise<unknown>;
+  requireMeaningfulInput?: boolean;
+  onInvalidSave?: () => void;
   onSaved?: () => void;
 }) {
   const [notes, setNotes] = useState(args.meal.notes);
@@ -34,13 +36,26 @@ export function useMealEnrichmentState(args: {
   }
 
   async function save(includePhotos: boolean) {
-    await args.updateMealLog(args.meal.id, buildUpdateMealLogPayload({
+    const mediaIds = includePhotos ? photos.map((photo) => photo.id) : undefined;
+    if (args.requireMeaningfulInput && !hasMeaningfulMealLogInput({
       meal: args.meal,
       participants,
       notes,
       entryRatings,
-      ...(includePhotos ? { mediaIds: photos.map((photo) => photo.id) } : {}),
-    }));
+      mediaIds,
+    })) {
+      args.onInvalidSave?.();
+      return;
+    }
+
+    const payload = buildUpdateMealLogPayload({
+      meal: args.meal,
+      participants,
+      notes,
+      entryRatings,
+      ...(mediaIds ? { mediaIds } : {}),
+    });
+    await args.updateMealLog(args.meal.id, payload);
     args.onSaved?.();
   }
 
