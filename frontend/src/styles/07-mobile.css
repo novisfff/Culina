@@ -375,6 +375,16 @@
     gap: 10px;
   }
 
+  .mobile-dashboard-icon-actions .mobile-log-home-button {
+    width: auto;
+    padding: 0 12px;
+    border: 1px solid rgba(226, 215, 205, 0.88);
+    background: rgba(255, 255, 255, 0.76);
+    color: #b94c12;
+    font-size: 0.84rem;
+    font-weight: 900;
+  }
+
   .mobile-log-stat-card {
     display: grid;
     grid-template-columns: 58px minmax(0, 1fr);

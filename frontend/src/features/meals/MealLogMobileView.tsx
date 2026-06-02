@@ -1,4 +1,5 @@
 import type { MealLog } from '../../api/types';
+import { ShellIcon } from '../../app/shellIcons';
 import { Badge } from '../../components/ui-kit';
 import { formatDate, MEAL_TYPE_LABELS } from '../../lib/ui';
 import type { MealSource } from './MealLogEnrichment';
@@ -47,14 +48,16 @@ export function MealLogMobileView(props: Props) {
     <main className="mobile-log-page" aria-label="手机记录页">
       <div className="mobile-dashboard-topbar mobile-log-topbar">
         <div className="mobile-dashboard-brand">
-          <span className="mobile-dashboard-logo" aria-hidden="true">记</span>
+          <span className="mobile-dashboard-logo" aria-hidden="true">
+            <ShellIcon name="logo" />
+          </span>
           <span>
             <strong>餐食记录</strong>
             <small>评价、照片和家人反馈</small>
           </span>
         </div>
         <div className="mobile-dashboard-icon-actions">
-          <button type="button" onClick={props.onBackHome} aria-label="返回首页">首页</button>
+          <button className="mobile-log-home-button" type="button" onClick={props.onBackHome} aria-label="返回首页">首页</button>
         </div>
       </div>
 
