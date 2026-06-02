@@ -369,12 +369,6 @@
     padding: 14px 0 24px;
   }
 
-  .mobile-log-header-shell {
-    min-height: 82px;
-    padding-bottom: 14px;
-    border-radius: 0 0 18px 18px;
-  }
-
   .mobile-log-stat-grid {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
