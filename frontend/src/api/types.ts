@@ -563,8 +563,17 @@ export interface AiQueryResponse {
 
 export type AiMessageRole = 'user' | 'assistant' | 'system';
 export type AiMessagePartType = 'text' | 'result_card' | 'draft' | 'approval_request' | 'error_recovery';
-export type AiResultCardType = 'today_recommendation' | 'recipe_draft' | 'approval_request' | 'error_recovery';
-export type AiTaskDraftType = 'recipe';
+export type AiResultCardType =
+  | 'today_recommendation'
+  | 'recipe_draft'
+  | 'approval_request'
+  | 'error_recovery'
+  | 'inventory_summary'
+  | 'meal_plan_draft'
+  | 'shopping_list_draft'
+  | 'meal_log_draft'
+  | 'food_profile_draft';
+export type AiTaskDraftType = 'recipe' | 'shopping_list' | 'meal_plan' | 'meal_log' | 'food_profile';
 export type AiApprovalDecision = 'approved' | 'rejected';
 
 export interface AiEvidenceItem {
@@ -597,7 +606,7 @@ export interface AiResultCard {
     draftId?: string;
     approvalId?: string;
     summary?: string;
-    draft?: AiGeneratedRecipeDraft;
+    draft?: AiGeneratedRecipeDraft | Record<string, unknown>;
     [key: string]: unknown;
   };
 }
@@ -608,7 +617,7 @@ export interface AiTaskDraft {
   message_id?: string | null;
   run_id?: string | null;
   draft_type: AiTaskDraftType;
-  payload: AiGeneratedRecipeDraft;
+  payload: AiGeneratedRecipeDraft | Record<string, unknown>;
   preview_summary: string;
   status: string;
   version: number;
@@ -646,8 +655,8 @@ export interface AiApprovalRequest {
   reject_label: string;
   require_reject_comment: boolean;
   field_schema: AiApprovalField[];
-  initial_values: { recipe?: AiGeneratedRecipeDraft; [key: string]: unknown };
-  submitted_values: { recipe?: AiGeneratedRecipeDraft; [key: string]: unknown };
+  initial_values: { recipe?: AiGeneratedRecipeDraft; draft?: Record<string, unknown>; [key: string]: unknown };
+  submitted_values: { recipe?: AiGeneratedRecipeDraft; draft?: Record<string, unknown>; [key: string]: unknown };
   decision?: AiApprovalDecision | null;
   comment?: string | null;
   resolved_at?: string | null;
@@ -713,7 +722,7 @@ export interface AiApprovalDecisionResponse {
   approval: AiApprovalRequest;
   draft: AiTaskDraft;
   operation?: Record<string, unknown> | null;
-  business_entity?: Recipe | null;
+  business_entity?: Recipe | Record<string, unknown> | null;
 }
 
 export interface AiRecommendation {

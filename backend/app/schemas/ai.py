@@ -79,9 +79,19 @@ class GenerateRecipeDraftResponse(BaseModel):
 
 AIMessageRole = Literal["user", "assistant", "system"]
 AIMessagePartType = Literal["text", "result_card", "draft", "approval_request", "error_recovery"]
-AIResultCardType = Literal["today_recommendation", "recipe_draft", "approval_request", "error_recovery"]
+AIResultCardType = Literal[
+    "today_recommendation",
+    "recipe_draft",
+    "approval_request",
+    "error_recovery",
+    "inventory_summary",
+    "meal_plan_draft",
+    "shopping_list_draft",
+    "meal_log_draft",
+    "food_profile_draft",
+]
 AIRunEventStatus = Literal["pending", "running", "completed", "failed"]
-AITaskDraftType = Literal["recipe"]
+AITaskDraftType = Literal["recipe", "shopping_list", "meal_plan", "meal_log", "food_profile"]
 AITaskDraftStatus = Literal["pending", "confirmed", "rejected", "confirmation_failed", "pending_retry"]
 AIApprovalStatus = Literal["pending", "approved", "rejected", "cancelled", "expired"]
 AIApprovalDecision = Literal["approved", "rejected"]
@@ -100,6 +110,7 @@ class AIChatRequest(BaseModel):
     message: str
     conversation_id: str | None = None
     client_message_id: str | None = None
+    client_run_id: str | None = None
     quick_task: str | None = None
     subject: AISubjectIn | None = None
 

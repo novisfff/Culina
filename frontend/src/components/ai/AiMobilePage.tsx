@@ -1,6 +1,6 @@
 import type { FormEventHandler } from 'react';
-import type { AiApprovalRequest, AiConversation, AiMessage, UserSummary } from '../../api/types';
-import { ApprovalPanel, MessageBubble } from './AiConversationThread';
+import type { AiConversation, AiMessage, AiRunEvent, UserSummary } from '../../api/types';
+import { MessageBubble } from './AiConversationThread';
 import { AiMobileChrome } from './AiMobileChrome';
 
 export const AI_WELCOME_SUGGESTIONS = [
@@ -16,7 +16,8 @@ type Props = {
   isMobileHistoryOpen: boolean;
   currentUser: UserSummary | null;
   messages: AiMessage[];
-  restoredPendingApprovals: AiApprovalRequest[];
+  runEventsById: Record<string, AiRunEvent[]>;
+  streamProgress: AiRunEvent[];
   draft: string;
   isSending: boolean;
   sendError?: string;
@@ -29,6 +30,9 @@ type Props = {
   onPickSuggestion: (value: string) => void;
   onSubmit: FormEventHandler<HTMLFormElement>;
   onApprovalSettled: () => void;
+  onRetryRun: (runId: string) => void;
+  onRegeneratePart: (messageId: string, partId: string) => void;
+  onCancelSending: () => void;
 };
 
 export function AiMobilePage(props: Props) {
@@ -49,17 +53,19 @@ export function AiMobilePage(props: Props) {
       <div className="ai-thread-scroll">
         {props.messages.length > 0 ? (
           <>
-            {props.messages.map((message) => (
-              <MessageBubble key={message.id} message={message} user={props.currentUser} onApprovalSettled={props.onApprovalSettled} />
+            {props.messages.map((message, index) => (
+              <MessageBubble
+                key={message.id}
+                message={message}
+                user={props.currentUser}
+                runEvents={message.run_id ? props.runEventsById[message.run_id] ?? [] : []}
+                isLatestAssistant={message.role === 'assistant' && index === props.messages.length - 1}
+                onApprovalSettled={props.onApprovalSettled}
+                onRetryRun={props.onRetryRun}
+                onRegeneratePart={props.onRegeneratePart}
+              />
             ))}
           </>
-        ) : props.restoredPendingApprovals.length > 0 ? (
-          <section className="ai-pending-approval-restore">
-            <strong>待处理确认</strong>
-            {props.restoredPendingApprovals.map((approval) => (
-              <ApprovalPanel key={approval.id} approval={approval} onSettled={props.onApprovalSettled} />
-            ))}
-          </section>
         ) : (
           <div className="ai-empty-prompt">
             <section className="ai-welcome-card">
@@ -80,18 +86,20 @@ export function AiMobilePage(props: Props) {
             </div>
           </div>
         )}
-        {props.messages.length > 0 && props.restoredPendingApprovals.length > 0 && (
-          <section className="ai-pending-approval-restore">
-            <strong>待处理确认</strong>
-            {props.restoredPendingApprovals.map((approval) => (
-              <ApprovalPanel key={approval.id} approval={approval} onSettled={props.onApprovalSettled} />
-            ))}
-          </section>
-        )}
       </div>
 
       <div className="ai-composer-dock">
         {props.sendError && <p className="form-error">{props.sendError}</p>}
+        {props.isSending && props.streamProgress.length > 0 && (
+          <div className="ai-stream-progress-strip">
+            {props.streamProgress.slice(-3).map((event) => (
+              <span key={event.id}>{event.user_message}</span>
+            ))}
+            <button className="ghost-button" type="button" onClick={props.onCancelSending}>
+              取消
+            </button>
+          </div>
+        )}
         <form className="ai-composer" onSubmit={props.onSubmit}>
           <textarea
             className="text-input"

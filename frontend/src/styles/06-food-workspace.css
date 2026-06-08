@@ -4671,6 +4671,77 @@
   padding: 14px;
 }
 
+.ai-message-part {
+  display: grid;
+  gap: 8px;
+  width: 100%;
+}
+
+.ai-part-action,
+.ai-retry-action {
+  justify-self: end;
+  min-height: 32px;
+  padding-inline: 12px;
+}
+
+.ai-run-progress-timeline {
+  display: grid;
+  gap: 8px;
+  width: 100%;
+  border: 1px solid rgba(226, 214, 205, 0.72);
+  border-radius: 14px;
+  background: rgba(255, 249, 245, 0.82);
+  padding: 10px 12px;
+}
+
+.ai-run-progress-step {
+  display: grid;
+  grid-template-columns: 10px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+}
+
+.ai-run-progress-step > span {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: #d9c9bd;
+}
+
+.ai-run-progress-step.status-running > span {
+  background: #e36424;
+  box-shadow: 0 0 0 4px rgba(227, 100, 36, 0.12);
+}
+
+.ai-run-progress-step.status-completed > span {
+  background: #4f9f66;
+}
+
+.ai-run-progress-step.status-failed > span {
+  background: #bd3f32;
+}
+
+.ai-run-progress-step p {
+  margin: 0;
+  color: #695f58;
+  font-size: 0.86rem;
+}
+
+.ai-stream-progress-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.ai-stream-progress-strip span {
+  border: 1px solid rgba(226, 214, 205, 0.78);
+  border-radius: 999px;
+  background: rgba(255, 249, 245, 0.95);
+  padding: 5px 10px;
+  color: #695f58;
+  font-size: 0.8rem;
+}
+
 .ai-result-card h3,
 .ai-recommendation-item strong {
   margin: 0;
@@ -4752,13 +4823,6 @@
 .ai-approval-actions {
   justify-content: flex-end;
   align-self: end;
-}
-
-.ai-pending-approval-restore {
-  display: grid;
-  gap: 10px;
-  border-top: 1px solid rgba(226, 214, 205, 0.7);
-  padding-top: 12px;
 }
 
 .ai-recommendation-item {

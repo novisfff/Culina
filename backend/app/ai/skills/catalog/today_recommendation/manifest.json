@@ -1,0 +1,14 @@
+{
+  "key": "today_recommendation",
+  "name": "今日推荐",
+  "description": "根据库存、临期食材、最近餐食和菜谱生成今日推荐卡片。",
+  "examples": ["今晚吃什么", "今天用现有食材推荐一下"],
+  "context_policy": [],
+  "tools": ["inventory.read_available_items", "inventory.read_expiring_items", "food.search", "meal_log.read_recent", "recipe.search"],
+  "output_types": ["today_recommendation"],
+  "draft_types": [],
+  "approval_policy": "none",
+  "can_continue_from": [],
+  "intent": "today_recommendation",
+  "agent_key": "today_recommendation_agent"
+}

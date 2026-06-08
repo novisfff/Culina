@@ -102,6 +102,12 @@ export function invalidateAfterAiApprovalSettled(queryClient: QueryClient, conve
     queryKeys.aiPendingApprovals(conversationId),
     queryKeys.aiConversations,
     queryKeys.recipes,
+    queryKeys.shoppingList,
+    queryKeys.foodPlanRoot,
+    queryKeys.mealLogs,
+    queryKeys.foods,
+    queryKeys.foodRecommendations,
+    queryKeys.activityLogs,
   ]);
 }
 

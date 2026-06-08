@@ -1,12 +1,12 @@
-import { useEffect, useMemo, useState, type FormEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { invalidateAfterAiMessageSent } from '../../api/cacheInvalidation';
 import { api } from '../../api/client';
 import { queryKeys } from '../../api/queryKeys';
-import type { AiConversation, AiMessage, UserSummary } from '../../api/types';
+import type { AiApprovalRequest, AiChatResponse, AiConversation, AiMessage, AiRunEvent, UserSummary } from '../../api/types';
 import { EmptyState, WorkspaceModal } from '../ui-kit';
 import { AiMobilePage, AI_WELCOME_SUGGESTIONS } from './AiMobilePage';
-import { ApprovalPanel, MessageBubble } from './AiConversationThread';
+import { MessageBubble } from './AiConversationThread';
 
 type AiWorkspaceProps = {
   conversations: AiConversation[];
@@ -29,12 +29,78 @@ function TrashIcon() {
   );
 }
 
+function mergePendingApprovalsIntoMessages(messages: AiMessage[], approvals: AiApprovalRequest[]): AiMessage[] {
+  const embeddedApprovalIds = new Set(
+    messages.flatMap((message) => message.parts.map((part) => part.approval?.id).filter((id): id is string => Boolean(id))),
+  );
+  const missingApprovals = approvals.filter((approval) => !embeddedApprovalIds.has(approval.id));
+  if (missingApprovals.length === 0) return messages;
+
+  const approvalsByMessageId = new Map<string, AiApprovalRequest[]>();
+  for (const approval of missingApprovals) {
+    if (!approval.message_id) continue;
+    const items = approvalsByMessageId.get(approval.message_id) ?? [];
+    items.push(approval);
+    approvalsByMessageId.set(approval.message_id, items);
+  }
+
+  const merged = messages.map((message) => {
+    const messageApprovals = approvalsByMessageId.get(message.id) ?? [];
+    if (messageApprovals.length === 0) return message;
+    approvalsByMessageId.delete(message.id);
+    return {
+      ...message,
+      content_type: 'parts',
+      parts: [
+        ...message.parts,
+        ...messageApprovals.map((approval) => ({
+          id: `restored-approval-part-${approval.id}`,
+          type: 'approval_request' as const,
+          approval,
+        })),
+      ],
+    };
+  });
+
+  const orphanedApprovalGroups = new Map<string, AiApprovalRequest[]>();
+  for (const approval of missingApprovals) {
+    if (approval.message_id && !approvalsByMessageId.has(approval.message_id)) continue;
+    const groupId = approval.message_id ?? `restored-approval-message-${approval.id}`;
+    orphanedApprovalGroups.set(groupId, [...(orphanedApprovalGroups.get(groupId) ?? []), approval]);
+  }
+  const syntheticMessages = Array.from(orphanedApprovalGroups, ([messageId, messageApprovals]): AiMessage => {
+    const firstApproval = messageApprovals[0];
+    return {
+      id: messageId,
+      conversation_id: firstApproval.conversation_id,
+      role: 'assistant',
+      content: firstApproval.instruction || '请确认以下操作。',
+      content_type: 'parts',
+      parts: messageApprovals.map((approval) => ({
+        id: `restored-approval-part-${approval.id}`,
+        type: 'approval_request',
+        approval,
+      })),
+      run_id: firstApproval.run_id,
+      status: 'completed',
+      metadata: { restoredApproval: true },
+      created_at: firstApproval.created_at,
+    };
+  });
+
+  return [...merged, ...syntheticMessages];
+}
+
 export function AiWorkspace({ conversations, isLoading, currentUser = null, onBackHome }: AiWorkspaceProps) {
   const queryClient = useQueryClient();
   const [activeConversationId, setActiveConversationId] = useState<string | null>(conversations[0]?.id ?? null);
   const [isStartingNewConversation, setIsStartingNewConversation] = useState(false);
   const [draft, setDraft] = useState('');
   const [localMessages, setLocalMessages] = useState<AiMessage[]>([]);
+  const [runEventsById, setRunEventsById] = useState<Record<string, AiRunEvent[]>>({});
+  const [streamProgress, setStreamProgress] = useState<AiRunEvent[]>([]);
+  const [activeStreamRunId, setActiveStreamRunId] = useState<string | null>(null);
+  const chatAbortRef = useRef<AbortController | null>(null);
   const [deletingConversationId, setDeletingConversationId] = useState<string | null>(null);
   const [pendingDeleteConversation, setPendingDeleteConversation] = useState<AiConversation | null>(null);
   const [isMobileHistoryOpen, setIsMobileHistoryOpen] = useState(false);
@@ -71,26 +137,102 @@ export function AiWorkspace({ conversations, isLoading, currentUser = null, onBa
     ];
   }, [localMessages, messagesQuery.data]);
 
-  const approvalIdsInMessages = useMemo(() => {
-    const ids = new Set<string>();
-    for (const message of messages) {
-      for (const part of message.parts) {
-        if (part.approval) ids.add(part.approval.id);
-      }
-    }
-    return ids;
-  }, [messages]);
+  const displayedMessages = useMemo(
+    () => mergePendingApprovalsIntoMessages(messages, pendingApprovalsQuery.data ?? []),
+    [messages, pendingApprovalsQuery.data],
+  );
 
-  const restoredPendingApprovals = (pendingApprovalsQuery.data ?? []).filter((approval) => !approvalIdsInMessages.has(approval.id));
+  function applyChatResponse(response: AiChatResponse) {
+    setActiveConversationId(response.conversation_id);
+    setIsStartingNewConversation(false);
+    setLocalMessages((items) => [
+      ...items.filter((item) => item.id !== response.message.id && item.run_id !== response.run.id),
+      response.message,
+    ]);
+    setRunEventsById((current) => ({ ...current, [response.run.id]: response.events }));
+    setStreamProgress([]);
+    invalidateAfterAiMessageSent(queryClient, response.conversation_id);
+  }
+
+  function applyStreamDelta(event: { message_id?: string; conversation_id?: string; run_id?: string; part_id?: string; delta: string }) {
+    if (!event.delta) return;
+    const runId = event.run_id || activeStreamRunId || 'pending';
+    const messageId = event.message_id || `local-assistant-${runId}`;
+    const partId = event.part_id || `local-part-${runId}`;
+    setLocalMessages((items) => {
+      const existingIndex = items.findIndex((item) => item.id === messageId || item.id === `local-assistant-${runId}` || item.run_id === runId);
+      if (existingIndex === -1) {
+        return [
+          ...items,
+          {
+            id: messageId,
+            conversation_id: event.conversation_id || activeConversationId || 'pending',
+            role: 'assistant',
+            content: event.delta,
+            content_type: 'parts',
+            parts: [{ id: partId, type: 'text', text: event.delta }],
+            run_id: runId,
+            status: 'running',
+            metadata: {},
+            created_at: new Date().toISOString(),
+          },
+        ];
+      }
+      return items.map((item, index) => {
+        if (index !== existingIndex) return item;
+        const textPart = item.parts.find((part) => part.type === 'text');
+        const nextText = `${textPart?.text ?? item.content ?? ''}${event.delta}`;
+        return {
+          ...item,
+          id: messageId,
+          conversation_id: event.conversation_id || item.conversation_id,
+          content: nextText,
+          parts: item.parts.some((part) => part.type === 'text')
+            ? item.parts.map((part) => (part.type === 'text' ? { ...part, id: event.part_id || part.id, text: nextText } : part))
+            : [{ id: partId, type: 'text', text: nextText }, ...item.parts],
+        };
+      });
+    });
+  }
 
   const chatMutation = useMutation({
-    mutationFn: api.chatAi,
-    onSuccess: (response) => {
-      setActiveConversationId(response.conversation_id);
-      setIsStartingNewConversation(false);
-      setLocalMessages((items) => [...items.filter((item) => item.id !== response.message.id), response.message]);
-      invalidateAfterAiMessageSent(queryClient, response.conversation_id);
+    mutationFn: (payload: { message: string; conversation_id?: string; client_message_id?: string; client_run_id?: string; quick_task?: string; subject?: Record<string, unknown> }) => {
+      const controller = new AbortController();
+      chatAbortRef.current = controller;
+      return api.streamChatAi(payload, {
+        signal: controller.signal,
+        onProgress: (event) => {
+          const nextEvent: AiRunEvent = {
+            id: 'id' in event && typeof event.id === 'string' ? event.id : `stream-${event.internal_code}-${Date.now()}`,
+            run_id: 'run_id' in event && typeof event.run_id === 'string' ? event.run_id : 'pending',
+            type: event.type,
+            internal_code: event.internal_code,
+            user_message: event.user_message,
+            status: event.status,
+            created_at: 'created_at' in event && typeof event.created_at === 'string' ? event.created_at : new Date().toISOString(),
+          };
+          setStreamProgress((items) => [...items, nextEvent]);
+        },
+        onMessageDelta: applyStreamDelta,
+      });
     },
+    onSuccess: (response) => {
+      applyChatResponse(response);
+    },
+    onSettled: () => {
+      chatAbortRef.current = null;
+      setActiveStreamRunId(null);
+    },
+  });
+
+  const retryMutation = useMutation({
+    mutationFn: api.retryAiRun,
+    onSuccess: applyChatResponse,
+  });
+
+  const regenerateMutation = useMutation({
+    mutationFn: (payload: { messageId: string; partId: string }) => api.regenerateAiPart(payload.messageId, payload.partId),
+    onSuccess: applyChatResponse,
   });
 
   const deleteConversationMutation = useMutation({
@@ -142,6 +284,7 @@ export function AiWorkspace({ conversations, isLoading, currentUser = null, onBa
     const text = draft.trim();
     if (!text) return;
     const clientMessageId = `client-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const clientRunId = `agent_run-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
     const tempMessage: AiMessage = {
       id: `local-${clientMessageId}`,
       conversation_id: activeConversationId ?? 'pending',
@@ -155,13 +298,69 @@ export function AiWorkspace({ conversations, isLoading, currentUser = null, onBa
       created_at: new Date().toISOString(),
     };
     setLocalMessages((items) => [...items, tempMessage]);
+    setStreamProgress([]);
+    setActiveStreamRunId(clientRunId);
     setDraft('');
-    await chatMutation.mutateAsync({
-      message: text,
-      conversation_id: activeConversationId ?? undefined,
-      client_message_id: clientMessageId,
-    });
+    try {
+      await chatMutation.mutateAsync({
+        message: text,
+        conversation_id: activeConversationId ?? undefined,
+        client_message_id: clientMessageId,
+        client_run_id: clientRunId,
+      });
+    } catch {
+      // The mutation state renders the request error; keep it out of the form event promise.
+    }
   }
+
+  function retryRun(runId: string) {
+    if (retryMutation.isPending) return;
+    retryMutation.mutate(runId);
+  }
+
+  function regeneratePart(messageId: string, partId: string) {
+    if (regenerateMutation.isPending) return;
+    regenerateMutation.mutate({ messageId, partId });
+  }
+
+  async function cancelStreamingChat() {
+    const runId = activeStreamRunId;
+    if (runId) {
+      try {
+        const result = await api.cancelAiRun(runId);
+        setRunEventsById((current) => ({ ...current, [runId]: result.events }));
+        setStreamProgress((items) => [...items, ...result.events]);
+      } catch {
+        setStreamProgress((items) => [
+          ...items,
+          {
+            id: `stream-cancel-fallback-${Date.now()}`,
+            run_id: runId,
+            type: 'cancel',
+            internal_code: 'server_cancel_unavailable',
+            user_message: '已停止等待这次任务',
+            status: 'failed',
+            created_at: new Date().toISOString(),
+          },
+        ]);
+      }
+    }
+    chatAbortRef.current?.abort();
+    setStreamProgress((items) => [
+      ...items,
+      {
+        id: `stream-cancel-${Date.now()}`,
+        run_id: runId ?? 'pending',
+        type: 'cancel',
+        internal_code: 'client_abort',
+        user_message: '已取消这次任务',
+        status: 'failed',
+        created_at: new Date().toISOString(),
+      },
+    ]);
+  }
+
+  const latestAssistantMessageId = [...displayedMessages].reverse().find((message) => message.role === 'assistant')?.id ?? null;
 
   return (
     <main className="ai-workspace-shell">
@@ -171,8 +370,9 @@ export function AiWorkspace({ conversations, isLoading, currentUser = null, onBa
         activeConversationId={activeConversationId}
         isMobileHistoryOpen={isMobileHistoryOpen}
         currentUser={currentUser}
-        messages={messages}
-        restoredPendingApprovals={restoredPendingApprovals}
+        messages={displayedMessages}
+        runEventsById={runEventsById}
+        streamProgress={streamProgress}
         draft={draft}
         isSending={chatMutation.isPending}
         sendError={chatMutation.isError ? chatMutation.error.message : undefined}
@@ -185,6 +385,9 @@ export function AiWorkspace({ conversations, isLoading, currentUser = null, onBa
         onPickSuggestion={setDraft}
         onSubmit={sendMessage}
         onApprovalSettled={() => void messagesQuery.refetch()}
+        onRetryRun={retryRun}
+        onRegeneratePart={regeneratePart}
+        onCancelSending={cancelStreamingChat}
       />
 
       <div className="ai-desktop-view">
@@ -272,19 +475,21 @@ export function AiWorkspace({ conversations, isLoading, currentUser = null, onBa
           <div className="ai-thread-scroll">
             {messagesQuery.isLoading && activeConversationId ? (
               <p className="subtle">正在加载消息...</p>
-            ) : messages.length > 0 ? (
+            ) : displayedMessages.length > 0 ? (
               <>
-                {messages.map((message) => (
-                  <MessageBubble key={message.id} message={message} user={currentUser} onApprovalSettled={() => void messagesQuery.refetch()} />
+                {displayedMessages.map((message) => (
+                  <MessageBubble
+                    key={message.id}
+                    message={message}
+                    user={currentUser}
+                    runEvents={message.run_id ? runEventsById[message.run_id] ?? [] : message.id.startsWith('local-') ? streamProgress : []}
+                    isLatestAssistant={message.id === latestAssistantMessageId}
+                    onApprovalSettled={() => void messagesQuery.refetch()}
+                    onRetryRun={retryRun}
+                    onRegeneratePart={regeneratePart}
+                  />
                 ))}
               </>
-            ) : restoredPendingApprovals.length > 0 ? (
-              <section className="ai-pending-approval-restore">
-                <strong>待处理确认</strong>
-                {restoredPendingApprovals.map((approval) => (
-                  <ApprovalPanel key={approval.id} approval={approval} onSettled={() => void pendingApprovalsQuery.refetch()} />
-                ))}
-              </section>
             ) : (
               <div className="ai-empty-prompt">
                 <section className="ai-welcome-card">
@@ -305,17 +510,21 @@ export function AiWorkspace({ conversations, isLoading, currentUser = null, onBa
                 </div>
               </div>
             )}
-            {messages.length > 0 && restoredPendingApprovals.length > 0 && (
-              <section className="ai-pending-approval-restore">
-                <strong>待处理确认</strong>
-                {restoredPendingApprovals.map((approval) => (
-                  <ApprovalPanel key={approval.id} approval={approval} onSettled={() => void pendingApprovalsQuery.refetch()} />
-                ))}
-              </section>
-            )}
           </div>
           <div className="ai-composer-dock">
             {chatMutation.isError && <p className="form-error">{chatMutation.error.message}</p>}
+            {retryMutation.isError && <p className="form-error">{retryMutation.error.message}</p>}
+            {regenerateMutation.isError && <p className="form-error">{regenerateMutation.error.message}</p>}
+            {chatMutation.isPending && streamProgress.length > 0 && (
+              <div className="ai-stream-progress-strip">
+                {streamProgress.slice(-3).map((event) => (
+                  <span key={event.id}>{event.user_message}</span>
+                ))}
+                <button className="ghost-button" type="button" onClick={cancelStreamingChat}>
+                  取消
+                </button>
+              </div>
+            )}
             <form className="ai-composer" onSubmit={sendMessage}>
               <textarea className="text-input" rows={2} value={draft} placeholder="输入你的问题，或让 AI 帮你安排一餐..." onChange={(event) => setDraft(event.target.value)} />
               <div className="ai-composer-meta">

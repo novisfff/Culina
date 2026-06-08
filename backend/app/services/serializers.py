@@ -417,6 +417,35 @@ def serialize_ai_recommendation(item: AIRecommendation) -> dict:
     }
 
 
+AI_RESULT_CARD_DEFAULT_TITLES = {
+    "today_recommendation": "今日吃什么",
+    "recipe_draft": "菜谱草稿",
+    "approval_request": "确认请求",
+    "error_recovery": "这次没有生成成功",
+    "inventory_summary": "库存概览",
+    "meal_plan_draft": "餐食计划草稿",
+    "shopping_list_draft": "购物清单草稿",
+    "meal_log_draft": "餐食记录草稿",
+    "food_profile_draft": "食物资料草稿",
+}
+
+
+def _normalize_ai_message_parts(parts: list[dict] | None) -> list[dict]:
+    normalized: list[dict] = []
+    for index, part in enumerate(parts or []):
+        if not isinstance(part, dict):
+            continue
+        next_part = dict(part)
+        if next_part.get("type") in {"result_card", "error_recovery"} and isinstance(next_part.get("card"), dict):
+            card = dict(next_part["card"])
+            card_type = str(card.get("type") or "inventory_summary")
+            card.setdefault("id", f"{next_part.get('id') or f'ai_part_{index}'}-card")
+            card.setdefault("title", AI_RESULT_CARD_DEFAULT_TITLES.get(card_type, "AI 结果"))
+            next_part["card"] = card
+        normalized.append(next_part)
+    return normalized
+
+
 def serialize_ai_message(item: AIMessage) -> dict:
     return {
         "id": item.id,
@@ -424,7 +453,7 @@ def serialize_ai_message(item: AIMessage) -> dict:
         "role": item.role,
         "content": item.content,
         "content_type": item.content_type,
-        "parts": item.parts,
+        "parts": _normalize_ai_message_parts(item.parts),
         "run_id": item.run_id,
         "status": item.status,
         "metadata": item.message_metadata,

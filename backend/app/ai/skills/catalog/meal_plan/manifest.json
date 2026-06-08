@@ -1,0 +1,14 @@
+{
+  "key": "meal_plan",
+  "name": "餐食计划",
+  "description": "基于库存、最近餐食和已有菜谱生成或修改可编辑餐食计划草稿。",
+  "examples": ["安排三天晚餐", "第二天不要鸡肉"],
+  "context_policy": ["inventory", "meal_logs", "foods", "recipes", "meal_plan"],
+  "tools": ["inventory.read_expiring_items", "inventory.read_available_items", "meal_log.read_recent", "food.search", "recipe.search", "meal_plan.read_existing", "meal_plan.create_draft"],
+  "output_types": ["meal_plan_draft"],
+  "draft_types": ["meal_plan"],
+  "approval_policy": "draft_then_confirm",
+  "can_continue_from": ["meal_plan"],
+  "intent": "meal_plan",
+  "agent_key": "meal_plan_agent"
+}

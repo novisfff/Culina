@@ -1,0 +1,14 @@
+{
+  "key": "shopping_list",
+  "name": "购物清单",
+  "description": "基于餐食计划、库存缺口和低库存生成购物清单草稿。",
+  "examples": ["生成购物清单", "基于这个计划生成采购清单"],
+  "context_policy": [],
+  "tools": ["shopping.read_pending", "inventory.read_available_items", "shopping.create_draft", "shopping_list.create_draft"],
+  "output_types": ["shopping_list_draft"],
+  "draft_types": ["shopping_list"],
+  "approval_policy": "draft_then_confirm",
+  "can_continue_from": ["meal_plan", "shopping_list"],
+  "intent": "shopping",
+  "agent_key": "shopping_agent"
+}

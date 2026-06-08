@@ -9,7 +9,7 @@ const imagesDir = join(rootDir, 'dist', 'images');
 const trackedBundles = [
   { label: 'main-js', prefix: 'index-', suffix: '.js', gzipBudget: 110 * 1024 },
   { label: 'main-css', prefix: 'index-', suffix: '.css', gzipBudget: 100 * 1024 },
-  { label: 'ai-workspace', prefix: 'AiWorkspace-', suffix: '.js', gzipBudget: 7 * 1024 },
+  { label: 'ai-workspace', prefix: 'AiWorkspace-', suffix: '.js', gzipBudget: 9.5 * 1024 },
   { label: 'family-settings', prefix: 'FamilySettings-', suffix: '.js', gzipBudget: 7 * 1024 },
   { label: 'food-workspace', prefix: 'FoodWorkspace-', suffix: '.js', gzipBudget: 26 * 1024 },
   { label: 'recipe-workspace', prefix: 'RecipeWorkspace-', suffix: '.js', gzipBudget: 36 * 1024 },

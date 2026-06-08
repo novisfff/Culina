@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { invalidateAfterAiApprovalSettled } from '../../api/cacheInvalidation';
 import { api } from '../../api/client';
-import type { AiApprovalRequest, AiGeneratedRecipeDraft, AiMessage, AiResultCard, Difficulty, UserSummary } from '../../api/types';
+import type { AiApprovalRequest, AiGeneratedRecipeDraft, AiMessage, AiResultCard, AiRunEvent, Difficulty, UserSummary } from '../../api/types';
 import { resolveAssetUrl } from '../../lib/assets';
 import { avatarColor, initials } from '../../lib/ui';
 
@@ -36,6 +36,49 @@ function blankRecipeDraft(): AiGeneratedRecipeDraft {
 
 function getApprovalRecipe(approval: AiApprovalRequest): AiGeneratedRecipeDraft {
   return approval.submitted_values.recipe ?? approval.initial_values.recipe ?? blankRecipeDraft();
+}
+
+function isRecipeApproval(approval: AiApprovalRequest) {
+  return approval.field_schema.some((field) => field.name === 'recipe' || field.widget === 'recipe_draft_editor');
+}
+
+function getApprovalDraft(approval: AiApprovalRequest): Record<string, unknown> {
+  const value = approval.submitted_values.draft ?? approval.initial_values.draft ?? {};
+  return typeof value === 'object' && value !== null && !Array.isArray(value) ? value : {};
+}
+
+function cloneDraftRecord(value: Record<string, unknown>): Record<string, unknown> {
+  return JSON.parse(JSON.stringify(value)) as Record<string, unknown>;
+}
+
+function getDraftType(approval: AiApprovalRequest, draft: Record<string, unknown>) {
+  const explicit = typeof draft.draftType === 'string' ? draft.draftType : '';
+  if (explicit) return explicit;
+  if (approval.approval_type.startsWith('meal_plan.')) return 'meal_plan';
+  if (approval.approval_type.startsWith('shopping_list.')) return 'shopping_list';
+  if (approval.approval_type.startsWith('meal_log.')) return 'meal_log';
+  if (approval.approval_type.startsWith('food_profile.')) return 'food_profile';
+  return '';
+}
+
+function asDraftArray(value: unknown): Record<string, unknown>[] {
+  return Array.isArray(value) ? value.filter((item): item is Record<string, unknown> => typeof item === 'object' && item !== null && !Array.isArray(item)) : [];
+}
+
+function asText(value: unknown, fallback = '') {
+  return typeof value === 'string' ? value : fallback;
+}
+
+function asNumber(value: unknown, fallback = 1) {
+  return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
+}
+
+function joinTextList(value: unknown) {
+  return Array.isArray(value) ? value.map(String).join('、') : '';
+}
+
+function splitTextList(value: string) {
+  return value.split(/[、,，]/).map((item) => item.trim()).filter(Boolean);
 }
 
 function ResultCard({ card }: { card: AiResultCard }) {
@@ -107,6 +150,54 @@ function ResultCard({ card }: { card: AiResultCard }) {
     );
   }
 
+  if (card.type === 'inventory_summary') {
+    const items = Array.isArray(card.data.items) ? card.data.items : [];
+    return (
+      <article className="ai-result-card">
+        <div className="inline-between">
+          <h3>{card.title}</h3>
+          <span className="subtle">
+            可用 {String(card.data.availableCount ?? 0)} · 临期 {String(card.data.expiringCount ?? 0)}
+          </span>
+        </div>
+        <div className="ai-evidence-row">
+          {items.slice(0, 6).map((item, index) => {
+            const value = item as { label?: string; quantity?: string; unit?: string; status?: string };
+            return (
+              <span key={`${value.label ?? 'item'}-${index}`} className="ai-evidence-pill">
+                {value.label ?? '库存项'}
+                {value.quantity ? ` · ${value.quantity}${value.unit ?? ''}` : ''}
+              </span>
+            );
+          })}
+        </div>
+      </article>
+    );
+  }
+
+  if (card.type === 'meal_plan_draft' || card.type === 'shopping_list_draft' || card.type === 'meal_log_draft' || card.type === 'food_profile_draft') {
+    const items = Array.isArray(card.data.items) ? card.data.items : Array.isArray(card.data.foods) ? card.data.foods : [];
+    return (
+      <article className="ai-result-card">
+        <div className="inline-between">
+          <h3>{card.title}</h3>
+          <span className="subtle">{String(card.data.summary ?? '')}</span>
+        </div>
+        <div className="ai-recommendation-list">
+          {items.slice(0, 6).map((item, index) => {
+            const value = item as { title?: string; name?: string; reason?: string; note?: string; date?: string; mealType?: string };
+            return (
+              <section key={`${value.title ?? value.name ?? 'draft'}-${index}`} className="ai-recommendation-item">
+                <strong>{value.title ?? value.name ?? '草稿项'}</strong>
+                <p>{value.reason ?? value.note ?? [value.date, value.mealType].filter(Boolean).join(' · ')}</p>
+              </section>
+            );
+          })}
+        </div>
+      </article>
+    );
+  }
+
   return (
     <article className="ai-result-card ai-error-card">
       <h3>{card.title}</h3>
@@ -115,25 +206,47 @@ function ResultCard({ card }: { card: AiResultCard }) {
   );
 }
 
+function RunProgressTimeline({ events }: { events: AiRunEvent[] }) {
+  if (events.length === 0) return null;
+  return (
+    <div className="ai-run-progress-timeline" aria-label="AI 执行进度">
+      {events.map((event, index) => (
+        <div key={event.id || `${event.internal_code}-${index}`} className={`ai-run-progress-step status-${event.status}`}>
+          <span aria-hidden="true" />
+          <p>{event.user_message}</p>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export function ApprovalPanel({ approval, onSettled }: { approval: AiApprovalRequest; onSettled: () => void }) {
   const [recipe, setRecipe] = useState<AiGeneratedRecipeDraft>(() => cloneRecipeDraft(getApprovalRecipe(approval)));
+  const [structuredDraft, setStructuredDraft] = useState<Record<string, unknown>>(() => cloneDraftRecord(getApprovalDraft(approval)));
+  const [draftJson, setDraftJson] = useState(() => JSON.stringify(getApprovalDraft(approval), null, 2));
   const [comment, setComment] = useState('');
   const [error, setError] = useState<string | null>(null);
   const queryClient = useQueryClient();
   const decisionMutation = useMutation({
-    mutationFn: (payload: { decision: 'approved' | 'rejected' }) =>
-      api.decideAiApproval(approval.conversation_id, approval.id, {
+    mutationFn: (payload: { approval: AiApprovalRequest; decision: 'approved' | 'rejected'; values: Record<string, unknown> }) =>
+      api.decideAiApproval(payload.approval.conversation_id, payload.approval.id, {
         decision: payload.decision,
-        draft_version: approval.draft_version,
-        values: { recipe },
+        draft_version: payload.approval.draft_version,
+        values: payload.values,
         comment,
       }),
     onSuccess: (response) => {
-      setRecipe(cloneRecipeDraft(response.approval.submitted_values.recipe ?? response.draft.payload));
+      if (isRecipeApproval(response.approval)) {
+        setRecipe(cloneRecipeDraft((response.approval.submitted_values.recipe ?? response.draft.payload) as AiGeneratedRecipeDraft));
+      } else {
+        const nextDraft = cloneDraftRecord((response.approval.submitted_values.draft ?? response.draft.payload) as Record<string, unknown>);
+        setStructuredDraft(nextDraft);
+        setDraftJson(JSON.stringify(nextDraft, null, 2));
+      }
       const operationStatus = typeof response.operation?.status === 'string' ? response.operation.status : '';
       const operationError = typeof response.operation?.error_message === 'string' ? response.operation.error_message : '';
       setError(operationStatus === 'failed' ? operationError || '业务写入失败，草稿已保留。' : null);
-      invalidateAfterAiApprovalSettled(queryClient, approval.conversation_id);
+      invalidateAfterAiApprovalSettled(queryClient, response.approval.conversation_id);
       onSettled();
     },
     onError: (reason) => setError(reason instanceof Error ? reason.message : '提交失败'),
@@ -141,12 +254,21 @@ export function ApprovalPanel({ approval, onSettled }: { approval: AiApprovalReq
 
   useEffect(() => {
     if (approval.status !== 'pending') {
-      setRecipe(cloneRecipeDraft(getApprovalRecipe(approval)));
+      if (isRecipeApproval(approval)) {
+        setRecipe(cloneRecipeDraft(getApprovalRecipe(approval)));
+      } else {
+        const nextDraft = cloneDraftRecord(getApprovalDraft(approval));
+        setStructuredDraft(nextDraft);
+        setDraftJson(JSON.stringify(nextDraft, null, 2));
+      }
     }
   }, [approval]);
 
   const currentApproval = decisionMutation.data?.approval ?? approval;
   const readonly = currentApproval.status !== 'pending';
+  const recipeApproval = isRecipeApproval(currentApproval);
+  const draftType = getDraftType(currentApproval, structuredDraft);
+  const usesStructuredDraftEditor = ['meal_plan', 'shopping_list', 'meal_log', 'food_profile'].includes(draftType);
   const updateIngredient = (index: number, patch: Partial<AiGeneratedRecipeDraft['ingredient_items'][number]>) => {
     setRecipe((current) => ({
       ...current,
@@ -159,6 +281,200 @@ export function ApprovalPanel({ approval, onSettled }: { approval: AiApprovalReq
       steps: current.steps.map((item, itemIndex) => (itemIndex === index ? { ...item, ...patch } : item)),
     }));
   };
+  const submitDecision = (decision: 'approved' | 'rejected') => {
+    setError(null);
+    if (recipeApproval) {
+      decisionMutation.mutate({ approval: currentApproval, decision, values: { recipe } });
+      return;
+    }
+    if (usesStructuredDraftEditor) {
+      decisionMutation.mutate({ approval: currentApproval, decision, values: { draft: structuredDraft } });
+      return;
+    }
+    try {
+      const draft = JSON.parse(draftJson) as Record<string, unknown>;
+      decisionMutation.mutate({ approval: currentApproval, decision, values: { draft } });
+    } catch {
+      setError('草稿 JSON 格式不正确');
+    }
+  };
+
+  const updateDraft = (patch: Record<string, unknown>) => {
+    setStructuredDraft((current) => ({ ...current, ...patch }));
+  };
+  const updateDraftItem = (key: string, index: number, patch: Record<string, unknown>) => {
+    setStructuredDraft((current) => {
+      const items = asDraftArray(current[key]);
+      return { ...current, [key]: items.map((item, itemIndex) => (itemIndex === index ? { ...item, ...patch } : item)) };
+    });
+  };
+  const addDraftItem = (key: string, item: Record<string, unknown>) => {
+    setStructuredDraft((current) => ({ ...current, [key]: [...asDraftArray(current[key]), item] }));
+  };
+  const removeDraftItem = (key: string, index: number) => {
+    setStructuredDraft((current) => {
+      const items = asDraftArray(current[key]);
+      if (items.length <= 1) return current;
+      return { ...current, [key]: items.filter((_, itemIndex) => itemIndex !== index) };
+    });
+  };
+
+  const renderStructuredDraftEditor = () => {
+    if (draftType === 'meal_plan') {
+      const items = asDraftArray(structuredDraft.items);
+      return (
+        <div className="ai-recipe-editor">
+          <div className="inline-between">
+            <strong>计划项</strong>
+            {!readonly && (
+              <button className="ghost-button" type="button" onClick={() => addDraftItem('items', { date: new Date().toISOString().slice(0, 10), mealType: 'dinner', title: '', reason: '', missingIngredients: [] })}>
+                添加
+              </button>
+            )}
+          </div>
+          {items.map((item, index) => (
+            <div className="ai-step-row" key={`${asText(item.date)}-${asText(item.title)}-${index}`}>
+              <div className="ai-editor-grid">
+                <input className="text-input" type="date" value={asText(item.date)} disabled={readonly} onChange={(event) => updateDraftItem('items', index, { date: event.target.value })} />
+                <select className="text-input" value={asText(item.mealType, 'dinner')} disabled={readonly} onChange={(event) => updateDraftItem('items', index, { mealType: event.target.value })}>
+                  <option value="breakfast">早餐</option>
+                  <option value="lunch">午餐</option>
+                  <option value="dinner">晚餐</option>
+                  <option value="snack">加餐</option>
+                </select>
+              </div>
+              <input className="text-input" value={asText(item.title)} disabled={readonly} placeholder="食物或菜品名称" onChange={(event) => updateDraftItem('items', index, { title: event.target.value })} />
+              <textarea className="text-input" rows={2} value={asText(item.reason)} disabled={readonly} placeholder="安排原因" onChange={(event) => updateDraftItem('items', index, { reason: event.target.value })} />
+              <input className="text-input" value={joinTextList(item.missingIngredients)} disabled={readonly} placeholder="缺失食材，用顿号分隔" onChange={(event) => updateDraftItem('items', index, { missingIngredients: splitTextList(event.target.value) })} />
+              {!readonly && items.length > 1 && (
+                <button className="ghost-button" type="button" onClick={() => removeDraftItem('items', index)}>
+                  删除计划项
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
+      );
+    }
+    if (draftType === 'shopping_list') {
+      const items = asDraftArray(structuredDraft.items);
+      return (
+        <div className="ai-recipe-editor">
+          <div className="inline-between">
+            <strong>采购项</strong>
+            {!readonly && (
+              <button className="ghost-button" type="button" onClick={() => addDraftItem('items', { title: '', quantity: 1, unit: '份', reason: '' })}>
+                添加
+              </button>
+            )}
+          </div>
+          {items.map((item, index) => (
+            <div className="ai-ingredient-row" key={`${asText(item.title)}-${index}`}>
+              <input className="text-input" value={asText(item.title)} disabled={readonly} placeholder="采购项" onChange={(event) => updateDraftItem('items', index, { title: event.target.value })} />
+              <input className="text-input" type="number" min={0.1} step={0.1} value={asNumber(item.quantity)} disabled={readonly} onChange={(event) => updateDraftItem('items', index, { quantity: Number(event.target.value) || 1 })} />
+              <input className="text-input" value={asText(item.unit, '份')} disabled={readonly} placeholder="单位" onChange={(event) => updateDraftItem('items', index, { unit: event.target.value })} />
+              <input className="text-input" value={asText(item.reason)} disabled={readonly} placeholder="原因" onChange={(event) => updateDraftItem('items', index, { reason: event.target.value })} />
+              {!readonly && items.length > 1 && (
+                <button className="ghost-button" type="button" onClick={() => removeDraftItem('items', index)}>
+                  删除
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
+      );
+    }
+    if (draftType === 'meal_log') {
+      const foods = asDraftArray(structuredDraft.foods);
+      return (
+        <div className="ai-recipe-editor">
+          <div className="ai-editor-grid">
+            <label>
+              日期
+              <input className="text-input" type="date" value={asText(structuredDraft.date)} disabled={readonly} onChange={(event) => updateDraft({ date: event.target.value })} />
+            </label>
+            <label>
+              餐别
+              <select className="text-input" value={asText(structuredDraft.mealType, 'dinner')} disabled={readonly} onChange={(event) => updateDraft({ mealType: event.target.value })}>
+                <option value="breakfast">早餐</option>
+                <option value="lunch">午餐</option>
+                <option value="dinner">晚餐</option>
+                <option value="snack">加餐</option>
+              </select>
+            </label>
+          </div>
+          <div className="inline-between">
+            <strong>食物项</strong>
+            {!readonly && (
+              <button className="ghost-button" type="button" onClick={() => addDraftItem('foods', { name: '', servings: 1, note: '' })}>
+                添加
+              </button>
+            )}
+          </div>
+          {foods.map((food, index) => (
+            <div className="ai-ingredient-row" key={`${asText(food.name)}-${index}`}>
+              <input className="text-input" value={asText(food.name)} disabled={readonly} placeholder="食物" onChange={(event) => updateDraftItem('foods', index, { name: event.target.value })} />
+              <input className="text-input" type="number" min={0.1} step={0.1} value={asNumber(food.servings)} disabled={readonly} onChange={(event) => updateDraftItem('foods', index, { servings: Number(event.target.value) || 1 })} />
+              <input className="text-input" value={asText(food.note)} disabled={readonly} placeholder="备注" onChange={(event) => updateDraftItem('foods', index, { note: event.target.value })} />
+              {!readonly && foods.length > 1 && (
+                <button className="ghost-button" type="button" onClick={() => removeDraftItem('foods', index)}>
+                  删除
+                </button>
+              )}
+            </div>
+          ))}
+          <label>
+            餐食备注
+            <textarea className="text-input" rows={2} value={asText(structuredDraft.notes)} disabled={readonly} onChange={(event) => updateDraft({ notes: event.target.value })} />
+          </label>
+        </div>
+      );
+    }
+    if (draftType === 'food_profile') {
+      return (
+        <div className="ai-recipe-editor">
+          <label>
+            食物名称
+            <input className="text-input" value={asText(structuredDraft.name)} disabled={readonly} onChange={(event) => updateDraft({ name: event.target.value })} />
+          </label>
+          <div className="ai-editor-grid">
+            <label>
+              类型
+              <select className="text-input" value={asText(structuredDraft.type, 'readyMade')} disabled={readonly} onChange={(event) => updateDraft({ type: event.target.value })}>
+                <option value="readyMade">现成食物</option>
+                <option value="selfMade">自制食物</option>
+                <option value="instant">速食</option>
+                <option value="packaged">包装食品</option>
+                <option value="takeout">外卖</option>
+                <option value="diningOut">外食</option>
+              </select>
+            </label>
+            <label>
+              分类
+              <input className="text-input" value={asText(structuredDraft.category)} disabled={readonly} onChange={(event) => updateDraft({ category: event.target.value })} />
+            </label>
+          </div>
+          <label>
+            口味标签
+            <input className="text-input" value={joinTextList(structuredDraft.flavor_tags)} disabled={readonly} onChange={(event) => updateDraft({ flavor_tags: splitTextList(event.target.value) })} />
+          </label>
+          <label>
+            适合餐别
+            <input className="text-input" value={joinTextList(structuredDraft.suitable_meal_types)} disabled={readonly} placeholder="breakfast、lunch、dinner" onChange={(event) => updateDraft({ suitable_meal_types: splitTextList(event.target.value) })} />
+          </label>
+          <label>
+            来源
+            <input className="text-input" value={asText(structuredDraft.source_name)} disabled={readonly} onChange={(event) => updateDraft({ source_name: event.target.value })} />
+          </label>
+          <label>
+            备注
+            <textarea className="text-input" rows={3} value={asText(structuredDraft.notes)} disabled={readonly} onChange={(event) => updateDraft({ notes: event.target.value })} />
+          </label>
+        </div>
+      );
+    }
+    return null;
+  };
 
   return (
     <section className="ai-approval-panel">
@@ -169,6 +485,7 @@ export function ApprovalPanel({ approval, onSettled }: { approval: AiApprovalReq
         </div>
         <span className={`ai-approval-status status-${currentApproval.status}`}>{readonly ? currentApproval.status : '待确认'}</span>
       </div>
+      {recipeApproval ? (
       <div className="ai-recipe-editor">
         <label>
           菜谱名
@@ -255,13 +572,27 @@ export function ApprovalPanel({ approval, onSettled }: { approval: AiApprovalReq
           <input className="text-input" value={comment} disabled={readonly} onChange={(event) => setComment(event.target.value)} />
         </label>
       </div>
+      ) : usesStructuredDraftEditor ? (
+        renderStructuredDraftEditor()
+      ) : (
+        <div className="ai-recipe-editor">
+          <label>
+            草稿内容
+            <textarea className="text-input" rows={12} value={draftJson} disabled={readonly} onChange={(event) => setDraftJson(event.target.value)} />
+          </label>
+          <label>
+            备注
+            <input className="text-input" value={comment} disabled={readonly} onChange={(event) => setComment(event.target.value)} />
+          </label>
+        </div>
+      )}
       {error && <p className="form-error">{error}</p>}
       {!readonly && (
         <div className="ai-approval-actions">
-          <button className="ghost-button" type="button" disabled={decisionMutation.isPending} onClick={() => decisionMutation.mutate({ decision: 'rejected' })}>
+          <button className="ghost-button" type="button" disabled={decisionMutation.isPending} onClick={() => submitDecision('rejected')}>
             {currentApproval.reject_label}
           </button>
-          <button className="solid-button" type="button" disabled={decisionMutation.isPending} onClick={() => decisionMutation.mutate({ decision: 'approved' })}>
+          <button className="solid-button" type="button" disabled={decisionMutation.isPending} onClick={() => submitDecision('approved')}>
             {decisionMutation.isPending ? '提交中...' : currentApproval.approve_label}
           </button>
         </div>
@@ -270,7 +601,23 @@ export function ApprovalPanel({ approval, onSettled }: { approval: AiApprovalReq
   );
 }
 
-export function MessageBubble({ message, user, onApprovalSettled }: { message: AiMessage; user: UserSummary | null; onApprovalSettled: () => void }) {
+export function MessageBubble({
+  message,
+  user,
+  runEvents = [],
+  isLatestAssistant = false,
+  onApprovalSettled,
+  onRetryRun,
+  onRegeneratePart,
+}: {
+  message: AiMessage;
+  user: UserSummary | null;
+  runEvents?: AiRunEvent[];
+  isLatestAssistant?: boolean;
+  onApprovalSettled: () => void;
+  onRetryRun?: (runId: string) => void;
+  onRegeneratePart?: (messageId: string, partId: string) => void;
+}) {
   const isUser = message.role === 'user';
   const userName = user?.display_name || user?.username || '我';
   const userAvatarUrl = resolveAiAvatarUrl(user?.avatar_image?.url);
@@ -293,18 +640,33 @@ export function MessageBubble({ message, user, onApprovalSettled }: { message: A
       <div className="ai-message-content">
         <div className="ai-message-role">{isUser ? userName : 'AI 厨房助手'}</div>
         <div className="ai-message-body">
+          {!isUser && <RunProgressTimeline events={runEvents} />}
           {message.parts.map((part) => {
             if (part.type === 'text') {
               return <p key={part.id}>{part.text}</p>;
             }
             if ((part.type === 'result_card' || part.type === 'error_recovery') && part.card) {
-              return <ResultCard key={part.id} card={part.card} />;
+              return (
+                <div key={part.id} className="ai-message-part">
+                  <ResultCard card={part.card} />
+                  {part.type === 'result_card' && onRegeneratePart && (
+                    <button className="ghost-button ai-part-action" type="button" onClick={() => onRegeneratePart(message.id, part.id)}>
+                      局部重生成
+                    </button>
+                  )}
+                </div>
+              );
             }
             if (part.type === 'approval_request' && part.approval) {
               return <ApprovalPanel key={part.id} approval={part.approval} onSettled={onApprovalSettled} />;
             }
             return null;
           })}
+          {!isUser && isLatestAssistant && message.run_id && (message.status === 'failed' || message.status === 'fallback') && onRetryRun && (
+            <button className="ghost-button ai-retry-action" type="button" onClick={() => onRetryRun(message.run_id as string)}>
+              重试这次任务
+            </button>
+          )}
           {messageTime && (
             <span className="ai-message-time">
               {messageTime}

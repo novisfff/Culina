@@ -1,7 +1,17 @@
 import type { AiMessagePartType, AiResultCardType } from '../api/types';
 
 export const AI_MESSAGE_PART_TYPES = ['text', 'result_card', 'draft', 'approval_request', 'error_recovery'] as const satisfies readonly AiMessagePartType[];
-export const AI_RESULT_CARD_TYPES = ['today_recommendation', 'recipe_draft', 'approval_request', 'error_recovery'] as const satisfies readonly AiResultCardType[];
+export const AI_RESULT_CARD_TYPES = [
+  'today_recommendation',
+  'recipe_draft',
+  'approval_request',
+  'error_recovery',
+  'inventory_summary',
+  'meal_plan_draft',
+  'shopping_list_draft',
+  'meal_log_draft',
+  'food_profile_draft',
+] as const satisfies readonly AiResultCardType[];
 
 export const AI_MESSAGE_PART_RENDERERS = {
   text: true,
@@ -16,4 +26,9 @@ export const AI_RESULT_CARD_RENDERERS = {
   recipe_draft: true,
   approval_request: true,
   error_recovery: true,
+  inventory_summary: true,
+  meal_plan_draft: true,
+  shopping_list_draft: true,
+  meal_log_draft: true,
+  food_profile_draft: true,
 } as const satisfies Record<AiResultCardType, true>;
