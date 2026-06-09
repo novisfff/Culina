@@ -1,13 +1,134 @@
 from __future__ import annotations
 
 from app.ai.planning.schemas import PlannerResult
+from app.ai.skills.base import BaseSkill
 from app.ai.skills.base import SkillContext, SkillExecutionResult, SkillResult
 from app.ai.skills.registry import SkillRegistry
+from app.ai.skills.shared import result_artifacts
+
+
+VALID_APPROVAL_POLICIES = {"none", "draft_then_confirm"}
+VALID_RISK_LEVELS = {"low", "medium", "high"}
+VALID_RESULT_STATUSES = {"completed", "failed", "fallback"}
 
 
 class SkillExecutor:
     def __init__(self, registry: SkillRegistry) -> None:
         self.registry = registry
+
+    def run_step(self, skill_key: str, context: SkillContext) -> SkillResult:
+        skill = self.registry.get(skill_key)
+        root_tool_executor = context.tool_executor
+        allowed_side_effects = {"read"}
+        if skill.manifest.approval_policy == "draft_then_confirm":
+            allowed_side_effects.add("draft")
+        context.emit_progress("skill", f"{skill_key}.start", f"正在执行{skill.manifest.name}")
+        try:
+            self._validate_manifest_contract(skill, context)
+            context.tool_executor = root_tool_executor.scoped(
+                allowed_tools=set(skill.manifest.tools),
+                forbidden_tools=set(skill.manifest.forbidden_tools),
+                allowed_side_effects=allowed_side_effects,
+            )
+            result = skill.run(context)
+            self._validate_result_contract(skill, result)
+        except Exception as exc:
+            result = SkillResult(
+                text=f"{skill.manifest.name}执行失败。",
+                status="failed",
+                error=f"{skill.manifest.name}执行失败，请重试。",
+                diagnostic=str(exc),
+                model=getattr(context.provider, "model_name", ""),
+            )
+        finally:
+            context.tool_executor = root_tool_executor
+        result.tool_calls = root_tool_executor.records()
+        if result.status == "failed":
+            context.emit_progress("skill", f"{skill_key}.failed", f"{skill.manifest.name}执行失败", "failed")
+        elif result.requires_clarification:
+            context.emit_progress("skill", f"{skill_key}.clarify", f"{skill.manifest.name}需要补充信息", "completed")
+        else:
+            context.emit_progress("skill", f"{skill_key}.completed", f"{skill.manifest.name}执行完成", "completed")
+        return result
+
+    def _validate_manifest_contract(self, skill: BaseSkill, context: SkillContext) -> None:
+        manifest = skill.manifest
+        if manifest.risk_level not in VALID_RISK_LEVELS:
+            raise ValueError(f"Skill {manifest.key} declares invalid risk_level: {manifest.risk_level}")
+        if manifest.approval_policy not in VALID_APPROVAL_POLICIES:
+            raise ValueError(f"Skill {manifest.key} declares invalid approval_policy: {manifest.approval_policy}")
+        forbidden_overlap = set(manifest.tools) & set(manifest.forbidden_tools)
+        if forbidden_overlap:
+            raise ValueError(f"Skill {manifest.key} allows forbidden tools: {', '.join(sorted(forbidden_overlap))}")
+
+        definitions = [context.tool_executor.registry.get(name) for name in manifest.tools]
+        if any(definition.side_effect == "write" for definition in definitions):
+            raise ValueError(f"Skill {manifest.key} must not expose write tools")
+
+        if manifest.approval_policy == "none":
+            if any(definition.side_effect != "read" for definition in definitions):
+                raise ValueError(f"Skill {manifest.key} exposes non-read tools without approval")
+            if manifest.draft_types or manifest.requires_confirmation:
+                raise ValueError(f"Skill {manifest.key} declares draft or confirmation fields without approval")
+            return
+
+        if manifest.risk_level == "low":
+            raise ValueError(f"Skill {manifest.key} uses draft approval but risk_level is low")
+        if not manifest.draft_types:
+            raise ValueError(f"Skill {manifest.key} requires approval but declares no draft types")
+        if not manifest.requires_confirmation:
+            raise ValueError(f"Skill {manifest.key} requires approval but declares no confirmation actions")
+        draft_tools = [definition for definition in definitions if definition.side_effect == "draft"]
+        if not draft_tools:
+            raise ValueError(f"Skill {manifest.key} requires approval but exposes no draft tools")
+        if any(not definition.requires_confirmation for definition in draft_tools):
+            raise ValueError(f"Skill {manifest.key} exposes draft tools that do not require confirmation")
+
+    def _validate_result_contract(self, skill: BaseSkill, result: SkillResult) -> None:
+        manifest = skill.manifest
+        if result.status not in VALID_RESULT_STATUSES:
+            raise ValueError(f"Skill {manifest.key} returned invalid status: {result.status}")
+        if not isinstance(result.text, str):
+            raise ValueError(f"Skill {manifest.key} returned non-text response")
+        if not isinstance(result.context_summary, dict):
+            raise ValueError(f"Skill {manifest.key} returned invalid context_summary")
+        if not isinstance(result.state_patch, dict):
+            raise ValueError(f"Skill {manifest.key} returned invalid state_patch")
+
+        allowed_card_types = set(manifest.output_types) | {"error_recovery"}
+        for card in result.cards:
+            if not isinstance(card, dict):
+                raise ValueError(f"Skill {manifest.key} returned an invalid card payload")
+            card_type = str(card.get("type") or "")
+            if not card_type:
+                raise ValueError(f"Skill {manifest.key} returned a card without type")
+            if allowed_card_types and card_type not in allowed_card_types:
+                raise ValueError(f"Skill {manifest.key} returned undeclared card type: {card_type}")
+
+        for event in result.events:
+            if not isinstance(event, dict):
+                raise ValueError(f"Skill {manifest.key} returned an invalid event payload")
+
+        if not result.drafts:
+            return
+        if manifest.approval_policy != "draft_then_confirm":
+            raise ValueError(f"Skill {manifest.key} returned drafts without draft approval policy")
+        if manifest.risk_level == "low":
+            raise ValueError(f"Skill {manifest.key} returned drafts with low risk_level")
+        if not manifest.requires_confirmation:
+            raise ValueError(f"Skill {manifest.key} returned drafts without confirmation actions")
+        allowed_draft_types = set(manifest.draft_types)
+        for draft in result.drafts:
+            if not isinstance(draft, dict):
+                raise ValueError(f"Skill {manifest.key} returned an invalid draft payload")
+            draft_type = str(draft.get("draft_type") or "")
+            if draft_type not in allowed_draft_types:
+                raise ValueError(f"Skill {manifest.key} returned undeclared draft type: {draft_type}")
+            if not isinstance(draft.get("payload"), dict):
+                raise ValueError(f"Skill {manifest.key} returned draft without object payload")
+            schema_version = draft.get("schema_version")
+            if schema_version is not None and not isinstance(schema_version, str):
+                raise ValueError(f"Skill {manifest.key} returned draft with invalid schema_version")
 
     def run(self, plan: PlannerResult, context: SkillContext) -> SkillExecutionResult:
         if plan.failed:
@@ -30,6 +151,7 @@ class SkillExecutor:
             )
 
         results: list[SkillResult] = []
+        run_artifacts: list[dict] = []
         combined_text: list[str] = []
         cards: list[dict] = []
         drafts: list[dict] = []
@@ -39,29 +161,12 @@ class SkillExecutor:
         status = "completed"
         model = getattr(context.provider, "model_name", "") or "model"
         error: str | None = None
-        root_tool_executor = context.tool_executor
-
         for skill_key in plan.skills:
-            skill = self.registry.get(skill_key)
             context.previous_results = results
-            allowed_side_effects = {"read"}
-            if skill.manifest.approval_policy == "draft_then_confirm":
-                allowed_side_effects.add("draft")
-            context.tool_executor = root_tool_executor.scoped(
-                allowed_tools=set(skill.manifest.tools),
-                allowed_side_effects=allowed_side_effects,
-            )
-            try:
-                result = skill.run(context)
-            except Exception as exc:
-                result = SkillResult(
-                    text=f"{skill.manifest.name}执行失败。",
-                    status="failed",
-                    error=f"{skill.manifest.name}执行失败，请重试。",
-                    diagnostic=str(exc),
-                    model=model,
-                )
+            context.current_run_artifacts = run_artifacts
+            result = self.run_step(skill_key, context)
             results.append(result)
+            run_artifacts.extend(result_artifacts(skill_key, result))
             context_summary["skillExecutions"].append(
                 {
                     "skillKey": skill_key,
@@ -83,14 +188,12 @@ class SkillExecutor:
                 status = result.status
                 error = result.error
                 break
-        context.tool_executor = root_tool_executor
-
         return SkillExecutionResult(
             text="\n\n".join(combined_text).strip() or "我还需要更多信息才能继续。",
             cards=cards,
             drafts=drafts,
             events=events,
-            tool_calls=root_tool_executor.records(),
+            tool_calls=context.tool_executor.records(),
             context_summary=context_summary,
             state_patch=state_patch,
             status=status,

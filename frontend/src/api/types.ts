@@ -556,11 +556,6 @@ export interface GenerateRecipeDraftPayload {
   generate_image?: boolean;
 }
 
-export interface AiQueryResponse {
-  conversation: AiConversation;
-  recommendation?: AiRecommendation | null;
-}
-
 export type AiMessageRole = 'user' | 'assistant' | 'system';
 export type AiMessagePartType = 'text' | 'result_card' | 'draft' | 'approval_request' | 'error_recovery';
 export type AiResultCardType =

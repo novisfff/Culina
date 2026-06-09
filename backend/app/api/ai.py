@@ -4,7 +4,6 @@ from fastapi import APIRouter, Depends, HTTPException, Response, status
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import StreamingResponse
 import json
-from collections.abc import Iterator
 from sqlalchemy import delete, select, update
 from sqlalchemy.orm import Session
 
@@ -29,15 +28,15 @@ from app.schemas.ai import (
     AIChatResponse,
     AIConversationOut,
     AIMessageDTO,
+    AIRegistryResponse,
     AIRunEventDTO,
-    AIQueryRequest,
-    AIQueryResponse,
     GenerateRecipeDraftRequest,
     GenerateRecipeDraftResponse,
 )
-from app.ai.kitchen.service import CulinaAgentService, run_ai_query
-from app.ai.runtime.schemas import AgentRunRequest
+from app.ai.skills import build_workspace_skill_registry
+from app.ai.tools import build_workspace_tool_registry
 from app.ai.workspace_service import AIApplicationService
+from app.ai.workflows.checkpoint import SQLAlchemyCheckpointSaver
 from app.services.serializers import serialize_ai_conversation, serialize_ai_message, serialize_ai_run_event
 
 router = APIRouter(tags=["ai"])
@@ -55,6 +54,46 @@ def list_ai_conversations(auth: tuple = Depends(get_current_auth), db: Session =
         )
     )
     return [serialize_ai_conversation(item) for item in conversations]
+
+
+@router.get("/api/ai/registry", response_model=AIRegistryResponse)
+def get_ai_registry(auth: tuple = Depends(get_current_auth)) -> dict:
+    # Auth dependency scopes this read-only diagnostics view to signed-in family members.
+    _, _membership = auth
+    skill_registry = build_workspace_skill_registry()
+    tool_registry = build_workspace_tool_registry()
+    return {
+        "skills": [
+            {
+                "key": manifest.key,
+                "name": manifest.name,
+                "description": manifest.description,
+                "runner": manifest.runner,
+                "examples": manifest.examples,
+                "context_policy": manifest.context_policy,
+                "tools": manifest.tools,
+                "output_types": manifest.output_types,
+                "draft_types": manifest.draft_types,
+                "approval_policy": manifest.approval_policy,
+                "can_continue_from": manifest.can_continue_from,
+                "intent": manifest.intent,
+                "agent_key": manifest.agent_key,
+            }
+            for manifest in skill_registry.list_manifests()
+        ],
+        "tools": [
+            {
+                "name": tool.name,
+                "description": tool.description,
+                "permission": tool.permission,
+                "side_effect": tool.side_effect,
+                "requires_confirmation": tool.requires_confirmation,
+                "input_schema": tool.input_schema,
+                "output_schema": tool.output_schema,
+            }
+            for tool in tool_registry.list()
+        ],
+    }
 
 
 @router.delete("/api/ai/conversations/{conversation_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -124,29 +163,10 @@ def delete_ai_conversation(
         .where(AIAgentRun.conversation_id == conversation_id, AIAgentRun.family_id == membership.family_id)
         .values(conversation_id=None)
     )
+    SQLAlchemyCheckpointSaver(db).delete_thread(conversation_id)
     db.delete(conversation)
     commit_session(db)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
-
-
-@router.post("/api/ai/query", response_model=AIQueryResponse)
-def query_ai(
-    payload: AIQueryRequest,
-    auth: tuple = Depends(get_current_auth),
-    db: Session = Depends(get_db),
-) -> dict:
-    user, membership = auth
-    conversation, recommendation = run_ai_query(
-        db,
-        family_id=membership.family_id,
-        user_id=user.id,
-        mode=payload.mode,
-        prompt=payload.prompt,
-        food_id=payload.food_id,
-        ingredient_ids=payload.ingredient_ids,
-    )
-    commit_session(db)
-    return {"conversation": conversation, "recommendation": recommendation}
 
 
 @router.post("/api/ai/chat", response_model=AIChatResponse)
@@ -186,52 +206,10 @@ def stream_chat_ai(
     def encode(event: str, data: dict) -> str:
         return f"event: {event}\ndata: {json.dumps(jsonable_encoder(data), ensure_ascii=False)}\n\n"
 
-    def stream_text_chunks(message: dict, *, size: int = 12) -> Iterator[str]:
-        for part in message.get("parts", []):
-            if not isinstance(part, dict) or part.get("type") != "text":
-                continue
-            text = part.get("text")
-            if not isinstance(text, str) or not text:
-                continue
-            for index in range(0, len(text), size):
-                chunk = text[index : index + size]
-                yield encode(
-                    "message_delta",
-                    {
-                        "message_id": message.get("id"),
-                        "conversation_id": message.get("conversation_id"),
-                        "run_id": message.get("run_id"),
-                        "part_id": part.get("id"),
-                        "delta": chunk,
-                    },
-                )
-
     def generate():
-        yield encode(
-            "progress",
-            {
-                "id": f"{payload.client_run_id or 'pending'}-intent",
-                "run_id": payload.client_run_id or "pending",
-                "type": "intent",
-                "internal_code": "detect_intent",
-                "user_message": "正在理解你的需求",
-                "status": "running",
-            },
-        )
-        yield encode(
-            "progress",
-            {
-                "id": f"{payload.client_run_id or 'pending'}-context",
-                "run_id": payload.client_run_id or "pending",
-                "type": "context",
-                "internal_code": "load_context",
-                "user_message": "正在查看你的厨房上下文",
-                "status": "running",
-            },
-        )
         try:
             service = AIApplicationService(db)
-            stream = service.stream_fallback_chat(
+            for event, data in service.stream_chat(
                 family_id=membership.family_id,
                 user_id=user.id,
                 message=payload.message,
@@ -240,36 +218,26 @@ def stream_chat_ai(
                 client_run_id=payload.client_run_id,
                 quick_task=payload.quick_task,
                 subject=payload.subject.model_dump() if payload.subject else {},
-            )
-            if stream is not None:
-                for event, data in stream:
-                    if event == "response":
-                        commit_session(db)
-                    yield encode(event, data)
-                return
-            response = service.chat(
-                family_id=membership.family_id,
-                user_id=user.id,
-                message=payload.message,
-                conversation_id=payload.conversation_id,
-                client_message_id=payload.client_message_id,
-                client_run_id=payload.client_run_id,
-                quick_task=payload.quick_task,
-                subject=payload.subject.model_dump() if payload.subject else {},
-            )
-            commit_session(db)
+            ):
+                if event == "response":
+                    commit_session(db)
+                yield encode(event, data)
         except ValueError as exc:
             yield encode("error", {"detail": str(exc), "status": 400})
             return
         except LookupError as exc:
             yield encode("error", {"detail": str(exc), "status": 404})
             return
-        for event in response["events"]:
-            yield encode("progress", event)
-        yield from stream_text_chunks(response["message"])
-        yield encode("response", response)
 
-    return StreamingResponse(generate(), media_type="text/event-stream", headers={"Cache-Control": "no-cache"})
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache, no-transform",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @router.get("/api/ai/conversations/{conversation_id}/messages", response_model=list[AIMessageDTO])
@@ -455,30 +423,20 @@ def generate_recipe_draft(
             detail="请先填写菜名、添加至少一个食材，或写一句补充说明。",
         )
     user, membership = auth
-    result = CulinaAgentService(db).run(
-        AgentRunRequest(
-            family_id=membership.family_id,
-            user_id=user.id,
-            feature_key="aiRecipeDraft",
-            prompt=payload.prompt,
-            subject={
-                "title": payload.title,
-                "ingredientIds": payload.ingredient_ids,
-                "extraIngredients": payload.extra_ingredients,
-                "servings": payload.servings,
-                "prepMinutes": payload.prep_minutes,
-                "difficulty": payload.difficulty.value if payload.difficulty else None,
-                "sceneTags": payload.scene_tags,
-            },
-            response_format="recipe_draft",
-            persist_conversation=False,
-        )
+    result = AIApplicationService(db).generate_recipe_draft(
+        family_id=membership.family_id,
+        user_id=user.id,
+        prompt=payload.prompt,
+        subject={
+            "title": payload.title,
+            "ingredientIds": payload.ingredient_ids,
+            "extraIngredients": payload.extra_ingredients,
+            "servings": payload.servings,
+            "prepMinutes": payload.prep_minutes,
+            "difficulty": payload.difficulty.value if payload.difficulty else None,
+            "sceneTags": payload.scene_tags,
+        },
+        generate_image=payload.generate_image,
     )
     commit_session(db)
-    return {
-        "draft": result.data["recipeDraft"],
-        "agent_run_id": result.run_id,
-        "status": result.status,
-        "error": result.error,
-        "image_render_payload": result.data.get("imageRenderPayload") if payload.generate_image and result.status != "failed" else None,
-    }
+    return result

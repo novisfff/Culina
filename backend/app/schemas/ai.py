@@ -33,18 +33,6 @@ class AIRecommendationOut(BaseModel):
     created_at: datetime
 
 
-class AIQueryRequest(BaseModel):
-    mode: AiMode
-    prompt: str = ""
-    food_id: str | None = None
-    ingredient_ids: list[str] = Field(default_factory=list)
-
-
-class AIQueryResponse(BaseModel):
-    conversation: AIConversationOut
-    recommendation: AIRecommendationOut | None = None
-
-
 class AIRecipeDraftOut(BaseModel):
     title: str
     servings: int
@@ -229,6 +217,37 @@ class AIChatResponse(BaseModel):
     run: AIRunDTO
     events: list[AIRunEventDTO] = Field(default_factory=list)
     included: AIResponseIncludedDTO = Field(default_factory=AIResponseIncludedDTO)
+
+
+class AIToolRegistryItemDTO(BaseModel):
+    name: str
+    description: str
+    permission: str
+    side_effect: Literal["read", "draft", "write"]
+    requires_confirmation: bool
+    input_schema: dict = Field(default_factory=dict)
+    output_schema: dict = Field(default_factory=dict)
+
+
+class AISkillRegistryItemDTO(BaseModel):
+    key: str
+    name: str
+    description: str
+    runner: str = "markdown"
+    examples: list[str] = Field(default_factory=list)
+    context_policy: list[str] = Field(default_factory=list)
+    tools: list[str] = Field(default_factory=list)
+    output_types: list[str] = Field(default_factory=list)
+    draft_types: list[str] = Field(default_factory=list)
+    approval_policy: str
+    can_continue_from: list[str] = Field(default_factory=list)
+    intent: str
+    agent_key: str
+
+
+class AIRegistryResponse(BaseModel):
+    skills: list[AISkillRegistryItemDTO] = Field(default_factory=list)
+    tools: list[AIToolRegistryItemDTO] = Field(default_factory=list)
 
 
 class AIApprovalDecisionRequest(BaseModel):

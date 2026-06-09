@@ -16,15 +16,16 @@ def register_tool(
     handler,
     input_schema: dict[str, Any],
     output_schema: dict[str, Any],
-    permission: str = "family:read",
+    permission: str | None = None,
 ) -> None:
+    resolved_permission = permission or ("family:draft" if side_effect == "draft" else "family:read")
     registry.register(
         ToolDefinition(
             name=name,
             description=description,
             input_schema=input_schema,
             output_schema=output_schema,
-            permission=permission,
+            permission=resolved_permission,
             side_effect=side_effect,  # type: ignore[arg-type]
             requires_confirmation=side_effect == "draft",
             handler=handler,

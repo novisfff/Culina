@@ -5,6 +5,8 @@ from pathlib import Path
 from typing import Any
 
 from app.ai.skills.base import BaseSkill, SkillContext, SkillManifest, SkillResult
+from app.ai.skills.context_policy import read_skill_context
+from app.ai.skills.runner_registry import register_skill_runner
 from app.ai.skills.shared import conversation_artifacts, json_object, model_name
 
 
@@ -28,7 +30,7 @@ MARKDOWN_SKILL_RESULT_SCHEMA: dict[str, Any] = {
 class MarkdownInstructionSkill(BaseSkill):
     def __init__(self, manifest: SkillManifest, skill_dir: Path) -> None:
         super().__init__(manifest, skill_dir)
-        self.instructions = (skill_dir / "SKILL.md").read_text(encoding="utf-8").strip()
+        self.instructions = self._load_instructions(skill_dir)
 
     def run(self, context: SkillContext) -> SkillResult:
         if context.provider is None:
@@ -40,6 +42,7 @@ class MarkdownInstructionSkill(BaseSkill):
             )
 
         tool_outputs = self._read_allowed_tool_outputs(context)
+        context.emit_progress("model", f"{self.manifest.key}.model_generate", f"正在生成{self.manifest.name}结果")
         result = context.provider.generate(
             system=self._system_prompt(),
             user=json.dumps(
@@ -50,6 +53,7 @@ class MarkdownInstructionSkill(BaseSkill):
                     "artifacts": conversation_artifacts(context),
                     "previousResults": [self._result_record(item) for item in context.previous_results],
                     "toolOutputs": tool_outputs,
+                    "scriptHelpers": self.scripts.describe(),
                 },
                 ensure_ascii=False,
                 default=str,
@@ -90,13 +94,30 @@ class MarkdownInstructionSkill(BaseSkill):
         )
 
     def _read_allowed_tool_outputs(self, context: SkillContext) -> dict[str, dict[str, Any]]:
-        outputs: dict[str, dict[str, Any]] = {}
+        outputs = read_skill_context(context, self.manifest)
         for tool_name in self.manifest.tools:
+            if tool_name in outputs:
+                continue
             definition = context.tool_executor.registry.get(tool_name)
             if definition.side_effect != "read":
                 continue
             outputs[tool_name] = context.tool_executor.call(tool_name, {})
         return outputs
+
+    def _load_instructions(self, skill_dir: Path) -> str:
+        chunks = [self._file_section(skill_dir / "SKILL.md", "SKILL.md")]
+        for file_name in [*self.manifest.workflow_files, *self.manifest.hitl_files, *self.manifest.example_files]:
+            chunks.append(self._file_section(skill_dir / file_name, file_name))
+        for file_name in self.manifest.script_files:
+            chunks.append(
+                "## Script reference\n"
+                "Scripts are deterministic helper references only; do not claim they write data.\n\n"
+                f"{self._file_section(skill_dir / file_name, file_name)}"
+            )
+        return "\n\n---\n\n".join(chunk for chunk in chunks if chunk.strip())
+
+    def _file_section(self, path: Path, label: str) -> str:
+        return f"# {label}\n\n{path.read_text(encoding='utf-8').strip()}"
 
     def _result_record(self, result: SkillResult) -> dict[str, Any]:
         return {
@@ -120,3 +141,6 @@ class MarkdownInstructionSkill(BaseSkill):
             return None
         text = str(value)
         return text or None
+
+
+register_skill_runner("markdown", MarkdownInstructionSkill)

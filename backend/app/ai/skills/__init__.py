@@ -3,6 +3,7 @@ from app.ai.skills.executor import SkillExecutor
 from app.ai.skills.loader import SkillDirectoryLoader
 from app.ai.skills.markdown import MarkdownInstructionSkill
 from app.ai.skills.registry import SkillRegistry, build_workspace_skill_registry
+from app.ai.skills.scripts import SkillScriptRuntime
 
 __all__ = [
     "BaseSkill",
@@ -14,5 +15,6 @@ __all__ = [
     "SkillManifest",
     "SkillRegistry",
     "SkillResult",
+    "SkillScriptRuntime",
     "build_workspace_skill_registry",
 ]

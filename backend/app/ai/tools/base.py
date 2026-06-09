@@ -19,6 +19,7 @@ class ToolContext:
     user_id: str
     conversation_id: str
     run_id: str
+    stream_writer: Callable[[dict[str, Any]], None] | None = None
 
 
 @dataclass(slots=True)
@@ -37,6 +38,8 @@ class ToolDefinition:
 class ToolResult:
     name: str
     input: dict[str, Any]
+    permission: str
+    side_effect: ToolSideEffect
     output: dict[str, Any] = field(default_factory=dict)
     status: str = "completed"
     duration_ms: int = 0
@@ -46,6 +49,8 @@ class ToolResult:
         record: dict[str, Any] = {
             "name": self.name,
             "input": self.input,
+            "permission": self.permission,
+            "side_effect": self.side_effect,
             "status": self.status,
             "duration_ms": self.duration_ms,
             "output_summary": self._summarize(self.output),
@@ -73,6 +78,8 @@ def timed_call(definition: ToolDefinition, context: ToolContext, payload: dict[s
         return ToolResult(
             name=definition.name,
             input=payload,
+            permission=definition.permission,
+            side_effect=definition.side_effect,
             output=output,
             status="completed",
             duration_ms=int((perf_counter() - started_at) * 1000),
@@ -81,6 +88,8 @@ def timed_call(definition: ToolDefinition, context: ToolContext, payload: dict[s
         return ToolResult(
             name=definition.name,
             input=payload,
+            permission=definition.permission,
+            side_effect=definition.side_effect,
             status="failed",
             duration_ms=int((perf_counter() - started_at) * 1000),
             error=str(exc),

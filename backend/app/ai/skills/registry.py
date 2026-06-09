@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from app.ai.skills.base import BaseSkill, SkillManifest
 from app.ai.skills.loader import load_skill_catalog
+from app.ai.tools.registry import build_workspace_tool_registry
 
 
 class SkillRegistry:
@@ -25,6 +26,7 @@ class SkillRegistry:
 
 def build_workspace_skill_registry() -> SkillRegistry:
     registry = SkillRegistry()
-    for skill in load_skill_catalog():
+    tool_registry = build_workspace_tool_registry()
+    for skill in load_skill_catalog(tool_registry=tool_registry):
         registry.register(skill)
     return registry

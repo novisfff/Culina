@@ -5,11 +5,20 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
+from app.ai.kitchen.recipe_drafts import RECIPE_DRAFT_JSON_SCHEMA
 from app.ai.tools.base import ToolContext
 from app.ai.tools.catalog.common import register_tool
 from app.ai.tools.registry import ToolRegistry
-from app.ai.tools.schemas import COUNT_OUTPUT, DRAFT_INPUT, DRAFT_OUTPUT, LIMIT_INPUT
+from app.ai.tools.schemas import COUNT_OUTPUT, LIMIT_INPUT, draft_input_schema, draft_output_schema
 from app.models.domain import Recipe
+
+RECIPE_TOOL_DRAFT_SCHEMA = {
+    **RECIPE_DRAFT_JSON_SCHEMA,
+    "properties": {
+        **RECIPE_DRAFT_JSON_SCHEMA["properties"],
+        "media_ids": {"type": "array", "maxItems": 20, "items": {"type": "string"}},
+    },
+}
 
 
 def recipe_search(context: ToolContext, payload: dict[str, Any]) -> dict[str, Any]:
@@ -71,6 +80,6 @@ def register_recipe_tools(registry: ToolRegistry) -> None:
         description="生成菜谱草稿，不写入业务表。",
         side_effect="draft",
         handler=recipe_create_draft,
-        input_schema=DRAFT_INPUT,
-        output_schema=DRAFT_OUTPUT,
+        input_schema=draft_input_schema(RECIPE_TOOL_DRAFT_SCHEMA),
+        output_schema=draft_output_schema(RECIPE_TOOL_DRAFT_SCHEMA),
     )

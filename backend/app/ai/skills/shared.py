@@ -4,7 +4,47 @@ import json
 import re
 from typing import Any
 
-from app.ai.skills.base import SkillContext
+from app.ai.skills.base import SkillContext, SkillResult
+
+
+def result_artifacts(skill_key: str, result: SkillResult) -> list[dict[str, Any]]:
+    artifacts: list[dict[str, Any]] = []
+    for index, draft in enumerate(result.drafts):
+        if not isinstance(draft, dict):
+            continue
+        draft_type = str(draft.get("draft_type") or "")
+        if not draft_type:
+            continue
+        artifacts.append(
+            {
+                "id": f"in_run:{skill_key}:{draft_type}:{index + 1}",
+                "type": draft_type,
+                "kind": "draft",
+                "version": 1,
+                "status": "proposed",
+                "payload": draft.get("payload") or {},
+                "schemaVersion": draft.get("schema_version"),
+                "sourceSkill": skill_key,
+            }
+        )
+    for index, card in enumerate(result.cards):
+        if not isinstance(card, dict):
+            continue
+        card_type = str(card.get("type") or "")
+        if not card_type:
+            continue
+        artifacts.append(
+            {
+                "id": f"in_run:{skill_key}:card:{index + 1}",
+                "type": card_type,
+                "kind": "result_card",
+                "version": 1,
+                "status": "proposed",
+                "payload": card.get("data") or {},
+                "sourceSkill": skill_key,
+            }
+        )
+    return artifacts
 
 
 def conversation_artifacts(context: SkillContext, artifact_type: str | None = None) -> list[dict[str, Any]]:
@@ -16,20 +56,17 @@ def conversation_artifacts(context: SkillContext, artifact_type: str | None = No
             if artifact_type and artifact.get("type") != artifact_type:
                 continue
             artifacts.append(artifact)
+    for artifact in context.current_run_artifacts:
+        if not isinstance(artifact, dict):
+            continue
+        if artifact_type and artifact.get("type") != artifact_type:
+            continue
+        artifacts.append(artifact)
     for result in context.previous_results:
-        for draft in result.drafts:
-            draft_type = str(draft.get("draft_type") or "")
-            if artifact_type and draft_type != artifact_type:
+        for artifact in result_artifacts("previous", result):
+            if artifact_type and artifact.get("type") != artifact_type:
                 continue
-            artifacts.append(
-                {
-                    "id": f"in_run:{draft_type}",
-                    "type": draft_type,
-                    "version": 1,
-                    "status": "in_run",
-                    "payload": draft.get("payload") or {},
-                }
-            )
+            artifacts.append(artifact)
     return artifacts
 
 

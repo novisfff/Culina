@@ -25,6 +25,7 @@ class ToolRegistry:
 def build_workspace_tool_registry() -> ToolRegistry:
     from app.ai.tools.catalog import (
         register_food_tools,
+        register_ingredient_tools,
         register_intent_tools,
         register_inventory_tools,
         register_meal_log_tools,
@@ -35,6 +36,7 @@ def build_workspace_tool_registry() -> ToolRegistry:
 
     registry = ToolRegistry()
     register_intent_tools(registry)
+    register_ingredient_tools(registry)
     register_inventory_tools(registry)
     register_meal_log_tools(registry)
     register_food_tools(registry)

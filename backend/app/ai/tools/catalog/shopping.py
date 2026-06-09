@@ -7,7 +7,7 @@ from sqlalchemy import select
 from app.ai.tools.base import ToolContext
 from app.ai.tools.catalog.common import register_tool
 from app.ai.tools.registry import ToolRegistry
-from app.ai.tools.schemas import COUNT_OUTPUT, DRAFT_INPUT, DRAFT_OUTPUT, LIMIT_INPUT
+from app.ai.tools.schemas import COUNT_OUTPUT, LIMIT_INPUT, SHOPPING_LIST_DRAFT_SCHEMA, draft_input_schema, draft_output_schema
 from app.models.domain import ShoppingListItem
 
 
@@ -55,6 +55,6 @@ def register_shopping_tools(registry: ToolRegistry) -> None:
             description="生成购物清单草稿，不写入业务表。",
             side_effect="draft",
             handler=shopping_list_create_draft,
-            input_schema=DRAFT_INPUT,
-            output_schema=DRAFT_OUTPUT,
+            input_schema=draft_input_schema(SHOPPING_LIST_DRAFT_SCHEMA),
+            output_schema=draft_output_schema(SHOPPING_LIST_DRAFT_SCHEMA),
         )

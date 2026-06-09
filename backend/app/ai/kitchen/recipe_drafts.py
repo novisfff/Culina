@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import json
 import re
+from dataclasses import dataclass, field
 from typing import Any
 
 from app.ai.kitchen.context import AgentContext
-from app.ai.runtime.schemas import AgentRunRequest
 from app.core.enums import Difficulty, MediaEntityType
 from app.models.domain import Ingredient
 
@@ -80,6 +80,12 @@ RECIPE_DRAFT_JSON_SCHEMA: dict[str, Any] = {
 }
 
 
+@dataclass(slots=True)
+class RecipeDraftGenerationInput:
+    prompt: str = ""
+    subject: dict[str, Any] = field(default_factory=dict)
+
+
 def _string(value: Any, fallback: str = "") -> str:
     return value.strip() if isinstance(value, str) and value.strip() else fallback
 
@@ -131,7 +137,7 @@ def _tag_list(value: Any, *, maximum: int = 8) -> list[str]:
     return result
 
 
-def _subject_list(request: AgentRunRequest, key: str) -> list[str]:
+def _subject_list(request: RecipeDraftGenerationInput, key: str) -> list[str]:
     value = request.subject.get(key)
     if not isinstance(value, list):
         return []
@@ -145,7 +151,7 @@ def _selected_ingredient_lines(context: AgentContext) -> list[str]:
     ]
 
 
-def build_recipe_draft_messages(context: AgentContext, request: AgentRunRequest) -> tuple[str, str]:
+def build_recipe_draft_messages(context: AgentContext, request: RecipeDraftGenerationInput) -> tuple[str, str]:
     title = _string(request.subject.get("title"))
     servings = request.subject.get("servings") or ""
     prep_minutes = request.subject.get("prepMinutes") or request.subject.get("prep_minutes") or ""
@@ -297,7 +303,7 @@ def _is_weak_quantity(name: str, quantity: float, raw_value: Any, ingredient: In
     return False
 
 
-def _normalize_ingredient_items(raw_items: Any, context: AgentContext, request: AgentRunRequest) -> list[dict[str, Any]]:
+def _normalize_ingredient_items(raw_items: Any, context: AgentContext, request: RecipeDraftGenerationInput) -> list[dict[str, Any]]:
     selected_by_id = _ingredient_by_id(context)
     items: list[dict[str, Any]] = []
     if isinstance(raw_items, list):
@@ -349,7 +355,7 @@ def _normalize_ingredient_items(raw_items: Any, context: AgentContext, request: 
     return items[:12]
 
 
-def _draft_subject_names(context: AgentContext, request: AgentRunRequest) -> list[str]:
+def _draft_subject_names(context: AgentContext, request: RecipeDraftGenerationInput) -> list[str]:
     return [item.name for item in context.ingredients] + (_subject_list(request, "extraIngredients") or _subject_list(request, "extra_ingredients"))
 
 
@@ -393,7 +399,7 @@ def _normalize_step(raw_step: dict[str, Any], index: int) -> dict[str, Any] | No
     }
 
 
-def _normalize_steps(raw_steps: Any, context: AgentContext, request: AgentRunRequest) -> list[dict[str, Any]]:
+def _normalize_steps(raw_steps: Any, context: AgentContext, request: RecipeDraftGenerationInput) -> list[dict[str, Any]]:
     steps: list[dict[str, Any]] = []
     if isinstance(raw_steps, list):
         for index, raw in enumerate(raw_steps):
@@ -412,7 +418,7 @@ def _normalize_steps(raw_steps: Any, context: AgentContext, request: AgentRunReq
     return steps[:QUALITY_MAX_STEP_COUNT]
 
 
-def normalize_recipe_draft(raw_text: str, context: AgentContext, request: AgentRunRequest) -> dict[str, Any] | None:
+def normalize_recipe_draft(raw_text: str, context: AgentContext, request: RecipeDraftGenerationInput) -> dict[str, Any] | None:
     payload = _extract_json(raw_text)
     if payload is None:
         return None

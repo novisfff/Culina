@@ -1,9 +1,8 @@
 from __future__ import annotations
 
+from collections.abc import Iterator
 from datetime import date
 from decimal import Decimal
-from time import perf_counter
-from collections.abc import Iterator
 from typing import Any
 
 from fastapi.encoders import jsonable_encoder
@@ -11,11 +10,16 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 from pydantic import ValidationError
 
-from app.ai.planning import PlannerRequest, WorkspacePlanner
-from app.ai.runtime.provider import BaseChatProvider
-from app.ai.runtime.runner import get_chat_provider
-from app.ai.skills import SkillContext, SkillExecutionResult, SkillExecutor, build_workspace_skill_registry
-from app.ai.tools import ToolContext, ToolExecutor, build_workspace_tool_registry
+from app.ai.kitchen.context import load_agent_context
+from app.ai.kitchen.recipe_drafts import (
+    RECIPE_DRAFT_JSON_SCHEMA,
+    RecipeDraftGenerationInput,
+    build_recipe_draft_messages,
+    build_recipe_image_render_payload,
+    normalize_recipe_draft,
+)
+from app.ai.runtime.provider import BaseChatProvider, get_chat_provider
+from app.ai.skills import build_workspace_skill_registry
 from app.core.enums import ActivityAction, AiMode, FoodType, MealType
 from app.core.utils import create_id, utcnow
 from app.models.domain import (
@@ -123,7 +127,6 @@ class AIApplicationService:
     def __init__(self, db: Session, provider: BaseChatProvider | None = None) -> None:
         self.db = db
         self.provider = provider if provider is not None else get_chat_provider()
-        self._preplanned_result = None
 
     def chat(
         self,
@@ -137,230 +140,20 @@ class AIApplicationService:
         quick_task: str | None = None,
         subject: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        prompt = message.strip()
-        if not prompt:
-            raise ValueError("消息不能为空")
+        from app.ai.workflows.runner import WorkspaceGraphRunner
 
-        conversation = self._get_or_create_conversation(
+        return WorkspaceGraphRunner(self).invoke_user_message(
             family_id=family_id,
             user_id=user_id,
+            message=message,
             conversation_id=conversation_id,
-            prompt=prompt,
-            quick_task=quick_task,
-        )
-        user_message = AIMessage(
-            id=create_id("ai_message"),
-            family_id=family_id,
-            conversation_id=conversation.id,
-            role="user",
-            content=prompt,
-            content_type="text",
-            parts=[{"id": create_id("ai_part"), "type": "text", "text": prompt}],
-            status="completed",
             client_message_id=client_message_id,
-            created_by=user_id,
-        )
-        self.db.add(user_message)
-        self.db.flush()
-        planner_conversation = self._build_planner_conversation(
-            family_id=family_id,
-            conversation_id=conversation.id,
+            client_run_id=client_run_id,
             quick_task=quick_task,
+            subject=subject,
         )
 
-        run = AIAgentRun(
-            id=client_run_id or create_id("agent_run"),
-            family_id=family_id,
-            conversation_id=conversation.id,
-            message_id=user_message.id,
-            agent_key="workspace_orchestrator",
-            feature_key="ai_workspace_chat",
-            intent="",
-            input_summary=prompt[:255],
-            context_summary={},
-            output_summary="",
-            status="running",
-            model=getattr(self.provider, "model_name", ""),
-            input={"prompt": prompt, "quickTask": quick_task, "conversation": planner_conversation},
-            output={},
-            tool_calls=[],
-            duration_ms=0,
-            created_by=user_id,
-        )
-        self.db.add(run)
-        self.db.flush()
-        events = [
-            self._add_event(family_id, conversation.id, run.id, "intent", "detect_intent", "正在理解你的需求", "completed"),
-            self._add_event(family_id, conversation.id, run.id, "context", "load_context", "正在查看你的厨房上下文", "completed"),
-        ]
-
-        started_at = perf_counter()
-        skill_registry = build_workspace_skill_registry()
-        plan = self._preplanned_result
-        self._preplanned_result = None
-        if plan is None:
-            planner = WorkspacePlanner(provider=self.provider, skill_registry=skill_registry)
-            plan = planner.plan(
-                PlannerRequest(
-                    family_id=family_id,
-                    user_id=user_id,
-                    conversation_id=conversation.id,
-                    conversation=planner_conversation,
-                    available_skills=[manifest.to_planner_record() for manifest in skill_registry.list_manifests()],
-                )
-            )
-        if not plan.failed and not plan.skills:
-            output = self._run_general_chat(prompt)
-        else:
-            tool_executor = ToolExecutor(
-                build_workspace_tool_registry(),
-                ToolContext(
-                    db=self.db,
-                    family_id=family_id,
-                    user_id=user_id,
-                    conversation_id=conversation.id,
-                    run_id=run.id,
-                ),
-            )
-            output = SkillExecutor(skill_registry).run(
-                plan,
-                SkillContext(
-                    db=self.db,
-                    family_id=family_id,
-                    user_id=user_id,
-                    conversation_id=conversation.id,
-                    run_id=run.id,
-                    conversation=planner_conversation,
-                    current_message=prompt,
-                    tool_executor=tool_executor,
-                    provider=self.provider,
-                ),
-            )
-        events.append(self._add_event(family_id, conversation.id, run.id, "agent", "run_agent", "正在生成可操作建议", output.status))
-        for index, skill_event in enumerate(output.events):
-            if not isinstance(skill_event, dict):
-                continue
-            message = str(skill_event.get("message") or "").strip()
-            if not message:
-                continue
-            events.append(
-                self._add_event(
-                    family_id,
-                    conversation.id,
-                    run.id,
-                    str(skill_event.get("type") or "skill"),
-                    str(skill_event.get("internal_code") or f"skill_step_{index + 1}"),
-                    message,
-                    str(skill_event.get("status") or "completed"),
-                )
-            )
-
-        cards = self._normalize_result_cards(output.cards)
-        parts = [{"id": create_id("ai_part"), "type": "text", "text": output.text}]
-        for card in cards:
-            parts.append({"id": create_id("ai_part"), "type": "result_card", "card": card})
-        if output.status == "failed":
-            error_card = {
-                "id": create_id("ai_card"),
-                "type": "error_recovery",
-                "title": "这次没有生成成功",
-                "data": {"message": output.error or "请稍后重试，或换一种说法。"},
-            }
-            cards = [*cards, error_card]
-            parts.append({"id": create_id("ai_part"), "type": "error_recovery", "card": error_card})
-
-        assistant_message = AIMessage(
-            id=create_id("ai_message"),
-            family_id=family_id,
-            conversation_id=conversation.id,
-            role="assistant",
-            content=output.text,
-            content_type="parts",
-            parts=parts,
-            run_id=run.id,
-            status=output.status,
-            message_metadata={"intent": self._intent_for_plan(skill_registry, plan), "agentKey": self._agent_key_for_plan(skill_registry, plan)},
-            created_by=user_id,
-        )
-        self.db.add(assistant_message)
-        self.db.flush()
-
-        drafts: list[AITaskDraft] = []
-        approvals: list[AIApprovalRequest] = []
-        if output.status == "completed":
-            for draft_payload in output.drafts:
-                draft, approval, card = self._create_draft_approval(
-                    family_id=family_id,
-                    user_id=user_id,
-                    conversation_id=conversation.id,
-                    message_id=assistant_message.id,
-                    run_id=run.id,
-                    draft_payload=draft_payload,
-                )
-                drafts.append(draft)
-                approvals.append(approval)
-                cards.append(card)
-                parts.append({"id": create_id("ai_part"), "type": "draft", "draft": jsonable_encoder(serialize_ai_task_draft(draft))})
-                parts.append({"id": create_id("ai_part"), "type": "approval_request", "approval": jsonable_encoder(serialize_ai_approval_request(approval))})
-                parts.append({"id": create_id("ai_part"), "type": "result_card", "card": card})
-            if drafts:
-                assistant_message.parts = parts
-                assistant_message.message_metadata = {
-                    **(assistant_message.message_metadata or {}),
-                    "draftIds": [draft.id for draft in drafts],
-                    "approvalIds": [approval.id for approval in approvals],
-                }
-
-        run.agent_key = self._agent_key_for_plan(skill_registry, plan)
-        run.intent = self._intent_for_plan(skill_registry, plan)
-        run.status = output.status
-        run.model = output.model or run.model
-        run.context_summary = {
-            **output.context_summary,
-            "routing": {
-                "intent": run.intent,
-                "agentKey": run.agent_key,
-                "skills": plan.skills,
-                "plannerAttempts": plan.attempts,
-                "plannerRawResponse": plan.raw_response,
-                "plannerError": plan.error,
-                "plannerDiagnostic": plan.diagnostic,
-                "plannerStructuredMode": plan.structured_mode,
-            },
-        }
-        run.output_summary = output.text[:255]
-        run.output = {"text": output.text, "cards": cards, "routing": run.context_summary.get("routing", {})}
-        run.tool_calls = output.tool_calls
-        run.error = output.error
-        run.duration_ms = int((perf_counter() - started_at) * 1000)
-
-        conversation.prompt = prompt
-        conversation.response = output.text
-        conversation.summary = output.text[:255]
-        conversation.last_message_at = utcnow()
-        conversation.last_run_status = output.status
-        if output.state_patch:
-            context = dict(conversation.context or {})
-            task_state = dict(context.get("taskState") or {})
-            task_state.update(output.state_patch)
-            context["taskState"] = task_state
-            conversation.context = context
-
-        events.append(self._add_event(family_id, conversation.id, run.id, "finalize", "build_response", "已生成回复", output.status))
-        self.db.flush()
-        return {
-            "conversation_id": conversation.id,
-            "message": serialize_ai_message(assistant_message),
-            "run": serialize_ai_run(run),
-            "events": [serialize_ai_run_event(event) for event in events],
-            "included": {
-                "result_cards": cards,
-                "drafts": [serialize_ai_task_draft(draft) for draft in drafts],
-                "approvals": [serialize_ai_approval_request(approval) for approval in approvals],
-            },
-        }
-
-    def stream_fallback_chat(
+    def stream_chat(
         self,
         *,
         family_id: str,
@@ -371,221 +164,86 @@ class AIApplicationService:
         client_run_id: str | None = None,
         quick_task: str | None = None,
         subject: dict[str, Any] | None = None,
-    ) -> Iterator[tuple[str, dict[str, Any]]] | None:
-        prompt = message.strip()
-        if not prompt:
-            raise ValueError("消息不能为空")
+    ) -> Iterator[tuple[str, dict[str, Any]]]:
+        from app.ai.workflows.runner import WorkspaceGraphRunner
 
-        planner_conversation = (
-            self._build_planner_conversation(
-                family_id=family_id,
-                conversation_id=conversation_id,
-                quick_task=quick_task,
-                pending_user_message=prompt,
-            )
-            if conversation_id
-            else [
-                {
-                    "id": "pending-user-message",
-                    "role": "user",
-                    "content": prompt,
-                    "metadata": {"quickTask": quick_task},
-                    "artifacts": [],
-                }
-            ]
+        yield from WorkspaceGraphRunner(self).stream_user_message(
+            family_id=family_id,
+            user_id=user_id,
+            message=message,
+            conversation_id=conversation_id,
+            client_message_id=client_message_id,
+            client_run_id=client_run_id,
+            quick_task=quick_task,
+            subject=subject,
         )
-        skill_registry = build_workspace_skill_registry()
-        planner = WorkspacePlanner(provider=self.provider, skill_registry=skill_registry)
-        plan = planner.plan(
-            PlannerRequest(
-                family_id=family_id,
-                user_id=user_id,
-                conversation_id=conversation_id,
-                conversation=planner_conversation,
-                available_skills=[manifest.to_planner_record() for manifest in skill_registry.list_manifests()],
-            )
+
+    def generate_recipe_draft(
+        self,
+        *,
+        family_id: str,
+        user_id: str,
+        prompt: str,
+        subject: dict[str, Any],
+        generate_image: bool,
+    ) -> dict[str, Any]:
+        draft_input = RecipeDraftGenerationInput(prompt=prompt, subject=subject)
+        context = load_agent_context(
+            self.db,
+            family_id=family_id,
+            mode=AiMode.RECIPE_DRAFT,
+            subject=subject,
+            include_inventory=False,
+            include_meal_logs=False,
         )
-        if plan.failed or plan.skills:
-            self._preplanned_result = plan
-            return None
-
-        def generate() -> Iterator[tuple[str, dict[str, Any]]]:
-            conversation = self._get_or_create_conversation(
-                family_id=family_id,
-                user_id=user_id,
-                conversation_id=conversation_id,
-                prompt=prompt,
-                quick_task=quick_task,
-            )
-            user_message = AIMessage(
-                id=create_id("ai_message"),
-                family_id=family_id,
-                conversation_id=conversation.id,
-                role="user",
-                content=prompt,
-                content_type="text",
-                parts=[{"id": create_id("ai_part"), "type": "text", "text": prompt}],
-                status="completed",
-                client_message_id=client_message_id,
-                created_by=user_id,
-            )
-            self.db.add(user_message)
-            self.db.flush()
-
-            run = AIAgentRun(
-                id=client_run_id or create_id("agent_run"),
-                family_id=family_id,
-                conversation_id=conversation.id,
-                message_id=user_message.id,
-                agent_key="workspace_orchestrator",
-                feature_key="ai_workspace_chat",
-                intent="",
-                input_summary=prompt[:255],
-                context_summary={},
-                output_summary="",
-                status="running",
-                model=getattr(self.provider, "model_name", ""),
-                input={"prompt": prompt, "quickTask": quick_task, "conversation": planner_conversation},
-                output={},
-                tool_calls=[],
-                duration_ms=0,
-                created_by=user_id,
-            )
-            self.db.add(run)
-            self.db.flush()
-            events = [
-                self._add_event(family_id, conversation.id, run.id, "intent", "detect_intent", "正在理解你的需求", "completed"),
-                self._add_event(family_id, conversation.id, run.id, "context", "load_context", "正在查看你的厨房上下文", "completed"),
-            ]
-
-            started_at = perf_counter()
-            message_id = create_id("ai_message")
-            part_id = create_id("ai_part")
-            chunks: list[str] = []
-            system = "你是 Culina 的厨房助手。只能基于用户当前家庭厨房上下文给出简短、可执行的建议；不能承诺写入系统数据。"
-            for chunk in self.provider.stream_generate(system=system, user=prompt):
-                if not chunk:
-                    continue
-                chunks.append(chunk)
-                yield (
-                    "message_delta",
-                    {
-                        "message_id": message_id,
-                        "conversation_id": conversation.id,
-                        "run_id": run.id,
-                        "part_id": part_id,
-                        "delta": chunk,
-                    },
-                )
-            text = "".join(chunks).strip()
-            if not text:
-                text = "我可以先帮你做轻量分析。当前 1A 阶段已经支持“今日吃什么”这类结构化建议；涉及创建菜谱、购物清单或餐食计划的写入，会在下一阶段通过草稿确认来完成。"
-                for index in range(0, len(text), 12):
-                    yield (
-                        "message_delta",
-                        {
-                            "message_id": message_id,
-                            "conversation_id": conversation.id,
-                            "run_id": run.id,
-                            "part_id": part_id,
-                            "delta": text[index : index + 12],
-                        },
-                    )
-
-            events.append(self._add_event(family_id, conversation.id, run.id, "agent", "run_agent", "正在生成可操作建议", "completed"))
-            assistant_message = AIMessage(
-                id=message_id,
-                family_id=family_id,
-                conversation_id=conversation.id,
-                role="assistant",
-                content=text,
-                content_type="parts",
-                parts=[{"id": part_id, "type": "text", "text": text}],
-                run_id=run.id,
-                status="completed",
-                message_metadata={"intent": "general_chat", "agentKey": "general_chat_agent"},
-                created_by=user_id,
-            )
-            self.db.add(assistant_message)
-
-            run.agent_key = "general_chat_agent"
-            run.intent = "general_chat"
-            run.status = "completed"
-            run.model = getattr(self.provider, "model_name", run.model)
-            run.context_summary = {
-                "routing": {
-                    "intent": "general_chat",
-                    "agentKey": "general_chat_agent",
-                    "skills": plan.skills,
-                    "plannerAttempts": plan.attempts,
-                    "plannerRawResponse": plan.raw_response,
-                },
-            }
-            run.output_summary = text[:255]
-            run.output = {"text": text, "cards": [], "routing": run.context_summary.get("routing", {})}
-            run.tool_calls = []
-            run.duration_ms = int((perf_counter() - started_at) * 1000)
-
-            conversation.prompt = prompt
-            conversation.response = text
-            conversation.summary = text[:255]
-            conversation.last_message_at = utcnow()
-            conversation.last_run_status = "completed"
-            events.append(self._add_event(family_id, conversation.id, run.id, "finalize", "build_response", "已生成回复", "completed"))
-            self.db.flush()
-            yield (
-                "response",
-                {
-                    "conversation_id": conversation.id,
-                    "message": serialize_ai_message(assistant_message),
-                    "run": serialize_ai_run(run),
-                    "events": [serialize_ai_run_event(event) for event in events],
-                    "included": {"result_cards": [], "drafts": [], "approvals": []},
-                },
-            )
-
-        return generate()
-
-    def _run_general_chat(self, prompt: str) -> SkillExecutionResult:
-        system = """
-        你是 Culina 的厨房助手，负责家庭厨房场景下的普通聊天、做饭答疑、食材建议、烹饪技巧、饮食搭配和轻量决策。
-
-        回答要求：
-        1. 简短、自然、实用，优先给出用户马上能执行的建议。
-        2. 可以结合用户当前提供的家庭成员、饮食偏好、库存食材、餐食计划、历史记录等上下文回答；没有上下文时不要编造。
-        3. 上下文不足时，可以先给通用建议；确实需要补充信息时，只追问一个关键问题。
-        4. 不承诺已经写入、修改、删除或保存任何系统数据。
-        5. 涉及饮食记录、餐食计划、库存管理、用户画像更新等真实数据变更时，不要假装已完成，只能说明可以先帮用户整理。
-        6. 不提供医疗诊断，不夸大营养功效。
-
-        当用户只是闲聊、询问做饭技巧、问某个食材怎么处理、想要简单建议时，直接回答。
-        """.strip()
-
-        user = (prompt or "").strip()
-
-        if user:
-            result = self.provider.generate(system=system, user=user)
-            text = (result.text or "").strip()
-            model = result.model or getattr(self.provider, "model_name", "")
+        system, user_prompt = build_recipe_draft_messages(context, draft_input)
+        result = self.provider.generate(system=system, user=user_prompt, response_schema=RECIPE_DRAFT_JSON_SCHEMA)
+        draft = None
+        image_render_payload = None
+        status = "failed"
+        error = result.error
+        if result.text and result.status == "completed":
+            draft = normalize_recipe_draft(result.text, context, draft_input)
+            if draft is None:
+                error = error or "model returned invalid recipe draft JSON"
+            else:
+                status = "completed"
+                error = None
+                image_render_payload = build_recipe_image_render_payload(draft) if generate_image else None
         else:
-            text = ""
-            model = getattr(self.provider, "model_name", "")
+            error = error or "AI recipe draft provider is unavailable"
 
-        if not text:
-            text = "我在，可以问我做饭技巧、食材处理、简单搭配，或者让我帮你想一顿饭。"
-
-        return SkillExecutionResult(
-            text=text,
-            cards=[],
-            drafts=[],
-            events=[],
+        run = AIAgentRun(
+            id=create_id("agent_run"),
+            family_id=family_id,
+            agent_key="recipe_draft_agent",
+            feature_key="aiRecipeDraft",
+            intent="recipe_draft",
+            input_summary=prompt[:255],
+            context_summary=context.to_record(),
+            output_summary="已生成可编辑的菜谱草稿。" if status == "completed" else "AI 菜谱生成失败，请稍后重试。",
+            status=status,
+            model=result.model or getattr(self.provider, "model_name", ""),
+            input={
+                "prompt": prompt,
+                "subject": subject,
+                "responseFormat": "recipe_draft",
+                "context": context.to_record(),
+            },
+            output={"recipeDraft": draft, "imageRenderPayload": image_render_payload},
             tool_calls=[],
-            context_summary={},
-            state_patch={},
-            status="completed",
-            model=model,
-            error=None,
+            error=error,
+            created_by=user_id,
         )
+        self.db.add(run)
+        self.db.flush()
+        return {
+            "draft": draft,
+            "agent_run_id": run.id,
+            "status": status,
+            "error": error,
+            "image_render_payload": image_render_payload,
+        }
 
     def _normalize_result_cards(self, cards: list[dict[str, Any]]) -> list[dict[str, Any]]:
         default_titles = {
@@ -819,6 +477,31 @@ class AIApplicationService:
         )
 
     def decide_approval(
+        self,
+        *,
+        family_id: str,
+        user_id: str,
+        conversation_id: str,
+        approval_id: str,
+        decision: str,
+        draft_version: int,
+        values: dict[str, Any],
+        comment: str | None = None,
+    ) -> dict[str, Any]:
+        from app.ai.workflows.runner import WorkspaceGraphRunner
+
+        return WorkspaceGraphRunner(self).resume_approval(
+            family_id=family_id,
+            user_id=user_id,
+            conversation_id=conversation_id,
+            approval_id=approval_id,
+            decision=decision,
+            draft_version=draft_version,
+            values=values,
+            comment=comment,
+        )
+
+    def _apply_approval_decision(
         self,
         *,
         family_id: str,

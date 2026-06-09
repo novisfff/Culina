@@ -7,7 +7,7 @@ from sqlalchemy import select
 from app.ai.tools.base import ToolContext
 from app.ai.tools.catalog.common import register_tool
 from app.ai.tools.registry import ToolRegistry
-from app.ai.tools.schemas import COUNT_OUTPUT, DRAFT_INPUT, DRAFT_OUTPUT, LIMIT_INPUT
+from app.ai.tools.schemas import COUNT_OUTPUT, FOOD_PROFILE_DRAFT_SCHEMA, LIMIT_INPUT, draft_input_schema, draft_output_schema
 from app.models.domain import Food
 
 
@@ -56,6 +56,6 @@ def register_food_tools(registry: ToolRegistry) -> None:
         description="生成食物资料草稿，不写入业务表。",
         side_effect="draft",
         handler=food_profile_create_draft,
-        input_schema=DRAFT_INPUT,
-        output_schema=DRAFT_OUTPUT,
+        input_schema=draft_input_schema(FOOD_PROFILE_DRAFT_SCHEMA),
+        output_schema=draft_output_schema(FOOD_PROFILE_DRAFT_SCHEMA),
     )

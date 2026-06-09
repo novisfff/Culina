@@ -4,7 +4,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import Boolean, Date, DateTime, Enum as SqlEnum, ForeignKey, Integer, JSON, Numeric, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, Date, DateTime, Enum as SqlEnum, ForeignKey, Integer, JSON, LargeBinary, Numeric, String, Text, UniqueConstraint
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 from app.core.enums import (
@@ -617,3 +617,47 @@ class AIOperation(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False)
 
     family: Mapped["Family"] = relationship(back_populates="ai_operations")
+
+
+class AIGraphCheckpoint(Base):
+    __tablename__ = "ai_graph_checkpoints"
+    __table_args__ = (
+        UniqueConstraint("thread_id", "checkpoint_ns", "checkpoint_id", name="uq_ai_graph_checkpoint"),
+    )
+
+    id: Mapped[str] = mapped_column(String(191), primary_key=True)
+    thread_id: Mapped[str] = mapped_column(String(191), nullable=False, index=True)
+    checkpoint_ns: Mapped[str] = mapped_column(String(191), default="", nullable=False, index=True)
+    checkpoint_id: Mapped[str] = mapped_column(String(191), nullable=False, index=True)
+    parent_checkpoint_id: Mapped[str | None] = mapped_column(String(191), nullable=True)
+    checkpoint_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    checkpoint_blob: Mapped[bytes] = mapped_column(LargeBinary(length=(2**32) - 1), nullable=False)
+    metadata_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    metadata_blob: Mapped[bytes] = mapped_column(LargeBinary(length=(2**32) - 1), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+
+
+class AIGraphWrite(Base):
+    __tablename__ = "ai_graph_writes"
+    __table_args__ = (
+        UniqueConstraint(
+            "thread_id",
+            "checkpoint_ns",
+            "checkpoint_id",
+            "task_id",
+            "write_idx",
+            name="uq_ai_graph_write",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(191), primary_key=True)
+    thread_id: Mapped[str] = mapped_column(String(191), nullable=False, index=True)
+    checkpoint_ns: Mapped[str] = mapped_column(String(191), default="", nullable=False, index=True)
+    checkpoint_id: Mapped[str] = mapped_column(String(191), nullable=False, index=True)
+    task_id: Mapped[str] = mapped_column(String(191), nullable=False)
+    task_path: Mapped[str] = mapped_column(String(255), default="", nullable=False)
+    write_idx: Mapped[int] = mapped_column(Integer, nullable=False)
+    channel: Mapped[str] = mapped_column(String(191), nullable=False)
+    value_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    value_blob: Mapped[bytes] = mapped_column(LargeBinary(length=(2**32) - 1), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
