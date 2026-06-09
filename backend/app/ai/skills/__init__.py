@@ -4,6 +4,7 @@ from app.ai.skills.loader import SkillDirectoryLoader
 from app.ai.skills.markdown import MarkdownInstructionSkill
 from app.ai.skills.registry import SkillRegistry, build_workspace_skill_registry
 from app.ai.skills.scripts import SkillScriptRuntime
+from app.ai.skills.toolcall import ToolCallingSkill
 
 __all__ = [
     "BaseSkill",
@@ -16,5 +17,6 @@ __all__ = [
     "SkillRegistry",
     "SkillResult",
     "SkillScriptRuntime",
+    "ToolCallingSkill",
     "build_workspace_skill_registry",
 ]

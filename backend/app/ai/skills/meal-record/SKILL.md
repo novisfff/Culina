@@ -5,7 +5,7 @@ display_name: 餐食记录
 version: 1.0.0
 description: 把自然语言用餐描述整理为可编辑餐食记录草稿。
 category: recording
-runner: meal_log
+runner: toolcall
 risk_level: medium
 allowed_tools:
   - food.search

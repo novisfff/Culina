@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import StreamingResponse
@@ -40,6 +42,7 @@ from app.ai.workflows.checkpoint import SQLAlchemyCheckpointSaver
 from app.services.serializers import serialize_ai_conversation, serialize_ai_message, serialize_ai_run_event
 
 router = APIRouter(tags=["ai"])
+logger = logging.getLogger(__name__)
 
 
 @router.get("/api/ai/conversations", response_model=list[AIConversationOut])
@@ -84,6 +87,7 @@ def get_ai_registry(auth: tuple = Depends(get_current_auth)) -> dict:
         "tools": [
             {
                 "name": tool.name,
+                "display_name": tool.display_name,
                 "description": tool.description,
                 "permission": tool.permission,
                 "side_effect": tool.side_effect,
@@ -188,9 +192,40 @@ def chat_ai(
             subject=payload.subject.model_dump() if payload.subject else {},
         )
     except ValueError as exc:
+        logger.warning(
+            "AI chat request rejected status=400 family_id=%s user_id=%s conversation_id=%s client_message_id=%s client_run_id=%s message_length=%s error=%s",
+            membership.family_id,
+            user.id,
+            payload.conversation_id,
+            payload.client_message_id,
+            payload.client_run_id,
+            len(payload.message or ""),
+            exc,
+        )
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     except LookupError as exc:
+        logger.warning(
+            "AI chat request rejected status=404 family_id=%s user_id=%s conversation_id=%s client_message_id=%s client_run_id=%s message_length=%s error=%s",
+            membership.family_id,
+            user.id,
+            payload.conversation_id,
+            payload.client_message_id,
+            payload.client_run_id,
+            len(payload.message or ""),
+            exc,
+        )
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except Exception:
+        logger.exception(
+            "AI chat request failed family_id=%s user_id=%s conversation_id=%s client_message_id=%s client_run_id=%s message_length=%s",
+            membership.family_id,
+            user.id,
+            payload.conversation_id,
+            payload.client_message_id,
+            payload.client_run_id,
+            len(payload.message or ""),
+        )
+        raise
     commit_session(db)
     return response
 
@@ -223,10 +258,42 @@ def stream_chat_ai(
                     commit_session(db)
                 yield encode(event, data)
         except ValueError as exc:
+            logger.warning(
+                "AI stream chat request rejected status=400 family_id=%s user_id=%s conversation_id=%s client_message_id=%s client_run_id=%s message_length=%s error=%s",
+                membership.family_id,
+                user.id,
+                payload.conversation_id,
+                payload.client_message_id,
+                payload.client_run_id,
+                len(payload.message or ""),
+                exc,
+            )
             yield encode("error", {"detail": str(exc), "status": 400})
             return
         except LookupError as exc:
+            logger.warning(
+                "AI stream chat request rejected status=404 family_id=%s user_id=%s conversation_id=%s client_message_id=%s client_run_id=%s message_length=%s error=%s",
+                membership.family_id,
+                user.id,
+                payload.conversation_id,
+                payload.client_message_id,
+                payload.client_run_id,
+                len(payload.message or ""),
+                exc,
+            )
             yield encode("error", {"detail": str(exc), "status": 404})
+            return
+        except Exception:
+            logger.exception(
+                "AI stream chat request failed family_id=%s user_id=%s conversation_id=%s client_message_id=%s client_run_id=%s message_length=%s",
+                membership.family_id,
+                user.id,
+                payload.conversation_id,
+                payload.client_message_id,
+                payload.client_run_id,
+                len(payload.message or ""),
+            )
+            yield encode("error", {"detail": "AI 服务暂时不可用，请稍后重试。", "status": 500})
             return
 
     return StreamingResponse(

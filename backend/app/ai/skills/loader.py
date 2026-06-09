@@ -60,7 +60,7 @@ class SkillDirectoryLoader:
             version=self._text(data.get("version")) or "1.0.0",
             description=description,
             category=self._text(data.get("category")) or "general",
-            runner=self._text(data.get("runner")) or "markdown",
+            runner=self._text(data.get("runner")) or "toolcall",
             risk_level=self._text(data.get("risk_level")) or "low",
             examples=self._list(data.get("examples")),
             context_policy=self._list(data.get("context_policy")),

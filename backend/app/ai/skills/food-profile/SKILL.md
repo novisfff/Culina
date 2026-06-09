@@ -4,7 +4,7 @@ display_name: 食物资料
 version: 1.0.0
 description: 把自然语言食物描述整理为可确认的食物资料草稿。
 category: food
-runner: food_profile
+runner: toolcall
 risk_level: medium
 allowed_tools:
   - food.search

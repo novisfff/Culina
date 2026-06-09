@@ -211,7 +211,7 @@ function RunProgressTimeline({ events }: { events: AiRunEvent[] }) {
   return (
     <div className="ai-run-progress-timeline" aria-label="AI 执行进度">
       {events.map((event, index) => (
-        <div key={event.id || `${event.internal_code}-${index}`} className={`ai-run-progress-step status-${event.status}`}>
+        <div key={event.id || `${event.internal_code}-${index}`} className={`ai-run-progress-step${event.status === 'failed' ? ' status-failed' : ''}`}>
           <span aria-hidden="true" />
           <p>{event.user_message}</p>
         </div>

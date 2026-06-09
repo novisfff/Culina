@@ -44,6 +44,7 @@ def register_ingredient_tools(registry: ToolRegistry) -> None:
     register_tool(
         registry,
         name="ingredient.search",
+        display_name="食材资料",
         description="搜索当前家庭食材资料。",
         side_effect="read",
         handler=ingredient_search,

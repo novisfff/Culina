@@ -28,6 +28,7 @@ def register_intent_tools(registry: ToolRegistry) -> None:
     register_tool(
         registry,
         name="intent.request_clarification",
+        display_name="补充信息请求",
         description="请求用户补充缺失信息。",
         side_effect="read",
         handler=intent_request_clarification,

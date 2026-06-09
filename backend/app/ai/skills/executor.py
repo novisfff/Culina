@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+import logging
+
 from app.ai.planning.schemas import PlannerResult
 from app.ai.skills.base import BaseSkill
 from app.ai.skills.base import SkillContext, SkillExecutionResult, SkillResult
 from app.ai.skills.registry import SkillRegistry
 from app.ai.skills.shared import result_artifacts
+
+logger = logging.getLogger(__name__)
 
 
 VALID_APPROVAL_POLICIES = {"none", "draft_then_confirm"}
@@ -22,7 +26,18 @@ class SkillExecutor:
         allowed_side_effects = {"read"}
         if skill.manifest.approval_policy == "draft_then_confirm":
             allowed_side_effects.add("draft")
-        context.emit_progress("skill", f"{skill_key}.start", f"正在执行{skill.manifest.name}")
+        logger.info(
+            "AI skill started skill=%s runner=%s run_id=%s conversation_id=%s family_id=%s approval_policy=%s allowed_side_effects=%s tool_count=%s",
+            skill_key,
+            skill.manifest.runner,
+            context.run_id,
+            context.conversation_id,
+            context.family_id,
+            skill.manifest.approval_policy,
+            sorted(allowed_side_effects),
+            len(skill.manifest.tools),
+        )
+        context.emit_progress("skill", f"{skill_key}.start", f"调用「{skill.manifest.name}」技能")
         try:
             self._validate_manifest_contract(skill, context)
             context.tool_executor = root_tool_executor.scoped(
@@ -33,6 +48,16 @@ class SkillExecutor:
             result = skill.run(context)
             self._validate_result_contract(skill, result)
         except Exception as exc:
+            logger.warning(
+                "AI skill failed skill=%s runner=%s run_id=%s conversation_id=%s family_id=%s error=%s",
+                skill_key,
+                skill.manifest.runner,
+                context.run_id,
+                context.conversation_id,
+                context.family_id,
+                exc,
+                exc_info=True,
+            )
             result = SkillResult(
                 text=f"{skill.manifest.name}执行失败。",
                 status="failed",
@@ -44,11 +69,30 @@ class SkillExecutor:
             context.tool_executor = root_tool_executor
         result.tool_calls = root_tool_executor.records()
         if result.status == "failed":
+            logger.warning(
+                "AI skill returned failed status skill=%s run_id=%s conversation_id=%s family_id=%s error=%s diagnostic=%s tool_calls=%s",
+                skill_key,
+                context.run_id,
+                context.conversation_id,
+                context.family_id,
+                result.error,
+                result.diagnostic,
+                len(result.tool_calls),
+            )
             context.emit_progress("skill", f"{skill_key}.failed", f"{skill.manifest.name}执行失败", "failed")
-        elif result.requires_clarification:
-            context.emit_progress("skill", f"{skill_key}.clarify", f"{skill.manifest.name}需要补充信息", "completed")
         else:
-            context.emit_progress("skill", f"{skill_key}.completed", f"{skill.manifest.name}执行完成", "completed")
+            logger.info(
+                "AI skill completed skill=%s run_id=%s conversation_id=%s family_id=%s status=%s drafts=%s cards=%s events=%s tool_calls=%s",
+                skill_key,
+                context.run_id,
+                context.conversation_id,
+                context.family_id,
+                result.status,
+                len(result.drafts),
+                len(result.cards),
+                len(result.events),
+                len(result.tool_calls),
+            )
         return result
 
     def _validate_manifest_contract(self, skill: BaseSkill, context: SkillContext) -> None:
@@ -132,6 +176,14 @@ class SkillExecutor:
 
     def run(self, plan: PlannerResult, context: SkillContext) -> SkillExecutionResult:
         if plan.failed:
+            logger.warning(
+                "AI skill execution skipped because planner failed run_id=%s conversation_id=%s family_id=%s error=%s diagnostic=%s",
+                context.run_id,
+                context.conversation_id,
+                context.family_id,
+                plan.error,
+                plan.diagnostic,
+            )
             return SkillExecutionResult(
                 text="AI 规划暂时失败，请重试。",
                 cards=[],
@@ -161,6 +213,13 @@ class SkillExecutor:
         status = "completed"
         model = getattr(context.provider, "model_name", "") or "model"
         error: str | None = None
+        logger.info(
+            "AI skill execution started run_id=%s conversation_id=%s family_id=%s skills=%s",
+            context.run_id,
+            context.conversation_id,
+            context.family_id,
+            plan.skills,
+        )
         for skill_key in plan.skills:
             context.previous_results = results
             context.current_run_artifacts = run_artifacts
@@ -180,7 +239,6 @@ class SkillExecutor:
                 combined_text.append(result.text)
             cards.extend(result.cards)
             drafts.extend(result.drafts)
-            events.extend(result.events)
             context_summary.update(result.context_summary)
             state_patch.update(result.state_patch)
             model = result.model or model
@@ -188,6 +246,17 @@ class SkillExecutor:
                 status = result.status
                 error = result.error
                 break
+        logger.info(
+            "AI skill execution completed run_id=%s conversation_id=%s family_id=%s status=%s skills_run=%s drafts=%s cards=%s error=%s",
+            context.run_id,
+            context.conversation_id,
+            context.family_id,
+            status,
+            len(results),
+            len(drafts),
+            len(cards),
+            error,
+        )
         return SkillExecutionResult(
             text="\n\n".join(combined_text).strip() or "我还需要更多信息才能继续。",
             cards=cards,

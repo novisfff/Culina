@@ -11,6 +11,7 @@ def register_tool(
     registry: ToolRegistry,
     *,
     name: str,
+    display_name: str,
     description: str,
     side_effect: str,
     handler,
@@ -22,6 +23,7 @@ def register_tool(
     registry.register(
         ToolDefinition(
             name=name,
+            display_name=display_name,
             description=description,
             input_schema=input_schema,
             output_schema=output_schema,

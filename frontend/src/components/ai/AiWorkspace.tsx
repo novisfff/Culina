@@ -141,6 +141,32 @@ export function AiWorkspace({ conversations, isLoading, currentUser = null, onBa
     () => mergePendingApprovalsIntoMessages(messages, pendingApprovalsQuery.data ?? []),
     [messages, pendingApprovalsQuery.data],
   );
+  const hasPendingApproval = useMemo(() => {
+    if ((pendingApprovalsQuery.data ?? []).some((approval) => approval.status === 'pending')) return true;
+    return displayedMessages.some((message) => message.parts.some((part) => part.approval?.status === 'pending'));
+  }, [displayedMessages, pendingApprovalsQuery.data]);
+
+  function ensureStreamingAssistantMessage(runId: string) {
+    const messageId = `local-assistant-${runId}`;
+    setLocalMessages((items) => {
+      if (items.some((item) => item.id === messageId || item.run_id === runId)) return items;
+      return [
+        ...items,
+        {
+          id: messageId,
+          conversation_id: activeConversationId || 'pending',
+          role: 'assistant',
+          content: '',
+          content_type: 'parts',
+          parts: [],
+          run_id: runId,
+          status: 'running',
+          metadata: {},
+          created_at: new Date().toISOString(),
+        },
+      ];
+    });
+  }
 
   function applyChatResponse(response: AiChatResponse) {
     setActiveConversationId(response.conversation_id);
@@ -202,15 +228,17 @@ export function AiWorkspace({ conversations, isLoading, currentUser = null, onBa
       return api.streamChatAi(payload, {
         signal: controller.signal,
         onProgress: (event) => {
+          const eventRunId = 'run_id' in event && typeof event.run_id === 'string' && event.run_id !== 'pending' ? event.run_id : payload.client_run_id ?? 'pending';
           const nextEvent: AiRunEvent = {
             id: 'id' in event && typeof event.id === 'string' ? event.id : `stream-${event.internal_code}-${Date.now()}`,
-            run_id: 'run_id' in event && typeof event.run_id === 'string' ? event.run_id : 'pending',
+            run_id: eventRunId,
             type: event.type,
             internal_code: event.internal_code,
             user_message: event.user_message,
             status: event.status,
             created_at: 'created_at' in event && typeof event.created_at === 'string' ? event.created_at : new Date().toISOString(),
           };
+          ensureStreamingAssistantMessage(eventRunId);
           setStreamProgress((items) => [...items, nextEvent]);
         },
         onMessageDelta: applyStreamDelta,
@@ -281,6 +309,7 @@ export function AiWorkspace({ conversations, isLoading, currentUser = null, onBa
 
   async function sendMessage(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (hasPendingApproval || chatMutation.isPending) return;
     const text = draft.trim();
     if (!text) return;
     const clientMessageId = `client-${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -360,6 +389,14 @@ export function AiWorkspace({ conversations, isLoading, currentUser = null, onBa
     ]);
   }
 
+  async function refreshAfterApprovalSettled() {
+    await Promise.all([
+      messagesQuery.refetch(),
+      pendingApprovalsQuery.refetch(),
+      queryClient.invalidateQueries({ queryKey: queryKeys.aiConversations }),
+    ]);
+  }
+
   const latestAssistantMessageId = [...displayedMessages].reverse().find((message) => message.role === 'assistant')?.id ?? null;
 
   return (
@@ -373,8 +410,10 @@ export function AiWorkspace({ conversations, isLoading, currentUser = null, onBa
         messages={displayedMessages}
         runEventsById={runEventsById}
         streamProgress={streamProgress}
+        activeStreamRunId={activeStreamRunId}
         draft={draft}
         isSending={chatMutation.isPending}
+        isComposerPaused={hasPendingApproval}
         sendError={chatMutation.isError ? chatMutation.error.message : undefined}
         onBackHome={onBackHome}
         onOpenMobileHistory={() => setIsMobileHistoryOpen(true)}
@@ -384,7 +423,7 @@ export function AiWorkspace({ conversations, isLoading, currentUser = null, onBa
         onDraftChange={setDraft}
         onPickSuggestion={setDraft}
         onSubmit={sendMessage}
-        onApprovalSettled={() => void messagesQuery.refetch()}
+        onApprovalSettled={() => void refreshAfterApprovalSettled()}
         onRetryRun={retryRun}
         onRegeneratePart={regeneratePart}
         onCancelSending={cancelStreamingChat}
@@ -482,9 +521,9 @@ export function AiWorkspace({ conversations, isLoading, currentUser = null, onBa
                     key={message.id}
                     message={message}
                     user={currentUser}
-                    runEvents={message.run_id ? runEventsById[message.run_id] ?? [] : message.id.startsWith('local-') ? streamProgress : []}
+                    runEvents={message.run_id && message.run_id === activeStreamRunId ? streamProgress : message.run_id ? runEventsById[message.run_id] ?? [] : message.id.startsWith('local-') ? streamProgress : []}
                     isLatestAssistant={message.id === latestAssistantMessageId}
-                    onApprovalSettled={() => void messagesQuery.refetch()}
+                    onApprovalSettled={() => void refreshAfterApprovalSettled()}
                     onRetryRun={retryRun}
                     onRegeneratePart={regeneratePart}
                   />
@@ -515,22 +554,26 @@ export function AiWorkspace({ conversations, isLoading, currentUser = null, onBa
             {chatMutation.isError && <p className="form-error">{chatMutation.error.message}</p>}
             {retryMutation.isError && <p className="form-error">{retryMutation.error.message}</p>}
             {regenerateMutation.isError && <p className="form-error">{regenerateMutation.error.message}</p>}
-            {chatMutation.isPending && streamProgress.length > 0 && (
-              <div className="ai-stream-progress-strip">
-                {streamProgress.slice(-3).map((event) => (
-                  <span key={event.id}>{event.user_message}</span>
-                ))}
-                <button className="ghost-button" type="button" onClick={cancelStreamingChat}>
-                  取消
-                </button>
-              </div>
-            )}
+            {hasPendingApproval && <p className="ai-composer-pause-note">请先确认上面的草稿，确认后可以继续对话。</p>}
             <form className="ai-composer" onSubmit={sendMessage}>
-              <textarea className="text-input" rows={2} value={draft} placeholder="输入你的问题，或让 AI 帮你安排一餐..." onChange={(event) => setDraft(event.target.value)} />
+              <textarea
+                className="text-input"
+                rows={2}
+                value={draft}
+                placeholder={hasPendingApproval ? '等待你确认草稿...' : '输入你的问题，或让 AI 帮你安排一餐...'}
+                disabled={hasPendingApproval}
+                onChange={(event) => setDraft(event.target.value)}
+              />
               <div className="ai-composer-meta">
                 <span>{draft.length}/2000</span>
-                <button className="ai-send-button" type="submit" disabled={chatMutation.isPending} aria-label="发送消息">
-                  {chatMutation.isPending ? '...' : '↗'}
+                <button
+                  className={`ai-send-button ${chatMutation.isPending ? 'is-sending' : ''}`}
+                  type={chatMutation.isPending ? 'button' : 'submit'}
+                  disabled={hasPendingApproval}
+                  aria-label={chatMutation.isPending ? '中止生成' : '发送消息'}
+                  onClick={chatMutation.isPending ? cancelStreamingChat : undefined}
+                >
+                  {chatMutation.isPending ? <span className="ai-stop-icon" aria-hidden="true" /> : '↗'}
                 </button>
               </div>
             </form>

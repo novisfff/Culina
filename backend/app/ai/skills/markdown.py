@@ -42,7 +42,6 @@ class MarkdownInstructionSkill(BaseSkill):
             )
 
         tool_outputs = self._read_allowed_tool_outputs(context)
-        context.emit_progress("model", f"{self.manifest.key}.model_generate", f"正在生成{self.manifest.name}结果")
         result = context.provider.generate(
             system=self._system_prompt(),
             user=json.dumps(

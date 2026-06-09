@@ -44,6 +44,7 @@ def register_food_tools(registry: ToolRegistry) -> None:
     register_tool(
         registry,
         name="food.search",
+        display_name="食物资料",
         description="搜索当前家庭食物资料。",
         side_effect="read",
         handler=food_search,
@@ -53,6 +54,7 @@ def register_food_tools(registry: ToolRegistry) -> None:
     register_tool(
         registry,
         name="food_profile.create_draft",
+        display_name="食物资料确认表单",
         description="生成食物资料草稿，不写入业务表。",
         side_effect="draft",
         handler=food_profile_create_draft,

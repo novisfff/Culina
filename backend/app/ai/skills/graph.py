@@ -31,7 +31,6 @@ class GraphBackedSkill(BaseSkill):
                 for node_name, patch in update.items():
                     if isinstance(patch, dict):
                         output.update(patch)
-                    self._emit_node_progress(context, str(node_name), patch)
             result = output.get("result")
             if not isinstance(result, SkillResult):
                 return SkillResult(
@@ -52,33 +51,3 @@ class GraphBackedSkill(BaseSkill):
 
     def build_graph(self) -> StateGraph:
         raise NotImplementedError
-
-    def _emit_node_progress(self, context: SkillContext, node_name: str, patch: Any) -> None:
-        context.emit_progress(
-            "skill_graph",
-            f"{self.manifest.key}.{node_name}",
-            self._node_message(node_name, patch),
-            self._node_status(patch),
-        )
-
-    def _node_message(self, node_name: str, patch: Any) -> str:
-        labels = {
-            "load_context": "已读取上下文",
-            "decide": "已完成模型决策",
-            "normalize": "已整理模型结果",
-            "normalize_merge": "已合并模型结果",
-            "validate": "已校验结果",
-            "validate_source": "已校验引用来源",
-            "create_draft": "已准备草稿",
-            "finalize": "已汇总结果",
-        }
-        return f"{self.manifest.name}：{labels.get(node_name, f'已完成 {node_name}')}"
-
-    def _node_status(self, patch: Any) -> str:
-        if not isinstance(patch, dict):
-            return "completed"
-        result = patch.get("result")
-        if isinstance(result, SkillResult):
-            return "failed" if result.status == "failed" else "completed"
-        status = str(patch.get("status") or "")
-        return "failed" if status == "failed" else "completed"

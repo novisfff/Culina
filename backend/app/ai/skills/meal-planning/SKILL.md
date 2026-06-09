@@ -5,7 +5,7 @@ display_name: 餐食计划
 version: 1.0.0
 description: 基于库存、最近餐食和已有菜谱生成或修改可编辑餐食计划草稿。
 category: planning
-runner: meal_plan
+runner: toolcall
 risk_level: medium
 allowed_tools:
   - inventory.read_expiring_items

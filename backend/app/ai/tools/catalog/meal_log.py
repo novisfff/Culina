@@ -45,6 +45,7 @@ def register_meal_log_tools(registry: ToolRegistry) -> None:
     register_tool(
         registry,
         name="meal_log.read_recent",
+        display_name="最近餐食记录",
         description="读取最近餐食记录。",
         side_effect="read",
         handler=meal_log_read_recent,
@@ -54,6 +55,7 @@ def register_meal_log_tools(registry: ToolRegistry) -> None:
     register_tool(
         registry,
         name="meal_log.create_draft",
+        display_name="餐食记录确认表单",
         description="生成餐食记录草稿，不写入业务表。",
         side_effect="draft",
         handler=meal_log_create_draft,

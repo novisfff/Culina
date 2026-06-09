@@ -4708,15 +4708,6 @@
   background: #d9c9bd;
 }
 
-.ai-run-progress-step.status-running > span {
-  background: #e36424;
-  box-shadow: 0 0 0 4px rgba(227, 100, 36, 0.12);
-}
-
-.ai-run-progress-step.status-completed > span {
-  background: #4f9f66;
-}
-
 .ai-run-progress-step.status-failed > span {
   background: #bd3f32;
 }
@@ -4725,21 +4716,6 @@
   margin: 0;
   color: #695f58;
   font-size: 0.86rem;
-}
-
-.ai-stream-progress-strip {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-
-.ai-stream-progress-strip span {
-  border: 1px solid rgba(226, 214, 205, 0.78);
-  border-radius: 999px;
-  background: rgba(255, 249, 245, 0.95);
-  padding: 5px 10px;
-  color: #695f58;
-  font-size: 0.8rem;
 }
 
 .ai-result-card h3,
@@ -4853,6 +4829,13 @@
   min-height: 0;
 }
 
+.ai-composer-pause-note {
+  margin: 0;
+  color: #8f5a34;
+  font-size: 0.9rem;
+  text-align: center;
+}
+
 .ai-composer textarea.text-input {
   appearance: none;
   height: 34px;
@@ -4890,6 +4873,9 @@
 }
 
 .ai-send-button {
+  position: relative;
+  display: inline-grid;
+  place-items: center;
   width: 54px;
   height: 54px;
   border: 0;
@@ -4902,9 +4888,39 @@
   box-shadow: 0 12px 24px rgba(225, 82, 27, 0.26), inset 0 1px 0 rgba(255, 255, 255, 0.28);
 }
 
+.ai-send-button.is-sending {
+  background: #2d2824;
+  box-shadow: 0 12px 24px rgba(42, 32, 24, 0.22), inset 0 1px 0 rgba(255, 255, 255, 0.18);
+}
+
+.ai-send-button.is-sending::before {
+  position: absolute;
+  inset: 9px;
+  border: 2px solid rgba(255, 255, 255, 0.34);
+  border-top-color: #fff;
+  border-radius: 999px;
+  content: '';
+  animation: ai-send-spin 0.82s linear infinite;
+}
+
+.ai-stop-icon {
+  position: relative;
+  z-index: 1;
+  width: 15px;
+  height: 15px;
+  border-radius: 4px;
+  background: #fff;
+}
+
 .ai-send-button:disabled {
   opacity: 0.62;
-  cursor: wait;
+  cursor: not-allowed;
+}
+
+@keyframes ai-send-spin {
+  to {
+    transform: rotate(1turn);
+  }
 }
 
 .ai-disclaimer {

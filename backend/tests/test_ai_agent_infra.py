@@ -21,9 +21,10 @@ from sqlalchemy import create_engine
 from app.ai.kitchen.recipe_drafts import build_recipe_image_render_payload
 from app.ai.planning import PlannerRequest, PlannerResult, WorkspacePlanner
 from app.ai.runtime.provider import BaseChatProvider, ChatProviderResult, DisabledChatProvider, OpenAICompatibleChatProvider
-from app.ai.skills import BaseSkill, MarkdownInstructionSkill, SkillContext, SkillDirectoryLoader, SkillExecutor, SkillManifest, SkillRegistry, SkillResult, SkillScriptRuntime, build_workspace_skill_registry
+from app.ai.skills import BaseSkill, MarkdownInstructionSkill, SkillContext, SkillDirectoryLoader, SkillExecutor, SkillManifest, SkillRegistry, SkillResult, SkillScriptRuntime, ToolCallingSkill, build_workspace_skill_registry
 from app.ai.skills.context_policy import read_skill_context
 from app.ai.skills.graph import GraphBackedSkill, GraphSkillState
+from app.ai.skills.shared import json_object
 from app.ai.tools import ToolContext, ToolExecutor, build_workspace_tool_registry
 from app.ai.workspace_service import AIApplicationService, DRAFT_APPROVAL_CONFIG
 from app.ai.workflows.checkpoint import SQLAlchemyCheckpointSaver
@@ -334,6 +335,281 @@ class FakeChatProvider(BaseChatProvider):
             )
         return ChatProviderResult(text=self.text, status="completed", model=self.model_name)
 
+    def generate_with_tools(
+        self,
+        *,
+        system: str,
+        user: str,
+        tools: list,
+        tool_handler,
+        response_schema: dict | None = None,
+        max_rounds: int = 8,
+    ) -> ChatProviderResult:
+        del system, response_schema, max_rounds
+        payload = json.loads(user)
+        message = str(payload.get("currentMessage") or "")
+        available_tool_names = {tool.name for tool in tools}
+        tool_names: list[str] = []
+
+        def call(name: str, args: dict | None = None) -> dict:
+            tool_names.append(name)
+            return tool_handler(name, args or {})
+
+        if "meal_plan.create_draft" in available_tool_names:
+            inventory = call("inventory.read_expiring_items", {"days": 7})
+            call("inventory.read_available_items", {"limit": 80})
+            call("meal_log.read_recent", {"limit": 8})
+            call("food.search", {"limit": 24})
+            call("recipe.search", {"limit": 24})
+            call("meal_plan.read_existing", {"limit": 20})
+            artifacts = [artifact for artifact in payload.get("artifacts", []) if artifact.get("type") == "meal_plan"]
+            operation = "modify" if artifacts or "第二天" in message else "create"
+            source_id = artifacts[-1]["id"] if artifacts else None
+            if "帮我做菜单" in message:
+                return self._tool_result(
+                    {
+                        "text": "我需要先确认计划范围：你想安排几天、哪些餐别？",
+                        "cards": [],
+                        "events": [],
+                        "context_summary": {},
+                        "state_patch": {},
+                        "requires_clarification": True,
+                        "status": "completed",
+                        "error": None,
+                        "operation": "clarify",
+                    },
+                    tool_names,
+                )
+            days = 3 if "三天" in message or operation == "modify" else 1
+            titles = ["番茄鸡蛋面", "清淡蔬菜豆腐", "番茄小炒"]
+            items = [
+                {
+                    "date": (date.today() + timedelta(days=index)).isoformat(),
+                    "mealType": "dinner",
+                    "title": titles[index % len(titles)],
+                    "foodId": "food-tomato" if index == 2 else None,
+                    "recipeId": None,
+                    "reason": "优先使用临期番茄；按清淡口味安排",
+                    "usedInventory": ["番茄"],
+                    "missingIngredients": ["鸡蛋"] if index == 0 else [],
+                }
+                for index in range(days)
+            ]
+            if operation == "modify" and artifacts:
+                source_items = artifacts[-1].get("payload", {}).get("items", [])
+                if source_items:
+                    items = [dict(item) for item in source_items]
+                    if len(items) > 1:
+                        items[1].update({"title": "清淡蔬菜豆腐", "reason": "根据要求换成更适合孩子的清淡餐食", "missingIngredients": ["豆腐", "青菜"]})
+            draft = {
+                "draftType": "meal_plan",
+                "schemaVersion": "meal_plan.v1",
+                "items": items,
+                "source": {"days": days, "mealTypes": ["dinner"], "expiringInventoryIds": [item.get("id") for item in inventory.get("items", [])], "modifiedFromDraftId": source_id},
+            }
+            call("meal_plan.create_draft", {"draft": draft})
+            card = {"id": "meal-plan-draft", "type": "meal_plan_draft", "title": "餐食计划草稿", "data": {"draft": draft, "summary": f"{days} 天 · 晚餐", "items": items, "preview": "番茄鸡蛋面\n清淡蔬菜豆腐"}}
+            return self._tool_result(
+                {
+                    "text": f"我生成了 {len(items)} 条餐食计划草稿。",
+                    "cards": [card],
+                    "events": [{"type": "draft", "message": "已生成餐食计划草稿"}],
+                    "context_summary": {"expiringItemCount": inventory.get("count", 0), "draftType": "meal_plan"},
+                    "state_patch": {"activeTask": "meal_plan", "activeDraftType": "meal_plan"},
+                    "requires_clarification": False,
+                    "status": "completed",
+                    "error": None,
+                    "operation": operation,
+                    "source_artifact_id": source_id,
+                },
+                tool_names,
+            )
+
+        if "shopping.create_draft" in available_tool_names or "shopping_list.create_draft" in available_tool_names:
+            pending = call("shopping.read_pending", {"limit": 50})
+            call("inventory.read_available_items", {"limit": 80})
+            plans = [artifact for artifact in payload.get("artifacts", []) if artifact.get("type") == "meal_plan"]
+            source_id = plans[-1]["id"] if plans else None
+            items = [{"title": "鸡蛋", "quantity": 2, "unit": "个", "reason": "用于番茄鸡蛋面", "sourceMeals": ["番茄鸡蛋面"], "alreadyPending": False}]
+            draft = {"draftType": "shopping_list", "schemaVersion": "shopping_list.v1", "items": items, "sourceDraftId": source_id}
+            call("shopping.create_draft", {"draft": draft})
+            card = {"id": "shopping-list-draft", "type": "shopping_list_draft", "title": "购物清单草稿", "data": {"draft": draft, "items": items, "summary": "1 个待确认采购项"}}
+            return self._tool_result(
+                {
+                    "text": "我根据餐食计划里的缺失食材合并了 1 个购物清单草稿项。",
+                    "cards": [card],
+                    "events": [{"type": "draft", "message": "已生成购物清单草稿"}],
+                    "context_summary": {"pendingShoppingCount": pending.get("count", 0), "draftType": "shopping_list"},
+                    "state_patch": {"activeTask": "shopping_list", "activeDraftType": "shopping_list"},
+                    "requires_clarification": False,
+                    "status": "completed",
+                    "error": None,
+                    "operation": "derive" if source_id else "create",
+                    "source_artifact_id": source_id,
+                },
+                tool_names,
+            )
+
+        if "recipe.create_draft" in available_tool_names:
+            call("ingredient.search", {"limit": 50})
+            draft = self._recipe_draft_from_text()
+            call("recipe.create_draft", {"draft": draft})
+            card = {"id": "recipe-draft", "type": "recipe_draft", "title": draft.get("title", "菜谱草稿"), "data": {"draft": draft}}
+            return self._tool_result(
+                {
+                    "text": f"我生成了《{draft.get('title', '菜谱草稿')}》的菜谱草稿。",
+                    "cards": [card],
+                    "events": [{"type": "draft", "message": "已生成菜谱草稿"}],
+                    "context_summary": {"draftType": "recipe"},
+                    "state_patch": {"activeTask": "recipe_draft", "activeDraftType": "recipe"},
+                    "requires_clarification": False,
+                    "status": "completed",
+                    "error": None,
+                    "operation": "create",
+                },
+                tool_names,
+            )
+
+        if "meal_log.create_draft" in available_tool_names:
+            foods = call("food.search", {"limit": 24}).get("items", [])
+            call("meal_log.read_recent", {"limit": 8})
+            matched = next((food for food in foods if food.get("name") and food["name"] in message), None)
+            name = matched["name"] if matched else message.replace("今晚吃了", "").replace("今天吃了", "").strip(" ，。")
+            draft = {"draftType": "meal_log", "schemaVersion": "meal_log.v1", "date": date.today().isoformat(), "mealType": "dinner", "foods": [{"foodId": matched["id"] if matched else None, "name": name, "servings": 1, "note": "从用户描述中整理"}], "notes": message}
+            call("meal_log.create_draft", {"draft": draft})
+            card = {"id": "meal-log-draft", "type": "meal_log_draft", "title": "餐食记录草稿", "data": {"draft": draft}}
+            return self._tool_result(
+                {"text": "我整理了餐食记录草稿。", "cards": [card], "events": [], "context_summary": {"draftType": "meal_log"}, "state_patch": {}, "requires_clarification": False, "status": "completed", "error": None, "operation": "create"},
+                tool_names,
+            )
+
+        if "food_profile.create_draft" in available_tool_names:
+            foods = call("food.search", {"limit": 24}).get("items", [])
+            name = message
+            for marker in ["补全", "整理", "食物资料", "资料", "创建食物", "新增食物"]:
+                name = name.replace(marker, "")
+            name = name.strip(" ，。")
+            matched = next((food for food in foods if food.get("name") == name), None)
+            draft = {
+                "draftType": "food_profile",
+                "schemaVersion": "food_profile.v1",
+                "name": matched["name"] if matched else name,
+                "type": matched["type"] if matched else "readyMade",
+                "category": matched.get("category") if matched else "AI整理",
+                "flavor_tags": matched.get("flavorTags", []) if matched else [],
+                "scene_tags": matched.get("sceneTags", []) if matched else ["AI整理"],
+                "suitable_meal_types": matched.get("suitableMealTypes", []) if matched else ["breakfast", "lunch", "dinner"],
+                "source_name": "",
+                "purchase_source": "",
+                "scene": matched.get("scene", "") if matched else "",
+                "notes": message,
+                "routine_note": matched.get("routineNote", "") if matched else "由 AI 工作台整理，确认前可继续编辑。",
+                "price": None,
+                "rating": None,
+                "repurchase": None,
+                "expiry_date": None,
+                "stock_quantity": None,
+                "stock_unit": "",
+                "favorite": False,
+                "recipe_id": matched.get("recipeId") if matched else None,
+            }
+            call("food_profile.create_draft", {"draft": draft})
+            card = {"id": "food-profile-draft", "type": "food_profile_draft", "title": draft["name"], "data": {"draft": draft}}
+            return self._tool_result(
+                {"text": f"我整理了「{draft['name']}」的食物资料草稿。", "cards": [card], "events": [], "context_summary": {"draftType": "food_profile"}, "state_patch": {}, "requires_clarification": False, "status": "completed", "error": None, "operation": "create"},
+                tool_names,
+            )
+
+        if "inventory.read_summary" in available_tool_names:
+            summary = call("inventory.read_summary")
+            expiring = call("inventory.read_expiring_items", {"days": 7})
+            text = f"当前可用库存 {summary.get('availableCount', 0)} 项，临期 {summary.get('expiringCount', 0)} 项，低库存 {summary.get('lowStockCount', 0)} 项。"
+            return self._tool_result(
+                {
+                    "text": text,
+                    "cards": [{"id": "inventory-summary", "type": "inventory_summary", "title": "库存概览", "data": summary}],
+                    "events": [{"type": "tool", "message": "已读取库存摘要"}],
+                    "context_summary": {
+                        "inventoryItemCount": summary.get("availableCount", 0),
+                        "expiringItemCount": expiring.get("count", summary.get("expiringCount", 0)),
+                        "lowStockItemCount": summary.get("lowStockCount", 0),
+                    },
+                    "state_patch": {},
+                    "requires_clarification": False,
+                    "status": "completed",
+                    "error": None,
+                },
+                tool_names,
+            )
+
+        if "recipe.search" in available_tool_names and "meal_log.read_recent" in available_tool_names:
+            inventory = call("inventory.read_available_items", {"limit": 50})
+            expiring = call("inventory.read_expiring_items", {"days": 7})
+            recipes = call("recipe.search", {"limit": 12})
+            foods = call("food.search", {"limit": 12})
+            recent = call("meal_log.read_recent", {"limit": 5})
+            candidates = [item.get("name") for item in foods.get("items", [])[:3] if item.get("name")] or [item.get("title") for item in recipes.get("items", [])[:3] if item.get("title")] or ["清爽家常菜"]
+            card = {
+                "id": "today-recommendation",
+                "type": "today_recommendation",
+                "title": "今日吃什么",
+                "data": {
+                    "recommendations": [{"title": title, "reason": "优先使用当前库存。", "evidence": expiring.get("items", [])[:1]} for title in candidates[:3]],
+                    "contextSummary": {
+                        "inventoryCount": inventory.get("count", 0),
+                        "expiringCount": expiring.get("count", 0),
+                        "recentMealCount": recent.get("count", 0),
+                        "recipeCount": recipes.get("count", 0),
+                    },
+                },
+            }
+            return self._tool_result(
+                {
+                    "text": "我按当前库存和最近餐食整理了今天的建议。",
+                    "cards": [card],
+                    "events": [{"type": "tool", "message": "已读取库存、菜谱和最近餐食"}],
+                    "context_summary": {"inventoryItemCount": inventory.get("count", 0), "expiringItemCount": expiring.get("count", 0)},
+                    "state_patch": {},
+                    "requires_clarification": False,
+                    "status": "completed",
+                    "error": None,
+                },
+                tool_names,
+            )
+
+        return self._tool_result({"text": self.text, "cards": [], "events": [], "context_summary": {}, "state_patch": {}, "requires_clarification": False, "status": "completed", "error": None}, tool_names)
+
+    def _tool_result(self, payload: dict, tool_names: list[str]) -> ChatProviderResult:
+        return ChatProviderResult(
+            text=json.dumps(payload, ensure_ascii=False, default=str),
+            status="completed",
+            model=self.model_name,
+            structured_mode="tool_call",
+            tool_calls=[{"name": name, "args": {}} for name in tool_names],
+        )
+
+    def _recipe_draft_from_text(self) -> dict:
+        parsed = json_object(self.text)
+        if isinstance(parsed, dict) and parsed.get("title"):
+            return parsed
+        return {
+            "title": "番茄鸡蛋面",
+            "servings": 2,
+            "prep_minutes": 20,
+            "difficulty": "easy",
+            "ingredient_items": [
+                {"ingredient_id": "ingredient-tomato", "ingredient_name": "番茄", "quantity": 2, "unit": "个", "note": "切块"},
+                {"ingredient_id": None, "ingredient_name": "鸡蛋", "quantity": 2, "unit": "个", "note": "打散"},
+            ],
+            "steps": [
+                {"title": "备菜", "text": "番茄洗净后处理 5 分钟，切成 2 厘米块，鸡蛋打到没有透明蛋清。面条提前称好，葱花和调味料放在手边，方便后续连续操作。", "icon": "bowl", "summary": "处理食材", "estimated_minutes": 5, "tip": "番茄切均匀。", "key_points": ["番茄切块"]},
+                {"title": "炒汤底", "text": "锅中放少量油，中火加热 30 秒后倒入蛋液炒到刚凝固盛出。继续用中火炒番茄 3 分钟，看到出汁变软后加入热水煮沸。", "icon": "pan", "summary": "炒出汤底", "estimated_minutes": 8, "tip": "番茄要炒出汁。", "key_points": ["中火"]},
+                {"title": "煮面收尾", "text": "汤汁沸腾后下面条煮 5 分钟，保持微沸并不时搅动防止粘连。面条变软熟透后倒回鸡蛋，加盐调味，确认汤汁冒泡后出锅。", "icon": "plate", "summary": "煮熟装盘", "estimated_minutes": 7, "tip": "出锅前尝味。", "key_points": ["煮熟"]},
+            ],
+            "tips": "少油少盐，适合晚餐。",
+            "scene_tags": ["家常菜"],
+        }
+
 
 class StreamingChatProvider(BaseChatProvider):
     model_name = "stream-model"
@@ -357,6 +633,165 @@ class SequenceChatProvider(BaseChatProvider):
     def generate(self, *, system: str, user: str, response_schema: dict | None = None) -> ChatProviderResult:
         text = self.responses.pop(0) if self.responses else None
         return ChatProviderResult(text=text, status="completed" if text else "fallback", model=self.model_name)
+
+    def generate_with_tools(
+        self,
+        *,
+        system: str,
+        user: str,
+        tools: list,
+        tool_handler,
+        response_schema: dict | None = None,
+        max_rounds: int = 8,
+    ) -> ChatProviderResult:
+        del system, user, response_schema, max_rounds
+        text = self.responses.pop(0) if self.responses else None
+        if not text:
+            return ChatProviderResult(text=None, status="fallback", model=self.model_name)
+        decision = json_object(text)
+        if not isinstance(decision, dict):
+            return ChatProviderResult(text=text, status="completed", model=self.model_name, structured_mode="tool_call")
+        available_tool_names = {tool.name for tool in tools}
+        tool_names: list[str] = []
+
+        def call(name: str, args: dict) -> dict:
+            tool_names.append(name)
+            return tool_handler(name, args)
+
+        if "meal_plan.create_draft" in available_tool_names:
+            items = decision.get("items") if isinstance(decision.get("items"), list) else []
+            if not items and self.responses:
+                repaired = json_object(self.responses.pop(0) or "")
+                if isinstance(repaired, dict):
+                    decision = repaired
+                    items = decision.get("items") if isinstance(decision.get("items"), list) else []
+            call("inventory.read_expiring_items", {"days": 7})
+            call("inventory.read_available_items", {"limit": 80})
+            call("meal_log.read_recent", {"limit": 8})
+            call("food.search", {"limit": 24})
+            call("recipe.search", {"limit": 24})
+            call("meal_plan.read_existing", {"limit": 20})
+            if not items:
+                return self._result(
+                    {
+                        "text": "餐食计划模型没有生成可用的计划项，请重试。",
+                        "cards": [],
+                        "events": [],
+                        "context_summary": {"scriptValidation": {"valid": False, "errors": ["empty items"]}},
+                        "state_patch": {},
+                        "requires_clarification": False,
+                        "status": "failed",
+                        "error": "meal plan items are empty",
+                        "operation": decision.get("operation"),
+                    },
+                    tool_names,
+                )
+            draft = {"draftType": "meal_plan", "schemaVersion": "meal_plan.v1", "items": items, "source": {"days": decision.get("days") or 1, "mealTypes": decision.get("mealTypes") or ["dinner"]}}
+            call("meal_plan.create_draft", {"draft": draft})
+            card = {"id": "meal-plan-draft", "type": "meal_plan_draft", "title": "餐食计划草稿", "data": {"draft": draft, "items": items, "preview": "\n".join(str(item.get("title") or "") for item in items)}}
+            return self._result(
+                {
+                    "text": f"我生成了 {len(items)} 条餐食计划草稿。",
+                    "cards": [card],
+                    "events": [{"type": "draft", "message": "已生成餐食计划草稿"}],
+                    "context_summary": {"scriptValidation": {"valid": True, "errors": []}},
+                    "state_patch": {},
+                    "requires_clarification": False,
+                    "status": "completed",
+                    "error": None,
+                    "operation": decision.get("operation"),
+                    "source_artifact_id": decision.get("sourceArtifactId"),
+                },
+                tool_names,
+            )
+
+        if "shopping.create_draft" in available_tool_names or "shopping_list.create_draft" in available_tool_names:
+            call("shopping.read_pending", {"limit": 50})
+            call("inventory.read_available_items", {"limit": 80})
+            source_id = str(decision.get("sourceArtifactId") or "")
+            items = decision.get("items") if isinstance(decision.get("items"), list) else []
+            if decision.get("operation") in {"derive", "modify"} and source_id.startswith("missing"):
+                return self._result(
+                    {
+                        "text": "没有找到购物清单所引用的有效草稿。",
+                        "cards": [],
+                        "events": [],
+                        "context_summary": {},
+                        "state_patch": {},
+                        "requires_clarification": False,
+                        "status": "failed",
+                        "error": "invalid meal_plan source artifact",
+                        "operation": decision.get("operation"),
+                        "source_artifact_id": source_id,
+                    },
+                    tool_names,
+                )
+            if not items:
+                if self.responses:
+                    repaired = json_object(self.responses.pop(0) or "")
+                    if isinstance(repaired, dict):
+                        items = repaired.get("items") if isinstance(repaired.get("items"), list) else []
+                        decision = repaired
+                if items:
+                    draft = {"draftType": "shopping_list", "schemaVersion": "shopping_list.v1", "items": items, "sourceDraftId": source_id or None}
+                    call("shopping.create_draft", {"draft": draft})
+                    return self._result(
+                        {
+                            "text": f"我根据餐食计划里的缺失食材合并了 {len(items)} 个购物清单草稿项。",
+                            "cards": [{"id": "shopping-list-draft", "type": "shopping_list_draft", "title": "购物清单草稿", "data": {"draft": draft, "items": items}}],
+                            "events": [{"type": "draft", "message": "已生成购物清单草稿"}],
+                            "context_summary": {"draftType": "shopping_list"},
+                            "state_patch": {},
+                            "requires_clarification": False,
+                            "status": "completed",
+                            "error": None,
+                            "operation": decision.get("operation"),
+                            "source_artifact_id": source_id,
+                        },
+                        tool_names,
+                    )
+                return self._result(
+                    {
+                        "text": "当前没有需要加入购物清单的项目。",
+                        "cards": [],
+                        "events": [],
+                        "context_summary": {},
+                        "state_patch": {},
+                        "requires_clarification": False,
+                        "status": "completed",
+                        "error": "shopping list items are empty",
+                        "operation": decision.get("operation"),
+                        "source_artifact_id": source_id,
+                    },
+                    tool_names,
+                )
+            draft = {"draftType": "shopping_list", "schemaVersion": "shopping_list.v1", "items": items, "sourceDraftId": source_id or None}
+            call("shopping.create_draft", {"draft": draft})
+            return self._result(
+                {
+                    "text": f"我根据餐食计划里的缺失食材合并了 {len(items)} 个购物清单草稿项。",
+                    "cards": [{"id": "shopping-list-draft", "type": "shopping_list_draft", "title": "购物清单草稿", "data": {"draft": draft, "items": items}}],
+                    "events": [{"type": "draft", "message": "已生成购物清单草稿"}],
+                    "context_summary": {"draftType": "shopping_list"},
+                    "state_patch": {},
+                    "requires_clarification": False,
+                    "status": "completed",
+                    "error": None,
+                    "operation": decision.get("operation"),
+                    "source_artifact_id": source_id,
+                },
+                tool_names,
+            )
+        return ChatProviderResult(text=text, status="completed", model=self.model_name, structured_mode="tool_call")
+
+    def _result(self, payload: dict, tool_names: list[str]) -> ChatProviderResult:
+        return ChatProviderResult(
+            text=json.dumps(payload, ensure_ascii=False, default=str),
+            status="completed",
+            model=self.model_name,
+            structured_mode="tool_call",
+            tool_calls=[{"name": name, "args": {}} for name in tool_names],
+        )
 
 
 class AIAgentInfraTestCase(unittest.TestCase):
@@ -633,7 +1068,7 @@ class AIAgentInfraTestCase(unittest.TestCase):
         self.assertEqual(skill_registry.keys(), set(keys))
         self.assertEqual([manifest.key for manifest in skill_registry.list_manifests()], keys)
         self.assertNotIn("general_chat", skill_registry.keys())
-        self.assertIsInstance(skill_registry.get("inventory_analysis"), MarkdownInstructionSkill)
+        self.assertIsInstance(skill_registry.get("inventory_analysis"), ToolCallingSkill)
 
     def test_ai_registry_endpoint_exposes_skill_and_tool_contracts(self) -> None:
         response = self.client.get("/api/ai/registry")
@@ -643,11 +1078,13 @@ class AIAgentInfraTestCase(unittest.TestCase):
         tools = {item["name"]: item for item in data["tools"]}
 
         self.assertIn("meal_log", skills)
-        self.assertEqual(skills["meal_log"]["runner"], "meal_log")
+        self.assertEqual(skills["meal_log"]["runner"], "toolcall")
         self.assertEqual(skills["meal_log"]["context_policy"], ["foods", "meal_logs"])
         self.assertIn("meal_log.create_draft", skills["meal_log"]["tools"])
         self.assertIn("ingredient.search", skills["recipe_draft"]["tools"])
+        self.assertEqual(tools["ingredient.search"]["display_name"], "食材资料")
         self.assertEqual(tools["ingredient.search"]["side_effect"], "read")
+        self.assertEqual(tools["meal_log.create_draft"]["display_name"], "餐食记录确认表单")
         self.assertEqual(tools["meal_log.create_draft"]["permission"], "family:draft")
         self.assertEqual(tools["meal_log.create_draft"]["side_effect"], "draft")
         self.assertEqual(
@@ -657,8 +1094,8 @@ class AIAgentInfraTestCase(unittest.TestCase):
 
     def test_skill_loader_uses_document_runner_without_skill_python_entrypoint(self) -> None:
         skill_registry = build_workspace_skill_registry()
-        self.assertEqual(skill_registry.get("meal_plan").manifest.runner, "meal_plan")
-        self.assertNotIsInstance(skill_registry.get("meal_plan"), MarkdownInstructionSkill)
+        self.assertEqual(skill_registry.get("meal_plan").manifest.runner, "toolcall")
+        self.assertIsInstance(skill_registry.get("meal_plan"), ToolCallingSkill)
         self.assertFalse(any(Path(__file__).resolve().parents[1].glob("app/ai/skills/*/skill.py")))
 
     def test_skill_loader_accepts_markdown_only_skill_without_python_entrypoint(self) -> None:
@@ -677,7 +1114,7 @@ class AIAgentInfraTestCase(unittest.TestCase):
             )
             skills = SkillDirectoryLoader(catalog_dir).load()
             self.assertEqual(len(skills), 1)
-            self.assertIsInstance(skills[0], MarkdownInstructionSkill)
+            self.assertIsInstance(skills[0], ToolCallingSkill)
 
     def test_markdown_skill_loader_includes_supplemental_docs_and_scripts(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -704,7 +1141,7 @@ class AIAgentInfraTestCase(unittest.TestCase):
             (skill_dir / "scripts").mkdir()
             (skill_dir / "scripts" / "helper.py").write_text("def normalize(value):\n    return value\n", encoding="utf-8")
             skills = SkillDirectoryLoader(catalog_dir).load()
-            self.assertIsInstance(skills[0], MarkdownInstructionSkill)
+            self.assertIsInstance(skills[0], ToolCallingSkill)
             instructions = skills[0].instructions
             self.assertIn("workflow content", instructions)
             self.assertIn("hitl content", instructions)
@@ -1082,7 +1519,7 @@ class AIAgentInfraTestCase(unittest.TestCase):
 
     def test_markdown_instruction_skill_reads_declared_read_tools_and_model_response(self) -> None:
         skill = build_workspace_skill_registry().get("inventory_analysis")
-        self.assertIsInstance(skill, MarkdownInstructionSkill)
+        self.assertIsInstance(skill, ToolCallingSkill)
         with self.SessionLocal() as db:
             tool_executor = ToolExecutor(
                 build_workspace_tool_registry(),
@@ -1115,6 +1552,97 @@ class AIAgentInfraTestCase(unittest.TestCase):
         self.assertEqual(result.context_summary["inventoryItemCount"], 1)
         self.assertIn("inventory.read_summary", tool_names)
         self.assertIn("inventory.read_expiring_items", tool_names)
+
+    def test_tool_calling_skill_normalizes_preview_card_type_to_declared_draft_type(self) -> None:
+        class PreviewCardProvider(BaseChatProvider):
+            model_name = "preview-card-model"
+
+            def generate(self, *, system: str, user: str, response_schema: dict | None = None) -> ChatProviderResult:
+                raise AssertionError("tool-calling skill should use generate_with_tools")
+
+            def generate_with_tools(
+                self,
+                *,
+                system: str,
+                user: str,
+                tools: list,
+                tool_handler,
+                response_schema: dict | None = None,
+                max_rounds: int = 8,
+            ) -> ChatProviderResult:
+                del system, user, tools, response_schema, max_rounds
+                item = {
+                    "date": date.today().isoformat(),
+                    "mealType": "dinner",
+                    "title": "番茄鸡蛋面",
+                    "foodId": None,
+                    "recipeId": None,
+                    "reason": "使用当前库存。",
+                    "usedInventory": ["番茄"],
+                    "missingIngredients": ["鸡蛋"],
+                }
+                draft = {
+                    "draftType": "meal_plan",
+                    "schemaVersion": "meal_plan.v1",
+                    "items": [item],
+                    "source": {"days": 1, "mealTypes": ["dinner"]},
+                }
+                tool_handler("meal_plan.create_draft", {"draft": draft})
+                return ChatProviderResult(
+                    text=json.dumps(
+                        {
+                            "text": "我生成了 1 条餐食计划草稿。",
+                            "cards": [
+                                {
+                                    "id": "meal-plan-preview",
+                                    "type": "meal_plan_preview",
+                                    "title": "餐食计划预览",
+                                    "data": {"draft": draft, "items": [item]},
+                                }
+                            ],
+                            "events": [],
+                            "context_summary": {},
+                            "state_patch": {},
+                            "requires_clarification": False,
+                            "status": "completed",
+                            "error": None,
+                        },
+                        ensure_ascii=False,
+                    ),
+                    status="completed",
+                    model=self.model_name,
+                    structured_mode="tool_call",
+                )
+
+        skill = build_workspace_skill_registry().get("meal_plan")
+        with self.SessionLocal() as db:
+            tool_executor = ToolExecutor(
+                build_workspace_tool_registry(),
+                ToolContext(
+                    db=db,
+                    family_id=self.family.id,
+                    user_id=self.user.id,
+                    conversation_id="conversation-test",
+                    run_id="run-test",
+                ),
+            )
+            result = skill.run(
+                SkillContext(
+                    db=db,
+                    family_id=self.family.id,
+                    user_id=self.user.id,
+                    conversation_id="conversation-test",
+                    run_id="run-test",
+                    conversation=[],
+                    current_message="安排一天晚餐",
+                    tool_executor=tool_executor,
+                    provider=PreviewCardProvider(),
+                )
+            )
+
+        self.assertEqual(result.status, "completed")
+        self.assertEqual(result.cards[0]["type"], "meal_plan_draft")
+        self.assertEqual(result.drafts[0]["draft_type"], "meal_plan")
 
     def test_markdown_instruction_skill_does_not_auto_call_draft_or_write_tools(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -1524,10 +2052,15 @@ class AIAgentInfraTestCase(unittest.TestCase):
 
     def test_workspace_tool_registry_uses_real_schemas_for_key_tools(self) -> None:
         registry = build_workspace_tool_registry()
+        for tool in registry.list():
+            self.assertTrue(tool.display_name)
+            self.assertNotIn(".", tool.display_name)
         expiring = registry.get("inventory.read_expiring_items")
+        self.assertEqual(expiring.display_name, "临期食材")
         self.assertIn("days", expiring.input_schema["properties"])
         self.assertEqual(expiring.output_schema["required"], ["count", "items"])
         meal_plan_draft = registry.get("meal_plan.create_draft")
+        self.assertEqual(meal_plan_draft.display_name, "餐食计划确认表单")
         self.assertEqual(meal_plan_draft.side_effect, "draft")
         self.assertEqual(meal_plan_draft.permission, "family:draft")
         self.assertEqual(meal_plan_draft.input_schema["required"], ["draft"])
@@ -1536,6 +2069,40 @@ class AIAgentInfraTestCase(unittest.TestCase):
         self.assertTrue(meal_plan_draft.requires_confirmation)
         meal_log_draft = registry.get("meal_log.create_draft")
         self.assertEqual(meal_log_draft.input_schema["properties"]["draft"]["properties"]["foods"]["minItems"], 1)
+
+    def test_tool_executor_progress_uses_display_names(self) -> None:
+        events: list[dict] = []
+
+        def stream_writer(event: dict) -> None:
+            events.append(event)
+
+        with self.SessionLocal() as db:
+            executor = ToolExecutor(
+                build_workspace_tool_registry(),
+                ToolContext(
+                    db=db,
+                    family_id=self.family.id,
+                    user_id=self.user.id,
+                    conversation_id="conversation-test",
+                    run_id="run-test",
+                    stream_writer=stream_writer,
+                ),
+            )
+            executor.call("inventory.read_available_items", {"limit": 10})
+            executor.call(
+                "meal_plan.create_draft",
+                {
+                    "draft": {
+                        "draftType": "meal_plan",
+                        "schemaVersion": "meal_plan.v1",
+                        "items": [{"date": date.today().isoformat(), "mealType": "dinner", "title": "番茄小炒"}],
+                    }
+                },
+            )
+
+        messages = [event["data"]["user_message"] for event in events]
+        self.assertEqual(messages, ["已调用「可用库存」工具", "正在生成「餐食计划确认表单」"])
+        self.assertNotIn("inventory.read_available_items", "\n".join(messages))
 
     def test_meal_plan_read_existing_uses_related_food_name(self) -> None:
         with self.SessionLocal() as db:
@@ -1687,7 +2254,6 @@ class AIAgentInfraTestCase(unittest.TestCase):
         self.assertIn("conversation_id", data)
         self.assertEqual(data["run"]["agent_key"], "today_recommendation_agent")
         self.assertEqual(data["run"]["intent"], "today_recommendation")
-        self.assertGreaterEqual(len(data["events"]), 3)
         card_parts = [part for part in data["message"]["parts"] if part["type"] == "result_card"]
         self.assertEqual(card_parts[0]["card"]["type"], "today_recommendation")
         recommendations = card_parts[0]["card"]["data"]["recommendations"]
@@ -1700,7 +2266,7 @@ class AIAgentInfraTestCase(unittest.TestCase):
             events = list(db.scalars(select(AIRunEvent).where(AIRunEvent.run_id == data["run"]["id"])))
             run = db.get(AIAgentRun, data["run"]["id"])
             self.assertEqual(len(messages), 2)
-            self.assertGreaterEqual(len(events), 3)
+            self.assertEqual(events, [])
             self.assertIsNotNone(run)
             assert run is not None
             self.assertEqual(run.intent, "today_recommendation")
@@ -1720,6 +2286,13 @@ class AIAgentInfraTestCase(unittest.TestCase):
         response = self.client.get(f"/api/ai/conversations/{conversation_id}/messages")
         self.assertEqual(response.status_code, 200, response.text)
         self.assertEqual(len(response.json()), 2)
+
+    def test_ai_workspace_general_chat_does_not_persist_task_progress(self) -> None:
+        response = self.client.post("/api/ai/chat", json={"message": "随便聊聊"})
+        self.assertEqual(response.status_code, 200, response.text)
+        data = response.json()
+        self.assertEqual(data["run"]["intent"], "general_chat")
+        self.assertEqual(data["events"], [])
 
     def test_ai_workspace_messages_normalize_legacy_result_cards_missing_id_and_title(self) -> None:
         with self.SessionLocal() as db:
@@ -2038,6 +2611,38 @@ class AIAgentInfraTestCase(unittest.TestCase):
             tool_names = [item["name"] for item in run.tool_calls]
             self.assertIn("meal_plan.create_draft", tool_names)
             self.assertIn("shopping.create_draft", tool_names)
+            assistant_messages = list(
+                db.scalars(
+                    select(AIMessage)
+                    .where(AIMessage.run_id == data["run"]["id"], AIMessage.role == "assistant")
+                    .order_by(AIMessage.created_at.asc())
+                )
+            )
+            self.assertEqual(len(assistant_messages), 1)
+            assistant_message = assistant_messages[0]
+            approval_types = [
+                part["approval"]["approval_type"]
+                for part in assistant_message.parts
+                if isinstance(part, dict) and part.get("type") == "approval_request"
+            ]
+            self.assertEqual(approval_types, ["meal_plan.create", "shopping_list.create"])
+            card_types = [
+                part["card"]["type"]
+                for part in assistant_message.parts
+                if isinstance(part, dict) and part.get("type") == "result_card"
+            ]
+            self.assertIn("meal_plan_draft", card_types)
+            self.assertIn("shopping_list_draft", card_types)
+            from app.ai.workflows.runner import WorkspaceGraphRunner
+
+            response_after_second_skill = WorkspaceGraphRunner(AIApplicationService(db, provider=FakeChatProvider()))._chat_response(
+                data["conversation_id"], data["run"]["id"]
+            )
+            self.assertEqual([draft["draft_type"] for draft in response_after_second_skill["included"]["drafts"]], ["meal_plan", "shopping_list"])
+            self.assertEqual(
+                [approval["approval_type"] for approval in response_after_second_skill["included"]["approvals"]],
+                ["meal_plan.create", "shopping_list.create"],
+            )
 
         shopping_decision_response = self.client.post(
             f"/api/ai/conversations/{data['conversation_id']}/approvals/{shopping_approval['id']}/decision",
@@ -2461,16 +3066,14 @@ class AIAgentInfraTestCase(unittest.TestCase):
             self.assertEqual(response.status_code, 200)
             body = "".join(response.iter_text())
         self.assertIn("event: progress", body)
-        self.assertIn("正在理解你的需求", body)
-        self.assertIn("正在规划要执行的厨房任务", body)
-        self.assertIn("正在执行今日推荐", body)
-        self.assertIn("读取上下文：inventory.read_available_items", body)
-        self.assertIn("正在生成可操作建议", body)
+        self.assertIn("调用「今日推荐」技能", body)
+        self.assertIn("已调用「可用库存」工具", body)
         self.assertIn("agent_run-client-test", body)
         self.assertNotIn("event: message_delta", body)
-        self.assertLess(body.index("正在规划要执行的厨房任务"), body.index("event: response"))
-        self.assertLess(body.index("正在执行今日推荐"), body.index("event: response"))
-        self.assertLess(body.index("正在生成可操作建议"), body.index("event: response"))
+        self.assertNotIn("读取上下文：inventory.read_available_items", body)
+        self.assertNotIn("执行完成", body)
+        self.assertLess(body.index("调用「今日推荐」技能"), body.index("已调用「可用库存」工具"))
+        self.assertLess(body.index("调用「今日推荐」技能"), body.index("event: response"))
         self.assertIn("event: response", body)
         self.assertIn("today_recommendation_agent", body)
 
@@ -2483,16 +3086,16 @@ class AIAgentInfraTestCase(unittest.TestCase):
             self.assertEqual(response.status_code, 200)
             body = "".join(response.iter_text())
         self.assertIn("event: progress", body)
-        self.assertIn("正在规划要执行的厨房任务", body)
-        self.assertIn("正在执行餐食计划", body)
-        self.assertIn("读取上下文：inventory.read_expiring_items", body)
-        self.assertIn("正在生成餐食计划结构化结果", body)
-        self.assertIn("餐食计划：已准备草稿", body)
-        self.assertIn("正在生成可操作建议", body)
+        self.assertIn("调用「餐食计划」技能", body)
+        self.assertIn("已调用「临期食材」工具", body)
+        self.assertIn("正在生成「餐食计划确认表单」", body)
         self.assertNotIn("event: message_delta", body)
-        self.assertLess(body.index("正在规划要执行的厨房任务"), body.index("event: response"))
-        self.assertLess(body.index("正在执行餐食计划"), body.index("event: response"))
-        self.assertLess(body.index("正在生成可操作建议"), body.index("event: response"))
+        self.assertNotIn("正在生成餐食计划结构化结果", body)
+        self.assertNotIn("餐食计划：已准备草稿", body)
+        self.assertNotIn("执行完成", body)
+        self.assertLess(body.index("调用「餐食计划」技能"), body.index("已调用「临期食材」工具"))
+        self.assertLess(body.index("已调用「临期食材」工具"), body.index("正在生成「餐食计划确认表单」"))
+        self.assertLess(body.index("调用「餐食计划」技能"), body.index("event: response"))
         self.assertIn("waiting_approval", body)
         self.assertIn("meal_plan.create", body)
 

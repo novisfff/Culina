@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from app.ai.tools.base import ToolContext, ToolResult, ToolSideEffect, timed_call
 from app.ai.tools.registry import ToolRegistry
 from app.ai.tools.validation import validate_json_value
 from app.core.utils import create_id, utcnow
+
+logger = logging.getLogger(__name__)
 
 
 class ToolExecutor:
@@ -27,23 +30,111 @@ class ToolExecutor:
         self.results = results if results is not None else []
 
     def call(self, name: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
-        definition = self.registry.get(name)
+        tool_input = payload or {}
+        try:
+            definition = self.registry.get(name)
+        except KeyError:
+            logger.warning(
+                "AI tool rejected unknown tool=%s run_id=%s conversation_id=%s family_id=%s input_keys=%s",
+                name,
+                self.context.run_id,
+                self.context.conversation_id,
+                self.context.family_id,
+                sorted(tool_input.keys()),
+                exc_info=True,
+            )
+            raise
         if name in self.forbidden_tools:
+            logger.warning(
+                "AI tool rejected forbidden tool=%s run_id=%s conversation_id=%s family_id=%s",
+                name,
+                self.context.run_id,
+                self.context.conversation_id,
+                self.context.family_id,
+            )
             raise PermissionError(f"当前 Skill 禁止调用工具 {name}")
         if self.allowed_tools is not None and name not in self.allowed_tools:
+            logger.warning(
+                "AI tool rejected undeclared tool=%s run_id=%s conversation_id=%s family_id=%s allowed_tools=%s",
+                name,
+                self.context.run_id,
+                self.context.conversation_id,
+                self.context.family_id,
+                sorted(self.allowed_tools),
+            )
             raise PermissionError(f"当前 Skill 未声明工具 {name}")
         if self.allowed_side_effects is not None and definition.side_effect not in self.allowed_side_effects:
+            logger.warning(
+                "AI tool rejected side effect tool=%s side_effect=%s run_id=%s conversation_id=%s family_id=%s allowed_side_effects=%s",
+                name,
+                definition.side_effect,
+                self.context.run_id,
+                self.context.conversation_id,
+                self.context.family_id,
+                sorted(self.allowed_side_effects),
+            )
             raise PermissionError(f"当前 Skill 不允许调用 {definition.side_effect} 类型工具 {name}")
 
-        tool_input = payload or {}
-        validate_json_value(tool_input, definition.input_schema, location=f"{name} input")
-        self._emit_tool_progress(name, self._tool_running_message(name, definition.side_effect), "running")
+        try:
+            validate_json_value(tool_input, definition.input_schema, location=f"{name} input")
+        except Exception:
+            logger.warning(
+                "AI tool input validation failed tool=%s run_id=%s conversation_id=%s family_id=%s input_keys=%s",
+                name,
+                self.context.run_id,
+                self.context.conversation_id,
+                self.context.family_id,
+                sorted(tool_input.keys()),
+                exc_info=True,
+            )
+            raise
+        logger.info(
+            "AI tool call started tool=%s side_effect=%s run_id=%s conversation_id=%s family_id=%s input_keys=%s",
+            name,
+            definition.side_effect,
+            self.context.run_id,
+            self.context.conversation_id,
+            self.context.family_id,
+            sorted(tool_input.keys()),
+        )
         result = timed_call(definition, self.context, tool_input)
         self.results.append(result)
-        self._emit_tool_progress(name, self._tool_done_message(name, definition.side_effect, result.status), result.status)
+        self._emit_tool_progress(definition.name, self._tool_message(definition.display_name, definition.side_effect, result.status), result.status)
         if result.status == "failed":
+            logger.warning(
+                "AI tool call failed tool=%s side_effect=%s run_id=%s conversation_id=%s family_id=%s duration_ms=%s error=%s",
+                name,
+                definition.side_effect,
+                self.context.run_id,
+                self.context.conversation_id,
+                self.context.family_id,
+                result.duration_ms,
+                result.error,
+            )
             raise ValueError(result.error or f"工具 {name} 执行失败")
-        validate_json_value(result.output, definition.output_schema, location=f"{name} output")
+        try:
+            validate_json_value(result.output, definition.output_schema, location=f"{name} output")
+        except Exception:
+            logger.warning(
+                "AI tool output validation failed tool=%s run_id=%s conversation_id=%s family_id=%s output_keys=%s",
+                name,
+                self.context.run_id,
+                self.context.conversation_id,
+                self.context.family_id,
+                sorted(result.output.keys()),
+                exc_info=True,
+            )
+            raise
+        logger.info(
+            "AI tool call completed tool=%s side_effect=%s run_id=%s conversation_id=%s family_id=%s duration_ms=%s output_keys=%s",
+            name,
+            definition.side_effect,
+            self.context.run_id,
+            self.context.conversation_id,
+            self.context.family_id,
+            result.duration_ms,
+            sorted(result.output.keys()),
+        )
         return result.output
 
     def scoped(
@@ -83,12 +174,9 @@ class ToolExecutor:
             }
         )
 
-    def _tool_running_message(self, name: str, side_effect: ToolSideEffect) -> str:
-        action = "准备草稿" if side_effect == "draft" else "读取上下文" if side_effect == "read" else "执行操作"
-        return f"{action}：{name}"
-
-    def _tool_done_message(self, name: str, side_effect: ToolSideEffect, status: str) -> str:
+    def _tool_message(self, display_name: str, side_effect: ToolSideEffect, status: str) -> str:
         if status == "failed":
-            return f"工具执行失败：{name}"
-        action = "已准备草稿" if side_effect == "draft" else "已读取上下文" if side_effect == "read" else "已完成操作"
-        return f"{action}：{name}"
+            return f"「{display_name}」调用失败"
+        if side_effect == "draft":
+            return f"正在生成「{display_name}」"
+        return f"已调用「{display_name}」工具"

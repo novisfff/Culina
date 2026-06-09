@@ -4,7 +4,7 @@ display_name: 购物清单
 version: 1.0.0
 description: 基于餐食计划、库存缺口和低库存生成购物清单草稿。
 category: shopping
-runner: shopping_list
+runner: toolcall
 risk_level: medium
 allowed_tools:
   - shopping.read_pending

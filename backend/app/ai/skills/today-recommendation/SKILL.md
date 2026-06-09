@@ -4,7 +4,7 @@ display_name: 今日推荐
 version: 1.0.0
 description: 根据库存、临期食材、最近餐食、食物和菜谱生成今日推荐卡片，不创建草稿。
 category: recommendation
-runner: today_recommendation
+runner: toolcall
 risk_level: low
 allowed_tools:
   - inventory.read_available_items

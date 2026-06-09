@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Iterator
 from datetime import date
 from decimal import Decimal
+import logging
 from typing import Any
 
 from fastapi.encoders import jsonable_encoder
@@ -62,6 +63,8 @@ from app.services.serializers import (
     serialize_recipe,
     serialize_shopping_item,
 )
+
+logger = logging.getLogger(__name__)
 
 
 DRAFT_APPROVAL_CONFIG: dict[str, dict[str, str]] = {
@@ -567,6 +570,15 @@ class AIApplicationService:
         operation: AIOperation | None = None
         business_entity: dict[str, Any] | None = None
         if decision == "rejected":
+            logger.info(
+                "AI approval rejected family_id=%s user_id=%s conversation_id=%s approval_id=%s draft_id=%s draft_type=%s",
+                family_id,
+                user_id,
+                conversation_id,
+                approval.id,
+                draft.id,
+                draft.draft_type,
+            )
             draft.status = "rejected"
             draft.updated_by = user_id
             self.db.flush()
@@ -612,7 +624,28 @@ class AIApplicationService:
             draft.payload = submitted_payload
             draft.updated_by = user_id
             audit.operation_summary = {"operationId": operation.id, "entityIds": entity_ids}
+            logger.info(
+                "AI approval operation succeeded family_id=%s user_id=%s conversation_id=%s approval_id=%s draft_id=%s draft_type=%s operation_id=%s entity_ids=%s",
+                family_id,
+                user_id,
+                conversation_id,
+                approval.id,
+                draft.id,
+                draft.draft_type,
+                operation.id,
+                entity_ids,
+            )
         except Exception as exc:
+            logger.exception(
+                "AI approval operation failed family_id=%s user_id=%s conversation_id=%s approval_id=%s draft_id=%s draft_type=%s operation_id=%s",
+                family_id,
+                user_id,
+                conversation_id,
+                approval.id,
+                draft.id,
+                draft.draft_type,
+                operation.id,
+            )
             operation.status = "failed"
             operation.error_message = str(exc)
             draft.status = "pending_retry"

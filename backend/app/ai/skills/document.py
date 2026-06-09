@@ -187,11 +187,10 @@ class DocumentDecisionSkill(BaseSkill):
                 )
         return "\n\n---\n\n".join(chunks)
 
-    def _generate_decision(self, context: SkillContext, *, payload: dict[str, Any], schema: dict[str, Any], progress_code: str, progress_message: str) -> dict[str, Any] | None:
+    def _generate_decision(self, context: SkillContext, *, payload: dict[str, Any], schema: dict[str, Any]) -> dict[str, Any] | None:
         if context.provider is None:
             return None
         payload = {**payload, "scriptHelpers": self.scripts.describe()}
-        context.emit_progress("model", progress_code, progress_message)
         result = context.provider.generate(
             system=(
                 "你是 Culina AI 工作台的文档型 Skill Runner。"
@@ -283,7 +282,6 @@ class RecipeDraftSkill(BaseSkill):
         if provider is None:
             return SkillResult(text="现在还不能生成菜谱草稿：AI provider 未配置。", status="failed", model="rules", error="AI provider 未配置", context_summary=context_record)
         system, user = build_recipe_draft_messages(agent_context, draft_input)
-        context.emit_progress("model", "recipe_draft.model_generate", "正在生成菜谱草稿结构化结果")
         result = provider.generate(system=system, user=user, response_schema=RECIPE_DRAFT_JSON_SCHEMA)
         if not result.text:
             return SkillResult(text="这次没有生成可用的菜谱草稿。", status="failed", model=result.model, error=result.error or "provider returned no structured recipe draft", context_summary=context_record)
@@ -349,7 +347,7 @@ class MealPlanSkill(DocumentDecisionSkill):
         }
         if repair:
             payload["repair"] = {"reason": repair_error or "meal plan decision needs repair", "previousDecision": previous_decision or {}, "instruction": "请保留原始意图，修复 items，使其至少包含一个有 title/date/mealType 的计划项。"}
-        return self._generate_decision(context, payload=payload, schema=MEAL_PLAN_DECISION_SCHEMA, progress_code="meal_plan.model_decide", progress_message="正在生成餐食计划结构化结果")
+        return self._generate_decision(context, payload=payload, schema=MEAL_PLAN_DECISION_SCHEMA)
 
     def _result_from_decision(self, context: SkillContext, tool_outputs: dict[str, dict[str, Any]], decision: dict[str, Any]) -> SkillResult:
         operation = str(decision.get("operation") or "")
@@ -386,7 +384,6 @@ class MealPlanSkill(DocumentDecisionSkill):
             "source": {"days": days, "mealTypes": meal_types, "expiringInventoryIds": [item.get("id") for item in expiring.get("items", [])[:8]], "modifiedFromDraftId": source_artifact_id or None, "constraints": constraints},
         }
         context.tool_executor.call("meal_plan.create_draft", {"draft": draft})
-        context.emit_progress("skill_graph", "meal_plan.create_draft", "餐食计划：已准备草稿", "completed")
         card = {"id": "meal-plan-draft", "type": "meal_plan_draft", "title": "餐食计划草稿", "data": {"draft": draft, "summary": f"{days} 天 · {', '.join(meal_type_label(item) for item in meal_types)}", "items": entries, "preview": preview or ""}}
         return SkillResult(
             text=f"我生成了 {len(entries)} 条餐食计划草稿，优先考虑了临期库存、最近餐食和你的口味约束。每条计划都标出了使用库存和可能缺少的食材。",
@@ -442,7 +439,7 @@ class ShoppingListSkill(DocumentDecisionSkill):
         payload = {"conversation": context.conversation, "currentMessage": context.current_message, "availableArtifacts": conversation_artifacts(context), "availableInventory": tool_outputs["inventory.read_available_items"].get("items", [])[:80], "pendingShopping": tool_outputs["shopping.read_pending"].get("items", [])[:50]}
         if repair:
             payload["repair"] = {"reason": repair_error or "shopping list decision needs repair", "previousDecision": previous_decision or {}, "instruction": "请保留原始意图，修复 items，使购物清单至少包含一个 title/quantity/unit 项。"}
-        return self._generate_decision(context, payload=payload, schema=SHOPPING_LIST_DECISION_SCHEMA, progress_code="shopping_list.model_decide", progress_message="正在生成购物清单结构化结果")
+        return self._generate_decision(context, payload=payload, schema=SHOPPING_LIST_DECISION_SCHEMA)
 
     def _result_from_decision(self, context: SkillContext, tool_outputs: dict[str, dict[str, Any]], decision: dict[str, Any]) -> SkillResult:
         operation = str(decision.get("operation") or "")
@@ -463,7 +460,6 @@ class ShoppingListSkill(DocumentDecisionSkill):
             item["alreadyPending"] = item["title"] in pending_titles
         draft = {"draftType": "shopping_list", "schemaVersion": "shopping_list.v1", "items": draft_items, "sourceDraftId": source_artifact_id or None}
         context.tool_executor.call("shopping.create_draft", {"draft": draft})
-        context.emit_progress("skill_graph", "shopping_list.create_draft", "购物清单：已准备草稿", "completed")
         card = {"id": "shopping-list-draft", "type": "shopping_list_draft", "title": "购物清单草稿", "data": {"draft": draft, "items": draft_items, "summary": f"{len(draft_items)} 个待确认采购项", "sourceSummary": {"plannedMealCount": sum(len((artifact.get("payload") or {}).get("items", [])) for artifact in conversation_artifacts(context, "meal_plan")), "inventoryCount": inventory.get("count", 0), "pendingShoppingCount": pending.get("count", 0)}}}
         return SkillResult(
             text=f"我根据餐食计划里的缺失食材合并了 {len(draft_items)} 个购物清单草稿项，并标注了每项来源。",
@@ -518,8 +514,6 @@ class MealLogSkill(DocumentDecisionSkill):
             context,
             payload={"conversation": context.conversation, "currentMessage": context.current_message, "foods": foods[:80], "recentMealLogs": recent_logs[:8], "today": date.today().isoformat()},
             schema=MEAL_LOG_DECISION_SCHEMA,
-            progress_code="meal_log.model_decide",
-            progress_message="正在生成餐食记录结构化结果",
         )
         if decision is None:
             return SkillResult(text="餐食记录模型没有返回有效结果，请重试。", status="failed", model=model_name(context), error="invalid meal log model response")
@@ -537,7 +531,6 @@ class MealLogSkill(DocumentDecisionSkill):
             meal_date = date.today()
         draft = {"draftType": "meal_log", "schemaVersion": "meal_log.v1", "date": meal_date.isoformat(), "mealType": meal_type, "foods": draft_foods, "notes": norm_name(decision.get("notes")) or context.current_message.strip()}
         context.tool_executor.call("meal_log.create_draft", {"draft": draft})
-        context.emit_progress("skill_graph", "meal_log.create_draft", "餐食记录：已准备草稿", "completed")
         card = {"id": "meal-log-draft", "type": "meal_log_draft", "title": "餐食记录草稿", "data": {"draft": draft, "foods": draft_foods, "summary": f"{meal_date.isoformat()} · {meal_type_label(meal_type)} · {len(draft_foods)} 个食物项"}}
         matched_count = sum(1 for item in draft_foods if item.get("foodId"))
         return SkillResult(
@@ -581,8 +574,6 @@ class FoodProfileSkill(DocumentDecisionSkill):
             context,
             payload={"conversation": context.conversation, "currentMessage": context.current_message, "foods": foods[:80], "today": date.today().isoformat()},
             schema=FOOD_PROFILE_DECISION_SCHEMA,
-            progress_code="food_profile.model_decide",
-            progress_message="正在生成食物资料结构化结果",
         )
         if decision is None:
             return SkillResult(text="食物资料模型没有返回有效结果，请重试。", status="failed", model=model_name(context), error="invalid food profile model response")
@@ -592,7 +583,6 @@ class FoodProfileSkill(DocumentDecisionSkill):
         if payload is None:
             return SkillResult(text="我还需要知道要整理的食物名称。", model=model_name(context), operation="clarify", requires_clarification=True)
         context.tool_executor.call("food_profile.create_draft", {"draft": payload})
-        context.emit_progress("skill_graph", "food_profile.create_draft", "食物资料：已准备草稿", "completed")
         card = {"id": "food-profile-draft", "type": "food_profile_draft", "title": "食物资料草稿", "data": {"draft": payload, "summary": f"{payload['name']} · {payload['category']}", "items": [{"title": payload["name"], "reason": payload["routine_note"]}]}}
         return SkillResult(
             text=f"我整理了一份 {payload['name']} 的食物资料草稿，确认后才会写入食物库。",

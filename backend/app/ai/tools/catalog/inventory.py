@@ -94,6 +94,7 @@ def register_inventory_tools(registry: ToolRegistry) -> None:
     register_tool(
         registry,
         name="inventory.read_summary",
+        display_name="库存概览",
         description="读取当前家庭库存摘要。",
         side_effect="read",
         handler=inventory_read_summary,
@@ -103,6 +104,7 @@ def register_inventory_tools(registry: ToolRegistry) -> None:
     register_tool(
         registry,
         name="inventory.read_expiring_items",
+        display_name="临期食材",
         description="读取当前家庭临期食材。",
         side_effect="read",
         handler=inventory_read_expiring_items,
@@ -112,6 +114,7 @@ def register_inventory_tools(registry: ToolRegistry) -> None:
     register_tool(
         registry,
         name="inventory.read_available_items",
+        display_name="可用库存",
         description="读取当前家庭可用库存。",
         side_effect="read",
         handler=inventory_read_available_items,

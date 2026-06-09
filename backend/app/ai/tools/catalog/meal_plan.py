@@ -54,6 +54,7 @@ def register_meal_plan_tools(registry: ToolRegistry) -> None:
     register_tool(
         registry,
         name="meal_plan.read_existing",
+        display_name="已有餐食计划",
         description="读取已有餐食计划。",
         side_effect="read",
         handler=meal_plan_read_existing,
@@ -63,6 +64,7 @@ def register_meal_plan_tools(registry: ToolRegistry) -> None:
     register_tool(
         registry,
         name="meal_plan.create_draft",
+        display_name="餐食计划确认表单",
         description="生成餐食计划草稿，不写入业务表。",
         side_effect="draft",
         handler=meal_plan_create_draft,

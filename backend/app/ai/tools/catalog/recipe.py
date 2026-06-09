@@ -68,6 +68,7 @@ def register_recipe_tools(registry: ToolRegistry) -> None:
     register_tool(
         registry,
         name="recipe.search",
+        display_name="菜谱库",
         description="搜索当前家庭菜谱。",
         side_effect="read",
         handler=recipe_search,
@@ -77,6 +78,7 @@ def register_recipe_tools(registry: ToolRegistry) -> None:
     register_tool(
         registry,
         name="recipe.create_draft",
+        display_name="菜谱确认表单",
         description="生成菜谱草稿，不写入业务表。",
         side_effect="draft",
         handler=recipe_create_draft,

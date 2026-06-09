@@ -40,6 +40,7 @@ class Settings(BaseSettings):
     ai_image_text_api_key: str = ""
     ai_image_text_model: str = "wan2.6-t2i"
     frontend_origin: str = "http://localhost:5173"
+    log_level: str = "INFO"
     initial_admin_username: str = ""
     initial_admin_password: str = ""
     initial_admin_display_name: str = ""

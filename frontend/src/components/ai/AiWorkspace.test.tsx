@@ -287,6 +287,86 @@ describe('AiWorkspace pending approval restore', () => {
     rendered.unmount();
   });
 
+  it('pauses both composers and blocks sending while an approval is pending', async () => {
+    vi.spyOn(api, 'getAiMessages').mockResolvedValue([]);
+    vi.spyOn(api, 'getPendingAiApprovals').mockResolvedValue([approval()]);
+    const streamSpy = vi.spyOn(api, 'streamChatAi').mockResolvedValue({
+      conversation_id: 'conversation-1',
+      message: {
+        id: 'message-final',
+        conversation_id: 'conversation-1',
+        role: 'assistant',
+        content: '不应该发送',
+        content_type: 'parts',
+        parts: [{ id: 'part-final', type: 'text', text: '不应该发送' }],
+        run_id: 'run-blocked',
+        status: 'completed',
+        metadata: {},
+        created_at: '2026-05-30T00:00:00Z',
+      },
+      run: {
+        id: 'run-blocked',
+        agent_key: 'general_chat_agent',
+        intent: 'general_chat',
+        status: 'completed',
+        model: 'rules',
+        created_at: '2026-05-30T00:00:00Z',
+      },
+      events: [],
+      included: { result_cards: [], drafts: [], approvals: [] },
+    });
+    const rendered = await renderWithQuery(<AiWorkspace conversations={[conversation()]} isLoading={false} />);
+    await flush();
+    expect(rendered.container.textContent).toContain('请先确认上面的草稿，确认后可以继续对话。');
+    expect(Array.from(rendered.container.querySelectorAll<HTMLTextAreaElement>('.ai-composer textarea')).every((textarea) => textarea.disabled)).toBe(true);
+    expect(Array.from(rendered.container.querySelectorAll<HTMLButtonElement>('.ai-send-button')).every((button) => button.disabled)).toBe(true);
+    await act(async () => {
+      rendered.container.querySelector<HTMLFormElement>('form.ai-composer')?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    });
+    await flush();
+    expect(streamSpy).not.toHaveBeenCalled();
+    rendered.unmount();
+  });
+
+  it('resumes the composers after the pending approval is settled and refetched', async () => {
+    const pending = approval();
+    vi.spyOn(api, 'getAiMessages').mockResolvedValue([]);
+    let pendingRequestCount = 0;
+    vi.spyOn(api, 'getPendingAiApprovals').mockImplementation(async () => {
+      pendingRequestCount += 1;
+      return pendingRequestCount === 1 ? [pending] : [];
+    });
+    vi.spyOn(api, 'decideAiApproval').mockResolvedValue({
+      approval: { ...pending, status: 'approved', submitted_values: pending.initial_values, decision: 'approved' },
+      draft: {
+        id: 'draft-1',
+        conversation_id: 'conversation-1',
+        message_id: 'message-1',
+        run_id: 'run-1',
+        draft_type: 'recipe',
+        payload: pending.initial_values.recipe ?? {},
+        preview_summary: '原始草稿',
+        status: 'confirmed',
+        version: 1,
+        schema_version: 'recipe.v1',
+        validation_errors: [],
+        created_at: '2026-05-30T00:00:00Z',
+        updated_at: '2026-05-30T00:00:00Z',
+      },
+      operation: { status: 'succeeded' },
+      business_entity: null,
+    });
+    const rendered = await renderWithQuery(<AiWorkspace conversations={[conversation()]} isLoading={false} />);
+    await flush();
+    expect(Array.from(rendered.container.querySelectorAll<HTMLTextAreaElement>('.ai-composer textarea')).every((textarea) => textarea.disabled)).toBe(true);
+    await act(async () => {
+      rendered.container.querySelector<HTMLButtonElement>('.ai-approval-actions .solid-button')?.click();
+    });
+    await flush();
+    expect(Array.from(rendered.container.querySelectorAll<HTMLTextAreaElement>('.ai-composer textarea')).every((textarea) => !textarea.disabled)).toBe(true);
+    rendered.unmount();
+  });
+
   it('merges a restored approval into its original assistant message', async () => {
     vi.spyOn(api, 'getAiMessages').mockResolvedValue([
       {
@@ -335,13 +415,17 @@ describe('AiWorkspace pending approval restore', () => {
   it('cancels the server run for an in-flight streamed message', async () => {
     vi.spyOn(api, 'getAiMessages').mockResolvedValue([]);
     vi.spyOn(api, 'getPendingAiApprovals').mockResolvedValue([]);
+    let streamAborted = false;
     vi.spyOn(api, 'streamChatAi').mockImplementation(async (_payload, handlers) => {
+      handlers?.signal?.addEventListener('abort', () => {
+        streamAborted = true;
+      });
       handlers?.onProgress?.({
         id: 'progress-1',
         run_id: 'pending',
-        type: 'intent',
-        internal_code: 'detect_intent',
-        user_message: '正在理解你的需求',
+        type: 'skill',
+        internal_code: 'meal_plan.start',
+        user_message: '调用「餐食计划」技能',
         status: 'running',
         created_at: '2026-05-30T00:00:00Z',
       });
@@ -369,11 +453,109 @@ describe('AiWorkspace pending approval restore', () => {
       rendered.container.querySelector<HTMLFormElement>('form.ai-composer')?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
     });
     await flush();
+    expect(rendered.container.textContent).toContain('调用「餐食计划」技能');
+    expect(rendered.container.querySelector('.ai-stream-progress-strip')).toBeNull();
+    expect(rendered.container.querySelector<HTMLButtonElement>('.ai-send-button')?.getAttribute('aria-label')).toBe('中止生成');
     await act(async () => {
-      rendered.container.querySelector<HTMLButtonElement>('.ai-stream-progress-strip .ghost-button')?.click();
+      rendered.container.querySelector<HTMLButtonElement>('.ai-send-button')?.click();
     });
     await flush();
     expect(cancelSpy.mock.calls[0]?.[0]).toMatch(/^agent_run-/);
+    expect(streamAborted).toBe(true);
+    rendered.unmount();
+  });
+
+  it('renders streamed progress in an assistant message before any text delta arrives', async () => {
+    vi.spyOn(api, 'getAiMessages').mockResolvedValue([]);
+    vi.spyOn(api, 'getPendingAiApprovals').mockResolvedValue([]);
+    let resolveStream: ((response: AiChatResponse) => void) | null = null;
+    let streamedRunId = 'agent_run-client';
+    vi.spyOn(api, 'streamChatAi').mockImplementation(async (payload, handlers) => {
+      streamedRunId = payload.client_run_id ?? streamedRunId;
+      handlers?.onProgress?.({
+        id: 'progress-1',
+        run_id: 'pending',
+        type: 'tool',
+        internal_code: 'inventory.read_available_items',
+        user_message: '已调用「可用库存」工具',
+        status: 'completed',
+        created_at: '2026-05-30T00:00:00Z',
+      });
+      handlers?.onProgress?.({
+        id: 'progress-2',
+        run_id: 'pending',
+        type: 'tool',
+        internal_code: 'inventory.read_available_items',
+        user_message: '已调用「可用库存」工具',
+        status: 'completed',
+        created_at: '2026-05-30T00:00:00Z',
+      });
+      return new Promise<AiChatResponse>((resolve) => {
+        resolveStream = resolve;
+      });
+    });
+    const rendered = await renderWithQuery(<AiWorkspace conversations={[conversation()]} isLoading={false} />);
+    await flush();
+    changeInput(rendered.container.querySelector<HTMLTextAreaElement>('textarea.text-input') as HTMLTextAreaElement, '安排三天晚餐');
+    await act(async () => {
+      rendered.container.querySelector<HTMLFormElement>('form.ai-composer')?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    });
+    await flush();
+    const desktopView = rendered.container.querySelector('.ai-desktop-view') as HTMLElement;
+    expect(rendered.container.querySelectorAll('.ai-desktop-view .ai-message-assistant')).toHaveLength(1);
+    expect((desktopView.textContent?.match(/已调用「可用库存」工具/g) ?? [])).toHaveLength(2);
+    expect(desktopView.textContent).not.toContain('inventory.read_available_items');
+    expect(desktopView.querySelector('.ai-run-progress-step.status-completed')).toBeNull();
+    expect(desktopView.querySelector('.ai-run-progress-step.status-running')).toBeNull();
+    expect(rendered.container.querySelector('.ai-stream-progress-strip')).toBeNull();
+    await act(async () => {
+      resolveStream?.({
+        conversation_id: 'conversation-1',
+        message: {
+          id: 'message-final',
+          conversation_id: 'conversation-1',
+          role: 'assistant',
+          content: '已安排好晚餐。',
+          content_type: 'parts',
+          parts: [{ id: 'part-final', type: 'text', text: '已安排好晚餐。' }],
+          run_id: streamedRunId,
+          status: 'completed',
+          metadata: {},
+          created_at: '2026-05-30T00:00:00Z',
+        },
+        run: {
+          id: streamedRunId,
+          agent_key: 'meal_plan_agent',
+          intent: 'meal_plan',
+          status: 'completed',
+          model: 'rules',
+          created_at: '2026-05-30T00:00:00Z',
+        },
+        events: [
+          {
+            id: 'progress-1',
+            run_id: streamedRunId,
+            type: 'tool',
+            internal_code: 'inventory.read_available_items',
+            user_message: '已调用「可用库存」工具',
+            status: 'completed',
+            created_at: '2026-05-30T00:00:00Z',
+          },
+          {
+            id: 'progress-2',
+            run_id: streamedRunId,
+            type: 'tool',
+            internal_code: 'inventory.read_available_items',
+            user_message: '已调用「可用库存」工具',
+            status: 'completed',
+            created_at: '2026-05-30T00:00:00Z',
+          },
+        ],
+        included: { result_cards: [], drafts: [], approvals: [] },
+      });
+    });
+    await flush();
+    expect(rendered.container.textContent).toContain('已安排好晚餐。');
     rendered.unmount();
   });
 

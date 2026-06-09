@@ -4,7 +4,7 @@ display_name: 库存分析
 version: 1.0.0
 description: 回答库存、临期和低库存相关问题，返回库存概览，不创建草稿。
 category: inventory
-runner: markdown
+runner: toolcall
 risk_level: low
 allowed_tools:
   - inventory.read_summary

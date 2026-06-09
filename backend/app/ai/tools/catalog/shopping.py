@@ -42,6 +42,7 @@ def register_shopping_tools(registry: ToolRegistry) -> None:
     register_tool(
         registry,
         name="shopping.read_pending",
+        display_name="待采购清单",
         description="读取待采购购物项。",
         side_effect="read",
         handler=shopping_read_pending,
@@ -52,6 +53,7 @@ def register_shopping_tools(registry: ToolRegistry) -> None:
         register_tool(
             registry,
             name=name,
+            display_name="购物清单确认表单",
             description="生成购物清单草稿，不写入业务表。",
             side_effect="draft",
             handler=shopping_list_create_draft,

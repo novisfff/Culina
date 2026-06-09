@@ -221,6 +221,7 @@ class AIChatResponse(BaseModel):
 
 class AIToolRegistryItemDTO(BaseModel):
     name: str
+    display_name: str
     description: str
     permission: str
     side_effect: Literal["read", "draft", "write"]

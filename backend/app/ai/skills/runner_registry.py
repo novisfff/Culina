@@ -45,4 +45,5 @@ def ensure_builtin_skill_runners_registered() -> None:
     # their runner keys, so the central runtime is not a per-skill switchboard.
     import_module("app.ai.skills.document")
     import_module("app.ai.skills.markdown")
+    import_module("app.ai.skills.toolcall")
     _BUILTINS_REGISTERED = True

@@ -4,7 +4,7 @@ display_name: 菜谱草稿
 version: 1.0.0
 description: 生成可编辑、可确认的结构化菜谱草稿。
 category: recipe
-runner: recipe_draft
+runner: toolcall
 risk_level: medium
 allowed_tools:
   - ingredient.search

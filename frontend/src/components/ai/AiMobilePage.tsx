@@ -18,8 +18,10 @@ type Props = {
   messages: AiMessage[];
   runEventsById: Record<string, AiRunEvent[]>;
   streamProgress: AiRunEvent[];
+  activeStreamRunId: string | null;
   draft: string;
   isSending: boolean;
+  isComposerPaused: boolean;
   sendError?: string;
   onBackHome?: () => void;
   onOpenMobileHistory: () => void;
@@ -58,7 +60,7 @@ export function AiMobilePage(props: Props) {
                 key={message.id}
                 message={message}
                 user={props.currentUser}
-                runEvents={message.run_id ? props.runEventsById[message.run_id] ?? [] : []}
+                runEvents={message.run_id && message.run_id === props.activeStreamRunId ? props.streamProgress : message.run_id ? props.runEventsById[message.run_id] ?? [] : []}
                 isLatestAssistant={message.role === 'assistant' && index === props.messages.length - 1}
                 onApprovalSettled={props.onApprovalSettled}
                 onRetryRun={props.onRetryRun}
@@ -90,28 +92,26 @@ export function AiMobilePage(props: Props) {
 
       <div className="ai-composer-dock">
         {props.sendError && <p className="form-error">{props.sendError}</p>}
-        {props.isSending && props.streamProgress.length > 0 && (
-          <div className="ai-stream-progress-strip">
-            {props.streamProgress.slice(-3).map((event) => (
-              <span key={event.id}>{event.user_message}</span>
-            ))}
-            <button className="ghost-button" type="button" onClick={props.onCancelSending}>
-              取消
-            </button>
-          </div>
-        )}
+        {props.isComposerPaused && <p className="ai-composer-pause-note">请先确认上面的草稿，确认后可以继续对话。</p>}
         <form className="ai-composer" onSubmit={props.onSubmit}>
           <textarea
             className="text-input"
             rows={2}
             value={props.draft}
-            placeholder="输入你的问题，或让 AI 帮你安排一餐..."
+            placeholder={props.isComposerPaused ? '等待你确认草稿...' : '输入你的问题，或让 AI 帮你安排一餐...'}
+            disabled={props.isComposerPaused}
             onChange={(event) => props.onDraftChange(event.target.value)}
           />
           <div className="ai-composer-meta">
             <span>{props.draft.length}/2000</span>
-            <button className="ai-send-button" type="submit" disabled={props.isSending} aria-label="发送消息">
-              {props.isSending ? '...' : '↗'}
+            <button
+              className={`ai-send-button ${props.isSending ? 'is-sending' : ''}`}
+              type={props.isSending ? 'button' : 'submit'}
+              disabled={props.isComposerPaused}
+              aria-label={props.isSending ? '中止生成' : '发送消息'}
+              onClick={props.isSending ? props.onCancelSending : undefined}
+            >
+              {props.isSending ? <span className="ai-stop-icon" aria-hidden="true" /> : '↗'}
             </button>
           </div>
         </form>
