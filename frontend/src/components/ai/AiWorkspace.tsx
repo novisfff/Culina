@@ -5,6 +5,7 @@ import { api } from '../../api/client';
 import { queryKeys } from '../../api/queryKeys';
 import type { AiApprovalRequest, AiChatResponse, AiConversation, AiMessage, AiRunEvent, UserSummary } from '../../api/types';
 import { resolveAssetUrl } from '../../lib/assets';
+import { FOOD_TYPE_LABELS } from '../../lib/ui';
 import { EmptyState, WorkspaceModal } from '../ui-kit';
 import { AiMobilePage, AI_WELCOME_SUGGESTIONS } from './AiMobilePage';
 import { MessageBubble, type AiApprovalDecisionSubmit, type AiResourceOptionLoader } from './AiConversationThread';
@@ -262,7 +263,7 @@ export function AiWorkspace({ conversations, isLoading, currentUser = null, onBa
       return items.map((food) => ({
         id: food.id,
         label: food.name,
-        description: [food.category, food.type].filter(Boolean).join(' · '),
+        description: [food.category, FOOD_TYPE_LABELS[food.type] ?? food.type].filter(Boolean).join(' · '),
         imageUrl: resolveAssetUrl(food.images?.[0]?.url) ?? '/assets/ai-food-ingredient-placeholder.png',
       }));
     }
