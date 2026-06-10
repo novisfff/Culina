@@ -496,8 +496,19 @@ class AIApplicationService:
         run = self.db.scalar(select(AIAgentRun).where(AIAgentRun.id == run_id, AIAgentRun.family_id == family_id))
         if run is None:
             raise LookupError("运行任务不存在")
-        if run.status not in {"pending", "running"}:
+        if run.status not in {"pending", "running", "waiting_approval"}:
             raise ValueError("运行任务已结束，不能取消")
+        pending_approvals = list(
+            self.db.scalars(
+                select(AIApprovalRequest)
+                .where(
+                    AIApprovalRequest.family_id == family_id,
+                    AIApprovalRequest.run_id == run.id,
+                    AIApprovalRequest.status == "pending",
+                )
+                .order_by(AIApprovalRequest.created_at.asc())
+            )
+        )
         run.status = "cancelled"
         run.error = "用户取消了这次任务"
         if run.conversation_id:
@@ -505,6 +516,18 @@ class AIApplicationService:
             if conversation is not None:
                 conversation.last_run_status = "cancelled"
                 conversation.last_message_at = utcnow()
+        for approval in pending_approvals:
+            approval.status = "cancelled"
+            approval.decision = "rejected"
+            approval.comment = "用户取消了这次任务"
+            approval.resolved_at = utcnow()
+            approval.updated_by = user_id
+            draft = self.db.scalar(select(AITaskDraft).where(AITaskDraft.id == approval.draft_id, AITaskDraft.family_id == family_id))
+            if draft is not None and draft.status in {"pending", "pending_retry"}:
+                draft.status = "rejected"
+                draft.updated_at = utcnow()
+            if draft is not None:
+                self._sync_message_approval_parts(draft, approval)
         event = self._add_event(
             family_id,
             run.conversation_id or "",
@@ -591,6 +614,31 @@ class AIApplicationService:
         from app.ai.workflows.runner import WorkspaceGraphRunner
 
         return WorkspaceGraphRunner(self).resume_approval(
+            family_id=family_id,
+            user_id=user_id,
+            conversation_id=conversation_id,
+            approval_id=approval_id,
+            decision=decision,
+            draft_version=draft_version,
+            values=values,
+            comment=comment,
+        )
+
+    def stream_approval_decision(
+        self,
+        *,
+        family_id: str,
+        user_id: str,
+        conversation_id: str,
+        approval_id: str,
+        decision: str,
+        draft_version: int,
+        values: dict[str, Any],
+        comment: str | None = None,
+    ) -> Iterator[tuple[str, dict[str, Any]]]:
+        from app.ai.workflows.runner import WorkspaceGraphRunner
+
+        return WorkspaceGraphRunner(self).stream_resume_approval(
             family_id=family_id,
             user_id=user_id,
             conversation_id=conversation_id,

@@ -745,7 +745,12 @@ function App() {
 
         {activeTab === 'ai' && (
           <Suspense fallback={<WorkspaceLoadingFallback />}>
-            <AiWorkspace conversations={aiConversations} isLoading={aiConversationsQuery.isLoading} currentUser={user} onBackHome={() => setActiveTab('home')} />
+            <AiWorkspace
+              conversations={aiConversations}
+              isLoading={aiConversationsQuery.isLoading}
+              currentUser={user}
+              onBackHome={() => setActiveTab('home')}
+            />
           </Suspense>
         )}
 

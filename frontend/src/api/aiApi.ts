@@ -24,14 +24,20 @@ type AiChatStreamHandlers = {
   onProgress?: (event: AiRunEvent | { type: string; internal_code: string; user_message: string; status: AiRunEvent['status'] }) => void;
   onMessageDelta?: (event: { message_id?: string; conversation_id?: string; run_id?: string; part_id?: string; delta: string }) => void;
 };
+type AiApprovalDecisionPayload = {
+  decision: 'approved' | 'rejected';
+  draft_version: number;
+  values: Record<string, unknown>;
+  comment?: string;
+};
 
-async function streamChatAi(payload: AiChatPayload, handlers: AiChatStreamHandlers = {}): Promise<AiChatResponse> {
+async function streamAiResponse(url: string, payload: unknown, handlers: AiChatStreamHandlers = {}): Promise<AiChatResponse> {
   const headers = new Headers({ 'Content-Type': 'application/json' });
   const token = getAccessToken();
   if (token) {
     headers.set('Authorization', `Bearer ${token}`);
   }
-  const response = await fetch(`${API_BASE_URL}/api/ai/chat/stream`, {
+  const response = await fetch(url, {
     method: 'POST',
     headers,
     body: JSON.stringify(payload),
@@ -80,6 +86,10 @@ async function streamChatAi(payload: AiChatPayload, handlers: AiChatStreamHandle
   return finalResponse;
 }
 
+async function streamChatAi(payload: AiChatPayload, handlers: AiChatStreamHandlers = {}): Promise<AiChatResponse> {
+  return streamAiResponse(`${API_BASE_URL}/api/ai/chat/stream`, payload, handlers);
+}
+
 export const aiApi = {
   getAiStatus: () => request<AiStatus>('/api/ai/status'),
   getAiConversations: () => request<AiConversation[]>('/api/ai/conversations'),
@@ -114,12 +124,18 @@ export const aiApi = {
   decideAiApproval: (
     conversationId: string,
     approvalId: string,
-    payload: { decision: 'approved' | 'rejected'; draft_version: number; values: Record<string, unknown>; comment?: string }
+    payload: AiApprovalDecisionPayload
   ) =>
     request<AiApprovalDecisionResponse>(`/api/ai/conversations/${conversationId}/approvals/${approvalId}/decision`, {
       method: 'POST',
       body: JSON.stringify(payload),
     }),
+  streamAiApprovalDecision: (
+    conversationId: string,
+    approvalId: string,
+    payload: AiApprovalDecisionPayload,
+    handlers: AiChatStreamHandlers = {},
+  ) => streamAiResponse(`${API_BASE_URL}/api/ai/conversations/${conversationId}/approvals/${approvalId}/decision/stream`, payload, handlers),
   generateRecipeDraft: (payload: GenerateRecipeDraftPayload) =>
     request<GenerateRecipeDraftResponse>('/api/ai/recipes/draft', {
       method: 'POST',

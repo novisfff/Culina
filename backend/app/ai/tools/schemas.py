@@ -115,6 +115,21 @@ MEAL_PLAN_DRAFT_SCHEMA: dict[str, Any] = {
                     "reason": {"type": "string", "maxLength": 255},
                     "usedInventory": {"type": "array", "maxItems": 20, "items": {"type": "string", "maxLength": 80}},
                     "missingIngredients": {"type": "array", "maxItems": 20, "items": {"type": "string", "maxLength": 80}},
+                    "missingIngredientItems": {
+                        "type": "array",
+                        "maxItems": 20,
+                        "items": {
+                            "type": "object",
+                            "additionalProperties": False,
+                            "required": ["name", "quantity", "unit"],
+                            "properties": {
+                                "ingredientId": {"type": ["string", "null"]},
+                                "name": {"type": "string", "minLength": 1, "maxLength": 80},
+                                "quantity": {"type": "number", "exclusiveMinimum": 0},
+                                "unit": {"type": "string", "minLength": 1, "maxLength": 20},
+                            },
+                        },
+                    },
                     "source": {"type": "object"},
                 },
             },

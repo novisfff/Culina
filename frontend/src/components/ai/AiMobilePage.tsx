@@ -1,6 +1,6 @@
 import type { FormEventHandler } from 'react';
 import type { AiConversation, AiMessage, AiRunEvent, UserSummary } from '../../api/types';
-import { MessageBubble } from './AiConversationThread';
+import { MessageBubble, type AiApprovalDecisionSubmit, type AiResourceOptionLoader } from './AiConversationThread';
 import { AiMobileChrome } from './AiMobileChrome';
 
 export const AI_WELCOME_SUGGESTIONS = [
@@ -15,6 +15,7 @@ type Props = {
   activeConversationId: string | null;
   isMobileHistoryOpen: boolean;
   currentUser: UserSummary | null;
+  resourceOptionLoader: AiResourceOptionLoader;
   messages: AiMessage[];
   runEventsById: Record<string, AiRunEvent[]>;
   streamProgress: AiRunEvent[];
@@ -32,7 +33,7 @@ type Props = {
   onDraftChange: (value: string) => void;
   onPickSuggestion: (value: string) => void;
   onSubmit: FormEventHandler<HTMLFormElement>;
-  onApprovalSettled: () => void;
+  onApprovalDecision: AiApprovalDecisionSubmit;
   onRetryRun: (runId: string) => void;
   onRegeneratePart: (messageId: string, partId: string) => void;
   onCancelSending: () => void;
@@ -61,9 +62,10 @@ export function AiMobilePage(props: Props) {
                 key={message.id}
                 message={message}
                 user={props.currentUser}
+                resourceOptionLoader={props.resourceOptionLoader}
                 runEvents={message.run_id && message.run_id === props.activeStreamRunId ? props.streamProgress : message.run_id ? props.runEventsById[message.run_id] ?? [] : []}
                 isLatestAssistant={message.role === 'assistant' && index === props.messages.length - 1}
-                onApprovalSettled={props.onApprovalSettled}
+                onApprovalDecision={props.onApprovalDecision}
                 onRetryRun={props.onRetryRun}
                 onRegeneratePart={props.onRegeneratePart}
               />
@@ -108,7 +110,7 @@ export function AiMobilePage(props: Props) {
             <button
               className={`ai-send-button ${props.isSending ? 'is-sending' : ''}`}
               type={props.isSending ? 'button' : 'submit'}
-              disabled={props.isComposerPaused}
+              disabled={props.isComposerPaused && !props.isSending}
               aria-label={props.isSending ? '中止生成' : '发送消息'}
               onClick={props.isSending ? props.onCancelSending : undefined}
             >

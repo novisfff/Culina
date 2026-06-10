@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
+from threading import RLock
 from typing import Any
 
 from langchain_core.runnables import RunnableConfig
@@ -26,6 +27,9 @@ def _binary_blob(value: bytes | bytearray | memoryview) -> bytes:
     return bytes(value)
 
 
+_SQLITE_CHECKPOINT_LOCK = RLock()
+
+
 class SQLAlchemyCheckpointSaver(BaseCheckpointSaver[int]):
     """LangGraph checkpointer backed by the current SQLAlchemy session."""
 
@@ -33,7 +37,8 @@ class SQLAlchemyCheckpointSaver(BaseCheckpointSaver[int]):
         super().__init__()
         self.db = db
         bind = db.get_bind()
-        self._use_shared_session = bind.dialect.name == "sqlite"
+        self._is_sqlite = bind.dialect.name == "sqlite"
+        self._use_shared_session = False
         self._session_factory = sessionmaker(bind=bind, expire_on_commit=False)
 
     def get_tuple(self, config: RunnableConfig) -> CheckpointTuple | None:
@@ -217,11 +222,22 @@ class SQLAlchemyCheckpointSaver(BaseCheckpointSaver[int]):
 
     @contextmanager
     def _session(self, *, write: bool = False) -> Iterator[Session]:
+        lock = _SQLITE_CHECKPOINT_LOCK if self._is_sqlite else None
+        if lock is not None:
+            lock.acquire()
         if self._use_shared_session:
-            with self.db.no_autoflush:
-                yield self.db
+            try:
+                with self.db.no_autoflush:
+                    yield self.db
+            finally:
+                if lock is not None:
+                    lock.release()
             return
-        with self._session_factory() as db:
-            yield db
-            if write:
-                db.commit()
+        try:
+            with self._session_factory() as db:
+                yield db
+                if write:
+                    db.commit()
+        finally:
+            if lock is not None:
+                lock.release()

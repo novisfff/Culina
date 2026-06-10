@@ -2263,12 +2263,25 @@ class AIAgentInfraTestCase(unittest.TestCase):
                                 "title": "库外菜名",
                                 "foodId": "food-tomato",
                                 "recipeId": None,
+                                "missingIngredientItems": [
+                                    {
+                                        "ingredientId": "ingredient-tomato",
+                                        "name": "错误名称",
+                                        "quantity": 2.5,
+                                        "unit": "个",
+                                    }
+                                ],
                             }
                         ],
                     }
                 },
             )
             self.assertEqual(meal_plan["draft"]["items"][0]["title"], "番茄小炒")
+            self.assertEqual(meal_plan["draft"]["items"][0]["missingIngredients"], ["番茄"])
+            self.assertEqual(
+                meal_plan["draft"]["items"][0]["missingIngredientItems"],
+                [{"ingredientId": "ingredient-tomato", "name": "番茄", "quantity": 2.5, "unit": "个"}],
+            )
 
             with self.assertRaisesRegex(ValueError, "foodId"):
                 executor.call(
@@ -3214,6 +3227,110 @@ class AIAgentInfraTestCase(unittest.TestCase):
             assert run is not None
             self.assertEqual(run.status, "cancelled")
             self.assertNotIn("shopping.create_draft", [item["name"] for item in run.tool_calls])
+
+    def test_ai_workspace_approval_rejection_stream_returns_result_to_model(self) -> None:
+        provider = FakeChatProvider("模型看到 HumanInLoop 结果后继续回复。")
+        with patch("app.ai.workspace_service.get_chat_provider", return_value=provider):
+            response = self.client.post("/api/ai/chat", json={"message": "安排三天晚餐"})
+        self.assertEqual(response.status_code, 200, response.text)
+        data = response.json()
+        approval = data["included"]["approvals"][0]
+        original_message_id = data["message"]["id"]
+
+        with patch("app.ai.workspace_service.get_chat_provider", return_value=provider):
+            with self.client.stream(
+                "POST",
+                f"/api/ai/conversations/{data['conversation_id']}/approvals/{approval['id']}/decision/stream",
+                json={
+                    "decision": "rejected",
+                    "draft_version": approval["draft_version"],
+                    "values": {},
+                },
+            ) as stream_response:
+                self.assertEqual(stream_response.status_code, 200)
+                body = "".join(stream_response.iter_text())
+
+        self.assertIn("event: message_delta", body)
+        self.assertIn("模型看到 HumanInLoop 结果后继续回复。", body)
+        self.assertIn("event: response", body)
+        self.assertIn(original_message_id, body)
+
+        with self.SessionLocal() as db:
+            run = db.get(AIAgentRun, data["run"]["id"])
+            message = db.get(AIMessage, original_message_id)
+            self.assertIsNotNone(run)
+            self.assertIsNotNone(message)
+            assert run is not None and message is not None
+            self.assertEqual(run.status, "cancelled")
+            self.assertEqual(message.run_id, data["run"]["id"])
+            self.assertEqual(message.role, "assistant")
+            self.assertIn("模型看到 HumanInLoop 结果后继续回复。", message.content)
+            part_types = [part.get("type") for part in message.parts if isinstance(part, dict)]
+            self.assertEqual(part_types[-2:], ["approval_request", "text"])
+
+    def test_ai_workspace_approval_decision_stream_resumes_downstream_skill(self) -> None:
+        response = self.client.post("/api/ai/chat", json={"message": "安排三天晚餐，顺便生成购物清单"})
+        self.assertEqual(response.status_code, 200, response.text)
+        data = response.json()
+        meal_plan_approval = data["included"]["approvals"][0]
+
+        with self.client.stream(
+            "POST",
+            f"/api/ai/conversations/{data['conversation_id']}/approvals/{meal_plan_approval['id']}/decision/stream",
+            json={
+                "decision": "approved",
+                "draft_version": meal_plan_approval["draft_version"],
+                "values": meal_plan_approval["initial_values"],
+            },
+        ) as stream_response:
+            self.assertEqual(stream_response.status_code, 200)
+            body = "".join(stream_response.iter_text())
+
+        self.assertIn("event: progress", body)
+        self.assertIn("event: response", body)
+        self.assertIn("shopping_list.create", body)
+        self.assertIn("生成「购物清单确认表单」", body)
+        self.assertLess(body.index("生成「购物清单确认表单」"), body.index("event: response"))
+
+        pending_response = self.client.get(f"/api/ai/conversations/{data['conversation_id']}/approvals/pending")
+        self.assertEqual(pending_response.status_code, 200, pending_response.text)
+        pending = pending_response.json()
+        self.assertEqual([approval["approval_type"] for approval in pending], ["shopping_list.create"])
+
+        with self.SessionLocal() as db:
+            run = db.get(AIAgentRun, data["run"]["id"])
+            self.assertIsNotNone(run)
+            assert run is not None
+            self.assertEqual(run.status, "waiting_approval")
+            tool_names = [item["name"] for item in run.tool_calls]
+            self.assertIn("meal_plan.create_draft", tool_names)
+            self.assertIn("shopping.create_draft", tool_names)
+
+    def test_ai_workspace_waiting_approval_run_can_be_cancelled(self) -> None:
+        response = self.client.post("/api/ai/chat", json={"message": "安排三天晚餐"})
+        self.assertEqual(response.status_code, 200, response.text)
+        data = response.json()
+        self.assertEqual(data["run"]["status"], "waiting_approval")
+        approval = data["included"]["approvals"][0]
+        draft = data["included"]["drafts"][0]
+
+        cancel_response = self.client.post(f"/api/ai/runs/{data['run']['id']}/cancel")
+        self.assertEqual(cancel_response.status_code, 200, cancel_response.text)
+        cancel_data = cancel_response.json()
+        self.assertEqual(cancel_data["run"]["status"], "cancelled")
+
+        pending_response = self.client.get(f"/api/ai/conversations/{data['conversation_id']}/approvals/pending")
+        self.assertEqual(pending_response.status_code, 200, pending_response.text)
+        self.assertEqual(pending_response.json(), [])
+
+        with self.SessionLocal() as db:
+            stored_approval = db.get(AIApprovalRequest, approval["id"])
+            stored_draft = db.get(AITaskDraft, draft["id"])
+            self.assertIsNotNone(stored_approval)
+            self.assertIsNotNone(stored_draft)
+            assert stored_approval is not None and stored_draft is not None
+            self.assertEqual(stored_approval.status, "cancelled")
+            self.assertEqual(stored_draft.status, "rejected")
 
     def test_ai_workspace_phase2_uses_current_plan_for_shopping_draft(self) -> None:
         with self.SessionLocal() as db:

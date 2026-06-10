@@ -4660,6 +4660,12 @@
   overflow-wrap: anywhere;
 }
 
+.ai-message-part + .ai-message-markdown,
+.ai-approval-panel + .ai-message-markdown,
+.ai-run-progress + .ai-message-markdown {
+  margin-top: 8px;
+}
+
 .ai-message-markdown :where(p, ul, ol, blockquote, pre, table) {
   margin: 0;
 }
@@ -5200,10 +5206,12 @@
   max-height: min(70vh, 680px);
   min-height: 0;
   overflow: hidden;
-  border: 1px solid rgba(219, 198, 184, 0.9);
-  border-radius: 18px;
-  background: linear-gradient(180deg, rgba(255, 253, 250, 0.98), rgba(255, 249, 245, 0.96));
-  box-shadow: 0 16px 34px rgba(74, 54, 40, 0.08);
+  border: 1px solid rgba(218, 196, 179, 0.86);
+  border-radius: 20px;
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.94), rgba(255, 250, 245, 0.96)),
+    radial-gradient(circle at 16% 0%, rgba(255, 225, 196, 0.34), transparent 30%);
+  box-shadow: 0 18px 44px rgba(74, 54, 40, 0.11);
 }
 
 .ai-approval-head {
@@ -5222,7 +5230,7 @@
 
 .ai-approval-panel h3 {
   color: #2f251e;
-  font-size: 1.05rem;
+  font-size: 1rem;
   line-height: 1.25;
 }
 
@@ -5230,8 +5238,8 @@
   max-width: 62ch;
   margin-top: 5px;
   color: #6f6259;
-  font-size: 0.92rem;
-  line-height: 1.55;
+  font-size: 0.86rem;
+  line-height: 1.48;
 }
 
 .ai-approval-panel .ai-approval-status {
@@ -5270,11 +5278,12 @@
   overscroll-behavior: contain;
 }
 
-.ai-recipe-editor label {
+.ai-recipe-editor label,
+.ai-approval-comment-field {
   display: grid;
   gap: 6px;
   color: var(--text-soft);
-  font-size: 0.86rem;
+  font-size: 0.8rem;
 }
 
 .ai-editor-grid {
@@ -5338,12 +5347,13 @@
   overflow-wrap: anywhere;
   color: #2f251e;
   font-weight: 900;
+  font-size: 0.94rem;
   line-height: 1.25;
 }
 
 .ai-draft-editor-head span {
   color: #8a7c72;
-  font-size: 0.82rem;
+  font-size: 0.76rem;
   font-weight: 760;
 }
 
@@ -5357,14 +5367,61 @@
   white-space: nowrap;
 }
 
-.ai-meal-plan-draft-editor .ai-step-row {
+.ai-confirmation-editor .ai-draft-editor-head {
+  position: static;
+}
+
+.ai-confirmation-item {
   display: grid;
-  gap: 12px;
+  gap: 10px;
   min-width: 0;
-  border: 1px solid rgba(226, 214, 205, 0.82);
-  border-radius: 16px;
-  background: rgba(255, 255, 255, 0.76);
-  padding: 14px;
+  border: 1px solid rgba(222, 203, 188, 0.82);
+  border-radius: 18px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(255, 250, 246, 0.88)),
+    radial-gradient(circle at 100% 0%, rgba(254, 210, 168, 0.18), transparent 32%);
+  padding: 12px;
+  box-shadow: 0 10px 24px rgba(74, 54, 40, 0.06);
+}
+
+.ai-confirmation-summary-card {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(251, 248, 255, 0.9)),
+    radial-gradient(circle at 100% 0%, rgba(208, 195, 255, 0.18), transparent 34%);
+}
+
+.ai-confirmation-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.ai-confirmation-grid-three {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.ai-confirmation-grid-compact {
+  grid-template-columns: minmax(90px, 0.7fr) minmax(90px, 0.7fr);
+  max-width: 310px;
+}
+
+.ai-confirmation-item .text-input,
+.ai-confirmation-copy-field .text-input {
+  min-height: 38px;
+  border-radius: 13px;
+  font-size: 0.84rem;
+}
+
+.ai-confirmation-copy-field textarea.text-input {
+  min-height: 56px;
+  line-height: 1.4;
+  resize: vertical;
+}
+
+.ai-confirmation-title-input {
+  color: #2f251e;
+  font-size: 0.96rem;
+  font-weight: 820;
 }
 
 .ai-draft-remove-button {
@@ -5374,11 +5431,338 @@
   padding-inline: 12px;
 }
 
-.ai-meal-plan-draft-editor .ai-step-row > input.text-input {
+.ai-meal-plan-draft-editor .ai-confirmation-item > input.text-input {
   min-height: 46px;
   color: #2f251e;
   font-size: 1rem;
   font-weight: 820;
+}
+
+.ai-meal-plan-item-top {
+  display: grid;
+  grid-template-columns: minmax(142px, 1fr) minmax(116px, 0.68fr);
+  gap: 8px;
+}
+
+.ai-resource-field {
+  position: relative;
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+  color: #776a60;
+  font-size: 0.75rem;
+  font-weight: 820;
+}
+
+.ai-resource-select {
+  position: relative;
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) 18px;
+  align-items: center;
+  gap: 6px;
+  min-height: 38px;
+  border: 1px solid rgba(212, 190, 173, 0.9);
+  border-radius: 13px;
+  background: rgba(255, 255, 255, 0.88);
+  padding: 5px 9px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.74);
+}
+
+.ai-resource-select:focus-within {
+  border-color: rgba(216, 122, 67, 0.56);
+  box-shadow: 0 0 0 3px rgba(216, 122, 67, 0.12);
+}
+
+.ai-resource-select.is-disabled {
+  background: rgba(249, 245, 241, 0.76);
+}
+
+.ai-resource-select > svg,
+.ai-resource-thumbnail {
+  width: 28px;
+  height: 28px;
+  border-radius: 10px;
+}
+
+.ai-resource-thumbnail {
+  display: block;
+  object-fit: cover;
+  background: #f6eee7;
+}
+
+.ai-resource-select > svg {
+  background: #fff4ec;
+  stroke: #b96331;
+  stroke-width: 1.75;
+  fill: none;
+  padding: 6px;
+}
+
+.ai-resource-field-date .ai-resource-select > svg,
+.ai-resource-field-meal .ai-resource-select > svg,
+.ai-resource-field-choice .ai-resource-select > svg,
+.ai-resource-field-multi .ai-resource-select > svg {
+  background: #f3f0ff;
+  stroke: #6d609d;
+}
+
+.ai-resource-select input,
+.ai-resource-select select {
+  min-width: 0;
+  width: 100%;
+  border: 0;
+  background: transparent;
+  color: #2f251e;
+  font: inherit;
+  font-size: 0.84rem;
+  font-weight: 780;
+  outline: none;
+}
+
+.ai-resource-select select {
+  appearance: none;
+}
+
+.ai-multi-select-trigger {
+  min-width: 0;
+  width: 100%;
+  overflow: hidden;
+  border: 0;
+  background: transparent;
+  color: #2f251e;
+  padding: 0;
+  font: inherit;
+  font-size: 0.84rem;
+  font-weight: 780;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.ai-multi-select-trigger:disabled {
+  cursor: default;
+}
+
+.ai-resource-select input::placeholder {
+  color: #a89b91;
+  font-weight: 700;
+}
+
+.ai-resource-select-chevron {
+  width: 7px;
+  height: 7px;
+  justify-self: center;
+  border-right: 1.8px solid #9b8b7f;
+  border-bottom: 1.8px solid #9b8b7f;
+  transform: rotate(45deg) translateY(-2px);
+}
+
+.ai-resource-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  z-index: 8;
+  display: grid;
+  gap: 4px;
+  max-height: 220px;
+  overflow: auto;
+  border: 1px solid rgba(214, 191, 173, 0.9);
+  border-radius: 14px;
+  background: rgba(255, 253, 250, 0.98);
+  padding: 6px;
+  box-shadow: 0 18px 36px rgba(62, 45, 32, 0.16);
+}
+
+.ai-resource-menu button {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  border: 0;
+  border-radius: 11px;
+  background: transparent;
+  color: #2f251e;
+  padding: 6px 8px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.ai-resource-menu button:hover,
+.ai-resource-menu button.is-selected {
+  background: #fff2e8;
+}
+
+.ai-choice-menu button {
+  grid-template-columns: 24px minmax(0, 1fr);
+}
+
+.ai-choice-check {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border: 1px solid rgba(188, 168, 151, 0.8);
+  border-radius: 7px;
+  background: #fff;
+  color: #b96331;
+  font-size: 0.76rem;
+  font-weight: 900;
+}
+
+.ai-choice-menu button.is-selected .ai-choice-check {
+  border-color: rgba(216, 122, 67, 0.54);
+  background: #fff0e5;
+}
+
+.ai-resource-menu svg,
+.ai-resource-menu .ai-resource-thumbnail {
+  width: 28px;
+  height: 28px;
+  border-radius: 10px;
+}
+
+.ai-resource-menu .ai-resource-thumbnail {
+  object-fit: cover;
+}
+
+.ai-resource-menu svg {
+  background: #fff4ec;
+  stroke: #b96331;
+  stroke-width: 1.75;
+  fill: none;
+  padding: 6px;
+}
+
+.ai-resource-menu strong,
+.ai-resource-menu small {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ai-resource-menu strong {
+  font-size: 0.82rem;
+  font-weight: 850;
+}
+
+.ai-resource-menu small,
+.ai-resource-menu p {
+  margin: 0;
+  color: #8b7d72;
+  font-size: 0.72rem;
+}
+
+.ai-meal-plan-reason-field textarea.text-input {
+  min-height: 56px;
+  border-radius: 13px;
+  font-size: 0.84rem;
+  line-height: 1.4;
+}
+
+.ai-meal-plan-ingredients {
+  display: grid;
+  gap: 8px;
+  border: 1px solid rgba(113, 158, 104, 0.18);
+  border-radius: 15px;
+  background: rgba(244, 250, 242, 0.72);
+  padding: 10px;
+}
+
+.ai-meal-plan-ingredients-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: #5f765a;
+  font-size: 0.75rem;
+  font-weight: 850;
+}
+
+.ai-meal-plan-ingredients-head small {
+  color: #8a9d85;
+  font-size: 0.7rem;
+}
+
+.ai-meal-plan-ingredient-list {
+  display: grid;
+  gap: 8px;
+}
+
+.ai-meal-plan-ingredient-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 126px 28px;
+  align-items: end;
+  gap: 7px;
+}
+
+.ai-ingredient-quantity-control {
+  display: grid;
+  grid-template-columns: minmax(54px, 0.9fr) minmax(44px, 0.7fr);
+  min-height: 38px;
+  overflow: hidden;
+  border: 1px solid rgba(181, 198, 175, 0.9);
+  border-radius: 13px;
+  background: rgba(255, 255, 255, 0.88);
+}
+
+.ai-ingredient-quantity-control:focus-within {
+  border-color: rgba(88, 139, 79, 0.58);
+  box-shadow: 0 0 0 3px rgba(88, 139, 79, 0.1);
+}
+
+.ai-ingredient-quantity-control input {
+  min-width: 0;
+  width: 100%;
+  border: 0;
+  background: transparent;
+  color: #30402d;
+  padding: 0 7px;
+  font-size: 0.8rem;
+  font-weight: 800;
+  outline: 0;
+}
+
+.ai-ingredient-quantity-control input + input {
+  border-left: 1px solid rgba(181, 198, 175, 0.72);
+  color: #667b62;
+  text-align: center;
+}
+
+.ai-ingredient-remove-button {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 38px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: #aa7e69;
+  font-size: 1.2rem;
+  cursor: pointer;
+}
+
+.ai-ingredient-remove-button:hover {
+  background: rgba(177, 111, 77, 0.1);
+}
+
+.ai-approval-comment-field {
+  margin: 0 20px;
+}
+
+.ai-approval-comment-field > span {
+  color: #776a60;
+  font-size: 0.75rem;
+  font-weight: 820;
+}
+
+.ai-approval-comment-field .text-input {
+  min-height: 38px;
+  border-radius: 13px;
+  font-size: 0.84rem;
 }
 
 .ai-recipe-editor .text-input:disabled {
@@ -6144,6 +6528,10 @@
     padding: 0 14px 4px;
   }
 
+  .ai-approval-comment-field {
+    margin-inline: 14px;
+  }
+
   .ai-draft-editor-head {
     position: static;
     grid-template-columns: 1fr;
@@ -6363,6 +6751,33 @@
   .ai-editor-grid,
   .ai-ingredient-row {
     grid-template-columns: 1fr;
+  }
+
+  .ai-confirmation-grid,
+  .ai-confirmation-grid-three,
+  .ai-confirmation-grid-compact {
+    grid-template-columns: 1fr;
+    max-width: none;
+  }
+
+  .ai-meal-plan-item-top {
+    grid-template-columns: 1fr;
+  }
+
+  .ai-meal-plan-ingredient-row {
+    grid-template-columns: minmax(0, 1fr) 28px;
+  }
+
+  .ai-meal-plan-ingredient-row > .ai-resource-field-ingredient {
+    grid-column: 1 / -1;
+  }
+
+  .ai-ingredient-quantity-field {
+    grid-column: 1;
+  }
+
+  .ai-ingredient-remove-button {
+    grid-column: 2;
   }
 }
 

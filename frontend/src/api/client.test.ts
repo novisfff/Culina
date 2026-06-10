@@ -51,3 +51,19 @@ describe('api client errors', () => {
     expect(localStorage.getItem('culina-access-token')).toBeNull();
   });
 });
+
+describe('paged resource lists', () => {
+  it('sends food and ingredient search pagination parameters', async () => {
+    const fetchSpy = vi.fn(async (_input: RequestInfo | URL) => new Response(JSON.stringify([]), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    }));
+    vi.stubGlobal('fetch', fetchSpy);
+
+    await api.getFoods({ q: '番茄 饭', limit: 6, offset: 12 });
+    await api.getIngredients({ q: '蔬菜', limit: 6, offset: 6 });
+
+    expect(String(fetchSpy.mock.calls[0]?.[0])).toContain('/api/foods?q=%E7%95%AA%E8%8C%84+%E9%A5%AD&limit=6&offset=12');
+    expect(String(fetchSpy.mock.calls[1]?.[0])).toContain('/api/ingredients?q=%E8%94%AC%E8%8F%9C&limit=6&offset=6');
+  });
+});

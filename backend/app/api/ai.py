@@ -552,6 +552,66 @@ def decide_ai_approval(
     return result
 
 
+@router.post("/api/ai/conversations/{conversation_id}/approvals/{approval_id}/decision/stream")
+def stream_ai_approval_decision(
+    conversation_id: str,
+    approval_id: str,
+    payload: AIApprovalDecisionRequest,
+    auth: tuple = Depends(get_current_auth),
+    db: Session = Depends(get_db),
+) -> StreamingResponse:
+    user, membership = auth
+
+    def encode(event: str, data: dict) -> str:
+        return f"event: {event}\ndata: {json.dumps(jsonable_encoder(data), ensure_ascii=False)}\n\n"
+
+    def generate():
+        try:
+            service = AIApplicationService(db)
+            for event, data in service.stream_approval_decision(
+                family_id=membership.family_id,
+                user_id=user.id,
+                conversation_id=conversation_id,
+                approval_id=approval_id,
+                decision=payload.decision,
+                draft_version=payload.draft_version,
+                values=payload.values,
+                comment=payload.comment,
+            ):
+                if event == "response":
+                    commit_session(db)
+                yield encode(event, data)
+        except LookupError as exc:
+            yield encode("error", {"detail": str(exc), "status": 404})
+            return
+        except AIConflictError as exc:
+            yield encode("error", {"detail": str(exc), "status": 409})
+            return
+        except ValueError as exc:
+            yield encode("error", {"detail": str(exc), "status": 409})
+            return
+        except Exception:
+            logger.exception(
+                "AI approval decision stream failed family_id=%s user_id=%s conversation_id=%s approval_id=%s",
+                membership.family_id,
+                user.id,
+                conversation_id,
+                approval_id,
+            )
+            yield encode("error", {"detail": "AI 服务暂时不可用，请稍后重试。", "status": 500})
+            return
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache, no-transform",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
 @router.post("/api/ai/recipes/draft", response_model=GenerateRecipeDraftResponse)
 def generate_recipe_draft(
     payload: GenerateRecipeDraftRequest,

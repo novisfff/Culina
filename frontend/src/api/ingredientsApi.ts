@@ -8,7 +8,14 @@ import type {
 } from './types';
 
 export const ingredientsApi = {
-  getIngredients: () => request<Ingredient[]>('/api/ingredients'),
+  getIngredients: (params: { q?: string; limit?: number; offset?: number } = {}) => {
+    const search = new URLSearchParams();
+    if (params.q?.trim()) search.set('q', params.q.trim());
+    if (params.limit !== undefined) search.set('limit', String(params.limit));
+    if (params.offset !== undefined) search.set('offset', String(params.offset));
+    const suffix = search.size > 0 ? `?${search.toString()}` : '';
+    return request<Ingredient[]>(`/api/ingredients${suffix}`);
+  },
   createIngredient: (payload: {
     name: string;
     category: string;

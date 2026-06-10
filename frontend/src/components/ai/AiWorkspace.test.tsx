@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createRoot, type Root } from 'react-dom/client';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { api } from '../../api/client';
-import type { AiApprovalRequest, AiChatResponse, AiConversation, AiGeneratedRecipeDraft } from '../../api/types';
+import type { AiApprovalRequest, AiChatResponse, AiConversation, AiGeneratedRecipeDraft, Food, Ingredient } from '../../api/types';
 import { AiWorkspace, ApprovalPanel } from './AiWorkspace';
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -72,6 +72,78 @@ function shoppingApproval(): AiApprovalRequest {
   });
 }
 
+function mealPlanApproval(): AiApprovalRequest {
+  const draft = {
+    draftType: 'meal_plan',
+    schemaVersion: 'meal_plan.v1',
+    items: [
+      {
+        date: '2026-06-10',
+        mealType: 'dinner',
+        title: '番茄炒蛋',
+        foodId: 'food-tomato-egg',
+        reason: '快手晚餐',
+        missingIngredients: [{ name: '牛肉' }, { ingredient_name: '土豆' }],
+      },
+    ],
+  };
+  return approval({
+    approval_type: 'meal_plan.create',
+    title: '确认创建餐食计划',
+    approve_label: '加入计划',
+    reject_label: '暂不加入',
+    draft_schema_version: 'meal_plan.v1',
+    field_schema: [{ name: 'draft', label: '草稿内容', type: 'object', widget: 'textarea', required: true }],
+    initial_values: { draft },
+    submitted_values: {},
+  });
+}
+
+function mealLogApproval(): AiApprovalRequest {
+  const draft = {
+    draftType: 'meal_log',
+    schemaVersion: 'meal_log.v1',
+    date: '2026-06-10',
+    mealType: 'dinner',
+    foods: [{ foodId: 'food-tomato-egg', name: '番茄炒蛋', servings: 1, note: '少油' }],
+    notes: '晚餐记录',
+  };
+  return approval({
+    approval_type: 'meal_log.create',
+    title: '确认创建餐食记录',
+    approve_label: '写入餐食记录',
+    reject_label: '暂不写入',
+    draft_schema_version: 'meal_log.v1',
+    field_schema: [{ name: 'draft', label: '草稿内容', type: 'object', widget: 'textarea', required: true }],
+    initial_values: { draft },
+    submitted_values: {},
+  });
+}
+
+function foodProfileApproval(): AiApprovalRequest {
+  const draft = {
+    draftType: 'food_profile',
+    schemaVersion: 'food_profile.v1',
+    name: '蓝莓酸奶',
+    type: 'readyMade',
+    category: '饮品',
+    flavor_tags: ['酸甜'],
+    suitable_meal_types: ['breakfast'],
+    source_name: '常买品牌',
+    notes: '冷藏食用',
+  };
+  return approval({
+    approval_type: 'food_profile.create',
+    title: '确认创建食物资料',
+    approve_label: '创建食物资料',
+    reject_label: '暂不创建',
+    draft_schema_version: 'food_profile.v1',
+    field_schema: [{ name: 'draft', label: '草稿内容', type: 'object', widget: 'textarea', required: true }],
+    initial_values: { draft },
+    submitted_values: {},
+  });
+}
+
 function conversation(): AiConversation {
   return {
     id: 'conversation-1',
@@ -94,6 +166,12 @@ async function flush() {
   await act(async () => {
     await Promise.resolve();
     await new Promise((resolve) => window.setTimeout(resolve, 0));
+  });
+}
+
+async function waitForResourceLoad(delay = 0) {
+  await act(async () => {
+    await new Promise((resolve) => window.setTimeout(resolve, delay));
   });
 }
 
@@ -127,6 +205,14 @@ function changeInput(input: HTMLInputElement | HTMLTextAreaElement, value: strin
   });
 }
 
+function changeSelect(select: HTMLSelectElement, value: string) {
+  act(() => {
+    const valueSetter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')?.set;
+    valueSetter?.call(select, value);
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+}
+
 afterEach(() => {
   vi.useRealTimers();
   vi.restoreAllMocks();
@@ -141,6 +227,8 @@ beforeEach(() => {
     status: 'ready',
     detail: 'AI 已就绪。',
   });
+  vi.spyOn(api, 'getFoods').mockResolvedValue([]);
+  vi.spyOn(api, 'getIngredients').mockResolvedValue([]);
 });
 
 async function advanceTimers(ms: number) {
@@ -156,37 +244,29 @@ describe('ApprovalPanel', () => {
       submitted_values: { recipe: recipeDraft('最终提交菜谱') },
       decision: 'approved',
     });
-    const rendered = await renderWithQuery(<ApprovalPanel approval={resolvedApproval} onSettled={() => undefined} />);
+    const rendered = await renderWithQuery(<ApprovalPanel approval={resolvedApproval} onDecision={() => undefined} />);
     const titleInput = rendered.container.querySelector<HTMLInputElement>('input.text-input');
     expect(titleInput?.value).toBe('最终提交菜谱');
     expect(titleInput?.disabled).toBe(true);
+    expect(rendered.container.textContent).toContain('已确认');
+    rendered.unmount();
+  });
+
+  it('renders rejected approval status in Chinese', async () => {
+    const rendered = await renderWithQuery(
+      <ApprovalPanel
+        approval={approval({ status: 'rejected', decision: 'rejected' })}
+        onDecision={() => undefined}
+      />,
+    );
+    expect(rendered.container.textContent).toContain('已拒绝');
     rendered.unmount();
   });
 
   it('submits edited recipe values and keeps the returned values visible', async () => {
     const pending = approval();
-    const submitted = recipeDraft('用户编辑后的菜谱');
-    const decideSpy = vi.spyOn(api, 'decideAiApproval').mockResolvedValue({
-      approval: { ...pending, status: 'approved', submitted_values: { recipe: submitted }, decision: 'approved' },
-      draft: {
-        id: 'draft-1',
-        conversation_id: 'conversation-1',
-        message_id: 'message-1',
-        run_id: 'run-1',
-        draft_type: 'recipe',
-        payload: submitted,
-        preview_summary: '用户编辑后的菜谱',
-        status: 'confirmed',
-        version: 1,
-        schema_version: 'recipe.v1',
-        validation_errors: [],
-        created_at: '2026-05-30T00:00:00Z',
-        updated_at: '2026-05-30T00:00:00Z',
-      },
-      operation: { status: 'succeeded' },
-      business_entity: null,
-    });
-    const rendered = await renderWithQuery(<ApprovalPanel approval={pending} onSettled={() => undefined} />);
+    const decideSpy = vi.fn().mockResolvedValue(undefined);
+    const rendered = await renderWithQuery(<ApprovalPanel approval={pending} onDecision={decideSpy} />);
     const titleInput = rendered.container.querySelector<HTMLInputElement>('input.text-input');
     expect(titleInput).not.toBeNull();
     changeInput(titleInput as HTMLInputElement, '用户编辑后的菜谱');
@@ -195,97 +275,295 @@ describe('ApprovalPanel', () => {
     });
     await flush();
     expect(decideSpy).toHaveBeenCalledWith(
-      'conversation-1',
-      'approval-1',
-      expect.objectContaining({
-        decision: 'approved',
-        values: { recipe: expect.objectContaining({ title: '用户编辑后的菜谱' }) },
-      })
+      pending,
+      'approved',
+      { recipe: expect.objectContaining({ title: '用户编辑后的菜谱' }) },
+      '',
     );
     expect((rendered.container.querySelector('input.text-input') as HTMLInputElement).value).toBe('用户编辑后的菜谱');
     rendered.unmount();
   });
 
-  it('keeps the editor retryable when operation fails and backend returns a retry approval', async () => {
+  it('keeps the editor retryable when parent submission fails', async () => {
     const pending = approval();
-    const submitted = recipeDraft('等待重试的菜谱');
-    vi.spyOn(api, 'decideAiApproval').mockResolvedValue({
-      approval: {
-        ...pending,
-        id: 'approval-retry',
-        approval_type: 'recipe.create.retry',
-        status: 'pending',
-        title: '重试创建菜谱',
-        approve_label: '重试创建',
-        initial_values: { recipe: submitted },
-        submitted_values: {},
-      },
-      draft: {
-        id: 'draft-1',
-        conversation_id: 'conversation-1',
-        message_id: 'message-1',
-        run_id: 'run-1',
-        draft_type: 'recipe',
-        payload: submitted,
-        preview_summary: '等待重试的菜谱',
-        status: 'pending_retry',
-        version: 1,
-        schema_version: 'recipe.v1',
-        validation_errors: [],
-        created_at: '2026-05-30T00:00:00Z',
-        updated_at: '2026-05-30T00:00:00Z',
-      },
-      operation: { status: 'failed', error_message: 'sync failed' },
-      business_entity: null,
-    });
-    const rendered = await renderWithQuery(<ApprovalPanel approval={pending} onSettled={() => undefined} />);
+    const rendered = await renderWithQuery(<ApprovalPanel approval={pending} onDecision={() => Promise.reject(new Error('sync failed'))} />);
     await act(async () => {
       rendered.container.querySelector<HTMLButtonElement>('button.solid-button')?.click();
     });
     await flush();
     const titleInput = rendered.container.querySelector<HTMLInputElement>('input.text-input');
     expect(rendered.container.textContent).toContain('sync failed');
-    expect(rendered.container.textContent).toContain('重试创建');
     expect(titleInput?.disabled).toBe(false);
     rendered.unmount();
   });
 
   it('submits shopping list drafts from structured fields instead of raw JSON', async () => {
     const pending = shoppingApproval();
-    const decideSpy = vi.spyOn(api, 'decideAiApproval').mockResolvedValue({
-      approval: { ...pending, status: 'approved', submitted_values: { draft: pending.initial_values.draft }, decision: 'approved' },
-      draft: {
-        id: 'draft-1',
-        conversation_id: 'conversation-1',
-        message_id: 'message-1',
-        run_id: 'run-1',
-        draft_type: 'shopping_list',
-        payload: pending.initial_values.draft ?? {},
-        preview_summary: '1 个待采购项',
-        status: 'confirmed',
-        version: 1,
-        schema_version: 'shopping_list.v1',
-        validation_errors: [],
-        created_at: '2026-05-30T00:00:00Z',
-        updated_at: '2026-05-30T00:00:00Z',
-      },
-      operation: { status: 'succeeded' },
-      business_entity: null,
+    const decideSpy = vi.fn().mockResolvedValue(undefined);
+    const ingredients = [
+      { id: 'ingredient-egg', name: '鸡蛋', category: '蛋奶', default_unit: '盒', image: { url: '/ingredient-egg.jpg' } },
+      { id: 'ingredient-milk', name: '牛奶', category: '蛋奶', default_unit: '瓶', image: { url: '/ingredient-milk.jpg' } },
+    ] as Ingredient[];
+    const rendered = await renderWithQuery(<ApprovalPanel approval={pending} ingredients={ingredients} onDecision={decideSpy} />);
+    const titleInput = rendered.container.querySelector<HTMLInputElement>('.ai-shopping-list-draft-editor .ai-resource-field-ingredient input');
+    expect(titleInput?.value).toBe('鸡蛋');
+    await act(async () => {
+      titleInput?.focus();
     });
-    const rendered = await renderWithQuery(<ApprovalPanel approval={pending} onSettled={() => undefined} />);
-    const titleInput = Array.from(rendered.container.querySelectorAll<HTMLInputElement>('input.text-input')).find((input) => input.value === '鸡蛋');
-    expect(titleInput).toBeTruthy();
-    changeInput(titleInput as HTMLInputElement, '牛奶');
+    await waitForResourceLoad();
+    const milkOption = Array.from(rendered.container.querySelectorAll<HTMLButtonElement>('.ai-resource-menu button')).find((button) => button.textContent?.includes('牛奶'));
+    expect(milkOption).toBeTruthy();
+    await act(async () => {
+      milkOption?.click();
+    });
     await act(async () => {
       rendered.container.querySelector<HTMLButtonElement>('button.solid-button')?.click();
     });
     await flush();
     expect(decideSpy).toHaveBeenCalledWith(
-      'conversation-1',
-      'approval-1',
-      expect.objectContaining({
-        values: { draft: expect.objectContaining({ items: [expect.objectContaining({ title: '牛奶' })] }) },
-      })
+      pending,
+      'approved',
+      { draft: expect.objectContaining({ items: [expect.objectContaining({ title: '牛奶', unit: '瓶' })] }) },
+      '',
+    );
+    rendered.unmount();
+  });
+
+  it('uses the shared card layout and dropdowns for recipe confirmations', async () => {
+    const pending = approval();
+    const decideSpy = vi.fn().mockResolvedValue(undefined);
+    const ingredients = [
+      { id: 'ingredient-tomato', name: '番茄', category: '蔬菜', default_unit: '个', image: { url: '/ingredient-tomato.jpg' } },
+    ] as Ingredient[];
+    const rendered = await renderWithQuery(<ApprovalPanel approval={pending} ingredients={ingredients} onDecision={decideSpy} />);
+    expect(rendered.container.querySelectorAll('.ai-recipe-draft-editor .ai-confirmation-item').length).toBeGreaterThan(2);
+
+    const difficultySelect = Array.from(rendered.container.querySelectorAll<HTMLSelectElement>('select')).find((select) => Array.from(select.options).some((option) => option.value === 'medium'));
+    const stepIconSelect = Array.from(rendered.container.querySelectorAll<HTMLSelectElement>('select')).find((select) => Array.from(select.options).some((option) => option.value === 'timer'));
+    expect(difficultySelect?.textContent).toContain('适中');
+    expect(stepIconSelect?.textContent).toContain('计时');
+    changeSelect(difficultySelect as HTMLSelectElement, 'medium');
+    changeSelect(stepIconSelect as HTMLSelectElement, 'timer');
+
+    const ingredientInput = rendered.container.querySelector<HTMLInputElement>('.ai-recipe-draft-editor .ai-resource-field-ingredient input');
+    await act(async () => {
+      ingredientInput?.focus();
+    });
+    await waitForResourceLoad();
+    const tomatoOption = Array.from(rendered.container.querySelectorAll<HTMLButtonElement>('.ai-resource-menu button')).find((button) => button.textContent?.includes('番茄'));
+    expect(tomatoOption).toBeTruthy();
+    await act(async () => {
+      tomatoOption?.click();
+    });
+    await flush();
+    await act(async () => {
+      rendered.container.querySelector<HTMLButtonElement>('.ai-approval-actions .solid-button')?.click();
+    });
+    await flush();
+    expect(decideSpy).toHaveBeenCalledWith(
+      pending,
+      'approved',
+      {
+        recipe: expect.objectContaining({
+          difficulty: 'medium',
+          ingredient_items: [expect.objectContaining({ ingredient_id: 'ingredient-tomato', ingredient_name: '番茄' })],
+          steps: expect.arrayContaining([expect.objectContaining({ icon: 'timer' })]),
+        }),
+      },
+      '',
+    );
+    rendered.unmount();
+  });
+
+  it('shows resource images and submits meal plan ingredient quantities', async () => {
+    const pending = mealPlanApproval();
+    const decideSpy = vi.fn().mockResolvedValue(undefined);
+    const foods = [
+      { id: 'food-tomato-egg', name: '番茄炒蛋', category: '家常菜', type: 'selfMade', images: [{ url: '/food-tomato-egg.jpg' }] },
+      { id: 'food-noodle', name: '牛肉面', category: '主食', type: 'selfMade', images: [{ url: '/food-noodle.jpg' }] },
+    ] as Food[];
+    const ingredients = [
+      { id: 'ingredient-beef', name: '牛肉', category: '肉类', default_unit: 'g', image: { url: '/ingredient-beef.jpg' } },
+      { id: 'ingredient-potato', name: '土豆', category: '蔬菜', default_unit: '个', image: { url: '/ingredient-potato.jpg' } },
+      { id: 'ingredient-tomato', name: '番茄', category: '蔬菜', default_unit: '个', image: { url: '/ingredient-tomato.jpg' } },
+    ] as Ingredient[];
+    const rendered = await renderWithQuery(<ApprovalPanel approval={pending} foods={foods} ingredients={ingredients} onDecision={decideSpy} />);
+
+    expect(Array.from(rendered.container.querySelectorAll<HTMLInputElement>('.ai-meal-plan-ingredient-row .ai-resource-field-ingredient input')).map((input) => input.value)).toEqual(['牛肉', '土豆']);
+    expect(rendered.container.querySelector<HTMLImageElement>('.ai-resource-field-food .ai-resource-thumbnail')?.src).toContain('/food-tomato-egg.jpg');
+    expect(Array.from(rendered.container.querySelectorAll<HTMLImageElement>('.ai-meal-plan-ingredient-row .ai-resource-thumbnail')).map((image) => image.src)).toEqual(
+      expect.arrayContaining([expect.stringContaining('/ingredient-beef.jpg'), expect.stringContaining('/ingredient-potato.jpg')]),
+    );
+
+    const beefQuantityInput = rendered.container.querySelector<HTMLInputElement>('input[aria-label="牛肉数量"]');
+    expect(beefQuantityInput).not.toBeNull();
+    changeInput(beefQuantityInput as HTMLInputElement, '250');
+
+    const foodInput = rendered.container.querySelector<HTMLInputElement>('.ai-resource-field-food input');
+    expect(foodInput).not.toBeNull();
+    await act(async () => {
+      foodInput?.focus();
+    });
+    await waitForResourceLoad();
+    expect(rendered.container.textContent).toContain('家常菜 · 自制食物');
+    changeInput(foodInput as HTMLInputElement, '牛肉');
+    await waitForResourceLoad(240);
+    expect(rendered.container.textContent).toContain('牛肉面');
+
+    const ingredientInput = Array.from(rendered.container.querySelectorAll<HTMLInputElement>('.ai-resource-field-ingredient input')).find((input) => input.placeholder.includes('继续') || input.placeholder.includes('搜索'));
+    expect(ingredientInput).not.toBeNull();
+    await act(async () => {
+      ingredientInput?.focus();
+    });
+    await waitForResourceLoad();
+    changeInput(ingredientInput as HTMLInputElement, '番茄');
+    await waitForResourceLoad(240);
+    expect(rendered.container.textContent).toContain('番茄');
+    await act(async () => {
+      rendered.container.querySelector<HTMLButtonElement>('.ai-approval-actions .solid-button')?.click();
+    });
+    await flush();
+    expect(decideSpy).toHaveBeenCalledWith(
+      pending,
+      'approved',
+      {
+        draft: expect.objectContaining({
+          items: [
+            expect.objectContaining({
+              missingIngredients: ['牛肉', '土豆'],
+              missingIngredientItems: [
+                { ingredientId: 'ingredient-beef', name: '牛肉', quantity: 250, unit: 'g' },
+                { ingredientId: 'ingredient-potato', name: '土豆', quantity: 1, unit: '个' },
+              ],
+            }),
+          ],
+        }),
+      },
+      '',
+    );
+    rendered.unmount();
+  });
+
+  it('loads resource options in pages and resets pagination for search', async () => {
+    const pending = mealPlanApproval();
+    const foodOptions = Array.from({ length: 14 }, (_, index) => ({
+      id: `food-${index + 1}`,
+      label: index === 12 ? '番茄烩饭' : `食物 ${index + 1}`,
+      description: '家常菜',
+      imageUrl: `/food-${index + 1}.jpg`,
+    }));
+    const loader = vi.fn(async (kind: 'food' | 'ingredient', params: { query: string; offset: number; limit: number }) => {
+      const source = kind === 'food' ? foodOptions : [];
+      return source
+        .filter((option) => !params.query || option.label.includes(params.query))
+        .slice(params.offset, params.offset + params.limit);
+    });
+    const rendered = await renderWithQuery(
+      <ApprovalPanel approval={pending} resourceOptionLoader={loader} onDecision={() => undefined} />,
+    );
+    const foodInput = rendered.container.querySelector<HTMLInputElement>('.ai-resource-field-food input');
+    expect(foodInput).not.toBeNull();
+
+    await act(async () => {
+      foodInput?.focus();
+    });
+    await waitForResourceLoad();
+    expect(loader).toHaveBeenCalledWith('food', { query: '', offset: 0, limit: 6 });
+    expect(rendered.container.querySelectorAll('.ai-resource-field-food .ai-resource-menu button')).toHaveLength(6);
+
+    const menu = rendered.container.querySelector<HTMLElement>('.ai-resource-field-food .ai-resource-menu');
+    expect(menu).not.toBeNull();
+    Object.defineProperties(menu as HTMLElement, {
+      scrollHeight: { configurable: true, value: 300 },
+      clientHeight: { configurable: true, value: 100 },
+      scrollTop: { configurable: true, value: 200, writable: true },
+    });
+    await act(async () => {
+      menu?.dispatchEvent(new Event('scroll', { bubbles: true }));
+    });
+    await waitForResourceLoad();
+    expect(loader).toHaveBeenCalledWith('food', { query: '', offset: 6, limit: 6 });
+    expect(rendered.container.querySelectorAll('.ai-resource-field-food .ai-resource-menu button')).toHaveLength(12);
+
+    changeInput(foodInput as HTMLInputElement, '番茄');
+    await waitForResourceLoad(240);
+    expect(loader).toHaveBeenLastCalledWith('food', { query: '番茄', offset: 0, limit: 6 });
+    expect(rendered.container.querySelectorAll('.ai-resource-field-food .ai-resource-menu button')).toHaveLength(1);
+    expect(rendered.container.textContent).toContain('番茄烩饭');
+    rendered.unmount();
+  });
+
+  it('uses food dropdowns and meal type selection for meal log confirmations', async () => {
+    const pending = mealLogApproval();
+    const decideSpy = vi.fn().mockResolvedValue(undefined);
+    const foods = [
+      { id: 'food-tomato-egg', name: '番茄炒蛋', category: '家常菜', type: 'selfMade', images: [{ url: '/food-tomato-egg.jpg' }] },
+      { id: 'food-noodle', name: '牛肉面', category: '主食', type: 'selfMade', images: [{ url: '/food-noodle.jpg' }] },
+    ] as Food[];
+    const rendered = await renderWithQuery(<ApprovalPanel approval={pending} foods={foods} onDecision={decideSpy} />);
+    expect(rendered.container.querySelectorAll('.ai-meal-log-draft-editor .ai-confirmation-item')).toHaveLength(2);
+    const mealSelect = rendered.container.querySelector<HTMLSelectElement>('.ai-meal-log-draft-editor .ai-resource-field-choice select');
+    changeSelect(mealSelect as HTMLSelectElement, 'lunch');
+    const foodInput = rendered.container.querySelector<HTMLInputElement>('.ai-meal-log-draft-editor .ai-resource-field-food input');
+    await act(async () => {
+      foodInput?.focus();
+    });
+    await waitForResourceLoad();
+    const noodleOption = Array.from(rendered.container.querySelectorAll<HTMLButtonElement>('.ai-resource-menu button')).find((button) => button.textContent?.includes('牛肉面'));
+    expect(noodleOption).toBeTruthy();
+    await act(async () => {
+      noodleOption?.click();
+    });
+    await flush();
+    await act(async () => {
+      rendered.container.querySelector<HTMLButtonElement>('.ai-approval-actions .solid-button')?.click();
+    });
+    await flush();
+    expect(decideSpy).toHaveBeenCalledWith(
+      pending,
+      'approved',
+      {
+        draft: expect.objectContaining({
+          mealType: 'lunch',
+          foods: [expect.objectContaining({ foodId: 'food-noodle', name: '牛肉面' })],
+        }),
+      },
+      '',
+    );
+    rendered.unmount();
+  });
+
+  it('uses dropdowns for food type and multi-select meal types', async () => {
+    const pending = foodProfileApproval();
+    const decideSpy = vi.fn().mockResolvedValue(undefined);
+    const rendered = await renderWithQuery(<ApprovalPanel approval={pending} onDecision={decideSpy} />);
+    const typeSelect = rendered.container.querySelector<HTMLSelectElement>('.ai-food-profile-draft-editor .ai-resource-field-choice select');
+    expect(typeSelect?.textContent).toContain('外卖');
+    changeSelect(typeSelect as HTMLSelectElement, 'takeout');
+    const mealTrigger = rendered.container.querySelector<HTMLButtonElement>('.ai-food-profile-draft-editor .ai-multi-select-trigger');
+    await act(async () => {
+      mealTrigger?.click();
+    });
+    const dinnerOption = Array.from(rendered.container.querySelectorAll<HTMLButtonElement>('.ai-choice-menu button')).find((button) => button.textContent?.includes('晚餐'));
+    expect(dinnerOption).toBeTruthy();
+    await act(async () => {
+      dinnerOption?.click();
+    });
+    await flush();
+    await act(async () => {
+      rendered.container.querySelector<HTMLButtonElement>('.ai-approval-actions .solid-button')?.click();
+    });
+    await flush();
+    expect(decideSpy).toHaveBeenCalledWith(
+      pending,
+      'approved',
+      {
+        draft: expect.objectContaining({
+          type: 'takeout',
+          suitable_meal_types: ['breakfast', 'dinner'],
+        }),
+      },
+      '',
     );
     rendered.unmount();
   });
@@ -304,7 +582,7 @@ describe('AiWorkspace pending approval restore', () => {
     rendered.unmount();
   });
 
-  it('pauses both composers and blocks sending while an approval is pending', async () => {
+  it('pauses both composers but keeps the pending approval run cancellable', async () => {
     vi.spyOn(api, 'getAiMessages').mockResolvedValue([]);
     vi.spyOn(api, 'getPendingAiApprovals').mockResolvedValue([approval()]);
     const streamSpy = vi.spyOn(api, 'streamChatAi').mockResolvedValue({
@@ -332,16 +610,36 @@ describe('AiWorkspace pending approval restore', () => {
       events: [],
       included: { result_cards: [], drafts: [], approvals: [] },
     });
+    const cancelSpy = vi.spyOn(api, 'cancelAiRun').mockResolvedValue({
+      run: { id: 'run-1', status: 'cancelled' },
+      events: [
+        {
+          id: 'cancel-event',
+          run_id: 'run-1',
+          type: 'cancel',
+          internal_code: 'user_cancel',
+          user_message: '已取消这次任务',
+          status: 'failed',
+          created_at: '2026-05-30T00:00:00Z',
+        },
+      ],
+    });
     const rendered = await renderWithQuery(<AiWorkspace conversations={[conversation()]} isLoading={false} />);
     await flush();
     expect(rendered.container.textContent).toContain('请先确认上面的草稿，确认后可以继续对话。');
     expect(Array.from(rendered.container.querySelectorAll<HTMLTextAreaElement>('.ai-composer textarea')).every((textarea) => textarea.disabled)).toBe(true);
-    expect(Array.from(rendered.container.querySelectorAll<HTMLButtonElement>('.ai-send-button')).every((button) => button.disabled)).toBe(true);
+    expect(Array.from(rendered.container.querySelectorAll<HTMLButtonElement>('.ai-send-button')).every((button) => !button.disabled)).toBe(true);
+    expect(Array.from(rendered.container.querySelectorAll<HTMLButtonElement>('.ai-send-button')).every((button) => button.getAttribute('aria-label') === '中止生成')).toBe(true);
     await act(async () => {
       rendered.container.querySelector<HTMLFormElement>('form.ai-composer')?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
     });
     await flush();
     expect(streamSpy).not.toHaveBeenCalled();
+    await act(async () => {
+      rendered.container.querySelector<HTMLButtonElement>('.ai-send-button')?.click();
+    });
+    await flush();
+    expect(cancelSpy).toHaveBeenCalledWith('run-1');
     rendered.unmount();
   });
 
@@ -378,25 +676,30 @@ describe('AiWorkspace pending approval restore', () => {
       pendingRequestCount += 1;
       return pendingRequestCount === 1 ? [pending] : [];
     });
-    vi.spyOn(api, 'decideAiApproval').mockResolvedValue({
-      approval: { ...pending, status: 'approved', submitted_values: pending.initial_values, decision: 'approved' },
-      draft: {
-        id: 'draft-1',
+    const streamDecisionSpy = vi.spyOn(api, 'streamAiApprovalDecision').mockResolvedValue({
+      conversation_id: 'conversation-1',
+      message: {
+        id: 'message-1',
         conversation_id: 'conversation-1',
-        message_id: 'message-1',
+        role: 'assistant',
+        content: '确认完成，已继续处理。',
+        content_type: 'parts',
+        parts: [{ id: 'part-1', type: 'text', text: '确认完成，已继续处理。' }],
         run_id: 'run-1',
-        draft_type: 'recipe',
-        payload: pending.initial_values.recipe ?? {},
-        preview_summary: '原始草稿',
-        status: 'confirmed',
-        version: 1,
-        schema_version: 'recipe.v1',
-        validation_errors: [],
+        status: 'completed',
+        metadata: {},
         created_at: '2026-05-30T00:00:00Z',
-        updated_at: '2026-05-30T00:00:00Z',
       },
-      operation: { status: 'succeeded' },
-      business_entity: null,
+      run: {
+        id: 'run-1',
+        agent_key: 'recipe_draft_agent',
+        intent: 'recipe_draft',
+        status: 'completed',
+        model: 'rules',
+        created_at: '2026-05-30T00:00:00Z',
+      },
+      events: [],
+      included: { result_cards: [], drafts: [], approvals: [] },
     });
     const rendered = await renderWithQuery(<AiWorkspace conversations={[conversation()]} isLoading={false} />);
     await flush();
@@ -405,7 +708,89 @@ describe('AiWorkspace pending approval restore', () => {
       rendered.container.querySelector<HTMLButtonElement>('.ai-approval-actions .solid-button')?.click();
     });
     await flush();
+    expect(streamDecisionSpy).toHaveBeenCalledWith(
+      'conversation-1',
+      'approval-1',
+      expect.objectContaining({
+        decision: 'approved',
+        draft_version: 1,
+        values: expect.objectContaining({ recipe: expect.any(Object) }),
+      }),
+      expect.any(Object),
+    );
     expect(Array.from(rendered.container.querySelectorAll<HTMLTextAreaElement>('.ai-composer textarea')).every((textarea) => !textarea.disabled)).toBe(true);
+    rendered.unmount();
+  });
+
+  it('continues approval resume output inside the original assistant message', async () => {
+    const pending = approval();
+    vi.spyOn(api, 'getAiMessages').mockResolvedValue([
+      {
+        id: 'message-1',
+        conversation_id: 'conversation-1',
+        role: 'assistant',
+        content: '菜谱草稿已经生成，请确认。',
+        content_type: 'parts',
+        parts: [
+          { id: 'text-1', type: 'text', text: '菜谱草稿已经生成，请确认。' },
+          { id: 'approval-part-1', type: 'approval_request', approval: pending },
+        ],
+        run_id: 'run-1',
+        status: 'waiting_approval',
+        metadata: {},
+        created_at: '2026-05-30T00:00:00Z',
+      },
+    ]);
+    vi.spyOn(api, 'getPendingAiApprovals').mockResolvedValueOnce([pending]).mockResolvedValue([]);
+    vi.spyOn(api, 'streamAiApprovalDecision').mockImplementation(async (_conversationId, _approvalId, _payload, handlers) => {
+      handlers?.onMessageDelta?.({
+        message_id: 'new-message-should-not-render',
+        conversation_id: 'conversation-1',
+        run_id: 'run-1',
+        part_id: 'resume-text-1',
+        delta: '确认完成，我继续整理下一步。',
+      });
+      return {
+        conversation_id: 'conversation-1',
+        message: {
+          id: 'message-1',
+          conversation_id: 'conversation-1',
+          role: 'assistant',
+          content: '菜谱草稿已经生成，请确认。\n\n确认完成，我继续整理下一步。',
+          content_type: 'parts',
+          parts: [
+            { id: 'text-1', type: 'text', text: '菜谱草稿已经生成，请确认。' },
+            { id: 'approval-part-1', type: 'approval_request', approval: { ...pending, status: 'approved', decision: 'approved', submitted_values: pending.initial_values } },
+            { id: 'resume-text-1', type: 'text', text: '确认完成，我继续整理下一步。' },
+          ],
+          run_id: 'run-1',
+          status: 'completed',
+          metadata: {},
+          created_at: '2026-05-30T00:00:00Z',
+        },
+        run: {
+          id: 'run-1',
+          agent_key: 'workspace_planner',
+          intent: 'multi_skill',
+          status: 'completed',
+          model: 'rules',
+          created_at: '2026-05-30T00:00:00Z',
+        },
+        events: [],
+        included: { result_cards: [], drafts: [], approvals: [] },
+      };
+    });
+    const rendered = await renderWithQuery(<AiWorkspace conversations={[conversation()]} isLoading={false} />);
+    await flush();
+    expect(rendered.container.querySelectorAll('.ai-desktop-view .ai-message-assistant')).toHaveLength(1);
+    await act(async () => {
+      rendered.container.querySelector<HTMLButtonElement>('.ai-desktop-view .ai-approval-actions .solid-button')?.click();
+    });
+    await flush();
+    const assistantMessages = rendered.container.querySelectorAll('.ai-desktop-view .ai-message-assistant');
+    expect(assistantMessages).toHaveLength(1);
+    expect(assistantMessages[0]?.textContent).toContain('确认创建菜谱');
+    expect(assistantMessages[0]?.textContent).toContain('确认完成，我继续整理下一步。');
     rendered.unmount();
   });
 
@@ -835,6 +1220,88 @@ describe('AiWorkspace pending approval restore', () => {
           content: '先推荐番茄鸡蛋面',
           content_type: 'parts',
           parts: [{ id: 'part-final', type: 'text', text: '先推荐番茄鸡蛋面' }],
+          run_id: streamedRunId,
+          status: 'completed',
+          metadata: {},
+          created_at: '2026-05-30T00:00:00Z',
+        },
+        run: {
+          id: streamedRunId,
+          agent_key: 'meal_plan_agent',
+          intent: 'meal_plan',
+          status: 'completed',
+          model: 'rules',
+          created_at: '2026-05-30T00:00:00Z',
+        },
+        events: [],
+        included: { result_cards: [], drafts: [], approvals: [] },
+      });
+    });
+    await flush();
+    rendered.unmount();
+  });
+
+  it('starts streamed assistant text on a new paragraph after progress events', async () => {
+    vi.spyOn(api, 'getAiMessages').mockResolvedValue([]);
+    vi.spyOn(api, 'getPendingAiApprovals').mockResolvedValue([]);
+    let resolveStream: ((response: AiChatResponse) => void) | null = null;
+    let streamedRunId = 'agent_run-client';
+    vi.spyOn(api, 'streamChatAi').mockImplementation(async (payload, handlers) => {
+      streamedRunId = payload.client_run_id ?? streamedRunId;
+      handlers?.onMessageDelta?.({
+        message_id: 'message-streaming',
+        conversation_id: payload.conversation_id ?? 'conversation-1',
+        run_id: streamedRunId,
+        part_id: 'part-streaming',
+        delta: '我先查一下库存。',
+      });
+      handlers?.onProgress?.({
+        id: 'progress-tool',
+        run_id: streamedRunId,
+        type: 'tool',
+        internal_code: 'inventory.read_available_items',
+        user_message: '调用「可用库存」',
+        status: 'completed',
+        created_at: '2026-05-30T00:00:00Z',
+      });
+      handlers?.onMessageDelta?.({
+        message_id: 'message-streaming',
+        conversation_id: payload.conversation_id ?? 'conversation-1',
+        run_id: streamedRunId,
+        part_id: 'part-streaming',
+        delta: '库存看完了，',
+      });
+      handlers?.onMessageDelta?.({
+        message_id: 'message-streaming',
+        conversation_id: payload.conversation_id ?? 'conversation-1',
+        run_id: streamedRunId,
+        part_id: 'part-streaming',
+        delta: '推荐番茄鸡蛋面。',
+      });
+      return new Promise<AiChatResponse>((resolve) => {
+        resolveStream = resolve;
+      });
+    });
+    const rendered = await renderWithQuery(<AiWorkspace conversations={[conversation()]} isLoading={false} />);
+    await flush();
+    changeInput(rendered.container.querySelector<HTMLTextAreaElement>('textarea.text-input') as HTMLTextAreaElement, '今日吃什么？');
+    await act(async () => {
+      rendered.container.querySelector<HTMLFormElement>('form.ai-composer')?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    });
+    await flush();
+    const desktopMarkdown = rendered.container.querySelector('.ai-desktop-view .ai-message-assistant .ai-message-markdown') as HTMLElement;
+    const paragraphs = Array.from(desktopMarkdown.querySelectorAll('p')).map((item) => item.textContent);
+    expect(paragraphs).toEqual(['我先查一下库存。', '库存看完了，推荐番茄鸡蛋面。']);
+    await act(async () => {
+      resolveStream?.({
+        conversation_id: 'conversation-1',
+        message: {
+          id: 'message-final',
+          conversation_id: 'conversation-1',
+          role: 'assistant',
+          content: '我先查一下库存。\n\n库存看完了，推荐番茄鸡蛋面。',
+          content_type: 'parts',
+          parts: [{ id: 'part-final', type: 'text', text: '我先查一下库存。\n\n库存看完了，推荐番茄鸡蛋面。' }],
           run_id: streamedRunId,
           status: 'completed',
           metadata: {},

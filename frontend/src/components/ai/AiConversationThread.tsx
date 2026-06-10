@@ -1,10 +1,12 @@
 import { lazy, Suspense, useEffect, useRef, useState } from 'react';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { invalidateAfterAiApprovalSettled } from '../../api/cacheInvalidation';
-import { api } from '../../api/client';
-import type { AiApprovalRequest, AiGeneratedRecipeDraft, AiMessage, AiResultCard, AiRunEvent, Difficulty, UserSummary } from '../../api/types';
+import type { AiGeneratedRecipeDraft, AiMessage, AiResultCard, AiRunEvent, Food, Ingredient, UserSummary } from '../../api/types';
 import { resolveAssetUrl } from '../../lib/assets';
 import { avatarColor, initials } from '../../lib/ui';
+import { ApprovalPanel, approvalStatusText } from './AiApprovalPanel';
+import type { AiApprovalDecisionSubmit, AiResourceOptionLoader } from './AiApprovalPanel';
+
+export { ApprovalPanel } from './AiApprovalPanel';
+export type { AiApprovalDecisionSubmit, AiResourceOptionLoader } from './AiApprovalPanel';
 
 const MarkdownMessage = lazy(() => import('./MarkdownMessage'));
 
@@ -16,71 +18,6 @@ function formatMessageTime(value: string) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return '';
   return date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false });
-}
-
-function cloneRecipeDraft(value: AiGeneratedRecipeDraft): AiGeneratedRecipeDraft {
-  return JSON.parse(JSON.stringify(value)) as AiGeneratedRecipeDraft;
-}
-
-function blankRecipeDraft(): AiGeneratedRecipeDraft {
-  return {
-    title: '',
-    servings: 2,
-    prep_minutes: 20,
-    difficulty: 'easy',
-    ingredient_items: [{ ingredient_id: null, ingredient_name: '', quantity: 1, unit: '份', note: '' }],
-    steps: [{ title: '备菜', text: '', icon: 'pan', summary: '', estimated_minutes: 5, tip: '', key_points: [] }],
-    tips: '',
-    scene_tags: [],
-    media_ids: [],
-  };
-}
-
-function getApprovalRecipe(approval: AiApprovalRequest): AiGeneratedRecipeDraft {
-  return approval.submitted_values.recipe ?? approval.initial_values.recipe ?? blankRecipeDraft();
-}
-
-function isRecipeApproval(approval: AiApprovalRequest) {
-  return approval.field_schema.some((field) => field.name === 'recipe' || field.widget === 'recipe_draft_editor');
-}
-
-function getApprovalDraft(approval: AiApprovalRequest): Record<string, unknown> {
-  const value = approval.submitted_values.draft ?? approval.initial_values.draft ?? {};
-  return typeof value === 'object' && value !== null && !Array.isArray(value) ? value : {};
-}
-
-function cloneDraftRecord(value: Record<string, unknown>): Record<string, unknown> {
-  return JSON.parse(JSON.stringify(value)) as Record<string, unknown>;
-}
-
-function getDraftType(approval: AiApprovalRequest, draft: Record<string, unknown>) {
-  const explicit = typeof draft.draftType === 'string' ? draft.draftType : '';
-  if (explicit) return explicit;
-  if (approval.approval_type.startsWith('meal_plan.')) return 'meal_plan';
-  if (approval.approval_type.startsWith('shopping_list.')) return 'shopping_list';
-  if (approval.approval_type.startsWith('meal_log.')) return 'meal_log';
-  if (approval.approval_type.startsWith('food_profile.')) return 'food_profile';
-  return '';
-}
-
-function asDraftArray(value: unknown): Record<string, unknown>[] {
-  return Array.isArray(value) ? value.filter((item): item is Record<string, unknown> => typeof item === 'object' && item !== null && !Array.isArray(item)) : [];
-}
-
-function asText(value: unknown, fallback = '') {
-  return typeof value === 'string' ? value : fallback;
-}
-
-function asNumber(value: unknown, fallback = 1) {
-  return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
-}
-
-function joinTextList(value: unknown) {
-  return Array.isArray(value) ? value.map(String).join('、') : '';
-}
-
-function splitTextList(value: string) {
-  return value.split(/[、,，]/).map((item) => item.trim()).filter(Boolean);
 }
 
 function lastOf<T>(items: T[]) {
@@ -220,7 +157,7 @@ function ResultCard({ card }: { card: AiResultCard }) {
       <article className="ai-result-card ai-approval-card">
         <div className="inline-between">
           <h3>{card.title}</h3>
-          <span className={`ai-approval-status status-${statusText}`}>{statusText}</span>
+          <span className={`ai-approval-status status-${statusText}`}>{approvalStatusText(statusText)}</span>
         </div>
         <p>{instruction}</p>
       </article>
@@ -418,404 +355,26 @@ function RunProgressTimeline({ events, isLive }: { events: AiRunEvent[]; isLive:
   );
 }
 
-export function ApprovalPanel({ approval, onSettled }: { approval: AiApprovalRequest; onSettled: () => void }) {
-  const [recipe, setRecipe] = useState<AiGeneratedRecipeDraft>(() => cloneRecipeDraft(getApprovalRecipe(approval)));
-  const [structuredDraft, setStructuredDraft] = useState<Record<string, unknown>>(() => cloneDraftRecord(getApprovalDraft(approval)));
-  const [draftJson, setDraftJson] = useState(() => JSON.stringify(getApprovalDraft(approval), null, 2));
-  const [comment, setComment] = useState('');
-  const [error, setError] = useState<string | null>(null);
-  const queryClient = useQueryClient();
-  const decisionMutation = useMutation({
-    mutationFn: (payload: { approval: AiApprovalRequest; decision: 'approved' | 'rejected'; values: Record<string, unknown> }) =>
-      api.decideAiApproval(payload.approval.conversation_id, payload.approval.id, {
-        decision: payload.decision,
-        draft_version: payload.approval.draft_version,
-        values: payload.values,
-        comment,
-      }),
-    onSuccess: (response) => {
-      if (isRecipeApproval(response.approval)) {
-        setRecipe(cloneRecipeDraft((response.approval.submitted_values.recipe ?? response.draft.payload) as AiGeneratedRecipeDraft));
-      } else {
-        const nextDraft = cloneDraftRecord((response.approval.submitted_values.draft ?? response.draft.payload) as Record<string, unknown>);
-        setStructuredDraft(nextDraft);
-        setDraftJson(JSON.stringify(nextDraft, null, 2));
-      }
-      const operationStatus = typeof response.operation?.status === 'string' ? response.operation.status : '';
-      const operationError = typeof response.operation?.error_message === 'string' ? response.operation.error_message : '';
-      setError(operationStatus === 'failed' ? operationError || '业务写入失败，草稿已保留。' : null);
-      invalidateAfterAiApprovalSettled(queryClient, response.approval.conversation_id);
-      onSettled();
-    },
-    onError: (reason) => setError(reason instanceof Error ? reason.message : '提交失败'),
-  });
-
-  useEffect(() => {
-    if (approval.status !== 'pending') {
-      if (isRecipeApproval(approval)) {
-        setRecipe(cloneRecipeDraft(getApprovalRecipe(approval)));
-      } else {
-        const nextDraft = cloneDraftRecord(getApprovalDraft(approval));
-        setStructuredDraft(nextDraft);
-        setDraftJson(JSON.stringify(nextDraft, null, 2));
-      }
-    }
-  }, [approval]);
-
-  const currentApproval = decisionMutation.data?.approval ?? approval;
-  const readonly = currentApproval.status !== 'pending';
-  const recipeApproval = isRecipeApproval(currentApproval);
-  const draftType = getDraftType(currentApproval, structuredDraft);
-  const usesStructuredDraftEditor = ['meal_plan', 'shopping_list', 'meal_log', 'food_profile'].includes(draftType);
-  const updateIngredient = (index: number, patch: Partial<AiGeneratedRecipeDraft['ingredient_items'][number]>) => {
-    setRecipe((current) => ({
-      ...current,
-      ingredient_items: current.ingredient_items.map((item, itemIndex) => (itemIndex === index ? { ...item, ...patch } : item)),
-    }));
-  };
-  const updateStep = (index: number, patch: Partial<AiGeneratedRecipeDraft['steps'][number]>) => {
-    setRecipe((current) => ({
-      ...current,
-      steps: current.steps.map((item, itemIndex) => (itemIndex === index ? { ...item, ...patch } : item)),
-    }));
-  };
-  const submitDecision = (decision: 'approved' | 'rejected') => {
-    setError(null);
-    if (recipeApproval) {
-      decisionMutation.mutate({ approval: currentApproval, decision, values: { recipe } });
-      return;
-    }
-    if (usesStructuredDraftEditor) {
-      decisionMutation.mutate({ approval: currentApproval, decision, values: { draft: structuredDraft } });
-      return;
-    }
-    try {
-      const draft = JSON.parse(draftJson) as Record<string, unknown>;
-      decisionMutation.mutate({ approval: currentApproval, decision, values: { draft } });
-    } catch {
-      setError('草稿 JSON 格式不正确');
-    }
-  };
-
-  const updateDraft = (patch: Record<string, unknown>) => {
-    setStructuredDraft((current) => ({ ...current, ...patch }));
-  };
-  const updateDraftItem = (key: string, index: number, patch: Record<string, unknown>) => {
-    setStructuredDraft((current) => {
-      const items = asDraftArray(current[key]);
-      return { ...current, [key]: items.map((item, itemIndex) => (itemIndex === index ? { ...item, ...patch } : item)) };
-    });
-  };
-  const addDraftItem = (key: string, item: Record<string, unknown>) => {
-    setStructuredDraft((current) => ({ ...current, [key]: [...asDraftArray(current[key]), item] }));
-  };
-  const removeDraftItem = (key: string, index: number) => {
-    setStructuredDraft((current) => {
-      const items = asDraftArray(current[key]);
-      if (items.length <= 1) return current;
-      return { ...current, [key]: items.filter((_, itemIndex) => itemIndex !== index) };
-    });
-  };
-
-  const renderStructuredDraftEditor = () => {
-    if (draftType === 'meal_plan') {
-      const items = asDraftArray(structuredDraft.items);
-      return (
-        <div className="ai-recipe-editor ai-meal-plan-draft-editor">
-          <div className="ai-draft-editor-head">
-            <div>
-              <strong>计划项</strong>
-              <span>{items.length} 条</span>
-            </div>
-            {!readonly && (
-              <button className="ghost-button ai-draft-add-button" type="button" onClick={() => addDraftItem('items', { date: new Date().toISOString().slice(0, 10), mealType: 'dinner', title: '', reason: '', missingIngredients: [] })}>
-                添加计划
-              </button>
-            )}
-          </div>
-          {items.map((item, index) => (
-            <div className="ai-step-row ai-meal-plan-item" key={`${asText(item.date)}-${asText(item.title)}-${index}`}>
-              <div className="ai-editor-grid">
-                <input className="text-input" type="date" value={asText(item.date)} disabled={readonly} onChange={(event) => updateDraftItem('items', index, { date: event.target.value })} />
-                <select className="text-input" value={asText(item.mealType, 'dinner')} disabled={readonly} onChange={(event) => updateDraftItem('items', index, { mealType: event.target.value })}>
-                  <option value="breakfast">早餐</option>
-                  <option value="lunch">午餐</option>
-                  <option value="dinner">晚餐</option>
-                  <option value="snack">加餐</option>
-                </select>
-              </div>
-              <input className="text-input" value={asText(item.title)} disabled={readonly} placeholder="食物或菜品名称" onChange={(event) => updateDraftItem('items', index, { title: event.target.value })} />
-              <textarea className="text-input" rows={2} value={asText(item.reason)} disabled={readonly} placeholder="安排原因" onChange={(event) => updateDraftItem('items', index, { reason: event.target.value })} />
-              <input className="text-input" value={joinTextList(item.missingIngredients)} disabled={readonly} placeholder="缺失食材，用顿号分隔" onChange={(event) => updateDraftItem('items', index, { missingIngredients: splitTextList(event.target.value) })} />
-              {!readonly && items.length > 1 && (
-                <button className="ghost-button ai-draft-remove-button" type="button" onClick={() => removeDraftItem('items', index)}>
-                  删除计划项
-                </button>
-              )}
-            </div>
-          ))}
-        </div>
-      );
-    }
-    if (draftType === 'shopping_list') {
-      const items = asDraftArray(structuredDraft.items);
-      return (
-        <div className="ai-recipe-editor">
-          <div className="inline-between">
-            <strong>采购项</strong>
-            {!readonly && (
-              <button className="ghost-button" type="button" onClick={() => addDraftItem('items', { title: '', quantity: 1, unit: '份', reason: '' })}>
-                添加
-              </button>
-            )}
-          </div>
-          {items.map((item, index) => (
-            <div className="ai-ingredient-row" key={`${asText(item.title)}-${index}`}>
-              <input className="text-input" value={asText(item.title)} disabled={readonly} placeholder="采购项" onChange={(event) => updateDraftItem('items', index, { title: event.target.value })} />
-              <input className="text-input" type="number" min={0.1} step={0.1} value={asNumber(item.quantity)} disabled={readonly} onChange={(event) => updateDraftItem('items', index, { quantity: Number(event.target.value) || 1 })} />
-              <input className="text-input" value={asText(item.unit, '份')} disabled={readonly} placeholder="单位" onChange={(event) => updateDraftItem('items', index, { unit: event.target.value })} />
-              <input className="text-input" value={asText(item.reason)} disabled={readonly} placeholder="原因" onChange={(event) => updateDraftItem('items', index, { reason: event.target.value })} />
-              {!readonly && items.length > 1 && (
-                <button className="ghost-button" type="button" onClick={() => removeDraftItem('items', index)}>
-                  删除
-                </button>
-              )}
-            </div>
-          ))}
-        </div>
-      );
-    }
-    if (draftType === 'meal_log') {
-      const foods = asDraftArray(structuredDraft.foods);
-      return (
-        <div className="ai-recipe-editor">
-          <div className="ai-editor-grid">
-            <label>
-              日期
-              <input className="text-input" type="date" value={asText(structuredDraft.date)} disabled={readonly} onChange={(event) => updateDraft({ date: event.target.value })} />
-            </label>
-            <label>
-              餐别
-              <select className="text-input" value={asText(structuredDraft.mealType, 'dinner')} disabled={readonly} onChange={(event) => updateDraft({ mealType: event.target.value })}>
-                <option value="breakfast">早餐</option>
-                <option value="lunch">午餐</option>
-                <option value="dinner">晚餐</option>
-                <option value="snack">加餐</option>
-              </select>
-            </label>
-          </div>
-          <div className="inline-between">
-            <strong>食物项</strong>
-            {!readonly && (
-              <button className="ghost-button" type="button" onClick={() => addDraftItem('foods', { name: '', servings: 1, note: '' })}>
-                添加
-              </button>
-            )}
-          </div>
-          {foods.map((food, index) => (
-            <div className="ai-ingredient-row" key={`${asText(food.name)}-${index}`}>
-              <input className="text-input" value={asText(food.name)} disabled={readonly} placeholder="食物" onChange={(event) => updateDraftItem('foods', index, { name: event.target.value })} />
-              <input className="text-input" type="number" min={0.1} step={0.1} value={asNumber(food.servings)} disabled={readonly} onChange={(event) => updateDraftItem('foods', index, { servings: Number(event.target.value) || 1 })} />
-              <input className="text-input" value={asText(food.note)} disabled={readonly} placeholder="备注" onChange={(event) => updateDraftItem('foods', index, { note: event.target.value })} />
-              {!readonly && foods.length > 1 && (
-                <button className="ghost-button" type="button" onClick={() => removeDraftItem('foods', index)}>
-                  删除
-                </button>
-              )}
-            </div>
-          ))}
-          <label>
-            餐食备注
-            <textarea className="text-input" rows={2} value={asText(structuredDraft.notes)} disabled={readonly} onChange={(event) => updateDraft({ notes: event.target.value })} />
-          </label>
-        </div>
-      );
-    }
-    if (draftType === 'food_profile') {
-      return (
-        <div className="ai-recipe-editor">
-          <label>
-            食物名称
-            <input className="text-input" value={asText(structuredDraft.name)} disabled={readonly} onChange={(event) => updateDraft({ name: event.target.value })} />
-          </label>
-          <div className="ai-editor-grid">
-            <label>
-              类型
-              <select className="text-input" value={asText(structuredDraft.type, 'readyMade')} disabled={readonly} onChange={(event) => updateDraft({ type: event.target.value })}>
-                <option value="readyMade">现成食物</option>
-                <option value="selfMade">自制食物</option>
-                <option value="instant">速食</option>
-                <option value="packaged">包装食品</option>
-                <option value="takeout">外卖</option>
-                <option value="diningOut">外食</option>
-              </select>
-            </label>
-            <label>
-              分类
-              <input className="text-input" value={asText(structuredDraft.category)} disabled={readonly} onChange={(event) => updateDraft({ category: event.target.value })} />
-            </label>
-          </div>
-          <label>
-            口味标签
-            <input className="text-input" value={joinTextList(structuredDraft.flavor_tags)} disabled={readonly} onChange={(event) => updateDraft({ flavor_tags: splitTextList(event.target.value) })} />
-          </label>
-          <label>
-            适合餐别
-            <input className="text-input" value={joinTextList(structuredDraft.suitable_meal_types)} disabled={readonly} placeholder="breakfast、lunch、dinner" onChange={(event) => updateDraft({ suitable_meal_types: splitTextList(event.target.value) })} />
-          </label>
-          <label>
-            来源
-            <input className="text-input" value={asText(structuredDraft.source_name)} disabled={readonly} onChange={(event) => updateDraft({ source_name: event.target.value })} />
-          </label>
-          <label>
-            备注
-            <textarea className="text-input" rows={3} value={asText(structuredDraft.notes)} disabled={readonly} onChange={(event) => updateDraft({ notes: event.target.value })} />
-          </label>
-        </div>
-      );
-    }
-    return null;
-  };
-
-  return (
-    <section className="ai-approval-panel">
-      <div className="ai-approval-head">
-        <div>
-          <h3>{currentApproval.title}</h3>
-          <p>{currentApproval.instruction}</p>
-        </div>
-        <span className={`ai-approval-status status-${currentApproval.status}`}>{readonly ? currentApproval.status : '待确认'}</span>
-      </div>
-      {recipeApproval ? (
-      <div className="ai-recipe-editor">
-        <label>
-          菜谱名
-          <input className="text-input" value={recipe.title} disabled={readonly} onChange={(event) => setRecipe({ ...recipe, title: event.target.value })} />
-        </label>
-        <div className="ai-editor-grid">
-          <label>
-            份量
-            <input className="text-input" type="number" min={1} value={recipe.servings} disabled={readonly} onChange={(event) => setRecipe({ ...recipe, servings: Number(event.target.value) || 1 })} />
-          </label>
-          <label>
-            时间
-            <input className="text-input" type="number" min={0} value={recipe.prep_minutes} disabled={readonly} onChange={(event) => setRecipe({ ...recipe, prep_minutes: Number(event.target.value) || 0 })} />
-          </label>
-          <label>
-            难度
-            <select className="text-input" value={recipe.difficulty} disabled={readonly} onChange={(event) => setRecipe({ ...recipe, difficulty: event.target.value as Difficulty })}>
-              <option value="easy">easy</option>
-              <option value="medium">medium</option>
-              <option value="hard">hard</option>
-            </select>
-          </label>
-        </div>
-        <div className="ai-editor-section">
-          <div className="inline-between">
-            <strong>食材</strong>
-            {!readonly && (
-              <button className="ghost-button" type="button" onClick={() => setRecipe({ ...recipe, ingredient_items: [...recipe.ingredient_items, { ingredient_id: null, ingredient_name: '', quantity: 1, unit: '份', note: '' }] })}>
-                添加
-              </button>
-            )}
-          </div>
-          {recipe.ingredient_items.map((item, index) => (
-            <div className="ai-ingredient-row" key={`${item.ingredient_name}-${index}`}>
-              <input className="text-input" value={item.ingredient_name} disabled={readonly} placeholder="食材" onChange={(event) => updateIngredient(index, { ingredient_name: event.target.value })} />
-              <input className="text-input" type="number" min={0.1} step={0.1} value={item.quantity} disabled={readonly} onChange={(event) => updateIngredient(index, { quantity: Number(event.target.value) || 1 })} />
-              <input className="text-input" value={item.unit} disabled={readonly} placeholder="单位" onChange={(event) => updateIngredient(index, { unit: event.target.value })} />
-              <input className="text-input" value={item.note} disabled={readonly} placeholder="备注" onChange={(event) => updateIngredient(index, { note: event.target.value })} />
-              {!readonly && recipe.ingredient_items.length > 1 && (
-                <button className="ghost-button" type="button" onClick={() => setRecipe({ ...recipe, ingredient_items: recipe.ingredient_items.filter((_, itemIndex) => itemIndex !== index) })}>
-                  删除
-                </button>
-              )}
-            </div>
-          ))}
-        </div>
-        <div className="ai-editor-section">
-          <div className="inline-between">
-            <strong>步骤</strong>
-            {!readonly && (
-              <button className="ghost-button" type="button" onClick={() => setRecipe({ ...recipe, steps: [...recipe.steps, { title: `步骤 ${recipe.steps.length + 1}`, text: '', icon: 'pan', summary: '', estimated_minutes: 5, tip: '', key_points: [] }] })}>
-                添加
-              </button>
-            )}
-          </div>
-          {recipe.steps.map((step, index) => (
-            <div className="ai-step-row" key={`${step.title}-${index}`}>
-              <input className="text-input" value={step.title} disabled={readonly} placeholder="标题" onChange={(event) => updateStep(index, { title: event.target.value })} />
-              <div className="ai-editor-grid">
-                <input className="text-input" value={step.summary ?? ''} disabled={readonly} placeholder="摘要" onChange={(event) => updateStep(index, { summary: event.target.value })} />
-                <input className="text-input" type="number" min={1} value={step.estimated_minutes ?? ''} disabled={readonly} placeholder="分钟" onChange={(event) => updateStep(index, { estimated_minutes: Number(event.target.value) || null })} />
-                <input className="text-input" value={step.icon ?? 'pan'} disabled={readonly} placeholder="图标" onChange={(event) => updateStep(index, { icon: event.target.value })} />
-              </div>
-              <textarea className="text-input" rows={3} value={step.text} disabled={readonly} placeholder="步骤说明" onChange={(event) => updateStep(index, { text: event.target.value })} />
-              <input className="text-input" value={(step.key_points ?? []).join('、')} disabled={readonly} placeholder="关键点，用顿号分隔" onChange={(event) => updateStep(index, { key_points: event.target.value.split(/[、,，]/).map((item) => item.trim()).filter(Boolean) })} />
-              {!readonly && recipe.steps.length > 1 && (
-                <button className="ghost-button" type="button" onClick={() => setRecipe({ ...recipe, steps: recipe.steps.filter((_, itemIndex) => itemIndex !== index) })}>
-                  删除步骤
-                </button>
-              )}
-            </div>
-          ))}
-        </div>
-        <label>
-          场景标签
-          <input className="text-input" value={(recipe.scene_tags ?? []).join('、')} disabled={readonly} onChange={(event) => setRecipe({ ...recipe, scene_tags: event.target.value.split(/[、,，]/).map((item) => item.trim()).filter(Boolean) })} />
-        </label>
-        <label>
-          小贴士
-          <textarea className="text-input" rows={2} value={recipe.tips} disabled={readonly} onChange={(event) => setRecipe({ ...recipe, tips: event.target.value })} />
-        </label>
-        <label>
-          备注
-          <input className="text-input" value={comment} disabled={readonly} onChange={(event) => setComment(event.target.value)} />
-        </label>
-      </div>
-      ) : usesStructuredDraftEditor ? (
-        renderStructuredDraftEditor()
-      ) : (
-        <div className="ai-recipe-editor">
-          <label>
-            草稿内容
-            <textarea className="text-input" rows={12} value={draftJson} disabled={readonly} onChange={(event) => setDraftJson(event.target.value)} />
-          </label>
-          <label>
-            备注
-            <input className="text-input" value={comment} disabled={readonly} onChange={(event) => setComment(event.target.value)} />
-          </label>
-        </div>
-      )}
-      {error && <p className="form-error">{error}</p>}
-      {!readonly && (
-        <div className="ai-approval-actions">
-          <button className="ghost-button" type="button" disabled={decisionMutation.isPending} onClick={() => submitDecision('rejected')}>
-            {currentApproval.reject_label}
-          </button>
-          <button className="solid-button" type="button" disabled={decisionMutation.isPending} onClick={() => submitDecision('approved')}>
-            {decisionMutation.isPending ? '提交中...' : currentApproval.approve_label}
-          </button>
-        </div>
-      )}
-    </section>
-  );
-}
-
 export function MessageBubble({
   message,
   user,
+  foods = [],
+  ingredients = [],
+  resourceOptionLoader,
   runEvents = [],
   isLatestAssistant = false,
-  onApprovalSettled,
+  onApprovalDecision,
   onRetryRun,
   onRegeneratePart,
 }: {
   message: AiMessage;
   user: UserSummary | null;
+  foods?: Food[];
+  ingredients?: Ingredient[];
+  resourceOptionLoader?: AiResourceOptionLoader;
   runEvents?: AiRunEvent[];
   isLatestAssistant?: boolean;
-  onApprovalSettled: () => void;
+  onApprovalDecision: AiApprovalDecisionSubmit;
   onRetryRun?: (runId: string) => void;
   onRegeneratePart?: (messageId: string, partId: string) => void;
 }) {
@@ -876,7 +435,16 @@ export function MessageBubble({
               );
             }
             if (part.type === 'approval_request' && part.approval) {
-              return <ApprovalPanel key={part.id} approval={part.approval} onSettled={onApprovalSettled} />;
+              return (
+                <ApprovalPanel
+                  key={part.id}
+                  approval={part.approval}
+                  foods={foods}
+                  ingredients={ingredients}
+                  resourceOptionLoader={resourceOptionLoader}
+                  onDecision={onApprovalDecision}
+                />
+              );
             }
             return null;
           })}

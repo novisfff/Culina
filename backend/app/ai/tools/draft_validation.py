@@ -70,6 +70,11 @@ def normalize_meal_plan_draft(db: Session, *, family_id: str, payload: Any) -> d
             _load_by_id(db, Recipe, family_id=family_id, ids=[recipe_id], label="菜谱")
         if recipe_id and food.recipe_id != recipe_id:
             raise ValueError("餐食计划草稿中的食物和菜谱关联不一致")
+        missing_ingredient_items = _normalize_meal_plan_ingredient_items(
+            db,
+            family_id=family_id,
+            value=item.get("missingIngredientItems") or item.get("missing_ingredient_items") or item.get("missingIngredients"),
+        )
         normalized_items.append(
             {
                 "date": plan_date.isoformat(),
@@ -79,7 +84,8 @@ def normalize_meal_plan_draft(db: Session, *, family_id: str, payload: Any) -> d
                 "recipeId": recipe_id or None,
                 "reason": str(item.get("reason") or item.get("note") or ""),
                 "usedInventory": _string_list(item.get("usedInventory"), max_items=20),
-                "missingIngredients": _string_list(item.get("missingIngredients"), max_items=20),
+                "missingIngredients": [entry["name"] for entry in missing_ingredient_items],
+                "missingIngredientItems": missing_ingredient_items,
                 "source": item.get("source") if isinstance(item.get("source"), dict) else {},
             }
         )
@@ -90,6 +96,68 @@ def normalize_meal_plan_draft(db: Session, *, family_id: str, payload: Any) -> d
         "items": normalized_items,
         "source": payload.get("source") if isinstance(payload.get("source"), dict) else {},
     }
+
+
+def _normalize_meal_plan_ingredient_items(
+    db: Session,
+    *,
+    family_id: str,
+    value: Any,
+) -> list[dict[str, Any]]:
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        raise ValueError("餐食计划缺失食材格式不正确")
+    if len(value) > 20:
+        raise ValueError("餐食计划缺失食材不能超过 20 项")
+
+    requested_ids = _string_ids(
+        entry.get("ingredientId") or entry.get("ingredient_id")
+        for entry in value
+        if isinstance(entry, dict)
+    )
+    ingredients_by_id = _load_by_id(db, Ingredient, family_id=family_id, ids=requested_ids, label="食材")
+    names = []
+    for entry in value:
+        if isinstance(entry, str):
+            names.append(entry.strip())
+        elif isinstance(entry, dict):
+            names.append(str(entry.get("name") or entry.get("ingredient_name") or "").strip())
+        else:
+            raise ValueError("餐食计划缺失食材项格式不正确")
+    matched_by_name = {
+        ingredient.name: ingredient
+        for ingredient in db.scalars(
+            select(Ingredient).where(Ingredient.family_id == family_id, Ingredient.name.in_([name for name in names if name]))
+        )
+    }
+
+    normalized: list[dict[str, Any]] = []
+    for entry, fallback_name in zip(value, names, strict=True):
+        record = entry if isinstance(entry, dict) else {}
+        ingredient_id = str(record.get("ingredientId") or record.get("ingredient_id") or "")
+        ingredient = ingredients_by_id.get(ingredient_id) if ingredient_id else matched_by_name.get(fallback_name)
+        name = ingredient.name if ingredient is not None else fallback_name
+        if not name:
+            raise ValueError("餐食计划缺失食材名称不能为空")
+        try:
+            quantity = float(record.get("quantity") or 1)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("餐食计划缺失食材数量格式不正确") from exc
+        if quantity <= 0:
+            raise ValueError("餐食计划缺失食材数量必须大于 0")
+        unit = str(record.get("unit") or (ingredient.default_unit if ingredient is not None else "份")).strip()
+        if not unit:
+            raise ValueError("餐食计划缺失食材单位不能为空")
+        normalized.append(
+            {
+                "ingredientId": ingredient.id if ingredient is not None else None,
+                "name": name,
+                "quantity": int(quantity) if quantity.is_integer() else quantity,
+                "unit": unit,
+            }
+        )
+    return normalized
 
 
 def normalize_meal_log_draft(db: Session, *, family_id: str, payload: Any) -> dict[str, Any]:
