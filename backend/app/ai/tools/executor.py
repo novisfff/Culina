@@ -178,5 +178,5 @@ class ToolExecutor:
         if status == "failed":
             return f"「{display_name}」调用失败"
         if side_effect == "draft":
-            return f"正在生成「{display_name}」"
-        return f"已调用「{display_name}」工具"
+            return f"生成「{display_name}」"
+        return f"调用「{display_name}」"

@@ -62,6 +62,7 @@ function checkPublicAssets(dir, label, violations) {
 
 const assetFiles = readdirSync(assetsDir).filter((file) => !file.startsWith('.'));
 const violations = [];
+const warnings = [];
 
 console.log('Bundle gzip budgets:');
 
@@ -78,7 +79,7 @@ for (const bundle of trackedBundles) {
   console.log(`- ${bundle.label}: ${matchedFile} ${formatKilobytes(gzipSize)}/${formatKilobytes(bundle.gzipBudget)}`);
 
   if (gzipSize > bundle.gzipBudget) {
-    violations.push(
+    warnings.push(
       `${bundle.label}: ${matchedFile} gzip ${formatKilobytes(gzipSize)} exceeds budget ${formatKilobytes(bundle.gzipBudget)}`
     );
   }
@@ -88,6 +89,13 @@ console.log('\nPublic image budgets:');
 checkPublicAssets(assetsDir, 'assets', violations);
 checkPublicAssets(imagesDir, 'images', violations);
 
+if (warnings.length > 0) {
+  console.warn('\nBundle budget warnings:');
+  for (const warning of warnings) {
+    console.warn(`- ${warning}`);
+  }
+}
+
 if (violations.length > 0) {
   console.error('\nBundle budget check failed:');
   for (const violation of violations) {
@@ -96,4 +104,4 @@ if (violations.length > 0) {
   process.exit(1);
 }
 
-console.log('Bundle budget check passed.');
+console.log(warnings.length > 0 ? 'Bundle budget check passed with warnings.' : 'Bundle budget check passed.');

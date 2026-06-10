@@ -23,8 +23,7 @@ example_files:
   - examples.md
 script_files: []
 output_contract: SkillExecutionResult
-output_types:
-  - recipe_draft
+output_types: []
 draft_types:
   - recipe
 approval_policy: draft_then_confirm
@@ -45,6 +44,9 @@ examples:
 
 ## 工具使用规则
 
+- 生成前必须读取 `ingredient.search`。
+- `ingredient_items[].ingredient_id` 只能使用 `ingredient.search` 返回的当前家庭食材 ID；如果没有匹配食材，可以只填写 `ingredient_name` 并把 `ingredient_id` 设为 `null`。
+- 当填写了 `ingredient_id` 时，`ingredient_items[].ingredient_name` 必须使用该食材 ID 对应的名称。
 - 使用菜谱草稿 schema 生成结构化结果。
 - 只调用 `recipe.create_draft` 校验草稿。
 - 不直接创建正式 Recipe。

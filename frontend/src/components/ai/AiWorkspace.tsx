@@ -91,6 +91,53 @@ function mergePendingApprovalsIntoMessages(messages: AiMessage[], approvals: AiA
   return [...merged, ...syntheticMessages];
 }
 
+function normalizeStreamEventForFinalRun(event: AiRunEvent, response: AiChatResponse): AiRunEvent {
+  const status =
+    response.run.status === 'completed' && (event.status === 'pending' || event.status === 'running')
+      ? 'completed'
+      : event.status;
+  return { ...event, run_id: response.run.id, status };
+}
+
+function attachIncludedApprovalsToMessage(message: AiMessage, approvals: AiApprovalRequest[]): AiMessage {
+  const relatedApprovals = approvals.filter((approval) => {
+    if (approval.message_id) return approval.message_id === message.id;
+    if (approval.run_id && message.run_id) return approval.run_id === message.run_id;
+    return approval.conversation_id === message.conversation_id;
+  });
+  if (relatedApprovals.length === 0) return message;
+  const embeddedApprovalIds = new Set(message.parts.map((part) => part.approval?.id).filter((id): id is string => Boolean(id)));
+  const missingApprovals = relatedApprovals.filter((approval) => !embeddedApprovalIds.has(approval.id));
+  if (missingApprovals.length === 0) return message;
+  return {
+    ...message,
+    content_type: 'parts',
+    parts: [
+      ...message.parts,
+      ...missingApprovals.map((approval) => ({
+        id: `included-approval-part-${approval.id}`,
+        type: 'approval_request' as const,
+        approval,
+      })),
+    ],
+  };
+}
+
+function createLocalAssistantMessage(runId: string, conversationId: string | null): AiMessage {
+  return {
+    id: `local-assistant-${runId}`,
+    conversation_id: conversationId || 'pending',
+    role: 'assistant',
+    content: '',
+    content_type: 'parts',
+    parts: [],
+    run_id: runId,
+    status: 'running',
+    metadata: {},
+    created_at: new Date().toISOString(),
+  };
+}
+
 export function AiWorkspace({ conversations, isLoading, currentUser = null, onBackHome }: AiWorkspaceProps) {
   const queryClient = useQueryClient();
   const [activeConversationId, setActiveConversationId] = useState<string | null>(conversations[0]?.id ?? null);
@@ -99,6 +146,8 @@ export function AiWorkspace({ conversations, isLoading, currentUser = null, onBa
   const [localMessages, setLocalMessages] = useState<AiMessage[]>([]);
   const [runEventsById, setRunEventsById] = useState<Record<string, AiRunEvent[]>>({});
   const [streamProgress, setStreamProgress] = useState<AiRunEvent[]>([]);
+  const streamProgressRef = useRef<AiRunEvent[]>([]);
+  const requestedRunEventsRef = useRef<Set<string>>(new Set());
   const [activeStreamRunId, setActiveStreamRunId] = useState<string | null>(null);
   const chatAbortRef = useRef<AbortController | null>(null);
   const [deletingConversationId, setDeletingConversationId] = useState<string | null>(null);
@@ -146,36 +195,66 @@ export function AiWorkspace({ conversations, isLoading, currentUser = null, onBa
     return displayedMessages.some((message) => message.parts.some((part) => part.approval?.status === 'pending'));
   }, [displayedMessages, pendingApprovalsQuery.data]);
 
+  useEffect(() => {
+    const remoteMessages = messagesQuery.data ?? [];
+    const missingRunIds = Array.from(
+      new Set(
+        remoteMessages
+          .filter((message) => message.role === 'assistant' && message.run_id && message.run_id !== activeStreamRunId && (runEventsById[message.run_id]?.length ?? 0) === 0)
+          .filter((message) => message.run_id && !requestedRunEventsRef.current.has(message.run_id))
+          .map((message) => message.run_id as string),
+      ),
+    );
+    if (missingRunIds.length === 0) return;
+    for (const runId of missingRunIds) {
+      requestedRunEventsRef.current.add(runId);
+    }
+    let isCancelled = false;
+    void Promise.all(
+      missingRunIds.map(async (runId) => {
+        try {
+          const events = await api.getAiRunEvents(runId);
+          return [runId, events] as const;
+        } catch {
+          return [runId, [] as AiRunEvent[]] as const;
+        }
+      }),
+    ).then((entries) => {
+      if (isCancelled) return;
+      setRunEventsById((current) => {
+        const next = { ...current };
+        for (const [runId, events] of entries) {
+          next[runId] = events;
+        }
+        return next;
+      });
+    });
+    return () => {
+      isCancelled = true;
+    };
+  }, [activeStreamRunId, messagesQuery.data, runEventsById]);
+
   function ensureStreamingAssistantMessage(runId: string) {
     const messageId = `local-assistant-${runId}`;
     setLocalMessages((items) => {
       if (items.some((item) => item.id === messageId || item.run_id === runId)) return items;
-      return [
-        ...items,
-        {
-          id: messageId,
-          conversation_id: activeConversationId || 'pending',
-          role: 'assistant',
-          content: '',
-          content_type: 'parts',
-          parts: [],
-          run_id: runId,
-          status: 'running',
-          metadata: {},
-          created_at: new Date().toISOString(),
-        },
-      ];
+      return [...items, createLocalAssistantMessage(runId, activeConversationId)];
     });
   }
 
   function applyChatResponse(response: AiChatResponse) {
+    const finalStreamEvents = streamProgressRef.current.map((event) => normalizeStreamEventForFinalRun(event, response));
+    const responseEventIds = new Set(response.events.map((event) => event.id));
+    const mergedEvents = [...finalStreamEvents.filter((event) => !responseEventIds.has(event.id)), ...response.events];
+    const messageWithIncludedApprovals = attachIncludedApprovalsToMessage(response.message, response.included.approvals);
     setActiveConversationId(response.conversation_id);
     setIsStartingNewConversation(false);
     setLocalMessages((items) => [
-      ...items.filter((item) => item.id !== response.message.id && item.run_id !== response.run.id),
-      response.message,
+      ...items.filter((item) => item.id !== messageWithIncludedApprovals.id && item.run_id !== response.run.id),
+      messageWithIncludedApprovals,
     ]);
-    setRunEventsById((current) => ({ ...current, [response.run.id]: response.events }));
+    setRunEventsById((current) => ({ ...current, [response.run.id]: mergedEvents }));
+    streamProgressRef.current = [];
     setStreamProgress([]);
     invalidateAfterAiMessageSent(queryClient, response.conversation_id);
   }
@@ -239,7 +318,13 @@ export function AiWorkspace({ conversations, isLoading, currentUser = null, onBa
             created_at: 'created_at' in event && typeof event.created_at === 'string' ? event.created_at : new Date().toISOString(),
           };
           ensureStreamingAssistantMessage(eventRunId);
-          setStreamProgress((items) => [...items, nextEvent]);
+          setStreamProgress((items) => {
+            const nextItems = items.some((item) => item.id === nextEvent.id)
+              ? items.map((item) => (item.id === nextEvent.id ? nextEvent : item))
+              : [...items, nextEvent];
+            streamProgressRef.current = nextItems;
+            return nextItems;
+          });
         },
         onMessageDelta: applyStreamDelta,
       });
@@ -326,7 +411,9 @@ export function AiWorkspace({ conversations, isLoading, currentUser = null, onBa
       client_message_id: clientMessageId,
       created_at: new Date().toISOString(),
     };
-    setLocalMessages((items) => [...items, tempMessage]);
+    const assistantMessage = createLocalAssistantMessage(clientRunId, activeConversationId);
+    setLocalMessages((items) => [...items, tempMessage, assistantMessage]);
+    streamProgressRef.current = [];
     setStreamProgress([]);
     setActiveStreamRunId(clientRunId);
     setDraft('');

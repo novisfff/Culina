@@ -23,8 +23,7 @@ example_files:
   - examples.md
 script_files: []
 output_contract: SkillExecutionResult
-output_types:
-  - food_profile_draft
+output_types: []
 draft_types:
   - food_profile
 approval_policy: draft_then_confirm
@@ -47,6 +46,8 @@ examples:
 
 - 先读取家庭食物资料。
 - 同名食物可复用已有字段。
+- 如果设置 `recipe_id`，必须来自当前家庭真实存在的菜谱；不要编造菜谱 ID。
+- 引用已有食物或菜谱时，名称必须与已选对象保持一致，不能把一个 ID 配给另一个名称。
 - 不编造品牌、价格、评分、库存或过期日期。
 - 只生成 `food_profile` 草稿。
 - 不直接写 Food。

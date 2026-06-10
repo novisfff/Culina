@@ -178,6 +178,8 @@ class WorkspaceGraphRunner:
             if mode == "custom":
                 event, data = self._custom_stream_event(update)
                 if event:
+                    if event == "progress" and isinstance(data.get("id"), str):
+                        seen_event_ids.add(data["id"])
                     yield (event, data)
                 continue
             if mode != "updates":
@@ -678,7 +680,7 @@ class WorkspaceGraphRunner:
             index,
             len(plan.skills),
         )
-        stream_writer = get_stream_writer()
+        stream_writer = self._persistent_progress_writer(get_stream_writer(), state)
         root_tools = ToolExecutor(
             build_workspace_tool_registry(),
             ToolContext(
@@ -770,7 +772,7 @@ class WorkspaceGraphRunner:
         skill_key: str | None,
         duration_ms: int = 0,
     ) -> AIMessage:
-        cards = self.service._normalize_result_cards(result.cards)
+        cards = [] if result.drafts else self.service._normalize_result_cards(result.cards)
         next_parts: list[dict[str, Any]] = [{"id": create_id("ai_part"), "type": "text", "text": result.text}]
         for card in cards:
             next_parts.append({"id": create_id("ai_part"), "type": "result_card", "card": card})
@@ -815,7 +817,7 @@ class WorkspaceGraphRunner:
         drafts: list[AITaskDraft] = []
         approvals: list[AIApprovalRequest] = []
         for draft_payload in result.drafts:
-            draft, approval, card = self.service._create_draft_approval(
+            draft, approval = self.service._create_draft_approval(
                 family_id=state["family_id"],
                 user_id=state["user_id"],
                 conversation_id=state["conversation_id"],
@@ -825,7 +827,6 @@ class WorkspaceGraphRunner:
             )
             drafts.append(draft)
             approvals.append(approval)
-            cards.append(card)
             message.parts = [
                 *(message.parts or []),
                 {
@@ -838,7 +839,6 @@ class WorkspaceGraphRunner:
                     "type": "approval_request",
                     "approval": jsonable_encoder(serialize_ai_approval_request(approval)),
                 },
-                {"id": create_id("ai_part"), "type": "result_card", "card": card},
             ]
         if drafts:
             existing_draft_ids = list(metadata.get("draftIds") or [])
@@ -1041,6 +1041,33 @@ class WorkspaceGraphRunner:
                 continue
             seen_event_ids.add(event.id)
             yield ("progress", serialize_ai_run_event(event))
+
+    def _persistent_progress_writer(self, writer: Any, state: WorkspaceGraphState) -> Any:
+        def write(update: dict[str, Any]) -> None:
+            event_name, data = self._custom_stream_event(update)
+            if event_name != "progress":
+                writer(update)
+                return
+
+            event_id = str(data.get("id") or create_id("ai_run_event"))
+            event = self.db.get(AIRunEvent, event_id)
+            if event is None:
+                event = AIRunEvent(
+                    id=event_id,
+                    family_id=state["family_id"],
+                    conversation_id=state["conversation_id"],
+                    run_id=str(data.get("run_id") or state["run_id"]),
+                    type=str(data.get("type") or "event"),
+                    internal_code=str(data.get("internal_code") or "progress"),
+                    user_message=str(data.get("user_message") or ""),
+                    status=str(data.get("status") or "running"),
+                    payload={},
+                )
+                self.db.add(event)
+                self.db.flush()
+            writer({"event": "progress", "data": serialize_ai_run_event(event)})
+
+        return write
 
 
     def _run_id_from_update(self, update: Any) -> str:

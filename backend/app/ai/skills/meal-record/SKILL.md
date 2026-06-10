@@ -26,8 +26,7 @@ example_files:
   - examples.md
 script_files: []
 output_contract: SkillExecutionResult
-output_types:
-  - meal_log_draft
+output_types: []
 draft_types:
   - meal_log
 approval_policy: draft_then_confirm
@@ -49,6 +48,8 @@ examples:
 ## 工具使用规则
 
 - 优先匹配已有家庭食物。
-- 不确定食物时使用未关联名称。
+- 草稿 `foods[].foodId` 必须来自 `food.search` 返回的当前家庭食物，不能为空。
+- 草稿 `foods[].name` 必须使用所选 `foodId` 对应的食物名称，不能生成食物库外的新名称。
+- 如果用户描述的食物不在 `food.search` 可选项中，先说明需要到食物库补充资料，不要调用 `meal_log.create_draft`。
 - 只生成 `meal_log` 草稿。
 - 不直接写 `MealLog`。

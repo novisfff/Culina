@@ -21,7 +21,14 @@ from app.ai.kitchen.recipe_drafts import (
 )
 from app.ai.runtime.provider import BaseChatProvider, get_chat_provider
 from app.ai.skills import build_workspace_skill_registry
-from app.core.enums import ActivityAction, AiMode, FoodType, MealType
+from app.ai.tools.draft_validation import (
+    normalize_food_profile_draft_for_tools,
+    normalize_meal_log_draft,
+    normalize_meal_plan_draft,
+    normalize_recipe_draft_for_tools,
+    normalize_shopping_list_draft,
+)
+from app.core.enums import ActivityAction, AiMode, MealType
 from app.core.utils import create_id, utcnow
 from app.models.domain import (
     AIAgentRun,
@@ -34,7 +41,6 @@ from app.models.domain import (
     AIUserApproval,
     Food,
     FoodPlanItem,
-    Ingredient,
     MealLog,
     MealLogFood,
     Recipe,
@@ -726,12 +732,17 @@ class AIApplicationService:
         message_id: str,
         run_id: str,
         draft_payload: dict[str, Any],
-    ) -> tuple[AITaskDraft, AIApprovalRequest, dict[str, Any]]:
+    ) -> tuple[AITaskDraft, AIApprovalRequest]:
         draft_type = str(draft_payload.get("draft_type") or "")
         config = DRAFT_APPROVAL_CONFIG.get(draft_type)
         if config is None:
             raise ValueError("暂不支持的草稿类型")
-        payload = self._validate_draft_payload(draft_type=draft_type, family_id=family_id, payload=dict(draft_payload.get("payload") or {}))
+        payload = self._validate_draft_payload(
+            draft_type=draft_type,
+            family_id=family_id,
+            conversation_id=conversation_id,
+            payload=dict(draft_payload.get("payload") or {}),
+        )
         summary = self._draft_preview_summary(draft_type, payload)
         draft = AITaskDraft(
             id=create_id("ai_draft"),
@@ -780,18 +791,7 @@ class AIApplicationService:
         )
         self.db.add(approval)
         self.db.flush()
-        card = {
-            "id": create_id("ai_card"),
-            "type": self._draft_card_type(draft_type),
-            "title": self._draft_title(draft_type, payload),
-            "data": {
-                "draftId": draft.id,
-                "approvalId": approval.id,
-                "summary": draft.preview_summary,
-                "draft": payload,
-            },
-        }
-        return draft, approval, card
+        return draft, approval
 
     def _create_retry_approval(
         self,
@@ -868,7 +868,14 @@ class AIApplicationService:
             raise ValueError("暂不支持的草稿类型")
         value_key = config["value_key"]
         draft_value = values.get(value_key, draft.payload)
-        return {value_key: self._validate_draft_payload(draft_type=draft.draft_type, family_id=draft.family_id, payload=draft_value)}
+        return {
+            value_key: self._validate_draft_payload(
+                draft_type=draft.draft_type,
+                family_id=draft.family_id,
+                conversation_id=draft.conversation_id,
+                payload=draft_value,
+            )
+        }
 
     def _validate_approval_field(self, field: dict[str, Any], values: dict[str, Any], *, enforce_required: bool) -> None:
         name = str(field["name"])
@@ -920,138 +927,27 @@ class AIApplicationService:
             except ValueError as exc:
                 raise ValueError(f"{field.get('label') or name} 必须是有效时间") from exc
 
-    def _validate_draft_payload(self, *, draft_type: str, family_id: str, payload: Any) -> dict[str, Any]:
+    def _validate_draft_payload(self, *, draft_type: str, family_id: str, conversation_id: str, payload: Any) -> dict[str, Any]:
         if not isinstance(payload, dict):
             raise ValueError("草稿内容格式不正确")
         if draft_type == "recipe":
             try:
-                recipe = CreateRecipeRequest.model_validate(payload).model_dump(mode="json")
+                recipe = normalize_recipe_draft_for_tools(self.db, family_id=family_id, payload=payload)
             except ValidationError as exc:
                 raise ValueError("菜谱草稿字段不完整或格式不正确") from exc
-            ingredient_ids = [item.get("ingredient_id") for item in recipe["ingredient_items"] if item.get("ingredient_id")]
-            self._require_family_ids(Ingredient, family_id=family_id, ids=ingredient_ids, label="食材")
             return recipe
         if draft_type == "shopping_list":
-            items = payload.get("items")
-            if not isinstance(items, list) or not items:
-                raise ValueError("购物清单草稿不能为空")
-            return {
-                "draftType": "shopping_list",
-                "schemaVersion": payload.get("schemaVersion") or "shopping_list.v1",
-                "items": [CreateShoppingListItemRequest.model_validate(item).model_dump(mode="json") for item in items],
-                "sourceDraftId": payload.get("sourceDraftId"),
-            }
+            return normalize_shopping_list_draft(self.db, family_id=family_id, conversation_id=conversation_id, payload=payload)
         if draft_type == "meal_plan":
-            items = payload.get("items")
-            if not isinstance(items, list) or not items:
-                raise ValueError("餐食计划草稿不能为空")
-            normalized_items = []
-            food_ids = []
-            recipe_ids = []
-            for item in items:
-                if not isinstance(item, dict):
-                    raise ValueError("餐食计划草稿项格式不正确")
-                plan_date = date.fromisoformat(str(item.get("date")))
-                meal_type = MealType(str(item.get("mealType")))
-                title = str(item.get("title") or "").strip()
-                food_id = item.get("foodId") or item.get("food_id")
-                recipe_id = item.get("recipeId") or item.get("recipe_id")
-                if not title and not food_id:
-                    raise ValueError("餐食计划草稿项缺少食物名称")
-                if food_id:
-                    food_ids.append(str(food_id))
-                if recipe_id:
-                    recipe_ids.append(str(recipe_id))
-                normalized_items.append(
-                    {
-                        "date": plan_date.isoformat(),
-                        "mealType": meal_type.value,
-                        "title": title,
-                        "foodId": str(food_id) if food_id else None,
-                        "recipeId": str(recipe_id) if recipe_id else None,
-                        "reason": str(item.get("reason") or item.get("note") or ""),
-                        "usedInventory": list(item.get("usedInventory") or []),
-                        "missingIngredients": list(item.get("missingIngredients") or []),
-                        "source": item.get("source") if isinstance(item.get("source"), dict) else {},
-                    }
-                )
-            self._require_family_ids(Food, family_id=family_id, ids=food_ids, label="食物")
-            self._require_family_ids(Recipe, family_id=family_id, ids=recipe_ids, label="菜谱")
-            return {
-                "draftType": "meal_plan",
-                "schemaVersion": payload.get("schemaVersion") or "meal_plan.v1",
-                "items": normalized_items,
-                "source": payload.get("source") if isinstance(payload.get("source"), dict) else {},
-            }
+            return normalize_meal_plan_draft(self.db, family_id=family_id, payload=payload)
         if draft_type == "meal_log":
-            foods = payload.get("foods")
-            if not isinstance(foods, list) or not foods:
-                raise ValueError("餐食记录草稿不能为空")
-            food_ids = [str(item.get("foodId") or item.get("food_id")) for item in foods if isinstance(item, dict) and (item.get("foodId") or item.get("food_id"))]
-            self._require_family_ids(Food, family_id=family_id, ids=food_ids, label="食物")
-            normalized_foods = []
-            for item in foods:
-                if not isinstance(item, dict):
-                    raise ValueError("餐食记录食物项格式不正确")
-                name = str(item.get("name") or "").strip()
-                food_id = item.get("foodId") or item.get("food_id")
-                if not name and not food_id:
-                    raise ValueError("餐食记录食物项缺少名称")
-                normalized_foods.append(
-                    {
-                        "foodId": str(food_id) if food_id else None,
-                        "name": name,
-                        "servings": max(float(item.get("servings") or 1), 0.1),
-                        "note": str(item.get("note") or ""),
-                    }
-                )
-            return {
-                "draftType": "meal_log",
-                "schemaVersion": payload.get("schemaVersion") or "meal_log.v1",
-                "date": date.fromisoformat(str(payload.get("date"))).isoformat(),
-                "mealType": MealType(str(payload.get("mealType"))).value,
-                "foods": normalized_foods,
-                "notes": str(payload.get("notes") or ""),
-            }
+            return normalize_meal_log_draft(self.db, family_id=family_id, payload=payload)
         if draft_type == "food_profile":
             try:
-                food = CreateFoodRequest.model_validate(payload).model_dump(mode="json")
+                return normalize_food_profile_draft_for_tools(self.db, family_id=family_id, payload=payload)
             except ValidationError as exc:
                 raise ValueError("食物资料草稿字段不完整或格式不正确") from exc
-            recipe_id = food.get("recipe_id")
-            if recipe_id:
-                self._require_family_ids(Recipe, family_id=family_id, ids=[recipe_id], label="菜谱")
-            return {"draftType": "food_profile", "schemaVersion": payload.get("schemaVersion") or "food_profile.v1", **food}
         raise ValueError("暂不支持的草稿类型")
-
-    def _require_family_ids(self, model: Any, *, family_id: str, ids: list[str], label: str) -> None:
-        if not ids:
-            return
-        existing_ids = set(self.db.scalars(select(model.id).where(model.family_id == family_id, model.id.in_(ids))))
-        if set(ids) - existing_ids:
-            raise ValueError(f"草稿包含不属于当前家庭的{label}")
-
-    def _draft_title(self, draft_type: str, payload: dict[str, Any]) -> str:
-        if draft_type == "recipe":
-            return str(payload.get("title") or "菜谱草稿")
-        if draft_type == "shopping_list":
-            return "购物清单草稿"
-        if draft_type == "meal_plan":
-            return "餐食计划草稿"
-        if draft_type == "meal_log":
-            return "餐食记录草稿"
-        if draft_type == "food_profile":
-            return str(payload.get("name") or "食物资料草稿")
-        return "AI 草稿"
-
-    def _draft_card_type(self, draft_type: str) -> str:
-        return {
-            "recipe": "recipe_draft",
-            "shopping_list": "shopping_list_draft",
-            "meal_plan": "meal_plan_draft",
-            "meal_log": "meal_log_draft",
-            "food_profile": "food_profile_draft",
-        }.get(draft_type, "approval_request")
 
     def _draft_preview_summary(self, draft_type: str, payload: dict[str, Any]) -> str:
         if draft_type == "recipe":
@@ -1193,53 +1089,15 @@ class AIApplicationService:
             )
         return {"items": [serialize_shopping_item(item) for item in created]}, [item.id for item in created]
 
-    def _get_or_create_food_for_ai_title(self, *, family_id: str, user_id: str, title: str) -> Food:
-        clean_title = title.strip()[:120] or "AI 计划食物"
-        existing = self.db.scalar(select(Food).where(Food.family_id == family_id, Food.name == clean_title).limit(1))
-        if existing is not None:
-            return existing
-        food = Food(
-            id=create_id("food"),
-            family_id=family_id,
-            name=clean_title,
-            type=FoodType.SELF_MADE.value,
-            category="AI计划",
-            flavor_tags=[],
-            scene_tags=["AI计划"],
-            suitable_meal_types=[item.value for item in MealType],
-            source_name="AI 工作台",
-            purchase_source="",
-            scene="",
-            notes="由 AI 草稿确认时创建，可在食物库继续完善。",
-            routine_note="",
-            stock_unit="",
-            favorite=False,
-            created_by=user_id,
-            updated_by=user_id,
-        )
-        self.db.add(food)
-        self.db.flush()
-        log_activity(
-            self.db,
-            family_id=family_id,
-            actor_id=user_id,
-            action=ActivityAction.CREATE,
-            entity_type="Food",
-            entity_id=food.id,
-            summary=f"AI 创建食物资料 {food.name}",
-        )
-        return food
-
     def _create_meal_plan_from_draft(self, *, family_id: str, user_id: str, payload: dict[str, Any]) -> tuple[dict[str, Any], list[str]]:
         created: list[FoodPlanItem] = []
         for item_payload in payload.get("items") or []:
             food_id = item_payload.get("foodId")
-            if food_id:
-                food = self.db.scalar(select(Food).where(Food.id == food_id, Food.family_id == family_id))
-                if food is None:
-                    raise ValueError("草稿包含不属于当前家庭的食物")
-            else:
-                food = self._get_or_create_food_for_ai_title(family_id=family_id, user_id=user_id, title=str(item_payload.get("title") or "AI 计划食物"))
+            if not food_id:
+                raise ValueError("餐食计划草稿必须引用食物库里的食物")
+            food = self.db.scalar(select(Food).where(Food.id == food_id, Food.family_id == family_id))
+            if food is None:
+                raise ValueError("草稿包含不属于当前家庭的食物")
             item = FoodPlanItem(
                 id=create_id("food-plan"),
                 family_id=family_id,
@@ -1271,12 +1129,11 @@ class AIApplicationService:
         food_entries = []
         for item in payload.get("foods") or []:
             food_id = item.get("foodId")
-            if food_id:
-                food = self.db.scalar(select(Food).where(Food.id == food_id, Food.family_id == family_id))
-                if food is None:
-                    raise ValueError("草稿包含不属于当前家庭的食物")
-            else:
-                food = self._get_or_create_food_for_ai_title(family_id=family_id, user_id=user_id, title=str(item.get("name") or "AI 餐食"))
+            if not food_id:
+                raise ValueError("餐食记录草稿必须引用食物库里的食物")
+            food = self.db.scalar(select(Food).where(Food.id == food_id, Food.family_id == family_id))
+            if food is None:
+                raise ValueError("草稿包含不属于当前家庭的食物")
             food_entries.append((food, item))
         request = CreateMealLogRequest.model_validate(
             {

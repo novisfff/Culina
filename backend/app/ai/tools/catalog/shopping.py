@@ -6,6 +6,7 @@ from sqlalchemy import select
 
 from app.ai.tools.base import ToolContext
 from app.ai.tools.catalog.common import register_tool
+from app.ai.tools.draft_validation import normalize_shopping_list_draft
 from app.ai.tools.registry import ToolRegistry
 from app.ai.tools.schemas import COUNT_OUTPUT, LIMIT_INPUT, SHOPPING_LIST_DRAFT_SCHEMA, draft_input_schema, draft_output_schema
 from app.models.domain import ShoppingListItem
@@ -30,12 +31,14 @@ def shopping_read_pending(context: ToolContext, payload: dict[str, Any]) -> dict
 
 
 def shopping_list_create_draft(context: ToolContext, payload: dict[str, Any]) -> dict[str, Any]:
-    del context
     draft = payload.get("draft") if isinstance(payload.get("draft"), dict) else {}
-    items = draft.get("items")
-    if not isinstance(items, list) or not items:
-        raise ValueError("购物清单草稿不能为空")
-    return {"draft": draft, "itemCount": len(items)}
+    normalized = normalize_shopping_list_draft(
+        context.db,
+        family_id=context.family_id,
+        conversation_id=context.conversation_id,
+        payload=draft,
+    )
+    return {"draft": normalized, "itemCount": len(normalized["items"])}
 
 
 def register_shopping_tools(registry: ToolRegistry) -> None:

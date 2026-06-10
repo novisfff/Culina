@@ -105,12 +105,12 @@ MEAL_PLAN_DRAFT_SCHEMA: dict[str, Any] = {
             "items": {
                 "type": "object",
                 "additionalProperties": False,
-                "required": ["date", "mealType", "title"],
+                "required": ["date", "mealType", "title", "foodId"],
                 "properties": {
                     "date": {"type": "string", "minLength": 10, "maxLength": 10},
                     "mealType": {"type": "string", "enum": MEAL_TYPE_VALUES},
                     "title": {"type": "string", "minLength": 1, "maxLength": 80},
-                    "foodId": {"type": ["string", "null"]},
+                    "foodId": {"type": "string", "minLength": 1},
                     "recipeId": {"type": ["string", "null"]},
                     "reason": {"type": "string", "maxLength": 255},
                     "usedInventory": {"type": "array", "maxItems": 20, "items": {"type": "string", "maxLength": 80}},
@@ -141,7 +141,7 @@ MEAL_LOG_DRAFT_SCHEMA: dict[str, Any] = {
                 "additionalProperties": False,
                 "required": ["foodId", "name", "servings", "note"],
                 "properties": {
-                    "foodId": {"type": ["string", "null"]},
+                    "foodId": {"type": "string", "minLength": 1},
                     "name": {"type": "string", "maxLength": 80},
                     "servings": {"type": "number", "exclusiveMinimum": 0},
                     "note": {"type": "string", "maxLength": 255},

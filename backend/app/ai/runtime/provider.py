@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from collections.abc import Iterator
 from collections.abc import Callable
+from collections.abc import Iterator
 from dataclasses import dataclass, field
 import json
 import logging
@@ -28,6 +28,7 @@ class ChatProviderResult:
 
 
 ToolCallHandler = Callable[[str, dict[str, Any]], dict[str, Any]]
+VisibleTextHandler = Callable[[str], None]
 
 
 class BaseChatProvider:
@@ -45,8 +46,9 @@ class BaseChatProvider:
         tool_handler: ToolCallHandler,
         response_schema: dict[str, Any] | None = None,
         max_rounds: int = 8,
+        visible_text_handler: VisibleTextHandler | None = None,
     ) -> ChatProviderResult:
-        del tools, tool_handler, response_schema, max_rounds
+        del tools, tool_handler, response_schema, max_rounds, visible_text_handler
         return self.generate(system=system, user=user)
 
     def stream_generate(
@@ -77,8 +79,9 @@ class DisabledChatProvider(BaseChatProvider):
         tool_handler: ToolCallHandler,
         response_schema: dict[str, Any] | None = None,
         max_rounds: int = 8,
+        visible_text_handler: VisibleTextHandler | None = None,
     ) -> ChatProviderResult:
-        del system, user, tools, tool_handler, response_schema, max_rounds
+        del system, user, tools, tool_handler, response_schema, max_rounds, visible_text_handler
         return ChatProviderResult(text=None, status="fallback", model=self.model_name, error="provider unavailable")
 
 
@@ -187,6 +190,7 @@ class OpenAICompatibleChatProvider(BaseChatProvider):
         tool_handler: ToolCallHandler,
         response_schema: dict[str, Any] | None = None,
         max_rounds: int = 8,
+        visible_text_handler: VisibleTextHandler | None = None,
     ) -> ChatProviderResult:
         name_map = {self._model_tool_name(tool.name): tool.name for tool in tools}
         model_tools = [self._tool_definition_to_model_tool(tool) for tool in tools]
@@ -201,11 +205,16 @@ class OpenAICompatibleChatProvider(BaseChatProvider):
         requested_calls: list[dict[str, Any]] = []
 
         for _round in range(max(1, max_rounds)):
+            message = None
             try:
-                message = client.invoke(messages)
+                for chunk in client.stream(messages):
+                    message = chunk if message is None else message + chunk
+                    text = self._content_to_text(getattr(chunk, "content", ""))
+                    if text and visible_text_handler is not None:
+                        visible_text_handler(text)
             except Exception as exc:  # pragma: no cover - network/provider failure
                 logger.warning(
-                    "AI provider tool-call invoke failed model=%s round=%s tool_count=%s requested_calls=%s error=%s",
+                    "AI provider streaming tool-call invoke failed model=%s round=%s tool_count=%s requested_calls=%s error=%s",
                     self.model_name,
                     _round + 1,
                     len(tools),
@@ -213,6 +222,15 @@ class OpenAICompatibleChatProvider(BaseChatProvider):
                     exc,
                     exc_info=True,
                 )
+                if not requested_calls:
+                    return self._generate_with_tools_blocking(
+                        system=system,
+                        user=user,
+                        tools=tools,
+                        tool_handler=tool_handler,
+                        response_schema=response_schema,
+                        max_rounds=max_rounds,
+                    )
                 return ChatProviderResult(
                     text=None,
                     status="fallback",
@@ -221,8 +239,24 @@ class OpenAICompatibleChatProvider(BaseChatProvider):
                     structured_mode="tool_call",
                     tool_calls=requested_calls,
                 )
+            if message is None:
+                logger.warning(
+                    "AI provider streaming tool-call returned no chunks model=%s round=%s tool_count=%s requested_calls=%s",
+                    self.model_name,
+                    _round + 1,
+                    len(tools),
+                    len(requested_calls),
+                )
+                return ChatProviderResult(
+                    text=None,
+                    status="fallback",
+                    model=self.model_name,
+                    error="empty model stream",
+                    structured_mode="tool_call",
+                    tool_calls=requested_calls,
+                )
             messages.append(message)
-            tool_calls = list(getattr(message, "tool_calls", None) or [])
+            tool_calls = self._message_tool_calls(message)
             if not tool_calls:
                 text = self._content_to_text(message.content).strip()
                 return ChatProviderResult(
@@ -281,6 +315,155 @@ class OpenAICompatibleChatProvider(BaseChatProvider):
             structured_mode="tool_call",
             tool_calls=requested_calls,
         )
+
+    def _generate_with_tools_blocking(
+        self,
+        *,
+        system: str,
+        user: str,
+        tools: list[ToolDefinition],
+        tool_handler: ToolCallHandler,
+        response_schema: dict[str, Any] | None = None,
+        max_rounds: int = 8,
+    ) -> ChatProviderResult:
+        name_map = {self._model_tool_name(tool.name): tool.name for tool in tools}
+        model_tools = [self._tool_definition_to_model_tool(tool) for tool in tools]
+        client = self.client.bind_tools(model_tools).bind(temperature=0)
+        schema_instruction = ""
+        if response_schema:
+            schema_instruction = (
+                "\n\nFinal response JSON Schema:\n"
+                f"{json.dumps(response_schema, ensure_ascii=False, default=str)}"
+            )
+        messages: list[Any] = [SystemMessage(content=f"{system}{schema_instruction}"), HumanMessage(content=user)]
+        requested_calls: list[dict[str, Any]] = []
+
+        for _round in range(max(1, max_rounds)):
+            try:
+                message = client.invoke(messages)
+            except Exception as exc:  # pragma: no cover - network/provider failure
+                logger.warning(
+                    "AI provider tool-call invoke failed model=%s round=%s tool_count=%s requested_calls=%s error=%s",
+                    self.model_name,
+                    _round + 1,
+                    len(tools),
+                    len(requested_calls),
+                    exc,
+                    exc_info=True,
+                )
+                return ChatProviderResult(
+                    text=None,
+                    status="fallback",
+                    model=self.model_name,
+                    error=str(exc),
+                    structured_mode="tool_call",
+                    tool_calls=requested_calls,
+                )
+            messages.append(message)
+            tool_calls = self._message_tool_calls(message)
+            if not tool_calls:
+                text = self._content_to_text(message.content).strip()
+                return ChatProviderResult(
+                    text=text or None,
+                    status="completed" if text else "fallback",
+                    model=self.model_name,
+                    error=None if text else "empty model response",
+                    structured_mode="tool_call",
+                    tool_calls=requested_calls,
+                )
+            for call in tool_calls:
+                model_name = str(call.get("name") or "")
+                name = name_map.get(model_name, model_name)
+                args = call.get("args") if isinstance(call.get("args"), dict) else {}
+                call_id = str(call.get("id") or f"tool_call_{len(requested_calls) + 1}")
+                requested_calls.append({"id": call_id, "name": name, "args": args})
+                logger.info(
+                    "AI provider requested tool model=%s call_id=%s tool=%s arg_keys=%s",
+                    self.model_name,
+                    call_id,
+                    name,
+                    sorted(args.keys()),
+                )
+                try:
+                    output = tool_handler(name, args)
+                except Exception as exc:
+                    logger.warning(
+                        "AI provider tool handler failed model=%s call_id=%s tool=%s error=%s",
+                        self.model_name,
+                        call_id,
+                        name,
+                        exc,
+                        exc_info=True,
+                    )
+                    return ChatProviderResult(
+                        text=None,
+                        status="failed",
+                        model=self.model_name,
+                        error=str(exc),
+                        structured_mode="tool_call",
+                        tool_calls=requested_calls,
+                    )
+                messages.append(ToolMessage(content=json.dumps(output, ensure_ascii=False, default=str), tool_call_id=call_id))
+
+        logger.warning(
+            "AI provider tool-call exceeded max rounds model=%s max_rounds=%s requested_calls=%s",
+            self.model_name,
+            max_rounds,
+            len(requested_calls),
+        )
+        return ChatProviderResult(
+            text=None,
+            status="failed",
+            model=self.model_name,
+            error=f"tool conversation exceeded max_rounds={max_rounds}",
+            structured_mode="tool_call",
+            tool_calls=requested_calls,
+        )
+
+    def _message_tool_calls(self, message: Any) -> list[dict[str, Any]]:
+        tool_calls = list(getattr(message, "tool_calls", None) or [])
+        normalized: list[dict[str, Any]] = []
+        for call in tool_calls:
+            if not isinstance(call, dict):
+                continue
+            args = call.get("args")
+            if isinstance(args, str):
+                parsed_args = self._json_object(args)
+                args = parsed_args if isinstance(parsed_args, dict) else {}
+            normalized.append(
+                {
+                    "id": call.get("id"),
+                    "name": call.get("name"),
+                    "args": args if isinstance(args, dict) else {},
+                }
+            )
+        if normalized:
+            return normalized
+
+        chunks = list(getattr(message, "tool_call_chunks", None) or [])
+        by_index: dict[str, dict[str, str]] = {}
+        for index, chunk in enumerate(chunks):
+            if not isinstance(chunk, dict):
+                continue
+            key = str(chunk.get("index") if chunk.get("index") is not None else index)
+            item = by_index.setdefault(key, {"id": "", "name": "", "args": ""})
+            if chunk.get("id"):
+                item["id"] += str(chunk["id"])
+            if chunk.get("name"):
+                item["name"] += str(chunk["name"])
+            if chunk.get("args"):
+                item["args"] += str(chunk["args"])
+        for item in by_index.values():
+            args = self._json_object(item["args"])
+            normalized.append({"id": item["id"] or None, "name": item["name"], "args": args if isinstance(args, dict) else {}})
+        return normalized
+
+    def _json_object(self, text: str) -> dict[str, Any] | None:
+        try:
+            parsed = json.loads(text)
+        except Exception:
+            return None
+        return parsed if isinstance(parsed, dict) else None
 
     def _tool_definition_to_model_tool(self, definition: ToolDefinition) -> dict[str, Any]:
         description = f"{definition.display_name}: {definition.description} original_name={definition.name} side_effect={definition.side_effect}"

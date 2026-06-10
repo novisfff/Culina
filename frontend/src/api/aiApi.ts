@@ -103,6 +103,8 @@ export const aiApi = {
     }),
   getAiMessages: (conversationId: string) =>
     request<AiMessage[]>(`/api/ai/conversations/${conversationId}/messages`),
+  getAiRunEvents: (runId: string) =>
+    request<AiRunEvent[]>(`/api/ai/runs/${runId}/events`),
   getPendingAiApprovals: (conversationId: string) =>
     request<AiApprovalRequest[]>(`/api/ai/conversations/${conversationId}/approvals/pending`),
   decideAiApproval: (

@@ -128,9 +128,16 @@ function changeInput(input: HTMLInputElement | HTMLTextAreaElement, value: strin
 }
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.restoreAllMocks();
   document.body.innerHTML = '';
 });
+
+async function advanceTimers(ms: number) {
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(ms);
+  });
+}
 
 describe('ApprovalPanel', () => {
   it('shows submitted recipe values after approval is resolved', async () => {
@@ -382,6 +389,7 @@ describe('AiWorkspace pending approval restore', () => {
         created_at: '2026-05-30T00:00:00Z',
       },
     ]);
+    vi.spyOn(api, 'getAiRunEvents').mockResolvedValue([]);
     vi.spyOn(api, 'getPendingAiApprovals').mockResolvedValue([approval()]);
     const rendered = await renderWithQuery(<AiWorkspace conversations={[conversation()]} isLoading={false} />);
     await flush();
@@ -390,6 +398,81 @@ describe('AiWorkspace pending approval restore', () => {
     expect(rendered.container.textContent).toContain('菜谱草稿已经生成，请确认。');
     expect(rendered.container.textContent).toContain('确认创建菜谱');
     expect(rendered.container.textContent).not.toContain('待处理确认');
+    rendered.unmount();
+  });
+
+  it('renders assistant text parts as markdown', async () => {
+    await act(async () => {
+      await import('./MarkdownMessage');
+    });
+    vi.spyOn(api, 'getAiMessages').mockResolvedValue([
+      {
+        id: 'message-1',
+        conversation_id: 'conversation-1',
+        role: 'assistant',
+        content: '**晚餐建议**\n\n- 番茄鸡蛋面\n\n记得用 `小火`。',
+        content_type: 'parts',
+        parts: [{ id: 'text-1', type: 'text', text: '**晚餐建议**\n\n- 番茄鸡蛋面\n\n记得用 `小火`。' }],
+        run_id: null,
+        status: 'completed',
+        metadata: {},
+        created_at: '2026-05-30T00:00:00Z',
+      },
+    ]);
+    vi.spyOn(api, 'getPendingAiApprovals').mockResolvedValue([]);
+    const rendered = await renderWithQuery(<AiWorkspace conversations={[conversation()]} isLoading={false} />);
+    await flush();
+    await flush();
+    const desktopView = rendered.container.querySelector('.ai-desktop-view') as HTMLElement;
+    expect(desktopView.querySelector('.ai-message-markdown strong')?.textContent).toBe('晚餐建议');
+    expect(desktopView.querySelector('.ai-message-markdown li')?.textContent).toBe('番茄鸡蛋面');
+    expect(desktopView.querySelector('.ai-message-markdown code')?.textContent).toBe('小火');
+    rendered.unmount();
+  });
+
+  it('restores collapsed run progress when reopening a conversation', async () => {
+    vi.spyOn(api, 'getAiMessages').mockResolvedValue([
+      {
+        id: 'message-1',
+        conversation_id: 'conversation-1',
+        role: 'assistant',
+        content: '已安排好晚餐。',
+        content_type: 'parts',
+        parts: [{ id: 'text-1', type: 'text', text: '已安排好晚餐。' }],
+        run_id: 'run-1',
+        status: 'completed',
+        metadata: {},
+        created_at: '2026-05-30T00:00:00Z',
+      },
+    ]);
+    vi.spyOn(api, 'getAiRunEvents').mockResolvedValue([
+      {
+        id: 'progress-skill',
+        run_id: 'run-1',
+        type: 'skill',
+        internal_code: 'meal_plan.start',
+        user_message: '调用「餐食计划」技能',
+        status: 'completed',
+        created_at: '2026-05-30T00:00:00Z',
+      },
+      {
+        id: 'progress-tool',
+        run_id: 'run-1',
+        type: 'tool',
+        internal_code: 'inventory.read_available_items',
+        user_message: '调用「可用库存」',
+        status: 'completed',
+        created_at: '2026-05-30T00:00:01Z',
+      },
+    ]);
+    vi.spyOn(api, 'getPendingAiApprovals').mockResolvedValue([]);
+    const rendered = await renderWithQuery(<AiWorkspace conversations={[conversation()]} isLoading={false} />);
+    await flush();
+    await flush();
+    const desktopView = rendered.container.querySelector('.ai-desktop-view') as HTMLElement;
+    expect(desktopView.querySelector('.ai-run-progress-bar')?.textContent).toContain('餐食计划');
+    expect(desktopView.querySelector('.ai-run-progress-bar')?.textContent).toContain('调用「可用库存」');
+    expect(desktopView.querySelector('.ai-run-progress-step.status-completed')).toBeNull();
     rendered.unmount();
   });
 
@@ -453,7 +536,10 @@ describe('AiWorkspace pending approval restore', () => {
       rendered.container.querySelector<HTMLFormElement>('form.ai-composer')?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
     });
     await flush();
-    expect(rendered.container.textContent).toContain('调用「餐食计划」技能');
+    await flush();
+    expect(rendered.container.textContent).toContain('餐食计划');
+    expect(rendered.container.textContent).not.toContain('等待工具调用');
+    expect(rendered.container.querySelector('.ai-run-tool-marquee')).toBeNull();
     expect(rendered.container.querySelector('.ai-stream-progress-strip')).toBeNull();
     expect(rendered.container.querySelector<HTMLButtonElement>('.ai-send-button')?.getAttribute('aria-label')).toBe('中止生成');
     await act(async () => {
@@ -466,6 +552,7 @@ describe('AiWorkspace pending approval restore', () => {
   });
 
   it('renders streamed progress in an assistant message before any text delta arrives', async () => {
+    vi.useFakeTimers();
     vi.spyOn(api, 'getAiMessages').mockResolvedValue([]);
     vi.spyOn(api, 'getPendingAiApprovals').mockResolvedValue([]);
     let resolveStream: ((response: AiChatResponse) => void) | null = null;
@@ -473,11 +560,20 @@ describe('AiWorkspace pending approval restore', () => {
     vi.spyOn(api, 'streamChatAi').mockImplementation(async (payload, handlers) => {
       streamedRunId = payload.client_run_id ?? streamedRunId;
       handlers?.onProgress?.({
+        id: 'progress-skill',
+        run_id: 'pending',
+        type: 'skill',
+        internal_code: 'meal_plan.start',
+        user_message: '调用「餐食计划」技能',
+        status: 'running',
+        created_at: '2026-05-30T00:00:00Z',
+      });
+      handlers?.onProgress?.({
         id: 'progress-1',
         run_id: 'pending',
         type: 'tool',
         internal_code: 'inventory.read_available_items',
-        user_message: '已调用「可用库存」工具',
+        user_message: '调用「可用库存」',
         status: 'completed',
         created_at: '2026-05-30T00:00:00Z',
       });
@@ -485,29 +581,76 @@ describe('AiWorkspace pending approval restore', () => {
         id: 'progress-2',
         run_id: 'pending',
         type: 'tool',
-        internal_code: 'inventory.read_available_items',
-        user_message: '已调用「可用库存」工具',
+        internal_code: 'meal_plan.create_draft',
+        user_message: '生成「餐食计划确认表单」',
         status: 'completed',
         created_at: '2026-05-30T00:00:00Z',
+      });
+      handlers?.onProgress?.({
+        id: 'progress-skill-completed',
+        run_id: 'pending',
+        type: 'skill',
+        internal_code: 'meal_plan.completed',
+        user_message: '餐食计划执行完成',
+        status: 'completed',
+        created_at: '2026-05-30T00:00:01Z',
       });
       return new Promise<AiChatResponse>((resolve) => {
         resolveStream = resolve;
       });
     });
     const rendered = await renderWithQuery(<AiWorkspace conversations={[conversation()]} isLoading={false} />);
-    await flush();
+    await advanceTimers(0);
     changeInput(rendered.container.querySelector<HTMLTextAreaElement>('textarea.text-input') as HTMLTextAreaElement, '安排三天晚餐');
     await act(async () => {
       rendered.container.querySelector<HTMLFormElement>('form.ai-composer')?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
     });
-    await flush();
+    await advanceTimers(0);
+    await advanceTimers(0);
     const desktopView = rendered.container.querySelector('.ai-desktop-view') as HTMLElement;
+    const progressBar = desktopView.querySelector('.ai-run-progress-bar') as HTMLElement;
     expect(rendered.container.querySelectorAll('.ai-desktop-view .ai-message-assistant')).toHaveLength(1);
-    expect((desktopView.textContent?.match(/已调用「可用库存」工具/g) ?? [])).toHaveLength(2);
-    expect(desktopView.textContent).not.toContain('inventory.read_available_items');
+    expect(progressBar.textContent).toContain('已完成');
+    expect(progressBar.textContent).toContain('餐食计划');
+    expect(progressBar.textContent).not.toContain('调用「餐食计划」技能');
+    expect(desktopView.querySelector('.ai-run-tool-marquee.is-scrollable')).toBeNull();
+    let toolChips = Array.from(desktopView.querySelectorAll<HTMLElement>('.ai-run-tool-chip'));
+    expect(toolChips.map((chip) => chip.textContent)).toEqual(['调用「可用库存」']);
+    expect(toolChips[0]?.className).toContain('is-newest');
+    await advanceTimers(1999);
+    toolChips = Array.from(desktopView.querySelectorAll<HTMLElement>('.ai-run-tool-chip'));
+    expect(toolChips.map((chip) => chip.textContent)).toEqual(['调用「可用库存」']);
+    await advanceTimers(1);
+    toolChips = Array.from(desktopView.querySelectorAll<HTMLElement>('.ai-run-tool-chip'));
+    expect(toolChips.map((chip) => chip.textContent)).toEqual(['生成「餐食计划确认表单」', '调用「可用库存」']);
+    expect(toolChips[0]?.className).toContain('is-newest');
+    expect(toolChips[0]?.className).toContain('kind-form');
+    expect(toolChips[0]?.querySelector('.ai-run-tool-icon.icon-form')).not.toBeNull();
+    expect(toolChips[1]?.className).toContain('is-shifted');
+    expect(toolChips[1]?.className).toContain('kind-tool');
+    expect(toolChips[1]?.querySelector('.ai-run-tool-icon.icon-tool')).not.toBeNull();
+    expect(desktopView.textContent).not.toContain('meal_plan.create_draft');
     expect(desktopView.querySelector('.ai-run-progress-step.status-completed')).toBeNull();
     expect(desktopView.querySelector('.ai-run-progress-step.status-running')).toBeNull();
     expect(rendered.container.querySelector('.ai-stream-progress-strip')).toBeNull();
+    await act(async () => {
+      desktopView.querySelector<HTMLButtonElement>('.ai-run-progress-toggle')?.click();
+    });
+    await advanceTimers(0);
+    expect(desktopView.querySelector('.ai-run-progress-step.status-running')?.textContent).toContain('开始执行');
+    expect(desktopView.querySelector('.ai-run-progress-step.status-running')?.textContent).toContain('调用「餐食计划」技能');
+    expect(desktopView.querySelectorAll('.ai-run-progress-step.status-completed')).toHaveLength(3);
+    expect(desktopView.querySelectorAll('.ai-run-progress-step .ai-run-tool-icon.icon-tool')).toHaveLength(1);
+    expect(desktopView.querySelectorAll('.ai-run-progress-step .ai-run-tool-icon.icon-form')).toHaveLength(1);
+    expect(desktopView.querySelectorAll('.ai-run-progress-step .ai-run-detail-status-dot')).toHaveLength(2);
+    expect(desktopView.querySelector('.ai-run-step-status')).toBeNull();
+    expect(desktopView.querySelector('.ai-run-step-type')).toBeNull();
+    expect(desktopView.textContent).not.toContain('复制执行日志');
+    await act(async () => {
+      desktopView.querySelector<HTMLButtonElement>('.ai-run-progress-toggle')?.click();
+    });
+    await advanceTimers(0);
+    expect(desktopView.querySelector('.ai-run-progress-step.status-running')).toBeNull();
     await act(async () => {
       resolveStream?.({
         conversation_id: 'conversation-1',
@@ -531,31 +674,92 @@ describe('AiWorkspace pending approval restore', () => {
           model: 'rules',
           created_at: '2026-05-30T00:00:00Z',
         },
-        events: [
-          {
-            id: 'progress-1',
-            run_id: streamedRunId,
-            type: 'tool',
-            internal_code: 'inventory.read_available_items',
-            user_message: '已调用「可用库存」工具',
-            status: 'completed',
-            created_at: '2026-05-30T00:00:00Z',
-          },
-          {
-            id: 'progress-2',
-            run_id: streamedRunId,
-            type: 'tool',
-            internal_code: 'inventory.read_available_items',
-            user_message: '已调用「可用库存」工具',
-            status: 'completed',
-            created_at: '2026-05-30T00:00:00Z',
-          },
-        ],
+        events: [],
         included: { result_cards: [], drafts: [], approvals: [] },
       });
     });
-    await flush();
+    await advanceTimers(0);
     expect(rendered.container.textContent).toContain('已安排好晚餐。');
+    expect(desktopView.querySelector('.ai-run-progress-bar')?.textContent).toContain('餐食计划');
+    expect(desktopView.querySelector('.ai-run-progress-bar')?.textContent).toContain('调用「可用库存」');
+    expect(desktopView.querySelector('.ai-run-progress-bar')?.textContent).toContain('生成「餐食计划确认表单」');
+    expect(desktopView.querySelector('.ai-run-progress-step.status-completed')).toBeNull();
+    rendered.unmount();
+  });
+
+  it('shows included approvals immediately when the streamed response settles', async () => {
+    vi.spyOn(api, 'getAiMessages').mockResolvedValue([]);
+    const pendingApprovalsSpy = vi
+      .spyOn(api, 'getPendingAiApprovals')
+      .mockResolvedValueOnce([])
+      .mockImplementation(() => new Promise<AiApprovalRequest[]>(() => undefined));
+    let resolveStream: ((response: AiChatResponse) => void) | null = null;
+    let streamedRunId = 'agent_run-client';
+    vi.spyOn(api, 'streamChatAi').mockImplementation(async (payload, handlers) => {
+      streamedRunId = payload.client_run_id ?? streamedRunId;
+      handlers?.onProgress?.({
+        id: 'progress-skill',
+        run_id: streamedRunId,
+        type: 'skill',
+        internal_code: 'meal_plan.start',
+        user_message: '调用「餐食计划」技能',
+        status: 'running',
+        created_at: '2026-05-30T00:00:00Z',
+      });
+      return new Promise<AiChatResponse>((resolve) => {
+        resolveStream = resolve;
+      });
+    });
+    const rendered = await renderWithQuery(<AiWorkspace conversations={[conversation()]} isLoading={false} />);
+    await flush();
+    changeInput(rendered.container.querySelector<HTMLTextAreaElement>('textarea.text-input') as HTMLTextAreaElement, '安排三天晚餐');
+    await act(async () => {
+      rendered.container.querySelector<HTMLFormElement>('form.ai-composer')?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    });
+    await flush();
+    expect(rendered.container.textContent).not.toContain('确认创建菜谱');
+    await act(async () => {
+      resolveStream?.({
+        conversation_id: 'conversation-1',
+        message: {
+          id: 'message-final',
+          conversation_id: 'conversation-1',
+          role: 'assistant',
+          content: '已生成确认表单。',
+          content_type: 'parts',
+          parts: [{ id: 'part-final', type: 'text', text: '已生成确认表单。' }],
+          run_id: streamedRunId,
+          status: 'completed',
+          metadata: {},
+          created_at: '2026-05-30T00:00:00Z',
+        },
+        run: {
+          id: streamedRunId,
+          agent_key: 'meal_plan_agent',
+          intent: 'meal_plan',
+          status: 'completed',
+          model: 'rules',
+          created_at: '2026-05-30T00:00:00Z',
+        },
+        events: [],
+        included: {
+          result_cards: [],
+          drafts: [],
+          approvals: [
+            approval({
+              id: 'approval-streamed',
+              message_id: 'message-final',
+              run_id: streamedRunId,
+              title: '确认创建菜谱',
+            }),
+          ],
+        },
+      });
+    });
+    await flush();
+    expect(rendered.container.textContent).toContain('已生成确认表单。');
+    expect(rendered.container.textContent).toContain('确认创建菜谱');
+    expect(pendingApprovalsSpy).toHaveBeenCalled();
     rendered.unmount();
   });
 

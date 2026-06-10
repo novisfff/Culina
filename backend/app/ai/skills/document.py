@@ -375,7 +375,6 @@ class MealPlanSkill(DocumentDecisionSkill):
                 source_artifact_id=source_artifact_id or None,
                 context_summary={"scriptValidation": validation},
             )
-        preview = self.scripts.call_optional("render_plan_preview", entries)
         expiring = tool_outputs["inventory.read_expiring_items"]
         draft = {
             "draftType": "meal_plan",
@@ -384,10 +383,8 @@ class MealPlanSkill(DocumentDecisionSkill):
             "source": {"days": days, "mealTypes": meal_types, "expiringInventoryIds": [item.get("id") for item in expiring.get("items", [])[:8]], "modifiedFromDraftId": source_artifact_id or None, "constraints": constraints},
         }
         context.tool_executor.call("meal_plan.create_draft", {"draft": draft})
-        card = {"id": "meal-plan-draft", "type": "meal_plan_draft", "title": "餐食计划草稿", "data": {"draft": draft, "summary": f"{days} 天 · {', '.join(meal_type_label(item) for item in meal_types)}", "items": entries, "preview": preview or ""}}
         return SkillResult(
             text=f"我生成了 {len(entries)} 条餐食计划草稿，优先考虑了临期库存、最近餐食和你的口味约束。每条计划都标出了使用库存和可能缺少的食材。",
-            cards=[card],
             drafts=[{"draft_type": "meal_plan", "payload": draft, "schema_version": "meal_plan.v1"}],
             events=[{"type": "tool", "message": "已读取临期库存、最近餐食和候选菜品"}, {"type": "script", "message": "已用 Skill 脚本校验餐食计划草稿"}, {"type": "draft", "message": "已生成带缺口说明的餐食计划草稿"}],
             context_summary={"inventoryItemCount": tool_outputs["inventory.read_available_items"].get("count", 0), "expiringItemCount": expiring.get("count", 0), "recentMealCount": tool_outputs["meal_log.read_recent"].get("count", 0), "existingPlanCount": tool_outputs["meal_plan.read_existing"].get("count", 0), "draftType": "meal_plan", "constraints": constraints, "scriptValidation": validation or {}},
@@ -460,10 +457,8 @@ class ShoppingListSkill(DocumentDecisionSkill):
             item["alreadyPending"] = item["title"] in pending_titles
         draft = {"draftType": "shopping_list", "schemaVersion": "shopping_list.v1", "items": draft_items, "sourceDraftId": source_artifact_id or None}
         context.tool_executor.call("shopping.create_draft", {"draft": draft})
-        card = {"id": "shopping-list-draft", "type": "shopping_list_draft", "title": "购物清单草稿", "data": {"draft": draft, "items": draft_items, "summary": f"{len(draft_items)} 个待确认采购项", "sourceSummary": {"plannedMealCount": sum(len((artifact.get("payload") or {}).get("items", [])) for artifact in conversation_artifacts(context, "meal_plan")), "inventoryCount": inventory.get("count", 0), "pendingShoppingCount": pending.get("count", 0)}}}
         return SkillResult(
             text=f"我根据餐食计划里的缺失食材合并了 {len(draft_items)} 个购物清单草稿项，并标注了每项来源。",
-            cards=[card],
             drafts=[{"draft_type": "shopping_list", "payload": draft, "schema_version": "shopping_list.v1"}],
             events=[{"type": "tool", "message": "已读取待采购项和当前可用库存"}, {"type": "draft", "message": "已按餐食计划缺口合并购物清单草稿"}],
             context_summary={"inventoryItemCount": inventory.get("count", 0), "pendingShoppingCount": pending.get("count", 0), "draftType": "shopping_list"},
@@ -531,11 +526,9 @@ class MealLogSkill(DocumentDecisionSkill):
             meal_date = date.today()
         draft = {"draftType": "meal_log", "schemaVersion": "meal_log.v1", "date": meal_date.isoformat(), "mealType": meal_type, "foods": draft_foods, "notes": norm_name(decision.get("notes")) or context.current_message.strip()}
         context.tool_executor.call("meal_log.create_draft", {"draft": draft})
-        card = {"id": "meal-log-draft", "type": "meal_log_draft", "title": "餐食记录草稿", "data": {"draft": draft, "foods": draft_foods, "summary": f"{meal_date.isoformat()} · {meal_type_label(meal_type)} · {len(draft_foods)} 个食物项"}}
         matched_count = sum(1 for item in draft_foods if item.get("foodId"))
         return SkillResult(
             text=f"我整理了一条{meal_type_label(meal_type)}餐食记录草稿，包含 {len(draft_foods)} 个食物项，其中 {matched_count} 个已匹配到食物库。确认后才会写入餐食记录。",
-            cards=[card],
             drafts=[{"draft_type": "meal_log", "payload": draft, "schema_version": "meal_log.v1"}],
             events=[{"type": "tool", "message": "已读取食物库和最近餐食记录"}, {"type": "draft", "message": "已生成可编辑的餐食记录草稿"}],
             context_summary={"foodCount": len(foods), "recentMealCount": len(recent_logs), "draftType": "meal_log", "matchedFoodCount": matched_count},
@@ -583,10 +576,8 @@ class FoodProfileSkill(DocumentDecisionSkill):
         if payload is None:
             return SkillResult(text="我还需要知道要整理的食物名称。", model=model_name(context), operation="clarify", requires_clarification=True)
         context.tool_executor.call("food_profile.create_draft", {"draft": payload})
-        card = {"id": "food-profile-draft", "type": "food_profile_draft", "title": "食物资料草稿", "data": {"draft": payload, "summary": f"{payload['name']} · {payload['category']}", "items": [{"title": payload["name"], "reason": payload["routine_note"]}]}}
         return SkillResult(
             text=f"我整理了一份 {payload['name']} 的食物资料草稿，确认后才会写入食物库。",
-            cards=[card],
             drafts=[{"draft_type": "food_profile", "payload": payload, "schema_version": "food_profile.v1"}],
             events=[{"type": "tool", "message": "已读取当前家庭食物资料"}, {"type": "draft", "message": "已生成可编辑的食物资料草稿"}],
             context_summary={"foodCount": len(foods), "draftType": "food_profile"},

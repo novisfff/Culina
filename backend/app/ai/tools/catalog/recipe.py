@@ -8,6 +8,7 @@ from sqlalchemy.orm import selectinload
 from app.ai.kitchen.recipe_drafts import RECIPE_DRAFT_JSON_SCHEMA
 from app.ai.tools.base import ToolContext
 from app.ai.tools.catalog.common import register_tool
+from app.ai.tools.draft_validation import normalize_recipe_draft_for_tools
 from app.ai.tools.registry import ToolRegistry
 from app.ai.tools.schemas import COUNT_OUTPUT, LIMIT_INPUT, draft_input_schema, draft_output_schema
 from app.models.domain import Recipe
@@ -59,9 +60,9 @@ def recipe_search(context: ToolContext, payload: dict[str, Any]) -> dict[str, An
 
 
 def recipe_create_draft(context: ToolContext, payload: dict[str, Any]) -> dict[str, Any]:
-    del context
     draft = payload.get("draft") if isinstance(payload.get("draft"), dict) else {}
-    return {"draft": draft, "itemCount": len(draft.get("ingredient_items", []) or [])}
+    normalized = normalize_recipe_draft_for_tools(context.db, family_id=context.family_id, payload=draft)
+    return {"draft": normalized, "itemCount": len(normalized.get("ingredient_items", []) or [])}
 
 
 def register_recipe_tools(registry: ToolRegistry) -> None:

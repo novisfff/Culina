@@ -93,6 +93,7 @@ class SkillExecutor:
                 len(result.events),
                 len(result.tool_calls),
             )
+            context.emit_progress("skill", f"{skill_key}.completed", f"{skill.manifest.name}执行完成", "completed")
         return result
 
     def _validate_manifest_contract(self, skill: BaseSkill, context: SkillContext) -> None:

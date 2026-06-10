@@ -29,8 +29,7 @@ script_files:
   - scripts/merge_ingredients.py
   - scripts/normalize_ingredient.py
 output_contract: SkillExecutionResult
-output_types:
-  - shopping_list_draft
+output_types: []
 draft_types:
   - shopping_list
 approval_policy: draft_then_confirm
@@ -52,8 +51,8 @@ examples:
 
 ## 工具使用规则
 
-- derive 必须引用真实 `meal_plan` artifact。
-- modify 必须引用真实 `shopping_list` artifact。
+- derive 必须引用真实 `meal_plan` artifact，`sourceDraftId` 只能使用已有草稿 ID 或当前运行内的 `in_run:*` 草稿 ID。
+- modify 必须引用真实 `shopping_list` artifact，不能编造 `sourceDraftId`。
 - 必须合并重复项。
 - 已有库存不要重复采购。
 - 只生成草稿，不写正式 `ShoppingListItem`。

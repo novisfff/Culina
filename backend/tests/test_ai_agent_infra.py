@@ -149,13 +149,12 @@ class FakeChatProvider(BaseChatProvider):
                     model=self.model_name,
                 )
             days = 3 if "三天" in message or operation == "modify" else 1
-            titles = ["番茄鸡蛋面", "清淡蔬菜豆腐", "番茄小炒"]
             items = [
                 {
                     "date": (date.today() + timedelta(days=index)).isoformat(),
                     "mealType": "dinner",
-                    "title": titles[index % len(titles)],
-                    "foodId": "food-tomato" if index == 2 else None,
+                    "title": "番茄小炒",
+                    "foodId": "food-tomato",
                     "recipeId": None,
                     "reason": "优先使用临期番茄；按清淡口味安排",
                     "usedInventory": ["番茄"],
@@ -170,8 +169,8 @@ class FakeChatProvider(BaseChatProvider):
                     if len(items) > 1:
                         items[1].update(
                             {
-                                "title": "清淡蔬菜豆腐",
-                                "foodId": None,
+                                "title": "番茄小炒",
+                                "foodId": "food-tomato",
                                 "recipeId": None,
                                 "reason": "根据要求换成更适合孩子的清淡餐食",
                                 "missingIngredients": ["豆腐", "青菜"],
@@ -344,6 +343,7 @@ class FakeChatProvider(BaseChatProvider):
         tool_handler,
         response_schema: dict | None = None,
         max_rounds: int = 8,
+        visible_text_handler=None,
     ) -> ChatProviderResult:
         del system, response_schema, max_rounds
         payload = json.loads(user)
@@ -351,11 +351,16 @@ class FakeChatProvider(BaseChatProvider):
         available_tool_names = {tool.name for tool in tools}
         tool_names: list[str] = []
 
+        def emit_visible(text: str) -> None:
+            if visible_text_handler is not None:
+                visible_text_handler(f"<visible_text>{text}</visible_text>")
+
         def call(name: str, args: dict | None = None) -> dict:
             tool_names.append(name)
             return tool_handler(name, args or {})
 
         if "meal_plan.create_draft" in available_tool_names:
+            emit_visible("我先看一下临期食材和最近餐食。")
             inventory = call("inventory.read_expiring_items", {"days": 7})
             call("inventory.read_available_items", {"limit": 80})
             call("meal_log.read_recent", {"limit": 8})
@@ -381,13 +386,12 @@ class FakeChatProvider(BaseChatProvider):
                     tool_names,
                 )
             days = 3 if "三天" in message or operation == "modify" else 1
-            titles = ["番茄鸡蛋面", "清淡蔬菜豆腐", "番茄小炒"]
             items = [
                 {
                     "date": (date.today() + timedelta(days=index)).isoformat(),
                     "mealType": "dinner",
-                    "title": titles[index % len(titles)],
-                    "foodId": "food-tomato" if index == 2 else None,
+                    "title": "番茄小炒",
+                    "foodId": "food-tomato",
                     "recipeId": None,
                     "reason": "优先使用临期番茄；按清淡口味安排",
                     "usedInventory": ["番茄"],
@@ -408,11 +412,11 @@ class FakeChatProvider(BaseChatProvider):
                 "source": {"days": days, "mealTypes": ["dinner"], "expiringInventoryIds": [item.get("id") for item in inventory.get("items", [])], "modifiedFromDraftId": source_id},
             }
             call("meal_plan.create_draft", {"draft": draft})
-            card = {"id": "meal-plan-draft", "type": "meal_plan_draft", "title": "餐食计划草稿", "data": {"draft": draft, "summary": f"{days} 天 · 晚餐", "items": items, "preview": "番茄鸡蛋面\n清淡蔬菜豆腐"}}
+            emit_visible(f"我生成了 {len(items)} 条餐食计划草稿。")
             return self._tool_result(
                 {
                     "text": f"我生成了 {len(items)} 条餐食计划草稿。",
-                    "cards": [card],
+                    "cards": [],
                     "events": [{"type": "draft", "message": "已生成餐食计划草稿"}],
                     "context_summary": {"expiringItemCount": inventory.get("count", 0), "draftType": "meal_plan"},
                     "state_patch": {"activeTask": "meal_plan", "activeDraftType": "meal_plan"},
@@ -426,6 +430,7 @@ class FakeChatProvider(BaseChatProvider):
             )
 
         if "shopping.create_draft" in available_tool_names or "shopping_list.create_draft" in available_tool_names:
+            emit_visible("我先核对已有购物项和可用库存。")
             pending = call("shopping.read_pending", {"limit": 50})
             call("inventory.read_available_items", {"limit": 80})
             plans = [artifact for artifact in payload.get("artifacts", []) if artifact.get("type") == "meal_plan"]
@@ -433,6 +438,7 @@ class FakeChatProvider(BaseChatProvider):
             items = [{"title": "鸡蛋", "quantity": 2, "unit": "个", "reason": "用于番茄鸡蛋面", "sourceMeals": ["番茄鸡蛋面"], "alreadyPending": False}]
             draft = {"draftType": "shopping_list", "schemaVersion": "shopping_list.v1", "items": items, "sourceDraftId": source_id}
             call("shopping.create_draft", {"draft": draft})
+            emit_visible("我根据餐食计划里的缺失食材合并了 1 个购物清单草稿项。")
             card = {"id": "shopping-list-draft", "type": "shopping_list_draft", "title": "购物清单草稿", "data": {"draft": draft, "items": items, "summary": "1 个待确认采购项"}}
             return self._tool_result(
                 {
@@ -451,9 +457,11 @@ class FakeChatProvider(BaseChatProvider):
             )
 
         if "recipe.create_draft" in available_tool_names:
+            emit_visible("我先查一下可用食材。")
             call("ingredient.search", {"limit": 50})
             draft = self._recipe_draft_from_text()
             call("recipe.create_draft", {"draft": draft})
+            emit_visible(f"我生成了《{draft.get('title', '菜谱草稿')}》的菜谱草稿。")
             card = {"id": "recipe-draft", "type": "recipe_draft", "title": draft.get("title", "菜谱草稿"), "data": {"draft": draft}}
             return self._tool_result(
                 {
@@ -471,12 +479,14 @@ class FakeChatProvider(BaseChatProvider):
             )
 
         if "meal_log.create_draft" in available_tool_names:
+            emit_visible("我先匹配家庭食物资料和最近记录。")
             foods = call("food.search", {"limit": 24}).get("items", [])
             call("meal_log.read_recent", {"limit": 8})
             matched = next((food for food in foods if food.get("name") and food["name"] in message), None)
             name = matched["name"] if matched else message.replace("今晚吃了", "").replace("今天吃了", "").strip(" ，。")
             draft = {"draftType": "meal_log", "schemaVersion": "meal_log.v1", "date": date.today().isoformat(), "mealType": "dinner", "foods": [{"foodId": matched["id"] if matched else None, "name": name, "servings": 1, "note": "从用户描述中整理"}], "notes": message}
             call("meal_log.create_draft", {"draft": draft})
+            emit_visible("我整理了餐食记录草稿。")
             card = {"id": "meal-log-draft", "type": "meal_log_draft", "title": "餐食记录草稿", "data": {"draft": draft}}
             return self._tool_result(
                 {"text": "我整理了餐食记录草稿。", "cards": [card], "events": [], "context_summary": {"draftType": "meal_log"}, "state_patch": {}, "requires_clarification": False, "status": "completed", "error": None, "operation": "create"},
@@ -484,6 +494,7 @@ class FakeChatProvider(BaseChatProvider):
             )
 
         if "food_profile.create_draft" in available_tool_names:
+            emit_visible("我先查一下已有食物资料。")
             foods = call("food.search", {"limit": 24}).get("items", [])
             name = message
             for marker in ["补全", "整理", "食物资料", "资料", "创建食物", "新增食物"]:
@@ -514,6 +525,7 @@ class FakeChatProvider(BaseChatProvider):
                 "recipe_id": matched.get("recipeId") if matched else None,
             }
             call("food_profile.create_draft", {"draft": draft})
+            emit_visible(f"我整理了「{draft['name']}」的食物资料草稿。")
             card = {"id": "food-profile-draft", "type": "food_profile_draft", "title": draft["name"], "data": {"draft": draft}}
             return self._tool_result(
                 {"text": f"我整理了「{draft['name']}」的食物资料草稿。", "cards": [card], "events": [], "context_summary": {"draftType": "food_profile"}, "state_patch": {}, "requires_clarification": False, "status": "completed", "error": None, "operation": "create"},
@@ -521,9 +533,11 @@ class FakeChatProvider(BaseChatProvider):
             )
 
         if "inventory.read_summary" in available_tool_names:
+            emit_visible("我先读取库存概览和临期食材。")
             summary = call("inventory.read_summary")
             expiring = call("inventory.read_expiring_items", {"days": 7})
             text = f"当前可用库存 {summary.get('availableCount', 0)} 项，临期 {summary.get('expiringCount', 0)} 项，低库存 {summary.get('lowStockCount', 0)} 项。"
+            emit_visible(text)
             return self._tool_result(
                 {
                     "text": text,
@@ -543,6 +557,7 @@ class FakeChatProvider(BaseChatProvider):
             )
 
         if "recipe.search" in available_tool_names and "meal_log.read_recent" in available_tool_names:
+            emit_visible("我先看一下库存、菜谱和最近餐食。")
             inventory = call("inventory.read_available_items", {"limit": 50})
             expiring = call("inventory.read_expiring_items", {"days": 7})
             recipes = call("recipe.search", {"limit": 12})
@@ -563,6 +578,7 @@ class FakeChatProvider(BaseChatProvider):
                     },
                 },
             }
+            emit_visible("我按当前库存和最近餐食整理了今天的建议。")
             return self._tool_result(
                 {
                     "text": "我按当前库存和最近餐食整理了今天的建议。",
@@ -685,14 +701,13 @@ class SequenceChatProvider(BaseChatProvider):
                         "operation": decision.get("operation"),
                     },
                     tool_names,
-                )
+            )
             draft = {"draftType": "meal_plan", "schemaVersion": "meal_plan.v1", "items": items, "source": {"days": decision.get("days") or 1, "mealTypes": decision.get("mealTypes") or ["dinner"]}}
             call("meal_plan.create_draft", {"draft": draft})
-            card = {"id": "meal-plan-draft", "type": "meal_plan_draft", "title": "餐食计划草稿", "data": {"draft": draft, "items": items, "preview": "\n".join(str(item.get("title") or "") for item in items)}}
             return self._result(
                 {
                     "text": f"我生成了 {len(items)} 条餐食计划草稿。",
-                    "cards": [card],
+                    "cards": [],
                     "events": [{"type": "draft", "message": "已生成餐食计划草稿"}],
                     "context_summary": {"scriptValidation": {"valid": True, "errors": []}},
                     "state_patch": {},
@@ -1574,8 +1589,8 @@ class AIAgentInfraTestCase(unittest.TestCase):
                 item = {
                     "date": date.today().isoformat(),
                     "mealType": "dinner",
-                    "title": "番茄鸡蛋面",
-                    "foodId": None,
+                    "title": "番茄小炒",
+                    "foodId": "food-tomato",
                     "recipeId": None,
                     "reason": "使用当前库存。",
                     "usedInventory": ["番茄"],
@@ -1638,11 +1653,112 @@ class AIAgentInfraTestCase(unittest.TestCase):
                     tool_executor=tool_executor,
                     provider=PreviewCardProvider(),
                 )
-            )
+        )
 
         self.assertEqual(result.status, "completed")
-        self.assertEqual(result.cards[0]["type"], "meal_plan_draft")
+        self.assertEqual(result.cards, [])
         self.assertEqual(result.drafts[0]["draft_type"], "meal_plan")
+
+    def test_tool_calling_skill_streams_visible_text_around_tool_calls(self) -> None:
+        class InterleavedProvider(BaseChatProvider):
+            model_name = "interleaved-model"
+
+            def generate(self, *, system: str, user: str, response_schema: dict | None = None) -> ChatProviderResult:
+                raise AssertionError("tool-calling skill should use generate_with_tools")
+
+            def generate_with_tools(
+                self,
+                *,
+                system: str,
+                user: str,
+                tools: list,
+                tool_handler,
+                response_schema: dict | None = None,
+                max_rounds: int = 8,
+                visible_text_handler=None,
+            ) -> ChatProviderResult:
+                del system, user, tools, response_schema, max_rounds
+                if visible_text_handler is not None:
+                    visible_text_handler("<visible_text>我先")
+                    visible_text_handler("看一下临期食材。</visible_text>")
+                tool_handler("inventory.read_expiring_items", {"days": 7})
+                item = {
+                    "date": date.today().isoformat(),
+                    "mealType": "dinner",
+                    "title": "番茄小炒",
+                    "foodId": "food-tomato",
+                    "recipeId": None,
+                    "reason": "使用当前库存。",
+                    "usedInventory": ["番茄"],
+                    "missingIngredients": [],
+                }
+                draft = {
+                    "draftType": "meal_plan",
+                    "schemaVersion": "meal_plan.v1",
+                    "items": [item],
+                    "source": {"days": 1, "mealTypes": ["dinner"]},
+                }
+                tool_handler("meal_plan.create_draft", {"draft": draft})
+                if visible_text_handler is not None:
+                    visible_text_handler("<visible_text>我生成了 1 条餐食计划草稿。</visible_text>")
+                payload = {
+                    "text": "我先看一下临期食材。我生成了 1 条餐食计划草稿。",
+                    "cards": [],
+                    "events": [{"type": "draft", "message": "已生成餐食计划草稿"}],
+                    "context_summary": {"draftType": "meal_plan"},
+                    "state_patch": {},
+                    "requires_clarification": False,
+                    "status": "completed",
+                    "error": None,
+                    "operation": "create",
+                }
+                return ChatProviderResult(
+                    text=f"<visible_text>我生成了 1 条餐食计划草稿。</visible_text><structured_result>{json.dumps(payload, ensure_ascii=False)}</structured_result>",
+                    status="completed",
+                    model=self.model_name,
+                    structured_mode="tool_call",
+                    tool_calls=[
+                        {"name": "inventory.read_expiring_items", "args": {"days": 7}},
+                        {"name": "meal_plan.create_draft", "args": {}},
+                    ],
+                )
+
+        skill = build_workspace_skill_registry().get("meal_plan")
+        stream_events: list[dict] = []
+        with self.SessionLocal() as db:
+            tool_executor = ToolExecutor(
+                build_workspace_tool_registry(),
+                ToolContext(
+                    db=db,
+                    family_id=self.family.id,
+                    user_id=self.user.id,
+                    conversation_id="conversation-test",
+                    run_id="run-test",
+                ),
+            )
+            result = skill.run(
+                SkillContext(
+                    db=db,
+                    family_id=self.family.id,
+                    user_id=self.user.id,
+                    conversation_id="conversation-test",
+                    run_id="run-test",
+                    conversation=[],
+                    current_message="安排一天晚餐",
+                    tool_executor=tool_executor,
+                    provider=InterleavedProvider(),
+                    stream_writer=lambda item: stream_events.append(item),
+                )
+            )
+            tool_names = [item["name"] for item in tool_executor.records()]
+
+        deltas = [event["data"]["delta"] for event in stream_events if event.get("event") == "message_delta"]
+        self.assertEqual(deltas, ["我先看一下临期食材。\n", "我生成了 1 条餐食计划草稿。\n"])
+        self.assertEqual(result.text, "我先看一下临期食材。\n我生成了 1 条餐食计划草稿。")
+        self.assertNotIn("structured_result", result.text)
+        self.assertEqual(result.drafts[0]["draft_type"], "meal_plan")
+        self.assertIn("inventory.read_expiring_items", tool_names)
+        self.assertIn("meal_plan.create_draft", tool_names)
 
     def test_markdown_instruction_skill_does_not_auto_call_draft_or_write_tools(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -1751,8 +1867,8 @@ class AIAgentInfraTestCase(unittest.TestCase):
                     {
                         "date": date.today().isoformat(),
                         "mealType": "dinner",
-                        "title": "番茄鸡蛋面",
-                        "foodId": None,
+                        "title": "番茄小炒",
+                        "foodId": "food-tomato",
                         "recipeId": None,
                         "reason": "修复后补充计划项",
                         "usedInventory": ["番茄"],
@@ -1785,10 +1901,10 @@ class AIAgentInfraTestCase(unittest.TestCase):
             tool_names = [item["name"] for item in tool_executor.records()]
 
         self.assertEqual(result.status, "completed")
-        self.assertEqual(result.cards[0]["type"], "meal_plan_draft")
-        self.assertIn("番茄鸡蛋面", result.cards[0]["data"]["preview"])
+        self.assertEqual(result.cards, [])
         self.assertEqual(result.context_summary["scriptValidation"], {"valid": True, "errors": []})
         self.assertEqual(result.drafts[0]["draft_type"], "meal_plan")
+        self.assertIn("番茄小炒", str(result.drafts[0]["payload"]))
         self.assertIn("meal_plan.create_draft", tool_names)
         self.assertEqual(provider.responses, [])
 
@@ -2050,6 +2166,160 @@ class AIAgentInfraTestCase(unittest.TestCase):
             with self.assertRaises(ValueError):
                 executor.call("meal_plan.create_draft", {})
 
+    def test_draft_tools_reject_or_normalize_catalog_bound_fields(self) -> None:
+        with self.SessionLocal() as db:
+            executor = ToolExecutor(
+                build_workspace_tool_registry(),
+                ToolContext(
+                    db=db,
+                    family_id=self.family.id,
+                    user_id=self.user.id,
+                    conversation_id="conversation-test",
+                    run_id="run-test",
+                ),
+            )
+            with self.assertRaisesRegex(ValueError, "foodId"):
+                executor.call(
+                    "meal_plan.create_draft",
+                    {
+                        "draft": {
+                            "draftType": "meal_plan",
+                            "schemaVersion": "meal_plan.v1",
+                            "items": [{"date": date.today().isoformat(), "mealType": "dinner", "title": "库外菜名"}],
+                        }
+                    },
+                )
+
+            meal_plan = executor.call(
+                "meal_plan.create_draft",
+                {
+                    "draft": {
+                        "draftType": "meal_plan",
+                        "schemaVersion": "meal_plan.v1",
+                        "items": [
+                            {
+                                "date": date.today().isoformat(),
+                                "mealType": "dinner",
+                                "title": "库外菜名",
+                                "foodId": "food-tomato",
+                                "recipeId": None,
+                            }
+                        ],
+                    }
+                },
+            )
+            self.assertEqual(meal_plan["draft"]["items"][0]["title"], "番茄小炒")
+
+            with self.assertRaisesRegex(ValueError, "foodId"):
+                executor.call(
+                    "meal_log.create_draft",
+                    {
+                        "draft": {
+                            "draftType": "meal_log",
+                            "schemaVersion": "meal_log.v1",
+                            "date": date.today().isoformat(),
+                            "mealType": "dinner",
+                            "foods": [{"foodId": None, "name": "库外菜名", "servings": 1, "note": ""}],
+                            "notes": "",
+                        }
+                    },
+                )
+
+            meal_log = executor.call(
+                "meal_log.create_draft",
+                {
+                    "draft": {
+                        "draftType": "meal_log",
+                        "schemaVersion": "meal_log.v1",
+                        "date": date.today().isoformat(),
+                        "mealType": "dinner",
+                        "foods": [{"foodId": "food-tomato", "name": "库外菜名", "servings": 1, "note": ""}],
+                        "notes": "",
+                    }
+                },
+            )
+            self.assertEqual(meal_log["draft"]["foods"][0]["name"], "番茄小炒")
+
+            recipe_steps = [
+                {
+                    "title": "备菜",
+                    "text": "洗净番茄后切块，准备好调味料。",
+                    "icon": "bowl",
+                    "summary": "处理番茄",
+                    "estimated_minutes": 5,
+                    "tip": "",
+                    "key_points": ["切块"],
+                },
+                {
+                    "title": "下锅",
+                    "text": "锅中加少量油，放入番茄翻炒出汁。",
+                    "icon": "pan",
+                    "summary": "炒出汤汁",
+                    "estimated_minutes": 6,
+                    "tip": "",
+                    "key_points": ["中火"],
+                },
+                {
+                    "title": "调味",
+                    "text": "加入盐调味后收汁装盘。",
+                    "icon": "plate",
+                    "summary": "完成装盘",
+                    "estimated_minutes": 4,
+                    "tip": "",
+                    "key_points": ["尝味"],
+                },
+            ]
+            recipe = executor.call(
+                "recipe.create_draft",
+                {
+                    "draft": {
+                        "title": "番茄菜",
+                        "servings": 2,
+                        "prep_minutes": 15,
+                        "difficulty": "easy",
+                        "ingredient_items": [
+                            {"ingredient_id": "ingredient-tomato", "ingredient_name": "随便写", "quantity": 1, "unit": "个", "note": ""}
+                        ],
+                        "steps": recipe_steps,
+                        "tips": "",
+                        "scene_tags": [],
+                    }
+                },
+            )
+            self.assertEqual(recipe["draft"]["ingredient_items"][0]["ingredient_name"], "番茄")
+
+            with self.assertRaisesRegex(ValueError, "当前家庭"):
+                executor.call(
+                    "recipe.create_draft",
+                    {
+                        "draft": {
+                            "title": "跨家庭菜",
+                            "servings": 2,
+                            "prep_minutes": 15,
+                            "difficulty": "easy",
+                            "ingredient_items": [
+                                {"ingredient_id": "ingredient-secret", "ingredient_name": "其他家庭牛排", "quantity": 1, "unit": "块", "note": ""}
+                            ],
+                            "steps": recipe_steps,
+                            "tips": "",
+                            "scene_tags": [],
+                        }
+                    },
+                )
+
+            with self.assertRaisesRegex(ValueError, "来源草稿"):
+                executor.call(
+                    "shopping.create_draft",
+                    {
+                        "draft": {
+                            "draftType": "shopping_list",
+                            "schemaVersion": "shopping_list.v1",
+                            "sourceDraftId": "missing-draft",
+                            "items": [{"title": "鸡蛋", "quantity": 2, "unit": "个", "reason": "测试"}],
+                        }
+                    },
+                )
+
     def test_workspace_tool_registry_uses_real_schemas_for_key_tools(self) -> None:
         registry = build_workspace_tool_registry()
         for tool in registry.list():
@@ -2095,13 +2365,13 @@ class AIAgentInfraTestCase(unittest.TestCase):
                     "draft": {
                         "draftType": "meal_plan",
                         "schemaVersion": "meal_plan.v1",
-                        "items": [{"date": date.today().isoformat(), "mealType": "dinner", "title": "番茄小炒"}],
+                        "items": [{"date": date.today().isoformat(), "mealType": "dinner", "title": "番茄小炒", "foodId": "food-tomato"}],
                     }
                 },
             )
 
         messages = [event["data"]["user_message"] for event in events]
-        self.assertEqual(messages, ["已调用「可用库存」工具", "正在生成「餐食计划确认表单」"])
+        self.assertEqual(messages, ["调用「可用库存」", "生成「餐食计划确认表单」"])
         self.assertNotIn("inventory.read_available_items", "\n".join(messages))
 
     def test_meal_plan_read_existing_uses_related_food_name(self) -> None:
@@ -2188,8 +2458,8 @@ class AIAgentInfraTestCase(unittest.TestCase):
                     {
                         "date": date.today().isoformat(),
                         "mealType": "dinner",
-                        "title": "番茄鸡蛋面",
-                        "foodId": None,
+                        "title": "番茄小炒",
+                        "foodId": "food-tomato",
                         "recipeId": None,
                         "reason": "测试多草稿",
                         "usedInventory": ["番茄"],
@@ -2238,6 +2508,7 @@ class AIAgentInfraTestCase(unittest.TestCase):
             self.assertEqual([part["approval"]["approval_type"] for part in approval_parts], ["meal_plan.create", "shopping_list.create"])
             self.assertEqual([draft["draft_type"] for draft in response["included"]["drafts"]], ["meal_plan", "shopping_list"])
             self.assertEqual([approval["approval_type"] for approval in response["included"]["approvals"]], ["meal_plan.create", "shopping_list.create"])
+            self.assertEqual(response["included"]["result_cards"], [])
             self.assertEqual(response["run"]["status"], "waiting_approval")
 
     def test_legacy_ai_query_api_is_removed(self) -> None:
@@ -2266,7 +2537,10 @@ class AIAgentInfraTestCase(unittest.TestCase):
             events = list(db.scalars(select(AIRunEvent).where(AIRunEvent.run_id == data["run"]["id"])))
             run = db.get(AIAgentRun, data["run"]["id"])
             self.assertEqual(len(messages), 2)
-            self.assertEqual(events, [])
+            event_messages = [event.user_message for event in events]
+            self.assertIn("调用「今日推荐」技能", event_messages)
+            self.assertIn("调用「可用库存」", event_messages)
+            self.assertIn("今日推荐执行完成", event_messages)
             self.assertIsNotNone(run)
             assert run is not None
             self.assertEqual(run.intent, "today_recommendation")
@@ -2559,9 +2833,10 @@ class AIAgentInfraTestCase(unittest.TestCase):
         self.assertEqual(data["run"]["agent_key"], "meal_plan_agent")
         self.assertEqual(data["run"]["intent"], "meal_plan")
         cards = data["included"]["result_cards"]
-        self.assertEqual(cards[0]["type"], "meal_plan_draft")
-        self.assertGreaterEqual(len(cards[0]["data"]["items"]), 3)
-        self.assertIn("番茄", str(cards[0]["data"]))
+        self.assertEqual(cards, [])
+        self.assertEqual(data["included"]["drafts"][0]["draft_type"], "meal_plan")
+        self.assertGreaterEqual(len(data["included"]["drafts"][0]["payload"]["items"]), 3)
+        self.assertIn("番茄", str(data["included"]["drafts"][0]["payload"]))
 
         with self.SessionLocal() as db:
             run = db.get(AIAgentRun, data["run"]["id"])
@@ -2580,9 +2855,7 @@ class AIAgentInfraTestCase(unittest.TestCase):
         self.assertEqual(data["run"]["intent"], "multi_skill")
         self.assertEqual([draft["draft_type"] for draft in data["included"]["drafts"]], ["meal_plan"])
         self.assertEqual([approval["approval_type"] for approval in data["included"]["approvals"]], ["meal_plan.create"])
-        card_types = [card["type"] for card in data["included"]["result_cards"]]
-        self.assertIn("meal_plan_draft", card_types)
-        self.assertNotIn("shopping_list_draft", card_types)
+        self.assertEqual(data["included"]["result_cards"], [])
         self.assertEqual(data["run"]["status"], "waiting_approval")
 
         meal_plan_approval = data["included"]["approvals"][0]
@@ -2631,8 +2904,7 @@ class AIAgentInfraTestCase(unittest.TestCase):
                 for part in assistant_message.parts
                 if isinstance(part, dict) and part.get("type") == "result_card"
             ]
-            self.assertIn("meal_plan_draft", card_types)
-            self.assertIn("shopping_list_draft", card_types)
+            self.assertEqual(card_types, [])
             from app.ai.workflows.runner import WorkspaceGraphRunner
 
             response_after_second_skill = WorkspaceGraphRunner(AIApplicationService(db, provider=FakeChatProvider()))._chat_response(
@@ -2756,8 +3028,8 @@ class AIAgentInfraTestCase(unittest.TestCase):
         data = shopping_response.json()
         self.assertEqual(data["run"]["agent_key"], "shopping_agent")
         self.assertEqual(data["run"]["intent"], "shopping")
-        self.assertEqual(data["included"]["result_cards"][0]["type"], "shopping_list_draft")
-        shopping_items = data["included"]["result_cards"][0]["data"]["items"]
+        self.assertEqual(data["included"]["result_cards"], [])
+        shopping_items = data["included"]["drafts"][0]["payload"]["items"]
         self.assertTrue(any(item["title"] == "鸡蛋" for item in shopping_items), shopping_items)
         egg_item = next(item for item in shopping_items if item["title"] == "鸡蛋")
         self.assertEqual(egg_item["unit"], "个")
@@ -2789,9 +3061,8 @@ class AIAgentInfraTestCase(unittest.TestCase):
         self.assertEqual(modify_response.status_code, 200, modify_response.text)
         data = modify_response.json()
         self.assertEqual(data["run"]["agent_key"], "meal_plan_agent")
-        card = data["included"]["result_cards"][0]
-        self.assertEqual(card["type"], "meal_plan_draft")
-        self.assertIn("清淡", str(card["data"]))
+        self.assertEqual(data["included"]["result_cards"], [])
+        self.assertIn("清淡", str(data["included"]["drafts"][0]["payload"]))
 
     def test_ai_workspace_modifies_plan_after_deriving_shopping_list(self) -> None:
         plan_response = self.client.post("/api/ai/chat", json={"message": "安排三天晚餐"})
@@ -2816,7 +3087,8 @@ class AIAgentInfraTestCase(unittest.TestCase):
         data = modify_response.json()
         self.assertEqual(data["run"]["agent_key"], "meal_plan_agent")
         self.assertEqual(data["run"]["intent"], "meal_plan")
-        self.assertEqual(data["included"]["result_cards"][0]["type"], "meal_plan_draft")
+        self.assertEqual(data["included"]["result_cards"], [])
+        self.assertEqual(data["included"]["drafts"][0]["draft_type"], "meal_plan")
 
         with self.SessionLocal() as db:
             run = db.get(AIAgentRun, data["run"]["id"])
@@ -3009,7 +3281,8 @@ class AIAgentInfraTestCase(unittest.TestCase):
         data = response.json()
         approval = data["included"]["approvals"][0]
         self.assertEqual(approval["approval_type"], "food_profile.create")
-        self.assertEqual(data["included"]["result_cards"][0]["type"], "food_profile_draft")
+        self.assertEqual(data["included"]["result_cards"], [])
+        self.assertEqual(data["included"]["drafts"][0]["draft_type"], "food_profile")
 
         decision_response = self.client.post(
             f"/api/ai/conversations/{data['conversation_id']}/approvals/{approval['id']}/decision",
@@ -3067,15 +3340,28 @@ class AIAgentInfraTestCase(unittest.TestCase):
             body = "".join(response.iter_text())
         self.assertIn("event: progress", body)
         self.assertIn("调用「今日推荐」技能", body)
-        self.assertIn("已调用「可用库存」工具", body)
+        self.assertIn("调用「可用库存」", body)
         self.assertIn("agent_run-client-test", body)
-        self.assertNotIn("event: message_delta", body)
+        self.assertIn("event: message_delta", body)
+        self.assertIn("我先看一下库存、菜谱和最近餐食。", body)
+        self.assertIn("我按当前库存和最近餐食整理了今天的建议。", body)
+        self.assertNotIn("<structured_result>", body)
         self.assertNotIn("读取上下文：inventory.read_available_items", body)
-        self.assertNotIn("执行完成", body)
-        self.assertLess(body.index("调用「今日推荐」技能"), body.index("已调用「可用库存」工具"))
+        self.assertIn("今日推荐执行完成", body)
+        self.assertLess(body.index("我先看一下库存、菜谱和最近餐食。"), body.index("调用「可用库存」"))
+        self.assertLess(body.index("调用「可用库存」"), body.index("我按当前库存和最近餐食整理了今天的建议。"))
+        self.assertLess(body.index("调用「今日推荐」技能"), body.index("调用「可用库存」"))
         self.assertLess(body.index("调用「今日推荐」技能"), body.index("event: response"))
+        self.assertLess(body.index("今日推荐执行完成"), body.index("event: response"))
         self.assertIn("event: response", body)
         self.assertIn("today_recommendation_agent", body)
+        self.assertIn("我先看一下库存、菜谱和最近餐食。\\n我按当前库存和最近餐食整理了今天的建议。", body)
+        events_response = self.client.get("/api/ai/runs/agent_run-client-test/events")
+        self.assertEqual(events_response.status_code, 200)
+        event_messages = [event["user_message"] for event in events_response.json()]
+        self.assertIn("调用「今日推荐」技能", event_messages)
+        self.assertIn("调用「可用库存」", event_messages)
+        self.assertIn("今日推荐执行完成", event_messages)
 
     def test_ai_workspace_phase4_streams_draft_progress_before_approval_response(self) -> None:
         with self.client.stream(
@@ -3087,17 +3373,31 @@ class AIAgentInfraTestCase(unittest.TestCase):
             body = "".join(response.iter_text())
         self.assertIn("event: progress", body)
         self.assertIn("调用「餐食计划」技能", body)
-        self.assertIn("已调用「临期食材」工具", body)
-        self.assertIn("正在生成「餐食计划确认表单」", body)
-        self.assertNotIn("event: message_delta", body)
+        self.assertIn("调用「临期食材」", body)
+        self.assertIn("生成「餐食计划确认表单」", body)
+        self.assertIn("event: message_delta", body)
+        self.assertIn("我先看一下临期食材和最近餐食。", body)
+        self.assertIn("我生成了 3 条餐食计划草稿。", body)
+        self.assertNotIn("<structured_result>", body)
         self.assertNotIn("正在生成餐食计划结构化结果", body)
         self.assertNotIn("餐食计划：已准备草稿", body)
-        self.assertNotIn("执行完成", body)
-        self.assertLess(body.index("调用「餐食计划」技能"), body.index("已调用「临期食材」工具"))
-        self.assertLess(body.index("已调用「临期食材」工具"), body.index("正在生成「餐食计划确认表单」"))
+        self.assertIn("餐食计划执行完成", body)
+        self.assertLess(body.index("我先看一下临期食材和最近餐食。"), body.index("调用「临期食材」"))
+        self.assertLess(body.index("生成「餐食计划确认表单」"), body.index("我生成了 3 条餐食计划草稿。"))
+        self.assertLess(body.index("调用「餐食计划」技能"), body.index("调用「临期食材」"))
+        self.assertLess(body.index("调用「临期食材」"), body.index("生成「餐食计划确认表单」"))
         self.assertLess(body.index("调用「餐食计划」技能"), body.index("event: response"))
+        self.assertLess(body.index("餐食计划执行完成"), body.index("event: response"))
         self.assertIn("waiting_approval", body)
         self.assertIn("meal_plan.create", body)
+        self.assertIn("我先看一下临期食材和最近餐食。\\n我生成了 3 条餐食计划草稿。", body)
+        events_response = self.client.get("/api/ai/runs/agent_run-draft-stream-test/events")
+        self.assertEqual(events_response.status_code, 200)
+        event_messages = [event["user_message"] for event in events_response.json()]
+        self.assertIn("调用「餐食计划」技能", event_messages)
+        self.assertIn("调用「临期食材」", event_messages)
+        self.assertIn("生成「餐食计划确认表单」", event_messages)
+        self.assertIn("餐食计划执行完成", event_messages)
 
     def test_ai_workspace_phase4_streams_fallback_model_deltas_before_final_response(self) -> None:
         with patch("app.ai.workspace_service.get_chat_provider", return_value=StreamingChatProvider()):
@@ -3160,7 +3460,7 @@ class AIAgentInfraTestCase(unittest.TestCase):
         self.assertNotEqual(retry_data["run"]["id"], data["run"]["id"])
 
     def test_ai_workspace_phase4_regenerates_message_part_with_same_context(self) -> None:
-        response = self.client.post("/api/ai/chat", json={"message": "安排三天晚餐"})
+        response = self.client.post("/api/ai/chat", json={"message": "今日吃什么？", "quick_task": "today_recommendation"})
         self.assertEqual(response.status_code, 200, response.text)
         data = response.json()
         result_part = next(part for part in data["message"]["parts"] if part["type"] == "result_card")
