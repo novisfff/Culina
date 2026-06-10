@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.core.enums import AiMode, Difficulty
 from app.schemas.recipes import RecipeIngredientIn, RecipeStepIn
@@ -31,6 +31,14 @@ class AIRecommendationOut(BaseModel):
     title: str
     detail: str
     created_at: datetime
+
+
+class AIStatusResponse(BaseModel):
+    enabled: bool
+    provider: str
+    model: str
+    status: Literal["ready", "disabled", "missing_api_key", "unsupported_provider"]
+    detail: str
 
 
 class AIRecipeDraftOut(BaseModel):
@@ -86,21 +94,46 @@ AIApprovalDecision = Literal["approved", "rejected"]
 
 
 class AISubjectIn(BaseModel):
-    source: str | None = None
-    recipe_id: str | None = None
-    food_id: str | None = None
-    ingredient_ids: list[str] = Field(default_factory=list)
+    model_config = ConfigDict(extra="allow")
+
+    source: str | None = Field(default=None, max_length=80)
+    recipe_id: str | None = Field(default=None, max_length=64)
+    food_id: str | None = Field(default=None, max_length=64)
+    ingredient_ids: list[str] = Field(default_factory=list, max_length=50)
     date_range: dict | None = None
     extra: dict = Field(default_factory=dict)
 
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_reference_keys(cls, value):
+        if not isinstance(value, dict):
+            return value
+        normalized = dict(value)
+        aliases = {
+            "recipeId": "recipe_id",
+            "foodId": "food_id",
+            "ingredientIds": "ingredient_ids",
+            "dateRange": "date_range",
+        }
+        for source, target in aliases.items():
+            if source in normalized and target not in normalized:
+                normalized[target] = normalized[source]
+        return normalized
+
 
 class AIChatRequest(BaseModel):
-    message: str
-    conversation_id: str | None = None
-    client_message_id: str | None = None
-    client_run_id: str | None = None
-    quick_task: str | None = None
+    message: str = Field(min_length=1, max_length=2000)
+    conversation_id: str | None = Field(default=None, max_length=64)
+    client_message_id: str | None = Field(default=None, max_length=120)
+    client_run_id: str | None = Field(default=None, max_length=64)
+    quick_task: str | None = Field(default=None, max_length=80)
     subject: AISubjectIn | None = None
+
+    @model_validator(mode="after")
+    def validate_message_text(self) -> "AIChatRequest":
+        if not self.message.strip():
+            raise ValueError("消息不能为空")
+        return self
 
 
 class AIResultCardDTO(BaseModel):
@@ -238,6 +271,7 @@ class AISkillRegistryItemDTO(BaseModel):
     examples: list[str] = Field(default_factory=list)
     context_policy: list[str] = Field(default_factory=list)
     tools: list[str] = Field(default_factory=list)
+    scripts: list[str] = Field(default_factory=list)
     output_types: list[str] = Field(default_factory=list)
     draft_types: list[str] = Field(default_factory=list)
     approval_policy: str

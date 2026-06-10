@@ -10,6 +10,7 @@ from sqlalchemy import delete, select, update
 from sqlalchemy.orm import Session
 
 from app.core.deps import get_current_auth
+from app.core.config import get_settings
 from app.db.session import get_db
 from app.db.transactions import commit_session
 from app.models.domain import (
@@ -31,10 +32,12 @@ from app.schemas.ai import (
     AIConversationOut,
     AIMessageDTO,
     AIRegistryResponse,
+    AIStatusResponse,
     AIRunEventDTO,
     GenerateRecipeDraftRequest,
     GenerateRecipeDraftResponse,
 )
+from app.ai.errors import AIConflictError
 from app.ai.skills import build_workspace_skill_registry
 from app.ai.tools import build_workspace_tool_registry
 from app.ai.workspace_service import AIApplicationService
@@ -43,6 +46,46 @@ from app.services.serializers import serialize_ai_conversation, serialize_ai_mes
 
 router = APIRouter(tags=["ai"])
 logger = logging.getLogger(__name__)
+
+
+@router.get("/api/ai/status", response_model=AIStatusResponse)
+def get_ai_status(auth: tuple = Depends(get_current_auth)) -> dict:
+    _, _membership = auth
+    settings = get_settings()
+    provider = (settings.ai_provider or "disabled").strip().lower()
+    model = settings.ai_model or "gpt-4o-mini"
+    supported = {"enable", "enabled", "openai", "openai-compatible", "compatible", "custom", "dashscope"}
+    if provider in {"", "disabled", "mock"}:
+        return {
+            "enabled": False,
+            "provider": provider or "disabled",
+            "model": model,
+            "status": "disabled",
+            "detail": "AI 模型未配置。",
+        }
+    if provider not in supported:
+        return {
+            "enabled": False,
+            "provider": provider,
+            "model": model,
+            "status": "unsupported_provider",
+            "detail": "AI provider 配置不受支持。",
+        }
+    if not settings.ai_api_key:
+        return {
+            "enabled": False,
+            "provider": provider,
+            "model": model,
+            "status": "missing_api_key",
+            "detail": "AI API Key 未配置。",
+        }
+    return {
+        "enabled": True,
+        "provider": provider,
+        "model": model,
+        "status": "ready",
+        "detail": "AI 已就绪。",
+    }
 
 
 @router.get("/api/ai/conversations", response_model=list[AIConversationOut])
@@ -75,6 +118,10 @@ def get_ai_registry(auth: tuple = Depends(get_current_auth)) -> dict:
                 "examples": manifest.examples,
                 "context_policy": manifest.context_policy,
                 "tools": manifest.tools,
+                "scripts": [
+                    function.tool_name
+                    for function in skill_registry.get(manifest.key).script_catalog.functions()
+                ],
                 "output_types": manifest.output_types,
                 "draft_types": manifest.draft_types,
                 "approval_policy": manifest.approval_policy,
@@ -191,6 +238,18 @@ def chat_ai(
             quick_task=payload.quick_task,
             subject=payload.subject.model_dump() if payload.subject else {},
         )
+    except AIConflictError as exc:
+        logger.warning(
+            "AI chat request rejected status=409 family_id=%s user_id=%s conversation_id=%s client_message_id=%s client_run_id=%s message_length=%s error=%s",
+            membership.family_id,
+            user.id,
+            payload.conversation_id,
+            payload.client_message_id,
+            payload.client_run_id,
+            len(payload.message or ""),
+            exc,
+        )
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     except ValueError as exc:
         logger.warning(
             "AI chat request rejected status=400 family_id=%s user_id=%s conversation_id=%s client_message_id=%s client_run_id=%s message_length=%s error=%s",
@@ -257,6 +316,19 @@ def stream_chat_ai(
                 if event == "response":
                     commit_session(db)
                 yield encode(event, data)
+        except AIConflictError as exc:
+            logger.warning(
+                "AI stream chat request rejected status=409 family_id=%s user_id=%s conversation_id=%s client_message_id=%s client_run_id=%s message_length=%s error=%s",
+                membership.family_id,
+                user.id,
+                payload.conversation_id,
+                payload.client_message_id,
+                payload.client_run_id,
+                len(payload.message or ""),
+                exc,
+            )
+            yield encode("error", {"detail": str(exc), "status": 409})
+            return
         except ValueError as exc:
             logger.warning(
                 "AI stream chat request rejected status=400 family_id=%s user_id=%s conversation_id=%s client_message_id=%s client_run_id=%s message_length=%s error=%s",
@@ -379,6 +451,8 @@ def cancel_ai_run(
         result = AIApplicationService(db).cancel_run(family_id=membership.family_id, user_id=user.id, run_id=run_id)
     except LookupError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except AIConflictError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     commit_session(db)
@@ -396,6 +470,8 @@ def retry_ai_run(
         result = AIApplicationService(db).retry_run(family_id=membership.family_id, user_id=user.id, run_id=run_id)
     except LookupError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except AIConflictError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     commit_session(db)
@@ -419,6 +495,8 @@ def regenerate_ai_message_part(
         )
     except LookupError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except AIConflictError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     commit_session(db)
@@ -466,6 +544,8 @@ def decide_ai_approval(
         )
     except LookupError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except AIConflictError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     commit_session(db)

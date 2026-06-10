@@ -1,5 +1,5 @@
 import React, { act } from 'react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createRoot, type Root } from 'react-dom/client';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { api } from '../../api/client';
@@ -131,6 +131,16 @@ afterEach(() => {
   vi.useRealTimers();
   vi.restoreAllMocks();
   document.body.innerHTML = '';
+});
+
+beforeEach(() => {
+  vi.spyOn(api, 'getAiStatus').mockResolvedValue({
+    enabled: true,
+    provider: 'openai-compatible',
+    model: 'fake-model',
+    status: 'ready',
+    detail: 'AI 已就绪。',
+  });
 });
 
 async function advanceTimers(ms: number) {
@@ -327,6 +337,31 @@ describe('AiWorkspace pending approval restore', () => {
     expect(rendered.container.textContent).toContain('请先确认上面的草稿，确认后可以继续对话。');
     expect(Array.from(rendered.container.querySelectorAll<HTMLTextAreaElement>('.ai-composer textarea')).every((textarea) => textarea.disabled)).toBe(true);
     expect(Array.from(rendered.container.querySelectorAll<HTMLButtonElement>('.ai-send-button')).every((button) => button.disabled)).toBe(true);
+    await act(async () => {
+      rendered.container.querySelector<HTMLFormElement>('form.ai-composer')?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    });
+    await flush();
+    expect(streamSpy).not.toHaveBeenCalled();
+    rendered.unmount();
+  });
+
+  it('pauses both composers and blocks sending when AI is not configured', async () => {
+    vi.spyOn(api, 'getAiStatus').mockResolvedValue({
+      enabled: false,
+      provider: 'disabled',
+      model: 'gpt-4o-mini',
+      status: 'disabled',
+      detail: 'AI 模型未配置。',
+    });
+    vi.spyOn(api, 'getAiMessages').mockResolvedValue([]);
+    vi.spyOn(api, 'getPendingAiApprovals').mockResolvedValue([]);
+    const streamSpy = vi.spyOn(api, 'streamChatAi').mockResolvedValue({} as AiChatResponse);
+    const rendered = await renderWithQuery(<AiWorkspace conversations={[conversation()]} isLoading={false} />);
+    await flush();
+
+    expect(rendered.container.textContent).toContain('AI 未配置');
+    expect(rendered.container.textContent).toContain('AI 模型未配置。');
+    expect(Array.from(rendered.container.querySelectorAll<HTMLTextAreaElement>('.ai-composer textarea')).every((textarea) => textarea.disabled)).toBe(true);
     await act(async () => {
       rendered.container.querySelector<HTMLFormElement>('form.ai-composer')?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
     });
@@ -548,6 +583,7 @@ describe('AiWorkspace pending approval restore', () => {
     await flush();
     expect(cancelSpy.mock.calls[0]?.[0]).toMatch(/^agent_run-/);
     expect(streamAborted).toBe(true);
+    expect(rendered.container.textContent).toContain('已取消这次任务');
     rendered.unmount();
   });
 
@@ -806,8 +842,8 @@ describe('AiWorkspace pending approval restore', () => {
         },
         run: {
           id: streamedRunId,
-          agent_key: 'today_recommendation_agent',
-          intent: 'today_recommendation',
+          agent_key: 'meal_plan_agent',
+          intent: 'meal_plan',
           status: 'completed',
           model: 'rules',
           created_at: '2026-05-30T00:00:00Z',

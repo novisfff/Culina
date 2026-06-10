@@ -20,6 +20,7 @@ class ToolContext:
     conversation_id: str
     run_id: str
     stream_writer: Callable[[dict[str, Any]], None] | None = None
+    cancel_check: Callable[[], bool] | None = None
 
 
 @dataclass(slots=True)

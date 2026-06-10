@@ -6,13 +6,13 @@ from typing import Any
 import yaml
 
 from app.ai.skills.base import BaseSkill, SkillManifest
-from app.ai.skills.runtime import create_skill_from_manifest
+from app.ai.skills.toolcall import ToolCallingSkill
 from app.ai.tools.registry import ToolRegistry
 
 
 class SkillDirectoryLoader:
     def __init__(self, skills_dir: Path | None = None, *, tool_registry: ToolRegistry | None = None) -> None:
-        self.skills_dir = skills_dir or Path(__file__).resolve().parent
+        self.skills_dir = skills_dir or Path(__file__).resolve().parent / "catalog"
         self.tool_registry = tool_registry
 
     def load(self) -> list[BaseSkill]:
@@ -27,10 +27,11 @@ class SkillDirectoryLoader:
 
     def _load_skill(self, skill_dir: Path) -> BaseSkill:
         markdown_path = skill_dir / "SKILL.md"
-        frontmatter, _body = self._read_frontmatter(markdown_path)
+        frontmatter, body = self._read_frontmatter(markdown_path)
         manifest = self._manifest_from_frontmatter(skill_dir, frontmatter)
-        self._validate_referenced_files(skill_dir, manifest)
-        return create_skill_from_manifest(manifest, skill_dir)
+        workflow_path = skill_dir / "workflows.md"
+        workflow = workflow_path.read_text(encoding="utf-8").strip() if workflow_path.exists() else ""
+        return ToolCallingSkill(manifest, skill_dir, instructions=self._join_instructions(body, workflow))
 
     def _read_frontmatter(self, path: Path) -> tuple[dict[str, Any], str]:
         text = path.read_text(encoding="utf-8")
@@ -57,19 +58,10 @@ class SkillDirectoryLoader:
             key=key,
             slug=slug,
             name=display_name,
-            version=self._text(data.get("version")) or "1.0.0",
             description=description,
-            category=self._text(data.get("category")) or "general",
-            runner=self._text(data.get("runner")) or "toolcall",
-            risk_level=self._text(data.get("risk_level")) or "low",
             examples=self._list(data.get("examples")),
             context_policy=self._list(data.get("context_policy")),
             tools=self._list(data.get("allowed_tools") or data.get("tools")),
-            forbidden_tools=self._list(data.get("forbidden_tools")),
-            requires_confirmation=self._list(data.get("requires_confirmation")),
-            workflow_files=self._list(data.get("workflow_files")),
-            hitl_files=self._list(data.get("hitl_files")),
-            example_files=self._list(data.get("example_files")),
             script_files=self._list(data.get("script_files")),
             output_types=self._list(data.get("output_types")),
             draft_types=self._list(data.get("draft_types")),
@@ -83,32 +75,13 @@ class SkillDirectoryLoader:
         return manifest
 
     def _validate_manifest(self, manifest: SkillManifest) -> None:
-        if manifest.risk_level not in {"low", "medium", "high"}:
-            raise ValueError(f"Skill {manifest.key} has invalid risk_level: {manifest.risk_level}")
         if manifest.approval_policy not in {"none", "draft_then_confirm"}:
             raise ValueError(f"Skill {manifest.key} has invalid approval_policy: {manifest.approval_policy}")
-        forbidden_overlap = set(manifest.tools) & set(manifest.forbidden_tools)
-        if forbidden_overlap:
-            raise ValueError(f"Skill {manifest.key} allows forbidden tools: {', '.join(sorted(forbidden_overlap))}")
-        if manifest.approval_policy == "none" and (manifest.draft_types or manifest.requires_confirmation):
-            raise ValueError(f"Skill {manifest.key} declares draft or confirmation fields without approval")
+        if manifest.approval_policy == "none" and manifest.draft_types:
+            raise ValueError(f"Skill {manifest.key} declares draft types without approval")
         if manifest.approval_policy == "draft_then_confirm":
-            if manifest.risk_level == "low":
-                raise ValueError(f"Skill {manifest.key} uses draft approval but risk_level is low")
             if not manifest.draft_types:
                 raise ValueError(f"Skill {manifest.key} requires approval but declares no draft types")
-            if not manifest.requires_confirmation:
-                raise ValueError(f"Skill {manifest.key} requires approval but declares no confirmation actions")
-
-    def _validate_referenced_files(self, skill_dir: Path, manifest: SkillManifest) -> None:
-        for relative_path in [
-            *manifest.workflow_files,
-            *manifest.hitl_files,
-            *manifest.example_files,
-            *manifest.script_files,
-        ]:
-            if not (skill_dir / relative_path).exists():
-                raise FileNotFoundError(f"Skill {manifest.key} references missing file: {relative_path}")
 
     def _validate_manifest_tools(self, manifest: SkillManifest) -> None:
         if self.tool_registry is None:
@@ -132,6 +105,12 @@ class SkillDirectoryLoader:
         unconfirmed = [definition.name for definition in draft_tools if not definition.requires_confirmation]
         if unconfirmed:
             raise ValueError(f"Skill {manifest.key} exposes draft tools that do not require confirmation: {', '.join(unconfirmed)}")
+
+    def _join_instructions(self, body: str, workflow: str) -> str:
+        chunks = [body.strip()]
+        if workflow:
+            chunks.append(f"# workflows.md\n\n{workflow}")
+        return "\n\n---\n\n".join(chunk for chunk in chunks if chunk)
 
     def _required_text(self, data: dict[str, Any], key: str) -> str:
         value = self._text(data.get(key))

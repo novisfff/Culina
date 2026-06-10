@@ -7,12 +7,12 @@ from app.ai.skills.base import BaseSkill
 from app.ai.skills.base import SkillContext, SkillExecutionResult, SkillResult
 from app.ai.skills.registry import SkillRegistry
 from app.ai.skills.shared import result_artifacts
+from app.ai.errors import AIExecutionCancelled
 
 logger = logging.getLogger(__name__)
 
 
 VALID_APPROVAL_POLICIES = {"none", "draft_then_confirm"}
-VALID_RISK_LEVELS = {"low", "medium", "high"}
 VALID_RESULT_STATUSES = {"completed", "failed", "fallback"}
 
 
@@ -42,11 +42,12 @@ class SkillExecutor:
             self._validate_manifest_contract(skill, context)
             context.tool_executor = root_tool_executor.scoped(
                 allowed_tools=set(skill.manifest.tools),
-                forbidden_tools=set(skill.manifest.forbidden_tools),
                 allowed_side_effects=allowed_side_effects,
             )
             result = skill.run(context)
             self._validate_result_contract(skill, result)
+        except AIExecutionCancelled:
+            raise
         except Exception as exc:
             logger.warning(
                 "AI skill failed skill=%s runner=%s run_id=%s conversation_id=%s family_id=%s error=%s",
@@ -98,13 +99,8 @@ class SkillExecutor:
 
     def _validate_manifest_contract(self, skill: BaseSkill, context: SkillContext) -> None:
         manifest = skill.manifest
-        if manifest.risk_level not in VALID_RISK_LEVELS:
-            raise ValueError(f"Skill {manifest.key} declares invalid risk_level: {manifest.risk_level}")
         if manifest.approval_policy not in VALID_APPROVAL_POLICIES:
             raise ValueError(f"Skill {manifest.key} declares invalid approval_policy: {manifest.approval_policy}")
-        forbidden_overlap = set(manifest.tools) & set(manifest.forbidden_tools)
-        if forbidden_overlap:
-            raise ValueError(f"Skill {manifest.key} allows forbidden tools: {', '.join(sorted(forbidden_overlap))}")
 
         definitions = [context.tool_executor.registry.get(name) for name in manifest.tools]
         if any(definition.side_effect == "write" for definition in definitions):
@@ -113,16 +109,12 @@ class SkillExecutor:
         if manifest.approval_policy == "none":
             if any(definition.side_effect != "read" for definition in definitions):
                 raise ValueError(f"Skill {manifest.key} exposes non-read tools without approval")
-            if manifest.draft_types or manifest.requires_confirmation:
-                raise ValueError(f"Skill {manifest.key} declares draft or confirmation fields without approval")
+            if manifest.draft_types:
+                raise ValueError(f"Skill {manifest.key} declares draft types without approval")
             return
 
-        if manifest.risk_level == "low":
-            raise ValueError(f"Skill {manifest.key} uses draft approval but risk_level is low")
         if not manifest.draft_types:
             raise ValueError(f"Skill {manifest.key} requires approval but declares no draft types")
-        if not manifest.requires_confirmation:
-            raise ValueError(f"Skill {manifest.key} requires approval but declares no confirmation actions")
         draft_tools = [definition for definition in definitions if definition.side_effect == "draft"]
         if not draft_tools:
             raise ValueError(f"Skill {manifest.key} requires approval but exposes no draft tools")
@@ -158,10 +150,6 @@ class SkillExecutor:
             return
         if manifest.approval_policy != "draft_then_confirm":
             raise ValueError(f"Skill {manifest.key} returned drafts without draft approval policy")
-        if manifest.risk_level == "low":
-            raise ValueError(f"Skill {manifest.key} returned drafts with low risk_level")
-        if not manifest.requires_confirmation:
-            raise ValueError(f"Skill {manifest.key} returned drafts without confirmation actions")
         allowed_draft_types = set(manifest.draft_types)
         for draft in result.drafts:
             if not isinstance(draft, dict):

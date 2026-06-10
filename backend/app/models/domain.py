@@ -492,6 +492,9 @@ class AIAgentRun(Base):
 
 class AIMessage(Base):
     __tablename__ = "ai_messages"
+    __table_args__ = (
+        UniqueConstraint("family_id", "client_message_id", name="uq_ai_messages_family_client_message"),
+    )
 
     id: Mapped[str] = mapped_column(String(64), primary_key=True, default=lambda: create_id("ai_message"))
     family_id: Mapped[str] = mapped_column(ForeignKey("families.id", ondelete="CASCADE"), nullable=False, index=True)

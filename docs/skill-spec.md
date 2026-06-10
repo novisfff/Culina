@@ -1,1179 +1,323 @@
-# Culina 大模型 Skill 机制规范
+# Culina AI Skill 机制规范
 
 ## 1. 文档定位
 
-本文档定义 Culina AI 工作台后续重构后的 Skill 机制。
+本文档定义 Culina AI 工作台当前使用的 Skill 目录、运行时、工具权限和审批规则。
 
-重构目标是把大模型能力拆成多个可维护、可路由、可控制的任务能力包，同时让当前系统已有的 Planner、ToolExecutor、LangGraph HITL、审批落库和前后端协议可以平滑迁移到新的 Skill 文件结构。
+Skill 是由 `SKILL.md` 驱动的受控任务能力包：
 
-本文档中的 Skill 目录结构以重构目标为准，不以当前 `backend/app/ai/skills/catalog/*/manifest.json` 与 skill 目录下 `skill.py` 的实现为准。当前实现中已有这些文件，但它们不是新规范推荐结构。
+- Planner 选择 Skill。
+- `ToolCallingSkill` 加载说明并驱动模型调用工具。
+- Tool 提供业务读取和草稿校验能力。
+- Skill Script 提供不访问业务状态的确定性计算能力，并以 `script.*` 工具暴露给模型。
+- LangGraph 负责多 Skill 顺序执行与审批中断。
+- Service 在用户确认后执行正式业务写入。
 
+## 2. 核心原则
+
+1. `SKILL.md` 是 Skill 的入口和元数据真源。
+2. Skill 目录不包含 `manifest.json` 或业务 `skill.py`。
+3. 所有 Skill 使用统一的 `ToolCallingSkill` Runtime。
+4. Skill 只能调用 `allowed_tools` 中声明的工具。
+5. 模型不能接触 `write` 工具。
+6. 正式写入必须经过 `draft -> approval -> commit`。
+7. 草稿必须来自 draft tool 的校验结果，不能由模型在最终 JSON 中直接伪造。
+8. Planner 只选择 Skill，不负责抽取业务参数或执行工具。
+9. 即时推荐和正式餐食计划由同一个 `meal_plan` Skill 根据请求模式处理。
+10. 对外继续使用现有 `AIChatResponse`、消息 part、卡片、草稿和审批 DTO。
+11. Script 只能做纯计算；数据库读取、草稿创建和正式写入仍必须使用 Tool。
+
+## 3. 当前目录
+
+```text
+backend/app/ai/skills/
+  base.py
+  executor.py
+  loader.py
+  registry.py
+  script_worker.py
+  scripts.py
+  shared.py
+  toolcall.py
+  catalog/
+    food-profile/
+      SKILL.md
+    inventory-analysis/
+      SKILL.md
+    meal-planning/
+      SKILL.md
+      scripts/
+        validate_meal_plan.py
+        render_plan_preview.py
+      workflows.md
+    meal-record/
+      SKILL.md
+    recipe-draft/
+      SKILL.md
+    shopping-list/
+      SKILL.md
+      scripts/
+        merge_ingredients.py
+        normalize_ingredient.py
+      workflows.md
+```
+
+只有存在真实分支复杂度的 Skill 才保留 `workflows.md`。简单 Skill 的流程、确认规则和边界直接写在 `SKILL.md` 中。
+
+需要稳定计算、归一化、合并或结构检查时，可以在 Skill 的 `scripts/` 中提供纯函数。涉及数据库、网络、文件读写、草稿持久化或审批的逻辑不能放入 Script。
+
+## 4. `SKILL.md` 格式
+
+每个文件由 YAML frontmatter 和 Markdown 正文组成：
+
+```yaml
 ---
-
-## 2. 设计目标
-
-Culina 的 Skill 机制用于解决三类问题：
-
-1. 让大模型任务边界可见：每个 Skill 明确适用场景、禁用场景、可用工具和输出约束。
-2. 让业务写入可控：AI 只生成建议、卡片、草稿和确认请求，正式写入必须经过用户确认。
-3. 让系统可演进：Planner 负责选择 Skill，Runtime 负责加载 Skill 文档与权限控制，Tool 负责确定性业务能力，Service 负责最终写入。
-
-重构后的核心原则：
-
-- `SKILL.md` 是 Skill 入口，也是机器可读元数据真源。
-- Skill 不承载业务代码，不直接读写数据库，不直接调用业务接口。
-- Skill 目录下不放 `manifest.json`，也不放每个 Skill 独立的 `skill.py`。
-- Tool 统一在后端工具目录注册，Skill 只能声明自己允许使用哪些工具。
-- 复杂流程拆到 `workflows.md`，确认规则拆到 `hitl.md`，示例拆到 `examples.md`。
-- `scripts/` 只放纯计算、校验、格式转换脚本，不接触业务数据。
-- 所有影响正式业务数据的操作遵循 `draft -> approval -> commit`。
-
+name: meal-planning
+key: meal_plan
+display_name: 餐食计划
+description: 处理即时餐食推荐以及餐食计划的创建和修改。
+allowed_tools:
+  - inventory.read_available_items
+  - meal_plan.create_draft
+context_policy:
+  - inventory
+script_files:
+  - scripts/validate_meal_plan.py
+  - scripts/render_plan_preview.py
+output_types:
+  - today_recommendation
+draft_types:
+  - meal_plan
+approval_policy: draft_then_confirm
+can_continue_from:
+  - meal_plan
+intent: meal_plan
+agent_key: meal_plan_agent
+examples:
+  - 今晚吃什么？
+  - 安排三天晚餐。
 ---
-
-## 3. 当前系统基础
-
-Culina 当前 AI 架构已经具备以下基础，重构 Skill 时应复用这些能力。
-
-### 3.1 API 层
-
-AI 入口位于：
-
-```text
-backend/app/api/ai.py
 ```
 
-主要接口：
+字段含义：
 
-```text
-GET  /api/ai/registry
-POST /api/ai/chat
-POST /api/ai/chat/stream
-GET  /api/ai/conversations/{conversation_id}/approvals/pending
-POST /api/ai/conversations/{conversation_id}/approvals/{approval_id}/decision
-```
+- `name`：目录 slug，必须与目录名一致。
+- `key`：Planner 和 Runtime 使用的稳定 Skill key。
+- `display_name`：进度事件中的用户可见名称。
+- `description`：Planner 使用的路由摘要，必须明确适用和不适用范围。
+- `allowed_tools`：模型可以调用的工具白名单。
+- `script_files`：模型可以调用的 Skill 私有脚本白名单；公开函数以 `script.<函数名>` 暴露。
+- `context_policy`：提供给 Planner 和诊断接口的上下文标签，不触发 Runtime 自动预读。
+- `output_types`：允许返回的结果卡片类型。
+- `draft_types`：允许返回的草稿类型。
+- `approval_policy`：`none` 或 `draft_then_confirm`。
+- `can_continue_from`：允许继续处理的历史 artifact 类型。
+- `intent`、`agent_key`：运行记录中的稳定标识。
+- `examples`：Planner 路由示例。
 
-对前端公开的主要 DTO 位于：
+以下字段不再使用：
 
-```text
-backend/app/schemas/ai.py
-```
+- `runner`
+- `version`
+- `category`
+- `risk_level`
+- `forbidden_tools`
+- `requires_confirmation`
+- `workflow_files`
+- `hitl_files`
+- `example_files`
+- `output_contract`
 
-当前前端 API 契约不是直接暴露内部 `SkillExecutionResult`，而是：
+Runner 固定为 `toolcall`。确认要求由 `approval_policy`、`draft_types` 和 draft tool 的 `requires_confirmation` 联合确定。
 
-```text
-AIChatResponse
-AIMessageDTO
-AIMessagePartDTO
-AIResultCardDTO
-AITaskDraftDTO
-AIApprovalRequestDTO
-AIRunDTO
-AIRunEventDTO
-AIApprovalDecisionResponse
-```
+## 5. Skill 职责矩阵
 
-### 3.2 Planner
+| Skill key | 职责 | 卡片 | 草稿 |
+| --- | --- | --- | --- |
+| `inventory_analysis` | 库存、临期、低库存查询 | `inventory_summary` | 无 |
+| `meal_plan` | 即时餐食推荐；餐食计划创建和修改 | `today_recommendation` | `meal_plan` |
+| `shopping_list` | 独立购物清单、从计划派生、修改清单 | 无 | `shopping_list` |
+| `meal_log` | 记录已经发生的用餐 | 无 | `meal_log` |
+| `recipe_draft` | 创建结构化菜谱草稿 | 无 | `recipe` |
+| `food_profile` | 创建或补全食物资料 | 无 | `food_profile` |
 
-当前 Planner 位于：
+### 5.1 即时推荐与正式计划
+
+`meal_plan` 有两个互斥模式。
+
+即时推荐模式：
+
+- 触发语义包括“今天吃什么”“今晚吃什么”“推荐一餐”。
+- `quick_task=today_recommendation` 必须确定性路由到 `meal_plan`。
+- 返回 `today_recommendation` 卡片。
+- 不调用 `meal_plan.create_draft`。
+- 不创建草稿或审批。
+
+正式计划模式：
+
+- 触发语义包括“安排、制定、生成、修改餐食计划”。
+- 用户给出日期、天数或餐别范围时也进入该模式。
+- 调用 `meal_plan.create_draft`。
+- 返回 `meal_plan` 草稿并中断等待用户确认。
+
+`today_recommendation` 不再是独立 Skill key，但 `quick_task=today_recommendation` 和 `today_recommendation` 卡片类型继续作为兼容协议保留。
+
+## 6. Planner
+
+Planner 位于：
 
 ```text
 backend/app/ai/planning/planner.py
 ```
 
-`WorkspacePlanner` 当前职责很窄：
+Planner 输入完整对话和 `SkillManifest.to_planner_record()`，输出最多 4 个有序 Skill key。
 
-- 根据完整对话和可用 Skill 摘要，选择零个、一个或多个 Skill。
-- 返回有序 Skill key 列表。
-- 不抽取参数。
-- 不判断 create、modify、derive 的具体业务操作。
-- 不提交草稿。
-- 不执行工具。
-- 不写正式业务数据。
+Planner 不负责：
 
-这个职责边界应保留。重构后的 Skill 规范不应把 Planner 变成业务解析器。
+- 判断具体 create、modify 或 derive 参数。
+- 调用 Tool。
+- 创建草稿。
+- 回答用户问题。
 
-### 3.3 LangGraph 执行链路
+普通聊天返回空 Skill 列表。`WorkspaceGraphRunner` 对 `quick_task=today_recommendation` 使用确定性 `["meal_plan"]` 计划，避免快捷入口依赖模型猜测。
 
-当前工作台执行器位于：
+## 7. Runtime
 
-```text
-backend/app/ai/workflows/runner.py
-```
+加载流程：
 
-当前 LangGraph 主流程：
+1. `SkillDirectoryLoader` 扫描 `catalog/*/SKILL.md`。
+2. 解析 frontmatter 并构建 `SkillManifest`。
+3. 加载 `SKILL.md` 正文。
+4. 如果同目录存在 `workflows.md`，按约定自动追加。
+5. 校验 `script_files`，从公开函数签名生成模型 Tool Schema。
+6. 创建统一的 `ToolCallingSkill`。
 
-```text
-initialize
-  -> planner
-  -> general_chat 或 skill_step
-  -> finalize
-```
+frontmatter 不会重复注入模型提示词。
 
-其中：
+`ToolCallingSkill`：
 
-- `initialize` 创建用户消息和 `AIAgentRun`。
-- `planner` 调用 `WorkspacePlanner` 选择 Skill。
-- `general_chat` 处理无需 Skill 的普通回答。
-- `skill_step` 逐个执行 Planner 选出的 Skill，并处理审批中断。
-- `finalize` 生成最终响应。
+- 向模型暴露当前 Skill 的工具白名单和 JSON Schema。
+- 将声明的公开脚本函数与业务 Tool 一起暴露给模型。
+- 支持工具调用前、调用间和调用后的可见文本流式输出。
+- 捕获 draft tool 的真实输出作为草稿。
+- 校验卡片类型、草稿类型和最终结构化结果。
 
-重构后可以继续沿用这条主链路，但 `skill_step` 应从新的 `SKILL.md` 结构加载 Skill 元信息与指令，而不是依赖每个 Skill 自带 `manifest.json` 或 `skill.py`。
-
-### 3.4 Tool 系统
-
-当前工具系统位于：
+流式双通道协议：
 
 ```text
-backend/app/ai/tools/
-backend/app/ai/tools/catalog/
+<visible_text>用户可见文本</visible_text>
+<structured_result>{SkillResult JSON}</structured_result>
 ```
 
-核心类型：
+每个可见文本块结束时输出换行。Runtime 会避免将 structured result 或重复 fallback 文本发送给用户。
+
+### 7.1 Script Runtime
+
+Script 调用协议：
 
 ```text
-ToolDefinition
-ToolContext
-ToolExecutor
-ToolSideEffect = read | draft | write
+script.validate_meal_plan({"plan": [...]})
+  -> {"result": {"valid": true, "errors": []}}
 ```
 
-当前工具注册入口：
-
-```text
-backend/app/ai/tools/registry.py
-```
-
-现有工具包括：
-
-```text
-intent.request_clarification
-inventory.read_summary
-inventory.read_expiring_items
-inventory.read_available_items
-ingredient.search
-food.search
-food_profile.create_draft
-recipe.search
-recipe.create_draft
-meal_log.read_recent
-meal_log.create_draft
-meal_plan.read_existing
-meal_plan.create_draft
-shopping.read_pending
-shopping.create_draft
-shopping_list.create_draft
-```
-
-重构后 Tool 仍由后端统一注册，Skill 只声明 `allowed_tools` 和 `forbidden_tools`。
-
-### 3.5 审批与正式写入
-
-当前审批与正式写入位于：
-
-```text
-backend/app/ai/workspace_service.py
-```
-
-关键模型位于：
-
-```text
-backend/app/models/domain.py
-```
-
-相关表模型：
-
-```text
-AITaskDraft
-AIApprovalRequest
-AIUserApproval
-AIOperation
-AIGraphCheckpoint
-AIGraphWrite
-```
-
-当前流程：
-
-```text
-SkillResult.drafts
-  -> AIApplicationService._create_draft_approval
-  -> AITaskDraft + AIApprovalRequest
-  -> LangGraph interrupt
-  -> 用户提交 approval decision
-  -> AIApplicationService._apply_approval_decision
-  -> 后端 service 写正式业务数据
-  -> AIOperation 记录结果
-```
-
-这个机制已经符合 `draft -> approval -> commit`，重构 Skill 时应继续使用。
-
----
-
-## 4. 核心概念
-
-### 4.1 Skill
-
-Skill 是任务能力包，负责描述某一类任务应该如何处理。
-
-Skill 负责：
-
-- 描述适用场景。
-- 描述不适用场景。
-- 声明可用工具。
-- 声明禁止工具。
-- 规定工具使用条件。
-- 规定推荐 workflow。
-- 规定 human-in-the-loop 规则。
-- 规定输出类型和草稿类型。
-- 提供示例。
-
-Skill 不负责：
-
-- 直接查数据库。
-- 直接写数据库。
-- 直接调用业务 service。
-- 直接提交正式数据。
-- 替代 Tool。
-- 替代 Planner。
-- 替代审批系统。
-
-### 4.2 Tool
-
-Tool 是确定性能力函数，由后端注册。
-
-Tool 负责：
-
-- 查询库存、菜谱、食物、餐食记录等上下文。
-- 校验草稿输入。
-- 生成草稿级输出。
-- 在用户确认后，由后端 service 执行正式写入。
-
-Tool 不负责：
-
-- 判断整体用户意图。
-- 路由到哪个 Skill。
-- 自己决定是否绕过确认。
-- 在未授权 Skill 下执行。
-
-### 4.3 Workflow
-
-Workflow 是某个 Skill 下的具体执行流程说明。
-
-Workflow 不是业务代码，而是给模型和 runtime 使用的任务剧本。
-
-它规定：
-
-- 常规流程。
-- 简化流程。
-- 分支流程。
-- 强制步骤。
-- 中断条件。
-- 需要用户确认的节点。
-
-### 4.4 Human-in-the-loop
-
-Human-in-the-loop 是用户确认机制。
-
-所有会改变正式业务数据的操作，都必须遵循：
-
-```text
-draft -> approval -> commit
-```
-
-AI 可以生成草稿和确认请求，但不能直接提交高风险写操作。
-
----
-
-## 5. 目标目录结构
-
-重构后的 Skill 目录结构以 `SKILL.md` 为中心：
-
-```text
-backend/app/ai/skills/
-  inventory-analysis/
-    SKILL.md
-    workflows.md
-    examples.md
-
-  meal-planning/
-    SKILL.md
-    workflows.md
-    hitl.md
-    examples.md
-    scripts/
-      validate_meal_plan.py
-      render_plan_preview.py
-
-  shopping-list/
-    SKILL.md
-    workflows.md
-    hitl.md
-    examples.md
-    scripts/
-      merge_ingredients.py
-      normalize_ingredient.py
-
-  meal-record/
-    SKILL.md
-    workflows.md
-    hitl.md
-    examples.md
-```
-
-规范要求：
-
-- 每个 Skill 必须有 `SKILL.md`。
-- 不使用 `manifest.json`。
-- 不在 Skill 目录下放业务执行用的 `skill.py`。
-- 复杂流程可拆 `workflows.md`。
-- 用户确认规则可拆 `hitl.md`。
-- 示例可拆 `examples.md`。
-- 确定性纯计算可放 `scripts/`。
-
-当前系统中已有 `backend/app/ai/skills/catalog/<skill_key>/manifest.json` 和部分 `skill.py`，这是现状实现，不是本规范的目标结构。重构时应迁移为上面的结构。
-
----
-
-## 6. `SKILL.md` 标准格式
-
-`SKILL.md` 由 YAML frontmatter 和 Markdown 正文组成。
-
-frontmatter 是机器可读元数据真源，正文是给模型和维护者看的行为说明。
-
-### 6.1 Frontmatter 字段
-
-```yaml
----
-name: meal-planning
-display_name: 餐食规划
-version: 1.0.0
-description: 当用户想安排餐食、制定菜单、根据库存推荐吃什么、生成未来几天饮食计划时使用。
-category: planning
-runner: meal_plan
-risk_level: medium
-allowed_tools:
-  - inventory.read_available_items
-  - inventory.read_expiring_items
-  - meal_log.read_recent
-  - food.search
-  - recipe.search
-  - meal_plan.read_existing
-  - meal_plan.create_draft
-forbidden_tools:
-  - meal_plan.commit
-  - shopping_list.commit
-  - inventory.consume
-requires_confirmation:
-  - meal_plan.create
-  - meal_plan.update
-workflow_files:
-  - workflows.md
-hitl_files:
-  - hitl.md
-example_files:
-  - examples.md
-script_files:
-  - scripts/validate_meal_plan.py
-output_contract: SkillExecutionResult
-output_types:
-  - meal_plan_draft
-draft_types:
-  - meal_plan
-can_continue_from:
-  - meal_plan
-intent: meal_plan
-agent_key: meal_plan_agent
----
-```
-
-字段说明：
-
-- `name`：Skill 唯一名，使用 kebab-case，例如 `meal-planning`。
-- `display_name`：面向用户和日志的中文名。
-- `version`：Skill 文档版本。
-- `description`：给 Planner 使用的摘要。
-- `category`：能力分类，例如 `planning`、`inventory`、`recording`。
-- `runner`：后端 Skill runtime 名称，例如 `markdown`、`meal_plan`。普通聊天不注册 Skill，仍由 Planner 返回空 Skill 后进入 `general_chat` 分支。
-- `risk_level`：`low`、`medium`、`high`。
-- `allowed_tools`：当前 Skill 允许调用的工具。
-- `forbidden_tools`：即使全局存在也禁止调用的工具。
-- `requires_confirmation`：需要用户确认的业务动作。
-- `workflow_files`：按需加载的 workflow 文档。
-- `hitl_files`：按需加载的确认规则文档。
-- `example_files`：示例文档。
-- `script_files`：纯计算脚本。
-- `output_contract`：内部聚合结果结构，默认 `SkillExecutionResult`。
-- `output_types`：可能返回的卡片或结果类型。
-- `draft_types`：可能生成的草稿类型。
-- `can_continue_from`：可基于哪些已有草稿继续。
-- `intent`：写入 `AIAgentRun.intent` 的业务意图。
-- `agent_key`：写入 `AIAgentRun.agent_key` 的执行器标识。
-
-### 6.2 正文结构
-
-推荐正文结构：
-
-```markdown
-# 餐食规划 Skill
-
-## 目标
-
-## 适用场景
-
-## 不适用场景
-
-## 可用工具
-
-## 工具使用规则
-
-## 执行策略
-
-## Human-in-the-loop 规则
-
-## 输出格式
-
-## 示例
-```
-
-正文要求：
-
-- 说明任务边界，不写业务实现代码。
-- 写清楚工具什么时候能用，什么时候不能用。
-- 写清楚是否需要生成草稿。
-- 写清楚哪些情况要追问。
-- 写清楚输出必须可被后端结构化处理。
-
----
-
-## 7. 为什么需要 `workflows.md`
-
-`SKILL.md` 是入口，应保持简洁。
-
-当一个 Skill 内有多个流程时，应该拆出 `workflows.md`。
-
-适合拆 `workflows.md` 的情况：
-
-- `SKILL.md` 超过 200-300 行。
-- 一个 Skill 内有 3 个以上流程。
-- 流程有明显分支。
-- 流程经常调整。
-- 多个开发者协作维护。
-
-例如 `meal-planning` 可能有：
-
-```text
-简单推荐流程
-正式餐食计划流程
-修改已有计划流程
-带购物清单流程
-临期食材优先消耗流程
-异常处理流程
-```
-
-这些内容不应全部塞进 `SKILL.md`。
-
----
-
-## 8. Skill 脚本规范
-
-Skill 下可以有脚本，但脚本只做纯计算、校验、格式转换。
-
-适合放到 `scripts/` 的能力：
-
-- 合并购物清单。
-- 食材名称归一。
-- 单位换算。
-- JSON 结构校验。
-- 餐食计划格式校验。
-- 草稿预览渲染。
-- 菜谱解析。
-- 去重、排序、分组。
-
-不允许脚本做：
-
-- 直接查数据库。
-- 直接写数据库。
-- 直接删除数据。
-- 直接调用业务接口。
-- 直接 commit 正式数据。
-- 绕过 approval 机制。
-
-区分：
-
-```text
-Skill 文档：告诉 AI 怎么做
-Skill script：帮 AI 做稳定的小计算
-Tool：帮 AI 调用系统能力
-Runtime：控制加载、权限、流程和审批
-Service：执行最终业务写入
-```
-
-Runtime 会加载 `script_files` 的内容作为确定性辅助参考，但脚本不得直接读写业务数据，也不得绕过 Tool 和审批机制。
-
----
-
-## 9. Runtime 重构目标
-
-当前系统的 `SkillDirectoryLoader` 从 `manifest.json` 加载 Skill，并可选加载 skill 目录下 `skill.py`。
-
-重构目标：
-
-- `SkillDirectoryLoader` 扫描 `backend/app/ai/skills/*/SKILL.md`。
-- 从 `SKILL.md` YAML frontmatter 构建 Skill 元数据。
-- 按需加载 `workflows.md`、`hitl.md`、`examples.md`。
-- 按需加载 `script_files`，作为只读辅助参考。
-- 不加载每个 Skill 自带的业务执行 `skill.py`。
-- Skill 执行交给统一 runner 或统一 SkillRuntime。
-- Runtime 按 Skill 声明的 `allowed_tools` 过滤工具。
-- Runtime 按 `risk_level`、`requires_confirmation` 和 Tool side effect 强制执行确认策略。
-
-推荐执行链路：
-
-```text
-用户输入
-  -> WorkspaceGraphRunner.initialize
-  -> WorkspacePlanner 选择 Skill 列表
-  -> SkillRuntime 加载 SKILL.md 与必要附加文档
-  -> ToolExecutor 按 allowed_tools 和 side effect 建立作用域
-  -> 模型基于 Skill 文档、上下文、工具结果生成 SkillExecutionResult
-  -> Runtime 校验结果
-  -> 如有 draft，创建 AITaskDraft + AIApprovalRequest
-  -> LangGraph interrupt 等待确认
-  -> 用户确认后 AIApplicationService._apply_approval_decision
-  -> Service 写正式业务数据并记录 AIOperation
-  -> API 返回 AIChatResponse
-```
-
----
-
-## 10. Tool 规范
-
-### 10.1 Tool 注册位置
-
-Tool 仍注册在：
+约束：
+
+- `script_files` 路径必须位于当前 Skill 的 `scripts/` 目录。
+- 只暴露不以下划线开头的同步函数。
+- 函数参数和返回类型由 Python 类型注解转换为 JSON Schema。
+- 输入和输出都必须通过 JSON Schema 校验并可 JSON 序列化。
+- 脚本在独立的 `python -I` 子进程执行，默认超时 2 秒。
+- 加载阶段拒绝未授权 import、`open`、`eval`、`exec`、`compile`、`input`、`__import__`、装饰器和可执行顶层语句。
+- Script 不接收数据库 Session、家庭上下文、Token 或 ToolExecutor。
+- 每次调用记录为 `permission=skill:script`、`side_effect=read`，并产生统一 progress 事件。
+- 同一 Skill 内公开函数名不能重复。
+
+Script Runtime 是受限的进程隔离执行器，不替代系统级容器沙箱。因此只允许提交到代码库并经过评审的脚本，不接受用户上传或模型生成的任意 Python 源码。
+
+## 8. Tool 与 Script 权限
+
+Tool 注册在：
 
 ```text
 backend/app/ai/tools/catalog/
 ```
 
-工具注册入口：
+工具副作用：
+
+- `read`：读取家庭范围内的业务数据。
+- `draft`：校验并归一化草稿，不写正式业务表。
+- `write`：正式写入能力，不暴露给模型。
+
+`SkillExecutor` 根据 `approval_policy` 创建 Tool 作用域：
+
+- `none`：只允许 `read`。
+- `draft_then_confirm`：允许 `read` 和 `draft`。
+
+Script 固定为纯计算 `read` 能力，不进入全局 ToolRegistry，也不受 `approval_policy` 扩权。模型只能看到当前 Skill 在 `script_files` 中声明的函数。
+
+购物清单草稿工具统一使用：
 
 ```text
-backend/app/ai/tools/registry.py
-```
-
-### 10.2 ToolDefinition
-
-当前 Tool 应继续使用 `ToolDefinition`：
-
-```python
-ToolSideEffect = Literal["read", "draft", "write"]
-
-@dataclass(slots=True)
-class ToolDefinition:
-    name: str
-    description: str
-    input_schema: dict[str, Any]
-    output_schema: dict[str, Any]
-    permission: str
-    side_effect: ToolSideEffect
-    handler: ToolHandler
-    requires_confirmation: bool = False
-```
-
-### 10.3 Side effect 规则
-
-`read`：
-
-- 可读取家庭范围内的上下文。
-- 不写业务表。
-- 例如 `inventory.read_available_items`、`recipe.search`。
-
-`draft`：
-
-- 可生成草稿级输出。
-- 不写正式业务表。
-- 例如 `meal_plan.create_draft`、`shopping.create_draft`。
-
-`write`：
-
-- 会写正式业务数据。
-- 不暴露给模型。
-- 只能在用户确认后由后端 service 执行。
-
-### 10.4 Tool 权限控制
-
-Runtime 必须双重检查：
-
-1. 工具名必须在当前 Skill 的 `allowed_tools` 中。
-2. 工具 side effect 必须被当前 Skill 风险策略允许。
-3. 工具名不能在当前 Skill 的 `forbidden_tools` 中，即使误写进 `allowed_tools` 也必须拒绝。
-4. 返回草稿的 Skill 必须声明 `approval_policy=draft_then_confirm`、`draft_types` 和 `requires_confirmation`。
-
-例如：
-
-```text
-risk_level=low
-  -> 只允许 read
-
-risk_level=medium 且需要草稿
-  -> 允许 read + draft
-
-write
-  -> 不暴露给模型，只能由审批通过后的后端流程调用
-```
-
-不能只依赖 Prompt 约束工具权限。
-
-当前实现中：
-
-- `SkillDirectoryLoader` 会校验 `risk_level`、`approval_policy`、`allowed_tools` 与 `forbidden_tools` 冲突。
-- `SkillExecutor` 会在执行前再次校验 Skill manifest 与工具 side effect。
-- `ToolExecutor` 会在每次调用时检查 `allowed_tools`、`forbidden_tools` 和 `allowed_side_effects`。
-- `SkillExecutor` 会在执行后校验 `SkillResult.drafts` 是否属于当前 Skill 声明的 `draft_types`。
-
-### 10.5 Context Policy
-
-`context_policy` 是 Skill 声明式读取上下文的入口。
-
-当前映射：
-
-```text
-inventory   -> inventory.read_summary, inventory.read_expiring_items, inventory.read_available_items
-meal_logs   -> meal_log.read_recent
-foods       -> food.search
-recipes     -> recipe.search
-meal_plan   -> meal_plan.read_existing
-shopping    -> shopping.read_pending
-ingredients -> ingredient.search
-artifacts   -> conversation.artifacts
-```
-
-`artifacts` 不走 Tool Registry，而是由 runtime 从当前对话、当前 run 内产物和已执行 Skill 结果中整理为只读上下文。
-
-### 10.6 RunArtifact
-
-Runtime 会把 Skill 输出的草稿和结果卡片规范化为 run 内 artifact，供后续 Skill 只读引用。
-
-RunArtifact 是内部上下文结构，不是前端 API 契约。
-
-```python
-{
-    "id": "in_run:meal_plan:meal_plan:1",
-    "type": "meal_plan",
-    "kind": "draft",
-    "version": 1,
-    "status": "proposed",
-    "payload": {...},
-    "schemaVersion": "meal_plan.v1",
-    "sourceSkill": "meal_plan",
-}
-```
-
-合并顺序：
-
-```text
-conversation artifacts
-  -> current_run_artifacts
-  -> previous_results 兼容路径
-```
-
-规则：
-
-- 下游 Skill 可以只读引用 `status=proposed` 的 run 内 artifact。
-- run 内 artifact 不代表正式写入，也不代表用户已确认。
-- 任何正式写入仍必须走 `AITaskDraft -> AIApprovalRequest -> AIOperation`。
-- 如果下游草稿来自 run 内 artifact，应在 payload source 中保留来源 id，例如 `sourceDraftId=in_run:meal_plan:meal_plan:1`。
-
----
-
-## 11. Planner 规范
-
-Planner 继续保持当前系统的窄职责。
-
-Planner 输入：
-
-- 最近对话。
-- 当前用户消息。
-- 可用 Skill 摘要。
-- 已有草稿 artifacts。
-
-Planner 输出：
-
-```json
-{
-  "skills": ["meal-planning", "shopping-list"]
-}
-```
-
-Planner 不做：
-
-- 不抽业务字段。
-- 不生成草稿。
-- 不调用 Tool。
-- 不判断审批。
-- 不写数据库。
-- 不替代 Skill 内部 workflow。
-
-普通聊天、做饭技巧、能力介绍、无需工具或草稿的回答，应返回空 Skill 列表，由 `general_chat` 处理。
-
----
-
-## 12. SkillExecutionResult
-
-`SkillExecutionResult` 是后端内部聚合结果，不是前端直接 API 契约。
-
-建议结构：
-
-```python
-@dataclass(slots=True)
-class SkillExecutionResult:
-    text: str
-    cards: list[dict]
-    drafts: list[dict]
-    events: list[dict]
-    tool_calls: list[dict]
-    context_summary: dict
-    state_patch: dict
-    status: str
-    model: str
-    error: str | None = None
-```
-
-其中：
-
-- `text`：给用户看的自然语言回复。
-- `cards`：结果卡片，例如今日推荐、库存概览。
-- `drafts`：待确认草稿 payload，不直接写业务数据。
-- `events`：运行事件。
-- `tool_calls`：工具调用记录。
-- `context_summary`：运行上下文摘要，写入 `AIAgentRun.context_summary`。
-- `state_patch`：对 conversation context 的任务状态补丁。
-- `status`：`completed`、`failed`、`waiting_approval` 等。
-- `model`：模型名。
-- `error`：失败原因。
-
-API 层应把内部结果转换为：
-
-```text
-AIChatResponse
-AIMessageDTO
-AIMessagePartDTO
-AITaskDraftDTO
-AIApprovalRequestDTO
-AIRunDTO
-AIRunEventDTO
-```
-
----
-
-## 13. Human-in-the-loop 机制
-
-### 13.1 基本原则
-
-AI 只能生成：
-
-```text
-建议
-结果卡片
-草稿
-确认请求
-```
-
-AI 不能直接执行：
-
-```text
-正式创建
-正式修改
-正式删除
-库存扣减
-偏好修改
-```
-
-### 13.2 当前系统流程
-
-当前系统已经使用以下流程：
-
-```text
-SkillResult.drafts
-  -> _create_draft_approval
-  -> AITaskDraft
-  -> AIApprovalRequest
-  -> message.parts 添加 draft 和 approval_request
-  -> LangGraph interrupt
-  -> 用户提交 decision
-  -> _apply_approval_decision
-  -> _execute_draft_operation
-  -> AIOperation
-```
-
-这条流程应作为重构后的 HITL 基线。
-
-### 13.3 用户确认后不要再让 AI 判断
-
-用户点击确认后，后端应直接执行：
-
-```text
-approval_id
-  -> 校验 family_id、conversation_id
-  -> 校验 approval 状态
-  -> 校验 draft 状态
-  -> 校验 draft_version
-  -> 校验提交 values
-  -> 执行业务 service 写入
-  -> 写入 AIOperation
-  -> 返回结果
-```
-
-不要再把“用户确认了什么”交给大模型重新理解。
-
----
-
-## 14. Draft / Commit 两阶段机制
-
-### 14.1 Draft
-
-Skill 可以通过 draft tool 生成草稿。
-
-例如：
-
-```text
-recipe.create_draft
-meal_plan.create_draft
 shopping.create_draft
-shopping_list.create_draft
-meal_log.create_draft
-food_profile.create_draft
 ```
 
-Draft tool 只能校验和返回草稿级结果，不写正式业务数据。
+旧别名 `shopping_list.create_draft` 已移除。
 
-### 14.2 Approval
+## 9. 草稿与审批
 
-后端根据 `draft_type` 创建确认请求。
+草稿型 Skill 必须满足：
 
-当前支持的草稿类型包括：
+- `approval_policy: draft_then_confirm`
+- 至少一个 `draft_types`
+- 至少一个声明在 `allowed_tools` 中的 draft tool
+- draft tool 自身设置 `requires_confirmation=True`
+
+执行顺序：
 
 ```text
-recipe
-shopping_list
-meal_plan
-meal_log
-food_profile
+模型调用 draft tool
+  -> Tool 校验并归一化草稿
+  -> Runtime 捕获 Tool 输出
+  -> WorkspaceGraphRunner 持久化 AITaskDraft
+  -> 创建 AIApprovalRequest
+  -> LangGraph interrupt
+  -> 用户确认
+  -> AIApplicationService 执行正式写入
+  -> 记录 AIOperation
 ```
 
-确认请求包含：
+用户确认后不再次调用模型判断。
 
-- `approval_type`
-- `draft_id`
-- `draft_version`
-- `field_schema`
-- `initial_values`
-- `approve_label`
-- `reject_label`
+HITL 规则没有移入 Script。`SKILL.md` 描述何时生成草稿，draft tool 负责校验草稿，`SkillExecutor` 和 LangGraph 负责审批中断，用户确认后由 Service 正式写入。Script 只能在进入 draft tool 前辅助校验或整理参数。
 
-### 14.3 Commit
+## 10. 稳定协议
 
-Commit 不暴露给模型。
+内部优化不得改变：
 
-正式写入由 `AIApplicationService._apply_approval_decision` 触发，并委托后端 service 或 ORM 流程执行。
+- Skill keys：`inventory_analysis`、`meal_plan`、`shopping_list`、`meal_log`、`recipe_draft`、`food_profile`
+- `meal_plan_agent` 和 `meal_plan` intent
+- `today_recommendation`、`inventory_summary` 等结果卡片类型
+- `recipe`、`shopping_list`、`meal_plan`、`meal_log`、`food_profile` 草稿类型
+- `AIChatResponse`、消息 parts、SSE `message_delta` 和 progress 事件格式
+- 审批、重试、拒绝和正式写入行为
 
-写入结果必须记录到 `AIOperation`。
+## 11. 测试要求
 
----
+最低验收：
 
-## 15. Workflow 设计原则
+1. Registry 只加载 6 个 Skill，不包含 `today_recommendation` key。
+2. `meal_plan.output_types` 包含 `today_recommendation`。
+3. 快捷任务和自然语言即时推荐都执行 `meal_plan`，返回推荐卡片且不创建草稿。
+4. 正式餐食计划仍创建 `meal_plan` 草稿和审批。
+5. `meal_plan -> shopping_list` 组合执行和 artifact 传递正常。
+6. 未声明工具、非法卡片和非法草稿会被 Runtime 拒绝。
+7. 五种草稿确认后能写入对应业务实体。
+8. 工具调用期间的可见文本保持真实流式输出并按块换行。
+9. 后端和前端卡片、草稿类型契约保持一致。
 
-### 15.1 不要完全让 AI 自由发挥
+验证命令：
 
-不建议只写：
-
-```text
-你可以使用库存工具、菜谱工具和购物清单工具，请自行完成任务。
+```bash
+backend/.venv/bin/python -m pytest backend/tests/test_ai_agent_infra.py -q
+npm --prefix frontend test -- src/lib/aiWorkspaceContracts.test.ts
 ```
-
-这样容易出现：
-
-- 漏查库存。
-- 漏生成草稿。
-- 顺序混乱。
-- 提前写入。
-- 输出不稳定。
-
-### 15.2 也不要完全写死流程
-
-用户只是问：
-
-```text
-鸡蛋快过期了今晚吃啥？
-```
-
-这时不需要完整跑餐食计划和购物清单流程。
-
-### 15.3 推荐方式
-
-采用：
-
-```text
-强制步骤 + 推荐步骤 + AI 自主判断
-```
-
-强制步骤：
-
-- 涉及写入必须生成草稿。
-- 涉及删除必须确认。
-- 涉及库存扣减必须确认。
-- 用户未确认不得 commit。
-
-推荐步骤：
-
-- 餐食规划通常先查库存、临期、最近餐食，再查食物和菜谱。
-- 购物清单通常先读取已有待采购项和当前库存，再合并缺口。
-
-AI 自主判断：
-
-- 是否需要追问。
-- 是否需要生成草稿。
-- 是否只返回建议。
-- 推荐几个选项。
-
----
-
-## 16. Meal Planning 示例
-
-目录：
-
-```text
-backend/app/ai/skills/meal-planning/
-  SKILL.md
-  workflows.md
-  hitl.md
-  examples.md
-  scripts/
-    validate_meal_plan.py
-    render_plan_preview.py
-```
-
-`SKILL.md` 示例：
-
-```markdown
----
-name: meal-planning
-display_name: 餐食规划
-version: 1.0.0
-description: 基于库存、最近餐食和已有菜谱生成或修改可编辑餐食计划草稿。
-category: planning
-risk_level: medium
-allowed_tools:
-  - inventory.read_expiring_items
-  - inventory.read_available_items
-  - meal_log.read_recent
-  - food.search
-  - recipe.search
-  - meal_plan.read_existing
-  - meal_plan.create_draft
-forbidden_tools:
-  - meal_plan.commit
-  - inventory.consume
-requires_confirmation:
-  - meal_plan.create
-  - meal_plan.update
-workflow_files:
-  - workflows.md
-hitl_files:
-  - hitl.md
-example_files:
-  - examples.md
-script_files:
-  - scripts/validate_meal_plan.py
-output_contract: SkillExecutionResult
-output_types:
-  - meal_plan_draft
-draft_types:
-  - meal_plan
-can_continue_from:
-  - meal_plan
-intent: meal_plan
-agent_key: meal_plan_agent
----
-
-# 餐食规划 Skill
-
-## 目标
-
-根据家庭库存、临期食材、最近餐食、已有食物和菜谱，生成可执行的餐食建议或可确认的餐食计划草稿。
-
-## 适用场景
-
-- 今晚吃什么
-- 帮我安排明天晚餐
-- 帮我做三天菜单
-- 根据冰箱里的东西推荐菜
-- 修改刚才的餐食计划
-
-## 不适用场景
-
-- 用户只是问库存状态，应使用 inventory-analysis。
-- 用户只是问某道菜怎么做，通常由 Planner 返回空 Skill 进入普通聊天；需要结构化草稿时走 recipe-draft。
-- 用户只是记录吃过的东西，应使用 meal-record。
-
-## 工具使用规则
-
-- 生成计划前应读取当前可用库存和临期食材。
-- 修改计划时必须引用真实存在的 meal_plan 草稿 artifact。
-- 只允许调用 meal_plan.create_draft 生成草稿。
-- 不得写正式 FoodPlanItem。
-
-## Human-in-the-loop 规则
-
-创建或修改正式餐食计划必须生成草稿并等待用户确认。
-
-## 输出格式
-
-必须返回 SkillExecutionResult。若生成草稿，draft_type 必须是 meal_plan。
-```
-
-`workflows.md` 示例：
-
-```markdown
-# 餐食规划 Workflow
-
-## 简单推荐流程
-
-适用于“今晚吃什么”“现有食材能做什么”。
-
-1. 读取可用库存。
-2. 读取临期食材。
-3. 结合最近餐食避免重复。
-4. 返回 2-3 个建议。
-5. 不生成草稿。
-
-## 正式计划流程
-
-适用于“安排明天晚餐”“做三天菜单”。
-
-1. 读取库存、临期、最近餐食、食物和菜谱。
-2. 生成完整 meal_plan 草稿。
-3. 校验草稿结构。
-4. 调用 meal_plan.create_draft。
-5. 返回待确认草稿。
-
-## 修改已有计划流程
-
-1. 从 conversation artifacts 找到 meal_plan 草稿。
-2. 校验用户要修改的是该草稿。
-3. 生成完整替换版草稿，不返回 diff。
-4. 返回新的待确认草稿。
-```
-
----
-
-## 17. Shopping List 示例
-
-目录：
-
-```text
-backend/app/ai/skills/shopping-list/
-  SKILL.md
-  workflows.md
-  hitl.md
-  examples.md
-  scripts/
-    merge_ingredients.py
-    normalize_ingredient.py
-```
-
-规则要点：
-
-- 可从 meal_plan 草稿派生购物清单。
-- 可读取待采购项和当前库存。
-- 必须合并重复项。
-- 必须标注来源餐食或原因。
-- 只能生成 shopping_list 草稿。
-- 不得直接写 `ShoppingListItem`。
-
----
-
-## 18. 第一阶段重构范围
-
-第一阶段建议重构：
-
-```text
-1. SkillDirectoryLoader：从 SKILL.md frontmatter 加载元数据。
-2. SkillRegistry：注册新的文档型 Skill。
-3. SkillRuntime：统一加载 SKILL.md / workflows.md / hitl.md。
-4. SkillExecutor：继续负责按 Skill 执行，但不依赖 skill.py。
-5. ToolExecutor：保留当前 allowed_tools + side_effect 强制过滤。
-6. WorkspacePlanner：继续只选择 Skill 列表。
-7. HITL：复用当前 AITaskDraft / AIApprovalRequest / interrupt / AIOperation。
-```
-
-第一阶段 Skill：
-
-```text
-inventory-analysis
-today-recommendation
-recipe-draft
-meal-planning
-shopping-list
-meal-record
-food-profile
-```
-
-命名迁移建议：
-
-```text
-today_recommendation -> today-recommendation
-inventory_analysis -> inventory-analysis
-recipe_draft -> recipe-draft
-meal_plan -> meal-planning
-shopping_list -> shopping-list
-meal_log -> meal-record
-food_profile -> food-profile
-```
-
----
-
-## 19. 测试与验收
-
-文档级验收：
-
-- `SKILL.md` 被明确为 Skill 入口和元数据真源。
-- `manifest.json` 不再作为目标结构。
-- skill 目录下业务 `skill.py` 不再作为目标结构。
-- Planner 职责被限制为选择 Skill 列表。
-- Tool 权限基于 `allowed_tools` 和 side effect。
-- HITL 明确复用当前 `AITaskDraft`、`AIApprovalRequest`、LangGraph `interrupt`、`AIOperation`。
-- API 契约明确为 `AIChatResponse` 等 DTO，而不是直接暴露内部结果。
-
-后续代码重构验收：
-
-- 新 loader 能从 `SKILL.md` frontmatter 加载 Skill。
-- 无 `manifest.json` 也能启动 registry。
-- 无 skill 目录下 `skill.py` 也能执行文档型 Skill。
-- 未声明工具无法调用。
-- `write` side effect 不会暴露给模型。
-- 草稿必须生成 approval。
-- 用户确认后不再调用模型判断，直接执行后端写入流程。
-
----
-
-## 20. 关键原则总结
-
-1. Skill 是任务能力包，不是普通 Prompt。
-2. `SKILL.md` 是入口，也是元数据真源。
-3. Skill 不放 `manifest.json`。
-4. Skill 不放业务执行用 `skill.py`。
-5. Tool 是确定性系统能力，不是 workflow。
-6. Workflow 是任务剧本，不是业务代码。
-7. Script 只做纯计算、校验和格式转换。
-8. 所有业务读写必须走 Tool 或 Service。
-9. Runtime 必须强制工具权限和 side effect 权限。
-10. Commit 类能力不暴露给模型。
-11. 写操作必须 `draft -> approval -> commit`。
-12. 用户确认后由后端执行写入，不再让模型重新判断。
-13. Planner 只选择 Skill，不承担业务抽参和写入。
-14. API 对外返回当前系统 DTO，内部结果可继续使用 `SkillExecutionResult`。
-
-一句话总结：
-
-Culina 的 Skill 应该是一个由 `SKILL.md` 驱动的受控任务剧本。Planner 只负责选择剧本，Runtime 负责加载剧本和限制工具，Tool 负责确定性能力，HITL 负责拦截所有正式写入，Service 负责最终 commit。

@@ -8,7 +8,6 @@ from typing import Any
 from sqlalchemy.orm import Session
 
 from app.ai.runtime.provider import BaseChatProvider
-from app.ai.skills.scripts import SkillScriptRuntime
 from app.ai.tools.executor import ToolExecutor
 from app.core.utils import create_id, utcnow
 
@@ -19,18 +18,10 @@ class SkillManifest:
     name: str
     description: str
     slug: str = ""
-    version: str = "1.0.0"
-    category: str = "general"
-    runner: str = "markdown"
-    risk_level: str = "low"
+    runner: str = "toolcall"
     examples: list[str] = field(default_factory=list)
     context_policy: list[str] = field(default_factory=list)
     tools: list[str] = field(default_factory=list)
-    forbidden_tools: list[str] = field(default_factory=list)
-    requires_confirmation: list[str] = field(default_factory=list)
-    workflow_files: list[str] = field(default_factory=list)
-    hitl_files: list[str] = field(default_factory=list)
-    example_files: list[str] = field(default_factory=list)
     script_files: list[str] = field(default_factory=list)
     output_types: list[str] = field(default_factory=list)
     draft_types: list[str] = field(default_factory=list)
@@ -64,10 +55,18 @@ class SkillContext:
     conversation: list[dict[str, Any]]
     current_message: str
     tool_executor: ToolExecutor
+    subject: dict[str, Any] = field(default_factory=dict)
     provider: BaseChatProvider | None = None
     previous_results: list["SkillResult"] = field(default_factory=list)
     current_run_artifacts: list[dict[str, Any]] = field(default_factory=list)
     stream_writer: Callable[[dict[str, Any]], None] | None = None
+    cancel_check: Callable[[], bool] | None = None
+
+    def ensure_active(self) -> None:
+        if self.cancel_check is not None and self.cancel_check():
+            from app.ai.errors import AIExecutionCancelled
+
+            raise AIExecutionCancelled("AI run was cancelled")
 
     def emit_progress(
         self,
@@ -76,6 +75,7 @@ class SkillContext:
         user_message: str,
         status: str = "running",
     ) -> None:
+        self.ensure_active()
         if self.stream_writer is None:
             return
         self.stream_writer(
@@ -129,12 +129,10 @@ class SkillExecutionResult:
 class BaseSkill:
     manifest: SkillManifest
     skill_dir: Path | None
-    scripts: SkillScriptRuntime
 
     def __init__(self, manifest: SkillManifest, skill_dir: Path | None = None) -> None:
         self.manifest = manifest
         self.skill_dir = skill_dir
-        self.scripts = SkillScriptRuntime(skill_dir, manifest.script_files)
 
     def run(self, context: SkillContext) -> SkillResult:  # pragma: no cover - interface
         raise NotImplementedError

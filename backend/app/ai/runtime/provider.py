@@ -12,6 +12,7 @@ from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
 from langchain_openai import ChatOpenAI
 
 from app.ai.tools.base import ToolDefinition
+from app.ai.errors import AIExecutionCancelled
 from app.core.config import get_settings
 
 logger = logging.getLogger(__name__)
@@ -149,6 +150,8 @@ class OpenAICompatibleChatProvider(BaseChatProvider):
         for mode, client in attempts:
             try:
                 text = invoke(client)
+            except AIExecutionCancelled:
+                raise
             except Exception as exc:  # pragma: no cover - network/provider failure
                 logger.warning(
                     "AI provider generate attempt failed model=%s mode=%s schema=%s error=%s",
@@ -282,6 +285,8 @@ class OpenAICompatibleChatProvider(BaseChatProvider):
                 )
                 try:
                     output = tool_handler(name, args)
+                except AIExecutionCancelled:
+                    raise
                 except Exception as exc:
                     logger.warning(
                         "AI provider tool handler failed model=%s call_id=%s tool=%s error=%s",
@@ -341,6 +346,8 @@ class OpenAICompatibleChatProvider(BaseChatProvider):
         for _round in range(max(1, max_rounds)):
             try:
                 message = client.invoke(messages)
+            except AIExecutionCancelled:
+                raise
             except Exception as exc:  # pragma: no cover - network/provider failure
                 logger.warning(
                     "AI provider tool-call invoke failed model=%s round=%s tool_count=%s requested_calls=%s error=%s",
@@ -386,6 +393,8 @@ class OpenAICompatibleChatProvider(BaseChatProvider):
                 )
                 try:
                     output = tool_handler(name, args)
+                except AIExecutionCancelled:
+                    raise
                 except Exception as exc:
                     logger.warning(
                         "AI provider tool handler failed model=%s call_id=%s tool=%s error=%s",

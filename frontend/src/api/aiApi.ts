@@ -6,6 +6,7 @@ import type {
   AiRunEvent,
   AiConversation,
   AiMessage,
+  AiStatus,
   GenerateRecipeDraftPayload,
   GenerateRecipeDraftResponse,
 } from './types';
@@ -44,11 +45,13 @@ async function streamChatAi(payload: AiChatPayload, handlers: AiChatStreamHandle
   let buffer = '';
   let finalResponse: AiChatResponse | null = null;
   const consumeBlock = (block: string) => {
-    const eventLine = block.split('\n').find((line) => line.startsWith('event: '));
-    const dataLine = block.split('\n').find((line) => line.startsWith('data: '));
-    if (!eventLine || !dataLine) return;
-    const event = eventLine.slice(7).trim();
-    const data = JSON.parse(dataLine.slice(6)) as unknown;
+    const lines = block.split('\n');
+    const eventLine = lines.find((line) => line.startsWith('event:'));
+    const dataLines = lines.filter((line) => line.startsWith('data:'));
+    if (!eventLine || dataLines.length === 0) return;
+    const event = eventLine.slice(6).trim();
+    const dataText = dataLines.map((line) => line.replace(/^data: ?/, '')).join('\n');
+    const data = JSON.parse(dataText) as unknown;
     if (event === 'progress') {
       handlers.onProgress?.(data as AiRunEvent);
     } else if (event === 'message_delta') {
@@ -78,6 +81,7 @@ async function streamChatAi(payload: AiChatPayload, handlers: AiChatStreamHandle
 }
 
 export const aiApi = {
+  getAiStatus: () => request<AiStatus>('/api/ai/status'),
   getAiConversations: () => request<AiConversation[]>('/api/ai/conversations'),
   deleteAiConversation: (conversationId: string) =>
     request<void>(`/api/ai/conversations/${conversationId}`, {

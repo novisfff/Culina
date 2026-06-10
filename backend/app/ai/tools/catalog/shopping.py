@@ -52,14 +52,13 @@ def register_shopping_tools(registry: ToolRegistry) -> None:
         input_schema=LIMIT_INPUT,
         output_schema=COUNT_OUTPUT,
     )
-    for name in ["shopping.create_draft", "shopping_list.create_draft"]:
-        register_tool(
-            registry,
-            name=name,
-            display_name="购物清单确认表单",
-            description="生成购物清单草稿，不写入业务表。",
-            side_effect="draft",
-            handler=shopping_list_create_draft,
-            input_schema=draft_input_schema(SHOPPING_LIST_DRAFT_SCHEMA),
-            output_schema=draft_output_schema(SHOPPING_LIST_DRAFT_SCHEMA),
-        )
+    register_tool(
+        registry,
+        name="shopping.create_draft",
+        display_name="购物清单确认表单",
+        description="生成购物清单草稿，不写入业务表。",
+        side_effect="draft",
+        handler=shopping_list_create_draft,
+        input_schema=draft_input_schema(SHOPPING_LIST_DRAFT_SCHEMA),
+        output_schema=draft_output_schema(SHOPPING_LIST_DRAFT_SCHEMA),
+    )

@@ -701,6 +701,14 @@ export interface AiRunEvent {
   created_at: string;
 }
 
+export interface AiStatus {
+  enabled: boolean;
+  provider: string;
+  model: string;
+  status: 'ready' | 'disabled' | 'missing_api_key' | 'unsupported_provider';
+  detail: string;
+}
+
 export interface AiChatResponse {
   conversation_id: string;
   message: AiMessage;

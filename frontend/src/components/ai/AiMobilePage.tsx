@@ -22,6 +22,7 @@ type Props = {
   draft: string;
   isSending: boolean;
   isComposerPaused: boolean;
+  composerPauseMessage?: string;
   sendError?: string;
   onBackHome?: () => void;
   onOpenMobileHistory: () => void;
@@ -92,13 +93,13 @@ export function AiMobilePage(props: Props) {
 
       <div className="ai-composer-dock">
         {props.sendError && <p className="form-error">{props.sendError}</p>}
-        {props.isComposerPaused && <p className="ai-composer-pause-note">请先确认上面的草稿，确认后可以继续对话。</p>}
+        {props.isComposerPaused && <p className="ai-composer-pause-note">{props.composerPauseMessage ?? '请先确认上面的草稿，确认后可以继续对话。'}</p>}
         <form className="ai-composer" onSubmit={props.onSubmit}>
           <textarea
             className="text-input"
             rows={2}
             value={props.draft}
-            placeholder={props.isComposerPaused ? '等待你确认草稿...' : '输入你的问题，或让 AI 帮你安排一餐...'}
+            placeholder={props.isComposerPaused ? props.composerPauseMessage ?? '等待你确认草稿...' : '输入你的问题，或让 AI 帮你安排一餐...'}
             disabled={props.isComposerPaused}
             onChange={(event) => props.onDraftChange(event.target.value)}
           />

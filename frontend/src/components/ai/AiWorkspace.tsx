@@ -165,6 +165,10 @@ export function AiWorkspace({ conversations, isLoading, currentUser = null, onBa
     queryFn: () => api.getAiMessages(activeConversationId as string),
     enabled: Boolean(activeConversationId),
   });
+  const aiStatusQuery = useQuery({
+    queryKey: queryKeys.aiStatus,
+    queryFn: api.getAiStatus,
+  });
   const pendingApprovalsQuery = useQuery({
     queryKey: queryKeys.aiPendingApprovals(activeConversationId),
     queryFn: () => api.getPendingAiApprovals(activeConversationId as string),
@@ -194,6 +198,14 @@ export function AiWorkspace({ conversations, isLoading, currentUser = null, onBa
     if ((pendingApprovalsQuery.data ?? []).some((approval) => approval.status === 'pending')) return true;
     return displayedMessages.some((message) => message.parts.some((part) => part.approval?.status === 'pending'));
   }, [displayedMessages, pendingApprovalsQuery.data]);
+  const isAiUnavailable = aiStatusQuery.data?.enabled === false;
+  const isComposerPaused = hasPendingApproval || isAiUnavailable;
+  const composerPauseMessage = isAiUnavailable
+    ? aiStatusQuery.data?.detail || 'AI 模型未配置，暂时不能发送消息。'
+    : hasPendingApproval
+      ? '请先确认上面的草稿，确认后可以继续对话。'
+      : undefined;
+  const aiStatusLabel = isAiUnavailable ? 'AI 未配置' : aiStatusQuery.isLoading ? 'AI 检查中' : 'AI 已就绪';
 
   useEffect(() => {
     const remoteMessages = messagesQuery.data ?? [];
@@ -300,6 +312,25 @@ export function AiWorkspace({ conversations, isLoading, currentUser = null, onBa
     });
   }
 
+  function markStreamingAssistantStopped(runId: string | null, text = '已取消这次任务。') {
+    if (!runId) return;
+    setLocalMessages((items) =>
+      items.map((item) => {
+        if (item.run_id !== runId && item.id !== `local-assistant-${runId}`) return item;
+        const textPart = item.parts.find((part) => part.type === 'text');
+        const nextText = textPart?.text?.trim() || item.content || text;
+        return {
+          ...item,
+          content: nextText,
+          status: 'failed',
+          parts: item.parts.some((part) => part.type === 'text')
+            ? item.parts.map((part) => (part.type === 'text' ? { ...part, text: nextText } : part))
+            : [{ id: `local-cancel-part-${runId}`, type: 'text' as const, text: nextText }, ...item.parts],
+        };
+      }),
+    );
+  }
+
   const chatMutation = useMutation({
     mutationFn: (payload: { message: string; conversation_id?: string; client_message_id?: string; client_run_id?: string; quick_task?: string; subject?: Record<string, unknown> }) => {
       const controller = new AbortController();
@@ -394,7 +425,7 @@ export function AiWorkspace({ conversations, isLoading, currentUser = null, onBa
 
   async function sendMessage(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (hasPendingApproval || chatMutation.isPending) return;
+    if (isComposerPaused || chatMutation.isPending) return;
     const text = draft.trim();
     if (!text) return;
     const clientMessageId = `client-${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -461,6 +492,7 @@ export function AiWorkspace({ conversations, isLoading, currentUser = null, onBa
         ]);
       }
     }
+    markStreamingAssistantStopped(runId);
     chatAbortRef.current?.abort();
     setStreamProgress((items) => [
       ...items,
@@ -500,7 +532,8 @@ export function AiWorkspace({ conversations, isLoading, currentUser = null, onBa
         activeStreamRunId={activeStreamRunId}
         draft={draft}
         isSending={chatMutation.isPending}
-        isComposerPaused={hasPendingApproval}
+        isComposerPaused={isComposerPaused}
+        composerPauseMessage={composerPauseMessage}
         sendError={chatMutation.isError ? chatMutation.error.message : undefined}
         onBackHome={onBackHome}
         onOpenMobileHistory={() => setIsMobileHistoryOpen(true)}
@@ -595,7 +628,7 @@ export function AiWorkspace({ conversations, isLoading, currentUser = null, onBa
           <div className="ai-main-head">
             <div className="ai-hero-bar">
               <span>AI 厨房助手</span>
-              <span className="ai-ready-pill"><span />AI 已就绪</span>
+              <span className={`ai-ready-pill ${isAiUnavailable ? 'is-disabled' : ''}`}><span />{aiStatusLabel}</span>
             </div>
           </div>
           <div className="ai-thread-scroll">
@@ -641,14 +674,14 @@ export function AiWorkspace({ conversations, isLoading, currentUser = null, onBa
             {chatMutation.isError && <p className="form-error">{chatMutation.error.message}</p>}
             {retryMutation.isError && <p className="form-error">{retryMutation.error.message}</p>}
             {regenerateMutation.isError && <p className="form-error">{regenerateMutation.error.message}</p>}
-            {hasPendingApproval && <p className="ai-composer-pause-note">请先确认上面的草稿，确认后可以继续对话。</p>}
+            {isComposerPaused && <p className="ai-composer-pause-note">{composerPauseMessage}</p>}
             <form className="ai-composer" onSubmit={sendMessage}>
               <textarea
                 className="text-input"
                 rows={2}
                 value={draft}
-                placeholder={hasPendingApproval ? '等待你确认草稿...' : '输入你的问题，或让 AI 帮你安排一餐...'}
-                disabled={hasPendingApproval}
+                placeholder={isComposerPaused ? composerPauseMessage ?? '等待你确认草稿...' : '输入你的问题，或让 AI 帮你安排一餐...'}
+                disabled={isComposerPaused}
                 onChange={(event) => setDraft(event.target.value)}
               />
               <div className="ai-composer-meta">
@@ -656,7 +689,7 @@ export function AiWorkspace({ conversations, isLoading, currentUser = null, onBa
                 <button
                   className={`ai-send-button ${chatMutation.isPending ? 'is-sending' : ''}`}
                   type={chatMutation.isPending ? 'button' : 'submit'}
-                  disabled={hasPendingApproval}
+                  disabled={isComposerPaused}
                   aria-label={chatMutation.isPending ? '中止生成' : '发送消息'}
                   onClick={chatMutation.isPending ? cancelStreamingChat : undefined}
                 >

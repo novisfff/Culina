@@ -6,6 +6,7 @@ from typing import Any
 from app.ai.tools.base import ToolContext, ToolResult, ToolSideEffect, timed_call
 from app.ai.tools.registry import ToolRegistry
 from app.ai.tools.validation import validate_json_value
+from app.ai.errors import AIExecutionCancelled
 from app.core.utils import create_id, utcnow
 
 logger = logging.getLogger(__name__)
@@ -30,6 +31,8 @@ class ToolExecutor:
         self.results = results if results is not None else []
 
     def call(self, name: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
+        if self.context.cancel_check is not None and self.context.cancel_check():
+            raise AIExecutionCancelled("AI run was cancelled")
         tool_input = payload or {}
         try:
             definition = self.registry.get(name)
@@ -98,6 +101,8 @@ class ToolExecutor:
             sorted(tool_input.keys()),
         )
         result = timed_call(definition, self.context, tool_input)
+        if self.context.cancel_check is not None and self.context.cancel_check():
+            raise AIExecutionCancelled("AI run was cancelled")
         self.results.append(result)
         self._emit_tool_progress(definition.name, self._tool_message(definition.display_name, definition.side_effect, result.status), result.status)
         if result.status == "failed":

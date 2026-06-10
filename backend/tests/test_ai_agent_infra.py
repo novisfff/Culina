@@ -7,12 +7,12 @@ import unittest
 from datetime import date, timedelta
 from decimal import Decimal
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import httpx
 from fastapi.testclient import TestClient
 from langgraph.checkpoint.base import empty_checkpoint
-from langgraph.graph import END, START, StateGraph
 from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
@@ -21,9 +21,7 @@ from sqlalchemy import create_engine
 from app.ai.kitchen.recipe_drafts import build_recipe_image_render_payload
 from app.ai.planning import PlannerRequest, PlannerResult, WorkspacePlanner
 from app.ai.runtime.provider import BaseChatProvider, ChatProviderResult, DisabledChatProvider, OpenAICompatibleChatProvider
-from app.ai.skills import BaseSkill, MarkdownInstructionSkill, SkillContext, SkillDirectoryLoader, SkillExecutor, SkillManifest, SkillRegistry, SkillResult, SkillScriptRuntime, ToolCallingSkill, build_workspace_skill_registry
-from app.ai.skills.context_policy import read_skill_context
-from app.ai.skills.graph import GraphBackedSkill, GraphSkillState
+from app.ai.skills import BaseSkill, SkillContext, SkillDirectoryLoader, SkillExecutor, SkillManifest, SkillRegistry, SkillResult, SkillScriptCatalog, SkillScriptExecutor, ToolCallingSkill, build_workspace_skill_registry
 from app.ai.skills.shared import json_object
 from app.ai.tools import ToolContext, ToolExecutor, build_workspace_tool_registry
 from app.ai.workspace_service import AIApplicationService, DRAFT_APPROVAL_CONFIG
@@ -82,7 +80,7 @@ class FakeChatProvider(BaseChatProvider):
             elif any(term in message for term in ["库存", "临期", "快过期"]):
                 skills = ["inventory_analysis"]
             elif any(term in message for term in ["今日吃什么", "今天吃什么", "今晚吃什么"]):
-                skills = ["today_recommendation"]
+                skills = ["meal_plan"]
             else:
                 skills = []
             return ChatProviderResult(text=json.dumps({"skills": skills}), status="completed", model=self.model_name)
@@ -348,8 +346,13 @@ class FakeChatProvider(BaseChatProvider):
         del system, response_schema, max_rounds
         payload = json.loads(user)
         message = str(payload.get("currentMessage") or "")
+        quick_task = payload.get("quickTask")
         available_tool_names = {tool.name for tool in tools}
         tool_names: list[str] = []
+        recommendation_mode = quick_task == "today_recommendation" or (
+            any(term in message for term in ["今日吃什么", "今天吃什么", "今晚吃什么", "推荐一餐"])
+            and not any(term in message for term in ["安排", "计划", "菜单", "制定", "修改", "第二天", "三天"])
+        )
 
         def emit_visible(text: str) -> None:
             if visible_text_handler is not None:
@@ -359,7 +362,7 @@ class FakeChatProvider(BaseChatProvider):
             tool_names.append(name)
             return tool_handler(name, args or {})
 
-        if "meal_plan.create_draft" in available_tool_names:
+        if "meal_plan.create_draft" in available_tool_names and not recommendation_mode:
             emit_visible("我先看一下临期食材和最近餐食。")
             inventory = call("inventory.read_expiring_items", {"days": 7})
             call("inventory.read_available_items", {"limit": 80})
@@ -405,6 +408,23 @@ class FakeChatProvider(BaseChatProvider):
                     items = [dict(item) for item in source_items]
                     if len(items) > 1:
                         items[1].update({"title": "清淡蔬菜豆腐", "reason": "根据要求换成更适合孩子的清淡餐食", "missingIngredients": ["豆腐", "青菜"]})
+            validation = call("script.validate_meal_plan", {"plan": items})["result"]
+            if not validation.get("valid"):
+                return self._tool_result(
+                    {
+                        "text": "餐食计划结构校验失败，请重试。",
+                        "cards": [],
+                        "events": [],
+                        "context_summary": {"scriptValidation": validation},
+                        "state_patch": {},
+                        "requires_clarification": False,
+                        "status": "failed",
+                        "error": "meal plan script validation failed",
+                        "operation": operation,
+                        "source_artifact_id": source_id,
+                    },
+                    tool_names,
+                )
             draft = {
                 "draftType": "meal_plan",
                 "schemaVersion": "meal_plan.v1",
@@ -418,7 +438,11 @@ class FakeChatProvider(BaseChatProvider):
                     "text": f"我生成了 {len(items)} 条餐食计划草稿。",
                     "cards": [],
                     "events": [{"type": "draft", "message": "已生成餐食计划草稿"}],
-                    "context_summary": {"expiringItemCount": inventory.get("count", 0), "draftType": "meal_plan"},
+                    "context_summary": {
+                        "expiringItemCount": inventory.get("count", 0),
+                        "draftType": "meal_plan",
+                        "scriptValidation": validation,
+                    },
                     "state_patch": {"activeTask": "meal_plan", "activeDraftType": "meal_plan"},
                     "requires_clarification": False,
                     "status": "completed",
@@ -429,13 +453,25 @@ class FakeChatProvider(BaseChatProvider):
                 tool_names,
             )
 
-        if "shopping.create_draft" in available_tool_names or "shopping_list.create_draft" in available_tool_names:
+        if "shopping.create_draft" in available_tool_names:
             emit_visible("我先核对已有购物项和可用库存。")
             pending = call("shopping.read_pending", {"limit": 50})
             call("inventory.read_available_items", {"limit": 80})
             plans = [artifact for artifact in payload.get("artifacts", []) if artifact.get("type") == "meal_plan"]
             source_id = plans[-1]["id"] if plans else None
             items = [{"title": "鸡蛋", "quantity": 2, "unit": "个", "reason": "用于番茄鸡蛋面", "sourceMeals": ["番茄鸡蛋面"], "alreadyPending": False}]
+            canonical_title = call("script.normalize_ingredient", {"name": items[0]["title"]})["result"]
+            merged_items = call("script.merge_ingredients", {"items": items})["result"]
+            items = [
+                {
+                    **item,
+                    "title": canonical_title if index == 0 else item["title"],
+                    "reason": "用于番茄鸡蛋面",
+                    "sourceMeals": ["番茄鸡蛋面"],
+                    "alreadyPending": False,
+                }
+                for index, item in enumerate(merged_items)
+            ]
             draft = {"draftType": "shopping_list", "schemaVersion": "shopping_list.v1", "items": items, "sourceDraftId": source_id}
             call("shopping.create_draft", {"draft": draft})
             emit_visible("我根据餐食计划里的缺失食材合并了 1 个购物清单草稿项。")
@@ -640,6 +676,63 @@ class StreamingChatProvider(BaseChatProvider):
         yield "第二段"
 
 
+class FailingStreamingChatProvider(BaseChatProvider):
+    model_name = "stream-failing-model"
+
+    def generate(self, *, system: str, user: str, response_schema: dict | None = None) -> ChatProviderResult:
+        if "工作台的 Planner" in system:
+            return ChatProviderResult(text='{"skills":[]}', status="completed", model=self.model_name)
+        raise AssertionError("streaming chat should not call blocking generate")
+
+    def stream_generate(self, *, system: str, user: str, response_schema: dict | None = None):
+        yield "第一段"
+        raise RuntimeError("stream broke")
+
+
+class CapturingGeneralChatProvider(BaseChatProvider):
+    model_name = "capture-chat-model"
+
+    def __init__(self) -> None:
+        self.general_payloads: list[dict] = []
+
+    def generate(self, *, system: str, user: str, response_schema: dict | None = None) -> ChatProviderResult:
+        if "工作台的 Planner" in system:
+            return ChatProviderResult(text='{"skills":[]}', status="completed", model=self.model_name)
+        raise AssertionError("general chat should use stream_generate")
+
+    def stream_generate(self, *, system: str, user: str, response_schema: dict | None = None):
+        self.general_payloads.append(json.loads(user))
+        yield "收到，我会接着前文回答。"
+
+
+class CapturingToolSubjectProvider(FakeChatProvider):
+    def __init__(self) -> None:
+        super().__init__()
+        self.tool_payloads: list[dict] = []
+
+    def generate_with_tools(
+        self,
+        *,
+        system: str,
+        user: str,
+        tools: list,
+        tool_handler,
+        response_schema: dict | None = None,
+        max_rounds: int = 8,
+        visible_text_handler=None,
+    ) -> ChatProviderResult:
+        self.tool_payloads.append(json.loads(user))
+        return super().generate_with_tools(
+            system=system,
+            user=user,
+            tools=tools,
+            tool_handler=tool_handler,
+            response_schema=response_schema,
+            max_rounds=max_rounds,
+            visible_text_handler=visible_text_handler,
+        )
+
+
 class SequenceChatProvider(BaseChatProvider):
     model_name = "sequence-model"
 
@@ -702,6 +795,22 @@ class SequenceChatProvider(BaseChatProvider):
                     },
                     tool_names,
             )
+            validation = call("script.validate_meal_plan", {"plan": items})["result"]
+            if not validation.get("valid"):
+                return self._result(
+                    {
+                        "text": "餐食计划结构校验失败，请重试。",
+                        "cards": [],
+                        "events": [],
+                        "context_summary": {"scriptValidation": validation},
+                        "state_patch": {},
+                        "requires_clarification": False,
+                        "status": "failed",
+                        "error": "meal plan script validation failed",
+                        "operation": decision.get("operation"),
+                    },
+                    tool_names,
+                )
             draft = {"draftType": "meal_plan", "schemaVersion": "meal_plan.v1", "items": items, "source": {"days": decision.get("days") or 1, "mealTypes": decision.get("mealTypes") or ["dinner"]}}
             call("meal_plan.create_draft", {"draft": draft})
             return self._result(
@@ -709,7 +818,7 @@ class SequenceChatProvider(BaseChatProvider):
                     "text": f"我生成了 {len(items)} 条餐食计划草稿。",
                     "cards": [],
                     "events": [{"type": "draft", "message": "已生成餐食计划草稿"}],
-                    "context_summary": {"scriptValidation": {"valid": True, "errors": []}},
+                    "context_summary": {"scriptValidation": validation},
                     "state_patch": {},
                     "requires_clarification": False,
                     "status": "completed",
@@ -720,7 +829,7 @@ class SequenceChatProvider(BaseChatProvider):
                 tool_names,
             )
 
-        if "shopping.create_draft" in available_tool_names or "shopping_list.create_draft" in available_tool_names:
+        if "shopping.create_draft" in available_tool_names:
             call("shopping.read_pending", {"limit": 50})
             call("inventory.read_available_items", {"limit": 80})
             source_id = str(decision.get("sourceArtifactId") or "")
@@ -1046,7 +1155,7 @@ class AIAgentInfraTestCase(unittest.TestCase):
     def test_skill_catalog_scans_skill_markdown_and_enforces_platform_contracts(self) -> None:
         import yaml
 
-        skills_dir = Path(__file__).resolve().parents[1] / "app" / "ai" / "skills"
+        skills_dir = Path(__file__).resolve().parents[1] / "app" / "ai" / "skills" / "catalog"
         skill_registry = build_workspace_skill_registry()
         tool_registry = build_workspace_tool_registry()
         tool_names = {tool.name for tool in tool_registry.list()}
@@ -1080,9 +1189,14 @@ class AIAgentInfraTestCase(unittest.TestCase):
             self.assertFalse(any(tool.side_effect == "write" for tool in declared_tools), f"{key} must not expose write tools")
 
         keys = [key for key, _frontmatter in records]
+        self.assertEqual(
+            keys,
+            ["food_profile", "inventory_analysis", "meal_plan", "meal_log", "recipe_draft", "shopping_list"],
+        )
         self.assertEqual(skill_registry.keys(), set(keys))
         self.assertEqual([manifest.key for manifest in skill_registry.list_manifests()], keys)
         self.assertNotIn("general_chat", skill_registry.keys())
+        self.assertNotIn("today_recommendation", skill_registry.keys())
         self.assertIsInstance(skill_registry.get("inventory_analysis"), ToolCallingSkill)
 
     def test_ai_registry_endpoint_exposes_skill_and_tool_contracts(self) -> None:
@@ -1092,26 +1206,38 @@ class AIAgentInfraTestCase(unittest.TestCase):
         skills = {item["key"]: item for item in data["skills"]}
         tools = {item["name"]: item for item in data["tools"]}
 
+        self.assertEqual(len(skills), 6)
+        self.assertNotIn("today_recommendation", skills)
+        self.assertIn("today_recommendation", skills["meal_plan"]["output_types"])
         self.assertIn("meal_log", skills)
         self.assertEqual(skills["meal_log"]["runner"], "toolcall")
         self.assertEqual(skills["meal_log"]["context_policy"], ["foods", "meal_logs"])
         self.assertIn("meal_log.create_draft", skills["meal_log"]["tools"])
+        self.assertEqual(
+            skills["meal_plan"]["scripts"],
+            ["script.validate_meal_plan", "script.render_plan_preview"],
+        )
+        self.assertEqual(
+            skills["shopping_list"]["scripts"],
+            ["script.merge_ingredients", "script.normalize_ingredient"],
+        )
         self.assertIn("ingredient.search", skills["recipe_draft"]["tools"])
         self.assertEqual(tools["ingredient.search"]["display_name"], "食材资料")
         self.assertEqual(tools["ingredient.search"]["side_effect"], "read")
         self.assertEqual(tools["meal_log.create_draft"]["display_name"], "餐食记录确认表单")
         self.assertEqual(tools["meal_log.create_draft"]["permission"], "family:draft")
         self.assertEqual(tools["meal_log.create_draft"]["side_effect"], "draft")
+        self.assertNotIn("shopping_list.create_draft", tools)
         self.assertEqual(
             tools["meal_log.create_draft"]["input_schema"]["properties"]["draft"]["properties"]["draftType"]["enum"],
             ["meal_log"],
         )
 
-    def test_skill_loader_uses_document_runner_without_skill_python_entrypoint(self) -> None:
+    def test_skill_loader_uses_unified_toolcall_runner_without_skill_python_entrypoint(self) -> None:
         skill_registry = build_workspace_skill_registry()
         self.assertEqual(skill_registry.get("meal_plan").manifest.runner, "toolcall")
         self.assertIsInstance(skill_registry.get("meal_plan"), ToolCallingSkill)
-        self.assertFalse(any(Path(__file__).resolve().parents[1].glob("app/ai/skills/*/skill.py")))
+        self.assertFalse(any(Path(__file__).resolve().parents[1].glob("app/ai/skills/catalog/*/skill.py")))
 
     def test_skill_loader_accepts_markdown_only_skill_without_python_entrypoint(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -1131,7 +1257,7 @@ class AIAgentInfraTestCase(unittest.TestCase):
             self.assertEqual(len(skills), 1)
             self.assertIsInstance(skills[0], ToolCallingSkill)
 
-    def test_markdown_skill_loader_includes_supplemental_docs_and_scripts(self) -> None:
+    def test_skill_loader_includes_conventional_workflow_without_frontmatter_noise(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             catalog_dir = Path(tmp_dir)
             skill_dir = catalog_dir / "simple-skill"
@@ -1141,46 +1267,203 @@ class AIAgentInfraTestCase(unittest.TestCase):
                 "name: simple-skill\n"
                 "display_name: 简单 Skill\n"
                 "description: Markdown only.\n"
-                "workflow_files: [workflows.md]\n"
-                "hitl_files: [hitl.md]\n"
-                "example_files: [examples.md]\n"
-                "script_files: [scripts/helper.py]\n"
                 "approval_policy: none\n"
                 "---\n"
-                "# Root\n",
+                "# Root\n\nBody instructions.\n",
                 encoding="utf-8",
             )
             (skill_dir / "workflows.md").write_text("workflow content", encoding="utf-8")
-            (skill_dir / "hitl.md").write_text("hitl content", encoding="utf-8")
-            (skill_dir / "examples.md").write_text("example content", encoding="utf-8")
-            (skill_dir / "scripts").mkdir()
-            (skill_dir / "scripts" / "helper.py").write_text("def normalize(value):\n    return value\n", encoding="utf-8")
             skills = SkillDirectoryLoader(catalog_dir).load()
             self.assertIsInstance(skills[0], ToolCallingSkill)
             instructions = skills[0].instructions
+            self.assertIn("Body instructions.", instructions)
             self.assertIn("workflow content", instructions)
-            self.assertIn("hitl content", instructions)
-            self.assertIn("example content", instructions)
-            self.assertIn("scripts/helper.py", instructions)
-            self.assertIn("def normalize", instructions)
+            self.assertNotIn("name: simple-skill", instructions)
 
-    def test_skill_loader_rejects_allowed_forbidden_tool_overlap(self) -> None:
+    def test_skill_loader_exposes_declared_scripts_as_model_tools(self) -> None:
+        skill = build_workspace_skill_registry().get("meal_plan")
+        definitions = {
+            definition.name: definition
+            for definition in SkillScriptExecutor(
+                skill.script_catalog,
+                SkillContext(
+                    db=MagicMock(),
+                    family_id="family-test",
+                    user_id="user-test",
+                    conversation_id="conversation-test",
+                    run_id="run-test",
+                    conversation=[],
+                    current_message="",
+                    tool_executor=MagicMock(),
+                ),
+            ).tool_definitions()
+        }
+
+        self.assertEqual(
+            set(definitions),
+            {"script.validate_meal_plan", "script.render_plan_preview"},
+        )
+        self.assertEqual(
+            definitions["script.validate_meal_plan"].input_schema["required"],
+            ["plan"],
+        )
+        self.assertEqual(
+            definitions["script.render_plan_preview"].output_schema["properties"]["result"]["type"],
+            "string",
+        )
+        self.assertEqual(
+            definitions["script.validate_meal_plan"].permission,
+            "skill:script",
+        )
+
+    def test_skill_loader_rejects_unsafe_script_imports(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             catalog_dir = Path(tmp_dir)
-            skill_dir = catalog_dir / "bad-skill"
-            skill_dir.mkdir()
+            skill_dir = catalog_dir / "unsafe-skill"
+            scripts_dir = skill_dir / "scripts"
+            scripts_dir.mkdir(parents=True)
             (skill_dir / "SKILL.md").write_text(
                 "---\n"
-                "name: bad-skill\n"
-                "description: Invalid.\n"
-                "allowed_tools: [inventory.read_summary]\n"
-                "forbidden_tools: [inventory.read_summary]\n"
+                "name: unsafe-skill\n"
+                "description: Unsafe script.\n"
+                "script_files: [scripts/unsafe.py]\n"
                 "approval_policy: none\n"
                 "---\n",
                 encoding="utf-8",
             )
-            with self.assertRaisesRegex(ValueError, "allows forbidden tools"):
+            (scripts_dir / "unsafe.py").write_text(
+                "import os\n\n"
+                "def inspect_environment() -> dict:\n"
+                "    return dict(os.environ)\n",
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(ValueError, "unsupported import"):
                 SkillDirectoryLoader(catalog_dir).load()
+
+    def test_skill_script_executor_times_out_and_records_failure(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            skill_dir = Path(tmp_dir) / "slow-skill"
+            scripts_dir = skill_dir / "scripts"
+            scripts_dir.mkdir(parents=True)
+            (scripts_dir / "slow.py").write_text(
+                "def wait_forever() -> dict:\n"
+                "    while True:\n"
+                "        pass\n",
+                encoding="utf-8",
+            )
+            catalog = SkillScriptCatalog(skill_dir, ["scripts/slow.py"])
+            executor = SkillScriptExecutor(
+                catalog,
+                SkillContext(
+                    db=MagicMock(),
+                    family_id="family-test",
+                    user_id="user-test",
+                    conversation_id="conversation-test",
+                    run_id="run-test",
+                    conversation=[],
+                    current_message="",
+                    tool_executor=MagicMock(),
+                ),
+                timeout_seconds=0.05,
+            )
+
+            with self.assertRaisesRegex(RuntimeError, "timed out"):
+                executor.call("script.wait_forever", {})
+
+            self.assertEqual(executor.records()[0]["status"], "failed")
+
+    def test_tool_calling_skill_executes_script_through_model_tool_handler(self) -> None:
+        class ScriptCallingProvider(BaseChatProvider):
+            model_name = "script-calling-model"
+
+            def generate(self, *, system: str, user: str, response_schema: dict | None = None) -> ChatProviderResult:
+                raise AssertionError("tool-calling skill should use generate_with_tools")
+
+            def generate_with_tools(
+                self,
+                *,
+                system: str,
+                user: str,
+                tools: list,
+                tool_handler,
+                response_schema: dict | None = None,
+                max_rounds: int = 8,
+            ) -> ChatProviderResult:
+                del system, user, response_schema, max_rounds
+                self.assert_script_is_exposed = "script.validate_meal_plan" in {
+                    tool.name for tool in tools
+                }
+                validation = tool_handler(
+                    "script.validate_meal_plan",
+                    {
+                        "plan": [
+                            {
+                                "date": date.today().isoformat(),
+                                "mealType": "dinner",
+                                "title": "番茄小炒",
+                                "foodId": "food-tomato",
+                            }
+                        ]
+                    },
+                )["result"]
+                return ChatProviderResult(
+                    text=json.dumps(
+                        {
+                            "text": "计划结构检查完成。",
+                            "cards": [],
+                            "drafts": [],
+                            "events": [],
+                            "context_summary": {"scriptValidation": validation},
+                            "state_patch": {},
+                            "requires_clarification": False,
+                            "status": "completed",
+                            "error": None,
+                        },
+                        ensure_ascii=False,
+                    ),
+                    status="completed",
+                    model=self.model_name,
+                    structured_mode="tool_call",
+                )
+
+        provider = ScriptCallingProvider()
+        progress_events: list[dict] = []
+        skill = build_workspace_skill_registry().get("meal_plan")
+        with self.SessionLocal() as db:
+            result = skill.run(
+                SkillContext(
+                    db=db,
+                    family_id=self.family.id,
+                    user_id=self.user.id,
+                    conversation_id="conversation-test",
+                    run_id="run-test",
+                    conversation=[],
+                    current_message="检查这个餐食计划",
+                    tool_executor=ToolExecutor(
+                        build_workspace_tool_registry(),
+                        ToolContext(
+                            db=db,
+                            family_id=self.family.id,
+                            user_id=self.user.id,
+                            conversation_id="conversation-test",
+                            run_id="run-test",
+                        ),
+                    ),
+                    provider=provider,
+                    stream_writer=progress_events.append,
+                )
+            )
+
+        self.assertTrue(provider.assert_script_is_exposed)
+        self.assertEqual(result.context_summary["scriptValidation"], {"valid": True, "errors": []})
+        self.assertEqual(result.tool_calls[0]["name"], "script.validate_meal_plan")
+        self.assertTrue(
+            any(
+                event.get("data", {}).get("type") == "script"
+                for event in progress_events
+            )
+        )
 
     def test_skill_loader_rejects_unknown_allowed_tool_when_registry_is_available(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -1215,23 +1498,6 @@ class AIAgentInfraTestCase(unittest.TestCase):
             )
             with self.assertRaisesRegex(ValueError, "exposes non-read tools without approval"):
                 SkillDirectoryLoader(catalog_dir, tool_registry=build_workspace_tool_registry()).load()
-
-    def test_skill_script_runtime_executes_declared_helpers(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            skill_dir = Path(tmp_dir)
-            scripts_dir = skill_dir / "scripts"
-            scripts_dir.mkdir()
-            (scripts_dir / "helper.py").write_text(
-                "from decimal import Decimal\n\n"
-                "def normalize(value):\n"
-                "    return {'value': Decimal(str(value))}\n",
-                encoding="utf-8",
-            )
-            runtime = SkillScriptRuntime(skill_dir, ["scripts/helper.py"])
-
-            self.assertTrue(runtime.has_function("normalize"))
-            self.assertEqual(runtime.call("normalize", "1.5"), {"value": 1.5})
-            self.assertEqual(runtime.describe(), [{"file": "scripts/helper.py", "functions": ["normalize"]}])
 
     def test_skill_loader_rejects_directory_missing_required_markdown(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -1428,111 +1694,7 @@ class AIAgentInfraTestCase(unittest.TestCase):
         self.assertEqual(result.status, "failed")
         self.assertIn("returned invalid status", result.context_summary["skillExecutions"][0]["diagnostic"])
 
-    def test_context_policy_reads_only_declared_policy_tools(self) -> None:
-        manifest = SkillManifest(
-            key="context_test",
-            name="上下文测试",
-            description="测试 context policy。",
-            examples=[],
-            context_policy=["inventory"],
-            tools=["inventory.read_summary", "shopping.read_pending"],
-            output_types=[],
-            draft_types=[],
-            approval_policy="none",
-            can_continue_from=[],
-            intent="context_test",
-            agent_key="context_test_agent",
-        )
-        with self.SessionLocal() as db:
-            tool_executor = ToolExecutor(
-                build_workspace_tool_registry(),
-                ToolContext(
-                    db=db,
-                    family_id=self.family.id,
-                    user_id=self.user.id,
-                    conversation_id="conversation-test",
-                    run_id="run-test",
-                ),
-            ).scoped(
-                allowed_tools=set(manifest.tools),
-                allowed_side_effects={"read"},
-            )
-            context = SkillContext(
-                db=db,
-                family_id=self.family.id,
-                user_id=self.user.id,
-                conversation_id="conversation-test",
-                run_id="run-test",
-                conversation=[],
-                current_message="测试",
-                tool_executor=tool_executor,
-                provider=FakeChatProvider(),
-            )
-            outputs = read_skill_context(context, manifest, payloads={"inventory.read_summary": {"days": 7}})
-
-        self.assertEqual(set(outputs), {"inventory.read_summary"})
-        self.assertEqual([item["name"] for item in tool_executor.records()], ["inventory.read_summary"])
-
-    def test_context_policy_returns_artifacts_and_ingredient_catalog(self) -> None:
-        manifest = SkillManifest(
-            key="context_test",
-            name="上下文测试",
-            description="测试 context policy。",
-            context_policy=["artifacts", "ingredients"],
-            tools=["ingredient.search"],
-            approval_policy="none",
-            intent="context_test",
-            agent_key="context_test_agent",
-        )
-        with self.SessionLocal() as db:
-            tool_executor = ToolExecutor(
-                build_workspace_tool_registry(),
-                ToolContext(
-                    db=db,
-                    family_id=self.family.id,
-                    user_id=self.user.id,
-                    conversation_id="conversation-test",
-                    run_id="run-test",
-                ),
-            )
-            outputs = read_skill_context(
-                SkillContext(
-                    db=db,
-                    family_id=self.family.id,
-                    user_id=self.user.id,
-                    conversation_id="conversation-test",
-                    run_id="run-test",
-                    conversation=[
-                        {
-                            "id": "message-1",
-                            "role": "assistant",
-                            "content": "",
-                            "artifacts": [{"id": "draft-1", "type": "meal_plan", "payload": {"items": []}}],
-                        }
-                    ],
-                    current_run_artifacts=[
-                        {
-                            "id": "in_run:meal_plan:1",
-                            "type": "meal_plan",
-                            "kind": "draft",
-                            "status": "proposed",
-                            "payload": {"items": [{"title": "番茄鸡蛋面"}]},
-                            "sourceSkill": "meal_plan",
-                        }
-                    ],
-                    current_message="测试",
-                    tool_executor=tool_executor,
-                    provider=FakeChatProvider(),
-                ),
-                manifest,
-            )
-        self.assertEqual(outputs["conversation.artifacts"]["count"], 2)
-        self.assertEqual(outputs["conversation.artifacts"]["items"][0]["id"], "draft-1")
-        self.assertEqual(outputs["conversation.artifacts"]["items"][1]["id"], "in_run:meal_plan:1")
-        self.assertGreaterEqual(outputs["ingredient.search"]["count"], 1)
-        self.assertIn("番茄", str(outputs["ingredient.search"]["items"]))
-
-    def test_markdown_instruction_skill_reads_declared_read_tools_and_model_response(self) -> None:
+    def test_tool_calling_inventory_skill_reads_declared_tools_and_model_response(self) -> None:
         skill = build_workspace_skill_registry().get("inventory_analysis")
         self.assertIsInstance(skill, ToolCallingSkill)
         with self.SessionLocal() as db:
@@ -1760,60 +1922,7 @@ class AIAgentInfraTestCase(unittest.TestCase):
         self.assertIn("inventory.read_expiring_items", tool_names)
         self.assertIn("meal_plan.create_draft", tool_names)
 
-    def test_markdown_instruction_skill_does_not_auto_call_draft_or_write_tools(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            skill_dir = Path(tmp_dir)
-            (skill_dir / "SKILL.md").write_text(
-                "---\nname: markdown-test\ndescription: Markdown test.\n---\n# Test\nDo not create drafts.",
-                encoding="utf-8",
-            )
-            skill = MarkdownInstructionSkill(
-                SkillManifest(
-                    key="markdown_test",
-                    name="测试 Markdown Skill",
-                    description="测试只读工具边界。",
-                    examples=[],
-                    context_policy=[],
-                    tools=["inventory.read_summary", "shopping.create_draft"],
-                    output_types=[],
-                    draft_types=[],
-                    approval_policy="none",
-                    can_continue_from=[],
-                    intent="markdown_test",
-                    agent_key="markdown_test_agent",
-                ),
-                skill_dir,
-            )
-            with self.SessionLocal() as db:
-                tool_executor = ToolExecutor(
-                    build_workspace_tool_registry(),
-                    ToolContext(
-                        db=db,
-                        family_id=self.family.id,
-                        user_id=self.user.id,
-                        conversation_id="conversation-test",
-                        run_id="run-test",
-                    ),
-                )
-                result = skill.run(
-                    SkillContext(
-                        db=db,
-                        family_id=self.family.id,
-                        user_id=self.user.id,
-                        conversation_id="conversation-test",
-                        run_id="run-test",
-                        conversation=[],
-                        current_message="库存怎么样",
-                        tool_executor=tool_executor,
-                        provider=FakeChatProvider(),
-                    )
-                )
-                tool_names = [item["name"] for item in tool_executor.records()]
-
-        self.assertEqual(result.status, "completed")
-        self.assertEqual(tool_names, ["inventory.read_summary"])
-
-    def test_markdown_instruction_skill_fails_invalid_model_json(self) -> None:
+    def test_tool_calling_skill_fails_invalid_model_json(self) -> None:
         skill = build_workspace_skill_registry().get("inventory_analysis")
         with self.SessionLocal() as db:
             result = skill.run(
@@ -1842,7 +1951,7 @@ class AIAgentInfraTestCase(unittest.TestCase):
         self.assertEqual(result.status, "failed")
         self.assertIn("没有返回有效结果", result.text)
 
-    def test_graph_backed_meal_plan_repairs_empty_items(self) -> None:
+    def test_tool_calling_meal_plan_repairs_empty_items(self) -> None:
         empty_decision = json.dumps(
             {
                 "operation": "create",
@@ -1905,10 +2014,15 @@ class AIAgentInfraTestCase(unittest.TestCase):
         self.assertEqual(result.context_summary["scriptValidation"], {"valid": True, "errors": []})
         self.assertEqual(result.drafts[0]["draft_type"], "meal_plan")
         self.assertIn("番茄小炒", str(result.drafts[0]["payload"]))
+        self.assertIn("script.validate_meal_plan", tool_names)
         self.assertIn("meal_plan.create_draft", tool_names)
+        self.assertLess(
+            tool_names.index("script.validate_meal_plan"),
+            tool_names.index("meal_plan.create_draft"),
+        )
         self.assertEqual(provider.responses, [])
 
-    def test_graph_backed_shopping_list_invalid_source_does_not_create_draft(self) -> None:
+    def test_tool_calling_shopping_list_invalid_source_does_not_create_draft(self) -> None:
         provider = SequenceChatProvider(
             [
                 json.dumps(
@@ -1947,7 +2061,7 @@ class AIAgentInfraTestCase(unittest.TestCase):
         self.assertEqual(result.error, "invalid meal_plan source artifact")
         self.assertNotIn("shopping.create_draft", tool_names)
 
-    def test_graph_backed_shopping_list_accepts_current_run_meal_plan_artifact(self) -> None:
+    def test_tool_calling_shopping_list_accepts_current_run_meal_plan_artifact(self) -> None:
         provider = SequenceChatProvider(
             [
                 json.dumps(
@@ -1997,7 +2111,7 @@ class AIAgentInfraTestCase(unittest.TestCase):
         self.assertEqual(result.drafts[0]["payload"]["sourceDraftId"], "in_run:meal_plan:meal_plan:1")
         self.assertIn("shopping.create_draft", tool_names)
 
-    def test_graph_backed_shopping_list_empty_repair_still_empty_skips_draft(self) -> None:
+    def test_tool_calling_shopping_list_empty_repair_still_empty_skips_draft(self) -> None:
         empty_decision = json.dumps(
             {
                 "operation": "derive",
@@ -2050,60 +2164,6 @@ class AIAgentInfraTestCase(unittest.TestCase):
         self.assertIn("当前没有需要加入购物清单", result.text)
         self.assertNotIn("shopping.create_draft", tool_names)
         self.assertEqual(provider.responses, [])
-
-    def test_skill_executor_enforces_tool_policy_for_graph_backed_skill(self) -> None:
-        class UndeclaredGraphSkill(GraphBackedSkill):
-            def build_graph(self) -> StateGraph:
-                graph = StateGraph(GraphSkillState)
-
-                def call_undeclared_tool(state: GraphSkillState) -> GraphSkillState:
-                    del state
-                    self.skill_context.tool_executor.call("inventory.read_available_items", {"limit": 10})
-                    return {"result": SkillResult(text="should not reach")}
-
-                graph.add_node("call_tool", call_undeclared_tool)
-                graph.add_edge(START, "call_tool")
-                graph.add_edge("call_tool", END)
-                return graph
-
-        manifest = SkillManifest(
-            key="graph_limited_skill",
-            name="受限 Graph Skill",
-            description="测试 Graph-backed Skill 工具边界。",
-            examples=[],
-            context_policy=[],
-            tools=["inventory.read_summary"],
-            output_types=[],
-            draft_types=[],
-            approval_policy="none",
-            can_continue_from=[],
-            intent="graph_limited",
-            agent_key="graph_limited_agent",
-        )
-        registry = SkillRegistry()
-        registry.register(UndeclaredGraphSkill(manifest))
-        with self.SessionLocal() as db:
-            result = SkillExecutor(registry).run(
-                PlannerResult(skills=["graph_limited_skill"]),
-                SkillContext(
-                    db=db,
-                    family_id=self.family.id,
-                    user_id=self.user.id,
-                    conversation_id="conversation-test",
-                    run_id="run-test",
-                    conversation=[],
-                    current_message="测试",
-                    tool_executor=ToolExecutor(
-                        build_workspace_tool_registry(),
-                        ToolContext(db=db, family_id=self.family.id, user_id=self.user.id, conversation_id="conversation-test", run_id="run-test"),
-                    ),
-                    provider=FakeChatProvider(),
-                ),
-            )
-
-        self.assertEqual(result.status, "failed")
-        self.assertIn("受限 Graph Skill执行失败", result.text)
-        self.assertIn("未声明工具", result.context_summary["skillExecutions"][0]["diagnostic"])
 
     def test_phase_a_tool_executor_records_real_tool_calls(self) -> None:
         with self.SessionLocal() as db:
@@ -2523,8 +2583,10 @@ class AIAgentInfraTestCase(unittest.TestCase):
         self.assertEqual(response.status_code, 200, response.text)
         data = response.json()
         self.assertIn("conversation_id", data)
-        self.assertEqual(data["run"]["agent_key"], "today_recommendation_agent")
-        self.assertEqual(data["run"]["intent"], "today_recommendation")
+        self.assertEqual(data["run"]["agent_key"], "meal_plan_agent")
+        self.assertEqual(data["run"]["intent"], "meal_plan")
+        self.assertEqual(data["included"]["drafts"], [])
+        self.assertEqual(data["included"]["approvals"], [])
         card_parts = [part for part in data["message"]["parts"] if part["type"] == "result_card"]
         self.assertEqual(card_parts[0]["card"]["type"], "today_recommendation")
         recommendations = card_parts[0]["card"]["data"]["recommendations"]
@@ -2538,12 +2600,13 @@ class AIAgentInfraTestCase(unittest.TestCase):
             run = db.get(AIAgentRun, data["run"]["id"])
             self.assertEqual(len(messages), 2)
             event_messages = [event.user_message for event in events]
-            self.assertIn("调用「今日推荐」技能", event_messages)
+            self.assertIn("调用「餐食计划」技能", event_messages)
             self.assertIn("调用「可用库存」", event_messages)
-            self.assertIn("今日推荐执行完成", event_messages)
+            self.assertIn("餐食计划执行完成", event_messages)
             self.assertIsNotNone(run)
             assert run is not None
-            self.assertEqual(run.intent, "today_recommendation")
+            self.assertEqual(run.intent, "meal_plan")
+            self.assertEqual(run.context_summary["routing"]["skills"], ["meal_plan"])
             self.assertEqual(run.context_summary["inventoryItemCount"], 1)
             tool_names = [item["name"] for item in run.tool_calls]
             self.assertIn("inventory.read_available_items", tool_names)
@@ -2551,6 +2614,17 @@ class AIAgentInfraTestCase(unittest.TestCase):
             self.assertIn("food.search", tool_names)
             self.assertIn("meal_log.read_recent", tool_names)
             self.assertIn("recipe.search", tool_names)
+            self.assertNotIn("meal_plan.create_draft", tool_names)
+
+    def test_ai_workspace_routes_natural_today_recommendation_to_meal_plan_without_draft(self) -> None:
+        response = self.client.post("/api/ai/chat", json={"message": "今晚吃什么？"})
+        self.assertEqual(response.status_code, 200, response.text)
+        data = response.json()
+        self.assertEqual(data["run"]["agent_key"], "meal_plan_agent")
+        self.assertEqual(data["run"]["intent"], "meal_plan")
+        self.assertEqual(data["included"]["drafts"], [])
+        self.assertEqual(data["included"]["approvals"], [])
+        self.assertEqual(data["included"]["result_cards"][0]["type"], "today_recommendation")
 
     def test_ai_workspace_messages_are_family_scoped(self) -> None:
         create_response = self.client.post("/api/ai/chat", json={"message": "随便聊聊"})
@@ -2567,6 +2641,189 @@ class AIAgentInfraTestCase(unittest.TestCase):
         data = response.json()
         self.assertEqual(data["run"]["intent"], "general_chat")
         self.assertEqual(data["events"], [])
+
+    def test_ai_workspace_general_chat_sends_conversation_history_to_provider(self) -> None:
+        provider = CapturingGeneralChatProvider()
+        with patch("app.ai.workspace_service.get_chat_provider", return_value=provider):
+            first_response = self.client.post("/api/ai/chat", json={"message": "给我两个早餐思路"})
+            self.assertEqual(first_response.status_code, 200, first_response.text)
+            conversation_id = first_response.json()["conversation_id"]
+
+            second_response = self.client.post(
+                "/api/ai/chat",
+                json={"conversation_id": conversation_id, "message": "那第二种呢"},
+            )
+            self.assertEqual(second_response.status_code, 200, second_response.text)
+
+        self.assertGreaterEqual(len(provider.general_payloads), 2)
+        second_payload = provider.general_payloads[-1]
+        self.assertEqual(second_payload["currentMessage"], "那第二种呢")
+        history = second_payload["conversation"]
+        self.assertTrue(any(item["role"] == "user" and item["content"] == "给我两个早餐思路" for item in history), history)
+        self.assertTrue(any(item["role"] == "assistant" and "收到" in item["content"] for item in history), history)
+        self.assertTrue(any(item["role"] == "user" and item["content"] == "那第二种呢" for item in history), history)
+
+    def test_ai_workspace_subject_references_reach_toolcalling_skill_payload(self) -> None:
+        provider = CapturingToolSubjectProvider()
+        with patch("app.ai.workspace_service.get_chat_provider", return_value=provider):
+            response = self.client.post(
+                "/api/ai/chat",
+                json={
+                    "message": "安排三天晚餐",
+                    "subject": {
+                        "source": "ingredient-page",
+                        "ingredientIds": ["ingredient-tomato"],
+                    },
+                },
+            )
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertGreaterEqual(len(provider.tool_payloads), 1)
+        subject = provider.tool_payloads[0]["subject"]
+        self.assertEqual(subject["source"], "ingredient-page")
+        self.assertEqual(subject["ingredient_ids"], ["ingredient-tomato"])
+        with self.SessionLocal() as db:
+            run = db.get(AIAgentRun, response.json()["run"]["id"])
+            self.assertIsNotNone(run)
+            assert run is not None
+            self.assertEqual(run.input["subject"]["ingredient_ids"], ["ingredient-tomato"])
+
+    def test_ai_workspace_reuses_completed_client_message_and_run_ids(self) -> None:
+        payload = {
+            "message": "随便聊聊",
+            "client_message_id": "client-message-idempotent",
+            "client_run_id": "agent_run-idempotent",
+        }
+        first_response = self.client.post("/api/ai/chat", json=payload)
+        self.assertEqual(first_response.status_code, 200, first_response.text)
+        second_response = self.client.post("/api/ai/chat", json=payload)
+        self.assertEqual(second_response.status_code, 200, second_response.text)
+
+        first_data = first_response.json()
+        second_data = second_response.json()
+        self.assertEqual(second_data["run"]["id"], first_data["run"]["id"])
+        self.assertEqual(second_data["message"]["id"], first_data["message"]["id"])
+        with self.SessionLocal() as db:
+            user_messages = list(
+                db.scalars(
+                    select(AIMessage).where(
+                        AIMessage.family_id == self.family.id,
+                        AIMessage.role == "user",
+                        AIMessage.client_message_id == "client-message-idempotent",
+                    )
+                )
+            )
+            runs = list(db.scalars(select(AIAgentRun).where(AIAgentRun.id == "agent_run-idempotent")))
+            self.assertEqual(len(user_messages), 1)
+            self.assertEqual(len(runs), 1)
+
+    def test_ai_workspace_duplicate_running_client_run_returns_conflict(self) -> None:
+        with self.SessionLocal() as db:
+            conversation = AIConversation(
+                id="conversation-running-idempotency",
+                family_id=self.family.id,
+                mode=AiMode.RECOMMENDATION,
+                prompt="处理中",
+                response="",
+                context={"workspace": True},
+                created_by=self.user.id,
+            )
+            run = AIAgentRun(
+                id="agent_run-running-idempotency",
+                family_id=self.family.id,
+                conversation_id=conversation.id,
+                message_id=None,
+                agent_key="workspace_orchestrator",
+                feature_key="ai_workspace_chat",
+                intent="general_chat",
+                input_summary="处理中",
+                context_summary={},
+                output_summary="",
+                status="running",
+                model="fake-model",
+                input={"prompt": "处理中", "subject": {}},
+                output={},
+                tool_calls=[],
+                duration_ms=0,
+                created_by=self.user.id,
+            )
+            db.add_all([conversation, run])
+            db.commit()
+
+        response = self.client.post(
+            "/api/ai/chat",
+            json={"message": "重试同一个运行", "client_run_id": "agent_run-running-idempotency"},
+        )
+        self.assertEqual(response.status_code, 409, response.text)
+
+    def test_ai_workspace_rejects_new_message_when_conversation_has_active_run(self) -> None:
+        with self.SessionLocal() as db:
+            conversation = AIConversation(
+                id="conversation-active-run",
+                family_id=self.family.id,
+                mode=AiMode.RECOMMENDATION,
+                prompt="处理中",
+                response="",
+                context={"workspace": True},
+                created_by=self.user.id,
+            )
+            run = AIAgentRun(
+                id="agent_run-active-conversation",
+                family_id=self.family.id,
+                conversation_id=conversation.id,
+                message_id=None,
+                agent_key="workspace_orchestrator",
+                feature_key="ai_workspace_chat",
+                intent="general_chat",
+                input_summary="处理中",
+                context_summary={},
+                output_summary="",
+                status="running",
+                model="fake-model",
+                input={"prompt": "处理中", "subject": {}},
+                output={},
+                tool_calls=[],
+                duration_ms=0,
+                created_by=self.user.id,
+            )
+            db.add_all([conversation, run])
+            db.commit()
+
+        response = self.client.post(
+            "/api/ai/chat",
+            json={"message": "新消息", "conversation_id": "conversation-active-run"},
+        )
+        self.assertEqual(response.status_code, 409, response.text)
+        self.assertIn("当前会话已有 AI 任务", response.text)
+
+    def test_ai_status_reports_disabled_provider_without_secrets(self) -> None:
+        settings = SimpleNamespace(ai_provider="disabled", ai_model="", ai_api_key="")
+        with patch("app.api.ai.get_settings", return_value=settings):
+            response = self.client.get("/api/ai/status")
+        self.assertEqual(response.status_code, 200, response.text)
+        data = response.json()
+        self.assertFalse(data["enabled"])
+        self.assertEqual(data["status"], "disabled")
+        self.assertEqual(data["provider"], "disabled")
+        self.assertNotIn("api_key", data)
+
+    def test_ai_status_reports_ready_provider_without_secrets(self) -> None:
+        settings = SimpleNamespace(ai_provider="openai-compatible", ai_model="fake-model", ai_api_key="secret")
+        with patch("app.api.ai.get_settings", return_value=settings):
+            response = self.client.get("/api/ai/status")
+        self.assertEqual(response.status_code, 200, response.text)
+        data = response.json()
+        self.assertTrue(data["enabled"])
+        self.assertEqual(data["status"], "ready")
+        self.assertEqual(data["model"], "fake-model")
+        self.assertNotIn("secret", response.text)
+
+    def test_ai_chat_request_rejects_blank_message_before_running_agent(self) -> None:
+        response = self.client.post("/api/ai/chat", json={"message": "   "})
+        self.assertEqual(response.status_code, 422, response.text)
+
+    def test_ai_chat_request_rejects_overlong_message_before_running_agent(self) -> None:
+        response = self.client.post("/api/ai/chat", json={"message": "x" * 2001})
+        self.assertEqual(response.status_code, 422, response.text)
 
     def test_ai_workspace_messages_normalize_legacy_result_cards_missing_id_and_title(self) -> None:
         with self.SessionLocal() as db:
@@ -3339,7 +3596,7 @@ class AIAgentInfraTestCase(unittest.TestCase):
             self.assertEqual(response.status_code, 200)
             body = "".join(response.iter_text())
         self.assertIn("event: progress", body)
-        self.assertIn("调用「今日推荐」技能", body)
+        self.assertIn("调用「餐食计划」技能", body)
         self.assertIn("调用「可用库存」", body)
         self.assertIn("agent_run-client-test", body)
         self.assertIn("event: message_delta", body)
@@ -3347,21 +3604,21 @@ class AIAgentInfraTestCase(unittest.TestCase):
         self.assertIn("我按当前库存和最近餐食整理了今天的建议。", body)
         self.assertNotIn("<structured_result>", body)
         self.assertNotIn("读取上下文：inventory.read_available_items", body)
-        self.assertIn("今日推荐执行完成", body)
+        self.assertIn("餐食计划执行完成", body)
         self.assertLess(body.index("我先看一下库存、菜谱和最近餐食。"), body.index("调用「可用库存」"))
         self.assertLess(body.index("调用「可用库存」"), body.index("我按当前库存和最近餐食整理了今天的建议。"))
-        self.assertLess(body.index("调用「今日推荐」技能"), body.index("调用「可用库存」"))
-        self.assertLess(body.index("调用「今日推荐」技能"), body.index("event: response"))
-        self.assertLess(body.index("今日推荐执行完成"), body.index("event: response"))
+        self.assertLess(body.index("调用「餐食计划」技能"), body.index("调用「可用库存」"))
+        self.assertLess(body.index("调用「餐食计划」技能"), body.index("event: response"))
+        self.assertLess(body.index("餐食计划执行完成"), body.index("event: response"))
         self.assertIn("event: response", body)
-        self.assertIn("today_recommendation_agent", body)
+        self.assertIn("meal_plan_agent", body)
         self.assertIn("我先看一下库存、菜谱和最近餐食。\\n我按当前库存和最近餐食整理了今天的建议。", body)
         events_response = self.client.get("/api/ai/runs/agent_run-client-test/events")
         self.assertEqual(events_response.status_code, 200)
         event_messages = [event["user_message"] for event in events_response.json()]
-        self.assertIn("调用「今日推荐」技能", event_messages)
+        self.assertIn("调用「餐食计划」技能", event_messages)
         self.assertIn("调用「可用库存」", event_messages)
-        self.assertIn("今日推荐执行完成", event_messages)
+        self.assertIn("餐食计划执行完成", event_messages)
 
     def test_ai_workspace_phase4_streams_draft_progress_before_approval_response(self) -> None:
         with self.client.stream(
@@ -3414,6 +3671,43 @@ class AIAgentInfraTestCase(unittest.TestCase):
         self.assertLess(body.index("第一段"), body.index("event: response"))
         self.assertIn("general_chat_agent", body)
 
+    def test_ai_workspace_stream_failure_marks_run_failed(self) -> None:
+        with patch("app.ai.workspace_service.get_chat_provider", return_value=FailingStreamingChatProvider()):
+            with self.client.stream(
+                "POST",
+                "/api/ai/chat/stream",
+                json={"message": "随便聊聊", "client_run_id": "agent_run-stream-failure-test"},
+            ) as response:
+                self.assertEqual(response.status_code, 200)
+                body = "".join(response.iter_text())
+
+        self.assertIn("event: message_delta", body)
+        self.assertIn("event: error", body)
+        with self.SessionLocal() as db:
+            run = db.get(AIAgentRun, "agent_run-stream-failure-test")
+            self.assertIsNotNone(run)
+            assert run is not None
+            self.assertEqual(run.status, "failed")
+            self.assertIn("stream broke", run.error or "")
+            message = db.scalar(
+                select(AIMessage).where(
+                    AIMessage.run_id == run.id,
+                    AIMessage.role == "assistant",
+                )
+            )
+            self.assertIsNotNone(message)
+            assert message is not None
+            self.assertEqual(message.status, "failed")
+            event = db.scalar(
+                select(AIRunEvent).where(
+                    AIRunEvent.run_id == run.id,
+                    AIRunEvent.internal_code == "runtime_exception",
+                )
+            )
+            self.assertIsNotNone(event)
+            assert event is not None
+            self.assertEqual(event.status, "failed")
+
     def test_ai_workspace_phase4_cancel_running_run_records_event(self) -> None:
         with self.SessionLocal() as db:
             run = AIAgentRun(
@@ -3442,6 +3736,57 @@ class AIAgentInfraTestCase(unittest.TestCase):
         data = response.json()
         self.assertEqual(data["run"]["status"], "cancelled")
         self.assertEqual(data["events"][0]["internal_code"], "user_cancel")
+
+    def test_ai_workspace_finalize_does_not_overwrite_cancelled_run(self) -> None:
+        from app.ai.workflows.runner import WorkspaceGraphRunner
+
+        with self.SessionLocal() as db:
+            conversation = AIConversation(
+                id="conversation-cancel-finalize",
+                family_id=self.family.id,
+                mode=AiMode.RECOMMENDATION,
+                prompt="安排三天晚餐",
+                response="",
+                context={"workspace": True},
+                last_run_status="cancelled",
+                created_by=self.user.id,
+            )
+            run = AIAgentRun(
+                id="agent_run-cancel-finalize",
+                family_id=self.family.id,
+                conversation_id=conversation.id,
+                message_id=None,
+                agent_key="workspace_orchestrator",
+                feature_key="ai_workspace_chat",
+                intent="meal_plan",
+                input_summary="安排三天晚餐",
+                context_summary={},
+                output_summary="",
+                status="cancelled",
+                model="fake-model",
+                input={"prompt": "安排三天晚餐", "subject": {}},
+                output={},
+                tool_calls=[],
+                duration_ms=0,
+                created_by=self.user.id,
+            )
+            db.add_all([conversation, run])
+            db.flush()
+
+            WorkspaceGraphRunner(AIApplicationService(db, provider=FakeChatProvider()))._finalize(
+                {
+                    "family_id": self.family.id,
+                    "user_id": self.user.id,
+                    "conversation_id": conversation.id,
+                    "run_id": run.id,
+                    "message": "安排三天晚餐",
+                    "status": "completed",
+                    "error": None,
+                }
+            )
+
+            self.assertEqual(run.status, "cancelled")
+            self.assertEqual(conversation.last_run_status, "cancelled")
 
     def test_ai_workspace_phase4_retries_failed_run_in_same_conversation(self) -> None:
         failed_response = self.client.post("/api/ai/chat", json={"message": "随便聊聊"})

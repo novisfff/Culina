@@ -8,8 +8,9 @@ from inspect import Parameter, signature
 from typing import Any
 
 from app.ai.skills.base import BaseSkill, SkillContext, SkillManifest, SkillResult
-from app.ai.skills.runner_registry import register_skill_runner
+from app.ai.skills.scripts import SkillScriptCatalog, SkillScriptExecutor
 from app.ai.skills.shared import conversation_artifacts, json_object, model_name
+from app.ai.errors import AIExecutionCancelled
 from app.core.utils import create_id
 
 logger = logging.getLogger(__name__)
@@ -39,7 +40,6 @@ DRAFT_TOOL_TYPES: dict[str, str] = {
     "recipe.create_draft": "recipe",
     "meal_plan.create_draft": "meal_plan",
     "shopping.create_draft": "shopping_list",
-    "shopping_list.create_draft": "shopping_list",
     "meal_log.create_draft": "meal_log",
     "food_profile.create_draft": "food_profile",
 }
@@ -111,11 +111,13 @@ class VisibleTextStream:
 
 
 class ToolCallingSkill(BaseSkill):
-    def __init__(self, manifest: SkillManifest, skill_dir: Path) -> None:
+    def __init__(self, manifest: SkillManifest, skill_dir: Path, *, instructions: str | None = None) -> None:
         super().__init__(manifest, skill_dir)
-        self.instructions = self._load_instructions(skill_dir)
+        self.instructions = instructions if instructions is not None else self._load_instructions(skill_dir)
+        self.script_catalog = SkillScriptCatalog(skill_dir, manifest.script_files)
 
     def run(self, context: SkillContext) -> SkillResult:
+        context.ensure_active()
         if context.provider is None:
             logger.warning(
                 "Tool-calling skill provider unavailable skill=%s run_id=%s conversation_id=%s family_id=%s",
@@ -132,7 +134,11 @@ class ToolCallingSkill(BaseSkill):
             )
 
         draft_outputs: list[dict[str, Any]] = []
-        available_tools = [context.tool_executor.registry.get(name) for name in self.manifest.tools]
+        script_executor = SkillScriptExecutor(self.script_catalog, context)
+        available_tools = [
+            *(context.tool_executor.registry.get(name) for name in self.manifest.tools),
+            *script_executor.tool_definitions(),
+        ]
         logger.info(
             "Tool-calling skill invoking provider skill=%s run_id=%s conversation_id=%s family_id=%s model=%s tools=%s",
             self.manifest.key,
@@ -144,7 +150,13 @@ class ToolCallingSkill(BaseSkill):
         )
 
         def call_tool(name: str, payload: dict[str, Any]) -> dict[str, Any]:
+            context.ensure_active()
+            if script_executor.has(name):
+                output = script_executor.call(name, payload)
+                context.ensure_active()
+                return output
             output = context.tool_executor.call(name, payload)
+            context.ensure_active()
             draft_type = DRAFT_TOOL_TYPES.get(name)
             if draft_type:
                 draft = output.get("draft")
@@ -172,6 +184,7 @@ class ToolCallingSkill(BaseSkill):
         part_id = create_id("ai_part")
 
         def emit_visible_delta(delta: str) -> None:
+            context.ensure_active()
             if context.stream_writer is None or not delta:
                 return
             context.stream_writer(
@@ -199,6 +212,7 @@ class ToolCallingSkill(BaseSkill):
             max_rounds=8,
             visible_text_handler=visible_stream.feed,
         )
+        context.ensure_active()
         visible_stream.flush()
         if result.status == "failed":
             logger.warning(
@@ -298,6 +312,7 @@ class ToolCallingSkill(BaseSkill):
             operation=self._optional_text(parsed.get("operation")),
             source_artifact_id=self._optional_text(parsed.get("source_artifact_id")),
             requires_clarification=bool(parsed.get("requires_clarification")),
+            tool_calls=script_executor.records(),
         )
         logger.info(
             "Tool-calling skill parsed final result skill=%s run_id=%s conversation_id=%s family_id=%s status=%s drafts=%s cards=%s events=%s tool_calls=%s requires_clarification=%s",
@@ -327,8 +342,10 @@ class ToolCallingSkill(BaseSkill):
         ]
         return (
             "你是 Culina AI 工作台中的 Skill Runner。"
-            "你必须严格遵守下面的 SKILL.md、workflow、HITL、manifest 能力边界和工具结果。"
+            "你必须严格遵守下面的 Skill instructions、能力边界和工具结果。"
             "你可以自主决定是否以及何时调用当前 Skill 允许的工具。"
+            "script.* 工具是 Skill 自带的确定性只读脚本，使用方式与普通工具相同；"
+            "当 Skill instructions 要求校验、归一化或合并时必须调用对应脚本。"
             "不得调用未列出的工具，不得声称已经写入正式业务数据。"
             "审批型任务只能调用 draft 工具生成草稿，正式写入必须等待用户确认。"
             "如果需要生成草稿，必须先调用对应 draft 工具，不要只在最终 JSON 中编造 drafts。"
@@ -352,22 +369,20 @@ class ToolCallingSkill(BaseSkill):
     def _user_payload(self, context: SkillContext) -> dict[str, Any]:
         return {
             "currentMessage": context.current_message,
+            "subject": context.subject,
             "conversation": context.conversation,
             "artifacts": conversation_artifacts(context),
             "previousResults": [self._result_record(item) for item in context.previous_results],
-            "scriptHelpers": self.scripts.describe(),
+            "quickTask": self._quick_task(context),
         }
 
     def _load_instructions(self, skill_dir: Path) -> str:
-        chunks = [self._file_section(skill_dir / "SKILL.md", "SKILL.md")]
-        for file_name in [*self.manifest.workflow_files, *self.manifest.hitl_files, *self.manifest.example_files]:
-            chunks.append(self._file_section(skill_dir / file_name, file_name))
-        for file_name in self.manifest.script_files:
-            chunks.append(
-                "## Script reference\n"
-                "Scripts are deterministic helper references only; do not claim they write data.\n\n"
-                f"{self._file_section(skill_dir / file_name, file_name)}"
-            )
+        skill_text = (skill_dir / "SKILL.md").read_text(encoding="utf-8")
+        body = skill_text.split("---\n", 2)[2].strip() if skill_text.startswith("---\n") else skill_text.strip()
+        chunks = [body]
+        workflow_path = skill_dir / "workflows.md"
+        if workflow_path.exists():
+            chunks.append(self._file_section(workflow_path, "workflows.md"))
         return "\n\n---\n\n".join(chunk for chunk in chunks if chunk.strip())
 
     def _file_section(self, path: Path, label: str) -> str:
@@ -533,5 +548,11 @@ class ToolCallingSkill(BaseSkill):
         text = str(value)
         return text or None
 
-
-register_skill_runner("toolcall", ToolCallingSkill)
+    def _quick_task(self, context: SkillContext) -> str | None:
+        for item in reversed(context.conversation):
+            if item.get("role") != "user":
+                continue
+            metadata = item.get("metadata")
+            if isinstance(metadata, dict) and isinstance(metadata.get("quickTask"), str):
+                return metadata["quickTask"]
+        return None

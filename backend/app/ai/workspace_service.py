@@ -8,6 +8,7 @@ from typing import Any
 
 from fastapi.encoders import jsonable_encoder
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 from pydantic import ValidationError
 
@@ -20,6 +21,7 @@ from app.ai.kitchen.recipe_drafts import (
     normalize_recipe_draft,
 )
 from app.ai.runtime.provider import BaseChatProvider, get_chat_provider
+from app.ai.errors import AIConflictError
 from app.ai.skills import build_workspace_skill_registry
 from app.ai.tools.draft_validation import (
     normalize_food_profile_draft_for_tools,
@@ -41,6 +43,7 @@ from app.models.domain import (
     AIUserApproval,
     Food,
     FoodPlanItem,
+    Ingredient,
     MealLog,
     MealLogFood,
     Recipe,
@@ -71,6 +74,9 @@ from app.services.serializers import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+ACTIVE_CONVERSATION_RUN_STATUSES = {"pending", "running"}
 
 
 DRAFT_APPROVAL_CONFIG: dict[str, dict[str, str]] = {
@@ -176,7 +182,7 @@ class AIApplicationService:
     ) -> Iterator[tuple[str, dict[str, Any]]]:
         from app.ai.workflows.runner import WorkspaceGraphRunner
 
-        yield from WorkspaceGraphRunner(self).stream_user_message(
+        return WorkspaceGraphRunner(self).stream_user_message(
             family_id=family_id,
             user_id=user_id,
             message=message,
@@ -185,6 +191,91 @@ class AIApplicationService:
             client_run_id=client_run_id,
             quick_task=quick_task,
             subject=subject,
+        )
+
+    def normalize_subject(self, *, family_id: str, subject: dict[str, Any] | None) -> dict[str, Any]:
+        value = dict(subject or {})
+        recipe_id = value.get("recipe_id") or value.get("recipeId")
+        food_id = value.get("food_id") or value.get("foodId")
+        ingredient_ids = value.get("ingredient_ids") or value.get("ingredientIds") or []
+
+        if recipe_id:
+            matched_recipe_id = self.db.scalar(
+                select(Recipe.id).where(Recipe.id == str(recipe_id), Recipe.family_id == family_id)
+            )
+            if matched_recipe_id is None:
+                raise ValueError("引用的菜谱不属于当前家庭或不存在")
+            value["recipe_id"] = str(recipe_id)
+        if food_id:
+            matched_food_id = self.db.scalar(
+                select(Food.id).where(Food.id == str(food_id), Food.family_id == family_id)
+            )
+            if matched_food_id is None:
+                raise ValueError("引用的食物不属于当前家庭或不存在")
+            value["food_id"] = str(food_id)
+        if not isinstance(ingredient_ids, list):
+            raise ValueError("引用的食材列表格式不正确")
+        normalized_ingredient_ids = list(dict.fromkeys(str(item) for item in ingredient_ids if str(item)))
+        if normalized_ingredient_ids:
+            matched_ids = set(
+                self.db.scalars(
+                    select(Ingredient.id).where(
+                        Ingredient.family_id == family_id,
+                        Ingredient.id.in_(normalized_ingredient_ids),
+                    )
+                )
+            )
+            if matched_ids != set(normalized_ingredient_ids):
+                raise ValueError("引用的食材不属于当前家庭或不存在")
+            value["ingredient_ids"] = normalized_ingredient_ids
+        return value
+
+    def find_idempotent_run(
+        self,
+        *,
+        family_id: str,
+        client_message_id: str | None,
+        client_run_id: str | None,
+    ) -> AIAgentRun | None:
+        candidates: list[AIAgentRun] = []
+        if client_run_id:
+            run = self.db.get(AIAgentRun, client_run_id)
+            if run is not None:
+                if run.family_id != family_id:
+                    raise AIConflictError("运行标识已被占用")
+                candidates.append(run)
+        if client_message_id:
+            message = self.db.scalar(
+                select(AIMessage).where(
+                    AIMessage.family_id == family_id,
+                    AIMessage.role == "user",
+                    AIMessage.client_message_id == client_message_id,
+                )
+            )
+            if message is not None:
+                run = self.db.scalar(
+                    select(AIAgentRun).where(
+                        AIAgentRun.family_id == family_id,
+                        AIAgentRun.message_id == message.id,
+                    )
+                )
+                if run is not None:
+                    candidates.append(run)
+        if not candidates:
+            return None
+        if len({item.id for item in candidates}) != 1:
+            raise AIConflictError("消息标识与运行标识指向不同任务")
+        return candidates[0]
+
+    def find_active_conversation_run(self, *, family_id: str, conversation_id: str) -> AIAgentRun | None:
+        return self.db.scalar(
+            select(AIAgentRun)
+            .where(
+                AIAgentRun.family_id == family_id,
+                AIAgentRun.conversation_id == conversation_id,
+                AIAgentRun.status.in_(ACTIVE_CONVERSATION_RUN_STATUSES),
+            )
+            .order_by(AIAgentRun.created_at.asc(), AIAgentRun.id.asc())
         )
 
     def generate_recipe_draft(
@@ -528,21 +619,23 @@ class AIApplicationService:
                 AIApprovalRequest.id == approval_id,
                 AIApprovalRequest.family_id == family_id,
                 AIApprovalRequest.conversation_id == conversation_id,
-            )
+            ).with_for_update()
         )
         if approval is None:
             raise LookupError("确认请求不存在")
         draft = self.db.scalar(
-            select(AITaskDraft).where(AITaskDraft.id == approval.draft_id, AITaskDraft.family_id == family_id)
+            select(AITaskDraft)
+            .where(AITaskDraft.id == approval.draft_id, AITaskDraft.family_id == family_id)
+            .with_for_update()
         )
         if draft is None:
             raise LookupError("草稿不存在")
         if approval.status != "pending":
-            raise ValueError("确认请求已处理，不能重复提交")
+            raise AIConflictError("确认请求已处理，不能重复提交")
         if draft.status not in {"pending", "pending_retry"}:
-            raise ValueError("草稿已处理，不能重复提交")
+            raise AIConflictError("草稿已处理，不能重复提交")
         if draft_version != draft.version or approval.draft_version != draft.version:
-            raise ValueError("草稿已更新，请重新确认")
+            raise AIConflictError("草稿已更新，请重新确认")
         if decision == "rejected" and approval.request_payload.get("requireRejectComment") and not (comment or "").strip():
             raise ValueError("请填写拒绝原因")
 
@@ -599,6 +692,16 @@ class AIApplicationService:
         config = DRAFT_APPROVAL_CONFIG.get(draft.draft_type)
         if config is None:
             raise ValueError("暂不支持的草稿类型")
+        existing_operation = self.db.scalar(
+            select(AIOperation)
+            .where(
+                AIOperation.approval_request_id == approval.id,
+                AIOperation.family_id == family_id,
+            )
+            .with_for_update()
+        )
+        if existing_operation is not None:
+            raise AIConflictError("该确认请求已经创建过执行操作")
         operation = AIOperation(
             id=create_id("ai_operation"),
             family_id=family_id,
@@ -610,8 +713,12 @@ class AIApplicationService:
             business_entity_ids=[],
             idempotency_key=f"{approval.id}:{config['operation_type']}:v{draft.version}",
         )
-        self.db.add(operation)
-        self.db.flush()
+        try:
+            with self.db.begin_nested():
+                self.db.add(operation)
+                self.db.flush()
+        except IntegrityError as exc:
+            raise AIConflictError("该确认请求已经创建过执行操作") from exc
         decision_approval = approval
         value_key = config["value_key"]
         submitted_payload = submitted_values[value_key]
@@ -692,7 +799,9 @@ class AIApplicationService:
     ) -> AIConversation:
         if conversation_id:
             conversation = self.db.scalar(
-                select(AIConversation).where(AIConversation.id == conversation_id, AIConversation.family_id == family_id)
+                select(AIConversation)
+                .where(AIConversation.id == conversation_id, AIConversation.family_id == family_id)
+                .with_for_update()
             )
             if conversation is None:
                 raise LookupError("会话不存在")
