@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session, selectinload
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from app.core.deps import get_current_auth
 from app.core.enums import ActivityAction
@@ -21,11 +21,23 @@ router = APIRouter(tags=["ingredients"])
 
 
 @router.get("/api/ingredients", response_model=list[IngredientOut])
-def list_ingredients(auth: tuple = Depends(get_current_auth), db: Session = Depends(get_db)) -> list[dict]:
+def list_ingredients(
+    q: str = Query(default="", max_length=100),
+    limit: int | None = Query(default=None, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+    auth: tuple = Depends(get_current_auth),
+    db: Session = Depends(get_db),
+) -> list[dict]:
     _, membership = auth
-    ingredients = list(
-        db.scalars(select(Ingredient).where(Ingredient.family_id == membership.family_id).order_by(Ingredient.updated_at.desc()))
-    )
+    statement = select(Ingredient).where(Ingredient.family_id == membership.family_id)
+    query = q.strip()
+    if query:
+        pattern = f"%{query}%"
+        statement = statement.where(or_(Ingredient.name.ilike(pattern), Ingredient.category.ilike(pattern)))
+    statement = statement.order_by(Ingredient.updated_at.desc(), Ingredient.id)
+    if limit is not None:
+        statement = statement.offset(offset).limit(limit)
+    ingredients = list(db.scalars(statement))
     media_map = build_media_map(get_media_assets_for_entities(db, family_id=membership.family_id, entity_type="ingredient", entity_ids=[item.id for item in ingredients]))
     return [serialize_ingredient(item, media_map) for item in ingredients]
 

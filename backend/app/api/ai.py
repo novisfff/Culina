@@ -1,10 +1,16 @@
 from __future__ import annotations
 
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi.encoders import jsonable_encoder
+from fastapi.responses import StreamingResponse
+import json
 from sqlalchemy import delete, select, update
 from sqlalchemy.orm import Session
 
 from app.core.deps import get_current_auth
+from app.core.config import get_settings
 from app.db.session import get_db
 from app.db.transactions import commit_session
 from app.models.domain import (
@@ -25,18 +31,61 @@ from app.schemas.ai import (
     AIChatResponse,
     AIConversationOut,
     AIMessageDTO,
+    AIRegistryResponse,
+    AIStatusResponse,
     AIRunEventDTO,
-    AIQueryRequest,
-    AIQueryResponse,
     GenerateRecipeDraftRequest,
     GenerateRecipeDraftResponse,
 )
-from app.ai.kitchen.service import CulinaAgentService, run_ai_query
-from app.ai.runtime.schemas import AgentRunRequest
+from app.ai.errors import AIConflictError
+from app.ai.skills import build_workspace_skill_registry
+from app.ai.tools import build_workspace_tool_registry
 from app.ai.workspace_service import AIApplicationService
+from app.ai.workflows.checkpoint import SQLAlchemyCheckpointSaver
 from app.services.serializers import serialize_ai_conversation, serialize_ai_message, serialize_ai_run_event
 
 router = APIRouter(tags=["ai"])
+logger = logging.getLogger(__name__)
+
+
+@router.get("/api/ai/status", response_model=AIStatusResponse)
+def get_ai_status(auth: tuple = Depends(get_current_auth)) -> dict:
+    _, _membership = auth
+    settings = get_settings()
+    provider = (settings.ai_provider or "disabled").strip().lower()
+    model = settings.ai_model or "gpt-4o-mini"
+    supported = {"enable", "enabled", "openai", "openai-compatible", "compatible", "custom", "dashscope"}
+    if provider in {"", "disabled", "mock"}:
+        return {
+            "enabled": False,
+            "provider": provider or "disabled",
+            "model": model,
+            "status": "disabled",
+            "detail": "AI 模型未配置。",
+        }
+    if provider not in supported:
+        return {
+            "enabled": False,
+            "provider": provider,
+            "model": model,
+            "status": "unsupported_provider",
+            "detail": "AI provider 配置不受支持。",
+        }
+    if not settings.ai_api_key:
+        return {
+            "enabled": False,
+            "provider": provider,
+            "model": model,
+            "status": "missing_api_key",
+            "detail": "AI API Key 未配置。",
+        }
+    return {
+        "enabled": True,
+        "provider": provider,
+        "model": model,
+        "status": "ready",
+        "detail": "AI 已就绪。",
+    }
 
 
 @router.get("/api/ai/conversations", response_model=list[AIConversationOut])
@@ -51,6 +100,51 @@ def list_ai_conversations(auth: tuple = Depends(get_current_auth), db: Session =
         )
     )
     return [serialize_ai_conversation(item) for item in conversations]
+
+
+@router.get("/api/ai/registry", response_model=AIRegistryResponse)
+def get_ai_registry(auth: tuple = Depends(get_current_auth)) -> dict:
+    # Auth dependency scopes this read-only diagnostics view to signed-in family members.
+    _, _membership = auth
+    skill_registry = build_workspace_skill_registry()
+    tool_registry = build_workspace_tool_registry()
+    return {
+        "skills": [
+            {
+                "key": manifest.key,
+                "name": manifest.name,
+                "description": manifest.description,
+                "runner": manifest.runner,
+                "examples": manifest.examples,
+                "context_policy": manifest.context_policy,
+                "tools": manifest.tools,
+                "scripts": [
+                    function.tool_name
+                    for function in skill_registry.get(manifest.key).script_catalog.functions()
+                ],
+                "output_types": manifest.output_types,
+                "draft_types": manifest.draft_types,
+                "approval_policy": manifest.approval_policy,
+                "can_continue_from": manifest.can_continue_from,
+                "intent": manifest.intent,
+                "agent_key": manifest.agent_key,
+            }
+            for manifest in skill_registry.list_manifests()
+        ],
+        "tools": [
+            {
+                "name": tool.name,
+                "display_name": tool.display_name,
+                "description": tool.description,
+                "permission": tool.permission,
+                "side_effect": tool.side_effect,
+                "requires_confirmation": tool.requires_confirmation,
+                "input_schema": tool.input_schema,
+                "output_schema": tool.output_schema,
+            }
+            for tool in tool_registry.list()
+        ],
+    }
 
 
 @router.delete("/api/ai/conversations/{conversation_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -120,29 +214,10 @@ def delete_ai_conversation(
         .where(AIAgentRun.conversation_id == conversation_id, AIAgentRun.family_id == membership.family_id)
         .values(conversation_id=None)
     )
+    SQLAlchemyCheckpointSaver(db).delete_thread(conversation_id)
     db.delete(conversation)
     commit_session(db)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
-
-
-@router.post("/api/ai/query", response_model=AIQueryResponse)
-def query_ai(
-    payload: AIQueryRequest,
-    auth: tuple = Depends(get_current_auth),
-    db: Session = Depends(get_db),
-) -> dict:
-    user, membership = auth
-    conversation, recommendation = run_ai_query(
-        db,
-        family_id=membership.family_id,
-        user_id=user.id,
-        mode=payload.mode,
-        prompt=payload.prompt,
-        food_id=payload.food_id,
-        ingredient_ids=payload.ingredient_ids,
-    )
-    commit_session(db)
-    return {"conversation": conversation, "recommendation": recommendation}
 
 
 @router.post("/api/ai/chat", response_model=AIChatResponse)
@@ -159,15 +234,149 @@ def chat_ai(
             message=payload.message,
             conversation_id=payload.conversation_id,
             client_message_id=payload.client_message_id,
+            client_run_id=payload.client_run_id,
             quick_task=payload.quick_task,
             subject=payload.subject.model_dump() if payload.subject else {},
         )
+    except AIConflictError as exc:
+        logger.warning(
+            "AI chat request rejected status=409 family_id=%s user_id=%s conversation_id=%s client_message_id=%s client_run_id=%s message_length=%s error=%s",
+            membership.family_id,
+            user.id,
+            payload.conversation_id,
+            payload.client_message_id,
+            payload.client_run_id,
+            len(payload.message or ""),
+            exc,
+        )
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     except ValueError as exc:
+        logger.warning(
+            "AI chat request rejected status=400 family_id=%s user_id=%s conversation_id=%s client_message_id=%s client_run_id=%s message_length=%s error=%s",
+            membership.family_id,
+            user.id,
+            payload.conversation_id,
+            payload.client_message_id,
+            payload.client_run_id,
+            len(payload.message or ""),
+            exc,
+        )
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     except LookupError as exc:
+        logger.warning(
+            "AI chat request rejected status=404 family_id=%s user_id=%s conversation_id=%s client_message_id=%s client_run_id=%s message_length=%s error=%s",
+            membership.family_id,
+            user.id,
+            payload.conversation_id,
+            payload.client_message_id,
+            payload.client_run_id,
+            len(payload.message or ""),
+            exc,
+        )
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except Exception:
+        logger.exception(
+            "AI chat request failed family_id=%s user_id=%s conversation_id=%s client_message_id=%s client_run_id=%s message_length=%s",
+            membership.family_id,
+            user.id,
+            payload.conversation_id,
+            payload.client_message_id,
+            payload.client_run_id,
+            len(payload.message or ""),
+        )
+        raise
     commit_session(db)
     return response
+
+
+@router.post("/api/ai/chat/stream")
+def stream_chat_ai(
+    payload: AIChatRequest,
+    auth: tuple = Depends(get_current_auth),
+    db: Session = Depends(get_db),
+) -> StreamingResponse:
+    user, membership = auth
+
+    def encode(event: str, data: dict) -> str:
+        return f"event: {event}\ndata: {json.dumps(jsonable_encoder(data), ensure_ascii=False)}\n\n"
+
+    def generate():
+        try:
+            service = AIApplicationService(db)
+            for event, data in service.stream_chat(
+                family_id=membership.family_id,
+                user_id=user.id,
+                message=payload.message,
+                conversation_id=payload.conversation_id,
+                client_message_id=payload.client_message_id,
+                client_run_id=payload.client_run_id,
+                quick_task=payload.quick_task,
+                subject=payload.subject.model_dump() if payload.subject else {},
+            ):
+                if event == "response":
+                    commit_session(db)
+                yield encode(event, data)
+        except AIConflictError as exc:
+            logger.warning(
+                "AI stream chat request rejected status=409 family_id=%s user_id=%s conversation_id=%s client_message_id=%s client_run_id=%s message_length=%s error=%s",
+                membership.family_id,
+                user.id,
+                payload.conversation_id,
+                payload.client_message_id,
+                payload.client_run_id,
+                len(payload.message or ""),
+                exc,
+            )
+            yield encode("error", {"detail": str(exc), "status": 409})
+            return
+        except ValueError as exc:
+            logger.warning(
+                "AI stream chat request rejected status=400 family_id=%s user_id=%s conversation_id=%s client_message_id=%s client_run_id=%s message_length=%s error=%s",
+                membership.family_id,
+                user.id,
+                payload.conversation_id,
+                payload.client_message_id,
+                payload.client_run_id,
+                len(payload.message or ""),
+                exc,
+            )
+            yield encode("error", {"detail": str(exc), "status": 400})
+            return
+        except LookupError as exc:
+            logger.warning(
+                "AI stream chat request rejected status=404 family_id=%s user_id=%s conversation_id=%s client_message_id=%s client_run_id=%s message_length=%s error=%s",
+                membership.family_id,
+                user.id,
+                payload.conversation_id,
+                payload.client_message_id,
+                payload.client_run_id,
+                len(payload.message or ""),
+                exc,
+            )
+            yield encode("error", {"detail": str(exc), "status": 404})
+            return
+        except Exception:
+            logger.exception(
+                "AI stream chat request failed family_id=%s user_id=%s conversation_id=%s client_message_id=%s client_run_id=%s message_length=%s",
+                membership.family_id,
+                user.id,
+                payload.conversation_id,
+                payload.client_message_id,
+                payload.client_run_id,
+                len(payload.message or ""),
+            )
+            yield encode("error", {"detail": "AI 服务暂时不可用，请稍后重试。", "status": 500})
+            return
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache, no-transform",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @router.get("/api/ai/conversations/{conversation_id}/messages", response_model=list[AIMessageDTO])
@@ -207,6 +416,91 @@ def list_ai_run_events(
         )
     )
     return [serialize_ai_run_event(item) for item in events]
+
+
+@router.get("/api/ai/runs/{run_id}/events/stream")
+def stream_ai_run_events(
+    run_id: str,
+    auth: tuple = Depends(get_current_auth),
+    db: Session = Depends(get_db),
+) -> StreamingResponse:
+    _, membership = auth
+
+    def generate():
+        events = list(
+            db.scalars(
+                select(AIRunEvent)
+                .where(AIRunEvent.run_id == run_id, AIRunEvent.family_id == membership.family_id)
+                .order_by(AIRunEvent.created_at.asc())
+            )
+        )
+        for item in events:
+            yield f"event: progress\ndata: {json.dumps(jsonable_encoder(serialize_ai_run_event(item)), ensure_ascii=False)}\n\n"
+
+    return StreamingResponse(generate(), media_type="text/event-stream")
+
+
+@router.post("/api/ai/runs/{run_id}/cancel")
+def cancel_ai_run(
+    run_id: str,
+    auth: tuple = Depends(get_current_auth),
+    db: Session = Depends(get_db),
+) -> dict:
+    user, membership = auth
+    try:
+        result = AIApplicationService(db).cancel_run(family_id=membership.family_id, user_id=user.id, run_id=run_id)
+    except LookupError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except AIConflictError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    commit_session(db)
+    return result
+
+
+@router.post("/api/ai/runs/{run_id}/retry", response_model=AIChatResponse)
+def retry_ai_run(
+    run_id: str,
+    auth: tuple = Depends(get_current_auth),
+    db: Session = Depends(get_db),
+) -> dict:
+    user, membership = auth
+    try:
+        result = AIApplicationService(db).retry_run(family_id=membership.family_id, user_id=user.id, run_id=run_id)
+    except LookupError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except AIConflictError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    commit_session(db)
+    return result
+
+
+@router.post("/api/ai/messages/{message_id}/parts/{part_id}/regenerate", response_model=AIChatResponse)
+def regenerate_ai_message_part(
+    message_id: str,
+    part_id: str,
+    auth: tuple = Depends(get_current_auth),
+    db: Session = Depends(get_db),
+) -> dict:
+    user, membership = auth
+    try:
+        result = AIApplicationService(db).regenerate_part(
+            family_id=membership.family_id,
+            user_id=user.id,
+            message_id=message_id,
+            part_id=part_id,
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except AIConflictError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    commit_session(db)
+    return result
 
 
 @router.get("/api/ai/conversations/{conversation_id}/approvals/pending", response_model=list[AIApprovalRequestDTO])
@@ -250,10 +544,72 @@ def decide_ai_approval(
         )
     except LookupError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except AIConflictError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     commit_session(db)
     return result
+
+
+@router.post("/api/ai/conversations/{conversation_id}/approvals/{approval_id}/decision/stream")
+def stream_ai_approval_decision(
+    conversation_id: str,
+    approval_id: str,
+    payload: AIApprovalDecisionRequest,
+    auth: tuple = Depends(get_current_auth),
+    db: Session = Depends(get_db),
+) -> StreamingResponse:
+    user, membership = auth
+
+    def encode(event: str, data: dict) -> str:
+        return f"event: {event}\ndata: {json.dumps(jsonable_encoder(data), ensure_ascii=False)}\n\n"
+
+    def generate():
+        try:
+            service = AIApplicationService(db)
+            for event, data in service.stream_approval_decision(
+                family_id=membership.family_id,
+                user_id=user.id,
+                conversation_id=conversation_id,
+                approval_id=approval_id,
+                decision=payload.decision,
+                draft_version=payload.draft_version,
+                values=payload.values,
+                comment=payload.comment,
+            ):
+                if event == "response":
+                    commit_session(db)
+                yield encode(event, data)
+        except LookupError as exc:
+            yield encode("error", {"detail": str(exc), "status": 404})
+            return
+        except AIConflictError as exc:
+            yield encode("error", {"detail": str(exc), "status": 409})
+            return
+        except ValueError as exc:
+            yield encode("error", {"detail": str(exc), "status": 409})
+            return
+        except Exception:
+            logger.exception(
+                "AI approval decision stream failed family_id=%s user_id=%s conversation_id=%s approval_id=%s",
+                membership.family_id,
+                user.id,
+                conversation_id,
+                approval_id,
+            )
+            yield encode("error", {"detail": "AI 服务暂时不可用，请稍后重试。", "status": 500})
+            return
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache, no-transform",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @router.post("/api/ai/recipes/draft", response_model=GenerateRecipeDraftResponse)
@@ -274,30 +630,20 @@ def generate_recipe_draft(
             detail="请先填写菜名、添加至少一个食材，或写一句补充说明。",
         )
     user, membership = auth
-    result = CulinaAgentService(db).run(
-        AgentRunRequest(
-            family_id=membership.family_id,
-            user_id=user.id,
-            feature_key="aiRecipeDraft",
-            prompt=payload.prompt,
-            subject={
-                "title": payload.title,
-                "ingredientIds": payload.ingredient_ids,
-                "extraIngredients": payload.extra_ingredients,
-                "servings": payload.servings,
-                "prepMinutes": payload.prep_minutes,
-                "difficulty": payload.difficulty.value if payload.difficulty else None,
-                "sceneTags": payload.scene_tags,
-            },
-            response_format="recipe_draft",
-            persist_conversation=False,
-        )
+    result = AIApplicationService(db).generate_recipe_draft(
+        family_id=membership.family_id,
+        user_id=user.id,
+        prompt=payload.prompt,
+        subject={
+            "title": payload.title,
+            "ingredientIds": payload.ingredient_ids,
+            "extraIngredients": payload.extra_ingredients,
+            "servings": payload.servings,
+            "prepMinutes": payload.prep_minutes,
+            "difficulty": payload.difficulty.value if payload.difficulty else None,
+            "sceneTags": payload.scene_tags,
+        },
+        generate_image=payload.generate_image,
     )
     commit_session(db)
-    return {
-        "draft": result.data["recipeDraft"],
-        "agent_run_id": result.run_id,
-        "status": result.status,
-        "error": result.error,
-        "image_render_payload": result.data.get("imageRenderPayload") if payload.generate_image and result.status != "failed" else None,
-    }
+    return result

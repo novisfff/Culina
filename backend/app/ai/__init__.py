@@ -1,4 +1,3 @@
-from app.ai.kitchen.service import CulinaAgentService
-from app.ai.runtime.schemas import AgentRunRequest, AgentRunResult
+from app.ai.workspace_service import AIApplicationService
 
-__all__ = ["AgentRunRequest", "AgentRunResult", "CulinaAgentService"]
+__all__ = ["AIApplicationService"]

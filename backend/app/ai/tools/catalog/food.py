@@ -1,0 +1,64 @@
+from __future__ import annotations
+
+from typing import Any
+
+from sqlalchemy import select
+
+from app.ai.tools.base import ToolContext
+from app.ai.tools.catalog.common import register_tool
+from app.ai.tools.draft_validation import normalize_food_profile_draft_for_tools
+from app.ai.tools.registry import ToolRegistry
+from app.ai.tools.schemas import COUNT_OUTPUT, FOOD_PROFILE_DRAFT_SCHEMA, LIMIT_INPUT, draft_input_schema, draft_output_schema
+from app.models.domain import Food
+
+
+def food_search(context: ToolContext, payload: dict[str, Any]) -> dict[str, Any]:
+    limit = int(payload.get("limit") or 24)
+    foods = list(context.db.scalars(select(Food).where(Food.family_id == context.family_id).limit(limit)))
+    return {
+        "items": [
+            {
+                "id": item.id,
+                "name": item.name,
+                "type": item.type.value if hasattr(item.type, "value") else str(item.type),
+                "category": item.category,
+                "flavorTags": item.flavor_tags or [],
+                "sceneTags": item.scene_tags or [],
+                "suitableMealTypes": item.suitable_meal_types or [],
+                "scene": item.scene,
+                "recipeId": item.recipe_id,
+                "routineNote": item.routine_note,
+            }
+            for item in foods
+        ],
+        "count": len(foods),
+    }
+
+
+def food_profile_create_draft(context: ToolContext, payload: dict[str, Any]) -> dict[str, Any]:
+    draft = payload.get("draft") if isinstance(payload.get("draft"), dict) else {}
+    normalized = normalize_food_profile_draft_for_tools(context.db, family_id=context.family_id, payload=draft)
+    return {"draft": normalized, "itemCount": 1}
+
+
+def register_food_tools(registry: ToolRegistry) -> None:
+    register_tool(
+        registry,
+        name="food.search",
+        display_name="食物资料",
+        description="搜索当前家庭食物资料。",
+        side_effect="read",
+        handler=food_search,
+        input_schema=LIMIT_INPUT,
+        output_schema=COUNT_OUTPUT,
+    )
+    register_tool(
+        registry,
+        name="food_profile.create_draft",
+        display_name="食物资料确认表单",
+        description="生成食物资料草稿，不写入业务表。",
+        side_effect="draft",
+        handler=food_profile_create_draft,
+        input_schema=draft_input_schema(FOOD_PROFILE_DRAFT_SCHEMA),
+        output_schema=draft_output_schema(FOOD_PROFILE_DRAFT_SCHEMA),
+    )

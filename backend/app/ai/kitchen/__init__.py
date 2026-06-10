@@ -1,3 +1,3 @@
-from app.ai.kitchen.service import CulinaAgentService, run_ai_query
+from app.ai.kitchen.recipe_drafts import RecipeDraftGenerationInput
 
-__all__ = ["CulinaAgentService", "run_ai_query"]
+__all__ = ["RecipeDraftGenerationInput"]

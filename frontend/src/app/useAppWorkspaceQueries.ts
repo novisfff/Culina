@@ -55,7 +55,7 @@ export function useAppWorkspaceQueries(args: {
   });
   const ingredientsQuery = useQuery({
     queryKey: queryKeys.ingredients,
-    queryFn: api.getIngredients,
+    queryFn: () => api.getIngredients(),
     enabled: args.isAuthenticated && needsIngredients,
   });
   const inventoryQuery = useQuery({
@@ -101,7 +101,7 @@ export function useAppWorkspaceQueries(args: {
   });
   const foodsQuery = useQuery({
     queryKey: queryKeys.foods,
-    queryFn: api.getFoods,
+    queryFn: () => api.getFoods(),
     enabled: args.isAuthenticated && needsFoods,
   });
   const foodRecommendationsQuery = useQuery({

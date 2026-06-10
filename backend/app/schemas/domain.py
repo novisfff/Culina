@@ -3,8 +3,6 @@ from __future__ import annotations
 from app.schemas.activity import ActivityLogOut
 from app.schemas.ai import (
     AIConversationOut,
-    AIQueryRequest,
-    AIQueryResponse,
     AIRecipeDraftOut,
     AIRecommendationOut,
     GenerateRecipeDraftRequest,

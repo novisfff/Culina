@@ -1,10 +1,14 @@
-import { useEffect, useState } from 'react';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { invalidateAfterAiApprovalSettled } from '../../api/cacheInvalidation';
-import { api } from '../../api/client';
-import type { AiApprovalRequest, AiGeneratedRecipeDraft, AiMessage, AiResultCard, Difficulty, UserSummary } from '../../api/types';
+import { lazy, Suspense, useEffect, useRef, useState } from 'react';
+import type { AiGeneratedRecipeDraft, AiMessage, AiResultCard, AiRunEvent, Food, Ingredient, UserSummary } from '../../api/types';
 import { resolveAssetUrl } from '../../lib/assets';
 import { avatarColor, initials } from '../../lib/ui';
+import { ApprovalPanel, approvalStatusText } from './AiApprovalPanel';
+import type { AiApprovalDecisionSubmit, AiResourceOptionLoader } from './AiApprovalPanel';
+
+export { ApprovalPanel } from './AiApprovalPanel';
+export type { AiApprovalDecisionSubmit, AiResourceOptionLoader } from './AiApprovalPanel';
+
+const MarkdownMessage = lazy(() => import('./MarkdownMessage'));
 
 function resolveAiAvatarUrl(url: string | null | undefined) {
   return resolveAssetUrl(url) ?? null;
@@ -16,26 +20,79 @@ function formatMessageTime(value: string) {
   return date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false });
 }
 
-function cloneRecipeDraft(value: AiGeneratedRecipeDraft): AiGeneratedRecipeDraft {
-  return JSON.parse(JSON.stringify(value)) as AiGeneratedRecipeDraft;
+function lastOf<T>(items: T[]) {
+  return items.length > 0 ? items[items.length - 1] : undefined;
 }
 
-function blankRecipeDraft(): AiGeneratedRecipeDraft {
-  return {
-    title: '',
-    servings: 2,
-    prep_minutes: 20,
-    difficulty: 'easy',
-    ingredient_items: [{ ingredient_id: null, ingredient_name: '', quantity: 1, unit: '份', note: '' }],
-    steps: [{ title: '备菜', text: '', icon: 'pan', summary: '', estimated_minutes: 5, tip: '', key_points: [] }],
-    tips: '',
-    scene_tags: [],
-    media_ids: [],
-  };
+function formatRunEventTime(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  return date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
 }
 
-function getApprovalRecipe(approval: AiApprovalRequest): AiGeneratedRecipeDraft {
-  return approval.submitted_values.recipe ?? approval.initial_values.recipe ?? blankRecipeDraft();
+function isActiveRunStatus(status: AiRunEvent['status']) {
+  return status === 'pending' || status === 'running';
+}
+
+function runStatusText(status: AiRunEvent['status']) {
+  if (status === 'failed') return '执行失败';
+  if (status === 'completed') return '已完成';
+  return '正在执行';
+}
+
+function runEventStatusText(event: AiRunEvent) {
+  if (event.type === 'skill' && isActiveRunStatus(event.status)) return '开始执行';
+  return runStatusText(event.status);
+}
+
+function extractSkillName(event: AiRunEvent | undefined) {
+  if (!event) return '任务规划';
+  const match = event.user_message.match(/「(.+?)」技能/);
+  return match?.[1] ?? event.user_message;
+}
+
+const TOOL_REVEAL_INTERVAL_MS = 2000;
+
+type ToolEventEntry = {
+  key: string;
+  event: AiRunEvent;
+};
+
+function runEventKey(event: AiRunEvent, index: number) {
+  return event.id || `${event.internal_code}-${event.created_at}-${event.user_message}-${index}`;
+}
+
+function isDraftToolEvent(event: AiRunEvent) {
+  return event.internal_code.includes('.create_draft') || event.user_message.startsWith('生成「');
+}
+
+function ToolEventIcon({ event }: { event: AiRunEvent }) {
+  if (isDraftToolEvent(event)) {
+    return (
+      <svg className="ai-run-tool-icon icon-form" viewBox="0 0 24 24" aria-hidden="true">
+        <rect x="5" y="3.75" width="14" height="16.5" rx="3" />
+        <path d="M8.25 8.25h7.5" />
+        <path d="M8.25 12h7.5" />
+        <path d="M8.25 15.75h4.75" />
+      </svg>
+    );
+  }
+  return (
+    <svg className="ai-run-tool-icon icon-tool" viewBox="0 0 24 24" aria-hidden="true">
+      <path
+        fillRule="evenodd"
+        clipRule="evenodd"
+        d="M15.9 2.9a5.15 5.15 0 0 0-5.1 6.05l-7.25 7.25a3.05 3.05 0 0 0 4.25 4.25l7.25-7.25A5.15 5.15 0 0 0 21.1 7.1l-3.35 3.35-4.2-4.2L16.9 2.9h-1Zm-9.75 16.3a1.35 1.35 0 1 0 0-2.7 1.35 1.35 0 0 0 0 2.7Z"
+      />
+    </svg>
+  );
+}
+
+function ProgressEventIcon({ event }: { event: AiRunEvent }) {
+  if (event.type === 'tool') {
+    return <ToolEventIcon event={event} />;
+  }
+  return <span className="ai-run-detail-status-dot" aria-hidden="true" />;
 }
 
 function ResultCard({ card }: { card: AiResultCard }) {
@@ -100,9 +157,57 @@ function ResultCard({ card }: { card: AiResultCard }) {
       <article className="ai-result-card ai-approval-card">
         <div className="inline-between">
           <h3>{card.title}</h3>
-          <span className={`ai-approval-status status-${statusText}`}>{statusText}</span>
+          <span className={`ai-approval-status status-${statusText}`}>{approvalStatusText(statusText)}</span>
         </div>
         <p>{instruction}</p>
+      </article>
+    );
+  }
+
+  if (card.type === 'inventory_summary') {
+    const items = Array.isArray(card.data.items) ? card.data.items : [];
+    return (
+      <article className="ai-result-card">
+        <div className="inline-between">
+          <h3>{card.title}</h3>
+          <span className="subtle">
+            可用 {String(card.data.availableCount ?? 0)} · 临期 {String(card.data.expiringCount ?? 0)}
+          </span>
+        </div>
+        <div className="ai-evidence-row">
+          {items.slice(0, 6).map((item, index) => {
+            const value = item as { label?: string; quantity?: string; unit?: string; status?: string };
+            return (
+              <span key={`${value.label ?? 'item'}-${index}`} className="ai-evidence-pill">
+                {value.label ?? '库存项'}
+                {value.quantity ? ` · ${value.quantity}${value.unit ?? ''}` : ''}
+              </span>
+            );
+          })}
+        </div>
+      </article>
+    );
+  }
+
+  if (card.type === 'meal_plan_draft' || card.type === 'shopping_list_draft' || card.type === 'meal_log_draft' || card.type === 'food_profile_draft') {
+    const items = Array.isArray(card.data.items) ? card.data.items : Array.isArray(card.data.foods) ? card.data.foods : [];
+    return (
+      <article className="ai-result-card">
+        <div className="inline-between">
+          <h3>{card.title}</h3>
+          <span className="subtle">{String(card.data.summary ?? '')}</span>
+        </div>
+        <div className="ai-recommendation-list">
+          {items.slice(0, 6).map((item, index) => {
+            const value = item as { title?: string; name?: string; reason?: string; note?: string; date?: string; mealType?: string };
+            return (
+              <section key={`${value.title ?? value.name ?? 'draft'}-${index}`} className="ai-recommendation-item">
+                <strong>{value.title ?? value.name ?? '草稿项'}</strong>
+                <p>{value.reason ?? value.note ?? [value.date, value.mealType].filter(Boolean).join(' · ')}</p>
+              </section>
+            );
+          })}
+        </div>
       </article>
     );
   }
@@ -115,166 +220,173 @@ function ResultCard({ card }: { card: AiResultCard }) {
   );
 }
 
-export function ApprovalPanel({ approval, onSettled }: { approval: AiApprovalRequest; onSettled: () => void }) {
-  const [recipe, setRecipe] = useState<AiGeneratedRecipeDraft>(() => cloneRecipeDraft(getApprovalRecipe(approval)));
-  const [comment, setComment] = useState('');
-  const [error, setError] = useState<string | null>(null);
-  const queryClient = useQueryClient();
-  const decisionMutation = useMutation({
-    mutationFn: (payload: { decision: 'approved' | 'rejected' }) =>
-      api.decideAiApproval(approval.conversation_id, approval.id, {
-        decision: payload.decision,
-        draft_version: approval.draft_version,
-        values: { recipe },
-        comment,
-      }),
-    onSuccess: (response) => {
-      setRecipe(cloneRecipeDraft(response.approval.submitted_values.recipe ?? response.draft.payload));
-      const operationStatus = typeof response.operation?.status === 'string' ? response.operation.status : '';
-      const operationError = typeof response.operation?.error_message === 'string' ? response.operation.error_message : '';
-      setError(operationStatus === 'failed' ? operationError || '业务写入失败，草稿已保留。' : null);
-      invalidateAfterAiApprovalSettled(queryClient, approval.conversation_id);
-      onSettled();
-    },
-    onError: (reason) => setError(reason instanceof Error ? reason.message : '提交失败'),
+function RunProgressTimeline({ events, isLive }: { events: AiRunEvent[]; isLive: boolean }) {
+  const [isExpanded, setIsExpanded] = useState(false);
+  const sortedEvents = [...events].sort((left, right) => {
+    const leftTime = new Date(left.created_at).getTime();
+    const rightTime = new Date(right.created_at).getTime();
+    return (Number.isNaN(leftTime) ? 0 : leftTime) - (Number.isNaN(rightTime) ? 0 : rightTime);
   });
-
+  const skillEvents = sortedEvents.filter((event) => event.type === 'skill');
+  const currentSkill = lastOf(skillEvents);
+  const toolEvents = sortedEvents.filter((event) => event.type === 'tool');
+  const toolEntries: ToolEventEntry[] = toolEvents.map((event, index) => ({ key: runEventKey(event, index), event }));
+  const toolEntrySignature = toolEntries.map((entry) => entry.key).join('\u001f');
+  const shouldQueueToolEvents = useRef(isLive);
+  if (isLive) {
+    shouldQueueToolEvents.current = true;
+  }
+  const [toolDisplay, setToolDisplay] = useState(() => ({
+    visibleKeys: shouldQueueToolEvents.current ? [] : toolEntries.map((entry) => entry.key),
+    queuedKeys: [] as string[],
+    latestKey: null as string | null,
+    revealVersion: 0,
+    lastRevealAt: null as number | null,
+  }));
   useEffect(() => {
-    if (approval.status !== 'pending') {
-      setRecipe(cloneRecipeDraft(getApprovalRecipe(approval)));
-    }
-  }, [approval]);
-
-  const currentApproval = decisionMutation.data?.approval ?? approval;
-  const readonly = currentApproval.status !== 'pending';
-  const updateIngredient = (index: number, patch: Partial<AiGeneratedRecipeDraft['ingredient_items'][number]>) => {
-    setRecipe((current) => ({
-      ...current,
-      ingredient_items: current.ingredient_items.map((item, itemIndex) => (itemIndex === index ? { ...item, ...patch } : item)),
-    }));
-  };
-  const updateStep = (index: number, patch: Partial<AiGeneratedRecipeDraft['steps'][number]>) => {
-    setRecipe((current) => ({
-      ...current,
-      steps: current.steps.map((item, itemIndex) => (itemIndex === index ? { ...item, ...patch } : item)),
-    }));
-  };
+    setToolDisplay((current) => {
+      if (!shouldQueueToolEvents.current) {
+        const visibleKeys = toolEntries.map((entry) => entry.key);
+        const hasSameVisibleKeys = visibleKeys.length === current.visibleKeys.length && visibleKeys.every((key, index) => key === current.visibleKeys[index]);
+        if (hasSameVisibleKeys && current.queuedKeys.length === 0) {
+          return current;
+        }
+        return { ...current, visibleKeys, queuedKeys: [], latestKey: null };
+      }
+      const knownKeys = new Set(toolEntries.map((entry) => entry.key));
+      const visibleKeys = current.visibleKeys.filter((key) => knownKeys.has(key));
+      const queuedKeys = current.queuedKeys.filter((key) => knownKeys.has(key));
+      const existingKeys = new Set([...visibleKeys, ...queuedKeys]);
+      for (const entry of toolEntries) {
+        if (!existingKeys.has(entry.key)) {
+          queuedKeys.push(entry.key);
+          existingKeys.add(entry.key);
+        }
+      }
+      const latestKey = current.latestKey && knownKeys.has(current.latestKey) ? current.latestKey : null;
+      if (
+        visibleKeys.length === current.visibleKeys.length &&
+        queuedKeys.length === current.queuedKeys.length &&
+        latestKey === current.latestKey
+      ) {
+        return current;
+      }
+      return { ...current, visibleKeys, queuedKeys, latestKey };
+    });
+  }, [toolEntrySignature]);
+  useEffect(() => {
+    if (toolDisplay.queuedKeys.length === 0) return undefined;
+    const elapsedMs = toolDisplay.lastRevealAt === null ? TOOL_REVEAL_INTERVAL_MS : Date.now() - toolDisplay.lastRevealAt;
+    const waitMs = Math.max(0, TOOL_REVEAL_INTERVAL_MS - elapsedMs);
+    const timer = window.setTimeout(() => {
+      setToolDisplay((current) => {
+        const [nextKey, ...queuedKeys] = current.queuedKeys;
+        if (!nextKey) return current;
+        return {
+          visibleKeys: current.visibleKeys.includes(nextKey) ? current.visibleKeys : [...current.visibleKeys, nextKey],
+          queuedKeys,
+          latestKey: nextKey,
+          revealVersion: current.revealVersion + 1,
+          lastRevealAt: Date.now(),
+        };
+      });
+    }, waitMs);
+    return () => window.clearTimeout(timer);
+  }, [toolDisplay.queuedKeys.length, toolDisplay.lastRevealAt]);
+  if (events.length === 0) return null;
+  const visibleToolKeys = new Set(toolDisplay.visibleKeys);
+  const visibleToolEvents = toolEntries.filter((entry) => visibleToolKeys.has(entry.key)).reverse();
+  const hasActiveEvent = Boolean(currentSkill && isActiveRunStatus(currentSkill.status)) || toolEvents.some((event) => isActiveRunStatus(event.status));
+  const currentSkillName = extractSkillName(currentSkill);
+  const currentStatus: AiRunEvent['status'] = hasActiveEvent ? 'running' : currentSkill?.status ?? 'completed';
 
   return (
-    <section className="ai-approval-panel">
-      <div className="inline-between">
-        <div>
-          <h3>{currentApproval.title}</h3>
-          <p>{currentApproval.instruction}</p>
+    <section className={`ai-run-progress${isExpanded ? ' is-expanded' : ''}`} aria-label="AI 执行进度">
+      <div className={`ai-run-progress-bar${toolEvents.length > 0 ? ' has-tools' : ''}`}>
+        <div className={`ai-run-current-skill status-${currentStatus}${hasActiveEvent ? ' is-active' : ''}`}>
+          <span className="ai-run-status-dot" aria-hidden="true" />
+          <strong>{runStatusText(currentStatus)}</strong>
+          <span title={currentSkillName}>{currentSkillName}</span>
         </div>
-        <span className={`ai-approval-status status-${currentApproval.status}`}>{readonly ? currentApproval.status : '待确认'}</span>
-      </div>
-      <div className="ai-recipe-editor">
-        <label>
-          菜谱名
-          <input className="text-input" value={recipe.title} disabled={readonly} onChange={(event) => setRecipe({ ...recipe, title: event.target.value })} />
-        </label>
-        <div className="ai-editor-grid">
-          <label>
-            份量
-            <input className="text-input" type="number" min={1} value={recipe.servings} disabled={readonly} onChange={(event) => setRecipe({ ...recipe, servings: Number(event.target.value) || 1 })} />
-          </label>
-          <label>
-            时间
-            <input className="text-input" type="number" min={0} value={recipe.prep_minutes} disabled={readonly} onChange={(event) => setRecipe({ ...recipe, prep_minutes: Number(event.target.value) || 0 })} />
-          </label>
-          <label>
-            难度
-            <select className="text-input" value={recipe.difficulty} disabled={readonly} onChange={(event) => setRecipe({ ...recipe, difficulty: event.target.value as Difficulty })}>
-              <option value="easy">easy</option>
-              <option value="medium">medium</option>
-              <option value="hard">hard</option>
-            </select>
-          </label>
-        </div>
-        <div className="ai-editor-section">
-          <div className="inline-between">
-            <strong>食材</strong>
-            {!readonly && (
-              <button className="ghost-button" type="button" onClick={() => setRecipe({ ...recipe, ingredient_items: [...recipe.ingredient_items, { ingredient_id: null, ingredient_name: '', quantity: 1, unit: '份', note: '' }] })}>
-                添加
-              </button>
-            )}
-          </div>
-          {recipe.ingredient_items.map((item, index) => (
-            <div className="ai-ingredient-row" key={`${item.ingredient_name}-${index}`}>
-              <input className="text-input" value={item.ingredient_name} disabled={readonly} placeholder="食材" onChange={(event) => updateIngredient(index, { ingredient_name: event.target.value })} />
-              <input className="text-input" type="number" min={0.1} step={0.1} value={item.quantity} disabled={readonly} onChange={(event) => updateIngredient(index, { quantity: Number(event.target.value) || 1 })} />
-              <input className="text-input" value={item.unit} disabled={readonly} placeholder="单位" onChange={(event) => updateIngredient(index, { unit: event.target.value })} />
-              <input className="text-input" value={item.note} disabled={readonly} placeholder="备注" onChange={(event) => updateIngredient(index, { note: event.target.value })} />
-              {!readonly && recipe.ingredient_items.length > 1 && (
-                <button className="ghost-button" type="button" onClick={() => setRecipe({ ...recipe, ingredient_items: recipe.ingredient_items.filter((_, itemIndex) => itemIndex !== index) })}>
-                  删除
-                </button>
-              )}
+        {toolEvents.length > 0 && (
+          <div className="ai-run-tool-marquee" aria-label="执行工具">
+            <div className="ai-run-tool-track">
+              {visibleToolEvents.map(({ event, key }) => {
+                const movementClass =
+                  key === toolDisplay.latestKey
+                    ? ' is-newest'
+                    : toolDisplay.latestKey
+                      ? ` is-shifted shift-${toolDisplay.revealVersion % 2 === 0 ? 'even' : 'odd'}`
+                      : '';
+                return (
+                  <span
+                    key={key}
+                    className={`ai-run-tool-chip ${isDraftToolEvent(event) ? 'kind-form' : 'kind-tool'} status-${event.status}${movementClass}`}
+                    title={event.user_message}
+                  >
+                    <ToolEventIcon event={event} />
+                    {event.user_message}
+                  </span>
+                );
+              })}
             </div>
-          ))}
-        </div>
-        <div className="ai-editor-section">
-          <div className="inline-between">
-            <strong>步骤</strong>
-            {!readonly && (
-              <button className="ghost-button" type="button" onClick={() => setRecipe({ ...recipe, steps: [...recipe.steps, { title: `步骤 ${recipe.steps.length + 1}`, text: '', icon: 'pan', summary: '', estimated_minutes: 5, tip: '', key_points: [] }] })}>
-                添加
-              </button>
-            )}
           </div>
-          {recipe.steps.map((step, index) => (
-            <div className="ai-step-row" key={`${step.title}-${index}`}>
-              <input className="text-input" value={step.title} disabled={readonly} placeholder="标题" onChange={(event) => updateStep(index, { title: event.target.value })} />
-              <div className="ai-editor-grid">
-                <input className="text-input" value={step.summary ?? ''} disabled={readonly} placeholder="摘要" onChange={(event) => updateStep(index, { summary: event.target.value })} />
-                <input className="text-input" type="number" min={1} value={step.estimated_minutes ?? ''} disabled={readonly} placeholder="分钟" onChange={(event) => updateStep(index, { estimated_minutes: Number(event.target.value) || null })} />
-                <input className="text-input" value={step.icon ?? 'pan'} disabled={readonly} placeholder="图标" onChange={(event) => updateStep(index, { icon: event.target.value })} />
+        )}
+        <button className={`ai-run-progress-toggle${isExpanded ? ' is-expanded' : ''}`} type="button" onClick={() => setIsExpanded((current) => !current)}>
+          <span>{isExpanded ? '收起进度' : '查看详情'}</span>
+          <span className="ai-run-toggle-chevron" aria-hidden="true" />
+        </button>
+      </div>
+      {isExpanded && (
+        <div className="ai-run-progress-detail">
+          <div className="ai-run-progress-steps">
+            {sortedEvents.map((event, index) => (
+              <div key={event.id || `${event.internal_code}-${index}`} className={`ai-run-progress-step status-${event.status}`}>
+                <ProgressEventIcon event={event} />
+                <strong>{runEventStatusText(event)}</strong>
+                <p title={event.user_message}>{event.user_message}</p>
+                <time dateTime={event.created_at}>{formatRunEventTime(event.created_at)}</time>
               </div>
-              <textarea className="text-input" rows={3} value={step.text} disabled={readonly} placeholder="步骤说明" onChange={(event) => updateStep(index, { text: event.target.value })} />
-              <input className="text-input" value={(step.key_points ?? []).join('、')} disabled={readonly} placeholder="关键点，用顿号分隔" onChange={(event) => updateStep(index, { key_points: event.target.value.split(/[、,，]/).map((item) => item.trim()).filter(Boolean) })} />
-              {!readonly && recipe.steps.length > 1 && (
-                <button className="ghost-button" type="button" onClick={() => setRecipe({ ...recipe, steps: recipe.steps.filter((_, itemIndex) => itemIndex !== index) })}>
-                  删除步骤
-                </button>
-              )}
-            </div>
-          ))}
-        </div>
-        <label>
-          场景标签
-          <input className="text-input" value={(recipe.scene_tags ?? []).join('、')} disabled={readonly} onChange={(event) => setRecipe({ ...recipe, scene_tags: event.target.value.split(/[、,，]/).map((item) => item.trim()).filter(Boolean) })} />
-        </label>
-        <label>
-          小贴士
-          <textarea className="text-input" rows={2} value={recipe.tips} disabled={readonly} onChange={(event) => setRecipe({ ...recipe, tips: event.target.value })} />
-        </label>
-        <label>
-          备注
-          <input className="text-input" value={comment} disabled={readonly} onChange={(event) => setComment(event.target.value)} />
-        </label>
-      </div>
-      {error && <p className="form-error">{error}</p>}
-      {!readonly && (
-        <div className="ai-approval-actions">
-          <button className="ghost-button" type="button" disabled={decisionMutation.isPending} onClick={() => decisionMutation.mutate({ decision: 'rejected' })}>
-            {currentApproval.reject_label}
-          </button>
-          <button className="solid-button" type="button" disabled={decisionMutation.isPending} onClick={() => decisionMutation.mutate({ decision: 'approved' })}>
-            {decisionMutation.isPending ? '提交中...' : currentApproval.approve_label}
-          </button>
+            ))}
+          </div>
         </div>
       )}
     </section>
   );
 }
 
-export function MessageBubble({ message, user, onApprovalSettled }: { message: AiMessage; user: UserSummary | null; onApprovalSettled: () => void }) {
+export function MessageBubble({
+  message,
+  user,
+  foods = [],
+  ingredients = [],
+  resourceOptionLoader,
+  runEvents = [],
+  isLatestAssistant = false,
+  onApprovalDecision,
+  onRetryRun,
+  onRegeneratePart,
+}: {
+  message: AiMessage;
+  user: UserSummary | null;
+  foods?: Food[];
+  ingredients?: Ingredient[];
+  resourceOptionLoader?: AiResourceOptionLoader;
+  runEvents?: AiRunEvent[];
+  isLatestAssistant?: boolean;
+  onApprovalDecision: AiApprovalDecisionSubmit;
+  onRetryRun?: (runId: string) => void;
+  onRegeneratePart?: (messageId: string, partId: string) => void;
+}) {
   const isUser = message.role === 'user';
   const userName = user?.display_name || user?.username || '我';
   const userAvatarUrl = resolveAiAvatarUrl(user?.avatar_image?.url);
   const messageTime = formatMessageTime(message.created_at);
+  const hasRenderableParts = message.parts.some((part) => {
+    if (part.type === 'text') return Boolean(part.text?.trim());
+    return Boolean(part.card || part.approval || part.draft);
+  });
+  const isWaitingForAssistant = !isUser && message.status === 'running' && !hasRenderableParts && runEvents.length === 0;
   return (
     <article className={`ai-message ai-message-${message.role}`}>
       <div className={isUser ? 'ai-message-avatar ai-message-avatar-user' : 'ai-message-avatar ai-message-avatar-assistant'} aria-hidden="true">
@@ -293,18 +405,54 @@ export function MessageBubble({ message, user, onApprovalSettled }: { message: A
       <div className="ai-message-content">
         <div className="ai-message-role">{isUser ? userName : 'AI 厨房助手'}</div>
         <div className="ai-message-body">
+          {!isUser && <RunProgressTimeline events={runEvents} isLive={message.status === 'running'} />}
+          {isWaitingForAssistant && (
+            <div className="ai-thinking-cue" aria-live="polite">
+              <span>正在整理回复</span>
+              <i aria-hidden="true" />
+              <i aria-hidden="true" />
+              <i aria-hidden="true" />
+            </div>
+          )}
           {message.parts.map((part) => {
             if (part.type === 'text') {
-              return <p key={part.id}>{part.text}</p>;
+              return (
+                <Suspense key={part.id} fallback={<p>{part.text}</p>}>
+                  <MarkdownMessage text={part.text ?? ''} />
+                </Suspense>
+              );
             }
             if ((part.type === 'result_card' || part.type === 'error_recovery') && part.card) {
-              return <ResultCard key={part.id} card={part.card} />;
+              return (
+                <div key={part.id} className="ai-message-part">
+                  <ResultCard card={part.card} />
+                  {part.type === 'result_card' && onRegeneratePart && (
+                    <button className="ghost-button ai-part-action" type="button" onClick={() => onRegeneratePart(message.id, part.id)}>
+                      局部重生成
+                    </button>
+                  )}
+                </div>
+              );
             }
             if (part.type === 'approval_request' && part.approval) {
-              return <ApprovalPanel key={part.id} approval={part.approval} onSettled={onApprovalSettled} />;
+              return (
+                <ApprovalPanel
+                  key={part.id}
+                  approval={part.approval}
+                  foods={foods}
+                  ingredients={ingredients}
+                  resourceOptionLoader={resourceOptionLoader}
+                  onDecision={onApprovalDecision}
+                />
+              );
             }
             return null;
           })}
+          {!isUser && isLatestAssistant && message.run_id && (message.status === 'failed' || message.status === 'fallback') && onRetryRun && (
+            <button className="ghost-button ai-retry-action" type="button" onClick={() => onRetryRun(message.run_id as string)}>
+              重试这次任务
+            </button>
+          )}
           {messageTime && (
             <span className="ai-message-time">
               {messageTime}

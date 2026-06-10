@@ -65,7 +65,14 @@ export const foodsApi = {
     request<void>(`/api/food-scenes/${sceneId}`, {
       method: 'DELETE',
     }),
-  getFoods: () => request<Food[]>('/api/foods'),
+  getFoods: (params: { q?: string; limit?: number; offset?: number } = {}) => {
+    const search = new URLSearchParams();
+    if (params.q?.trim()) search.set('q', params.q.trim());
+    if (params.limit !== undefined) search.set('limit', String(params.limit));
+    if (params.offset !== undefined) search.set('offset', String(params.offset));
+    const suffix = search.size > 0 ? `?${search.toString()}` : '';
+    return request<Food[]>(`/api/foods${suffix}`);
+  },
   getFoodRecommendations: (params: { limit?: number; now?: string; meal_type?: MealType } = {}) => {
     const search = new URLSearchParams({ limit: String(params.limit ?? 12) });
     if (params.now) search.set('now', params.now);

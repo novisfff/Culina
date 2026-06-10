@@ -1,0 +1,64 @@
+from __future__ import annotations
+
+from typing import Any
+
+from sqlalchemy import select
+
+from app.ai.tools.base import ToolContext
+from app.ai.tools.catalog.common import register_tool
+from app.ai.tools.draft_validation import normalize_shopping_list_draft
+from app.ai.tools.registry import ToolRegistry
+from app.ai.tools.schemas import COUNT_OUTPUT, LIMIT_INPUT, SHOPPING_LIST_DRAFT_SCHEMA, draft_input_schema, draft_output_schema
+from app.models.domain import ShoppingListItem
+
+
+def shopping_read_pending(context: ToolContext, payload: dict[str, Any]) -> dict[str, Any]:
+    limit = int(payload.get("limit") or 50)
+    items = list(
+        context.db.scalars(
+            select(ShoppingListItem)
+            .where(ShoppingListItem.family_id == context.family_id, ShoppingListItem.done.is_(False))
+            .limit(limit)
+        )
+    )
+    return {
+        "items": [
+            {"id": item.id, "title": item.title, "quantity": float(item.quantity), "unit": item.unit, "reason": item.reason}
+            for item in items
+        ],
+        "count": len(items),
+    }
+
+
+def shopping_list_create_draft(context: ToolContext, payload: dict[str, Any]) -> dict[str, Any]:
+    draft = payload.get("draft") if isinstance(payload.get("draft"), dict) else {}
+    normalized = normalize_shopping_list_draft(
+        context.db,
+        family_id=context.family_id,
+        conversation_id=context.conversation_id,
+        payload=draft,
+    )
+    return {"draft": normalized, "itemCount": len(normalized["items"])}
+
+
+def register_shopping_tools(registry: ToolRegistry) -> None:
+    register_tool(
+        registry,
+        name="shopping.read_pending",
+        display_name="待采购清单",
+        description="读取待采购购物项。",
+        side_effect="read",
+        handler=shopping_read_pending,
+        input_schema=LIMIT_INPUT,
+        output_schema=COUNT_OUTPUT,
+    )
+    register_tool(
+        registry,
+        name="shopping.create_draft",
+        display_name="购物清单确认表单",
+        description="生成购物清单草稿，不写入业务表。",
+        side_effect="draft",
+        handler=shopping_list_create_draft,
+        input_schema=draft_input_schema(SHOPPING_LIST_DRAFT_SCHEMA),
+        output_schema=draft_output_schema(SHOPPING_LIST_DRAFT_SCHEMA),
+    )

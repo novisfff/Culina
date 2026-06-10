@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.core.enums import AiMode, Difficulty
 from app.schemas.recipes import RecipeIngredientIn, RecipeStepIn
@@ -33,16 +33,12 @@ class AIRecommendationOut(BaseModel):
     created_at: datetime
 
 
-class AIQueryRequest(BaseModel):
-    mode: AiMode
-    prompt: str = ""
-    food_id: str | None = None
-    ingredient_ids: list[str] = Field(default_factory=list)
-
-
-class AIQueryResponse(BaseModel):
-    conversation: AIConversationOut
-    recommendation: AIRecommendationOut | None = None
+class AIStatusResponse(BaseModel):
+    enabled: bool
+    provider: str
+    model: str
+    status: Literal["ready", "disabled", "missing_api_key", "unsupported_provider"]
+    detail: str
 
 
 class AIRecipeDraftOut(BaseModel):
@@ -79,29 +75,65 @@ class GenerateRecipeDraftResponse(BaseModel):
 
 AIMessageRole = Literal["user", "assistant", "system"]
 AIMessagePartType = Literal["text", "result_card", "draft", "approval_request", "error_recovery"]
-AIResultCardType = Literal["today_recommendation", "recipe_draft", "approval_request", "error_recovery"]
+AIResultCardType = Literal[
+    "today_recommendation",
+    "recipe_draft",
+    "approval_request",
+    "error_recovery",
+    "inventory_summary",
+    "meal_plan_draft",
+    "shopping_list_draft",
+    "meal_log_draft",
+    "food_profile_draft",
+]
 AIRunEventStatus = Literal["pending", "running", "completed", "failed"]
-AITaskDraftType = Literal["recipe"]
+AITaskDraftType = Literal["recipe", "shopping_list", "meal_plan", "meal_log", "food_profile"]
 AITaskDraftStatus = Literal["pending", "confirmed", "rejected", "confirmation_failed", "pending_retry"]
 AIApprovalStatus = Literal["pending", "approved", "rejected", "cancelled", "expired"]
 AIApprovalDecision = Literal["approved", "rejected"]
 
 
 class AISubjectIn(BaseModel):
-    source: str | None = None
-    recipe_id: str | None = None
-    food_id: str | None = None
-    ingredient_ids: list[str] = Field(default_factory=list)
+    model_config = ConfigDict(extra="allow")
+
+    source: str | None = Field(default=None, max_length=80)
+    recipe_id: str | None = Field(default=None, max_length=64)
+    food_id: str | None = Field(default=None, max_length=64)
+    ingredient_ids: list[str] = Field(default_factory=list, max_length=50)
     date_range: dict | None = None
     extra: dict = Field(default_factory=dict)
 
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_reference_keys(cls, value):
+        if not isinstance(value, dict):
+            return value
+        normalized = dict(value)
+        aliases = {
+            "recipeId": "recipe_id",
+            "foodId": "food_id",
+            "ingredientIds": "ingredient_ids",
+            "dateRange": "date_range",
+        }
+        for source, target in aliases.items():
+            if source in normalized and target not in normalized:
+                normalized[target] = normalized[source]
+        return normalized
+
 
 class AIChatRequest(BaseModel):
-    message: str
-    conversation_id: str | None = None
-    client_message_id: str | None = None
-    quick_task: str | None = None
+    message: str = Field(min_length=1, max_length=2000)
+    conversation_id: str | None = Field(default=None, max_length=64)
+    client_message_id: str | None = Field(default=None, max_length=120)
+    client_run_id: str | None = Field(default=None, max_length=64)
+    quick_task: str | None = Field(default=None, max_length=80)
     subject: AISubjectIn | None = None
+
+    @model_validator(mode="after")
+    def validate_message_text(self) -> "AIChatRequest":
+        if not self.message.strip():
+            raise ValueError("消息不能为空")
+        return self
 
 
 class AIResultCardDTO(BaseModel):
@@ -218,6 +250,39 @@ class AIChatResponse(BaseModel):
     run: AIRunDTO
     events: list[AIRunEventDTO] = Field(default_factory=list)
     included: AIResponseIncludedDTO = Field(default_factory=AIResponseIncludedDTO)
+
+
+class AIToolRegistryItemDTO(BaseModel):
+    name: str
+    display_name: str
+    description: str
+    permission: str
+    side_effect: Literal["read", "draft", "write"]
+    requires_confirmation: bool
+    input_schema: dict = Field(default_factory=dict)
+    output_schema: dict = Field(default_factory=dict)
+
+
+class AISkillRegistryItemDTO(BaseModel):
+    key: str
+    name: str
+    description: str
+    runner: str = "markdown"
+    examples: list[str] = Field(default_factory=list)
+    context_policy: list[str] = Field(default_factory=list)
+    tools: list[str] = Field(default_factory=list)
+    scripts: list[str] = Field(default_factory=list)
+    output_types: list[str] = Field(default_factory=list)
+    draft_types: list[str] = Field(default_factory=list)
+    approval_policy: str
+    can_continue_from: list[str] = Field(default_factory=list)
+    intent: str
+    agent_key: str
+
+
+class AIRegistryResponse(BaseModel):
+    skills: list[AISkillRegistryItemDTO] = Field(default_factory=list)
+    tools: list[AIToolRegistryItemDTO] = Field(default_factory=list)
 
 
 class AIApprovalDecisionRequest(BaseModel):

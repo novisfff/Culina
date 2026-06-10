@@ -621,6 +621,123 @@ class RecipeApiTestCase(unittest.TestCase):
         self.assertEqual(foods_by_id["food-legacy-self-made"]["type"], "selfMade")
         self.assertEqual(foods_by_id["food-legacy-takeout"]["type"], "takeout")
 
+    def test_food_and_ingredient_lists_support_search_and_pagination(self) -> None:
+        with self.SessionLocal() as db:
+            other_family = Family(id="family-other", name="其他家庭", motto="", location="")
+            db.add_all(
+                [
+                    other_family,
+                    Ingredient(
+                        id="ingredient-potato",
+                        family_id=self.family.id,
+                        name="土豆",
+                        category="蔬菜",
+                        default_unit="个",
+                        unit_conversions=[],
+                        default_storage="阴凉",
+                        default_expiry_mode=IngredientExpiryMode.NONE,
+                        notes="",
+                        created_by=self.user.id,
+                        updated_by=self.user.id,
+                    ),
+                    Ingredient(
+                        id="ingredient-other-family",
+                        family_id=other_family.id,
+                        name="家庭外番茄",
+                        category="蔬菜",
+                        default_unit="个",
+                        unit_conversions=[],
+                        default_storage="冷藏",
+                        default_expiry_mode=IngredientExpiryMode.NONE,
+                        notes="",
+                        created_by=self.user.id,
+                        updated_by=self.user.id,
+                    ),
+                    Food(
+                        id="food-tomato-rice",
+                        family_id=self.family.id,
+                        name="番茄烩饭",
+                        type=FoodType.READY_MADE.value,
+                        category="主食",
+                        flavor_tags=[],
+                        suitable_meal_types=["lunch"],
+                        source_name="",
+                        purchase_source="",
+                        scene="午餐",
+                        notes="",
+                        routine_note="",
+                        favorite=False,
+                        created_by=self.user.id,
+                        updated_by=self.user.id,
+                    ),
+                    Food(
+                        id="food-potato-beef",
+                        family_id=self.family.id,
+                        name="土豆牛肉",
+                        type=FoodType.READY_MADE.value,
+                        category="家常菜",
+                        flavor_tags=[],
+                        suitable_meal_types=["dinner"],
+                        source_name="",
+                        purchase_source="",
+                        scene="晚餐",
+                        notes="",
+                        routine_note="",
+                        favorite=False,
+                        created_by=self.user.id,
+                        updated_by=self.user.id,
+                    ),
+                    Food(
+                        id="food-other-family",
+                        family_id=other_family.id,
+                        name="家庭外番茄饭",
+                        type=FoodType.READY_MADE.value,
+                        category="主食",
+                        flavor_tags=[],
+                        suitable_meal_types=["lunch"],
+                        source_name="",
+                        purchase_source="",
+                        scene="午餐",
+                        notes="",
+                        routine_note="",
+                        favorite=False,
+                        created_by=self.user.id,
+                        updated_by=self.user.id,
+                    ),
+                ]
+            )
+            db.commit()
+
+        first_ingredient_page = self.client.get("/api/ingredients?limit=1&offset=0")
+        second_ingredient_page = self.client.get("/api/ingredients?limit=1&offset=1")
+        self.assertEqual(first_ingredient_page.status_code, 200, first_ingredient_page.text)
+        self.assertEqual(second_ingredient_page.status_code, 200, second_ingredient_page.text)
+        ingredient_page_ids = {
+            first_ingredient_page.json()[0]["id"],
+            second_ingredient_page.json()[0]["id"],
+        }
+        self.assertEqual(len(ingredient_page_ids), 2)
+        self.assertNotIn("ingredient-other-family", ingredient_page_ids)
+
+        ingredient_search = self.client.get("/api/ingredients?q=%E5%9C%9F%E8%B1%86&limit=6&offset=0")
+        self.assertEqual(ingredient_search.status_code, 200, ingredient_search.text)
+        self.assertEqual([item["id"] for item in ingredient_search.json()], ["ingredient-potato"])
+
+        first_food_page = self.client.get("/api/foods?limit=1&offset=0")
+        second_food_page = self.client.get("/api/foods?limit=1&offset=1")
+        self.assertEqual(first_food_page.status_code, 200, first_food_page.text)
+        self.assertEqual(second_food_page.status_code, 200, second_food_page.text)
+        food_page_ids = {
+            first_food_page.json()[0]["id"],
+            second_food_page.json()[0]["id"],
+        }
+        self.assertEqual(len(food_page_ids), 2)
+        self.assertNotIn("food-other-family", food_page_ids)
+
+        food_search = self.client.get("/api/foods?q=%E7%95%AA%E8%8C%84&limit=6&offset=0")
+        self.assertEqual(food_search.status_code, 200, food_search.text)
+        self.assertEqual([item["id"] for item in food_search.json()], ["food-tomato-rice"])
+
     def test_food_recommendations_infer_next_meal_and_return_actions(self) -> None:
         dinner_recipe = self.create_recipe(auto_create_food=True, title="可做晚餐")
         with self.SessionLocal() as db:

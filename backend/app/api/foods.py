@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import date, datetime, time, timedelta
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session, selectinload
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
@@ -380,9 +380,23 @@ def recommend_foods(
 
 
 @router.get("/api/foods", response_model=list[FoodOut])
-def list_foods(auth: tuple = Depends(get_current_auth), db: Session = Depends(get_db)) -> list[dict]:
+def list_foods(
+    q: str = Query(default="", max_length=100),
+    limit: int | None = Query(default=None, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+    auth: tuple = Depends(get_current_auth),
+    db: Session = Depends(get_db),
+) -> list[dict]:
     _, membership = auth
-    foods = list(db.scalars(select(Food).where(Food.family_id == membership.family_id).order_by(Food.updated_at.desc())))
+    statement = select(Food).where(Food.family_id == membership.family_id)
+    query = q.strip()
+    if query:
+        pattern = f"%{query}%"
+        statement = statement.where(or_(Food.name.ilike(pattern), Food.category.ilike(pattern)))
+    statement = statement.order_by(Food.updated_at.desc(), Food.id)
+    if limit is not None:
+        statement = statement.offset(offset).limit(limit)
+    foods = list(db.scalars(statement))
     media_map = build_media_map(get_media_assets_for_entities(db, family_id=membership.family_id, entity_type="food", entity_ids=[food.id for food in foods]))
     return [serialize_food(food, media_map) for food in foods]
 

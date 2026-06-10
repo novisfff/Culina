@@ -16,6 +16,7 @@ export const queryKeys = {
   foodRecommendations: ['food-recommendations'] as const,
   mealLogs: ['meal-logs'] as const,
   activityLogs: ['activity-logs'] as const,
+  aiStatus: ['ai-status'] as const,
   aiConversations: ['ai-conversations'] as const,
   aiMessages: (conversationId: string | null) => ['ai-messages', conversationId] as const,
   aiPendingApprovals: (conversationId: string | null) => ['ai-pending-approvals', conversationId] as const,

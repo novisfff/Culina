@@ -1,6 +1,6 @@
 import type { FormEventHandler } from 'react';
-import type { AiApprovalRequest, AiConversation, AiMessage, UserSummary } from '../../api/types';
-import { ApprovalPanel, MessageBubble } from './AiConversationThread';
+import type { AiConversation, AiMessage, AiRunEvent, UserSummary } from '../../api/types';
+import { MessageBubble, type AiApprovalDecisionSubmit, type AiResourceOptionLoader } from './AiConversationThread';
 import { AiMobileChrome } from './AiMobileChrome';
 
 export const AI_WELCOME_SUGGESTIONS = [
@@ -15,10 +15,15 @@ type Props = {
   activeConversationId: string | null;
   isMobileHistoryOpen: boolean;
   currentUser: UserSummary | null;
+  resourceOptionLoader: AiResourceOptionLoader;
   messages: AiMessage[];
-  restoredPendingApprovals: AiApprovalRequest[];
+  runEventsById: Record<string, AiRunEvent[]>;
+  streamProgress: AiRunEvent[];
+  activeStreamRunId: string | null;
   draft: string;
   isSending: boolean;
+  isComposerPaused: boolean;
+  composerPauseMessage?: string;
   sendError?: string;
   onBackHome?: () => void;
   onOpenMobileHistory: () => void;
@@ -28,7 +33,10 @@ type Props = {
   onDraftChange: (value: string) => void;
   onPickSuggestion: (value: string) => void;
   onSubmit: FormEventHandler<HTMLFormElement>;
-  onApprovalSettled: () => void;
+  onApprovalDecision: AiApprovalDecisionSubmit;
+  onRetryRun: (runId: string) => void;
+  onRegeneratePart: (messageId: string, partId: string) => void;
+  onCancelSending: () => void;
 };
 
 export function AiMobilePage(props: Props) {
@@ -49,17 +57,20 @@ export function AiMobilePage(props: Props) {
       <div className="ai-thread-scroll">
         {props.messages.length > 0 ? (
           <>
-            {props.messages.map((message) => (
-              <MessageBubble key={message.id} message={message} user={props.currentUser} onApprovalSettled={props.onApprovalSettled} />
+            {props.messages.map((message, index) => (
+              <MessageBubble
+                key={message.id}
+                message={message}
+                user={props.currentUser}
+                resourceOptionLoader={props.resourceOptionLoader}
+                runEvents={message.run_id && message.run_id === props.activeStreamRunId ? props.streamProgress : message.run_id ? props.runEventsById[message.run_id] ?? [] : []}
+                isLatestAssistant={message.role === 'assistant' && index === props.messages.length - 1}
+                onApprovalDecision={props.onApprovalDecision}
+                onRetryRun={props.onRetryRun}
+                onRegeneratePart={props.onRegeneratePart}
+              />
             ))}
           </>
-        ) : props.restoredPendingApprovals.length > 0 ? (
-          <section className="ai-pending-approval-restore">
-            <strong>待处理确认</strong>
-            {props.restoredPendingApprovals.map((approval) => (
-              <ApprovalPanel key={approval.id} approval={approval} onSettled={props.onApprovalSettled} />
-            ))}
-          </section>
         ) : (
           <div className="ai-empty-prompt">
             <section className="ai-welcome-card">
@@ -80,30 +91,30 @@ export function AiMobilePage(props: Props) {
             </div>
           </div>
         )}
-        {props.messages.length > 0 && props.restoredPendingApprovals.length > 0 && (
-          <section className="ai-pending-approval-restore">
-            <strong>待处理确认</strong>
-            {props.restoredPendingApprovals.map((approval) => (
-              <ApprovalPanel key={approval.id} approval={approval} onSettled={props.onApprovalSettled} />
-            ))}
-          </section>
-        )}
       </div>
 
       <div className="ai-composer-dock">
         {props.sendError && <p className="form-error">{props.sendError}</p>}
+        {props.isComposerPaused && <p className="ai-composer-pause-note">{props.composerPauseMessage ?? '请先确认上面的草稿，确认后可以继续对话。'}</p>}
         <form className="ai-composer" onSubmit={props.onSubmit}>
           <textarea
             className="text-input"
             rows={2}
             value={props.draft}
-            placeholder="输入你的问题，或让 AI 帮你安排一餐..."
+            placeholder={props.isComposerPaused ? props.composerPauseMessage ?? '等待你确认草稿...' : '输入你的问题，或让 AI 帮你安排一餐...'}
+            disabled={props.isComposerPaused}
             onChange={(event) => props.onDraftChange(event.target.value)}
           />
           <div className="ai-composer-meta">
             <span>{props.draft.length}/2000</span>
-            <button className="ai-send-button" type="submit" disabled={props.isSending} aria-label="发送消息">
-              {props.isSending ? '...' : '↗'}
+            <button
+              className={`ai-send-button ${props.isSending ? 'is-sending' : ''}`}
+              type={props.isSending ? 'button' : 'submit'}
+              disabled={props.isComposerPaused && !props.isSending}
+              aria-label={props.isSending ? '中止生成' : '发送消息'}
+              onClick={props.isSending ? props.onCancelSending : undefined}
+            >
+              {props.isSending ? <span className="ai-stop-icon" aria-hidden="true" /> : '↗'}
             </button>
           </div>
         </form>
