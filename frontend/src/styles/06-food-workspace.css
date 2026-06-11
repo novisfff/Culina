@@ -4858,6 +4858,7 @@
 
 .ai-message-time {
   justify-self: end;
+  margin-left: auto;
   display: inline-flex;
   align-items: center;
   gap: 5px;
@@ -7464,7 +7465,21 @@
   font-size: 0.86rem;
 }
 
-/* 8. Message actions bar */
+/* 8. Message footer and actions bar */
+.ai-message-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  margin-top: 4px;
+}
+
+.ai-message-footer.has-actions {
+  margin-top: 8px;
+  padding-top: 6px;
+  border-top: 1px dashed rgba(147, 96, 63, 0.08);
+}
+
 .ai-message-actions-bar {
   display: flex;
   align-items: center;
@@ -7472,10 +7487,6 @@
   opacity: 0;
   visibility: hidden;
   transition: opacity 0.2s ease, visibility 0.2s ease;
-  margin-top: 8px;
-  padding-top: 6px;
-  border-top: 1px dashed rgba(147, 96, 63, 0.08);
-  width: 100%;
 }
 
 .ai-message:hover .ai-message-actions-bar {
