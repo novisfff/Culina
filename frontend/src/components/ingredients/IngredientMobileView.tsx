@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { resolveAssetUrl } from '../../lib/assets';
+import { buildMediaSizes, buildMediaSrcSet, resolveAssetUrl, resolveMediaUrl } from '../../lib/assets';
 import { buildIngredientPlaceholderSvg } from '../../lib/ui';
 import type { ShoppingListItem } from '../../api/types';
 import type {
@@ -118,14 +118,19 @@ export function IngredientMobileView(props: IngredientMobileViewProps) {
         {props.mobilePrioritySummaries.length > 0 ? (
           <div className="mobile-ingredient-priority-scroller">
             {props.mobilePrioritySummaries.map((summary) => {
-              const imageUrl = resolveAssetUrl(summary.ingredient.image?.url) ?? buildIngredientPlaceholderSvg(summary.ingredient.name);
+              const imageUrl = resolveMediaUrl(summary.ingredient.image, 'card') ?? buildIngredientPlaceholderSvg(summary.ingredient.name);
               const status = props.buildPriorityStatus(summary);
               const canConsume = summary.availableInventoryItems.length > 0;
               const canDestroyExpired = props.countDisposableExpiredItems(summary) > 0;
               return (
                 <article key={summary.ingredient.id} className={`mobile-ingredient-priority-card tone-${status.tone}`}>
                   <button className="mobile-ingredient-priority-cover" type="button" onClick={() => props.openDetailView(summary.ingredient.id)}>
-                    <img src={imageUrl} alt={summary.ingredient.name} />
+                    <img
+                      src={imageUrl}
+                      srcSet={buildMediaSrcSet(summary.ingredient.image)}
+                      sizes={buildMediaSizes('card')}
+                      alt={summary.ingredient.name}
+                    />
                   </button>
                   <div className="mobile-ingredient-priority-body">
                     <div className="mobile-ingredient-card-head">
@@ -255,13 +260,18 @@ export function IngredientMobileView(props: IngredientMobileViewProps) {
         {props.mobileCatalogSummaries.length > 0 ? (
           <div className="mobile-ingredient-library-grid">
             {props.mobileCatalogSummaries.map((summary) => {
-              const imageUrl = resolveAssetUrl(summary.ingredient.image?.url) ?? buildIngredientPlaceholderSvg(summary.ingredient.name);
+              const imageUrl = resolveMediaUrl(summary.ingredient.image, 'card') ?? buildIngredientPlaceholderSvg(summary.ingredient.name);
               const status = props.buildCatalogStatus(summary);
               const canConsume = summary.availableInventoryItems.length > 0;
               return (
                 <article key={summary.ingredient.id} className={`mobile-ingredient-library-card tone-${status.tone}`}>
                   <button className="mobile-ingredient-library-cover" type="button" onClick={() => props.openDetailView(summary.ingredient.id)}>
-                    <img src={imageUrl} alt={summary.ingredient.name} />
+                    <img
+                      src={imageUrl}
+                      srcSet={buildMediaSrcSet(summary.ingredient.image)}
+                      sizes={buildMediaSizes('card')}
+                      alt={summary.ingredient.name}
+                    />
                     {summary.alerts.length > 0 && <span>{summary.alerts.length} 提醒</span>}
                   </button>
                   <div className="mobile-ingredient-library-body">
@@ -329,12 +339,17 @@ export function IngredientMobileView(props: IngredientMobileViewProps) {
           <div className="mobile-ingredient-shopping-list">
             {props.mobileShoppingCards.map((card) => {
               const imageUrl =
-                resolveAssetUrl(card.linkedSummary?.ingredient.image?.url) ??
+                resolveMediaUrl(card.linkedSummary?.ingredient.image, 'thumb') ??
                 buildIngredientPlaceholderSvg(card.title || '待买项');
               return (
                 <article key={card.shoppingItem.id} className={`mobile-ingredient-shopping-card tone-${card.statusTone}`}>
                   <span className="mobile-ingredient-shopping-cover">
-                    <img src={imageUrl} alt={card.title} />
+                    <img
+                      src={imageUrl}
+                      srcSet={buildMediaSrcSet(card.linkedSummary?.ingredient.image)}
+                      sizes={buildMediaSizes('thumb')}
+                      alt={card.title}
+                    />
                   </span>
                   <div className="mobile-ingredient-shopping-copy">
                     <strong>{card.title}</strong>

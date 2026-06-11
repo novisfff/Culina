@@ -81,6 +81,7 @@ def ensure_food_for_recipe(
                         reference_media_id=asset.reference_media_id,
                         style_key=asset.style_key,
                         prompt_version=asset.prompt_version,
+                        variants=asset.variants,
                         entity_type="food",
                         entity_id=food.id,
                         created_by=user_id,

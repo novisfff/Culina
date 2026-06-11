@@ -1,11 +1,13 @@
 from __future__ import annotations
+from io import BytesIO
 from pathlib import Path
-from typing import Iterable
+from typing import Any, Iterable
 from uuid import uuid4
 
 from fastapi import HTTPException, UploadFile, status
 from minio import Minio
 from minio.error import S3Error
+from PIL import Image, ImageOps, UnidentifiedImageError
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -23,6 +25,14 @@ ALLOWED_CONTENT_TYPES = {
 }
 
 GENERATED_IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".bmp", ".svg"}
+MEDIA_VARIANT_SPECS = {
+    "thumb": 320,
+    "card": 640,
+    "large": 1024,
+}
+MEDIA_VARIANT_CONTENT_TYPE = "image/webp"
+MEDIA_VARIANT_QUALITY = 82
+MEDIA_VARIANT_METHOD = 6
 
 
 def _detect_image_content_type(payload: bytes) -> str | None:
@@ -80,8 +90,6 @@ def _public_url(object_key: str) -> str:
 
 
 def _put_media_object(*, object_key: str, payload: bytes, content_type: str) -> None:
-    from io import BytesIO
-
     settings = get_settings()
     ensure_media_bucket()
     _storage_client().put_object(
@@ -91,6 +99,108 @@ def _put_media_object(*, object_key: str, payload: bytes, content_type: str) -> 
         length=len(payload),
         content_type=content_type,
     )
+
+
+def _remove_object(object_key: str) -> None:
+    try:
+        _storage_client().remove_object(get_settings().minio_bucket, object_key)
+    except S3Error:
+        pass
+
+
+def _object_key_from_public_url(url: str) -> str | None:
+    prefix = "/media/"
+    if not url.startswith(prefix):
+        return None
+    return url[len(prefix) :]
+
+
+def _variant_object_key(*, family_id: str, asset_id: str, variant_name: str) -> str:
+    return f"{family_id}/variants/{asset_id}/{variant_name}.webp"
+
+
+def _serialize_variant(*, object_key: str, width: int, height: int, byte_size: int) -> dict[str, Any]:
+    return {
+        "url": _public_url(object_key),
+        "width": width,
+        "height": height,
+        "content_type": MEDIA_VARIANT_CONTENT_TYPE,
+        "byte_size": byte_size,
+    }
+
+
+def _normalize_raster_image(image: Image.Image) -> Image.Image:
+    normalized = ImageOps.exif_transpose(image)
+    if normalized.mode in {"RGBA", "LA"} or (normalized.mode == "P" and "transparency" in normalized.info):
+        background = Image.new("RGB", normalized.size, (255, 255, 255))
+        alpha = normalized.convert("RGBA")
+        background.paste(alpha, mask=alpha.getchannel("A"))
+        return background
+    if normalized.mode != "RGB":
+        return normalized.convert("RGB")
+    return normalized
+
+
+def build_media_variants(
+    *,
+    family_id: str,
+    asset_id: str,
+    payload: bytes,
+) -> dict[str, dict[str, Any]]:
+    variants: dict[str, dict[str, Any]] = {}
+    try:
+        with Image.open(BytesIO(payload)) as source:
+            source.load()
+            image = _normalize_raster_image(source)
+    except (UnidentifiedImageError, OSError):
+        return variants
+
+    try:
+        for variant_name, max_edge in MEDIA_VARIANT_SPECS.items():
+            variant = image.copy()
+            variant.thumbnail((max_edge, max_edge), Image.Resampling.LANCZOS)
+            output = BytesIO()
+            variant.save(
+                output,
+                format="WEBP",
+                quality=MEDIA_VARIANT_QUALITY,
+                method=MEDIA_VARIANT_METHOD,
+            )
+            variant_payload = output.getvalue()
+            object_key = _variant_object_key(
+                family_id=family_id,
+                asset_id=asset_id,
+                variant_name=variant_name,
+            )
+            _put_media_object(
+                object_key=object_key,
+                payload=variant_payload,
+                content_type=MEDIA_VARIANT_CONTENT_TYPE,
+            )
+            variants[variant_name] = _serialize_variant(
+                object_key=object_key,
+                width=variant.width,
+                height=variant.height,
+                byte_size=len(variant_payload),
+            )
+    except Exception:
+        delete_media_variants(variants)
+        return {}
+    return variants
+
+
+def delete_media_variants(variants: dict[str, Any] | None) -> None:
+    if not variants:
+        return
+    for value in variants.values():
+        if not isinstance(value, dict):
+            continue
+        url = value.get("url")
+        if not isinstance(url, str):
+            continue
+        object_key = _object_key_from_public_url(url)
+        if object_key:
+            _remove_object(object_key)
 
 
 def read_media_object(asset: MediaAsset) -> bytes:
@@ -138,11 +248,9 @@ def read_media_object_by_key(object_key: str) -> tuple[bytes, str]:
 
 
 def delete_media_file(asset: MediaAsset) -> None:
+    delete_media_variants(asset.variants)
     if asset.file_path:
-        try:
-            _storage_client().remove_object(get_settings().minio_bucket, asset.file_path)
-        except S3Error:
-            pass
+        _remove_object(asset.file_path)
 
 
 def _read_validated_upload(upload: UploadFile, max_bytes: int) -> tuple[bytes, str]:
@@ -274,14 +382,17 @@ def save_generated_asset(
         ".bmp": "image/bmp",
         ".svg": "image/svg+xml",
     }
+    content_type = content_type_by_extension.get(normalized_extension, "application/octet-stream")
     _put_media_object(
         object_key=object_key,
         payload=binary_payload,
-        content_type=content_type_by_extension.get(normalized_extension, "application/octet-stream"),
+        content_type=content_type,
     )
 
+    asset_id = create_id("photo")
+    variants = build_media_variants(family_id=family_id, asset_id=asset_id, payload=binary_payload) if content_type in ALLOWED_CONTENT_TYPES else {}
     asset = MediaAsset(
-        id=create_id("photo"),
+        id=asset_id,
         family_id=family_id,
         name=title,
         url=_public_url(object_key),
@@ -292,6 +403,7 @@ def save_generated_asset(
         reference_media_id=reference_media_id,
         style_key=style_key,
         prompt_version=prompt_version,
+        variants=variants or None,
         created_at=utcnow(),
         created_by=user_id,
     )

@@ -178,7 +178,11 @@ export function buildInventoryAlerts(
 }
 
 export function getFoodCover(food: Food, recipes: Recipe[]): string | undefined {
-  return food.images[0]?.url ?? recipes.find((item) => item.id === food.recipe_id)?.images[0]?.url;
+  return getFoodCoverAsset(food, recipes)?.url;
+}
+
+export function getFoodCoverAsset(food: Food, recipes: Recipe[]) {
+  return food.images[0] ?? recipes.find((item) => item.id === food.recipe_id)?.images[0];
 }
 
 export function getRecipeCover(recipe: Recipe): string | undefined {

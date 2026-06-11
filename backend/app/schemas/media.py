@@ -8,6 +8,20 @@ from pydantic import BaseModel, Field
 from app.core.enums import ImageGenerationMode, MealType, MediaEntityType, MediaSource
 
 
+class MediaVariantOut(BaseModel):
+    url: str
+    width: int
+    height: int
+    content_type: str
+    byte_size: int
+
+
+class MediaVariantsOut(BaseModel):
+    thumb: MediaVariantOut | None = None
+    card: MediaVariantOut | None = None
+    large: MediaVariantOut | None = None
+
+
 class MediaAssetOut(BaseModel):
     id: str
     name: str
@@ -18,6 +32,7 @@ class MediaAssetOut(BaseModel):
     reference_media_id: str | None = None
     style_key: str | None = None
     prompt_version: str | None = None
+    variants: MediaVariantsOut | None = None
     created_at: datetime
     created_by: str | None = None
 
@@ -55,4 +70,3 @@ class AiRenderResponse(BaseModel):
     style_key: str | None = None
     prompt_version: str | None = None
     generation_mode: Literal["reference", "text"]
-

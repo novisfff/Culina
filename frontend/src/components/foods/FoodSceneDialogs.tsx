@@ -1,15 +1,8 @@
 import type { FormEvent } from 'react';
+import { buildMediaSizes, buildMediaSrcSet, resolveMediaUrl } from '../../lib/assets';
 import { ActionButton, WorkspaceModal } from '../ui-kit';
 import { FoodUiIcon } from './FoodWorkspacePrimitives';
-import type { FoodSceneFormMode, ManagedFoodScene } from './useFoodSceneState';
-
-type FoodSceneCardView = {
-  id?: string;
-  name: string;
-  description?: string;
-  imageUrl?: string;
-  count: number;
-};
+import type { FoodSceneCardView, FoodSceneFormMode, ManagedFoodScene } from './useFoodSceneState';
 
 type FoodSceneDialogsProps = {
   isSceneManagerOpen: boolean;
@@ -58,10 +51,19 @@ export function FoodSceneDialogs(props: FoodSceneDialogsProps) {
               </div>
               <div className="food-scene-list">
                 {props.sceneCards.length > 0 ? (
-                  props.sceneCards.map((scene) => (
+                  props.sceneCards.map((scene) => {
+                    const imageUrl = resolveMediaUrl(scene.imageAsset, 'thumb') ?? (scene.imageUrl ? props.resolveFoodAssetUrl(scene.imageUrl) : undefined);
+                    return (
                     <article key={scene.name} className="food-scene-row">
                       <div className="food-scene-row-thumb">
-                        {scene.imageUrl ? <img src={props.resolveFoodAssetUrl(scene.imageUrl)} alt="" /> : <FoodUiIcon name="star" />}
+                        {imageUrl ? (
+                          <img
+                            src={imageUrl}
+                            srcSet={buildMediaSrcSet(scene.imageAsset)}
+                            sizes={buildMediaSizes('thumb')}
+                            alt=""
+                          />
+                        ) : <FoodUiIcon name="star" />}
                       </div>
                       <div className="food-scene-row-copy">
                         <div className="food-scene-row-titleline">
@@ -81,7 +83,8 @@ export function FoodSceneDialogs(props: FoodSceneDialogsProps) {
                         )}
                       </div>
                     </article>
-                  ))
+                    );
+                  })
                 ) : (
                   <p className="subtle">暂无可管理场景。</p>
                 )}

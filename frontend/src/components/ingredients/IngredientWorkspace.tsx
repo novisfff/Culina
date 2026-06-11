@@ -18,7 +18,7 @@ import type {
   Recipe,
   ShoppingListItem,
 } from '../../api/types';
-import { resolveAssetUrl } from '../../lib/assets';
+import { buildMediaSizes, buildMediaSrcSet, resolveAssetUrl, resolveMediaUrl } from '../../lib/assets';
 import { addDateKeyDays } from '../../lib/date';
 import {
   buildIngredientPlaceholderSvg,
@@ -1074,7 +1074,7 @@ function InventoryIngredientCard(props: InventoryIngredientCardProps) {
   const canDestroyExpired = disposableExpiredItems.length > 0;
   const alertTone = summary.alerts.length > 0 ? getIngredientAlertTone(summary) : null;
   const imageUrl =
-    resolveAssetUrl(summary.ingredient.image?.url) ?? buildIngredientPlaceholderSvg(summary.ingredient.name);
+    resolveMediaUrl(summary.ingredient.image, 'card') ?? buildIngredientPlaceholderSvg(summary.ingredient.name);
   const hasCustomImage = Boolean(summary.ingredient.image?.url);
   const metaLine = [summary.ingredient.category || '未分类', summary.primaryStorage].join(' · ');
   const totalInventoryLabel = buildInventoryTotalLabel(summary);
@@ -1110,6 +1110,8 @@ function InventoryIngredientCard(props: InventoryIngredientCardProps) {
                     : 'ingredient-visual-cover ingredient-visual-cover-placeholder'
                 }
                 src={imageUrl}
+                srcSet={buildMediaSrcSet(summary.ingredient.image)}
+                sizes={buildMediaSizes('card')}
                 alt={summary.ingredient.name}
               />
             </div>
@@ -1265,7 +1267,7 @@ function IngredientCatalogCard(props: IngredientCatalogCardProps) {
   const [expandedPrimaryHeight, setExpandedPrimaryHeight] = useState<number | null>(null);
   const hasCustomImage = Boolean(summary.ingredient.image?.url);
   const imageUrl =
-    resolveAssetUrl(summary.ingredient.image?.url) ?? buildIngredientPlaceholderSvg(summary.ingredient.name);
+    resolveMediaUrl(summary.ingredient.image, 'card') ?? buildIngredientPlaceholderSvg(summary.ingredient.name);
   const alertTone = getIngredientAlertTone(summary);
   const status = buildCatalogCardStatus(summary);
   const canConsume = summary.availableInventoryItems.length > 0;
@@ -1357,6 +1359,8 @@ function IngredientCatalogCard(props: IngredientCatalogCardProps) {
                     : 'ingredient-visual-cover ingredient-visual-cover-placeholder'
                 }
                 src={imageUrl}
+                srcSet={buildMediaSrcSet(summary.ingredient.image)}
+                sizes={buildMediaSizes('card')}
                 alt={summary.ingredient.name}
               />
             </div>

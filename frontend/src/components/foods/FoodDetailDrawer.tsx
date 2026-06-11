@@ -1,4 +1,5 @@
-import type { Food, MealLog, MealType, Recipe } from '../../api/types';
+import type { Food, MealLog, MealType, Recipe, MediaAsset } from '../../api/types';
+import { buildMediaSizes, buildMediaSrcSet, resolveMediaUrl } from '../../lib/assets';
 import { FOOD_TYPE_LABELS, MEAL_TYPE_LABELS, formatDate } from '../../lib/ui';
 import type { RecipeCardViewModel } from '../recipes/workspaceModel';
 import { ActionButton, Badge, WorkspaceDrawer } from '../ui-kit';
@@ -37,6 +38,7 @@ type Props = {
   food: Food;
   audienceText: string;
   cover?: string | null;
+  coverAsset?: MediaAsset | null;
   detailMealOptions: MealOption[];
   expiry: string | null;
   factRows: FoodFactRow[];
@@ -65,6 +67,7 @@ type Props = {
 
 export function FoodDetailDrawer(props: Props) {
   const linkedRecipeCard = props.relation.linkedRecipeCard;
+  const coverUrl = resolveMediaUrl(props.coverAsset, 'large') ?? (props.cover ? props.resolveAssetUrl(props.cover) : undefined);
 
   return (
     <div className="workspace-overlay-root">
@@ -78,7 +81,14 @@ export function FoodDetailDrawer(props: Props) {
       >
         <div className="food-detail-hero">
           <div className="food-detail-cover">
-            {props.cover ? <img src={props.resolveAssetUrl(props.cover)} alt={props.food.name} /> : <span>{props.food.name.slice(0, 4)}</span>}
+            {coverUrl ? (
+              <img
+                src={coverUrl}
+                srcSet={buildMediaSrcSet(props.coverAsset)}
+                sizes={buildMediaSizes('hero')}
+                alt={props.food.name}
+              />
+            ) : <span>{props.food.name.slice(0, 4)}</span>}
           </div>
           <div className="food-detail-status-row">
             <span className={`food-card-status tone-${props.status.tone}`}>

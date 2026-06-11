@@ -1,4 +1,4 @@
-import { resolveAssetUrl } from '../../lib/assets';
+import { buildMediaSizes, buildMediaSrcSet, resolveAssetUrl, resolveMediaUrl } from '../../lib/assets';
 import { ActionButton, Badge } from '../ui-kit';
 import { DIFFICULTY_LABELS, type RecipeCardViewModel } from './workspaceModel';
 import type { RecipeSceneCard, RecipeUiIconName } from './RecipeWorkspaceModel';
@@ -267,11 +267,16 @@ export function RecipeDishIllustration(props: { title: string; tone: ReturnType<
 }
 
 export function RecipeCover(props: { card: RecipeCardViewModel; className?: string }) {
-  const url = resolveAssetUrl(props.card.coverUrl);
+  const url = resolveMediaUrl(props.card.coverAsset, 'card') ?? resolveAssetUrl(props.card.coverUrl);
   return (
     <div className={props.className ? `recipe-work-cover ${props.className}` : 'recipe-work-cover'}>
       {url ? (
-        <img src={url} alt={props.card.recipe.title} />
+        <img
+          src={url}
+          srcSet={buildMediaSrcSet(props.card.coverAsset)}
+          sizes={buildMediaSizes('card')}
+          alt={props.card.recipe.title}
+        />
       ) : (
         <RecipeDishIllustration title={props.card.recipe.title} tone={getRecipeVisualTone(props.card.recipe.id)} />
       )}
@@ -511,4 +516,3 @@ export function MobileRecipeSceneCard(props: {
     </button>
   );
 }
-

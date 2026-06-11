@@ -1,5 +1,5 @@
 import { useMemo, useState, type FormEvent } from 'react';
-import type { Food, FoodScene } from '../../api/types';
+import type { Food, FoodScene, MediaAsset } from '../../api/types';
 import {
   IDLE_IMAGE_GENERATION_STATE,
   useImageComposer,
@@ -17,6 +17,17 @@ export type ManagedFoodScene = {
   imageAssetUrl?: string;
   hidden?: boolean;
   custom?: boolean;
+};
+
+export type FoodSceneCardView = {
+  id?: string;
+  name: string;
+  description?: string;
+  imagePrompt?: string;
+  imageUrl?: string;
+  imageAsset?: MediaAsset | null;
+  custom?: boolean;
+  count: number;
 };
 
 function blankFoodSceneDraft(name = ''): ManagedFoodScene {
@@ -64,7 +75,7 @@ export function useFoodSceneState(input: {
   const [sceneFormMode, setSceneFormMode] = useState<FoodSceneFormMode>(null);
   const [sceneDraft, setSceneDraft] = useState<ManagedFoodScene>(() => blankFoodSceneDraft());
 
-  const sceneCards = useMemo(() => {
+  const sceneCards = useMemo<FoodSceneCardView[]>(() => {
     const counts = new Map<string, number>();
     input.foods.forEach((food) => {
       getFoodSceneTags(food).forEach((tag) => counts.set(tag, (counts.get(tag) ?? 0) + 1));
@@ -78,12 +89,13 @@ export function useFoodSceneState(input: {
           description: scene.description,
           imagePrompt: scene.image_prompt,
           imageUrl: scene.image?.url,
+          imageAsset: scene.image,
           custom: scene.custom,
           count: counts.get(scene.name) ?? 0,
         })),
       ...Array.from(counts.entries())
         .filter(([name]) => !input.foodScenes.some((scene) => scene.name === name))
-        .map(([name, count]) => ({ id: '', name, description: '', imagePrompt: '', imageUrl: undefined, custom: true, count })),
+        .map(([name, count]) => ({ id: '', name, description: '', imagePrompt: '', imageUrl: undefined, imageAsset: undefined, custom: true, count })),
     ].sort((a, b) => b.count - a.count || a.name.localeCompare(b.name, 'zh-CN')).slice(0, 12);
   }, [input.foodScenes, input.foods]);
   const sceneImageComposer = useImageComposer({
