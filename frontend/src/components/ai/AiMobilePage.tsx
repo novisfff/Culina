@@ -150,7 +150,6 @@ export function AiMobilePage(props: Props) {
             </button>
           </div>
         </form>
-        <p className="ai-disclaimer">AI 可能会出错，请核对重要信息</p>
       </div>
     </section>
   );
