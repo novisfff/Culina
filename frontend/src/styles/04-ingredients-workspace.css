@@ -4,6 +4,33 @@
   }
 }
 
+.ingredients-desktop-view {
+  display: grid;
+  gap: 16px;
+}
+
+.ingredients-workspace .page-header {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  padding: 16px 18px;
+  border-radius: 18px;
+  border: 1px solid rgba(100, 76, 58, 0.1);
+  background: rgba(255, 255, 255, 0.82);
+  box-shadow: 0 12px 34px rgba(76, 56, 42, 0.055);
+}
+
+.ingredients-workspace .page-header h2 {
+  color: #231812;
+  font-size: clamp(1.38rem, 2vw, 1.88rem);
+  font-weight: 950;
+  line-height: 0.95;
+}
+
+.ingredients-workspace .page-header-side {
+  align-self: start;
+  padding-top: 0;
+}
+
 .ingredients-panel-shell,
 .workspace-subpage {
   display: grid;
@@ -37,6 +64,136 @@
   display: grid;
   gap: 8px;
 }
+
+.ingredients-panel-subnav-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid rgba(92, 67, 48, 0.08);
+  padding-bottom: 10px;
+  gap: 16px;
+}
+
+.ingredients-panel-subnav-row .workspace-subnav {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  background: rgba(47, 37, 30, 0.045);
+  border: 1px solid rgba(92, 67, 48, 0.06);
+  border-radius: 12px;
+  overflow: hidden;
+  border-bottom: none;
+}
+
+.ingredients-panel-subnav-row .workspace-subnav-item {
+  min-height: 30px;
+  padding: 6px 14px;
+  border-radius: 9px;
+  font-size: 0.86rem;
+  font-weight: 800;
+  color: var(--text-soft);
+  background: transparent;
+  transition: all 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.ingredients-panel-subnav-row .workspace-subnav-item:hover {
+  background: rgba(47, 37, 30, 0.04);
+  color: var(--text);
+}
+
+.ingredients-panel-subnav-row .workspace-subnav-item.active {
+  background: #ffffff;
+  color: #b05728;
+  box-shadow: 
+    0 1px 3px rgba(74, 54, 40, 0.06), 
+    0 4px 12px rgba(74, 54, 40, 0.04);
+}
+
+.ingredients-status-metrics {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.ingredients-status-metric-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  border-radius: 999px;
+  font-size: 0.8rem;
+  font-weight: 800;
+  border: 1px solid transparent;
+  transition: all 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+  cursor: default;
+}
+
+.metric-pill-icon {
+  width: 14px;
+  height: 14px;
+  opacity: 0.74;
+}
+
+.metric-pill-label {
+  opacity: 0.76;
+}
+
+.metric-pill-value {
+  font-weight: 950;
+}
+
+/* 提醒 (Alert) */
+.ingredients-status-metric-pill.status-alert-active {
+  background: rgba(220, 80, 70, 0.06);
+  border-color: rgba(220, 80, 70, 0.12);
+  color: #c04038;
+  box-shadow: 0 2px 8px rgba(220, 80, 70, 0.03);
+}
+
+.ingredients-status-metric-pill.status-alert-active:hover {
+  background: rgba(220, 80, 70, 0.1);
+  border-color: rgba(220, 80, 70, 0.22);
+  transform: translateY(-1px);
+}
+
+.ingredients-status-metric-pill.status-alert-inactive {
+  background: rgba(92, 67, 48, 0.04);
+  border-color: rgba(92, 67, 48, 0.08);
+  color: #8c7b70;
+}
+
+.ingredients-status-metric-pill.status-alert-inactive:hover {
+  background: rgba(92, 67, 48, 0.08);
+  transform: translateY(-1px);
+}
+
+/* 待买 (Shopping) */
+.ingredients-status-metric-pill.status-shopping {
+  background: rgba(210, 107, 51, 0.06);
+  border-color: rgba(210, 107, 51, 0.12);
+  color: #b05728;
+}
+
+.ingredients-status-metric-pill.status-shopping:hover {
+  background: rgba(210, 107, 51, 0.1);
+  border-color: rgba(210, 107, 51, 0.22);
+  transform: translateY(-1px);
+}
+
+/* 在库食材 (Stocked) */
+.ingredients-status-metric-pill.status-stocked {
+  background: rgba(82, 100, 85, 0.06);
+  border-color: rgba(82, 100, 85, 0.12);
+  color: #485c4b;
+}
+
+.ingredients-status-metric-pill.status-stocked:hover {
+  background: rgba(82, 100, 85, 0.1);
+  border-color: rgba(82, 100, 85, 0.22);
+  transform: translateY(-1px);
+}
+
 
 .ingredients-workspace-masthead-actions .ingredients-actions {
   justify-content: flex-end;
@@ -287,8 +444,20 @@
 }
 
 .ingredients-catalog-search-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
   min-width: 0;
 }
+
+.ingredients-catalog-search-count {
+  color: var(--text-soft);
+  font-size: 0.86rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
 
 .ingredients-catalog-search-field {
   display: grid;
@@ -2651,6 +2820,11 @@
   height: 100%;
   object-fit: contain;
   object-position: center;
+  transition: transform 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.ingredient-work-card:hover .ingredient-visual-cover {
+  transform: scale(1.05);
 }
 
 .ingredient-visual-cover-placeholder {
@@ -4971,6 +5145,35 @@
   gap: 14px;
 }
 
+.workspace-overlay-drag-zone {
+  display: none;
+}
+
+.ingredient-editor-modal.workspace-modal {
+  display: flex;
+  flex-direction: column;
+  width: min(1120px, calc(100vw - 24px));
+  max-height: calc(100vh - 32px);
+  overflow: hidden;
+}
+
+.ingredient-editor-modal .workspace-overlay-body {
+  min-height: 0;
+  overflow: auto;
+}
+
+.ingredients-create-embedded .ingredients-create-workspace {
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.ingredients-create-embedded .ingredients-create-side {
+  top: 0;
+}
+
 .inventory-restock-modal.workspace-modal,
 .shopping-quick-modal.workspace-modal,
 .consume-quick-modal.workspace-modal,
@@ -5006,8 +5209,8 @@
 .destroy-expired-modal.workspace-modal {
   width: min(720px, calc(100vw - 24px));
   background:
-    radial-gradient(circle at top left, rgba(255, 255, 255, 0.94), rgba(255, 246, 240, 0) 34%),
-    radial-gradient(circle at top right, rgba(248, 226, 227, 0.4), rgba(255, 243, 239, 0) 32%),
+    radial-gradient(circle at top left, rgba(255, 255, 255, 0.96), rgba(255, 246, 237, 0) 36%),
+    radial-gradient(circle at top right, rgba(255, 233, 214, 0.52), rgba(255, 240, 228, 0) 34%),
     linear-gradient(180deg, rgba(255, 254, 252, 0.99), rgba(255, 246, 242, 0.99)),
     rgba(255, 249, 245, 0.99);
 }
@@ -5348,27 +5551,30 @@
   align-items: center;
   justify-content: center;
   min-height: 36px;
-  padding: 7px 12px;
+  padding: 7px 14px;
   border-radius: 999px;
-  border: 1px solid rgba(92, 67, 48, 0.12);
+  border: 1px solid rgba(147, 96, 63, 0.12);
   background: rgba(255, 255, 255, 0.88);
   color: var(--text-soft);
   font-weight: 700;
   white-space: nowrap;
-  transition: border-color 160ms ease, background-color 160ms ease, color 160ms ease, transform 160ms ease;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .ingredients-choice-chip:hover {
-  border-color: rgba(210, 107, 51, 0.24);
+  border-color: rgba(210, 107, 51, 0.28);
   background: rgba(255, 255, 255, 0.98);
   color: var(--accent-strong);
   transform: translateY(-1px);
+  box-shadow: 0 4px 10px rgba(74, 54, 40, 0.04);
 }
 
 .ingredients-choice-chip.active {
-  border-color: rgba(210, 107, 51, 0.24);
-  background: rgba(255, 244, 235, 0.96);
+  border-color: var(--accent);
+  background: #fff4ec;
   color: #7a4f2b;
+  box-shadow: 0 4px 10px rgba(210, 107, 51, 0.08);
 }
 
 .ingredients-restock-identity-card {
@@ -5399,8 +5605,8 @@
   width: 100%;
   height: 100%;
   display: block;
-  object-fit: contain;
-  padding: 8px;
+  object-fit: cover;
+  padding: 0;
 }
 
 .ingredients-restock-identity-copy {
@@ -5667,9 +5873,17 @@
   gap: 6px;
   padding: 14px 16px;
   border-radius: 20px;
-  border: 1px solid rgba(147, 96, 63, 0.11);
-  background: rgba(255, 255, 255, 0.8);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.72);
+  border: 1px solid rgba(147, 96, 63, 0.12);
+  background: linear-gradient(135deg, rgba(255, 253, 250, 0.98), rgba(254, 246, 238, 0.95));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.74),
+    0 4px 10px rgba(74, 54, 40, 0.02);
+  transition: all 0.2s ease;
+}
+
+.destroy-expired-summary-metric:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 14px rgba(74, 54, 40, 0.04);
 }
 
 .destroy-expired-summary-metric span,
@@ -5695,20 +5909,20 @@
 }
 
 .destroy-expired-summary-metric.is-primary {
-  border-color: rgba(201, 112, 118, 0.2);
+  border-color: rgba(217, 83, 79, 0.18);
   background:
-    linear-gradient(135deg, rgba(255, 248, 248, 0.98), rgba(252, 238, 238, 0.94));
+    linear-gradient(135deg, rgba(255, 249, 248, 0.99), rgba(253, 241, 239, 0.96));
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.8),
-    0 10px 24px rgba(201, 112, 118, 0.08);
+    inset 0 1px 0 rgba(255, 255, 255, 0.82),
+    0 10px 24px rgba(217, 83, 79, 0.06);
 }
 
 .destroy-expired-list-section {
   gap: 14px;
-  border-color: rgba(201, 112, 118, 0.12);
+  border-color: rgba(147, 96, 63, 0.12);
   background:
-    radial-gradient(circle at top right, rgba(251, 229, 232, 0.3), rgba(255, 247, 243, 0) 38%),
-    linear-gradient(135deg, rgba(255, 252, 250, 0.98), rgba(255, 246, 243, 0.96));
+    radial-gradient(circle at top right, rgba(255, 233, 214, 0.24), rgba(255, 244, 233, 0) 38%),
+    linear-gradient(135deg, rgba(255, 252, 249, 0.98), rgba(255, 246, 238, 0.96));
 }
 
 .destroy-expired-list {
@@ -5721,9 +5935,16 @@
   gap: 10px;
   padding: 14px 16px;
   border-radius: 18px;
-  border: 1px solid rgba(201, 112, 118, 0.14);
-  background: rgba(255, 255, 255, 0.86);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.74);
+  border: 1px solid rgba(217, 83, 79, 0.12);
+  background: linear-gradient(135deg, rgba(255, 254, 252, 0.99), rgba(255, 249, 244, 0.96));
+  box-shadow: 0 4px 10px rgba(217, 83, 79, 0.02);
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.destroy-expired-item:hover {
+  border-color: rgba(217, 83, 79, 0.24);
+  box-shadow: 0 8px 18px rgba(217, 83, 79, 0.04);
+  transform: translateY(-1px);
 }
 
 .destroy-expired-item-head {
@@ -5758,9 +5979,9 @@
 }
 
 .destroy-expired-item-badge.is-danger {
-  color: #9d4e55;
-  background: rgba(251, 234, 236, 0.96);
-  border-color: rgba(203, 118, 115, 0.24);
+  color: #c93b45;
+  background: #fff0f1;
+  border: 1px solid rgba(201, 112, 115, 0.22);
 }
 
 .destroy-expired-item-meta {
@@ -6109,8 +6330,9 @@
   padding: 16px;
   min-height: 100%;
   border-radius: 20px;
-  border: 1px solid rgba(147, 96, 63, 0.11);
-  background: rgba(248, 243, 237, 0.88);
+  border: 1px solid rgba(228, 172, 133, 0.32);
+  background: linear-gradient(135deg, rgba(255, 252, 248, 0.98), rgba(255, 243, 235, 0.92));
+  box-shadow: 0 4px 12px rgba(74, 54, 40, 0.03);
 }
 
 .ingredients-restock-result-card span {
@@ -6182,10 +6404,10 @@
   display: flex;
   align-items: center;
   gap: 18px;
-  border-top-color: rgba(201, 112, 118, 0.12);
+  border-top-color: rgba(147, 96, 63, 0.12);
   background:
-    linear-gradient(180deg, rgba(255, 244, 244, 0.24), rgba(255, 247, 245, 0.98) 32%),
-    rgba(255, 247, 245, 0.98);
+    linear-gradient(180deg, rgba(255, 248, 241, 0.24), rgba(255, 248, 241, 0.98) 32%),
+    rgba(255, 248, 241, 0.98);
 }
 
 .consume-quick-footer-summary {
@@ -6236,8 +6458,8 @@
 }
 
 .consume-quick-footer-bar .ghost-button {
-  min-height: 54px;
-  border-radius: 18px;
+  min-height: 56px;
+  border-radius: 20px;
   background: rgba(255, 255, 255, 0.86);
 }
 
@@ -6246,8 +6468,8 @@
 }
 
 .destroy-expired-footer-bar .ghost-button {
-  min-height: 54px;
-  border-radius: 18px;
+  min-height: 56px;
+  border-radius: 20px;
   background: rgba(255, 255, 255, 0.9);
 }
 
@@ -6266,8 +6488,8 @@
 .destroy-expired-footer-bar .solid-button {
   min-height: 56px;
   border-radius: 20px;
-  background: linear-gradient(180deg, #d67267, #c45a4f);
-  box-shadow: 0 14px 30px rgba(196, 90, 79, 0.18);
+  background: linear-gradient(180deg, #d94b3d, #c43729);
+  box-shadow: 0 14px 30px rgba(217, 75, 61, 0.2);
 }
 
 .ingredients-mobile-bar {
@@ -6340,8 +6562,13 @@
     gap: 4px;
     min-height: 0;
     overflow: auto;
+    scrollbar-width: none;
     padding-right: 2px;
     padding-top: 4px;
+  }
+
+  .sidebar-nav::-webkit-scrollbar {
+    display: none;
   }
 
   .app-content {
@@ -6390,13 +6617,6 @@
     gap: 12px;
   }
 
-  .ingredients-mobile-header {
-    display: none;
-  }
-
-  .ingredients-desktop-masthead {
-    display: grid;
-  }
 
   .ingredients-panel-shell {
     gap: 12px;
@@ -6943,34 +7163,47 @@
   }
 
   .ingredients-restock-identity-card.destroy-expired-summary-card {
-    grid-template-columns: 72px minmax(0, 1fr);
-    gap: 10px;
+    display: grid;
+    grid-template-columns: 64px minmax(0, 1fr);
+    gap: 12px;
+    padding: 14px;
     align-items: center;
-    padding: 10px;
     border-radius: 20px;
   }
 
   .destroy-expired-summary-card .ingredients-restock-identity-media {
-    border-radius: 15px;
+    grid-column: 1;
+    grid-row: 1;
+    width: 64px;
+    height: 64px;
+    border-radius: 14px;
   }
 
   .destroy-expired-summary-card .ingredients-restock-identity-media img {
-    padding: 4px;
+    padding: 0;
     object-fit: cover;
   }
 
-  .destroy-expired-summary-card .ingredients-restock-identity-copy,
+  .destroy-expired-summary-card .ingredients-restock-identity-copy {
+    display: contents;
+  }
+
   .destroy-expired-summary-card .ingredients-restock-identity-head {
-    display: grid;
-    gap: 7px;
+    grid-column: 2;
+    grid-row: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
   }
 
   .destroy-expired-summary-card .ingredients-restock-identity-head h4 {
     font-size: 1.08rem;
+    line-height: 1.25;
   }
 
   .destroy-expired-summary-card .ingredients-restock-identity-head p {
-    margin-top: 2px;
+    margin-top: 0;
     font-size: 0.82rem;
     line-height: 1.35;
   }
@@ -6978,6 +7211,7 @@
   .destroy-expired-summary-badges {
     justify-content: flex-start;
     gap: 6px;
+    margin-top: 2px;
   }
 
   .destroy-expired-summary-badges .badge {
@@ -6987,14 +7221,19 @@
   }
 
   .destroy-expired-summary-grid {
+    grid-column: 1 / span 2;
+    grid-row: 2;
+    display: grid;
     grid-template-columns: 1fr;
     gap: 8px;
+    width: 100%;
+    margin-top: 4px;
   }
 
   .destroy-expired-summary-metric {
     min-height: 0;
     gap: 4px;
-    padding: 10px 12px;
+    padding: 12px 14px;
     border-radius: 16px;
   }
 
@@ -7019,17 +7258,26 @@
 
   .destroy-expired-item {
     gap: 8px;
-    padding: 10px 12px;
+    padding: 12px 14px;
     border-radius: 16px;
   }
 
   .destroy-expired-item-head {
-    display: grid;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 8px;
+  }
+
+  .destroy-expired-item-title {
+    display: flex;
+    align-items: baseline;
     gap: 8px;
   }
 
   .destroy-expired-item-title strong {
-    font-size: 1rem;
+    font-size: 1.04rem;
   }
 
   .destroy-expired-item-badges {
@@ -7046,10 +7294,12 @@
   .destroy-expired-item-meta {
     gap: 4px 10px;
     font-size: 0.78rem;
+    width: 100%;
   }
 
   .destroy-expired-item-note {
     font-size: 0.78rem;
+    width: 100%;
   }
 
   .ingredients-restock-identity-card,
@@ -7399,8 +7649,10 @@
   .shopping-quick-footer-bar .workspace-overlay-actions,
   .consume-quick-footer-bar .workspace-overlay-actions,
   .destroy-expired-footer-bar .workspace-overlay-actions {
+    display: flex;
     flex-direction: column-reverse;
     align-items: stretch;
+    gap: 12px;
   }
 
   .ingredients-restock-footer-bar .ghost-button,
@@ -8058,4 +8310,406 @@
   border: 1px solid rgba(228, 201, 178, 0.76);
   border-radius: 22px;
   background: rgba(255, 255, 255, 0.78);
+}
+
+/* Premium mobile styling overrides for the Inventory Restock modal */
+@media (max-width: 767px) {
+  .inventory-restock-modal.workspace-modal {
+    width: 100vw;
+    max-height: 88vh;
+    border-radius: 32px 32px 0 0;
+    background: #fffdfc;
+    box-shadow: 0 -12px 36px rgba(74, 54, 40, 0.1);
+    position: relative;
+    padding: 20px 16px 0;
+    padding-top: 28px; /* Leave space for drag handle */
+  }
+
+  .inventory-restock-modal.workspace-modal::before {
+    content: "";
+    position: absolute;
+    top: 10px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 36px;
+    height: 4px;
+    border-radius: 2px;
+    background: rgba(92, 67, 48, 0.14);
+  }
+
+  .inventory-restock-modal .workspace-overlay-head {
+    border-bottom: 0;
+    padding-bottom: 0;
+    margin-bottom: 16px;
+  }
+
+  .inventory-restock-modal .workspace-overlay-titleblock h3 {
+    font-size: 1.38rem;
+    font-weight: 950;
+    color: #241714;
+  }
+
+  .inventory-restock-modal .workspace-overlay-titleblock .subtle {
+    font-size: 0.88rem;
+    color: #8a7c72;
+    margin-top: 4px;
+    line-height: 1.4;
+  }
+
+  .inventory-restock-modal .workspace-overlay-close {
+    background: rgba(92, 67, 48, 0.05);
+    border: 0;
+    border-radius: 12px;
+    padding: 6px 12px;
+    min-height: 28px;
+    font-size: 0.8rem;
+    font-weight: 850;
+    color: #7a6a5f;
+  }
+
+  .inventory-restock-modal .ingredients-restock-scroll {
+    gap: 12px;
+    padding-bottom: 24px;
+  }
+
+  .inventory-restock-modal .ingredients-restock-source-note {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    border-radius: 12px;
+    background: #fff6ed;
+    border: 1px solid rgba(210, 107, 51, 0.14);
+    color: #b35122;
+    font-size: 0.86rem;
+    font-weight: 900;
+  }
+
+  .inventory-restock-modal .ingredients-restock-source-note .badge {
+    background: var(--brand-button-bg);
+    color: #fff;
+    border: 0;
+    font-size: 0.72rem;
+    padding: 4px 8px;
+    border-radius: 6px;
+  }
+
+  .inventory-restock-modal .ingredients-restock-field-group {
+    border-radius: 16px;
+    background: #ffffff;
+    border: 1px solid rgba(92, 67, 48, 0.06);
+    padding: 16px;
+    box-shadow: 0 4px 14px rgba(74, 54, 40, 0.02);
+    margin-bottom: 0;
+  }
+
+  .inventory-restock-modal .ingredients-restock-field-head {
+    margin-bottom: 12px;
+    border-bottom: 1px solid rgba(92, 67, 48, 0.04);
+    padding-bottom: 8px;
+  }
+
+  .inventory-restock-modal .ingredients-restock-field-head > span {
+    font-size: 0.95rem;
+    font-weight: 900;
+    color: #241714;
+  }
+
+  .inventory-restock-modal .ingredients-restock-field-head .subtle {
+    font-size: 0.78rem;
+    color: #8a7c72;
+    margin-top: 2px;
+  }
+
+  .inventory-restock-modal label > span {
+    font-size: 0.82rem;
+    color: #7a6a5f;
+    font-weight: 800;
+    margin-bottom: 4px;
+  }
+
+  .inventory-restock-modal .text-input {
+    border-radius: 12px;
+    border: 1px solid rgba(92, 67, 48, 0.12);
+    padding: 10px 12px;
+    font-size: 0.92rem;
+    background: #fff;
+    color: #2f251e;
+  }
+
+  .inventory-restock-modal .text-input:focus {
+    border-color: var(--accent);
+    outline: none;
+    box-shadow: 0 0 0 3px rgba(210, 107, 51, 0.08);
+  }
+
+  /* Force side-by-side layout for Quantity & Unit on mobile */
+  .inventory-restock-modal .form-grid.compact-grid {
+    display: grid !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 12px;
+  }
+
+  .inventory-restock-modal .ingredients-restock-suggestions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 10px;
+  }
+
+  .inventory-restock-modal .ingredients-choice-chip {
+    padding: 6px 12px;
+    font-size: 0.8rem;
+    min-height: 32px;
+    border-radius: 999px;
+    background: #fffdfb;
+    border: 1px solid rgba(92, 67, 48, 0.1);
+    color: #7a6d64;
+    font-weight: 850;
+  }
+
+  .inventory-restock-modal .ingredients-choice-chip.active {
+    background: #fff4ec;
+    border-color: var(--accent);
+    color: #b35122;
+    box-shadow: 0 4px 10px rgba(210, 107, 51, 0.06);
+  }
+
+  .inventory-restock-modal .ingredients-modal-advanced-fields {
+    border-radius: 16px;
+    background: #ffffff;
+    border: 1px solid rgba(92, 67, 48, 0.06);
+    padding: 16px;
+    box-shadow: 0 4px 14px rgba(74, 54, 40, 0.02);
+  }
+
+  .inventory-restock-modal .ingredients-modal-advanced-fields select.text-input {
+    appearance: none;
+    background-image: url("data:image/svg+xml;charset=UTF-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%237a6a5f' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 12px center;
+    background-size: 16px;
+    padding-right: 36px;
+  }
+
+  .inventory-restock-modal .ingredients-restock-footer-bar {
+    position: sticky;
+    bottom: 0;
+    z-index: 10;
+    margin: 0 -16px;
+    padding: 12px 16px calc(12px + env(safe-area-inset-bottom, 0px));
+    border-top: 1px solid rgba(92, 67, 48, 0.06);
+    background: #fffdfc;
+    backdrop-filter: blur(12px);
+  }
+
+  .inventory-restock-modal .ingredients-restock-footer-bar .workspace-overlay-actions {
+    display: grid !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 10px !important;
+    flex-direction: row !important;
+  }
+
+  .inventory-restock-modal .ingredients-restock-footer-bar button {
+    min-height: 46px;
+    border-radius: 12px;
+    font-size: 0.92rem;
+    font-weight: 900;
+    width: 100%;
+    transition: all 0.12s ease;
+  }
+
+  .inventory-restock-modal .ingredients-restock-footer-bar button:active {
+    transform: scale(0.97);
+  }
+
+  .inventory-restock-modal .ingredients-restock-footer-bar .solid-button {
+    background: var(--brand-button-bg);
+    box-shadow: 0 8px 18px rgba(210, 107, 51, 0.22);
+    color: #fff;
+    border: 0;
+  }
+
+  .inventory-restock-modal .ingredients-restock-footer-bar .ghost-button {
+    background: #ffffff;
+    border: 1px solid rgba(92, 67, 48, 0.12);
+    color: #5c4e46;
+  }
+}
+
+/* Matched ingredient display card */
+.ingredients-restock-matched-card {
+  display: grid;
+  grid-template-columns: 52px minmax(0, 1fr) auto;
+  gap: 14px;
+  align-items: center;
+  padding: 14px 16px;
+  background: linear-gradient(135deg, #ffffff 0%, #fffcf9 100%);
+  border: 1px solid rgba(228, 172, 133, 0.32);
+  border-radius: 16px;
+  margin-bottom: 12px;
+  box-shadow: 0 4px 14px rgba(74, 54, 40, 0.03);
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.ingredients-restock-matched-card:hover {
+  border-color: rgba(210, 107, 51, 0.28);
+  box-shadow: 0 6px 18px rgba(74, 54, 40, 0.05);
+}
+
+.ingredients-restock-matched-card.is-empty {
+  background: #fafafa;
+  border: 1.5px dashed rgba(92, 67, 48, 0.15);
+  box-shadow: none;
+}
+
+.ingredients-restock-matched-media {
+  width: 52px;
+  height: 52px;
+  border-radius: 12px;
+  overflow: hidden;
+  background: #fff3e8;
+  display: grid;
+  place-items: center;
+  color: #b35122;
+  font-weight: 950;
+  font-size: 1.25rem;
+  box-shadow: inset 0 0 0 1px rgba(92, 67, 48, 0.06);
+}
+
+.ingredients-restock-matched-media img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.ingredients-restock-matched-info {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.ingredients-restock-matched-info strong {
+  font-size: 1.02rem;
+  color: #2f251e;
+  font-weight: 950;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ingredients-restock-matched-info span {
+  font-size: 0.8rem;
+  color: #8b7d72;
+  font-weight: 800;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ingredients-restock-change-btn {
+  font-size: 0.82rem;
+  font-weight: 850;
+  color: var(--accent-strong);
+  background: rgba(210, 107, 51, 0.06);
+  border: 1px solid rgba(210, 107, 51, 0.18);
+  padding: 5px 14px;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  outline: none;
+}
+
+.ingredients-restock-change-btn:hover {
+  background: var(--accent);
+  border-color: transparent;
+  color: #ffffff;
+  box-shadow: 0 3px 8px rgba(210, 107, 51, 0.18);
+}
+
+.ingredients-restock-change-btn.is-action {
+  background: var(--brand-button-bg);
+  color: #ffffff;
+  border-color: transparent;
+  box-shadow: 0 4px 10px rgba(210, 107, 51, 0.2);
+}
+
+.ingredients-restock-change-btn.is-action:hover {
+  background: var(--accent-strong);
+  box-shadow: 0 6px 14px rgba(210, 107, 51, 0.28);
+}
+
+.ingredients-restock-selector-panel {
+  margin-top: 4px;
+  margin-bottom: 12px;
+  padding: 16px;
+  background: #fdfcfb;
+  border: 1px solid rgba(147, 96, 63, 0.12);
+  border-radius: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  box-shadow: 0 4px 12px rgba(74, 54, 40, 0.02);
+}
+
+.ingredients-restock-search-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: #ffffff;
+  border: 1px solid rgba(147, 96, 63, 0.18);
+  border-radius: 12px;
+  padding: 0 14px;
+  height: 42px;
+  transition: all 0.2s ease;
+}
+
+.ingredients-restock-search-wrapper:has(input:focus) {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(210, 107, 51, 0.08);
+}
+
+.ingredients-restock-search-wrapper svg {
+  color: var(--text-faint);
+  width: 16px;
+  height: 16px;
+  stroke-width: 2.2;
+}
+
+.ingredients-restock-search-input {
+  border: none !important;
+  background: transparent !important;
+  outline: none !important;
+  width: 100% !important;
+  font-size: 0.92rem !important;
+  color: var(--text) !important;
+  padding: 0 !important;
+  box-shadow: none !important;
+  margin: 0 !important;
+}
+
+.ingredients-restock-search-clear {
+  background: none;
+  border: none;
+  font-size: 1.2rem;
+  color: var(--text-faint);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  transition: color 0.15s ease;
+}
+
+.ingredients-restock-search-clear:hover {
+  color: var(--accent);
+}
+
+.ingredients-restock-no-results {
+  font-size: 0.86rem;
+  color: var(--text-faint);
+  text-align: center;
+  padding: 12px 0;
 }

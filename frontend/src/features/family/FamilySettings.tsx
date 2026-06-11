@@ -138,6 +138,76 @@ export function FamilySettings(props: FamilySettingsProps) {
               </button>
             </div>
           </div>
+        </section>
+
+        <section className="card family-profile-panel">
+          <div className="family-profile-main-row">
+            <div className="family-cover-card">
+              {props.familyHeroImageUrl ? (
+                <img src={props.resolveAssetUrl(props.familyHeroImageUrl)} alt={props.family?.name ?? '家庭厨房'} />
+              ) : (
+                <div className="family-cover-placeholder">
+                  <ShellIcon name="logo" />
+                </div>
+              )}
+            </div>
+            <div className="family-profile-copy">
+              <h2>{props.family?.name ?? '未设置家庭名称'}</h2>
+              <p className="family-location">
+                <DashboardIcon name="map-pin" />
+                {props.family?.location || '未填写位置'}
+              </p>
+              <p>{props.family?.motto || '补充一句家庭口号，让厨房工作台更有归属感。'}</p>
+              <div className="family-chip-row">
+                <Badge>
+                  <ShellIcon name="logo" />
+                  家庭厨房
+                </Badge>
+                <Badge>
+                  <ShellIcon name="family" />
+                  {props.members.length} 位成员
+                </Badge>
+                {!props.isOwner && (
+                  <Badge className="family-role-member">
+                    <DashboardIcon name="shield" />
+                    普通成员
+                  </Badge>
+                )}
+              </div>
+            </div>
+            {props.currentUser && (
+              <div className="family-owner-panel">
+                <Avatar
+                  label={props.currentUser.display_name}
+                  seed={props.currentUser.avatar_seed}
+                  imageUrl={props.currentUser.avatar_image?.url}
+                  large
+                />
+                <div className="family-owner-copy">
+                  <h3>{props.currentUser.display_name}</h3>
+                  <p>{props.membership?.role ?? 'Member'} · {props.currentUser.username}</p>
+                  <span>
+                    <DashboardIcon name="mail" />
+                    {props.currentUser.email ?? '未填写邮箱'}
+                  </span>
+                  <span>
+                    <DashboardIcon name="link" />
+                    {props.currentUser.phone ?? '未填写手机号'}
+                  </span>
+                </div>
+                <div className="family-owner-actions">
+                  <button className="ghost-button button-compact" type="button" onClick={() => props.onOverlayChange('profile')}>
+                    <DashboardIcon name="user-plus" />
+                    编辑资料
+                  </button>
+                  <button className="ghost-button button-compact" type="button" onClick={() => props.onOverlayChange('password')}>
+                    <DashboardIcon name="lock" />
+                    修改密码
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
 
           <div className="family-stat-grid">
             {props.familyStatCards.map((item) => (
@@ -145,85 +215,19 @@ export function FamilySettings(props: FamilySettingsProps) {
                 <span className={`family-stat-icon tone-${item.tone}`}>
                   <DashboardIcon name={item.icon} />
                 </span>
-                <div>
-                  <span>{item.label}</span>
-                  <strong>
-                    {item.value}
-                    {item.unit && <small>{item.unit}</small>}
-                  </strong>
+                <div className="family-stat-info">
+                  <div className="family-stat-header">
+                    <span>{item.label}</span>
+                    <strong>
+                      {item.value}
+                      {item.unit && <small>{item.unit}</small>}
+                    </strong>
+                  </div>
                   <p>{item.detail}</p>
                 </div>
               </article>
             ))}
           </div>
-        </section>
-
-        <section className="card family-profile-panel">
-          <div className="family-cover-card">
-            {props.familyHeroImageUrl ? (
-              <img src={props.resolveAssetUrl(props.familyHeroImageUrl)} alt={props.family?.name ?? '家庭厨房'} />
-            ) : (
-              <div className="family-cover-placeholder">
-                <ShellIcon name="logo" />
-              </div>
-            )}
-          </div>
-          <div className="family-profile-copy">
-            <h2>{props.family?.name ?? '未设置家庭名称'}</h2>
-            <p className="family-location">
-              <DashboardIcon name="map-pin" />
-              {props.family?.location || '未填写位置'}
-            </p>
-            <p>{props.family?.motto || '补充一句家庭口号，让厨房工作台更有归属感。'}</p>
-            <div className="family-chip-row">
-              <Badge>
-                <ShellIcon name="logo" />
-                家庭厨房
-              </Badge>
-              <Badge>
-                <ShellIcon name="family" />
-                {props.members.length} 位成员
-              </Badge>
-              {!props.isOwner && (
-                <Badge className="family-role-member">
-                  <DashboardIcon name="shield" />
-                  普通成员
-                </Badge>
-              )}
-            </div>
-          </div>
-          {props.currentUser && (
-            <div className="family-owner-panel">
-              <Avatar
-                label={props.currentUser.display_name}
-                seed={props.currentUser.avatar_seed}
-                imageUrl={props.currentUser.avatar_image?.url}
-                large
-              />
-              <div className="family-owner-copy">
-                <h3>{props.currentUser.display_name}</h3>
-                <p>{props.membership?.role ?? 'Member'} · {props.currentUser.username}</p>
-                <span>
-                  <DashboardIcon name="mail" />
-                  {props.currentUser.email ?? '未填写邮箱'}
-                </span>
-                <span>
-                  <DashboardIcon name="link" />
-                  {props.currentUser.phone ?? '未填写手机号'}
-                </span>
-              </div>
-              <div className="family-owner-actions">
-                <button className="ghost-button button-compact" type="button" onClick={() => props.onOverlayChange('profile')}>
-                  <DashboardIcon name="user-plus" />
-                  编辑资料
-                </button>
-                <button className="ghost-button button-compact" type="button" onClick={() => props.onOverlayChange('password')}>
-                  <DashboardIcon name="lock" />
-                  修改密码
-                </button>
-              </div>
-            </div>
-          )}
         </section>
 
         <section className="family-section">

@@ -1,7 +1,7 @@
 import type { Dispatch, ReactNode, Ref, SetStateAction } from 'react';
 import type { RecipePlanItem } from '../../api/types';
 import { formatDate, MEAL_TYPE_LABELS } from '../../lib/ui';
-import { ActionButton, EmptyState } from '../ui-kit';
+import { ActionButton, EmptyState, PageHeader } from '../ui-kit';
 import { SHOW_RECIPE_PLAN_MANAGEMENT } from './RecipeWorkspaceOptions';
 import { RecipeMobileLibraryView } from './RecipeMobileLibraryView';
 import {
@@ -169,18 +169,18 @@ export function RecipeLibraryView({
         />
 
         <div className="recipe-discovery-page">
-          <section className="recipe-discovery-shell">
-            <div className="recipe-discovery-hero">
-              <div>
-                <h2>菜谱<RecipeUiIcon name="leaf" className="recipe-title-mark" /></h2>
-                <p>发现灵感，轻松做出美味每一餐</p>
-              </div>
+          <PageHeader
+            title="菜谱"
+            description="发现灵感，轻松做出美味每一餐。"
+            actions={
               <ActionButton tone="primary" type="button" onClick={onOpenCreate} className="recipe-create-button">
-                <span><RecipeUiIcon name="plus" /></span>
+                <RecipeUiIcon name="plus" />
                 新建菜谱
               </ActionButton>
-            </div>
+            }
+          />
 
+          <section className="recipe-discovery-shell">
             <div className="recipe-inspiration-grid">
               <article className="recipe-inspiration-card compact-gallery">
                 <div className="recipe-inspiration-head">

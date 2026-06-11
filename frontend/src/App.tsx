@@ -558,6 +558,8 @@ function App() {
             foods={foods}
             recipes={recipes}
             ingredients={ingredients}
+            mealLogs={mealLogs}
+            inventoryItems={inventoryItems}
             activityLogs={activityLogs}
             recentMeals={recentMeals}
             isQuickAdding={quickAddMealMutation.isPending}

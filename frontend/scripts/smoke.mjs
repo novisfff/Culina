@@ -441,7 +441,7 @@ async function runDesktopSmoke(browser, baseUrl) {
   await expectVisibleText(page, '食物库', '食物工作台');
 
   await page.getByRole('button', { name: '食材' }).first().click();
-  await expectVisibleText(page, '食材档案工作台', '食材工作台');
+  await expectVisibleText(page, '管理家庭食材档案、库存状态以及采购清单。', '食材工作台');
 
   await page.getByRole('button', { name: '菜谱' }).first().click();
   await expectVisibleText(page, '菜谱', '菜谱工作台');

@@ -59,11 +59,12 @@ export function InviteMemberModal(props: {
   onClose: () => void;
 }) {
   return (
-    <div className="workspace-overlay-root">
+    <div className="workspace-overlay-root family-settings-overlay-root">
       <div className="workspace-overlay-backdrop" onClick={props.onClose} />
       <WorkspaceModal
         title="创建成员账号"
         description="为家庭成员开通登录账号，完成后会立即出现在成员列表中。"
+        className="invite-member-modal"
         onClose={props.onClose}
       >
         <form className="form-grid compact-grid" onSubmit={props.onSubmit}>
@@ -135,7 +136,7 @@ export function MemberEditModal(props: {
   onClose: () => void;
 }) {
   return (
-    <div className="workspace-overlay-root">
+    <div className="workspace-overlay-root family-settings-overlay-root">
       <div className="workspace-overlay-backdrop" onClick={props.onClose} />
       <WorkspaceModal
         title="修改成员信息"
@@ -207,11 +208,12 @@ export function PasswordChangeModal(props: {
   onClose: () => void;
 }) {
   return (
-    <div className="workspace-overlay-root">
+    <div className="workspace-overlay-root family-settings-overlay-root">
       <div className="workspace-overlay-backdrop" onClick={props.onClose} />
       <WorkspaceModal
         title="修改密码"
         description="输入当前密码并设置一个包含字母和数字的新密码。"
+        className="password-change-modal"
         onClose={props.onClose}
       >
         <form className="form-grid compact-grid" onSubmit={props.onSubmit}>
@@ -272,7 +274,7 @@ export function ProfileEditModal(props: {
   const isBusy = props.isSubmitting || props.imageControls.isGenerating;
 
   return (
-    <div className="workspace-overlay-root">
+    <div className="workspace-overlay-root family-settings-overlay-root">
       <div className="workspace-overlay-backdrop" onClick={props.onClose} />
       <WorkspaceModal
         title="编辑我的资料"
@@ -421,7 +423,7 @@ export function FamilyEditModal(props: {
   const isBusy = props.isSubmitting || props.imageControls.isGenerating;
 
   return (
-    <div className="workspace-overlay-root">
+    <div className="workspace-overlay-root family-settings-overlay-root">
       <div className="workspace-overlay-backdrop" onClick={props.onClose} />
       <WorkspaceModal
         title="编辑家庭信息"

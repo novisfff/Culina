@@ -29,7 +29,7 @@ export function FoodSceneDialogs(props: FoodSceneDialogsProps) {
   return (
     <>
       {props.isSceneManagerOpen && !props.sceneFormMode && (
-        <div className="workspace-overlay-root">
+        <div className="workspace-overlay-root food-workspace-overlay-root">
           <div className="workspace-overlay-backdrop" onClick={props.onCloseManager} />
           <WorkspaceModal
             title="场景管理"
@@ -95,7 +95,7 @@ export function FoodSceneDialogs(props: FoodSceneDialogsProps) {
       )}
 
       {props.sceneFormMode && (
-        <div className="workspace-overlay-root">
+        <div className="workspace-overlay-root food-workspace-overlay-root">
           <div className="workspace-overlay-backdrop" onClick={props.onCloseSceneForm} />
           <WorkspaceModal
             title={props.sceneFormMode === 'edit' ? '编辑场景' : '新建场景'}

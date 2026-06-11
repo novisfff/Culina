@@ -18,6 +18,29 @@
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(250, 246, 240, 0.86));
   box-shadow: var(--shadow-sm);
+  transition: all 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.meal-log-metric-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 24px rgba(74, 54, 40, 0.07);
+  background: #ffffff;
+}
+
+.meal-log-metric-card.tone-orange:hover {
+  border-color: rgba(210, 107, 51, 0.22);
+}
+
+.meal-log-metric-card.tone-amber:hover {
+  border-color: rgba(217, 119, 6, 0.22);
+}
+
+.meal-log-metric-card.tone-green:hover {
+  border-color: rgba(22, 163, 74, 0.22);
+}
+
+.meal-log-metric-card.tone-blue:hover {
+  border-color: rgba(37, 99, 235, 0.22);
 }
 
 .meal-log-metric-card span {
@@ -29,10 +52,17 @@
   font-weight: 800;
 }
 
+.meal-log-metric-card span svg {
+  width: 14px;
+  height: 14px;
+  stroke-width: 2.2;
+}
+
 .meal-log-metric-card strong {
   color: #2f251e;
-  font-size: 2rem;
+  font-size: 2.1rem;
   line-height: 1;
+  font-weight: 950;
 }
 
 .meal-log-metric-card p {
@@ -87,30 +117,6 @@
   grid-column: 1 / -1;
 }
 
-.meal-log-desktop-view > .page-header {
-  grid-template-columns: minmax(0, 1fr);
-  align-items: center;
-  padding: 20px 24px 18px;
-  border: 1px solid rgba(100, 76, 58, 0.1);
-  border-radius: 18px;
-  background: rgba(255, 255, 255, 0.82);
-  box-shadow: 0 12px 34px rgba(76, 56, 42, 0.055);
-}
-
-.meal-log-desktop-view > .page-header h2 {
-  color: #231812;
-  font-size: clamp(2.15rem, 2.75vw, 2.75rem);
-  font-weight: 950;
-  line-height: 0.95;
-}
-
-.meal-log-desktop-view > .page-header .subtle {
-  margin: 6px 0 0;
-  color: #776a61;
-  font-size: 0.98rem;
-  font-weight: 600;
-  line-height: 1.45;
-}
 
 .meal-log-record-panel {
   display: grid;
@@ -139,10 +145,25 @@
   border: 1px solid var(--line-soft);
   border-radius: 12px;
   background: rgba(255, 255, 255, 0.82);
+  transition: all 0.2s ease;
+}
+
+.meal-log-search:has(input:focus) {
+  border-color: rgba(210, 107, 51, 0.4);
+  background: #ffffff;
+  box-shadow: 0 0 0 3px rgba(210, 107, 51, 0.08);
 }
 
 .meal-log-search span {
   color: var(--text-faint);
+  display: flex;
+  align-items: center;
+}
+
+.meal-log-search span svg {
+  width: 15px;
+  height: 15px;
+  stroke-width: 2.2;
 }
 
 .meal-log-search input {
@@ -151,6 +172,7 @@
   background: transparent;
   color: var(--text);
   outline: none;
+  font-size: 0.9rem;
 }
 
 .meal-log-segment,
@@ -276,22 +298,31 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 9px 12px;
+  padding: 9px 12px 9px 16px;
   border: 0;
-  border-bottom: 1px solid rgba(147, 96, 63, 0.08);
+  border-bottom: 1px solid rgba(147, 96, 63, 0.06);
+  border-left: 3px solid transparent;
   background: transparent;
   color: var(--text);
   text-align: left;
   box-shadow: none;
+  transition: all 0.16s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .meal-log-record-row:last-child {
   border-bottom: 0;
 }
 
-.meal-log-record-row.active,
-.meal-log-record-row:hover {
-  background: rgba(255, 244, 236, 0.72);
+.meal-log-record-row.active {
+  background: rgba(255, 244, 236, 0.8);
+  padding-left: 20px;
+  border-left-color: var(--accent);
+}
+
+.meal-log-record-row:hover:not(.active) {
+  background: rgba(255, 244, 236, 0.5);
+  padding-left: 20px;
+  border-left-color: rgba(210, 107, 51, 0.4);
 }
 
 .meal-log-record-row > strong,
@@ -310,7 +341,13 @@
   font-size: 0.92rem;
 }
 
-.meal-log-record-row time,
+.meal-log-record-row time {
+  flex: 0 0 54px;
+  color: var(--text-faint);
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
 .meal-log-row-meta {
   flex: 0 0 auto;
   color: var(--text-faint);
@@ -326,37 +363,54 @@
   white-space: nowrap;
 }
 
+.meal-log-record-row .badge-planned {
+  background: rgba(37, 99, 235, 0.05);
+  border-color: rgba(37, 99, 235, 0.12);
+  color: #1e40af;
+}
+
+.meal-log-record-row .badge-manual {
+  background: rgba(92, 67, 48, 0.04);
+  border-color: rgba(92, 67, 48, 0.08);
+  color: #7f6c60;
+}
+
 .meal-log-meal-pill {
-  flex: 0 0 132px;
+  flex: 0 0 96px;
   min-width: 0;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 5px;
-  padding: 5px 9px;
+  padding: 4px 10px;
   border-radius: 999px;
   font-size: 0.78rem;
   font-weight: 900;
+  border: 1px solid transparent;
 }
 
 .meal-tone-breakfast {
-  background: #fff2d7;
-  color: #b9631d;
+  background: rgba(245, 158, 11, 0.08);
+  border-color: rgba(245, 158, 11, 0.16);
+  color: #b27300;
 }
 
 .meal-tone-lunch {
-  background: #e5f7e8;
-  color: #3f8b4d;
+  background: rgba(6, 182, 212, 0.08);
+  border-color: rgba(6, 182, 212, 0.16);
+  color: #0891b2;
 }
 
 .meal-tone-dinner {
-  background: #eee6ff;
-  color: #6852b7;
+  background: rgba(139, 92, 246, 0.08);
+  border-color: rgba(139, 92, 246, 0.16);
+  color: #6d28d9;
 }
 
 .meal-tone-snack {
-  background: #ffe8d8;
-  color: #b75a25;
+  background: rgba(244, 63, 94, 0.06);
+  border-color: rgba(244, 63, 94, 0.14);
+  color: #be123c;
 }
 
 .meal-record-status {
@@ -367,23 +421,26 @@
   border-radius: 999px;
   font-size: 0.78rem;
   font-weight: 900;
+  border: 1px solid transparent;
 }
 
 .meal-record-status.status-done {
-  background: #e6f7e8;
-  color: #3d8d4d;
+  background: rgba(16, 185, 129, 0.08);
+  border-color: rgba(16, 185, 129, 0.16);
+  color: #047857;
 }
 
 .meal-record-status.status-pending {
-  background: #fff1e8;
-  color: var(--accent-strong);
+  background: rgba(120, 110, 102, 0.07);
+  border-color: rgba(120, 110, 102, 0.14);
+  color: #706258;
 }
 
 .meal-log-row-rating {
   flex: 1 1 92px;
   min-width: 52px;
   max-width: 128px;
-  color: var(--accent-strong);
+  color: #c27803;
   font-size: 0.82rem;
   font-weight: 800;
 }
@@ -398,12 +455,21 @@
 .meal-log-row-action {
   flex: 0 0 auto;
   justify-self: end;
-  padding: 6px 9px;
-  border: 1px solid rgba(210, 107, 51, 0.26);
+  padding: 6px 12px;
+  border: 1px solid rgba(210, 107, 51, 0.24);
   border-radius: 999px;
   color: var(--accent-strong);
   font-size: 0.78rem;
   font-weight: 900;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  background: transparent;
+}
+
+.meal-log-record-row:hover .meal-log-row-action {
+  background: var(--brand-button-bg);
+  color: #ffffff;
+  border-color: transparent;
+  box-shadow: 0 3px 8px rgba(210, 107, 51, 0.22);
 }
 
 .meal-log-preview-detail {
@@ -711,10 +777,11 @@
   align-items: center;
   gap: 20px;
   min-height: 76px;
-  padding: 14px 16px 14px 18px;
-  border: 1px solid rgba(210, 107, 51, 0.18);
+  padding: 14px 18px;
+  border: 1px solid rgba(228, 172, 133, 0.38);
   border-radius: 16px;
-  background: rgba(255, 252, 248, 0.86);
+  background: linear-gradient(135deg, #fffdf8 0%, #fff6ed 100%);
+  box-shadow: 0 4px 12px rgba(74, 54, 40, 0.03);
 }
 
 .meal-enrichment-summary strong,
@@ -830,9 +897,11 @@
   display: grid;
   place-items: center;
   border-radius: 999px;
-  background: #ffe2d2;
-  color: var(--accent);
+  background: #ffe3d1;
+  color: var(--accent-strong);
   font-weight: 950;
+  font-size: 0.92rem;
+  box-shadow: 0 3px 8px rgba(210, 107, 51, 0.14);
 }
 
 .meal-enrichment-step-title strong {
@@ -855,10 +924,17 @@
   align-items: center;
   gap: 12px;
   min-width: 0;
-  padding: 10px 12px;
-  border: 1px solid rgba(147, 96, 63, 0.13);
+  padding: 12px 14px;
+  border: 1px solid rgba(147, 96, 63, 0.12);
   border-radius: 14px;
-  background: rgba(255, 255, 255, 0.78);
+  background: #ffffff;
+  box-shadow: 0 4px 10px rgba(74, 54, 40, 0.02);
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.meal-dish-rating-row:hover {
+  border-color: rgba(210, 107, 51, 0.24);
+  box-shadow: 0 8px 18px rgba(74, 54, 40, 0.05);
 }
 
 .meal-dish-rating-copy {
@@ -916,18 +992,30 @@
   align-items: center;
   gap: 8px;
   padding: 0 14px;
-  border: 1px solid rgba(147, 96, 63, 0.13);
+  border: 1px solid rgba(147, 96, 63, 0.12);
   border-radius: 12px;
   background: rgba(255, 255, 255, 0.86);
   color: var(--text-soft);
   font-weight: 850;
   box-shadow: none;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.meal-enrichment-member-pills button:hover {
+  border-color: rgba(210, 107, 51, 0.28);
+  background: #ffffff;
+  color: #2f251e;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 10px rgba(74, 54, 40, 0.04);
 }
 
 .meal-enrichment-member-pills button.active {
-  border-color: rgba(210, 107, 51, 0.58);
+  border-color: var(--accent);
+  background: #fff4ec;
   color: #2f251e;
-  box-shadow: inset 0 0 0 1px rgba(210, 107, 51, 0.24);
+  box-shadow: 0 4px 12px rgba(210, 107, 51, 0.12);
+  transform: scale(1.02);
 }
 
 .meal-enrichment-member-pills button .avatar {
@@ -964,6 +1052,15 @@
   padding: 16px 18px 28px;
   border-radius: 14px;
   resize: none;
+  border: 1px solid rgba(147, 96, 63, 0.15);
+  transition: all 0.2s ease;
+}
+
+.meal-log-enrich-modal .meal-enrichment-notes textarea:focus {
+  border-color: var(--accent);
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(210, 107, 51, 0.12);
+  background: #ffffff;
 }
 
 .meal-log-enrich-modal .meal-enrichment-notes small {
@@ -1119,11 +1216,20 @@
   justify-items: center;
   gap: 7px;
   padding: 18px;
-  border: 1px dashed rgba(210, 107, 51, 0.28);
+  border: 1px dashed rgba(210, 107, 51, 0.32);
+  border-radius: 15px;
   background: rgba(255, 252, 248, 0.86);
   color: var(--text-soft);
   text-align: center;
   cursor: pointer;
+  transition: all 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.meal-enrichment-photo-add:hover:not(.disabled) {
+  border-color: var(--accent);
+  background: #fff6ee;
+  transform: translateY(-1px);
+  box-shadow: 0 6px 15px rgba(210, 107, 51, 0.06);
 }
 
 .meal-enrichment-photo-add.disabled {
@@ -1280,46 +1386,27 @@
 
 @media (max-width: 640px) {
   .meal-log-enrich-modal.workspace-modal {
-    width: calc(100vw - 20px);
-    max-height: calc(100dvh - 20px);
-    padding: 18px 16px 14px;
-    border-radius: 26px;
-    overflow: auto;
+    overflow: hidden;
   }
 
   .meal-log-enrich-modal .workspace-overlay-head {
-    position: sticky;
-    top: -18px;
-    z-index: 2;
-    align-items: start;
-    gap: 12px;
-    margin: -18px -16px 14px;
-    padding: 18px 16px 12px;
-    background: rgba(255, 255, 255, 0.96);
-    backdrop-filter: blur(12px);
+    margin-bottom: 0;
   }
 
   .meal-log-enrich-modal .workspace-overlay-titleblock h3 {
-    font-size: 1.88rem;
-    line-height: 1.04;
+    font-size: var(--home-sheet-title-size);
+    line-height: 1.15;
   }
 
   .meal-log-enrich-modal .workspace-overlay-titleblock .subtle {
-    max-width: 260px;
-    margin-top: 4px;
-    font-size: 0.92rem;
-    line-height: 1.45;
+    max-width: 100%;
+    margin-top: 2px;
+    font-size: var(--home-sheet-description-size);
+    line-height: 1.5;
   }
 
   .meal-log-enrich-modal .workspace-overlay-close {
-    width: 42px;
-    min-width: 42px;
-    height: 42px;
-    min-height: 42px;
-    border: 1px solid rgba(92, 67, 48, 0.1);
-    border-radius: 14px;
-    background: #fff;
-    font-size: 1.7rem;
+    font-size: var(--home-sheet-close-font-size);
   }
 
   .meal-log-enrich-modal .meal-enrichment-form {

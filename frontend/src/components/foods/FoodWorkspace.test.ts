@@ -4,13 +4,15 @@ import { todayKey } from '../../lib/ui';
 import {
   FOOD_CREATE_TYPE_OPTIONS,
   buildFoodPayloadFromForm,
-  buildFoodRelationViewModel,
   buildTodayFoodRecommendations,
   filterFoodWorkspaceItems,
-  getFoodGovernanceIssues,
   getSuggestedMealTypeForHour,
   type FoodFormState,
 } from './FoodWorkspace';
+import {
+  buildFoodRelationViewModel,
+  getFoodGovernanceIssues,
+} from './FoodWorkspaceHelpers';
 
 const recipe: Recipe = {
   id: 'recipe-1',

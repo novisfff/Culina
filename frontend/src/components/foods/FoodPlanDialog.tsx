@@ -49,7 +49,7 @@ export function FoodPlanDialog(props: FoodPlanDialogProps) {
     (props.selectedPlanFood ? props.resolveFoodAssetUrl(props.getFoodCover(props.selectedPlanFood, props.recipes) ?? '') : undefined);
 
   return (
-    <div className="workspace-overlay-root">
+    <div className="workspace-overlay-root food-workspace-overlay-root">
       <div className="workspace-overlay-backdrop" onClick={props.onClose} />
       <WorkspaceModal
         title="加食物到菜单"

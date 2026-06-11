@@ -2,10 +2,28 @@ import { useMemo, useState, type Dispatch, type FormEvent, type SetStateAction, 
 import type { ActivityLog, Food, FoodPlanItem, FoodRecommendations, Ingredient, InventoryItem, MealLog, MealType, Recipe, ShoppingListItem } from '../../api/types';
 import type { TabKey } from '../../app/AppShell';
 import { DashboardIcon, DashboardMealIcon, ShellIcon } from '../../app/shellIcons';
-import { ActionButton, Badge, EmptyState, WorkspaceModal } from '../../components/ui-kit';
+import { ActionButton, Badge, EmptyState, PageHeader, WorkspaceModal } from '../../components/ui-kit';
 import { MEAL_OPTIONS } from '../../components/foods/FoodWorkspaceOptions';
+import { FoodDetailDrawer } from '../../components/foods/FoodDetailDrawer';
+import {
+  normalizeFoodType,
+  isReadyLikeFood,
+  isOutsideFood,
+  getFoodSceneTags,
+  describeExpiry,
+  getFoodStatus,
+  getFoodFactRows,
+  getFoodMealHistory,
+  getFoodAudienceText,
+  getMealUsage,
+  getDefaultMealType,
+  getPrimaryFoodActionLabel,
+  getRepurchaseLabel,
+  getSecondaryFoodActionLabel,
+  buildFoodRelationViewModel,
+} from '../../components/foods/FoodWorkspaceHelpers';
 import { addDateKeyDays } from '../../lib/date';
-import { buildIngredientPlaceholderSvg, FOOD_TYPE_LABELS, formatDate, formatDateTime, getFoodCover, INVENTORY_STATUS_LABELS, MEAL_TYPE_LABELS, todayKey } from '../../lib/ui';
+import { buildIngredientPlaceholderSvg, FOOD_TYPE_LABELS, formatDate, formatDateTime, getFoodCover, getFoodCoverAsset, INVENTORY_STATUS_LABELS, MEAL_TYPE_LABELS, todayKey } from '../../lib/ui';
 import {
   DASHBOARD_PLAN_MEAL_TYPES,
   findShoppingIngredient,
@@ -51,6 +69,8 @@ export type HomeDashboardProps = {
   foods: Food[];
   recipes: Recipe[];
   ingredients: Ingredient[];
+  mealLogs: MealLog[];
+  inventoryItems: InventoryItem[];
   activityLogs: ActivityLog[];
   recentMeals: MealLog[];
   isQuickAdding: boolean;
@@ -139,6 +159,8 @@ export function HomeDashboard(props: HomeDashboardProps) {
     foods,
     recipes,
     ingredients,
+    mealLogs,
+    inventoryItems,
     activityLogs,
     recentMeals,
     isQuickAdding,
@@ -165,6 +187,11 @@ export function HomeDashboard(props: HomeDashboardProps) {
     onFoodPlanNextWeek,
   } = props;
   const [quickMealDialog, setQuickMealDialog] = useState<HomeQuickMealDialogState | null>(null);
+  const [detailFood, setDetailFood] = useState<Food | null>(null);
+
+  function openDetail(food: Food) {
+    setDetailFood(food);
+  }
   const quickMealDateOptions = useMemo(
     () => Array.from({ length: 7 }, (_, index) => addDateKeyDays(todayKey(), index)),
     []
@@ -247,6 +274,7 @@ export function HomeDashboard(props: HomeDashboardProps) {
             onHomePlanDetailOpen={openHomePlanDetail}
             onHomeRestockOpen={openHomeRestock}
             onDashboardTodoClick={handleDashboardTodoClick}
+            onOpenDetail={openDetail}
           />
 
           {quickMealDialog && (() => {
@@ -255,7 +283,7 @@ export function HomeDashboard(props: HomeDashboardProps) {
             const isSubmitting = Boolean(isQuickAdding || (isCookAction && isCreatingFoodPlanItem));
 
             return (
-              <div className="workspace-overlay-root">
+              <div className="workspace-overlay-root home-dashboard-overlay-root">
                 <div className="workspace-overlay-backdrop" onClick={() => setQuickMealDialog(null)} />
                 <WorkspaceModal
                   title={isCookAction ? '开始做这道菜' : '开始做'}
@@ -329,13 +357,77 @@ export function HomeDashboard(props: HomeDashboardProps) {
             );
           })()}
 
+          {detailFood && (() => {
+            const usage = getMealUsage(detailFood, mealLogs);
+            const expiry = describeExpiry(detailFood);
+            const normalizedType = normalizeFoodType(detailFood);
+            const status = getFoodStatus(detailFood, usage, expiry, recipes);
+            const factRows = getFoodFactRows(detailFood, usage, expiry);
+            const history = getFoodMealHistory(detailFood, mealLogs);
+            const relation = buildFoodRelationViewModel(detailFood, recipes, ingredients, inventoryItems, mealLogs, foods);
+            const linkedRecipeCard = relation.linkedRecipeCard;
+            const recipe = linkedRecipeCard?.recipe ?? (detailFood.recipe_id ? recipes.find((item) => item.id === detailFood.recipe_id) ?? null : null);
+            const coverAsset = getFoodCoverAsset(detailFood, recipes);
+            const cover = coverAsset?.url;
+            const detailMealOptions = detailFood.suitable_meal_types.length > 0
+              ? MEAL_OPTIONS.filter((meal) => detailFood.suitable_meal_types.includes(meal.value))
+              : MEAL_OPTIONS;
+
+            return (
+              <FoodDetailDrawer
+                food={detailFood}
+                audienceText={getFoodAudienceText(detailFood, mealLogs)}
+                cover={cover}
+                coverAsset={coverAsset}
+                detailMealOptions={detailMealOptions}
+                expiry={expiry}
+                factRows={factRows}
+                history={history}
+                isOutsideFood={isOutsideFood(detailFood)}
+                isQuickAdding={isQuickAdding}
+                isReadyLikeFood={isReadyLikeFood(detailFood)}
+                normalizedType={normalizedType}
+                recipe={recipe}
+                relation={relation}
+                status={status}
+                usage={usage}
+                getDefaultMealType={getDefaultMealType}
+                getPrimaryFoodActionLabel={getPrimaryFoodActionLabel}
+                getRepurchaseLabel={getRepurchaseLabel}
+                getSceneTags={getFoodSceneTags}
+                getSecondaryFoodActionLabel={getSecondaryFoodActionLabel}
+                onClose={() => setDetailFood(null)}
+                onEdit={(food) => {
+                  onNavigate('foods');
+                  setDetailFood(null);
+                }}
+                onOpenLogs={() => {
+                  onNavigate('logs');
+                  setDetailFood(null);
+                }}
+                onOpenPlanDialog={(food) => {
+                  openHomePlanAddDialog(food, foodRecommendations?.target_meal_type ?? 'dinner');
+                  setDetailFood(null);
+                }}
+                onOpenRecipeDetail={(card) => {
+                  onNavigate('recipes');
+                  setDetailFood(null);
+                }}
+                onQuickAdd={(food, mealType) => {
+                  openQuickMealDialog(food, mealType);
+                  setDetailFood(null);
+                }}
+                resolveAssetUrl={(url) => resolveAssetUrl(url) ?? url}
+                overlayRootClassName="home-dashboard-overlay-root"
+              />
+            );
+          })()}
+
           <main className="dashboard-page">
-            <section className="card dashboard-hero">
-              <div className="dashboard-hero-head">
-                <div>
-                  <h1>首页</h1>
-                  <p>把今天要做、要买、要处理的事放在一个清晰工作台里。</p>
-                </div>
+            <PageHeader
+              title="首页"
+              description="把今天要做、要买、要处理的事放在一个清晰工作台里。"
+              actions={
                 <div className="dashboard-hero-actions">
                   <button className="solid-button dashboard-action-primary" type="button" onClick={() => onNavigate('ingredients')}>
                     <DashboardIcon name="plus" />
@@ -346,26 +438,26 @@ export function HomeDashboard(props: HomeDashboardProps) {
                     查看记录
                   </button>
                 </div>
-              </div>
+              }
+            />
 
-              <div className="dashboard-stat-grid">
-                {dashboardStats.map((item) => (
-                  <article key={item.label} className="dashboard-stat-card">
-                    <span className={`dashboard-stat-icon tone-${item.tone}`}>
-                      <DashboardIcon name={item.icon} />
-                    </span>
-                    <div>
-                      <span>{item.label}</span>
-                      <strong>
-                        {item.value}
-                        <small>{item.unit}</small>
-                      </strong>
-                      <p>{item.detail}</p>
-                    </div>
-                  </article>
-                ))}
-              </div>
-            </section>
+            <div className="dashboard-stat-grid">
+              {dashboardStats.map((item) => (
+                <article key={item.label} className={`dashboard-stat-card card-tone-${item.tone}`}>
+                  <span className={`dashboard-stat-icon tone-${item.tone}`}>
+                    <DashboardIcon name={item.icon} />
+                  </span>
+                  <div>
+                    <span>{item.label}</span>
+                    <strong>
+                      {item.value}
+                      <small>{item.unit}</small>
+                    </strong>
+                    <p>{item.detail}</p>
+                  </div>
+                </article>
+              ))}
+            </div>
 
             <div className="dashboard-layout">
               <div className="dashboard-left">
@@ -411,7 +503,13 @@ export function HomeDashboard(props: HomeDashboardProps) {
                                 >
                                   开始做
                                 </button>
-                                <button className="dashboard-icon-button" type="button" onClick={() => onNavigate('foods')} aria-label="查看食物">
+                                <button
+                                  className="dashboard-icon-button"
+                                  type="button"
+                                  onClick={() => openDetail(food)}
+                                  aria-label="查看详情"
+                                  title="查看详情"
+                                >
                                   <DashboardIcon name="list" />
                                 </button>
                                 <button
@@ -449,8 +547,9 @@ export function HomeDashboard(props: HomeDashboardProps) {
                           visibleExpiringInventoryItems.map((item) => {
                             const ingredient = ingredients.find((entry) => entry.id === item.ingredient_id);
                             const expiryBadge = getDashboardExpiryBadge(item.daysLeft);
+                            const expiryClass = item.daysLeft < 0 ? 'expired' : item.daysLeft === 0 ? 'today' : item.daysLeft <= 3 ? 'soon' : 'later';
                             return (
-                              <article key={item.id} className="dashboard-expiry-item">
+                              <article key={item.id} className={`dashboard-expiry-item expiry-${expiryClass}`}>
                                 <div className="dashboard-ingredient-thumb">
                                   {ingredient?.image ? (
                                     <img
@@ -503,7 +602,7 @@ export function HomeDashboard(props: HomeDashboardProps) {
                               <button
                                 key={item.id}
                                 type="button"
-                                className={item.done ? 'dashboard-todo-item done' : `dashboard-todo-item todo-${item.type}`}
+                                className={item.done ? 'dashboard-todo-item done' : `dashboard-todo-item todo-${item.type} status-${item.status === '紧急' ? 'emergency' : 'normal'}`}
                                 onClick={() => handleDashboardTodoClick(item)}
                                 aria-label={`${item.title}，${item.status}，点击处理`}
                               >
