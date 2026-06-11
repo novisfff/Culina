@@ -635,8 +635,8 @@ export function ApprovalPanel({
           </span>
         </div>
       </div>
-      {isExpanded && (
-        <>
+      <div className="ai-approval-body-wrapper">
+        <div className="ai-approval-body-content">
           {recipeApproval ? (
             <div className="ai-recipe-editor ai-confirmation-editor ai-recipe-draft-editor">
               <div className="ai-draft-editor-head">
@@ -804,8 +804,8 @@ export function ApprovalPanel({
               </button>
             </div>
           )}
-        </>
-      )}
+        </div>
+      </div>
     </section>
   );
 }
