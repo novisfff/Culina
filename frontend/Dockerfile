@@ -2,8 +2,10 @@ FROM node:22-alpine AS build
 
 WORKDIR /app
 
+ARG NPM_CONFIG_REGISTRY=https://registry.npmmirror.com
+
 COPY frontend/package*.json ./
-RUN npm ci
+RUN npm ci --registry="${NPM_CONFIG_REGISTRY}"
 
 COPY frontend/ .
 
