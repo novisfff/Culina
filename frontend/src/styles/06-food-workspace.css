@@ -5286,7 +5286,7 @@
     radial-gradient(circle at 90% 10%, rgba(226, 236, 216, 0.42), transparent 28%),
     linear-gradient(180deg, rgba(255, 254, 252, 0.98) 0%, rgba(255, 255, 255, 0.96) 52%, rgba(252, 249, 245, 0.98) 100%);
   box-shadow: 0 22px 52px rgba(74, 54, 40, 0.095);
-  transition: grid-template-rows 0.35s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.25s ease, border-color 0.25s ease;
+  transition: grid-template-rows 0.22s ease-out, box-shadow 0.22s ease, border-color 0.22s ease;
 }
 
 .ai-approval-panel.is-expanded {
@@ -5317,13 +5317,13 @@
   display: flex;
   flex-direction: column;
   min-height: 0;
-  transition: visibility 0.35s step-end, opacity 0.3s ease;
+  transition: visibility 0.22s step-end, opacity 0.2s ease;
 }
 
 .ai-approval-panel.is-expanded .ai-approval-body-wrapper {
   visibility: visible;
   opacity: 1;
-  transition: visibility 0s, opacity 0.3s ease 0.05s;
+  transition: visibility 0s, opacity 0.2s ease 0.02s;
 }
 
 .ai-approval-body-content {
@@ -5334,12 +5334,6 @@
   scrollbar-width: thin;
   scrollbar-color: rgba(82, 72, 64, 0.2) transparent;
   min-height: 0;
-  transform: translateY(-8px);
-  transition: transform 0.35s cubic-bezier(0.16, 1, 0.3, 1);
-}
-
-.ai-approval-panel.is-expanded .ai-approval-body-content {
-  transform: translateY(0);
 }
 
 .ai-approval-body-content::-webkit-scrollbar {
