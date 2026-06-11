@@ -4186,7 +4186,7 @@
 }
 
 .ai-side-panel {
-  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-rows: auto auto minmax(0, 1fr);
   gap: 12px;
   overflow: hidden;
   border: 1px solid rgba(214, 190, 171, 0.62);
@@ -6622,13 +6622,13 @@
     top: var(--ai-mobile-header-height);
     left: 0;
     right: 0;
-    bottom: calc(var(--ai-mobile-composer-height) + var(--ai-mobile-nav-space));
+    bottom: 0;
     min-height: 0;
     overflow-y: auto;
     overscroll-behavior: contain;
     -webkit-overflow-scrolling: touch;
-    gap: 22px;
-    padding: 22px 16px 26px;
+    gap: 18px;
+    padding: 14px 16px calc(86px + env(safe-area-inset-bottom, 0px));
     background: transparent;
   }
 
@@ -6859,31 +6859,31 @@
     position: fixed;
     left: 0;
     right: 0;
-    bottom: var(--ai-mobile-nav-space);
+    bottom: 0;
     z-index: 70;
     gap: 6px;
     border-top: 1px solid rgba(30, 26, 23, 0.08);
-    background: rgba(255, 255, 255, 0.96);
-    padding: 10px 12px 8px;
+    background: rgba(255, 255, 255, 0.95);
+    padding: 8px 12px calc(8px + env(safe-area-inset-bottom, 0px));
     backdrop-filter: blur(18px);
   }
 
   .ai-composer {
     gap: 8px;
-    min-height: 58px;
+    min-height: 48px;
     border-color: rgba(215, 190, 170, 0.78);
     border-radius: 999px;
     background: #fff;
-    padding: 6px 7px 6px 18px;
+    padding: 4px 5px 4px 14px;
     box-shadow: 0 5px 18px rgba(42, 32, 24, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.9);
   }
 
   .ai-composer textarea.text-input,
   .ai-composer textarea {
-    height: 26px;
-    min-height: 26px;
+    height: 24px;
+    min-height: 24px;
     max-height: 118px;
-    padding: 3px 0;
+    padding: 4px 0;
     line-height: 1.35;
   }
 
@@ -6896,11 +6896,11 @@
   }
 
   .ai-send-button {
-    width: 46px;
-    height: 46px;
+    width: 38px;
+    height: 38px;
     border-radius: 999px;
-    font-size: 1.16rem;
-    box-shadow: 0 8px 18px rgba(225, 82, 27, 0.24);
+    font-size: 1.05rem;
+    box-shadow: 0 4px 12px rgba(225, 82, 27, 0.2);
   }
 
   .ai-disclaimer {
