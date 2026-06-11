@@ -96,6 +96,7 @@ function App() {
     return (cached as TabKey) || 'home';
   });
   const [sidebarCollapsed, setSidebarCollapsed] = useState<boolean>(defaultSidebarCollapsed);
+  const [hasBooted, setHasBooted] = useState(false);
   const [pendingRecipeCookId, setPendingRecipeCookId] = useState<string | null>(null);
   const [pendingFoodPlanCookItemId, setPendingFoodPlanCookItemId] = useState<string | null>(null);
   const [homeMealEnrichmentRequest, setHomeMealEnrichmentRequest] = useState<HomeMealEnrichmentOpenRequest | null>(null);
@@ -151,6 +152,8 @@ function App() {
     writeStringStorage(SIDEBAR_COLLAPSED_KEY, sidebarCollapsed ? '1' : '0');
   }, [sidebarCollapsed]);
 
+
+
   const {
     familyQuery,
     membersQuery,
@@ -188,6 +191,12 @@ function App() {
     isAuthenticated,
     foodPlanWeekRange,
   });
+
+  useEffect(() => {
+    if (!authLoading && !isWorkspaceBootLoading) {
+      setHasBooted(true);
+    }
+  }, [authLoading, isWorkspaceBootLoading]);
 
   const {
     createIngredientMutation,
@@ -266,15 +275,14 @@ function App() {
     return <LoginScreen />;
   }
 
-  const isBootLoading =
-    authLoading || isWorkspaceBootLoading;
+  const isBootLoading = authLoading || (!hasBooted && isWorkspaceBootLoading);
 
   if (isBootLoading) {
     return (
       <main className="login-shell">
         <section className="login-card">
           <h1>正在连接家庭厨房...</h1>
-          <p className="subtle">真实后端、MySQL 和家庭数据正在加载。</p>
+          <p className="subtle">家庭数据加载中...</p>
         </section>
       </main>
     );
