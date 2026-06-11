@@ -88,9 +88,6 @@ export function AiMobilePage(props: Props) {
                 <img src="/assets/bot_area.webp" alt="" className="ai-bot-visual-img" />
               </div>
               <div className="ai-welcome-copy">
-                <div className="ai-bot-avatar-glow">
-                  <img src="/assets/chatbot.webp" alt="AI" className="ai-bot-avatar-inner" />
-                </div>
                 <strong>你好，我是你的 AI 厨房助手 👋</strong>
                 <span>我可以帮你根据现有食材推荐菜谱、安排晚餐、分析临期食材、生成采购清单。</span>
               </div>

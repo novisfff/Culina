@@ -86,17 +86,26 @@ export function IngredientMobileView(props: IngredientMobileViewProps) {
         <h1>食材</h1>
         <p>先看家里还有什么，再处理临期、低库存和今天要买的东西。</p>
         <div className="mobile-ingredient-metrics" aria-label="食材摘要">
-          <button type="button" onClick={() => props.setMobileIngredientFilter('stocked')}>
-            <strong>{props.stockedIngredientCount}</strong>
-            <span>在库</span>
+          <button type="button" className="metric-btn tone-stocked" onClick={() => props.setMobileIngredientFilter('stocked')}>
+            <span className="metric-btn-icon">{props.renderIcon('stocked')}</span>
+            <div className="metric-btn-content">
+              <strong>{props.stockedIngredientCount}</strong>
+              <span>在库</span>
+            </div>
           </button>
-          <button type="button" onClick={() => props.setMobileIngredientFilter('alerted')}>
-            <strong>{props.allAlertsCount}</strong>
-            <span>提醒</span>
+          <button type="button" className={props.allAlertsCount > 0 ? "metric-btn tone-alert has-alert" : "metric-btn tone-alert"} onClick={() => props.setMobileIngredientFilter('alerted')}>
+            <span className="metric-btn-icon">{props.renderIcon('bell')}</span>
+            <div className="metric-btn-content">
+              <strong>{props.allAlertsCount}</strong>
+              <span>提醒</span>
+            </div>
           </button>
-          <button type="button" onClick={() => document.getElementById('mobile-ingredient-shopping')?.scrollIntoView({ block: 'start', behavior: 'smooth' })}>
-            <strong>{props.pendingShoppingCount}</strong>
-            <span>待买</span>
+          <button type="button" className="metric-btn tone-shopping" onClick={() => document.getElementById('mobile-ingredient-shopping')?.scrollIntoView({ block: 'start', behavior: 'smooth' })}>
+            <span className="metric-btn-icon">{props.renderIcon('shopping')}</span>
+            <div className="metric-btn-content">
+              <strong>{props.pendingShoppingCount}</strong>
+              <span>待买</span>
+            </div>
           </button>
         </div>
         <div className="mobile-ingredient-actions">

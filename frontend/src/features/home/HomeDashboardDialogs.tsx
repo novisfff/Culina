@@ -1,4 +1,4 @@
-import type { Dispatch, FormEvent, SetStateAction } from 'react';
+import { useEffect, useState, type Dispatch, type FormEvent, type SetStateAction } from 'react';
 import type {
   Food,
   FoodPlanItem,
@@ -16,13 +16,7 @@ import type {
   DisposableExpiredInventoryItemViewModel,
   IngredientSummaryViewModel,
 } from '../../components/ingredients/workspaceModel';
-import {
-  ActionButton,
-  Avatar,
-  Badge,
-  EmptyState,
-  WorkspaceModal,
-} from '../../components/ui-kit';
+import { ActionButton, Avatar, Badge, EmptyState, WorkspaceModal } from '../../components/ui-kit';
 import { addDateKeyDays } from '../../lib/date';
 import {
   FOOD_TYPE_LABELS,
@@ -114,6 +108,12 @@ export function HomeDashboardDialogs(props: Props) {
   const homeRestockShoppingItem = props.homeRestockShoppingItem;
   const homeRestockForm = props.homeRestockForm;
 
+  const [showIngredientSelector, setShowIngredientSelector] = useState(false);
+
+  useEffect(() => {
+    setShowIngredientSelector(false);
+  }, [homeRestockShoppingItem?.id]);
+
   return (
     <>
       {homePlanDetailItem && (
@@ -135,11 +135,12 @@ export function HomeDashboardDialogs(props: Props) {
           onSupplementRecord={() => void props.supplementHomePlanDetailRecord(homePlanDetailItem)}
           onDelete={() => void props.deleteHomePlanDetail(homePlanDetailItem)}
           resolveAssetUrl={(url) => props.resolveAssetUrl(url) ?? url}
+          overlayRootClassName="home-dashboard-overlay-root"
         />
       )}
 
       {props.isHomePlanAddDialogOpen && (
-        <div className="workspace-overlay-root">
+        <div className="workspace-overlay-root home-dashboard-overlay-root">
           <div className="workspace-overlay-backdrop" onClick={props.closeHomePlanAddDialog} />
           <WorkspaceModal
             title="加食物到菜单"
@@ -293,13 +294,13 @@ export function HomeDashboardDialogs(props: Props) {
       )}
 
       {props.homeMealEnrichmentMeal && props.homeMealEnrichmentSource && (
-        <div className="workspace-overlay-root">
+        <div className="workspace-overlay-root home-dashboard-overlay-root">
           <div className="workspace-overlay-backdrop" onClick={props.closeHomeMealEnrichment} />
           <WorkspaceModal
             title="补充记录"
             description="为这次菜单安排添加评价、家人、照片和评论。"
             className="meal-log-modal meal-log-enrich-modal"
-            closeLabel="×"
+            closeAriaLabel="关闭"
             onClose={props.closeHomeMealEnrichment}
           >
             <MealEnrichmentForm
@@ -318,13 +319,11 @@ export function HomeDashboardDialogs(props: Props) {
       )}
 
       {homeExpiryReviewItem && (
-        <div className="workspace-overlay-root">
+        <div className="workspace-overlay-root home-dashboard-overlay-root">
           <div className="workspace-overlay-backdrop" onClick={props.closeHomeExpiryReview} />
           <WorkspaceModal
             title="处理临期食材"
             description="先核对这批库存的信息；需要调整数量、位置或继续处理时进入食材详情。"
-            closeLabel="×"
-            closeAriaLabel="关闭"
             className="dashboard-todo-modal"
             onClose={props.closeHomeExpiryReview}
           >
@@ -373,9 +372,7 @@ export function HomeDashboardDialogs(props: Props) {
                 </article>
               </div>
 
-              {homeExpiryReviewItem.notes && (
-                <p className="dashboard-todo-dialog-note">{homeExpiryReviewItem.notes}</p>
-              )}
+              {homeExpiryReviewItem.notes && <p className="dashboard-todo-dialog-note">{homeExpiryReviewItem.notes}</p>}
 
               <div className="workspace-overlay-actions">
                 <ActionButton
@@ -399,13 +396,11 @@ export function HomeDashboardDialogs(props: Props) {
       )}
 
       {props.homeMealDetail && (
-        <div className="workspace-overlay-root">
+        <div className="workspace-overlay-root home-dashboard-overlay-root">
           <div className="workspace-overlay-backdrop" onClick={props.closeHomeMealDetail} />
           <WorkspaceModal
             title="餐食详情"
             description="这条今日待办已经完成，下面是本餐记录。"
-            closeLabel="×"
-            closeAriaLabel="关闭"
             className="dashboard-todo-modal meal-detail-modal"
             onClose={props.closeHomeMealDetail}
           >
@@ -483,13 +478,11 @@ export function HomeDashboardDialogs(props: Props) {
       )}
 
       {homeRestockShoppingItem && homeRestockForm && (
-        <div className="workspace-overlay-root">
+        <div className="workspace-overlay-root home-dashboard-overlay-root">
           <div className="workspace-overlay-backdrop" onClick={props.closeHomeRestock} />
           <WorkspaceModal
             title="登记这批库存"
             description="从首页采购提醒快速入库，保存后会把这条采购项标记完成。"
-            closeLabel="×"
-            closeAriaLabel="关闭"
             className="workspace-modal-wide inventory-restock-modal"
             onClose={props.closeHomeRestock}
           >
@@ -503,76 +496,144 @@ export function HomeDashboardDialogs(props: Props) {
                 <section className="ingredients-restock-field-group">
                   <div className="ingredients-restock-field-head">
                     <span>识别食材</span>
-                    <p className="subtle">优先匹配已有档案，也可以手动改成别的食材。</p>
+                    <p className="subtle">优先匹配已有档案，也可以更换为其他已有食材。</p>
                   </div>
-                  <label>
-                    <span>食材名称</span>
-                    <input
-                      className="text-input"
-                      value={homeRestockForm.ingredientQuery}
-                      placeholder="搜索现有食材"
-                      onChange={(event) => {
-                        const query = event.target.value;
-                        const match = props.ingredients.find((item) => item.name === query)
-                          ?? props.ingredients.find((item) => item.name.includes(query) || query.includes(item.name))
-                          ?? null;
-                        props.updateHomeRestockForm({
-                          ...homeRestockForm,
-                          ingredientQuery: query,
-                          ingredientId: match?.id ?? '',
-                          unit: match?.default_unit || homeRestockForm.unit,
-                          storageLocation: match?.default_storage || homeRestockForm.storageLocation,
-                          expiryInputMode: match?.default_expiry_mode ?? homeRestockForm.expiryInputMode,
-                          expiryDays:
-                            match?.default_expiry_mode === 'days' && match.default_expiry_days
-                              ? String(match.default_expiry_days)
-                              : homeRestockForm.expiryDays,
-                          expiryDate:
-                            match?.default_expiry_mode === 'days' && match.default_expiry_days
-                              ? resolveExpiryDateFromDays(homeRestockForm.purchaseDate, String(match.default_expiry_days))
-                              : homeRestockForm.expiryDate,
-                          status: resolveInventoryStatusForStorage(match?.default_storage || homeRestockForm.storageLocation),
-                        });
-                      }}
-                    />
-                  </label>
-                  <div className="ingredients-restock-suggestions">
-                    {props.ingredients
-                      .filter((item) =>
-                        homeRestockForm.ingredientQuery.trim()
-                          ? item.name.toLowerCase().includes(homeRestockForm.ingredientQuery.trim().toLowerCase())
-                          : item.name === homeRestockShoppingItem.title
-                      )
-                      .slice(0, 6)
-                      .map((ingredient) => (
-                        <button
-                          key={ingredient.id}
-                          type="button"
-                          className={homeRestockForm.ingredientId === ingredient.id ? 'ingredients-choice-chip active' : 'ingredients-choice-chip'}
-                          onClick={() =>
+                  {props.homeRestockIngredient ? (
+                    <div className="ingredients-restock-matched-card">
+                      <div className="ingredients-restock-matched-media">
+                        {props.homeRestockIngredientImageUrl ? (
+                          <img src={props.homeRestockIngredientImageUrl} alt={props.homeRestockIngredient.name} />
+                        ) : (
+                          <span>{props.homeRestockIngredient.name.slice(0, 1)}</span>
+                        )}
+                      </div>
+                      <div className="ingredients-restock-matched-info">
+                        <strong>{props.homeRestockIngredient.name}</strong>
+                        <span>
+                          {props.homeRestockIngredient.category || '未分类'} · 默认存放在 {props.homeRestockIngredient.default_storage || '未设置'}
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        className="ingredients-restock-change-btn"
+                        onClick={() => setShowIngredientSelector(!showIngredientSelector)}
+                      >
+                        {showIngredientSelector ? '收起' : '更换'}
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="ingredients-restock-matched-card is-empty">
+                      <div className="ingredients-restock-matched-media">
+                        <span>?</span>
+                      </div>
+                      <div className="ingredients-restock-matched-info">
+                        <strong>未选择食材</strong>
+                        <span>请选择对应食材以继续登记</span>
+                      </div>
+                      <button
+                        type="button"
+                        className="ingredients-restock-change-btn is-action"
+                        onClick={() => setShowIngredientSelector(!showIngredientSelector)}
+                      >
+                        {showIngredientSelector ? '收起' : '选择食材'}
+                      </button>
+                    </div>
+                  )}
+
+                  {showIngredientSelector && (
+                    <div className="ingredients-restock-selector-panel">
+                      <div className="ingredients-restock-search-wrapper">
+                        <DashboardIcon name="list" />
+                        <input
+                          className="ingredients-restock-search-input"
+                          value={homeRestockForm.ingredientQuery}
+                          placeholder="搜索现有食材..."
+                          autoFocus
+                          onChange={(event) => {
+                            const query = event.target.value;
+                            const match = props.ingredients.find((item) => item.name === query)
+                              ?? props.ingredients.find((item) => item.name.includes(query) || query.includes(item.name))
+                              ?? null;
                             props.updateHomeRestockForm({
                               ...homeRestockForm,
-                              ingredientId: ingredient.id,
-                              ingredientQuery: ingredient.name,
-                              unit: ingredient.default_unit || homeRestockForm.unit,
-                              storageLocation: ingredient.default_storage || homeRestockForm.storageLocation,
-                              expiryInputMode: ingredient.default_expiry_mode,
+                              ingredientQuery: query,
+                              ingredientId: match?.id ?? '',
+                              unit: match?.default_unit || homeRestockForm.unit,
+                              storageLocation: match?.default_storage || homeRestockForm.storageLocation,
+                              expiryInputMode: match?.default_expiry_mode ?? homeRestockForm.expiryInputMode,
                               expiryDays:
-                                ingredient.default_expiry_mode === 'days' && ingredient.default_expiry_days
-                                  ? String(ingredient.default_expiry_days)
-                                  : '',
+                                match?.default_expiry_mode === 'days' && match.default_expiry_days
+                                  ? String(match.default_expiry_days)
+                                  : homeRestockForm.expiryDays,
                               expiryDate:
-                                ingredient.default_expiry_mode === 'days' && ingredient.default_expiry_days
-                                  ? resolveExpiryDateFromDays(homeRestockForm.purchaseDate, String(ingredient.default_expiry_days))
-                                  : '',
-                              status: resolveInventoryStatusForStorage(ingredient.default_storage || homeRestockForm.storageLocation),
-                            })
-                          }
-                        >
-                          {ingredient.name}
-                        </button>
-                      ))}
-                  </div>
+                                match?.default_expiry_mode === 'days' && match.default_expiry_days
+                                  ? resolveExpiryDateFromDays(homeRestockForm.purchaseDate, String(match.default_expiry_days))
+                                  : homeRestockForm.expiryDate,
+                              status: resolveInventoryStatusForStorage(match?.default_storage || homeRestockForm.storageLocation),
+                            });
+                          }}
+                        />
+                        {homeRestockForm.ingredientQuery && (
+                          <button
+                            type="button"
+                            className="ingredients-restock-search-clear"
+                            onClick={() => {
+                              props.updateHomeRestockForm({
+                                ...homeRestockForm,
+                                ingredientQuery: '',
+                              });
+                            }}
+                          >
+                            ×
+                          </button>
+                        )}
+                      </div>
+
+                      <div className="ingredients-restock-suggestions">
+                        {props.ingredients
+                          .filter((item) =>
+                            homeRestockForm.ingredientQuery.trim()
+                              ? item.name.toLowerCase().includes(homeRestockForm.ingredientQuery.trim().toLowerCase())
+                              : true
+                          )
+                          .slice(0, 8)
+                          .map((ingredient) => (
+                            <button
+                              key={ingredient.id}
+                              type="button"
+                              className={homeRestockForm.ingredientId === ingredient.id ? 'ingredients-choice-chip active' : 'ingredients-choice-chip'}
+                              onClick={() => {
+                                props.updateHomeRestockForm({
+                                  ...homeRestockForm,
+                                  ingredientId: ingredient.id,
+                                  ingredientQuery: ingredient.name,
+                                  unit: ingredient.default_unit || homeRestockForm.unit,
+                                  storageLocation: ingredient.default_storage || homeRestockForm.storageLocation,
+                                  expiryInputMode: ingredient.default_expiry_mode,
+                                  expiryDays:
+                                    ingredient.default_expiry_mode === 'days' && ingredient.default_expiry_days
+                                      ? String(ingredient.default_expiry_days)
+                                      : '',
+                                  expiryDate:
+                                    ingredient.default_expiry_mode === 'days' && ingredient.default_expiry_days
+                                      ? resolveExpiryDateFromDays(homeRestockForm.purchaseDate, String(ingredient.default_expiry_days))
+                                      : '',
+                                  status: resolveInventoryStatusForStorage(ingredient.default_storage || homeRestockForm.storageLocation),
+                                });
+                                setShowIngredientSelector(false);
+                              }}
+                            >
+                              {ingredient.name}
+                            </button>
+                          ))}
+                        {props.ingredients.filter((item) =>
+                          homeRestockForm.ingredientQuery.trim()
+                            ? item.name.toLowerCase().includes(homeRestockForm.ingredientQuery.trim().toLowerCase())
+                            : true
+                        ).length === 0 && <div className="ingredients-restock-no-results">没有找到匹配的食材</div>}
+                      </div>
+                    </div>
+                  )}
                 </section>
 
                 <section className="ingredients-restock-field-group">
@@ -809,13 +870,11 @@ export function HomeDashboardDialogs(props: Props) {
       )}
 
       {props.homeExpiredDisposalSummary && (
-        <div className="workspace-overlay-root">
+        <div className="workspace-overlay-root home-dashboard-overlay-root">
           <div className="workspace-overlay-backdrop" onClick={() => props.setHomeExpiredDisposalIngredientId(null)} />
           <WorkspaceModal
             title="销毁已过期批次"
             description="会将这些过期批次的剩余量清零，但保留批次历史记录和活动日志。"
-            closeLabel="×"
-            closeAriaLabel="关闭"
             className="workspace-modal-wide destroy-expired-modal"
             onClose={() => props.setHomeExpiredDisposalIngredientId(null)}
           >
@@ -875,9 +934,7 @@ export function HomeDashboardDialogs(props: Props) {
                                 <span>{item.storageLocation}</span>
                               </div>
                               <div className="destroy-expired-item-badges">
-                                <Badge className="destroy-expired-item-badge is-danger">
-                                  已过期 {expiredDays} 天
-                                </Badge>
+                                <Badge className="destroy-expired-item-badge is-danger">已过期 {expiredDays} 天</Badge>
                                 <Badge>{INVENTORY_STATUS_LABELS[item.status]}</Badge>
                               </div>
                             </div>

@@ -56,29 +56,32 @@ type IngredientEditorViewProps = {
   onBack: () => void;
   isCreatingIngredient?: boolean;
   isUpdatingIngredient?: boolean;
+  embedded?: boolean;
   renderIcon: (name: string) => ReactNode;
   renderStorageIcon: (storage: string) => ReactNode;
   ScrollableChipRail: (props: { ariaLabel: string; railClassName: string; children: ReactNode }) => ReactNode;
 };
 
 export function IngredientEditorView(props: IngredientEditorViewProps) {
-  return (
+  const editorContent = (
     <WorkspaceSubpageShell className="ingredients-workspace-subpage ingredients-create-workspace">
-      <header className="ingredients-create-header">
-        <div className="ingredients-create-titleblock">
-          <button className="workspace-back-link ingredient-detail-back" type="button" onClick={props.onBack}>
-            ← {props.isEditingIngredient ? '返回食材详情' : props.activePanelBackLabel}
-          </button>
-          <p className="eyebrow">{props.isEditingIngredient ? '编辑食材' : '新增食材'}</p>
-          <h2>{props.isEditingIngredient ? '编辑食材资料卡' : '新增食材资料卡'}</h2>
-          <p className="subtle">
-            {props.isEditingIngredient
-              ? '调整名称、分类、图片和备注后，可以直接保存这张资料卡。'
-              : '填写基础信息、图片和备注后，就能继续登记第一批库存。'}
-          </p>
-        </div>
-        <Badge className="ingredients-create-page-badge">{props.isEditingIngredient ? '资料卡编辑' : '资料卡子页'}</Badge>
-      </header>
+      {!props.embedded && (
+        <header className="ingredients-create-header">
+          <div className="ingredients-create-titleblock">
+            <button className="workspace-back-link ingredient-detail-back" type="button" onClick={props.onBack}>
+              ← {props.isEditingIngredient ? '返回食材详情' : props.activePanelBackLabel}
+            </button>
+            <p className="eyebrow">{props.isEditingIngredient ? '编辑食材' : '新增食材'}</p>
+            <h2>{props.isEditingIngredient ? '编辑食材资料卡' : '新增食材资料卡'}</h2>
+            <p className="subtle">
+              {props.isEditingIngredient
+                ? '调整名称、分类、图片和备注后，可以直接保存这张资料卡。'
+                : '填写基础信息、图片和备注后，就能继续登记第一批库存。'}
+            </p>
+          </div>
+          <Badge className="ingredients-create-page-badge">{props.isEditingIngredient ? '资料卡编辑' : '资料卡子页'}</Badge>
+        </header>
+      )}
       <form className="ingredients-create-layout" onSubmit={props.onSubmit}>
         <div className="ingredients-create-main">
           <section className="form-panel-section ingredients-create-section ingredients-create-basic-section">
@@ -548,4 +551,8 @@ export function IngredientEditorView(props: IngredientEditorViewProps) {
       </form>
     </WorkspaceSubpageShell>
   );
+
+  return props.embedded
+    ? <div className="ingredients-create-embedded">{editorContent}</div>
+    : editorContent;
 }

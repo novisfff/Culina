@@ -1,4 +1,11 @@
-import type { ButtonHTMLAttributes, CSSProperties, ReactNode } from 'react';
+import {
+  useEffect,
+  useRef,
+  type ButtonHTMLAttributes,
+  type CSSProperties,
+  type PointerEvent as ReactPointerEvent,
+  type ReactNode,
+} from 'react';
 import type { ImageInputValue } from '../api/types';
 import { resolveAssetUrl } from '../lib/assets';
 import { avatarColor, getImagePreview, initials } from '../lib/ui';
@@ -221,11 +228,111 @@ function WorkspaceOverlayShell(props: {
   children: ReactNode;
 }) {
   const shellClassName = props.kind === 'drawer' ? 'workspace-drawer' : 'workspace-modal';
+  const panelRef = useRef<HTMLElement>(null);
+  const dragRef = useRef({ pointerId: -1, startY: 0, startTime: 0, distance: 0 });
+  const closeTimerRef = useRef<number | null>(null);
+  const removeDragListenersRef = useRef<(() => void) | null>(null);
+
+  useEffect(() => () => {
+    if (closeTimerRef.current !== null) {
+      window.clearTimeout(closeTimerRef.current);
+    }
+    removeDragListenersRef.current?.();
+  }, []);
+
+  function resetDragPosition() {
+    const panel = panelRef.current;
+    if (!panel) {
+      return;
+    }
+    panel.style.transition = 'transform 220ms cubic-bezier(0.22, 1, 0.36, 1)';
+    panel.style.transform = 'translateY(0)';
+    window.setTimeout(() => {
+      panel.style.removeProperty('transition');
+      panel.style.removeProperty('transform');
+      panel.style.removeProperty('animation');
+    }, 230);
+  }
+
+  function updateDragPosition(event: PointerEvent) {
+    const panel = panelRef.current;
+    if (!panel || dragRef.current.pointerId !== event.pointerId) {
+      return;
+    }
+    event.preventDefault();
+    const distance = Math.max(0, event.clientY - dragRef.current.startY);
+    dragRef.current.distance = distance;
+    panel.style.transform = `translateY(${distance}px)`;
+  }
+
+  function finishDrag(event: PointerEvent) {
+    const panel = panelRef.current;
+    if (!panel || dragRef.current.pointerId !== event.pointerId) {
+      return;
+    }
+    removeDragListenersRef.current?.();
+    removeDragListenersRef.current = null;
+    const elapsed = Math.max(1, performance.now() - dragRef.current.startTime);
+    const velocity = dragRef.current.distance / elapsed;
+    const closeDistance = Math.min(120, panel.getBoundingClientRect().height * 0.22);
+    const shouldClose = dragRef.current.distance >= closeDistance
+      || (dragRef.current.distance >= 36 && velocity >= 0.65);
+    dragRef.current.pointerId = -1;
+
+    if (!shouldClose) {
+      resetDragPosition();
+      return;
+    }
+
+    panel.style.transition = 'transform 180ms cubic-bezier(0.4, 0, 1, 1)';
+    panel.style.transform = 'translateY(100%)';
+    closeTimerRef.current = window.setTimeout(props.onClose, 180);
+  }
+
+  function handleDragStart(event: ReactPointerEvent<HTMLDivElement>) {
+    const panel = panelRef.current;
+    const root = panel?.closest(
+      '.home-dashboard-overlay-root, .food-workspace-overlay-root, .ingredient-workspace-overlay-root, .family-settings-overlay-root, .meal-log-overlay-root'
+    );
+    if (!panel || !root || !window.matchMedia('(max-width: 767px)').matches) {
+      return;
+    }
+    removeDragListenersRef.current?.();
+    dragRef.current = {
+      pointerId: event.pointerId,
+      startY: event.clientY,
+      startTime: performance.now(),
+      distance: 0,
+    };
+    panel.style.animation = 'none';
+    panel.style.transition = 'none';
+    event.currentTarget.setPointerCapture(event.pointerId);
+
+    const handlePointerMove = (pointerEvent: PointerEvent) => updateDragPosition(pointerEvent);
+    const handlePointerEnd = (pointerEvent: PointerEvent) => finishDrag(pointerEvent);
+    window.addEventListener('pointermove', handlePointerMove, { passive: false });
+    window.addEventListener('pointerup', handlePointerEnd);
+    window.addEventListener('pointercancel', handlePointerEnd);
+    removeDragListenersRef.current = () => {
+      window.removeEventListener('pointermove', handlePointerMove);
+      window.removeEventListener('pointerup', handlePointerEnd);
+      window.removeEventListener('pointercancel', handlePointerEnd);
+    };
+  }
+
   return (
     <section
+      ref={panelRef}
       className={props.className ? `${shellClassName} workspace-overlay-panel ${props.className}` : `${shellClassName} workspace-overlay-panel`}
       onClick={(event) => event.stopPropagation()}
     >
+      <div
+        className="workspace-overlay-drag-zone"
+        aria-hidden="true"
+        onPointerDown={handleDragStart}
+      >
+        <span className="workspace-overlay-drag-handle" />
+      </div>
       <div className="workspace-overlay-head">
         <div className="workspace-overlay-titleblock">
           {props.eyebrow && <p className="eyebrow">{props.eyebrow}</p>}

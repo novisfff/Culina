@@ -57,7 +57,7 @@
 
 .dashboard-page {
   display: grid;
-  gap: 14px;
+  gap: 16px;
 }
 
 .dashboard-page .card {
@@ -144,6 +144,32 @@
   border: 1px solid var(--line-soft);
   border-radius: 16px;
   background: rgba(255, 255, 255, 0.74);
+  transition: transform 0.22s cubic-bezier(0.16, 1, 0.3, 1),
+              box-shadow 0.22s cubic-bezier(0.16, 1, 0.3, 1),
+              border-color 0.22s cubic-bezier(0.16, 1, 0.3, 1),
+              background-color 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.dashboard-stat-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 24px rgba(74, 54, 40, 0.08);
+  background: #ffffff;
+}
+
+.dashboard-stat-card.card-tone-green:hover {
+  border-color: rgba(90, 157, 85, 0.38);
+}
+
+.dashboard-stat-card.card-tone-coral:hover {
+  border-color: rgba(216, 99, 45, 0.38);
+}
+
+.dashboard-stat-card.card-tone-yellow:hover {
+  border-color: rgba(214, 141, 25, 0.42);
+}
+
+.dashboard-stat-card.card-tone-violet:hover {
+  border-color: rgba(124, 112, 179, 0.38);
 }
 
 .dashboard-stat-icon {
@@ -272,6 +298,15 @@
   border: 1px solid var(--line-soft);
   border-radius: 14px;
   background: rgba(255, 255, 255, 0.92);
+  transition: transform 0.22s cubic-bezier(0.16, 1, 0.3, 1),
+              box-shadow 0.22s cubic-bezier(0.16, 1, 0.3, 1),
+              border-color 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.dashboard-food-card:hover {
+  transform: translateY(-2px);
+  border-color: rgba(210, 107, 51, 0.24);
+  box-shadow: 0 12px 28px rgba(74, 54, 40, 0.08);
 }
 
 .dashboard-food-cover {
@@ -440,6 +475,44 @@
   border: 1px solid var(--line-soft);
   border-radius: 12px;
   background: rgba(255, 255, 255, 0.82);
+  transition: transform 0.18s ease, border-color 0.18s ease, background-color 0.18s ease, box-shadow 0.18s ease;
+}
+
+.dashboard-expiry-item:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 14px rgba(74, 54, 40, 0.05);
+}
+
+.dashboard-expiry-item.expiry-expired {
+  background: rgba(253, 235, 232, 0.5);
+  border-color: rgba(217, 75, 61, 0.18);
+}
+
+.dashboard-expiry-item.expiry-expired:hover {
+  background: rgba(253, 235, 232, 0.8);
+  border-color: rgba(217, 75, 61, 0.32);
+}
+
+.dashboard-expiry-item.expiry-today,
+.dashboard-expiry-item.expiry-soon {
+  background: rgba(255, 243, 215, 0.45);
+  border-color: rgba(230, 154, 46, 0.18);
+}
+
+.dashboard-expiry-item.expiry-today:hover,
+.dashboard-expiry-item.expiry-soon:hover {
+  background: rgba(255, 243, 215, 0.75);
+  border-color: rgba(230, 154, 46, 0.32);
+}
+
+.dashboard-expiry-item.expiry-later {
+  background: rgba(234, 246, 234, 0.45);
+  border-color: rgba(79, 154, 88, 0.12);
+}
+
+.dashboard-expiry-item.expiry-later:hover {
+  background: rgba(234, 246, 234, 0.75);
+  border-color: rgba(79, 154, 88, 0.28);
 }
 
 .dashboard-expiry-item p,
@@ -525,21 +598,22 @@
   width: min(560px, calc(100vw - 28px));
 }
 
+
 .dashboard-todo-dialog {
   display: grid;
   gap: 16px;
 }
 
-.dashboard-todo-dialog-hero,
-.meal-detail-head {
+.dashboard-todo-dialog-hero {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
-  gap: 14px;
+  gap: 16px;
   align-items: center;
-  padding: 12px;
-  border: 1px solid rgba(226, 206, 188, 0.72);
-  border-radius: 8px;
-  background: #fffaf4;
+  padding: 14px 16px;
+  border: 1px solid rgba(228, 172, 133, 0.38);
+  border-radius: 18px;
+  background: linear-gradient(135deg, #fffdfb 0%, #fff6ed 100%);
+  box-shadow: 0 6px 16px rgba(74, 54, 40, 0.04);
 }
 
 .dashboard-todo-dialog-media {
@@ -548,15 +622,15 @@
   display: grid;
   place-items: center;
   overflow: hidden;
-  border-radius: 8px;
+  border-radius: 14px;
   color: #a55b31;
   background: #f7eadb;
   font-weight: 800;
   font-size: 1.5rem;
+  box-shadow: 0 4px 12px rgba(72, 43, 24, 0.08);
 }
 
-.dashboard-todo-dialog-media img,
-.meal-detail-photo-grid img {
+.dashboard-todo-dialog-media img {
   width: 100%;
   height: 100%;
   object-fit: cover;
@@ -569,8 +643,7 @@
   gap: 5px;
 }
 
-.dashboard-todo-dialog-copy h3,
-.meal-detail-head h3 {
+.dashboard-todo-dialog-copy h3 {
   margin: 0;
   color: #33251e;
   font-size: 1.22rem;
@@ -578,9 +651,7 @@
 }
 
 .dashboard-todo-dialog-copy p,
-.meal-detail-head p,
-.dashboard-todo-dialog-note,
-.meal-detail-note {
+.dashboard-todo-dialog-note {
   margin: 0;
   color: #8c7b6d;
   line-height: 1.5;
@@ -592,17 +663,16 @@
   gap: 10px;
 }
 
-.dashboard-todo-dialog-grid article,
-.meal-detail-food-item {
+.dashboard-todo-dialog-grid article {
   min-width: 0;
-  padding: 11px;
-  border: 1px solid rgba(226, 206, 188, 0.65);
-  border-radius: 8px;
-  background: rgba(255, 252, 248, 0.82);
+  padding: 12px 14px;
+  border: 1px solid rgba(147, 96, 63, 0.12);
+  border-radius: 14px;
+  background: #ffffff;
+  box-shadow: 0 4px 10px rgba(74, 54, 40, 0.02);
 }
 
-.dashboard-todo-dialog-grid span,
-.meal-detail-section > span {
+.dashboard-todo-dialog-grid span {
   color: #9a8b80;
   font-size: 0.78rem;
   font-weight: 700;
@@ -616,7 +686,29 @@
 }
 
 .meal-detail-head {
+  display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
+  gap: 14px;
+  align-items: center;
+  padding: 14px 16px;
+  border: 1px solid rgba(228, 172, 133, 0.38);
+  border-radius: 18px;
+  background: linear-gradient(135deg, #fffdfb 0%, #fff7ef 100%);
+  box-shadow: 0 6px 16px rgba(74, 54, 40, 0.04);
+}
+
+.meal-detail-head h3 {
+  margin: 0;
+  color: #33251e;
+  font-size: 1.22rem;
+  line-height: 1.2;
+}
+
+.meal-detail-head p,
+.meal-detail-note {
+  margin: 0;
+  color: #8c7b6d;
+  line-height: 1.5;
 }
 
 .meal-detail-head > strong {
@@ -626,7 +718,7 @@
 
 .meal-detail-section {
   display: grid;
-  gap: 8px;
+  gap: 10px;
 }
 
 .meal-detail-food-list {
@@ -639,6 +731,11 @@
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 10px;
   align-items: center;
+  padding: 12px 14px;
+  border: 1px solid rgba(147, 96, 63, 0.12);
+  border-radius: 14px;
+  background: #ffffff;
+  box-shadow: 0 4px 10px rgba(74, 54, 40, 0.02);
 }
 
 .meal-detail-food-item strong {
@@ -662,12 +759,25 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 5px 9px 5px 5px;
-  border: 1px solid rgba(226, 206, 188, 0.72);
+  padding: 5px 12px 5px 6px;
+  border: 1px solid rgba(147, 96, 63, 0.12);
   border-radius: 999px;
   color: #4b3a30;
-  background: #fffaf4;
+  background: rgba(255, 255, 255, 0.88);
   font-size: 0.84rem;
+  font-weight: 800;
+  box-shadow: 0 3px 8px rgba(74, 54, 40, 0.03);
+}
+
+.meal-detail-note {
+  margin: 0;
+  padding: 10px 14px;
+  border-left: 3px solid var(--accent);
+  background: rgba(255, 245, 237, 0.72);
+  color: #5c4b40;
+  font-size: 0.88rem;
+  line-height: 1.5;
+  border-radius: 0 10px 10px 0;
 }
 
 .meal-detail-photo-grid {
@@ -678,8 +788,14 @@
 
 .meal-detail-photo-grid img {
   aspect-ratio: 1;
-  border-radius: 8px;
+  border-radius: 12px;
   background: #f7eadb;
+  box-shadow: 0 4px 12px rgba(72, 43, 24, 0.08);
+  transition: transform 0.2s ease;
+}
+
+.meal-detail-photo-grid img:hover {
+  transform: scale(1.03);
 }
 
 .dashboard-week-panel,
@@ -1377,6 +1493,16 @@
   background: rgba(248, 253, 246, 0.94);
 }
 
+.dashboard-todo-item.status-emergency {
+  border-color: rgba(217, 75, 61, 0.22);
+  background: rgba(253, 235, 232, 0.6);
+}
+
+.dashboard-todo-item.status-emergency:hover {
+  border-color: rgba(217, 75, 61, 0.42);
+  background: rgba(253, 235, 232, 0.85);
+}
+
 .dashboard-todo-check {
   width: 28px;
   height: 28px;
@@ -1491,4 +1617,3 @@
 .dashboard-activity-mark.tone-3 {
   background: #dda93c;
 }
-

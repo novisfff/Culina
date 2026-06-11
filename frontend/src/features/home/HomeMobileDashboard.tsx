@@ -51,6 +51,7 @@ export function HomeMobileDashboard(props: {
   onHomePlanDetailOpen: (item: FoodPlanItem) => void;
   onHomeRestockOpen: (item: ShoppingListItem) => void;
   onDashboardTodoClick: (item: DashboardTodoItem) => void;
+  onOpenDetail: (food: Food) => void;
 }) {
   return (
     <main className="mobile-dashboard-page" aria-label="手机首页">
@@ -166,7 +167,12 @@ export function HomeMobileDashboard(props: {
                       >
                         开始做
                       </button>
-                      <button type="button" onClick={() => props.onNavigate('foods')} aria-label="查看食物">
+                      <button
+                        type="button"
+                        onClick={() => props.onOpenDetail(food)}
+                        aria-label="查看食物详情"
+                        title="查看详情"
+                      >
                         <DashboardIcon name="list" />
                       </button>
                       <button
@@ -199,7 +205,7 @@ export function HomeMobileDashboard(props: {
               <button
                 key={item.id}
                 type="button"
-                className={item.done ? 'mobile-dashboard-todo-item done' : `mobile-dashboard-todo-item todo-${item.type}`}
+                className={item.done ? 'mobile-dashboard-todo-item done' : `mobile-dashboard-todo-item todo-${item.type} status-${item.status === '紧急' ? 'emergency' : 'normal'}`}
                 onClick={() => props.onDashboardTodoClick(item)}
                 aria-label={`${item.title}，${item.status}，点击处理`}
               >

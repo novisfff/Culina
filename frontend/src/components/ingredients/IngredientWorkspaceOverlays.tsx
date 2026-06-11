@@ -238,7 +238,7 @@ export function IngredientWorkspaceOverlays(props: OverlayLayerProps) {
   }
 
   return (
-    <div className="workspace-overlay-root">
+    <div className="workspace-overlay-root ingredient-workspace-overlay-root">
       <div className="workspace-overlay-backdrop" onClick={props.closeOverlay} />
 
       {props.overlayMode === 'inventory' && (

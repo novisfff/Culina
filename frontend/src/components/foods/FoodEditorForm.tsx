@@ -40,6 +40,7 @@ type Props = {
   sceneTags: string[];
   view: 'create' | 'edit';
   imageState: ImageGenerationUiState;
+  embedded?: boolean;
   onAddSceneTag: (tag: string) => void;
   onBack: () => void;
   onCreateAndAddSceneTag: () => void;
@@ -71,9 +72,9 @@ function isReadyLikeType(foodType: FoodType) {
 }
 
 export function FoodEditorForm(props: Props) {
-  return (
-    <main className="food-workspace">
-      <WorkspaceSubpageShell className="food-editor-shell">
+  const editorContent = (
+    <WorkspaceSubpageShell className="food-editor-shell">
+      {!props.embedded && (
         <WorkspaceSubpageHeader
           eyebrow="食物"
           title={props.view === 'create' ? '新增食物' : '编辑食物'}
@@ -83,6 +84,7 @@ export function FoodEditorForm(props: Props) {
           meta={<Badge>{FOOD_TYPE_LABELS[props.form.type]}</Badge>}
           variant="compact"
         />
+      )}
         <form className="food-editor-layout" onSubmit={props.onSubmit}>
           <section className="food-editor-main">
             <div className="food-form-panel food-editor-identity-panel">
@@ -367,8 +369,11 @@ export function FoodEditorForm(props: Props) {
               </div>
             </div>
           </aside>
-        </form>
-      </WorkspaceSubpageShell>
-    </main>
+      </form>
+    </WorkspaceSubpageShell>
   );
+
+  return props.embedded
+    ? <div className="food-editor-embedded">{editorContent}</div>
+    : <main className="food-workspace">{editorContent}</main>;
 }

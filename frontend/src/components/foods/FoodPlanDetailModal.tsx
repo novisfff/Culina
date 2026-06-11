@@ -27,6 +27,7 @@ type Props = {
   onSupplementRecord?: () => void;
   onDelete: () => void;
   resolveAssetUrl: (url: string) => string;
+  overlayRootClassName?: string;
 };
 
 const MEAL_OPTIONS: Array<{ value: MealType; label: string }> = [
@@ -108,7 +109,7 @@ export function FoodPlanDetailModal(props: Props) {
   const cover = props.food ? getFoodCover(props.food, props.recipes) : undefined;
 
   return (
-    <div className="workspace-overlay-root">
+    <div className={props.overlayRootClassName ? `workspace-overlay-root ${props.overlayRootClassName}` : 'workspace-overlay-root'}>
       <div className="workspace-overlay-backdrop" onClick={props.onClose} />
       <WorkspaceModal
         title={props.item.food_name}

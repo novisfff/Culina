@@ -63,14 +63,16 @@ type Props = {
   onQuickAdd: (food: Food, mealType: MealType) => void;
   onEdit: (food: Food) => void;
   resolveAssetUrl: (url: string) => string;
+  overlayRootClassName?: string;
 };
 
 export function FoodDetailDrawer(props: Props) {
   const linkedRecipeCard = props.relation.linkedRecipeCard;
   const coverUrl = resolveMediaUrl(props.coverAsset, 'large') ?? (props.cover ? props.resolveAssetUrl(props.cover) : undefined);
+  const showRelationPanel = !props.isOutsideFood && !props.isReadyLikeFood && !props.recipe;
 
   return (
-    <div className="workspace-overlay-root">
+    <div className={props.overlayRootClassName ? `workspace-overlay-root ${props.overlayRootClassName}` : 'workspace-overlay-root'}>
       <div className="workspace-overlay-backdrop" onClick={props.onClose} />
       <WorkspaceDrawer
         eyebrow={FOOD_TYPE_LABELS[props.normalizedType]}
@@ -124,21 +126,26 @@ export function FoodDetailDrawer(props: Props) {
           </div>
         </section>
 
-        <section className="food-detail-section">
-          <div className="food-detail-section-head">
-            <h4>关系面板</h4>
-            <span>{props.relation.summary}</span>
-          </div>
-          <div className="food-detail-facts">
-            {props.relation.relationFacts.map((row) => (
-              <div key={row.label}>
-                <span>{row.label}</span>
-                <strong>{row.value}</strong>
-              </div>
-            ))}
-          </div>
-          <p className="food-detail-empty">{props.relation.detail}</p>
-        </section>
+        {showRelationPanel && (
+          <section className="food-detail-section">
+            <div className="food-detail-section-head">
+              <h4>关系面板</h4>
+              <span>{props.relation.summary}</span>
+            </div>
+            <div className="food-detail-facts">
+              {props.relation.relationFacts.map((row) => (
+                <div key={row.label}>
+                  <span>{row.label}</span>
+                  <strong>{row.value}</strong>
+                </div>
+              ))}
+            </div>
+            <p className={`food-detail-empty ${props.relation.shortagePreview.length > 0 ? 'has-shortage' : ''}`}>
+              {props.relation.shortagePreview.length > 0 && <span className="shortage-warning-icon">⚠</span>}
+              {props.relation.detail}
+            </p>
+          </section>
+        )}
 
         {props.recipe && (
           <section className="food-detail-section food-detail-recipe">
@@ -146,6 +153,18 @@ export function FoodDetailDrawer(props: Props) {
               <h4>关联菜谱</h4>
               <span>{linkedRecipeCard ? linkedRecipeCard.availabilityLabel : `${props.recipe.ingredient_items.length} 个原料 · ${props.recipe.steps.length} 个步骤`}</span>
             </div>
+
+            <div className="food-detail-context food-detail-recipe-history">
+              <div>
+                <span>餐食记录</span>
+                <strong>{props.usage.count > 0 ? `${props.usage.count} 次` : '还未记录'}</strong>
+              </div>
+              <div>
+                <span>最近一次</span>
+                <strong>{props.relation.lastMealLog ? formatDate(props.relation.lastMealLog.date) : '还没有'}</strong>
+              </div>
+            </div>
+
             <strong>{props.recipe.title}</strong>
             <p>{linkedRecipeCard?.availabilityDetail || props.recipe.tips || '这份家常菜已经和菜谱关联，可以去菜谱页查看做法和复做记录。'}</p>
             {linkedRecipeCard && (
@@ -196,6 +215,8 @@ export function FoodDetailDrawer(props: Props) {
               <div><span>剩余库存</span><strong>{props.food.stock_quantity == null ? '未记录' : `${props.food.stock_quantity}${props.food.stock_unit}`}</strong></div>
               <div><span>购买渠道</span><strong>{props.food.purchase_source || props.food.source_name || '未记录'}</strong></div>
               <div><span>到期日期</span><strong>{props.food.expiry_date ? formatDate(props.food.expiry_date) : '未记录'}</strong></div>
+              <div><span>餐食记录</span><strong>{props.usage.count > 0 ? `${props.usage.count} 次` : '还未记录'}</strong></div>
+              <div><span>最近一次</span><strong>{props.relation.lastMealLog ? formatDate(props.relation.lastMealLog.date) : '还没有'}</strong></div>
             </div>
             {props.food.stock_quantity == null && <p className="food-detail-empty">这份成品速食还没有库存数量，补齐后会更容易判断是否适合作为今天的备用餐。</p>}
           </section>
@@ -228,7 +249,9 @@ export function FoodDetailDrawer(props: Props) {
                     <strong>{formatDate(log.date)} · {MEAL_TYPE_LABELS[log.meal_type]}</strong>
                     <span>{entry?.servings ?? 1} 份{entry?.note ? ` · ${entry.note}` : ''}</span>
                   </div>
-                  <small>{log.mood || log.notes || '已记录'}</small>
+                  <small className={!(log.mood || log.notes) ? 'history-badge-recorded' : 'history-badge-review'}>
+                    {log.mood || log.notes || '已记录'}
+                  </small>
                 </article>
               ))}
             </div>

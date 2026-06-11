@@ -118,43 +118,6 @@ export function IngredientCatalogPanel(props: CatalogPanelProps) {
   return (
     <div className="ingredients-panel-stack ingredients-catalog-workbench">
       <section className="ingredients-catalog-toolbar">
-        <div className="ingredients-catalog-toolbar-head">
-          <div className="ingredients-catalog-title-group">
-            <div className="ingredients-catalog-title-line">
-              <h3>食材档案</h3>
-            </div>
-            <div className="ingredients-catalog-mini-metrics" aria-label="档案快捷摘要">
-              <button type="button">
-                <span className="ingredients-catalog-mini-metric-icon">
-                  <props.IngredientWorkspaceIcon name="total" />
-                </span>
-                {props.catalogCountLabel}
-              </button>
-              <button type="button" onClick={props.onOpenInventoryPanelAlerted}>
-                <span className="ingredients-catalog-mini-metric-icon">
-                  <props.IngredientWorkspaceIcon name="alert" />
-                </span>
-                {props.allAlertsCount} 个提醒
-              </button>
-              <button type="button" onClick={props.onOpenShoppingPanel}>
-                <span className="ingredients-catalog-mini-metric-icon">
-                  <props.IngredientWorkspaceIcon name="shopping" />
-                </span>
-                {props.pendingShoppingCount} 项待买
-              </button>
-              <button type="button" onClick={props.onOpenInventoryPanelAll}>
-                <span className="ingredients-catalog-mini-metric-icon">
-                  <props.IngredientWorkspaceIcon name="stocked" />
-                </span>
-                {props.stockedIngredientCount} 个在库
-              </button>
-            </div>
-          </div>
-          <ActionButton tone="primary" type="button" className="ingredients-catalog-create-button" onClick={props.onOpenCreateView}>
-            <span aria-hidden="true">+</span>
-            新增食材
-          </ActionButton>
-        </div>
         <div className="ingredients-catalog-search-row">
           <label className="ingredients-search-field ingredients-catalog-search-field">
             <span className="ingredients-toolbar-label ingredients-catalog-label-with-icon">
@@ -173,6 +136,9 @@ export function IngredientCatalogPanel(props: CatalogPanelProps) {
               />
             </span>
           </label>
+          <span className="ingredients-catalog-search-count">
+            {props.catalogCountLabel}
+          </span>
         </div>
         <div className="ingredients-catalog-filter-bar">
           <div className="ingredients-catalog-filter-section ingredients-catalog-filter-section-category">
@@ -347,9 +313,6 @@ export function IngredientInventoryPanel(props: InventoryPanelProps) {
             当前显示 {props.focusedInventorySummaries.length} 种食材
             {props.inventoryStorageFocus !== 'all' ? ` · ${props.inventoryStorageFocus}` : ''}
           </p>
-          <ActionButton tone="primary" type="button" onClick={() => props.onOpenInventoryOverlay()}>
-            快速入库
-          </ActionButton>
         </div>
       </div>
 
@@ -504,64 +467,6 @@ type ShoppingPanelProps = {
 export function IngredientShoppingPanel(props: ShoppingPanelProps) {
   return (
     <div className="ingredients-panel-stack ingredients-shopping-stack">
-      <section className="ingredients-shopping-toolbar-shell">
-        <div className="ingredients-shopping-toolbar-head">
-          <div className="ingredients-shopping-toolbar-copy">
-            <div className="ingredients-shopping-title-line">
-              <span className="ingredients-shopping-title-icon" aria-hidden="true">
-                <props.IngredientWorkspaceIcon name="shopping" />
-              </span>
-              <div>
-                <h3>采购工作台</h3>
-                <p className="subtle">先处理待买项，买完后可直接入库。</p>
-              </div>
-            </div>
-          </div>
-          <div className="ingredients-shopping-toolbar-actions">
-            <ActionButton tone="primary" type="button" onClick={props.onOpenShoppingOverlay}>
-              <span className="ingredients-shopping-action-icon" aria-hidden="true">
-                <props.IngredientWorkspaceIcon name="plus" />
-              </span>
-              新增采购项
-            </ActionButton>
-          </div>
-        </div>
-        <div className="ingredients-shopping-toolbar-metrics" aria-label="采购摘要">
-          {props.shoppingOverview.map((item) => (
-            <div
-              key={item.key}
-              className={
-                item.key === props.shoppingFocus
-                  ? `ingredients-shopping-toolbar-metric active tone-${item.key}`
-                  : `ingredients-shopping-toolbar-metric tone-${item.key}`
-              }
-            >
-              <span className="ingredients-shopping-toolbar-metric-icon" aria-hidden="true">
-                <props.IngredientWorkspaceIcon
-                  name={
-                    item.key === 'all'
-                      ? 'metricList'
-                      : item.key === 'attention'
-                        ? 'star'
-                        : item.key === 'linked'
-                          ? 'link'
-                          : 'metricCircle'
-                  }
-                />
-              </span>
-              <strong>
-                {item.key === 'all'
-                  ? `共 ${item.count} 项`
-                  : item.key === 'attention'
-                    ? `${item.count} 项优先`
-                    : item.key === 'linked'
-                      ? `${item.count} 项关联档案`
-                      : `${item.count} 项自由项`}
-              </strong>
-            </div>
-          ))}
-        </div>
-      </section>
 
       <section className="ingredients-shopping-filter-shell" aria-label="采购筛选">
         <div className="ingredients-shopping-toolbar-tools">

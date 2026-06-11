@@ -124,7 +124,6 @@ export function MealLogWorkspace(props: Props) {
       <main className="meal-log-desktop-view meal-log-center-page">
         <PageHeader
           variant="compact"
-          eyebrow="记录"
           title="餐食记录中心"
           description="记录先进入待补充状态，保存评价、家人、评论或照片后会变为已补充。"
         />
@@ -205,7 +204,9 @@ export function MealLogWorkspace(props: Props) {
                             </span>
                             <strong>{buildMealTitle(meal)}</strong>
                             <time>{formatMealTime(meal)}</time>
-                            <Badge>{source.status === 'planned' ? '来自菜单计划' : '手动补录'}</Badge>
+                            <Badge className={source.status === 'planned' ? 'badge-planned' : 'badge-manual'}>
+                              {source.status === 'planned' ? '来自菜单计划' : '手动补录'}
+                            </Badge>
                             <span className={`meal-record-status status-${getMealLogStatus(meal)}`}>{getMealLogStatusLabel(meal)}</span>
                             <span className="meal-log-row-rating">{getMealRatingSummary(meal) ? `★ ${getMealRatingSummary(meal)}` : '☆ -'}</span>
                             <span className="meal-log-row-meta">
@@ -227,7 +228,7 @@ export function MealLogWorkspace(props: Props) {
       </main>
 
       {modalMode && (
-        <div className="workspace-overlay-root">
+        <div className="workspace-overlay-root meal-log-overlay-root">
           <div className="workspace-overlay-backdrop" onClick={() => setModalMode(null)} />
           <WorkspaceModal
             title={modalMode === 'preview' ? '记录预览' : '补充记录'}
@@ -238,7 +239,6 @@ export function MealLogWorkspace(props: Props) {
             }
             eyebrow={modalMode === 'enrich' ? undefined : '记录'}
             className="meal-log-modal meal-log-enrich-modal meal-log-preview-modal"
-            closeLabel="×"
             onClose={() => setModalMode(null)}
           >
             {modalMode === 'preview' && viewModel.selectedMeal && viewModel.selectedSource ? (

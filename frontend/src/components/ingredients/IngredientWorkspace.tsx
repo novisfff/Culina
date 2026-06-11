@@ -42,6 +42,7 @@ import {
   Avatar,
   Badge,
   SectionHeading,
+  WorkspaceModal,
 } from '../ui-kit';
 import {
   convertQuantityFromDefaultUnit,
@@ -105,8 +106,8 @@ import {
   IngredientInventoryPanel,
   IngredientShoppingPanel,
 } from './IngredientWorkspacePanels';
-import { IngredientCreatePage } from './IngredientCreatePage';
 import { IngredientDetailPage } from './IngredientDetailPage';
+import { IngredientEditorView } from './IngredientEditorView';
 import { IngredientHubPage } from './IngredientHubPage';
 import { useIngredientWorkspaceEffects } from './useIngredientWorkspaceEffects';
 import { useIngredientWorkspaceData } from './useIngredientWorkspaceData';
@@ -1575,7 +1576,6 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
     toggleCatalogCard,
     openDetailView,
     goBackToWorkspace,
-    goBackToCatalog,
   } = useIngredientWorkspaceState({
     persistedWorkspaceState,
     ingredientIds: props.ingredients.map((item) => item.id),
@@ -1738,9 +1738,21 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
 
   const desktopActions = (
     <div className="ingredients-actions">
-      <ActionButton tone="primary" type="button" onClick={editorState.openCreateView}>
-        新增食材
-      </ActionButton>
+      {activePanel === 'catalog' && (
+        <ActionButton tone="primary" type="button" onClick={editorState.openCreateView}>
+          新增食材
+        </ActionButton>
+      )}
+      {activePanel === 'inventory' && (
+        <ActionButton tone="primary" type="button" onClick={() => openInventoryOverlay()}>
+          快速入库
+        </ActionButton>
+      )}
+      {activePanel === 'shopping' && (
+        <ActionButton tone="primary" type="button" onClick={() => openShoppingOverlay()}>
+          新增采购
+        </ActionButton>
+      )}
     </div>
   );
   const activePanelBackLabel =
@@ -1816,54 +1828,6 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
     isCreatingShopping: props.isCreatingShopping,
   } as const;
 
-  if (workspaceView === 'create') {
-    return (
-      <IngredientCreatePage
-        noticeToast={noticeToast}
-        overlays={overlayLayerProps}
-        activePanelBackLabel={activePanelBackLabel}
-        ingredientForm={ingredientForm}
-        setIngredientForm={setIngredientForm}
-        ingredientVisibleCategoryPresets={ingredientVisibleCategoryPresets}
-        ingredientCategoryIsVisiblePreset={ingredientCategoryIsVisiblePreset}
-        showIngredientCategoryCustomInput={showIngredientCategoryCustomInput}
-        setIngredientCustomCategoryOpen={setIngredientCustomCategoryOpen}
-        applyIngredientCategoryPreset={applyIngredientCategoryPreset}
-        ingredientUnitAdvancedOpen={ingredientUnitAdvancedOpen}
-        setIngredientUnitAdvancedOpen={setIngredientUnitAdvancedOpen}
-        ingredientUnitOptions={ingredientUnitOptions}
-        ingredientUsesCustomUnit={ingredientUsesCustomUnit}
-        ingredientUsesCustomStorage={ingredientUsesCustomStorage}
-        trimmedIngredientUnit={trimmedIngredientUnit}
-        ingredientDefaultExpiryRangeValue={ingredientDefaultExpiryRangeValue}
-        ingredientLowStockEnabled={ingredientLowStockEnabled}
-        ingredientLowStockValue={ingredientLowStockValue}
-        ingredientLowStockStep={ingredientLowStockStep}
-        ingredientLowStockQuickValues={ingredientLowStockQuickValues}
-        ingredientPreviewImage={ingredientPreviewImage}
-        createSummaryItems={createSummaryItems}
-        createChecklistItems={createChecklistItems}
-        createCanSubmit={createCanSubmit}
-        ingredientImageState={ingredientImageComposer.state}
-        onOpenInventoryOverlay={() => openInventoryOverlay()}
-        onOpenShoppingOverlay={() => openShoppingOverlay()}
-        onUploadImage={(files) => void ingredientImageComposer.upload(files)}
-        onGenerateImage={(mode) => void ingredientImageComposer.generate(mode)}
-        onResetImage={ingredientImageComposer.reset}
-        onSubmit={handleCreateSubmit}
-        onSaveWithoutRestock={() => void submitIngredient(false)}
-        onOpenCreateView={openCreateView}
-        onBack={isEditingIngredient ? goBackFromIngredientForm : goBackToCatalog}
-        isEditingIngredient={isEditingIngredient}
-        isCreatingIngredient={props.isCreatingIngredient}
-        isUpdatingIngredient={props.isUpdatingIngredient}
-        renderIcon={(name) => <IngredientWorkspaceIcon name={name as IngredientWorkspaceIconName} />}
-        renderStorageIcon={(storage) => <InventoryStorageIcon storage={storage} />}
-        ScrollableChipRail={ScrollableChipRail}
-      />
-    );
-  }
-
   if (workspaceView === 'detail' && selectedIngredient) {
     const detailQuantityLabel = selectedIngredient.quantitySummaries[0]?.label ?? '暂无库存';
     const detailMetricItems = [
@@ -1917,92 +1881,148 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
   }
 
   return (
-    <IngredientHubPage
-      noticeToast={noticeToast}
-      overlays={overlayLayerProps}
-      workspaceMetrics={workspaceMetrics}
-      desktopActions={desktopActions}
-      panelItems={PANEL_ITEMS.map((item) => ({
-        ...item,
-        icon: <IngredientWorkspaceIcon name={item.icon} />,
-      }))}
-      activePanel={activePanel}
-      openWorkspacePanel={openWorkspacePanel}
-      allAlertsCount={allAlerts.length}
-      stockedIngredientCount={stockedIngredientCount}
-      pendingShoppingCount={pendingShopping.length}
-      summariesCount={summaries.length}
-      catalogSearch={catalogSearch}
-      setCatalogSearch={setCatalogSearch}
-      mobileIngredientFilter={mobileIngredientFilter}
-      setMobileIngredientFilter={setMobileIngredientFilter}
-      mobileStorageFocus={mobileStorageFocus}
-      setMobileStorageFocus={setMobileStorageFocus}
-      mobilePrioritySummaries={mobilePrioritySummaries}
-      mobileStorageCards={mobileStorageCards}
-      mobileCatalogSummaries={mobileCatalogSummaries}
-      mobileShoppingCards={mobileShoppingCards}
-      mobileHasCatalogFilters={mobileHasCatalogFilters}
-      openDetailView={openDetailView}
-      openInventoryOverlay={openInventoryOverlay}
-      openConsumeOverlay={openConsumeOverlay}
-      openShoppingOverlay={openShoppingOverlay}
-      openDestroyExpiredOverlay={openDestroyExpiredOverlay}
-      openCreateView={openCreateView}
-      openInventoryFromShopping={openInventoryFromShopping}
-      buildPriorityStatus={buildInventoryCardStatus}
-      buildCatalogStatus={buildCatalogCardStatus}
-      buildInventorySummaryLine={buildInventorySummaryLine}
-      buildShoppingReason={resolveShoppingReason}
-      countDisposableExpiredItems={(summary) => buildDisposableExpiredInventoryItems(summary).length}
-      renderStorageIllustration={InventoryStorageIllustration}
-      renderIcon={(name) => <IngredientWorkspaceIcon name={name as IngredientWorkspaceIconName} />}
-      isUpdatingShopping={props.isUpdatingShopping}
-      isCreatingInventory={props.isCreatingInventory}
-      catalogCountLabel={catalogCountLabel}
-      catalogCategoryFilter={catalogCategoryFilter}
-      catalogStatusFilter={catalogStatusFilter}
-      catalogCategories={catalogCategories}
-      catalogStatusItems={CATALOG_STATUS_FILTERS}
-      catalogStatusCounts={catalogStatusCounts}
-      filteredSummaries={filteredSummaries}
-      expandedCatalogIngredientId={expandedCatalogIngredientId}
-      catalogGridStyle={catalogGridStyle}
-      setCatalogCategoryFilter={setCatalogCategoryFilter}
-      setCatalogStatusFilter={setCatalogStatusFilter}
-      openInventoryPanel={openInventoryPanel}
-      toggleCatalogCard={toggleCatalogCard}
-      catalogMeasureRef={catalogMeasureRef}
-      ScrollableChipRail={ScrollableChipRail}
-      IngredientCatalogCard={IngredientCatalogCard}
-      inventorySearch={inventorySearch}
-      setInventorySearch={setInventorySearch}
-      inventoryQuickFilter={inventoryQuickFilter}
-      setInventoryQuickFilter={setInventoryQuickFilter}
-      inventoryStorageFocus={inventoryStorageFocus}
-      setInventoryStorageFocus={setInventoryStorageFocus}
-      inventorySortMode={inventorySortMode}
-      setInventorySortMode={setInventorySortMode}
-      focusedInventorySummaries={focusedInventorySummaries}
-      inventoryStorageOverview={inventoryStorageOverview}
-      inventoryGroups={inventoryGroups}
-      InventoryStorageOverviewCard={InventoryStorageOverviewCard}
-      InventoryIngredientCard={InventoryIngredientCard}
-      shoppingOverview={shoppingOverview}
-      shoppingFocus={shoppingFocus}
-      setShoppingFocus={setShoppingFocus}
-      shoppingSearch={shoppingSearch}
-      setShoppingSearch={setShoppingSearch}
-      pendingShoppingCards={pendingShoppingCards}
-      visiblePendingShoppingCards={visiblePendingShoppingCards}
-      completedShoppingCards={completedShoppingCards}
-      visibleCompletedShoppingCards={visibleCompletedShoppingCards}
-      activeShoppingOverview={activeShoppingOverview}
-      showCompletedShopping={showCompletedShopping}
-      setShowCompletedShopping={setShowCompletedShopping}
-      onUpdateShoppingItem={props.updateShoppingItem}
-      ShoppingWorkRow={ShoppingWorkRow}
-      ShoppingHistoryRow={ShoppingHistoryRow}
-    />
+    <>
+      <IngredientHubPage
+        noticeToast={noticeToast}
+        overlays={overlayLayerProps}
+        workspaceMetrics={workspaceMetrics}
+        desktopActions={desktopActions}
+        panelItems={PANEL_ITEMS.map((item) => ({
+          ...item,
+          icon: <IngredientWorkspaceIcon name={item.icon} />,
+        }))}
+        activePanel={activePanel}
+        openWorkspacePanel={openWorkspacePanel}
+        allAlertsCount={allAlerts.length}
+        stockedIngredientCount={stockedIngredientCount}
+        pendingShoppingCount={pendingShopping.length}
+        summariesCount={summaries.length}
+        catalogSearch={catalogSearch}
+        setCatalogSearch={setCatalogSearch}
+        mobileIngredientFilter={mobileIngredientFilter}
+        setMobileIngredientFilter={setMobileIngredientFilter}
+        mobileStorageFocus={mobileStorageFocus}
+        setMobileStorageFocus={setMobileStorageFocus}
+        mobilePrioritySummaries={mobilePrioritySummaries}
+        mobileStorageCards={mobileStorageCards}
+        mobileCatalogSummaries={mobileCatalogSummaries}
+        mobileShoppingCards={mobileShoppingCards}
+        mobileHasCatalogFilters={mobileHasCatalogFilters}
+        openDetailView={openDetailView}
+        openInventoryOverlay={openInventoryOverlay}
+        openConsumeOverlay={openConsumeOverlay}
+        openShoppingOverlay={openShoppingOverlay}
+        openDestroyExpiredOverlay={openDestroyExpiredOverlay}
+        openCreateView={openCreateView}
+        openInventoryFromShopping={openInventoryFromShopping}
+        buildPriorityStatus={buildInventoryCardStatus}
+        buildCatalogStatus={buildCatalogCardStatus}
+        buildInventorySummaryLine={buildInventorySummaryLine}
+        buildShoppingReason={resolveShoppingReason}
+        countDisposableExpiredItems={(summary) => buildDisposableExpiredInventoryItems(summary).length}
+        renderStorageIllustration={InventoryStorageIllustration}
+        renderIcon={(name) => <IngredientWorkspaceIcon name={name as IngredientWorkspaceIconName} />}
+        isUpdatingShopping={props.isUpdatingShopping}
+        isCreatingInventory={props.isCreatingInventory}
+        catalogCountLabel={catalogCountLabel}
+        catalogCategoryFilter={catalogCategoryFilter}
+        catalogStatusFilter={catalogStatusFilter}
+        catalogCategories={catalogCategories}
+        catalogStatusItems={CATALOG_STATUS_FILTERS}
+        catalogStatusCounts={catalogStatusCounts}
+        filteredSummaries={filteredSummaries}
+        expandedCatalogIngredientId={expandedCatalogIngredientId}
+        catalogGridStyle={catalogGridStyle}
+        setCatalogCategoryFilter={setCatalogCategoryFilter}
+        setCatalogStatusFilter={setCatalogStatusFilter}
+        openInventoryPanel={openInventoryPanel}
+        toggleCatalogCard={toggleCatalogCard}
+        catalogMeasureRef={catalogMeasureRef}
+        ScrollableChipRail={ScrollableChipRail}
+        IngredientCatalogCard={IngredientCatalogCard}
+        inventorySearch={inventorySearch}
+        setInventorySearch={setInventorySearch}
+        inventoryQuickFilter={inventoryQuickFilter}
+        setInventoryQuickFilter={setInventoryQuickFilter}
+        inventoryStorageFocus={inventoryStorageFocus}
+        setInventoryStorageFocus={setInventoryStorageFocus}
+        inventorySortMode={inventorySortMode}
+        setInventorySortMode={setInventorySortMode}
+        focusedInventorySummaries={focusedInventorySummaries}
+        inventoryStorageOverview={inventoryStorageOverview}
+        inventoryGroups={inventoryGroups}
+        InventoryStorageOverviewCard={InventoryStorageOverviewCard}
+        InventoryIngredientCard={InventoryIngredientCard}
+        shoppingOverview={shoppingOverview}
+        shoppingFocus={shoppingFocus}
+        setShoppingFocus={setShoppingFocus}
+        shoppingSearch={shoppingSearch}
+        setShoppingSearch={setShoppingSearch}
+        pendingShoppingCards={pendingShoppingCards}
+        visiblePendingShoppingCards={visiblePendingShoppingCards}
+        completedShoppingCards={completedShoppingCards}
+        visibleCompletedShoppingCards={visibleCompletedShoppingCards}
+        activeShoppingOverview={activeShoppingOverview}
+        showCompletedShopping={showCompletedShopping}
+        setShowCompletedShopping={setShowCompletedShopping}
+        onUpdateShoppingItem={props.updateShoppingItem}
+        ShoppingWorkRow={ShoppingWorkRow}
+        ShoppingHistoryRow={ShoppingHistoryRow}
+      />
+
+      {workspaceView === 'create' && (
+        <div className="workspace-overlay-root ingredient-workspace-overlay-root">
+          <div className="workspace-overlay-backdrop" onClick={goBackFromIngredientForm} />
+          <WorkspaceModal
+            title={isEditingIngredient ? '编辑食材' : '新增食材'}
+            description={isEditingIngredient ? '调整名称、分类、图片和备注后，可以直接保存这张资料卡。' : '填写基础信息、图片和备注后，就能继续登记第一批库存。'}
+            eyebrow="食材资料"
+            className="ingredient-editor-modal"
+            closeLabel="关闭"
+            onClose={goBackFromIngredientForm}
+          >
+            <IngredientEditorView
+              embedded
+              activePanelBackLabel={activePanelBackLabel}
+              isEditingIngredient={isEditingIngredient}
+              ingredientForm={ingredientForm}
+              setIngredientForm={setIngredientForm}
+              ingredientVisibleCategoryPresets={ingredientVisibleCategoryPresets}
+              ingredientCategoryIsVisiblePreset={ingredientCategoryIsVisiblePreset}
+              showIngredientCategoryCustomInput={showIngredientCategoryCustomInput}
+              setIngredientCustomCategoryOpen={setIngredientCustomCategoryOpen}
+              applyIngredientCategoryPreset={applyIngredientCategoryPreset}
+              ingredientUnitAdvancedOpen={ingredientUnitAdvancedOpen}
+              setIngredientUnitAdvancedOpen={setIngredientUnitAdvancedOpen}
+              ingredientUnitOptions={ingredientUnitOptions}
+              ingredientUsesCustomUnit={ingredientUsesCustomUnit}
+              ingredientUsesCustomStorage={ingredientUsesCustomStorage}
+              trimmedIngredientUnit={trimmedIngredientUnit}
+              ingredientDefaultExpiryRangeValue={ingredientDefaultExpiryRangeValue}
+              ingredientLowStockEnabled={ingredientLowStockEnabled}
+              ingredientLowStockValue={ingredientLowStockValue}
+              ingredientLowStockStep={ingredientLowStockStep}
+              ingredientLowStockQuickValues={ingredientLowStockQuickValues}
+              ingredientPreviewImage={ingredientPreviewImage}
+              createSummaryItems={createSummaryItems}
+              createChecklistItems={createChecklistItems}
+              createCanSubmit={createCanSubmit}
+              ingredientImageState={ingredientImageComposer.state}
+              onUploadImage={(files) => void ingredientImageComposer.upload(files)}
+              onGenerateImage={(mode) => void ingredientImageComposer.generate(mode)}
+              onResetImage={ingredientImageComposer.reset}
+              onSubmit={handleCreateSubmit}
+              onSaveWithoutRestock={() => void submitIngredient(false)}
+              onBack={goBackFromIngredientForm}
+              isCreatingIngredient={props.isCreatingIngredient}
+              isUpdatingIngredient={props.isUpdatingIngredient}
+              renderIcon={(name) => <IngredientWorkspaceIcon name={name as IngredientWorkspaceIconName} />}
+              renderStorageIcon={(storage) => <InventoryStorageIcon storage={storage} />}
+              ScrollableChipRail={ScrollableChipRail}
+            />
+          </WorkspaceModal>
+        </div>
+      )}
+    </>
   );
 }
