@@ -3925,11 +3925,9 @@
 }
 
 .recipe-create-button {
-  min-height: 44px;
+  min-height: 42px;
   padding: 0 20px;
-  border-radius: 13px;
-  background: var(--brand-button-bg);
-  box-shadow: var(--brand-button-shadow);
+  border-radius: 14px;
 }
 
 .recipe-discovery-shell .recipe-inspiration-grid {

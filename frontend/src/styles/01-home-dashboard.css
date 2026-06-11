@@ -82,16 +82,18 @@
 
 .dashboard-hero h1 {
   margin: 0;
-  font-size: 2.12rem;
-  line-height: 1.08;
-  color: #2d1f18;
-  font-weight: 800;
+  color: #231812;
+  font-size: clamp(2.15rem, 2.75vw, 2.75rem);
+  font-weight: 950;
+  line-height: 0.95;
 }
 
 .dashboard-hero p {
   margin: 6px 0 0;
   color: #776a61;
+  font-size: 0.98rem;
   font-weight: 600;
+  line-height: 1.45;
 }
 
 .dashboard-hero-actions {

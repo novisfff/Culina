@@ -791,34 +791,75 @@ textarea:focus-visible {
 .page-header {
   display: grid;
   grid-template-columns: minmax(0, 1.2fr) minmax(320px, 0.9fr);
-  gap: 18px;
-  align-items: end;
-  padding: 18px;
-  border-radius: 22px;
-  background: var(--surface-2);
+  gap: 20px;
+  align-items: center;
+  padding: 20px 24px 18px;
+  border: 1px solid rgba(100, 76, 58, 0.1);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.82);
+  box-shadow: 0 12px 34px rgba(76, 56, 42, 0.055);
 }
 
 .page-header-copy {
   display: grid;
-  gap: 8px;
+  gap: 6px;
 }
 
 .page-header h2 {
   margin: 0;
-  max-width: 22ch;
-  font-size: clamp(1.28rem, 2vw, 1.72rem);
-  line-height: 1.2;
-  font-weight: 700;
+  max-width: none;
+  color: #231812;
+  font-size: clamp(2.15rem, 2.75vw, 2.75rem);
+  font-weight: 950;
+  line-height: 0.95;
+}
+
+.page-header .subtle {
+  margin: 6px 0 0;
+  color: #776a61;
+  font-size: 0.98rem;
+  font-weight: 600;
+  line-height: 1.45;
 }
 
 .page-header-side {
   display: grid;
   gap: 14px;
-  align-content: end;
+  align-content: center;
+  justify-items: end;
 }
 
 .page-header .hero-actions {
-  justify-content: flex-start;
+  justify-content: flex-end;
+}
+
+.page-header .hero-actions .solid-button,
+.page-header .hero-actions .ghost-button,
+.page-header .ingredients-actions .solid-button,
+.page-header .ingredients-actions .ghost-button,
+.page-header-side > .solid-button,
+.page-header-side > .ghost-button {
+  min-height: 42px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  padding-inline: 17px;
+  border-radius: 12px;
+  font-weight: 800;
+}
+
+.page-header .hero-actions svg,
+.page-header .ingredients-actions svg,
+.page-header-side > .solid-button svg,
+.page-header-side > .ghost-button svg {
+  width: 18px;
+  height: 18px;
+  display: block;
+}
+
+.page-header:not(:has(.page-header-side)) {
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .page-header-compact {
@@ -826,7 +867,7 @@ textarea:focus-visible {
 }
 
 .page-header-compact h2 {
-  max-width: 20ch;
+  max-width: none;
 }
 
 .page-header-workspace {
