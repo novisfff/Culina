@@ -9,6 +9,16 @@ import { FOOD_TYPE_LABELS } from '../../lib/ui';
 import { EmptyState, WorkspaceModal } from '../ui-kit';
 import { AiMobilePage, AI_WELCOME_SUGGESTIONS } from './AiMobilePage';
 import { MessageBubble, type AiApprovalDecisionSubmit, type AiResourceOptionLoader } from './AiConversationThread';
+import {
+  TrashIcon,
+  mergePendingApprovalsIntoMessages,
+  normalizeStreamEventForFinalRun,
+  attachIncludedApprovalsToMessage,
+  createLocalAssistantMessage,
+  appendDeltaToMessageParts,
+  messageTextFromParts,
+  appendAssistantDelta
+} from './aiWorkspaceHelpers';
 
 type AiWorkspaceProps = {
   conversations: AiConversation[];
@@ -19,164 +29,6 @@ type AiWorkspaceProps = {
 
 export { ApprovalPanel } from './AiConversationThread';
 
-function TrashIcon() {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-      <path d="M3 6h18" />
-      <path d="M8 6V4h8v2" />
-      <path d="m19 6-1 14H6L5 6" />
-      <path d="M10 11v6" />
-      <path d="M14 11v6" />
-    </svg>
-  );
-}
-
-function mergePendingApprovalsIntoMessages(messages: AiMessage[], approvals: AiApprovalRequest[]): AiMessage[] {
-  const embeddedApprovalIds = new Set(
-    messages.flatMap((message) => message.parts.map((part) => part.approval?.id).filter((id): id is string => Boolean(id))),
-  );
-  const missingApprovals = approvals.filter((approval) => !embeddedApprovalIds.has(approval.id));
-  if (missingApprovals.length === 0) return messages;
-
-  const approvalsByMessageId = new Map<string, AiApprovalRequest[]>();
-  for (const approval of missingApprovals) {
-    if (!approval.message_id) continue;
-    const items = approvalsByMessageId.get(approval.message_id) ?? [];
-    items.push(approval);
-    approvalsByMessageId.set(approval.message_id, items);
-  }
-
-  const merged = messages.map((message) => {
-    const messageApprovals = approvalsByMessageId.get(message.id) ?? [];
-    if (messageApprovals.length === 0) return message;
-    approvalsByMessageId.delete(message.id);
-    return {
-      ...message,
-      content_type: 'parts',
-      parts: [
-        ...message.parts,
-        ...messageApprovals.map((approval) => ({
-          id: `restored-approval-part-${approval.id}`,
-          type: 'approval_request' as const,
-          approval,
-        })),
-      ],
-    };
-  });
-
-  const orphanedApprovalGroups = new Map<string, AiApprovalRequest[]>();
-  for (const approval of missingApprovals) {
-    if (approval.message_id && !approvalsByMessageId.has(approval.message_id)) continue;
-    const groupId = approval.message_id ?? `restored-approval-message-${approval.id}`;
-    orphanedApprovalGroups.set(groupId, [...(orphanedApprovalGroups.get(groupId) ?? []), approval]);
-  }
-  const syntheticMessages = Array.from(orphanedApprovalGroups, ([messageId, messageApprovals]): AiMessage => {
-    const firstApproval = messageApprovals[0];
-    return {
-      id: messageId,
-      conversation_id: firstApproval.conversation_id,
-      role: 'assistant',
-      content: firstApproval.instruction || '请确认以下操作。',
-      content_type: 'parts',
-      parts: messageApprovals.map((approval) => ({
-        id: `restored-approval-part-${approval.id}`,
-        type: 'approval_request',
-        approval,
-      })),
-      run_id: firstApproval.run_id,
-      status: 'completed',
-      metadata: { restoredApproval: true },
-      created_at: firstApproval.created_at,
-    };
-  });
-
-  return [...merged, ...syntheticMessages];
-}
-
-function normalizeStreamEventForFinalRun(event: AiRunEvent, response: AiChatResponse): AiRunEvent {
-  const status =
-    response.run.status === 'completed' && (event.status === 'pending' || event.status === 'running')
-      ? 'completed'
-      : event.status;
-  return { ...event, run_id: response.run.id, status };
-}
-
-function attachIncludedApprovalsToMessage(message: AiMessage, approvals: AiApprovalRequest[]): AiMessage {
-  const relatedApprovals = approvals.filter((approval) => {
-    if (approval.message_id) return approval.message_id === message.id;
-    if (approval.run_id && message.run_id) return approval.run_id === message.run_id;
-    return approval.conversation_id === message.conversation_id;
-  });
-  if (relatedApprovals.length === 0) return message;
-  const embeddedApprovalIds = new Set(message.parts.map((part) => part.approval?.id).filter((id): id is string => Boolean(id)));
-  const missingApprovals = relatedApprovals.filter((approval) => !embeddedApprovalIds.has(approval.id));
-  if (missingApprovals.length === 0) return message;
-  return {
-    ...message,
-    content_type: 'parts',
-    parts: [
-      ...message.parts,
-      ...missingApprovals.map((approval) => ({
-        id: `included-approval-part-${approval.id}`,
-        type: 'approval_request' as const,
-        approval,
-      })),
-    ],
-  };
-}
-
-function createLocalAssistantMessage(runId: string, conversationId: string | null): AiMessage {
-  return {
-    id: `local-assistant-${runId}`,
-    conversation_id: conversationId || 'pending',
-    role: 'assistant',
-    content: '',
-    content_type: 'parts',
-    parts: [],
-    run_id: runId,
-    status: 'running',
-    metadata: {},
-    created_at: new Date().toISOString(),
-  };
-}
-
-function appendAssistantDelta(currentText: string, delta: string, shouldSeparate: boolean) {
-  if (!shouldSeparate || !currentText.trim() || currentText.endsWith('\n\n') || delta.startsWith('\n')) {
-    return `${currentText}${delta}`;
-  }
-  return `${currentText}\n\n${delta}`;
-}
-
-function messageTextFromParts(parts: AiMessage['parts']) {
-  return parts
-    .filter((part) => part.type === 'text' && part.text?.trim())
-    .map((part) => part.text?.trim() ?? '')
-    .join('\n\n');
-}
-
-function appendDeltaToMessageParts(
-  parts: AiMessage['parts'],
-  delta: string,
-  partId: string,
-  shouldSeparate: boolean,
-  appendAfterNonText: boolean,
-) {
-  if (appendAfterNonText) {
-    const existingContinuation = parts.find((part) => part.type === 'text' && part.id === partId);
-    if (existingContinuation) {
-      return parts.map((part) =>
-        part.id === partId && part.type === 'text'
-          ? { ...part, text: appendAssistantDelta(part.text ?? '', delta, false) }
-          : part,
-      );
-    }
-    return [...parts, { id: partId, type: 'text' as const, text: delta }];
-  }
-  return parts.some((part) => part.type === 'text')
-    ? parts.map((part) => (part.type === 'text' ? { ...part, id: partId || part.id, text: appendAssistantDelta(part.text ?? '', delta, shouldSeparate) } : part))
-    : [{ id: partId, type: 'text' as const, text: delta }, ...parts];
-}
-
 export function AiWorkspace({ conversations, isLoading, currentUser = null, onBackHome }: AiWorkspaceProps) {
   const queryClient = useQueryClient();
   const [activeConversationId, setActiveConversationId] = useState<string | null>(conversations[0]?.id ?? null);
@@ -184,6 +36,80 @@ export function AiWorkspace({ conversations, isLoading, currentUser = null, onBa
   const [draft, setDraft] = useState('');
   const [localMessages, setLocalMessages] = useState<AiMessage[]>([]);
   const [runEventsById, setRunEventsById] = useState<Record<string, AiRunEvent[]>>({});
+
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(() => {
+    try {
+      return localStorage.getItem('ai_sidebar_collapsed') === 'true';
+    } catch {
+      return false;
+    }
+  });
+
+  const toggleSidebar = (collapsed: boolean) => {
+    setIsSidebarCollapsed(collapsed);
+    try {
+      localStorage.setItem('ai_sidebar_collapsed', String(collapsed));
+    } catch (e) {
+      console.warn(e);
+    }
+  };
+
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+
+  const groupedConversations = useMemo(() => {
+    const today: AiConversation[] = [];
+    const yesterday: AiConversation[] = [];
+    const previous7Days: AiConversation[] = [];
+    const older: AiConversation[] = [];
+
+    const now = new Date();
+    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+    const startOfYesterday = startOfToday - 24 * 60 * 60 * 1000;
+    const startOf7DaysAgo = startOfToday - 7 * 24 * 60 * 60 * 1000;
+
+    for (const c of conversations) {
+      const dateStr = c.last_message_at || c.created_at;
+      const time = new Date(dateStr).getTime();
+      if (Number.isNaN(time)) {
+        older.push(c);
+        continue;
+      }
+
+      if (time >= startOfToday) {
+        today.push(c);
+      } else if (time >= startOfYesterday) {
+        yesterday.push(c);
+      } else if (time >= startOf7DaysAgo) {
+        previous7Days.push(c);
+      } else {
+        older.push(c);
+      }
+    }
+
+    return [
+      { title: '今天', items: today },
+      { title: '昨天', items: yesterday },
+      { title: '前 7 天', items: previous7Days },
+      { title: '更早', items: older },
+    ].filter(group => group.items.length > 0);
+  }, [conversations]);
+
+  useEffect(() => {
+    if (textareaRef.current) {
+      textareaRef.current.style.height = 'auto';
+      textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 180)}px`;
+    }
+  }, [draft]);
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      const form = e.currentTarget.form;
+      if (form) {
+        form.dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }));
+      }
+    }
+  };
   const [streamProgress, setStreamProgress] = useState<AiRunEvent[]>([]);
   const streamProgressRef = useRef<AiRunEvent[]>([]);
   const streamDeltaBoundaryRef = useRef<Record<string, number>>({});
@@ -699,8 +625,15 @@ export function AiWorkspace({ conversations, isLoading, currentUser = null, onBa
 
   const latestAssistantMessageId = [...displayedMessages].reverse().find((message) => message.role === 'assistant')?.id ?? null;
 
+  const RICH_WELCOME_SUGGESTIONS = [
+    { title: '🍳 推荐晚餐', desc: '用现有食材搭配出一顿健康美味', prompt: '今晚用现有食材做什么？' },
+    { title: '🗓️ 制定餐计划', desc: '帮我规划接下来三天的家庭晚餐', prompt: '帮我安排三天晚餐' },
+    { title: '⚠️ 消耗临期食材', desc: '找出快过期的食材并提供消耗方案', prompt: '快过期食材怎么处理？' },
+    { title: '🛒 辅助采购清单', desc: '根据我的餐食计划生成快速采购清单', prompt: '帮我根据本周晚餐计划生成采购清单' }
+  ];
+
   return (
-    <main className="ai-workspace-shell">
+    <main className={`ai-workspace-shell ${isSidebarCollapsed ? 'is-collapsed' : ''}`}>
       <AiMobilePage
         conversations={conversations}
         isLoading={isLoading}
@@ -738,29 +671,44 @@ export function AiWorkspace({ conversations, isLoading, currentUser = null, onBa
               <span>AI Workspace</span>
               <h2>历史记录</h2>
             </div>
-            <button className="ai-new-chat" type="button" onClick={startNewConversation}>
-              + 新会话
+            <button
+              className="ai-sidebar-toggle-btn"
+              type="button"
+              title="收起侧边栏"
+              onClick={() => toggleSidebar(true)}
+            >
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="9" y1="3" x2="9" y2="21"></line></svg>
             </button>
           </div>
+          <button className="ai-new-chat" type="button" onClick={startNewConversation}>
+            + 新会话
+          </button>
           <div className="ai-conversation-list">
             {isLoading ? (
               <p className="subtle">正在加载会话...</p>
             ) : conversations.length > 0 ? (
-              conversations.map((conversation) => (
-                <div key={conversation.id} className={`ai-conversation-item ${conversation.id === activeConversationId ? 'active' : ''}`}>
-                  <button className="ai-conversation-main" type="button" onClick={() => selectConversation(conversation.id)}>
-                    <strong>{conversation.title || conversation.prompt || 'AI 会话'}</strong>
-                  </button>
-                  <button
-                    className="ai-conversation-delete"
-                    type="button"
-                    aria-label={`删除会话：${conversation.title || conversation.prompt || 'AI 会话'}`}
-                    title="删除"
-                    disabled={deletingConversationId === conversation.id}
-                    onClick={() => deleteConversation(conversation)}
-                  >
-                    <TrashIcon />
-                  </button>
+              groupedConversations.map((group) => (
+                <div key={group.title} className="ai-history-group">
+                  <h3 className="ai-history-group-title">{group.title}</h3>
+                  <div className="ai-history-group-items">
+                    {group.items.map((conversation) => (
+                      <div key={conversation.id} className={`ai-conversation-item ${conversation.id === activeConversationId ? 'active' : ''}`}>
+                        <button className="ai-conversation-main" type="button" onClick={() => selectConversation(conversation.id)}>
+                          <strong>{conversation.title || conversation.prompt || 'AI 会话'}</strong>
+                        </button>
+                        <button
+                          className="ai-conversation-delete"
+                          type="button"
+                          aria-label={`删除会话：${conversation.title || conversation.prompt || 'AI 会话'}`}
+                          title="删除"
+                          disabled={deletingConversationId === conversation.id}
+                          onClick={() => deleteConversation(conversation)}
+                        >
+                          <TrashIcon />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               ))
             ) : (
@@ -809,7 +757,19 @@ export function AiWorkspace({ conversations, isLoading, currentUser = null, onBa
         <section className="ai-main-panel">
           <div className="ai-main-head">
             <div className="ai-hero-bar">
-              <span>AI 厨房助手</span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                {isSidebarCollapsed && (
+                  <button
+                    className="ai-sidebar-trigger-btn"
+                    type="button"
+                    title="展开侧边栏"
+                    onClick={() => toggleSidebar(false)}
+                  >
+                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="9" y1="3" x2="9" y2="21"></line></svg>
+                  </button>
+                )}
+                <span>AI 厨房助手</span>
+              </div>
               <span className={`ai-ready-pill ${isAiUnavailable ? 'is-disabled' : ''}`}><span />{aiStatusLabel}</span>
             </div>
           </div>
@@ -836,17 +796,26 @@ export function AiWorkspace({ conversations, isLoading, currentUser = null, onBa
               <div className="ai-empty-prompt">
                 <section className="ai-welcome-card">
                   <div className="ai-welcome-visual" aria-hidden="true">
-                    <img src="/assets/bot_area.webp" alt="" />
+                    <img src="/assets/bot_area.webp" alt="" className="ai-bot-visual-img" />
                   </div>
                   <div className="ai-welcome-copy">
+                    <div className="ai-bot-avatar-glow">
+                      <img src="/assets/chatbot.webp" alt="AI" className="ai-bot-avatar-inner" />
+                    </div>
                     <strong>你好，我是你的 AI 厨房助手 👋</strong>
                     <span>我可以帮你根据现有食材推荐菜谱、安排晚餐、分析临期食材、生成采购清单。</span>
                   </div>
                 </section>
-                <div className="ai-welcome-suggestions" aria-label="快捷问题">
-                  {AI_WELCOME_SUGGESTIONS.map((suggestion) => (
-                    <button key={suggestion} type="button" onClick={() => setDraft(suggestion)}>
-                      {suggestion}
+                <div className="ai-welcome-grid" aria-label="快捷问题">
+                  {RICH_WELCOME_SUGGESTIONS.map((suggestion) => (
+                    <button
+                      key={suggestion.title}
+                      type="button"
+                      className="ai-suggestion-grid-card"
+                      onClick={() => setDraft(suggestion.prompt)}
+                    >
+                      <strong>{suggestion.title}</strong>
+                      <span>{suggestion.desc}</span>
                     </button>
                   ))}
                 </div>
@@ -859,24 +828,38 @@ export function AiWorkspace({ conversations, isLoading, currentUser = null, onBa
             {regenerateMutation.isError && <p className="form-error">{regenerateMutation.error.message}</p>}
             {isComposerPaused && <p className="ai-composer-pause-note">{composerPauseMessage}</p>}
             <form className="ai-composer" onSubmit={sendMessage}>
+              <button
+                type="button"
+                className="ai-attachment-button"
+                title="添加图片"
+                aria-label="添加图片"
+                onClick={() => alert('已接入媒体库，可以在下方对话中输入食材名称或生成请求。')}
+              >
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+              </button>
               <textarea
+                ref={textareaRef}
                 className="text-input"
-                rows={2}
+                rows={1}
                 value={draft}
                 placeholder={isComposerPaused ? composerPauseMessage ?? '等待你确认草稿...' : '输入你的问题，或让 AI 帮你安排一餐...'}
                 disabled={isComposerPaused}
                 onChange={(event) => setDraft(event.target.value)}
+                onKeyDown={handleKeyDown}
               />
-              <div className="ai-composer-meta">
-                <span>{draft.length}/2000</span>
+              <div className="ai-composer-actions">
                 <button
                   className={`ai-send-button ${isAssistantBusy ? 'is-sending' : ''}`}
                   type={isAssistantBusy ? 'button' : 'submit'}
-                  disabled={isAiUnavailable || (isComposerPaused && !activeCancellableRunId)}
+                  disabled={!isAssistantBusy && (isAiUnavailable || !draft.trim() || isComposerPaused)}
                   aria-label={isAssistantBusy ? '中止生成' : '发送消息'}
                   onClick={isAssistantBusy ? cancelStreamingChat : undefined}
                 >
-                  {isAssistantBusy ? <span className="ai-stop-icon" aria-hidden="true" /> : '↗'}
+                  {isAssistantBusy ? (
+                    <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><rect x="4" y="4" width="16" height="16" rx="2"></rect></svg>
+                  ) : (
+                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="19" x2="12" y2="5"></line><polyline points="5 12 12 5 19 12"></polyline></svg>
+                  )}
                 </button>
               </div>
             </form>

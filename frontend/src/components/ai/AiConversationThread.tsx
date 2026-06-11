@@ -387,6 +387,26 @@ export function MessageBubble({
     return Boolean(part.card || part.approval || part.draft);
   });
   const isWaitingForAssistant = !isUser && message.status === 'running' && !hasRenderableParts && runEvents.length === 0;
+
+  const [messageCopied, setMessageCopied] = useState(false);
+  const [feedback, setFeedback] = useState<'up' | 'down' | null>(null);
+
+  const copyMessageText = async () => {
+    const textContent = message.parts
+      .filter((part) => part.type === 'text')
+      .map((part) => part.text ?? '')
+      .join('\n\n') || message.content || '';
+    try {
+      await navigator.clipboard.writeText(textContent);
+      setMessageCopied(true);
+      setTimeout(() => setMessageCopied(false), 2000);
+    } catch (err) {
+      console.error('Failed to copy message text: ', err);
+    }
+  };
+
+  const showActions = !isUser && hasRenderableParts;
+
   return (
     <article className={`ai-message ai-message-${message.role}`}>
       <div className={isUser ? 'ai-message-avatar ai-message-avatar-user' : 'ai-message-avatar ai-message-avatar-assistant'} aria-hidden="true">
@@ -399,7 +419,7 @@ export function MessageBubble({
             </span>
           )
         ) : (
-          <img src="/assets/chatbot.webp" alt="" />
+          <img className="ai-bot-avatar-image" src="/assets/chatbot.webp" alt="" />
         )}
       </div>
       <div className="ai-message-content">
@@ -443,6 +463,7 @@ export function MessageBubble({
                   ingredients={ingredients}
                   resourceOptionLoader={resourceOptionLoader}
                   onDecision={onApprovalDecision}
+                  isLatest={isLatestAssistant}
                 />
               );
             }
@@ -453,6 +474,55 @@ export function MessageBubble({
               重试这次任务
             </button>
           )}
+
+          {showActions && (
+            <div className="ai-message-actions-bar">
+              <button
+                className={`ai-message-action-btn ${messageCopied ? 'copied' : ''}`}
+                title={messageCopied ? '已复制' : '复制回复'}
+                type="button"
+                onClick={copyMessageText}
+              >
+                {messageCopied ? (
+                  <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                ) : (
+                  <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                )}
+              </button>
+              <button
+                className={`ai-message-action-btn ${feedback === 'up' ? 'active' : ''}`}
+                title="赞同"
+                type="button"
+                onClick={() => setFeedback(feedback === 'up' ? null : 'up')}
+              >
+                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3zM7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3"></path></svg>
+              </button>
+              <button
+                className={`ai-message-action-btn ${feedback === 'down' ? 'active' : ''}`}
+                title="反对"
+                type="button"
+                onClick={() => setFeedback(feedback === 'down' ? null : 'down')}
+              >
+                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M10 15v4a3 3 0 0 0 3 3l4-9V2H5.72a2 2 0 0 0-2 1.7l-1.38 9a2 2 0 0 0 2 2.3zm12-5v9a2 2 0 0 0 2-2v-7a2 2 0 0 0-2-2z"></path></svg>
+              </button>
+              {onRegeneratePart && message.parts.length > 0 && (
+                <button
+                  className="ai-message-action-btn"
+                  title="重新生成"
+                  type="button"
+                  onClick={() => {
+                    const lastPart = [...message.parts].reverse().find((p) => p.type === 'text' || p.type === 'result_card');
+                    if (lastPart) {
+                      onRegeneratePart(message.id, lastPart.id);
+                    }
+                  }}
+                >
+                  <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"></path></svg>
+                </button>
+              )}
+            </div>
+          )}
+
           {messageTime && (
             <span className="ai-message-time">
               {messageTime}
