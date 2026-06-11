@@ -6299,11 +6299,11 @@
   }
 
   .app-frame.sidebar-expanded {
-    grid-template-columns: 244px minmax(0, 1fr);
+    grid-template-columns: auto minmax(0, 1fr);
   }
 
   .app-frame.sidebar-collapsed {
-    grid-template-columns: 72px minmax(0, 1fr);
+    grid-template-columns: auto minmax(0, 1fr);
   }
 
   .sidebar-shell {
@@ -6312,11 +6312,17 @@
     display: grid;
     grid-template-rows: minmax(0, 1fr) auto;
     gap: 12px;
+    width: 260px;
     min-height: calc(100vh - 28px);
     max-height: calc(100vh - 28px);
-    padding: 12px 10px;
+    padding: 16px 14px;
     overflow: hidden;
-    background: rgba(252, 249, 245, 0.88);
+    background: linear-gradient(135deg, rgba(255, 255, 255, 0.65) 0%, rgba(252, 249, 245, 0.75) 100%);
+    border: 1px solid rgba(147, 96, 63, 0.09);
+    box-shadow: 0 8px 32px rgba(74, 54, 40, 0.04), inset 0 1px 1px rgba(255, 255, 255, 0.8);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1), padding 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   }
 
   .sidebar-top {
@@ -6429,12 +6435,65 @@
     top: 16px;
   }
 
+  .sidebar-collapsed .sidebar-shell {
+    width: 76px;
+    padding: 16px 10px;
+  }
+
   .sidebar-collapsed .sidebar-brand-copy,
-  .sidebar-collapsed .sidebar-family,
+  .sidebar-collapsed .sidebar-user-copy {
+    opacity: 0;
+    max-width: 0;
+    max-height: 0;
+    height: 0;
+    margin: 0;
+    padding: 0;
+    transform: translateX(-12px);
+    visibility: hidden;
+    pointer-events: none;
+    overflow: hidden;
+    transition: opacity 0.1s ease,
+                max-width 0.2s ease 0.1s,
+                max-height 0.2s ease 0.1s,
+                height 0.2s ease 0.1s,
+                transform 0.2s ease,
+                visibility 0.1s ease;
+  }
+
   .sidebar-collapsed .sidebar-label,
-  .sidebar-collapsed .sidebar-user-copy,
-  .sidebar-collapsed .sidebar-user-settings {
-    display: none;
+  .sidebar-collapsed .sidebar-user-settings,
+  .sidebar-collapsed .sidebar-logout-label {
+    opacity: 0;
+    max-width: 0;
+    transform: translateX(-12px);
+    visibility: hidden;
+    pointer-events: none;
+    transition: opacity 0.1s ease,
+                max-width 0.2s ease 0.1s,
+                transform 0.2s ease,
+                visibility 0.1s ease;
+  }
+
+  .sidebar-collapsed .sidebar-family {
+    opacity: 0;
+    max-width: 0;
+    max-height: 0;
+    height: 0;
+    margin: 0;
+    padding: 0;
+    border-color: transparent;
+    box-shadow: none;
+    transform: scale(0.9) translateX(-12px);
+    visibility: hidden;
+    pointer-events: none;
+    overflow: hidden;
+    transition: opacity 0.1s ease,
+                max-height 0.2s ease 0.1s,
+                height 0.2s ease 0.1s,
+                margin 0.2s ease 0.1s,
+                padding 0.2s ease 0.1s,
+                border-color 0.1s ease,
+                visibility 0.1s ease;
   }
 
   .sidebar-collapsed .sidebar-top {
@@ -6467,15 +6526,22 @@
 
   .sidebar-collapsed .sidebar-nav-item {
     justify-content: center;
-    width: 40px;
-    min-width: 40px;
-    min-height: 40px;
+    width: 44px;
+    min-width: 44px;
+    min-height: 44px;
     padding: 0;
     border-radius: 12px;
+    gap: 0;
+  }
+
+  .sidebar-collapsed .sidebar-nav-item::before {
+    left: 0;
+    top: 12px;
+    bottom: 12px;
   }
 
   .sidebar-collapsed .sidebar-nav-item.active {
-    background: rgba(147, 96, 63, 0.1);
+    background: rgba(210, 107, 51, 0.08);
     border-color: transparent;
   }
 
@@ -6485,32 +6551,34 @@
   }
 
   .sidebar-collapsed .sidebar-user-card {
+    width: 44px;
+    height: 44px;
+    padding: 2px;
+    background: rgba(255, 255, 255, 0.78);
+    border: 1px solid rgba(147, 96, 63, 0.06);
+    box-shadow: 0 4px 12px rgba(74, 54, 40, 0.03);
+    border-radius: 50%;
+    display: flex;
     justify-content: center;
-    width: auto;
-    height: auto;
-    padding: 0;
-    background: transparent;
-    border-color: transparent;
-    box-shadow: none;
+    align-items: center;
   }
 
   .sidebar-collapsed .sidebar-user-main {
     justify-content: center;
+    gap: 0;
   }
 
   .sidebar-collapsed .sidebar-logout {
-    width: 40px;
-    min-width: 40px;
-    height: 40px;
+    width: 44px;
+    min-width: 44px;
+    height: 44px;
     padding: 0;
     justify-content: center;
-    background: transparent;
-    border-color: transparent;
+    background: rgba(255, 255, 255, 0.6);
+    border: 1px solid rgba(147, 96, 63, 0.06);
     box-shadow: none;
-  }
-
-  .sidebar-collapsed .sidebar-logout-label {
-    display: none;
+    border-radius: 50%;
+    gap: 0;
   }
 
   .sidebar-collapsed .avatar.large {
