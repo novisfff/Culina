@@ -1,6 +1,7 @@
 import type { FormEvent } from 'react';
-import type { Food, MealType, Recipe } from '../../api/types';
+import type { Food, MealType, Recipe, MediaAsset } from '../../api/types';
 import { ActionButton, Badge, WorkspaceModal } from '../ui-kit';
+import { buildMediaSizes, buildMediaSrcSet, resolveMediaUrl } from '../../lib/assets';
 import { FOOD_TYPE_LABELS, MEAL_TYPE_LABELS } from '../../lib/ui';
 import { MEAL_OPTIONS } from './FoodWorkspaceOptions';
 import { FoodUiIcon } from './FoodWorkspacePrimitives';
@@ -30,6 +31,7 @@ type FoodPlanDialogProps = {
   onPlanNoteChange: (value: string) => void;
   resolveFoodAssetUrl: (url: string) => string;
   getFoodCover: (food: Food, recipes: Recipe[]) => string | undefined;
+  getFoodCoverAsset?: (food: Food, recipes: Recipe[]) => MediaAsset | undefined;
   getDefaultMealType: (food: Food) => MealType;
   getPlanDateParts: (dateKey: string) => { month: string | number; day: string | number; weekday: string };
   normalizeFoodType: (food: Food) => keyof typeof FOOD_TYPE_LABELS;
@@ -39,6 +41,12 @@ export function FoodPlanDialog(props: FoodPlanDialogProps) {
   if (!props.isOpen) {
     return null;
   }
+  const selectedPlanFoodCoverAsset = props.selectedPlanFood
+    ? props.getFoodCoverAsset?.(props.selectedPlanFood, props.recipes)
+    : undefined;
+  const selectedPlanFoodCoverUrl =
+    resolveMediaUrl(selectedPlanFoodCoverAsset, 'card') ??
+    (props.selectedPlanFood ? props.resolveFoodAssetUrl(props.getFoodCover(props.selectedPlanFood, props.recipes) ?? '') : undefined);
 
   return (
     <div className="workspace-overlay-root">
@@ -54,9 +62,11 @@ export function FoodPlanDialog(props: FoodPlanDialogProps) {
           {props.selectedPlanFood ? (
             <div className="recipe-plan-dialog-hero">
               <div className="recipe-plan-selected-cover">
-                {props.getFoodCover(props.selectedPlanFood, props.recipes) ? (
+                {selectedPlanFoodCoverUrl ? (
                   <img
-                    src={props.resolveFoodAssetUrl(props.getFoodCover(props.selectedPlanFood, props.recipes) ?? '')}
+                    src={selectedPlanFoodCoverUrl}
+                    srcSet={buildMediaSrcSet(selectedPlanFoodCoverAsset)}
+                    sizes={buildMediaSizes('card')}
                     alt={props.selectedPlanFood.name}
                   />
                 ) : (
@@ -106,11 +116,19 @@ export function FoodPlanDialog(props: FoodPlanDialogProps) {
               <div className="recipe-plan-option-panel">
                 {props.planFoodOptions.length > 0 ? (
                   props.planFoodOptions.map((food) => {
-                    const cover = props.getFoodCover(food, props.recipes);
+                    const coverAsset = props.getFoodCoverAsset?.(food, props.recipes);
+                    const cover = resolveMediaUrl(coverAsset, 'thumb') ?? props.resolveFoodAssetUrl(props.getFoodCover(food, props.recipes) ?? '');
                     return (
                       <button key={food.id} type="button" className="recipe-plan-option" onClick={() => props.onSelectPlanFood(food)}>
                         <span className="recipe-plan-option-cover recipe-work-cover">
-                          {cover ? <img src={props.resolveFoodAssetUrl(cover)} alt="" /> : <span>{food.name.slice(0, 2)}</span>}
+                          {cover ? (
+                            <img
+                              src={cover}
+                              srcSet={buildMediaSrcSet(coverAsset)}
+                              sizes={buildMediaSizes('thumb')}
+                              alt=""
+                            />
+                          ) : <span>{food.name.slice(0, 2)}</span>}
                         </span>
                         <span>
                           <strong>{food.name}</strong>

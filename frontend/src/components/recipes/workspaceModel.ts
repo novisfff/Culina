@@ -1,4 +1,4 @@
-import type { Difficulty, Food, Ingredient, InventoryItem, MealLog, Recipe, RecipeFavorite, RecipeIngredient, RecipePlanItem } from '../../api/types';
+import type { Difficulty, Food, Ingredient, InventoryItem, MealLog, MediaAsset, Recipe, RecipeFavorite, RecipeIngredient, RecipePlanItem } from '../../api/types';
 import { getIngredientAvailableQuantityInDefault, convertQuantityToDefaultUnit } from '../../lib/ingredientUnits';
 import { addDateKeyDays, daysBetweenDateKeys, getWeekRange, parseDateKey, todayKey } from '../../lib/date';
 
@@ -29,6 +29,7 @@ export type RecipeIngredientAvailability = {
 export type RecipeCardViewModel = {
   recipe: Recipe;
   coverUrl?: string;
+  coverAsset?: MediaAsset;
   availability: RecipeAvailability;
   availabilityLabel: string;
   availabilityDetail: string;
@@ -212,6 +213,7 @@ export function buildRecipeCards(
     return {
       recipe,
       coverUrl: recipe.images[0]?.url,
+      coverAsset: recipe.images[0],
       availability,
       availabilityLabel:
         availability === 'ready' ? '可直接做' : availability === 'partial' ? `缺 ${shortages.length} 项` : '库存不足',

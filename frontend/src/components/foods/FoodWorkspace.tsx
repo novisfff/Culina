@@ -14,7 +14,7 @@ import type {
   Recipe,
   RecipePayload,
 } from '../../api/types';
-import { resolveAssetUrl } from '../../lib/assets';
+import { buildMediaSizes, buildMediaSrcSet, resolveAssetUrl, resolveMediaUrl } from '../../lib/assets';
 import { addDateKeyDays } from '../../lib/date';
 import {
   ActionButton,
@@ -28,7 +28,7 @@ import { FoodPlanDetailModal } from './FoodPlanDetailModal';
 import { FoodPlanDialog } from './FoodPlanDialog';
 import { FoodSceneDialogs } from './FoodSceneDialogs';
 import { FoodHubView } from './FoodHubView';
-import { FOOD_TYPE_LABELS, MEAL_TYPE_LABELS, emptyImages, formatDate, getFoodCover, getImagePreview, splitTags, todayKey } from '../../lib/ui';
+import { FOOD_TYPE_LABELS, MEAL_TYPE_LABELS, emptyImages, formatDate, getFoodCover, getFoodCoverAsset, getImagePreview, splitTags, todayKey } from '../../lib/ui';
 import {
   IDLE_IMAGE_GENERATION_STATE,
   useImageComposer,
@@ -938,6 +938,7 @@ export function FoodWorkspace(props: Props) {
         count: scene.count,
         imageFood: props.foods.find((food) => getFoodSceneTags(food).includes(scene.name)) ?? props.foods[0],
         imageUrl: scene.imageUrl,
+        imageAsset: scene.imageAsset,
         onClick: () => {
           setSceneFilter(scene.name);
           setLensFilter('all');
@@ -1397,12 +1398,20 @@ export function FoodWorkspace(props: Props) {
         {visibleRecommendations.length > 0 ? (
           <div className="food-recommendation-grid">
             {visibleRecommendations.map((item) => {
-              const cover = getFoodCover(item.food, props.recipes);
+              const coverAsset = getFoodCoverAsset(item.food, props.recipes);
+              const cover = resolveMediaUrl(coverAsset, 'card');
               const normalizedType = normalizeFoodType(item.food);
               return (
                 <article key={item.food.id} className={`food-recommendation-card tone-${normalizedType}`}>
                   <div className="food-recommendation-media">
-                    {cover ? <img src={resolveFoodAssetUrl(cover)} alt="" /> : <span>{item.food.name.slice(0, 2)}</span>}
+                    {cover ? (
+                      <img
+                        src={cover}
+                        srcSet={buildMediaSrcSet(coverAsset)}
+                        sizes={buildMediaSizes('card')}
+                        alt=""
+                      />
+                    ) : <span>{item.food.name.slice(0, 2)}</span>}
                   </div>
                   <div className="food-recommendation-body">
                     <div className="food-recommendation-heading">
@@ -1532,7 +1541,8 @@ export function FoodWorkspace(props: Props) {
           <section className="food-card-grid">
           {filteredFoods.map((food) => {
             const usage = getMealUsage(food, props.mealLogs);
-            const cover = getFoodCover(food, props.recipes);
+            const coverAsset = getFoodCoverAsset(food, props.recipes);
+            const cover = resolveMediaUrl(coverAsset, 'card');
             const expiry = describeExpiry(food);
             const normalizedType = normalizeFoodType(food);
             const defaultMealType = getDefaultMealType(food);
@@ -1544,7 +1554,14 @@ export function FoodWorkspace(props: Props) {
             return (
               <article key={food.id} className={`food-work-card tone-${normalizedType}`}>
                 <div className="food-work-card-media">
-                  {cover ? <img src={resolveFoodAssetUrl(cover)} alt={food.name} /> : <span>{food.name.slice(0, 4)}</span>}
+                  {cover ? (
+                    <img
+                      src={cover}
+                      srcSet={buildMediaSrcSet(coverAsset)}
+                      sizes={buildMediaSizes('card')}
+                      alt={food.name}
+                    />
+                  ) : <span>{food.name.slice(0, 4)}</span>}
                   <span className="food-type-overlay">{FOOD_TYPE_LABELS[normalizedType]}</span>
                   <button
                     className={food.favorite ? 'food-favorite-chip active' : 'food-favorite-chip'}
@@ -1720,7 +1737,9 @@ export function FoodWorkspace(props: Props) {
             </div>
             <div className="food-sidebar-scene-list" aria-label="按场景探索">
               {sceneCards.length > 0 ? (
-                sceneCards.map((scene) => (
+                sceneCards.map((scene) => {
+                  const sceneImageUrl = resolveMediaUrl(scene.imageAsset, 'thumb') ?? (scene.imageUrl ? resolveFoodAssetUrl(scene.imageUrl) : undefined);
+                  return (
                   <button
                     key={scene.name}
                     className={sceneFilter === scene.name ? 'active' : ''}
@@ -1728,14 +1747,22 @@ export function FoodWorkspace(props: Props) {
                     onClick={() => setSceneFilter(sceneFilter === scene.name ? 'all' : scene.name)}
                   >
                     <span className="food-sidebar-scene-thumb">
-                      {scene.imageUrl ? <img src={resolveFoodAssetUrl(scene.imageUrl)} alt="" /> : <FoodUiIcon name="star" />}
+                      {sceneImageUrl ? (
+                        <img
+                          src={sceneImageUrl}
+                          srcSet={buildMediaSrcSet(scene.imageAsset)}
+                          sizes={buildMediaSizes('thumb')}
+                          alt=""
+                        />
+                      ) : <FoodUiIcon name="star" />}
                     </span>
                     <span className="food-sidebar-scene-copy">
                       <strong>{scene.name}</strong>
                       <span>{scene.description || (scene.count > 0 ? `${scene.count} 份食物` : '推荐场景')}</span>
                     </span>
                   </button>
-                ))
+                  );
+                })
               ) : (
                 <span className="food-sidebar-empty">暂无场景标签</span>
               )}
@@ -1745,7 +1772,8 @@ export function FoodWorkspace(props: Props) {
       />
 
       {quickMealDialog && (() => {
-        const cover = getFoodCover(quickMealDialog.food, props.recipes);
+        const coverAsset = getFoodCoverAsset(quickMealDialog.food, props.recipes);
+        const cover = resolveMediaUrl(coverAsset, 'card');
         const isCookAction = quickMealDialog.action === 'cook' && quickMealDialog.recipeId;
         const title = isCookAction ? '开始做这道菜' : getPrimaryFoodActionLabel(quickMealDialog.food);
         const isSubmitting = Boolean(props.isQuickAdding || (isCookAction && props.isUpdatingPlan));
@@ -1763,7 +1791,14 @@ export function FoodWorkspace(props: Props) {
               <form className="food-quick-meal-form" onSubmit={submitQuickMealDialog}>
                 <div className="food-quick-meal-hero">
                   <span className="food-quick-meal-cover">
-                    {cover ? <img src={resolveFoodAssetUrl(cover)} alt="" /> : <span>{quickMealDialog.food.name.slice(0, 2)}</span>}
+                    {cover ? (
+                      <img
+                        src={cover}
+                        srcSet={buildMediaSrcSet(coverAsset)}
+                        sizes={buildMediaSizes('thumb')}
+                        alt=""
+                      />
+                    ) : <span>{quickMealDialog.food.name.slice(0, 2)}</span>}
                   </span>
                   <span className="food-quick-meal-copy">
                     <strong>{quickMealDialog.food.name}</strong>
@@ -1835,7 +1870,8 @@ export function FoodWorkspace(props: Props) {
         const relation = buildFoodRelationViewModelFromRecipeCards(detailFood, recipeCards, props.mealLogs);
         const linkedRecipeCard = relation.linkedRecipeCard;
         const recipe = linkedRecipeCard?.recipe ?? (detailFood.recipe_id ? props.recipes.find((item) => item.id === detailFood.recipe_id) ?? null : null);
-        const cover = getFoodCover(detailFood, props.recipes);
+        const coverAsset = getFoodCoverAsset(detailFood, props.recipes);
+        const cover = coverAsset?.url;
         const detailMealOptions = detailFood.suitable_meal_types.length > 0
           ? MEAL_OPTIONS.filter((meal) => detailFood.suitable_meal_types.includes(meal.value))
           : MEAL_OPTIONS;
@@ -1845,6 +1881,7 @@ export function FoodWorkspace(props: Props) {
             food={detailFood}
             audienceText={getFoodAudienceText(detailFood, props.mealLogs)}
             cover={cover}
+            coverAsset={coverAsset}
             detailMealOptions={detailMealOptions}
             expiry={expiry}
             factRows={factRows}
@@ -1945,6 +1982,7 @@ export function FoodWorkspace(props: Props) {
         onPlanNoteChange={(value) => setPlanForm({ ...planForm, note: value })}
         resolveFoodAssetUrl={resolveFoodAssetUrl}
         getFoodCover={getFoodCover}
+        getFoodCoverAsset={getFoodCoverAsset}
         getDefaultMealType={getDefaultMealType}
         getPlanDateParts={getFoodPlanDateParts}
         normalizeFoodType={normalizeFoodType}

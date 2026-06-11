@@ -24,8 +24,21 @@ export interface MediaAsset {
   reference_media_id?: string | null;
   style_key?: string | null;
   prompt_version?: string | null;
+  variants?: {
+    thumb?: MediaAssetVariant | null;
+    card?: MediaAssetVariant | null;
+    large?: MediaAssetVariant | null;
+  } | null;
   created_at: string;
   created_by?: string | null;
+}
+
+export interface MediaAssetVariant {
+  url: string;
+  width: number;
+  height: number;
+  content_type: string;
+  byte_size: number;
 }
 
 export interface UserSummary {

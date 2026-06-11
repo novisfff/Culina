@@ -1,5 +1,6 @@
-import type { Food, FoodRecommendationItem, MealLog, MealType, Recipe } from '../../api/types';
-import { FOOD_TYPE_LABELS, MEAL_TYPE_LABELS, getFoodCover } from '../../lib/ui';
+import type { Food, FoodRecommendationItem, MealLog, MealType, MediaAsset, Recipe } from '../../api/types';
+import { buildMediaSizes, buildMediaSrcSet, resolveMediaUrl } from '../../lib/assets';
+import { FOOD_TYPE_LABELS, MEAL_TYPE_LABELS, getFoodCoverAsset } from '../../lib/ui';
 import { Badge, EmptyState } from '../ui-kit';
 import { FoodUiIcon } from './FoodWorkspacePrimitives';
 
@@ -18,6 +19,7 @@ type MobileSceneCard = {
   count: number;
   imageFood?: Food;
   imageUrl?: string;
+  imageAsset?: MediaAsset | null;
   onClick: () => void;
 };
 
@@ -100,12 +102,13 @@ export function FoodMobileView(props: {
         {props.visibleRecommendations.length > 0 ? (
           <div className="mobile-dashboard-food-scroller">
             {props.visibleRecommendations.map((item) => {
-              const foodCoverUrl = getFoodCover(item.food, props.recipes);
+              const foodCoverAsset = getFoodCoverAsset(item.food, props.recipes);
+              const foodCoverUrl = resolveMediaUrl(foodCoverAsset, 'card');
               return (
                 <article key={item.food.id} className="mobile-dashboard-food-card">
                   <div
                     className="mobile-dashboard-food-cover"
-                    style={foodCoverUrl ? { backgroundImage: `url("${props.resolveFoodAssetUrl(foodCoverUrl)}")` } : undefined}
+                    style={foodCoverUrl ? { backgroundImage: `url("${foodCoverUrl}")` } : undefined}
                   />
                   <div className="mobile-dashboard-food-body">
                     <h3>{item.food.name}</h3>
@@ -156,10 +159,18 @@ export function FoodMobileView(props: {
           {props.mobileScenePages.map((page, pageIndex) => (
             <div className="mobile-food-scene-grid" key={`scene-page-${pageIndex}`}>
               {page.map((item) => {
-                const cover = item.imageUrl ?? (item.imageFood ? getFoodCover(item.imageFood, props.recipes) : null);
+                const coverAsset = item.imageAsset ?? (item.imageFood ? getFoodCoverAsset(item.imageFood, props.recipes) : null);
+                const cover = resolveMediaUrl(coverAsset, 'card') ?? (item.imageUrl ? props.resolveFoodAssetUrl(item.imageUrl) : undefined);
                 return (
                   <button key={item.key} type="button" onClick={item.onClick}>
-                    {cover ? <img src={props.resolveFoodAssetUrl(cover)} alt="" /> : <i aria-hidden="true">{item.title.slice(0, 2)}</i>}
+                    {cover ? (
+                      <img
+                        src={cover}
+                        srcSet={buildMediaSrcSet(coverAsset)}
+                        sizes={buildMediaSizes('card')}
+                        alt=""
+                      />
+                    ) : <i aria-hidden="true">{item.title.slice(0, 2)}</i>}
                     <span>
                       <strong>{item.title}</strong>
                       <small>{item.count} 份食物</small>
@@ -204,14 +215,22 @@ export function FoodMobileView(props: {
         {props.mobileLibraryFoods.length > 0 ? (
           <div className="mobile-food-library-grid">
             {props.mobileLibraryFoods.map((food) => {
-              const cover = getFoodCover(food, props.recipes);
+              const coverAsset = getFoodCoverAsset(food, props.recipes);
+              const cover = resolveMediaUrl(coverAsset, 'card');
               const usageCount = countMealUsage(food, props.mealLogs);
               const tagLabels = props.getFoodSceneTags(food).slice(0, 2);
               const labels = tagLabels.length > 0 ? tagLabels : food.suitable_meal_types.slice(0, 2).map((meal) => MEAL_TYPE_LABELS[meal]);
               return (
                 <article key={food.id} className="mobile-food-library-card">
                   <button className="mobile-food-library-cover" type="button" onClick={() => props.onOpenDetail(food)}>
-                    {cover ? <img src={props.resolveFoodAssetUrl(cover)} alt={food.name} /> : <span>{food.name.slice(0, 2)}</span>}
+                    {cover ? (
+                      <img
+                        src={cover}
+                        srcSet={buildMediaSrcSet(coverAsset)}
+                        sizes={buildMediaSizes('card')}
+                        alt={food.name}
+                      />
+                    ) : <span>{food.name.slice(0, 2)}</span>}
                   </button>
                   <div className="mobile-food-library-body">
                     <h3>{food.name}</h3>

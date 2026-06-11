@@ -62,6 +62,7 @@ def serialize_media(asset: MediaAsset) -> dict:
         "reference_media_id": asset.reference_media_id,
         "style_key": asset.style_key,
         "prompt_version": asset.prompt_version,
+        "variants": asset.variants,
         "created_at": asset.created_at,
         "created_by": asset.created_by,
     }
