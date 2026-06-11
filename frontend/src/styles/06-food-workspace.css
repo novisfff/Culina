@@ -5336,6 +5336,14 @@
   min-height: 0;
 }
 
+.ai-approval-body-content > * {
+  flex-shrink: 0;
+}
+
+.ai-approval-body-content .ai-approval-actions {
+  align-self: stretch;
+}
+
 .ai-approval-body-content::-webkit-scrollbar {
   width: 6px;
 }
