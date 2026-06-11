@@ -5272,9 +5272,8 @@
 }
 
 .ai-approval-panel {
-  display: grid;
-  grid-template-rows: auto 0fr;
-  gap: 0;
+  display: flex;
+  flex-direction: column;
   width: min(100%, 820px);
   max-height: min(85vh, 720px);
   min-height: 0;
@@ -5286,17 +5285,15 @@
     radial-gradient(circle at 90% 10%, rgba(226, 236, 216, 0.42), transparent 28%),
     linear-gradient(180deg, rgba(255, 254, 252, 0.98) 0%, rgba(255, 255, 255, 0.96) 52%, rgba(252, 249, 245, 0.98) 100%);
   box-shadow: 0 22px 52px rgba(74, 54, 40, 0.095);
-  transition: grid-template-rows 0.22s ease-out, box-shadow 0.22s ease, border-color 0.22s ease;
+  transition: box-shadow 0.22s ease, border-color 0.22s ease;
 }
 
 .ai-approval-panel.is-expanded {
-  grid-template-rows: auto 1fr;
   box-shadow: 0 26px 56px rgba(74, 54, 40, 0.12);
 }
 
 .ai-approval-panel.is-collapsed {
   cursor: pointer;
-  grid-template-rows: auto 0fr;
   box-shadow: 0 4px 14px rgba(74, 54, 40, 0.04);
 }
 
@@ -5310,20 +5307,18 @@
 }
 
 .ai-approval-body-wrapper {
-  grid-row: 2;
+  max-height: 0;
   overflow: hidden;
-  visibility: hidden;
   opacity: 0;
   display: flex;
   flex-direction: column;
   min-height: 0;
-  transition: visibility 0.22s step-end, opacity 0.2s ease;
+  transition: max-height 0.25s ease-out, opacity 0.22s ease;
 }
 
 .ai-approval-panel.is-expanded .ai-approval-body-wrapper {
-  visibility: visible;
+  max-height: min(65vh, 660px);
   opacity: 1;
-  transition: visibility 0s, opacity 0.2s ease 0.02s;
 }
 
 .ai-approval-body-content {
@@ -6836,6 +6831,10 @@
     max-height: none;
     overflow: hidden;
     box-shadow: 0 10px 24px rgba(74, 54, 40, 0.07);
+  }
+
+  .ai-approval-panel.is-expanded .ai-approval-body-wrapper {
+    max-height: 2500px;
   }
 
   .ai-approval-head {
