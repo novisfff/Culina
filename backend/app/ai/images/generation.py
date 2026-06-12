@@ -12,7 +12,7 @@ from app.core.config import get_settings
 from app.core.enums import ImageGenerationMode, MealType, MediaEntityType
 
 STYLE_KEY = "culina-still-life-v1"
-PROMPT_VERSION = "4"
+PROMPT_VERSION = "5"
 DEFAULT_DASHSCOPE_BASE_URL = "https://dashscope.aliyuncs.com/api/v1"
 DEFAULT_OPENAI_BASE_URL = "https://api.openai.com/v1"
 DASHSCOPE_SYNC_ENDPOINT = "/services/aigc/multimodal-generation/generation"
@@ -231,7 +231,7 @@ def USER_PROMPT_BUILDER(request: ImageGenerationRequest) -> str:
             "为家庭厨房应用生成一张温暖、克制的成员头像图。",
             *detail,
             "画面可以使用柔和人物插画、厨房相关小物或抽象头像构成，但不要生成可识别真人照片。",
-            "适合圆形裁切，主体居中，背景干净明亮。",
+            "按完整原图构图，主体居中，背景干净明亮，前端展示时可再做圆形遮罩。",
             "不要出现文字、姓名、Logo、水印、手部或复杂背景。",
         ]
     )
@@ -245,10 +245,9 @@ def FAMILY_PROMPT_BUILDER(request: ImageGenerationRequest) -> str:
     ]
     return "\n".join(
         [
-            "为家庭厨房应用生成一张家庭头像或封面图，表达温暖、明亮、真实的家庭厨房氛围。",
+            "为家庭厨房应用生成一张家庭封面图或家庭资料图，表达温暖、明亮、真实的家庭厨房氛围。",
             *detail,
             "主体可以是餐桌、厨房台面、绿植、餐具和少量家常食物，不出现人物。",
-            "适合圆形裁切和资料卡展示，主体清晰，周围有安全留白。",
             "不要出现文字、Logo、水印、品牌包装、餐厅广告风或暗色背景。",
         ]
     )

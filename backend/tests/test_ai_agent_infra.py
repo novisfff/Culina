@@ -4238,6 +4238,30 @@ class AIAgentInfraTestCase(unittest.TestCase):
         self.assertIn("参考图仅作为主体识别补充", prompt)
         self.assertIn("统一为约 4:3 卡片比例", prompt)
 
+    def test_family_and_user_image_prompts_do_not_request_round_avatar_rendering(self) -> None:
+        family_prompt = build_ai_image_prompt(
+            ImageGenerationRequest(
+                entity_type=MediaEntityType.FAMILY,
+                mode=ImageGenerationMode.TEXT,
+                title="三餐四季",
+                category="上海",
+                notes="喜欢明亮温暖的厨房氛围",
+            )
+        )
+        user_prompt = build_ai_image_prompt(
+            ImageGenerationRequest(
+                entity_type=MediaEntityType.USER,
+                mode=ImageGenerationMode.TEXT,
+                title="小雨",
+                category="Owner",
+                notes="清爽、柔和、厨房感",
+            )
+        )
+
+        self.assertNotIn("适合圆形裁切", family_prompt)
+        self.assertNotIn("适合圆形裁切", user_prompt)
+        self.assertIn("前端展示时可再做圆形遮罩", user_prompt)
+
     def test_image_generation_normalizes_all_modes_to_standard_card_size(self) -> None:
         calls: list[dict] = []
 
