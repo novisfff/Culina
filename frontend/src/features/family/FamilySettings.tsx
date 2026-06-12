@@ -1,6 +1,7 @@
 import type { FormEventHandler } from 'react';
 import type { ActivityLog, FamilyDetail, Member, MembershipSummary, UserSummary } from '../../api/types';
 import { DashboardIcon, ShellIcon, type DashboardIconName } from '../../app/shellIcons';
+import { MediaWithPlaceholder } from '../../components/MediaPlaceholder';
 import { Avatar, Badge, EmptyState } from '../../components/ui-kit';
 import { formatDateTime } from '../../lib/ui';
 import {
@@ -143,13 +144,10 @@ export function FamilySettings(props: FamilySettingsProps) {
         <section className="card family-profile-panel">
           <div className="family-profile-main-row">
             <div className="family-cover-card">
-              {props.familyHeroImageUrl ? (
-                <img src={props.resolveAssetUrl(props.familyHeroImageUrl)} alt={props.family?.name ?? '家庭厨房'} />
-              ) : (
-                <div className="family-cover-placeholder">
-                  <ShellIcon name="logo" />
-                </div>
-              )}
+              <MediaWithPlaceholder
+                src={props.resolveAssetUrl(props.familyHeroImageUrl)}
+                alt={props.family?.name ?? '家庭厨房'}
+              />
             </div>
             <div className="family-profile-copy">
               <h2>{props.family?.name ?? '未设置家庭名称'}</h2>

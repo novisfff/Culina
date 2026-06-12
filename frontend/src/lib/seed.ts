@@ -1,6 +1,5 @@
 import { buildStarterRecommendations } from './mockAi';
 import { buildMeta, createId, makeActivity, nowIso, todayKey } from './helpers';
-import { generateAiCover } from './media';
 import type {
   AppState,
   Family,
@@ -57,8 +56,7 @@ export function createInitialState(payload?: OnboardingPayload): AppState {
       category: '蔬菜',
       defaultUnit: '个',
       defaultStorage: '冷藏',
-      notes: '适合做番茄炒蛋、汤面',
-      image: generateAiCover('番茄', ownerId)
+      notes: '适合做番茄炒蛋、汤面'
     },
     {
       ...buildMeta(ownerId, 'ingredient'),
@@ -232,7 +230,7 @@ export function createInitialState(payload?: OnboardingPayload): AppState {
     ],
     tips: '如果想更清淡，减少油量并延长小火翻炒时间。',
     sceneTags: ['工作日晚餐', '孩子也能吃'],
-    images: [generateAiCover('番茄炒蛋', ownerId)]
+    images: []
   };
 
   const recipeSalmon: Recipe = {
@@ -292,7 +290,7 @@ export function createInitialState(payload?: OnboardingPayload): AppState {
     ],
     tips: '适合安排在周末或家庭轻食日晚餐。',
     sceneTags: ['周末轻食', '高蛋白'],
-    images: [generateAiCover('清蒸三文鱼', ownerId)]
+    images: []
   };
 
   const foods: Food[] = [
@@ -305,7 +303,7 @@ export function createInitialState(payload?: OnboardingPayload): AppState {
       flavorTags: ['酸甜', '下饭'],
       sourceName: '家庭厨房',
       scene: '晚餐',
-      images: [generateAiCover('番茄炒蛋', ownerId)],
+      images: [],
       notes: '适合工作日快速安排',
       favorite: true,
       recipeId: recipeTomatoEgg.id
@@ -319,7 +317,7 @@ export function createInitialState(payload?: OnboardingPayload): AppState {
       flavorTags: ['清淡', '高蛋白'],
       sourceName: '家庭厨房',
       scene: '周末晚餐',
-      images: [generateAiCover('清蒸三文鱼', ownerId)],
+      images: [],
       notes: '适合库存里有三文鱼时安排',
       favorite: false,
       recipeId: recipeSalmon.id
@@ -333,7 +331,7 @@ export function createInitialState(payload?: OnboardingPayload): AppState {
       flavorTags: ['香辣'],
       sourceName: '夜宵小馆',
       scene: '周末聚餐',
-      images: [generateAiCover('小龙虾外卖', ownerId)],
+      images: [],
       notes: '适合多人一起吃',
       favorite: true
     },
@@ -346,7 +344,7 @@ export function createInitialState(payload?: OnboardingPayload): AppState {
       flavorTags: ['省心'],
       sourceName: '幸福食堂',
       scene: '工作日午餐',
-      images: [generateAiCover('社区食堂午餐', ownerId)],
+      images: [],
       notes: '记录外出吃饭体验',
       favorite: false
     },
@@ -359,7 +357,7 @@ export function createInitialState(payload?: OnboardingPayload): AppState {
       flavorTags: ['清爽'],
       sourceName: '鲜活牧场',
       scene: '早餐 / 加餐',
-      images: [generateAiCover('无糖酸奶', ownerId)],
+      images: [],
       notes: '适合配水果',
       favorite: false
     }

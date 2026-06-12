@@ -1,6 +1,7 @@
 import type { FormEvent } from 'react';
 import type { Food, FoodPlanItem, MealType, Recipe } from '../../api/types';
 import { formatDate, getFoodCover, MEAL_TYPE_LABELS, todayKey } from '../../lib/ui';
+import { MediaWithPlaceholder } from '../MediaPlaceholder';
 import { ActionButton, WorkspaceModal } from '../ui-kit';
 
 export type FoodPlanDetailFormState = {
@@ -121,13 +122,10 @@ export function FoodPlanDetailModal(props: Props) {
         <form className="recipe-plan-detail-form" onSubmit={props.onSubmit}>
           <section className="recipe-plan-detail-card">
             <div className="recipe-plan-detail-cover">
-              {cover ? (
-                <img src={props.resolveAssetUrl(cover)} alt={props.item.food_name} />
-              ) : (
-                <div className="recipe-plan-cover-empty">
-                  <PlanIcon name="calendar" />
-                </div>
-              )}
+              <MediaWithPlaceholder
+                src={cover ? props.resolveAssetUrl(cover) : undefined}
+                alt={props.item.food_name}
+              />
             </div>
             <div className="recipe-plan-detail-summary">
               <span className={props.item.status === 'cooked' ? 'badge tone-ready' : 'badge'}>

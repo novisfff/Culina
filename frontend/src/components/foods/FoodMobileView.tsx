@@ -1,6 +1,7 @@
 import type { Food, FoodRecommendationItem, MealLog, MealType, MediaAsset, Recipe } from '../../api/types';
 import { buildMediaSizes, buildMediaSrcSet, resolveMediaUrl } from '../../lib/assets';
 import { FOOD_TYPE_LABELS, MEAL_TYPE_LABELS, getFoodCoverAsset } from '../../lib/ui';
+import { MediaWithPlaceholder } from '../MediaPlaceholder';
 import { Badge, EmptyState } from '../ui-kit';
 import { FoodUiIcon } from './FoodWorkspacePrimitives';
 
@@ -106,10 +107,9 @@ export function FoodMobileView(props: {
               const foodCoverUrl = resolveMediaUrl(foodCoverAsset, 'card');
               return (
                 <article key={item.food.id} className="mobile-dashboard-food-card">
-                  <div
-                    className="mobile-dashboard-food-cover"
-                    style={foodCoverUrl ? { backgroundImage: `url("${foodCoverUrl}")` } : undefined}
-                  />
+                  <div className="mobile-dashboard-food-cover">
+                    <MediaWithPlaceholder src={foodCoverUrl} alt="" />
+                  </div>
                   <div className="mobile-dashboard-food-body">
                     <h3>{item.food.name}</h3>
                     <div className="mobile-dashboard-chip-row">
@@ -170,7 +170,9 @@ export function FoodMobileView(props: {
                         sizes={buildMediaSizes('card')}
                         alt=""
                       />
-                    ) : <i aria-hidden="true">{item.title.slice(0, 2)}</i>}
+                    ) : (
+                      <i aria-hidden="true">{item.title.slice(0, 2)}</i>
+                    )}
                     <span>
                       <strong>{item.title}</strong>
                       <small>{item.count} 份食物</small>
@@ -223,14 +225,12 @@ export function FoodMobileView(props: {
               return (
                 <article key={food.id} className="mobile-food-library-card">
                   <button className="mobile-food-library-cover" type="button" onClick={() => props.onOpenDetail(food)}>
-                    {cover ? (
-                      <img
-                        src={cover}
-                        srcSet={buildMediaSrcSet(coverAsset)}
-                        sizes={buildMediaSizes('card')}
-                        alt={food.name}
-                      />
-                    ) : <span>{food.name.slice(0, 2)}</span>}
+                    <MediaWithPlaceholder
+                      src={cover}
+                      srcSet={buildMediaSrcSet(coverAsset)}
+                      sizes={buildMediaSizes('card')}
+                      alt={food.name}
+                    />
                   </button>
                   <div className="mobile-food-library-body">
                     <h3>{food.name}</h3>

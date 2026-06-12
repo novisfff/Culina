@@ -2,6 +2,7 @@ import type { FormEvent } from 'react';
 import type { Food, MealType, Recipe, MediaAsset } from '../../api/types';
 import { ActionButton, Badge, WorkspaceModal } from '../ui-kit';
 import { buildMediaSizes, buildMediaSrcSet, resolveMediaUrl } from '../../lib/assets';
+import { MediaWithPlaceholder } from '../MediaPlaceholder';
 import { FOOD_TYPE_LABELS, MEAL_TYPE_LABELS } from '../../lib/ui';
 import { MEAL_OPTIONS } from './FoodWorkspaceOptions';
 import { FoodUiIcon } from './FoodWorkspacePrimitives';
@@ -62,16 +63,12 @@ export function FoodPlanDialog(props: FoodPlanDialogProps) {
           {props.selectedPlanFood ? (
             <div className="recipe-plan-dialog-hero">
               <div className="recipe-plan-selected-cover">
-                {selectedPlanFoodCoverUrl ? (
-                  <img
-                    src={selectedPlanFoodCoverUrl}
-                    srcSet={buildMediaSrcSet(selectedPlanFoodCoverAsset)}
-                    sizes={buildMediaSizes('card')}
-                    alt={props.selectedPlanFood.name}
-                  />
-                ) : (
-                  <div className="recipe-plan-cover-empty">{props.selectedPlanFood.name.slice(0, 2)}</div>
-                )}
+                <MediaWithPlaceholder
+                  src={selectedPlanFoodCoverUrl}
+                  srcSet={buildMediaSrcSet(selectedPlanFoodCoverAsset)}
+                  sizes={buildMediaSizes('card')}
+                  alt={props.selectedPlanFood.name}
+                />
               </div>
               <div className="recipe-plan-selected-copy">
                 <span className="recipe-plan-dialog-kicker">即将加入</span>
@@ -121,14 +118,12 @@ export function FoodPlanDialog(props: FoodPlanDialogProps) {
                     return (
                       <button key={food.id} type="button" className="recipe-plan-option" onClick={() => props.onSelectPlanFood(food)}>
                         <span className="recipe-plan-option-cover recipe-work-cover">
-                          {cover ? (
-                            <img
-                              src={cover}
-                              srcSet={buildMediaSrcSet(coverAsset)}
-                              sizes={buildMediaSizes('thumb')}
-                              alt=""
-                            />
-                          ) : <span>{food.name.slice(0, 2)}</span>}
+                          <MediaWithPlaceholder
+                            src={cover}
+                            srcSet={buildMediaSrcSet(coverAsset)}
+                            sizes={buildMediaSizes('thumb')}
+                            alt=""
+                          />
                         </span>
                         <span>
                           <strong>{food.name}</strong>

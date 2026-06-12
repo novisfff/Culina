@@ -19,9 +19,9 @@ import type {
   ShoppingListItem,
 } from '../../api/types';
 import { buildMediaSizes, buildMediaSrcSet, resolveAssetUrl, resolveMediaUrl } from '../../lib/assets';
+import { MediaWithPlaceholder } from '../MediaPlaceholder';
 import { addDateKeyDays } from '../../lib/date';
 import {
-  buildIngredientPlaceholderSvg,
   formatDate,
   formatDateTime,
   formatRelativeDays,
@@ -39,7 +39,6 @@ import {
 import { useNotice } from '../../hooks/useNotice';
 import {
   ActionButton,
-  Avatar,
   Badge,
   SectionHeading,
   WorkspaceModal,
@@ -927,8 +926,7 @@ type ShoppingWorkRowProps = {
 function ShoppingWorkRow(props: ShoppingWorkRowProps) {
   const { card } = props;
   const linkedSummary = card.linkedSummary;
-  const imageUrl =
-    resolveAssetUrl(linkedSummary?.ingredient.image?.url) ?? buildIngredientPlaceholderSvg(card.title || '待买项');
+  const imageUrl = resolveAssetUrl(linkedSummary?.ingredient.image?.url);
   const hasCustomImage = Boolean(linkedSummary?.ingredient.image?.url);
   const footerNote =
     card.statusTone === 'danger'
@@ -948,7 +946,7 @@ function ShoppingWorkRow(props: ShoppingWorkRowProps) {
       <div className="shopping-work-row-main">
         <div className="shopping-work-row-leading">
           <div className={hasCustomImage ? 'shopping-work-row-media' : 'shopping-work-row-media is-placeholder'}>
-            <img src={imageUrl} alt={card.title} />
+            <MediaWithPlaceholder src={imageUrl} alt={card.title} />
           </div>
         </div>
 
@@ -1074,8 +1072,7 @@ function InventoryIngredientCard(props: InventoryIngredientCardProps) {
   const disposableExpiredItems = buildDisposableExpiredInventoryItems(summary);
   const canDestroyExpired = disposableExpiredItems.length > 0;
   const alertTone = summary.alerts.length > 0 ? getIngredientAlertTone(summary) : null;
-  const imageUrl =
-    resolveMediaUrl(summary.ingredient.image, 'card') ?? buildIngredientPlaceholderSvg(summary.ingredient.name);
+  const imageUrl = resolveMediaUrl(summary.ingredient.image, 'card');
   const hasCustomImage = Boolean(summary.ingredient.image?.url);
   const metaLine = [summary.ingredient.category || '未分类', summary.primaryStorage].join(' · ');
   const totalInventoryLabel = buildInventoryTotalLabel(summary);
@@ -1104,12 +1101,9 @@ function InventoryIngredientCard(props: InventoryIngredientCardProps) {
                   : 'ingredient-visual-canvas ingredient-visual-canvas-placeholder'
               }
             >
-              <img
-                className={
-                  hasCustomImage
-                    ? 'ingredient-visual-cover'
-                    : 'ingredient-visual-cover ingredient-visual-cover-placeholder'
-                }
+              <MediaWithPlaceholder
+                className="ingredient-visual-cover-frame"
+                imageClassName="ingredient-visual-cover"
                 src={imageUrl}
                 srcSet={buildMediaSrcSet(summary.ingredient.image)}
                 sizes={buildMediaSizes('card')}
@@ -1267,8 +1261,7 @@ function IngredientCatalogCard(props: IngredientCatalogCardProps) {
   const primaryRef = useRef<HTMLDivElement | null>(null);
   const [expandedPrimaryHeight, setExpandedPrimaryHeight] = useState<number | null>(null);
   const hasCustomImage = Boolean(summary.ingredient.image?.url);
-  const imageUrl =
-    resolveMediaUrl(summary.ingredient.image, 'card') ?? buildIngredientPlaceholderSvg(summary.ingredient.name);
+  const imageUrl = resolveMediaUrl(summary.ingredient.image, 'card');
   const alertTone = getIngredientAlertTone(summary);
   const status = buildCatalogCardStatus(summary);
   const canConsume = summary.availableInventoryItems.length > 0;
@@ -1353,12 +1346,9 @@ function IngredientCatalogCard(props: IngredientCatalogCardProps) {
                   : 'ingredient-visual-canvas ingredient-visual-canvas-placeholder'
               }
             >
-              <img
-                className={
-                  hasCustomImage
-                    ? 'ingredient-visual-cover'
-                    : 'ingredient-visual-cover ingredient-visual-cover-placeholder'
-                }
+              <MediaWithPlaceholder
+                className="ingredient-visual-cover-frame"
+                imageClassName="ingredient-visual-cover"
                 src={imageUrl}
                 srcSet={buildMediaSrcSet(summary.ingredient.image)}
                 sizes={buildMediaSizes('card')}

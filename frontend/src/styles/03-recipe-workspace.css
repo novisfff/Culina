@@ -193,8 +193,8 @@
   min-height: 160px;
   place-items: center;
   background:
-    radial-gradient(circle at top left, rgba(255, 255, 255, 0.48), transparent 34%),
-    linear-gradient(135deg, rgba(242, 221, 199, 0.96) 0%, rgba(205, 225, 205, 0.92) 100%);
+    linear-gradient(135deg, rgba(206, 149, 94, 0.22), rgba(140, 160, 123, 0.18)),
+    #f6efe6;
   color: #6e513e;
   font-weight: 800;
   text-align: center;

@@ -1,6 +1,7 @@
 import type { Dispatch, FormEvent, ReactNode, SetStateAction } from 'react';
 import { resolveAssetUrl } from '../../lib/assets';
 import { normalizeIngredientUnit } from '../../lib/ingredientUnits';
+import { MediaWithPlaceholder } from '../MediaPlaceholder';
 import {
   ActionButton,
   Badge,
@@ -484,7 +485,10 @@ export function IngredientEditorView(props: IngredientEditorViewProps) {
 
             <div className="ingredients-create-preview-card">
               {props.ingredientPreviewImage?.url ? (
-                <img src={resolveAssetUrl(props.ingredientPreviewImage.url)} alt={props.ingredientForm.name || '食材图片'} />
+                <MediaWithPlaceholder
+                  src={resolveAssetUrl(props.ingredientPreviewImage.url)}
+                  alt={props.ingredientForm.name || '食材图片'}
+                />
               ) : (
                 <div className="ingredients-create-preview-placeholder">
                   {props.renderIcon('image')}

@@ -1,13 +1,14 @@
 import type { Dispatch, FormEvent, SetStateAction } from 'react';
 import type { Difficulty, Ingredient, MediaAsset } from '../../api/types';
 import type { AiRenderPayload } from '../../lib/aiImages';
+import { MediaWithPlaceholder } from '../MediaPlaceholder';
 import { ActionButton, WorkspaceSubpageShell } from '../ui-kit';
 import {
   MAX_STEP_KEY_POINTS,
   RECIPE_STEP_ICON_OPTIONS,
   SHOPPING_UNIT_OPTIONS,
 } from './RecipeWorkspaceOptions';
-import { RecipeDishIllustration, RecipeUiIcon, getRecipeVisualTone } from './RecipeWorkspaceCards';
+import { RecipeUiIcon } from './RecipeWorkspaceCards';
 import {
   createEmptyRecipeStepDraft,
   getRecipeShoppingRequirement,
@@ -434,11 +435,7 @@ export function RecipeEditorView({
                 </div>
                 <div className="recipe-editor-cover-grid">
                   <div className="recipe-editor-cover-preview">
-                    {editorCoverUrl ? (
-                      <img src={editorCoverUrl} alt={form.title || '菜谱封面'} />
-                    ) : (
-                      <RecipeDishIllustration title={form.title || '菜谱封面'} tone={getRecipeVisualTone(selectedRecipeId ?? (form.title || 'draft'))} />
-                    )}
+                    <MediaWithPlaceholder src={editorCoverUrl} alt={form.title || '菜谱封面'} />
                   </div>
                   <div className="recipe-editor-cover-workspace">
                     <div className="recipe-editor-cover-toolbar">
@@ -501,7 +498,7 @@ export function RecipeEditorView({
                             <span>参考图</span>
                             <small>{recipeImageState.isGenerating ? '正在生成' : '点按更换'}</small>
                           </div>
-                          <img src={editorReferenceUrl} alt={`${form.title || '菜谱'}参考图`} />
+                          <MediaWithPlaceholder src={editorReferenceUrl} alt={`${form.title || '菜谱'}参考图`} />
                         </label>
                       )}
                       <article className="recipe-editor-cover-result">
@@ -510,7 +507,7 @@ export function RecipeEditorView({
                           <small>{form.images.generatedAsset ? '已生成' : recipeImageState.isGenerating ? '生成中' : '未生成'}</small>
                         </div>
                         {editorGeneratedUrl ? (
-                          <img src={editorGeneratedUrl} alt={form.title || '菜谱封面'} />
+                          <MediaWithPlaceholder src={editorGeneratedUrl} alt={form.title || '菜谱封面'} />
                         ) : (
                           <div className="recipe-editor-cover-empty">
                             {recipeImageState.isGenerating ? <span className="image-composer-loading-surface" aria-hidden="true" /> : <RecipeUiIcon name="image" />}
@@ -555,7 +552,7 @@ export function RecipeEditorView({
                   <span><RecipeUiIcon name="check" /> 表单实时更新</span>
                 </div>
                 <div className="recipe-editor-live-preview">
-                  {editorCoverUrl ? <img src={editorCoverUrl} alt={form.title || '菜谱封面'} /> : <RecipeDishIllustration title={form.title || '菜谱封面'} tone={getRecipeVisualTone(selectedRecipeId ?? (form.title || 'draft'))} />}
+                  <MediaWithPlaceholder src={editorCoverUrl} alt={form.title || '菜谱封面'} />
                   <div>
                     <strong>{form.title.trim() || '未命名菜谱'}</strong>
                     <p>{form.tips.trim() || '填写技巧说明后，会在这里看到摘要。'}</p>

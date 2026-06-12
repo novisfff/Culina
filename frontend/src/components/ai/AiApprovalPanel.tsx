@@ -3,7 +3,6 @@ import type { AiApprovalRequest, AiGeneratedRecipeDraft, Difficulty, Food, Ingre
 import { resolveAssetUrl } from '../../lib/assets';
 import { RECIPE_STEP_ICON_OPTIONS } from '../recipes/RecipeWorkspaceOptions';
 import {
-  AI_RESOURCE_PLACEHOLDER_URL,
   ApprovalMultiSelectField,
   ApprovalSelectField,
   IngredientQuantityPicker,
@@ -198,13 +197,13 @@ export function ApprovalPanel({
     id: food.id,
     label: food.name,
     description: [food.category, foodTypeText(food.type)].filter(Boolean).join(' · '),
-    imageUrl: resolveAssetUrl(food.images?.[0]?.url) ?? AI_RESOURCE_PLACEHOLDER_URL,
+    imageUrl: resolveAssetUrl(food.images?.[0]?.url),
   })), [foods]);
   const staticIngredientOptions = useMemo<AiResourceOption[]>(() => ingredients.map((ingredient) => ({
     id: ingredient.id,
     label: ingredient.name,
     description: [ingredient.category, ingredient.default_unit].filter(Boolean).join(' · '),
-    imageUrl: resolveAssetUrl(ingredient.image?.url) ?? AI_RESOURCE_PLACEHOLDER_URL,
+    imageUrl: resolveAssetUrl(ingredient.image?.url),
     unit: ingredient.default_unit,
   })), [ingredients]);
   const foodOptions = useMemo(

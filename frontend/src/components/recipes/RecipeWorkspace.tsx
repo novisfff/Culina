@@ -28,7 +28,7 @@ import type {
 import { resolveAssetUrl } from '../../lib/assets';
 import { readJsonStorage, removeStorage, writeJsonStorage } from '../../lib/storage';
 import { type AiRenderPayload } from '../../lib/aiImages';
-import { buildIngredientPlaceholderSvg, emptyImages, formatDate, formatDateTime, getImagePreview, splitTags, todayKey } from '../../lib/ui';
+import { emptyImages, formatDate, formatDateTime, getImagePreview, splitTags, todayKey } from '../../lib/ui';
 import { IDLE_IMAGE_GENERATION_STATE, useImageComposer, type ImageGenerationUiState } from '../../hooks/useImageComposer';
 import {
   ActionButton,

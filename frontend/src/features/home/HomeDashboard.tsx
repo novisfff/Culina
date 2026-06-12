@@ -2,6 +2,7 @@ import { useMemo, useState, type Dispatch, type FormEvent, type SetStateAction, 
 import type { ActivityLog, Food, FoodPlanItem, FoodRecommendations, Ingredient, InventoryItem, MealLog, MealType, Recipe, ShoppingListItem } from '../../api/types';
 import type { TabKey } from '../../app/AppShell';
 import { DashboardIcon, DashboardMealIcon, ShellIcon } from '../../app/shellIcons';
+import { MediaWithPlaceholder } from '../../components/MediaPlaceholder';
 import { ActionButton, Badge, EmptyState, PageHeader, WorkspaceModal } from '../../components/ui-kit';
 import { MEAL_OPTIONS } from '../../components/foods/FoodWorkspaceOptions';
 import { FoodDetailDrawer } from '../../components/foods/FoodDetailDrawer';
@@ -23,7 +24,7 @@ import {
   buildFoodRelationViewModel,
 } from '../../components/foods/FoodWorkspaceHelpers';
 import { addDateKeyDays } from '../../lib/date';
-import { buildIngredientPlaceholderSvg, FOOD_TYPE_LABELS, formatDate, formatDateTime, getFoodCover, getFoodCoverAsset, INVENTORY_STATUS_LABELS, MEAL_TYPE_LABELS, todayKey } from '../../lib/ui';
+import { FOOD_TYPE_LABELS, formatDate, formatDateTime, getFoodCover, getFoodCoverAsset, INVENTORY_STATUS_LABELS, MEAL_TYPE_LABELS, todayKey } from '../../lib/ui';
 import {
   DASHBOARD_PLAN_MEAL_TYPES,
   findShoppingIngredient,
@@ -295,7 +296,7 @@ export function HomeDashboard(props: HomeDashboardProps) {
                   <form className="food-quick-meal-form" onSubmit={submitQuickMealDialog}>
                     <div className="food-quick-meal-hero">
                       <span className="food-quick-meal-cover">
-                        {cover ? <img src={cover} alt="" /> : <span>{quickMealDialog.food.name.slice(0, 2)}</span>}
+                        <MediaWithPlaceholder src={cover} alt="" />
                       </span>
                       <span className="food-quick-meal-copy">
                         <strong>{quickMealDialog.food.name}</strong>
@@ -479,14 +480,9 @@ export function HomeDashboard(props: HomeDashboardProps) {
                         const food = recommendation.food;
                         return (
                           <article key={food.id} className="dashboard-food-card">
-                            <div
-                              className="dashboard-food-cover"
-                              style={
-                                resolveAssetUrl(coverUrl)
-                                  ? { backgroundImage: `url("${resolveAssetUrl(coverUrl)}")` }
-                                  : undefined
-                              }
-                            />
+                            <div className="dashboard-food-cover">
+                              <MediaWithPlaceholder src={resolveAssetUrl(coverUrl)} alt="" />
+                            </div>
                             <div className="dashboard-food-body">
                               <h3>{food.name}</h3>
                               <div className="dashboard-chip-row">
@@ -551,14 +547,10 @@ export function HomeDashboard(props: HomeDashboardProps) {
                             return (
                               <article key={item.id} className={`dashboard-expiry-item expiry-${expiryClass}`}>
                                 <div className="dashboard-ingredient-thumb">
-                                  {ingredient?.image ? (
-                                    <img
-                                      src={resolveAssetUrl(ingredient.image.url)}
-                                      alt={item.ingredient_name}
-                                    />
-                                  ) : (
-                                    <span>{item.ingredient_name.slice(0, 1)}</span>
-                                  )}
+                                  <MediaWithPlaceholder
+                                    src={resolveAssetUrl(ingredient?.image?.url)}
+                                    alt={item.ingredient_name}
+                                  />
                                 </div>
                                 <div>
                                   <strong>{item.ingredient_name}</strong>
@@ -650,7 +642,7 @@ export function HomeDashboard(props: HomeDashboardProps) {
                             <article key={log.id} className="dashboard-activity-item">
                               <span className={`dashboard-activity-mark tone-${index % 4}`}>
                                 {imageUrl ? (
-                                  <img src={resolveAssetUrl(imageUrl)} alt="" />
+                                  <MediaWithPlaceholder src={resolveAssetUrl(imageUrl)} alt="" />
                                 ) : (
                                   <DashboardIcon name={index % 2 === 0 ? 'check' : 'calendar'} />
                                 )}
@@ -789,7 +781,7 @@ export function HomeDashboard(props: HomeDashboardProps) {
                                               onClick={() => openHomePlanDetail(item)}
                                               title={planTitle}
                                             >
-                                              {planCoverUrl && <img src={planCoverUrl} alt="" />}
+                                              <MediaWithPlaceholder src={planCoverUrl} alt="" />
                                               <span>{planTitle}</span>
                                             </button>
                                           );
@@ -830,7 +822,7 @@ export function HomeDashboard(props: HomeDashboardProps) {
                         {pendingShoppingPreview.length > 0 ? (
                           pendingShoppingPreview.map((item) => {
                             const ingredient = findShoppingIngredient(item, ingredients);
-                            const imageUrl = ingredient?.image?.url ? resolveAssetUrl(ingredient.image.url) : buildIngredientPlaceholderSvg(item.title);
+                            const imageUrl = resolveAssetUrl(ingredient?.image?.url);
                             return (
                               <button
                                 key={item.id}
@@ -840,7 +832,7 @@ export function HomeDashboard(props: HomeDashboardProps) {
                                 title={`登记库存：${item.title}`}
                               >
                                 <span className="dashboard-shopping-image">
-                                  <img src={imageUrl} alt="" />
+                                  <MediaWithPlaceholder src={imageUrl} alt="" />
                                 </span>
                                 <span className="dashboard-shopping-copy">
                                   <strong>{item.title}</strong>

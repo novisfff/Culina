@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, type FormEventHandler } from 'react';
 import type { Food, FoodPlanItem, MealLog, Member, UpdateMealLogPayload } from '../../api/types';
 import { Avatar, Badge, PageHeader, WorkspaceModal } from '../../components/ui-kit';
+import { MediaWithPlaceholder } from '../../components/MediaPlaceholder';
 import { resolveAssetUrl } from '../../lib/assets';
 import { formatDateTime, MEAL_TYPE_LABELS } from '../../lib/ui';
 import { MealEnrichmentForm, MealPhotoLightbox } from './MealLogEnrichment';
@@ -313,7 +314,10 @@ export function MealLogWorkspace(props: Props) {
                     <div className="meal-log-photo-grid meal-log-preview-photo-grid">
                       {viewModel.selectedMeal.photos.slice(0, 6).map((photo) => (
                         <button key={photo.id} className="meal-photo-open-button" type="button" onClick={() => setActivePreviewPhotoId(photo.id)} aria-label="查看大图">
-                          <img src={resolveAssetUrl(photo.url) ?? photo.url} alt={photo.alt || buildMealTitle(viewModel.selectedMeal)} />
+                          <MediaWithPlaceholder
+                            src={resolveAssetUrl(photo.url) ?? photo.url}
+                            alt={photo.alt || buildMealTitle(viewModel.selectedMeal)}
+                          />
                         </button>
                       ))}
                       {viewModel.selectedMeal.photos.length === 0 && <div className="meal-log-photo-placeholder">待补照片</div>}

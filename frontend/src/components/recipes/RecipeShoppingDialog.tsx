@@ -1,4 +1,5 @@
 import type { Ingredient, RecipeIngredient } from '../../api/types';
+import { MediaWithPlaceholder } from '../MediaPlaceholder';
 import { ActionButton, Badge, EmptyState, WorkspaceModal } from '../ui-kit';
 import {
   buildRecipeIngredientAvailabilityMap,
@@ -65,7 +66,7 @@ export function RecipeShoppingDialog(props: RecipeShoppingDialogProps) {
                 {props.drafts.map((item) => (
                   <article key={item.id} className="recipe-shopping-draft-row">
                     <div className="recipe-shopping-media">
-                      <img
+                      <MediaWithPlaceholder
                         src={props.resolveIngredientImageUrl(
                           props.ingredients.find((ingredient) => ingredient.name === item.title) ?? null,
                           item.title
@@ -138,7 +139,10 @@ export function RecipeShoppingDialog(props: RecipeShoppingDialogProps) {
                 return (
                   <article key={item.id} className="recipe-shopping-candidate-row">
                     <div className="recipe-shopping-candidate-media">
-                      <img src={props.resolveIngredientImageUrl(linkedIngredient, item.ingredient_name)} alt={item.ingredient_name} />
+                      <MediaWithPlaceholder
+                        src={props.resolveIngredientImageUrl(linkedIngredient, item.ingredient_name)}
+                        alt={item.ingredient_name}
+                      />
                     </div>
                     <div>
                       <strong>{item.ingredient_name}</strong>
@@ -187,7 +191,7 @@ export function RecipeShoppingDialog(props: RecipeShoppingDialogProps) {
                   <div className="recipe-shopping-combobox-menu">
                     {props.visibleIngredientOptions.map((option) => (
                       <button key={option.id} type="button" onClick={() => props.onSelectIngredientOption(option)}>
-                        <img src={option.imageUrl} alt="" />
+                        <MediaWithPlaceholder src={option.imageUrl} alt="" />
                         <span>
                           <strong>{option.name}</strong>
                           <small>{option.category || '食材'} · 默认 {option.unit}</small>

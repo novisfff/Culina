@@ -11,6 +11,7 @@ import type {
   UpdateMealLogPayload,
 } from '../../api/types';
 import { DashboardIcon } from '../../app/shellIcons';
+import { MediaWithPlaceholder } from '../../components/MediaPlaceholder';
 import { FoodPlanDetailModal, type FoodPlanDetailFormState } from '../../components/foods/FoodPlanDetailModal';
 import type {
   DisposableExpiredInventoryItemViewModel,
@@ -153,14 +154,10 @@ export function HomeDashboardDialogs(props: Props) {
               {props.homePlanAddFood ? (
                 <div className="recipe-plan-dialog-hero">
                   <div className="recipe-plan-selected-cover">
-                    {getFoodCover(props.homePlanAddFood, props.recipes) ? (
-                      <img
-                        src={props.resolveAssetUrl(getFoodCover(props.homePlanAddFood, props.recipes)) ?? undefined}
-                        alt={props.homePlanAddFood.name}
-                      />
-                    ) : (
-                      <div className="recipe-plan-cover-empty">{props.homePlanAddFood.name.slice(0, 2)}</div>
-                    )}
+                    <MediaWithPlaceholder
+                      src={props.resolveAssetUrl(getFoodCover(props.homePlanAddFood, props.recipes))}
+                      alt={props.homePlanAddFood.name}
+                    />
                   </div>
                   <div className="recipe-plan-selected-copy">
                     <span className="recipe-plan-dialog-kicker">即将加入</span>
@@ -209,7 +206,7 @@ export function HomeDashboardDialogs(props: Props) {
                             onClick={() => props.selectHomePlanAddFood(food)}
                           >
                             <span className="recipe-plan-option-cover recipe-work-cover">
-                              {cover ? <img src={props.resolveAssetUrl(cover) ?? undefined} alt="" /> : <span>{food.name.slice(0, 2)}</span>}
+                              <MediaWithPlaceholder src={props.resolveAssetUrl(cover)} alt="" />
                             </span>
                             <span>
                               <strong>{food.name}</strong>
@@ -330,14 +327,10 @@ export function HomeDashboardDialogs(props: Props) {
             <div className="dashboard-todo-dialog">
               <section className="dashboard-todo-dialog-hero">
                 <div className="dashboard-todo-dialog-media">
-                  {props.homeExpiryReviewIngredient?.image?.url ? (
-                    <img
-                      src={props.resolveAssetUrl(props.homeExpiryReviewIngredient.image.url)}
-                      alt={props.homeExpiryReviewIngredient.name}
-                    />
-                  ) : (
-                      <span>{homeExpiryReviewItem.ingredient_name.slice(0, 1)}</span>
-                  )}
+                  <MediaWithPlaceholder
+                    src={props.resolveAssetUrl(props.homeExpiryReviewIngredient?.image?.url)}
+                    alt={props.homeExpiryReviewIngredient?.name ?? homeExpiryReviewItem.ingredient_name}
+                  />
                 </div>
                 <div className="dashboard-todo-dialog-copy">
                   <Badge className={homeExpiryReviewItem.daysLeft <= 1 ? 'dashboard-danger-badge' : 'dashboard-wait-badge'}>
@@ -461,7 +454,11 @@ export function HomeDashboardDialogs(props: Props) {
                   <span>照片</span>
                   <div className="meal-detail-photo-grid">
                     {props.homeMealDetail.photos.map((photo) => (
-                      <img key={photo.id} src={props.resolveAssetUrl(photo.url)} alt={photo.alt || photo.name} />
+                      <MediaWithPlaceholder
+                        key={photo.id}
+                        src={props.resolveAssetUrl(photo.url)}
+                        alt={photo.alt || photo.name}
+                      />
                     ))}
                   </div>
                 </section>
@@ -501,11 +498,10 @@ export function HomeDashboardDialogs(props: Props) {
                   {props.homeRestockIngredient ? (
                     <div className="ingredients-restock-matched-card">
                       <div className="ingredients-restock-matched-media">
-                        {props.homeRestockIngredientImageUrl ? (
-                          <img src={props.homeRestockIngredientImageUrl} alt={props.homeRestockIngredient.name} />
-                        ) : (
-                          <span>{props.homeRestockIngredient.name.slice(0, 1)}</span>
-                        )}
+                        <MediaWithPlaceholder
+                          src={props.homeRestockIngredientImageUrl}
+                          alt={props.homeRestockIngredient.name}
+                        />
                       </div>
                       <div className="ingredients-restock-matched-info">
                         <strong>{props.homeRestockIngredient.name}</strong>
@@ -882,14 +878,10 @@ export function HomeDashboardDialogs(props: Props) {
               <div className="destroy-expired-scroll">
                 <section className="ingredients-restock-identity-card destroy-expired-summary-card">
                   <div className="ingredients-restock-identity-media">
-                    {props.homeExpiredDisposalSummary.ingredient.image?.url ? (
-                      <img
-                        src={props.resolveAssetUrl(props.homeExpiredDisposalSummary.ingredient.image.url)}
-                        alt={props.homeExpiredDisposalSummary.ingredient.name}
-                      />
-                    ) : (
-                      <span>{props.homeExpiredDisposalSummary.ingredient.name.slice(0, 1)}</span>
-                    )}
+                    <MediaWithPlaceholder
+                      src={props.resolveAssetUrl(props.homeExpiredDisposalSummary.ingredient.image?.url)}
+                      alt={props.homeExpiredDisposalSummary.ingredient.name}
+                    />
                   </div>
                   <div className="ingredients-restock-identity-copy">
                     <div className="ingredients-restock-identity-head">

@@ -8,6 +8,7 @@ import {
   MEAL_OPTIONS,
 } from './FoodWorkspaceOptions';
 import type { FoodFormState } from './FoodWorkspaceModel';
+import { MediaWithPlaceholder } from '../MediaPlaceholder';
 import { FoodRatingInput, FoodUiIcon } from './FoodWorkspacePrimitives';
 import type { ImageGenerationUiState } from '../../hooks/useImageComposer';
 
@@ -113,7 +114,10 @@ export function FoodEditorForm(props: Props) {
               {props.isSelfMade ? (
                 <div className="food-editor-recipe-card">
                   <div className="food-editor-recipe-cover">
-                    {props.editorRecipeCover ? <img src={props.resolveAssetUrl(props.editorRecipeCover)} alt="" /> : <FoodUiIcon name="bowl" />}
+                    <MediaWithPlaceholder
+                      src={props.editorRecipeCover ? props.resolveAssetUrl(props.editorRecipeCover) : undefined}
+                      alt=""
+                    />
                   </div>
                   <div className="food-editor-recipe-copy">
                     <strong>{props.currentRecipe?.title || props.form.name || '还没有关联菜谱'}</strong>

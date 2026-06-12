@@ -2,6 +2,7 @@ import type { FormEvent } from 'react';
 import type { MealLog, MediaAsset, Member, UpdateMealLogPayload } from '../../api/types';
 import { Avatar } from '../../components/ui-kit';
 import { FoodRatingInput } from '../../components/foods/FoodWorkspacePrimitives';
+import { MediaWithPlaceholder } from '../../components/MediaPlaceholder';
 import { resolveAssetUrl } from '../../lib/assets';
 import { formatDate, MEAL_TYPE_LABELS } from '../../lib/ui';
 import { buildMealTitle, type MealSource } from './MealLogEnrichmentModel';
@@ -82,7 +83,7 @@ export function MealPhotoLightbox(props: { photo: MediaAsset; title: string; onC
             </button>
           </div>
         </div>
-        <img src={photoUrl} alt={props.photo.alt || props.title} />
+        <MediaWithPlaceholder src={photoUrl} alt={props.photo.alt || props.title} />
       </div>
     </div>
   );
@@ -197,7 +198,7 @@ export function MealEnrichmentForm(props: {
             {enrichmentState.photos.map((photo) => (
               <div className="meal-enrichment-photo-thumb" key={photo.id}>
                 <button className="meal-photo-open-button" type="button" onClick={() => enrichmentState.setActivePhoto(photo)} aria-label="查看大图">
-                  <img src={resolveAssetUrl(photo.url) ?? photo.url} alt={photo.alt || title} />
+                  <MediaWithPlaceholder src={resolveAssetUrl(photo.url) ?? photo.url} alt={photo.alt || title} />
                 </button>
                 <button className="meal-photo-remove-button" type="button" onClick={() => enrichmentState.removePhoto(photo.id)} aria-label="移除照片">
                   <MealEnrichmentIcon name="close" />

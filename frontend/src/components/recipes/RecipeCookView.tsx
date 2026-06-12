@@ -1,13 +1,10 @@
 import type { CSSProperties, Dispatch, Ref, SetStateAction } from 'react';
 import type { CookRecipePreviewResponse, RecipeStep } from '../../api/types';
 import { resolveAssetUrl } from '../../lib/assets';
+import { MediaWithPlaceholder } from '../MediaPlaceholder';
 import { ActionButton, Badge } from '../ui-kit';
 import { COOK_TIMER_PRESETS } from './RecipeWorkspaceOptions';
-import {
-  RecipeDishIllustration,
-  RecipeUiIcon,
-  getRecipeVisualTone,
-} from './RecipeWorkspaceCards';
+import { RecipeUiIcon } from './RecipeWorkspaceCards';
 import {
   formatCookQuantity,
   formatCookTimer,
@@ -106,11 +103,7 @@ export function RecipeCookView({
             </div>
             <div className="recipe-cook-hero-side">
               <div className="recipe-cook-hero-art" aria-hidden="true">
-                {activeCookCard.coverUrl ? (
-                  <img src={resolveAssetUrl(activeCookCard.coverUrl)} alt="" />
-                ) : (
-                  <RecipeDishIllustration title={activeCookCard.recipe.title} tone={getRecipeVisualTone(activeCookCard.recipe.id)} />
-                )}
+                <MediaWithPlaceholder src={resolveAssetUrl(activeCookCard.coverUrl)} alt="" />
               </div>
               <div className="recipe-cook-progress-card">
                 <Badge className={`recipe-availability-badge tone-${activeCookCard.availability}`}>{activeCookCard.availabilityLabel}</Badge>

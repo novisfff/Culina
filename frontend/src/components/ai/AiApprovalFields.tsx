@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-
-export const AI_RESOURCE_PLACEHOLDER_URL = '/assets/ai-food-ingredient-placeholder.png';
+import { MediaWithPlaceholder } from '../MediaPlaceholder';
 
 function asText(value: unknown, fallback = '') {
   return typeof value === 'string' ? value : fallback;
@@ -28,7 +27,7 @@ export type AiResourceOption = {
   id: string;
   label: string;
   description?: string;
-  imageUrl: string;
+  imageUrl?: string;
   unit?: string;
 };
 
@@ -45,7 +44,14 @@ type MealPlanIngredientItem = {
 };
 
 function ResourceThumbnail({ option }: { option?: AiResourceOption | null }) {
-  return <img className="ai-resource-thumbnail" src={option?.imageUrl ?? AI_RESOURCE_PLACEHOLDER_URL} alt="" />;
+  return (
+    <MediaWithPlaceholder
+      className="ai-resource-thumbnail-frame"
+      imageClassName="ai-resource-thumbnail"
+      src={option?.imageUrl}
+      alt=""
+    />
+  );
 }
 
 export function ResourceSelectIcon({ kind }: { kind: 'calendar' | 'meal' | 'difficulty' | 'type' | 'step' }) {
@@ -428,4 +434,3 @@ export function IngredientQuantityPicker({
     </section>
   );
 }
-

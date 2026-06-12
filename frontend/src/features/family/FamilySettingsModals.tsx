@@ -1,5 +1,6 @@
 import type { FormEventHandler } from 'react';
 import type { FamilyDetail, ImageInputValue, Member, UserSummary } from '../../api/types';
+import { MediaWithPlaceholder } from '../../components/MediaPlaceholder';
 import { ActionButton, Avatar, WorkspaceModal } from '../../components/ui-kit';
 import { ShellIcon } from '../../app/shellIcons';
 
@@ -434,13 +435,7 @@ export function FamilyEditModal(props: {
         <form className="family-edit-form" onSubmit={props.onSubmit}>
           <section className="family-edit-card">
             <div className="family-edit-preview">
-              {resolvedImageUrl ? (
-                <img src={resolvedImageUrl} alt={props.form.name || '家庭头像'} />
-              ) : (
-                <div className="family-edit-cover-placeholder">
-                  <ShellIcon name="logo" />
-                </div>
-              )}
+              <MediaWithPlaceholder src={resolvedImageUrl} alt={props.form.name || '家庭头像'} />
               <div>
                 <strong>{props.form.name || props.family?.name || '家庭厨房'}</strong>
                 <p>{props.form.location || props.family?.location || '未填写位置'}</p>
@@ -512,13 +507,7 @@ export function FamilyEditModal(props: {
             </div>
             <div className="family-image-body">
               <div className="family-image-large-preview">
-                {resolvedImageUrl ? (
-                  <img src={resolvedImageUrl} alt={props.form.name || '家庭头像'} />
-                ) : (
-                  <div className="family-image-empty">
-                    <ShellIcon name="logo" />
-                  </div>
-                )}
+                <MediaWithPlaceholder src={resolvedImageUrl} alt={props.form.name || '家庭头像'} />
                 <span>{props.imageControls.isGenerating ? '生成中...' : props.form.images.generatedAsset ? '已设置家庭图' : '当前预览'}</span>
               </div>
               {props.imageControls.isPromptOpen && (

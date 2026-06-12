@@ -1,7 +1,6 @@
 import type { CSSProperties } from 'react';
 import type { Ingredient } from '../../api/types';
 import { resolveAssetUrl } from '../../lib/assets';
-import { buildIngredientPlaceholderSvg } from '../../lib/ui';
 import { convertQuantityToDefaultUnit, getIngredientUnitOptions, resolvePreferredIngredientUnit } from '../../lib/ingredientUnits';
 import {
   buildDisposableExpiredInventoryItems,
@@ -125,11 +124,7 @@ export function IngredientWorkspaceOverlays(props: OverlayLayerProps) {
   const shoppingIngredientUnitOptions = selectedShoppingIngredient
     ? getIngredientUnitOptions(selectedShoppingIngredient)
     : [];
-  const selectedShoppingIngredientPreview =
-    selectedShoppingIngredient?.image?.url
-      ? resolveAssetUrl(selectedShoppingIngredient.image.url) ??
-        buildIngredientPlaceholderSvg((selectedShoppingIngredient?.name ?? props.shoppingForm.title) || '待买项')
-      : buildIngredientPlaceholderSvg((selectedShoppingIngredient?.name ?? props.shoppingForm.title) || '待买项');
+  const selectedShoppingIngredientPreview = resolveAssetUrl(selectedShoppingIngredient?.image?.url);
   const selectedShoppingIngredientMeta = selectedShoppingIngredient
     ? [
         selectedShoppingIngredient.category || '未分类',
@@ -137,11 +132,7 @@ export function IngredientWorkspaceOverlays(props: OverlayLayerProps) {
         selectedShoppingIngredient.default_storage || '常温',
       ]
     : [];
-  const selectedIngredientPreview =
-    selectedInventoryIngredient?.image?.url
-      ? resolveAssetUrl(selectedInventoryIngredient.image.url) ??
-        buildIngredientPlaceholderSvg(selectedInventoryIngredient?.name ?? '食材')
-      : buildIngredientPlaceholderSvg(selectedInventoryIngredient?.name ?? '食材');
+  const selectedIngredientPreview = resolveAssetUrl(selectedInventoryIngredient?.image?.url);
   const selectedIngredientMeta = selectedInventoryIngredient
     ? [
         selectedInventoryIngredient.category || '未分类',
@@ -149,11 +140,7 @@ export function IngredientWorkspaceOverlays(props: OverlayLayerProps) {
         selectedInventoryIngredient.default_storage || '常温',
       ]
     : [];
-  const selectedConsumePreview =
-    selectedConsumeSummary?.ingredient.image?.url
-      ? resolveAssetUrl(selectedConsumeSummary.ingredient.image.url) ??
-        buildIngredientPlaceholderSvg(selectedConsumeSummary?.ingredient.name ?? '食材')
-      : buildIngredientPlaceholderSvg(selectedConsumeSummary?.ingredient.name ?? '食材');
+  const selectedConsumePreview = resolveAssetUrl(selectedConsumeSummary?.ingredient.image?.url);
   const selectedConsumeMeta = selectedConsumeSummary
     ? [
         selectedConsumeSummary.ingredient.category || '未分类',
@@ -161,11 +148,7 @@ export function IngredientWorkspaceOverlays(props: OverlayLayerProps) {
         selectedConsumeSummary.primaryStorage || selectedConsumeSummary.ingredient.default_storage || '常温',
       ]
     : [];
-  const selectedDestroyExpiredPreview =
-    selectedDestroyExpiredSummary?.ingredient.image?.url
-      ? resolveAssetUrl(selectedDestroyExpiredSummary.ingredient.image.url) ??
-        buildIngredientPlaceholderSvg(selectedDestroyExpiredSummary?.ingredient.name ?? '食材')
-      : buildIngredientPlaceholderSvg(selectedDestroyExpiredSummary?.ingredient.name ?? '食材');
+  const selectedDestroyExpiredPreview = resolveAssetUrl(selectedDestroyExpiredSummary?.ingredient.image?.url);
   const selectedDestroyExpiredMeta = selectedDestroyExpiredSummary
     ? [
         selectedDestroyExpiredSummary.ingredient.category || '未分类',
