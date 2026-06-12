@@ -1,6 +1,7 @@
 import type { FormEvent } from 'react';
 import { resolveAssetUrl } from '../../lib/assets';
 import type { ImageGenerationUiState } from '../../hooks/useImageComposer';
+import { MediaWithPlaceholder } from '../MediaPlaceholder';
 import { ActionButton, WorkspaceModal } from '../ui-kit';
 import { RecipeUiIcon } from './RecipeWorkspaceCards';
 import type { ManagedRecipeScene, RecipeSceneCard, RecipeSceneFormMode } from './RecipeWorkspaceModel';
@@ -91,7 +92,10 @@ export function RecipeSceneManagerDialog(props: RecipeSceneManagerDialogProps) {
                   onClick={() => props.onGenerateImage(props.sceneDraft)}
                 >
                   {props.sceneDraft.imageAssetUrl ? (
-                    <img src={resolveAssetUrl(props.sceneDraft.imageAssetUrl)} alt={props.sceneDraft.name || '场景图片'} />
+                    <MediaWithPlaceholder
+                      src={resolveAssetUrl(props.sceneDraft.imageAssetUrl)}
+                      alt={props.sceneDraft.name || '场景图片'}
+                    />
                   ) : (
                     <>
                       <span className="recipe-scene-generate-visual"><RecipeUiIcon name="sparkle" /></span>
@@ -120,7 +124,11 @@ export function RecipeSceneManagerDialog(props: RecipeSceneManagerDialogProps) {
               props.categoryCards.map((scene) => (
                 <article key={scene.name} className="recipe-scene-row">
                   <div className="recipe-scene-row-thumb">
-                    {scene.imageAssetUrl ? <img src={resolveAssetUrl(scene.imageAssetUrl)} alt="" /> : <RecipeUiIcon name="sparkle" />}
+                    {scene.imageAssetUrl ? (
+                      <MediaWithPlaceholder src={resolveAssetUrl(scene.imageAssetUrl)} alt="" />
+                    ) : (
+                      <RecipeUiIcon name="sparkle" />
+                    )}
                   </div>
                   <div>
                     <strong>{scene.name}</strong>

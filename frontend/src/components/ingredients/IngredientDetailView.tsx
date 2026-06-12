@@ -1,13 +1,13 @@
 import type { ReactNode } from 'react';
 import type { Ingredient, Recipe } from '../../api/types';
 import { resolveAssetUrl } from '../../lib/assets';
+import { MediaWithPlaceholder } from '../MediaPlaceholder';
 import {
   convertQuantityToDefaultUnit,
   getInventoryConsumedQuantity,
   getInventoryRemainingQuantity,
 } from '../../lib/ingredientUnits';
 import {
-  Avatar,
   Badge,
   EmptyState,
   SectionHeading,
@@ -102,18 +102,10 @@ export function IngredientDetailView(props: IngredientDetailViewProps) {
 
       <article className="ingredient-detail-hero">
         <div className="ingredient-detail-cover">
-          {selectedIngredient.ingredient.image?.url ? (
-            <img
-              src={resolveAssetUrl(selectedIngredient.ingredient.image.url)}
-              alt={selectedIngredient.ingredient.name}
-            />
-          ) : (
-            <Avatar
-              label={selectedIngredient.ingredient.name}
-              seed={selectedIngredient.ingredient.name}
-              large
-            />
-          )}
+          <MediaWithPlaceholder
+            src={resolveAssetUrl(selectedIngredient.ingredient.image?.url)}
+            alt={selectedIngredient.ingredient.name}
+          />
         </div>
         <div className="ingredient-detail-copy">
           <h3>{selectedIngredient.ingredient.notes || '适合搭配肉片和鸡蛋'}</h3>
@@ -328,13 +320,11 @@ export function IngredientDetailView(props: IngredientDetailViewProps) {
 
                 return (
                   <article key={item.id} className="ingredient-related-row">
-                    {linkedImageUrl ? (
-                      <img className="ingredient-related-thumb" src={linkedImageUrl} alt={item.title} />
-                    ) : (
-                      <span className="ingredient-detail-row-icon tone-brown" aria-hidden="true">
-                        {props.renderIcon('link')}
-                      </span>
-                    )}
+                    <MediaWithPlaceholder
+                      className="ingredient-related-thumb"
+                      src={linkedImageUrl}
+                      alt={item.title}
+                    />
                     <div>
                       <h3>{item.title}</h3>
                       <p className="subtle">已在菜谱库中引用，可用于做饭推荐与食材串联。</p>

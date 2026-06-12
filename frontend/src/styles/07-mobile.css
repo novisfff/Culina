@@ -1589,12 +1589,26 @@
   .mobile-ingredient-library-cover {
     position: relative;
     min-width: 0;
-    display: grid;
-    place-items: center;
+    display: block;
     overflow: hidden;
-    padding: 0;
-    border: 0;
+    padding: 0 !important;
+    border: 0 !important;
+    margin: 0 !important;
+    border-radius: 0 !important;
     background: #f2e3d4;
+  }
+
+  .mobile-ingredient-priority-cover .media-with-placeholder,
+  .mobile-ingredient-library-cover .media-with-placeholder {
+    position: absolute !important;
+    inset: 0 !important;
+    width: 100% !important;
+    min-width: 100% !important;
+    max-width: 100% !important;
+    height: 100% !important;
+    min-height: 100% !important;
+    max-height: 100% !important;
+    border-radius: 0 !important;
   }
 
   .mobile-ingredient-priority-cover img,
@@ -1605,6 +1619,20 @@
     height: 100%;
     display: block;
     object-fit: cover;
+  }
+
+  .mobile-ingredient-priority-cover img,
+  .mobile-ingredient-library-cover img {
+    position: absolute !important;
+    inset: 0 !important;
+    width: 100% !important;
+    min-width: 100% !important;
+    max-width: 100% !important;
+    height: 100% !important;
+    min-height: 100% !important;
+    max-height: 100% !important;
+    border-radius: 0 !important;
+    object-fit: cover !important;
   }
 
   .mobile-ingredient-priority-body {
@@ -4792,15 +4820,9 @@
     font-weight: 900;
   }
 
-  .mobile-dashboard-plan-dish img {
+  .mobile-dashboard-plan-dish > .media-with-placeholder {
     width: 36px;
     height: 34px;
-    object-fit: cover;
-  }
-
-  .mobile-dashboard-plan-dish:not(:has(img)) {
-    grid-template-columns: minmax(0, 1fr);
-    padding-left: 9px;
   }
 
   .mobile-dashboard-plan-dish span {
@@ -4871,11 +4893,10 @@
     background: #f3e5d7;
   }
 
-  .mobile-dashboard-shopping-pill img {
+  .mobile-dashboard-shopping-pill .media-with-placeholder {
     width: 100%;
     height: 100%;
     display: block;
-    object-fit: cover;
   }
 
   .mobile-dashboard-shopping-pill small {

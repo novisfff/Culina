@@ -703,8 +703,8 @@
 }
 
 .meal-log-enrich-modal.workspace-modal {
-  width: min(1184px, calc(100vw - 64px));
-  padding: 36px 42px 28px;
+  width: min(var(--modal-width-lg), calc(100vw - 32px));
+  padding: 24px 28px;
   border: 1px solid rgba(255, 255, 255, 0.72);
   border-radius: 22px;
   background: rgba(255, 255, 255, 0.96);
@@ -715,7 +715,7 @@
   align-items: start;
   padding-bottom: 0;
   border-bottom: 0;
-  margin-bottom: 26px;
+  margin-bottom: 20px;
 }
 
 .meal-log-enrich-modal .workspace-overlay-titleblock .eyebrow {
@@ -726,28 +726,28 @@
   margin: 0;
   color: #261c16;
   font-family: var(--font-sans);
-  font-size: clamp(2.35rem, 3vw, 2.85rem);
-  font-weight: 950;
-  line-height: 1.06;
+  font-size: 1.25rem;
+  font-weight: 600;
+  line-height: 1.4;
   letter-spacing: 0;
 }
 
 .meal-log-enrich-modal .workspace-overlay-titleblock .subtle {
   margin-top: 6px;
   color: #8a796e;
-  font-size: 1.02rem;
-  font-weight: 760;
+  font-size: 0.82rem;
+  font-weight: 500;
 }
 
 .meal-log-enrich-modal .workspace-overlay-close {
-  width: 48px;
-  min-width: 48px;
-  height: 48px;
-  min-height: 48px;
+  width: 32px;
+  min-width: 32px;
+  height: 32px;
+  min-height: 32px;
   border: 0;
   background: transparent;
   color: #5f5148;
-  font-size: 2.35rem;
+  font-size: 0.95rem;
   line-height: 1;
   box-shadow: none;
 }
@@ -960,15 +960,17 @@
 }
 
 .meal-log-enrich-modal .meal-dish-rating-row .food-rating-input {
-  min-height: 40px;
-  padding: 0 10px;
+  min-height: var(--input-height-lg);
+  padding: 0 12px;
   border-color: rgba(210, 107, 51, 0.16);
   box-shadow: none;
 }
 
 .meal-log-enrich-modal .meal-dish-rating-row .food-rating-stars {
-  height: 26px;
-  font-size: 1.28rem;
+  height: 36px;
+  font-size: var(--text-xl);
+  display: flex;
+  align-items: center;
 }
 
 .meal-log-enrich-modal .meal-dish-rating-row .food-rating-input strong {
@@ -976,8 +978,11 @@
 }
 
 .meal-log-enrich-modal .meal-dish-rating-row .food-rating-clear {
-  min-height: 24px;
-  padding: 0 8px;
+  min-height: var(--tap-min);
+  padding: 0 12px;
+  display: inline-flex;
+  align-items: center;
+  font-size: var(--text-xs);
 }
 
 .meal-enrichment-member-pills {
@@ -1318,13 +1323,13 @@
   min-width: 148px;
   min-height: 50px;
   border-radius: 12px;
-  font-size: 0.98rem;
-  font-weight: 900;
+  font-size: var(--text-body);
+  font-weight: 700;
 }
 
 @media (max-width: 1120px) {
   .meal-log-enrich-modal.workspace-modal {
-    width: min(920px, calc(100vw - 36px));
+    width: min(var(--modal-width-lg), calc(100vw - 36px));
     max-height: calc(100vh - 28px);
     overflow: auto;
   }

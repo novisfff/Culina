@@ -594,8 +594,12 @@
   background: #e8f5e4;
 }
 
-.dashboard-todo-modal {
-  width: min(560px, calc(100vw - 28px));
+.dashboard-todo-modal .workspace-overlay-actions .solid-button,
+.dashboard-todo-modal .workspace-overlay-actions .ghost-button {
+  min-height: var(--tap-large);
+  min-width: 116px;
+  border-radius: 12px;
+  font-size: var(--text-body);
 }
 
 
@@ -646,8 +650,8 @@
 .dashboard-todo-dialog-copy h3 {
   margin: 0;
   color: #33251e;
-  font-size: 1.22rem;
-  line-height: 1.2;
+  font-size: 1.25rem;
+  line-height: 1.4;
 }
 
 .dashboard-todo-dialog-copy p,
@@ -674,7 +678,7 @@
 
 .dashboard-todo-dialog-grid span {
   color: #9a8b80;
-  font-size: 0.78rem;
+  font-size: 0.8rem;
   font-weight: 700;
 }
 
@@ -682,7 +686,7 @@
   display: block;
   margin-top: 4px;
   color: #3a2b23;
-  font-size: 0.96rem;
+  font-size: 0.95rem;
 }
 
 .meal-detail-head {
@@ -700,8 +704,8 @@
 .meal-detail-head h3 {
   margin: 0;
   color: #33251e;
-  font-size: 1.22rem;
-  line-height: 1.2;
+  font-size: 1.25rem;
+  line-height: 1.4;
 }
 
 .meal-detail-head p,
@@ -1286,16 +1290,10 @@
   transition: transform 0.16s ease, border-color 0.16s ease, box-shadow 0.16s ease, background 0.16s ease;
 }
 
-.dashboard-plan-dish img {
+.dashboard-plan-dish > .media-with-placeholder {
   width: 42px;
   height: 100%;
   border-radius: 0;
-  object-fit: cover;
-}
-
-.dashboard-plan-dish:not(:has(img)) {
-  grid-template-columns: minmax(0, 1fr);
-  padding-left: 9px;
 }
 
 .dashboard-plan-dish span {
@@ -1410,10 +1408,9 @@
   background: #f7eadb;
 }
 
-.dashboard-shopping-image img {
+.dashboard-shopping-image > .media-with-placeholder {
   width: 100%;
   height: 100%;
-  object-fit: cover;
   display: block;
 }
 

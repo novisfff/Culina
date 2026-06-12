@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 import { buildMediaSizes, buildMediaSrcSet, resolveAssetUrl, resolveMediaUrl } from '../../lib/assets';
-import { buildIngredientPlaceholderSvg } from '../../lib/ui';
 import type { ShoppingListItem } from '../../api/types';
+import { MediaWithPlaceholder } from '../MediaPlaceholder';
 import type {
   IngredientSummaryViewModel,
   InventoryCardStatusViewModel,
@@ -127,14 +127,14 @@ export function IngredientMobileView(props: IngredientMobileViewProps) {
         {props.mobilePrioritySummaries.length > 0 ? (
           <div className="mobile-ingredient-priority-scroller">
             {props.mobilePrioritySummaries.map((summary) => {
-              const imageUrl = resolveMediaUrl(summary.ingredient.image, 'card') ?? buildIngredientPlaceholderSvg(summary.ingredient.name);
+              const imageUrl = resolveMediaUrl(summary.ingredient.image, 'card');
               const status = props.buildPriorityStatus(summary);
               const canConsume = summary.availableInventoryItems.length > 0;
               const canDestroyExpired = props.countDisposableExpiredItems(summary) > 0;
               return (
                 <article key={summary.ingredient.id} className={`mobile-ingredient-priority-card tone-${status.tone}`}>
                   <button className="mobile-ingredient-priority-cover" type="button" onClick={() => props.openDetailView(summary.ingredient.id)}>
-                    <img
+                    <MediaWithPlaceholder
                       src={imageUrl}
                       srcSet={buildMediaSrcSet(summary.ingredient.image)}
                       sizes={buildMediaSizes('card')}
@@ -269,13 +269,13 @@ export function IngredientMobileView(props: IngredientMobileViewProps) {
         {props.mobileCatalogSummaries.length > 0 ? (
           <div className="mobile-ingredient-library-grid">
             {props.mobileCatalogSummaries.map((summary) => {
-              const imageUrl = resolveMediaUrl(summary.ingredient.image, 'card') ?? buildIngredientPlaceholderSvg(summary.ingredient.name);
+              const imageUrl = resolveMediaUrl(summary.ingredient.image, 'card');
               const status = props.buildCatalogStatus(summary);
               const canConsume = summary.availableInventoryItems.length > 0;
               return (
                 <article key={summary.ingredient.id} className={`mobile-ingredient-library-card tone-${status.tone}`}>
                   <button className="mobile-ingredient-library-cover" type="button" onClick={() => props.openDetailView(summary.ingredient.id)}>
-                    <img
+                    <MediaWithPlaceholder
                       src={imageUrl}
                       srcSet={buildMediaSrcSet(summary.ingredient.image)}
                       sizes={buildMediaSizes('card')}
@@ -347,13 +347,11 @@ export function IngredientMobileView(props: IngredientMobileViewProps) {
         {props.mobileShoppingCards.length > 0 ? (
           <div className="mobile-ingredient-shopping-list">
             {props.mobileShoppingCards.map((card) => {
-              const imageUrl =
-                resolveMediaUrl(card.linkedSummary?.ingredient.image, 'thumb') ??
-                buildIngredientPlaceholderSvg(card.title || '待买项');
+              const imageUrl = resolveMediaUrl(card.linkedSummary?.ingredient.image, 'thumb');
               return (
                 <article key={card.shoppingItem.id} className={`mobile-ingredient-shopping-card tone-${card.statusTone}`}>
                   <span className="mobile-ingredient-shopping-cover">
-                    <img
+                    <MediaWithPlaceholder
                       src={imageUrl}
                       srcSet={buildMediaSrcSet(card.linkedSummary?.ingredient.image)}
                       sizes={buildMediaSizes('thumb')}

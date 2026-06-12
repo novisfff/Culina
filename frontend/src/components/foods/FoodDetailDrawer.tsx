@@ -1,6 +1,7 @@
 import type { Food, MealLog, MealType, Recipe, MediaAsset } from '../../api/types';
 import { buildMediaSizes, buildMediaSrcSet, resolveMediaUrl } from '../../lib/assets';
 import { FOOD_TYPE_LABELS, MEAL_TYPE_LABELS, formatDate } from '../../lib/ui';
+import { MediaWithPlaceholder } from '../MediaPlaceholder';
 import type { RecipeCardViewModel } from '../recipes/workspaceModel';
 import { ActionButton, Badge, WorkspaceDrawer } from '../ui-kit';
 
@@ -83,14 +84,12 @@ export function FoodDetailDrawer(props: Props) {
       >
         <div className="food-detail-hero">
           <div className="food-detail-cover">
-            {coverUrl ? (
-              <img
-                src={coverUrl}
-                srcSet={buildMediaSrcSet(props.coverAsset)}
-                sizes={buildMediaSizes('hero')}
-                alt={props.food.name}
-              />
-            ) : <span>{props.food.name.slice(0, 4)}</span>}
+            <MediaWithPlaceholder
+              src={coverUrl}
+              srcSet={buildMediaSrcSet(props.coverAsset)}
+              sizes={buildMediaSizes('hero')}
+              alt={props.food.name}
+            />
           </div>
           <div className="food-detail-status-row">
             <span className={`food-card-status tone-${props.status.tone}`}>

@@ -1,5 +1,6 @@
 import type { FormEvent } from 'react';
 import type { Ingredient, IngredientUnitConversion } from '../../api/types';
+import { MediaWithPlaceholder } from '../MediaPlaceholder';
 import { ActionButton, Badge, TouchStepperField, WorkspaceModal } from '../ui-kit';
 import { resolvePreferredIngredientUnit } from '../../lib/ingredientUnits';
 import { buildUnitPresetOptions, formatNumericString, type ShoppingDialogFormState } from './ingredientWorkspaceForms';
@@ -10,7 +11,7 @@ type IngredientShoppingOverlayProps = {
   shoppingForm: ShoppingDialogFormState;
   setShoppingForm: (next: ShoppingDialogFormState) => void;
   selectedShoppingIngredient: Ingredient | null;
-  selectedShoppingIngredientPreview: string;
+  selectedShoppingIngredientPreview?: string;
   selectedShoppingIngredientMeta: string[];
   shoppingIngredientUnitOptions: IngredientUnitConversion[];
   shoppingQuantityValue: number;
@@ -37,7 +38,10 @@ export function IngredientShoppingOverlay(props: IngredientShoppingOverlayProps)
           {props.selectedShoppingIngredient ? (
             <section className="ingredients-restock-identity-card">
               <div className="ingredients-restock-identity-media">
-                <img src={props.selectedShoppingIngredientPreview} alt={props.selectedShoppingIngredient.name} />
+                <MediaWithPlaceholder
+                  src={props.selectedShoppingIngredientPreview}
+                  alt={props.selectedShoppingIngredient.name}
+                />
               </div>
               <div className="ingredients-restock-identity-copy">
                 <div className="ingredients-restock-identity-head">

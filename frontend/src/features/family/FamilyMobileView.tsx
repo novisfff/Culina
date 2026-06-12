@@ -1,5 +1,6 @@
 import type { ActivityLog, Member, MembershipSummary, UserSummary } from '../../api/types';
 import { DashboardIcon, ShellIcon } from '../../app/shellIcons';
+import { MediaWithPlaceholder } from '../../components/MediaPlaceholder';
 import { Avatar } from '../../components/ui-kit';
 import { formatDateTime } from '../../lib/ui';
 import type { FamilyOverlayMode, FamilyStatCard } from './FamilySettings';
@@ -42,7 +43,10 @@ export function FamilyMobileView(props: {
 
       <header className="mobile-family-hero">
         <div className="mobile-family-cover">
-          <img src={props.resolveAssetUrl(props.familyHeroImageUrl)} alt={props.familyName ?? '家庭厨房'} />
+          <MediaWithPlaceholder
+            src={props.resolveAssetUrl(props.familyHeroImageUrl)}
+            alt={props.familyName ?? '家庭厨房'}
+          />
         </div>
         <div className="mobile-family-hero-copy">
           <h1>{props.familyName ?? '我的家庭'}</h1>

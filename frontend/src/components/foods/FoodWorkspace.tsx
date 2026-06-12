@@ -16,6 +16,7 @@ import type {
 } from '../../api/types';
 import { buildMediaSizes, buildMediaSrcSet, resolveAssetUrl, resolveMediaUrl } from '../../lib/assets';
 import { addDateKeyDays } from '../../lib/date';
+import { MediaWithPlaceholder } from '../MediaPlaceholder';
 import {
   ActionButton,
   Badge,
@@ -1056,14 +1057,12 @@ export function FoodWorkspace(props: Props) {
               return (
                 <article key={item.food.id} className={`food-recommendation-card tone-${normalizedType}`}>
                   <div className="food-recommendation-media">
-                    {cover ? (
-                      <img
-                        src={cover}
-                        srcSet={buildMediaSrcSet(coverAsset)}
-                        sizes={buildMediaSizes('card')}
-                        alt=""
-                      />
-                    ) : <span>{item.food.name.slice(0, 2)}</span>}
+                    <MediaWithPlaceholder
+                      src={cover}
+                      srcSet={buildMediaSrcSet(coverAsset)}
+                      sizes={buildMediaSizes('card')}
+                      alt=""
+                    />
                   </div>
                   <div className="food-recommendation-body">
                     <div className="food-recommendation-heading">
@@ -1206,14 +1205,12 @@ export function FoodWorkspace(props: Props) {
             return (
               <article key={food.id} className={`food-work-card tone-${normalizedType}`}>
                 <div className="food-work-card-media">
-                  {cover ? (
-                    <img
-                      src={cover}
-                      srcSet={buildMediaSrcSet(coverAsset)}
-                      sizes={buildMediaSizes('card')}
-                      alt={food.name}
-                    />
-                  ) : <span>{food.name.slice(0, 4)}</span>}
+                  <MediaWithPlaceholder
+                    src={cover}
+                    srcSet={buildMediaSrcSet(coverAsset)}
+                    sizes={buildMediaSizes('card')}
+                    alt={food.name}
+                  />
                   <span className="food-type-overlay">{FOOD_TYPE_LABELS[normalizedType]}</span>
                   <button
                     className={food.favorite ? 'food-favorite-chip active' : 'food-favorite-chip'}
@@ -1399,14 +1396,12 @@ export function FoodWorkspace(props: Props) {
                     onClick={() => setSceneFilter(sceneFilter === scene.name ? 'all' : scene.name)}
                   >
                     <span className="food-sidebar-scene-thumb">
-                      {sceneImageUrl ? (
-                        <img
-                          src={sceneImageUrl}
-                          srcSet={buildMediaSrcSet(scene.imageAsset)}
-                          sizes={buildMediaSizes('thumb')}
-                          alt=""
-                        />
-                      ) : <FoodUiIcon name="star" />}
+                      <MediaWithPlaceholder
+                        src={sceneImageUrl}
+                        srcSet={buildMediaSrcSet(scene.imageAsset)}
+                        sizes={buildMediaSizes('thumb')}
+                        alt=""
+                      />
                     </span>
                     <span className="food-sidebar-scene-copy">
                       <strong>{scene.name}</strong>
@@ -1563,14 +1558,12 @@ export function FoodWorkspace(props: Props) {
               <form className="food-quick-meal-form" onSubmit={submitQuickMealDialog}>
                 <div className="food-quick-meal-hero">
                   <span className="food-quick-meal-cover">
-                    {cover ? (
-                      <img
-                        src={cover}
-                        srcSet={buildMediaSrcSet(coverAsset)}
-                        sizes={buildMediaSizes('thumb')}
-                        alt=""
-                      />
-                    ) : <span>{quickMealDialog.food.name.slice(0, 2)}</span>}
+                    <MediaWithPlaceholder
+                      src={cover}
+                      srcSet={buildMediaSrcSet(coverAsset)}
+                      sizes={buildMediaSizes('thumb')}
+                      alt=""
+                    />
                   </span>
                   <span className="food-quick-meal-copy">
                     <strong>{quickMealDialog.food.name}</strong>

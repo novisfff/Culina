@@ -1,4 +1,5 @@
 import type { CSSProperties, FormEvent } from 'react';
+import { MediaWithPlaceholder } from '../MediaPlaceholder';
 import { ActionButton, Badge, WorkspaceModal } from '../ui-kit';
 import type { IngredientSummaryViewModel } from './workspaceModel';
 import type { ConsumeQuickPreset } from './consumeQuickHelpers';
@@ -13,7 +14,7 @@ type IngredientConsumeOverlayProps = {
   closeOverlay: () => void;
   consumeForm: { quantity: string; unit: string };
   selectedConsumeSummary: IngredientSummaryViewModel;
-  selectedConsumePreview: string;
+  selectedConsumePreview?: string;
   selectedConsumeMeta: string[];
   consumeUnitOptions: ConsumeUnitOption[];
   selectedConsumeUnit: ConsumeUnitOption | null;
@@ -48,7 +49,10 @@ export function IngredientConsumeOverlay(props: IngredientConsumeOverlayProps) {
         <div className="consume-quick-scroll">
           <section className="ingredients-restock-identity-card ingredients-consume-identity-card">
             <div className="ingredients-restock-identity-media">
-              <img src={props.selectedConsumePreview} alt={props.selectedConsumeSummary.ingredient.name} />
+              <MediaWithPlaceholder
+                src={props.selectedConsumePreview}
+                alt={props.selectedConsumeSummary.ingredient.name}
+              />
             </div>
             <div className="ingredients-restock-identity-copy">
               <div className="ingredients-restock-identity-head">

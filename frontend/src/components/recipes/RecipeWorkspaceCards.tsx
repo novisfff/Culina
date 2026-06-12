@@ -2,6 +2,7 @@ import { buildMediaSizes, buildMediaSrcSet, resolveAssetUrl, resolveMediaUrl } f
 import { ActionButton, Badge } from '../ui-kit';
 import { DIFFICULTY_LABELS, type RecipeCardViewModel } from './workspaceModel';
 import type { RecipeSceneCard, RecipeUiIconName } from './RecipeWorkspaceModel';
+import { MediaWithPlaceholder } from '../MediaPlaceholder';
 
 export function RecipeUiIcon(props: { name: RecipeUiIconName; className?: string }) {
   const common = {
@@ -270,16 +271,12 @@ export function RecipeCover(props: { card: RecipeCardViewModel; className?: stri
   const url = resolveMediaUrl(props.card.coverAsset, 'card') ?? resolveAssetUrl(props.card.coverUrl);
   return (
     <div className={props.className ? `recipe-work-cover ${props.className}` : 'recipe-work-cover'}>
-      {url ? (
-        <img
-          src={url}
-          srcSet={buildMediaSrcSet(props.card.coverAsset)}
-          sizes={buildMediaSizes('card')}
-          alt={props.card.recipe.title}
-        />
-      ) : (
-        <RecipeDishIllustration title={props.card.recipe.title} tone={getRecipeVisualTone(props.card.recipe.id)} />
-      )}
+      <MediaWithPlaceholder
+        src={url}
+        srcSet={buildMediaSrcSet(props.card.coverAsset)}
+        sizes={buildMediaSizes('card')}
+        alt={props.card.recipe.title}
+      />
     </div>
   );
 }

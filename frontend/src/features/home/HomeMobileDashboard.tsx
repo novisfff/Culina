@@ -2,8 +2,9 @@ import type { Dispatch, SetStateAction } from 'react';
 import type { Food, FoodPlanItem, FoodRecommendations, Ingredient, MealType, Recipe, ShoppingListItem } from '../../api/types';
 import type { TabKey } from '../../app/AppShell';
 import { DashboardIcon, DashboardMealIcon, ShellIcon } from '../../app/shellIcons';
+import { MediaWithPlaceholder } from '../../components/MediaPlaceholder';
 import { Badge, EmptyState } from '../../components/ui-kit';
-import { buildIngredientPlaceholderSvg, FOOD_TYPE_LABELS, getFoodCover, MEAL_TYPE_LABELS } from '../../lib/ui';
+import { FOOD_TYPE_LABELS, getFoodCover, MEAL_TYPE_LABELS } from '../../lib/ui';
 import {
   DASHBOARD_PLAN_MEAL_TYPES,
   findShoppingIngredient,
@@ -147,10 +148,9 @@ export function HomeMobileDashboard(props: {
               const foodCoverUrl = props.resolveAssetUrl(coverUrl);
               return (
                 <article key={food.id} className="mobile-dashboard-food-card">
-                  <div
-                    className="mobile-dashboard-food-cover"
-                    style={foodCoverUrl ? { backgroundImage: `url("${foodCoverUrl}")` } : undefined}
-                  />
+                  <div className="mobile-dashboard-food-cover">
+                    <MediaWithPlaceholder src={foodCoverUrl} alt="" />
+                  </div>
                   <div className="mobile-dashboard-food-body">
                     <h3>{food.name}</h3>
                     <div className="mobile-dashboard-chip-row">
@@ -299,7 +299,7 @@ export function HomeMobileDashboard(props: {
                             onClick={() => props.onHomePlanDetailOpen(item)}
                             title={planTitle}
                           >
-                            {planCoverUrl && <img src={planCoverUrl} alt="" />}
+                            <MediaWithPlaceholder src={planCoverUrl} alt="" />
                             <span>{planTitle}</span>
                           </button>
                         );
@@ -333,7 +333,7 @@ export function HomeMobileDashboard(props: {
           {props.pendingShoppingPreview.length > 0 ? (
             props.pendingShoppingPreview.map((item) => {
               const ingredient = findShoppingIngredient(item, props.ingredients);
-              const imageUrl = ingredient?.image?.url ? props.resolveAssetUrl(ingredient.image.url) : buildIngredientPlaceholderSvg(item.title);
+              const imageUrl = props.resolveAssetUrl(ingredient?.image?.url);
               return (
                 <button
                   key={item.id}
@@ -343,7 +343,7 @@ export function HomeMobileDashboard(props: {
                   title={`登记库存：${item.title}`}
                 >
                   <span>
-                    <img src={imageUrl} alt="" />
+                    <MediaWithPlaceholder src={imageUrl} alt="" />
                   </span>
                   <strong>{item.title}</strong>
                   <small>{item.quantity}{item.unit}</small>

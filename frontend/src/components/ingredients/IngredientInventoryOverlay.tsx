@@ -2,7 +2,8 @@ import { useMemo, useState, type FormEvent } from 'react';
 import type { Ingredient, IngredientExpiryMode, IngredientUnitConversion, InventoryStatus } from '../../api/types';
 import { resolveAssetUrl } from '../../lib/assets';
 import { addDateKeyDays } from '../../lib/date';
-import { buildIngredientPlaceholderSvg, formatDate, INVENTORY_STATUS_LABELS, todayKey } from '../../lib/ui';
+import { formatDate, INVENTORY_STATUS_LABELS, todayKey } from '../../lib/ui';
+import { MediaWithPlaceholder } from '../MediaPlaceholder';
 import {
   ActionButton,
   Badge,
@@ -29,7 +30,7 @@ type IngredientInventoryOverlayProps = {
   quickRestockIngredients: Ingredient[];
   ingredients: Ingredient[];
   selectedInventoryIngredient: Ingredient | null;
-  selectedIngredientPreview: string;
+  selectedIngredientPreview?: string;
   selectedIngredientMeta: string[];
   usesCustomStorage: boolean;
   inventoryUnitOptions: IngredientUnitConversion[];
@@ -131,8 +132,7 @@ export function IngredientInventoryOverlay(props: IngredientInventoryOverlayProp
                   <div className="ingredients-restock-picker-menu" role="listbox" aria-label="选择食材">
                     {visibleIngredientOptions.length > 0 ? (
                       visibleIngredientOptions.map((ingredient) => {
-                        const imageUrl =
-                          resolveAssetUrl(ingredient.image?.url) ?? buildIngredientPlaceholderSvg(ingredient.name);
+                        const imageUrl = resolveAssetUrl(ingredient.image?.url);
                         return (
                           <button
                             key={ingredient.id}
@@ -144,7 +144,7 @@ export function IngredientInventoryOverlay(props: IngredientInventoryOverlayProp
                               setIngredientPickerOpen(false);
                             }}
                           >
-                            <img src={imageUrl} alt="" />
+                            <MediaWithPlaceholder src={imageUrl} alt="" />
                             <span>
                               <strong>{ingredient.name}</strong>
                               <small>
@@ -166,7 +166,10 @@ export function IngredientInventoryOverlay(props: IngredientInventoryOverlayProp
           {props.selectedInventoryIngredient && (
             <section className="ingredients-restock-identity-card">
               <div className="ingredients-restock-identity-media">
-                <img src={props.selectedIngredientPreview} alt={props.selectedInventoryIngredient.name} />
+                <MediaWithPlaceholder
+                  src={props.selectedIngredientPreview}
+                  alt={props.selectedInventoryIngredient.name}
+                />
               </div>
               <div className="ingredients-restock-identity-copy">
                 <div className="ingredients-restock-identity-head">

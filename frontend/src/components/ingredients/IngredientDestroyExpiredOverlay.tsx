@@ -1,5 +1,6 @@
 import type { FormEvent } from 'react';
 import { formatDate, formatRelativeDays, INVENTORY_STATUS_LABELS } from '../../lib/ui';
+import { MediaWithPlaceholder } from '../MediaPlaceholder';
 import { ActionButton, Badge, EmptyState, WorkspaceModal } from '../ui-kit';
 import type { IngredientSummaryViewModel } from './workspaceModel';
 
@@ -16,7 +17,7 @@ type DestroyExpiredItem = {
 type IngredientDestroyExpiredOverlayProps = {
   closeOverlay: () => void;
   selectedDestroyExpiredSummary: IngredientSummaryViewModel;
-  selectedDestroyExpiredPreview: string;
+  selectedDestroyExpiredPreview?: string;
   selectedDestroyExpiredMeta: string[];
   destroyExpiredItems: DestroyExpiredItem[];
   destroyExpiredHeadline: string;
@@ -38,7 +39,10 @@ export function IngredientDestroyExpiredOverlay(props: IngredientDestroyExpiredO
         <div className="destroy-expired-scroll">
           <section className="ingredients-restock-identity-card destroy-expired-summary-card">
             <div className="ingredients-restock-identity-media">
-              <img src={props.selectedDestroyExpiredPreview} alt={props.selectedDestroyExpiredSummary.ingredient.name} />
+              <MediaWithPlaceholder
+                src={props.selectedDestroyExpiredPreview}
+                alt={props.selectedDestroyExpiredSummary.ingredient.name}
+              />
             </div>
             <div className="ingredients-restock-identity-copy">
               <div className="ingredients-restock-identity-head">
@@ -83,11 +87,13 @@ export function IngredientDestroyExpiredOverlay(props: IngredientDestroyExpiredO
                     </div>
                     <div className="destroy-expired-item-meta">
                       <span>购买于 {formatDate(item.purchaseDate)}</span>
-                      <span>到期日 {formatDate(item.expiryDate)}</span>
+                      <span className="is-expiry">到期日 {formatDate(item.expiryDate)}</span>
                     </div>
-                    <p className="destroy-expired-item-note" title={item.notes || '当前没有备注'}>
-                      {item.notes || '当前没有备注'}
-                    </p>
+                    {item.notes && (
+                      <p className="destroy-expired-item-note" title={item.notes}>
+                        {item.notes}
+                      </p>
+                    )}
                   </article>
                 ))}
               </div>

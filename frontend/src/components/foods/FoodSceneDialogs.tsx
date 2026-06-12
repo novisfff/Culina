@@ -1,5 +1,6 @@
 import type { FormEvent } from 'react';
 import { buildMediaSizes, buildMediaSrcSet, resolveMediaUrl } from '../../lib/assets';
+import { MediaWithPlaceholder } from '../MediaPlaceholder';
 import { ActionButton, WorkspaceModal } from '../ui-kit';
 import { FoodUiIcon } from './FoodWorkspacePrimitives';
 import type { FoodSceneCardView, FoodSceneFormMode, ManagedFoodScene } from './useFoodSceneState';
@@ -56,14 +57,12 @@ export function FoodSceneDialogs(props: FoodSceneDialogsProps) {
                     return (
                     <article key={scene.name} className="food-scene-row">
                       <div className="food-scene-row-thumb">
-                        {imageUrl ? (
-                          <img
-                            src={imageUrl}
-                            srcSet={buildMediaSrcSet(scene.imageAsset)}
-                            sizes={buildMediaSizes('thumb')}
-                            alt=""
-                          />
-                        ) : <FoodUiIcon name="star" />}
+                        <MediaWithPlaceholder
+                          src={imageUrl}
+                          srcSet={buildMediaSrcSet(scene.imageAsset)}
+                          sizes={buildMediaSizes('thumb')}
+                          alt=""
+                        />
                       </div>
                       <div className="food-scene-row-copy">
                         <div className="food-scene-row-titleline">
@@ -135,11 +134,10 @@ export function FoodSceneDialogs(props: FoodSceneDialogsProps) {
                 </label>
                 <div className="food-scene-cover-editor">
                   <div className={props.sceneDraft.imageAssetUrl ? 'food-scene-cover-preview has-image' : 'food-scene-cover-preview'}>
-                    {props.sceneDraft.imageAssetUrl ? (
-                      <img src={props.resolveFoodAssetUrl(props.sceneDraft.imageAssetUrl)} alt={props.sceneDraft.name || '场景封面'} />
-                    ) : (
-                      <FoodUiIcon name="star" />
-                    )}
+                    <MediaWithPlaceholder
+                      src={props.sceneDraft.imageAssetUrl ? props.resolveFoodAssetUrl(props.sceneDraft.imageAssetUrl) : undefined}
+                      alt={props.sceneDraft.name || '场景封面'}
+                    />
                   </div>
                   <div className="food-scene-cover-copy">
                     <strong>场景封面</strong>

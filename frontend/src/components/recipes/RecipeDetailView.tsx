@@ -1,4 +1,5 @@
 import { ActionButton, Badge, WorkspaceSubpageShell } from '../ui-kit';
+import { MediaWithPlaceholder } from '../MediaPlaceholder';
 import { formatDate, formatDateTime, MEAL_TYPE_LABELS } from '../../lib/ui';
 import { RecipeCover, RecipeUiIcon } from './RecipeWorkspaceCards';
 import { SHOW_RECIPE_PLAN_MANAGEMENT } from './RecipeWorkspaceOptions';
@@ -160,7 +161,10 @@ export function RecipeDetailView({
                     {selectedCard.ingredientAvailability.map((item) => (
                       <article key={item.item.id} className="recipe-detail-ingredient-row">
                         <div className="recipe-detail-ingredient-name">
-                          <img src={resolveIngredientImageUrl(item.ingredient, item.item.ingredient_name)} alt={item.item.ingredient_name} />
+                          <MediaWithPlaceholder
+                            src={resolveIngredientImageUrl(item.ingredient, item.item.ingredient_name)}
+                            alt={item.item.ingredient_name}
+                          />
                           <strong>{item.item.ingredient_name}</strong>
                         </div>
                         <span>{item.item.quantity}{item.item.unit}</span>

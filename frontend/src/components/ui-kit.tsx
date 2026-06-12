@@ -8,6 +8,7 @@ import {
 } from 'react';
 import type { ImageInputValue } from '../api/types';
 import { resolveAssetUrl } from '../lib/assets';
+import { MediaWithPlaceholder } from './MediaPlaceholder';
 import { avatarColor, getImagePreview, initials } from '../lib/ui';
 
 type TouchValueMark = number | { value: number; label: string };
@@ -747,7 +748,10 @@ export function ImageComposer(props: {
                   <small>{props.isGenerating ? '上传后生成中' : '点按更换'}</small>
                 </div>
                 <div className="image-composer-result-media">
-                  <img src={resolveAssetUrl(props.value.referenceAsset?.url ?? preview?.url ?? '')} alt={`${props.previewLabel}参考图`} />
+                  <MediaWithPlaceholder
+                    src={resolveAssetUrl(props.value.referenceAsset?.url ?? preview?.url ?? '')}
+                    alt={`${props.previewLabel}参考图`}
+                  />
                 </div>
               </label>
             )}
@@ -759,7 +763,10 @@ export function ImageComposer(props: {
               </div>
               {hasGenerated ? (
                 <div className="image-composer-result-media">
-                  <img src={resolveAssetUrl(props.value.generatedAsset?.url ?? preview?.url ?? '')} alt={props.previewLabel} />
+                  <MediaWithPlaceholder
+                    src={resolveAssetUrl(props.value.generatedAsset?.url ?? preview?.url ?? '')}
+                    alt={props.previewLabel}
+                  />
                 </div>
               ) : (
                 <div className="image-composer-result-placeholder">

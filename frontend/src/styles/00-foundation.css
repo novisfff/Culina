@@ -1090,6 +1090,180 @@ textarea:focus-visible {
   padding: 18px;
 }
 
+.media-placeholder {
+  position: relative;
+  display: grid;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  place-items: center;
+  background:
+    radial-gradient(circle at 34% 38%, rgba(255, 255, 255, 0.72), transparent 24%),
+    linear-gradient(135deg, rgba(246, 235, 222, 0.96), rgba(229, 237, 218, 0.82));
+  color: rgba(125, 101, 78, 0.42);
+  pointer-events: none;
+}
+
+.media-placeholder::after {
+  position: absolute;
+  inset: -40% auto -40% -35%;
+  width: 32%;
+  content: '';
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.42), transparent);
+  transform: skewX(-18deg);
+  animation: media-placeholder-shimmer 5.6s ease-in-out infinite;
+}
+
+.media-with-placeholder {
+  position: relative;
+  display: grid;
+  width: 100%;
+  height: 100%;
+  min-height: inherit;
+  overflow: hidden;
+  place-items: center;
+}
+
+.media-with-placeholder > .media-placeholder {
+  position: absolute;
+  inset: 0;
+}
+
+.media-with-placeholder > img {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.media-placeholder svg {
+  position: relative;
+  z-index: 2;
+  width: min(66px, 42%);
+  min-width: 22px;
+  height: auto;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.65;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  animation: media-placeholder-breathe 3.8s ease-in-out infinite;
+}
+
+.media-placeholder-frame {
+  fill: rgba(255, 255, 255, 0.2);
+}
+
+.media-placeholder-sun {
+  fill: rgba(210, 107, 51, 0.18);
+  stroke: rgba(184, 91, 42, 0.32);
+}
+
+.media-placeholder-leaf {
+  fill: rgba(116, 148, 94, 0.16);
+  stroke: rgba(91, 125, 70, 0.42);
+}
+
+.media-placeholder-leaf-line {
+  stroke: rgba(91, 125, 70, 0.36);
+}
+
+.media-placeholder-glow {
+  position: absolute;
+  width: 42%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.42);
+  filter: blur(10px);
+  animation: media-placeholder-glow 4.8s ease-in-out infinite;
+}
+
+.media-placeholder-spark {
+  position: absolute;
+  z-index: 3;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: rgba(210, 107, 51, 0.34);
+  box-shadow: 0 0 0 3px rgba(210, 107, 51, 0.06);
+  animation: media-placeholder-spark 3.4s ease-in-out infinite;
+}
+
+.media-placeholder-spark-a {
+  top: 27%;
+  right: 24%;
+}
+
+.media-placeholder-spark-b {
+  bottom: 25%;
+  left: 24%;
+  width: 3px;
+  height: 3px;
+  animation-delay: -1.7s;
+}
+
+@keyframes media-placeholder-breathe {
+  0%,
+  100% {
+    opacity: 0.78;
+    transform: translateY(0);
+  }
+
+  50% {
+    opacity: 1;
+    transform: translateY(-1px);
+  }
+}
+
+@keyframes media-placeholder-glow {
+  0%,
+  100% {
+    opacity: 0.55;
+    transform: scale(0.9);
+  }
+
+  50% {
+    opacity: 0.9;
+    transform: scale(1.08);
+  }
+}
+
+@keyframes media-placeholder-shimmer {
+  0%,
+  58% {
+    left: -35%;
+  }
+
+  100% {
+    left: 118%;
+  }
+}
+
+@keyframes media-placeholder-spark {
+  0%,
+  100% {
+    opacity: 0.25;
+    transform: scale(0.7);
+  }
+
+  50% {
+    opacity: 0.8;
+    transform: scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .media-placeholder::after,
+  .media-placeholder svg,
+  .media-placeholder-glow,
+  .media-placeholder-spark {
+    animation: none;
+  }
+}
+
 .recipe-cover {
   width: 132px;
   min-width: 132px;

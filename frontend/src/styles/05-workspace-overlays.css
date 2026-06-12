@@ -1,3 +1,20 @@
+/* Generic Workspace Modal width and tablet/desktop touch responsive rules */
+.workspace-modal {
+  width: min(var(--modal-width-md), calc(100vw - 32px));
+}
+
+@media (min-width: 768px) {
+  .workspace-modal {
+    width: min(var(--modal-width-md), calc(100vw - 64px));
+  }
+}
+
+@media (min-width: 1024px) {
+  .workspace-modal {
+    width: min(var(--modal-width-md), calc(100vw - 96px));
+  }
+}
+
 .food-plan-modal .recipe-plan-dialog-hero {
   position: relative;
   grid-template-columns: minmax(138px, 156px) minmax(0, 1fr) auto;
@@ -88,8 +105,8 @@
   border-radius: 12px;
   background: #fff4ec;
   color: #b95522;
-  font-size: 13px;
-  font-weight: 900;
+  font-size: 0.82rem;
+  font-weight: 700;
   white-space: nowrap;
   box-shadow: 0 8px 18px rgba(210, 107, 51, 0.08);
 }
@@ -111,8 +128,8 @@
 
 .recipe-plan-dialog-kicker {
   color: #a1745a;
-  font-size: 12px;
-  font-weight: 800;
+  font-size: 0.8rem;
+  font-weight: 700;
 }
 
 .food-plan-modal .recipe-plan-dialog-kicker {
@@ -123,8 +140,8 @@
   border-radius: 999px;
   background: #fff2e9;
   color: #da6830;
-  font-size: 14px;
-  font-weight: 940;
+  font-size: 0.875rem;
+  font-weight: 700;
   line-height: 1.2;
   box-shadow: 0 6px 14px rgba(210, 107, 51, 0.065);
 }
@@ -132,8 +149,8 @@
 .recipe-plan-dialog-hero strong {
   overflow: hidden;
   color: #2f211b;
-  font-size: 22px;
-  line-height: 1.2;
+  font-size: 1.25rem;
+  line-height: 1.4;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -141,9 +158,9 @@
 .food-plan-modal .recipe-plan-dialog-hero strong {
   max-width: min(100%, 360px);
   color: #1f1713;
-  font-size: 32px;
-  font-weight: 950;
-  line-height: 1.04;
+  font-size: 1.38rem;
+  font-weight: 700;
+  line-height: 1.4;
   letter-spacing: 0;
 }
 
@@ -390,10 +407,10 @@
 
 .recipe-plan-date-strip {
   display: grid;
-  grid-auto-columns: 66px;
+  grid-auto-columns: 56px;
   grid-auto-flow: column;
-  gap: 6px;
-  min-height: 52px;
+  gap: var(--space-2);
+  min-height: 66px;
   padding: 5px;
   overflow-x: auto;
   overflow-y: hidden;
@@ -412,8 +429,8 @@
 
 .recipe-plan-date-strip button {
   display: grid;
-  min-width: 66px;
-  min-height: 40px;
+  min-width: 56px;
+  min-height: 56px;
   place-items: center;
   gap: 2px;
   padding: 4px 7px;
@@ -435,14 +452,14 @@
 }
 
 .recipe-plan-date-strip button span {
-  font-size: 11px;
-  font-weight: 850;
+  font-size: var(--text-xs);
+  font-weight: 700;
   opacity: 0.72;
 }
 
 .recipe-plan-date-strip button strong {
-  font-size: 14px;
-  font-weight: 940;
+  font-size: var(--text-meta);
+  font-weight: 700;
 }
 
 .recipe-plan-date-strip button:hover:not(:disabled) {
@@ -471,8 +488,8 @@
 .recipe-plan-meal-segment {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 6px;
-  min-height: 52px;
+  gap: var(--space-2);
+  min-height: 56px;
   padding: 5px;
   border: 1px solid rgba(221, 203, 187, 0.9);
   border-radius: 16px;
@@ -484,15 +501,15 @@
 
 .recipe-plan-meal-segment button {
   min-width: 0;
-  min-height: 40px;
+  min-height: 46px;
   padding: 0 8px;
   overflow: hidden;
   border: 0;
   border-radius: 12px;
   background: transparent;
   color: #7b6a5e;
-  font-size: 13px;
-  font-weight: 900;
+  font-size: var(--text-meta);
+  font-weight: 700;
   text-overflow: ellipsis;
   white-space: nowrap;
   cursor: pointer;
@@ -4188,42 +4205,6 @@
   min-height: 0;
 }
 
-.recipe-work-cover span {
-  position: relative;
-  display: grid;
-  width: 100%;
-  height: 100%;
-  place-items: center;
-  overflow: hidden;
-  color: transparent;
-  background:
-    radial-gradient(circle at 31% 38%, #D26B33 0 15%, transparent 16%),
-    radial-gradient(circle at 45% 56%, #ffd37b 0 16%, transparent 17%),
-    radial-gradient(circle at 68% 36%, rgba(255, 255, 255, 0.72) 0 13%, transparent 14%),
-    linear-gradient(135deg, #fff0dd 0%, #f6c8a8 52%, #f2ddc7 100%);
-}
-
-.recipe-work-cover span::before {
-  position: absolute;
-  left: 18%;
-  bottom: 17%;
-  width: 48%;
-  height: 30%;
-  border-radius: 999px;
-  content: "";
-  background: rgba(255, 255, 255, 0.86);
-}
-
-.recipe-work-cover span::after {
-  position: absolute;
-  right: 21%;
-  bottom: 25%;
-  width: 23%;
-  height: 23%;
-  border-radius: 999px;
-  content: "";
-  background: #ffd765;
-}
 
 .recipe-favorite-button {
   top: 10px;
@@ -6584,8 +6565,8 @@
 
 .recipe-plan-modal.workspace-modal,
 .workspace-modal.recipe-plan-detail-modal {
-  width: min(560px, calc(100vw - 48px));
-  max-width: 560px;
+  width: min(var(--modal-width-md), calc(100vw - 32px));
+  max-width: var(--modal-width-md);
   background: linear-gradient(180deg, rgba(255, 254, 252, 0.99), rgba(255, 249, 243, 0.98));
   border: 1px solid rgba(147, 96, 63, 0.14);
   box-shadow: 0 20px 48px rgba(74, 54, 40, 0.12);
