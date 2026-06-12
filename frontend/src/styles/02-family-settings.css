@@ -484,13 +484,28 @@
 }
 
 .family-member-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  display: flex;
+  overflow-x: auto;
+  overflow-y: hidden;
   gap: 16px;
+  padding-bottom: 12px;
+  scroll-snap-type: x proximity;
+  scrollbar-width: thin;
+}
+
+.family-member-grid::-webkit-scrollbar {
+  height: 8px;
+}
+
+.family-member-grid::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: rgba(154, 139, 128, 0.24);
 }
 
 .family-member-card {
   min-height: 118px;
+  flex: 0 0 340px;
+  scroll-snap-align: start;
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   align-content: space-between;
@@ -1165,12 +1180,7 @@
 }
 
 @media (max-width: 1280px) {
-  .dashboard-stat-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .family-stat-grid,
-  .family-member-grid {
+  .family-stat-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
@@ -1190,6 +1200,22 @@
     grid-template-columns: 1fr;
   }
 
+  .dashboard-lower-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (min-width: 901px) and (max-width: 1280px) {
+  .dashboard-lower-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 1023px) {
+  .dashboard-stat-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .dashboard-week-head {
     grid-template-columns: 1fr;
   }
@@ -1201,10 +1227,6 @@
 
   .dashboard-week-edit-button {
     justify-self: start;
-  }
-
-  .dashboard-lower-grid {
-    grid-template-columns: 1fr;
   }
 
   .dashboard-food-row {
@@ -1322,12 +1344,15 @@
   }
 
   .family-stat-grid,
-  .family-member-grid,
   .family-bottom-grid,
   .family-owner-actions,
   .family-member-actions,
   .family-member-main {
     grid-template-columns: 1fr;
+  }
+
+  .family-member-card {
+    flex: 0 0 290px;
   }
 
   .family-profile-panel {

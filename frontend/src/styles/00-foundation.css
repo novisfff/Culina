@@ -42,6 +42,8 @@
   --radius-md: 20px;
   --radius-lg: 28px;
   --content-width: 1440px;
+  --modal-width-md: 680px;
+  --modal-width-lg: 960px;
 }
 
 * {

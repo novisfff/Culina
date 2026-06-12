@@ -141,6 +141,8 @@ export function RecipeLibraryView({
   onOpenPlanDetail,
   onStartPlanDetailCook,
 }: RecipeLibraryViewProps) {
+  const quickSidebarCards = quickPreviewSlots.filter((slot): slot is RecipeCardViewModel => slot !== null);
+
   return (
         <>
         <RecipeMobileLibraryView
@@ -211,7 +213,7 @@ export function RecipeLibraryView({
                   ))}
                 </div>
               </article>
-              <article className="recipe-inspiration-card compact-gallery">
+              <article className="recipe-inspiration-card compact-gallery recipe-quick-inspiration">
                 <div className="recipe-inspiration-head">
                   <h3 className="recipe-inspiration-title"><RecipeUiIcon name="zap" />快手菜 <span>10-20 分钟搞定</span></h3>
                   <button
@@ -229,6 +231,27 @@ export function RecipeLibraryView({
                       <RecipeMiniPlaceholder key={`quick-empty-${index}`} />
                     )
                   ))}
+                </div>
+              </article>
+              <article className="recipe-inspiration-card recipe-inspiration-favorites">
+                <div className="recipe-inspiration-head">
+                  <h3 className="recipe-inspiration-title"><RecipeSideIcon name="heart" />我的收藏</h3>
+                  <button type="button" onClick={() => onShowDiscoveryFilter('favorite', { sort: 'updated' })}>查看全部</button>
+                </div>
+                <div className="recipe-inspiration-favorite-list">
+                  {favoriteSidebarCards.length > 0 ? (
+                    favoriteSidebarCards.map((card) => (
+                      <button key={card.recipe.id} type="button" onClick={() => onOpenDetail(card)}>
+                        <RecipeCover card={card} className="recipe-inspiration-favorite-thumb" />
+                        <span>
+                          <strong>{card.recipe.title}</strong>
+                          <small>{favoriteRecipeIds.has(card.recipe.id) ? '已收藏' : '推荐收藏'}</small>
+                        </span>
+                      </button>
+                    ))
+                  ) : (
+                    <p className="subtle">还没有收藏菜谱。</p>
+                  )}
                 </div>
               </article>
             </div>
@@ -303,7 +326,7 @@ export function RecipeLibraryView({
             </main>
 
             <aside className="recipe-discovery-side">
-              <section className="recipe-side-panel">
+              <section className="recipe-side-panel recipe-favorite-side-panel">
                 <div className="recipe-side-panel-head">
                   <h3><RecipeSideIcon name="heart" />我的收藏</h3>
                   <button type="button" aria-label="查看收藏" onClick={() => onShowDiscoveryFilter('favorite', { sort: 'updated' })}>
@@ -323,6 +346,30 @@ export function RecipeLibraryView({
                     ))
                   ) : (
                     <p className="subtle">还没有收藏菜谱。</p>
+                  )}
+                </div>
+              </section>
+
+              <section className="recipe-side-panel recipe-quick-side-panel">
+                <div className="recipe-side-panel-head">
+                  <h3><RecipeUiIcon name="zap" />快手菜</h3>
+                  <button type="button" aria-label="查看更多快手菜" onClick={() => onShowDiscoveryFilter('quick', { sort: 'time' })}>
+                    <RecipeUiIcon name="chevronRight" />
+                  </button>
+                </div>
+                <div className="recipe-side-list">
+                  {quickSidebarCards.length > 0 ? (
+                    quickSidebarCards.map((card) => (
+                      <button key={card.recipe.id} className="recipe-side-list-item" type="button" onClick={() => onOpenDetail(card)}>
+                        <RecipeCover card={card} className="recipe-side-thumb" />
+                        <span>
+                          <strong>{card.recipe.title}</strong>
+                          <small>{card.recipe.prep_minutes ? `用时 ${card.recipe.prep_minutes}分钟` : '10-20 分钟搞定'}</small>
+                        </span>
+                      </button>
+                    ))
+                  ) : (
+                    <p className="subtle">没有快手菜推荐。</p>
                   )}
                 </div>
               </section>

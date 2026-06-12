@@ -1614,3 +1614,98 @@
 .dashboard-activity-mark.tone-3 {
   background: #dda93c;
 }
+
+@media (min-width: 901px) and (max-width: 1280px) {
+  .dashboard-lower-left,
+  .dashboard-lower-right {
+    display: contents;
+  }
+
+  .dashboard-week-panel {
+    order: 1;
+    grid-column: 1 / -1;
+  }
+
+  .dashboard-expiry-panel {
+    order: 2;
+    grid-column: 1;
+    align-self: stretch;
+    grid-template-rows: auto 1fr;
+  }
+
+  .dashboard-activity-panel {
+    order: 2;
+    grid-column: 2;
+    align-self: stretch;
+    grid-template-rows: auto 1fr;
+  }
+
+  .dashboard-todo-panel {
+    order: 3;
+    grid-column: 1;
+    align-self: stretch;
+    grid-template-rows: auto 1fr;
+  }
+
+  .dashboard-shopping-panel {
+    order: 3;
+    grid-column: 2;
+    align-self: stretch;
+    grid-template-rows: auto 1fr;
+  }
+
+  .dashboard-expiry-panel,
+  .dashboard-todo-panel,
+  .dashboard-activity-panel,
+  .dashboard-shopping-panel {
+    gap: 10px;
+    padding: 14px 16px;
+  }
+
+  .dashboard-expiry-list {
+    grid-template-columns: 1fr;
+    max-height: none;
+    overflow: visible;
+  }
+
+  .dashboard-todo-list {
+    grid-template-columns: 1fr;
+    max-height: 132px;
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding-right: 4px;
+    scrollbar-width: thin;
+  }
+
+  .dashboard-todo-item {
+    min-height: 44px;
+  }
+
+  .dashboard-activity-list {
+    grid-template-columns: 1fr;
+  }
+
+  .dashboard-shopping-row {
+    flex-direction: column;
+    overflow-x: hidden;
+    overflow-y: auto;
+    max-height: 132px;
+    gap: 8px;
+    padding-right: 4px;
+    scrollbar-width: thin;
+  }
+
+  .dashboard-shopping-row::-webkit-scrollbar {
+    width: 7px;
+  }
+
+  .dashboard-shopping-row::-webkit-scrollbar-thumb {
+    border-radius: 999px;
+    background: rgba(154, 139, 128, 0.22);
+  }
+
+  .dashboard-shopping-pill {
+    flex: 0 0 auto;
+    width: 100%;
+  }
+}

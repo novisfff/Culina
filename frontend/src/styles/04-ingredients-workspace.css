@@ -4278,8 +4278,8 @@
 .ingredients-inventory-grid {
   display: grid;
   gap: 12px;
-  grid-template-columns: repeat(auto-fill, minmax(272px, 272px));
-  justify-content: start;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  justify-content: stretch;
   align-items: start;
 }
 
@@ -4349,8 +4349,8 @@
 
 .inventory-ingredient-card-stockline {
   display: grid;
-  gap: 5px;
-  padding: 8px 10px 10px;
+  gap: 4px;
+  padding: 6px 10px 8px;
   border-radius: 14px;
   border: 1px solid rgba(147, 96, 63, 0.1);
   background:
@@ -4407,8 +4407,8 @@
 }
 
 .inventory-ingredient-card-stockline strong {
-  font-size: clamp(1.18rem, 0.64vw + 1.02rem, 1.36rem);
-  line-height: 1.02;
+  font-size: clamp(1.05rem, 0.5vw + 0.95rem, 1.22rem);
+  line-height: 1.05;
   color: #603b20;
 }
 
@@ -4416,7 +4416,7 @@
   margin: 0;
   color: var(--text-soft);
   font-size: 0.72rem;
-  line-height: 1.35;
+  line-height: 1.25;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -6966,23 +6966,47 @@
   }
 
   .shopping-work-row-main {
-    grid-template-columns: 132px minmax(0, 1fr) 150px;
+    grid-template-columns: 96px minmax(0, 1fr) auto auto;
+    gap: 16px;
+    padding: 12px 18px;
   }
 
   .shopping-work-row-badges-inline {
-    grid-column: 2 / 3;
-    justify-content: flex-start;
+    grid-column: 3;
+    grid-row: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    justify-content: center;
     padding-top: 0;
   }
 
   .shopping-work-row-actions {
-    grid-column: 3;
-    grid-row: 1 / span 2;
+    grid-column: 4;
+    grid-row: auto;
+    display: flex;
+    flex-direction: row;
+    gap: 8px;
+    align-items: center;
+  }
+
+  .shopping-work-row-primary-action {
+    min-height: 38px !important;
+    padding-inline: 14px !important;
+  }
+
+  .shopping-work-row-actions .ghost-button {
+    min-height: 38px !important;
+    padding-inline: 14px !important;
   }
 
   .shopping-work-row-media {
-    width: 118px;
-    height: 104px;
+    width: 96px;
+    height: 80px;
+  }
+
+  .shopping-work-row-footer {
+    display: none !important;
   }
 }
 
@@ -7979,15 +8003,15 @@
 }
 
 .recipe-favorite-button .recipe-ui-icon {
-  width: 20px;
-  height: 20px;
-  color: #9e8172;
-  stroke-width: 2.05;
+  width: 18px;
+  height: 18px;
+  color: #765f50;
+  stroke-width: 2;
 }
 
 .recipe-favorite-button.active .recipe-ui-icon {
-  color: #ef6f4f;
-  fill: rgba(239, 111, 79, 0.16);
+  color: #f05a4d;
+  fill: currentColor;
 }
 
 .recipe-work-cover .recipe-cover-illustration {
@@ -8757,4 +8781,111 @@
   color: var(--text-faint);
   text-align: center;
   padding: 12px 0;
+}
+
+@media (min-width: 901px) and (max-width: 1280px) {
+  .ingredients-catalog-toolbar {
+    gap: 10px;
+    padding: 14px 16px 16px;
+  }
+
+  .ingredients-catalog-search-field {
+    grid-template-columns: auto minmax(0, 1fr);
+    flex: 1 1 auto;
+  }
+
+  .ingredients-catalog-search-field .text-input {
+    min-height: 40px;
+    border-radius: 14px;
+  }
+
+  .ingredients-catalog-filter-bar {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    align-items: center;
+    gap: 12px 16px;
+    overflow: visible;
+    padding: 12px 16px;
+    border-radius: 16px;
+  }
+
+  .ingredients-catalog-filter-section-category {
+    grid-column: 1 / -1;
+    width: 100%;
+    max-width: none;
+  }
+
+  .ingredients-catalog-filter-section-status {
+    grid-column: 1;
+    width: 100%;
+    max-width: none;
+    padding-left: 0;
+    border-top: 0;
+    border-left: 0;
+  }
+
+  .ingredients-catalog-clear-filter {
+    grid-column: 2;
+    min-height: 34px;
+    justify-self: end;
+    padding-inline: 12px;
+  }
+
+  .ingredients-catalog-filter-section .ingredients-category-chip,
+  .ingredients-status-chip {
+    min-height: 32px;
+    padding-block: 6px;
+  }
+
+  .ingredients-inventory-overview-strip,
+  .ingredients-inventory-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .ingredients-inventory-grid {
+    justify-content: stretch;
+  }
+
+  .ingredients-inventory-grid > * {
+    min-width: 0;
+  }
+}
+
+@media (min-width: 768px) and (max-width: 900px) {
+  .ingredients-workspace,
+  .ingredients-desktop-view,
+  .ingredients-panel-shell,
+  .ingredients-catalog-workbench {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+  }
+
+  .ingredients-workspace .page-header {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    grid-template-columns: 1fr;
+  }
+
+  .ingredients-workspace .page-header-copy {
+    min-width: 0;
+  }
+
+  .ingredients-workspace .page-header-side {
+    justify-self: start;
+  }
+
+  .ingredients-panel-subnav-row {
+    display: grid;
+    justify-content: stretch;
+  }
+
+  .ingredients-panel-subnav-row .workspace-subnav {
+    justify-self: start;
+  }
+
+  .ingredients-status-metrics {
+    flex-wrap: wrap;
+  }
 }
