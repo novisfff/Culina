@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
+from datetime import UTC, datetime
 from decimal import Decimal
 
 from app.core.enums import normalize_food_type
@@ -45,6 +46,14 @@ def _to_optional_float(value: Decimal | float | int | None) -> float | None:
     return float(value)
 
 
+def _utc_datetime(value: datetime | None) -> datetime | None:
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        return value.replace(tzinfo=UTC)
+    return value.astimezone(UTC)
+
+
 def _remaining_quantity(quantity: Decimal | float | int | None, consumed_quantity: Decimal | float | int | None) -> float:
     quantity_value = Decimal(str(quantity or 0))
     consumed_value = Decimal(str(consumed_quantity or 0))
@@ -63,7 +72,7 @@ def serialize_media(asset: MediaAsset) -> dict:
         "style_key": asset.style_key,
         "prompt_version": asset.prompt_version,
         "variants": asset.variants,
-        "created_at": asset.created_at,
+        "created_at": _utc_datetime(asset.created_at),
         "created_by": asset.created_by,
     }
 
@@ -111,8 +120,8 @@ def serialize_family(
         "motto": family.motto,
         "location": family.location,
         "image": serialize_media(media[0]) if media else None,
-        "created_at": family.created_at,
-        "updated_at": family.updated_at,
+        "created_at": _utc_datetime(family.created_at),
+        "updated_at": _utc_datetime(family.updated_at),
         "ai_recommendations": [serialize_ai_recommendation(item) for item in (recommendations or [])],
     }
 
@@ -140,8 +149,8 @@ def serialize_ingredient(ingredient: Ingredient, media_map: dict[tuple[str, str]
         "default_low_stock_threshold": _to_optional_float(ingredient.default_low_stock_threshold),
         "notes": ingredient.notes,
         "image": serialize_media(media[0]) if media else None,
-        "created_at": ingredient.created_at,
-        "updated_at": ingredient.updated_at,
+        "created_at": _utc_datetime(ingredient.created_at),
+        "updated_at": _utc_datetime(ingredient.updated_at),
         "created_by": ingredient.created_by,
         "updated_by": ingredient.updated_by,
     }
@@ -165,8 +174,8 @@ def serialize_inventory_item(item: InventoryItem) -> dict:
         "storage_location": item.storage_location,
         "notes": item.notes,
         "low_stock_threshold": _to_float(item.low_stock_threshold),
-        "created_at": item.created_at,
-        "updated_at": item.updated_at,
+        "created_at": _utc_datetime(item.created_at),
+        "updated_at": _utc_datetime(item.updated_at),
         "created_by": item.created_by,
         "updated_by": item.updated_by,
     }
@@ -181,8 +190,8 @@ def serialize_shopping_item(item: ShoppingListItem) -> dict:
         "unit": item.unit,
         "reason": item.reason,
         "done": item.done,
-        "created_at": item.created_at,
-        "updated_at": item.updated_at,
+        "created_at": _utc_datetime(item.created_at),
+        "updated_at": _utc_datetime(item.updated_at),
         "created_by": item.created_by,
         "updated_by": item.updated_by,
     }
@@ -224,8 +233,8 @@ def serialize_recipe(recipe: Recipe, media_map: dict[tuple[str, str], list[Media
         "scene_tags": list(recipe.scene_tags or []),
         "images": [serialize_media(asset) for asset in media_map.get(("recipe", recipe.id), [])],
         "cook_logs": [serialize_recipe_cook_log(item) for item in list(recipe.cook_logs)[:5]],
-        "created_at": recipe.created_at,
-        "updated_at": recipe.updated_at,
+        "created_at": _utc_datetime(recipe.created_at),
+        "updated_at": _utc_datetime(recipe.updated_at),
         "created_by": recipe.created_by,
         "updated_by": recipe.updated_by,
     }
@@ -243,8 +252,8 @@ def serialize_recipe_cook_log(item: RecipeCookLog) -> dict:
         "result_note": item.result_note,
         "adjustments": item.adjustments,
         "rating": item.rating,
-        "created_at": item.created_at,
-        "updated_at": item.updated_at,
+        "created_at": _utc_datetime(item.created_at),
+        "updated_at": _utc_datetime(item.updated_at),
         "created_by": item.created_by,
         "updated_by": item.updated_by,
     }
@@ -262,8 +271,8 @@ def serialize_food_scene(item: FoodScene, media_map: dict[tuple[str, str], list[
         "hidden": item.hidden,
         "custom": item.custom,
         "sort_order": item.sort_order,
-        "created_at": item.created_at,
-        "updated_at": item.updated_at,
+        "created_at": _utc_datetime(item.created_at),
+        "updated_at": _utc_datetime(item.updated_at),
         "created_by": item.created_by,
         "updated_by": item.updated_by,
     }
@@ -275,7 +284,7 @@ def serialize_recipe_favorite(item: RecipeFavorite) -> dict:
         "family_id": item.family_id,
         "user_id": item.user_id,
         "recipe_id": item.recipe_id,
-        "created_at": item.created_at,
+        "created_at": _utc_datetime(item.created_at),
     }
 
 
@@ -294,10 +303,10 @@ def serialize_food_plan_item(item: FoodPlanItem) -> dict:
         "meal_type": item.meal_type,
         "note": item.note,
         "status": item.status,
-        "completed_at": item.completed_at,
+        "completed_at": _utc_datetime(item.completed_at),
         "meal_log_id": item.meal_log_id,
-        "created_at": item.created_at,
-        "updated_at": item.updated_at,
+        "created_at": _utc_datetime(item.created_at),
+        "updated_at": _utc_datetime(item.updated_at),
         "created_by": item.created_by,
         "updated_by": item.updated_by,
     }
@@ -330,8 +339,8 @@ def serialize_food(food: Food, media_map: dict[tuple[str, str], list[MediaAsset]
         "stock_unit": food.stock_unit,
         "favorite": food.favorite,
         "recipe_id": food.recipe_id,
-        "created_at": food.created_at,
-        "updated_at": food.updated_at,
+        "created_at": _utc_datetime(food.created_at),
+        "updated_at": _utc_datetime(food.updated_at),
         "created_by": food.created_by,
         "updated_by": food.updated_by,
     }
@@ -369,8 +378,8 @@ def serialize_meal_log(meal_log: MealLog, media_map: dict[tuple[str, str], list[
         "mood": meal_log.mood,
         "photos": [serialize_media(asset) for asset in media_map.get(("meal_log", meal_log.id), [])],
         "deduction_suggestions": [serialize_deduction_suggestion(item) for item in meal_log.deduction_suggestions],
-        "created_at": meal_log.created_at,
-        "updated_at": meal_log.updated_at,
+        "created_at": _utc_datetime(meal_log.created_at),
+        "updated_at": _utc_datetime(meal_log.updated_at),
         "created_by": meal_log.created_by,
         "updated_by": meal_log.updated_by,
     }
@@ -386,7 +395,7 @@ def serialize_activity(log: ActivityLog, actor_name: str | None = None) -> dict:
         "entity_type": log.entity_type,
         "entity_id": log.entity_id,
         "summary": log.summary,
-        "created_at": log.created_at,
+        "created_at": _utc_datetime(log.created_at),
     }
 
 
@@ -397,13 +406,13 @@ def serialize_ai_conversation(item: AIConversation) -> dict:
         "mode": item.mode,
         "prompt": item.prompt,
         "response": item.response,
-        "created_at": item.created_at,
+        "created_at": _utc_datetime(item.created_at),
         "created_by": item.created_by,
         "context": item.context,
         "title": item.title,
         "summary": item.summary,
         "status": item.status,
-        "last_message_at": item.last_message_at,
+        "last_message_at": _utc_datetime(item.last_message_at),
         "last_run_status": item.last_run_status,
     }
 
@@ -414,7 +423,7 @@ def serialize_ai_recommendation(item: AIRecommendation) -> dict:
         "family_id": item.family_id,
         "title": item.title,
         "detail": item.detail,
-        "created_at": item.created_at,
+        "created_at": _utc_datetime(item.created_at),
     }
 
 
@@ -459,7 +468,7 @@ def serialize_ai_message(item: AIMessage) -> dict:
         "status": item.status,
         "metadata": item.message_metadata,
         "client_message_id": item.client_message_id,
-        "created_at": item.created_at,
+        "created_at": _utc_datetime(item.created_at),
     }
 
 
@@ -470,7 +479,7 @@ def serialize_ai_run(item: AIAgentRun) -> dict:
         "intent": item.intent,
         "status": item.status,
         "model": item.model,
-        "created_at": item.created_at,
+        "created_at": _utc_datetime(item.created_at),
     }
 
 
@@ -482,7 +491,7 @@ def serialize_ai_run_event(item: AIRunEvent) -> dict:
         "internal_code": item.internal_code,
         "user_message": item.user_message,
         "status": item.status,
-        "created_at": item.created_at,
+        "created_at": _utc_datetime(item.created_at),
     }
 
 
@@ -499,9 +508,9 @@ def serialize_ai_task_draft(item: AITaskDraft) -> dict:
         "version": item.version,
         "schema_version": item.schema_version,
         "validation_errors": item.validation_errors,
-        "expires_at": item.expires_at,
-        "created_at": item.created_at,
-        "updated_at": item.updated_at,
+        "expires_at": _utc_datetime(item.expires_at),
+        "created_at": _utc_datetime(item.created_at),
+        "updated_at": _utc_datetime(item.updated_at),
     }
 
 
@@ -527,9 +536,9 @@ def serialize_ai_approval_request(item: AIApprovalRequest) -> dict:
         "submitted_values": item.submitted_values,
         "decision": item.decision,
         "comment": item.comment,
-        "resolved_at": item.resolved_at,
-        "expires_at": item.expires_at,
-        "created_at": item.created_at,
+        "resolved_at": _utc_datetime(item.resolved_at),
+        "expires_at": _utc_datetime(item.expires_at),
+        "created_at": _utc_datetime(item.created_at),
     }
 
 
@@ -543,6 +552,6 @@ def serialize_ai_operation(item: AIOperation) -> dict:
         "business_entity_type": item.business_entity_type,
         "business_entity_ids": item.business_entity_ids,
         "error_message": item.error_message,
-        "completed_at": item.completed_at,
-        "created_at": item.created_at,
+        "completed_at": _utc_datetime(item.completed_at),
+        "created_at": _utc_datetime(item.created_at),
     }

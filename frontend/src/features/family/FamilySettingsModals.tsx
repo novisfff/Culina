@@ -507,7 +507,14 @@ export function FamilyEditModal(props: {
             </div>
             <div className="family-image-body">
               <div className="family-image-large-preview">
-                <MediaWithPlaceholder src={resolvedImageUrl} alt={props.form.name || '家庭头像'} />
+                <div className="family-image-preview-mask">
+                  <MediaWithPlaceholder
+                    src={resolvedImageUrl}
+                    alt={props.form.name || '家庭头像'}
+                    className="family-image-preview-media"
+                    imageClassName="family-image-preview-media-image"
+                  />
+                </div>
                 <span>{props.imageControls.isGenerating ? '生成中...' : props.form.images.generatedAsset ? '已设置家庭图' : '当前预览'}</span>
               </div>
               {props.imageControls.isPromptOpen && (
@@ -517,7 +524,7 @@ export function FamilyEditModal(props: {
                     <textarea
                       className="text-input"
                       rows={3}
-                      placeholder="例如：明亮温暖的家庭餐桌，绿植和早餐，适合圆形裁切，不要人物和文字"
+                      placeholder="例如：明亮温暖的家庭餐桌，绿植和早餐，按方形原图生成，不要人物和文字"
                       value={props.form.imagePrompt}
                       onChange={(event) => props.onChange({ ...props.form, imagePrompt: event.target.value })}
                     />
