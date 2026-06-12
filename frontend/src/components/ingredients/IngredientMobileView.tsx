@@ -152,25 +152,60 @@ export function IngredientMobileView(props: IngredientMobileViewProps) {
                       <span>{props.buildInventorySummaryLine(summary)}</span>
                     </div>
                     <div className="mobile-ingredient-card-actions">
-                      <button
-                        className="mobile-ingredient-primary compact"
-                        type="button"
-                        onClick={() =>
-                          canDestroyExpired
-                            ? props.openDestroyExpiredOverlay(summary.ingredient.id)
-                            : canConsume
-                              ? props.openConsumeOverlay(summary.ingredient.id)
-                              : props.openShoppingOverlay({
-                                  ingredient: summary.ingredient,
-                                  reason: props.buildShoppingReason(summary),
-                                })
-                        }
-                      >
-                        {canDestroyExpired ? '处理' : canConsume ? '消费' : '采购'}
-                      </button>
-                      <button type="button" onClick={() => props.openInventoryOverlay(summary.ingredient.id)}>
-                        补货
-                      </button>
+                      {canDestroyExpired ? (
+                        <>
+                          <button
+                            className="mobile-ingredient-primary compact"
+                            type="button"
+                            onClick={() => props.openDestroyExpiredOverlay(summary.ingredient.id)}
+                          >
+                            处理
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => props.openDetailView(summary.ingredient.id)}
+                          >
+                            查看批次
+                          </button>
+                        </>
+                      ) : summary.quantitySummaries.length > 0 ? (
+                        <>
+                          <button
+                            className="mobile-ingredient-primary compact"
+                            type="button"
+                            onClick={() => props.openConsumeOverlay(summary.ingredient.id)}
+                          >
+                            消费
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => props.openInventoryOverlay(summary.ingredient.id)}
+                          >
+                            补货
+                          </button>
+                        </>
+                      ) : (
+                        <>
+                          <button
+                            className="mobile-ingredient-primary compact"
+                            type="button"
+                            onClick={() => props.openInventoryOverlay(summary.ingredient.id)}
+                          >
+                            {summary.inventoryItems.length > 0 ? '补货' : '登记首批'}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              props.openShoppingOverlay({
+                                ingredient: summary.ingredient,
+                                reason: props.buildShoppingReason(summary),
+                              })
+                            }
+                          >
+                            采购
+                          </button>
+                        </>
+                      )}
                     </div>
                   </div>
                 </article>
@@ -272,6 +307,7 @@ export function IngredientMobileView(props: IngredientMobileViewProps) {
               const imageUrl = resolveMediaUrl(summary.ingredient.image, 'card');
               const status = props.buildCatalogStatus(summary);
               const canConsume = summary.availableInventoryItems.length > 0;
+              const canDestroyExpired = props.countDisposableExpiredItems(summary) > 0;
               return (
                 <article key={summary.ingredient.id} className={`mobile-ingredient-library-card tone-${status.tone}`}>
                   <button className="mobile-ingredient-library-cover" type="button" onClick={() => props.openDetailView(summary.ingredient.id)}>
@@ -291,23 +327,60 @@ export function IngredientMobileView(props: IngredientMobileViewProps) {
                       <span>{props.buildInventorySummaryLine(summary)}</span>
                     </div>
                     <div className="mobile-ingredient-library-actions">
-                      <button
-                        className="mobile-ingredient-primary"
-                        type="button"
-                        onClick={() =>
-                          canConsume ? props.openConsumeOverlay(summary.ingredient.id) : props.openInventoryOverlay(summary.ingredient.id)
-                        }
-                      >
-                        {canConsume ? '消费' : '补货'}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() =>
-                          props.openShoppingOverlay({ ingredient: summary.ingredient, reason: props.buildShoppingReason(summary) })
-                        }
-                      >
-                        采购
-                      </button>
+                      {canDestroyExpired ? (
+                        <>
+                          <button
+                            className="mobile-ingredient-primary"
+                            type="button"
+                            onClick={() => props.openDestroyExpiredOverlay(summary.ingredient.id)}
+                          >
+                            处理
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => props.openDetailView(summary.ingredient.id)}
+                          >
+                            查看批次
+                          </button>
+                        </>
+                      ) : summary.quantitySummaries.length > 0 ? (
+                        <>
+                          <button
+                            className="mobile-ingredient-primary"
+                            type="button"
+                            onClick={() => props.openConsumeOverlay(summary.ingredient.id)}
+                          >
+                            消费
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => props.openInventoryOverlay(summary.ingredient.id)}
+                          >
+                            补货
+                          </button>
+                        </>
+                      ) : (
+                        <>
+                          <button
+                            className="mobile-ingredient-primary"
+                            type="button"
+                            onClick={() => props.openInventoryOverlay(summary.ingredient.id)}
+                          >
+                            {summary.inventoryItems.length > 0 ? '补货' : '登记首批'}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              props.openShoppingOverlay({
+                                ingredient: summary.ingredient,
+                                reason: props.buildShoppingReason(summary),
+                              })
+                            }
+                          >
+                            采购
+                          </button>
+                        </>
+                      )}
                     </div>
                   </div>
                 </article>

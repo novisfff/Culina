@@ -347,16 +347,16 @@
 
 .ingredient-visual-card-catalog .ingredient-visual-body,
 .inventory-ingredient-card-body {
-  gap: 9px;
-  padding: 16px 8px 8px;
+  gap: 4px;
+  padding: 8px 8px 4px;
 }
 
 .ingredient-visual-card-catalog .ingredient-visual-title-row h3,
 .inventory-ingredient-card-title-row h3 {
   color: #201813;
-  font-size: clamp(1.08rem, 1vw, 1.24rem);
+  font-size: clamp(0.96rem, 0.9vw, 1.12rem);
   font-weight: 920;
-  line-height: 1.18;
+  line-height: 1.15;
 }
 
 .ingredient-visual-meta,
@@ -364,7 +364,7 @@
 .inventory-ingredient-card-data-row,
 .ingredient-work-card-footer-note {
   color: #9d9188;
-  font-size: 0.82rem;
+  font-size: 0.74rem;
   font-weight: 700;
 }
 
@@ -382,10 +382,10 @@
 .ingredient-catalog-status-head span,
 .inventory-ingredient-card-expiry-badge,
 .ingredient-visual-pill {
-  min-height: 28px;
-  padding: 5px 10px;
+  min-height: 22px;
+  padding: 2px 8px;
   border-radius: 999px;
-  font-size: 0.78rem;
+  font-size: 0.72rem;
   font-weight: 850;
 }
 
@@ -412,17 +412,17 @@
 .ingredient-work-card-actions,
 .inventory-ingredient-card-actions {
   gap: 8px;
-  padding-top: 12px;
+  padding-top: 8px;
 }
 
 .ingredient-work-card-action-button,
 .ingredients-workspace .ingredient-work-card-action-button.ingredient-work-card-action-button-secondary {
-  min-height: 42px;
+  min-height: 36px;
   border: 1px solid rgba(92, 67, 48, 0.1);
-  border-radius: 13px;
+  border-radius: 10px;
   background: #fffdfa;
   color: #6f5d50;
-  font-size: 0.9rem;
+  font-size: 0.82rem;
   font-weight: 900;
   box-shadow: none;
 }
@@ -1613,6 +1613,7 @@
   font-size: 0.72rem;
   font-weight: 860;
   box-shadow: 0 8px 18px rgba(51, 35, 24, 0.07);
+  z-index: 2;
 }
 
 .food-favorite-chip {
@@ -1629,6 +1630,7 @@
   color: #765f50;
   box-shadow: 0 8px 18px rgba(51, 35, 24, 0.08);
   transition: transform 0.2s ease, background-color 0.2s ease, color 0.2s ease;
+  z-index: 2;
 }
 
 .food-favorite-chip:hover {
@@ -3770,7 +3772,7 @@
   }
 
   .food-quick-head {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr) auto;
   }
 
   .food-recommendation-grid {
@@ -3779,9 +3781,12 @@
     padding-bottom: 2px;
   }
 
-  .food-quick-stat-row,
-  .food-quick-actions {
+  .food-quick-stat-row {
     justify-content: flex-start;
+  }
+
+  .food-quick-actions {
+    justify-content: flex-end;
   }
 
   .food-governance-chips {
@@ -4262,7 +4267,7 @@
 .ingredient-visual-card-catalog .ingredient-visual-body,
 .inventory-ingredient-card-body {
   padding-inline: 16px;
-  padding-bottom: 14px;
+  padding-bottom: 8px;
 }
 
 .ingredient-visual-card-catalog .ingredient-work-card-actions,
@@ -4272,25 +4277,43 @@
 
 .ingredient-visual-card-catalog .ingredient-work-card-footer,
 .inventory-ingredient-card-footer {
-  padding: 12px 16px 0;
+  padding: 8px 16px 0;
 }
 
 .recipe-discovery-side .recipe-side-list-item {
   display: grid;
-  grid-template-columns: 82px minmax(0, 1fr);
+  grid-template-columns: 80px minmax(0, 1fr);
   gap: 14px;
   align-items: center;
-  min-height: 70px;
-  padding: 0;
+  min-height: auto;
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid rgba(92, 67, 48, 0.08);
+  border-radius: 16px;
+  background: #ffffff;
+  box-shadow: 0 4px 12px rgba(74, 54, 40, 0.03);
+  text-align: left;
+  cursor: pointer;
+  transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), 
+              box-shadow 0.2s cubic-bezier(0.16, 1, 0.3, 1), 
+              border-color 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.recipe-discovery-side .recipe-side-list-item:hover {
+  transform: translateY(-1.5px);
+  box-shadow: 0 8px 20px rgba(74, 54, 40, 0.06);
+  border-color: rgba(210, 107, 51, 0.22);
+  background: #ffffff;
 }
 
 .recipe-discovery-side .recipe-side-thumb {
-  width: 82px;
-  min-width: 82px;
-  height: 62px;
-  min-height: 62px;
-  aspect-ratio: auto;
-  border-radius: 12px;
+  width: 80px;
+  min-width: 80px;
+  height: 60px;
+  min-height: 60px;
+  aspect-ratio: 4 / 3;
+  object-fit: cover;
+  border-radius: 10px;
 }
 
 .recipe-discovery-side .recipe-side-list-item > span {
@@ -4300,8 +4323,20 @@
   overflow: hidden;
 }
 
-.recipe-discovery-side .recipe-side-list-item strong,
+.recipe-discovery-side .recipe-side-list-item strong {
+  color: #2f251e;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .recipe-discovery-side .recipe-side-list-item small {
+  color: #928378;
+  font-size: 0.8125rem;
+  font-weight: 500;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -6818,11 +6853,12 @@
 
 @media (max-width: 1023px) {
   .ai-workspace-shell {
-    grid-template-columns: 1fr;
+    grid-template-columns: 240px minmax(0, 1fr);
   }
 
-  .ai-side-panel {
-    display: none;
+  .ai-workspace-shell.is-collapsed {
+    grid-template-columns: 0px minmax(0, 1fr);
+    gap: 0;
   }
 
   .ai-editor-grid,

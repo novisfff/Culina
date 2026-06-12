@@ -39,9 +39,13 @@ export function AiWorkspace({ conversations, isLoading, currentUser = null, onBa
 
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(() => {
     try {
-      return localStorage.getItem('ai_sidebar_collapsed') === 'true';
+      const stored = localStorage.getItem('ai_sidebar_collapsed');
+      if (stored !== null) {
+        return stored === 'true';
+      }
+      return typeof window !== 'undefined' ? window.innerWidth <= 1280 : false;
     } catch {
-      return false;
+      return typeof window !== 'undefined' ? window.innerWidth <= 1280 : false;
     }
   });
 

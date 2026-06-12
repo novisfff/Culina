@@ -1265,9 +1265,8 @@ function IngredientCatalogCard(props: IngredientCatalogCardProps) {
   const alertTone = getIngredientAlertTone(summary);
   const status = buildCatalogCardStatus(summary);
   const canConsume = summary.availableInventoryItems.length > 0;
-  const hasDangerAlert = summary.alerts.some((item) => item.tone === 'danger');
-  const hasWarningAlert = summary.alerts.some((item) => item.tone === 'warning');
-  const shouldPrioritizeShopping = !hasDangerAlert && (!canConsume || hasWarningAlert);
+  const disposableExpiredItems = buildDisposableExpiredInventoryItems(summary);
+  const canDestroyExpired = disposableExpiredItems.length > 0;
   const metaLine = [
     summary.ingredient.category || '未分类',
     summary.primaryStorage || summary.ingredient.default_storage || '常温',
@@ -1394,46 +1393,70 @@ function IngredientCatalogCard(props: IngredientCatalogCardProps) {
         </div>
 
         <div className="ingredient-work-card-actions">
-          {hasDangerAlert ? (
-            <ActionButton
-              tone="secondary"
-              size="compact"
-              type="button"
-              className="ingredient-work-card-action-button ingredient-work-card-action-button-primary"
-              onClick={props.onHandleAlert}
-            >
-              处理提醒
-            </ActionButton>
-          ) : shouldPrioritizeShopping ? (
-            <ActionButton
-              tone="secondary"
-              size="compact"
-              type="button"
-              className="ingredient-work-card-action-button ingredient-work-card-action-button-primary"
-              onClick={props.onAddShopping}
-            >
-              加入采购
-            </ActionButton>
+          {canDestroyExpired ? (
+            <>
+              <ActionButton
+                tone="secondary"
+                size="compact"
+                type="button"
+                className="ingredient-work-card-action-button ingredient-work-card-action-button-primary"
+                onClick={props.onHandleAlert}
+              >
+                处理
+              </ActionButton>
+              <ActionButton
+                tone="secondary"
+                size="compact"
+                type="button"
+                className="ingredient-work-card-action-button ingredient-work-card-action-button-secondary"
+                onClick={props.onDetail}
+              >
+                查看批次
+              </ActionButton>
+            </>
+          ) : summary.quantitySummaries.length > 0 ? (
+            <>
+              <ActionButton
+                tone="secondary"
+                size="compact"
+                type="button"
+                className="ingredient-work-card-action-button ingredient-work-card-action-button-primary"
+                onClick={props.onConsume}
+              >
+                消费
+              </ActionButton>
+              <ActionButton
+                tone="secondary"
+                size="compact"
+                type="button"
+                className="ingredient-work-card-action-button ingredient-work-card-action-button-secondary"
+                onClick={props.onRestock}
+              >
+                补货
+              </ActionButton>
+            </>
           ) : (
-            <ActionButton
-              tone="secondary"
-              size="compact"
-              type="button"
-              className="ingredient-work-card-action-button ingredient-work-card-action-button-primary"
-              onClick={props.onConsume}
-            >
-              消费
-            </ActionButton>
+            <>
+              <ActionButton
+                tone="secondary"
+                size="compact"
+                type="button"
+                className="ingredient-work-card-action-button ingredient-work-card-action-button-primary"
+                onClick={props.onRestock}
+              >
+                {summary.inventoryItems.length > 0 ? '补货' : '登记首批'}
+              </ActionButton>
+              <ActionButton
+                tone="secondary"
+                size="compact"
+                type="button"
+                className="ingredient-work-card-action-button ingredient-work-card-action-button-secondary"
+                onClick={props.onAddShopping}
+              >
+                加入采购
+              </ActionButton>
+            </>
           )}
-          <ActionButton
-            tone="secondary"
-            size="compact"
-            type="button"
-            className="ingredient-work-card-action-button ingredient-work-card-action-button-secondary"
-            onClick={props.onRestock}
-          >
-            补货
-          </ActionButton>
         </div>
 
         <div className="ingredient-work-card-footer">

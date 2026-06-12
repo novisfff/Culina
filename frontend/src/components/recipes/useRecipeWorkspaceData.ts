@@ -197,7 +197,7 @@ export function useRecipeWorkspaceData(args: UseRecipeWorkspaceDataArgs) {
     };
   });
   const plannedDayCount = planDays.filter((day) => day.items.length > 0).length;
-  const recentPreviewSlots = Array.from({ length: 4 }, (_, index) => recentPreviewCards[index] ?? null);
+  const recentPreviewSlots = Array.from({ length: 5 }, (_, index) => recentPreviewCards[index] ?? null);
   const quickPreviewSlots = Array.from({ length: 5 }, (_, index) => quickPreviewCards[index] ?? null);
   const topPreviewSlots = Array.from({ length: 3 }, (_, index) => topPreviewItems[index] ?? null);
   const recommendationSlots = displayCards;
