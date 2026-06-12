@@ -7706,11 +7706,18 @@
 /* 2. Sidebar Collapse and Trigger Buttons */
 .ai-sidebar-toggle-btn,
 .ai-sidebar-trigger-btn {
+  box-sizing: border-box;
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  flex: 0 0 32px;
   width: 32px;
   height: 32px;
+  min-width: 32px;
+  min-height: 32px;
+  max-width: 32px;
+  max-height: 32px;
+  padding: 0;
   border: 1px solid rgba(226, 214, 205, 0.8);
   border-radius: 10px;
   background: rgba(255, 255, 255, 0.82);
@@ -7718,6 +7725,14 @@
   cursor: pointer;
   box-shadow: 0 4px 10px rgba(54, 38, 25, 0.04);
   transition: all 0.15s ease;
+}
+
+.ai-sidebar-toggle-btn svg,
+.ai-sidebar-trigger-btn svg {
+  display: block;
+  flex: 0 0 auto;
+  width: 16px;
+  height: 16px;
 }
 
 .ai-sidebar-toggle-btn:hover,
@@ -7880,18 +7895,32 @@
 }
 
 .ai-attachment-button {
+  box-sizing: border-box;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   align-self: center;
+  flex: 0 0 38px;
   width: 38px;
   height: 38px;
+  min-width: 38px;
+  min-height: 38px;
+  max-width: 38px;
+  max-height: 38px;
+  padding: 0;
   border: 0;
   border-radius: 50%;
   background: rgba(92, 67, 48, 0.06);
   color: #6a5b51;
   cursor: pointer;
   transition: all 0.15s ease;
+}
+
+.ai-attachment-button svg {
+  display: block;
+  flex: 0 0 auto;
+  width: 20px;
+  height: 20px;
 }
 
 .ai-attachment-button:hover {
@@ -7906,8 +7935,16 @@
 }
 
 .ai-send-button {
+  box-sizing: border-box;
+  flex: 0 0 38px;
   width: 38px;
   height: 38px;
+  min-width: 38px;
+  min-height: 38px;
+  max-width: 38px;
+  max-height: 38px;
+  padding: 0;
+  border-radius: 50%;
   background: var(--brand-button-bg);
   box-shadow: 0 4px 10px rgba(225, 82, 27, 0.2);
   transition: all 0.15s ease;
@@ -7923,10 +7960,15 @@
 
 .ai-send-button svg {
   display: block;
+  flex: 0 0 auto;
+  width: 16px;
+  height: 16px;
 }
 
 .ai-send-button.is-sending::before {
   inset: 5px;
+  box-sizing: border-box;
+  border-radius: 50%;
 }
 
 /* 7. Markdown code block upgrades */
