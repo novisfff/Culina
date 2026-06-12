@@ -1282,10 +1282,10 @@ export function FoodWorkspace(props: Props) {
         )}
         sidebar={<aside className="food-task-sidebar" aria-label="食物页辅助操作">
           <div className="food-task-sidebar-head">
-            <span className="eyebrow">辅助操作</span>
             <strong>食物管理</strong>
+            <span className="eyebrow">视角、待办与菜单计划</span>
           </div>
-          <div className="food-sidebar-section">
+          <div className="food-sidebar-section food-sidebar-quick-section">
             <div className="food-sidebar-section-head">
               <strong>常用视角</strong>
             </div>
@@ -1304,7 +1304,7 @@ export function FoodWorkspace(props: Props) {
               </button>
             </div>
           </div>
-          <div className="food-sidebar-section">
+          <div className="food-sidebar-section food-sidebar-management-section">
             <div className="food-sidebar-section-head">
               <strong>管理</strong>
             </div>
@@ -1322,7 +1322,7 @@ export function FoodWorkspace(props: Props) {
               </button>
             </div>
           </div>
-          <div className="food-sidebar-section">
+          <div className="food-sidebar-section food-sidebar-plan-section">
             <div className="food-sidebar-section-head">
               <strong>菜单计划</strong>
               <span>{props.foodPlanWeekRange.start.slice(5).replace('-', '/')} - {props.foodPlanWeekRange.end.slice(5).replace('-', '/')}</span>
@@ -1379,7 +1379,7 @@ export function FoodWorkspace(props: Props) {
               ))}
             </div>
           </div>
-          <div className="food-sidebar-section">
+          <div className="food-sidebar-section food-sidebar-scenes-section">
             <div className="food-sidebar-section-head">
               <strong>按场景探索</strong>
               <span>从食物场景标签中整理</span>

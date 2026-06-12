@@ -3939,6 +3939,66 @@
   box-shadow: 0 10px 24px rgba(74, 54, 40, 0.035);
 }
 
+.recipe-inspiration-favorites {
+  display: none;
+}
+
+.recipe-inspiration-favorite-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  min-width: 0;
+}
+
+.recipe-inspiration-favorite-list > button {
+  display: grid;
+  grid-template-columns: 52px minmax(0, 1fr);
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+  min-height: 58px;
+  padding: 5px;
+  border: 1px solid rgba(92, 67, 48, 0.08);
+  border-radius: 11px;
+  background: #fffdfa;
+  color: inherit;
+  text-align: left;
+}
+
+.recipe-inspiration-favorite-thumb {
+  width: 52px;
+  height: 48px;
+  min-height: 0;
+  overflow: hidden;
+  border-radius: 9px;
+}
+
+.recipe-inspiration-favorite-list > button > span {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.recipe-inspiration-favorite-list strong,
+.recipe-inspiration-favorite-list small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.recipe-inspiration-favorite-list strong {
+  color: #2d211b;
+  font-size: 0.82rem;
+  font-weight: 900;
+}
+
+.recipe-inspiration-favorite-list small {
+  color: #9b8e85;
+  font-size: 0.7rem;
+  font-weight: 760;
+}
+
 .recipe-inspiration-head {
   display: flex;
   align-items: baseline;
@@ -5430,4 +5490,124 @@
   box-shadow: 0 20px 48px rgba(74, 54, 40, 0.12);
 }
 
+@media (min-width: 901px) and (max-width: 1280px) {
+  .page-stack:has(.recipe-workspace),
+  .recipe-workspace,
+  .recipe-discovery-page,
+  .recipe-discovery-shell,
+  .recipe-discovery-layout,
+  .recipe-discovery-main {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+  }
 
+  .recipe-workspace .recipe-discovery-shell .recipe-inspiration-grid {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 14px;
+  }
+
+  .recipe-workspace .recipe-discovery-shell .recipe-inspiration-card,
+  .recipe-workspace .recipe-inspiration-head,
+  .recipe-workspace .recipe-mini-gallery,
+  .recipe-workspace .recipe-top-list {
+    min-width: 0;
+  }
+
+  .recipe-workspace .recipe-discovery-shell .recipe-inspiration-card {
+    width: 100%;
+    max-width: 100%;
+    min-height: 116px;
+    padding: 14px 16px;
+    overflow: hidden;
+  }
+
+  .recipe-workspace .recipe-discovery-shell .recipe-inspiration-card:last-child {
+    grid-column: auto;
+  }
+
+  .recipe-workspace .recipe-inspiration-favorites {
+    display: grid;
+    align-content: start;
+    gap: 12px;
+  }
+
+  .recipe-workspace .recipe-mini-gallery,
+  .recipe-workspace .recipe-mini-gallery.quick {
+    gap: 8px;
+  }
+
+  .recipe-workspace .recipe-mini-thumb {
+    border-radius: 10px;
+  }
+
+  .recipe-workspace .recipe-top-list {
+    gap: 6px;
+  }
+
+  .recipe-workspace .recipe-top-item {
+    grid-template-columns: 30px minmax(0, 1fr);
+    gap: 6px;
+    padding: 4px 0;
+  }
+
+  .recipe-workspace .recipe-top-rank {
+    width: 28px;
+    height: 28px;
+    border-radius: 10px;
+  }
+
+  .recipe-workspace .recipe-favorite-side-panel {
+    display: none;
+  }
+
+  .recipe-workspace .recipe-search-row {
+    grid-template-columns: minmax(260px, 1fr) repeat(2, minmax(118px, 0.38fr)) minmax(104px, 0.3fr);
+    gap: 8px;
+  }
+
+  .recipe-workspace .recipe-filter-shell {
+    gap: 10px;
+    padding: 12px 14px 14px;
+  }
+
+  .recipe-workspace .recipe-search-row .text-input,
+  .recipe-workspace .recipe-filter-select,
+  .recipe-workspace .recipe-filter-action {
+    min-height: 40px;
+    line-height: 40px;
+  }
+
+  .recipe-workspace .recipe-filter-row {
+    gap: 8px;
+    padding-top: 0;
+  }
+
+  .recipe-workspace .recipe-filter-chip {
+    min-width: 0;
+    min-height: 32px;
+    padding: 6px 13px;
+  }
+
+  .recipe-workspace .recipe-discovery-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .recipe-workspace .recipe-discovery-side {
+    position: static;
+  }
+
+  .recipe-workspace .recipe-recommendation-section .recipe-discovery-card-grid,
+  .recipe-workspace .recipe-discovery-card-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .recipe-workspace .recipe-recommendation-section .recipe-discovery-card-scroll-shell.is-scrollable .recipe-discovery-card,
+  .recipe-workspace .recipe-discovery-card-scroll-shell.is-scrollable .recipe-discovery-card {
+    flex-basis: calc((100% - 32px) / 3);
+    min-width: 0;
+  }
+}

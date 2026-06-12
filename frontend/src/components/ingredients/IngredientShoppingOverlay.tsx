@@ -28,7 +28,7 @@ export function IngredientShoppingOverlay(props: IngredientShoppingOverlayProps)
     <WorkspaceModal
       title="新增采购项"
       description="把这次要买的数量和原因快速记下来。"
-      closeLabel="关闭"
+      closeLabel="×"
       closeAriaLabel="关闭"
       className="workspace-modal-wide shopping-quick-modal"
       onClose={props.closeOverlay}

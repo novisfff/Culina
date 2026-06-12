@@ -1614,3 +1614,62 @@
 .dashboard-activity-mark.tone-3 {
   background: #dda93c;
 }
+
+@media (min-width: 901px) and (max-width: 1280px) {
+  .dashboard-lower-left,
+  .dashboard-lower-right {
+    display: contents;
+  }
+
+  .dashboard-week-panel {
+    order: 1;
+    grid-column: 1 / -1;
+  }
+
+  .dashboard-expiry-panel {
+    order: 2;
+    grid-column: 1;
+  }
+
+  .dashboard-activity-panel {
+    order: 2;
+    grid-column: 2;
+  }
+
+  .dashboard-todo-panel {
+    order: 3;
+    grid-column: 1 / -1;
+  }
+
+  .dashboard-shopping-panel {
+    order: 4;
+    grid-column: 1 / -1;
+  }
+
+  .dashboard-expiry-panel,
+  .dashboard-todo-panel,
+  .dashboard-activity-panel {
+    gap: 10px;
+    padding: 14px 16px;
+  }
+
+  .dashboard-expiry-list {
+    grid-template-columns: 1fr;
+    max-height: 228px;
+  }
+
+  .dashboard-todo-list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    max-height: none;
+    overflow: visible;
+    padding-right: 0;
+  }
+
+  .dashboard-todo-item {
+    min-height: 44px;
+  }
+
+  .dashboard-activity-list {
+    grid-template-columns: 1fr;
+  }
+}

@@ -40,7 +40,7 @@ export function IngredientConsumeOverlay(props: IngredientConsumeOverlayProps) {
     <WorkspaceModal
       title="快速消费"
       description="输入这次用掉的量，系统自动扣减库存。"
-      closeLabel="关闭"
+      closeLabel="×"
       closeAriaLabel="关闭"
       className="consume-quick-modal"
       onClose={props.closeOverlay}

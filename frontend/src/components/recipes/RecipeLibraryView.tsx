@@ -231,6 +231,27 @@ export function RecipeLibraryView({
                   ))}
                 </div>
               </article>
+              <article className="recipe-inspiration-card recipe-inspiration-favorites">
+                <div className="recipe-inspiration-head">
+                  <h3 className="recipe-inspiration-title"><RecipeSideIcon name="heart" />我的收藏</h3>
+                  <button type="button" onClick={() => onShowDiscoveryFilter('favorite', { sort: 'updated' })}>查看全部</button>
+                </div>
+                <div className="recipe-inspiration-favorite-list">
+                  {favoriteSidebarCards.length > 0 ? (
+                    favoriteSidebarCards.map((card) => (
+                      <button key={card.recipe.id} type="button" onClick={() => onOpenDetail(card)}>
+                        <RecipeCover card={card} className="recipe-inspiration-favorite-thumb" />
+                        <span>
+                          <strong>{card.recipe.title}</strong>
+                          <small>{favoriteRecipeIds.has(card.recipe.id) ? '已收藏' : '推荐收藏'}</small>
+                        </span>
+                      </button>
+                    ))
+                  ) : (
+                    <p className="subtle">还没有收藏菜谱。</p>
+                  )}
+                </div>
+              </article>
             </div>
           </section>
 
@@ -303,7 +324,7 @@ export function RecipeLibraryView({
             </main>
 
             <aside className="recipe-discovery-side">
-              <section className="recipe-side-panel">
+              <section className="recipe-side-panel recipe-favorite-side-panel">
                 <div className="recipe-side-panel-head">
                   <h3><RecipeSideIcon name="heart" />我的收藏</h3>
                   <button type="button" aria-label="查看收藏" onClick={() => onShowDiscoveryFilter('favorite', { sort: 'updated' })}>
