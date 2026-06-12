@@ -556,6 +556,12 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
     completeCurrentCookStepAndContinue,
     moveCookStep,
     submitCookRecipe,
+    timers,
+    activeTimerId,
+    addTimer,
+    deleteTimer,
+    selectTimer,
+    toggleTimerById,
   } = useRecipeCookState({
     cards,
     selectedCard,
@@ -1082,6 +1088,12 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
           toggleCookTimer={toggleCookTimer}
           addCookTimerSeconds={addCookTimerSeconds}
           toggleCookIngredient={toggleCookIngredient}
+          timers={timers}
+          activeTimerId={activeTimerId}
+          addTimer={addTimer}
+          deleteTimer={deleteTimer}
+          selectTimer={selectTimer}
+          toggleTimerById={toggleTimerById}
         />
       ) : view === 'detail' && selectedCard ? (
         <RecipeDetailView
