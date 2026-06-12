@@ -1071,14 +1071,29 @@
     rgba(255, 252, 248, 0.88);
 }
 
-.family-image-large-preview img,
+.family-image-preview-mask,
 .family-image-empty {
   width: 96px;
   height: 96px;
   border-radius: 999px;
 }
 
-.family-image-large-preview img {
+.family-image-preview-mask {
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.62);
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.35),
+    0 10px 24px rgba(125, 94, 70, 0.12);
+}
+
+.family-image-preview-media {
+  width: 100%;
+  height: 100%;
+}
+
+.family-image-preview-media-image {
+  width: 100%;
+  height: 100%;
   display: block;
   object-fit: cover;
 }
@@ -1595,4 +1610,3 @@
   border: 1px solid rgba(147, 96, 63, 0.14);
   box-shadow: 0 20px 48px rgba(74, 54, 40, 0.12);
 }
-
