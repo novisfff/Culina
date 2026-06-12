@@ -9,6 +9,7 @@ services:
       - --character-set-server=utf8mb4
       - --collation-server=utf8mb4_unicode_ci
     environment:
+      TZ: ${TZ:-Asia/Shanghai}
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-culina_local_root}
       MYSQL_DATABASE: ${MYSQL_DATABASE:-culina}
       MYSQL_USER: ${MYSQL_USER:-culina}
@@ -31,6 +32,7 @@ services:
     restart: unless-stopped
     command: server /data --console-address ":9001"
     environment:
+      TZ: ${TZ:-Asia/Shanghai}
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-culina}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-culina_local_minio_secret}
     ports:
@@ -46,6 +48,7 @@ services:
     container_name: culina-backend
     restart: unless-stopped
     environment:
+      TZ: ${TZ:-Asia/Shanghai}
       ENVIRONMENT: ${ENVIRONMENT:-local}
       MYSQL_HOST: mysql
       MYSQL_PORT: 3306
@@ -103,6 +106,7 @@ services:
     container_name: culina-frontend
     restart: unless-stopped
     environment:
+      TZ: ${TZ:-Asia/Shanghai}
       MINIO_BUCKET: ${MINIO_BUCKET:-culina-media}
     ports:
       - "${FRONTEND_PORT:-8080}:80"
