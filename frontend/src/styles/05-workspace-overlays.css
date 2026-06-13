@@ -928,10 +928,17 @@
 }
 
 .recipe-favorite-button {
+  -webkit-appearance: none;
+  appearance: none;
+  display: grid;
   top: 28px;
   right: 28px;
   width: 34px;
   height: 34px;
+  min-width: 34px;
+  min-height: 34px;
+  padding: 0;
+  place-items: center;
   border-radius: 11px;
   border: 1px solid rgba(255, 255, 255, 0.74);
   background: rgba(255, 255, 255, 0.92);
@@ -939,8 +946,11 @@
 }
 
 .recipe-favorite-button .recipe-ui-icon {
+  display: block;
+  flex: 0 0 auto;
   width: 18px;
   height: 18px;
+  margin: auto;
   color: #765f50;
   stroke-width: 2;
 }

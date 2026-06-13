@@ -3806,9 +3806,14 @@
   position: absolute;
   top: 12px;
   right: 12px;
+  -webkit-appearance: none;
+  appearance: none;
   display: grid;
   width: 34px;
   height: 34px;
+  min-width: 34px;
+  min-height: 34px;
+  padding: 0;
   place-items: center;
   border: 1px solid rgba(255, 255, 255, 0.86);
   border-radius: 11px;
@@ -3832,8 +3837,11 @@
 }
 
 .recipe-favorite-button .recipe-ui-icon {
+  display: block;
+  flex: 0 0 auto;
   width: 18px;
   height: 18px;
+  margin: auto;
   color: #765f50;
   stroke-width: 2;
 }
