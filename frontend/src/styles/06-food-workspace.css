@@ -1620,9 +1620,14 @@
   position: absolute;
   top: 8px;
   right: 8px;
+  -webkit-appearance: none;
+  appearance: none;
   display: grid;
   width: 34px;
   height: 34px;
+  min-width: 34px;
+  min-height: 34px;
+  padding: 0;
   place-items: center;
   border: 1px solid rgba(255, 255, 255, 0.86);
   border-radius: 11px;
@@ -1645,8 +1650,11 @@
 }
 
 .food-favorite-chip svg {
+  display: block;
+  flex: 0 0 auto;
   width: 18px;
   height: 18px;
+  margin: auto;
 }
 
 .food-work-card-body {
@@ -1926,9 +1934,14 @@
 }
 
 .food-card-detail-button {
+  -webkit-appearance: none;
+  appearance: none;
   display: grid;
   width: 36px;
-  min-height: 34px;
+  height: 36px;
+  min-width: 36px;
+  min-height: 36px;
+  padding: 0;
   place-items: center;
   border: 1px solid rgba(92, 67, 48, 0.1);
   border-radius: 9px;
@@ -1945,8 +1958,11 @@
 }
 
 .food-card-detail-button svg {
+  display: block;
+  flex: 0 0 auto;
   width: 16px;
   height: 16px;
+  margin: auto;
 }
 
 .food-card-actions .ghost-button {
@@ -4438,6 +4454,7 @@
 }
 
 .ai-workspace-shell {
+  min-height: calc(100vh - 140px);
   min-height: calc(100dvh - 140px);
   min-width: 0;
   display: grid;
@@ -4447,25 +4464,11 @@
 }
 
 @media (min-width: 768px) {
-  .app-shell:has(.ai-workspace-shell) {
-    height: 100dvh;
+  .app-content-ai {
+    height: calc(100vh - 32px);
+    height: calc(100dvh - 32px);
     min-height: 0;
     overflow: hidden;
-    padding-bottom: 16px;
-  }
-
-  .app-frame:has(.ai-workspace-shell),
-  .app-content:has(.ai-workspace-shell) {
-    height: 100%;
-    min-height: 0;
-    overflow: hidden;
-  }
-
-  .app-frame:has(.ai-workspace-shell) {
-    align-items: stretch;
-  }
-
-  .app-content:has(.ai-workspace-shell) {
     gap: 0;
     align-content: stretch;
   }
@@ -4500,7 +4503,7 @@
     radial-gradient(circle at 8% 0%, rgba(252, 225, 212, 0.58), transparent 30%),
     radial-gradient(circle at 94% 7%, rgba(226, 236, 216, 0.62), transparent 28%),
     linear-gradient(180deg, rgba(255, 252, 248, 0.98) 0%, rgba(255, 255, 255, 0.93) 52%, rgba(250, 247, 243, 0.95) 100%);
-  box-shadow: 0 22px 56px rgba(74, 54, 40, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.86);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.86);
   padding: 18px;
 }
 
@@ -4655,7 +4658,7 @@
     radial-gradient(circle at 18% 0%, rgba(252, 225, 212, 0.46), transparent 32%),
     linear-gradient(180deg, rgba(255, 252, 249, 0.98), rgba(248, 243, 238, 0.92)),
     rgba(250, 247, 243, 0.9);
-  box-shadow: 0 18px 48px rgba(65, 45, 32, 0.07), inset 0 1px 0 rgba(255, 255, 255, 0.78);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.78);
   padding: 14px;
 }
 
@@ -6533,6 +6536,7 @@
   display: grid;
   gap: 8px;
   min-height: 0;
+  padding-bottom: 1px;
 }
 
 .ai-composer-pause-note {
@@ -6897,19 +6901,21 @@
 }
 
 @media (max-width: 767px) {
-  .app-shell:has(.ai-workspace-shell) {
+  .app-shell-ai {
     --ai-mobile-header-height: calc(100vw * 0.1622);
     --ai-mobile-composer-height: 108px;
     --ai-mobile-nav-space: calc(8px + env(safe-area-inset-bottom, 0px));
+    height: 100vh;
     height: 100dvh;
+    min-height: 100vh;
     min-height: 100dvh;
     overflow: hidden;
     padding: 0;
     background: linear-gradient(180deg, #fffaf5 0%, #fffdfb 42%, #fff 100%);
   }
 
-  .app-frame:has(.ai-workspace-shell),
-  .app-content:has(.ai-workspace-shell) {
+  .app-shell-ai .app-frame,
+  .app-content-ai {
     height: 100%;
     min-height: 0;
     gap: 0;
@@ -6934,6 +6940,7 @@
   .ai-main-panel {
     position: fixed;
     inset: 0;
+    height: 100vh;
     height: 100dvh;
     gap: 0;
     overflow: hidden;
@@ -7706,11 +7713,18 @@
 /* 2. Sidebar Collapse and Trigger Buttons */
 .ai-sidebar-toggle-btn,
 .ai-sidebar-trigger-btn {
+  -webkit-appearance: none;
+  appearance: none;
+  box-sizing: border-box;
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  flex: 0 0 32px;
   width: 32px;
   height: 32px;
+  min-width: 32px;
+  min-height: 32px;
+  padding: 0;
   border: 1px solid rgba(226, 214, 205, 0.8);
   border-radius: 10px;
   background: rgba(255, 255, 255, 0.82);
@@ -7718,6 +7732,15 @@
   cursor: pointer;
   box-shadow: 0 4px 10px rgba(54, 38, 25, 0.04);
   transition: all 0.15s ease;
+}
+
+.ai-sidebar-toggle-btn svg,
+.ai-sidebar-trigger-btn svg {
+  display: block;
+  flex: 0 0 auto;
+  width: 16px;
+  height: 16px;
+  margin: auto;
 }
 
 .ai-sidebar-toggle-btn:hover,
@@ -7880,18 +7903,33 @@
 }
 
 .ai-attachment-button {
+  -webkit-appearance: none;
+  appearance: none;
+  box-sizing: border-box;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   align-self: center;
+  flex: 0 0 38px;
   width: 38px;
   height: 38px;
+  min-width: 38px;
+  min-height: 38px;
+  padding: 0;
   border: 0;
   border-radius: 50%;
   background: rgba(92, 67, 48, 0.06);
   color: #6a5b51;
   cursor: pointer;
   transition: all 0.15s ease;
+}
+
+.ai-attachment-button svg {
+  display: block;
+  flex: 0 0 auto;
+  width: 20px;
+  height: 20px;
+  margin: auto;
 }
 
 .ai-attachment-button:hover {
@@ -7906,8 +7944,16 @@
 }
 
 .ai-send-button {
+  -webkit-appearance: none;
+  appearance: none;
+  box-sizing: border-box;
+  flex: 0 0 38px;
   width: 38px;
   height: 38px;
+  min-width: 38px;
+  min-height: 38px;
+  padding: 0;
+  border-radius: 50%;
   background: var(--brand-button-bg);
   box-shadow: 0 4px 10px rgba(225, 82, 27, 0.2);
   transition: all 0.15s ease;
@@ -7923,10 +7969,16 @@
 
 .ai-send-button svg {
   display: block;
+  flex: 0 0 auto;
+  width: 16px;
+  height: 16px;
+  margin: auto;
 }
 
 .ai-send-button.is-sending::before {
   inset: 5px;
+  box-sizing: border-box;
+  border-radius: 50%;
 }
 
 /* 7. Markdown code block upgrades */
@@ -8027,11 +8079,18 @@
 }
 
 .ai-message-action-btn {
+  -webkit-appearance: none;
+  appearance: none;
+  box-sizing: border-box;
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  flex: 0 0 28px;
   width: 28px;
   height: 28px;
+  min-width: 28px;
+  min-height: 28px;
+  padding: 0;
   border: 1px solid rgba(226, 214, 205, 0.6);
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.9);
@@ -8061,7 +8120,18 @@
 
 .ai-message-action-btn svg {
   display: block;
+  flex: 0 0 auto;
+  width: 14px;
+  height: 14px;
+  margin: auto;
   stroke: currentColor;
+}
+
+@media (hover: none), (pointer: coarse) {
+  .ai-message-actions-bar {
+    opacity: 1;
+    visibility: visible;
+  }
 }
 
 /* 9. Mobile Responsive layout for Suggestions Grid & Folded sidebar adjustments */

@@ -63,8 +63,10 @@ export function AppShell({
   onOpenProfile,
   onLogout,
 }: AppShellProps) {
+  const isAiActive = activeTab === 'ai';
+
   return (
-    <div className="app-shell">
+    <div className={isAiActive ? 'app-shell app-shell-ai' : 'app-shell'}>
       {notice}
       <div className="page-glow page-glow-left" />
       <div className="page-glow page-glow-right" />
@@ -160,7 +162,7 @@ export function AppShell({
           </div>
         </aside>
 
-        <div className="app-content">
+        <div className={isAiActive ? 'app-content app-content-ai' : 'app-content'}>
           <nav className="tabbar">
             <div className="tabbar-scroll">
               {NAV_ITEMS.map((item) => (
