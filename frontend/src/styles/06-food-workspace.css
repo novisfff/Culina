@@ -7724,6 +7724,8 @@
   height: 32px;
   min-width: 32px;
   min-height: 32px;
+  max-width: 32px;
+  max-height: 32px;
   padding: 0;
   border: 1px solid rgba(226, 214, 205, 0.8);
   border-radius: 10px;
@@ -7915,6 +7917,8 @@
   height: 38px;
   min-width: 38px;
   min-height: 38px;
+  max-width: 38px;
+  max-height: 38px;
   padding: 0;
   border: 0;
   border-radius: 50%;
@@ -7952,6 +7956,8 @@
   height: 38px;
   min-width: 38px;
   min-height: 38px;
+  max-width: 38px;
+  max-height: 38px;
   padding: 0;
   border-radius: 50%;
   background: var(--brand-button-bg);

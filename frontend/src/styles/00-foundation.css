@@ -166,9 +166,11 @@ textarea:focus-visible {
 .sidebar-toggle svg,
 .sidebar-icon svg,
 .sidebar-logout-icon svg {
+  flex: 0 0 auto;
   width: 14px;
   height: 14px;
   display: block;
+  margin: auto;
 }
 
 .sidebar-mark svg {
@@ -384,8 +386,11 @@ textarea:focus-visible {
 }
 
 .sidebar-icon {
+  box-sizing: border-box;
   width: 18px;
   height: 18px;
+  min-width: 18px;
+  min-height: 18px;
   display: grid;
   place-items: center;
   color: currentColor;

@@ -5,10 +5,13 @@ import {
   buildDefaultCookSession,
   clampStepIndex,
   clearCookSession,
+  getNextManualTimerName,
   getStepSuggestedSeconds,
   loadCookSession,
+  removeCookTimer,
   resolveErrorMessage,
   saveCookSession,
+  transitionCookTimerForStep,
   type RecipeCookSessionState,
   type RecipeNotice,
 } from './RecipeWorkspaceModel';
@@ -50,15 +53,16 @@ export function useRecipeCookState(args: {
       : [];
   const currentCookStep = cookSteps[clampStepIndex(cookSession?.currentStepIndex ?? 0, Math.max(cookSteps.length, 1))] ?? null;
   const currentStepSuggestedSeconds = getStepSuggestedSeconds(currentCookStep);
-  const cookTimerDisplaySeconds =
-    cookSession?.timerMode === 'countdown'
-      ? Math.max((cookSession.timerDurationSeconds ?? currentStepSuggestedSeconds ?? 0) - cookSession.timerSeconds, 0)
-      : cookSession?.timerSeconds ?? 0;
-  const cookTimerDurationSeconds = cookSession?.timerDurationSeconds ?? currentStepSuggestedSeconds;
-  const cookTimerProgress =
-    cookSession?.timerMode === 'countdown' && cookTimerDurationSeconds
-      ? Math.min(Math.max(cookSession.timerSeconds / cookTimerDurationSeconds, 0), 1)
-      : 0;
+  const activeTimer = cookSession?.timers.find((t) => t.id === cookSession.activeTimerId) ?? cookSession?.timers[0] ?? null;
+  const cookTimerDisplaySeconds = activeTimer
+    ? activeTimer.mode === 'countdown'
+      ? Math.max((activeTimer.durationSeconds ?? 0) - activeTimer.seconds, 0)
+      : activeTimer.seconds
+    : 0;
+  const cookTimerDurationSeconds = activeTimer?.durationSeconds ?? null;
+  const cookTimerProgress = activeTimer && activeTimer.mode === 'countdown' && activeTimer.durationSeconds
+    ? Math.min(Math.max(activeTimer.seconds / activeTimer.durationSeconds, 0), 1)
+    : 0;
   const cookProgressPercent = cookSteps.length > 0 ? Math.round((((cookSession?.currentStepIndex ?? 0) + 1) / cookSteps.length) * 100) : 0;
   const cookSubmitDisabled =
     args.isCookingRecipe || isCookPreviewLoading || Boolean(cookPreviewError) || Boolean(cookPreview?.shortages.length) || !cookPreview || !cookSession;
@@ -133,19 +137,32 @@ export function useRecipeCookState(args: {
   }, [args.view, activeCookCard, cookSession]);
 
   useEffect(() => {
-    if (args.view !== 'cook' || !cookSession?.timerRunning) return;
+    if (args.view !== 'cook' || !cookSession) return;
+    const hasRunningTimer = cookSession.timers.some((t) => t.running);
+    if (!hasRunningTimer) return;
     const timer = window.setInterval(() => {
       setCookSession((current) => {
         if (!current) return current;
-        const duration = current.timerDurationSeconds;
-        if (current.timerMode === 'countdown' && duration && current.timerSeconds >= duration) {
-          return { ...current, timerRunning: false, timerSeconds: duration };
-        }
-        return { ...current, timerSeconds: current.timerSeconds + 1 };
+        let newlyFinishedTimerId: string | null = null;
+        const nextTimers = current.timers.map((t) => {
+          if (!t.running) return t;
+          const duration = t.durationSeconds;
+          if (t.mode === 'countdown' && duration) {
+            const nextSeconds = t.seconds + 1;
+            if (nextSeconds >= duration) {
+              newlyFinishedTimerId = t.id;
+              return { ...t, running: false, seconds: duration };
+            }
+            return { ...t, seconds: nextSeconds };
+          }
+          return { ...t, seconds: t.seconds + 1 };
+        });
+        const activeTimerId = newlyFinishedTimerId ? newlyFinishedTimerId : current.activeTimerId;
+        return { ...current, timers: nextTimers, activeTimerId };
       });
     }, 1000);
     return () => window.clearInterval(timer);
-  }, [args.view, cookSession?.timerRunning]);
+  }, [args.view, cookSession?.timers]);
 
   useEffect(() => {
     if (!cookTimerJustStarted) return;
@@ -198,16 +215,24 @@ export function useRecipeCookState(args: {
   }
 
   function selectCookTimerDuration(seconds: number | null) {
-    updateCookSession({
-      timerMode: seconds ? 'countdown' : 'countup',
-      timerDurationSeconds: seconds,
-      timerSeconds: 0,
-      timerRunning: false,
+    setCookSession((current) => {
+      if (!current) return current;
+      const nextTimers = current.timers.map((t) => {
+        if (t.id !== current.activeTimerId) return t;
+        return {
+          ...t,
+          mode: seconds ? ('countdown' as const) : ('countup' as const),
+          durationSeconds: seconds,
+          seconds: 0,
+          running: false,
+        };
+      });
+      return { ...current, timers: nextTimers };
     });
   }
 
   function openCustomCookTimer() {
-    const duration = cookSession?.timerDurationSeconds ?? currentStepSuggestedSeconds ?? 120;
+    const duration = activeTimer?.durationSeconds ?? currentStepSuggestedSeconds ?? 120;
     setCookTimerPicker({
       minutes: Math.min(Math.floor(duration / 60), 59),
       seconds: duration % 60,
@@ -218,63 +243,148 @@ export function useRecipeCookState(args: {
   function confirmCustomCookTimer() {
     const duration = cookTimerPicker.minutes * 60 + cookTimerPicker.seconds;
     if (duration <= 0) return;
-    updateCookSession({
-      timerMode: 'countdown',
-      timerDurationSeconds: duration,
-      timerSeconds: 0,
-      timerRunning: true,
+    setCookSession((current) => {
+      if (!current) return current;
+      const nextTimers = current.timers.map((t) => {
+        if (t.id !== current.activeTimerId) return t;
+        return {
+          ...t,
+          mode: 'countdown' as const,
+          durationSeconds: duration,
+          seconds: 0,
+          running: true,
+        };
+      });
+      return { ...current, timers: nextTimers };
     });
     setIsCookTimerCustomOpen(false);
     setCookTimerJustStarted(true);
   }
 
-  function startCookTimer() {
-    const duration = cookSession?.timerDurationSeconds ?? currentStepSuggestedSeconds;
-    updateCookSession({
-      timerMode: duration ? 'countdown' : 'countup',
-      timerDurationSeconds: duration,
-      timerRunning: true,
+  function toggleCookTimer() {
+    setCookSession((current) => {
+      if (!current) return current;
+      const nextTimers = current.timers.map((t) => {
+        if (t.id !== current.activeTimerId) return t;
+        if (t.running) {
+          return { ...t, running: false };
+        } else {
+          const duration = t.durationSeconds ?? (t.id === 'default-timer' ? currentStepSuggestedSeconds : null);
+          return {
+            ...t,
+            mode: duration ? ('countdown' as const) : ('countup' as const),
+            durationSeconds: duration,
+            running: true,
+          };
+        }
+      });
+      return { ...current, timers: nextTimers };
     });
     setCookTimerJustStarted(true);
   }
 
-  function toggleCookTimer() {
-    if (cookSession?.timerRunning) {
-      updateCookSession({ timerRunning: false });
-    } else {
-      startCookTimer();
-    }
-  }
-
   function resetCookTimer() {
-    updateCookSession({
-      timerSeconds: 0,
-      timerRunning: false,
-      timerMode: cookSession?.timerDurationSeconds ?? currentStepSuggestedSeconds ? 'countdown' : 'countup',
-      timerDurationSeconds: cookSession?.timerDurationSeconds ?? currentStepSuggestedSeconds,
+    setCookSession((current) => {
+      if (!current) return current;
+      const nextTimers = current.timers.map((t) => {
+        if (t.id !== current.activeTimerId) return t;
+        return {
+          ...t,
+          seconds: 0,
+          running: false,
+        };
+      });
+      return { ...current, timers: nextTimers };
     });
   }
 
   function addCookTimerSeconds(seconds: number) {
     setCookSession((current) => {
-      if (!current || current.timerMode !== 'countdown') return current;
-      const duration = current.timerDurationSeconds ?? currentStepSuggestedSeconds ?? 0;
+      if (!current) return current;
+      const nextTimers = current.timers.map((t) => {
+        if (t.id !== current.activeTimerId || t.mode !== 'countdown') return t;
+        const duration = t.durationSeconds ?? 0;
+        return {
+          ...t,
+          durationSeconds: Math.max(duration + seconds, seconds),
+        };
+      });
+      return { ...current, timers: nextTimers };
+    });
+  }
+
+  function addTimer(mode: 'countup' | 'countdown', durationSeconds: number | null, name?: string) {
+    setCookSession((current) => {
+      if (!current) return current;
+      const newId = `timer-${Date.now()}-${Math.random().toString(16).slice(2, 6)}`;
+      const timerName = name || getNextManualTimerName(current.timers);
+      const newTimer = {
+        id: newId,
+        name: timerName,
+        seconds: 0,
+        running: false,
+        mode,
+        durationSeconds,
+        source: 'manual' as const,
+        stepId: null,
+      };
       return {
         ...current,
-        timerDurationSeconds: Math.max(duration + seconds, seconds),
+        timers: [...current.timers, newTimer],
+        activeTimerId: newId,
       };
+    });
+  }
+
+  function deleteTimer(id: string) {
+    setCookSession((current) => {
+      if (!current) return current;
+      const next = removeCookTimer(current.timers, current.activeTimerId, id);
+      return {
+        ...current,
+        timers: next.timers,
+        activeTimerId: next.activeTimerId,
+      };
+    });
+  }
+
+  function selectTimer(id: string) {
+    updateCookSession({ activeTimerId: id });
+  }
+
+  function toggleTimerById(id: string) {
+    setCookSession((current) => {
+      if (!current) return current;
+      const nextTimers = current.timers.map((t) => {
+        if (t.id !== id) return t;
+        return { ...t, running: !t.running };
+      });
+      return { ...current, timers: nextTimers };
+    });
+  }
+
+  function transitionToStep(current: RecipeCookSessionState, nextStepIndex: number) {
+    return transitionCookTimerForStep({
+      timers: current.timers,
+      activeTimerId: current.activeTimerId,
+      currentStepIndex: current.currentStepIndex,
+      nextStepIndex,
+      nextStep: cookSteps[nextStepIndex],
+      newTimerId: `timer-${Date.now()}-${Math.random().toString(16).slice(2, 6)}`,
     });
   }
 
   function jumpToCookStep(index: number) {
     const nextStepIndex = clampStepIndex(index, Math.max(cookSteps.length, 1));
-    const nextSuggestedSeconds = getStepSuggestedSeconds(cookSteps[nextStepIndex]);
-    updateCookSession({
-      currentStepIndex: nextStepIndex,
-      timerSeconds: 0,
-      timerRunning: false,
-      timerMode: nextSuggestedSeconds ? 'countdown' : 'countup',
-      timerDurationSeconds: nextSuggestedSeconds,
+    setCookSession((current) => {
+      if (!current) return current;
+      const { timers: nextTimers, activeTimerId: nextActiveId } = transitionToStep(current, nextStepIndex);
+      return {
+        ...current,
+        currentStepIndex: nextStepIndex,
+        timers: nextTimers,
+        activeTimerId: nextActiveId,
+      };
     });
   }
 
@@ -289,7 +399,11 @@ export function useRecipeCookState(args: {
 
   function exitCookMode(target: 'detail' | 'library' = 'detail') {
     setIsCookFinishOpen(false);
-    setCookSession((current) => (current ? { ...current, timerRunning: false } : current));
+    setCookSession((current) => {
+      if (!current) return current;
+      const nextTimers = current.timers.map((t) => ({ ...t, running: false }));
+      return { ...current, timers: nextTimers };
+    });
     setCookCard(null);
     args.setView(target);
   }
@@ -315,15 +429,15 @@ export function useRecipeCookState(args: {
       const completed = new Set(current.completedStepIds);
       completed.add(currentCookStep.id);
       const nextStepIndex = isLastStep ? current.currentStepIndex : clampStepIndex(current.currentStepIndex + 1, Math.max(cookSteps.length, 1));
-      const nextSuggestedSeconds = isLastStep ? current.timerDurationSeconds : getStepSuggestedSeconds(cookSteps[nextStepIndex]);
+      const nextTimerState = isLastStep
+        ? { timers: current.timers, activeTimerId: current.activeTimerId }
+        : transitionToStep(current, nextStepIndex);
       return {
         ...current,
         completedStepIds: [...completed],
         currentStepIndex: nextStepIndex,
-        timerSeconds: isLastStep ? current.timerSeconds : 0,
-        timerRunning: isLastStep ? current.timerRunning : false,
-        timerMode: nextSuggestedSeconds ? 'countdown' : 'countup',
-        timerDurationSeconds: nextSuggestedSeconds,
+        timers: nextTimerState.timers,
+        activeTimerId: nextTimerState.activeTimerId,
       };
     });
     if (isLastStep) {
@@ -335,14 +449,12 @@ export function useRecipeCookState(args: {
     setCookSession((current) => {
       if (!current) return current;
       const nextStepIndex = clampStepIndex(current.currentStepIndex + delta, Math.max(cookSteps.length, 1));
-      const nextSuggestedSeconds = getStepSuggestedSeconds(cookSteps[nextStepIndex]);
+      const { timers: nextTimers, activeTimerId: nextActiveId } = transitionToStep(current, nextStepIndex);
       return {
         ...current,
         currentStepIndex: nextStepIndex,
-        timerSeconds: 0,
-        timerRunning: false,
-        timerMode: nextSuggestedSeconds ? 'countdown' : 'countup',
-        timerDurationSeconds: nextSuggestedSeconds,
+        timers: nextTimers,
+        activeTimerId: nextActiveId,
       };
     });
   }
@@ -423,5 +535,11 @@ export function useRecipeCookState(args: {
     completeCurrentCookStepAndContinue,
     moveCookStep,
     submitCookRecipe,
+    timers: cookSession?.timers ?? [],
+    activeTimerId: cookSession?.activeTimerId ?? '',
+    addTimer,
+    deleteTimer,
+    selectTimer,
+    toggleTimerById,
   };
 }

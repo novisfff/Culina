@@ -96,14 +96,23 @@ export type RecipeNotice = {
   message: string;
 };
 
+export type CookTimerState = {
+  id: string;
+  name: string;
+  seconds: number;
+  running: boolean;
+  mode: 'countup' | 'countdown';
+  durationSeconds: number | null;
+  source: 'step' | 'manual';
+  stepId: string | null;
+};
+
 export type RecipeCookSessionState = {
   currentStepIndex: number;
   checkedIngredientIds: string[];
   completedStepIds: string[];
-  timerSeconds: number;
-  timerRunning: boolean;
-  timerMode: 'countup' | 'countdown';
-  timerDurationSeconds: number | null;
+  timers: CookTimerState[];
+  activeTimerId: string;
   servings: string;
   date: string;
   mealType: MealType;
@@ -462,15 +471,28 @@ function getCookSessionSource(planItemId: string | null): RecipeCookSessionSourc
   return planItemId ? 'plan' : 'direct';
 }
 
-export function buildDefaultCookSession(recipe: Pick<Recipe, 'servings'>, planItemId: string | null = null): RecipeCookSessionState {
+export function buildDefaultCookSession(recipe: Pick<Recipe, 'servings' | 'steps'>, planItemId: string | null = null): RecipeCookSessionState {
+  const firstStep = recipe.steps && recipe.steps[0];
+  const firstStepSuggestedSeconds = firstStep ? getStepSuggestedSeconds(firstStep) : null;
+  const isStepTimer = Boolean(firstStep && firstStepSuggestedSeconds);
+
   return {
     currentStepIndex: 0,
     checkedIngredientIds: [],
     completedStepIds: [],
-    timerSeconds: 0,
-    timerRunning: false,
-    timerMode: 'countup',
-    timerDurationSeconds: null,
+    timers: [
+      {
+        id: 'default-timer',
+        name: isStepTimer ? getRecipeStepTitle(firstStep, 0) : '自定义 1',
+        seconds: 0,
+        running: false,
+        mode: firstStepSuggestedSeconds ? 'countdown' : 'countup',
+        durationSeconds: firstStepSuggestedSeconds,
+        source: isStepTimer ? 'step' : 'manual',
+        stepId: isStepTimer ? firstStep.id : null,
+      }
+    ],
+    activeTimerId: 'default-timer',
     servings: String(recipe.servings),
     date: todayKey(),
     mealType: 'dinner',
@@ -489,15 +511,72 @@ export function sanitizeCookSession(
 ): RecipeCookSessionState {
   const fallback = buildDefaultCookSession(recipe, planItemId);
   if (!value || typeof value !== 'object') return fallback;
-  const parsed = value as Partial<RecipeCookSessionState>;
+  const parsed = value as Partial<RecipeCookSessionState> & {
+    timerSeconds?: unknown;
+    timerRunning?: unknown;
+    timerMode?: unknown;
+    timerDurationSeconds?: unknown;
+  };
+
+  function resolveLegacyStep(timer: { name?: unknown; stepId?: unknown }) {
+    if (typeof timer.stepId === 'string') {
+      return recipe.steps.find((step) => step.id === timer.stepId) ?? null;
+    }
+    if (typeof timer.name !== 'string') return null;
+    return recipe.steps.find((step, index) => {
+      const title = getRecipeStepTitle(step, index);
+      return timer.name === title || timer.name === `${title} 计时`;
+    }) ?? null;
+  }
+
+  let timers: CookTimerState[] = Array.isArray(parsed.timers)
+    ? parsed.timers.map((t: any, index): CookTimerState => {
+        const legacyStep = resolveLegacyStep(t);
+        const source = t.source === 'step' && legacyStep ? 'step' : t.source === 'manual' ? 'manual' : legacyStep ? 'step' : 'manual';
+        return {
+          id: typeof t.id === 'string' && t.id ? t.id : newDraftId('timer'),
+          name: source === 'step' && legacyStep
+            ? getRecipeStepTitle(legacyStep, recipe.steps.indexOf(legacyStep))
+            : typeof t.name === 'string' && t.name ? t.name : `自定义 ${index + 1}`,
+          seconds: Math.max(0, Number(t.seconds) || 0),
+          running: Boolean(t.running),
+          mode: t.mode === 'countdown' ? 'countdown' : 'countup',
+          durationSeconds: Number(t.durationSeconds) > 0 ? Number(t.durationSeconds) : null,
+          source,
+          stepId: source === 'step' && legacyStep ? legacyStep.id : null,
+        };
+      })
+    : [];
+
+  if (timers.length === 0) {
+    const currentStepIndex = clampStepIndex(Number(parsed.currentStepIndex) || 0, Math.max(recipe.steps.length, 1));
+    const currentStep = recipe.steps[currentStepIndex] ?? null;
+    const legacyDuration = Number(parsed.timerDurationSeconds) > 0 ? Number(parsed.timerDurationSeconds) : null;
+    const isStepTimer = Boolean(currentStep && legacyDuration);
+    timers = [
+      {
+        id: 'default-timer',
+        name: isStepTimer ? getRecipeStepTitle(currentStep, currentStepIndex) : '自定义 1',
+        seconds: Math.max(0, Number(parsed.timerSeconds) || 0),
+        running: Boolean(parsed.timerRunning),
+        mode: parsed.timerMode === 'countdown' ? 'countdown' : 'countup',
+        durationSeconds: legacyDuration,
+        source: isStepTimer ? 'step' : 'manual',
+        stepId: isStepTimer ? currentStep.id : null,
+      }
+    ];
+  }
+
+  const activeTimerId = typeof parsed.activeTimerId === 'string' && timers.some((timer) => timer.id === parsed.activeTimerId)
+    ? parsed.activeTimerId
+    : timers[0].id;
+
   return {
     currentStepIndex: clampStepIndex(Number(parsed.currentStepIndex) || 0, Math.max(recipe.steps.length, 1)),
     checkedIngredientIds: Array.isArray(parsed.checkedIngredientIds) ? parsed.checkedIngredientIds.filter((item): item is string => typeof item === 'string') : [],
     completedStepIds: Array.isArray(parsed.completedStepIds) ? parsed.completedStepIds.filter((item): item is string => typeof item === 'string') : [],
-    timerSeconds: Math.max(0, Number(parsed.timerSeconds) || 0),
-    timerRunning: Boolean(parsed.timerRunning),
-    timerMode: parsed.timerMode === 'countdown' ? 'countdown' : 'countup',
-    timerDurationSeconds: Number(parsed.timerDurationSeconds) > 0 ? Number(parsed.timerDurationSeconds) : null,
+    timers,
+    activeTimerId,
     servings: typeof parsed.servings === 'string' && parsed.servings.trim() ? parsed.servings : fallback.servings,
     date: typeof parsed.date === 'string' && parsed.date ? parsed.date : fallback.date,
     mealType: MEAL_TYPE_OPTIONS.some((item) => item.value === parsed.mealType) ? parsed.mealType as MealType : fallback.mealType,
@@ -554,9 +633,93 @@ export function saveCookSession(recipeId: string, session: RecipeCookSessionStat
     savedAt: new Date().toISOString(),
     source,
     planItemId: session.planItemId,
-    session: { ...session, timerRunning: false },
+    session: {
+      ...session,
+      timers: session.timers.map((timer) => ({ ...timer, running: false })),
+    },
   };
   writeJsonStorage(recipeCookSessionKey(recipeId, session.planItemId), persisted);
+}
+
+export function getNextManualTimerName(timers: Pick<CookTimerState, 'name'>[]) {
+  const usedNumbers = new Set(
+    timers
+      .map((timer) => /^自定义 (\d+)$/.exec(timer.name)?.[1])
+      .filter((value): value is string => Boolean(value))
+      .map(Number)
+  );
+  let nextNumber = 1;
+  while (usedNumbers.has(nextNumber)) nextNumber += 1;
+  return `自定义 ${nextNumber}`;
+}
+
+export function transitionCookTimerForStep(args: {
+  timers: CookTimerState[];
+  activeTimerId: string;
+  currentStepIndex: number;
+  nextStepIndex: number;
+  nextStep: RecipeStep | null | undefined;
+  newTimerId: string;
+}): { timers: CookTimerState[]; activeTimerId: string } {
+  if (args.nextStepIndex === args.currentStepIndex) {
+    return { timers: args.timers, activeTimerId: args.activeTimerId };
+  }
+
+  const suggestedSeconds = getStepSuggestedSeconds(args.nextStep);
+  if (!args.nextStep || !suggestedSeconds) {
+    return { timers: args.timers, activeTimerId: args.activeTimerId };
+  }
+
+  const existingStepTimer = args.timers.find((timer) => timer.source === 'step' && timer.stepId === args.nextStep?.id);
+  if (existingStepTimer) {
+    return { timers: args.timers, activeTimerId: existingStepTimer.id };
+  }
+
+  const activeTimer = args.timers.find((timer) => timer.id === args.activeTimerId) ?? args.timers[0];
+  const stepName = getRecipeStepTitle(args.nextStep, args.nextStepIndex);
+  if (activeTimer && !activeTimer.running && activeTimer.seconds === 0) {
+    return {
+      timers: args.timers.map((timer) => timer.id === activeTimer.id
+        ? {
+            ...timer,
+            name: stepName,
+            mode: 'countdown',
+            durationSeconds: suggestedSeconds,
+            source: 'step',
+            stepId: args.nextStep?.id ?? null,
+          }
+        : timer),
+      activeTimerId: activeTimer.id,
+    };
+  }
+
+  const newTimer: CookTimerState = {
+    id: args.newTimerId,
+    name: stepName,
+    seconds: 0,
+    running: false,
+    mode: 'countdown',
+    durationSeconds: suggestedSeconds,
+    source: 'step',
+    stepId: args.nextStep.id,
+  };
+  return {
+    timers: [...args.timers, newTimer],
+    activeTimerId: newTimer.id,
+  };
+}
+
+export function removeCookTimer(timers: CookTimerState[], activeTimerId: string, timerId: string) {
+  const removedIndex = timers.findIndex((timer) => timer.id === timerId);
+  if (removedIndex < 0 || timers.length <= 1) {
+    return { timers, activeTimerId };
+  }
+  const nextTimers = timers.filter((timer) => timer.id !== timerId);
+  if (activeTimerId !== timerId) {
+    return { timers: nextTimers, activeTimerId };
+  }
+  const adjacentTimer = nextTimers[Math.min(removedIndex, nextTimers.length - 1)];
+  return { timers: nextTimers, activeTimerId: adjacentTimer.id };
 }
 
 export function clearCookSession(recipeId: string, planItemId: string | null = null) {

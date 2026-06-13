@@ -334,10 +334,19 @@ describe('recipe workspace payload helpers', () => {
       currentStepIndex: 1,
       checkedIngredientIds: ['ri-1'],
       completedStepIds: ['step-1'],
-      timerSeconds: 0,
-      timerRunning: true,
-      timerMode: 'countdown',
-      timerDurationSeconds: 120,
+      timers: [
+        {
+          id: 'default-timer',
+          name: '炒制',
+          seconds: 0,
+          running: true,
+          mode: 'countdown',
+          durationSeconds: 120,
+          source: 'step',
+          stepId: 'step-2',
+        }
+      ],
+      activeTimerId: 'default-timer',
       servings: '2',
       date: expect.any(String),
       mealType: 'dinner',
@@ -388,6 +397,55 @@ describe('recipe workspace payload helpers', () => {
     expect(loaded.restored).toBe(true);
     expect(loaded.session.checkedIngredientIds).toEqual(['ri-1']);
     expect(loaded.session.adjustments).toBe('少油');
+  });
+
+  it('migrates legacy timer metadata and repairs an invalid active timer id', () => {
+    const recipe = {
+      servings: 2,
+      steps: [
+        { id: 'step-1', title: '备菜', text: '备菜', icon: 'pan', summary: '', estimated_minutes: 3, tip: '', key_points: [] },
+        { id: 'step-2', title: '焖煮', text: '焖煮', icon: 'timer', summary: '', estimated_minutes: 8, tip: '', key_points: [] },
+      ],
+    };
+
+    const session = sanitizeCookSession({
+      currentStepIndex: 1,
+      timers: [
+        {
+          id: 'legacy-step-timer',
+          name: '焖煮 计时',
+          seconds: 15,
+          running: false,
+          mode: 'countdown',
+          durationSeconds: 480,
+        },
+        {
+          id: 'legacy-manual-timer',
+          name: '计时器 2',
+          seconds: 0,
+          running: false,
+          mode: 'countup',
+          durationSeconds: null,
+        },
+      ],
+      activeTimerId: 'missing-timer',
+    }, recipe);
+
+    expect(session.activeTimerId).toBe('legacy-step-timer');
+    expect(session.timers).toEqual([
+      expect.objectContaining({
+        id: 'legacy-step-timer',
+        name: '焖煮',
+        source: 'step',
+        stepId: 'step-2',
+      }),
+      expect.objectContaining({
+        id: 'legacy-manual-timer',
+        name: '计时器 2',
+        source: 'manual',
+        stepId: null,
+      }),
+    ]);
   });
 
   it('does not restore direct cook sessions older than 24 hours', () => {
