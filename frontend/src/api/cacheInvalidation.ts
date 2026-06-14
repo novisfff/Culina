@@ -101,6 +101,7 @@ export function invalidateAfterAiApprovalSettled(queryClient: QueryClient, conve
     queryKeys.aiMessages(conversationId),
     queryKeys.aiPendingApprovals(conversationId),
     queryKeys.aiConversations,
+    queryKeys.inventory,
     queryKeys.recipes,
     queryKeys.shoppingList,
     queryKeys.foodPlanRoot,

@@ -7,7 +7,7 @@ from sqlalchemy.orm import selectinload
 
 from app.ai.kitchen.recipe_drafts import RECIPE_DRAFT_JSON_SCHEMA
 from app.ai.tools.base import ToolContext
-from app.ai.tools.catalog.common import register_tool
+from app.ai.tools.catalog.common import entity_media_map, first_entity_media, register_tool
 from app.ai.tools.draft_validation import normalize_recipe_draft_for_tools
 from app.ai.tools.registry import ToolRegistry
 from app.ai.tools.schemas import COUNT_OUTPUT, LIMIT_INPUT, draft_input_schema, draft_output_schema
@@ -32,11 +32,13 @@ def recipe_search(context: ToolContext, payload: dict[str, Any]) -> dict[str, An
             .limit(limit)
         )
     )
+    media_map = entity_media_map(context.db, family_id=context.family_id, entity_types={"recipe"}, entity_ids=[item.id for item in recipes])
     return {
         "items": [
             {
                 "id": item.id,
                 "title": item.title,
+                "image": first_entity_media(media_map, "recipe", item.id),
                 "servings": item.servings,
                 "prepMinutes": item.prep_minutes,
                 "difficulty": item.difficulty.value if hasattr(item.difficulty, "value") else str(item.difficulty),

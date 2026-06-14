@@ -111,12 +111,24 @@ export const aiApi = {
     request<AiChatResponse>(`/api/ai/runs/${runId}/retry`, {
       method: 'POST',
     }),
-  regenerateAiPart: (messageId: string, partId: string) =>
-    request<AiChatResponse>(`/api/ai/messages/${messageId}/parts/${partId}/regenerate`, {
-      method: 'POST',
-    }),
   getAiMessages: (conversationId: string) =>
     request<AiMessage[]>(`/api/ai/conversations/${conversationId}/messages`),
+  recordAiRecommendationSelection: (
+    messageId: string,
+    payload: { part_id: string; card_id: string; entity_id: string; food_plan_item_id: string },
+  ) =>
+    request<AiMessage>(`/api/ai/messages/${messageId}/recommendation-selection`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+  createAiInventoryOperationDraft: (
+    messageId: string,
+    payload: { part_id: string; card_id: string; item_id: string; action: 'restock' | 'consume' | 'dispose' },
+  ) =>
+    request<AiMessage>(`/api/ai/messages/${messageId}/inventory-operation-draft`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
   getAiRunEvents: (runId: string) =>
     request<AiRunEvent[]>(`/api/ai/runs/${runId}/events`),
   getPendingAiApprovals: (conversationId: string) =>

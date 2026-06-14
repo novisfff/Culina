@@ -11,6 +11,7 @@ import {
   normalizeMealPlanIngredientItems,
 } from './AiApprovalFields';
 import type { AiResourceKind, AiResourceOption, AiResourceOptionLoader } from './AiApprovalFields';
+import { AiInventoryOperationEditor } from './AiInventoryOperationEditor';
 
 export type { AiResourceOptionLoader } from './AiApprovalFields';
 
@@ -32,6 +33,11 @@ const FOOD_TYPE_OPTIONS = [
   { value: 'readyMade', label: '成品' },
   { value: 'instant', label: '速食' },
   { value: 'packaged', label: '包装食品' },
+];
+const INVENTORY_ACTION_OPTIONS = [
+  { value: 'restock', label: '补货' },
+  { value: 'consume', label: '消耗' },
+  { value: 'dispose', label: '销毁' },
 ];
 
 function cloneRecipeDraft(value: AiGeneratedRecipeDraft): AiGeneratedRecipeDraft {
@@ -76,6 +82,7 @@ function getDraftType(approval: AiApprovalRequest, draft: Record<string, unknown
   if (approval.approval_type.startsWith('shopping_list.')) return 'shopping_list';
   if (approval.approval_type.startsWith('meal_log.')) return 'meal_log';
   if (approval.approval_type.startsWith('food_profile.')) return 'food_profile';
+  if (approval.approval_type.startsWith('inventory.')) return 'inventory_operation';
   return '';
 }
 
@@ -192,7 +199,7 @@ export function ApprovalPanel({
   const readonly = currentApproval.status !== 'pending';
   const recipeApproval = isRecipeApproval(currentApproval);
   const draftType = getDraftType(currentApproval, structuredDraft);
-  const usesStructuredDraftEditor = ['meal_plan', 'shopping_list', 'meal_log', 'food_profile'].includes(draftType);
+  const usesStructuredDraftEditor = ['meal_plan', 'shopping_list', 'meal_log', 'food_profile', 'inventory_operation'].includes(draftType);
   const staticFoodOptions = useMemo<AiResourceOption[]>(() => foods.map((food) => ({
     id: food.id,
     label: food.name,
@@ -248,6 +255,15 @@ export function ApprovalPanel({
     if (recipeApproval) {
       values = { recipe };
     } else if (usesStructuredDraftEditor) {
+      if (draftType === 'inventory_operation') {
+        const invalidDispose = asDraftArray(structuredDraft.operations).find(
+          (item) => asText(item.action) === 'dispose' && !asText(item.reason).trim(),
+        );
+        if (invalidDispose) {
+          setError('销毁库存必须填写原因');
+          return;
+        }
+      }
       values = { draft: structuredDraft };
     } else {
       try {
@@ -287,8 +303,17 @@ export function ApprovalPanel({
       return { ...current, [key]: items.filter((_, itemIndex) => itemIndex !== index) };
     });
   };
-
   const renderStructuredDraftEditor = () => {
+    if (draftType === 'inventory_operation') {
+      return (
+        <AiInventoryOperationEditor
+          draft={structuredDraft}
+          readonly={readonly}
+          onUpdateItem={(index, patch) => updateDraftItem('operations', index, patch)}
+          onRemoveItem={(index) => removeDraftItem('operations', index)}
+        />
+      );
+    }
     if (draftType === 'meal_plan') {
       const items = asDraftArray(structuredDraft.items);
       return (
@@ -583,6 +608,11 @@ export function ApprovalPanel({
         const typeLabel = FOOD_TYPE_OPTIONS.find(o => o.value === type)?.label || foodTypeText(type);
         const category = asText(structuredDraft.category);
         return [name, typeLabel, category].filter(Boolean).join(' · ');
+      }
+      if (draftType === 'inventory_operation') {
+        const operations = asDraftArray(structuredDraft.operations);
+        const labels = operations.map((item) => INVENTORY_ACTION_OPTIONS.find((option) => option.value === asText(item.action))?.label ?? '处理');
+        return `${operations.length}项库存处理 · ${Array.from(new Set(labels)).join('、')}`;
       }
     }
     return '';

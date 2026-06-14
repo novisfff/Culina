@@ -54,10 +54,15 @@ def _utc_datetime(value: datetime | None) -> datetime | None:
     return value.astimezone(UTC)
 
 
-def _remaining_quantity(quantity: Decimal | float | int | None, consumed_quantity: Decimal | float | int | None) -> float:
+def _remaining_quantity(
+    quantity: Decimal | float | int | None,
+    consumed_quantity: Decimal | float | int | None,
+    disposed_quantity: Decimal | float | int | None = None,
+) -> float:
     quantity_value = Decimal(str(quantity or 0))
     consumed_value = Decimal(str(consumed_quantity or 0))
-    return float(max(quantity_value - consumed_value, Decimal("0")))
+    disposed_value = Decimal(str(disposed_quantity or 0))
+    return float(max(quantity_value - consumed_value - disposed_value, Decimal("0")))
 
 
 def serialize_media(asset: MediaAsset) -> dict:
@@ -164,7 +169,8 @@ def serialize_inventory_item(item: InventoryItem) -> dict:
         "ingredient_name": item.ingredient.name if item.ingredient else "",
         "quantity": _to_float(item.quantity),
         "consumed_quantity": _to_float(item.consumed_quantity),
-        "remaining_quantity": _remaining_quantity(item.quantity, item.consumed_quantity),
+        "disposed_quantity": _to_float(item.disposed_quantity),
+        "remaining_quantity": _remaining_quantity(item.quantity, item.consumed_quantity, item.disposed_quantity),
         "unit": item.unit,
         "entered_quantity": _to_optional_float(item.entered_quantity),
         "entered_unit": item.entered_unit,
@@ -449,8 +455,10 @@ def _normalize_ai_message_parts(parts: list[dict] | None) -> list[dict]:
         if next_part.get("type") in {"result_card", "error_recovery"} and isinstance(next_part.get("card"), dict):
             card = dict(next_part["card"])
             card_type = str(card.get("type") or "inventory_summary")
-            card.setdefault("id", f"{next_part.get('id') or f'ai_part_{index}'}-card")
-            card.setdefault("title", AI_RESULT_CARD_DEFAULT_TITLES.get(card_type, "AI 结果"))
+            if not isinstance(card.get("id"), str) or not card["id"].strip():
+                card["id"] = f"{next_part.get('id') or f'ai_part_{index}'}-card"
+            if not isinstance(card.get("title"), str) or not card["title"].strip():
+                card["title"] = AI_RESULT_CARD_DEFAULT_TITLES.get(card_type, "AI 结果")
             next_part["card"] = card
         normalized.append(next_part)
     return normalized

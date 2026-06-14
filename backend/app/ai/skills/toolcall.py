@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+from datetime import date, timedelta
 from pathlib import Path
 from inspect import Parameter, signature
 from typing import Any
@@ -42,6 +43,7 @@ DRAFT_TOOL_TYPES: dict[str, str] = {
     "shopping.create_draft": "shopping_list",
     "meal_log.create_draft": "meal_log",
     "food_profile.create_draft": "food_profile",
+    "inventory.create_operation_draft": "inventory_operation",
 }
 
 
@@ -134,6 +136,7 @@ class ToolCallingSkill(BaseSkill):
             )
 
         draft_outputs: list[dict[str, Any]] = []
+        read_outputs: dict[str, list[dict[str, Any]]] = {}
         script_executor = SkillScriptExecutor(self.script_catalog, context)
         available_tools = [
             *(context.tool_executor.registry.get(name) for name in self.manifest.tools),
@@ -157,6 +160,9 @@ class ToolCallingSkill(BaseSkill):
                 return output
             output = context.tool_executor.call(name, payload)
             context.ensure_active()
+            definition = context.tool_executor.registry.get(name)
+            if definition.side_effect == "read":
+                read_outputs.setdefault(name, []).append(output)
             draft_type = DRAFT_TOOL_TYPES.get(name)
             if draft_type:
                 draft = output.get("draft")
@@ -283,7 +289,11 @@ class ToolCallingSkill(BaseSkill):
             )
 
         cards = self._cards_with_validated_drafts(
-            self._validated_cards(self._as_list_of_dicts(parsed.get("cards")), context),
+            self._cards_from_read_outputs(
+                self._validated_cards(self._as_list_of_dicts(parsed.get("cards")), context),
+                read_outputs,
+                current_message=context.current_message,
+            ),
             drafts,
         )
         emitted_text = visible_stream.text
@@ -483,6 +493,224 @@ class ToolCallingSkill(BaseSkill):
                 next_data["foods"] = payload["foods"]
             normalized_cards.append({**card, "data": next_data})
         return normalized_cards
+
+    def _cards_from_read_outputs(
+        self,
+        cards: list[dict[str, Any]],
+        read_outputs: dict[str, list[dict[str, Any]]],
+        *,
+        current_message: str,
+    ) -> list[dict[str, Any]]:
+        normalized: list[dict[str, Any]] = []
+        for card in cards:
+            card_type = str(card.get("type") or "")
+            if card_type == "inventory_summary":
+                normalized.append({**card, "data": self._inventory_card_data(read_outputs)})
+                continue
+            if card_type == "today_recommendation":
+                normalized.append(self._normalize_recommendation_card(card, read_outputs, current_message=current_message))
+                continue
+            normalized.append(card)
+        return normalized
+
+    def _inventory_card_data(self, read_outputs: dict[str, list[dict[str, Any]]]) -> dict[str, Any]:
+        summaries = read_outputs.get("inventory.read_summary", [])
+        focused_tools = [
+            ("inventory.read_available_items", "available"),
+            ("inventory.read_expiring_items", "expiring"),
+            ("inventory.read_expired_items", "expired"),
+            ("inventory.read_low_stock_items", "low_stock"),
+        ]
+        focused_outputs = [
+            (tool_name, focus, outputs[-1])
+            for tool_name, focus in focused_tools
+            if (outputs := read_outputs.get(tool_name))
+        ]
+        if summaries:
+            return summaries[-1]
+
+        merged_items: dict[str, dict[str, Any]] = {}
+        for _, _, output in focused_outputs:
+            for item in self._as_list_of_dicts(output.get("items")):
+                item_id = str(item.get("id") or "")
+                if item_id:
+                    merged_items[item_id] = item
+        items = list(merged_items.values())[:6]
+        focus = focused_outputs[0][1] if len(focused_outputs) == 1 else "overview"
+        available = self._latest_tool_items(read_outputs, "inventory.read_available_items")
+        expiring = self._latest_tool_items(read_outputs, "inventory.read_expiring_items")
+        low_stock = self._latest_tool_items(read_outputs, "inventory.read_low_stock_items")
+        return {
+            "queryFocus": focus,
+            "availableCount": len(available) or len(items),
+            "expiringCount": len(expiring) or sum(
+                1 for item in items if item.get("displayStatus") in {"expiring", "expired"}
+            ),
+            "lowStockCount": len(low_stock) or sum(
+                1 for item in items if item.get("displayStatus") == "low_stock"
+            ),
+            "items": items,
+        }
+
+    def _normalize_recommendation_card(
+        self,
+        card: dict[str, Any],
+        read_outputs: dict[str, list[dict[str, Any]]],
+        *,
+        current_message: str,
+    ) -> dict[str, Any]:
+        foods = self._latest_tool_items(read_outputs, "food.search")
+        recipes = self._latest_tool_items(read_outputs, "recipe.search")
+        inventory = self._latest_tool_items(read_outputs, "inventory.read_available_items")
+        expiring = self._latest_tool_items(read_outputs, "inventory.read_expiring_items")
+        recent = self._latest_tool_items(read_outputs, "meal_log.read_recent")
+        foods_by_id = {str(item.get("id")): item for item in foods if item.get("id")}
+        recipes_by_id = {str(item.get("id")): item for item in recipes if item.get("id")}
+        data = card.get("data") if isinstance(card.get("data"), dict) else {}
+        target_date = self._recommendation_target_date(current_message) or self._iso_date_text(data.get("targetDate"))
+        meal_type = self._recommendation_meal_type(current_message) or self._meal_type_text(data.get("mealType"))
+        raw_recommendations = data.get("recommendations")
+        if not isinstance(raw_recommendations, list) or not raw_recommendations:
+            raw_recommendations = card.get("items")
+        recommendations: list[dict[str, Any]] = []
+        for raw in self._as_list_of_dicts(raw_recommendations)[:3]:
+            food_id = self._optional_text(raw.get("foodId"))
+            recipe_id = self._optional_text(raw.get("recipeId"))
+            food_entity = foods_by_id.get(food_id or "") if food_id else None
+            recipe_entity = recipes_by_id.get(recipe_id or "") if recipe_id else None
+            if recipe_entity and not food_entity:
+                linked_food_ids = recipe_entity.get("foodIds") if isinstance(recipe_entity.get("foodIds"), list) else []
+                linked_food_id = next((str(item) for item in linked_food_ids if str(item) in foods_by_id), None)
+                if linked_food_id:
+                    food_id = linked_food_id
+            entity = food_entity or recipe_entity
+            entity_type = "food" if food_entity else "recipe" if recipe_entity else ""
+            if not entity:
+                logger.warning(
+                    "Tool-calling skill discarded recommendation without real entity skill=%s food_id=%s recipe_id=%s",
+                    self.manifest.key,
+                    food_id,
+                    recipe_id,
+                )
+                continue
+            evidence = []
+            for raw_evidence in self._as_list_of_dicts(raw.get("evidence"))[:3]:
+                label = raw_evidence.get("label") or raw_evidence.get("name")
+                if not label:
+                    continue
+                quantity = raw_evidence.get("quantity")
+                unit = raw_evidence.get("unit")
+                expiry_date = raw_evidence.get("expiryDate")
+                details = []
+                if quantity is not None:
+                    details.append(f"{quantity}{unit or ''}")
+                if expiry_date:
+                    details.append(f"保质期至 {expiry_date}")
+                evidence.append(
+                    {
+                        "type": str(raw_evidence.get("type") or "inventory"),
+                        "id": raw_evidence.get("id"),
+                        "label": str(label),
+                        "status": raw_evidence.get("displayStatus") or raw_evidence.get("status"),
+                        "detail": " · ".join(details) or None,
+                    }
+                )
+            recommendations.append(
+                {
+                    "entityType": entity_type,
+                    "entityId": str(entity["id"]),
+                    "foodId": food_id,
+                    "recipeId": recipe_id,
+                    "name": str(entity.get("name") or entity.get("title") or "推荐"),
+                    "image": entity.get("image"),
+                    "category": entity.get("category"),
+                    "foodType": entity.get("type"),
+                    "prepMinutes": entity.get("prepMinutes"),
+                    "servings": entity.get("servings"),
+                    "difficulty": entity.get("difficulty"),
+                    "reason": str(raw.get("reason") or ""),
+                    "evidence": evidence,
+                }
+            )
+        return {
+            "id": card.get("id"),
+            "type": card.get("type"),
+            "title": card.get("title"),
+            "data": {
+                "recommendations": recommendations,
+                "targetDate": target_date,
+                "mealType": meal_type,
+                "contextSummary": {
+                    "inventoryCount": len(inventory),
+                    "expiringCount": len(expiring),
+                    "recentMealCount": len(recent),
+                    "recipeCount": len(recipes),
+                },
+            },
+        }
+
+    @staticmethod
+    def _iso_date_text(value: Any) -> str | None:
+        text = str(value or "").strip()
+        try:
+            return date.fromisoformat(text).isoformat()
+        except ValueError:
+            return None
+
+    @staticmethod
+    def _meal_type_text(value: Any) -> str | None:
+        text = str(value or "").strip()
+        return text if text in {"breakfast", "lunch", "dinner", "snack"} else None
+
+    @classmethod
+    def _recommendation_target_date(cls, message: str) -> str | None:
+        explicit = re.search(r"\b(20\d{2}-\d{2}-\d{2})\b", message)
+        if explicit:
+            return cls._iso_date_text(explicit.group(1))
+
+        today = date.today()
+        for marker, offset in (
+            ("大后天", 3),
+            ("后天", 2),
+            ("明天", 1),
+            ("明晚", 1),
+            ("今天", 0),
+            ("今晚", 0),
+            ("今早", 0),
+            ("今中午", 0),
+        ):
+            if marker in message:
+                return (today + timedelta(days=offset)).isoformat()
+
+        weekday_match = re.search(r"(下周|本周|这周)?(?:周|星期)([一二三四五六日天])", message)
+        if not weekday_match:
+            return None
+        weekday_index = {"一": 0, "二": 1, "三": 2, "四": 3, "五": 4, "六": 5, "日": 6, "天": 6}[weekday_match.group(2)]
+        if weekday_match.group(1) == "下周":
+            delta = 7 - today.weekday() + weekday_index
+        else:
+            delta = weekday_index - today.weekday()
+        if delta < 0:
+            delta += 7
+        return (today + timedelta(days=delta)).isoformat()
+
+    @staticmethod
+    def _recommendation_meal_type(message: str) -> str | None:
+        for meal_type, markers in (
+            ("breakfast", ("早餐", "早饭", "早上", "今早")),
+            ("lunch", ("午餐", "午饭", "中午")),
+            ("dinner", ("晚餐", "晚饭", "今晚", "明晚", "晚上")),
+            ("snack", ("夜宵", "加餐", "零食")),
+        ):
+            if any(marker in message for marker in markers):
+                return meal_type
+        return None
+
+    def _latest_tool_items(self, read_outputs: dict[str, list[dict[str, Any]]], tool_name: str) -> list[dict[str, Any]]:
+        outputs = read_outputs.get(tool_name, [])
+        if not outputs:
+            return []
+        return self._as_list_of_dicts(outputs[-1].get("items"))
 
     def _normalized_card_type(self, card_type: str, allowed: set[str]) -> str | None:
         if card_type.endswith("_preview"):

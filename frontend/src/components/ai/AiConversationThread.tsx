@@ -1,9 +1,20 @@
 import { lazy, Suspense, useEffect, useRef, useState } from 'react';
-import type { AiGeneratedRecipeDraft, AiMessage, AiResultCard, AiRunEvent, Food, Ingredient, UserSummary } from '../../api/types';
+import type {
+  AiInventoryOperationAction,
+  AiInventoryResultItem,
+  AiMessage,
+  AiResultCard,
+  AiRunEvent,
+  AiTodayRecommendationItem,
+  Food,
+  Ingredient,
+  UserSummary,
+} from '../../api/types';
 import { resolveAssetUrl } from '../../lib/assets';
 import { avatarColor, initials } from '../../lib/ui';
-import { ApprovalPanel, approvalStatusText } from './AiApprovalPanel';
+import { ApprovalPanel } from './AiApprovalPanel';
 import type { AiApprovalDecisionSubmit, AiResourceOptionLoader } from './AiApprovalPanel';
+import { ResultCard } from './AiResultCards';
 
 export { ApprovalPanel } from './AiApprovalPanel';
 export type { AiApprovalDecisionSubmit, AiResourceOptionLoader } from './AiApprovalPanel';
@@ -93,131 +104,6 @@ function ProgressEventIcon({ event }: { event: AiRunEvent }) {
     return <ToolEventIcon event={event} />;
   }
   return <span className="ai-run-detail-status-dot" aria-hidden="true" />;
-}
-
-function ResultCard({ card }: { card: AiResultCard }) {
-  if (card.type === 'today_recommendation') {
-    const recommendations = card.data.recommendations ?? [];
-    const context = card.data.contextSummary ?? {};
-    return (
-      <article className="ai-result-card">
-        <div className="inline-between">
-          <h3>{card.title}</h3>
-          <span className="subtle">
-            库存 {context.inventoryCount ?? 0} · 临期 {context.expiringCount ?? 0}
-          </span>
-        </div>
-        <div className="ai-recommendation-list">
-          {recommendations.map((item) => (
-            <section key={item.title} className="ai-recommendation-item">
-              <strong>{item.title}</strong>
-              <p>{item.reason}</p>
-              {item.evidence.length > 0 && (
-                <div className="ai-evidence-row">
-                  {item.evidence.map((evidence) => (
-                    <span key={`${item.title}-${evidence.label}`} className="ai-evidence-pill">
-                      {evidence.label}
-                      {evidence.detail ? ` · ${evidence.detail}` : ''}
-                    </span>
-                  ))}
-                </div>
-              )}
-            </section>
-          ))}
-        </div>
-      </article>
-    );
-  }
-
-  if (card.type === 'recipe_draft') {
-    const draft = card.data.draft as AiGeneratedRecipeDraft | undefined;
-    return (
-      <article className="ai-result-card ai-recipe-draft-card">
-        <div className="inline-between">
-          <h3>{card.title}</h3>
-          <span className="subtle">{String(card.data.summary ?? '')}</span>
-        </div>
-        {draft && (
-          <div className="ai-recipe-draft-summary">
-            <span>{draft.servings} 人份</span>
-            <span>{draft.prep_minutes} 分钟</span>
-            <span>{draft.difficulty}</span>
-            <span>{draft.ingredient_items.length} 个食材</span>
-            <span>{draft.steps.length} 个步骤</span>
-          </div>
-        )}
-      </article>
-    );
-  }
-
-  if (card.type === 'approval_request') {
-    const statusText = typeof card.data.status === 'string' ? card.data.status : 'pending';
-    const instruction = typeof card.data.instruction === 'string' ? card.data.instruction : '等待你确认后再执行写入。';
-    return (
-      <article className="ai-result-card ai-approval-card">
-        <div className="inline-between">
-          <h3>{card.title}</h3>
-          <span className={`ai-approval-status status-${statusText}`}>{approvalStatusText(statusText)}</span>
-        </div>
-        <p>{instruction}</p>
-      </article>
-    );
-  }
-
-  if (card.type === 'inventory_summary') {
-    const items = Array.isArray(card.data.items) ? card.data.items : [];
-    return (
-      <article className="ai-result-card">
-        <div className="inline-between">
-          <h3>{card.title}</h3>
-          <span className="subtle">
-            可用 {String(card.data.availableCount ?? 0)} · 临期 {String(card.data.expiringCount ?? 0)}
-          </span>
-        </div>
-        <div className="ai-evidence-row">
-          {items.slice(0, 6).map((item, index) => {
-            const value = item as { label?: string; quantity?: string; unit?: string; status?: string };
-            return (
-              <span key={`${value.label ?? 'item'}-${index}`} className="ai-evidence-pill">
-                {value.label ?? '库存项'}
-                {value.quantity ? ` · ${value.quantity}${value.unit ?? ''}` : ''}
-              </span>
-            );
-          })}
-        </div>
-      </article>
-    );
-  }
-
-  if (card.type === 'meal_plan_draft' || card.type === 'shopping_list_draft' || card.type === 'meal_log_draft' || card.type === 'food_profile_draft') {
-    const items = Array.isArray(card.data.items) ? card.data.items : Array.isArray(card.data.foods) ? card.data.foods : [];
-    return (
-      <article className="ai-result-card">
-        <div className="inline-between">
-          <h3>{card.title}</h3>
-          <span className="subtle">{String(card.data.summary ?? '')}</span>
-        </div>
-        <div className="ai-recommendation-list">
-          {items.slice(0, 6).map((item, index) => {
-            const value = item as { title?: string; name?: string; reason?: string; note?: string; date?: string; mealType?: string };
-            return (
-              <section key={`${value.title ?? value.name ?? 'draft'}-${index}`} className="ai-recommendation-item">
-                <strong>{value.title ?? value.name ?? '草稿项'}</strong>
-                <p>{value.reason ?? value.note ?? [value.date, value.mealType].filter(Boolean).join(' · ')}</p>
-              </section>
-            );
-          })}
-        </div>
-      </article>
-    );
-  }
-
-  return (
-    <article className="ai-result-card ai-error-card">
-      <h3>{card.title}</h3>
-      <p>{String(card.data.message ?? '请稍后重试。')}</p>
-    </article>
-  );
 }
 
 function RunProgressTimeline({ events, isLive }: { events: AiRunEvent[]; isLive: boolean }) {
@@ -364,8 +250,10 @@ export function MessageBubble({
   runEvents = [],
   isLatestAssistant = false,
   onApprovalDecision,
+  onAddRecommendationToPlan,
+  onInventoryAction,
+  isInventoryActionPending,
   onRetryRun,
-  onRegeneratePart,
 }: {
   message: AiMessage;
   user: UserSummary | null;
@@ -375,8 +263,16 @@ export function MessageBubble({
   runEvents?: AiRunEvent[];
   isLatestAssistant?: boolean;
   onApprovalDecision: AiApprovalDecisionSubmit;
+  onAddRecommendationToPlan?: (item: AiTodayRecommendationItem, card: AiResultCard, messageId: string, partId: string) => void;
+  onInventoryAction?: (
+    item: AiInventoryResultItem,
+    action: AiInventoryOperationAction,
+    card: AiResultCard,
+    messageId: string,
+    partId: string,
+  ) => void;
+  isInventoryActionPending?: boolean;
   onRetryRun?: (runId: string) => void;
-  onRegeneratePart?: (messageId: string, partId: string) => void;
 }) {
   const isUser = message.role === 'user';
   const userName = user?.display_name || user?.username || '我';
@@ -445,12 +341,12 @@ export function MessageBubble({
             if ((part.type === 'result_card' || part.type === 'error_recovery') && part.card) {
               return (
                 <div key={part.id} className="ai-message-part">
-                  <ResultCard card={part.card} />
-                  {part.type === 'result_card' && onRegeneratePart && (
-                    <button className="ghost-button ai-part-action" type="button" onClick={() => onRegeneratePart(message.id, part.id)}>
-                      局部重生成
-                    </button>
-                  )}
+                  <ResultCard
+                    card={part.card}
+                    onAddToPlan={(item, card) => onAddRecommendationToPlan?.(item, card, message.id, part.id)}
+                    onInventoryAction={(item, action, card) => onInventoryAction?.(item, action, card, message.id, part.id)}
+                    isInventoryActionPending={isInventoryActionPending}
+                  />
                 </div>
               );
             }
@@ -507,21 +403,6 @@ export function MessageBubble({
                   >
                     <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M10 15v4a3 3 0 0 0 3 3l4-9V2H5.72a2 2 0 0 0-2 1.7l-1.38 9a2 2 0 0 0 2 2.3zm12-5v9a2 2 0 0 0 2-2v-7a2 2 0 0 0-2-2z"></path></svg>
                   </button>
-                  {onRegeneratePart && message.parts.length > 0 && (
-                    <button
-                      className="ai-message-action-btn"
-                      title="重新生成"
-                      type="button"
-                      onClick={() => {
-                        const lastPart = [...message.parts].reverse().find((p) => p.type === 'text' || p.type === 'result_card');
-                        if (lastPart) {
-                          onRegeneratePart(message.id, lastPart.id);
-                        }
-                      }}
-                    >
-                      <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"></path></svg>
-                    </button>
-                  )}
                 </div>
               )}
               {messageTime && (

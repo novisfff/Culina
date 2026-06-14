@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import Counter
 from collections.abc import Iterator
 from datetime import date
 from decimal import Decimal
@@ -25,12 +26,15 @@ from app.ai.errors import AIConflictError
 from app.ai.skills import build_workspace_skill_registry
 from app.ai.tools.draft_validation import (
     normalize_food_profile_draft_for_tools,
+    normalize_inventory_operation_draft,
     normalize_meal_log_draft,
     normalize_meal_plan_draft,
     normalize_recipe_draft_for_tools,
     normalize_shopping_list_draft,
 )
-from app.core.enums import ActivityAction, AiMode, MealType
+from app.ai.tools.catalog.common import entity_media_map
+from app.ai.tools.catalog.inventory import inventory_record
+from app.core.enums import ActivityAction, AiMode, InventoryStatus, MealType
 from app.core.utils import create_id, utcnow
 from app.models.domain import (
     AIAgentRun,
@@ -44,6 +48,7 @@ from app.models.domain import (
     Food,
     FoodPlanItem,
     Ingredient,
+    InventoryItem,
     MealLog,
     MealLogFood,
     Recipe,
@@ -57,6 +62,14 @@ from app.schemas.foods import CreateFoodRequest
 from app.schemas.meal_logs import CreateMealLogRequest
 from app.schemas.shopping import CreateShoppingListItemRequest
 from app.services.activity import log_activity
+from app.services.clock import today_for_family
+from app.services.inventory_operations import (
+    consume_ingredient_inventory,
+    create_inventory_batch,
+    dispose_inventory_quantity,
+    require_ingredient,
+    require_inventory_item,
+)
 from app.services.media import bind_media_assets
 from app.services.recipe_food_sync import ensure_food_for_recipe
 from app.services.serializers import (
@@ -69,6 +82,7 @@ from app.services.serializers import (
     serialize_food,
     serialize_food_plan_item,
     serialize_meal_log,
+    serialize_inventory_item,
     serialize_recipe,
     serialize_shopping_item,
 )
@@ -134,6 +148,17 @@ DRAFT_APPROVAL_CONFIG: dict[str, dict[str, str]] = {
         "instruction": "确认后会把这份资料写入食物库。",
         "approve_label": "创建食物",
         "reject_label": "暂不创建",
+    },
+    "inventory_operation": {
+        "value_key": "draft",
+        "widget": "textarea",
+        "approval_type": "inventory.operation",
+        "operation_type": "inventory.operation",
+        "business_entity_type": "InventoryItem",
+        "title": "确认处理库存",
+        "instruction": "请核对食材、批次和数量。确认后会正式修改家庭库存。",
+        "approve_label": "确认处理库存",
+        "reject_label": "暂不处理",
     },
 }
 
@@ -363,9 +388,12 @@ class AIApplicationService:
                 continue
             next_card = dict(card)
             card_type = str(next_card.get("type") or "inventory_summary")
-            next_card.setdefault("id", create_id("ai_card"))
-            next_card.setdefault("title", default_titles.get(card_type, "AI 结果"))
-            next_card.setdefault("data", {})
+            if not isinstance(next_card.get("id"), str) or not next_card["id"].strip():
+                next_card["id"] = create_id("ai_card")
+            if not isinstance(next_card.get("title"), str) or not next_card["title"].strip():
+                next_card["title"] = default_titles.get(card_type, "AI 结果")
+            if not isinstance(next_card.get("data"), dict):
+                next_card["data"] = {}
             normalized.append(next_card)
         return normalized
 
@@ -458,6 +486,231 @@ class AIApplicationService:
                 }
             )
         return timeline
+
+    def record_recommendation_selection(
+        self,
+        *,
+        family_id: str,
+        user_id: str,
+        message_id: str,
+        part_id: str,
+        card_id: str,
+        entity_id: str,
+        food_plan_item_id: str,
+    ) -> AIMessage:
+        message = self.db.scalar(
+            select(AIMessage)
+            .where(AIMessage.id == message_id, AIMessage.family_id == family_id)
+            .with_for_update()
+        )
+        if message is None:
+            raise LookupError("AI 消息不存在")
+        plan_item = self.db.scalar(
+            select(FoodPlanItem)
+            .where(FoodPlanItem.id == food_plan_item_id, FoodPlanItem.family_id == family_id)
+            .with_for_update()
+        )
+        if plan_item is None:
+            raise LookupError("菜单计划不存在")
+
+        selected_name = ""
+        next_parts: list[dict[str, Any]] = []
+        matched = False
+        for part in message.parts or []:
+            if part.get("id") != part_id or not isinstance(part.get("card"), dict):
+                next_parts.append(part)
+                continue
+            card = dict(part["card"])
+            effective_card_id = card.get("id") if isinstance(card.get("id"), str) and card["id"].strip() else f"{part_id}-card"
+            if effective_card_id != card_id or card.get("type") != "today_recommendation":
+                next_parts.append(part)
+                continue
+            card["id"] = effective_card_id
+            if not isinstance(card.get("title"), str) or not card["title"].strip():
+                card["title"] = "今日吃什么"
+            data = dict(card.get("data") or {})
+            recommendations = []
+            for item in data.get("recommendations") or []:
+                if not isinstance(item, dict) or str(item.get("entityId") or "") != entity_id:
+                    recommendations.append(item)
+                    continue
+                if str(item.get("foodId") or "") != plan_item.food_id:
+                    raise ValueError("推荐食物与菜单计划不一致")
+                selected_name = str(item.get("name") or (plan_item.food.name if plan_item.food else "推荐食物"))
+                recommendations.append(
+                    {
+                        **item,
+                        "planSelection": {
+                            "foodPlanItemId": plan_item.id,
+                            "foodId": plan_item.food_id,
+                            "name": selected_name,
+                            "planDate": plan_item.plan_date.isoformat(),
+                            "mealType": plan_item.meal_type.value if hasattr(plan_item.meal_type, "value") else str(plan_item.meal_type),
+                            "selectedAt": utcnow().isoformat(),
+                            "selectedBy": user_id,
+                        },
+                    }
+                )
+                matched = True
+            data["recommendations"] = recommendations
+            next_parts.append({**part, "card": {**card, "data": data}})
+        if not matched:
+            raise ValueError("推荐卡片中没有找到对应食物")
+
+        selection = {
+            "messageId": message.id,
+            "cardId": card_id,
+            "entityId": entity_id,
+            "foodPlanItemId": plan_item.id,
+            "foodId": plan_item.food_id,
+            "name": selected_name,
+            "planDate": plan_item.plan_date.isoformat(),
+            "mealType": plan_item.meal_type.value if hasattr(plan_item.meal_type, "value") else str(plan_item.meal_type),
+        }
+        metadata = dict(message.message_metadata or {})
+        existing_selections = [
+            item
+            for item in metadata.get("recommendationSelections") or []
+            if isinstance(item, dict) and item.get("foodPlanItemId") != plan_item.id
+        ]
+        metadata["recommendationSelections"] = [*existing_selections, selection]
+        message.parts = next_parts
+        message.message_metadata = metadata
+
+        conversation = self._require_conversation(family_id=family_id, conversation_id=message.conversation_id)
+        context = dict(conversation.context or {})
+        context_selections = [
+            item
+            for item in context.get("recommendationSelections") or []
+            if isinstance(item, dict) and item.get("foodPlanItemId") != plan_item.id
+        ]
+        context["recommendationSelections"] = [*context_selections[-9:], selection]
+        conversation.context = context
+        conversation.last_message_at = utcnow()
+        self.db.flush()
+        return message
+
+    def create_inventory_quick_draft(
+        self,
+        *,
+        family_id: str,
+        user_id: str,
+        message_id: str,
+        part_id: str,
+        card_id: str,
+        item_id: str,
+        action: str,
+    ) -> AIMessage:
+        message = self.db.scalar(
+            select(AIMessage)
+            .where(AIMessage.id == message_id, AIMessage.family_id == family_id)
+            .with_for_update()
+        )
+        if message is None:
+            raise LookupError("AI 消息不存在")
+        matched_item: dict[str, Any] | None = None
+        effective_card_id = ""
+        for part in message.parts or []:
+            if part.get("id") != part_id or not isinstance(part.get("card"), dict):
+                continue
+            card = part["card"]
+            effective_card_id = (
+                str(card.get("id"))
+                if isinstance(card.get("id"), str) and str(card.get("id")).strip()
+                else f"{part_id}-card"
+            )
+            if effective_card_id != card_id or card.get("type") != "inventory_summary":
+                continue
+            for item in (card.get("data") or {}).get("items") or []:
+                if isinstance(item, dict) and str(item.get("id") or "") == item_id:
+                    matched_item = item
+                    break
+        if matched_item is None:
+            raise ValueError("库存卡片中没有找到对应批次")
+        if action not in {"restock", "consume", "dispose"}:
+            raise ValueError("不支持的库存操作")
+
+        inventory_item = require_inventory_item(
+            self.db,
+            family_id=family_id,
+            inventory_item_id=item_id,
+        )
+        available = max(Decimal(str(matched_item.get("quantity") or 0)), Decimal("0"))
+        if action != "restock" and available <= 0:
+            raise ValueError("该库存批次已无剩余数量")
+        quantity = Decimal("1") if action != "dispose" else available
+        if action == "consume":
+            quantity = min(quantity, available)
+        raw_operation: dict[str, Any] = {
+            "action": action,
+            "ingredientId": inventory_item.ingredient_id,
+            "inventoryItemId": inventory_item.id if action != "restock" else None,
+            "quantity": float(quantity),
+            "unit": str(matched_item.get("unit") or inventory_item.unit),
+            "reason": "用户从库存卡发起销毁" if action == "dispose" else "",
+        }
+        if action == "restock":
+            raw_operation.update(
+                {
+                    "purchaseDate": today_for_family(family_id).isoformat(),
+                    "storageLocation": inventory_item.storage_location,
+                    "status": (
+                        inventory_item.status.value
+                        if hasattr(inventory_item.status, "value")
+                        else str(inventory_item.status)
+                    ),
+                    "notes": "",
+                    "lowStockThreshold": float(inventory_item.low_stock_threshold or 0),
+                }
+            )
+        draft_payload = {
+            "draft_type": "inventory_operation",
+            "schema_version": "inventory_operation.v1",
+            "payload": {
+                "draftType": "inventory_operation",
+                "schemaVersion": "inventory_operation.v1",
+                "operations": [raw_operation],
+                "source": {
+                    "messageId": message.id,
+                    "partId": part_id,
+                    "cardId": effective_card_id,
+                    "itemId": item_id,
+                    "action": action,
+                },
+            },
+        }
+        draft, approval = self._create_draft_approval(
+            family_id=family_id,
+            user_id=user_id,
+            conversation_id=message.conversation_id,
+            message_id=message.id,
+            run_id=message.run_id,
+            draft_payload=draft_payload,
+        )
+        message.parts = [
+            *(message.parts or []),
+            {
+                "id": create_id("ai_part"),
+                "type": "draft",
+                "draft": jsonable_encoder(serialize_ai_task_draft(draft)),
+            },
+            {
+                "id": create_id("ai_part"),
+                "type": "approval_request",
+                "approval": jsonable_encoder(serialize_ai_approval_request(approval)),
+            },
+        ]
+        metadata = dict(message.message_metadata or {})
+        metadata["lastInventoryDraft"] = {
+            "draftId": draft.id,
+            "approvalId": approval.id,
+            "action": action,
+            "ingredientId": inventory_item.ingredient_id,
+            "inventoryItemId": inventory_item.id,
+        }
+        message.message_metadata = metadata
+        self.db.flush()
+        return message
 
     def _agent_key_for_plan(self, skill_registry, plan) -> str:
         if plan.failed:
@@ -785,6 +1038,13 @@ class AIApplicationService:
             draft.payload = submitted_payload
             draft.updated_by = user_id
             audit.operation_summary = {"operationId": operation.id, "entityIds": entity_ids}
+            if draft.draft_type == "inventory_operation":
+                self._refresh_inventory_result_card(
+                    family_id=family_id,
+                    message_id=draft.message_id,
+                    result=business_entity,
+                    user_id=user_id,
+                )
             logger.info(
                 "AI approval operation succeeded family_id=%s user_id=%s conversation_id=%s approval_id=%s draft_id=%s draft_type=%s operation_id=%s entity_ids=%s",
                 family_id,
@@ -887,7 +1147,7 @@ class AIApplicationService:
         user_id: str,
         conversation_id: str,
         message_id: str,
-        run_id: str,
+        run_id: str | None,
         draft_payload: dict[str, Any],
     ) -> tuple[AITaskDraft, AIApprovalRequest]:
         draft_type = str(draft_payload.get("draft_type") or "")
@@ -1025,6 +1285,8 @@ class AIApplicationService:
             raise ValueError("暂不支持的草稿类型")
         value_key = config["value_key"]
         draft_value = values.get(value_key, draft.payload)
+        if draft.draft_type == "inventory_operation":
+            self._validate_inventory_operation_shape(draft.payload, draft_value)
         return {
             value_key: self._validate_draft_payload(
                 draft_type=draft.draft_type,
@@ -1033,6 +1295,30 @@ class AIApplicationService:
                 payload=draft_value,
             )
         }
+
+    @staticmethod
+    def _validate_inventory_operation_shape(original: Any, submitted: Any) -> None:
+        if not isinstance(original, dict) or not isinstance(submitted, dict):
+            raise ValueError("库存操作草稿格式不正确")
+        original_operations = original.get("operations")
+        submitted_operations = submitted.get("operations")
+        if not isinstance(original_operations, list) or not isinstance(submitted_operations, list):
+            raise ValueError("库存操作草稿格式不正确")
+
+        def operation_key(operation: Any) -> tuple[str, str]:
+            if not isinstance(operation, dict):
+                return ("", "")
+            return (
+                str(operation.get("ingredientId") or operation.get("ingredient_id") or ""),
+                str(operation.get("action") or ""),
+            )
+
+        allowed = Counter(operation_key(operation) for operation in original_operations)
+        requested = Counter(operation_key(operation) for operation in submitted_operations)
+        if any(not ingredient_id or not action for ingredient_id, action in requested):
+            raise ValueError("库存操作项格式不正确")
+        if any(count > allowed.get(key, 0) for key, count in requested.items()):
+            raise ValueError("库存处理对象或处理方式不能在确认阶段修改")
 
     def _validate_approval_field(self, field: dict[str, Any], values: dict[str, Any], *, enforce_required: bool) -> None:
         name = str(field["name"])
@@ -1104,6 +1390,8 @@ class AIApplicationService:
                 return normalize_food_profile_draft_for_tools(self.db, family_id=family_id, payload=payload)
             except ValidationError as exc:
                 raise ValueError("食物资料草稿字段不完整或格式不正确") from exc
+        if draft_type == "inventory_operation":
+            return normalize_inventory_operation_draft(self.db, family_id=family_id, payload=payload)
         raise ValueError("暂不支持的草稿类型")
 
     def _draft_preview_summary(self, draft_type: str, payload: dict[str, Any]) -> str:
@@ -1117,6 +1405,15 @@ class AIApplicationService:
             return f"{payload.get('date')} · {payload.get('mealType')} · {len(payload.get('foods') or [])} 个食物项"
         if draft_type == "food_profile":
             return f"{payload.get('name')} · {payload.get('category')}"
+        if draft_type == "inventory_operation":
+            operations = payload.get("operations") or []
+            labels = {"restock": "入库", "consume": "消耗", "dispose": "销毁"}
+            counts: dict[str, int] = {}
+            for operation in operations:
+                action = labels.get(str(operation.get("action") or ""), "处理")
+                counts[action] = counts.get(action, 0) + 1
+            detail = " · ".join(f"{label} {count} 项" for label, count in counts.items())
+            return f"{len(operations)} 项库存处理" + (f" · {detail}" if detail else "")
         return "AI 草稿"
 
     def _execute_draft_operation(self, *, family_id: str, user_id: str, draft_type: str, payload: dict[str, Any]) -> tuple[dict[str, Any], list[str]]:
@@ -1134,7 +1431,187 @@ class AIApplicationService:
             food = self._create_food_from_profile(family_id=family_id, user_id=user_id, payload=payload)
             media_map = build_media_map(get_media_assets_for_entities(self.db, family_id=family_id, entity_type="food", entity_ids=[food.id]))
             return serialize_food(food, media_map), [food.id]
+        if draft_type == "inventory_operation":
+            return self._execute_inventory_operations(
+                family_id=family_id,
+                user_id=user_id,
+                payload=payload,
+            )
         raise ValueError("暂不支持的草稿类型")
+
+    def _execute_inventory_operations(
+        self,
+        *,
+        family_id: str,
+        user_id: str,
+        payload: dict[str, Any],
+    ) -> tuple[dict[str, Any], list[str]]:
+        results: list[dict[str, Any]] = []
+        entity_ids: list[str] = []
+        today = today_for_family(family_id)
+        for operation in payload.get("operations") or []:
+            action = str(operation["action"])
+            ingredient = require_ingredient(
+                self.db,
+                family_id=family_id,
+                ingredient_id=str(operation["ingredientId"]),
+            )
+            if action == "restock":
+                item = create_inventory_batch(
+                    self.db,
+                    family_id=family_id,
+                    user_id=user_id,
+                    ingredient=ingredient,
+                    quantity=Decimal(str(operation["quantity"])),
+                    unit=str(operation["unit"]),
+                    status=InventoryStatus(str(operation["status"])),
+                    purchase_date=date.fromisoformat(str(operation["purchaseDate"])),
+                    expiry_date=date.fromisoformat(str(operation["expiryDate"])) if operation.get("expiryDate") else None,
+                    storage_location=str(operation["storageLocation"]),
+                    notes=str(operation.get("notes") or ""),
+                    low_stock_threshold=(
+                        Decimal(str(operation["lowStockThreshold"]))
+                        if operation.get("lowStockThreshold") is not None
+                        else None
+                    ),
+                )
+                result = {
+                    "operation": "restock",
+                    "ingredient_id": ingredient.id,
+                    "ingredient_name": ingredient.name,
+                    "inventory_item_id": item.id,
+                    "quantity": float(operation["quantity"]),
+                    "unit": str(operation["unit"]),
+                    "inventory_item": serialize_inventory_item(item),
+                }
+                entity_ids.append(item.id)
+            elif action == "consume":
+                result = consume_ingredient_inventory(
+                    self.db,
+                    family_id=family_id,
+                    user_id=user_id,
+                    ingredient=ingredient,
+                    quantity=Decimal(str(operation["quantity"])),
+                    unit=str(operation["unit"]),
+                    today=today,
+                    inventory_item_id=operation.get("inventoryItemId"),
+                )
+                entity_ids.extend(result["affected_item_ids"])
+            elif action == "dispose":
+                item = require_inventory_item(
+                    self.db,
+                    family_id=family_id,
+                    inventory_item_id=str(operation["inventoryItemId"]),
+                    for_update=True,
+                )
+                result = dispose_inventory_quantity(
+                    self.db,
+                    family_id=family_id,
+                    user_id=user_id,
+                    item=item,
+                    quantity=Decimal(str(operation["quantity"])),
+                    unit=str(operation["unit"]),
+                    reason=str(operation["reason"]),
+                )
+                entity_ids.append(item.id)
+            else:
+                raise ValueError("不支持的库存操作")
+            results.append(result)
+        return {"operations": results}, list(dict.fromkeys(entity_ids))
+
+    def _refresh_inventory_result_card(
+        self,
+        *,
+        family_id: str,
+        message_id: str | None,
+        result: dict[str, Any] | None,
+        user_id: str,
+    ) -> None:
+        if not message_id or not result:
+            return
+        message = self.db.scalar(
+            select(AIMessage)
+            .where(AIMessage.id == message_id, AIMessage.family_id == family_id)
+            .with_for_update()
+        )
+        if message is None:
+            return
+        operations = [item for item in result.get("operations") or [] if isinstance(item, dict)]
+        inventory_ids = list(
+            dict.fromkeys(
+                str(item_id)
+                for operation in operations
+                for item_id in [
+                    operation.get("inventory_item_id"),
+                    *(operation.get("affected_item_ids") or []),
+                ]
+                if item_id
+            )
+        )
+        rows = list(
+            self.db.scalars(
+                select(InventoryItem)
+                .where(InventoryItem.family_id == family_id, InventoryItem.id.in_(inventory_ids))
+                .options(selectinload(InventoryItem.ingredient))
+            )
+        )
+        media_map = entity_media_map(
+            self.db,
+            family_id=family_id,
+            entity_types={"ingredient"},
+            entity_ids=[item.ingredient_id for item in rows],
+        )
+        today = today_for_family(family_id)
+        records = {item.id: inventory_record(item, media_map, today=today) for item in rows}
+        operation_by_item: dict[str, dict[str, Any]] = {}
+        for operation in operations:
+            for item_id in [operation.get("inventory_item_id"), *(operation.get("affected_item_ids") or [])]:
+                if item_id:
+                    operation_by_item[str(item_id)] = {
+                        "action": operation.get("operation"),
+                        "quantity": operation.get("quantity"),
+                        "unit": operation.get("unit"),
+                        "reason": operation.get("reason"),
+                        "handledAt": utcnow().isoformat(),
+                        "handledBy": user_id,
+                    }
+
+        next_parts: list[dict[str, Any]] = []
+        for part in message.parts or []:
+            card = part.get("card")
+            if not isinstance(card, dict) or card.get("type") != "inventory_summary":
+                next_parts.append(part)
+                continue
+            card_data = dict(card.get("data") or {})
+            current_items = [item for item in card_data.get("items") or [] if isinstance(item, dict)]
+            current_ids = {str(item.get("id") or "") for item in current_items}
+            refreshed_items = []
+            for item in current_items:
+                item_id = str(item.get("id") or "")
+                refreshed = records.get(item_id)
+                if refreshed is None:
+                    refreshed_items.append(item)
+                    continue
+                refreshed_items.append(
+                    {
+                        **refreshed,
+                        "lastOperation": operation_by_item.get(item_id),
+                    }
+                )
+            for item_id, record in records.items():
+                if item_id not in current_ids and len(refreshed_items) < 6:
+                    refreshed_items.append(
+                        {
+                            **record,
+                            "lastOperation": operation_by_item.get(item_id),
+                        }
+                    )
+            card_data["items"] = refreshed_items
+            next_parts.append({**part, "card": {**card, "data": card_data}})
+        message.parts = next_parts
+        metadata = dict(message.message_metadata or {})
+        metadata["lastInventoryOperations"] = operations
+        message.message_metadata = metadata
 
     def _create_recipe_from_draft(self, *, family_id: str, user_id: str, payload: dict[str, Any]) -> Recipe:
         recipe_in = CreateRecipeRequest.model_validate(payload)

@@ -14,7 +14,7 @@ import httpx
 from fastapi.testclient import TestClient
 from langgraph.checkpoint.base import empty_checkpoint
 from sqlalchemy import select
-from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.orm import Session, selectinload, sessionmaker
 from sqlalchemy.pool import StaticPool
 from sqlalchemy import create_engine
 
@@ -24,10 +24,11 @@ from app.ai.runtime.provider import BaseChatProvider, ChatProviderResult, Disabl
 from app.ai.skills import BaseSkill, SkillContext, SkillDirectoryLoader, SkillExecutor, SkillManifest, SkillRegistry, SkillResult, SkillScriptCatalog, SkillScriptExecutor, ToolCallingSkill, build_workspace_skill_registry
 from app.ai.skills.shared import json_object
 from app.ai.tools import ToolContext, ToolExecutor, build_workspace_tool_registry
+from app.ai.tools.draft_validation import normalize_inventory_operation_draft
 from app.ai.workspace_service import AIApplicationService, DRAFT_APPROVAL_CONFIG
 from app.ai.workflows.checkpoint import SQLAlchemyCheckpointSaver
 from app.core.deps import get_current_auth
-from app.core.enums import AiMode, Difficulty, FoodType, ImageGenerationMode, IngredientExpiryMode, InventoryStatus, MealType, MediaEntityType, MembershipStatus, UserRole
+from app.core.enums import AiMode, Difficulty, FoodType, ImageGenerationMode, IngredientExpiryMode, InventoryStatus, MealType, MediaEntityType, MediaSource, MembershipStatus, UserRole
 from app.db.session import get_db
 from app.main import app
 from app.models.domain import (
@@ -48,6 +49,7 @@ from app.models.domain import (
     InventoryItem,
     MealLog,
     MealLogFood,
+    MediaAsset,
     Membership,
     Recipe,
     RecipeIngredient,
@@ -55,6 +57,8 @@ from app.models.domain import (
     User,
 )
 from app.ai.images.generation import ImageGenerationRequest, ImageProviderConfig, OpenAIImageGenerationProvider, build_ai_image_prompt, _build_provider_config
+from app.services.inventory_operations import dispose_inventory_quantity
+from app.services.inventory_usage import remaining_quantity
 
 
 class FakeChatProvider(BaseChatProvider):
@@ -599,13 +603,18 @@ class FakeChatProvider(BaseChatProvider):
             recipes = call("recipe.search", {"limit": 12})
             foods = call("food.search", {"limit": 12})
             recent = call("meal_log.read_recent", {"limit": 5})
-            candidates = [item.get("name") for item in foods.get("items", [])[:3] if item.get("name")] or [item.get("title") for item in recipes.get("items", [])[:3] if item.get("title")] or ["清爽家常菜"]
+            food_candidates = [item for item in foods.get("items", [])[:3] if item.get("id")]
+            recipe_candidates = [item for item in recipes.get("items", [])[:3] if item.get("id")]
+            candidates = (
+                [{"foodId": item["id"]} for item in food_candidates]
+                or [{"recipeId": item["id"]} for item in recipe_candidates]
+            )
             card = {
                 "id": "today-recommendation",
                 "type": "today_recommendation",
                 "title": "今日吃什么",
                 "data": {
-                    "recommendations": [{"title": title, "reason": "优先使用当前库存。", "evidence": expiring.get("items", [])[:1]} for title in candidates[:3]],
+                    "recommendations": [{**candidate, "reason": "优先使用当前库存。", "evidence": expiring.get("items", [])[:1]} for candidate in candidates[:3]],
                     "contextSummary": {
                         "inventoryCount": inventory.get("count", 0),
                         "expiringCount": expiring.get("count", 0),
@@ -1006,6 +1015,30 @@ class AIAgentInfraTestCase(unittest.TestCase):
                 scene="晚餐",
                 notes="",
             )
+            ingredient_media = MediaAsset(
+                id="media-ingredient-tomato",
+                family_id=self.family.id,
+                name="番茄",
+                url="/media/family/tomato.png",
+                file_path="family-ai/tomato.png",
+                source=MediaSource.UPLOAD,
+                alt="番茄",
+                entity_type="ingredient",
+                entity_id=tomato.id,
+                created_by=self.user.id,
+            )
+            food_media = MediaAsset(
+                id="media-food-tomato",
+                family_id=self.family.id,
+                name="番茄小炒",
+                url="/media/family/tomato-food.png",
+                file_path="family-ai/tomato-food.png",
+                source=MediaSource.UPLOAD,
+                alt="番茄小炒",
+                entity_type="food",
+                entity_id=food.id,
+                created_by=self.user.id,
+            )
             db.add_all(
                 [
                     self.family,
@@ -1017,6 +1050,8 @@ class AIAgentInfraTestCase(unittest.TestCase):
                     inventory,
                     other_inventory,
                     food,
+                    ingredient_media,
+                    food_media,
                 ]
             )
             db.commit()
@@ -1726,9 +1761,410 @@ class AIAgentInfraTestCase(unittest.TestCase):
         self.assertEqual(result.status, "completed")
         self.assertIn("当前可用库存", result.text)
         self.assertEqual(result.cards[0]["type"], "inventory_summary")
+        self.assertEqual(result.cards[0]["data"]["queryFocus"], "overview")
+        self.assertNotIn("suggestedAction", result.cards[0]["data"]["items"][0])
         self.assertEqual(result.context_summary["inventoryItemCount"], 1)
         self.assertIn("inventory.read_summary", tool_names)
         self.assertIn("inventory.read_expiring_items", tool_names)
+
+    def test_inventory_card_is_built_from_available_items_when_summary_tool_is_not_called(self) -> None:
+        class AvailableOnlyProvider(BaseChatProvider):
+            model_name = "available-only-model"
+
+            def generate(self, *, system: str, user: str, response_schema: dict | None = None) -> ChatProviderResult:
+                raise AssertionError("tool-calling skill should use generate_with_tools")
+
+            def generate_with_tools(
+                self,
+                *,
+                system: str,
+                user: str,
+                tools: list,
+                tool_handler,
+                response_schema: dict | None = None,
+                max_rounds: int = 8,
+                visible_text_handler=None,
+            ) -> ChatProviderResult:
+                del system, user, tools, response_schema, max_rounds, visible_text_handler
+                tool_handler("inventory.read_available_items", {"limit": 20})
+                return ChatProviderResult(
+                    text=json.dumps(
+                        {
+                            "text": "这里是可用库存。",
+                            "cards": [{"type": "inventory_summary", "title": "可用库存", "data": {}}],
+                            "status": "completed",
+                        },
+                        ensure_ascii=False,
+                    ),
+                    status="completed",
+                    model=self.model_name,
+                    structured_mode="tool_call",
+                )
+
+        skill = build_workspace_skill_registry().get("inventory_analysis")
+        with self.SessionLocal() as db:
+            result = skill.run(
+                SkillContext(
+                    db=db,
+                    family_id=self.family.id,
+                    user_id=self.user.id,
+                    conversation_id="conversation-test",
+                    run_id="run-test",
+                    conversation=[],
+                    current_message="我有什么食材可以用",
+                    tool_executor=ToolExecutor(
+                        build_workspace_tool_registry(),
+                        ToolContext(db=db, family_id=self.family.id, user_id=self.user.id, conversation_id="conversation-test", run_id="run-test"),
+                    ),
+                    provider=AvailableOnlyProvider(),
+                )
+            )
+
+        data = result.cards[0]["data"]
+        self.assertEqual(data["availableCount"], 1)
+        self.assertEqual(data["queryFocus"], "available")
+        self.assertEqual(data["items"][0]["name"], "番茄")
+        self.assertEqual(data["items"][0]["image"]["id"], "media-ingredient-tomato")
+        self.assertNotIn("suggestedAction", data["items"][0])
+
+    def test_inventory_query_tools_expose_only_contextual_suggested_actions(self) -> None:
+        with self.SessionLocal() as db:
+            item = db.get(InventoryItem, "inventory-tomato")
+            assert item is not None
+            item.low_stock_threshold = Decimal("4")
+            db.flush()
+            executor = ToolExecutor(
+                build_workspace_tool_registry(),
+                ToolContext(
+                    db=db,
+                    family_id=self.family.id,
+                    user_id=self.user.id,
+                    conversation_id="conversation-test",
+                    run_id="run-test",
+                ),
+            )
+
+            summary = executor.call("inventory.read_summary", {})
+            available = executor.call("inventory.read_available_items", {"limit": 20})
+            expiring = executor.call("inventory.read_expiring_items", {"days": 7})
+            low_stock = executor.call("inventory.read_low_stock_items", {"limit": 20})
+
+            self.assertEqual(summary["queryFocus"], "overview")
+            self.assertNotIn("suggestedAction", summary["items"][0])
+            self.assertEqual(available["queryFocus"], "available")
+            self.assertNotIn("suggestedAction", available["items"][0])
+            self.assertEqual(expiring["queryFocus"], "expiring")
+            self.assertEqual(expiring["items"][0]["suggestedAction"], "consume")
+            self.assertEqual(low_stock["queryFocus"], "low_stock")
+            self.assertEqual(low_stock["items"][0]["suggestedAction"], "restock")
+
+            item.expiry_date = date.today() - timedelta(days=1)
+            db.flush()
+            expired = executor.call("inventory.read_expired_items", {"limit": 20})
+            expiring_with_expired = executor.call("inventory.read_expiring_items", {"days": 7})
+            self.assertEqual(expired["queryFocus"], "expired")
+            self.assertEqual(expired["items"][0]["suggestedAction"], "dispose")
+            self.assertEqual(expiring_with_expired["items"][0]["suggestedAction"], "dispose")
+
+    def test_inventory_operation_draft_normalizes_real_entities_and_rejects_cross_family_items(self) -> None:
+        with self.SessionLocal() as db:
+            draft = normalize_inventory_operation_draft(
+                db,
+                family_id=self.family.id,
+                payload={
+                    "draftType": "inventory_operation",
+                    "schemaVersion": "inventory_operation.v1",
+                    "operations": [
+                        {
+                            "action": "consume",
+                            "ingredientId": "ingredient-tomato",
+                            "quantity": 1,
+                            "unit": "个",
+                        },
+                        {
+                            "action": "dispose",
+                            "ingredientId": "ingredient-tomato",
+                            "inventoryItemId": "inventory-tomato",
+                            "quantity": 0.5,
+                            "unit": "个",
+                            "reason": "包装破损",
+                        },
+                    ],
+                },
+            )
+            self.assertEqual(draft["draftType"], "inventory_operation")
+            self.assertEqual(draft["operations"][0]["ingredientName"], "番茄")
+            self.assertEqual(draft["operations"][1]["remainingQuantity"], 2)
+            self.assertEqual(draft["operations"][0]["image"]["id"], "media-ingredient-tomato")
+
+            with self.assertRaisesRegex(ValueError, "最多只能销毁"):
+                normalize_inventory_operation_draft(
+                    db,
+                    family_id=self.family.id,
+                    payload={
+                        "operations": [
+                            {
+                                "action": "consume",
+                                "ingredientId": "ingredient-tomato",
+                                "quantity": 2,
+                                "unit": "个",
+                            },
+                            {
+                                "action": "dispose",
+                                "ingredientId": "ingredient-tomato",
+                                "inventoryItemId": "inventory-tomato",
+                                "quantity": 2,
+                                "unit": "个",
+                                "reason": "变质",
+                            },
+                        ]
+                    },
+                )
+
+            with self.assertRaisesRegex(ValueError, "不属于当前家庭"):
+                normalize_inventory_operation_draft(
+                    db,
+                    family_id=self.family.id,
+                    payload={
+                        "operations": [
+                            {
+                                "action": "dispose",
+                                "ingredientId": "ingredient-secret",
+                                "inventoryItemId": "inventory-secret",
+                                "quantity": 1,
+                                "unit": "块",
+                                "reason": "测试",
+                            }
+                        ]
+                    },
+                )
+
+    def test_inventory_approval_cannot_change_operation_type(self) -> None:
+        original = {
+            "operations": [
+                {
+                    "action": "consume",
+                    "ingredientId": "ingredient-tomato",
+                    "quantity": 1,
+                    "unit": "个",
+                }
+            ]
+        }
+        AIApplicationService._validate_inventory_operation_shape(original, original)
+        with self.assertRaisesRegex(ValueError, "处理方式不能"):
+            AIApplicationService._validate_inventory_operation_shape(
+                original,
+                {
+                    "operations": [
+                        {
+                            "action": "dispose",
+                            "ingredientId": "ingredient-tomato",
+                            "inventoryItemId": "inventory-tomato",
+                            "quantity": 1,
+                            "unit": "个",
+                            "reason": "变质",
+                        }
+                    ]
+                },
+            )
+
+    def test_inventory_disposal_tracks_partial_disposal_separately_from_consumption(self) -> None:
+        with self.SessionLocal() as db:
+            item = db.scalar(
+                select(InventoryItem)
+                .where(InventoryItem.id == "inventory-tomato")
+                .options(selectinload(InventoryItem.ingredient))
+            )
+            assert item is not None
+            result = dispose_inventory_quantity(
+                db,
+                family_id=self.family.id,
+                user_id=self.user.id,
+                item=item,
+                quantity=Decimal("1.25"),
+                unit="个",
+                reason="包装破损",
+            )
+            self.assertEqual(item.consumed_quantity, Decimal("0"))
+            self.assertEqual(item.disposed_quantity, Decimal("1.25"))
+            self.assertEqual(remaining_quantity(item), Decimal("1.75"))
+            self.assertEqual(result["remaining_quantity"], 1.75)
+
+    def test_inventory_card_quick_action_creates_approval_and_updates_card_after_confirmation(self) -> None:
+        with self.SessionLocal() as db:
+            conversation = AIConversation(
+                id="conversation-inventory-quick",
+                family_id=self.family.id,
+                mode=AiMode.INVENTORY_QA,
+                prompt="库存处理",
+                response="库存概览",
+                context={},
+                title="库存处理",
+                summary="",
+                status="active",
+                created_by=self.user.id,
+            )
+            message = AIMessage(
+                id="message-inventory-quick",
+                family_id=self.family.id,
+                conversation_id=conversation.id,
+                role="assistant",
+                content="库存概览",
+                content_type="parts",
+                parts=[
+                    {
+                        "id": "part-inventory-card",
+                        "type": "result_card",
+                        "card": {
+                            "id": "card-inventory",
+                            "type": "inventory_summary",
+                            "title": "库存概览",
+                            "data": {
+                                "availableCount": 1,
+                                "expiringCount": 1,
+                                "lowStockCount": 0,
+                                "items": [
+                                    {
+                                        "id": "inventory-tomato",
+                                        "ingredientId": "ingredient-tomato",
+                                        "name": "番茄",
+                                        "quantity": "3",
+                                        "unit": "个",
+                                        "status": "fresh",
+                                        "displayStatus": "expiring",
+                                    }
+                                ],
+                            },
+                        },
+                    }
+                ],
+                status="completed",
+                message_metadata={},
+                created_by=self.user.id,
+            )
+            db.add_all([conversation, message])
+            db.commit()
+
+        response = self.client.post(
+            "/api/ai/messages/message-inventory-quick/inventory-operation-draft",
+            json={
+                "part_id": "part-inventory-card",
+                "card_id": "card-inventory",
+                "item_id": "inventory-tomato",
+                "action": "dispose",
+            },
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        data = response.json()
+        approval_part = next(part for part in data["parts"] if part["type"] == "approval_request")
+        approval = approval_part["approval"]
+        self.assertEqual(approval["approval_type"], "inventory.operation")
+
+        decision = self.client.post(
+            f"/api/ai/conversations/conversation-inventory-quick/approvals/{approval['id']}/decision",
+            json={
+                "decision": "approved",
+                "draft_version": approval["draft_version"],
+                "values": approval["initial_values"],
+            },
+        )
+        self.assertEqual(decision.status_code, 200, decision.text)
+        self.assertEqual(decision.json()["operation"]["status"], "succeeded")
+        with self.SessionLocal() as db:
+            item = db.get(InventoryItem, "inventory-tomato")
+            assert item is not None
+            self.assertEqual(item.disposed_quantity, Decimal("3.00"))
+            stored_message = db.get(AIMessage, "message-inventory-quick")
+            assert stored_message is not None
+            card_item = stored_message.parts[0]["card"]["data"]["items"][0]
+            self.assertEqual(card_item["quantity"], "0")
+            self.assertEqual(card_item["lastOperation"]["action"], "dispose")
+
+    def test_today_recommendation_accepts_model_items_at_card_root(self) -> None:
+        class RootItemsRecommendationProvider(BaseChatProvider):
+            model_name = "root-items-recommendation-model"
+
+            def generate(self, *, system: str, user: str, response_schema: dict | None = None) -> ChatProviderResult:
+                raise AssertionError("tool-calling skill should use generate_with_tools")
+
+            def generate_with_tools(
+                self,
+                *,
+                system: str,
+                user: str,
+                tools: list,
+                tool_handler,
+                response_schema: dict | None = None,
+                max_rounds: int = 8,
+                visible_text_handler=None,
+            ) -> ChatProviderResult:
+                del system, user, tools, response_schema, max_rounds, visible_text_handler
+                tool_handler("inventory.read_available_items", {"limit": 50})
+                tool_handler("inventory.read_expiring_items", {"days": 7})
+                tool_handler("meal_log.read_recent", {"limit": 8})
+                tool_handler("food.search", {"limit": 24})
+                tool_handler("recipe.search", {"limit": 24})
+                return ChatProviderResult(
+                    text=json.dumps(
+                        {
+                            "text": "明晚建议吃番茄小炒。",
+                            "cards": [
+                                {
+                                    "type": "today_recommendation",
+                                    "title": "今日吃什么",
+                                    "data": {
+                                        "contextSummary": {
+                                            "inventoryCount": 1,
+                                            "expiringCount": 1,
+                                            "recentMealCount": 0,
+                                            "recipeCount": 0,
+                                        },
+                                        "recommendations": [],
+                                    },
+                                    "items": [
+                                        {
+                                            "foodId": "food-tomato",
+                                            "reason": "优先消耗临期番茄。",
+                                        }
+                                    ],
+                                }
+                            ],
+                            "status": "completed",
+                        },
+                        ensure_ascii=False,
+                    ),
+                    status="completed",
+                    model=self.model_name,
+                    structured_mode="tool_call",
+                )
+
+        skill = build_workspace_skill_registry().get("meal_plan")
+        with self.SessionLocal() as db:
+            result = skill.run(
+                SkillContext(
+                    db=db,
+                    family_id=self.family.id,
+                    user_id=self.user.id,
+                    conversation_id="conversation-test",
+                    run_id="run-test",
+                    conversation=[],
+                    current_message="明晚吃什么",
+                    tool_executor=ToolExecutor(
+                        build_workspace_tool_registry(),
+                        ToolContext(db=db, family_id=self.family.id, user_id=self.user.id, conversation_id="conversation-test", run_id="run-test"),
+                    ),
+                    provider=RootItemsRecommendationProvider(),
+                )
+            )
+
+        card = result.cards[0]
+        self.assertNotIn("items", card)
+        self.assertEqual(len(card["data"]["recommendations"]), 1)
+        self.assertEqual(card["data"]["recommendations"][0]["foodId"], "food-tomato")
+        self.assertEqual(card["data"]["recommendations"][0]["name"], "番茄小炒")
+        self.assertEqual(card["data"]["recommendations"][0]["image"]["id"], "media-food-tomato")
+        self.assertEqual(card["data"]["targetDate"], (date.today() + timedelta(days=1)).isoformat())
+        self.assertEqual(card["data"]["mealType"], "dinner")
 
     def test_tool_calling_skill_normalizes_preview_card_type_to_declared_draft_type(self) -> None:
         class PreviewCardProvider(BaseChatProvider):
@@ -2485,6 +2921,11 @@ class AIAgentInfraTestCase(unittest.TestCase):
         self.assertEqual(response.status_code, 200, response.text)
         data = response.json()
         self.assertEqual(data["run"]["intent"], "inventory")
+        card = data["included"]["result_cards"][0]
+        self.assertEqual(card["type"], "inventory_summary")
+        self.assertEqual(card["data"]["items"][0]["name"], "番茄")
+        self.assertEqual(card["data"]["items"][0]["image"]["id"], "media-ingredient-tomato")
+        self.assertEqual(card["data"]["items"][0]["displayStatus"], "expiring")
         with self.SessionLocal() as db:
             run = db.scalar(select(AIAgentRun).where(AIAgentRun.id == data["run"]["id"]))
             self.assertIsNotNone(run)
@@ -2604,8 +3045,35 @@ class AIAgentInfraTestCase(unittest.TestCase):
         self.assertEqual(card_parts[0]["card"]["type"], "today_recommendation")
         recommendations = card_parts[0]["card"]["data"]["recommendations"]
         self.assertGreaterEqual(len(recommendations), 1)
+        self.assertEqual(recommendations[0]["foodId"], "food-tomato")
+        self.assertEqual(recommendations[0]["name"], "番茄小炒")
+        self.assertEqual(recommendations[0]["image"]["id"], "media-food-tomato")
         self.assertIn("reason", recommendations[0])
         self.assertIn("evidence", recommendations[0])
+
+        plan_response = self.client.post(
+            "/api/food-plan",
+            json={
+                "food_id": "food-tomato",
+                "plan_date": (date.today() + timedelta(days=1)).isoformat(),
+                "meal_type": "dinner",
+                "note": "来自 AI 推荐",
+            },
+        )
+        self.assertEqual(plan_response.status_code, 201, plan_response.text)
+        selection_response = self.client.post(
+            f"/api/ai/messages/{data['message']['id']}/recommendation-selection",
+            json={
+                "part_id": card_parts[0]["id"],
+                "card_id": card_parts[0]["card"]["id"],
+                "entity_id": recommendations[0]["entityId"],
+                "food_plan_item_id": plan_response.json()["id"],
+            },
+        )
+        self.assertEqual(selection_response.status_code, 200, selection_response.text)
+        selected_item = selection_response.json()["parts"][-1]["card"]["data"]["recommendations"][0]
+        self.assertEqual(selected_item["planSelection"]["foodPlanItemId"], plan_response.json()["id"])
+        self.assertEqual(selected_item["planSelection"]["mealType"], "dinner")
 
         with self.SessionLocal() as db:
             messages = list(db.scalars(select(AIMessage).where(AIMessage.conversation_id == data["conversation_id"])))
@@ -2628,6 +3096,20 @@ class AIAgentInfraTestCase(unittest.TestCase):
             self.assertIn("meal_log.read_recent", tool_names)
             self.assertIn("recipe.search", tool_names)
             self.assertNotIn("meal_plan.create_draft", tool_names)
+            stored_message = db.get(AIMessage, data["message"]["id"])
+            self.assertEqual(
+                stored_message.message_metadata["recommendationSelections"][0]["name"],
+                "番茄小炒",
+            )
+            timeline = AIApplicationService(db)._build_planner_conversation(
+                family_id=self.family.id,
+                conversation_id=data["conversation_id"],
+            )
+            assistant_entry = next(item for item in timeline if item["id"] == data["message"]["id"])
+            self.assertEqual(
+                assistant_entry["metadata"]["recommendationSelections"][0]["foodPlanItemId"],
+                plan_response.json()["id"],
+            )
 
     def test_ai_workspace_routes_natural_today_recommendation_to_meal_plan_without_draft(self) -> None:
         response = self.client.post("/api/ai/chat", json={"message": "今晚吃什么？"})
@@ -2864,7 +3346,9 @@ class AIAgentInfraTestCase(unittest.TestCase):
                         "id": "part-card",
                         "type": "result_card",
                         "card": {
+                            "id": None,
                             "type": "inventory_summary",
+                            "title": None,
                             "data": {"availableCount": 6, "expiringCount": 3, "lowStockCount": 3},
                         },
                     },

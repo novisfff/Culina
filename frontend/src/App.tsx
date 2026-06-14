@@ -759,6 +759,8 @@ function App() {
               conversations={aiConversations}
               isLoading={aiConversationsQuery.isLoading}
               currentUser={user}
+              createFoodPlanItem={(payload) => createFoodPlanItemMutation.mutateAsync(payload)}
+              isCreatingFoodPlanItem={createFoodPlanItemMutation.isPending}
               onBackHome={() => setActiveTab('home')}
             />
           </Suspense>

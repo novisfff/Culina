@@ -1,6 +1,7 @@
 import { request } from './request';
 import type {
   ConsumeInventoryResponse,
+  DisposeInventoryResponse,
   DisposeExpiredInventoryResponse,
   Ingredient,
   InventoryItem,
@@ -74,6 +75,11 @@ export const ingredientsApi = {
     }),
   disposeExpiredInventory: (payload: { ingredient_id: string; inventory_item_ids: string[] }) =>
     request<DisposeExpiredInventoryResponse>('/api/inventory/dispose-expired', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+  disposeInventory: (payload: { inventory_item_id: string; quantity?: number; unit?: string; reason: string }) =>
+    request<DisposeInventoryResponse>('/api/inventory/dispose', {
       method: 'POST',
       body: JSON.stringify(payload),
     }),

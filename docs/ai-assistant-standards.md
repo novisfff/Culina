@@ -112,7 +112,7 @@ Runner 固定为 `toolcall`。确认要求由 `approval_policy`、`draft_types` 
 
 | Skill key | 职责 | 卡片 | 草稿 |
 | --- | --- | --- | --- |
-| `inventory_analysis` | 库存、临期、低库存查询 | `inventory_summary` | 无 |
+| `inventory_analysis` | 库存查询；入库、消耗和销毁确认 | `inventory_summary` | `inventory_operation` |
 | `meal_plan` | 即时餐食推荐；餐食计划创建和修改 | `today_recommendation` | `meal_plan` |
 | `shopping_list` | 独立购物清单、从计划派生、修改清单 | 无 | `shopping_list` |
 | `meal_log` | 记录已经发生的用餐 | 无 | `meal_log` |
@@ -211,7 +211,7 @@ Script 约束：
 - Skill keys：`inventory_analysis`、`meal_plan`、`shopping_list`、`meal_log`、`recipe_draft`、`food_profile`
 - `meal_plan_agent` 和 `meal_plan` intent
 - `today_recommendation`、`inventory_summary` 等结果卡片类型
-- `recipe`、`shopping_list`、`meal_plan`、`meal_log`、`food_profile` 草稿类型
+- `recipe`、`shopping_list`、`meal_plan`、`meal_log`、`food_profile`、`inventory_operation` 草稿类型
 - `AIChatResponse`、消息 parts、SSE `message_delta` 和 progress 事件格式
 - 审批、重试、拒绝和正式写入行为
 
@@ -228,6 +228,8 @@ Script 约束：
 7. 所有草稿类型确认后能写入对应业务实体。
 8. 工具调用期间的可见文本保持真实流式输出并按块换行。
 9. 后端和前端卡片、草稿类型契约保持一致。
+10. 库存查询不创建草稿；入库、消耗和销毁必须生成 `inventory_operation` 草稿并等待确认。
+11. 库存操作只能引用当前家庭真实食材和库存批次，消费量与销毁量分开记录。
 
 推荐命令：
 

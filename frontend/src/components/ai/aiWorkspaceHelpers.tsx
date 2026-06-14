@@ -122,7 +122,14 @@ export function createLocalAssistantMessage(runId: string, conversationId: strin
 }
 
 export function appendAssistantDelta(currentText: string, delta: string, shouldSeparate: boolean) {
-  if (!shouldSeparate || !currentText.trim() || currentText.endsWith('\n\n') || delta.startsWith('\n')) {
+  const currentTextEndsAtSentenceBoundary = /[。！？!?]\s*$/.test(currentText);
+  if (
+    !shouldSeparate
+    || !currentText.trim()
+    || currentText.endsWith('\n\n')
+    || delta.startsWith('\n')
+    || !currentTextEndsAtSentenceBoundary
+  ) {
     return `${currentText}${delta}`;
   }
   return `${currentText}\n\n${delta}`;

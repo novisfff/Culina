@@ -31,6 +31,8 @@ from app.schemas.ai import (
     AIChatResponse,
     AIConversationOut,
     AIMessageDTO,
+    AIInventoryQuickDraftRequest,
+    AIRecommendationSelectionRequest,
     AIRegistryResponse,
     AIStatusResponse,
     AIRunEventDTO,
@@ -399,6 +401,58 @@ def list_ai_messages(
         )
     )
     return [serialize_ai_message(item) for item in messages]
+
+
+@router.post("/api/ai/messages/{message_id}/recommendation-selection", response_model=AIMessageDTO)
+def record_ai_recommendation_selection(
+    message_id: str,
+    payload: AIRecommendationSelectionRequest,
+    auth: tuple = Depends(get_current_auth),
+    db: Session = Depends(get_db),
+) -> dict:
+    user, membership = auth
+    try:
+        message = AIApplicationService(db).record_recommendation_selection(
+            family_id=membership.family_id,
+            user_id=user.id,
+            message_id=message_id,
+            part_id=payload.part_id,
+            card_id=payload.card_id,
+            entity_id=payload.entity_id,
+            food_plan_item_id=payload.food_plan_item_id,
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+    commit_session(db)
+    return serialize_ai_message(message)
+
+
+@router.post("/api/ai/messages/{message_id}/inventory-operation-draft", response_model=AIMessageDTO)
+def create_ai_inventory_operation_draft(
+    message_id: str,
+    payload: AIInventoryQuickDraftRequest,
+    auth: tuple = Depends(get_current_auth),
+    db: Session = Depends(get_db),
+) -> dict:
+    user, membership = auth
+    try:
+        message = AIApplicationService(db).create_inventory_quick_draft(
+            family_id=membership.family_id,
+            user_id=user.id,
+            message_id=message_id,
+            part_id=payload.part_id,
+            card_id=payload.card_id,
+            item_id=payload.item_id,
+            action=payload.action,
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+    commit_session(db)
+    return serialize_ai_message(message)
 
 
 @router.get("/api/ai/runs/{run_id}/events", response_model=list[AIRunEventDTO])

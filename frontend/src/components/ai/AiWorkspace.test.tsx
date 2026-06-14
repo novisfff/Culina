@@ -920,9 +920,6 @@ describe('AiWorkspace pending approval restore', () => {
     vi.spyOn(api, 'getPendingAiApprovals').mockResolvedValue([]);
     let streamAborted = false;
     vi.spyOn(api, 'streamChatAi').mockImplementation(async (_payload, handlers) => {
-      handlers?.signal?.addEventListener('abort', () => {
-        streamAborted = true;
-      });
       handlers?.onProgress?.({
         id: 'progress-1',
         run_id: 'pending',
@@ -932,8 +929,13 @@ describe('AiWorkspace pending approval restore', () => {
         status: 'running',
         created_at: '2026-05-30T00:00:00Z',
       });
-      await new Promise((resolve) => window.setTimeout(resolve, 50));
-      throw new Error('aborted');
+      await new Promise<void>((_resolve, reject) => {
+        handlers?.signal?.addEventListener('abort', () => {
+          streamAborted = true;
+          reject(new Error('aborted'));
+        });
+      });
+      throw new Error('stream unexpectedly resolved');
     });
     const cancelSpy = vi.spyOn(api, 'cancelAiRun').mockResolvedValue({
       run: { id: 'agent_run-client', status: 'cancelled' },
@@ -1311,6 +1313,81 @@ describe('AiWorkspace pending approval restore', () => {
           id: streamedRunId,
           agent_key: 'meal_plan_agent',
           intent: 'meal_plan',
+          status: 'completed',
+          model: 'rules',
+          created_at: '2026-05-30T00:00:00Z',
+        },
+        events: [],
+        included: { result_cards: [], drafts: [], approvals: [] },
+      });
+    });
+    await flush();
+    rendered.unmount();
+  });
+
+  it('keeps unfinished streamed text on the same line after progress events', async () => {
+    vi.spyOn(api, 'getAiMessages').mockResolvedValue([]);
+    vi.spyOn(api, 'getPendingAiApprovals').mockResolvedValue([]);
+    let resolveStream: ((response: AiChatResponse) => void) | null = null;
+    let streamedRunId = 'agent_run-client';
+    vi.spyOn(api, 'streamChatAi').mockImplementation(async (payload, handlers) => {
+      streamedRunId = payload.client_run_id ?? streamedRunId;
+      handlers?.onMessageDelta?.({
+        message_id: 'message-streaming-fragment',
+        conversation_id: payload.conversation_id ?? 'conversation-1',
+        run_id: streamedRunId,
+        part_id: 'part-streaming-fragment',
+        delta: '我查',
+      });
+      handlers?.onProgress?.({
+        id: 'progress-tool-fragment',
+        run_id: streamedRunId,
+        type: 'tool',
+        internal_code: 'inventory.read_available_items',
+        user_message: '调用「可用库存」',
+        status: 'completed',
+        created_at: '2026-05-30T00:00:00Z',
+      });
+      handlers?.onMessageDelta?.({
+        message_id: 'message-streaming-fragment',
+        conversation_id: payload.conversation_id ?? 'conversation-1',
+        run_id: streamedRunId,
+        part_id: 'part-streaming-fragment',
+        delta: '到当前显示已过期的有 3 项。',
+      });
+      return new Promise<AiChatResponse>((resolve) => {
+        resolveStream = resolve;
+      });
+    });
+    const rendered = await renderWithQuery(<AiWorkspace conversations={[conversation()]} isLoading={false} />);
+    await flush();
+    changeInput(rendered.container.querySelector<HTMLTextAreaElement>('textarea.text-input') as HTMLTextAreaElement, '检查过期库存');
+    await act(async () => {
+      rendered.container.querySelector<HTMLFormElement>('form.ai-composer')?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    });
+    await flush();
+    const desktopMarkdown = rendered.container.querySelector('.ai-desktop-view .ai-message-assistant .ai-message-markdown') as HTMLElement;
+    const paragraphs = Array.from(desktopMarkdown.querySelectorAll('p')).map((item) => item.textContent);
+    expect(paragraphs).toEqual(['我查到当前显示已过期的有 3 项。']);
+    await act(async () => {
+      resolveStream?.({
+        conversation_id: 'conversation-1',
+        message: {
+          id: 'message-final-fragment',
+          conversation_id: 'conversation-1',
+          role: 'assistant',
+          content: '我查到当前显示已过期的有 3 项。',
+          content_type: 'parts',
+          parts: [{ id: 'part-final-fragment', type: 'text', text: '我查到当前显示已过期的有 3 项。' }],
+          run_id: streamedRunId,
+          status: 'completed',
+          metadata: {},
+          created_at: '2026-05-30T00:00:00Z',
+        },
+        run: {
+          id: streamedRunId,
+          agent_key: 'inventory_analysis_agent',
+          intent: 'inventory_analysis',
           status: 'completed',
           model: 'rules',
           created_at: '2026-05-30T00:00:00Z',

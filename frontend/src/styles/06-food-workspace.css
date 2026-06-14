@@ -5356,11 +5356,431 @@
   width: 100%;
 }
 
-.ai-part-action,
 .ai-retry-action {
   justify-self: end;
   min-height: 32px;
   padding-inline: 12px;
+}
+
+.ai-query-result-card {
+  gap: 16px;
+  padding: 18px;
+  border-color: rgba(147, 96, 63, 0.14);
+  border-radius: 20px;
+  background: #fff;
+  box-shadow: 0 8px 24px rgba(74, 54, 40, 0.06);
+}
+
+.ai-query-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.ai-query-card-head > div:first-child {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.ai-query-card-eyebrow {
+  color: #a45d35;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.ai-query-card-head h3 {
+  color: #2f251e;
+  font-size: 1.125rem;
+  line-height: 1.35;
+}
+
+.ai-query-card-metrics {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.ai-query-card-metrics span {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  min-height: 32px;
+  padding: 5px 10px;
+  border: 1px solid rgba(147, 96, 63, 0.12);
+  border-radius: 999px;
+  background: #fcfaf7;
+  color: #6a5b51;
+  font-size: 0.8125rem;
+}
+
+.ai-query-card-metrics strong {
+  color: #2f251e;
+  font-size: 0.9375rem;
+}
+
+.ai-query-card-context {
+  margin: 2px 0 0;
+  color: #6a5b51;
+  font-size: 0.8125rem;
+  line-height: 1.4;
+  text-align: right;
+}
+
+.ai-query-item-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.ai-query-recommendation-list {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.ai-query-inventory-list {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.ai-query-inventory-list .ai-query-item {
+  grid-template-columns: 72px minmax(0, 1fr) auto;
+}
+
+.ai-query-item {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  min-height: 96px;
+  padding: 10px;
+  border: 1px solid rgba(147, 96, 63, 0.1);
+  border-radius: 16px;
+  background: #fcfaf7;
+}
+
+.ai-query-recommendation {
+  grid-template-columns: 88px minmax(0, 1fr) auto;
+  min-height: 112px;
+  padding: 12px;
+}
+
+.ai-query-recommendation .ai-query-card-image {
+  width: 88px;
+  height: 88px;
+}
+
+.ai-query-item-action {
+  align-self: center;
+}
+
+.ai-query-item-action .solid-button {
+  min-width: 116px;
+  min-height: 44px;
+  padding-inline: 14px;
+  white-space: nowrap;
+}
+
+.ai-query-item-action .solid-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.ai-query-inventory-actions {
+  display: flex;
+  align-items: center;
+}
+
+.ai-query-inventory-actions .ghost-button {
+  min-width: 76px;
+  min-height: 44px;
+  padding-inline: 14px;
+  border-radius: 12px;
+  white-space: nowrap;
+}
+
+.ai-query-inventory-actions .action-dispose {
+  border-color: rgba(217, 75, 61, 0.24);
+  color: #bd3f32;
+}
+
+.ai-query-inventory-result {
+  font-weight: 700;
+}
+
+.ai-query-inventory-result.tone-restock {
+  color: #4f8f56;
+}
+
+.ai-query-inventory-result.tone-consume {
+  color: #9b671f;
+}
+
+.ai-query-inventory-result.tone-dispose {
+  color: #bd3f32;
+}
+
+.ai-query-plan-added {
+  display: grid;
+  gap: 2px;
+  min-width: 132px;
+  min-height: 52px;
+  place-content: center;
+  padding: 7px 12px;
+  border: 1px solid rgba(79, 154, 88, 0.22);
+  border-radius: 14px;
+  background: #eaf6ea;
+  color: #3e7d46;
+  text-align: center;
+}
+
+.ai-query-plan-added strong {
+  font-size: 0.875rem;
+}
+
+.ai-query-plan-added span {
+  font-size: 0.75rem;
+  white-space: nowrap;
+}
+
+.ai-query-card-image {
+  width: 72px;
+  height: 72px;
+  border-radius: 14px;
+  object-fit: cover;
+  background: #f6f0ea;
+}
+
+.ai-query-item-copy {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+}
+
+.ai-query-item-title {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+}
+
+.ai-query-item-title strong {
+  min-width: 0;
+  overflow: hidden;
+  color: #2f251e;
+  font-size: 0.9375rem;
+  line-height: 1.4;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ai-query-item-copy p {
+  margin: 0;
+  color: #6a5b51;
+  font-size: 0.8125rem;
+  line-height: 1.45;
+}
+
+.ai-query-status,
+.ai-query-kind {
+  flex: 0 0 auto;
+  border-radius: 999px;
+  padding: 3px 8px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.ai-query-status.tone-available {
+  background: #eaf6ea;
+  color: #4f8f56;
+}
+
+.ai-query-status.tone-low_stock,
+.ai-query-status.tone-expiring {
+  background: #fff3d7;
+  color: #9b671f;
+}
+
+.ai-query-status.tone-expired {
+  background: #fdebe8;
+  color: #bd3f32;
+}
+
+.ai-query-kind {
+  background: #f0eeff;
+  color: #6e62b8;
+}
+
+.ai-query-reason {
+  color: #4b4038 !important;
+}
+
+.ai-query-evidence {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.ai-query-evidence span {
+  overflow: hidden;
+  max-width: 100%;
+  border-radius: 999px;
+  padding: 3px 7px;
+  background: #fdf3db;
+  color: #80613d;
+  font-size: 0.75rem;
+  line-height: 1.3;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ai-query-empty {
+  display: grid;
+  gap: 4px;
+  min-height: 88px;
+  place-content: center;
+  border: 1px dashed rgba(147, 96, 63, 0.2);
+  border-radius: 16px;
+  background: #fcfaf7;
+  color: #6a5b51;
+  text-align: center;
+}
+
+.ai-query-empty strong {
+  color: #2f251e;
+  font-size: 0.9375rem;
+}
+
+.ai-query-empty span {
+  font-size: 0.8125rem;
+}
+
+.ai-recommendation-plan-modal {
+  width: min(580px, calc(100vw - 48px));
+}
+
+.ai-recommendation-plan-form {
+  display: grid;
+  gap: 18px;
+}
+
+.ai-recommendation-plan-food {
+  display: grid;
+  grid-template-columns: 80px minmax(0, 1fr);
+  align-items: center;
+  gap: 14px;
+  padding: 14px;
+  border: 1px solid rgba(147, 96, 63, 0.12);
+  border-radius: 18px;
+  background: #fcfaf7;
+}
+
+.ai-recommendation-plan-food .ai-query-card-image {
+  width: 80px;
+  height: 80px;
+}
+
+.ai-recommendation-plan-food > div {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.ai-recommendation-plan-food span,
+.ai-recommendation-plan-fields label > span,
+.ai-recommendation-plan-note > span,
+.ai-recommendation-plan-fields legend {
+  color: #6a5b51;
+  font-size: 0.8125rem;
+  font-weight: 600;
+}
+
+.ai-recommendation-plan-food strong {
+  color: #2f251e;
+  font-size: 1rem;
+}
+
+.ai-recommendation-plan-food p {
+  margin: 0;
+  color: #6a5b51;
+  font-size: 0.8125rem;
+  line-height: 1.45;
+}
+
+.ai-recommendation-plan-fields {
+  display: grid;
+  grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.15fr);
+  gap: 16px;
+}
+
+.ai-recommendation-plan-fields label,
+.ai-recommendation-plan-note {
+  display: grid;
+  gap: 7px;
+}
+
+.ai-recommendation-plan-fields fieldset {
+  display: grid;
+  gap: 7px;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.ai-recommendation-meal-options {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.ai-recommendation-meal-options button {
+  min-height: 44px;
+  border: 1px solid rgba(147, 96, 63, 0.14);
+  border-radius: 999px;
+  background: #fff;
+  color: #6a5b51;
+  font-weight: 600;
+}
+
+.ai-recommendation-meal-options button.active {
+  border-color: rgba(210, 107, 51, 0.4);
+  background: #fce1d4;
+  color: #a94f25;
+}
+
+.ai-plan-feedback {
+  position: fixed;
+  z-index: 120;
+  top: 20px;
+  left: 50%;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 44px;
+  padding: 10px 12px 10px 16px;
+  border: 1px solid rgba(79, 154, 88, 0.22);
+  border-radius: 14px;
+  background: #eaf6ea;
+  box-shadow: 0 8px 24px rgba(74, 54, 40, 0.08);
+  color: #3e7d46;
+  font-size: 0.875rem;
+  font-weight: 600;
+  transform: translateX(-50%);
+}
+
+.ai-plan-feedback button {
+  width: 32px;
+  height: 32px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: inherit;
+  font-size: 1.25rem;
 }
 
 .ai-run-progress {
@@ -6086,6 +6506,126 @@
 .ai-confirmation-summary-card {
   border-left-color: #5b7f4e; /* Sage green border for summary/metadata cards */
   background: linear-gradient(180deg, #ffffff, #fafdfa);
+}
+
+.ai-inventory-operation-item.action-restock {
+  border-left-color: #4f9a58;
+}
+
+.ai-inventory-operation-item.action-consume {
+  border-left-color: #e69a2e;
+}
+
+.ai-inventory-operation-item.action-dispose {
+  border-left-color: #d94b3d;
+  background: linear-gradient(180deg, #ffffff, #fffafa);
+}
+
+.ai-inventory-operation-summary {
+  display: grid;
+  grid-template-columns: 52px minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+}
+
+.ai-inventory-operation-summary img,
+.ai-inventory-operation-placeholder {
+  width: 52px;
+  height: 52px;
+  border-radius: 14px;
+}
+
+.ai-inventory-operation-summary img {
+  object-fit: cover;
+}
+
+.ai-inventory-operation-placeholder {
+  display: grid;
+  place-items: center;
+  background: linear-gradient(145deg, #fff3df, #e8f0dd);
+  color: #8a654d;
+  font-weight: 800;
+}
+
+.ai-inventory-operation-summary > div {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.ai-inventory-operation-summary strong {
+  overflow-wrap: anywhere;
+  color: var(--text);
+  font-size: 1rem;
+}
+
+.ai-inventory-operation-summary small {
+  color: var(--text-soft);
+  font-size: 0.8125rem;
+}
+
+.ai-inventory-operation-kind {
+  justify-self: start;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: var(--warning-soft);
+  color: #8b5b17;
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.ai-inventory-operation-kind.action-restock {
+  background: var(--success-soft);
+  color: #3f7f48;
+}
+
+.ai-inventory-operation-kind.action-dispose {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.ai-inventory-progressive-section {
+  display: grid;
+  justify-items: start;
+  gap: 10px;
+}
+
+.ai-inventory-detail-toggle {
+  min-height: 40px;
+  padding-inline: 0;
+  color: var(--accent-strong);
+  font-weight: 700;
+}
+
+.ai-inventory-extra-fields {
+  display: grid;
+  width: 100%;
+  gap: 12px;
+  padding-top: 2px;
+}
+
+.ai-inventory-batch-summary {
+  display: grid;
+  gap: 4px;
+  padding: 10px 12px;
+  border: 1px solid rgba(217, 75, 61, 0.16);
+  border-radius: 12px;
+  background: var(--danger-soft);
+}
+
+.ai-inventory-batch-summary span {
+  color: #9f4037;
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.ai-inventory-batch-summary strong {
+  color: #6f2c26;
+  font-size: 0.875rem;
+}
+
+.ai-inventory-dispose-reason > span {
+  color: #a9362d;
 }
 
 .ai-confirmation-grid {
@@ -7298,6 +7838,107 @@
   .ai-approval-panel {
     border-radius: 18px;
     background: #fffaf6;
+  }
+
+  .ai-query-result-card {
+    gap: 14px;
+    padding: 14px;
+  }
+
+  .ai-query-card-head {
+    display: grid;
+    gap: 10px;
+  }
+
+  .ai-query-card-metrics {
+    justify-content: flex-start;
+  }
+
+  .ai-query-card-context {
+    text-align: left;
+  }
+
+  .ai-query-item-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .ai-query-item {
+    grid-template-columns: 64px minmax(0, 1fr);
+    min-height: 88px;
+  }
+
+  .ai-query-inventory-list .ai-query-item {
+    grid-template-columns: 64px minmax(0, 1fr);
+  }
+
+  .ai-query-inventory-actions {
+    grid-column: 1 / -1;
+    display: block;
+  }
+
+  .ai-query-inventory-actions .ghost-button {
+    width: 100%;
+    min-height: 44px;
+  }
+
+  .ai-inventory-operation-summary {
+    grid-template-columns: 48px minmax(0, 1fr);
+  }
+
+  .ai-inventory-operation-summary img,
+  .ai-inventory-operation-placeholder {
+    width: 48px;
+    height: 48px;
+  }
+
+  .ai-query-recommendation {
+    grid-template-columns: 64px minmax(0, 1fr);
+  }
+
+  .ai-query-recommendation .ai-query-card-image {
+    width: 64px;
+    height: 64px;
+  }
+
+  .ai-query-item-action {
+    grid-column: 1 / -1;
+  }
+
+  .ai-query-item-action .solid-button {
+    width: 100%;
+    min-height: 48px;
+  }
+
+  .ai-query-plan-added {
+    width: 100%;
+  }
+
+  .ai-query-card-image {
+    width: 64px;
+    height: 64px;
+    border-radius: 12px;
+  }
+
+  .ai-query-item-title {
+    align-items: center;
+  }
+
+  .ai-recommendation-plan-modal {
+    width: min(100%, calc(100vw - 24px));
+  }
+
+  .ai-recommendation-plan-fields {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .ai-recommendation-meal-options {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .ai-plan-feedback {
+    top: 12px;
+    width: min(calc(100vw - 24px), 420px);
+    justify-content: space-between;
   }
 
   .ai-approval-panel {

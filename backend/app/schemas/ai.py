@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -87,7 +87,7 @@ AIResultCardType = Literal[
     "food_profile_draft",
 ]
 AIRunEventStatus = Literal["pending", "running", "completed", "failed"]
-AITaskDraftType = Literal["recipe", "shopping_list", "meal_plan", "meal_log", "food_profile"]
+AITaskDraftType = Literal["recipe", "shopping_list", "meal_plan", "meal_log", "food_profile", "inventory_operation"]
 AITaskDraftStatus = Literal["pending", "confirmed", "rejected", "confirmation_failed", "pending_retry"]
 AIApprovalStatus = Literal["pending", "approved", "rejected", "cancelled", "expired"]
 AIApprovalDecision = Literal["approved", "rejected"]
@@ -136,11 +136,94 @@ class AIChatRequest(BaseModel):
         return self
 
 
+class AIInventoryResultItemDTO(BaseModel):
+    id: str
+    ingredientId: str
+    name: str
+    image: dict | None = None
+    quantity: str
+    unit: str
+    status: str
+    displayStatus: Literal["available", "low_stock", "expiring", "expired"]
+    expiryDate: str | None = None
+    daysUntilExpiry: int | None = None
+    lowStockThreshold: str | None = None
+
+
+class AIInventorySummaryCardDataDTO(BaseModel):
+    availableCount: int = Field(ge=0)
+    expiringCount: int = Field(ge=0)
+    lowStockCount: int = Field(ge=0)
+    items: list[AIInventoryResultItemDTO] = Field(default_factory=list)
+
+
+class AITodayRecommendationItemDTO(BaseModel):
+    entityType: Literal["food", "recipe"]
+    entityId: str
+    foodId: str | None = None
+    recipeId: str | None = None
+    name: str
+    image: dict | None = None
+    category: str | None = None
+    foodType: str | None = None
+    prepMinutes: int | None = None
+    servings: int | None = None
+    difficulty: str | None = None
+    reason: str
+    evidence: list[dict] = Field(default_factory=list)
+    planSelection: dict | None = None
+
+
+class AITodayRecommendationContextDTO(BaseModel):
+    inventoryCount: int = Field(ge=0)
+    expiringCount: int = Field(ge=0)
+    recentMealCount: int = Field(ge=0)
+    recipeCount: int = Field(ge=0)
+
+
+class AITodayRecommendationCardDataDTO(BaseModel):
+    recommendations: list[AITodayRecommendationItemDTO] = Field(default_factory=list)
+    targetDate: date | None = None
+    mealType: Literal["breakfast", "lunch", "dinner", "snack"] | None = None
+    contextSummary: AITodayRecommendationContextDTO
+
+
 class AIResultCardDTO(BaseModel):
     id: str
     type: AIResultCardType
     title: str
     data: dict = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def validate_query_card_data(self) -> "AIResultCardDTO":
+        if self.type == "inventory_summary":
+            self.data.setdefault("availableCount", 0)
+            self.data.setdefault("expiringCount", 0)
+            self.data.setdefault("lowStockCount", 0)
+            self.data.setdefault("items", [])
+            AIInventorySummaryCardDataDTO.model_validate(self.data)
+        elif self.type == "today_recommendation":
+            self.data.setdefault("recommendations", [])
+            self.data.setdefault(
+                "contextSummary",
+                {"inventoryCount": 0, "expiringCount": 0, "recentMealCount": 0, "recipeCount": 0},
+            )
+            AITodayRecommendationCardDataDTO.model_validate(self.data)
+        return self
+
+
+class AIRecommendationSelectionRequest(BaseModel):
+    part_id: str
+    card_id: str
+    entity_id: str
+    food_plan_item_id: str
+
+
+class AIInventoryQuickDraftRequest(BaseModel):
+    part_id: str
+    card_id: str
+    item_id: str
+    action: Literal["restock", "consume", "dispose"]
 
 
 class AITaskDraftDTO(BaseModel):

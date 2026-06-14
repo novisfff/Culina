@@ -5,7 +5,7 @@ from typing import Any
 from sqlalchemy import select
 
 from app.ai.tools.base import ToolContext
-from app.ai.tools.catalog.common import register_tool
+from app.ai.tools.catalog.common import entity_media_map, first_entity_media, register_tool
 from app.ai.tools.draft_validation import normalize_food_profile_draft_for_tools
 from app.ai.tools.registry import ToolRegistry
 from app.ai.tools.schemas import COUNT_OUTPUT, FOOD_PROFILE_DRAFT_SCHEMA, LIMIT_INPUT, draft_input_schema, draft_output_schema
@@ -15,11 +15,13 @@ from app.models.domain import Food
 def food_search(context: ToolContext, payload: dict[str, Any]) -> dict[str, Any]:
     limit = int(payload.get("limit") or 24)
     foods = list(context.db.scalars(select(Food).where(Food.family_id == context.family_id).limit(limit)))
+    media_map = entity_media_map(context.db, family_id=context.family_id, entity_types={"food"}, entity_ids=[item.id for item in foods])
     return {
         "items": [
             {
                 "id": item.id,
                 "name": item.name,
+                "image": first_entity_media(media_map, "food", item.id),
                 "type": item.type.value if hasattr(item.type, "value") else str(item.type),
                 "category": item.category,
                 "flavorTags": item.flavor_tags or [],

@@ -47,6 +47,10 @@ examples:
 - 读取库存、临期食材、最近餐食，并按需查询食物和菜谱。
 - 优先临期库存，尽量避免最近重复，返回 1–3 个当前家庭已有食物或菜谱候选。
 - 返回 `today_recommendation` 卡片，不调用 `meal_plan.create_draft`，不创建审批。
+- 每个推荐项必须提供工具返回的真实 `foodId` 或 `recipeId`，不得只返回自由文本标题。
+- 卡片结构固定为 `cards[].data.recommendations[]`，不要把推荐项放在卡片根级 `items`。
+- 如果用户询问中包含日期或餐次，卡片 `data.targetDate` 使用 `YYYY-MM-DD`，`data.mealType` 使用 `breakfast`、`lunch`、`dinner` 或 `snack`。
+- 推荐项名称、图片、分类、制作时间、份量等展示字段由 Runtime 根据工具结果补齐，不得编造。
 
 ### 正式计划模式
 

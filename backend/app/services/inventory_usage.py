@@ -49,7 +49,10 @@ class InventoryShortage:
 
 
 def remaining_quantity(item: InventoryItem) -> Decimal:
-    return max(item.quantity - item.consumed_quantity, Decimal("0"))
+    return max(
+        item.quantity - item.consumed_quantity - getattr(item, "disposed_quantity", Decimal("0")),
+        Decimal("0"),
+    )
 
 
 def expiry_sort_key(expiry_date: date | None) -> tuple[int, date]:

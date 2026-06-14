@@ -6,6 +6,7 @@ from typing import Any
 EMPTY_INPUT: dict[str, Any] = {"type": "object", "additionalProperties": False, "properties": {}}
 MEAL_TYPE_VALUES = ["breakfast", "lunch", "dinner", "snack"]
 FOOD_TYPE_VALUES = ["selfMade", "takeout", "diningOut", "readyMade", "instant", "packaged"]
+INVENTORY_STATUS_VALUES = ["fresh", "opened", "frozen", "expiring"]
 
 COUNT_OUTPUT: dict[str, Any] = {
     "type": "object",
@@ -194,5 +195,58 @@ FOOD_PROFILE_DRAFT_SCHEMA: dict[str, Any] = {
         "favorite": {"type": "boolean"},
         "recipe_id": {"type": ["string", "null"]},
         "media_ids": {"type": "array", "maxItems": 20, "items": {"type": "string"}},
+    },
+}
+
+INVENTORY_OPERATION_DRAFT_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "additionalProperties": False,
+    "required": ["draftType", "schemaVersion", "operations"],
+    "properties": {
+        "draftType": {"type": "string", "enum": ["inventory_operation"]},
+        "schemaVersion": {"type": "string", "enum": ["inventory_operation.v1"]},
+        "source": {"type": "object"},
+        "operations": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 50,
+            "items": {
+                "type": "object",
+                "additionalProperties": False,
+                "required": ["action", "ingredientId", "quantity", "unit"],
+                "properties": {
+                    "action": {"type": "string", "enum": ["restock", "consume", "dispose"]},
+                    "ingredientId": {"type": "string", "minLength": 1, "maxLength": 64},
+                    "ingredientName": {"type": "string", "maxLength": 120},
+                    "inventoryItemId": {"type": ["string", "null"], "maxLength": 64},
+                    "quantity": {"type": ["number", "null"], "exclusiveMinimum": 0},
+                    "unit": {"type": "string", "minLength": 1, "maxLength": 32},
+                    "purchaseDate": {"type": ["string", "null"], "maxLength": 10},
+                    "expiryDate": {"type": ["string", "null"], "maxLength": 10},
+                    "storageLocation": {"type": ["string", "null"], "maxLength": 120},
+                    "status": {"type": ["string", "null"], "enum": [*INVENTORY_STATUS_VALUES, None]},
+                    "notes": {"type": "string", "maxLength": 1000},
+                    "lowStockThreshold": {"type": ["number", "null"], "minimum": 0},
+                    "reason": {"type": "string", "maxLength": 255},
+                    "image": {"type": ["object", "null"]},
+                    "remainingQuantity": {"type": ["number", "null"], "minimum": 0},
+                    "batchOptions": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "additionalProperties": False,
+                            "required": ["id", "label", "remainingQuantity", "unit"],
+                            "properties": {
+                                "id": {"type": "string"},
+                                "label": {"type": "string"},
+                                "remainingQuantity": {"type": "number", "minimum": 0},
+                                "unit": {"type": "string"},
+                                "expiryDate": {"type": ["string", "null"]},
+                            },
+                        },
+                    },
+                },
+            },
+        },
     },
 }

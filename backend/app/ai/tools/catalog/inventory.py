@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from datetime import date
 from decimal import Decimal
 from typing import Any
 
@@ -8,16 +7,30 @@ from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
 from app.ai.tools.base import ToolContext
-from app.ai.tools.catalog.common import decimal_text, register_tool
+from app.ai.tools.catalog.common import decimal_text, entity_media_map, first_entity_media, register_tool
+from app.ai.tools.draft_validation import normalize_inventory_operation_draft
 from app.ai.tools.registry import ToolRegistry
-from app.ai.tools.schemas import COUNT_OUTPUT, DAYS_INPUT, LIMIT_INPUT
+from app.ai.tools.schemas import (
+    COUNT_OUTPUT,
+    DAYS_INPUT,
+    INVENTORY_OPERATION_DRAFT_SCHEMA,
+    LIMIT_INPUT,
+    draft_input_schema,
+    draft_output_schema,
+)
 from app.models.domain import InventoryItem
+from app.services.clock import today_for_family
+from app.services.inventory_usage import remaining_quantity
 
 
 INVENTORY_SUMMARY_OUTPUT = {
     "type": "object",
-    "required": ["availableCount", "expiringCount", "lowStockCount", "items"],
+    "required": ["queryFocus", "availableCount", "expiringCount", "lowStockCount", "items"],
     "properties": {
+        "queryFocus": {
+            "type": "string",
+            "enum": ["overview", "available", "expiring", "expired", "low_stock"],
+        },
         "availableCount": {"type": "integer", "minimum": 0},
         "expiringCount": {"type": "integer", "minimum": 0},
         "lowStockCount": {"type": "integer", "minimum": 0},
@@ -26,22 +39,37 @@ INVENTORY_SUMMARY_OUTPUT = {
 }
 
 
-def remaining_quantity(item: InventoryItem) -> Decimal:
-    return max(Decimal(item.quantity or 0) - Decimal(item.consumed_quantity or 0), Decimal("0"))
-
-
-def inventory_record(item: InventoryItem) -> dict[str, Any]:
+def inventory_record(
+    item: InventoryItem,
+    media_map: dict | None = None,
+    *,
+    today=None,
+    suggested_action: str | None = None,
+) -> dict[str, Any]:
     status = item.status.value if hasattr(item.status, "value") else str(item.status)
-    return {
+    remaining = remaining_quantity(item)
+    is_low_stock = item.low_stock_threshold is not None and item.low_stock_threshold > 0 and remaining <= item.low_stock_threshold
+    resolved_today = today or today_for_family(item.family_id)
+    days_until_expiry = (item.expiry_date - resolved_today).days if item.expiry_date else None
+    display_status = "expired" if days_until_expiry is not None and days_until_expiry < 0 else "expiring" if days_until_expiry is not None and days_until_expiry <= 7 else "low_stock" if is_low_stock else "available"
+    record = {
         "id": item.id,
         "ingredientId": item.ingredient_id,
-        "label": item.ingredient.name if item.ingredient else item.ingredient_id,
-        "quantity": decimal_text(remaining_quantity(item)),
+        "name": item.ingredient.name if item.ingredient else item.ingredient_id,
+        "image": first_entity_media(media_map or {}, "ingredient", item.ingredient_id),
+        "quantity": decimal_text(remaining),
         "unit": item.unit,
         "status": status,
+        "displayStatus": display_status,
         "expiryDate": item.expiry_date.isoformat() if item.expiry_date else None,
+        "daysUntilExpiry": days_until_expiry,
         "lowStockThreshold": decimal_text(item.low_stock_threshold) if item.low_stock_threshold is not None else None,
+        "purchaseDate": item.purchase_date.isoformat(),
+        "storageLocation": item.storage_location,
     }
+    if suggested_action:
+        record["suggestedAction"] = suggested_action
+    return record
 
 
 def read_inventory(context: ToolContext, *, limit: int = 80) -> list[InventoryItem]:
@@ -58,11 +86,17 @@ def read_inventory(context: ToolContext, *, limit: int = 80) -> list[InventoryIt
 def inventory_read_available_items(context: ToolContext, payload: dict[str, Any]) -> dict[str, Any]:
     limit = int(payload.get("limit") or 80)
     items = [item for item in read_inventory(context, limit=limit) if remaining_quantity(item) > 0]
-    return {"items": [inventory_record(item) for item in items], "count": len(items)}
+    media_map = entity_media_map(context.db, family_id=context.family_id, entity_types={"ingredient"}, entity_ids=[item.ingredient_id for item in items])
+    today = today_for_family(context.family_id)
+    return {
+        "queryFocus": "available",
+        "items": [inventory_record(item, media_map, today=today) for item in items],
+        "count": len(items),
+    }
 
 
 def inventory_read_expiring_items(context: ToolContext, payload: dict[str, Any]) -> dict[str, Any]:
-    today = date.today()
+    today = today_for_family(context.family_id)
     days = int(payload.get("days") or 7)
     items = [
         item
@@ -70,11 +104,75 @@ def inventory_read_expiring_items(context: ToolContext, payload: dict[str, Any])
         if remaining_quantity(item) > 0 and item.expiry_date is not None and (item.expiry_date - today).days <= days
     ]
     items.sort(key=lambda item: item.expiry_date or today)
-    return {"items": [inventory_record(item) for item in items], "count": len(items)}
+    media_map = entity_media_map(context.db, family_id=context.family_id, entity_types={"ingredient"}, entity_ids=[item.ingredient_id for item in items])
+    return {
+        "queryFocus": "expiring",
+        "items": [
+            inventory_record(
+                item,
+                media_map,
+                today=today,
+                suggested_action="dispose" if item.expiry_date and item.expiry_date < today else "consume",
+            )
+            for item in items
+        ],
+        "count": len(items),
+    }
+
+
+def inventory_read_expired_items(context: ToolContext, payload: dict[str, Any]) -> dict[str, Any]:
+    today = today_for_family(context.family_id)
+    items = [
+        item
+        for item in read_inventory(context)
+        if remaining_quantity(item) > 0 and item.expiry_date is not None and item.expiry_date < today
+    ]
+    items.sort(key=lambda item: item.expiry_date or today)
+    media_map = entity_media_map(
+        context.db,
+        family_id=context.family_id,
+        entity_types={"ingredient"},
+        entity_ids=[item.ingredient_id for item in items],
+    )
+    return {
+        "queryFocus": "expired",
+        "items": [
+            inventory_record(item, media_map, today=today, suggested_action="dispose")
+            for item in items
+        ],
+        "count": len(items),
+    }
+
+
+def inventory_read_low_stock_items(context: ToolContext, payload: dict[str, Any]) -> dict[str, Any]:
+    limit = int(payload.get("limit") or 80)
+    items = [
+        item
+        for item in read_inventory(context, limit=limit)
+        if remaining_quantity(item) > 0
+        and item.low_stock_threshold is not None
+        and item.low_stock_threshold > 0
+        and remaining_quantity(item) <= item.low_stock_threshold
+    ]
+    media_map = entity_media_map(
+        context.db,
+        family_id=context.family_id,
+        entity_types={"ingredient"},
+        entity_ids=[item.ingredient_id for item in items],
+    )
+    today = today_for_family(context.family_id)
+    return {
+        "queryFocus": "low_stock",
+        "items": [
+            inventory_record(item, media_map, today=today, suggested_action="restock")
+            for item in items
+        ],
+        "count": len(items),
+    }
 
 
 def inventory_read_summary(context: ToolContext, payload: dict[str, Any]) -> dict[str, Any]:
-    today = date.today()
+    today = today_for_family(context.family_id)
     items = [item for item in read_inventory(context) if remaining_quantity(item) > 0]
     expiring = [item for item in items if item.expiry_date is not None and (item.expiry_date - today).days <= int(payload.get("days") or 7)]
     low_stock = [
@@ -82,12 +180,21 @@ def inventory_read_summary(context: ToolContext, payload: dict[str, Any]) -> dic
         for item in items
         if item.low_stock_threshold is not None and item.low_stock_threshold > 0 and remaining_quantity(item) <= item.low_stock_threshold
     ]
+    selected_items = expiring[:6] or low_stock[:6] or items[:6]
+    media_map = entity_media_map(context.db, family_id=context.family_id, entity_types={"ingredient"}, entity_ids=[item.ingredient_id for item in selected_items])
     return {
+        "queryFocus": "overview",
         "availableCount": len(items),
         "expiringCount": len(expiring),
         "lowStockCount": len(low_stock),
-        "items": [inventory_record(item) for item in (expiring[:6] or low_stock[:6] or items[:6])],
+        "items": [inventory_record(item, media_map, today=today) for item in selected_items],
     }
+
+
+def inventory_create_operation_draft(context: ToolContext, payload: dict[str, Any]) -> dict[str, Any]:
+    draft = payload.get("draft") if isinstance(payload.get("draft"), dict) else {}
+    normalized = normalize_inventory_operation_draft(context.db, family_id=context.family_id, payload=draft)
+    return {"draft": normalized, "itemCount": len(normalized["operations"])}
 
 
 def register_inventory_tools(registry: ToolRegistry) -> None:
@@ -110,6 +217,36 @@ def register_inventory_tools(registry: ToolRegistry) -> None:
         handler=inventory_read_expiring_items,
         input_schema=DAYS_INPUT,
         output_schema=COUNT_OUTPUT,
+    )
+    register_tool(
+        registry,
+        name="inventory.read_expired_items",
+        display_name="过期食材",
+        description="读取当前家庭已经过期但仍有剩余量的库存批次。",
+        side_effect="read",
+        handler=inventory_read_expired_items,
+        input_schema=LIMIT_INPUT,
+        output_schema=COUNT_OUTPUT,
+    )
+    register_tool(
+        registry,
+        name="inventory.read_low_stock_items",
+        display_name="低库存食材",
+        description="读取当前家庭低于补货阈值的库存批次。",
+        side_effect="read",
+        handler=inventory_read_low_stock_items,
+        input_schema=LIMIT_INPUT,
+        output_schema=COUNT_OUTPUT,
+    )
+    register_tool(
+        registry,
+        name="inventory.create_operation_draft",
+        display_name="库存处理确认表单",
+        description="生成入库、消耗或销毁库存的可编辑草稿，不直接写入库存。",
+        side_effect="draft",
+        handler=inventory_create_operation_draft,
+        input_schema=draft_input_schema(INVENTORY_OPERATION_DRAFT_SCHEMA),
+        output_schema=draft_output_schema(INVENTORY_OPERATION_DRAFT_SCHEMA),
     )
     register_tool(
         registry,
