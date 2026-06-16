@@ -11,13 +11,7 @@ import type {
 } from '../../api/types';
 import { MessageBubble, type AiApprovalDecisionSubmit, type AiResourceOptionLoader } from './AiConversationThread';
 import { AiMobileChrome } from './AiMobileChrome';
-
-export const AI_WELCOME_SUGGESTIONS = [
-  { title: '🍳 推荐晚餐', desc: '用现有食材搭配一顿美味', prompt: '今晚用现有食材做什么？' },
-  { title: '🗓️ 制定餐计划', desc: '帮我规划三天家庭配餐', prompt: '帮我安排三天晚餐' },
-  { title: '⚠️ 消耗临期', desc: '分析快过期的食材做法', prompt: '快过期食材怎么处理？' },
-  { title: '🛒 采购清单', desc: '根据餐食计划生成清单', prompt: '帮我根据本周晚餐计划生成采购清单' }
-];
+import { AI_WELCOME_SUGGESTIONS } from './AiWorkspaceOptions';
 
 type Props = {
   conversations: AiConversation[];
@@ -56,7 +50,6 @@ type Props = {
     partId: string,
   ) => void;
   isInventoryActionPending: boolean;
-  onRetryRun: (runId: string) => void;
   onCancelSending: () => void;
 };
 
@@ -115,7 +108,6 @@ export function AiMobilePage(props: Props) {
                 onAddRecommendationToPlan={props.onAddRecommendationToPlan}
                 onInventoryAction={props.onInventoryAction}
                 isInventoryActionPending={props.isInventoryActionPending}
-                onRetryRun={props.onRetryRun}
               />
             ))}
           </>

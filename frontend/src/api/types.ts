@@ -578,11 +578,13 @@ export type AiResultCardType =
   | 'approval_request'
   | 'error_recovery'
   | 'inventory_summary'
+  | 'clarification_request'
+  | 'operation_result'
   | 'meal_plan_draft'
   | 'shopping_list_draft'
   | 'meal_log_draft'
   | 'food_profile_draft';
-export type AiTaskDraftType = 'recipe' | 'shopping_list' | 'meal_plan' | 'meal_log' | 'food_profile' | 'inventory_operation';
+export type AiTaskDraftType = 'recipe' | 'recipe_cook' | 'ingredient_profile' | 'shopping_list' | 'meal_plan' | 'meal_log' | 'food_profile' | 'inventory_operation' | 'composite_operation';
 export type AiApprovalDecision = 'approved' | 'rejected';
 
 export interface AiEvidenceItem {
@@ -646,6 +648,10 @@ export interface AiInventoryOperationDraftItem {
   notes: string;
   lowStockThreshold?: number | null;
   reason: string;
+  sourceQuantity?: number | null;
+  sourceUnit?: string | null;
+  conversionRatioToDefault?: number | null;
+  conversionNote?: string | null;
   image?: MediaAsset | null;
   remainingQuantity?: number | null;
   batchOptions?: AiInventoryBatchOption[];
@@ -703,6 +709,22 @@ export interface AiTodayRecommendationCardData {
   };
 }
 
+export interface AiClarificationCandidate {
+  id: string;
+  label: string;
+  summary?: string | null;
+  entityType?: string | null;
+  updatedAt?: string | null;
+}
+
+export interface AiOperationResultEntity {
+  id: string;
+  label: string;
+  operation?: string | null;
+  operationLabel?: string | null;
+  updatedAt?: string | null;
+}
+
 export interface AiResultCard {
   id: string;
   type: AiResultCardType;
@@ -717,6 +739,17 @@ export interface AiResultCard {
     availableCount?: number;
     expiringCount?: number;
     lowStockCount?: number;
+    question?: string;
+    questionType?: string;
+    missingFields?: string[];
+    candidates?: AiClarificationCandidate[];
+    allowFreeText?: boolean;
+    actionSummary?: string;
+    entityCount?: number;
+    entityCountLabel?: string;
+    workspaceLabel?: string;
+    workspaceHint?: string;
+    entities?: AiOperationResultEntity[];
     message?: string;
     draftId?: string;
     approvalId?: string;
@@ -769,6 +802,7 @@ export interface AiApprovalRequest {
   approve_label: string;
   reject_label: string;
   require_reject_comment: boolean;
+  failure_summary?: Record<string, unknown> | null;
   field_schema: AiApprovalField[];
   initial_values: { recipe?: AiGeneratedRecipeDraft; draft?: Record<string, unknown>; [key: string]: unknown };
   submitted_values: { recipe?: AiGeneratedRecipeDraft; draft?: Record<string, unknown>; [key: string]: unknown };
@@ -817,7 +851,7 @@ export interface AiRunEvent {
   type: string;
   internal_code: string;
   user_message: string;
-  status: 'pending' | 'running' | 'completed' | 'failed';
+  status: 'pending' | 'running' | 'waiting' | 'completed' | 'failed';
   created_at: string;
 }
 
@@ -827,6 +861,50 @@ export interface AiStatus {
   model: string;
   status: 'ready' | 'disabled' | 'missing_api_key' | 'unsupported_provider';
   detail: string;
+}
+
+export interface AiQualityMetrics {
+  family_id: string;
+  window: {
+    limit: number;
+    days?: number | null;
+  };
+  run_count: number;
+  status_counts: Record<string, number>;
+  intent_counts: Record<string, number>;
+  routing_skill_counts: Record<string, number>;
+  clarification_reasons: Record<string, number>;
+  clarification_by_skill: Record<string, number>;
+  approval_by_draft_type: Record<string, Record<string, number>>;
+  skill_diagnostics: Record<string, number>;
+  skill_status_counts: Record<string, number>;
+  totals: {
+    skillExecutionCount: number;
+    completedSkillExecutionCount: number;
+    toolCallCount: number;
+    draftCount: number;
+    approvalRequestCount: number;
+    clarificationCount: number;
+    approvalApprovedCount: number;
+    approvalRejectedCount: number;
+    totalDurationMs: number;
+    averageDurationMs: number;
+  };
+  recent_runs: Array<{
+    id: string;
+    agent_key: string;
+    intent: string;
+    status: string;
+    model: string;
+    created_at: string;
+    duration_ms: number;
+    error_code?: string | null;
+    routing_skills: string[];
+    clarification_count: number;
+    approval_request_count: number;
+    approval_approved_count: number;
+    approval_rejected_count: number;
+  }>;
 }
 
 export interface AiChatResponse {

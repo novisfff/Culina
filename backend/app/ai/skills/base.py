@@ -59,6 +59,7 @@ class SkillContext:
     provider: BaseChatProvider | None = None
     previous_results: list["SkillResult"] = field(default_factory=list)
     current_run_artifacts: list[dict[str, Any]] = field(default_factory=list)
+    pending_clarification: dict[str, Any] | None = None
     stream_writer: Callable[[dict[str, Any]], None] | None = None
     cancel_check: Callable[[], bool] | None = None
 

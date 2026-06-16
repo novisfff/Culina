@@ -81,13 +81,25 @@ AIResultCardType = Literal[
     "approval_request",
     "error_recovery",
     "inventory_summary",
+    "clarification_request",
+    "operation_result",
     "meal_plan_draft",
     "shopping_list_draft",
     "meal_log_draft",
     "food_profile_draft",
 ]
-AIRunEventStatus = Literal["pending", "running", "completed", "failed"]
-AITaskDraftType = Literal["recipe", "shopping_list", "meal_plan", "meal_log", "food_profile", "inventory_operation"]
+AIRunEventStatus = Literal["pending", "running", "waiting", "completed", "failed"]
+AITaskDraftType = Literal[
+    "recipe",
+    "recipe_cook",
+    "ingredient_profile",
+    "shopping_list",
+    "meal_plan",
+    "meal_log",
+    "food_profile",
+    "inventory_operation",
+    "composite_operation",
+]
 AITaskDraftStatus = Literal["pending", "confirmed", "rejected", "confirmation_failed", "pending_retry"]
 AIApprovalStatus = Literal["pending", "approved", "rejected", "cancelled", "expired"]
 AIApprovalDecision = Literal["approved", "rejected"]
@@ -188,6 +200,39 @@ class AITodayRecommendationCardDataDTO(BaseModel):
     contextSummary: AITodayRecommendationContextDTO
 
 
+class AIClarificationCandidateDTO(BaseModel):
+    id: str
+    label: str
+    summary: str | None = None
+    entityType: str | None = None
+    updatedAt: str | None = None
+
+
+class AIClarificationCardDataDTO(BaseModel):
+    question: str = Field(min_length=1)
+    questionType: str = Field(min_length=1)
+    missingFields: list[str] = Field(default_factory=list)
+    candidates: list[AIClarificationCandidateDTO] = Field(default_factory=list)
+    allowFreeText: bool = True
+
+
+class AIOperationResultEntityDTO(BaseModel):
+    id: str
+    label: str
+    operation: str | None = None
+    operationLabel: str | None = None
+    updatedAt: str | None = None
+
+
+class AIOperationResultCardDataDTO(BaseModel):
+    actionSummary: str = Field(min_length=1)
+    entityCount: int = Field(ge=0)
+    entityCountLabel: str = Field(min_length=1)
+    workspaceLabel: str = Field(min_length=1)
+    workspaceHint: str = Field(min_length=1)
+    entities: list[AIOperationResultEntityDTO] = Field(default_factory=list)
+
+
 class AIResultCardDTO(BaseModel):
     id: str
     type: AIResultCardType
@@ -209,6 +254,15 @@ class AIResultCardDTO(BaseModel):
                 {"inventoryCount": 0, "expiringCount": 0, "recentMealCount": 0, "recipeCount": 0},
             )
             AITodayRecommendationCardDataDTO.model_validate(self.data)
+        elif self.type == "clarification_request":
+            self.data.setdefault("missingFields", [])
+            self.data.setdefault("candidates", [])
+            self.data.setdefault("allowFreeText", True)
+            AIClarificationCardDataDTO.model_validate(self.data)
+        elif self.type == "operation_result":
+            self.data.setdefault("entityCount", 0)
+            self.data.setdefault("entities", [])
+            AIOperationResultCardDataDTO.model_validate(self.data)
         return self
 
 
@@ -269,6 +323,7 @@ class AIApprovalRequestDTO(BaseModel):
     approve_label: str
     reject_label: str
     require_reject_comment: bool
+    failure_summary: dict | None = None
     field_schema: list[AIApprovalFieldDTO]
     initial_values: dict = Field(default_factory=dict)
     submitted_values: dict = Field(default_factory=dict)
@@ -319,6 +374,56 @@ class AIRunEventDTO(BaseModel):
     user_message: str
     status: AIRunEventStatus
     created_at: datetime
+
+
+class AIQualityWindowDTO(BaseModel):
+    limit: int
+    days: int | None = None
+
+
+class AIQualityTotalsDTO(BaseModel):
+    skillExecutionCount: int = 0
+    completedSkillExecutionCount: int = 0
+    toolCallCount: int = 0
+    draftCount: int = 0
+    approvalRequestCount: int = 0
+    clarificationCount: int = 0
+    approvalApprovedCount: int = 0
+    approvalRejectedCount: int = 0
+    totalDurationMs: int = 0
+    averageDurationMs: int = 0
+
+
+class AIQualityRecentRunDTO(BaseModel):
+    id: str
+    agent_key: str
+    intent: str
+    status: str
+    model: str = ""
+    created_at: datetime
+    duration_ms: int = 0
+    error_code: str | None = None
+    routing_skills: list[str] = Field(default_factory=list)
+    clarification_count: int = 0
+    approval_request_count: int = 0
+    approval_approved_count: int = 0
+    approval_rejected_count: int = 0
+
+
+class AIQualityMetricsResponse(BaseModel):
+    family_id: str
+    window: AIQualityWindowDTO
+    run_count: int = 0
+    status_counts: dict[str, int] = Field(default_factory=dict)
+    intent_counts: dict[str, int] = Field(default_factory=dict)
+    routing_skill_counts: dict[str, int] = Field(default_factory=dict)
+    clarification_reasons: dict[str, int] = Field(default_factory=dict)
+    clarification_by_skill: dict[str, int] = Field(default_factory=dict)
+    approval_by_draft_type: dict[str, dict[str, int]] = Field(default_factory=dict)
+    skill_diagnostics: dict[str, int] = Field(default_factory=dict)
+    skill_status_counts: dict[str, int] = Field(default_factory=dict)
+    totals: AIQualityTotalsDTO
+    recent_runs: list[AIQualityRecentRunDTO] = Field(default_factory=list)
 
 
 class AIResponseIncludedDTO(BaseModel):

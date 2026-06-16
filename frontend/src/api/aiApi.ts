@@ -6,6 +6,7 @@ import type {
   AiRunEvent,
   AiConversation,
   AiMessage,
+  AiQualityMetrics,
   AiStatus,
   GenerateRecipeDraftPayload,
   GenerateRecipeDraftResponse,
@@ -92,6 +93,7 @@ async function streamChatAi(payload: AiChatPayload, handlers: AiChatStreamHandle
 
 export const aiApi = {
   getAiStatus: () => request<AiStatus>('/api/ai/status'),
+  getAiQualityMetrics: () => request<AiQualityMetrics>('/api/ai/quality-metrics?limit=50'),
   getAiConversations: () => request<AiConversation[]>('/api/ai/conversations'),
   deleteAiConversation: (conversationId: string) =>
     request<void>(`/api/ai/conversations/${conversationId}`, {

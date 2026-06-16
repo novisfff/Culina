@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import StreamingResponse
 import json
@@ -32,6 +32,7 @@ from app.schemas.ai import (
     AIConversationOut,
     AIMessageDTO,
     AIInventoryQuickDraftRequest,
+    AIQualityMetricsResponse,
     AIRecommendationSelectionRequest,
     AIRegistryResponse,
     AIStatusResponse,
@@ -45,6 +46,7 @@ from app.ai.tools import build_workspace_tool_registry
 from app.ai.workspace_service import AIApplicationService
 from app.ai.workflows.checkpoint import SQLAlchemyCheckpointSaver
 from app.services.serializers import serialize_ai_conversation, serialize_ai_message, serialize_ai_run_event
+from app.services.ai_quality import build_ai_quality_metrics
 
 router = APIRouter(tags=["ai"])
 logger = logging.getLogger(__name__)
@@ -147,6 +149,17 @@ def get_ai_registry(auth: tuple = Depends(get_current_auth)) -> dict:
             for tool in tool_registry.list()
         ],
     }
+
+
+@router.get("/api/ai/quality-metrics", response_model=AIQualityMetricsResponse)
+def get_ai_quality_metrics(
+    auth: tuple = Depends(get_current_auth),
+    db: Session = Depends(get_db),
+    limit: int = Query(default=50, ge=1, le=200),
+    days: int | None = Query(default=None, ge=1, le=365),
+) -> dict:
+    _, membership = auth
+    return build_ai_quality_metrics(db, family_id=membership.family_id, limit=limit, days=days)
 
 
 @router.delete("/api/ai/conversations/{conversation_id}", status_code=status.HTTP_204_NO_CONTENT)

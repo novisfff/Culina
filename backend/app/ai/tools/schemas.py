@@ -7,6 +7,9 @@ EMPTY_INPUT: dict[str, Any] = {"type": "object", "additionalProperties": False, 
 MEAL_TYPE_VALUES = ["breakfast", "lunch", "dinner", "snack"]
 FOOD_TYPE_VALUES = ["selfMade", "takeout", "diningOut", "readyMade", "instant", "packaged"]
 INVENTORY_STATUS_VALUES = ["fresh", "opened", "frozen", "expiring"]
+OPERATION_ACTION_VALUES = ["create", "update", "delete"]
+MEAL_PLAN_OPERATION_ACTION_VALUES = ["create", "update", "set_status", "delete"]
+SHOPPING_OPERATION_ACTION_VALUES = ["create", "update", "set_done", "delete"]
 
 COUNT_OUTPUT: dict[str, Any] = {
     "type": "object",
@@ -20,6 +23,24 @@ LIMIT_INPUT: dict[str, Any] = {
     "type": "object",
     "additionalProperties": False,
     "properties": {"limit": {"type": "integer", "minimum": 1, "maximum": 100}},
+}
+SEARCH_INPUT: dict[str, Any] = {
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {
+        "query": {"type": "string", "maxLength": 100},
+        "ids": {"type": "array", "maxItems": 50, "items": {"type": "string", "minLength": 1}},
+        "exact": {"type": "boolean"},
+        "category": {"type": ["string", "null"], "maxLength": 80},
+        "limit": {"type": "integer", "minimum": 1, "maximum": 100},
+        "offset": {"type": "integer", "minimum": 0, "maximum": 1000},
+    },
+}
+READ_BY_ID_INPUT: dict[str, Any] = {
+    "type": "object",
+    "additionalProperties": False,
+    "required": ["id"],
+    "properties": {"id": {"type": "string", "minLength": 1, "maxLength": 64}},
 }
 DAYS_INPUT: dict[str, Any] = {
     "type": "object",
@@ -66,10 +87,10 @@ def draft_output_schema(draft_schema: dict[str, Any]) -> dict[str, Any]:
 SHOPPING_LIST_DRAFT_SCHEMA: dict[str, Any] = {
     "type": "object",
     "additionalProperties": False,
-    "required": ["draftType", "schemaVersion", "items"],
+    "required": ["draftType", "schemaVersion"],
     "properties": {
         "draftType": {"type": "string", "enum": ["shopping_list"]},
-        "schemaVersion": {"type": "string", "enum": ["shopping_list.v1"]},
+        "schemaVersion": {"type": "string", "enum": ["shopping_list.v1", "shopping_list_operation.v1"]},
         "sourceDraftId": {"type": ["string", "null"]},
         "items": {
             "type": "array",
@@ -89,16 +110,46 @@ SHOPPING_LIST_DRAFT_SCHEMA: dict[str, Any] = {
                 },
             },
         },
+        "operations": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 100,
+            "items": {
+                "type": "object",
+                "additionalProperties": False,
+                "required": ["action"],
+                "properties": {
+                    "operationId": {"type": ["string", "null"], "minLength": 1, "maxLength": 64},
+                    "action": {"type": "string", "enum": SHOPPING_OPERATION_ACTION_VALUES},
+                    "targetId": {"type": ["string", "null"]},
+                    "baseUpdatedAt": {"type": ["string", "null"]},
+                    "before": {"type": ["object", "null"]},
+                    "payload": {
+                        "type": "object",
+                        "additionalProperties": False,
+                        "properties": {
+                            "title": {"type": "string", "minLength": 1, "maxLength": 80},
+                            "quantity": {"type": "number", "exclusiveMinimum": 0},
+                            "unit": {"type": "string", "minLength": 1, "maxLength": 20},
+                            "reason": {"type": "string", "maxLength": 255},
+                            "done": {"type": "boolean"},
+                            "sourceMeals": {"type": "array", "maxItems": 20, "items": {"type": "string", "maxLength": 80}},
+                            "alreadyPending": {"type": "boolean"},
+                        },
+                    },
+                },
+            },
+        },
     },
 }
 
 MEAL_PLAN_DRAFT_SCHEMA: dict[str, Any] = {
     "type": "object",
     "additionalProperties": False,
-    "required": ["draftType", "schemaVersion", "items"],
+    "required": ["draftType", "schemaVersion"],
     "properties": {
         "draftType": {"type": "string", "enum": ["meal_plan"]},
-        "schemaVersion": {"type": "string", "enum": ["meal_plan.v1"]},
+        "schemaVersion": {"type": "string", "enum": ["meal_plan.v1", "meal_plan_operation.v1"]},
         "items": {
             "type": "array",
             "minItems": 1,
@@ -135,19 +186,119 @@ MEAL_PLAN_DRAFT_SCHEMA: dict[str, Any] = {
                 },
             },
         },
+        "operations": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 28,
+            "items": {
+                "type": "object",
+                "additionalProperties": False,
+                "required": ["action"],
+                "properties": {
+                    "operationId": {"type": ["string", "null"], "minLength": 1, "maxLength": 64},
+                    "action": {"type": "string", "enum": MEAL_PLAN_OPERATION_ACTION_VALUES},
+                    "targetId": {"type": ["string", "null"]},
+                    "baseUpdatedAt": {"type": ["string", "null"]},
+                    "before": {"type": ["object", "null"]},
+                    "payload": {
+                        "type": "object",
+                        "additionalProperties": False,
+                        "properties": {
+                            "date": {"type": "string", "minLength": 10, "maxLength": 10},
+                            "mealType": {"type": "string", "enum": MEAL_TYPE_VALUES},
+                            "title": {"type": "string", "minLength": 1, "maxLength": 80},
+                            "foodId": {"type": "string", "minLength": 1},
+                            "recipeId": {"type": ["string", "null"]},
+                            "reason": {"type": "string", "maxLength": 255},
+                            "status": {"type": "string", "enum": ["planned", "cooked", "skipped"]},
+                            "usedInventory": {"type": "array", "maxItems": 20, "items": {"type": "string", "maxLength": 80}},
+                            "missingIngredients": {"type": "array", "maxItems": 20, "items": {"type": "string", "maxLength": 80}},
+                            "missingIngredientItems": {
+                                "type": "array",
+                                "maxItems": 20,
+                                "items": {
+                                    "type": "object",
+                                    "additionalProperties": False,
+                                    "required": ["name", "quantity", "unit"],
+                                    "properties": {
+                                        "ingredientId": {"type": ["string", "null"]},
+                                        "name": {"type": "string", "minLength": 1, "maxLength": 80},
+                                        "quantity": {"type": "number", "exclusiveMinimum": 0},
+                                        "unit": {"type": "string", "minLength": 1, "maxLength": 20},
+                                    },
+                                },
+                            },
+                            "source": {"type": "object"},
+                        },
+                    },
+                },
+            },
+        },
         "source": {"type": "object"},
+    },
+}
+
+INGREDIENT_PROFILE_DRAFT_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "additionalProperties": False,
+    "required": ["draftType", "schemaVersion", "action", "payload"],
+    "properties": {
+        "draftType": {"type": "string", "enum": ["ingredient_profile"]},
+        "schemaVersion": {"type": "string", "enum": ["ingredient_profile.v1", "ingredient_profile_operation.v1"]},
+        "action": {"type": "string", "enum": ["create", "update"]},
+        "targetId": {"type": ["string", "null"]},
+        "baseUpdatedAt": {"type": ["string", "null"]},
+        "before": {"type": ["object", "null"]},
+        "payload": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["name", "category", "default_unit", "default_storage", "default_expiry_mode"],
+            "properties": {
+                "name": {"type": "string", "minLength": 1, "maxLength": 120},
+                "category": {"type": "string", "minLength": 1, "maxLength": 120},
+                "default_unit": {"type": "string", "minLength": 1, "maxLength": 32},
+                "unit_conversions": {
+                    "type": "array",
+                    "maxItems": 20,
+                    "items": {
+                        "type": "object",
+                        "additionalProperties": False,
+                        "required": ["unit", "ratio_to_default"],
+                        "properties": {
+                            "unit": {"type": "string", "minLength": 1, "maxLength": 32},
+                            "ratio_to_default": {"type": "number", "exclusiveMinimum": 0},
+                        },
+                    },
+                },
+                "default_storage": {"type": "string", "minLength": 1, "maxLength": 120},
+                "default_expiry_mode": {"type": "string", "enum": ["days", "manual_date", "none"]},
+                "default_expiry_days": {"type": ["integer", "null"], "minimum": 1, "maximum": 3650},
+                "default_low_stock_threshold": {"type": ["number", "null"], "exclusiveMinimum": 0},
+                "notes": {"type": "string", "maxLength": 5000},
+                "media_ids": {"type": "array", "maxItems": 20, "items": {"type": "string", "minLength": 1}},
+            },
+        },
     },
 }
 
 MEAL_LOG_DRAFT_SCHEMA: dict[str, Any] = {
     "type": "object",
     "additionalProperties": False,
-    "required": ["draftType", "schemaVersion", "date", "mealType", "foods", "notes"],
+    "required": ["draftType", "schemaVersion"],
     "properties": {
         "draftType": {"type": "string", "enum": ["meal_log"]},
-        "schemaVersion": {"type": "string", "enum": ["meal_log.v1"]},
+        "schemaVersion": {"type": "string", "enum": ["meal_log.v1", "meal_log_operation.v1"]},
+        "action": {"type": "string", "enum": ["create", "update_details", "rate_food"]},
+        "targetId": {"type": ["string", "null"]},
+        "baseUpdatedAt": {"type": ["string", "null"]},
+        "before": {"type": ["object", "null"]},
         "date": {"type": "string", "minLength": 10, "maxLength": 10},
         "mealType": {"type": "string", "enum": MEAL_TYPE_VALUES},
+        "participantUserIds": {"type": "array", "maxItems": 20, "items": {"type": "string", "minLength": 1}},
+        "mood": {"type": "string", "maxLength": 255},
+        "mediaIds": {"type": "array", "maxItems": 20, "items": {"type": "string", "minLength": 1}},
+        "planItemId": {"type": ["string", "null"]},
+        "planItemBaseUpdatedAt": {"type": ["string", "null"]},
         "foods": {
             "type": "array",
             "minItems": 1,
@@ -161,23 +312,394 @@ MEAL_LOG_DRAFT_SCHEMA: dict[str, Any] = {
                     "name": {"type": "string", "maxLength": 80},
                     "servings": {"type": "number", "exclusiveMinimum": 0},
                     "note": {"type": "string", "maxLength": 255},
+                    "rating": {"type": ["number", "null"], "minimum": 0.5, "maximum": 5},
                 },
             },
         },
         "notes": {"type": "string", "maxLength": 1000},
+        "payload": {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+                "participantUserIds": {"type": "array", "maxItems": 20, "items": {"type": "string", "minLength": 1}},
+                "notes": {"type": "string", "maxLength": 1000},
+                "mood": {"type": "string", "maxLength": 255},
+                "mediaIds": {"type": "array", "maxItems": 20, "items": {"type": "string", "minLength": 1}},
+                "foodEntryRatings": {
+                    "type": "array",
+                    "maxItems": 20,
+                    "items": {
+                        "type": "object",
+                        "additionalProperties": False,
+                        "required": ["id"],
+                        "properties": {
+                            "id": {"type": "string", "minLength": 1},
+                            "rating": {"type": ["number", "null"], "minimum": 0.5, "maximum": 5},
+                        },
+                    },
+                },
+            },
+        },
+    },
+}
+
+SHOPPING_OPERATION_ITEM_SCHEMA = SHOPPING_LIST_DRAFT_SCHEMA["properties"]["operations"]["items"]
+SHOPPING_OPERATION_PAYLOAD_SCHEMA = SHOPPING_OPERATION_ITEM_SCHEMA["properties"]["payload"]
+SHOPPING_LIST_DRAFT_SCHEMA.update(
+    {
+        "description": "购物清单草稿必须提供 items，或提供 operations；不要提交只有 draftType/schemaVersion 的空草稿。",
+        "anyOf": [
+            {"description": "普通新增购物清单草稿。", "required": ["draftType", "schemaVersion", "items"], "properties": {"schemaVersion": {"enum": ["shopping_list.v1"]}}},
+            {"description": "操作式购物清单草稿。", "required": ["draftType", "schemaVersion", "operations"], "properties": {"schemaVersion": {"enum": ["shopping_list_operation.v1"]}}},
+        ],
+    }
+)
+SHOPPING_OPERATION_ITEM_SCHEMA["anyOf"] = [
+    {
+        "description": "新增购物项。",
+        "required": ["action", "payload"],
+        "properties": {"action": {"enum": ["create"]}, "payload": {**SHOPPING_OPERATION_PAYLOAD_SCHEMA, "required": ["title", "quantity", "unit"]}},
+    },
+    {
+        "description": "更新购物项。",
+        "required": ["action", "targetId", "baseUpdatedAt", "payload"],
+        "properties": {
+            "action": {"enum": ["update"]},
+            "targetId": {"type": "string", "minLength": 1},
+            "baseUpdatedAt": {"type": "string", "minLength": 1},
+            "payload": {**SHOPPING_OPERATION_PAYLOAD_SCHEMA, "required": ["title", "quantity", "unit"]},
+        },
+    },
+    {
+        "description": "标记购物项买到或未买到。",
+        "required": ["action", "targetId", "baseUpdatedAt", "payload"],
+        "properties": {
+            "action": {"enum": ["set_done"]},
+            "targetId": {"type": "string", "minLength": 1},
+            "baseUpdatedAt": {"type": "string", "minLength": 1},
+            "payload": {
+                "type": "object",
+                "additionalProperties": False,
+                "required": ["done"],
+                "properties": {"done": {"type": "boolean"}, "reason": {"type": "string", "maxLength": 255}},
+            },
+        },
+    },
+    {
+        "description": "删除购物项。",
+        "required": ["action", "targetId", "baseUpdatedAt"],
+        "properties": {"action": {"enum": ["delete"]}, "targetId": {"type": "string", "minLength": 1}, "baseUpdatedAt": {"type": "string", "minLength": 1}},
+    },
+]
+
+MEAL_PLAN_OPERATION_ITEM_SCHEMA = MEAL_PLAN_DRAFT_SCHEMA["properties"]["operations"]["items"]
+MEAL_PLAN_OPERATION_PAYLOAD_SCHEMA = MEAL_PLAN_OPERATION_ITEM_SCHEMA["properties"]["payload"]
+MEAL_PLAN_DRAFT_SCHEMA.update(
+    {
+        "description": "餐食计划草稿必须提供 items，或提供 operations；不要提交只有 draftType/schemaVersion 的空草稿。",
+        "anyOf": [
+            {"description": "普通餐食计划草稿。", "required": ["draftType", "schemaVersion", "items"], "properties": {"schemaVersion": {"enum": ["meal_plan.v1"]}}},
+            {"description": "操作式餐食计划草稿。", "required": ["draftType", "schemaVersion", "operations"], "properties": {"schemaVersion": {"enum": ["meal_plan_operation.v1"]}}},
+        ],
+    }
+)
+MEAL_PLAN_OPERATION_ITEM_SCHEMA["anyOf"] = [
+    {
+        "description": "新增餐食计划项。",
+        "required": ["action", "payload"],
+        "properties": {"action": {"enum": ["create"]}, "payload": {**MEAL_PLAN_OPERATION_PAYLOAD_SCHEMA, "required": ["date", "mealType", "title", "foodId"]}},
+    },
+    {
+        "description": "更新餐食计划项。",
+        "required": ["action", "targetId", "baseUpdatedAt", "payload"],
+        "properties": {
+            "action": {"enum": ["update"]},
+            "targetId": {"type": "string", "minLength": 1},
+            "baseUpdatedAt": {"type": "string", "minLength": 1},
+            "payload": {**MEAL_PLAN_OPERATION_PAYLOAD_SCHEMA, "required": ["date", "mealType", "title", "foodId"]},
+        },
+    },
+    {
+        "description": "更新餐食计划状态。",
+        "required": ["action", "targetId", "baseUpdatedAt", "payload"],
+        "properties": {
+            "action": {"enum": ["set_status"]},
+            "targetId": {"type": "string", "minLength": 1},
+            "baseUpdatedAt": {"type": "string", "minLength": 1},
+            "payload": {
+                "type": "object",
+                "additionalProperties": False,
+                "required": ["status"],
+                "properties": {"status": {"type": "string", "enum": ["planned", "cooked", "skipped"]}, "reason": {"type": "string", "maxLength": 255}},
+            },
+        },
+    },
+    {
+        "description": "删除餐食计划项。",
+        "required": ["action", "targetId", "baseUpdatedAt"],
+        "properties": {"action": {"enum": ["delete"]}, "targetId": {"type": "string", "minLength": 1}, "baseUpdatedAt": {"type": "string", "minLength": 1}},
+    },
+]
+
+INGREDIENT_PROFILE_DRAFT_SCHEMA.update(
+    {
+        "description": "食材档案草稿。创建时提供 action=create 和完整 payload；更新时还必须提供 targetId 与 baseUpdatedAt。",
+        "anyOf": [
+            {
+                "description": "新增食材档案。",
+                "required": ["draftType", "schemaVersion", "action", "payload"],
+                "properties": {"action": {"enum": ["create"]}, "payload": INGREDIENT_PROFILE_DRAFT_SCHEMA["properties"]["payload"]},
+            },
+            {
+                "description": "更新食材档案。",
+                "required": ["draftType", "schemaVersion", "action", "targetId", "baseUpdatedAt", "payload"],
+                "properties": {
+                    "action": {"enum": ["update"]},
+                    "targetId": {"type": "string", "minLength": 1},
+                    "baseUpdatedAt": {"type": "string", "minLength": 1},
+                    "payload": INGREDIENT_PROFILE_DRAFT_SCHEMA["properties"]["payload"],
+                },
+            },
+        ],
+    }
+)
+
+MEAL_LOG_CREATE_PAYLOAD_SCHEMA = {
+    "type": "object",
+    "additionalProperties": False,
+    "required": ["date", "mealType", "foods"],
+    "properties": {
+        "date": MEAL_LOG_DRAFT_SCHEMA["properties"]["date"],
+        "mealType": MEAL_LOG_DRAFT_SCHEMA["properties"]["mealType"],
+        "participantUserIds": MEAL_LOG_DRAFT_SCHEMA["properties"]["participantUserIds"],
+        "mood": MEAL_LOG_DRAFT_SCHEMA["properties"]["mood"],
+        "mediaIds": MEAL_LOG_DRAFT_SCHEMA["properties"]["mediaIds"],
+        "planItemId": MEAL_LOG_DRAFT_SCHEMA["properties"]["planItemId"],
+        "planItemBaseUpdatedAt": MEAL_LOG_DRAFT_SCHEMA["properties"]["planItemBaseUpdatedAt"],
+        "foods": MEAL_LOG_DRAFT_SCHEMA["properties"]["foods"],
+        "notes": MEAL_LOG_DRAFT_SCHEMA["properties"]["notes"],
+    },
+}
+MEAL_LOG_UPDATE_PAYLOAD_SCHEMA = {
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {
+        "participantUserIds": MEAL_LOG_DRAFT_SCHEMA["properties"]["payload"]["properties"]["participantUserIds"],
+        "notes": MEAL_LOG_DRAFT_SCHEMA["properties"]["payload"]["properties"]["notes"],
+        "mood": MEAL_LOG_DRAFT_SCHEMA["properties"]["payload"]["properties"]["mood"],
+        "mediaIds": MEAL_LOG_DRAFT_SCHEMA["properties"]["payload"]["properties"]["mediaIds"],
+    },
+}
+MEAL_LOG_RATING_PAYLOAD_SCHEMA = {
+    "type": "object",
+    "additionalProperties": False,
+    "required": ["foodEntryRatings"],
+    "properties": {"foodEntryRatings": {**MEAL_LOG_DRAFT_SCHEMA["properties"]["payload"]["properties"]["foodEntryRatings"], "minItems": 1}},
+}
+MEAL_LOG_DRAFT_SCHEMA.update(
+    {
+        "description": "餐食记录草稿必须提供 date、mealType、foods，或提供有效 action 操作草稿；不要提交只有 draftType/schemaVersion 的空草稿。",
+        "anyOf": [
+            {"description": "普通新增餐食记录。", "required": ["draftType", "schemaVersion", "date", "mealType", "foods"], "properties": {"schemaVersion": {"enum": ["meal_log.v1"]}}},
+            {
+                "description": "操作式新增餐食记录。",
+                "required": ["draftType", "schemaVersion", "action", "payload"],
+                "properties": {"schemaVersion": {"enum": ["meal_log_operation.v1"]}, "action": {"enum": ["create"]}, "payload": MEAL_LOG_CREATE_PAYLOAD_SCHEMA},
+            },
+            {
+                "description": "更新餐食记录详情。",
+                "required": ["draftType", "schemaVersion", "action", "targetId", "baseUpdatedAt", "payload"],
+                "properties": {
+                    "schemaVersion": {"enum": ["meal_log_operation.v1"]},
+                    "action": {"enum": ["update_details"]},
+                    "targetId": {"type": "string", "minLength": 1},
+                    "baseUpdatedAt": {"type": "string", "minLength": 1},
+                    "payload": MEAL_LOG_UPDATE_PAYLOAD_SCHEMA,
+                },
+            },
+            {
+                "description": "更新餐食记录评分。",
+                "required": ["draftType", "schemaVersion", "action", "targetId", "baseUpdatedAt", "payload"],
+                "properties": {
+                    "schemaVersion": {"enum": ["meal_log_operation.v1"]},
+                    "action": {"enum": ["rate_food"]},
+                    "targetId": {"type": "string", "minLength": 1},
+                    "baseUpdatedAt": {"type": "string", "minLength": 1},
+                    "payload": MEAL_LOG_RATING_PAYLOAD_SCHEMA,
+                },
+            },
+        ],
+    }
+)
+
+RECIPE_COOK_DRAFT_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "additionalProperties": False,
+    "required": ["draftType", "schemaVersion", "recipeId", "title", "servings", "date", "mealType", "createMealLog", "previewItems", "shortages"],
+    "properties": {
+        "draftType": {"type": "string", "enum": ["recipe_cook"]},
+        "schemaVersion": {"type": "string", "enum": ["recipe_cook_operation.v1"]},
+        "recipeId": {"type": "string", "minLength": 1},
+        "title": {"type": "string", "minLength": 1, "maxLength": 120},
+        "baseUpdatedAt": {"type": ["string", "null"]},
+        "before": {"type": ["object", "null"]},
+        "servings": {"type": "number", "exclusiveMinimum": 0},
+        "date": {"type": "string", "minLength": 10, "maxLength": 10},
+        "mealType": {"type": "string", "enum": MEAL_TYPE_VALUES},
+        "participantUserIds": {"type": "array", "maxItems": 20, "items": {"type": "string", "minLength": 1}},
+        "notes": {"type": "string", "maxLength": 1000},
+        "createMealLog": {"type": "boolean"},
+        "planItemId": {"type": ["string", "null"]},
+        "planItemBaseUpdatedAt": {"type": ["string", "null"]},
+        "resultNote": {"type": "string", "maxLength": 2000},
+        "adjustments": {"type": "string", "maxLength": 2000},
+        "rating": {"type": ["integer", "null"], "minimum": 1, "maximum": 5},
+        "previewItems": {
+            "type": "array",
+            "maxItems": 50,
+            "items": {
+                "type": "object",
+                "additionalProperties": False,
+                "required": ["ingredient_id", "ingredient_name", "requested_quantity", "unit", "batches"],
+                "properties": {
+                    "ingredient_id": {"type": "string", "minLength": 1},
+                    "ingredient_name": {"type": "string", "minLength": 1, "maxLength": 120},
+                    "requested_quantity": {"type": "number", "exclusiveMinimum": 0},
+                    "unit": {"type": "string", "minLength": 1, "maxLength": 32},
+                    "batches": {
+                        "type": "array",
+                        "maxItems": 50,
+                        "items": {
+                            "type": "object",
+                            "additionalProperties": False,
+                            "required": ["inventory_item_id", "quantity", "unit", "purchase_date", "storage_location"],
+                            "properties": {
+                                "inventory_item_id": {"type": "string", "minLength": 1},
+                                "quantity": {"type": "number", "exclusiveMinimum": 0},
+                                "unit": {"type": "string", "minLength": 1, "maxLength": 32},
+                                "purchase_date": {"type": "string", "minLength": 10, "maxLength": 10},
+                                "expiry_date": {"type": ["string", "null"]},
+                                "storage_location": {"type": "string", "minLength": 1, "maxLength": 120},
+                            },
+                        },
+                    },
+                },
+            },
+        },
+        "shortages": {
+            "type": "array",
+            "maxItems": 50,
+            "items": {
+                "type": "object",
+                "additionalProperties": False,
+                "required": ["ingredient_name", "required_quantity", "available_quantity", "missing_quantity", "unit"],
+                "properties": {
+                    "ingredient_id": {"type": ["string", "null"]},
+                    "ingredient_name": {"type": "string", "minLength": 1, "maxLength": 120},
+                    "required_quantity": {"type": "number", "minimum": 0},
+                    "available_quantity": {"type": "number", "minimum": 0},
+                    "missing_quantity": {"type": "number", "exclusiveMinimum": 0},
+                    "unit": {"type": "string", "minLength": 1, "maxLength": 32},
+                },
+            },
+        },
     },
 }
 
 FOOD_PROFILE_DRAFT_SCHEMA: dict[str, Any] = {
     "type": "object",
+    "description": (
+        "食物资料草稿。创建食物资料时必须填写 name、type、category；"
+        "如果用户描述中可推断这些字段，必须先推断并填入，不要提交空 payload；"
+        "确实无法推断时应调用 intent.request_clarification，而不是调用本工具。"
+    ),
     "additionalProperties": False,
-    "required": ["draftType", "schemaVersion", "name", "type", "category"],
+    "required": ["draftType", "schemaVersion"],
+    "anyOf": [
+        {
+            "description": "普通新增食物资料草稿。",
+            "required": ["draftType", "schemaVersion", "name", "type", "category"],
+            "properties": {
+                "schemaVersion": {"enum": ["food_profile.v1"]},
+                "name": {"type": "string", "minLength": 1},
+                "type": {"type": "string", "enum": FOOD_TYPE_VALUES},
+                "category": {"type": "string", "minLength": 1},
+            },
+        },
+        {
+            "description": "操作式新增食物资料草稿。",
+            "required": ["draftType", "schemaVersion", "action", "payload"],
+            "properties": {
+                "schemaVersion": {"enum": ["food_profile_operation.v1"]},
+                "action": {"enum": ["create"]},
+                "payload": {
+                    "type": "object",
+                    "required": ["name", "type", "category"],
+                    "properties": {
+                        "name": {"type": "string", "minLength": 1},
+                        "type": {"type": "string", "enum": FOOD_TYPE_VALUES},
+                        "category": {"type": "string", "minLength": 1},
+                    },
+                },
+            },
+        },
+        {
+            "description": "操作式更新食物资料草稿。",
+            "required": ["draftType", "schemaVersion", "action", "targetId", "baseUpdatedAt", "payload"],
+            "properties": {
+                "schemaVersion": {"enum": ["food_profile_operation.v1"]},
+                "action": {"enum": ["update"]},
+                "targetId": {"type": "string", "minLength": 1},
+                "baseUpdatedAt": {"type": "string", "minLength": 1},
+                "payload": {
+                    "type": "object",
+                    "required": ["name", "type", "category"],
+                    "properties": {
+                        "name": {"type": "string", "minLength": 1},
+                        "type": {"type": "string", "enum": FOOD_TYPE_VALUES},
+                        "category": {"type": "string", "minLength": 1},
+                    },
+                },
+            },
+        },
+        {
+            "description": "操作式收藏状态草稿。",
+            "required": ["draftType", "schemaVersion", "action", "targetId", "baseUpdatedAt", "payload"],
+            "properties": {
+                "schemaVersion": {"enum": ["food_profile_operation.v1"]},
+                "action": {"enum": ["set_favorite"]},
+                "targetId": {"type": "string", "minLength": 1},
+                "baseUpdatedAt": {"type": "string", "minLength": 1},
+                "payload": {
+                    "type": "object",
+                    "required": ["favorite"],
+                    "properties": {"favorite": {"type": "boolean"}},
+                },
+            },
+        },
+    ],
     "properties": {
-        "draftType": {"type": "string", "enum": ["food_profile"]},
-        "schemaVersion": {"type": "string", "enum": ["food_profile.v1"]},
-        "name": {"type": "string", "minLength": 1, "maxLength": 80},
-        "type": {"type": "string", "enum": FOOD_TYPE_VALUES},
-        "category": {"type": "string", "maxLength": 80},
+        "draftType": {"type": "string", "enum": ["food_profile"], "description": "固定为 food_profile。"},
+        "schemaVersion": {
+            "type": "string",
+            "enum": ["food_profile.v1", "food_profile_operation.v1"],
+            "description": "新增食物资料优先使用 food_profile.v1；操作式草稿使用 food_profile_operation.v1。",
+        },
+        "action": {
+            "type": "string",
+            "enum": ["create", "update", "set_favorite"],
+            "description": "操作式草稿动作。action=create 时 payload.name、payload.type、payload.category 必填。",
+        },
+        "targetId": {"type": ["string", "null"]},
+        "baseUpdatedAt": {"type": ["string", "null"]},
+        "before": {"type": ["object", "null"]},
+        "name": {"type": "string", "minLength": 1, "maxLength": 80, "description": "食物名称，创建草稿必填，例如 盒装牛奶。"},
+        "type": {
+            "type": "string",
+            "enum": FOOD_TYPE_VALUES,
+            "description": "食物类型，创建草稿必填。自制= selfMade，外卖= takeout，堂食/外食= diningOut，即食/现成/盒装= readyMade，速食/方便食品= instant。",
+        },
+        "category": {"type": "string", "maxLength": 80, "description": "食物分类，创建草稿必填；可根据名称推断，例如牛奶/酸奶=饮品。"},
         "flavor_tags": {"type": "array", "maxItems": 20, "items": {"type": "string", "maxLength": 40}},
         "scene_tags": {"type": "array", "maxItems": 20, "items": {"type": "string", "maxLength": 40}},
         "suitable_meal_types": {"type": "array", "maxItems": 4, "items": {"type": "string", "enum": MEAL_TYPE_VALUES}},
@@ -195,6 +717,37 @@ FOOD_PROFILE_DRAFT_SCHEMA: dict[str, Any] = {
         "favorite": {"type": "boolean"},
         "recipe_id": {"type": ["string", "null"]},
         "media_ids": {"type": "array", "maxItems": 20, "items": {"type": "string"}},
+        "payload": {
+            "type": "object",
+            "description": "操作式草稿 payload。action=create/update 时 name、type、category 必填；set_favorite 时只提供 favorite。",
+            "additionalProperties": False,
+            "properties": {
+                "name": {"type": "string", "minLength": 1, "maxLength": 80, "description": "食物名称，create/update 必填。"},
+                "type": {
+                    "type": "string",
+                    "enum": FOOD_TYPE_VALUES,
+                    "description": "食物类型，create/update 必填。即食/现成/盒装通常用 readyMade；速食/方便食品用 instant。",
+                },
+                "category": {"type": "string", "maxLength": 80, "description": "食物分类，create/update 必填；可根据食物名称推断。"},
+                "flavor_tags": {"type": "array", "maxItems": 20, "items": {"type": "string", "maxLength": 40}},
+                "scene_tags": {"type": "array", "maxItems": 20, "items": {"type": "string", "maxLength": 40}},
+                "suitable_meal_types": {"type": "array", "maxItems": 4, "items": {"type": "string", "enum": MEAL_TYPE_VALUES}},
+                "source_name": {"type": "string", "maxLength": 80},
+                "purchase_source": {"type": "string", "maxLength": 80},
+                "scene": {"type": "string", "maxLength": 255},
+                "notes": {"type": "string", "maxLength": 1000},
+                "routine_note": {"type": "string", "maxLength": 1000},
+                "price": {"type": ["number", "null"], "minimum": 0},
+                "rating": {"type": ["integer", "null"], "minimum": 1, "maximum": 5},
+                "repurchase": {"type": ["boolean", "null"]},
+                "expiry_date": {"type": ["string", "null"]},
+                "stock_quantity": {"type": ["number", "null"], "minimum": 0},
+                "stock_unit": {"type": "string", "maxLength": 20},
+                "favorite": {"type": "boolean"},
+                "recipe_id": {"type": ["string", "null"]},
+                "media_ids": {"type": "array", "maxItems": 20, "items": {"type": "string"}},
+            },
+        },
     },
 }
 
@@ -228,6 +781,10 @@ INVENTORY_OPERATION_DRAFT_SCHEMA: dict[str, Any] = {
                     "notes": {"type": "string", "maxLength": 1000},
                     "lowStockThreshold": {"type": ["number", "null"], "minimum": 0},
                     "reason": {"type": "string", "maxLength": 255},
+                    "sourceQuantity": {"type": ["number", "null"], "exclusiveMinimum": 0},
+                    "sourceUnit": {"type": ["string", "null"], "maxLength": 32},
+                    "conversionRatioToDefault": {"type": ["number", "null"], "exclusiveMinimum": 0},
+                    "conversionNote": {"type": ["string", "null"], "maxLength": 255},
                     "image": {"type": ["object", "null"]},
                     "remainingQuantity": {"type": ["number", "null"], "minimum": 0},
                     "batchOptions": {

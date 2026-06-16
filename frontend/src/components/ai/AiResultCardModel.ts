@@ -1,4 +1,5 @@
 import type {
+  AiOperationResultEntity,
   AiInventoryDisplayStatus,
   AiInventoryResultItem,
   AiResultCard,
@@ -13,6 +14,10 @@ export function inventoryItems(card: AiResultCard): AiInventoryResultItem[] {
 
 export function recommendationItems(card: AiResultCard): AiTodayRecommendationItem[] {
   return Array.isArray(card.data.recommendations) ? card.data.recommendations : [];
+}
+
+export function operationResultEntities(card: AiResultCard): AiOperationResultEntity[] {
+  return Array.isArray(card.data.entities) ? card.data.entities : [];
 }
 
 export function inventoryStatusText(status: AiInventoryDisplayStatus, daysUntilExpiry?: number | null) {

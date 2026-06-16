@@ -11,6 +11,7 @@ class PlannerRequest(BaseModel):
     conversation_id: str | None = None
     conversation: list[dict[str, Any]] = Field(default_factory=list)
     available_skills: list[dict[str, Any]] = Field(default_factory=list)
+    pending_clarification: dict[str, Any] | None = None
 
 
 class PlannerResult(BaseModel):

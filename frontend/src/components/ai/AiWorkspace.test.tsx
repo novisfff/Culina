@@ -3,7 +3,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createRoot, type Root } from 'react-dom/client';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { api } from '../../api/client';
-import type { AiApprovalRequest, AiChatResponse, AiConversation, AiGeneratedRecipeDraft, Food, Ingredient } from '../../api/types';
+import type { AiApprovalRequest, AiChatResponse, AiConversation, AiGeneratedRecipeDraft, AiQualityMetrics, AiResultCard, Food, Ingredient } from '../../api/types';
+import { ResultCard } from './AiResultCards';
+import { MessageBubble } from './AiConversationThread';
 import { AiWorkspace, ApprovalPanel } from './AiWorkspace';
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -54,7 +56,7 @@ function approval(overrides: Partial<AiApprovalRequest> = {}): AiApprovalRequest
   };
 }
 
-function shoppingApproval(): AiApprovalRequest {
+function shoppingApproval(overrides: Partial<AiApprovalRequest> = {}): AiApprovalRequest {
   const draft = {
     draftType: 'shopping_list',
     schemaVersion: 'shopping_list.v1',
@@ -69,6 +71,7 @@ function shoppingApproval(): AiApprovalRequest {
     field_schema: [{ name: 'draft', label: '草稿内容', type: 'object', widget: 'textarea', required: true }],
     initial_values: { draft },
     submitted_values: {},
+    ...overrides,
   });
 }
 
@@ -120,6 +123,34 @@ function mealLogApproval(): AiApprovalRequest {
   });
 }
 
+function mealLogRatingApproval(): AiApprovalRequest {
+  const draft = {
+    draftType: 'meal_log',
+    schemaVersion: 'meal_log_operation.v1',
+    action: 'rate_food',
+    targetId: 'meal-log-1',
+    before: {
+      id: 'meal-log-1',
+      date: '2026-06-10',
+      mealType: 'dinner',
+      foods: [{ id: 'entry-tomato-egg', foodName: '番茄炒蛋', rating: 4 }],
+    },
+    payload: {
+      foodEntryRatings: [{ id: 'entry-tomato-egg', rating: 4 }],
+    },
+  };
+  return approval({
+    approval_type: 'meal_log.rate_food',
+    title: '确认更新餐食评分',
+    approve_label: '更新评分',
+    reject_label: '暂不更新',
+    draft_schema_version: 'meal_log_operation.v1',
+    field_schema: [{ name: 'draft', label: '草稿内容', type: 'object', widget: 'textarea', required: true }],
+    initial_values: { draft },
+    submitted_values: {},
+  });
+}
+
 function foodProfileApproval(): AiApprovalRequest {
   const draft = {
     draftType: 'food_profile',
@@ -144,6 +175,127 @@ function foodProfileApproval(): AiApprovalRequest {
   });
 }
 
+function foodProfileUpdateApproval(): AiApprovalRequest {
+  const draft = {
+    draftType: 'food_profile',
+    schemaVersion: 'food_profile_operation.v1',
+    action: 'update',
+    targetId: 'food-yogurt',
+    baseUpdatedAt: '2026-06-14T12:00:00Z',
+    before: {
+      id: 'food-yogurt',
+      name: '蓝莓酸奶',
+      type: 'readyMade',
+      category: '饮品',
+    },
+    payload: {
+      name: '蓝莓酸奶',
+      type: 'readyMade',
+      category: '饮品',
+      flavor_tags: ['酸甜'],
+      suitable_meal_types: ['breakfast'],
+      source_name: '旧品牌',
+      notes: '旧备注',
+      favorite: false,
+    },
+  };
+  return approval({
+    approval_type: 'food.update',
+    title: '确认更新食物资料',
+    approve_label: '更新食物',
+    reject_label: '暂不更新',
+    draft_schema_version: 'food_profile_operation.v1',
+    field_schema: [{ name: 'draft', label: '草稿内容', type: 'object', widget: 'textarea', required: true }],
+    initial_values: { draft },
+    submitted_values: {},
+  });
+}
+
+function compositeOperationApproval(): AiApprovalRequest {
+  const draft = {
+    draftType: 'composite_operation',
+    schemaVersion: 'composite_operation.v1',
+    stepPreviews: [
+      {
+        stepId: 'create-ingredient',
+        stepIndex: 1,
+        domain: 'ingredient',
+        domainLabel: '食材档案',
+        action: 'create',
+        actionLabel: '新增',
+        title: '新增食材档案 · 鸡胸肉',
+        summary: '创建默认冷冻保存的鸡胸肉',
+        dependsOn: [],
+        dependencyRefs: [],
+        affectedEntityType: 'Ingredient',
+        impact: { writesBusinessData: true, requiresApproval: true, usesDependencyResult: false, creates: 1 },
+      },
+      {
+        stepId: 'restock',
+        stepIndex: 2,
+        domain: 'inventory',
+        domainLabel: '库存',
+        action: 'restock',
+        actionLabel: '入库',
+        title: '入库库存 · 鸡胸肉 500 克',
+        summary: '鸡胸肉 500 克',
+        dependsOn: ['create-ingredient'],
+        dependencyRefs: [{ stepId: 'create-ingredient', path: 'entityId', ref: '$create-ingredient.entityId' }],
+        affectedEntityType: 'InventoryItem',
+        impact: { writesBusinessData: true, requiresApproval: true, usesDependencyResult: true, operationCount: 1 },
+      },
+    ],
+  };
+  return approval({
+    approval_type: 'composite_operation.preview',
+    title: '复合操作预览',
+    instruction: '先核对每一步影响。',
+    approve_label: '确认',
+    reject_label: '暂不执行',
+    draft_schema_version: 'composite_operation.v1',
+    field_schema: [{ name: 'draft', label: '草稿内容', type: 'object', widget: 'textarea', required: true }],
+    initial_values: { draft },
+    submitted_values: {},
+  });
+}
+
+function unitMismatchInventoryApproval(): AiApprovalRequest {
+  const draft = {
+    draftType: 'inventory_operation',
+    schemaVersion: 'inventory_operation.v1',
+    operations: [
+      {
+        action: 'restock',
+        ingredientId: 'ingredient-egg',
+        ingredientName: '鸡蛋',
+        quantity: 20,
+        unit: '个',
+        purchaseDate: '2026-06-16',
+        expiryDate: null,
+        storageLocation: '冷藏',
+        status: 'fresh',
+        notes: '',
+        reason: '',
+        sourceQuantity: 2,
+        sourceUnit: '盒',
+        conversionRatioToDefault: 10,
+        conversionNote: '来自 2 盒，按 1 盒 = 10 个换算。',
+      },
+    ],
+  };
+  return approval({
+    approval_type: 'inventory.operation',
+    title: '确认处理库存',
+    instruction: '确认后会正式修改家庭库存。',
+    approve_label: '确认处理库存',
+    reject_label: '暂不执行',
+    draft_schema_version: 'inventory_operation.v1',
+    field_schema: [{ name: 'draft', label: '草稿内容', type: 'object', widget: 'textarea', required: true }],
+    initial_values: { draft },
+    submitted_values: {},
+  });
+}
+
 function conversation(): AiConversation {
   return {
     id: 'conversation-1',
@@ -159,6 +311,36 @@ function conversation(): AiConversation {
     status: 'active',
     last_message_at: '2026-05-30T00:00:00Z',
     last_run_status: 'completed',
+  };
+}
+
+function qualityMetrics(overrides: Partial<AiQualityMetrics> = {}): AiQualityMetrics {
+  return {
+    family_id: 'family-1',
+    window: { limit: 50, days: null },
+    run_count: 3,
+    status_counts: { completed: 2, failed: 1 },
+    intent_counts: { meal_plan: 2, recipe_draft: 1 },
+    routing_skill_counts: { meal_plan: 2, shopping_list: 1 },
+    clarification_reasons: { missing_date: 1 },
+    clarification_by_skill: { meal_plan: 1 },
+    approval_by_draft_type: { meal_plan: { approved: 1 }, shopping_list: { pending: 1 } },
+    skill_diagnostics: { 'shopping_list:missing ingredient ids': 1 },
+    skill_status_counts: { 'meal_plan:completed': 2, 'shopping_list:failed': 1 },
+    totals: {
+      skillExecutionCount: 3,
+      completedSkillExecutionCount: 2,
+      toolCallCount: 6,
+      draftCount: 2,
+      approvalRequestCount: 2,
+      clarificationCount: 1,
+      approvalApprovedCount: 1,
+      approvalRejectedCount: 0,
+      totalDurationMs: 2400,
+      averageDurationMs: 800,
+    },
+    recent_runs: [],
+    ...overrides,
   };
 }
 
@@ -227,6 +409,7 @@ beforeEach(() => {
     status: 'ready',
     detail: 'AI 已就绪。',
   });
+  vi.spyOn(api, 'getAiQualityMetrics').mockResolvedValue(qualityMetrics());
   vi.spyOn(api, 'getFoods').mockResolvedValue([]);
   vi.spyOn(api, 'getIngredients').mockResolvedValue([]);
 });
@@ -238,6 +421,104 @@ async function advanceTimers(ms: number) {
 }
 
 describe('ApprovalPanel', () => {
+  it('renders clarification progress as waiting instead of completed', async () => {
+    const rendered = await renderWithQuery(
+      <MessageBubble
+        message={{
+          id: 'message-waiting',
+          conversation_id: 'conversation-1',
+          role: 'assistant',
+          content: '购物清单里有 4 条“三文鱼”，请问要删除哪一条？',
+          content_type: 'parts',
+          parts: [
+            { id: 'part-text', type: 'text', text: '购物清单里有 4 条“三文鱼”，请问要删除哪一条？' },
+            {
+              id: 'part-card',
+              type: 'result_card',
+              card: {
+                id: 'card-clarification',
+                type: 'clarification_request',
+                title: '需要确认',
+                data: {
+                  question: '购物清单里有 4 条“三文鱼”，请问要删除哪一条？也可以回复“全部删除”。',
+                  questionType: 'entity_disambiguation',
+                  missingFields: ['目标条目'],
+                  candidates: [],
+                  allowFreeText: true,
+                },
+              },
+            },
+          ],
+          run_id: 'run-waiting',
+          status: 'completed',
+          metadata: {},
+          created_at: '2026-05-30T00:00:00Z',
+        }}
+        user={{ id: 'user-1', username: 'me', display_name: '我', avatar_seed: 'seed', avatar_image: null }}
+        runEvents={[
+          {
+            id: 'progress-start',
+            run_id: 'run-waiting',
+            type: 'skill',
+            internal_code: 'shopping_list.start',
+            user_message: '调用「购物清单」技能',
+            status: 'running',
+            created_at: '2026-05-30T00:00:00Z',
+          },
+          {
+            id: 'progress-tool-waiting',
+            run_id: 'run-waiting',
+            type: 'tool',
+            internal_code: 'intent.request_clarification',
+            user_message: '等待用户补充信息',
+            status: 'waiting',
+            created_at: '2026-05-30T00:00:01Z',
+          },
+          {
+            id: 'progress-skill-waiting',
+            run_id: 'run-waiting',
+            type: 'skill',
+            internal_code: 'shopping_list.waiting_clarification',
+            user_message: '购物清单等待补充信息',
+            status: 'waiting',
+            created_at: '2026-05-30T00:00:02Z',
+          },
+        ]}
+        onApprovalDecision={() => undefined}
+      />,
+    );
+
+    const progressBar = rendered.container.querySelector('.ai-run-progress-bar') as HTMLElement;
+    expect(progressBar.textContent).toContain('待补充');
+    expect(progressBar.textContent).toContain('购物清单');
+    expect(progressBar.textContent).toContain('等待用户补充信息');
+    expect(progressBar.textContent).not.toContain('已完成');
+    expect(rendered.container.querySelector('.ai-run-current-skill')?.className).toContain('status-waiting');
+    rendered.unmount();
+  });
+
+  it('renders unit conversion clarification cards without a generic error', async () => {
+    const card: AiResultCard = {
+      id: 'card-unit-mismatch',
+      type: 'clarification_request',
+      title: '需要确认单位换算',
+      data: {
+        question: '鸡蛋当前主单位是 个，尚未设置 盒。请确认这次 1 盒等于多少 个；确认后只按本次换算继续入库，不会自动保存为副单位。',
+        questionType: 'unit_conversion',
+        missingFields: ['单位换算'],
+        candidates: [],
+        allowFreeText: true,
+      },
+    };
+    const rendered = await renderWithQuery(<ResultCard card={card} />);
+
+    expect(rendered.container.textContent).toContain('需要确认单位换算');
+    expect(rendered.container.textContent).toContain('鸡蛋当前主单位是 个');
+    expect(rendered.container.textContent).toContain('请确认这次 1 盒等于多少 个');
+    expect(rendered.container.textContent).not.toContain('AI 规划暂时失败');
+    rendered.unmount();
+  });
+
   it('shows submitted recipe values after approval is resolved', async () => {
     const resolvedApproval = approval({
       status: 'approved',
@@ -260,6 +541,124 @@ describe('ApprovalPanel', () => {
       />,
     );
     expect(rendered.container.textContent).toContain('已拒绝');
+    rendered.unmount();
+  });
+
+  it('shows structured failure summary for retry approvals', async () => {
+    const rendered = await renderWithQuery(
+      <ApprovalPanel
+        approval={shoppingApproval({
+          approval_type: 'shopping_list.apply.retry',
+          title: '重试购物清单写入',
+          instruction: '上次写入失败：操作 ai_op_item_1 失败：版本冲突。',
+          failure_summary: {
+            errorMessage: '操作 ai_op_item_1 失败：版本冲突，当前购物项已变更。',
+            failedOperationIds: ['ai_op_item_1'],
+            failedOperationSummaries: [
+              {
+                operationId: 'ai_op_item_1',
+                action: 'set_done',
+                targetId: 'shopping-item-1',
+                summary: '状态变更 鸡蛋',
+                currentValue: {
+                  id: 'shopping-item-1',
+                  label: '鸡蛋',
+                  summary: '1 盒 · 待购买',
+                  payload: {
+                    id: 'shopping-item-1',
+                    title: '鸡蛋',
+                    quantity: 1,
+                    unit: '盒',
+                    done: false,
+                  },
+                },
+                recoveryHint: '当前业务值已经变化，建议先核对下面的最新内容；如果只是时间或状态被别人改过，请按最新值调整草稿后重试。',
+              },
+            ],
+          },
+        })}
+        onDecision={() => undefined}
+      />,
+    );
+    expect(rendered.container.textContent).toContain('以下 1 项需要重新确认');
+    expect(rendered.container.textContent).toContain('状态变更 鸡蛋');
+    expect(rendered.container.textContent).toContain('操作 ID · ai_op_item_1');
+    expect(rendered.container.textContent).toContain('检测到版本或基线冲突');
+    expect(rendered.container.textContent).toContain('当前业务值');
+    expect(rendered.container.textContent).toContain('鸡蛋');
+    expect(rendered.container.textContent).toContain('1 盒 · 待购买');
+    expect(rendered.container.textContent).toContain('按最新值调整草稿后重试');
+    rendered.unmount();
+  });
+
+  it('does not ask for a reason when confirming shopping item deletion', async () => {
+    const rendered = await renderWithQuery(
+      <ApprovalPanel
+        approval={shoppingApproval({
+          approval_type: 'shopping_list.apply',
+          title: '确认应用购物清单变更',
+          approve_label: '确认删除',
+          draft_schema_version: 'shopping_list_operation.v1',
+          initial_values: {
+            draft: {
+              draftType: 'shopping_list',
+              schemaVersion: 'shopping_list_operation.v1',
+              operations: [
+                {
+                  operationId: 'ai_op_item_1',
+                  action: 'delete',
+                  targetId: 'shopping-salmon-4',
+                  baseUpdatedAt: '2026-06-16T09:00:00Z',
+                  before: {
+                    id: 'shopping-salmon-4',
+                    title: '三文鱼',
+                    quantity: 1,
+                    unit: '块',
+                    done: false,
+                  },
+                  payload: {},
+                },
+              ],
+            },
+          },
+        })}
+        onDecision={() => undefined}
+      />,
+    );
+
+    expect(rendered.container.textContent).toContain('删除采购项');
+    expect(rendered.container.textContent).toContain('当前：三文鱼 · 1块');
+    expect(rendered.container.textContent).not.toContain('删除原因');
+    expect(rendered.container.textContent).not.toContain('为什么需要采购');
+    expect(rendered.container.querySelector('textarea.text-input')).toBeNull();
+    rendered.unmount();
+  });
+
+  it('renders composite operation step previews as read-only impact cards', async () => {
+    const rendered = await renderWithQuery(
+      <ApprovalPanel approval={compositeOperationApproval()} onDecision={() => undefined} />,
+    );
+
+    expect(rendered.container.textContent).toContain('复合步骤预览');
+    expect(rendered.container.textContent).toContain('确认后会按顺序执行已接入的基础业务步骤');
+    expect(rendered.container.textContent).toContain('新增食材档案 · 鸡胸肉');
+    expect(rendered.container.textContent).toContain('入库库存 · 鸡胸肉 500 克');
+    expect(rendered.container.textContent).toContain('依赖 · create-ingredient');
+    expect(rendered.container.textContent).toContain('create-ingredient · entityId');
+    expect(rendered.container.textContent).toContain('引用前置步骤结果');
+    rendered.unmount();
+  });
+
+  it('renders temporary unit conversion inventory approval with converted and source quantities', async () => {
+    const rendered = await renderWithQuery(
+      <ApprovalPanel approval={unitMismatchInventoryApproval()} onDecision={() => undefined} />,
+    );
+
+    expect(rendered.container.textContent).toContain('库存处理项');
+    expect(rendered.container.textContent).toContain('鸡蛋');
+    expect((rendered.container.querySelector('.quantity-input') as HTMLInputElement | null)?.value).toBe('20');
+    expect((rendered.container.querySelector('.unit-input') as HTMLInputElement | null)?.value).toBe('个');
+    expect(rendered.container.textContent).toContain('来自 2 盒，按 1 盒 = 10 个换算。');
     rendered.unmount();
   });
 
@@ -502,6 +901,17 @@ describe('ApprovalPanel', () => {
     ] as Food[];
     const rendered = await renderWithQuery(<ApprovalPanel approval={pending} foods={foods} onDecision={decideSpy} />);
     expect(rendered.container.querySelectorAll('.ai-meal-log-draft-editor .ai-confirmation-item')).toHaveLength(2);
+    expect(rendered.container.textContent).toContain('2026-06-10');
+    expect(rendered.container.textContent).toContain('晚餐');
+    expect(rendered.container.textContent).toContain('食物1 项');
+    expect(rendered.container.textContent).toContain('总份数1 份');
+    expect(rendered.container.textContent).toContain('参与人无');
+    expect(rendered.container.textContent).toContain('照片无');
+    expect(rendered.container.textContent).toContain('关联计划未关联');
+    expect(rendered.container.textContent).toContain('晚餐记录');
+    expect(rendered.container.textContent).toContain('食物 1');
+    expect(rendered.container.textContent).toContain('家常菜 · 自制食物');
+    expect(rendered.container.textContent).toContain('1 份');
     const mealSelect = rendered.container.querySelector<HTMLSelectElement>('.ai-meal-log-draft-editor .ai-resource-field-choice select');
     changeSelect(mealSelect as HTMLSelectElement, 'lunch');
     const foodInput = rendered.container.querySelector<HTMLInputElement>('.ai-meal-log-draft-editor .ai-resource-field-food input');
@@ -526,6 +936,41 @@ describe('ApprovalPanel', () => {
         draft: expect.objectContaining({
           mealType: 'lunch',
           foods: [expect.objectContaining({ foodId: 'food-noodle', name: '牛肉面' })],
+        }),
+      },
+      '',
+    );
+    rendered.unmount();
+  });
+
+  it('uses the shared star rating input for meal log rating confirmations', async () => {
+    const pending = mealLogRatingApproval();
+    const decideSpy = vi.fn().mockResolvedValue(undefined);
+    const rendered = await renderWithQuery(<ApprovalPanel approval={pending} onDecision={decideSpy} />);
+    expect(rendered.container.textContent).toContain('番茄炒蛋 · 当前评分 4');
+    expect(rendered.container.querySelector<HTMLInputElement>('.ai-rating-field input[type="number"]')).toBeNull();
+    const ratingSlider = rendered.container.querySelector<HTMLDivElement>('.ai-rating-field .food-rating-stars');
+    expect(ratingSlider).not.toBeNull();
+    expect(ratingSlider?.getAttribute('aria-valuenow')).toBe('4');
+
+    await act(async () => {
+      ratingSlider?.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true }));
+    });
+    await flush();
+    expect(rendered.container.textContent).toContain('4.5 分');
+
+    await act(async () => {
+      rendered.container.querySelector<HTMLButtonElement>('.ai-approval-actions .solid-button')?.click();
+    });
+    await flush();
+    expect(decideSpy).toHaveBeenCalledWith(
+      pending,
+      'approved',
+      {
+        draft: expect.objectContaining({
+          payload: {
+            foodEntryRatings: [{ id: 'entry-tomato-egg', rating: 4.5 }],
+          },
         }),
       },
       '',
@@ -565,6 +1010,117 @@ describe('ApprovalPanel', () => {
       },
       '',
     );
+    rendered.unmount();
+  });
+
+  it('submits food profile update operations with nested payload changes', async () => {
+    const pending = foodProfileUpdateApproval();
+    const decideSpy = vi.fn().mockResolvedValue(undefined);
+    const rendered = await renderWithQuery(<ApprovalPanel approval={pending} onDecision={decideSpy} />);
+    const nameInput = rendered.container.querySelector<HTMLInputElement>('.ai-food-profile-draft-editor input.text-input');
+    expect(nameInput?.value).toBe('蓝莓酸奶');
+    changeInput(nameInput as HTMLInputElement, '蓝莓酸奶升级版');
+    const noteField = Array.from(rendered.container.querySelectorAll<HTMLTextAreaElement>('.ai-food-profile-draft-editor textarea.text-input')).at(-1);
+    changeInput(noteField as HTMLTextAreaElement, '新的备注');
+    await act(async () => {
+      rendered.container.querySelector<HTMLButtonElement>('.ai-approval-actions .solid-button')?.click();
+    });
+    await flush();
+    expect(decideSpy).toHaveBeenCalledWith(
+      pending,
+      'approved',
+      {
+        draft: expect.objectContaining({
+          action: 'update',
+          targetId: 'food-yogurt',
+          payload: expect.objectContaining({
+            name: '蓝莓酸奶升级版',
+            notes: '新的备注',
+          }),
+        }),
+      },
+      '',
+    );
+    rendered.unmount();
+  });
+
+  it('renders ingredient profile updates with structured before/after fields', async () => {
+    const pending = approval({
+      approval_type: 'ingredient.update',
+      title: '确认更新食材档案',
+      approve_label: '更新食材',
+      reject_label: '暂不更新',
+      draft_schema_version: 'ingredient_profile.v1',
+      field_schema: [{ name: 'draft', label: '草稿内容', type: 'object', widget: 'textarea', required: true }],
+      initial_values: {
+        draft: {
+          draftType: 'ingredient_profile',
+          schemaVersion: 'ingredient_profile.v1',
+          action: 'update',
+          targetId: 'ingredient-egg',
+          baseUpdatedAt: '2026-06-14T12:00:00Z',
+          before: {
+            id: 'ingredient-egg',
+            name: '鸡蛋',
+            category: '蛋奶',
+            default_unit: '盒',
+            default_storage: '冷藏',
+          },
+          payload: {
+            name: '鸡蛋',
+            category: '蛋奶',
+            default_unit: '盒',
+            unit_conversions: [{ unit: '枚', ratio_to_default: 10 }],
+            default_storage: '冷藏',
+            default_expiry_mode: 'days',
+            default_expiry_days: 14,
+            default_low_stock_threshold: 1,
+            notes: '优先买土鸡蛋',
+          },
+        },
+      },
+      submitted_values: {},
+    });
+
+    const rendered = await renderWithQuery(<ApprovalPanel approval={pending} onDecision={() => undefined} />);
+
+    expect(rendered.container.textContent).toContain('修改食材档案');
+    expect(rendered.container.textContent).toContain('当前：鸡蛋 · 蛋奶 · 盒 · 冷藏');
+    expect(rendered.container.textContent).toContain('默认单位');
+    expect(rendered.container.textContent).toContain('默认保存');
+    expect(rendered.container.textContent).toContain('保质期模式');
+    expect(rendered.container.textContent).toContain('单位换算');
+    expect(rendered.container.querySelector<HTMLTextAreaElement>('.ai-ingredient-profile-draft-editor textarea.text-input')?.value).toContain('优先买土鸡蛋');
+    rendered.unmount();
+  });
+});
+
+describe('AiWorkspace quality diagnostics', () => {
+  it('opens recent run quality metrics from the AI status pill', async () => {
+    vi.spyOn(api, 'getAiMessages').mockResolvedValue([]);
+    vi.spyOn(api, 'getPendingAiApprovals').mockResolvedValue([]);
+    const qualitySpy = vi.spyOn(api, 'getAiQualityMetrics').mockResolvedValue(qualityMetrics());
+
+    const rendered = await renderWithQuery(<AiWorkspace conversations={[conversation()]} isLoading={false} />);
+    await flush();
+
+    expect(rendered.container.textContent).not.toContain('质量诊断');
+    expect(qualitySpy).not.toHaveBeenCalled();
+
+    await act(async () => {
+      rendered.container.querySelector<HTMLButtonElement>('.ai-quality-trigger')?.click();
+    });
+    await flush();
+
+    expect(rendered.container.textContent).toContain('质量诊断');
+    expect(rendered.container.textContent).toContain('最近 3 次运行');
+    expect(rendered.container.textContent).toContain('完成率');
+    expect(rendered.container.textContent).toContain('67%');
+    expect(rendered.container.textContent).toContain('常用 Skill');
+    expect(rendered.container.textContent).toContain('餐食计划 · 2');
+    expect(rendered.container.textContent).toContain('待关注');
+    expect(rendered.container.textContent).toContain('missing date · 1');
+    expect(qualitySpy).toHaveBeenCalledTimes(1);
     rendered.unmount();
   });
 });
@@ -1000,6 +1556,13 @@ describe('AiWorkspace pending approval restore', () => {
         status: 'completed',
         created_at: '2026-05-30T00:00:00Z',
       });
+      handlers?.onMessageDelta?.({
+        message_id: 'message-streaming-draft',
+        conversation_id: payload.conversation_id ?? 'conversation-1',
+        run_id: streamedRunId,
+        part_id: 'part-streaming-draft',
+        delta: '我会先整理计划。',
+      });
       handlers?.onProgress?.({
         id: 'progress-2',
         run_id: 'pending',
@@ -1033,9 +1596,15 @@ describe('AiWorkspace pending approval restore', () => {
     const desktopView = rendered.container.querySelector('.ai-desktop-view') as HTMLElement;
     const progressBar = desktopView.querySelector('.ai-run-progress-bar') as HTMLElement;
     expect(rendered.container.querySelectorAll('.ai-desktop-view .ai-message-assistant')).toHaveLength(1);
-    expect(progressBar.textContent).toContain('已完成');
+    expect(progressBar.textContent).toContain('正在执行');
     expect(progressBar.textContent).toContain('餐食计划');
     expect(progressBar.textContent).not.toContain('调用「餐食计划」技能');
+    expect(desktopView.textContent).toContain('正在准备可确认草稿');
+    const messageBody = desktopView.querySelector('.ai-message-assistant .ai-message-body') as HTMLElement;
+    const markdown = messageBody.querySelector('.ai-message-markdown') as HTMLElement;
+    const draftCue = messageBody.querySelector('.ai-draft-generating-cue') as HTMLElement;
+    expect(markdown.textContent).toContain('我会先整理计划。');
+    expect(markdown.compareDocumentPosition(draftCue) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(desktopView.querySelector('.ai-run-tool-marquee.is-scrollable')).toBeNull();
     let toolChips = Array.from(desktopView.querySelectorAll<HTMLElement>('.ai-run-tool-chip'));
     expect(toolChips.map((chip) => chip.textContent)).toEqual(['调用「可用库存」']);
@@ -1103,10 +1672,58 @@ describe('AiWorkspace pending approval restore', () => {
     });
     await advanceTimers(0);
     expect(rendered.container.textContent).toContain('已安排好晚餐。');
-    expect(desktopView.querySelector('.ai-run-progress-bar')?.textContent).toContain('餐食计划');
-    expect(desktopView.querySelector('.ai-run-progress-bar')?.textContent).toContain('调用「可用库存」');
-    expect(desktopView.querySelector('.ai-run-progress-bar')?.textContent).toContain('生成「餐食计划确认表单」');
+    const settledProgressBar = desktopView.querySelector('.ai-run-progress-bar');
+    expect(settledProgressBar?.textContent).toContain('已完成');
+    expect(settledProgressBar?.textContent).toContain('餐食计划');
+    expect(settledProgressBar?.textContent).toContain('调用「可用库存」');
+    expect(settledProgressBar?.textContent).toContain('生成「餐食计划确认表单」');
+    expect(desktopView.textContent).not.toContain('正在准备可确认草稿');
     expect(desktopView.querySelector('.ai-run-progress-step.status-completed')).toBeNull();
+    rendered.unmount();
+  });
+
+  it('keeps streamed local messages visible while the new conversation history query loads', async () => {
+    vi.spyOn(api, 'getAiMessages').mockImplementation(() => new Promise(() => undefined));
+    vi.spyOn(api, 'getPendingAiApprovals').mockResolvedValue([]);
+    let streamedRunId = 'agent_run-client';
+    vi.spyOn(api, 'streamChatAi').mockImplementation(async (payload) => {
+      streamedRunId = payload.client_run_id ?? streamedRunId;
+      return {
+        conversation_id: 'conversation-new',
+        message: {
+          id: 'message-final-new',
+          conversation_id: 'conversation-new',
+          role: 'assistant',
+          content: '已生成确认表单。',
+          content_type: 'parts',
+          parts: [{ id: 'part-final-new', type: 'text', text: '已生成确认表单。' }],
+          run_id: streamedRunId,
+          status: 'completed',
+          metadata: {},
+          created_at: '2026-05-30T00:00:00Z',
+        },
+        run: {
+          id: streamedRunId,
+          agent_key: 'meal_plan_agent',
+          intent: 'meal_plan',
+          status: 'completed',
+          model: 'rules',
+          created_at: '2026-05-30T00:00:00Z',
+        },
+        events: [],
+        included: { result_cards: [], drafts: [], approvals: [] },
+      };
+    });
+    const rendered = await renderWithQuery(<AiWorkspace conversations={[]} isLoading={false} />);
+    await flush();
+    changeInput(rendered.container.querySelector<HTMLTextAreaElement>('textarea.text-input') as HTMLTextAreaElement, '安排三天晚餐');
+    await act(async () => {
+      rendered.container.querySelector<HTMLFormElement>('form.ai-composer')?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    });
+    await flush();
+    const desktopView = rendered.container.querySelector('.ai-desktop-view') as HTMLElement;
+    expect(desktopView.textContent).toContain('已生成确认表单。');
+    expect(desktopView.textContent).not.toContain('正在加载消息...');
     rendered.unmount();
   });
 

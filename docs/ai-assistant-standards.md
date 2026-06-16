@@ -1,6 +1,6 @@
 # AI 助手规范
 
-更新时间：2026-06-11
+更新时间：2026-06-16
 
 本文档定义 Culina AI 助手、Skill 机制、Tool 权限、草稿审批和前后端稳定协议。AI 助手是家庭饮食管理的受控辅助能力，不是拥有直接写权限的自由代理。
 
@@ -116,8 +116,10 @@ Runner 固定为 `toolcall`。确认要求由 `approval_policy`、`draft_types` 
 | `meal_plan` | 即时餐食推荐；餐食计划创建和修改 | `today_recommendation` | `meal_plan` |
 | `shopping_list` | 独立购物清单、从计划派生、修改清单 | 无 | `shopping_list` |
 | `meal_log` | 记录已经发生的用餐 | 无 | `meal_log` |
-| `recipe_draft` | 创建结构化菜谱草稿 | 无 | `recipe` |
-| `food_profile` | 创建或补全食物资料 | 无 | `food_profile` |
+| `recipe_draft` | 创建、更新、删除和收藏菜谱草稿 | 无 | `recipe` |
+| `food_profile` | 创建、更新或收藏食物资料 | 无 | `food_profile` |
+| `ingredient_profile` | 创建或更新食材档案 | 无 | `ingredient_profile` |
+| `recipe_cook` | 预览并确认做菜、库存扣减和计划完成 | 无 | `recipe_cook` |
 
 ### 即时推荐与正式计划
 
@@ -208,12 +210,14 @@ Script 约束：
 
 以下接口属于前后端共享契约，修改时必须同步后端测试、前端 AI workspace contract 和 UI 渲染：
 
-- Skill keys：`inventory_analysis`、`meal_plan`、`shopping_list`、`meal_log`、`recipe_draft`、`food_profile`
+- Skill keys：`inventory_analysis`、`ingredient_profile`、`meal_plan`、`shopping_list`、`meal_log`、`recipe_draft`、`recipe_cook`、`food_profile`
 - `meal_plan_agent` 和 `meal_plan` intent
 - `today_recommendation`、`inventory_summary` 等结果卡片类型
-- `recipe`、`shopping_list`、`meal_plan`、`meal_log`、`food_profile`、`inventory_operation` 草稿类型
+- `recipe`、`ingredient_profile`、`shopping_list`、`meal_plan`、`meal_log`、`food_profile`、`recipe_cook`、`inventory_operation`、`composite_operation` 草稿类型
 - `AIChatResponse`、消息 parts、SSE `message_delta` 和 progress 事件格式
 - 审批、重试、拒绝和正式写入行为
+
+`composite_operation` 属于正式 draft / approval 合同，但当前不属于任何 Skill 的 `draft_types`，也不开放给模型直接生成。后续如需开放，必须先新增专用组合 draft tool，由 tool 负责把已校验的基础草稿组合为复合审批。
 
 ## 10. 测试要求
 

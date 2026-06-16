@@ -219,4 +219,65 @@ describe('AI query result cards', () => {
     expect(view.textContent).toContain('2026-06-15 · 晚餐');
     expect(Array.from(view.querySelectorAll('button')).some((button) => button.textContent === '加入菜单计划')).toBe(false);
   });
+
+  it('renders structured clarification question and candidates', async () => {
+    const view = await renderCard({
+      id: 'clarification-card',
+      type: 'clarification_request',
+      title: '还需要你确认一下',
+      data: {
+        question: '你要修改哪一条晚餐计划？',
+        questionType: 'meal_plan_disambiguation',
+        missingFields: ['目标计划'],
+        candidates: [
+          {
+            id: 'plan-1',
+            label: '2026-06-15 晚餐 · 番茄炒蛋',
+            summary: '创建人：妈妈',
+            updatedAt: '2026-06-15T09:00:00Z',
+          },
+        ],
+        allowFreeText: true,
+      },
+    });
+
+    expect(view.textContent).toContain('你要修改哪一条晚餐计划？');
+    expect(view.textContent).toContain('目标计划');
+    expect(view.textContent).toContain('2026-06-15 晚餐 · 番茄炒蛋');
+    expect(view.textContent).toContain('创建人：妈妈');
+    expect(view.querySelector('.ai-clarification-options')?.getAttribute('aria-label')).toBe('可选项');
+    expect(view.textContent).toContain('选项 1');
+    expect(view.textContent).toContain('直接回复选项编号、名称或补充信息即可。');
+  });
+
+  it('renders approval success results with affected entities and destination hint', async () => {
+    const view = await renderCard({
+      id: 'operation-result-card',
+      type: 'operation_result',
+      title: '已修改餐食计划',
+      data: {
+        actionSummary: '已修改餐食计划',
+        entityCount: 1,
+        entityCountLabel: '1 条计划',
+        workspaceLabel: '菜单计划',
+        workspaceHint: '可前往菜单计划查看',
+        entities: [
+          {
+            id: 'plan-1',
+            label: '番茄炒蛋',
+            operation: 'set_status',
+            operationLabel: '状态变更',
+            updatedAt: '2026-06-15T09:00:00Z',
+          },
+        ],
+      },
+    });
+
+    expect(view.textContent).toContain('已按确认执行');
+    expect(view.textContent).toContain('影响 1 条计划');
+    expect(view.textContent).toContain('查看 菜单计划');
+    expect(view.textContent).toContain('番茄炒蛋');
+    expect(view.textContent).toContain('状态变更');
+    expect(view.textContent).toContain('可前往菜单计划查看');
+  });
 });

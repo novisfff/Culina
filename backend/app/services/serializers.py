@@ -439,6 +439,7 @@ AI_RESULT_CARD_DEFAULT_TITLES = {
     "approval_request": "确认请求",
     "error_recovery": "这次没有生成成功",
     "inventory_summary": "库存概览",
+    "clarification_request": "还需要你确认一下",
     "meal_plan_draft": "餐食计划草稿",
     "shopping_list_draft": "购物清单草稿",
     "meal_log_draft": "餐食记录草稿",
@@ -459,6 +460,21 @@ def _normalize_ai_message_parts(parts: list[dict] | None) -> list[dict]:
                 card["id"] = f"{next_part.get('id') or f'ai_part_{index}'}-card"
             if not isinstance(card.get("title"), str) or not card["title"].strip():
                 card["title"] = AI_RESULT_CARD_DEFAULT_TITLES.get(card_type, "AI 结果")
+            if not isinstance(card.get("data"), dict):
+                card["data"] = {}
+            if card_type == "clarification_request":
+                data = dict(card["data"])
+                if not isinstance(data.get("question"), str) or not data["question"].strip():
+                    data["question"] = card["title"]
+                if not isinstance(data.get("questionType"), str) or not data["questionType"].strip():
+                    data["questionType"] = "other"
+                if not isinstance(data.get("missingFields"), list):
+                    data["missingFields"] = []
+                if not isinstance(data.get("candidates"), list):
+                    data["candidates"] = []
+                if not isinstance(data.get("allowFreeText"), bool):
+                    data["allowFreeText"] = True
+                card["data"] = data
             next_part["card"] = card
         normalized.append(next_part)
     return normalized
@@ -539,6 +555,7 @@ def serialize_ai_approval_request(item: AIApprovalRequest) -> dict:
         "approve_label": request_payload.get("approveLabel", "确认"),
         "reject_label": request_payload.get("rejectLabel", "拒绝"),
         "require_reject_comment": bool(request_payload.get("requireRejectComment", False)),
+        "failure_summary": request_payload.get("failureSummary"),
         "field_schema": item.field_schema,
         "initial_values": item.initial_values,
         "submitted_values": item.submitted_values,

@@ -47,12 +47,14 @@ function isActiveRunStatus(status: AiRunEvent['status']) {
 
 function runStatusText(status: AiRunEvent['status']) {
   if (status === 'failed') return '执行失败';
+  if (status === 'waiting') return '待补充';
   if (status === 'completed') return '已完成';
   return '正在执行';
 }
 
 function runEventStatusText(event: AiRunEvent) {
   if (event.type === 'skill' && isActiveRunStatus(event.status)) return '开始执行';
+  if (event.type === 'tool' && event.status === 'waiting') return '待补充';
   return runStatusText(event.status);
 }
 
@@ -75,6 +77,10 @@ function runEventKey(event: AiRunEvent, index: number) {
 
 function isDraftToolEvent(event: AiRunEvent) {
   return event.internal_code.includes('.create_draft') || event.user_message.startsWith('生成「');
+}
+
+function hasDraftContent(message: AiMessage) {
+  return message.parts.some((part) => Boolean(part.approval || part.draft));
 }
 
 function ToolEventIcon({ event }: { event: AiRunEvent }) {
@@ -184,7 +190,10 @@ function RunProgressTimeline({ events, isLive }: { events: AiRunEvent[]; isLive:
   const visibleToolEvents = toolEntries.filter((entry) => visibleToolKeys.has(entry.key)).reverse();
   const hasActiveEvent = Boolean(currentSkill && isActiveRunStatus(currentSkill.status)) || toolEvents.some((event) => isActiveRunStatus(event.status));
   const currentSkillName = extractSkillName(currentSkill);
-  const currentStatus: AiRunEvent['status'] = hasActiveEvent ? 'running' : currentSkill?.status ?? 'completed';
+  const currentStatus: AiRunEvent['status'] =
+    hasActiveEvent || (isLive && currentSkill?.status !== 'failed' && currentSkill?.status !== 'waiting')
+      ? 'running'
+      : currentSkill?.status ?? 'completed';
 
   return (
     <section className={`ai-run-progress${isExpanded ? ' is-expanded' : ''}`} aria-label="AI 执行进度">
@@ -253,7 +262,6 @@ export function MessageBubble({
   onAddRecommendationToPlan,
   onInventoryAction,
   isInventoryActionPending,
-  onRetryRun,
 }: {
   message: AiMessage;
   user: UserSummary | null;
@@ -272,7 +280,6 @@ export function MessageBubble({
     partId: string,
   ) => void;
   isInventoryActionPending?: boolean;
-  onRetryRun?: (runId: string) => void;
 }) {
   const isUser = message.role === 'user';
   const userName = user?.display_name || user?.username || '我';
@@ -283,6 +290,7 @@ export function MessageBubble({
     return Boolean(part.card || part.approval || part.draft);
   });
   const isWaitingForAssistant = !isUser && message.status === 'running' && !hasRenderableParts && runEvents.length === 0;
+  const isGeneratingDraft = !isUser && message.status === 'running' && runEvents.some(isDraftToolEvent) && !hasDraftContent(message);
 
   const [messageCopied, setMessageCopied] = useState(false);
   const [feedback, setFeedback] = useState<'up' | 'down' | null>(null);
@@ -365,12 +373,22 @@ export function MessageBubble({
             }
             return null;
           })}
-          {!isUser && isLatestAssistant && message.run_id && (message.status === 'failed' || message.status === 'fallback') && onRetryRun && (
-            <button className="ghost-button ai-retry-action" type="button" onClick={() => onRetryRun(message.run_id as string)}>
-              重试这次任务
-            </button>
+          {isGeneratingDraft && (
+            <div className="ai-draft-generating-cue" aria-live="polite">
+              <span className="ai-draft-generating-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24">
+                  <rect x="5" y="3.75" width="14" height="16.5" rx="3" />
+                  <path d="M8.25 8.25h7.5" />
+                  <path d="M8.25 12h7.5" />
+                  <path d="M8.25 15.75h4.75" />
+                </svg>
+              </span>
+              <span>
+                <strong>正在准备可确认草稿</strong>
+                <small>生成后会在这里等你核对，确认前不会保存到家庭数据。</small>
+              </span>
+            </div>
           )}
-
           {(showActions || messageTime) && (
             <div className={`ai-message-footer${showActions ? ' has-actions' : ''}`}>
               {showActions && (

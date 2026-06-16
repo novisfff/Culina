@@ -22,6 +22,12 @@
   --accent: #D26B33;
   --accent-strong: #B35122;
   --accent-soft: #FCE1D4;
+  --success: #4F9A58;
+  --success-soft: #EAF6EA;
+  --warning: #E2892C;
+  --warning-soft: #FFF4E6;
+  --danger: #D94B3D;
+  --danger-soft: #FDEBE8;
   /* Shared color treatment for primary orange action buttons. */
   --brand-button-bg: var(--accent);
   --brand-button-bg-hover: var(--accent-strong);
@@ -38,6 +44,7 @@
   --shadow-sm: 0 4px 14px rgba(74, 54, 40, 0.04), 0 1px 3px rgba(74, 54, 40, 0.02);
   --shadow-md: 0 10px 24px rgba(74, 54, 40, 0.06), 0 3px 6px rgba(74, 54, 40, 0.03);
   --shadow-lg: 0 16px 36px rgba(74, 54, 40, 0.08);
+  --radius-xs: 10px;
   --radius-sm: 14px;
   --radius-md: 20px;
   --radius-lg: 28px;
