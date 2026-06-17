@@ -1,4 +1,5 @@
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
+import type { AiRenderResponse } from '../api/types';
 import { Avatar } from '../components/ui-kit';
 import { DashboardIcon, ShellIcon, type ShellIconName } from './shellIcons';
 
@@ -22,6 +23,111 @@ const MOBILE_NAV_ITEMS: Array<{ key: TabKey; label: string; icon: ShellIconName 
   { key: 'family', label: '家庭', icon: 'family' },
 ];
 
+const IMAGE_JOB_TARGET_LABELS: Record<string, string> = {
+  food: '食物',
+  ingredient: '食材',
+  recipe: '菜谱',
+  food_scene: '食物场景',
+  meal_log: '餐食记录',
+  user: '头像',
+  family: '家庭图',
+};
+
+function imageJobTargetLabel(job: AiRenderResponse) {
+  return job.target_entity_type ? IMAGE_JOB_TARGET_LABELS[job.target_entity_type] ?? '图片' : 'AI';
+}
+
+function imageJobTitle(job: AiRenderResponse) {
+  const targetLabel = imageJobTargetLabel(job);
+  const targetName = job.target_entity_name?.trim();
+  return targetName ? `${targetName}的${targetLabel}图片生成` : `${targetLabel}图片生成`;
+}
+
+function imageJobStatusLabel(job: AiRenderResponse) {
+  if (job.status === 'queued' || job.status === 'running') return '正在处理';
+  if (job.status === 'failed') return '失败';
+  if (job.bind_status === 'skipped') return '已生成，未替换';
+  if (job.bind_status === 'bound') return '已更新';
+  return '已生成';
+}
+
+export function AppNotificationCenter(props: {
+  jobs: AiRenderResponse[];
+  isLoading?: boolean;
+  variant?: 'desktop' | 'sidebar' | 'mobileIcon';
+  onDismissJob?: (jobId: string) => void;
+}) {
+  const [isOpen, setIsOpen] = useState(false);
+  const variant = props.variant ?? 'desktop';
+  const activeCount = props.jobs.filter((job) => job.status === 'queued' || job.status === 'running').length;
+  const failedCount = props.jobs.filter((job) => job.status === 'failed').length;
+  const hasJobs = props.jobs.length > 0;
+  const totalCount = props.jobs.length;
+
+  return (
+    <div
+      className={
+        variant === 'mobileIcon'
+          ? 'app-notification-center mobile-notification-center'
+          : variant === 'sidebar'
+            ? 'app-notification-center sidebar-notification-center'
+            : 'app-notification-center'
+      }
+    >
+      <button
+        className={activeCount > 0 || failedCount > 0 ? 'app-notification-trigger is-active' : 'app-notification-trigger'}
+        type="button"
+        onClick={() => setIsOpen((current) => !current)}
+        aria-expanded={isOpen}
+        aria-label="查看通知"
+      >
+        <span className="app-notification-icon" aria-hidden="true">
+          <DashboardIcon name="bell" />
+          {totalCount > 0 && <span className="app-notification-count">{totalCount > 99 ? '99+' : totalCount}</span>}
+        </span>
+        {variant !== 'mobileIcon' && <strong>通知</strong>}
+      </button>
+      {isOpen && (
+        <div className="app-notification-popover" role="status" aria-live="polite">
+          <div className="app-notification-popover-head">
+            <strong>通知</strong>
+            <span>{activeCount > 0 ? `${activeCount} 条任务正在处理` : '最近通知状态'}</span>
+          </div>
+          {props.isLoading ? (
+            <p className="app-notification-empty">正在读取通知...</p>
+          ) : hasJobs ? (
+            <div className="app-notification-list">
+              {props.jobs.slice(0, 6).map((job) => (
+                <div key={job.job_id ?? `${job.target_entity_type}-${job.target_entity_id}`} className={`app-notification-row status-${job.status}`}>
+                  <span className="app-notification-row-icon" aria-hidden="true">
+                    <DashboardIcon name={job.status === 'failed' ? 'bell' : 'check'} />
+                  </span>
+                  <span className="app-notification-row-copy">
+                    <strong title={imageJobTitle(job)}>{imageJobTitle(job)}</strong>
+                    <small>{imageJobStatusLabel(job)}</small>
+                  </span>
+                  {job.job_id && (job.status === 'succeeded' || job.status === 'failed') && (
+                    <button
+                      className="app-notification-clear"
+                      type="button"
+                      onClick={() => props.onDismissJob?.(job.job_id!)}
+                      aria-label={`清除${imageJobTitle(job)}通知`}
+                    >
+                      清除
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="app-notification-empty">当前没有通知。</p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 type AppShellProps = {
   activeTab: TabKey;
   sidebarCollapsed: boolean;
@@ -36,6 +142,9 @@ type AppShellProps = {
   userMeta: string;
   userNote: string;
   notice?: ReactNode;
+  imageJobs?: AiRenderResponse[];
+  imageJobsLoading?: boolean;
+  onDismissImageJob?: (jobId: string) => void;
   children: ReactNode;
   onTabChange: (tab: TabKey) => void;
   onToggleSidebar: () => void;
@@ -57,6 +166,9 @@ export function AppShell({
   userMeta,
   userNote,
   notice,
+  imageJobs = [],
+  imageJobsLoading = false,
+  onDismissImageJob,
   children,
   onTabChange,
   onToggleSidebar,
@@ -82,15 +194,18 @@ export function AppShell({
                   <strong>Culina</strong>
                   <span>家庭厨房工作台</span>
                 </div>
-                <button
-                  className="sidebar-toggle"
-                  type="button"
-                  onClick={onToggleSidebar}
-                  aria-label={sidebarCollapsed ? '展开侧边栏' : '收起侧边栏'}
-                  title={sidebarCollapsed ? '展开侧边栏' : '收起侧边栏'}
-                >
-                  <ShellIcon name={sidebarCollapsed ? 'panel-open' : 'panel-close'} />
-                </button>
+                <div className="sidebar-brand-actions">
+                  <AppNotificationCenter jobs={imageJobs} isLoading={imageJobsLoading} variant="sidebar" onDismissJob={onDismissImageJob} />
+                  <button
+                    className="sidebar-toggle"
+                    type="button"
+                    onClick={onToggleSidebar}
+                    aria-label={sidebarCollapsed ? '展开侧边栏' : '收起侧边栏'}
+                    title={sidebarCollapsed ? '展开侧边栏' : '收起侧边栏'}
+                  >
+                    <ShellIcon name={sidebarCollapsed ? 'panel-open' : 'panel-close'} />
+                  </button>
+                </div>
               </div>
               <div className="sidebar-family">
                 <div className="sidebar-family-title">
@@ -164,17 +279,19 @@ export function AppShell({
 
         <div className={isAiActive ? 'app-content app-content-ai' : 'app-content'}>
           <nav className="tabbar">
-            <div className="tabbar-scroll">
-              {NAV_ITEMS.map((item) => (
-                <button
-                  key={item.key}
-                  className={activeTab === item.key ? 'tab-button active' : 'tab-button'}
-                  type="button"
-                  onClick={() => onTabChange(item.key)}
-                >
-                  {item.label}
-                </button>
-              ))}
+            <div className="tabbar-inner">
+              <div className="tabbar-scroll">
+                {NAV_ITEMS.map((item) => (
+                  <button
+                    key={item.key}
+                    className={activeTab === item.key ? 'tab-button active' : 'tab-button'}
+                    type="button"
+                    onClick={() => onTabChange(item.key)}
+                  >
+                    {item.label}
+                  </button>
+                ))}
+              </div>
             </div>
           </nav>
           {children}

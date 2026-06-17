@@ -3,7 +3,7 @@ import type { FamilyDetail, Member } from './types';
 
 export const familyApi = {
   getFamily: () => request<FamilyDetail>('/api/family'),
-  updateFamily: (payload: { name: string; motto: string; location: string; image_media_id?: string | null }) =>
+  updateFamily: (payload: { name: string; motto: string; location: string; image_media_id?: string | null; pending_image_job_id?: string | null }) =>
     request<FamilyDetail>('/api/family', {
       method: 'PATCH',
       body: JSON.stringify(payload),
@@ -22,7 +22,7 @@ export const familyApi = {
     }),
   updateMember: (
     memberId: string,
-    payload: { display_name: string; email?: string | null; phone?: string | null; avatar_media_id?: string | null }
+    payload: { display_name: string; email?: string | null; phone?: string | null; avatar_media_id?: string | null; pending_image_job_id?: string | null }
   ) =>
     request<Member>(`/api/members/${memberId}`, {
       method: 'PATCH',

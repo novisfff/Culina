@@ -8,6 +8,7 @@ import {
 import {
   type AiRenderPayload,
   getMediaIds,
+  getPendingImageJobId,
 } from '../../lib/aiImages';
 import { emptyImages, MEAL_TYPE_LABELS, todayKey } from '../../lib/ui';
 import type { LocalMealFoodEntry, MealFormState } from './MealLogComposer';
@@ -20,6 +21,7 @@ type CreateMealLogPayload = {
   notes: string;
   mood: string;
   media_ids: string[];
+  pending_image_job_id?: string | null;
 };
 
 function createDefaultMealForm(): MealFormState {
@@ -92,6 +94,7 @@ export function useMealLogComposerState(input: {
         notes: form.notes,
         mood: form.mood,
         media_ids: getMediaIds(form.photos),
+        pending_image_job_id: getPendingImageJobId(form.photos),
       });
       imageComposer.setState(IDLE_IMAGE_GENERATION_STATE);
       setForm(createDefaultMealForm());

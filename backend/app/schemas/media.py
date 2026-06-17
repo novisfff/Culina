@@ -7,6 +7,10 @@ from pydantic import BaseModel, Field
 
 from app.core.enums import ImageGenerationMode, MealType, MediaEntityType, MediaSource
 
+AiImageTargetEntityType = Literal["food", "ingredient", "recipe", "food_scene", "meal_log", "user", "family"]
+AiImageJobStatus = Literal["queued", "running", "succeeded", "failed"]
+AiImageBindStatus = Literal["pending", "bound", "skipped", "unbound"]
+
 
 class MediaVariantOut(BaseModel):
     url: str
@@ -59,14 +63,21 @@ class CreateAiRenderRequest(BaseModel):
     food_names: list[str] = Field(default_factory=list)
     ingredient_names: list[str] = Field(default_factory=list)
     size: str = ""
+    target_entity_type: AiImageTargetEntityType | None = None
+    target_entity_id: str | None = None
+    replace_anchor_media_id: str | None = None
 
 
 class AiRenderResponse(BaseModel):
     job_id: str | None = None
-    status: Literal["queued", "running", "succeeded", "failed"] = "succeeded"
+    status: AiImageJobStatus = "succeeded"
     error: str | None = None
     generated_asset: MediaAssetOut | None = None
     reference_asset: MediaAssetOut | None = None
     style_key: str | None = None
     prompt_version: str | None = None
     generation_mode: Literal["reference", "text"]
+    target_entity_type: AiImageTargetEntityType | None = None
+    target_entity_id: str | None = None
+    target_entity_name: str | None = None
+    bind_status: AiImageBindStatus | None = None

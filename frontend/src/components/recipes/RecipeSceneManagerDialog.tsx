@@ -99,7 +99,7 @@ export function RecipeSceneManagerDialog(props: RecipeSceneManagerDialogProps) {
                   ) : (
                     <>
                       <span className="recipe-scene-generate-visual"><RecipeUiIcon name="sparkle" /></span>
-                      <strong>{props.sceneImageState.isGenerating && props.generatingSceneName === props.sceneDraft.name.trim() ? '生成中...' : 'AI 生成图片'}</strong>
+                      <strong>{props.sceneImageState.isGenerating && props.generatingSceneName === props.sceneDraft.name.trim() ? '后台生成中' : 'AI 生成图片'}</strong>
                       <small>根据描述生成场景配图</small>
                     </>
                   )}

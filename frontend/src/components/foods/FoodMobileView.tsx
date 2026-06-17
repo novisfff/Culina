@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import type { Food, FoodRecommendationItem, MealLog, MealType, MediaAsset, Recipe } from '../../api/types';
 import { buildMediaSizes, buildMediaSrcSet, resolveMediaUrl } from '../../lib/assets';
 import { FOOD_TYPE_LABELS, MEAL_TYPE_LABELS, getFoodCoverAsset } from '../../lib/ui';
@@ -47,6 +48,7 @@ export function FoodMobileView(props: {
   emptyTitle: string;
   isQuickAdding?: boolean;
   isUpdatingFavorite?: boolean;
+  notificationCenter?: ReactNode;
   resolveFoodAssetUrl: (url: string) => string;
   getFoodCardPrimaryActionLabel: (food: Food) => string;
   getRecommendationPrimaryActionLabel: (item: MobileRecommendationItem) => string;
@@ -81,10 +83,12 @@ export function FoodMobileView(props: {
           <button type="button" aria-label="聚焦搜索" onClick={() => document.getElementById('mobile-food-search')?.focus()}>
             <FoodUiIcon name="search" />
           </button>
-          <button type="button" aria-label="查看食物提醒" onClick={props.onOpenGovernanceIssue}>
-            <FoodUiIcon name="bell" />
-            {props.managementIssueCount > 0 && <i aria-hidden="true" />}
-          </button>
+          {props.notificationCenter ?? (
+            <button type="button" aria-label="查看食物提醒" onClick={props.onOpenGovernanceIssue}>
+              <FoodUiIcon name="bell" />
+              {props.managementIssueCount > 0 && <i aria-hidden="true" />}
+            </button>
+          )}
         </div>
       </div>
 

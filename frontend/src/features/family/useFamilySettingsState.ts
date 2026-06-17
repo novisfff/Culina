@@ -7,7 +7,7 @@ import {
   invalidateAfterProfileChanged,
 } from '../../api/cacheInvalidation';
 import type { FamilyDetail, Member, UserSummary } from '../../api/types';
-import { getMediaIds, type AiRenderPayload } from '../../lib/aiImages';
+import { getMediaIds, getPendingImageJobId, type AiRenderPayload } from '../../lib/aiImages';
 import { emptyImages } from '../../lib/ui';
 import { useImageComposer } from '../../hooks/useImageComposer';
 import type { NoticeState } from '../../hooks/useNotice';
@@ -219,6 +219,7 @@ export function useFamilySettingsState(input: {
         phone: profileForm.phone.trim() || null,
         avatar_seed: profileForm.displayName.trim(),
         avatar_media_id: getMediaIds(profileForm.avatarImages)[0] ?? null,
+        pending_image_job_id: getPendingImageJobId(profileForm.avatarImages),
       });
       closeOverlay();
     } catch (reason) {
@@ -273,6 +274,7 @@ export function useFamilySettingsState(input: {
         motto: familyForm.motto.trim(),
         location: familyForm.location.trim(),
         image_media_id: getMediaIds(familyForm.images)[0] ?? null,
+        pending_image_job_id: getPendingImageJobId(familyForm.images),
       });
       closeOverlay();
     } catch (reason) {

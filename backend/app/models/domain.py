@@ -64,6 +64,7 @@ class Family(AuditMixin, Base):
     ai_approval_requests: Mapped[list["AIApprovalRequest"]] = relationship(back_populates="family", cascade="all, delete-orphan")
     ai_user_approvals: Mapped[list["AIUserApproval"]] = relationship(back_populates="family", cascade="all, delete-orphan")
     ai_operations: Mapped[list["AIOperation"]] = relationship(back_populates="family", cascade="all, delete-orphan")
+    ai_image_generation_jobs: Mapped[list["AIImageGenerationJob"]] = relationship(back_populates="family", cascade="all, delete-orphan")
 
 
 class User(AuditMixin, Base):
@@ -426,6 +427,31 @@ class MediaAsset(Base):
     created_by: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
     family: Mapped["Family"] = relationship(back_populates="media_assets")
+
+
+class AIImageGenerationJob(Base):
+    __tablename__ = "ai_image_generation_jobs"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True, default=lambda: create_id("image-job"))
+    family_id: Mapped[str] = mapped_column(ForeignKey("families.id", ondelete="CASCADE"), nullable=False, index=True)
+    user_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    status: Mapped[str] = mapped_column(String(32), default="queued", nullable=False, index=True)
+    request_payload: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
+    reference_media_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    target_entity_type: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    target_entity_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    replace_anchor_media_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    generated_media_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    bind_status: Mapped[str | None] = mapped_column(String(32), default="pending", nullable=True, index=True)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    attempt_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    locked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False, index=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False)
+
+    family: Mapped["Family"] = relationship(back_populates="ai_image_generation_jobs")
 
 
 class AIConversation(Base):

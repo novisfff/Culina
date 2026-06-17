@@ -139,7 +139,7 @@ export function getFoodFormCompletionItems(form: FoodFormState, editingFood: Foo
   return items;
 }
 
-export function buildFoodPayloadFromForm(form: FoodFormState, recipes: Recipe[], mediaIds: string[]): FoodPayload {
+export function buildFoodPayloadFromForm(form: FoodFormState, recipes: Recipe[], mediaIds: string[], pendingImageJobId?: string | null): FoodPayload {
   return {
     name: form.name.trim(),
     type: form.type,
@@ -161,5 +161,6 @@ export function buildFoodPayloadFromForm(form: FoodFormState, recipes: Recipe[],
     favorite: form.favorite,
     recipe_id: form.recipeId || null,
     media_ids: mediaIds,
+    ...(pendingImageJobId ? { pending_image_job_id: pendingImageJobId } : {}),
   };
 }

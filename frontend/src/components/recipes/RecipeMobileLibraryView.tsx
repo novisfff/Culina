@@ -1,4 +1,4 @@
-import type { Dispatch, SetStateAction } from 'react';
+import type { Dispatch, ReactNode, SetStateAction } from 'react';
 import { EmptyState } from '../ui-kit';
 import {
   MobileRecipeCard,
@@ -25,6 +25,7 @@ export function RecipeMobileLibraryView(props: {
   mobileSceneCards: Array<{ scene: RecipeSceneCard; coverUrl?: string }>;
   mobileLibraryCards: RecipeCardViewModel[];
   hasMobileRecipeAlerts: boolean;
+  notificationCenter?: ReactNode;
   favoriteRecipeIds: Set<string>;
   isUpdatingFavorite?: boolean;
   activeDiscoveryCopy: DiscoveryCopy;
@@ -56,10 +57,12 @@ export function RecipeMobileLibraryView(props: {
           <button type="button" aria-label="聚焦搜索" onClick={() => document.getElementById('mobile-recipe-search')?.focus()}>
             <RecipeUiIcon name="search" />
           </button>
-          <button type="button" aria-label="查看提醒" onClick={() => props.onShowMobileRecipeFilter('missing')}>
-            <RecipeUiIcon name="bell" />
-            {props.hasMobileRecipeAlerts && <i aria-hidden="true" />}
-          </button>
+          {props.notificationCenter ?? (
+            <button type="button" aria-label="查看提醒" onClick={() => props.onShowMobileRecipeFilter('missing')}>
+              <RecipeUiIcon name="bell" />
+              {props.hasMobileRecipeAlerts && <i aria-hidden="true" />}
+            </button>
+          )}
         </div>
       </div>
 

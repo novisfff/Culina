@@ -1,4 +1,5 @@
 import type { ActivityLog, Member, MembershipSummary, UserSummary } from '../../api/types';
+import type { ReactNode } from 'react';
 import { DashboardIcon, ShellIcon } from '../../app/shellIcons';
 import { MediaWithPlaceholder } from '../../components/MediaPlaceholder';
 import { Avatar } from '../../components/ui-kit';
@@ -17,6 +18,7 @@ export function FamilyMobileView(props: {
   familyStatCards: FamilyStatCard[];
   familyOwnerMember?: Member;
   activityLogs: ActivityLog[];
+  notificationCenter?: ReactNode;
   resolveAssetUrl: (url?: string) => string | undefined;
   onOverlayChange: (mode: FamilyOverlayMode) => void;
   onNavigate: (tab: 'ingredients' | 'logs') => void;
@@ -35,6 +37,7 @@ export function FamilyMobileView(props: {
           </span>
         </div>
         <div className="mobile-family-top-actions">
+          {props.notificationCenter}
           <button type="button" aria-label="编辑我的资料" onClick={() => props.onOverlayChange('profile')}>
             <DashboardIcon name="more" />
           </button>

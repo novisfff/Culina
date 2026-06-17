@@ -237,6 +237,7 @@ export interface RecipePayload {
   tips: string;
   scene_tags?: string[];
   media_ids: string[];
+  pending_image_job_id?: string | null;
 }
 
 export type CreateRecipePayload = RecipePayload;
@@ -448,6 +449,7 @@ export interface FoodPayload {
   favorite: boolean;
   recipe_id?: string | null;
   media_ids: string[];
+  pending_image_job_id?: string | null;
 }
 
 export type FoodRecommendationPrimaryAction = 'cook_recipe' | 'quick_add_meal' | 'review_food';
@@ -523,6 +525,7 @@ export interface UpdateMealLogPayload {
   notes?: string;
   mood?: string;
   media_ids?: string[];
+  pending_image_job_id?: string | null;
   food_entry_ratings?: Array<{ id: string; rating: number | null }>;
 }
 
@@ -937,12 +940,16 @@ export interface AiRecommendation {
 export interface ImageInputValue {
   referenceAsset?: MediaAsset;
   generatedAsset?: MediaAsset;
+  pendingJob?: AiRenderResponse;
 }
 
 export interface CreateAiRenderRequest {
   mode: ImageGenerationMode;
   entity_type: MediaEntityType;
   reference_media_id?: string;
+  target_entity_type?: AiImageTargetEntityType;
+  target_entity_id?: string;
+  replace_anchor_media_id?: string | null;
   title?: string;
   category?: string;
   notes?: string;
@@ -955,6 +962,8 @@ export interface CreateAiRenderRequest {
 }
 
 export type AiRecipeImageRenderPayload = Omit<CreateAiRenderRequest, 'mode' | 'reference_media_id'>;
+export type AiImageTargetEntityType = 'food' | 'ingredient' | 'recipe' | 'food_scene' | 'meal_log' | 'user' | 'family';
+export type AiImageBindStatus = 'pending' | 'bound' | 'skipped' | 'unbound';
 
 export interface GenerateRecipeDraftResponse {
   draft?: AiGeneratedRecipeDraft | null;
@@ -973,6 +982,10 @@ export interface AiRenderResponse {
   style_key?: string | null;
   prompt_version?: string | null;
   generation_mode: ImageGenerationMode;
+  target_entity_type?: AiImageTargetEntityType | null;
+  target_entity_id?: string | null;
+  target_entity_name?: string | null;
+  bind_status?: AiImageBindStatus | null;
 }
 
 export interface ConsumeInventoryResponse {

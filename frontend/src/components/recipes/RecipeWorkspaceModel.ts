@@ -50,6 +50,7 @@ export type ManagedRecipeScene = {
   imagePrompt: string;
   imageAssetId?: string;
   imageAssetUrl?: string;
+  pendingImageJobId?: string | null;
   hidden?: boolean;
   custom?: boolean;
 };
@@ -354,7 +355,12 @@ export type RecipeUiIconName =
   | 'warning'
   | 'zap';
 
-export function buildRecipePayload(form: RecipeFormState, rows: RecipeDraftIngredient[], ingredients: Ingredient[]): RecipePayload {
+export function buildRecipePayload(
+  form: RecipeFormState,
+  rows: RecipeDraftIngredient[],
+  ingredients: Ingredient[],
+  pendingImageJobId?: string | null
+): RecipePayload {
   return {
     title: form.title.trim(),
     servings: Number(form.servings),
@@ -386,6 +392,7 @@ export function buildRecipePayload(form: RecipeFormState, rows: RecipeDraftIngre
     tips: form.tips.trim(),
     scene_tags: splitTags(form.sceneTags),
     media_ids: getRecipeMediaIds(form.images),
+    ...(pendingImageJobId ? { pending_image_job_id: pendingImageJobId } : {}),
   };
 }
 

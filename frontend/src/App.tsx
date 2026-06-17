@@ -1,7 +1,7 @@
 import { lazy, Suspense, useEffect, useMemo, useRef, useState, type UIEvent } from 'react';
 import { api } from './api/client';
 import { queryKeys } from './api/queryKeys';
-import { AppShell, type TabKey } from './app/AppShell';
+import { AppNotificationCenter, AppShell, type TabKey } from './app/AppShell';
 import { useAppHomeHandlers } from './app/useAppHomeHandlers';
 import { useAppHomeViewModel } from './app/useAppHomeViewModel';
 import { useAppMutations } from './app/useAppMutations';
@@ -35,6 +35,7 @@ import { useHomeDashboardActions } from './features/home/useHomeDashboardActions
 import type { HomeMealEnrichmentOpenRequest } from './features/home/useHomeDashboardActions';
 import { resolveMealSource } from './features/meals/MealLogEnrichmentModel';
 import { useNotice } from './hooks/useNotice';
+import { useAiImageJobMonitor } from './hooks/useAiImageJobMonitor';
 import { resolveAssetUrl } from './lib/assets';
 import { readStringStorage, writeStringStorage } from './lib/storage';
 import { HomeDashboard } from './features/home/HomeDashboard';
@@ -142,6 +143,7 @@ function App() {
   const [ingredientNavigationRequest, setIngredientNavigationRequest] = useState<IngredientNavigationRequest | null>(null);
   const ingredientNavigationRequestIdRef = useRef(0);
   const { notice, showNotice, clearNotice } = useNotice();
+  const aiImageJobMonitor = useAiImageJobMonitor(isAuthenticated);
 
   useEffect(() => {
     writeStringStorage('culina-active-tab', activeTab);
@@ -520,6 +522,9 @@ function App() {
       userMeta={sidebarUserMeta}
       userNote={sidebarUserNote}
       notice={noticeToast}
+      imageJobs={aiImageJobMonitor.jobs}
+      imageJobsLoading={aiImageJobMonitor.isLoading}
+      onDismissImageJob={aiImageJobMonitor.dismissJob}
       onTabChange={setActiveTab}
       onToggleSidebar={() => setSidebarCollapsed((current) => !current)}
       onOpenProfile={() => setFamilyOverlayMode('profile')}
@@ -534,6 +539,7 @@ function App() {
             sidebarMemberLabel={sidebarMemberLabel}
             sidebarActivityLabel={sidebarActivityLabel}
             inventoryAlerts={inventoryAlerts}
+            notificationCenter={<AppNotificationCenter jobs={aiImageJobMonitor.jobs} isLoading={aiImageJobMonitor.isLoading} variant="mobileIcon" onDismissJob={aiImageJobMonitor.dismissJob} />}
             dashboardStats={dashboardStats}
             dashboardRecommendationItems={dashboardRecommendationItems}
             dashboardRecommendationPageCount={dashboardRecommendationPageCount}
@@ -603,6 +609,7 @@ function App() {
               foodScenes={foodScenes}
               foodPlanItems={foodPlanItems}
               foodPlanWeekRange={foodPlanWeekRange}
+              notificationCenter={<AppNotificationCenter jobs={aiImageJobMonitor.jobs} isLoading={aiImageJobMonitor.isLoading} variant="mobileIcon" onDismissJob={aiImageJobMonitor.dismissJob} />}
               createFood={(payload) => createFoodMutation.mutateAsync(payload)}
               updateFood={(foodId, payload) => updateFoodMutation.mutateAsync({ foodId, payload })}
               updateFoodFavorite={(foodId, favorite) => toggleFavoriteMutation.mutateAsync({ foodId, favorite })}
@@ -652,6 +659,7 @@ function App() {
                 recipePlanWeekRange={foodPlanWeekRange}
                 startRecipeId={pendingRecipeCookId}
                 startFoodPlanItemId={pendingFoodPlanCookItemId}
+                notificationCenter={<AppNotificationCenter jobs={aiImageJobMonitor.jobs} isLoading={aiImageJobMonitor.isLoading} variant="mobileIcon" onDismissJob={aiImageJobMonitor.dismissJob} />}
                 onStartRecipeHandled={() => {
                   setPendingRecipeCookId(null);
                   setPendingFoodPlanCookItemId(null);
@@ -708,6 +716,7 @@ function App() {
               inventoryItems={inventoryItems}
               shoppingItems={shoppingItems}
               recipes={recipes}
+              notificationCenter={<AppNotificationCenter jobs={aiImageJobMonitor.jobs} isLoading={aiImageJobMonitor.isLoading} variant="mobileIcon" onDismissJob={aiImageJobMonitor.dismissJob} />}
               navigationRequest={ingredientNavigationRequest}
               createIngredient={(payload) => createIngredientMutation.mutateAsync(payload)}
               updateIngredient={(ingredientId, payload) => updateIngredientMutation.mutateAsync({ ingredientId, payload })}
@@ -740,6 +749,7 @@ function App() {
             isUpdatingMeal={updateMealMutation.isPending}
             isGeneratingPhoto={mealLogComposer.imageComposer.state.isGenerating}
             photoErrorMessage={mealLogComposer.imageComposer.state.errorMessage}
+            notificationCenter={<AppNotificationCenter jobs={aiImageJobMonitor.jobs} isLoading={aiImageJobMonitor.isLoading} variant="mobileIcon" onDismissJob={aiImageJobMonitor.dismissJob} />}
             updateMealLog={(mealLogId, payload) => updateMealMutation.mutateAsync({ mealLogId, payload })}
             onBackHome={() => setActiveTab('home')}
             onSubmit={mealLogComposer.submit}
@@ -779,6 +789,7 @@ function App() {
               currentUserRecentLogs={currentUserRecentLogs}
               familyOwnerMember={familyOwnerMember}
               activityLogs={activityLogs}
+              notificationCenter={<AppNotificationCenter jobs={aiImageJobMonitor.jobs} isLoading={aiImageJobMonitor.isLoading} variant="mobileIcon" onDismissJob={aiImageJobMonitor.dismissJob} />}
               overlayMode={familyOverlayMode}
               editingMember={editingMember}
               inviteForm={inviteForm}

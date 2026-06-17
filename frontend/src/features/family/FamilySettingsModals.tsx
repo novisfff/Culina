@@ -272,7 +272,7 @@ export function ProfileEditModal(props: {
   const previewLabel = props.form.displayName || props.currentUser?.display_name || '成员';
   const previewSeed = props.form.displayName || props.currentUser?.avatar_seed || '成员';
   const imageUrl = props.form.avatarImages.generatedAsset?.url ?? props.currentUser?.avatar_image?.url;
-  const isBusy = props.isSubmitting || props.imageControls.isGenerating;
+  const isBusy = props.isSubmitting;
 
   return (
     <div className="workspace-overlay-root family-settings-overlay-root">
@@ -360,7 +360,7 @@ export function ProfileEditModal(props: {
             <div className="profile-avatar-body">
               <div className="profile-avatar-large-preview">
                 <Avatar label={previewLabel} seed={previewSeed} imageUrl={imageUrl} large />
-                <span>{props.imageControls.isGenerating ? '生成中...' : props.form.avatarImages.generatedAsset ? '已设置头像' : '当前预览'}</span>
+                <span>{props.imageControls.isGenerating ? '后台生成中' : props.form.avatarImages.generatedAsset ? '已设置头像' : '当前预览'}</span>
               </div>
               {props.imageControls.isPromptOpen && (
                 <div className="profile-avatar-prompt-panel">
@@ -387,7 +387,7 @@ export function ProfileEditModal(props: {
                         props.imageControls.onPromptClose();
                       }}
                     >
-                      {props.imageControls.isGenerating ? '生成中...' : '生成头像'}
+                      {props.imageControls.isGenerating ? '后台生成中' : '生成头像'}
                     </ActionButton>
                   </div>
                 </div>
@@ -421,7 +421,7 @@ export function FamilyEditModal(props: {
 }) {
   const imageUrl = props.form.images.generatedAsset?.url ?? props.family?.image?.url;
   const resolvedImageUrl = props.resolveAssetUrl(imageUrl);
-  const isBusy = props.isSubmitting || props.imageControls.isGenerating;
+  const isBusy = props.isSubmitting;
 
   return (
     <div className="workspace-overlay-root family-settings-overlay-root">
@@ -515,7 +515,7 @@ export function FamilyEditModal(props: {
                     imageClassName="family-image-preview-media-image"
                   />
                 </div>
-                <span>{props.imageControls.isGenerating ? '生成中...' : props.form.images.generatedAsset ? '已设置家庭图' : '当前预览'}</span>
+                <span>{props.imageControls.isGenerating ? '后台生成中' : props.form.images.generatedAsset ? '已设置家庭图' : '当前预览'}</span>
               </div>
               {props.imageControls.isPromptOpen && (
                 <div className="family-image-prompt-panel">
@@ -542,7 +542,7 @@ export function FamilyEditModal(props: {
                         props.imageControls.onPromptClose();
                       }}
                     >
-                      {props.imageControls.isGenerating ? '生成中...' : '生成家庭图'}
+                      {props.imageControls.isGenerating ? '后台生成中' : '生成家庭图'}
                     </ActionButton>
                   </div>
                 </div>

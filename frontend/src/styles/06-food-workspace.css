@@ -2718,7 +2718,7 @@
 .food-workspace .image-composer-workspace-inline {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(180px, 240px);
-  align-items: center;
+  align-items: start;
   gap: 16px;
   padding: 16px 18px;
   border-color: rgba(92, 67, 48, 0.09);
@@ -2730,29 +2730,15 @@
 }
 
 .food-workspace .image-composer-workspace-inline .section-mini-title {
-  align-content: center;
-  align-items: start;
-  display: grid;
-  gap: 12px;
-  justify-content: start;
   margin-bottom: 0;
   color: #241714;
   font-size: 1.02rem;
-  font-weight: 940;
+  font-weight: 700;
 }
 
-.food-workspace .image-composer-workspace-inline .inline-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.food-workspace .image-composer-workspace-inline .ghost-button {
-  min-height: 32px;
-  padding: 0 11px;
-  border-radius: 11px;
-  font-size: 0.8rem;
-  font-weight: 900;
+.food-workspace .image-composer-workspace-inline .image-composer-actions {
+  grid-column: span 2;
+  margin-top: 14px;
 }
 
 .food-workspace .image-composer-workspace-inline .image-composer-primary-dropzone {
@@ -2780,13 +2766,13 @@
 .food-workspace .image-composer-workspace-inline .image-composer-dropzone-copy strong {
   color: #2a1c16;
   font-size: 1.05rem;
-  font-weight: 930;
+  font-weight: 700;
 }
 
 .food-workspace .image-composer-workspace-inline .image-composer-dropzone-copy span {
   color: #7c7067;
   font-size: 0.88rem;
-  font-weight: 760;
+  font-weight: 500;
 }
 
 .food-check-pill {
@@ -4166,54 +4152,9 @@
   }
 }
 
-/* Unified generated image presentation: keep large food media close to 4:3. */
-.recipe-editor-cover-grid {
-  grid-template-columns: minmax(300px, 0.92fr) minmax(360px, 1fr);
-  justify-content: start;
-  gap: 20px;
-  align-items: start;
-}
-
-.recipe-editor-cover-preview,
-.recipe-editor-cover-preview img,
-.recipe-editor-cover-preview .recipe-cover-illustration {
-  min-height: 0;
-}
-
-.recipe-editor-cover-workspace {
-  grid-template-columns: minmax(148px, 0.48fr) minmax(220px, 0.74fr);
-  gap: 12px 14px;
-  align-items: start;
-  width: 100%;
-  max-width: 540px;
-  padding: 14px;
-  border-radius: 18px;
-}
-
-.recipe-editor-cover-toolbar {
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: 12px;
-}
-
-.recipe-editor-cover-toolbar p {
-  max-width: 22ch;
-  font-size: 0.82rem;
-}
-
-.recipe-editor-cover-actions {
-  justify-content: flex-start;
-  gap: 8px 10px;
-}
-
-.recipe-editor-cover-actions .ghost-button {
-  flex: 1 1 100%;
-  justify-content: center;
-  min-height: 34px;
-  padding: 7px 10px;
-  border-radius: 11px;
-  font-size: 0.82rem;
-}
+/* Unified generated image presentation: keep large food media close to 4:3.
+   Refactored and unified in 03-recipe-workspace.css to avoid cross-workspace pollution.
+*/
 
 .recipe-editor-cover-result-grid {
   min-width: 0;
@@ -4388,21 +4329,8 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* Cover editor media queries unified in 03-recipe-workspace.css */
 
-@media (max-width: 900px) {
-  .recipe-editor-cover-grid,
-  .recipe-editor-cover-workspace {
-    grid-template-columns: 1fr;
-  }
-
-  .recipe-editor-cover-workspace {
-    max-width: none;
-  }
-
-  .recipe-editor-cover-actions .ghost-button {
-    flex-basis: auto;
-  }
-}
 
 /* Shared primary action button finish: match the simple "加菜" treatment. */
 .recipe-create-button,

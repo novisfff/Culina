@@ -51,6 +51,10 @@
   --content-width: 1440px;
   --modal-width-md: 680px;
   --modal-width-lg: 960px;
+  --z-sidebar: 140;
+  --z-mobile-topbar: 180;
+  --z-notification: 300;
+  --z-overlay: 1000;
 }
 
 * {
@@ -159,6 +163,13 @@ textarea:focus-visible {
   gap: 8px;
 }
 
+.sidebar-brand-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+}
+
 .sidebar-mark {
   width: 34px;
   height: 34px;
@@ -228,6 +239,62 @@ textarea:focus-visible {
   background: transparent;
   box-shadow: none;
   transition: background-color 200ms ease, color 200ms ease, transform 200ms ease;
+}
+
+.sidebar-notification-center .app-notification-trigger {
+  width: 28px;
+  height: 28px;
+  min-height: 28px;
+  justify-content: center;
+  gap: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--text-faint);
+  box-shadow: none;
+}
+
+.sidebar-notification-center .app-notification-trigger:hover,
+.sidebar-notification-center .app-notification-trigger.is-active {
+  background: rgba(147, 96, 63, 0.08);
+  color: var(--accent-strong);
+}
+
+.sidebar-notification-center .app-notification-trigger strong {
+  display: none;
+}
+
+.sidebar-notification-center .app-notification-icon {
+  width: 28px;
+  height: 28px;
+  border-radius: 9px;
+  background: transparent;
+  color: currentColor;
+}
+
+.sidebar-notification-center .app-notification-icon svg {
+  width: 15px;
+  height: 15px;
+}
+
+.sidebar-notification-center .app-notification-count {
+  top: -4px;
+  right: -5px;
+  min-width: 15px;
+  height: 15px;
+  padding: 0 4px;
+  background: #de7336;
+  box-shadow: 0 0 0 2px #fff8f0;
+  font-size: 0.58rem;
+}
+
+.sidebar-notification-center .app-notification-popover {
+  top: 0;
+  right: auto;
+  left: calc(100% + 10px);
+  z-index: var(--z-notification);
+  width: 320px;
 }
 
 .sidebar-toggle:hover {
@@ -759,6 +826,13 @@ textarea:focus-visible {
   z-index: 20;
 }
 
+.tabbar-inner {
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 10px;
+}
+
 .tabbar-scroll {
   display: flex;
   gap: 10px;
@@ -775,6 +849,222 @@ textarea:focus-visible {
 
 .tabbar-scroll::-webkit-scrollbar {
   display: none;
+}
+
+.app-notification-center {
+  position: relative;
+  z-index: var(--z-notification);
+  flex: 0 0 auto;
+}
+
+.app-notification-trigger {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 0 14px 0 10px;
+  border: 1px solid var(--line-soft);
+  border-radius: 999px;
+  background: rgba(255, 253, 250, 0.96);
+  color: var(--text-soft);
+  box-shadow: var(--shadow-sm);
+  font: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: border-color 160ms ease, color 160ms ease, background-color 160ms ease, transform 160ms ease;
+}
+
+.app-notification-trigger:hover,
+.app-notification-trigger.is-active {
+  border-color: rgba(210, 107, 51, 0.24);
+  background: #fff8f1;
+  color: var(--accent-strong);
+}
+
+.app-notification-trigger:active {
+  transform: translateY(1px);
+}
+
+.app-notification-trigger strong {
+  font-size: 0.875rem;
+  font-weight: 800;
+}
+
+.app-notification-icon {
+  position: relative;
+  display: grid;
+  width: 30px;
+  height: 30px;
+  place-items: center;
+  border-radius: 12px;
+  background: #fff0e4;
+  color: var(--accent);
+}
+
+.app-notification-icon svg {
+  width: 17px;
+  height: 17px;
+}
+
+.app-notification-count {
+  position: absolute;
+  right: -3px;
+  top: -4px;
+  min-width: 16px;
+  height: 16px;
+  display: inline-grid;
+  place-items: center;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: #de7336;
+  color: #fff;
+  box-shadow: 0 0 0 2px rgba(255, 248, 240, 0.96);
+  font-size: 0.64rem;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.app-notification-popover {
+  position: absolute;
+  top: calc(100% + 10px);
+  right: 0;
+  z-index: var(--z-notification);
+  display: grid;
+  gap: 8px;
+  width: min(320px, calc(100vw - 32px));
+  padding: 12px;
+  border: 1px solid rgba(92, 67, 48, 0.1);
+  border-radius: 16px;
+  background: rgba(255, 253, 250, 0.96);
+  box-shadow: 0 12px 32px rgba(51, 38, 30, 0.12);
+  backdrop-filter: blur(20px);
+}
+
+.app-notification-popover-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  padding-bottom: 6px;
+  border-bottom: 1px solid rgba(92, 67, 48, 0.06);
+  margin-bottom: 2px;
+}
+
+.app-notification-popover-head strong {
+  color: var(--text);
+  font-size: 0.875rem;
+  font-weight: 700;
+}
+
+.app-notification-popover-head span {
+  color: var(--text-faint);
+  font-size: 0.75rem;
+  font-weight: 500;
+}
+
+.app-notification-list {
+  display: grid;
+  gap: 6px;
+}
+
+.app-notification-row {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid rgba(92, 67, 48, 0.08);
+  border-radius: 12px;
+  background: #fafaf9;
+  transition: all 0.2s ease;
+}
+
+.app-notification-row.status-succeeded {
+  background: #f9fdfa;
+  border-color: rgba(79, 154, 88, 0.12);
+}
+
+.app-notification-row.status-failed {
+  background: #fffbfa;
+  border-color: rgba(216, 95, 82, 0.12);
+}
+
+.app-notification-row-icon {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  border-radius: 8px;
+  background: rgba(92, 67, 48, 0.06);
+  color: var(--text-soft);
+}
+
+.app-notification-row.status-succeeded .app-notification-row-icon {
+  background: rgba(79, 154, 88, 0.08);
+  color: #438152;
+}
+
+.app-notification-row.status-failed .app-notification-row-icon {
+  background: rgba(216, 95, 82, 0.08);
+  color: #c34e42;
+}
+
+.app-notification-row-icon svg {
+  width: 14px;
+  height: 14px;
+}
+
+.app-notification-row-copy {
+  display: grid;
+  gap: 1px;
+  min-width: 0;
+}
+
+.app-notification-row-copy strong,
+.app-notification-row-copy small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.app-notification-row-copy strong {
+  color: var(--text);
+  font-size: 0.8125rem;
+  font-weight: 600;
+}
+
+.app-notification-row-copy small {
+  color: var(--text-soft);
+  font-size: 0.75rem;
+  font-weight: 500;
+}
+
+.app-notification-clear {
+  min-height: 24px;
+  height: 24px;
+  padding: 0 10px;
+  border: 1px solid rgba(92, 67, 48, 0.15);
+  border-radius: 6px;
+  background: #ffffff;
+  color: var(--text-soft);
+  font-size: 0.75rem;
+  font-weight: 600;
+  white-space: nowrap;
+  box-shadow: 0 1px 2px rgba(92, 67, 48, 0.02);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.app-notification-clear:hover {
+  border-color: rgba(210, 107, 51, 0.3);
+  background: rgba(210, 107, 51, 0.04);
+  color: var(--accent-strong);
+}
+
+.app-notification-empty {
+  margin: 0;
+  padding: 10px;
+  border-radius: 12px;
+  background: var(--surface-2);
 }
 
 .tab-button {
@@ -2365,6 +2655,76 @@ textarea:focus-visible {
   line-height: 1.4;
   margin-top: -2px;
 }
+
+.image-composer-actions {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 12px;
+  width: 100%;
+  margin-top: 8px;
+}
+
+.image-composer-actions .ghost-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 40px;
+  height: 40px;
+  border-radius: 12px;
+  padding: 0 16px;
+  font-weight: 600;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  border: 1px solid rgba(92, 67, 48, 0.15);
+  background: #ffffff;
+  color: var(--text-soft);
+  box-shadow: 0 2px 4px rgba(92, 67, 48, 0.01);
+}
+
+.image-composer-actions .ghost-button svg {
+  width: 15px;
+  height: 15px;
+  margin-right: 6px;
+  transition: transform 0.2s ease;
+}
+
+/* AI Specific Button Highlights */
+.image-composer-actions .ghost-button.ai-action {
+  border-color: rgba(210, 107, 51, 0.25);
+  background: rgba(210, 107, 51, 0.05);
+  color: var(--accent-strong);
+}
+
+.image-composer-actions .ghost-button.ai-action:hover:not(:disabled) {
+  background: rgba(210, 107, 51, 0.1);
+  border-color: var(--accent);
+}
+
+.image-composer-actions .ghost-button.ai-action:hover:not(:disabled) svg {
+  transform: rotate(15deg) scale(1.15);
+}
+
+/* Secondary Button Hovers */
+.image-composer-actions .ghost-button:not(.ai-action):hover:not(:disabled) {
+  background: var(--bg);
+  border-color: rgba(92, 67, 48, 0.28);
+  color: var(--text);
+}
+
+.image-composer-actions .ghost-button:not(.ai-action):hover:not(:disabled) svg {
+  transform: scale(1.1);
+}
+
+.image-composer-actions .ghost-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+  background: rgba(92, 67, 48, 0.02);
+  border-color: rgba(92, 67, 48, 0.08);
+  color: var(--text-faint);
+  box-shadow: none;
+}
+
 
 .prompt-line {
   color: #7a533d;

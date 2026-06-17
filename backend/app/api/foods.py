@@ -19,6 +19,7 @@ from app.services.clock import now_for_family
 from app.services.ingredient_units import UnitConversionError
 from app.services.inventory_usage import load_available_inventory_by_ingredient, recipe_availability_summary
 from app.services.media import bind_media_assets, replace_media_assets
+from app.ai.images.jobs import attach_image_generation_job_to_entity
 from app.services.serializers import serialize_food
 
 router = APIRouter(tags=["foods"])
@@ -419,6 +420,17 @@ def create_food(
     db.add(food)
     db.flush()
     bind_media_assets(db, family_id=membership.family_id, media_ids=payload.media_ids, entity_type="food", entity_id=food.id)
+    if payload.pending_image_job_id:
+        try:
+            attach_image_generation_job_to_entity(
+                db,
+                family_id=membership.family_id,
+                job_id=payload.pending_image_job_id,
+                entity_type="food",
+                entity_id=food.id,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     log_activity(
         db,
         family_id=membership.family_id,
@@ -454,6 +466,17 @@ def update_food(
         _apply_food_payload(food, payload)
         food.updated_by = user.id
         replace_media_assets(db, family_id=membership.family_id, media_ids=payload.media_ids, entity_type="food", entity_id=food.id)
+        if payload.pending_image_job_id:
+            try:
+                attach_image_generation_job_to_entity(
+                    db,
+                    family_id=membership.family_id,
+                    job_id=payload.pending_image_job_id,
+                    entity_type="food",
+                    entity_id=food.id,
+                )
+            except ValueError as exc:
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     log_activity(
         db,
         family_id=membership.family_id,

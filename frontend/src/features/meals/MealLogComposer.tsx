@@ -177,8 +177,8 @@ export function MealLogComposer({
         />
 
         <div className="span-two form-actions">
-          <button className="solid-button" type="submit" disabled={isSubmitting || isGeneratingPhoto}>
-            {isSubmitting ? '保存中...' : isGeneratingPhoto ? '生成主图中...' : '保存餐食记录'}
+          <button className="solid-button" type="submit" disabled={isSubmitting}>
+            {isSubmitting ? '保存中...' : '保存餐食记录'}
           </button>
         </div>
       </form>

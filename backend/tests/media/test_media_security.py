@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from io import BytesIO
-import time
 import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -16,7 +15,8 @@ from app.core.deps import get_current_auth
 from app.core.enums import ImageGenerationMode, MediaEntityType, MediaSource, MembershipStatus, UserRole
 from app.db.session import get_db
 from app.main import app
-from app.models.domain import Base, Family, MediaAsset, Membership, User
+from app.models.domain import AIImageGenerationJob, Base, Family, Food, MediaAsset, Membership, User
+from app.ai.images.jobs import process_image_generation_job
 from app.ai.images.generation import ImageGenerationResult
 from app.services.media import build_media_variants, delete_media_file
 
@@ -155,15 +155,12 @@ class MediaSecurityTestCase(unittest.TestCase):
         self.put_object = self.put_object_patcher.start()
         self.delete_object_patcher = patch("app.services.media.delete_media_file")
         self.delete_object_patcher.start()
-        self.client_patcher = patch("app.ai.images.jobs.ImageGenerationClient", FakeImageGenerationClient)
-        self.client_patcher.start()
         app.dependency_overrides[get_db] = override_db
         app.dependency_overrides[get_current_auth] = override_auth
         self.client = TestClient(app)
 
     def tearDown(self) -> None:
         app.dependency_overrides.clear()
-        self.client_patcher.stop()
         self.delete_object_patcher.stop()
         self.put_object_patcher.stop()
         self.settings_patcher.stop()
@@ -210,19 +207,25 @@ class MediaSecurityTestCase(unittest.TestCase):
         self.assertEqual(response.status_code, 202)
         job_id = response.json()["job_id"]
         self.assertTrue(job_id)
+        self.assertEqual(response.json()["status"], "queued")
 
-        final_payload = None
-        for _ in range(20):
-            poll_response = self.client.get(f"/api/media/ai-render/{job_id}")
-            self.assertEqual(poll_response.status_code, 200)
-            payload = poll_response.json()
-            if payload["status"] == "succeeded" and payload["generated_asset"]:
-                final_payload = payload
-                break
-            time.sleep(0.05)
+        with self.SessionLocal() as db:
+            job = db.get(AIImageGenerationJob, job_id)
+            self.assertIsNotNone(job)
+            assert job is not None
+            self.assertEqual(job.status, "queued")
 
-        self.assertIsNotNone(final_payload)
-        assert final_payload is not None
+        process_image_generation_job(
+            job_id,
+            session_factory=self.SessionLocal,
+            client_factory=FakeImageGenerationClient,
+        )
+
+        poll_response = self.client.get(f"/api/media/ai-render/{job_id}")
+        self.assertEqual(poll_response.status_code, 200)
+        final_payload = poll_response.json()
+
+        self.assertEqual(final_payload["status"], "succeeded")
         self.assertEqual(final_payload["style_key"], "test-style")
         self.assertEqual(final_payload["prompt_version"], "test-version")
         self.assertEqual(final_payload["generated_asset"]["source"], "ai")
@@ -236,36 +239,132 @@ class MediaSecurityTestCase(unittest.TestCase):
             self.assertEqual(db.query(MediaAsset).filter(MediaAsset.source == "ai").count(), 1)
 
     def test_ai_render_returns_variants_for_raster_asset(self) -> None:
-        with patch("app.ai.images.jobs.ImageGenerationClient", FakeRasterImageGenerationClient):
-            response = self.client.post(
-                "/api/media/ai-render",
-                json={
-                    "mode": ImageGenerationMode.TEXT.value,
-                    "entity_type": MediaEntityType.FOOD.value,
-                    "title": "番茄炒蛋",
-                },
-            )
-            self.assertEqual(response.status_code, 202)
-            job_id = response.json()["job_id"]
+        response = self.client.post(
+            "/api/media/ai-render",
+            json={
+                "mode": ImageGenerationMode.TEXT.value,
+                "entity_type": MediaEntityType.FOOD.value,
+                "title": "番茄炒蛋",
+            },
+        )
+        self.assertEqual(response.status_code, 202)
+        job_id = response.json()["job_id"]
 
-            final_payload = None
-            for _ in range(20):
-                poll_response = self.client.get(f"/api/media/ai-render/{job_id}")
-                self.assertEqual(poll_response.status_code, 200)
-                payload = poll_response.json()
-                if payload["status"] == "succeeded" and payload["generated_asset"]:
-                    final_payload = payload
-                    break
-                time.sleep(0.05)
+        process_image_generation_job(
+            job_id,
+            session_factory=self.SessionLocal,
+            client_factory=FakeRasterImageGenerationClient,
+        )
 
-        self.assertIsNotNone(final_payload)
-        assert final_payload is not None
+        poll_response = self.client.get(f"/api/media/ai-render/{job_id}")
+        self.assertEqual(poll_response.status_code, 200)
+        final_payload = poll_response.json()
+
+        self.assertEqual(final_payload["status"], "succeeded")
         variants = final_payload["generated_asset"]["variants"]
         self.assertEqual(set(variants), {"thumb", "card", "large"})
         self.assertEqual(variants["card"]["content_type"], "image/webp")
         self.assertEqual(variants["card"]["width"], 4)
         self.assertEqual(variants["card"]["height"], 3)
         self.assertTrue(variants["card"]["url"].endswith("/card.webp"))
+
+    def test_ai_render_binds_target_when_entity_has_no_user_image(self) -> None:
+        with self.SessionLocal() as db:
+            food = Food(
+                id="food-target",
+                family_id="family-test",
+                name="番茄炒蛋",
+                type="dish",
+                category="家常菜",
+                created_by="user-test",
+                updated_by="user-test",
+            )
+            db.add(food)
+            db.commit()
+
+        response = self.client.post(
+            "/api/media/ai-render",
+            json={
+                "mode": ImageGenerationMode.TEXT.value,
+                "entity_type": MediaEntityType.FOOD.value,
+                "title": "番茄炒蛋",
+                "target_entity_type": "food",
+                "target_entity_id": "food-target",
+            },
+        )
+        self.assertEqual(response.status_code, 202)
+        job_id = response.json()["job_id"]
+
+        process_image_generation_job(
+            job_id,
+            session_factory=self.SessionLocal,
+            client_factory=FakeImageGenerationClient,
+        )
+
+        payload = self.client.get(f"/api/media/ai-render/{job_id}").json()
+        self.assertEqual(payload["bind_status"], "bound")
+        generated_asset_id = payload["generated_asset"]["id"]
+        with self.SessionLocal() as db:
+            generated = db.get(MediaAsset, generated_asset_id)
+            self.assertIsNotNone(generated)
+            assert generated is not None
+            self.assertEqual(generated.entity_type, "food")
+            self.assertEqual(generated.entity_id, "food-target")
+
+    def test_ai_render_skips_target_bind_when_user_uploaded_image_during_wait(self) -> None:
+        with self.SessionLocal() as db:
+            food = Food(
+                id="food-with-upload",
+                family_id="family-test",
+                name="番茄炒蛋",
+                type="dish",
+                category="家常菜",
+                created_by="user-test",
+                updated_by="user-test",
+            )
+            user_asset = MediaAsset(
+                id="photo-user",
+                family_id="family-test",
+                name="user.png",
+                url="/media/family-test/user.png",
+                file_path="family-test/user.png",
+                source=MediaSource.UPLOAD,
+                alt="用户上传图",
+                entity_type="food",
+                entity_id="food-with-upload",
+                created_by="user-test",
+            )
+            db.add_all([food, user_asset])
+            db.commit()
+
+        response = self.client.post(
+            "/api/media/ai-render",
+            json={
+                "mode": ImageGenerationMode.TEXT.value,
+                "entity_type": MediaEntityType.FOOD.value,
+                "title": "番茄炒蛋",
+                "target_entity_type": "food",
+                "target_entity_id": "food-with-upload",
+            },
+        )
+        self.assertEqual(response.status_code, 202)
+        job_id = response.json()["job_id"]
+
+        process_image_generation_job(
+            job_id,
+            session_factory=self.SessionLocal,
+            client_factory=FakeImageGenerationClient,
+        )
+
+        payload = self.client.get(f"/api/media/ai-render/{job_id}").json()
+        self.assertEqual(payload["bind_status"], "skipped")
+        generated_asset_id = payload["generated_asset"]["id"]
+        with self.SessionLocal() as db:
+            generated = db.get(MediaAsset, generated_asset_id)
+            self.assertIsNotNone(generated)
+            assert generated is not None
+            self.assertIsNone(generated.entity_type)
+            self.assertIsNone(generated.entity_id)
 
     def test_media_route_reads_object_from_storage(self) -> None:
         with patch("app.api.media.read_media_object_by_key", return_value=(b"png", "image/png")) as read_object:

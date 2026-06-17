@@ -37,6 +37,7 @@ export const foodsApi = {
     description: string;
     image_prompt: string;
     image_asset_id?: string;
+    pending_image_job_id?: string | null;
     hidden: boolean;
     custom: boolean;
     sort_order: number;
@@ -52,6 +53,7 @@ export const foodsApi = {
       description?: string;
       image_prompt?: string;
       image_asset_id?: string;
+      pending_image_job_id?: string | null;
       hidden?: boolean;
       custom?: boolean;
       sort_order?: number;

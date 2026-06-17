@@ -106,6 +106,7 @@ class CreateFoodSceneRequest(BaseModel):
     description: str = ""
     image_prompt: str = ""
     image_asset_id: str | None = None
+    pending_image_job_id: str | None = None
     hidden: bool = False
     custom: bool = True
     sort_order: int = 0
@@ -116,6 +117,7 @@ class UpdateFoodSceneRequest(BaseModel):
     description: str | None = None
     image_prompt: str | None = None
     image_asset_id: str | None = None
+    pending_image_job_id: str | None = None
     hidden: bool | None = None
     custom: bool | None = None
     sort_order: int | None = None
@@ -131,6 +133,7 @@ class CreateRecipeRequest(BaseModel):
     tips: str = ""
     scene_tags: list[str] = Field(default_factory=list)
     media_ids: list[str] = Field(default_factory=list)
+    pending_image_job_id: str | None = None
 
 
 class UpdateRecipeRequest(CreateRecipeRequest):

@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import type { MealLog } from '../../api/types';
 import { Badge } from '../../components/ui-kit';
 import { FoodUiIcon } from '../../components/foods/FoodWorkspacePrimitives';
@@ -35,6 +36,7 @@ type Props = {
   onSearchChange: (value: string) => void;
   onStatusFilterChange: (value: MealLogStatusFilter) => void;
   onMealFilterChange: (value: MealLogMealFilter) => void;
+  notificationCenter?: ReactNode;
 };
 
 const iconSlotStyle = {
@@ -76,6 +78,7 @@ export function MealLogMobileView(props: Props) {
           </span>
         </div>
         <div className="mobile-log-top-actions">
+          {props.notificationCenter}
           <button className="mobile-log-home-button" type="button" onClick={props.onBackHome} aria-label="返回首页">
             首页
           </button>

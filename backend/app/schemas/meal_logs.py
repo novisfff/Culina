@@ -58,6 +58,7 @@ class CreateMealLogRequest(BaseModel):
     notes: str = ""
     mood: str = ""
     media_ids: list[str] = Field(default_factory=list)
+    pending_image_job_id: str | None = None
 
 
 class UpdateMealLogRequest(BaseModel):
@@ -65,6 +66,7 @@ class UpdateMealLogRequest(BaseModel):
     notes: str | None = None
     mood: str | None = None
     media_ids: list[str] | None = None
+    pending_image_job_id: str | None = None
     food_entry_ratings: list[MealLogFoodRatingIn] | None = None
 
 

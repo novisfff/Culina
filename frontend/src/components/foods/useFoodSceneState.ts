@@ -15,6 +15,7 @@ export type ManagedFoodScene = {
   imagePrompt: string;
   imageAssetId?: string;
   imageAssetUrl?: string;
+  pendingImageJobId?: string | null;
   hidden?: boolean;
   custom?: boolean;
 };
@@ -53,6 +54,7 @@ export function useFoodSceneState(input: {
     description: string;
     image_prompt: string;
     image_asset_id?: string;
+    pending_image_job_id?: string | null;
     hidden: boolean;
     custom: boolean;
     sort_order: number;
@@ -64,6 +66,7 @@ export function useFoodSceneState(input: {
       description?: string;
       image_prompt?: string;
       image_asset_id?: string;
+      pending_image_job_id?: string | null;
       hidden?: boolean;
       custom?: boolean;
       sort_order?: number;
@@ -100,6 +103,9 @@ export function useFoodSceneState(input: {
   }, [input.foodScenes, input.foods]);
   const sceneImageComposer = useImageComposer({
     value: {
+      pendingJob: sceneDraft.pendingImageJobId
+        ? { job_id: sceneDraft.pendingImageJobId, status: 'running', generation_mode: 'text' }
+        : undefined,
       generatedAsset:
         sceneDraft.imageAssetId && sceneDraft.imageAssetUrl
           ? {
@@ -118,6 +124,7 @@ export function useFoodSceneState(input: {
         ...current,
         imageAssetId: next.generatedAsset?.id,
         imageAssetUrl: next.generatedAsset?.url,
+        pendingImageJobId: next.pendingJob?.job_id ?? null,
       })),
     generateErrorMessage: '场景封面生成失败',
   });
@@ -170,6 +177,7 @@ export function useFoodSceneState(input: {
       description: sceneDraft.description.trim(),
       image_prompt: sceneDraft.imagePrompt.trim(),
       image_asset_id: sceneDraft.imageAssetId,
+      pending_image_job_id: sceneDraft.pendingImageJobId ?? null,
       hidden: false,
       custom: true,
       sort_order: 0,

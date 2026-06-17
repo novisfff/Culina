@@ -1390,26 +1390,18 @@
 }
 
 .ingredients-create-workspace .image-composer-workspace-inline {
-  min-height: 226px;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  padding: 16px 20px;
 }
 
 .ingredients-create-workspace .image-composer .section-mini-title {
-  margin-bottom: 8px;
-  align-items: center;
-  flex-wrap: nowrap;
-  white-space: nowrap;
+  margin-bottom: 12px;
 }
 
-.ingredients-create-workspace .image-composer .inline-actions {
-  gap: 10px;
-  flex-wrap: nowrap;
-  margin-left: auto;
-}
-
-.ingredients-create-workspace .image-composer .ghost-button {
-  min-height: 34px;
-  border-radius: 10px;
-  padding: 7px 14px;
+.ingredients-create-workspace .image-composer-actions {
+  margin-top: 12px;
 }
 
 .ingredients-create-workspace .upload-dropzone {
@@ -1418,7 +1410,7 @@
 }
 
 .ingredients-create-workspace .image-composer-primary-dropzone {
-  min-height: 150px;
+  min-height: 120px;
 }
 
 .ingredients-create-workspace .image-composer-dropzone-copy strong,
@@ -5064,7 +5056,7 @@
 .workspace-overlay-root {
   position: fixed;
   inset: 0;
-  z-index: 90;
+  z-index: var(--z-overlay);
   display: grid;
   align-items: stretch;
   justify-items: end;
@@ -6576,6 +6568,7 @@
   .sidebar-shell {
     position: sticky;
     top: 14px;
+    z-index: var(--z-sidebar);
     display: grid;
     grid-template-rows: minmax(0, 1fr) auto;
     gap: 12px;
@@ -6590,6 +6583,10 @@
     backdrop-filter: blur(20px);
     -webkit-backdrop-filter: blur(20px);
     transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1), padding 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  .sidebar-shell:has(.sidebar-notification-center) {
+    overflow: visible;
   }
 
   .sidebar-top {
@@ -6781,6 +6778,12 @@
     grid-template-columns: 1fr;
     justify-items: center;
     gap: 10px;
+  }
+
+  .sidebar-collapsed .sidebar-brand-actions {
+    display: grid;
+    justify-items: center;
+    gap: 8px;
   }
 
   .sidebar-collapsed .sidebar-toggle {

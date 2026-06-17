@@ -9,7 +9,10 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.ai.errors import AIConflictError
+from app.ai.images.generation import ImageGenerationRequest
+from app.ai.images.jobs import enqueue_image_generation
 from app.core.enums import ActivityAction
+from app.core.enums import ImageGenerationMode, MediaEntityType
 from app.core.utils import create_id
 from app.models.domain import Food
 from app.schemas.foods import CreateFoodRequest, UpdateFoodRequest
@@ -129,6 +132,23 @@ def _create_food_from_profile(db: Session, *, family_id: str, user_id: str, payl
     db.add(food)
     db.flush()
     bind_media_assets(db, family_id=family_id, media_ids=food_in.media_ids, entity_type="food", entity_id=food.id)
+    if not food_in.media_ids:
+        enqueue_image_generation(
+            db,
+            family_id=family_id,
+            user_id=user_id,
+            request=ImageGenerationRequest(
+                entity_type=MediaEntityType.FOOD,
+                mode=ImageGenerationMode.TEXT,
+                title=food.name,
+                category=food.category,
+                notes="\n".join([food.notes, food.routine_note]).strip(),
+                tags=[*list(food.flavor_tags or []), *list(food.scene_tags or [])],
+                scene=food.scene,
+            ),
+            target_entity_type="food",
+            target_entity_id=food.id,
+        )
     log_activity(
         db,
         family_id=family_id,

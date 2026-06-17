@@ -35,6 +35,7 @@ type IngredientMobileViewProps = {
   mobileCatalogSummaries: IngredientSummaryViewModel[];
   mobileShoppingCards: ShoppingCardViewModel[];
   mobileHasCatalogFilters: boolean;
+  notificationCenter?: ReactNode;
   openDetailView: (ingredientId: string) => void;
   openInventoryOverlay: (ingredientId?: string) => void;
   openConsumeOverlay: (ingredientId: string) => void;
@@ -68,17 +69,19 @@ export function IngredientMobileView(props: IngredientMobileViewProps) {
           <button type="button" aria-label="聚焦搜索" onClick={() => document.getElementById('mobile-ingredient-search')?.focus()}>
             {props.renderIcon('search')}
           </button>
-          <button
-            type="button"
-            aria-label="查看食材提醒"
-            onClick={() => {
-              props.setMobileIngredientFilter('alerted');
-              props.setMobileStorageFocus('all');
-            }}
-          >
-            {props.renderIcon('bell')}
-            {props.allAlertsCount > 0 && <i aria-hidden="true" />}
-          </button>
+          {props.notificationCenter ?? (
+            <button
+              type="button"
+              aria-label="查看食材提醒"
+              onClick={() => {
+                props.setMobileIngredientFilter('alerted');
+                props.setMobileStorageFocus('all');
+              }}
+            >
+              {props.renderIcon('bell')}
+              {props.allAlertsCount > 0 && <i aria-hidden="true" />}
+            </button>
+          )}
         </div>
       </div>
 

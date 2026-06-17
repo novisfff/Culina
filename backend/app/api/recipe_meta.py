@@ -11,6 +11,7 @@ from app.core.enums import ActivityAction
 from app.core.utils import create_id
 from app.db.session import get_db
 from app.db.transactions import commit_session
+from app.ai.images.jobs import attach_image_generation_job_to_entity
 from app.models.domain import Food, FoodPlanItem, FoodScene, Recipe, RecipeFavorite
 from app.repos.media import build_media_map, get_media_assets_for_entities
 from app.schemas.recipes import (
@@ -129,6 +130,17 @@ def create_food_scene(
         entity_type="food_scene",
         entity_id=scene.id,
     )
+    if payload.pending_image_job_id:
+        try:
+            attach_image_generation_job_to_entity(
+                db,
+                family_id=membership.family_id,
+                job_id=payload.pending_image_job_id,
+                entity_type="food_scene",
+                entity_id=scene.id,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     log_activity(
         db,
         family_id=membership.family_id,
@@ -185,6 +197,17 @@ def update_food_scene(
             entity_type="food_scene",
             entity_id=scene.id,
         )
+    if payload.pending_image_job_id:
+        try:
+            attach_image_generation_job_to_entity(
+                db,
+                family_id=membership.family_id,
+                job_id=payload.pending_image_job_id,
+                entity_type="food_scene",
+                entity_id=scene.id,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     log_activity(
         db,
         family_id=membership.family_id,

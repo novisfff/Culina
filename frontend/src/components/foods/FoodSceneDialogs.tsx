@@ -150,7 +150,7 @@ export function FoodSceneDialogs(props: FoodSceneDialogsProps) {
                       onClick={props.onGenerateSceneImage}
                     >
                       <FoodUiIcon name="star" />
-                      {props.sceneImageState.isGenerating ? '生成中...' : props.sceneDraft.imageAssetUrl ? '重新生成' : '生成封面'}
+                      {props.sceneImageState.isGenerating ? '后台生成中' : props.sceneDraft.imageAssetUrl ? '重新生成' : '生成封面'}
                     </button>
                     {props.sceneDraft.imageAssetUrl && (
                       <button
@@ -173,7 +173,7 @@ export function FoodSceneDialogs(props: FoodSceneDialogsProps) {
                 <ActionButton
                   tone="primary"
                   type="submit"
-                  disabled={props.isUpdatingScene || props.sceneImageState.isGenerating || !props.sceneDraft.name.trim()}
+                  disabled={props.isUpdatingScene || !props.sceneDraft.name.trim()}
                 >
                   {props.sceneFormMode === 'edit' ? '保存场景' : '添加场景'}
                 </ActionButton>

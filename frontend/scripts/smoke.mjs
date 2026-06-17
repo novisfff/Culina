@@ -208,6 +208,7 @@ const fixtures = {
   '/api/meal-logs': [],
   '/api/activity-logs': [],
   '/api/ai/conversations': [],
+  '/api/media/ai-render/active': [],
 };
 
 function assertDistExists() {

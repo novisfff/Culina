@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 
 from app.core.deps import get_current_auth
 from app.core.security import create_access_token, get_password_hash, verify_password
+from app.ai.images.jobs import attach_image_generation_job_to_entity
 from app.db.session import get_db
 from app.db.transactions import commit_session
 from app.repos.media import build_media_map, get_media_assets_for_entities
@@ -77,6 +78,17 @@ def update_me(
             entity_type="user",
             entity_id=user.id,
         )
+    if payload.pending_image_job_id:
+        try:
+            attach_image_generation_job_to_entity(
+                db,
+                family_id=membership.family_id,
+                job_id=payload.pending_image_job_id,
+                entity_type="user",
+                entity_id=user.id,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     commit_session(db)
     db.refresh(user)
     media_map = build_media_map(get_media_assets_for_entities(db, family_id=membership.family_id, entity_type="user", entity_ids=[user.id]))

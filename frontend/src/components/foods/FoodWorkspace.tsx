@@ -1,4 +1,4 @@
-import { useMemo, useState, type FormEvent } from 'react';
+import { useMemo, useState, type FormEvent, type ReactNode } from 'react';
 import type {
   Food,
   FoodPlanItem,
@@ -15,6 +15,7 @@ import type {
   RecipePayload,
 } from '../../api/types';
 import { buildMediaSizes, buildMediaSrcSet, resolveAssetUrl, resolveMediaUrl } from '../../lib/assets';
+import { getPendingImageJobId } from '../../lib/aiImages';
 import { addDateKeyDays } from '../../lib/date';
 import { MediaWithPlaceholder } from '../MediaPlaceholder';
 import {
@@ -133,6 +134,7 @@ type Props = {
   foodScenes: FoodScene[];
   foodPlanItems: FoodPlanItem[];
   foodPlanWeekRange: { start: string; end: string };
+  notificationCenter?: ReactNode;
   createFood: (payload: FoodPayload) => Promise<Food>;
   updateFood: (foodId: string, payload: FoodPayload) => Promise<Food>;
   updateFoodFavorite: (foodId: string, favorite: boolean) => Promise<Food>;
@@ -796,7 +798,7 @@ export function FoodWorkspace(props: Props) {
   const editorCompletionItems = getFoodFormCompletionItems(form, editingFood, props.recipes);
   const editorCompletedCount = editorCompletionItems.filter((item) => item.done).length;
   const editorCompletionPercent = Math.round((editorCompletedCount / editorCompletionItems.length) * 100);
-  const canSubmit = !props.isSavingFood && !imageComposer.state.isGenerating;
+  const canSubmit = !props.isSavingFood;
   const sceneTagOptions = useMemo(() => {
     const names = new Set<string>();
     props.foodScenes.filter((scene) => !scene.hidden).forEach((scene) => names.add(scene.name));
@@ -814,7 +816,6 @@ export function FoodWorkspace(props: Props) {
   const recipeEditorCoverAsset = getImagePreview(recipeEditor.form.images);
   const recipeEditorCoverUrl = resolveAssetUrl(recipeEditorCoverAsset?.url);
   const recipeEditorReferenceUrl = resolveAssetUrl(recipeEditor.form.images.referenceAsset?.url);
-  const recipeEditorGeneratedUrl = resolveAssetUrl(recipeEditor.form.images.generatedAsset?.url);
   const recipeEditorCompletionItems = [
     { label: '已填写基础信息', done: Boolean(recipeEditor.form.title.trim() && Number(recipeEditor.form.servings) > 0) },
     { label: '已添加原料', done: recipeEditorIngredientCount > 0 },
@@ -845,7 +846,7 @@ export function FoodWorkspace(props: Props) {
     uploadErrorMessage: '参考图上传或 AI 主图生成失败',
     generateErrorMessage: 'AI 主图生成失败',
   });
-  const recipeEditorSubmitDisabled = Boolean(props.isUpdatingRecipe || recipeEditorImageComposer.state.isGenerating);
+  const recipeEditorSubmitDisabled = Boolean(props.isUpdatingRecipe);
 
   function handleOpenCreate(type: FoodType = 'takeout') {
     imageComposer.setState(IDLE_IMAGE_GENERATION_STATE);
@@ -892,7 +893,12 @@ export function FoodWorkspace(props: Props) {
   async function submitFoodRecipeEditor(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!recipeEditor.selectedRecipeId) return;
-    const payload = buildRecipePayload(recipeEditor.form, recipeEditor.ingredientRows, props.ingredients);
+    const payload = buildRecipePayload(
+      recipeEditor.form,
+      recipeEditor.ingredientRows,
+      props.ingredients,
+      getPendingImageJobId(recipeEditor.form.images)
+    );
     if (!payload.title || payload.ingredient_items.length === 0) {
       showNotice({ tone: 'warning', title: '还不能保存菜谱', message: '菜谱至少要有标题和一个食材。' });
       return;
@@ -999,6 +1005,7 @@ export function FoodWorkspace(props: Props) {
             emptyTitle={currentLensCopy.emptyTitle}
             isQuickAdding={props.isQuickAdding}
             isUpdatingFavorite={props.isUpdatingFavorite}
+            notificationCenter={props.notificationCenter}
             resolveFoodAssetUrl={resolveFoodAssetUrl}
             getFoodCardPrimaryActionLabel={getFoodCardPrimaryActionLabel}
             getRecommendationPrimaryActionLabel={getRecommendationPrimaryActionLabel}
@@ -1495,7 +1502,6 @@ export function FoodWorkspace(props: Props) {
               stepKeyPointSlots={recipeEditor.stepKeyPointSlots}
               editorCoverUrl={recipeEditorCoverUrl}
               editorReferenceUrl={recipeEditorReferenceUrl}
-              editorGeneratedUrl={recipeEditorGeneratedUrl}
               editorCoverAsset={recipeEditorCoverAsset}
               editorIngredientCount={recipeEditorIngredientCount}
               editorStepCount={recipeEditorStepCount}
