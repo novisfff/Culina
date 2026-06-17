@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type FormEventHandler } from 'react';
+import { useEffect, useMemo, useState, type FormEventHandler, type ReactNode } from 'react';
 import type { Food, FoodPlanItem, MealLog, Member, UpdateMealLogPayload } from '../../api/types';
 import { Avatar, Badge, PageHeader, WorkspaceModal } from '../../components/ui-kit';
 import { MediaWithPlaceholder } from '../../components/MediaPlaceholder';
@@ -38,6 +38,7 @@ type Props = {
   isUpdatingMeal: boolean;
   isGeneratingPhoto: boolean;
   photoErrorMessage?: string | null;
+  notificationCenter?: ReactNode;
   updateMealLog: (mealLogId: string, payload: UpdateMealLogPayload) => Promise<unknown>;
   onBackHome: () => void;
   onSubmit: FormEventHandler<HTMLFormElement>;
@@ -120,6 +121,7 @@ export function MealLogWorkspace(props: Props) {
         onSearchChange={setSearchQuery}
         onStatusFilterChange={setStatusFilter}
         onMealFilterChange={setMealFilter}
+        notificationCenter={props.notificationCenter}
       />
 
       <main className="meal-log-desktop-view meal-log-center-page">

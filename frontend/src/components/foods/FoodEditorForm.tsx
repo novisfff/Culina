@@ -364,7 +364,7 @@ export function FoodEditorForm(props: Props) {
               <div className="workspace-rail-actions">
                 <ActionButton tone="primary" type="submit" disabled={!props.canSubmit}>
                   <FoodUiIcon name="save" />
-                  <span>{props.isSavingFood ? '保存中...' : props.imageState.isGenerating ? '生成主图中...' : props.view === 'create' ? '保存食物' : '保存修改'}</span>
+                  <span>{props.isSavingFood ? '保存中...' : props.view === 'create' ? '保存食物' : '保存修改'}</span>
                 </ActionButton>
                 <ActionButton tone="secondary" type="button" onClick={props.onBack}>
                   <FoodUiIcon name="arrowLeft" />

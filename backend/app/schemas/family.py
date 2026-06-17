@@ -40,6 +40,7 @@ class UpdateMemberRequest(BaseModel):
     email: str | None = None
     phone: str | None = None
     avatar_media_id: str | None = None
+    pending_image_job_id: str | None = None
 
 
 class UpdateFamilyRequest(BaseModel):
@@ -47,6 +48,7 @@ class UpdateFamilyRequest(BaseModel):
     motto: str = ""
     location: str = ""
     image_media_id: str | None = None
+    pending_image_job_id: str | None = None
 
 
 class FamilyDetailOut(BaseModel):

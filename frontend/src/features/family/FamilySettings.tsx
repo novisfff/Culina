@@ -1,4 +1,4 @@
-import type { FormEventHandler } from 'react';
+import type { FormEventHandler, ReactNode } from 'react';
 import type { ActivityLog, FamilyDetail, Member, MembershipSummary, UserSummary } from '../../api/types';
 import { DashboardIcon, ShellIcon, type DashboardIconName } from '../../app/shellIcons';
 import { MediaWithPlaceholder } from '../../components/MediaPlaceholder';
@@ -41,6 +41,7 @@ export type FamilySettingsProps = {
   currentUserRecentLogs: number;
   familyOwnerMember?: Member;
   activityLogs: ActivityLog[];
+  notificationCenter?: ReactNode;
   overlayMode: FamilyOverlayMode;
   editingMember?: Member;
   inviteForm: InviteFormState;
@@ -88,6 +89,7 @@ export function FamilySettings(props: FamilySettingsProps) {
         familyStatCards={props.familyStatCards}
         familyOwnerMember={props.familyOwnerMember}
         activityLogs={props.activityLogs}
+        notificationCenter={props.notificationCenter}
         resolveAssetUrl={props.resolveAssetUrl}
         onOverlayChange={props.onOverlayChange}
         onNavigate={props.onNavigate}

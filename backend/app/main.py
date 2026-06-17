@@ -8,6 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.api.router import api_router
+from app.ai.images.jobs import ImageGenerationWorker
 from app.core.config import get_settings
 from app.core.logging import configure_logging
 from app.db.session import SessionLocal
@@ -23,7 +24,12 @@ async def lifespan(app: FastAPI):
     _ = app
     with SessionLocal() as db:
         initialize_configured_admin(db)
+    image_worker = ImageGenerationWorker()
+    image_worker.start()
+    logger.info("AI image generation worker started")
     yield
+    image_worker.stop()
+    logger.info("AI image generation worker stopped")
 
 
 app = FastAPI(title="Culina API", version="0.1.0", lifespan=lifespan)

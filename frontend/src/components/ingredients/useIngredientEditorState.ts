@@ -1,7 +1,6 @@
 import { useState, type Dispatch, type FormEvent, type SetStateAction } from 'react';
 import { IDLE_IMAGE_GENERATION_STATE, useImageComposer } from '../../hooks/useImageComposer';
-import type { AiRenderPayload } from '../../lib/aiImages';
-import { getMediaIds } from '../../lib/aiImages';
+import { getMediaIds, getPendingImageJobId, type AiRenderPayload } from '../../lib/aiImages';
 import { getImagePreview } from '../../lib/ui';
 import type { Ingredient, IngredientExpiryMode, IngredientUnitConversion } from '../../api/types';
 import { getIngredientCategoryPreset, INGREDIENT_CATEGORY_PRESETS, type IngredientWorkspaceView } from './workspaceModel';
@@ -173,6 +172,7 @@ export function useIngredientEditorState(args: UseIngredientEditorStateArgs) {
         default_low_stock_threshold: lowStockThreshold,
         notes: args.ingredientForm.notes.trim(),
         media_ids: getMediaIds(args.ingredientForm.images),
+        pending_image_job_id: getPendingImageJobId(args.ingredientForm.images),
       };
       const saved = args.editingIngredientId
         ? await args.updateIngredient(args.editingIngredientId, payload)
@@ -243,8 +243,7 @@ export function useIngredientEditorState(args: UseIngredientEditorStateArgs) {
     Boolean(trimmedIngredientName) &&
     ingredientRulesValid &&
     !args.isCreatingIngredient &&
-    !args.isUpdatingIngredient &&
-    !ingredientImageComposer.state.isGenerating;
+    !args.isUpdatingIngredient;
   const createSummaryItems = [
     { label: '名称', value: trimmedIngredientName || '未填写食材名称' },
     { label: '分类', value: trimmedIngredientCategory || '未设置分类' },

@@ -1,6 +1,6 @@
 import { useMemo, useState, type FormEvent } from 'react';
 import type { Food, FoodPayload, FoodScene, FoodType, MealType, Recipe } from '../../api/types';
-import { getMediaIds } from '../../lib/aiImages';
+import { getMediaIds, getPendingImageJobId } from '../../lib/aiImages';
 import { MEAL_TYPE_LABELS, formatDate, splitTags, todayKey } from '../../lib/ui';
 import type { FoodGovernanceIssue, FoodWorkspaceLens } from './FoodWorkspaceOptions';
 import { buildFoodPayloadFromForm, foodToForm, makeBlankFoodForm, type FoodFormState } from './FoodWorkspaceModel';
@@ -16,6 +16,7 @@ type UseFoodWorkspaceStateArgs = {
     description: string;
     image_prompt: string;
     image_asset_id?: string;
+    pending_image_job_id?: string | null;
     hidden: boolean;
     custom: boolean;
     sort_order: number;
@@ -78,7 +79,7 @@ export function useFoodWorkspaceState(args: UseFoodWorkspaceStateArgs) {
   async function submitFood(event: FormEvent<HTMLFormElement>, canSubmit: boolean) {
     event.preventDefault();
     if (!canSubmit) return;
-    const payload = buildFoodPayloadFromForm(form, args.recipes, getMediaIds(form.images));
+    const payload = buildFoodPayloadFromForm(form, args.recipes, getMediaIds(form.images), getPendingImageJobId(form.images));
     if (editingFood) {
       await args.updateFood(editingFood.id, payload);
     } else {

@@ -28,6 +28,7 @@ export const ingredientsApi = {
     default_low_stock_threshold?: number | null;
     notes: string;
     media_ids: string[];
+    pending_image_job_id?: string | null;
   }) =>
     request<Ingredient>('/api/ingredients', {
       method: 'POST',
@@ -46,6 +47,7 @@ export const ingredientsApi = {
       default_low_stock_threshold?: number | null;
       notes: string;
       media_ids: string[];
+      pending_image_job_id?: string | null;
     }
   ) =>
     request<Ingredient>(`/api/ingredients/${ingredientId}`, {

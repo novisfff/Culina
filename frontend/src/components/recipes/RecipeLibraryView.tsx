@@ -34,6 +34,7 @@ type RecipeLibraryViewProps = {
   mobileSceneCards: Array<{ scene: RecipeSceneCard; coverUrl?: string }>;
   mobileLibraryCards: RecipeCardViewModel[];
   hasMobileRecipeAlerts: boolean;
+  notificationCenter?: ReactNode;
   favoriteRecipeIds: Set<string>;
   isUpdatingFavorite?: boolean;
   activeDiscoveryCopy: DiscoveryCopy;
@@ -93,6 +94,7 @@ export function RecipeLibraryView({
   mobileSceneCards,
   mobileLibraryCards,
   hasMobileRecipeAlerts,
+  notificationCenter,
   favoriteRecipeIds,
   isUpdatingFavorite,
   activeDiscoveryCopy,
@@ -154,6 +156,7 @@ export function RecipeLibraryView({
           mobileSceneCards={mobileSceneCards}
           mobileLibraryCards={mobileLibraryCards}
           hasMobileRecipeAlerts={hasMobileRecipeAlerts}
+          notificationCenter={notificationCenter}
           favoriteRecipeIds={favoriteRecipeIds}
           isUpdatingFavorite={isUpdatingFavorite}
           activeDiscoveryCopy={activeDiscoveryCopy}

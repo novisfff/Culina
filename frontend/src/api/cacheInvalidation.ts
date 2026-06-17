@@ -1,5 +1,6 @@
 import type { QueryClient, QueryKey } from '@tanstack/react-query';
 import { queryKeys } from './queryKeys';
+import type { AiImageTargetEntityType } from './types';
 
 function invalidateMany(queryClient: QueryClient, keys: QueryKey[]) {
   keys.forEach((queryKey) => {
@@ -120,4 +121,36 @@ export function invalidateAfterAiMessageSent(queryClient: QueryClient, conversat
     queryKeys.aiMessages(conversationId),
     queryKeys.aiPendingApprovals(conversationId),
   ]);
+}
+
+export function invalidateAfterAiImageJobChanged(
+  queryClient: QueryClient,
+  target?: { target_entity_type?: AiImageTargetEntityType | null; target_entity_id?: string | null }
+) {
+  invalidateMany(queryClient, [queryKeys.aiImageJobs]);
+  switch (target?.target_entity_type) {
+    case 'food':
+      invalidateAfterFoodChanged(queryClient);
+      break;
+    case 'ingredient':
+      invalidateAfterIngredientChanged(queryClient);
+      break;
+    case 'recipe':
+      invalidateAfterRecipeChanged(queryClient);
+      break;
+    case 'food_scene':
+      invalidateAfterFoodSceneChanged(queryClient);
+      break;
+    case 'meal_log':
+      invalidateAfterMealLogChanged(queryClient);
+      break;
+    case 'family':
+      invalidateAfterFamilyChanged(queryClient);
+      break;
+    case 'user':
+      invalidateAfterProfileChanged(queryClient);
+      break;
+    default:
+      break;
+  }
 }

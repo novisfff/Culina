@@ -8,6 +8,7 @@ from app.core.deps import get_current_auth, require_owner
 from app.core.enums import ActivityAction
 from app.core.security import get_password_hash
 from app.core.utils import create_id
+from app.ai.images.jobs import attach_image_generation_job_to_entity
 from app.db.session import get_db
 from app.db.transactions import commit_session
 from app.models.domain import AIRecommendation, Membership, User, UserCredential
@@ -59,6 +60,17 @@ def update_family(
             entity_type="family",
             entity_id=family.id,
         )
+    if payload.pending_image_job_id:
+        try:
+            attach_image_generation_job_to_entity(
+                db,
+                family_id=membership.family_id,
+                job_id=payload.pending_image_job_id,
+                entity_type="family",
+                entity_id=family.id,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     log_activity(
         db,
         family_id=membership.family_id,
@@ -174,6 +186,17 @@ def update_member(
             entity_type="user",
             entity_id=member_user.id,
         )
+    if payload.pending_image_job_id:
+        try:
+            attach_image_generation_job_to_entity(
+                db,
+                family_id=membership.family_id,
+                job_id=payload.pending_image_job_id,
+                entity_type="user",
+                entity_id=member_user.id,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     log_activity(
         db,
         family_id=membership.family_id,

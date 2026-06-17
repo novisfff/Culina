@@ -83,6 +83,7 @@ class CreateFoodRequest(BaseModel):
     favorite: bool = False
     recipe_id: str | None = None
     media_ids: list[str] = Field(default_factory=list)
+    pending_image_job_id: str | None = None
 
     @model_validator(mode="after")
     def validate_food_details(self) -> "CreateFoodRequest":

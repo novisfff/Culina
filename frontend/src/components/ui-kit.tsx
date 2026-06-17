@@ -689,27 +689,14 @@ export function ImageComposer(props: {
       ? 'media-panel form-panel-section image-composer image-composer-workspace-inline'
       : 'span-two media-panel form-panel-section image-composer';
   const showResults = hasReference || hasGenerated || Boolean(props.isGenerating);
-  const aiStatusLabel = hasGenerated ? '已生成' : props.isGenerating ? '生成中' : props.errorMessage ? '可重试' : '未生成';
-  const aiPlaceholderTitle = props.isGenerating ? '正在生成主图' : props.errorMessage ? '主图生成失败' : '还没有 AI 主图';
-  const aiPlaceholderNote = props.isGenerating ? '请稍候，系统正在统一画面风格。' : props.errorMessage ? '点击右上角按钮重试即可。' : '可以先上传参考图，或直接基于信息生成。';
+  const aiStatusLabel = hasGenerated ? '已生成' : props.isGenerating ? '后台生成中' : props.errorMessage ? '可重试' : '未生成';
+  const aiPlaceholderTitle = props.isGenerating ? 'AI 主图已排队' : props.errorMessage ? '主图生成失败' : '还没有 AI 主图';
+  const aiPlaceholderNote = props.isGenerating ? '可以先保存，生成完成后会自动更新图片。' : props.errorMessage ? '点击右上角按钮重试即可。' : '可以先上传参考图，或直接基于信息生成。';
 
   return (
     <ContainerTag className={rootClassName}>
-      <div className="inline-between section-mini-title">
+      <div className="section-mini-title">
         <span>{props.title}</span>
-        <div className="inline-actions">
-          <button
-            className="ghost-button"
-            type="button"
-            onClick={() => props.onGenerate(hasReference ? 'reference' : 'text')}
-            disabled={props.isGenerating}
-          >
-            {props.isGenerating ? '生成中...' : generateLabel}
-          </button>
-          <button className="ghost-button" type="button" onClick={props.onReset} disabled={props.isGenerating}>
-            {props.clearLabel ?? '清空图片'}
-          </button>
-        </div>
       </div>
       <div className="image-composer-stage">
         {!showResults ? (
@@ -745,7 +732,7 @@ export function ImageComposer(props: {
                 />
                 <div className="image-composer-result-head">
                   <span>参考图</span>
-                  <small>{props.isGenerating ? '上传后生成中' : '点按更换'}</small>
+                  <small>{props.isGenerating ? '后台生成中' : '点按更换'}</small>
                 </div>
                 <div className="image-composer-result-media">
                   <MediaWithPlaceholder
@@ -777,6 +764,28 @@ export function ImageComposer(props: {
               )}
             </article>
           </div>
+        )}
+      </div>
+      <div className="image-composer-actions">
+        <button
+          className="ghost-button ai-action"
+          type="button"
+          onClick={() => props.onGenerate(hasReference ? 'reference' : 'text')}
+          disabled={props.isGenerating}
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M12 3.8 14 9l5.2 2-5.2 2-2 5.2-2-5.2-5.2-2 5.2-2L12 3.8Z" />
+          </svg>
+          {props.isGenerating ? '正在生成...' : generateLabel}
+        </button>
+        {(hasReference || hasGenerated) && (
+          <button className="ghost-button" type="button" onClick={props.onReset} disabled={props.isGenerating}>
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M5.1 8.5A7.2 7.2 0 1 1 4.8 16" />
+              <path d="M5 4.8v3.7h3.7" />
+            </svg>
+            {props.clearLabel ?? '清空图片'}
+          </button>
         )}
       </div>
       {props.errorMessage && <span className="image-composer-error">{props.errorMessage}</span>}

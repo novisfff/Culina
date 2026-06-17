@@ -9,7 +9,7 @@ export const authApi = {
     }),
   me: () => request<LoginResponse>('/api/auth/me'),
   logout: () => request<void>('/api/auth/logout', { method: 'POST' }),
-  updateMe: (payload: { display_name: string; email?: string | null; phone?: string | null; avatar_seed?: string | null; avatar_media_id?: string | null }) =>
+  updateMe: (payload: { display_name: string; email?: string | null; phone?: string | null; avatar_seed?: string | null; avatar_media_id?: string | null; pending_image_job_id?: string | null }) =>
     request<LoginResponse['user']>('/api/auth/me', {
       method: 'PATCH',
       body: JSON.stringify(payload),

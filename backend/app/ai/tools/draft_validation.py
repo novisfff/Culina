@@ -442,7 +442,7 @@ def _normalize_meal_log_operation_draft(db: Session, *, family_id: str, user_id:
 def normalize_recipe_draft_for_tools(db: Session, *, family_id: str, payload: Any) -> dict[str, Any]:
     if isinstance(payload, dict) and payload.get("action"):
         return _normalize_recipe_operation_draft(db, family_id=family_id, payload=payload)
-    recipe = CreateRecipeRequest.model_validate(payload).model_dump(mode="json")
+    recipe = _strip_transport_fields(CreateRecipeRequest.model_validate(payload).model_dump(mode="json"))
     ingredient_ids = _string_ids(item.get("ingredient_id") for item in recipe["ingredient_items"])
     ingredients_by_id = _load_by_id(db, Ingredient, family_id=family_id, ids=ingredient_ids, label="食材")
     normalized_items = []
@@ -557,7 +557,7 @@ def _normalize_recipe_operation_draft(db: Session, *, family_id: str, payload: d
             "before": before,
             "payload": {"reason": str((payload.get("payload") or {}).get("reason") or "")},
         }
-    normalized = UpdateRecipeRequest.model_validate(payload.get("payload") or {}).model_dump(mode="json")
+    normalized = _strip_transport_fields(UpdateRecipeRequest.model_validate(payload.get("payload") or {}).model_dump(mode="json"))
     normalized = normalize_recipe_draft_for_tools(db, family_id=family_id, payload=normalized)
     return {
         "draftType": "recipe",
@@ -586,7 +586,7 @@ def normalize_food_profile_draft_for_tools(db: Session, *, family_id: str, paylo
         return _normalize_food_profile_operation_draft(db, family_id=family_id, payload=payload)
     if not isinstance(payload, dict):
         raise ValueError("食物资料草稿格式不正确")
-    food = CreateFoodRequest.model_validate(payload).model_dump(mode="json")
+    food = _strip_transport_fields(CreateFoodRequest.model_validate(payload).model_dump(mode="json"))
     recipe_id = food.get("recipe_id")
     if recipe_id:
         recipe = _load_by_id(db, Recipe, family_id=family_id, ids=[recipe_id], label="菜谱")[str(recipe_id)]
@@ -641,7 +641,7 @@ def normalize_ingredient_profile_draft(db: Session, *, family_id: str, payload: 
     if action not in {"create", "update"}:
         raise ValueError("食材档案操作类型不正确")
     request_model = CreateIngredientRequest if action == "create" else UpdateIngredientRequest
-    ingredient_payload = request_model.model_validate(payload.get("payload") or {}).model_dump(mode="json")
+    ingredient_payload = _strip_transport_fields(request_model.model_validate(payload.get("payload") or {}).model_dump(mode="json"))
     if action == "create":
         return {
             "draftType": "ingredient_profile",
@@ -1164,6 +1164,10 @@ def _serialize_draft_media(asset: Any) -> dict[str, Any]:
 
 def _string_ids(values: Any) -> list[str]:
     return [str(value) for value in values if value]
+
+
+def _strip_transport_fields(payload: dict[str, Any]) -> dict[str, Any]:
+    return {key: value for key, value in payload.items() if key not in {"pending_image_job_id"}}
 
 
 def _string_list(value: Any, *, max_items: int) -> list[str]:

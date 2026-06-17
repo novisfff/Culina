@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import type {
   AiGeneratedRecipeDraft,
   CookRecipePreviewResponse,
@@ -27,7 +27,7 @@ import type {
 } from '../../api/types';
 import { resolveAssetUrl } from '../../lib/assets';
 import { readJsonStorage, removeStorage, writeJsonStorage } from '../../lib/storage';
-import { type AiRenderPayload } from '../../lib/aiImages';
+import { getPendingImageJobId, type AiRenderPayload } from '../../lib/aiImages';
 import { emptyImages, formatDate, formatDateTime, getImagePreview, splitTags, todayKey } from '../../lib/ui';
 import { IDLE_IMAGE_GENERATION_STATE, useImageComposer, type ImageGenerationUiState } from '../../hooks/useImageComposer';
 import {
@@ -172,6 +172,7 @@ type RecipeWorkspaceProps = {
   recipePlanWeekRange: { start: string; end: string };
   startRecipeId?: string | null;
   startFoodPlanItemId?: string | null;
+  notificationCenter?: ReactNode;
   onStartRecipeHandled?: () => void;
   onRecipePlanPreviousWeek: () => void;
   onRecipePlanCurrentWeek: () => void;
@@ -193,6 +194,7 @@ type RecipeWorkspaceProps = {
     description: string;
     image_prompt: string;
     image_asset_id?: string;
+    pending_image_job_id?: string | null;
     hidden: boolean;
     custom: boolean;
     sort_order: number;
@@ -204,6 +206,7 @@ type RecipeWorkspaceProps = {
       description?: string;
       image_prompt?: string;
       image_asset_id?: string;
+      pending_image_job_id?: string | null;
       hidden?: boolean;
       custom?: boolean;
       sort_order?: number;
@@ -421,7 +424,6 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
   const editorCoverAsset = getImagePreview(form.images);
   const editorCoverUrl = resolveAssetUrl(editorCoverAsset?.url);
   const editorReferenceUrl = resolveAssetUrl(form.images.referenceAsset?.url);
-  const editorGeneratedUrl = resolveAssetUrl(form.images.generatedAsset?.url);
   const aiSourceIngredients = ingredientRows
     .filter((item) => item.ingredient_id || item.ingredient_name.trim())
     .map((item) => {
@@ -462,7 +464,7 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
     generateErrorMessage: 'AI 主图生成失败',
   });
   const recipeImageState = recipeImageComposer.state;
-  const submitDisabled = props.isCreatingRecipe || props.isUpdatingRecipe || recipeImageState.isGenerating;
+  const submitDisabled = Boolean(props.isCreatingRecipe || props.isUpdatingRecipe);
   const activeDiscoveryCopy =
     sceneFilter === 'all'
       ? DISCOVERY_SECTION_COPY[quickFilter]
@@ -747,11 +749,20 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
         setRecipeDraftGenerationStage('imaging');
         try {
           const images = await recipeImageComposer.generateWithResult('text', response.image_render_payload);
-          setForm((current) => ({ ...current, images: { ...current.images, generatedAsset: images.generatedAsset } }));
+          setForm((current) => ({
+            ...current,
+            images: {
+              ...current.images,
+              generatedAsset: images.generatedAsset,
+              pendingJob: images.pendingJob,
+            },
+          }));
           showRecipeNotice({
             tone: 'success',
             title: 'AI 菜谱已填入',
-            message: '已补全基础信息、原料、步骤和技巧，可继续编辑后保存。',
+            message: images.pendingJob
+              ? '已补全文本内容，封面会在后台生成，可先保存。'
+              : '已补全基础信息、原料、步骤、技巧和封面，可继续编辑后保存。',
           });
         } catch (reason) {
           showRecipeNotice({
@@ -776,7 +787,7 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
 
   async function submitRecipe(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const payload = buildRecipePayload(form, ingredientRows, props.ingredients);
+    const payload = buildRecipePayload(form, ingredientRows, props.ingredients, getPendingImageJobId(form.images));
     if (!payload.title || payload.ingredient_items.length === 0) {
       showRecipeNotice({ tone: 'warning', title: '还不能保存菜谱', message: '菜谱至少要有标题和一个食材。' });
       return;
@@ -1016,7 +1027,6 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
           stepKeyPointSlots={stepKeyPointSlots}
           editorCoverUrl={editorCoverUrl}
           editorReferenceUrl={editorReferenceUrl}
-          editorGeneratedUrl={editorGeneratedUrl}
           editorCoverAsset={editorCoverAsset}
           editorIngredientCount={editorIngredientCount}
           editorStepCount={editorStepCount}
@@ -1126,6 +1136,7 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
           mobileSceneCards={mobileSceneCards}
           mobileLibraryCards={mobileLibraryCards}
           hasMobileRecipeAlerts={hasMobileRecipeAlerts}
+          notificationCenter={props.notificationCenter}
           favoriteRecipeIds={homeViewModel.favoriteRecipeIds}
           isUpdatingFavorite={props.isUpdatingFavorite}
           activeDiscoveryCopy={activeDiscoveryCopy}

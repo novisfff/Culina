@@ -135,6 +135,7 @@ type IngredientWorkspaceProps = {
   inventoryItems: InventoryItem[];
   recipes: Recipe[];
   shoppingItems: ShoppingListItem[];
+  notificationCenter?: ReactNode;
   navigationRequest?: {
     view: 'catalog' | 'detail';
     ingredientId?: string;
@@ -1921,6 +1922,7 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
         mobileCatalogSummaries={mobileCatalogSummaries}
         mobileShoppingCards={mobileShoppingCards}
         mobileHasCatalogFilters={mobileHasCatalogFilters}
+        notificationCenter={props.notificationCenter}
         openDetailView={openDetailView}
         openInventoryOverlay={openInventoryOverlay}
         openConsumeOverlay={openConsumeOverlay}

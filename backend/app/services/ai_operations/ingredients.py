@@ -8,7 +8,9 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
 from app.ai.errors import AIConflictError
-from app.core.enums import ActivityAction
+from app.ai.images.generation import ImageGenerationRequest
+from app.ai.images.jobs import enqueue_image_generation
+from app.core.enums import ActivityAction, ImageGenerationMode, MediaEntityType
 from app.core.utils import create_id
 from app.models.domain import Ingredient
 from app.schemas.ingredients import CreateIngredientRequest, UpdateIngredientRequest
@@ -56,6 +58,21 @@ def execute_ingredient_profile_draft(
         db.add(ingredient)
         db.flush()
         bind_media_assets(db, family_id=family_id, media_ids=ingredient_in.media_ids, entity_type="ingredient", entity_id=ingredient.id)
+        if not ingredient_in.media_ids:
+            enqueue_image_generation(
+                db,
+                family_id=family_id,
+                user_id=user_id,
+                request=ImageGenerationRequest(
+                    entity_type=MediaEntityType.INGREDIENT,
+                    mode=ImageGenerationMode.TEXT,
+                    title=ingredient.name,
+                    category=ingredient.category,
+                    notes=ingredient.notes,
+                ),
+                target_entity_type="ingredient",
+                target_entity_id=ingredient.id,
+            )
         log_activity(
             db,
             family_id=family_id,

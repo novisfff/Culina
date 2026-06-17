@@ -42,6 +42,7 @@ class UpdateProfileRequest(BaseModel):
     phone: str | None = None
     avatar_seed: str | None = None
     avatar_media_id: str | None = None
+    pending_image_job_id: str | None = None
 
 
 class UpdatePasswordRequest(BaseModel):

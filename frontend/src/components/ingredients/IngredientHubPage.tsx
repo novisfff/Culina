@@ -114,6 +114,7 @@ type IngredientHubPageProps = {
   mobileCatalogSummaries: IngredientSummaryViewModel[];
   mobileShoppingCards: ShoppingCardViewModel[];
   mobileHasCatalogFilters: boolean;
+  notificationCenter?: ReactNode;
   openDetailView: (ingredientId: string) => void;
   openInventoryOverlay: (ingredientId?: string) => void;
   openConsumeOverlay: (ingredientId: string) => void;
@@ -329,6 +330,7 @@ export function IngredientHubPage(props: IngredientHubPageProps) {
             mobileCatalogSummaries={props.mobileCatalogSummaries}
             mobileShoppingCards={props.mobileShoppingCards}
             mobileHasCatalogFilters={props.mobileHasCatalogFilters}
+            notificationCenter={props.notificationCenter}
             openDetailView={props.openDetailView}
             openInventoryOverlay={props.openInventoryOverlay}
             openConsumeOverlay={props.openConsumeOverlay}

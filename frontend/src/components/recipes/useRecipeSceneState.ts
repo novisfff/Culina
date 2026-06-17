@@ -20,6 +20,7 @@ type UseRecipeSceneStateArgs = {
     description: string;
     image_prompt: string;
     image_asset_id?: string;
+    pending_image_job_id?: string | null;
     hidden: boolean;
     custom: boolean;
     sort_order: number;
@@ -31,6 +32,7 @@ type UseRecipeSceneStateArgs = {
       description?: string;
       image_prompt?: string;
       image_asset_id?: string;
+      pending_image_job_id?: string | null;
       hidden?: boolean;
       custom?: boolean;
       sort_order?: number;
@@ -47,6 +49,9 @@ export function useRecipeSceneState(args: UseRecipeSceneStateArgs) {
   const [generatingSceneName, setGeneratingSceneName] = useState<string | null>(null);
   const sceneImageComposer = useImageComposer({
     value: {
+      pendingJob: sceneDraft.pendingImageJobId
+        ? { job_id: sceneDraft.pendingImageJobId, status: 'running', generation_mode: 'text' }
+        : undefined,
       generatedAsset:
         sceneDraft.imageAssetId && sceneDraft.imageAssetUrl
           ? {
@@ -65,6 +70,7 @@ export function useRecipeSceneState(args: UseRecipeSceneStateArgs) {
         ...current,
         imageAssetId: next.generatedAsset?.id,
         imageAssetUrl: next.generatedAsset?.url,
+        pendingImageJobId: next.pendingJob?.job_id ?? null,
       })),
     generateErrorMessage: '场景图片生成失败',
   });
@@ -76,6 +82,7 @@ export function useRecipeSceneState(args: UseRecipeSceneStateArgs) {
       description: scene.description.trim(),
       image_prompt: scene.imagePrompt.trim(),
       image_asset_id: scene.imageAssetId,
+      pending_image_job_id: scene.pendingImageJobId ?? null,
       hidden: Boolean(scene.hidden),
       custom: scene.custom ?? true,
       sort_order: existingIndex >= 0 ? existingIndex : args.managedScenes.length,
@@ -202,13 +209,11 @@ export function useRecipeSceneState(args: UseRecipeSceneStateArgs) {
     try {
       const nextImages = await sceneImageComposer.generateWithResult('text', buildSceneImagePayload(nextSceneBase));
       const generatedAsset = nextImages.generatedAsset;
-      if (!generatedAsset) {
-        throw new Error('AI 主图生成失败');
-      }
       const nextScene: ManagedRecipeScene = {
         ...nextSceneBase,
-        imageAssetId: generatedAsset.id,
-        imageAssetUrl: generatedAsset.url,
+        imageAssetId: generatedAsset?.id,
+        imageAssetUrl: generatedAsset?.url,
+        pendingImageJobId: nextImages.pendingJob?.job_id ?? null,
       };
       if (options.draft) {
         setSceneDraft(nextScene);
@@ -216,6 +221,7 @@ export function useRecipeSceneState(args: UseRecipeSceneStateArgs) {
         await args.updateRecipeScene(scene.id, {
           image_prompt: nextScene.imagePrompt,
           image_asset_id: nextScene.imageAssetId,
+          pending_image_job_id: nextScene.pendingImageJobId,
           hidden: false,
         });
       } else {

@@ -1,4 +1,5 @@
 import type { Dispatch, SetStateAction } from 'react';
+import type { ReactNode } from 'react';
 import type { Food, FoodPlanItem, FoodRecommendations, Ingredient, MealType, Recipe, ShoppingListItem } from '../../api/types';
 import type { TabKey } from '../../app/AppShell';
 import { DashboardIcon, DashboardMealIcon, ShellIcon } from '../../app/shellIcons';
@@ -21,6 +22,7 @@ export function HomeMobileDashboard(props: {
   sidebarMemberLabel: string;
   sidebarActivityLabel: string;
   inventoryAlerts: unknown[];
+  notificationCenter?: ReactNode;
   dashboardStats: DashboardStat[];
   dashboardRecommendationItems: DashboardRecommendation[];
   dashboardRecommendationPageCount: number;
@@ -74,10 +76,12 @@ export function HomeMobileDashboard(props: {
             <button type="button" onClick={() => props.onNavigate('foods')} aria-label="搜索食物">
               <DashboardIcon name="search" />
             </button>
-            <button type="button" onClick={() => props.onNavigate('ingredients')} aria-label="查看提醒">
-              <DashboardIcon name="bell" />
-              {props.inventoryAlerts.length > 0 && <i aria-hidden="true" />}
-            </button>
+            {props.notificationCenter ?? (
+              <button type="button" onClick={() => props.onNavigate('ingredients')} aria-label="查看提醒">
+                <DashboardIcon name="bell" />
+                {props.inventoryAlerts.length > 0 && <i aria-hidden="true" />}
+              </button>
+            )}
           </div>
         </div>
 

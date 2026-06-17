@@ -58,6 +58,7 @@ class _IngredientRequestBase(BaseModel):
     default_low_stock_threshold: float | None = None
     notes: str = ""
     media_ids: list[str] = Field(default_factory=list)
+    pending_image_job_id: str | None = None
 
     @field_validator("default_unit")
     @classmethod
@@ -85,4 +86,3 @@ class CreateIngredientRequest(_IngredientRequestBase):
 
 class UpdateIngredientRequest(_IngredientRequestBase):
     pass
-

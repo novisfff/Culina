@@ -209,7 +209,7 @@
 
   .mobile-recipe-topbar {
     position: relative;
-    z-index: 2;
+    z-index: var(--z-mobile-topbar);
     justify-content: space-between;
     gap: 14px;
     padding: 0 10px;
@@ -1208,7 +1208,7 @@
 
   .mobile-ingredient-topbar {
     position: relative;
-    z-index: 2;
+    z-index: var(--z-mobile-topbar);
     justify-content: space-between;
     gap: 14px;
     padding: 0 10px;
@@ -2102,7 +2102,7 @@
 
   .mobile-family-topbar {
     position: relative;
-    z-index: 2;
+    z-index: var(--z-mobile-topbar);
     justify-content: space-between;
     gap: 14px;
     padding: 0 10px;
@@ -2760,7 +2760,7 @@
 
   .mobile-food-topbar {
     position: relative;
-    z-index: 2;
+    z-index: var(--z-mobile-topbar);
     justify-content: space-between;
     gap: 14px;
     padding: 0 10px;
@@ -4274,7 +4274,7 @@
 
   .mobile-dashboard-topbar {
     position: relative;
-    z-index: 2;
+    z-index: var(--z-mobile-topbar);
     justify-content: space-between;
     gap: 14px;
   }
@@ -4356,6 +4356,63 @@
     border: 2px solid #fff8f0;
     border-radius: 999px;
     background: #de7336;
+  }
+
+  .mobile-notification-center {
+    position: relative;
+    flex: 0 0 auto;
+  }
+
+  .mobile-notification-center .app-notification-trigger {
+    width: 38px;
+    height: 38px;
+    min-height: 38px;
+    display: grid;
+    place-items: center;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: #18110d;
+    box-shadow: none;
+  }
+
+  .mobile-notification-center .app-notification-trigger strong {
+    display: none;
+  }
+
+  .mobile-notification-center .app-notification-icon {
+    width: 38px;
+    height: 38px;
+    background: transparent;
+    color: currentColor;
+  }
+
+  .mobile-notification-center .app-notification-icon svg {
+    width: 26px;
+    height: 26px;
+    stroke-width: 2;
+  }
+
+  .mobile-notification-center .app-notification-count {
+    top: 2px;
+    right: 1px;
+    min-width: 17px;
+    height: 17px;
+    padding: 0 4px;
+    border: 2px solid #fff8f0;
+    background: #de7336;
+    box-shadow: none;
+    font-size: 0.58rem;
+  }
+
+  .mobile-notification-center .app-notification-popover {
+    top: calc(100% + 8px);
+    right: 0;
+    z-index: var(--z-notification);
+    width: min(320px, calc(100vw - 28px));
+    max-height: min(420px, calc(100vh - 150px));
+    overflow-y: auto;
+    border-radius: 16px;
   }
 
   .mobile-dashboard-family {
@@ -5331,6 +5388,7 @@
     width: 17px;
     height: 17px;
   }
+
 }
 
 @media (min-width: 560px) and (max-width: 767px) {
@@ -5414,7 +5472,7 @@
 
   :is(.mobile-food-topbar, .mobile-recipe-topbar, .mobile-ingredient-topbar, .mobile-log-topbar, .mobile-dashboard-topbar, .mobile-family-topbar) {
     position: relative;
-    z-index: 2;
+    z-index: var(--z-mobile-topbar);
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -5506,6 +5564,15 @@
     border-radius: 999px;
     background: #de7336;
   }
+
+  :is(.mobile-food-top-actions, .mobile-recipe-top-actions, .mobile-ingredient-top-actions, .mobile-log-top-actions, .mobile-dashboard-icon-actions, .mobile-family-top-actions) .mobile-notification-center .app-notification-popover {
+    top: calc(100% + 8px);
+    right: 0;
+    width: min(320px, calc(100vw - 28px));
+    max-height: min(420px, calc(100vh - 150px));
+    overflow-y: auto;
+  }
+
 
   .mobile-dashboard-hero > .mobile-dashboard-topbar {
     align-self: start;

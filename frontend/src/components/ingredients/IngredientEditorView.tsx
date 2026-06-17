@@ -531,18 +531,14 @@ export function IngredientEditorView(props: IngredientEditorViewProps) {
               <button className="solid-button" type="submit" disabled={!props.createCanSubmit}>
                 {props.isCreatingIngredient || props.isUpdatingIngredient
                   ? '保存中...'
-                  : props.ingredientImageState.isGenerating
-                    ? '生成主图中...'
-                    : props.isEditingIngredient
+                  : props.isEditingIngredient
                       ? '保存修改并登记库存'
                       : '保存并登记库存'}
               </button>
               <button className="ghost-button" type="button" disabled={!props.createCanSubmit} onClick={props.onSaveWithoutRestock}>
                 {props.isCreatingIngredient || props.isUpdatingIngredient
                   ? '保存中...'
-                  : props.ingredientImageState.isGenerating
-                    ? '生成主图中...'
-                    : props.isEditingIngredient
+                  : props.isEditingIngredient
                       ? '仅保存修改'
                       : '仅保存资料卡'}
               </button>

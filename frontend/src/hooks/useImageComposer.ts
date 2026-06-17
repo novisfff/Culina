@@ -12,11 +12,13 @@ import { emptyImages } from '../lib/ui';
 export type ImageGenerationUiState = {
   isGenerating: boolean;
   errorMessage: string | null;
+  jobId?: string | null;
 };
 
 export const IDLE_IMAGE_GENERATION_STATE: ImageGenerationUiState = {
   isGenerating: false,
   errorMessage: null,
+  jobId: null,
 };
 
 function resolveImageGenerationErrorMessage(reason: unknown, fallback: string) {
@@ -51,7 +53,11 @@ export function useImageComposer(options: {
     try {
       const nextImages = await uploadReferenceAndGenerateImage(file, options.payload);
       options.onChange(nextImages);
-      setState(IDLE_IMAGE_GENERATION_STATE);
+      setState({
+        isGenerating: Boolean(nextImages.pendingJob),
+        errorMessage: null,
+        jobId: nextImages.pendingJob?.job_id ?? null,
+      });
     } catch (reason) {
       const message = resolveImageGenerationErrorMessage(
         reason,
@@ -97,8 +103,13 @@ export function useImageComposer(options: {
       options.onChange({
         referenceAsset: nextImages.referenceAsset ?? options.value.referenceAsset,
         generatedAsset: nextImages.generatedAsset,
+        pendingJob: nextImages.pendingJob,
       });
-      setState(IDLE_IMAGE_GENERATION_STATE);
+      setState({
+        isGenerating: Boolean(nextImages.pendingJob),
+        errorMessage: null,
+        jobId: nextImages.pendingJob?.job_id ?? null,
+      });
       return nextImages;
     } catch (reason) {
       setState({

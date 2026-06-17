@@ -1,4 +1,4 @@
-import { useMemo, useState, type Dispatch, type FormEvent, type SetStateAction, type UIEvent } from 'react';
+import { useMemo, useState, type Dispatch, type FormEvent, type ReactNode, type SetStateAction, type UIEvent } from 'react';
 import type { ActivityLog, Food, FoodPlanItem, FoodRecommendations, Ingredient, InventoryItem, MealLog, MealType, Recipe, ShoppingListItem } from '../../api/types';
 import type { TabKey } from '../../app/AppShell';
 import { DashboardIcon, DashboardMealIcon, ShellIcon } from '../../app/shellIcons';
@@ -46,6 +46,7 @@ export type HomeDashboardProps = {
   sidebarMemberLabel: string;
   sidebarActivityLabel: string;
   inventoryAlerts: unknown[];
+  notificationCenter?: ReactNode;
   dashboardStats: DashboardStat[];
   dashboardRecommendationItems: DashboardRecommendation[];
   dashboardRecommendationPageCount: number;
@@ -244,6 +245,7 @@ export function HomeDashboard(props: HomeDashboardProps) {
             sidebarMemberLabel={sidebarMemberLabel}
             sidebarActivityLabel={sidebarActivityLabel}
             inventoryAlerts={inventoryAlerts}
+            notificationCenter={props.notificationCenter}
             dashboardStats={dashboardStats}
             dashboardRecommendationItems={dashboardRecommendationItems}
             dashboardRecommendationPageCount={dashboardRecommendationPageCount}

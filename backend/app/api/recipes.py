@@ -26,6 +26,7 @@ from app.schemas.recipes import (
     UpdateRecipeRequest,
 )
 from app.services.activity import log_activity
+from app.ai.images.jobs import attach_image_generation_job_to_entity
 from app.services.clock import today_for_family
 from app.services.ingredient_units import UnitConversionError
 from app.services.inventory_usage import build_cook_inventory_plan, load_available_inventory_by_ingredient, recipe_availability_rank, recipe_availability_summary, serialize_cook_preview_item
@@ -252,6 +253,17 @@ def create_recipe(
     _replace_recipe_children(db, recipe, payload)
 
     bind_media_assets(db, family_id=membership.family_id, media_ids=payload.media_ids, entity_type="recipe", entity_id=recipe.id)
+    if payload.pending_image_job_id:
+        try:
+            attach_image_generation_job_to_entity(
+                db,
+                family_id=membership.family_id,
+                job_id=payload.pending_image_job_id,
+                entity_type="recipe",
+                entity_id=recipe.id,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
 
     log_activity(
         db,
@@ -311,6 +323,17 @@ def update_recipe(
         entity_type="recipe",
         entity_id=recipe.id,
     )
+    if payload.pending_image_job_id:
+        try:
+            attach_image_generation_job_to_entity(
+                db,
+                family_id=membership.family_id,
+                job_id=payload.pending_image_job_id,
+                entity_type="recipe",
+                entity_id=recipe.id,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     synced_food, synced_food_created = ensure_food_for_recipe(
         db,
         family_id=membership.family_id,

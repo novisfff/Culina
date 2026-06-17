@@ -17,6 +17,7 @@ export const queryKeys = {
   mealLogs: ['meal-logs'] as const,
   activityLogs: ['activity-logs'] as const,
   aiStatus: ['ai-status'] as const,
+  aiImageJobs: ['ai-image-jobs'] as const,
   aiQualityMetrics: ['ai-quality-metrics'] as const,
   aiConversations: ['ai-conversations'] as const,
   aiMessages: (conversationId: string | null) => ['ai-messages', conversationId] as const,

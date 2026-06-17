@@ -11,6 +11,7 @@ from app.core.enums import ActivityAction
 from app.core.utils import create_id, utcnow
 from app.db.session import get_db
 from app.db.transactions import commit_session
+from app.ai.images.jobs import attach_image_generation_job_to_entity
 from app.models.domain import Food, FoodPlanItem, InventoryDeductionSuggestion, MealLog, MealLogFood, Recipe
 from app.repos.media import build_media_map, get_media_assets_for_entities
 from app.schemas.meal_logs import CreateMealLogRequest, MealLogOut, QuickAddMealLogRequest, UpdateMealLogRequest
@@ -115,6 +116,17 @@ def create_meal_log(
         db.add(suggestion)
 
     bind_media_assets(db, family_id=membership.family_id, media_ids=payload.media_ids, entity_type="meal_log", entity_id=meal_log.id)
+    if payload.pending_image_job_id:
+        try:
+            attach_image_generation_job_to_entity(
+                db,
+                family_id=membership.family_id,
+                job_id=payload.pending_image_job_id,
+                entity_type="meal_log",
+                entity_id=meal_log.id,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
 
     log_activity(
         db,
@@ -173,6 +185,17 @@ def update_meal_log(
             entity_type="meal_log",
             entity_id=meal_log.id,
         )
+    if payload.pending_image_job_id:
+        try:
+            attach_image_generation_job_to_entity(
+                db,
+                family_id=membership.family_id,
+                job_id=payload.pending_image_job_id,
+                entity_type="meal_log",
+                entity_id=meal_log.id,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
 
     log_activity(
         db,
