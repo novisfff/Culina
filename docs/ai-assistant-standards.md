@@ -80,8 +80,6 @@ output_types:
 draft_types:
   - meal_plan
 approval_policy: draft_then_confirm
-can_continue_from:
-  - meal_plan
 intent: meal_plan
 agent_key: meal_plan_agent
 examples:
@@ -102,7 +100,6 @@ examples:
 - `output_types`：允许返回的结果卡片类型。
 - `draft_types`：允许返回的草稿类型。
 - `approval_policy`：`none` 或 `draft_then_confirm`。
-- `can_continue_from`：允许接续处理的 artifact 类型。
 - `intent`、`agent_key`：运行记录中的稳定标识。
 - `examples`：Planner 路由示例。
 

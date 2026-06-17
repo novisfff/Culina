@@ -27,6 +27,28 @@
 
 测试时打开 AI 工作台，优先使用自然语言输入，不要直接调用接口。
 
+### 2.1 快速脚本执行
+
+可以用 Playwright 脚本自动执行核心用例，脚本不会挂到构建流程，需要手动运行：
+
+```bash
+npm --prefix frontend run ai:skill-smoke -- --username=<测试账号> --password=<测试密码>
+```
+
+常用参数：
+
+- `--url=http://127.0.0.1:5173`：使用已启动的前端；不传时脚本会自动启动 Vite dev server。
+- `--backend=http://127.0.0.1:8010`：自动启动前端时使用的后端地址。
+- `--decision=approve|reject|none`：默认 `approve`，会真实修改测试家庭数据；只想检查审批出现可用 `reject`。
+- `--cases=core|destructive|all|a,b`：默认 `core`，删除类用例需显式运行 `destructive` 或 `all`。
+- `--headed --slow-mo=250`：打开浏览器窗口并放慢操作，便于观察。
+
+示例：
+
+```bash
+npm --prefix frontend run ai:skill-smoke -- --username=test-owner --password=test-password --decision=approve --headed
+```
+
 ## 3. 通用验收规则
 
 每个审批型任务都应满足：

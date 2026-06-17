@@ -135,7 +135,8 @@ function foodTypeText(value: unknown) {
 
 function mealTypeLabel(value: unknown) {
   const text = asText(value);
-  return MEAL_TYPE_OPTIONS.find((option) => option.value === text)?.label ?? text;
+  const normalized = text.replace(/^MealType\./i, '').toLowerCase();
+  return MEAL_TYPE_OPTIONS.find((option) => option.value === normalized)?.label ?? text;
 }
 
 function formatServingCount(value: unknown) {
@@ -535,7 +536,7 @@ export function ApprovalPanel({
                   </div>
                   {action !== 'create' && (
                     <p className="ai-approval-compare-copy">
-                      当前：{[asText(before.date), asText(before.mealType), asText(before.title)].filter(Boolean).join(' · ')}
+                      当前：{[asText(before.date), mealTypeLabel(before.mealType), asText(before.title)].filter(Boolean).join(' · ')}
                     </p>
                   )}
                   {action === 'set_status' ? (
@@ -883,7 +884,7 @@ export function ApprovalPanel({
             <div className="ai-draft-editor-head">
               <div>
                 <strong>{action === 'update_details' ? '补充餐食记录' : action === 'rate_food' ? '更新评分' : '创建餐食记录'}</strong>
-                <span>{[asText(before.date), asText(before.mealType)].filter(Boolean).join(' · ') || '餐食记录'}</span>
+                <span>{[asText(before.date), mealTypeLabel(before.mealType)].filter(Boolean).join(' · ') || '餐食记录'}</span>
               </div>
             </div>
             {action === 'update_details' ? (
@@ -1070,7 +1071,7 @@ export function ApprovalPanel({
             </div>
             {linkedPlanItem ? (
               <p className="ai-approval-compare-copy">
-                关联计划：{[asText(linkedPlanItem.plan_date), asText(linkedPlanItem.meal_type), asText(linkedPlanItem.food_name), asText(linkedPlanItem.status)].filter(Boolean).join(' · ')}
+                关联计划：{[asText(linkedPlanItem.plan_date), mealTypeLabel(linkedPlanItem.meal_type), asText(linkedPlanItem.food_name), asText(linkedPlanItem.status)].filter(Boolean).join(' · ')}
               </p>
             ) : null}
           </div>
@@ -1419,7 +1420,7 @@ export function ApprovalPanel({
             ? structuredDraft.before as Record<string, unknown>
             : {};
           const actionLabel = action === 'update_details' ? '补充' : action === 'rate_food' ? '评分' : '创建';
-          return [actionLabel, asText(before.date), asText(before.mealType)].filter(Boolean).join(' · ');
+          return [actionLabel, asText(before.date), mealTypeLabel(before.mealType)].filter(Boolean).join(' · ');
         }
         const date = asText(structuredDraft.date);
         const mealType = asText(structuredDraft.mealType);
@@ -1490,12 +1491,20 @@ export function ApprovalPanel({
     <section className={`ai-approval-panel${isExpanded ? ' is-expanded' : ' is-collapsed'}`}>
       <div
         className="ai-approval-head"
+        role="button"
+        tabIndex={0}
+        aria-expanded={isExpanded}
         onClick={() => setIsExpanded(!isExpanded)}
-        style={{ cursor: 'pointer', userSelect: 'none' }}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            setIsExpanded((current) => !current);
+          }
+        }}
       >
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-            <h3 style={{ margin: 0 }}>{currentApproval.title}</h3>
+        <div className="ai-approval-head-copy">
+          <div className="ai-approval-title-row">
+            <h3>{currentApproval.title}</h3>
             {!isExpanded && briefSummary && (
               <span className="ai-approval-brief-badge">
                 {briefSummary}
@@ -1504,14 +1513,11 @@ export function ApprovalPanel({
           </div>
           <p>{currentApproval.instruction}</p>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexShrink: 0 }}>
+        <div className="ai-approval-head-actions">
           <span className={`ai-approval-status status-${currentApproval.status}`}>
             {readonly ? approvalStatusText(currentApproval.status) : '待确认'}
           </span>
-          <span
-            className={`ai-approval-toggle-icon ${isExpanded ? 'is-expanded' : ''}`}
-            style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-          >
+          <span className={`ai-approval-toggle-icon ${isExpanded ? 'is-expanded' : ''}`}>
             <svg
               viewBox="0 0 24 24"
               width="18"
@@ -1521,11 +1527,6 @@ export function ApprovalPanel({
               strokeWidth="2.5"
               strokeLinecap="round"
               strokeLinejoin="round"
-              style={{
-                transition: 'transform 0.2s ease',
-                transform: isExpanded ? 'rotate(180deg)' : 'rotate(0deg)',
-                color: '#7a6e65',
-              }}
             >
               <polyline points="6 9 12 15 18 9"></polyline>
             </svg>

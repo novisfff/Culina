@@ -2,7 +2,7 @@
 name: meal-planning
 key: meal_plan
 display_name: 餐食计划
-description: 处理即时餐食推荐以及餐食计划的创建和修改；推荐返回今日推荐卡片，正式计划返回待确认草稿。
+description: 处理“今天/今晚吃什么”的即时餐食推荐，以及未来或指定日期餐食计划的创建、修改、删除和状态变更；不记录已吃餐食、不执行做菜扣库存、不生成购物清单或菜谱正文。
 allowed_tools:
   - inventory.read_expiring_items
   - inventory.read_available_items
@@ -22,6 +22,7 @@ context_policy:
   - recipes
   - meal_plan
 script_files:
+  - scripts/expand_meal_slots.py
   - scripts/validate_meal_plan.py
   - scripts/render_plan_preview.py
 output_types:
@@ -30,8 +31,6 @@ output_types:
 draft_types:
   - meal_plan
 approval_policy: draft_then_confirm
-can_continue_from:
-  - meal_plan
 intent: meal_plan
 agent_key: meal_plan_agent
 examples:
@@ -39,9 +38,21 @@ examples:
   - 今天用现有食材推荐一下。
   - 安排三天晚餐。
   - 第二天不要鸡肉。
+  - 明天早餐和晚餐帮我排一下。
+  - 把周五晚餐改成番茄炒蛋。
+  - 删除明天午餐计划。
+  - 这周末午晚餐都安排清淡一点。
 ---
 
 # 餐食计划 Skill
+
+## 自主决策空间
+
+- 可以根据用户意图在即时推荐和正式计划之间选择模式；没有明确计划范围时优先即时推荐，有日期、天数、餐别或“安排/制定/生成/修改”语义时进入正式计划。
+- 可以自主选择读取库存、临期食材、最近餐食、食物和菜谱的顺序；不需要机械调用全部工具，但推荐和计划必须能追溯到真实工具结果。
+- 推荐理由、口味解释、避免重复的说明和可编辑备注可以自由组织；正式计划里的 `foodId`、`recipeId`、日期和餐别必须可校验。
+- 用户目标唯一且工具结果明确时，不要重复追问；计划范围、修改目标或同日同餐候选不明确时才请求澄清。
+- 需要把“从明天开始三天晚餐”“周末午晚餐”等范围展开为具体日期/餐别时，可调用 `script.expand_meal_slots` 做确定性展开。
 
 ## 模式选择
 
@@ -71,7 +82,7 @@ examples:
 - 所有推荐和计划都应参考当前库存、临期食材与最近餐食。
 - 正式计划的 `foodId` 必须来自 `food.search` 或 `food.read_by_id`，且标题必须使用对应食物名称。
 - `recipeId` 只能使用所选食物已关联的真实菜谱；没有关联时填 `null`。
-- 如果正式计划需要的食物不在食物库中，说明需要先补充食物资料，不得创建无效草稿。
+- 如果正式计划需要的食物不在食物库中，说明需要先补充食物资料，不得创建无效草稿，也不要在本 Skill 中调用或伪造 `food_profile` 草稿；由 Planner 下一步路由到食物资料流程。
 - 创建草稿前调用 `script.validate_meal_plan` 做确定性结构检查；需要文本预览时可调用 `script.render_plan_preview`。
 - `FoodPlanItem` 读取范围以当前用户和家庭时区为准，不得越过当前用户读取其他成员的个人计划。
 - 不直接写入正式 `FoodPlanItem`，草稿确认后由后端根据操作类型完成写入。

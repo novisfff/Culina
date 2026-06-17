@@ -345,8 +345,6 @@ output_types:
 draft_types:
   - ingredient_operation
 approval_policy: draft_then_confirm
-can_continue_from:
-  - ingredient_operation
 intent: ingredient_profile
 agent_key: ingredient_profile_agent
 ```

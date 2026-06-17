@@ -463,7 +463,6 @@ class AISkillRegistryItemDTO(BaseModel):
     output_types: list[str] = Field(default_factory=list)
     draft_types: list[str] = Field(default_factory=list)
     approval_policy: str
-    can_continue_from: list[str] = Field(default_factory=list)
     intent: str
     agent_key: str
 

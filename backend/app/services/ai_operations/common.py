@@ -7,6 +7,12 @@ from app.ai.errors import AIConflictError
 
 
 UpdatedAtValidator = Callable[[datetime | None, str, str], None]
+DATABASE_LOCK_CONFLICT_CODES = {1205, 1213, 3572}
+DATABASE_LOCK_CONFLICT_MARKERS = (
+    "lock wait timeout",
+    "deadlock found",
+    "nowait",
+)
 
 
 def assert_updated_at_matches(*, actual: datetime | None, expected: str, label: str) -> None:
@@ -24,3 +30,23 @@ def assert_updated_at_matches(*, actual: datetime | None, expected: str, label: 
         expected_dt = expected_dt.replace(tzinfo=UTC)
     if actual_dt.astimezone(UTC) != expected_dt.astimezone(UTC):
         raise AIConflictError(f"{label} 已被其他修改更新，请刷新后重试")
+
+
+def is_database_lock_conflict(exc: BaseException) -> bool:
+    def matches(value: object) -> bool:
+        if isinstance(value, int):
+            return value in DATABASE_LOCK_CONFLICT_CODES
+        if isinstance(value, str):
+            normalized = value.lower()
+            return any(marker in normalized for marker in DATABASE_LOCK_CONFLICT_MARKERS)
+        if isinstance(value, BaseException):
+            return any(matches(arg) for arg in value.args)
+        if isinstance(value, tuple | list):
+            return any(matches(item) for item in value)
+        return False
+
+    candidates = [exc, getattr(exc, "orig", None)]
+    for candidate in candidates:
+        if matches(candidate):
+            return True
+    return False

@@ -2,7 +2,7 @@
 name: meal-record
 key: meal_log
 display_name: 餐食记录
-description: 把自然语言用餐描述整理为可编辑、可确认的餐食记录草稿。
+description: 记录或修改已经发生的早餐、午餐、晚餐和加餐，包括补充备注、照片、心情和评分；不安排未来餐食计划、不执行菜谱做菜扣库存、不创建食物资料。
 allowed_tools:
   - food.search
   - intent.request_clarification
@@ -17,8 +17,6 @@ output_types:
 draft_types:
   - meal_log
 approval_policy: draft_then_confirm
-can_continue_from:
-  - meal_log
 intent: meal_log
 agent_key: meal_log_agent
 examples:
@@ -26,6 +24,8 @@ examples:
   - 记录一餐。
   - 给昨天的晚餐补充一下心情和照片。
   - 把那顿番茄小炒打 4 分。
+  - 昨天早餐吃了盒装牛奶和面包。
+  - 刚才加餐吃了蓝莓酸奶。
 ---
 
 # 餐食记录 Skill
@@ -34,6 +34,12 @@ examples:
 
 - 用户要记录已经发生的早餐、午餐、晚餐或加餐。
 - 不用于安排未来餐食或创建食物资料。
+
+## 自主决策空间
+
+- 可以根据用户原话合理补全可编辑字段，例如备注、心情、份量默认值和记录说明。
+- 食物、日期、餐别已经明确且食物库匹配唯一时，不要重复追问。
+- 补充详情或评分时，只有目标餐食记录或评分对象不唯一时才请求澄清。
 
 ## 执行规则
 

@@ -27,12 +27,18 @@ class AIRegistryAndMetricsTestCase(AIAgentInfraTestCase):
             self.assertIn("recipe.create_cook_draft", skills["recipe_cook"]["tools"])
             self.assertEqual(
                 skills["meal_plan"]["scripts"],
-                ["script.validate_meal_plan", "script.render_plan_preview"],
+                ["script.expand_meal_slots", "script.validate_meal_plan", "script.render_plan_preview"],
             )
             self.assertEqual(
                 skills["shopping_list"]["scripts"],
-                ["script.merge_ingredients", "script.normalize_ingredient"],
+                [
+                    "script.merge_ingredients",
+                    "script.normalize_ingredient",
+                    "script.normalize_ingredient_detail",
+                    "script.suggest_items_from_sources",
+                ],
             )
+            self.assertEqual(skills["recipe_draft"]["scripts"], ["script.lint_recipe_draft"])
             self.assertIn("ingredient.search", skills["recipe_draft"]["tools"])
             self.assertEqual(tools["ingredient.search"]["display_name"], "食材资料")
             self.assertEqual(tools["ingredient.search"]["side_effect"], "read")

@@ -132,6 +132,10 @@ def business_entity_artifacts(
 def business_entity_records(entity_payload: Any, *, entity_type: str) -> list[dict[str, Any]]:
     if not isinstance(entity_payload, dict):
         return []
+    if entity_type == "Recipe":
+        return [entity_payload]
+    if entity_type == "RecipeCookLog" and isinstance(entity_payload.get("cook_log"), dict):
+        return [entity_payload["cook_log"]]
     if isinstance(entity_payload.get("operations"), list):
         records: list[dict[str, Any]] = []
         for item in entity_payload.get("operations") or []:
@@ -160,8 +164,6 @@ def business_entity_records(entity_payload: Any, *, entity_type: str) -> list[di
         return records
     if isinstance(entity_payload.get("items"), list):
         return [item for item in entity_payload.get("items") or [] if isinstance(item, dict)]
-    if entity_type == "RecipeCookLog" and isinstance(entity_payload.get("cook_log"), dict):
-        return [entity_payload["cook_log"]]
     return [entity_payload]
 
 
@@ -252,7 +254,7 @@ def artifact_updated_at(record: dict[str, Any]) -> str | None:
 
 
 def artifact_summary(record: dict[str, Any], *, fallback_type: str) -> str:
-    for key in ("title", "name"):
+    for key in ("title", "name", "ingredient_name", "ingredientName", "food_name", "foodName"):
         value = record.get(key)
         if isinstance(value, str) and value.strip():
             return value.strip()
@@ -262,4 +264,18 @@ def artifact_summary(record: dict[str, Any], *, fallback_type: str) -> str:
         return f"{date_value} {meal_type}"
     if date_value:
         return str(date_value)
-    return fallback_type or "business_entity"
+    return fallback_type_label(fallback_type)
+
+
+def fallback_type_label(value: str) -> str:
+    return {
+        "recipe": "菜谱",
+        "recipe_cook": "做菜记录",
+        "shopping_list": "采购项",
+        "meal_plan": "菜单计划",
+        "meal_log": "餐食记录",
+        "food_profile": "食物",
+        "ingredient_profile": "食材",
+        "inventory_operation": "库存处理",
+        "composite_operation": "复合操作",
+    }.get(value, value or "业务记录")

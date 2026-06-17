@@ -216,7 +216,7 @@ class ToolCallingSkill(BaseSkill):
             tools=available_tools,
             tool_handler=call_tool,
             response_schema=TOOLCALL_SKILL_RESULT_SCHEMA,
-            max_rounds=8,
+            max_rounds=self._tool_call_round_budget(available_tools),
             visible_text_handler=visible_stream.feed,
         )
         context.ensure_active()
@@ -310,6 +310,8 @@ class ToolCallingSkill(BaseSkill):
             ),
             drafts,
         )
+        cards = self._ensure_inventory_summary_card(cards, read_outputs, drafts)
+        cards = self._ensure_today_recommendation_card(cards, read_outputs, drafts)
         cards = self._ensure_clarification_card(cards, read_outputs)
         emitted_text = visible_stream.text
         fallback_text = visible_text.strip() or str(parsed.get("text") or "")
@@ -368,6 +370,7 @@ class ToolCallingSkill(BaseSkill):
                 "side_effect": tool.side_effect,
                 "requires_confirmation": tool.requires_confirmation,
                 "input_schema": tool.input_schema,
+                "output_schema": tool.output_schema,
             }
             for tool in tools
         ]
@@ -384,6 +387,12 @@ class ToolCallingSkill(BaseSkill):
             "不要自造 preview、summary、detail 等未声明类型；草稿预览也必须使用已声明的 *_draft 类型。"
             "任何给用户看的正文都必须放在 <visible_text>...</visible_text> 标签内，包括调用工具前、工具调用之间和最终回复。"
             "不要输出推理过程、隐藏分析、工具参数细节或未确认的数据写入承诺。"
+            "可编辑的偏好、备注、分类、理由等低风险字段，可以基于用户原话和工具结果合理补全，并在回复中说明用户确认前可修改。"
+            "名称或目标已经唯一且工具结果明确时，不要为了形式化流程反复追问。"
+            "多个真实候选会影响写入目标，或数量、单位、日期、餐别会影响库存、计划、记录时，必须澄清或让用户选择。"
+            "删除、销毁、完成计划、扣减库存等不可逆或有副作用动作，必须生成审批草稿，不能用普通文本承诺已完成。"
+            "用户要求的对象不存在时，不要编造业务 ID；可以说明需要先创建上游资料或请求补充信息。"
+            "工具调用要有明确终点；完成必要读取、澄清或 draft 工具调用后，必须停止继续调用工具并输出最终 structured_result。"
             "最终回复必须包含 <visible_text>用户可见回复</visible_text>，随后输出 <structured_result>SkillResult JSON</structured_result>。"
             "structured_result 内只放符合 SkillResult JSON Schema 的裸 JSON 对象，禁止 Markdown 代码块、解释文字和额外字段。"
             "structured_result.text 必须重复本轮完整用户可见正文；cards/drafts/events/status 等结构化字段只放在 structured_result。"
@@ -407,6 +416,9 @@ class ToolCallingSkill(BaseSkill):
             "quickTask": self._quick_task(context),
             "pendingClarification": context.pending_clarification,
         }
+
+    def _tool_call_round_budget(self, tools: list[Any]) -> int:
+        return max(8, min(18, len(tools) + 4))
 
     def _load_instructions(self, skill_dir: Path) -> str:
         skill_text = (skill_dir / "SKILL.md").read_text(encoding="utf-8")
@@ -635,6 +647,73 @@ class ToolCallingSkill(BaseSkill):
                 },
             },
         ]
+
+    def _ensure_inventory_summary_card(
+        self,
+        cards: list[dict[str, Any]],
+        read_outputs: dict[str, list[dict[str, Any]]],
+        drafts: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        if "inventory_summary" not in set(self.manifest.output_types):
+            return cards
+        if drafts or any(str(card.get("type") or "") == "inventory_summary" for card in cards):
+            return cards
+        if read_outputs.get("intent.request_clarification"):
+            return cards
+        inventory_tool_names = {
+            "inventory.read_summary",
+            "inventory.read_available_items",
+            "inventory.read_expiring_items",
+            "inventory.read_expired_items",
+            "inventory.read_low_stock_items",
+        }
+        if not any(read_outputs.get(tool_name) for tool_name in inventory_tool_names):
+            return cards
+        return [
+            *cards,
+            {
+                "id": create_id("ai_card"),
+                "type": "inventory_summary",
+                "title": "库存概览",
+                "data": self._inventory_card_data(read_outputs),
+            },
+        ]
+
+    def _ensure_today_recommendation_card(
+        self,
+        cards: list[dict[str, Any]],
+        read_outputs: dict[str, list[dict[str, Any]]],
+        drafts: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        if "today_recommendation" not in set(self.manifest.output_types):
+            return cards
+        if drafts or any(str(card.get("type") or "") == "today_recommendation" for card in cards):
+            return cards
+        if read_outputs.get("intent.request_clarification"):
+            return cards
+        foods = self._latest_tool_items(read_outputs, "food.search")
+        recipes = self._latest_tool_items(read_outputs, "recipe.search")
+        if not foods and not recipes:
+            return cards
+        recommendation_items: list[dict[str, Any]] = []
+        for food in foods[:3]:
+            food_id = self._optional_text(food.get("id"))
+            if food_id:
+                recommendation_items.append({"foodId": food_id, "reason": "基于当前家庭食物资料。"})
+        if not recommendation_items:
+            for recipe in recipes[:3]:
+                recipe_id = self._optional_text(recipe.get("id"))
+                if recipe_id:
+                    recommendation_items.append({"recipeId": recipe_id, "reason": "基于当前家庭菜谱。"})
+        if not recommendation_items:
+            return cards
+        card = {
+            "id": create_id("ai_card"),
+            "type": "today_recommendation",
+            "title": "今日吃什么",
+            "data": {"recommendations": recommendation_items[:3]},
+        }
+        return [*cards, self._normalize_recommendation_card(card, read_outputs)]
 
     def _state_patch_from_read_outputs(self, read_outputs: dict[str, list[dict[str, Any]]]) -> dict[str, Any]:
         outputs = read_outputs.get("intent.request_clarification") or []

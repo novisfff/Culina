@@ -8,9 +8,40 @@ from app.ai.tools.base import ToolContext
 from app.ai.tools.catalog.common import register_tool
 from app.ai.tools.draft_validation import normalize_shopping_list_draft
 from app.ai.tools.registry import ToolRegistry
-from app.ai.tools.schemas import COUNT_OUTPUT, READ_BY_ID_INPUT, SHOPPING_LIST_DRAFT_SCHEMA, draft_input_schema, draft_output_schema
+from app.ai.tools.schemas import READ_BY_ID_INPUT, SHOPPING_LIST_DRAFT_SCHEMA, draft_input_schema, draft_output_schema
 from app.models.domain import ShoppingListItem
 from app.services.serializers import serialize_shopping_item
+
+
+SHOPPING_ITEM_OUTPUT = {
+    "type": "object",
+    "required": ["id", "title", "quantity", "unit", "done"],
+    "properties": {
+        "id": {"type": "string"},
+        "title": {"type": "string"},
+        "quantity": {"type": "number"},
+        "unit": {"type": "string"},
+        "reason": {"type": ["string", "null"]},
+        "done": {"type": "boolean"},
+        "updatedAt": {"type": ["string", "null"]},
+    },
+}
+
+SHOPPING_LIST_OUTPUT = {
+    "type": "object",
+    "required": ["count", "items"],
+    "properties": {
+        "count": {"type": "integer", "minimum": 0},
+        "hasMore": {"type": "boolean"},
+        "items": {"type": "array", "items": SHOPPING_ITEM_OUTPUT},
+    },
+}
+
+SHOPPING_ITEM_READ_OUTPUT = {
+    "type": "object",
+    "required": ["item"],
+    "properties": {"item": SHOPPING_ITEM_OUTPUT},
+}
 
 
 def shopping_read_pending(context: ToolContext, payload: dict[str, Any]) -> dict[str, Any]:
@@ -99,7 +130,7 @@ def register_shopping_tools(registry: ToolRegistry) -> None:
                 "offset": {"type": "integer", "minimum": 0, "maximum": 1000},
             },
         },
-        output_schema=COUNT_OUTPUT,
+        output_schema=SHOPPING_LIST_OUTPUT,
     )
     register_tool(
         registry,
@@ -109,7 +140,7 @@ def register_shopping_tools(registry: ToolRegistry) -> None:
         side_effect="read",
         handler=shopping_read_by_id,
         input_schema=READ_BY_ID_INPUT,
-        output_schema={"type": "object", "required": ["item"], "properties": {"item": {"type": "object"}}},
+        output_schema=SHOPPING_ITEM_READ_OUTPUT,
     )
     register_tool(
         registry,

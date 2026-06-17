@@ -8,10 +8,46 @@ from app.ai.tools.base import ToolContext
 from app.ai.tools.catalog.common import entity_media_map, first_entity_media, register_tool
 from app.ai.tools.draft_validation import normalize_food_profile_draft_for_tools
 from app.ai.tools.registry import ToolRegistry
-from app.ai.tools.schemas import COUNT_OUTPUT, FOOD_PROFILE_DRAFT_SCHEMA, READ_BY_ID_INPUT, SEARCH_INPUT, draft_input_schema, draft_output_schema
+from app.ai.tools.schemas import FOOD_PROFILE_DRAFT_SCHEMA, READ_BY_ID_INPUT, SEARCH_INPUT, draft_input_schema, draft_output_schema
 from app.models.domain import Food
 from app.repos.media import build_media_map, get_media_assets_for_entities
 from app.services.serializers import serialize_food
+
+
+FOOD_ITEM_OUTPUT = {
+    "type": "object",
+    "required": ["id", "name", "type", "category"],
+    "properties": {
+        "id": {"type": "string"},
+        "name": {"type": "string"},
+        "image": {"type": ["object", "null"]},
+        "type": {"type": "string"},
+        "category": {"type": "string"},
+        "flavorTags": {"type": "array", "items": {"type": "string"}},
+        "sceneTags": {"type": "array", "items": {"type": "string"}},
+        "suitableMealTypes": {"type": "array", "items": {"type": "string"}},
+        "scene": {"type": ["string", "null"]},
+        "recipeId": {"type": ["string", "null"]},
+        "routineNote": {"type": ["string", "null"]},
+        "updatedAt": {"type": ["string", "null"]},
+    },
+}
+
+FOOD_SEARCH_OUTPUT = {
+    "type": "object",
+    "required": ["count", "items"],
+    "properties": {
+        "count": {"type": "integer", "minimum": 0},
+        "hasMore": {"type": "boolean"},
+        "items": {"type": "array", "items": FOOD_ITEM_OUTPUT},
+    },
+}
+
+FOOD_READ_OUTPUT = {
+    "type": "object",
+    "required": ["item"],
+    "properties": {"item": FOOD_ITEM_OUTPUT},
+}
 
 
 def food_search(context: ToolContext, payload: dict[str, Any]) -> dict[str, Any]:
@@ -89,7 +125,7 @@ def register_food_tools(registry: ToolRegistry) -> None:
         side_effect="read",
         handler=food_search,
         input_schema=SEARCH_INPUT,
-        output_schema=COUNT_OUTPUT,
+        output_schema=FOOD_SEARCH_OUTPUT,
     )
     register_tool(
         registry,
@@ -99,7 +135,7 @@ def register_food_tools(registry: ToolRegistry) -> None:
         side_effect="read",
         handler=food_read_by_id,
         input_schema=READ_BY_ID_INPUT,
-        output_schema={"type": "object", "required": ["item"], "properties": {"item": {"type": "object"}}},
+        output_schema=FOOD_READ_OUTPUT,
     )
     register_tool(
         registry,

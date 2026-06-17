@@ -947,6 +947,8 @@ describe('ApprovalPanel', () => {
     const pending = mealLogRatingApproval();
     const decideSpy = vi.fn().mockResolvedValue(undefined);
     const rendered = await renderWithQuery(<ApprovalPanel approval={pending} onDecision={decideSpy} />);
+    expect(rendered.container.textContent).toContain('2026-06-10 · 晚餐');
+    expect(rendered.container.textContent).not.toContain('2026-06-10 · dinner');
     expect(rendered.container.textContent).toContain('番茄炒蛋 · 当前评分 4');
     expect(rendered.container.querySelector<HTMLInputElement>('.ai-rating-field input[type="number"]')).toBeNull();
     const ratingSlider = rendered.container.querySelector<HTMLDivElement>('.ai-rating-field .food-rating-stars');

@@ -11,7 +11,7 @@ from app.ai.tools.base import ToolContext
 from app.ai.tools.catalog.common import entity_media_map, first_entity_media, register_tool
 from app.ai.tools.draft_validation import normalize_recipe_cook_draft, normalize_recipe_draft_for_tools
 from app.ai.tools.registry import ToolRegistry
-from app.ai.tools.schemas import COUNT_OUTPUT, READ_BY_ID_INPUT, RECIPE_COOK_DRAFT_SCHEMA, SEARCH_INPUT, draft_input_schema, draft_output_schema
+from app.ai.tools.schemas import READ_BY_ID_INPUT, RECIPE_COOK_DRAFT_SCHEMA, SEARCH_INPUT, draft_input_schema, draft_output_schema
 from app.models.domain import Food, FoodPlanItem, Recipe, RecipeFavorite
 from app.repos.media import build_media_map, get_media_assets_for_entities
 from app.services.clock import today_for_family
@@ -113,6 +113,53 @@ RECIPE_TOOL_DRAFT_SCHEMA = {
         RECIPE_DELETE_OPERATION_SCHEMA,
         RECIPE_FAVORITE_OPERATION_SCHEMA,
     ],
+}
+
+RECIPE_ITEM_OUTPUT = {
+    "type": "object",
+    "required": ["id", "title", "servings", "prepMinutes", "difficulty", "foodIds", "favorite", "updatedAt"],
+    "properties": {
+        "id": {"type": "string"},
+        "title": {"type": "string"},
+        "image": {"type": ["object", "null"]},
+        "servings": {"type": "integer", "minimum": 1},
+        "prepMinutes": {"type": "integer", "minimum": 0},
+        "difficulty": {"type": "string"},
+        "sceneTags": {"type": "array", "items": {"type": "string"}},
+        "foodIds": {"type": "array", "items": {"type": "string"}},
+        "favorite": {"type": "boolean"},
+        "updatedAt": {"type": ["string", "null"]},
+        "ingredients": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "required": ["ingredientId", "name", "quantity", "unit"],
+                "properties": {
+                    "ingredientId": {"type": ["string", "null"]},
+                    "name": {"type": "string"},
+                    "quantity": {"type": "number"},
+                    "unit": {"type": "string"},
+                    "note": {"type": ["string", "null"]},
+                },
+            },
+        },
+    },
+}
+
+RECIPE_SEARCH_OUTPUT = {
+    "type": "object",
+    "required": ["count", "hasMore", "items"],
+    "properties": {
+        "count": {"type": "integer", "minimum": 0},
+        "hasMore": {"type": "boolean"},
+        "items": {"type": "array", "items": RECIPE_ITEM_OUTPUT},
+    },
+}
+
+RECIPE_READ_OUTPUT = {
+    "type": "object",
+    "required": ["item"],
+    "properties": {"item": {"type": "object"}},
 }
 
 
@@ -249,19 +296,30 @@ def recipe_preview_cook(context: ToolContext, payload: dict[str, Any]) -> dict[s
     )
     plan_item_id = str(payload.get("planItemId") or "") or None
     plan_item = None
+    plan_item_warning = None
     if plan_item_id:
         plan_item = context.db.scalar(
             select(FoodPlanItem)
-            .join(Food, FoodPlanItem.food_id == Food.id)
+            .options(selectinload(FoodPlanItem.food))
             .where(
                 FoodPlanItem.family_id == context.family_id,
                 FoodPlanItem.user_id == context.user_id,
                 FoodPlanItem.id == plan_item_id,
-                Food.recipe_id == recipe.id,
             )
         )
         if plan_item is None:
-            raise ValueError("计划项不存在或不属于当前菜谱")
+            plan_item_warning = {
+                "code": "plan_item_not_found",
+                "message": "计划项不存在或不属于当前用户，已仅返回不关联计划的做菜预览。",
+                "planItemId": plan_item_id,
+            }
+        elif plan_item.food is None or plan_item.food.recipe_id != recipe.id:
+            plan_item_warning = {
+                "code": "plan_item_recipe_mismatch",
+                "message": "计划项不属于当前菜谱，已仅返回不关联计划的做菜预览。",
+                "planItemId": plan_item_id,
+            }
+            plan_item = None
     return {
         "recipe": {
             "id": recipe.id,
@@ -281,6 +339,7 @@ def recipe_preview_cook(context: ToolContext, payload: dict[str, Any]) -> dict[s
         }
         if plan_item is not None
         else None,
+        "planItemWarning": plan_item_warning,
     }
 
 
@@ -307,7 +366,7 @@ def register_recipe_tools(registry: ToolRegistry) -> None:
         side_effect="read",
         handler=recipe_search,
         input_schema=SEARCH_INPUT,
-        output_schema=COUNT_OUTPUT,
+        output_schema=RECIPE_SEARCH_OUTPUT,
     )
     register_tool(
         registry,
@@ -317,7 +376,7 @@ def register_recipe_tools(registry: ToolRegistry) -> None:
         side_effect="read",
         handler=recipe_read_by_id,
         input_schema=READ_BY_ID_INPUT,
-        output_schema={"type": "object", "required": ["item"], "properties": {"item": {"type": "object"}}},
+        output_schema=RECIPE_READ_OUTPUT,
     )
     register_tool(
         registry,

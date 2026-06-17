@@ -11,14 +11,6 @@ OPERATION_ACTION_VALUES = ["create", "update", "delete"]
 MEAL_PLAN_OPERATION_ACTION_VALUES = ["create", "update", "set_status", "delete"]
 SHOPPING_OPERATION_ACTION_VALUES = ["create", "update", "set_done", "delete"]
 
-COUNT_OUTPUT: dict[str, Any] = {
-    "type": "object",
-    "required": ["count", "items"],
-    "properties": {
-        "count": {"type": "integer", "minimum": 0},
-        "items": {"type": "array", "items": {"type": "object"}},
-    },
-}
 LIMIT_INPUT: dict[str, Any] = {
     "type": "object",
     "additionalProperties": False,

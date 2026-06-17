@@ -5,7 +5,7 @@ import logging
 from typing import Any
 
 from sqlalchemy import select
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import Session
 
 from app.ai.errors import AIConflictError
@@ -15,7 +15,7 @@ from app.services.ai_operations.approval_config import DRAFT_APPROVAL_CONFIG, ap
 from app.services.ai_operations.approval_requests import create_retry_ai_approval
 from app.services.ai_operations.approval_values import validate_approval_values, validate_rejection_values
 from app.services.ai_operations.artifacts import approval_decision_artifacts
-from app.services.ai_operations.common import assert_updated_at_matches
+from app.services.ai_operations.common import assert_updated_at_matches, is_database_lock_conflict
 from app.services.ai_operations.executor import execute_ai_operation_draft
 from app.services.ai_operations.inventory import refresh_inventory_result_card
 from app.services.ai_operations.messages import (
@@ -54,22 +54,27 @@ def apply_ai_approval_decision(
     )
     if conversation is None:
         raise LookupError("会话不存在")
-    approval = db.scalar(
-        select(AIApprovalRequest).where(
-            AIApprovalRequest.id == approval_id,
-            AIApprovalRequest.family_id == family_id,
-            AIApprovalRequest.conversation_id == conversation_id,
-        ).with_for_update()
-    )
-    if approval is None:
-        raise LookupError("确认请求不存在")
-    draft = db.scalar(
-        select(AITaskDraft)
-        .where(AITaskDraft.id == approval.draft_id, AITaskDraft.family_id == family_id)
-        .with_for_update()
-    )
-    if draft is None:
-        raise LookupError("草稿不存在")
+    try:
+        approval = db.scalar(
+            select(AIApprovalRequest).where(
+                AIApprovalRequest.id == approval_id,
+                AIApprovalRequest.family_id == family_id,
+                AIApprovalRequest.conversation_id == conversation_id,
+            ).with_for_update(nowait=True)
+        )
+        if approval is None:
+            raise LookupError("确认请求不存在")
+        draft = db.scalar(
+            select(AITaskDraft)
+            .where(AITaskDraft.id == approval.draft_id, AITaskDraft.family_id == family_id)
+            .with_for_update(nowait=True)
+        )
+        if draft is None:
+            raise LookupError("草稿不存在")
+    except OperationalError as exc:
+        if is_database_lock_conflict(exc):
+            raise AIConflictError("确认请求正在处理，请稍后刷新或重试") from exc
+        raise
     if approval.status != "pending":
         raise AIConflictError("确认请求已处理，不能重复提交")
     if draft.status not in {"pending", "pending_retry"}:
@@ -141,14 +146,19 @@ def apply_ai_approval_decision(
     config = approval_config_for_payload(draft.draft_type, draft.payload)
     submitted_payload = submitted_values[config["value_key"]]
     config = approval_config_for_payload(draft.draft_type, submitted_payload)
-    existing_operation = db.scalar(
-        select(AIOperation)
-        .where(
-            AIOperation.approval_request_id == approval.id,
-            AIOperation.family_id == family_id,
+    try:
+        existing_operation = db.scalar(
+            select(AIOperation)
+            .where(
+                AIOperation.approval_request_id == approval.id,
+                AIOperation.family_id == family_id,
+            )
+            .with_for_update(nowait=True)
         )
-        .with_for_update()
-    )
+    except OperationalError as exc:
+        if is_database_lock_conflict(exc):
+            raise AIConflictError("确认请求正在处理，请稍后刷新或重试") from exc
+        raise
     if existing_operation is not None:
         raise AIConflictError("该确认请求已经创建过执行操作")
     operation = AIOperation(

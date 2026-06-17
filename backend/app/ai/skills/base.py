@@ -26,7 +26,6 @@ class SkillManifest:
     output_types: list[str] = field(default_factory=list)
     draft_types: list[str] = field(default_factory=list)
     approval_policy: str = "none"
-    can_continue_from: list[str] = field(default_factory=list)
     intent: str = ""
     agent_key: str = ""
 
@@ -41,7 +40,6 @@ class SkillManifest:
             "outputs": self.output_types,
             "draftTypes": self.draft_types,
             "approvalPolicy": self.approval_policy,
-            "canContinueFrom": self.can_continue_from,
         }
 
 

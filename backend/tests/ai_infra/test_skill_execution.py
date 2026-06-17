@@ -386,6 +386,63 @@ class AISkillExecutionTestCase(AIAgentInfraTestCase):
             candidates = result.cards[0]["data"]["candidates"]
             self.assertEqual({candidate["id"] for candidate in candidates}, {item.id for item in plan_items})
 
+        def test_recipe_preview_cook_returns_warning_for_mismatched_plan_item(self) -> None:
+            target_date = date.today() + timedelta(days=1)
+            with self.SessionLocal() as db:
+                recipe, _ = self._create_recipe_cook_target(
+                    db,
+                    suffix="preview-warning",
+                    plan_count=0,
+                    plan_date=target_date,
+                )
+                other_recipe, _ = self._create_recipe_cook_target(
+                    db,
+                    suffix="preview-warning-other",
+                    title="牛奶早餐",
+                    plan_count=0,
+                    plan_date=target_date,
+                    meal_type=MealType.DINNER,
+                )
+                other_food = db.scalar(select(Food).where(Food.recipe_id == other_recipe.id))
+                assert other_food is not None
+                db.add(
+                    FoodPlanItem(
+                        id="plan-cook-skill-preview-warning-other",
+                        family_id=self.family.id,
+                        user_id=self.user.id,
+                        food_id=other_food.id,
+                        plan_date=target_date,
+                        meal_type=MealType.DINNER,
+                        note="不是当前菜谱",
+                        status="planned",
+                        created_by=self.user.id,
+                        updated_by=self.user.id,
+                    )
+                )
+                db.flush()
+                executor = ToolExecutor(
+                    build_workspace_tool_registry(),
+                    ToolContext(
+                        db=db,
+                        family_id=self.family.id,
+                        user_id=self.user.id,
+                        conversation_id="conversation-test",
+                        run_id="run-test",
+                    ),
+                )
+                output = executor.call(
+                    "recipe.preview_cook",
+                    {
+                        "recipeId": recipe.id,
+                        "servings": 2,
+                        "planItemId": "plan-cook-skill-preview-warning-other",
+                    },
+                )
+
+            self.assertEqual(output["recipe"]["id"], recipe.id)
+            self.assertIsNone(output["planItem"])
+            self.assertEqual(output["planItemWarning"]["code"], "plan_item_recipe_mismatch")
+
         def test_recipe_cook_skill_does_not_create_temporary_recipe_when_missing(self) -> None:
             with self.SessionLocal() as db:
                 result, tool_executor = self._run_recipe_cook_skill(
@@ -418,7 +475,6 @@ class AISkillExecutionTestCase(AIAgentInfraTestCase):
                 output_types=[],
                 draft_types=[],
                 approval_policy="none",
-                can_continue_from=[],
                 intent="limited",
                 agent_key="limited_agent",
             )
@@ -686,6 +742,66 @@ class AISkillExecutionTestCase(AIAgentInfraTestCase):
             self.assertEqual(data["items"][0]["name"], "番茄")
             self.assertEqual(data["items"][0]["image"]["id"], "media-ingredient-tomato")
             self.assertNotIn("suggestedAction", data["items"][0])
+
+        def test_inventory_card_is_added_when_model_omits_cards(self) -> None:
+            class NoCardInventoryProvider(BaseChatProvider):
+                model_name = "no-card-inventory-model"
+
+                def generate(self, *, system: str, user: str, response_schema: dict | None = None) -> ChatProviderResult:
+                    raise AssertionError("tool-calling skill should use generate_with_tools")
+
+                def generate_with_tools(
+                    self,
+                    *,
+                    system: str,
+                    user: str,
+                    tools: list,
+                    tool_handler,
+                    response_schema: dict | None = None,
+                    max_rounds: int = 8,
+                    visible_text_handler=None,
+                ) -> ChatProviderResult:
+                    del system, user, tools, response_schema, max_rounds, visible_text_handler
+                    tool_handler("inventory.read_low_stock_items", {"limit": 20})
+                    return ChatProviderResult(
+                        text=json.dumps(
+                            {
+                                "text": "这里是需要补货的库存。",
+                                "cards": [],
+                                "status": "completed",
+                            },
+                            ensure_ascii=False,
+                        ),
+                        status="completed",
+                        model=self.model_name,
+                        structured_mode="tool_call",
+                    )
+
+            with self.SessionLocal() as db:
+                item = db.get(InventoryItem, "inventory-tomato")
+                assert item is not None
+                item.low_stock_threshold = Decimal("4")
+                db.flush()
+                result = build_workspace_skill_registry().get("inventory_analysis").run(
+                    SkillContext(
+                        db=db,
+                        family_id=self.family.id,
+                        user_id=self.user.id,
+                        conversation_id="conversation-test",
+                        run_id="run-test",
+                        conversation=[],
+                        current_message="哪些库存需要补货",
+                        tool_executor=ToolExecutor(
+                            build_workspace_tool_registry(),
+                            ToolContext(db=db, family_id=self.family.id, user_id=self.user.id, conversation_id="conversation-test", run_id="run-test"),
+                        ),
+                        provider=NoCardInventoryProvider(),
+                    )
+                )
+
+            self.assertEqual(result.cards[0]["type"], "inventory_summary")
+            self.assertEqual(result.cards[0]["data"]["queryFocus"], "low_stock")
+            self.assertEqual(result.cards[0]["data"]["items"][0]["suggestedAction"], "restock")
 
         def test_tool_calling_skill_builds_clarification_card_from_tool_output(self) -> None:
             class ClarificationProvider(BaseChatProvider):
@@ -1240,6 +1356,74 @@ class AISkillExecutionTestCase(AIAgentInfraTestCase):
             self.assertIn("inventory.read_expiring_items", tool_names)
             self.assertIn("meal_plan.create_draft", tool_names)
 
+        def test_tool_calling_skill_uses_larger_round_budget_for_tool_rich_skills(self) -> None:
+            observed: dict[str, int] = {}
+
+            class BudgetProvider(BaseChatProvider):
+                model_name = "budget-model"
+
+                def generate(self, *, system: str, user: str, response_schema: dict | None = None) -> ChatProviderResult:
+                    raise AssertionError("tool-calling skill should use generate_with_tools")
+
+                def generate_with_tools(
+                    self,
+                    *,
+                    system: str,
+                    user: str,
+                    tools: list,
+                    tool_handler,
+                    response_schema: dict | None = None,
+                    max_rounds: int = 8,
+                    visible_text_handler=None,
+                ) -> ChatProviderResult:
+                    del system, user, tools, tool_handler, response_schema, visible_text_handler
+                    observed["max_rounds"] = max_rounds
+                    payload = {
+                        "text": "我先确认计划范围。",
+                        "cards": [],
+                        "events": [],
+                        "context_summary": {},
+                        "state_patch": {},
+                        "requires_clarification": True,
+                        "status": "completed",
+                        "error": None,
+                        "operation": "clarify",
+                    }
+                    return ChatProviderResult(
+                        text=f"<visible_text>{payload['text']}</visible_text><structured_result>{json.dumps(payload, ensure_ascii=False)}</structured_result>",
+                        status="completed",
+                        model=self.model_name,
+                        structured_mode="tool_call",
+                    )
+
+            skill = build_workspace_skill_registry().get("meal_plan")
+            with self.SessionLocal() as db:
+                result = skill.run(
+                    SkillContext(
+                        db=db,
+                        family_id=self.family.id,
+                        user_id=self.user.id,
+                        conversation_id="conversation-test",
+                        run_id="run-test",
+                        conversation=[],
+                        current_message="把明天晚餐安排成番茄小炒",
+                        tool_executor=ToolExecutor(
+                            build_workspace_tool_registry(),
+                            ToolContext(
+                                db=db,
+                                family_id=self.family.id,
+                                user_id=self.user.id,
+                                conversation_id="conversation-test",
+                                run_id="run-test",
+                            ),
+                        ),
+                        provider=BudgetProvider(),
+                    )
+                )
+
+            self.assertEqual(result.status, "completed")
+            self.assertGreater(observed["max_rounds"], 8)
+
         def test_tool_calling_skill_fails_invalid_model_json(self) -> None:
             skill = build_workspace_skill_registry().get("inventory_analysis")
             with self.SessionLocal() as db:
@@ -1329,7 +1513,7 @@ class AISkillExecutionTestCase(AIAgentInfraTestCase):
 
             self.assertEqual(result.status, "completed")
             self.assertEqual(result.cards, [])
-            self.assertEqual(result.context_summary["scriptValidation"], {"valid": True, "errors": []})
+            self.assertEqual(result.context_summary["scriptValidation"], {"valid": True, "errors": [], "warnings": []})
             self.assertEqual(result.drafts[0]["draft_type"], "meal_plan")
             self.assertIn("番茄小炒", str(result.drafts[0]["payload"]))
             self.assertIn("script.validate_meal_plan", tool_names)

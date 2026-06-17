@@ -2,7 +2,7 @@
 name: recipe-cook
 key: recipe_cook
 display_name: 菜谱做菜
-description: 预览菜谱可做性、库存扣减，并生成可确认的做菜执行草稿。
+description: 按已有菜谱实际做一次菜，预览缺料和库存扣减，并在可做时生成做菜执行草稿，可关联计划和可选记录餐食；不新建/编辑菜谱、不做普通餐食记录或未来餐食安排。
 allowed_tools:
   - intent.request_clarification
   - recipe.search
@@ -20,21 +20,22 @@ output_types:
 draft_types:
   - recipe_cook
 approval_policy: draft_then_confirm
-can_continue_from:
-  - recipe_cook
 intent: recipe_cook
 agent_key: recipe_cook_agent
 examples:
   - 做一份番茄炒蛋，顺便扣减库存。
   - 今晚按这个菜谱做 3 份。
   - 把明天晚餐那条番茄炒蛋计划做掉。
+  - 预览一下红烧牛肉做 2 人份够不够。
+  - 按今晚计划做番茄炒蛋并记录餐食。
+  - 这道菜库存够的话帮我生成做菜确认。
 ---
 
 # 菜谱做菜 Skill
 
 ## 定位
 
-`recipe_cook` 只处理“按已有菜谱实际做一次菜”：查真实菜谱、可选关联同一菜谱的餐食计划、预览库存扣减、生成待用户确认的做菜草稿。确认前不能扣库存、写做菜日志、写餐食记录或完成计划。
+`recipe_cook` 只处理“按已有菜谱实际做一次菜”：查真实菜谱、可选关联同一菜谱的餐食计划、预览库存扣减，并在库存充足时生成待用户确认的做菜草稿。确认前不能扣库存、写做菜日志、写餐食记录或完成计划。
 
 不处理：
 
@@ -42,7 +43,14 @@ examples:
 - 临时生成一个不存在的菜谱再做菜；菜谱不存在时提示用户先创建菜谱。
 - 普通餐食记录；没有做菜扣库存语义时走 `meal_log`。
 
-## 固定流程
+## 自主决策空间
+
+- 可以根据用户原话决定是否查计划、是否记录餐食和使用什么份数默认值；没有计划关联语义时不必查计划。
+- 用户只说“做这道菜并扣库存”时，默认不创建餐食记录；明确说“记录/吃了/完成计划”时再设置 `createMealLog=true`。
+- 菜谱目标唯一、份数可安全使用菜谱默认值时不要重复追问；会影响扣库存或计划完成的关键信息不明确时必须澄清。
+- 回复文案可以自由解释缺料、扣减预览和确认后会发生什么，但不能承诺确认前已经扣减或完成计划。
+
+## 建议流程
 
 ### 1. 解析意图
 
@@ -76,12 +84,13 @@ examples:
 ### 4. 预览库存
 
 - 调用 `recipe.preview_cook`，传入 `recipeId`、份数，只有通过第 3 阶段确认的计划项才传 `planItemId`。
-- 如果 `recipe.preview_cook` 因计划项不属于当前菜谱而失败，说明流程前面没有按 `recipeId` 正确查计划；不要改用历史里的计划 id，必须重新按第 3 阶段查询或澄清。
-- 预览中有 `shortages` 时，不允许承诺“已完成做菜”或“会直接扣库存”。可以生成确认信息，但文案必须说明当前库存不足，确认执行会失败，需要先补库存或调整份量。
+- 如果 `recipe.preview_cook` 返回 `planItemWarning`，说明流程前面没有按 `recipeId` 正确查计划；不要继续把该 `planItemId` 传给 `recipe.create_cook_draft`。用户明确要求做掉计划时，必须重新按第 3 阶段查询或澄清；用户只是要求做菜并记录餐食时，可以不关联计划继续。
+- 预览中有 `shortages` 时，不生成 `recipe_cook` 草稿，也不要让用户确认一个注定会失败的执行。直接说明缺少哪些食材、建议先补库存或调整份量；需要用户选择时调用 `intent.request_clarification`。
 
 ### 5. 生成确认草稿
 
 - 只能调用 `recipe.create_cook_draft` 生成 `recipe_cook` 草稿。
+- 只有 `recipe.preview_cook` 返回的 `shortages` 为空时才生成草稿。
 - 草稿里的 `recipeId`、`baseUpdatedAt`、`planItemId`、`planItemBaseUpdatedAt`、`previewItems`、`shortages` 必须来自工具结果。
 - 未明确要求记录餐食时，`createMealLog=false`。
 - 明确要求记录餐食或完成计划时，`createMealLog=true`，并按用户意图带上日期、餐别和参与人。
@@ -89,15 +98,16 @@ examples:
 
 ## 澄清触发条件
 
-必须调用 `intent.request_clarification` 的情况：
+以下情况必须调用 `intent.request_clarification`：
 
 - 菜谱不存在或菜谱候选不唯一。
 - 用户要求关联计划，但计划项不存在或不唯一。
 - 份数不明确且无法安全使用菜谱默认份数。
+- 预览缺料且用户需要在“补库存、调整份量、换菜谱”之间选择。
 - 用户同时表达互相冲突的日期、餐别、计划项或记录餐食要求。
 
 ## 安全边界
 
 - `planItemId` 是强绑定字段，只能来自按当前 `recipeId` 过滤后的 `meal_plan.read_existing`。
 - `recipe.create_cook_draft` 和最终审批执行仍会严格校验 `planItemId` 与 `recipeId` 是否匹配。
-- 缺料不允许负库存扣减；最终审批执行如果发现缺料，必须失败并提示刷新预览或先补库存。
+- 缺料不允许负库存扣减；发现缺料时不要生成执行草稿。最终审批执行如果库存状态在确认前变成缺料，必须失败并提示刷新预览或先补库存。

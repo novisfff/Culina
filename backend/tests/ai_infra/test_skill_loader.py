@@ -50,6 +50,8 @@ class AISkillLoaderTestCase(AIAgentInfraTestCase):
             self.assertNotIn("general_chat", skill_registry.keys())
             self.assertNotIn("today_recommendation", skill_registry.keys())
             self.assertIsInstance(skill_registry.get("inventory_analysis"), ToolCallingSkill)
+            self.assertIn("ingredient.search", skill_registry.get("shopping_list").manifest.tools)
+            self.assertIn("ingredient.read_by_id", skill_registry.get("shopping_list").manifest.tools)
 
         def test_skill_loader_uses_unified_toolcall_runner_without_skill_python_entrypoint(self) -> None:
             skill_registry = build_workspace_skill_registry()
@@ -98,6 +100,46 @@ class AISkillLoaderTestCase(AIAgentInfraTestCase):
                 self.assertIn("workflow content", instructions)
                 self.assertNotIn("name: simple-skill", instructions)
 
+        def test_skill_catalog_instructions_include_operational_guardrails(self) -> None:
+            skill_registry = build_workspace_skill_registry()
+
+            self.assertIn(
+                "更新 payload 不是局部补丁",
+                skill_registry.get("ingredient_profile").instructions,
+            )
+            self.assertIn(
+                "至少保留或填写 `name`、`category`、`default_unit`、`default_storage`、`default_expiry_mode`",
+                skill_registry.get("ingredient_profile").instructions,
+            )
+            self.assertIn(
+                "收藏和取消收藏使用 `action=set_favorite`，payload 只提供 `favorite=true/false`",
+                skill_registry.get("food_profile").instructions,
+            )
+            self.assertIn(
+                "payload 至少包含 `title`、`servings`、`prep_minutes`、`difficulty`、`ingredient_items` 和 `steps`",
+                skill_registry.get("recipe_draft").instructions,
+            )
+            self.assertIn(
+                "预览中有 `shortages` 时，不生成 `recipe_cook` 草稿",
+                skill_registry.get("recipe_cook").instructions,
+            )
+            self.assertIn(
+                "本 Skill 只能说明需要进入食材档案流程",
+                skill_registry.get("inventory_analysis").instructions,
+            )
+            self.assertIn(
+                "不要在本 Skill 中调用或伪造 `food_profile` 草稿",
+                skill_registry.get("meal_plan").instructions,
+            )
+            self.assertIn(
+                "`sourceDraftId` 只能来自当前运行 artifact 的 `in_run:*` ID",
+                skill_registry.get("shopping_list").instructions,
+            )
+            self.assertIn(
+                "同一会话中真实存在的持久草稿 ID",
+                skill_registry.get("shopping_list").instructions,
+            )
+
         def test_skill_loader_exposes_declared_scripts_as_model_tools(self) -> None:
             skill = build_workspace_skill_registry().get("meal_plan")
             definitions = {
@@ -119,7 +161,11 @@ class AISkillLoaderTestCase(AIAgentInfraTestCase):
 
             self.assertEqual(
                 set(definitions),
-                {"script.validate_meal_plan", "script.render_plan_preview"},
+                {"script.expand_meal_slots", "script.validate_meal_plan", "script.render_plan_preview"},
+            )
+            self.assertEqual(
+                definitions["script.expand_meal_slots"].input_schema["required"],
+                ["start_date", "days", "meal_types"],
             )
             self.assertEqual(
                 definitions["script.validate_meal_plan"].input_schema["required"],
@@ -133,6 +179,110 @@ class AISkillLoaderTestCase(AIAgentInfraTestCase):
                 definitions["script.validate_meal_plan"].permission,
                 "skill:script",
             )
+
+        def test_skill_script_helpers_expand_slots_and_normalize_ingredient_detail(self) -> None:
+            context = SkillContext(
+                db=MagicMock(),
+                family_id="family-test",
+                user_id="user-test",
+                conversation_id="conversation-test",
+                run_id="run-test",
+                conversation=[],
+                current_message="",
+                tool_executor=MagicMock(),
+            )
+            meal_plan = build_workspace_skill_registry().get("meal_plan")
+            meal_executor = SkillScriptExecutor(meal_plan.script_catalog, context)
+            expanded = meal_executor.call(
+                "script.expand_meal_slots",
+                {"start_date": "2026-06-18", "days": 2, "meal_types": ["dinner", "lunch"]},
+            )["result"]
+            self.assertTrue(expanded["valid"])
+            self.assertEqual(
+                expanded["slots"],
+                [
+                    {"date": "2026-06-18", "mealType": "dinner"},
+                    {"date": "2026-06-18", "mealType": "lunch"},
+                    {"date": "2026-06-19", "mealType": "dinner"},
+                    {"date": "2026-06-19", "mealType": "lunch"},
+                ],
+            )
+            validation = meal_executor.call(
+                "script.validate_meal_plan",
+                {
+                    "plan": [
+                        {"date": "2026-06-18", "mealType": "dinner", "title": "番茄小炒", "foodId": "food-tomato"},
+                        {"date": "2026-06-18", "mealType": "dinner", "title": "番茄小炒", "foodId": "food-tomato"},
+                        {"date": "2026-06-19", "mealType": "lunch", "title": "番茄小炒", "foodId": "food-tomato"},
+                    ]
+                },
+            )["result"]
+            self.assertFalse(validation["valid"])
+            self.assertIn("同一天同餐别存在重复计划", validation["errors"][0]["message"])
+            self.assertEqual(validation["warnings"][0]["field"], "foodId")
+
+            shopping = build_workspace_skill_registry().get("shopping_list")
+            shopping_executor = SkillScriptExecutor(shopping.script_catalog, context)
+            normalized = shopping_executor.call("script.normalize_ingredient_detail", {"name": "鸡脯肉"})["result"]
+            self.assertEqual(normalized["normalized"], "鸡胸肉")
+            self.assertTrue(normalized["changed"])
+            self.assertGreaterEqual(normalized["confidence"], 0.9)
+            suggested = shopping_executor.call(
+                "script.suggest_items_from_sources",
+                {
+                    "meal_plan_items": [
+                        {
+                            "date": "2026-06-18",
+                            "mealType": "dinner",
+                            "title": "番茄牛肉",
+                            "missingIngredientItems": [
+                                {"name": "西红柿", "quantity": 3, "unit": "个"},
+                                {"name": "鸡脯肉", "quantity": 500, "unit": "g"},
+                            ],
+                        }
+                    ],
+                    "inventory_items": [{"name": "番茄", "quantity": 1, "unit": "个"}],
+                    "pending_items": [{"title": "鸡胸肉", "quantity": 500, "unit": "克", "done": False}],
+                },
+            )["result"]
+            self.assertEqual(suggested["itemCount"], 1)
+            self.assertEqual(suggested["items"][0]["title"], "番茄")
+            self.assertEqual(suggested["items"][0]["quantity"], 2.0)
+            self.assertEqual(suggested["skipped"][0]["title"], "鸡胸肉")
+            self.assertTrue(suggested["skipped"][0]["alreadyPending"])
+
+            recipe = build_workspace_skill_registry().get("recipe_draft")
+            recipe_executor = SkillScriptExecutor(recipe.script_catalog, context)
+            lint = recipe_executor.call(
+                "script.lint_recipe_draft",
+                {
+                    "draft": {
+                        "title": "番茄鸡蛋面",
+                        "servings": 2,
+                        "prep_minutes": 20,
+                        "difficulty": "easy",
+                        "ingredient_items": [
+                            {"ingredient_name": "番茄", "quantity": 2, "unit": "个"},
+                            {"ingredient_name": "鸡蛋", "quantity": 2, "unit": "个"},
+                        ],
+                        "steps": [{"description": "番茄切块，鸡蛋打散后炒熟，再和面条同煮。"}],
+                    }
+                },
+            )["result"]
+            self.assertTrue(lint["valid"])
+            self.assertEqual(lint["errors"], [])
+
+        def test_tool_calling_skill_prompt_includes_tool_output_schema(self) -> None:
+            skill = build_workspace_skill_registry().get("inventory_analysis")
+            tool_registry = build_workspace_tool_registry()
+            prompt = skill._system_prompt([tool_registry.get("inventory.read_low_stock_items")])
+            allowed_tools = json.loads(prompt.split("Allowed tools:\n", 1)[1].split("\n\nSkill instructions:", 1)[0])
+
+            self.assertEqual(allowed_tools[0]["name"], "inventory.read_low_stock_items")
+            self.assertIn("input_schema", allowed_tools[0])
+            self.assertIn("output_schema", allowed_tools[0])
+            self.assertEqual(allowed_tools[0]["output_schema"]["required"], ["queryFocus", "count", "items"])
+            self.assertIn("ingredientId", allowed_tools[0]["output_schema"]["properties"]["items"]["items"]["properties"])
 
         def test_skill_loader_rejects_unsafe_script_imports(self) -> None:
             with tempfile.TemporaryDirectory() as tmp_dir:
@@ -299,7 +449,7 @@ class AISkillLoaderTestCase(AIAgentInfraTestCase):
                 )
 
             self.assertTrue(provider.assert_script_is_exposed)
-            self.assertEqual(result.context_summary["scriptValidation"], {"valid": True, "errors": []})
+            self.assertEqual(result.context_summary["scriptValidation"], {"valid": True, "errors": [], "warnings": []})
             self.assertEqual(result.tool_calls[0]["name"], "script.validate_meal_plan")
             self.assertTrue(
                 any(

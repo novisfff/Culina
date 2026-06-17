@@ -23,6 +23,16 @@ def merge_ingredients(items: list[dict]) -> list[dict]:
 
 
 def _normalize_ingredient(name: str) -> str:
-    aliases = {"西红柿": "番茄", "土豆": "马铃薯", "小葱": "葱"}
+    aliases = {
+        "西红柿": "番茄",
+        "土豆": "马铃薯",
+        "小葱": "葱",
+        "香葱": "葱",
+        "洋芋": "马铃薯",
+        "鸡脯肉": "鸡胸肉",
+        "牛肉片": "牛肉",
+        "猪肉末": "猪肉糜",
+        "肉末": "猪肉糜",
+    }
     text = str(name).strip()
     return aliases.get(text, text)

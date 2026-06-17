@@ -129,7 +129,6 @@ def get_ai_registry(auth: tuple = Depends(get_current_auth)) -> dict:
                 "output_types": manifest.output_types,
                 "draft_types": manifest.draft_types,
                 "approval_policy": manifest.approval_policy,
-                "can_continue_from": manifest.can_continue_from,
                 "intent": manifest.intent,
                 "agent_key": manifest.agent_key,
             }

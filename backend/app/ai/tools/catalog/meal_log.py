@@ -9,10 +9,101 @@ from app.ai.tools.base import ToolContext
 from app.ai.tools.catalog.common import register_tool
 from app.ai.tools.draft_validation import normalize_meal_log_draft
 from app.ai.tools.registry import ToolRegistry
-from app.ai.tools.schemas import COUNT_OUTPUT, MEAL_LOG_DRAFT_SCHEMA, READ_BY_ID_INPUT, SEARCH_INPUT, draft_input_schema, draft_output_schema
+from app.ai.tools.schemas import MEAL_LOG_DRAFT_SCHEMA, READ_BY_ID_INPUT, SEARCH_INPUT, draft_input_schema, draft_output_schema
 from app.models.domain import Food, MealLog, MealLogFood
 from app.repos.media import build_media_map, get_media_assets_for_entities
 from app.services.serializers import serialize_meal_log
+
+
+MEAL_LOG_ITEM_OUTPUT = {
+    "type": "object",
+    "required": ["id", "date", "mealType"],
+    "properties": {
+        "id": {"type": "string"},
+        "date": {"type": "string"},
+        "mealType": {"type": "string", "enum": ["breakfast", "lunch", "dinner", "snack"]},
+        "foods": {"type": "array", "items": {"type": "object"}},
+        "foodEntries": {"type": "array", "items": {"type": "object"}},
+        "participantUserIds": {"type": "array", "items": {"type": "string"}},
+        "notes": {"type": ["string", "null"]},
+        "mood": {"type": ["string", "null"]},
+        "photos": {"type": "array", "items": {"type": "object"}},
+        "deductionSuggestions": {"type": "array", "items": {"type": "object"}},
+        "createdAt": {"type": ["string", "null"]},
+        "updatedAt": {"type": ["string", "null"]},
+    },
+}
+
+MEAL_LOG_LIST_OUTPUT = {
+    "type": "object",
+    "required": ["count", "items"],
+    "properties": {
+        "count": {"type": "integer", "minimum": 0},
+        "hasMore": {"type": "boolean"},
+        "items": {"type": "array", "items": MEAL_LOG_ITEM_OUTPUT},
+    },
+}
+
+MEAL_LOG_READ_OUTPUT = {
+    "type": "object",
+    "required": ["item"],
+    "properties": {"item": MEAL_LOG_ITEM_OUTPUT},
+}
+
+
+def _tool_date(value: Any) -> str:
+    return value.isoformat() if hasattr(value, "isoformat") else str(value)
+
+
+def _tool_enum(value: Any) -> str:
+    return value.value if hasattr(value, "value") else str(value)
+
+
+def _tool_datetime(value: Any) -> str | None:
+    if value is None:
+        return None
+    return value.isoformat() if hasattr(value, "isoformat") else str(value)
+
+
+def _serialize_meal_log_tool_item(
+    meal_log: MealLog,
+    media_map: dict[tuple[str, str], list[Any]],
+) -> dict[str, Any]:
+    record = serialize_meal_log(meal_log, media_map)
+    food_entries = [
+        {
+            "id": entry["id"],
+            "foodId": entry["food_id"],
+            "foodName": entry["food_name"],
+            "servings": entry["servings"],
+            "note": entry["note"],
+            "rating": entry["rating"],
+        }
+        for entry in record["food_entries"]
+    ]
+    return {
+        "id": record["id"],
+        "date": _tool_date(record["date"]),
+        "mealType": _tool_enum(record["meal_type"]),
+        "foods": food_entries,
+        "foodEntries": food_entries,
+        "participantUserIds": list(record["participant_user_ids"] or []),
+        "notes": record["notes"],
+        "mood": record["mood"],
+        "photos": record["photos"],
+        "deductionSuggestions": [
+            {
+                "id": item["id"],
+                "ingredientName": item["ingredient_name"],
+                "suggestedAmount": item["suggested_amount"],
+                "unit": item["unit"],
+                "basedOnFoodName": item["based_on_food_name"],
+            }
+            for item in record["deduction_suggestions"]
+        ],
+        "createdAt": _tool_datetime(record["created_at"]),
+        "updatedAt": _tool_datetime(record["updated_at"]),
+    }
 
 
 def meal_log_read_recent(context: ToolContext, payload: dict[str, Any]) -> dict[str, Any]:
@@ -61,10 +152,7 @@ def meal_log_read_recent(context: ToolContext, payload: dict[str, Any]) -> dict[
     )
     return {
         "items": [
-            {
-                **serialize_meal_log(item, media_map),
-                "updatedAt": item.updated_at.isoformat() if item.updated_at is not None else None,
-            }
+            _serialize_meal_log_tool_item(item, media_map)
             for item in logs
         ],
         "count": len(logs),
@@ -88,7 +176,7 @@ def meal_log_read_by_id(context: ToolContext, payload: dict[str, Any]) -> dict[s
             entity_ids=[meal_log.id],
         )
     )
-    return {"item": serialize_meal_log(meal_log, media_map)}
+    return {"item": _serialize_meal_log_tool_item(meal_log, media_map)}
 
 
 def meal_log_create_draft(context: ToolContext, payload: dict[str, Any]) -> dict[str, Any]:
@@ -117,7 +205,7 @@ def register_meal_log_tools(registry: ToolRegistry) -> None:
                 "dateTo": {"type": "string", "minLength": 10, "maxLength": 10},
             },
         },
-        output_schema=COUNT_OUTPUT,
+        output_schema=MEAL_LOG_LIST_OUTPUT,
     )
     register_tool(
         registry,
@@ -127,7 +215,7 @@ def register_meal_log_tools(registry: ToolRegistry) -> None:
         side_effect="read",
         handler=meal_log_read_by_id,
         input_schema=READ_BY_ID_INPUT,
-        output_schema={"type": "object", "required": ["item"], "properties": {"item": {"type": "object"}}},
+        output_schema=MEAL_LOG_READ_OUTPUT,
     )
     register_tool(
         registry,

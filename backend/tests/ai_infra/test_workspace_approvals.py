@@ -1,7 +1,52 @@
 from ._support import *
+from app.services.ai_operations.messages import approval_result_card
 
 
 class AIWorkspaceApprovalsTestCase(AIAgentInfraTestCase):
+        def test_approval_decision_lock_timeout_returns_conflict(self) -> None:
+            from sqlalchemy.exc import OperationalError
+
+            from app.ai.errors import AIConflictError
+            from app.services.ai_operations.approval_decisions import apply_ai_approval_decision
+
+            db = MagicMock()
+            db.scalar.side_effect = [
+                object(),
+                OperationalError(
+                    "SELECT ai_approval_requests FOR UPDATE",
+                    {},
+                    Exception(1205, "Lock wait timeout exceeded; try restarting transaction"),
+                ),
+            ]
+
+            with self.assertRaisesRegex(AIConflictError, "确认请求正在处理"):
+                apply_ai_approval_decision(
+                    db,
+                    family_id=self.family.id,
+                    user_id=self.user.id,
+                    conversation_id="conversation-lock",
+                    approval_id="approval-lock",
+                    decision="approved",
+                    draft_version=1,
+                    values={},
+                    resolve_user_id=lambda value: value,
+                )
+
+        def test_approval_decision_api_returns_conflict_for_locked_approval(self) -> None:
+            from app.ai.errors import AIConflictError
+
+            with patch(
+                "app.api.ai.AIApplicationService.decide_approval",
+                side_effect=AIConflictError("确认请求正在处理，请稍后刷新或重试"),
+            ):
+                response = self.client.post(
+                    "/api/ai/conversations/conversation-lock/approvals/approval-lock/decision",
+                    json={"decision": "approved", "draft_version": 1, "values": {}},
+                )
+
+            self.assertEqual(response.status_code, 409, response.text)
+            self.assertIn("确认请求正在处理", response.json()["detail"])
+
         def test_ai_workspace_recipe_draft_approval_creates_recipe_after_decision(self) -> None:
             provider = FakeChatProvider(
                 """
@@ -699,8 +744,11 @@ class AIWorkspaceApprovalsTestCase(AIAgentInfraTestCase):
                 db.flush()
 
                 context = ToolContext(db=db, family_id=self.family.id, user_id=self.user.id, conversation_id=None, run_id=None)
-                with self.assertRaisesRegex(ValueError, "计划项不存在或不属于当前菜谱"):
-                    recipe_preview_cook(context, {"recipeId": recipe.id, "servings": 2, "planItemId": plan_item.id})
+                preview = recipe_preview_cook(context, {"recipeId": recipe.id, "servings": 2, "planItemId": plan_item.id})
+                self.assertIsNone(preview["planItem"])
+                self.assertEqual(preview["planItemWarning"]["code"], "plan_item_recipe_mismatch")
+                self.assertEqual(preview["planItemWarning"]["planItemId"], plan_item.id)
+                self.assertEqual(preview["recipe"]["id"], recipe.id)
                 with self.assertRaisesRegex(ValueError, "做菜草稿引用的计划项不存在或不匹配当前菜谱"):
                     recipe_create_cook_draft(
                         context,
@@ -2062,6 +2110,96 @@ class AIWorkspaceApprovalsTestCase(AIAgentInfraTestCase):
             self.assertEqual(business_artifact["sourceDraftId"], "draft-1")
             self.assertEqual(business_artifact["sourceOperationId"], "operation-1")
             self.assertEqual(business_artifact["summary"], "番茄炒蛋")
+
+        def test_workspace_runner_keeps_recipe_result_as_single_entity(self) -> None:
+            with self.SessionLocal() as db:
+                service = AIApplicationService(db, provider=FakeChatProvider())
+                decision_result = {
+                    "approval": {
+                        "id": "approval-recipe",
+                        "status": "approved",
+                        "approval_type": "recipe.create",
+                    },
+                    "draft": {
+                        "id": "draft-recipe",
+                        "draft_type": "recipe",
+                        "payload": {"title": "炒蛋和番茄"},
+                    },
+                    "operation": {
+                        "id": "operation-recipe",
+                        "status": "succeeded",
+                        "business_entity_type": "Recipe",
+                    },
+                    "business_entity": {
+                        "id": "recipe-1",
+                        "title": "炒蛋和番茄",
+                        "steps": [
+                            {"summary": "处理食材"},
+                            {"summary": "炒蛋和番茄"},
+                            {"summary": "煮汤和下面"},
+                            {"summary": "回锅调味出锅"},
+                        ],
+                    },
+                }
+                artifacts = service._approval_decision_artifacts(decision_result)
+                card = approval_result_card(decision_result)
+
+            business_artifacts = [artifact for artifact in artifacts if artifact.get("kind") == "business_entity"]
+            self.assertEqual(len(business_artifacts), 1)
+            self.assertEqual(business_artifacts[0]["entityId"], "recipe-1")
+            self.assertEqual(business_artifacts[0]["summary"], "炒蛋和番茄")
+            self.assertIsNotNone(card)
+            assert card is not None
+            self.assertEqual(card["title"], "已创建菜谱")
+            self.assertEqual(card["data"]["entityCountLabel"], "1 个菜谱")
+            self.assertEqual(card["data"]["entities"][0]["label"], "炒蛋和番茄")
+
+        def test_workspace_runner_uses_inventory_ingredient_name_for_result_label(self) -> None:
+            with self.SessionLocal() as db:
+                service = AIApplicationService(db, provider=FakeChatProvider())
+                decision_result = {
+                    "approval": {
+                        "id": "approval-inventory",
+                        "status": "approved",
+                        "approval_type": "inventory.operation",
+                    },
+                    "draft": {
+                        "id": "draft-inventory",
+                        "draft_type": "inventory_operation",
+                        "payload": {
+                            "draftType": "inventory_operation",
+                            "operations": [{"action": "restock"}],
+                        },
+                    },
+                    "operation": {
+                        "id": "operation-inventory",
+                        "status": "succeeded",
+                        "business_entity_type": "InventoryItem",
+                    },
+                    "business_entity": {
+                        "operations": [
+                            {
+                                "operationId": "op-restock-1",
+                                "operation": "restock",
+                                "inventory_item": {
+                                    "id": "inventory-egg",
+                                    "ingredient_name": "鸡蛋",
+                                },
+                            }
+                        ]
+                    },
+                }
+                artifacts = service._approval_decision_artifacts(decision_result)
+                card = approval_result_card(decision_result)
+
+            business_artifacts = [artifact for artifact in artifacts if artifact.get("kind") == "business_entity"]
+            self.assertEqual(len(business_artifacts), 1)
+            self.assertEqual(business_artifacts[0]["summary"], "鸡蛋")
+            self.assertIsNotNone(card)
+            assert card is not None
+            self.assertEqual(card["data"]["entityCountLabel"], "1 项库存变更")
+            self.assertEqual(card["data"]["entities"][0]["label"], "鸡蛋")
+            self.assertEqual(card["data"]["entities"][0]["operationLabel"], "补货")
 
         def test_workspace_service_loads_current_value_for_failed_meal_plan_operation(self) -> None:
             with self.SessionLocal() as db:

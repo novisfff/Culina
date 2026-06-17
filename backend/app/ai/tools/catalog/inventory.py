@@ -12,7 +12,6 @@ from app.ai.tools.catalog.common import decimal_text, entity_media_map, first_en
 from app.ai.tools.draft_validation import normalize_inventory_operation_draft
 from app.ai.tools.registry import ToolRegistry
 from app.ai.tools.schemas import (
-    COUNT_OUTPUT,
     DAYS_INPUT,
     INVENTORY_OPERATION_DRAFT_SCHEMA,
     LIMIT_INPUT,
@@ -43,6 +42,40 @@ INVENTORY_SUMMARY_OUTPUT = {
         "items": {"type": "array", "items": {"type": "object"}},
     },
 }
+
+INVENTORY_ITEM_OUTPUT = {
+    "type": "object",
+    "required": ["id", "ingredientId", "name", "quantity", "unit", "status", "displayStatus"],
+    "properties": {
+        "id": {"type": "string"},
+        "ingredientId": {"type": "string"},
+        "name": {"type": "string"},
+        "image": {"type": ["object", "null"]},
+        "quantity": {"type": "string"},
+        "unit": {"type": "string"},
+        "status": {"type": "string"},
+        "displayStatus": {"type": "string", "enum": ["available", "expiring", "expired", "low_stock"]},
+        "expiryDate": {"type": ["string", "null"]},
+        "daysUntilExpiry": {"type": ["integer", "null"]},
+        "lowStockThreshold": {"type": ["string", "null"]},
+        "purchaseDate": {"type": "string"},
+        "storageLocation": {"type": ["string", "null"]},
+        "suggestedAction": {"type": "string", "enum": ["consume", "dispose", "restock"]},
+    },
+}
+
+
+def inventory_items_output_schema(query_focus: str) -> dict[str, Any]:
+    return {
+        "type": "object",
+        "required": ["queryFocus", "count", "items"],
+        "properties": {
+            "queryFocus": {"type": "string", "enum": [query_focus]},
+            "count": {"type": "integer", "minimum": 0},
+            "items": {"type": "array", "items": INVENTORY_ITEM_OUTPUT},
+        },
+    }
+
 
 UNIT_CONVERSION_OPERATION_INPUT = {
     "type": "object",
@@ -334,7 +367,7 @@ def register_inventory_tools(registry: ToolRegistry) -> None:
         side_effect="read",
         handler=inventory_read_expiring_items,
         input_schema=DAYS_INPUT,
-        output_schema=COUNT_OUTPUT,
+        output_schema=inventory_items_output_schema("expiring"),
     )
     register_tool(
         registry,
@@ -344,7 +377,7 @@ def register_inventory_tools(registry: ToolRegistry) -> None:
         side_effect="read",
         handler=inventory_read_expired_items,
         input_schema=LIMIT_INPUT,
-        output_schema=COUNT_OUTPUT,
+        output_schema=inventory_items_output_schema("expired"),
     )
     register_tool(
         registry,
@@ -354,7 +387,7 @@ def register_inventory_tools(registry: ToolRegistry) -> None:
         side_effect="read",
         handler=inventory_read_low_stock_items,
         input_schema=LIMIT_INPUT,
-        output_schema=COUNT_OUTPUT,
+        output_schema=inventory_items_output_schema("low_stock"),
     )
     register_tool(
         registry,
@@ -387,5 +420,5 @@ def register_inventory_tools(registry: ToolRegistry) -> None:
         side_effect="read",
         handler=inventory_read_available_items,
         input_schema=LIMIT_INPUT,
-        output_schema=COUNT_OUTPUT,
+        output_schema=inventory_items_output_schema("available"),
     )

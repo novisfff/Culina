@@ -10,10 +10,43 @@ from app.ai.tools.base import ToolContext
 from app.ai.tools.catalog.common import register_tool
 from app.ai.tools.draft_validation import normalize_meal_plan_draft
 from app.ai.tools.registry import ToolRegistry
-from app.ai.tools.schemas import COUNT_OUTPUT, MEAL_PLAN_DRAFT_SCHEMA, READ_BY_ID_INPUT, draft_input_schema, draft_output_schema
+from app.ai.tools.schemas import MEAL_PLAN_DRAFT_SCHEMA, READ_BY_ID_INPUT, draft_input_schema, draft_output_schema
 from app.models.domain import Food, FoodPlanItem
 from app.services.clock import today_for_family
 from app.services.serializers import serialize_food_plan_item
+
+
+MEAL_PLAN_ITEM_OUTPUT = {
+    "type": "object",
+    "required": ["id", "date", "mealType", "title", "foodId", "status"],
+    "properties": {
+        "id": {"type": "string"},
+        "date": {"type": "string"},
+        "mealType": {"type": "string", "enum": ["breakfast", "lunch", "dinner", "snack"]},
+        "title": {"type": "string"},
+        "foodId": {"type": "string"},
+        "note": {"type": ["string", "null"]},
+        "status": {"type": "string"},
+        "recipeId": {"type": ["string", "null"]},
+        "updatedAt": {"type": ["string", "null"]},
+    },
+}
+
+MEAL_PLAN_LIST_OUTPUT = {
+    "type": "object",
+    "required": ["count", "items"],
+    "properties": {
+        "count": {"type": "integer", "minimum": 0},
+        "hasMore": {"type": "boolean"},
+        "items": {"type": "array", "items": MEAL_PLAN_ITEM_OUTPUT},
+    },
+}
+
+MEAL_PLAN_READ_OUTPUT = {
+    "type": "object",
+    "required": ["item"],
+    "properties": {"item": MEAL_PLAN_ITEM_OUTPUT},
+}
 
 
 def meal_plan_read_existing(context: ToolContext, payload: dict[str, Any]) -> dict[str, Any]:
@@ -132,7 +165,7 @@ def register_meal_plan_tools(registry: ToolRegistry) -> None:
                 "offset": {"type": "integer", "minimum": 0, "maximum": 1000},
             },
         },
-        output_schema=COUNT_OUTPUT,
+        output_schema=MEAL_PLAN_LIST_OUTPUT,
     )
     register_tool(
         registry,
@@ -142,7 +175,7 @@ def register_meal_plan_tools(registry: ToolRegistry) -> None:
         side_effect="read",
         handler=meal_plan_read_by_id,
         input_schema=READ_BY_ID_INPUT,
-        output_schema={"type": "object", "required": ["item"], "properties": {"item": {"type": "object"}}},
+        output_schema=MEAL_PLAN_READ_OUTPUT,
     )
     register_tool(
         registry,

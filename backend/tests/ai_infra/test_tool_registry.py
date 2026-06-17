@@ -153,6 +153,65 @@ class AIToolRegistryTestCase(AIAgentInfraTestCase):
             self.assertIsNone(card["data"]["targetDate"])
             self.assertIsNone(card["data"]["mealType"])
 
+        def test_today_recommendation_card_is_added_when_model_omits_cards(self) -> None:
+            class NoCardRecommendationProvider(BaseChatProvider):
+                model_name = "no-card-recommendation-model"
+
+                def generate(self, *, system: str, user: str, response_schema: dict | None = None) -> ChatProviderResult:
+                    raise AssertionError("tool-calling skill should use generate_with_tools")
+
+                def generate_with_tools(
+                    self,
+                    *,
+                    system: str,
+                    user: str,
+                    tools: list,
+                    tool_handler,
+                    response_schema: dict | None = None,
+                    max_rounds: int = 8,
+                    visible_text_handler=None,
+                ) -> ChatProviderResult:
+                    del system, user, tools, response_schema, max_rounds, visible_text_handler
+                    tool_handler("inventory.read_available_items", {"limit": 50})
+                    tool_handler("food.search", {"limit": 24})
+                    return ChatProviderResult(
+                        text=json.dumps(
+                            {
+                                "text": "今晚可以吃番茄小炒。",
+                                "cards": [],
+                                "status": "completed",
+                            },
+                            ensure_ascii=False,
+                        ),
+                        status="completed",
+                        model=self.model_name,
+                        structured_mode="tool_call",
+                    )
+
+            with self.SessionLocal() as db:
+                result = build_workspace_skill_registry().get("meal_plan").run(
+                    SkillContext(
+                        db=db,
+                        family_id=self.family.id,
+                        user_id=self.user.id,
+                        conversation_id="conversation-test",
+                        run_id="run-test",
+                        conversation=[],
+                        current_message="今晚吃什么",
+                        tool_executor=ToolExecutor(
+                            build_workspace_tool_registry(),
+                            ToolContext(db=db, family_id=self.family.id, user_id=self.user.id, conversation_id="conversation-test", run_id="run-test"),
+                        ),
+                        provider=NoCardRecommendationProvider(),
+                    )
+                )
+
+            card = result.cards[0]
+            self.assertEqual(card["type"], "today_recommendation")
+            self.assertEqual(card["data"]["recommendations"][0]["foodId"], "food-tomato")
+            self.assertEqual(card["data"]["recommendations"][0]["name"], "番茄小炒")
+            self.assertEqual(card["data"]["contextSummary"]["inventoryCount"], 1)
+
         def test_phase_a_tool_executor_records_real_tool_calls(self) -> None:
             with self.SessionLocal() as db:
                 executor = ToolExecutor(
@@ -635,7 +694,24 @@ class AIToolRegistryTestCase(AIAgentInfraTestCase):
             expiring = registry.get("inventory.read_expiring_items")
             self.assertEqual(expiring.display_name, "临期食材")
             self.assertIn("days", expiring.input_schema["properties"])
-            self.assertEqual(expiring.output_schema["required"], ["count", "items"])
+            self.assertEqual(expiring.output_schema["required"], ["queryFocus", "count", "items"])
+            self.assertEqual(expiring.output_schema["properties"]["queryFocus"]["enum"], ["expiring"])
+            self.assertIn("ingredientId", expiring.output_schema["properties"]["items"]["items"]["properties"])
+            food_search = registry.get("food.search")
+            self.assertIn("recipeId", food_search.output_schema["properties"]["items"]["items"]["properties"])
+            ingredient_search = registry.get("ingredient.search")
+            self.assertIn("supportedUnits", ingredient_search.output_schema["properties"]["items"]["items"]["properties"])
+            shopping_pending = registry.get("shopping.read_pending")
+            self.assertIn("done", shopping_pending.output_schema["properties"]["items"]["items"]["properties"])
+            meal_plan_existing = registry.get("meal_plan.read_existing")
+            self.assertIn("recipeId", meal_plan_existing.output_schema["properties"]["items"]["items"]["properties"])
+            recipe_search = registry.get("recipe.search")
+            recipe_item_schema = recipe_search.output_schema["properties"]["items"]["items"]
+            self.assertEqual(recipe_search.output_schema["required"], ["count", "hasMore", "items"])
+            self.assertIn("foodIds", recipe_item_schema["properties"])
+            self.assertIn("ingredients", recipe_item_schema["properties"])
+            meal_log_recent = registry.get("meal_log.read_recent")
+            self.assertIn("mealType", meal_log_recent.output_schema["properties"]["items"]["items"]["properties"])
             meal_plan_draft = registry.get("meal_plan.create_draft")
             self.assertEqual(meal_plan_draft.display_name, "餐食计划确认表单")
             self.assertEqual(meal_plan_draft.side_effect, "draft")
@@ -703,6 +779,54 @@ class AIToolRegistryTestCase(AIAgentInfraTestCase):
             messages = [event["data"]["user_message"] for event in events]
             self.assertEqual(messages, ["调用「可用库存」", "生成「餐食计划确认表单」"])
             self.assertNotIn("inventory.read_available_items", "\n".join(messages))
+
+        def test_meal_log_read_by_id_matches_tool_schema(self) -> None:
+            with self.SessionLocal() as db:
+                meal_log = MealLog(
+                    id="meal-log-tool-read-target",
+                    family_id=self.family.id,
+                    date=date.today(),
+                    meal_type=MealType.DINNER,
+                    participant_user_ids=[self.user.id],
+                    notes="少油",
+                    mood="满意",
+                    created_by=self.user.id,
+                    updated_by=self.user.id,
+                )
+                db.add(meal_log)
+                db.flush()
+                db.add(
+                    MealLogFood(
+                        id="meal-log-tool-read-entry",
+                        meal_log_id=meal_log.id,
+                        food_id="food-tomato",
+                        servings=Decimal("1.5"),
+                        note="半份给孩子",
+                        rating=Decimal("4.5"),
+                    )
+                )
+                db.commit()
+                executor = ToolExecutor(
+                    build_workspace_tool_registry(),
+                    ToolContext(
+                        db=db,
+                        family_id=self.family.id,
+                        user_id=self.user.id,
+                        conversation_id="conversation-test",
+                        run_id="run-test",
+                    ),
+                )
+                output = executor.call("meal_log.read_by_id", {"id": meal_log.id})
+
+            item = output["item"]
+            self.assertEqual(item["id"], "meal-log-tool-read-target")
+            self.assertEqual(item["mealType"], "dinner")
+            self.assertEqual(item["foodEntries"][0]["foodId"], "food-tomato")
+            self.assertEqual(item["foodEntries"][0]["foodName"], "番茄小炒")
+            self.assertEqual(item["foods"], item["foodEntries"])
+            self.assertEqual(item["participantUserIds"], [self.user.id])
+            self.assertEqual(item["notes"], "少油")
+            self.assertIsNotNone(item["updatedAt"])
 
         def test_meal_plan_read_existing_uses_related_food_name(self) -> None:
             with self.SessionLocal() as db:

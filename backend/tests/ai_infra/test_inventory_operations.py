@@ -710,6 +710,8 @@ class AIInventoryOperationsTestCase(AIAgentInfraTestCase):
                 self.assertEqual(expiring["items"][0]["suggestedAction"], "consume")
                 self.assertEqual(low_stock["queryFocus"], "low_stock")
                 self.assertEqual(low_stock["items"][0]["suggestedAction"], "restock")
+                low_stock_ids = [record["id"] for record in low_stock["items"]]
+                self.assertEqual(len(low_stock_ids), len(set(low_stock_ids)))
 
                 item.expiry_date = today_for_family(self.family.id) - timedelta(days=1)
                 db.flush()

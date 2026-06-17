@@ -23,6 +23,10 @@ async function renderCard(
   return container;
 }
 
+function countText(value: string, target: string) {
+  return value.split(target).length - 1;
+}
+
 afterEach(() => {
   act(() => root?.unmount());
   container?.remove();
@@ -264,9 +268,9 @@ describe('AI query result cards', () => {
         entities: [
           {
             id: 'plan-1',
-            label: '番茄炒蛋',
-            operation: 'set_status',
-            operationLabel: '状态变更',
+            label: '2026-06-18 MealType.DINNER',
+            operation: 'create',
+            operationLabel: 'create',
             updatedAt: '2026-06-15T09:00:00Z',
           },
         ],
@@ -274,10 +278,40 @@ describe('AI query result cards', () => {
     });
 
     expect(view.textContent).toContain('已按确认执行');
+    expect(countText(view.textContent ?? '', '已修改餐食计划')).toBe(1);
     expect(view.textContent).toContain('影响 1 条计划');
-    expect(view.textContent).toContain('查看 菜单计划');
-    expect(view.textContent).toContain('番茄炒蛋');
-    expect(view.textContent).toContain('状态变更');
-    expect(view.textContent).toContain('可前往菜单计划查看');
+    expect(view.textContent).toContain('查看位置');
+    expect(view.textContent).toContain('菜单计划');
+    expect(view.textContent).toContain('2026-06-18 晚餐');
+    expect(view.textContent).toContain('新增');
+    expect(view.textContent).not.toContain('MealType.DINNER');
+    expect(view.querySelector('.ai-query-reason')).toBeNull();
+    expect(view.querySelector('.ai-operation-result-footer')).not.toBeNull();
+  });
+
+  it('localizes legacy operation result entity fallback labels', async () => {
+    const view = await renderCard({
+      id: 'inventory-operation-result-card',
+      type: 'operation_result',
+      title: '已处理库存',
+      data: {
+        entityCount: 1,
+        entityCountLabel: '1 项库存变更',
+        workspaceLabel: '库存页',
+        workspaceHint: '可前往库存页查看',
+        entities: [
+          {
+            id: 'inventory-1',
+            label: 'inventory_operation',
+            operation: 'restock',
+            operationLabel: '补货',
+          },
+        ],
+      },
+    });
+
+    expect(view.textContent).toContain('库存处理');
+    expect(view.textContent).toContain('补货');
+    expect(view.textContent).not.toContain('inventory_operation');
   });
 });

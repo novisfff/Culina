@@ -15,7 +15,9 @@ import {
   inventoryExpiryText,
   inventoryItems,
   inventoryStatusText,
+  operationResultEntityLabel,
   operationResultEntities,
+  operationResultOperationLabel,
   recommendationItems,
   recommendationMeta,
 } from './AiResultCardModel';
@@ -241,10 +243,15 @@ function ClarificationCard({ card }: { card: AiResultCard }) {
 
 function OperationResultCard({ card }: { card: AiResultCard }) {
   const entities = operationResultEntities(card);
-  const actionSummary = typeof card.data.actionSummary === 'string' ? card.data.actionSummary : card.title;
+  const actionSummary = typeof card.data.actionSummary === 'string' ? card.data.actionSummary.trim() : '';
   const entityCountLabel = typeof card.data.entityCountLabel === 'string' ? card.data.entityCountLabel : `${entities.length} 个实体`;
   const workspaceLabel = typeof card.data.workspaceLabel === 'string' ? card.data.workspaceLabel : '对应页面';
   const workspaceHint = typeof card.data.workspaceHint === 'string' ? card.data.workspaceHint : `可前往${workspaceLabel}查看`;
+  const normalizedTitle = card.title.replace(/\s+/g, '');
+  const normalizedSummary = actionSummary.replace(/\s+/g, '');
+  const shouldShowActionSummary = Boolean(actionSummary) && normalizedSummary !== normalizedTitle;
+  const shouldShowEntityCount = entities.length > 0 || (typeof card.data.entityCount === 'number' && card.data.entityCount > 0);
+  const destinationText = workspaceHint.trim();
 
   return (
     <article className="ai-result-card ai-query-result-card ai-operation-result-card">
@@ -253,31 +260,34 @@ function OperationResultCard({ card }: { card: AiResultCard }) {
           <span className="ai-query-card-eyebrow">已按确认执行</span>
           <h3>{card.title}</h3>
         </div>
-        <div className="ai-query-card-context-badges">
-          <span className="ai-query-context-badge">
-            影响 <strong>{entityCountLabel}</strong>
-          </span>
-          <span className="ai-query-context-badge">
-            查看 <strong>{workspaceLabel}</strong>
-          </span>
-        </div>
+        {shouldShowEntityCount && (
+          <div className="ai-query-card-context-badges">
+            <span className="ai-query-context-badge">
+              影响 <strong>{entityCountLabel}</strong>
+            </span>
+          </div>
+        )}
       </header>
-      <p className="ai-query-reason">{actionSummary}</p>
+      {shouldShowActionSummary && <p className="ai-query-reason">{actionSummary}</p>}
       {entities.length > 0 && (
         <div className="ai-query-recommendation-list" aria-label="已执行实体">
           {entities.map((item) => (
             <section key={item.id} className="ai-recommendation-item">
-              <strong>{item.label}</strong>
+              <strong>{operationResultEntityLabel(item)}</strong>
               <p>
-                {[item.operationLabel, item.updatedAt ? `更新于 ${item.updatedAt}` : null].filter(Boolean).join(' · ')}
+                {[operationResultOperationLabel(item), item.updatedAt ? `更新于 ${item.updatedAt}` : null].filter(Boolean).join(' · ')}
               </p>
             </section>
           ))}
         </div>
       )}
-      <div className="ai-query-evidence" aria-label="查看提示">
-        <span>{workspaceHint}</span>
-      </div>
+      {destinationText && (
+        <div className="ai-operation-result-footer" aria-label="查看提示">
+          <span>查看位置</span>
+          <strong>{workspaceLabel}</strong>
+          {destinationText !== `可前往${workspaceLabel}查看` && <small>{destinationText}</small>}
+        </div>
+      )}
     </article>
   );
 }

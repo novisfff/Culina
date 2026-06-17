@@ -8,11 +8,47 @@ from app.ai.tools.base import ToolContext
 from app.ai.tools.catalog.common import decimal_text, register_tool
 from app.ai.tools.draft_validation import normalize_ingredient_profile_draft
 from app.ai.tools.registry import ToolRegistry
-from app.ai.tools.schemas import COUNT_OUTPUT, INGREDIENT_PROFILE_DRAFT_SCHEMA, READ_BY_ID_INPUT, SEARCH_INPUT, draft_input_schema, draft_output_schema
+from app.ai.tools.schemas import INGREDIENT_PROFILE_DRAFT_SCHEMA, READ_BY_ID_INPUT, SEARCH_INPUT, draft_input_schema, draft_output_schema
 from app.models.domain import Ingredient
 from app.repos.media import build_media_map, get_media_assets_for_entities
 from app.services.ingredient_units import get_supported_units, serialize_unit_conversions
 from app.services.serializers import serialize_ingredient
+
+
+INGREDIENT_ITEM_OUTPUT = {
+    "type": "object",
+    "required": ["id", "name", "category", "defaultUnit", "supportedUnits"],
+    "properties": {
+        "id": {"type": "string"},
+        "name": {"type": "string"},
+        "category": {"type": "string"},
+        "defaultUnit": {"type": "string"},
+        "supportedUnits": {"type": "array", "items": {"type": "string"}},
+        "unitConversions": {"type": "array", "items": {"type": "object"}},
+        "defaultStorage": {"type": ["string", "null"]},
+        "defaultExpiryMode": {"type": ["string", "null"]},
+        "defaultExpiryDays": {"type": ["integer", "null"]},
+        "defaultLowStockThreshold": {"type": ["string", "null"]},
+        "notes": {"type": ["string", "null"]},
+        "updatedAt": {"type": ["string", "null"]},
+    },
+}
+
+INGREDIENT_SEARCH_OUTPUT = {
+    "type": "object",
+    "required": ["count", "items"],
+    "properties": {
+        "count": {"type": "integer", "minimum": 0},
+        "hasMore": {"type": "boolean"},
+        "items": {"type": "array", "items": INGREDIENT_ITEM_OUTPUT},
+    },
+}
+
+INGREDIENT_READ_OUTPUT = {
+    "type": "object",
+    "required": ["item"],
+    "properties": {"item": INGREDIENT_ITEM_OUTPUT},
+}
 
 
 def ingredient_search(context: ToolContext, payload: dict[str, Any]) -> dict[str, Any]:
@@ -103,7 +139,7 @@ def register_ingredient_tools(registry: ToolRegistry) -> None:
         side_effect="read",
         handler=ingredient_search,
         input_schema=SEARCH_INPUT,
-        output_schema=COUNT_OUTPUT,
+        output_schema=INGREDIENT_SEARCH_OUTPUT,
     )
     register_tool(
         registry,
@@ -113,7 +149,7 @@ def register_ingredient_tools(registry: ToolRegistry) -> None:
         side_effect="read",
         handler=ingredient_read_by_id,
         input_schema=READ_BY_ID_INPUT,
-        output_schema={"type": "object", "required": ["item"], "properties": {"item": {"type": "object"}}},
+        output_schema=INGREDIENT_READ_OUTPUT,
     )
     register_tool(
         registry,
