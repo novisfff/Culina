@@ -231,4 +231,3 @@ class AIWorkspaceStreamingTestCase(AIAgentInfraTestCase):
             regenerated = regenerate_response.json()
             self.assertEqual(regenerated["conversation_id"], data["conversation_id"])
             self.assertEqual(regenerated["run"]["agent_key"], data["run"]["agent_key"])
-

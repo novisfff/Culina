@@ -251,4 +251,3 @@ class RecipeFoodWorkspaceTestCase(RecipeApiTestCase):
             foods_by_id = {item["id"]: item for item in response.json()}
             self.assertEqual(foods_by_id["food-legacy-self-made"]["type"], "selfMade")
             self.assertEqual(foods_by_id["food-legacy-takeout"]["type"], "takeout")
-

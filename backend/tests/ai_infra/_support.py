@@ -1226,4 +1226,3 @@ class AIAgentInfraTestCase(unittest.TestCase):
         )
         Base.metadata.drop_all(self.engine)
         self.engine.dispose()
-

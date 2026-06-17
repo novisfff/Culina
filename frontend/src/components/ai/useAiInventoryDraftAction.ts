@@ -50,6 +50,10 @@ export function useAiInventoryDraftAction({
       ]);
       setFeedback(`${payload.item.name}的${ACTION_LABELS[payload.action]}草稿已生成，请确认后执行`);
     },
+    onError: (reason, payload) => {
+      const message = reason instanceof Error && reason.message ? reason.message : '请稍后重试。';
+      setFeedback(`${payload.item.name}的${ACTION_LABELS[payload.action]}草稿生成失败：${message}`);
+    },
   });
 
   return {

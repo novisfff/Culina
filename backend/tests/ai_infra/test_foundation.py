@@ -199,4 +199,3 @@ class AIFoundationTestCase(AIAgentInfraTestCase):
             self.assertTrue(result.failed)
             self.assertEqual(result.error, "AI 服务暂时不可用，请稍后重试。")
             self.assertEqual(result.attempts, 1)
-

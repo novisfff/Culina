@@ -222,4 +222,3 @@ class RecipeRecipeCrudTestCase(RecipeApiTestCase):
             self.assertEqual(synced["flavor_tags"], ["清淡", "快手"])
             self.assertEqual(synced["suitable_meal_types"], ["lunch", "dinner"])
             self.assertEqual(synced["routine_note"], "适合带饭")
-

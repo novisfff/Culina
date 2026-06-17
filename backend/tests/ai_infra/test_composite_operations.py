@@ -543,4 +543,3 @@ class AICompositeOperationsTestCase(AIAgentInfraTestCase):
                     )
                 )
                 self.assertIsNone(rolled_back)
-

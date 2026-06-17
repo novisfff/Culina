@@ -1805,6 +1805,63 @@ describe('AiWorkspace pending approval restore', () => {
     rendered.unmount();
   });
 
+  it('shows feedback when inventory operation draft creation fails', async () => {
+    vi.spyOn(api, 'getAiMessages').mockResolvedValue([
+      {
+        id: 'message-inventory',
+        conversation_id: 'conversation-1',
+        role: 'assistant',
+        content: '',
+        content_type: 'parts',
+        parts: [
+          {
+            id: 'part-inventory',
+            type: 'result_card',
+            card: {
+              id: 'card-inventory',
+              type: 'inventory_summary',
+              title: '临期库存',
+              data: {
+                queryFocus: 'expiring',
+                availableCount: 1,
+                expiringCount: 1,
+                lowStockCount: 0,
+                items: [
+                  {
+                    id: 'inventory-tomato',
+                    ingredientId: 'ingredient-tomato',
+                    name: '番茄',
+                    quantity: '2',
+                    unit: '个',
+                    status: 'fresh',
+                    displayStatus: 'expiring',
+                    expiryDate: '2026-06-16',
+                    suggestedAction: 'dispose',
+                  },
+                ],
+              },
+            },
+          },
+        ],
+        run_id: 'run-inventory',
+        status: 'completed',
+        metadata: {},
+        created_at: '2026-05-30T00:00:00Z',
+      },
+    ]);
+    vi.spyOn(api, 'getPendingAiApprovals').mockResolvedValue([]);
+    vi.spyOn(api, 'createAiInventoryOperationDraft').mockRejectedValue(new Error('库存批次已变化'));
+
+    const rendered = await renderWithQuery(<AiWorkspace conversations={[conversation()]} isLoading={false} />);
+    await flush();
+    const disposeButton = Array.from(rendered.container.querySelectorAll<HTMLButtonElement>('button')).find((button) => button.textContent === '销毁');
+    await act(async () => disposeButton?.click());
+    await flush();
+
+    expect(rendered.container.textContent).toContain('番茄的销毁草稿生成失败：库存批次已变化');
+    rendered.unmount();
+  });
+
   it('renders streamed assistant text before the final response arrives', async () => {
     vi.spyOn(api, 'getAiMessages').mockResolvedValue([]);
     vi.spyOn(api, 'getPendingAiApprovals').mockResolvedValue([]);

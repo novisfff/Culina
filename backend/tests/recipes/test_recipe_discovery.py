@@ -238,4 +238,3 @@ class RecipeRecipeDiscoveryTestCase(RecipeApiTestCase):
             self.assertLess(recommended_ids.index(expiring["id"]), recommended_ids.index(plain["id"]))
             self.assertLess(recommended_ids.index(rated["id"]), recommended_ids.index(plain["id"]))
             self.assertLess(recommended_ids.index(plain["id"]), recommended_ids.index(missing["id"]))
-

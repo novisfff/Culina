@@ -275,4 +275,3 @@ class RecipeFoodQueriesTestCase(RecipeApiTestCase):
             self.assertIn("今天到期", items[0]["reasons"])
             scores_by_name = {item["food"]["name"]: item["score"] for item in items}
             self.assertLess(scores_by_name["不想复购外卖"], scores_by_name["昨天刚吃面"])
-
