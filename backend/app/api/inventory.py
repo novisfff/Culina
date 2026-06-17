@@ -7,8 +7,6 @@ from sqlalchemy.orm import Session, selectinload
 from fastapi import APIRouter, Depends, HTTPException, status
 
 from app.core.deps import get_current_auth
-from app.core.enums import ActivityAction
-from app.core.utils import create_id
 from app.db.session import get_db
 from app.db.transactions import commit_session
 from app.models.domain import Ingredient, InventoryItem
@@ -16,14 +14,20 @@ from app.schemas.inventory import (
     ConsumeInventoryRequest,
     ConsumeInventoryResponse,
     CreateInventoryItemRequest,
+    DisposeInventoryRequest,
+    DisposeInventoryResponse,
     DisposeExpiredInventoryRequest,
     DisposeExpiredInventoryResponse,
     InventoryItemOut,
 )
-from app.services.activity import log_activity
 from app.services.clock import today_for_family
-from app.services.ingredient_units import UnitConversionError, convert_quantity_from_default_unit, convert_quantity_to_default_unit, normalize_unit_label
-from app.services.inventory_usage import build_ingredient_consumption_plan, remaining_quantity
+from app.services.inventory_operations import (
+    consume_ingredient_inventory,
+    create_inventory_batch,
+    dispose_inventory_quantity,
+    require_inventory_item,
+)
+from app.services.inventory_usage import remaining_quantity
 from app.services.serializers import serialize_inventory_item
 
 router = APIRouter(tags=["inventory"])
@@ -55,66 +59,26 @@ def create_inventory_item(
     )
     if ingredient is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Ingredient not found")
-    normalized_unit = normalize_unit_label(payload.unit)
-    if not normalized_unit:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unit is required")
     try:
-        normalized_quantity = convert_quantity_to_default_unit(
-            payload.quantity,
-            ingredient.default_unit,
-            ingredient.unit_conversions,
-            normalized_unit,
+        item = create_inventory_batch(
+            db,
+            family_id=membership.family_id,
+            user_id=user.id,
+            ingredient=ingredient,
+            quantity=Decimal(str(payload.quantity)),
+            unit=payload.unit,
+            status=payload.status,
+            purchase_date=payload.purchase_date,
+            expiry_date=payload.expiry_date,
+            storage_location=payload.storage_location,
+            notes=payload.notes,
+            low_stock_threshold=Decimal(str(payload.low_stock_threshold)),
         )
-    except UnitConversionError as exc:
+    except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
-
-    fallback_threshold = payload.low_stock_threshold
-    if ingredient.default_low_stock_threshold is None and fallback_threshold:
-        try:
-            fallback_threshold = float(
-                convert_quantity_to_default_unit(
-                    fallback_threshold,
-                    ingredient.default_unit,
-                    ingredient.unit_conversions,
-                    normalized_unit,
-                )
-            )
-        except UnitConversionError as exc:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
-
-    item = InventoryItem(
-        id=create_id("inventory"),
-        family_id=membership.family_id,
-        ingredient_id=payload.ingredient_id,
-        quantity=normalized_quantity,
-        unit=ingredient.default_unit,
-        entered_quantity=Decimal(str(payload.quantity)),
-        entered_unit=normalized_unit,
-        status=payload.status,
-        purchase_date=payload.purchase_date,
-        expiry_date=payload.expiry_date,
-        storage_location=payload.storage_location,
-        notes=payload.notes,
-        low_stock_threshold=ingredient.default_low_stock_threshold
-        if ingredient.default_low_stock_threshold is not None
-        else fallback_threshold,
-        created_by=user.id,
-        updated_by=user.id,
-    )
-    db.add(item)
-    db.flush()
-    db.refresh(item, attribute_names=["ingredient"])
-    log_activity(
-        db,
-        family_id=membership.family_id,
-        actor_id=user.id,
-        action=ActivityAction.CREATE,
-        entity_type="InventoryItem",
-        entity_id=item.id,
-        summary=f"录入库存 {item.ingredient.name if item.ingredient else '食材'} {float(item.entered_quantity or item.quantity):g}{item.entered_unit or item.unit}",
-    )
     commit_session(db)
     db.refresh(item)
+    db.refresh(item, attribute_names=["ingredient"])
     return serialize_inventory_item(item)
 
 
@@ -131,70 +95,59 @@ def consume_inventory(
     if ingredient is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Ingredient not found")
 
-    requested_quantity = Decimal(str(payload.quantity))
-    unit = normalize_unit_label(payload.unit)
-    if not unit:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unit is required")
-    items = list(
-        db.scalars(
-            select(InventoryItem)
-            .where(
-                InventoryItem.family_id == membership.family_id,
-                InventoryItem.ingredient_id == payload.ingredient_id,
-            )
-        )
-    )
-    today = today_for_family(membership.family_id)
     try:
-        requested_quantity_in_default, available_total, deductions = build_ingredient_consumption_plan(
+        result = consume_ingredient_inventory(
+            db,
+            family_id=membership.family_id,
+            user_id=user.id,
             ingredient=ingredient,
-            items=items,
-            requested_quantity=requested_quantity,
-            unit=unit,
-            today=today,
+            quantity=Decimal(str(payload.quantity)),
+            unit=payload.unit,
+            today=today_for_family(membership.family_id),
         )
-    except UnitConversionError as exc:
+    except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
-
-    if available_total < requested_quantity_in_default:
-        try:
-            available_total_in_requested_unit = convert_quantity_from_default_unit(
-                available_total,
-                ingredient.default_unit,
-                ingredient.unit_conversions,
-                unit,
-            )
-        except UnitConversionError:
-            available_total_in_requested_unit = available_total
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"当前最多只能消费 {float(available_total_in_requested_unit):g}{unit}",
-        )
-
-    affected_item_ids: list[str] = []
-
-    for deduction in deductions:
-        item = deduction.item
-        item.consumed_quantity = item.consumed_quantity + deduction.quantity
-        item.updated_by = user.id
-        affected_item_ids.append(item.id)
-
-    log_activity(
-        db,
-        family_id=membership.family_id,
-        actor_id=user.id,
-        action=ActivityAction.UPDATE,
-        entity_type="Ingredient",
-        entity_id=ingredient.id,
-        summary=f"消费食材 {ingredient.name} {float(requested_quantity):g}{unit}",
-    )
     commit_session(db)
-
     return {
         "ingredient_id": ingredient.id,
-        "unit": unit,
-        "consumed_quantity": float(requested_quantity),
-        "affected_item_ids": affected_item_ids,
+        "unit": result["unit"],
+        "consumed_quantity": result["quantity"],
+        "affected_item_ids": result["affected_item_ids"],
+    }
+
+
+@router.post("/api/inventory/dispose", response_model=DisposeInventoryResponse)
+def dispose_inventory(
+    payload: DisposeInventoryRequest,
+    auth: tuple = Depends(get_current_auth),
+    db: Session = Depends(get_db),
+) -> dict:
+    user, membership = auth
+    try:
+        item = require_inventory_item(
+            db,
+            family_id=membership.family_id,
+            inventory_item_id=payload.inventory_item_id,
+            for_update=True,
+        )
+        result = dispose_inventory_quantity(
+            db,
+            family_id=membership.family_id,
+            user_id=user.id,
+            item=item,
+            quantity=Decimal(str(payload.quantity)) if payload.quantity is not None else None,
+            unit=payload.unit,
+            reason=payload.reason,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    commit_session(db)
+    return {
+        "ingredient_id": result["ingredient_id"],
+        "inventory_item_id": result["inventory_item_id"],
+        "unit": result["unit"],
+        "disposed_quantity": result["quantity"],
+        "remaining_quantity": result["remaining_quantity"],
     }
 
 
@@ -220,7 +173,7 @@ def dispose_expired_inventory(
             select(InventoryItem).where(
                 InventoryItem.family_id == membership.family_id,
                 InventoryItem.id.in_(requested_item_ids),
-            )
+            ).options(selectinload(InventoryItem.ingredient))
         )
     )
     items_by_id = {item.id: item for item in items}
@@ -239,19 +192,16 @@ def dispose_expired_inventory(
         if remaining_quantity(item) <= 0:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Inventory item has no remaining quantity")
 
-        item.consumed_quantity = item.quantity
-        item.updated_by = user.id
+        dispose_inventory_quantity(
+            db,
+            family_id=membership.family_id,
+            user_id=user.id,
+            item=item,
+            quantity=None,
+            unit=item.unit,
+            reason="过期销毁",
+        )
         disposed_item_ids.append(item.id)
-
-    log_activity(
-        db,
-        family_id=membership.family_id,
-        actor_id=user.id,
-        action=ActivityAction.UPDATE,
-        entity_type="Ingredient",
-        entity_id=ingredient.id,
-        summary=f"销毁过期库存 {ingredient.name} {len(disposed_item_ids)} 条批次",
-    )
     commit_session(db)
 
     return {

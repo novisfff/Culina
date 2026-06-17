@@ -1,14 +1,30 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { invalidateAfterAiMessageSent } from '../../api/cacheInvalidation';
+import { invalidateAfterAiApprovalSettled, invalidateAfterAiMessageSent } from '../../api/cacheInvalidation';
 import { api } from '../../api/client';
 import { queryKeys } from '../../api/queryKeys';
-import type { AiApprovalRequest, AiChatResponse, AiConversation, AiMessage, AiRunEvent, UserSummary } from '../../api/types';
+import type {
+  AiApprovalRequest,
+  AiChatResponse,
+  AiConversation,
+  AiInventoryOperationAction,
+  AiInventoryResultItem,
+  AiMessage,
+  AiResultCard,
+  AiRunEvent,
+  AiTodayRecommendationItem,
+  CreateFoodPlanItemPayload,
+  FoodPlanItem,
+  UserSummary,
+} from '../../api/types';
 import { resolveAssetUrl } from '../../lib/assets';
 import { FOOD_TYPE_LABELS } from '../../lib/ui';
 import { EmptyState, WorkspaceModal } from '../ui-kit';
-import { AiMobilePage, AI_WELCOME_SUGGESTIONS } from './AiMobilePage';
+import { AiMobilePage } from './AiMobilePage';
 import { MessageBubble, type AiApprovalDecisionSubmit, type AiResourceOptionLoader } from './AiConversationThread';
+import { AiQualityDiagnosticsModal } from './AiQualityDiagnosticsModal';
+import { AiRecommendationPlanDialog, type AiRecommendationPlanRequest } from './AiRecommendationPlanDialog';
+import { AI_WELCOME_SUGGESTIONS } from './AiWorkspaceOptions';
 import {
   TrashIcon,
   mergePendingApprovalsIntoMessages,
@@ -19,23 +35,40 @@ import {
   messageTextFromParts,
   appendAssistantDelta
 } from './aiWorkspaceHelpers';
+import { useAiInventoryDraftAction } from './useAiInventoryDraftAction';
 
 type AiWorkspaceProps = {
   conversations: AiConversation[];
   isLoading: boolean;
   currentUser?: UserSummary | null;
   onBackHome?: () => void;
+  createFoodPlanItem?: (payload: CreateFoodPlanItemPayload) => Promise<FoodPlanItem>;
+  isCreatingFoodPlanItem?: boolean;
 };
 
 export { ApprovalPanel } from './AiConversationThread';
 
-export function AiWorkspace({ conversations, isLoading, currentUser = null, onBackHome }: AiWorkspaceProps) {
+export function AiWorkspace({
+  conversations,
+  isLoading,
+  currentUser = null,
+  onBackHome,
+  createFoodPlanItem,
+  isCreatingFoodPlanItem = false,
+}: AiWorkspaceProps) {
   const queryClient = useQueryClient();
   const [activeConversationId, setActiveConversationId] = useState<string | null>(conversations[0]?.id ?? null);
   const [isStartingNewConversation, setIsStartingNewConversation] = useState(false);
   const [draft, setDraft] = useState('');
   const [localMessages, setLocalMessages] = useState<AiMessage[]>([]);
   const [runEventsById, setRunEventsById] = useState<Record<string, AiRunEvent[]>>({});
+  const [recommendationPlanRequest, setRecommendationPlanRequest] = useState<AiRecommendationPlanRequest | null>(null);
+  const [planFeedback, setPlanFeedback] = useState('');
+  const [isQualityModalOpen, setIsQualityModalOpen] = useState(false);
+  const inventoryDraftAction = useAiInventoryDraftAction({
+    setLocalMessages,
+    setFeedback: setPlanFeedback,
+  });
 
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(() => {
     try {
@@ -139,6 +172,12 @@ export function AiWorkspace({ conversations, isLoading, currentUser = null, onBa
   const aiStatusQuery = useQuery({
     queryKey: queryKeys.aiStatus,
     queryFn: api.getAiStatus,
+  });
+  const aiQualityMetricsQuery = useQuery({
+    queryKey: queryKeys.aiQualityMetrics,
+    queryFn: api.getAiQualityMetrics,
+    enabled: isQualityModalOpen,
+    staleTime: 60_000,
   });
   const pendingApprovalsQuery = useQuery({
     queryKey: queryKeys.aiPendingApprovals(activeConversationId),
@@ -463,16 +502,6 @@ export function AiWorkspace({ conversations, isLoading, currentUser = null, onBa
     },
   });
 
-  const retryMutation = useMutation({
-    mutationFn: api.retryAiRun,
-    onSuccess: applyChatResponse,
-  });
-
-  const regenerateMutation = useMutation({
-    mutationFn: (payload: { messageId: string; partId: string }) => api.regenerateAiPart(payload.messageId, payload.partId),
-    onSuccess: applyChatResponse,
-  });
-
   const deleteConversationMutation = useMutation({
     mutationFn: api.deleteAiConversation,
     onSuccess: async (_, conversationId) => {
@@ -559,16 +588,6 @@ export function AiWorkspace({ conversations, isLoading, currentUser = null, onBa
     }
   }
 
-  function retryRun(runId: string) {
-    if (retryMutation.isPending) return;
-    retryMutation.mutate(runId);
-  }
-
-  function regeneratePart(messageId: string, partId: string) {
-    if (regenerateMutation.isPending) return;
-    regenerateMutation.mutate({ messageId, partId });
-  }
-
   const submitApprovalDecision: AiApprovalDecisionSubmit = async (approval, decision, values, comment) => {
     if (approvalStreamMutation.isPending) return;
     streamProgressRef.current = [];
@@ -576,6 +595,51 @@ export function AiWorkspace({ conversations, isLoading, currentUser = null, onBa
     setStreamProgress([]);
     await approvalStreamMutation.mutateAsync({ approval, decision, values, comment });
   };
+
+  function openRecommendationPlan(item: AiTodayRecommendationItem, card: AiResultCard, messageId: string, partId: string) {
+    if (!item.foodId || !createFoodPlanItem) return;
+    setPlanFeedback('');
+    setRecommendationPlanRequest({
+      recommendation: item,
+      messageId,
+      partId,
+      cardId: card.id,
+      targetDate: card.data.targetDate,
+      mealType: card.data.mealType,
+    });
+  }
+
+  function createInventoryOperationDraft(
+    item: AiInventoryResultItem,
+    action: AiInventoryOperationAction,
+    card: AiResultCard,
+    messageId: string,
+    partId: string,
+  ) {
+    inventoryDraftAction.createDraft({ item, action, card, messageId, partId });
+  }
+
+  async function submitRecommendationPlan(payload: CreateFoodPlanItemPayload) {
+    if (!createFoodPlanItem || !recommendationPlanRequest) {
+      throw new Error('菜单计划功能暂不可用。');
+    }
+    const name = recommendationPlanRequest.recommendation.name;
+    const planItem = await createFoodPlanItem(payload);
+    const updatedMessage = await api.recordAiRecommendationSelection(recommendationPlanRequest.messageId, {
+      part_id: recommendationPlanRequest.partId,
+      card_id: recommendationPlanRequest.cardId,
+      entity_id: recommendationPlanRequest.recommendation.entityId,
+      food_plan_item_id: planItem.id,
+    });
+    queryClient.setQueryData<AiMessage[]>(
+      queryKeys.aiMessages(updatedMessage.conversation_id),
+      (items = []) => items.map((item) => (item.id === updatedMessage.id ? updatedMessage : item)),
+    );
+    setLocalMessages((items) => items.map((item) => (item.id === updatedMessage.id ? updatedMessage : item)));
+    await queryClient.invalidateQueries({ queryKey: queryKeys.aiConversations });
+    setRecommendationPlanRequest(null);
+    setPlanFeedback(`${name} 已加入菜单计划`);
+  }
 
   async function cancelStreamingChat() {
     const runId = activeCancellableRunId;
@@ -620,6 +684,9 @@ export function AiWorkspace({ conversations, isLoading, currentUser = null, onBa
   }
 
   async function refreshAfterApprovalSettled() {
+    if (activeConversationId) {
+      invalidateAfterAiApprovalSettled(queryClient, activeConversationId);
+    }
     await Promise.all([
       messagesQuery.refetch(),
       pendingApprovalsQuery.refetch(),
@@ -628,16 +695,24 @@ export function AiWorkspace({ conversations, isLoading, currentUser = null, onBa
   }
 
   const latestAssistantMessageId = [...displayedMessages].reverse().find((message) => message.role === 'assistant')?.id ?? null;
-
-  const RICH_WELCOME_SUGGESTIONS = [
-    { title: '🍳 推荐晚餐', desc: '用现有食材搭配出一顿健康美味', prompt: '今晚用现有食材做什么？' },
-    { title: '🗓️ 制定餐计划', desc: '帮我规划接下来三天的家庭晚餐', prompt: '帮我安排三天晚餐' },
-    { title: '⚠️ 消耗临期食材', desc: '找出快过期的食材并提供消耗方案', prompt: '快过期食材怎么处理？' },
-    { title: '🛒 辅助采购清单', desc: '根据我的餐食计划生成快速采购清单', prompt: '帮我根据本周晚餐计划生成采购清单' }
-  ];
+  const isMessageHistoryLoading = messagesQuery.isLoading && Boolean(activeConversationId) && displayedMessages.length === 0;
 
   return (
     <main className={`ai-workspace-shell ${isSidebarCollapsed ? 'is-collapsed' : ''}`}>
+      {planFeedback && (
+        <div className="ai-plan-feedback" role="status">
+          {planFeedback}
+          <button type="button" aria-label="关闭提示" onClick={() => setPlanFeedback('')}>×</button>
+        </div>
+      )}
+      <AiRecommendationPlanDialog
+        request={recommendationPlanRequest}
+        isSubmitting={isCreatingFoodPlanItem}
+        onClose={() => {
+          if (!isCreatingFoodPlanItem) setRecommendationPlanRequest(null);
+        }}
+        onSubmit={submitRecommendationPlan}
+      />
       <AiMobilePage
         conversations={conversations}
         isLoading={isLoading}
@@ -654,6 +729,15 @@ export function AiWorkspace({ conversations, isLoading, currentUser = null, onBa
         isComposerPaused={isComposerPaused}
         composerPauseMessage={composerPauseMessage}
         sendError={chatMutation.isError ? chatMutation.error.message : undefined}
+        messagesLoading={isMessageHistoryLoading}
+        messagesError={
+          messagesQuery.isError
+            ? messagesQuery.error instanceof Error
+              ? messagesQuery.error.message
+              : '请稍后重试。'
+            : undefined
+        }
+        onRetryMessages={() => void messagesQuery.refetch()}
         onBackHome={onBackHome}
         onOpenMobileHistory={() => setIsMobileHistoryOpen(true)}
         onCloseMobileHistory={() => setIsMobileHistoryOpen(false)}
@@ -663,8 +747,9 @@ export function AiWorkspace({ conversations, isLoading, currentUser = null, onBa
         onPickSuggestion={setDraft}
         onSubmit={sendMessage}
         onApprovalDecision={submitApprovalDecision}
-        onRetryRun={retryRun}
-        onRegeneratePart={regeneratePart}
+        onAddRecommendationToPlan={openRecommendationPlan}
+        onInventoryAction={createInventoryOperationDraft}
+        isInventoryActionPending={inventoryDraftAction.isPending}
         onCancelSending={cancelStreamingChat}
       />
 
@@ -774,12 +859,22 @@ export function AiWorkspace({ conversations, isLoading, currentUser = null, onBa
                 )}
                 <span>AI 厨房助手</span>
               </div>
-              <span className={`ai-ready-pill ${isAiUnavailable ? 'is-disabled' : ''}`}><span />{aiStatusLabel}</span>
+              <button className={`ai-ready-pill ai-quality-trigger ${isAiUnavailable ? 'is-disabled' : ''}`} type="button" onClick={() => setIsQualityModalOpen(true)} aria-label="查看 AI 质量诊断" title="查看 AI 质量诊断">
+                <span />{aiStatusLabel}
+              </button>
             </div>
           </div>
           <div className="ai-thread-scroll">
-            {messagesQuery.isLoading && activeConversationId ? (
+            {isMessageHistoryLoading ? (
               <p className="subtle">正在加载消息...</p>
+            ) : messagesQuery.isError && activeConversationId ? (
+              <div className="ai-query-empty ai-message-load-error">
+                <strong>历史消息加载失败</strong>
+                <span>{messagesQuery.error instanceof Error ? messagesQuery.error.message : '请稍后重试。'}</span>
+                <button className="ghost-button" type="button" onClick={() => void messagesQuery.refetch()}>
+                  重新加载
+                </button>
+              </div>
             ) : displayedMessages.length > 0 ? (
               <>
                 {displayedMessages.map((message) => (
@@ -788,11 +883,20 @@ export function AiWorkspace({ conversations, isLoading, currentUser = null, onBa
                     message={message}
                     user={currentUser}
                     resourceOptionLoader={loadResourceOptions}
-                    runEvents={message.run_id && message.run_id === activeStreamRunId ? streamProgress : message.run_id ? runEventsById[message.run_id] ?? [] : message.id.startsWith('local-') ? streamProgress : []}
+                    runEvents={
+                      message.run_id && message.run_id === activeStreamRunId
+                        ? streamProgress
+                        : message.run_id
+                          ? runEventsById[message.run_id] ?? (message.id.startsWith('local-') ? streamProgress : [])
+                          : message.id.startsWith('local-')
+                            ? streamProgress
+                            : []
+                    }
                     isLatestAssistant={message.id === latestAssistantMessageId}
                     onApprovalDecision={submitApprovalDecision}
-                    onRetryRun={retryRun}
-                    onRegeneratePart={regeneratePart}
+                    onAddRecommendationToPlan={openRecommendationPlan}
+                    onInventoryAction={createInventoryOperationDraft}
+                    isInventoryActionPending={inventoryDraftAction.isPending}
                   />
                 ))}
               </>
@@ -808,7 +912,7 @@ export function AiWorkspace({ conversations, isLoading, currentUser = null, onBa
                   </div>
                 </section>
                 <div className="ai-welcome-grid" aria-label="快捷问题">
-                  {RICH_WELCOME_SUGGESTIONS.map((suggestion) => (
+                  {AI_WELCOME_SUGGESTIONS.map((suggestion) => (
                     <button
                       key={suggestion.title}
                       type="button"
@@ -825,8 +929,6 @@ export function AiWorkspace({ conversations, isLoading, currentUser = null, onBa
           </div>
           <div className="ai-composer-dock">
             {chatMutation.isError && <p className="form-error">{chatMutation.error.message}</p>}
-            {retryMutation.isError && <p className="form-error">{retryMutation.error.message}</p>}
-            {regenerateMutation.isError && <p className="form-error">{regenerateMutation.error.message}</p>}
             {isComposerPaused && <p className="ai-composer-pause-note">{composerPauseMessage}</p>}
             <form className="ai-composer" onSubmit={sendMessage}>
               <button
@@ -866,6 +968,14 @@ export function AiWorkspace({ conversations, isLoading, currentUser = null, onBa
             </form>
           </div>
         </section>
+
+        {isQualityModalOpen && (
+          <AiQualityDiagnosticsModal
+            metrics={aiQualityMetricsQuery.data}
+            isLoading={aiQualityMetricsQuery.isLoading || aiQualityMetricsQuery.isFetching} isError={aiQualityMetricsQuery.isError}
+            onRetry={() => void aiQualityMetricsQuery.refetch()} onClose={() => setIsQualityModalOpen(false)}
+          />
+        )}
       </div>
     </main>
   );

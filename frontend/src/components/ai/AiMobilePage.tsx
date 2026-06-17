@@ -1,14 +1,17 @@
 import { useRef, useEffect, type FormEventHandler } from 'react';
-import type { AiConversation, AiMessage, AiRunEvent, UserSummary } from '../../api/types';
+import type {
+  AiConversation,
+  AiInventoryOperationAction,
+  AiInventoryResultItem,
+  AiMessage,
+  AiResultCard,
+  AiRunEvent,
+  AiTodayRecommendationItem,
+  UserSummary,
+} from '../../api/types';
 import { MessageBubble, type AiApprovalDecisionSubmit, type AiResourceOptionLoader } from './AiConversationThread';
 import { AiMobileChrome } from './AiMobileChrome';
-
-export const AI_WELCOME_SUGGESTIONS = [
-  { title: '🍳 推荐晚餐', desc: '用现有食材搭配一顿美味', prompt: '今晚用现有食材做什么？' },
-  { title: '🗓️ 制定餐计划', desc: '帮我规划三天家庭配餐', prompt: '帮我安排三天晚餐' },
-  { title: '⚠️ 消耗临期', desc: '分析快过期的食材做法', prompt: '快过期食材怎么处理？' },
-  { title: '🛒 采购清单', desc: '根据餐食计划生成清单', prompt: '帮我根据本周晚餐计划生成采购清单' }
-];
+import { AI_WELCOME_SUGGESTIONS } from './AiWorkspaceOptions';
 
 type Props = {
   conversations: AiConversation[];
@@ -26,6 +29,9 @@ type Props = {
   isComposerPaused: boolean;
   composerPauseMessage?: string;
   sendError?: string;
+  messagesLoading: boolean;
+  messagesError?: string;
+  onRetryMessages: () => void;
   onBackHome?: () => void;
   onOpenMobileHistory: () => void;
   onCloseMobileHistory: () => void;
@@ -35,8 +41,15 @@ type Props = {
   onPickSuggestion: (value: string) => void;
   onSubmit: FormEventHandler<HTMLFormElement>;
   onApprovalDecision: AiApprovalDecisionSubmit;
-  onRetryRun: (runId: string) => void;
-  onRegeneratePart: (messageId: string, partId: string) => void;
+  onAddRecommendationToPlan: (item: AiTodayRecommendationItem, card: AiResultCard, messageId: string, partId: string) => void;
+  onInventoryAction: (
+    item: AiInventoryResultItem,
+    action: AiInventoryOperationAction,
+    card: AiResultCard,
+    messageId: string,
+    partId: string,
+  ) => void;
+  isInventoryActionPending: boolean;
   onCancelSending: () => void;
 };
 
@@ -65,7 +78,15 @@ export function AiMobilePage(props: Props) {
       />
 
       <div className="ai-thread-scroll">
-        {props.messages.length > 0 ? (
+        {props.messagesLoading ? (
+          <p className="subtle">正在加载消息...</p>
+        ) : props.messagesError ? (
+          <div className="ai-query-empty ai-message-load-error">
+            <strong>历史消息加载失败</strong>
+            <span>{props.messagesError}</span>
+            <button className="ghost-button" type="button" onClick={props.onRetryMessages}>重新加载</button>
+          </div>
+        ) : props.messages.length > 0 ? (
           <>
             {props.messages.map((message, index) => (
               <MessageBubble
@@ -73,11 +94,20 @@ export function AiMobilePage(props: Props) {
                 message={message}
                 user={props.currentUser}
                 resourceOptionLoader={props.resourceOptionLoader}
-                runEvents={message.run_id && message.run_id === props.activeStreamRunId ? props.streamProgress : message.run_id ? props.runEventsById[message.run_id] ?? [] : []}
+                runEvents={
+                  message.run_id && message.run_id === props.activeStreamRunId
+                    ? props.streamProgress
+                    : message.run_id
+                      ? props.runEventsById[message.run_id] ?? (message.id.startsWith('local-') ? props.streamProgress : [])
+                      : message.id.startsWith('local-')
+                        ? props.streamProgress
+                        : []
+                }
                 isLatestAssistant={message.role === 'assistant' && index === props.messages.length - 1}
                 onApprovalDecision={props.onApprovalDecision}
-                onRetryRun={props.onRetryRun}
-                onRegeneratePart={props.onRegeneratePart}
+                onAddRecommendationToPlan={props.onAddRecommendationToPlan}
+                onInventoryAction={props.onInventoryAction}
+                isInventoryActionPending={props.isInventoryActionPending}
               />
             ))}
           </>

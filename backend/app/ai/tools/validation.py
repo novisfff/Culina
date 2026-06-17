@@ -5,6 +5,21 @@ from typing import Any
 
 
 def validate_json_value(value: Any, schema: dict[str, Any], *, location: str) -> None:
+    any_of = schema.get("anyOf")
+    if isinstance(any_of, list):
+        errors: list[str] = []
+        for index, option in enumerate(any_of):
+            if not isinstance(option, dict):
+                continue
+            try:
+                validate_json_value(value, option, location=location)
+                break
+            except ValueError as exc:
+                errors.append(f"option {index + 1}: {exc}")
+        else:
+            detail = "; ".join(errors) if errors else "no matching schema"
+            raise ValueError(f"{location} does not match any allowed shape ({detail})")
+
     expected_type = schema.get("type")
     if expected_type is not None and not _matches_type(value, expected_type):
         raise ValueError(f"{location} must be {expected_type}")

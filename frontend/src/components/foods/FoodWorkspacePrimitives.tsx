@@ -34,12 +34,13 @@ function parseRatingValue(value: string): number | null {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-export function FoodRatingInput(props: { value: string; onChange: (value: string) => void }) {
+export function FoodRatingInput(props: { value: string; onChange: (value: string) => void; disabled?: boolean }) {
   const rating = parseRatingValue(props.value) ?? 0;
   const display = rating > 0 ? `${rating.toFixed(1).replace(/\.0$/, '')} 分` : '未评分';
   const stars = Array.from({ length: 5 }, (_, index) => <span key={index}>★</span>);
 
   function updateRatingFromClientX(element: HTMLDivElement, clientX: number) {
+    if (props.disabled) return;
     const rect = element.getBoundingClientRect();
     const ratio = Math.min(1, Math.max(0, (clientX - rect.left) / rect.width));
     const nextRating = Math.max(0.5, Math.round(ratio * 10) / 2);
@@ -59,16 +60,18 @@ export function FoodRatingInput(props: { value: string; onChange: (value: string
         aria-valuemin={0}
         aria-valuemax={5}
         aria-valuenow={rating}
-        tabIndex={0}
+        aria-disabled={props.disabled ? true : undefined}
+        tabIndex={props.disabled ? -1 : 0}
         style={{ ['--rating-width' as string]: `${(rating / 5) * 100}%` }}
         onPointerDown={(event) => {
+          if (props.disabled) return;
           event.preventDefault();
           event.stopPropagation();
           event.currentTarget.setPointerCapture(event.pointerId);
           updateRatingFromPointer(event);
         }}
         onPointerMove={(event) => {
-          if (event.buttons === 1) {
+          if (!props.disabled && event.buttons === 1) {
             event.preventDefault();
             event.stopPropagation();
             updateRatingFromPointer(event);
@@ -79,6 +82,7 @@ export function FoodRatingInput(props: { value: string; onChange: (value: string
           event.stopPropagation();
         }}
         onKeyDown={(event) => {
+          if (props.disabled) return;
           if (event.key === 'ArrowRight' || event.key === 'ArrowUp') {
             event.preventDefault();
             props.onChange(String(Math.min(5, rating + 0.5 || 0.5)));
@@ -101,13 +105,13 @@ export function FoodRatingInput(props: { value: string; onChange: (value: string
       <button
         className={rating > 0 ? 'food-rating-clear' : 'food-rating-clear hidden'}
         type="button"
-        disabled={rating <= 0}
+        disabled={props.disabled || rating <= 0}
         aria-hidden={rating <= 0}
-        tabIndex={rating > 0 ? 0 : -1}
+        tabIndex={!props.disabled && rating > 0 ? 0 : -1}
         onClick={(event) => {
           event.preventDefault();
           event.stopPropagation();
-          if (rating > 0) {
+          if (!props.disabled && rating > 0) {
             props.onChange('');
           }
         }}

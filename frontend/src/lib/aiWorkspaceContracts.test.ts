@@ -9,6 +9,7 @@ import {
   AI_RESULT_CARD_TYPES,
   AI_RESULT_CARD_RENDERERS,
 } from './aiWorkspaceContracts';
+import type { AiTaskDraftType } from '../api/types';
 
 function readBackendLiteralValues(typeName: string) {
   const schemaPath = resolve(dirname(fileURLToPath(import.meta.url)), '../../../backend/app/schemas/ai.py');
@@ -18,6 +19,16 @@ function readBackendLiteralValues(typeName: string) {
     throw new Error(`Could not find backend Literal ${typeName}`);
   }
   return [...match[1].matchAll(/"([^"]+)"/g)].map((item) => item[1]).sort();
+}
+
+function readFrontendDraftTypeValues() {
+  const typesPath = resolve(dirname(fileURLToPath(import.meta.url)), '../api/types.ts');
+  const source = readFileSync(typesPath, 'utf8');
+  const match = source.match(/export type AiTaskDraftType = ([^;]+);/);
+  if (!match) {
+    throw new Error('Could not find frontend AiTaskDraftType');
+  }
+  return [...match[1].matchAll(/'([^']+)'/g)].map((item) => item[1] as AiTaskDraftType).sort();
 }
 
 describe('AI workspace contract coverage', () => {
@@ -31,5 +42,11 @@ describe('AI workspace contract coverage', () => {
     const backendTypes = readBackendLiteralValues('AIResultCardType');
     expect([...AI_RESULT_CARD_TYPES].sort()).toEqual(backendTypes);
     expect(Object.keys(AI_RESULT_CARD_RENDERERS).sort()).toEqual(backendTypes);
+  });
+
+  it('keeps frontend and backend draft types aligned', () => {
+    const backendTypes = readBackendLiteralValues('AITaskDraftType');
+    const frontendTypes = readFrontendDraftTypeValues();
+    expect(frontendTypes).toEqual(backendTypes);
   });
 });

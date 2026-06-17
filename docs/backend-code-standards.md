@@ -1,6 +1,6 @@
 # 后端代码规范
 
-更新时间：2026-06-11
+更新时间：2026-06-17
 
 本文档定义 Culina 后端日常开发的默认约定。后端是家庭饮食数据、权限、媒体、AI 草稿审批和业务写入的唯一可信边界，所有实现都必须优先保证家庭数据隔离、操作者追踪和可验证的业务规则。
 
@@ -102,10 +102,22 @@ AI 相关后端逻辑必须遵循 `docs/ai-assistant-standards.md`：
 - 正式业务写入必须经过 `draft -> approval -> commit`。
 - 模型不能直接接触 write tool。
 - 用户确认后由 service 执行正式写入，模型不参与 commit 决策。
+- `backend/app/ai/workspace_service.py` 保持应用门面和兼容调度层，领域写入、审批执行、恢复信息和结果卡片逻辑优先放在 `backend/app/services/ai_operations/`。
 
-AI tool、skill、planner、runtime、approval 的变更优先补 `backend/tests/test_ai_agent_infra.py` 或相关后端测试。
+AI tool、skill、planner、runtime、approval 的变更优先补 `backend/tests/ai_infra/` 下的相关测试，必要时运行 `npm run backend:test`。
 
-## 8. 序列化与跨端契约
+## 8. 根因修复与兜底策略
+
+修复 bug 时优先定位真实根因，修正契约、状态机、事务边界、权限校验、序列化、数据模型或调用链中的源头问题。不要为了让单个症状消失，在链路末端增加特定的后置兜底、恢复、二次修正、静默吞错或按异常形状分支的补丁。
+
+只有在外部系统不稳定、历史数据兼容、用户可恢复流程或线上安全降级等万不得已场景，才允许加入兜底逻辑。兜底逻辑必须满足：
+
+- 不能绕过认证、家庭隔离、审批、draft 校验、schema 校验或事务一致性。
+- 触发条件必须具体、可测试、可观测，不能用宽泛 `except` 或空值重建掩盖错误。
+- 必须同时修复或明确保留根因修复路径，并补覆盖根因路径和兜底路径的测试。
+- 不得在正式写入后用补丁反向修正已经错误提交的数据；应在写入前校验或在同一事务中失败回滚。
+
+## 9. 序列化与跨端契约
 
 API 返回结构必须稳定：
 
@@ -116,7 +128,7 @@ API 返回结构必须稳定：
 
 涉及前后端共同理解的类型，必须同时检查 `frontend/src/api/types.ts` 和相关 contract 测试。
 
-## 9. 测试与验证
+## 10. 测试与验证
 
 按风险选择验证：
 
@@ -129,11 +141,11 @@ API 返回结构必须稳定：
 
 ```bash
 npm run backend:test
-backend/.venv/bin/python -m pytest backend/tests/test_recipe_flows.py -q
-backend/.venv/bin/python -m pytest backend/tests/test_ai_agent_infra.py -q
+backend/.venv/bin/python -m pytest backend/tests/recipes -q
+backend/.venv/bin/python -m pytest backend/tests/ai_infra -q
 ```
 
-## 10. Review Checklist
+## 11. Review Checklist
 
 提交前检查：
 
@@ -143,4 +155,5 @@ backend/.venv/bin/python -m pytest backend/tests/test_ai_agent_infra.py -q
 - 持久化变更是否有 Alembic migration？
 - 写操作是否维护审计字段和活动日志？
 - 是否复用了现有 service/repo，而不是在路由里复制业务逻辑？
+- 是否从根因修复问题，而不是增加后置兜底、静默吞错或症状级补丁？
 - 是否覆盖了权限失败、跨家庭访问、正常写入和关键边界场景？

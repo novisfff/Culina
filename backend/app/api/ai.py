@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import StreamingResponse
 import json
@@ -31,6 +31,9 @@ from app.schemas.ai import (
     AIChatResponse,
     AIConversationOut,
     AIMessageDTO,
+    AIInventoryQuickDraftRequest,
+    AIQualityMetricsResponse,
+    AIRecommendationSelectionRequest,
     AIRegistryResponse,
     AIStatusResponse,
     AIRunEventDTO,
@@ -43,6 +46,7 @@ from app.ai.tools import build_workspace_tool_registry
 from app.ai.workspace_service import AIApplicationService
 from app.ai.workflows.checkpoint import SQLAlchemyCheckpointSaver
 from app.services.serializers import serialize_ai_conversation, serialize_ai_message, serialize_ai_run_event
+from app.services.ai_quality import build_ai_quality_metrics
 
 router = APIRouter(tags=["ai"])
 logger = logging.getLogger(__name__)
@@ -125,7 +129,6 @@ def get_ai_registry(auth: tuple = Depends(get_current_auth)) -> dict:
                 "output_types": manifest.output_types,
                 "draft_types": manifest.draft_types,
                 "approval_policy": manifest.approval_policy,
-                "can_continue_from": manifest.can_continue_from,
                 "intent": manifest.intent,
                 "agent_key": manifest.agent_key,
             }
@@ -145,6 +148,17 @@ def get_ai_registry(auth: tuple = Depends(get_current_auth)) -> dict:
             for tool in tool_registry.list()
         ],
     }
+
+
+@router.get("/api/ai/quality-metrics", response_model=AIQualityMetricsResponse)
+def get_ai_quality_metrics(
+    auth: tuple = Depends(get_current_auth),
+    db: Session = Depends(get_db),
+    limit: int = Query(default=50, ge=1, le=200),
+    days: int | None = Query(default=None, ge=1, le=365),
+) -> dict:
+    _, membership = auth
+    return build_ai_quality_metrics(db, family_id=membership.family_id, limit=limit, days=days)
 
 
 @router.delete("/api/ai/conversations/{conversation_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -399,6 +413,58 @@ def list_ai_messages(
         )
     )
     return [serialize_ai_message(item) for item in messages]
+
+
+@router.post("/api/ai/messages/{message_id}/recommendation-selection", response_model=AIMessageDTO)
+def record_ai_recommendation_selection(
+    message_id: str,
+    payload: AIRecommendationSelectionRequest,
+    auth: tuple = Depends(get_current_auth),
+    db: Session = Depends(get_db),
+) -> dict:
+    user, membership = auth
+    try:
+        message = AIApplicationService(db).record_recommendation_selection(
+            family_id=membership.family_id,
+            user_id=user.id,
+            message_id=message_id,
+            part_id=payload.part_id,
+            card_id=payload.card_id,
+            entity_id=payload.entity_id,
+            food_plan_item_id=payload.food_plan_item_id,
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+    commit_session(db)
+    return serialize_ai_message(message)
+
+
+@router.post("/api/ai/messages/{message_id}/inventory-operation-draft", response_model=AIMessageDTO)
+def create_ai_inventory_operation_draft(
+    message_id: str,
+    payload: AIInventoryQuickDraftRequest,
+    auth: tuple = Depends(get_current_auth),
+    db: Session = Depends(get_db),
+) -> dict:
+    user, membership = auth
+    try:
+        message = AIApplicationService(db).create_inventory_quick_draft(
+            family_id=membership.family_id,
+            user_id=user.id,
+            message_id=message_id,
+            part_id=payload.part_id,
+            card_id=payload.card_id,
+            item_id=payload.item_id,
+            action=payload.action,
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+    commit_session(db)
+    return serialize_ai_message(message)
 
 
 @router.get("/api/ai/runs/{run_id}/events", response_model=list[AIRunEventDTO])

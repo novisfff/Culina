@@ -18,6 +18,35 @@ class _DiscardOutput:
         return None
 
 
+_SAFE_BUILTINS = {
+    "abs": abs,
+    "all": all,
+    "any": any,
+    "bool": bool,
+    "dict": dict,
+    "enumerate": enumerate,
+    "filter": filter,
+    "float": float,
+    "int": int,
+    "isinstance": isinstance,
+    "len": len,
+    "list": list,
+    "map": map,
+    "max": max,
+    "min": min,
+    "next": next,
+    "range": range,
+    "reversed": reversed,
+    "round": round,
+    "set": set,
+    "sorted": sorted,
+    "str": str,
+    "sum": sum,
+    "tuple": tuple,
+    "zip": zip,
+}
+
+
 def _json_value(value: Any) -> Any:
     if isinstance(value, Decimal):
         return str(value)
@@ -48,6 +77,7 @@ def main() -> int:
             raise RuntimeError(f"cannot load script: {script_path}")
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
+        module.__dict__["__builtins__"] = _SAFE_BUILTINS
         function = getattr(module, function_name)
         discarded_output = _DiscardOutput()
         with redirect_stdout(discarded_output), redirect_stderr(discarded_output):

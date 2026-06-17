@@ -158,6 +158,7 @@ class InventoryItem(AuditMixin, Base):
     ingredient_id: Mapped[str] = mapped_column(ForeignKey("ingredients.id", ondelete="CASCADE"), nullable=False, index=True)
     quantity: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
     consumed_quantity: Mapped[Decimal] = mapped_column(Numeric(10, 2), default=0, nullable=False)
+    disposed_quantity: Mapped[Decimal] = mapped_column(Numeric(10, 2), default=0, nullable=False)
     unit: Mapped[str] = mapped_column(String(32), nullable=False)
     entered_quantity: Mapped[Decimal | None] = mapped_column(Numeric(10, 2), nullable=True)
     entered_unit: Mapped[str | None] = mapped_column(String(32), nullable=True)

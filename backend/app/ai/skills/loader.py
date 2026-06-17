@@ -66,7 +66,6 @@ class SkillDirectoryLoader:
             output_types=self._list(data.get("output_types")),
             draft_types=self._list(data.get("draft_types")),
             approval_policy=approval_policy,
-            can_continue_from=self._list(data.get("can_continue_from")),
             intent=self._text(data.get("intent")) or key,
             agent_key=self._text(data.get("agent_key")) or f"{key}_agent",
         )

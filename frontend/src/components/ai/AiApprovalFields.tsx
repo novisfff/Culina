@@ -111,7 +111,7 @@ export function ApprovalSelectField({
   value: string;
   disabled: boolean;
   options: Array<{ value: string; label: string }>;
-  icon?: 'meal' | 'difficulty' | 'type' | 'step';
+  icon?: 'calendar' | 'meal' | 'difficulty' | 'type' | 'step';
   className?: string;
   onChange: (value: string) => void;
 }) {

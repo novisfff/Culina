@@ -164,6 +164,11 @@ class ToolExecutor:
     def _emit_tool_progress(self, name: str, user_message: str, status: str) -> None:
         if self.context.stream_writer is None:
             return
+        visible_status = "failed" if status == "failed" else status
+        visible_message = user_message
+        if name == "intent.request_clarification" and status != "failed":
+            visible_status = "waiting"
+            visible_message = "等待用户补充信息"
         self.context.stream_writer(
             {
                 "event": "progress",
@@ -172,8 +177,8 @@ class ToolExecutor:
                     "run_id": self.context.run_id,
                     "type": "tool",
                     "internal_code": name,
-                    "user_message": user_message,
-                    "status": "failed" if status == "failed" else status,
+                    "user_message": visible_message,
+                    "status": visible_status,
                     "created_at": utcnow(),
                 },
             }

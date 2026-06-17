@@ -108,6 +108,7 @@ export interface InventoryItem {
   ingredient_name: string;
   quantity: number;
   consumed_quantity?: number;
+  disposed_quantity?: number;
   remaining_quantity?: number;
   unit: string;
   entered_quantity?: number | null;
@@ -577,11 +578,13 @@ export type AiResultCardType =
   | 'approval_request'
   | 'error_recovery'
   | 'inventory_summary'
+  | 'clarification_request'
+  | 'operation_result'
   | 'meal_plan_draft'
   | 'shopping_list_draft'
   | 'meal_log_draft'
   | 'food_profile_draft';
-export type AiTaskDraftType = 'recipe' | 'shopping_list' | 'meal_plan' | 'meal_log' | 'food_profile';
+export type AiTaskDraftType = 'recipe' | 'recipe_cook' | 'ingredient_profile' | 'shopping_list' | 'meal_plan' | 'meal_log' | 'food_profile' | 'inventory_operation' | 'composite_operation';
 export type AiApprovalDecision = 'approved' | 'rejected';
 
 export interface AiEvidenceItem {
@@ -592,10 +595,134 @@ export interface AiEvidenceItem {
   detail?: string;
 }
 
+export type AiInventoryDisplayStatus = 'available' | 'low_stock' | 'expiring' | 'expired';
+export type AiInventoryOperationAction = 'restock' | 'consume' | 'dispose';
+export type AiInventoryQueryFocus = 'overview' | 'available' | 'expiring' | 'expired' | 'low_stock';
+
+export interface AiInventoryOperationResult {
+  action: AiInventoryOperationAction;
+  quantity?: number | null;
+  unit?: string | null;
+  reason?: string | null;
+  handledAt: string;
+  handledBy?: string | null;
+}
+
+export interface AiInventoryResultItem {
+  id: string;
+  ingredientId: string;
+  name: string;
+  image?: MediaAsset | null;
+  quantity: string;
+  unit: string;
+  status: string;
+  displayStatus: AiInventoryDisplayStatus;
+  expiryDate?: string | null;
+  daysUntilExpiry?: number | null;
+  lowStockThreshold?: string | null;
+  purchaseDate?: string | null;
+  storageLocation?: string | null;
+  suggestedAction?: AiInventoryOperationAction | null;
+  lastOperation?: AiInventoryOperationResult | null;
+}
+
+export interface AiInventoryBatchOption {
+  id: string;
+  label: string;
+  remainingQuantity: number;
+  unit: string;
+  expiryDate?: string | null;
+}
+
+export interface AiInventoryOperationDraftItem {
+  action: AiInventoryOperationAction;
+  ingredientId: string;
+  ingredientName: string;
+  inventoryItemId?: string | null;
+  quantity: number;
+  unit: string;
+  purchaseDate?: string | null;
+  expiryDate?: string | null;
+  storageLocation?: string | null;
+  status?: InventoryStatus | null;
+  notes: string;
+  lowStockThreshold?: number | null;
+  reason: string;
+  sourceQuantity?: number | null;
+  sourceUnit?: string | null;
+  conversionRatioToDefault?: number | null;
+  conversionNote?: string | null;
+  image?: MediaAsset | null;
+  remainingQuantity?: number | null;
+  batchOptions?: AiInventoryBatchOption[];
+}
+
+export interface AiInventoryOperationDraft {
+  draftType: 'inventory_operation';
+  schemaVersion: 'inventory_operation.v1';
+  operations: AiInventoryOperationDraftItem[];
+  source?: Record<string, unknown>;
+}
+
 export interface AiTodayRecommendationItem {
-  title: string;
+  entityType: 'food' | 'recipe';
+  entityId: string;
+  foodId?: string | null;
+  recipeId?: string | null;
+  name: string;
+  image?: MediaAsset | null;
+  category?: string | null;
+  foodType?: string | null;
+  prepMinutes?: number | null;
+  servings?: number | null;
+  difficulty?: string | null;
   reason: string;
   evidence: AiEvidenceItem[];
+  planSelection?: {
+    foodPlanItemId: string;
+    foodId: string;
+    name: string;
+    planDate: string;
+    mealType: MealType;
+    selectedAt: string;
+    selectedBy?: string | null;
+  } | null;
+}
+
+export interface AiInventorySummaryCardData {
+  queryFocus: AiInventoryQueryFocus;
+  availableCount: number;
+  expiringCount: number;
+  lowStockCount: number;
+  items: AiInventoryResultItem[];
+}
+
+export interface AiTodayRecommendationCardData {
+  recommendations: AiTodayRecommendationItem[];
+  targetDate?: string | null;
+  mealType?: MealType | null;
+  contextSummary: {
+    inventoryCount: number;
+    expiringCount: number;
+    recentMealCount: number;
+    recipeCount: number;
+  };
+}
+
+export interface AiClarificationCandidate {
+  id: string;
+  label: string;
+  summary?: string | null;
+  entityType?: string | null;
+  updatedAt?: string | null;
+}
+
+export interface AiOperationResultEntity {
+  id: string;
+  label: string;
+  operation?: string | null;
+  operationLabel?: string | null;
+  updatedAt?: string | null;
 }
 
 export interface AiResultCard {
@@ -604,12 +731,25 @@ export interface AiResultCard {
   title: string;
   data: {
     recommendations?: AiTodayRecommendationItem[];
-    contextSummary?: {
-      inventoryCount?: number;
-      expiringCount?: number;
-      recentMealCount?: number;
-      recipeCount?: number;
-    };
+    targetDate?: string | null;
+    mealType?: MealType | null;
+    contextSummary?: AiTodayRecommendationCardData['contextSummary'];
+    items?: AiInventoryResultItem[];
+    queryFocus?: AiInventoryQueryFocus;
+    availableCount?: number;
+    expiringCount?: number;
+    lowStockCount?: number;
+    question?: string;
+    questionType?: string;
+    missingFields?: string[];
+    candidates?: AiClarificationCandidate[];
+    allowFreeText?: boolean;
+    actionSummary?: string;
+    entityCount?: number;
+    entityCountLabel?: string;
+    workspaceLabel?: string;
+    workspaceHint?: string;
+    entities?: AiOperationResultEntity[];
     message?: string;
     draftId?: string;
     approvalId?: string;
@@ -662,6 +802,7 @@ export interface AiApprovalRequest {
   approve_label: string;
   reject_label: string;
   require_reject_comment: boolean;
+  failure_summary?: Record<string, unknown> | null;
   field_schema: AiApprovalField[];
   initial_values: { recipe?: AiGeneratedRecipeDraft; draft?: Record<string, unknown>; [key: string]: unknown };
   submitted_values: { recipe?: AiGeneratedRecipeDraft; draft?: Record<string, unknown>; [key: string]: unknown };
@@ -710,7 +851,7 @@ export interface AiRunEvent {
   type: string;
   internal_code: string;
   user_message: string;
-  status: 'pending' | 'running' | 'completed' | 'failed';
+  status: 'pending' | 'running' | 'waiting' | 'completed' | 'failed';
   created_at: string;
 }
 
@@ -720,6 +861,50 @@ export interface AiStatus {
   model: string;
   status: 'ready' | 'disabled' | 'missing_api_key' | 'unsupported_provider';
   detail: string;
+}
+
+export interface AiQualityMetrics {
+  family_id: string;
+  window: {
+    limit: number;
+    days?: number | null;
+  };
+  run_count: number;
+  status_counts: Record<string, number>;
+  intent_counts: Record<string, number>;
+  routing_skill_counts: Record<string, number>;
+  clarification_reasons: Record<string, number>;
+  clarification_by_skill: Record<string, number>;
+  approval_by_draft_type: Record<string, Record<string, number>>;
+  skill_diagnostics: Record<string, number>;
+  skill_status_counts: Record<string, number>;
+  totals: {
+    skillExecutionCount: number;
+    completedSkillExecutionCount: number;
+    toolCallCount: number;
+    draftCount: number;
+    approvalRequestCount: number;
+    clarificationCount: number;
+    approvalApprovedCount: number;
+    approvalRejectedCount: number;
+    totalDurationMs: number;
+    averageDurationMs: number;
+  };
+  recent_runs: Array<{
+    id: string;
+    agent_key: string;
+    intent: string;
+    status: string;
+    model: string;
+    created_at: string;
+    duration_ms: number;
+    error_code?: string | null;
+    routing_skills: string[];
+    clarification_count: number;
+    approval_request_count: number;
+    approval_approved_count: number;
+    approval_rejected_count: number;
+  }>;
 }
 
 export interface AiChatResponse {
@@ -795,6 +980,14 @@ export interface ConsumeInventoryResponse {
   unit: string;
   consumed_quantity: number;
   affected_item_ids: string[];
+}
+
+export interface DisposeInventoryResponse {
+  ingredient_id: string;
+  inventory_item_id: string;
+  unit: string;
+  disposed_quantity: number;
+  remaining_quantity: number;
 }
 
 export interface DisposeExpiredInventoryRequest {

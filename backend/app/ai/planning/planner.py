@@ -18,12 +18,13 @@ PLANNER_JSON_SCHEMA = {
             "type": "array",
             "minItems": 0,
             "maxItems": 4,
-            "uniqueItems": True,
             "items": {"type": "string"},
         }
     },
     "required": ["skills"],
 }
+
+PLANNER_PROVIDER_UNAVAILABLE_ERROR = "AI 服务暂时不可用，请稍后重试。"
 
 
 class _PlannerSelection(BaseModel):
@@ -51,6 +52,15 @@ class WorkspacePlanner:
             structured_mode = result.structured_mode
             if not result.text:
                 error = result.error or "planner returned an empty response"
+                if result.status == "fallback":
+                    return PlannerResult(
+                        skills=[],
+                        raw_response=raw_response,
+                        attempts=attempt,
+                        error=PLANNER_PROVIDER_UNAVAILABLE_ERROR,
+                        diagnostic=error[:1000],
+                        structured_mode=structured_mode,
+                    )
                 continue
             try:
                 selection = _PlannerSelection.model_validate(self._decode_response(result.text))
@@ -79,6 +89,9 @@ class WorkspacePlanner:
             "不要判断 create、modify、derive，不要抽取参数，不要选择草稿，不要回答用户问题。"
             '普通聊天、解释、闲聊、能力介绍、无需工具或草稿的回答，必须返回 {"skills":[]}。'
             "“今天吃什么”“今晚吃什么”“推荐一餐”等即时餐食推荐属于 meal_plan Skill。"
+            "如果请求中包含 pendingClarification，它只是上一轮待补充问题的上下文；"
+            "当前用户回复像是在补充它时，优先选择 sourceSkill 对应的 Skill；"
+            "当前用户明显换话题时，按新话题选择 Skill 或返回空列表，不要强制回到原 Skill。"
             "需要业务能力时选择一个或多个已提供 Skill。"
             "只输出符合 JSON Schema 的裸 JSON 对象，禁止 Markdown 代码块、解释文字和额外字段。"
         )
@@ -88,6 +101,8 @@ class WorkspacePlanner:
             "conversation": request.conversation,
             "availableSkills": request.available_skills,
         }
+        if request.pending_clarification is not None:
+            payload["pendingClarification"] = request.pending_clarification
         if previous_error:
             payload["previousValidationError"] = previous_error[:500]
             payload["instruction"] = '上一次输出无效。请只返回类似 {"skills":["meal_plan"]} 或 {"skills":[]} 的裸 JSON。'

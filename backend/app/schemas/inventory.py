@@ -14,6 +14,7 @@ class InventoryItemOut(BaseModel):
     ingredient_name: str
     quantity: float
     consumed_quantity: float
+    disposed_quantity: float
     remaining_quantity: float
     unit: str
     entered_quantity: float | None = None
@@ -64,3 +65,18 @@ class DisposeExpiredInventoryResponse(BaseModel):
     ingredient_id: str
     disposed_item_ids: list[str] = Field(default_factory=list)
     disposed_count: int
+
+
+class DisposeInventoryRequest(BaseModel):
+    inventory_item_id: str
+    quantity: float | None = Field(default=None, gt=0)
+    unit: str | None = Field(default=None, min_length=1)
+    reason: str = Field(min_length=1, max_length=255)
+
+
+class DisposeInventoryResponse(BaseModel):
+    ingredient_id: str
+    inventory_item_id: str
+    unit: str
+    disposed_quantity: float
+    remaining_quantity: float

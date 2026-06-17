@@ -26,7 +26,40 @@ _ALLOWED_IMPORT_ROOTS = {
     "re",
     "statistics",
 }
-_FORBIDDEN_CALLS = {"__import__", "compile", "eval", "exec", "input", "open"}
+_FORBIDDEN_CALLS = {
+    "__import__",
+    "compile",
+    "delattr",
+    "dir",
+    "eval",
+    "exec",
+    "getattr",
+    "globals",
+    "hasattr",
+    "input",
+    "locals",
+    "open",
+    "setattr",
+    "vars",
+}
+_FORBIDDEN_NAMES = {
+    "__builtins__",
+    "__debug__",
+    "__loader__",
+    "__name__",
+    "__package__",
+    "__spec__",
+    "breakpoint",
+}
+_FORBIDDEN_ATTRIBUTES = {
+    "__base__",
+    "__bases__",
+    "__class__",
+    "__dict__",
+    "__globals__",
+    "__mro__",
+    "__subclasses__",
+}
 _DEFAULT_TIMEOUT_SECONDS = 2.0
 _MAX_INPUT_BYTES = 256 * 1024
 _MAX_OUTPUT_BYTES = 1024 * 1024
@@ -308,6 +341,16 @@ def _validate_script_ast(tree: ast.AST, script_file: str) -> None:
             if call_name in _FORBIDDEN_CALLS:
                 raise ValueError(
                     f"forbidden call in skill script {script_file}: {call_name}"
+                )
+        elif isinstance(node, ast.Name):
+            if node.id in _FORBIDDEN_NAMES:
+                raise ValueError(
+                    f"forbidden name in skill script {script_file}: {node.id}"
+                )
+        elif isinstance(node, ast.Attribute):
+            if node.attr in _FORBIDDEN_ATTRIBUTES:
+                raise ValueError(
+                    f"forbidden attribute in skill script {script_file}: {node.attr}"
                 )
 
 
