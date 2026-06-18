@@ -61,6 +61,9 @@ def cancel_workspace_run(db: Session, *, family_id: str, user_id: str, run_id: s
         if conversation is not None:
             conversation.last_run_status = "cancelled"
             conversation.last_message_at = utcnow()
+            context = dict(conversation.context or {})
+            context.pop("activeRunId", None)
+            conversation.context = context
     for approval in pending_approvals:
         approval.status = "cancelled"
         approval.decision = "rejected"

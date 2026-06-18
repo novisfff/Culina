@@ -29,6 +29,7 @@ from app.ai.workflows.conversations import (
     normalize_workspace_subject,
     require_conversation,
 )
+from app.ai.workflows.live_stream_cache import live_ai_stream_cache
 from app.ai.workflows.plan_metadata import agent_key_for_plan, intent_for_plan
 from app.ai.workflows.result_cards import normalize_result_cards
 from app.ai.workflows.state import WorkspaceGraphState
@@ -356,6 +357,13 @@ class WorkspaceGraphRunner:
             created_by=user_id,
         )
         self.db.add(run)
+        conversation.prompt = prompt
+        conversation.last_message_at = utcnow()
+        conversation.last_run_status = "running"
+        conversation.context = self._json_record({
+            **(conversation.context or {}),
+            "activeRunId": run.id,
+        })
         try:
             self.db.commit()
         except IntegrityError:
@@ -432,6 +440,7 @@ class WorkspaceGraphRunner:
             run_id=run.id,
         )
         self.db.commit()
+        live_ai_stream_cache.clear_run(run_id)
 
     def _mark_stream_run_failed(
         self,
@@ -446,6 +455,7 @@ class WorkspaceGraphRunner:
             self.db.rollback()
             run = self.db.get(AIAgentRun, run_id)
             if run is None or run.status in {"completed", "failed", "cancelled", "waiting_approval"}:
+                live_ai_stream_cache.clear_run(run_id)
                 return
             text = "AI 服务暂时不可用，请稍后重试。"
             message = self.db.scalar(
@@ -474,6 +484,10 @@ class WorkspaceGraphRunner:
                     message.content = text
                 if not message.parts:
                     message.parts = [{"id": create_id("ai_part"), "type": "text", "text": message.content or text}]
+                metadata = dict(message.message_metadata or {})
+                metadata.pop("liveStreaming", None)
+                metadata.pop("liveTextPartIds", None)
+                message.message_metadata = metadata
 
             event = AIRunEvent(
                 id=create_id("ai_run_event"),
@@ -495,10 +509,14 @@ class WorkspaceGraphRunner:
             if conversation is not None:
                 conversation.last_run_status = "failed"
                 conversation.last_message_at = utcnow()
+                context = dict(conversation.context or {})
+                context.pop("activeRunId", None)
+                conversation.context = self._json_record(context)
                 if not conversation.response:
                     conversation.response = text
                     conversation.summary = text[:255]
             self.db.commit()
+            live_ai_stream_cache.clear_run(run_id)
         except Exception:
             self.db.rollback()
             logger.exception(
@@ -943,7 +961,7 @@ class WorkspaceGraphRunner:
         return {"status": result.status, "error": result.error}
 
     def _stream_general_chat(self, state: WorkspaceGraphState) -> SkillResult:
-        writer = get_stream_writer()
+        writer = self._persistent_progress_writer(get_stream_writer(), state)
         message_id = create_id("ai_message")
         part_id = create_id("ai_part")
         chunks: list[str] = []
@@ -1337,7 +1355,16 @@ class WorkspaceGraphRunner:
             )
             self.db.add(message)
         else:
+            live_text_part_ids = {
+                str(part_id)
+                for part_id in metadata.get("liveTextPartIds", [])
+                if isinstance(part_id, str) and part_id
+            }
             existing_parts = [part for part in (message.parts or []) if isinstance(part, dict)]
+            if live_text_part_ids:
+                existing_parts = [part for part in existing_parts if str(part.get("id") or "") not in live_text_part_ids]
+                metadata.pop("liveStreaming", None)
+                metadata.pop("liveTextPartIds", None)
             message.parts = [*existing_parts, *next_parts]
             if skill_key:
                 skill_keys = list(metadata.get("skillKeys") or [])
@@ -1440,8 +1467,9 @@ class WorkspaceGraphRunner:
             conversation.summary = aggregate_text[:255]
             conversation.last_message_at = utcnow()
             conversation.last_run_status = "waiting_approval" if drafts else result.status
+            context = dict(conversation.context or {})
+            context.pop("activeRunId", None)
             if result.state_patch:
-                context = dict(conversation.context or {})
                 task_state = dict(context.get("taskState") or {})
                 for key, value in result.state_patch.items():
                     if value is None:
@@ -1449,7 +1477,7 @@ class WorkspaceGraphRunner:
                     else:
                         task_state[key] = value
                 context["taskState"] = task_state
-                conversation.context = context
+            conversation.context = self._json_record(context)
         self.db.flush()
         return message
 
@@ -1577,7 +1605,7 @@ class WorkspaceGraphRunner:
 
         part_id = create_id("ai_part")
         chunks: list[str] = []
-        writer = self._optional_stream_writer()
+        writer = self._persistent_progress_writer(self._optional_stream_writer(), state)
         system = """
         你是 Culina 的厨房助手。你刚收到一个 HumanInLoop 工具的返回结果，这个工具表示用户对你前面生成的确认表单做出了批准或拒绝。
 
@@ -1666,7 +1694,20 @@ class WorkspaceGraphRunner:
         status: str,
     ) -> None:
         existing_parts = [part for part in (message.parts or []) if isinstance(part, dict)]
+        existing_parts = [part for part in existing_parts if str(part.get("id") or "") != part_id]
         message.parts = [*existing_parts, {"id": part_id, "type": "text", "text": text}]
+        metadata = dict(message.message_metadata or {})
+        live_text_part_ids = [
+            str(item)
+            for item in metadata.get("liveTextPartIds", [])
+            if isinstance(item, str) and item != part_id
+        ]
+        if live_text_part_ids:
+            metadata["liveTextPartIds"] = live_text_part_ids
+        else:
+            metadata.pop("liveTextPartIds", None)
+            metadata.pop("liveStreaming", None)
+        message.message_metadata = metadata
         text_parts = [
             str(part.get("text") or "").strip()
             for part in message.parts
@@ -1697,6 +1738,9 @@ class WorkspaceGraphRunner:
             conversation.summary = aggregate_text[:255]
             conversation.last_message_at = utcnow()
             conversation.last_run_status = status
+            context = dict(conversation.context or {})
+            context.pop("activeRunId", None)
+            conversation.context = self._json_record(context)
         self.db.flush()
 
     def _finalize(self, state: WorkspaceGraphState) -> dict[str, Any]:
@@ -1844,8 +1888,14 @@ class WorkspaceGraphRunner:
     def _persistent_progress_writer(self, writer: Any, state: WorkspaceGraphState) -> Any:
         def write(update: dict[str, Any]) -> None:
             event_name, data = self._custom_stream_event(update)
+            if event_name == "message_delta":
+                self._cache_live_message_delta(state, data)
+                if writer is not None:
+                    writer(update)
+                return
             if event_name != "progress":
-                writer(update)
+                if writer is not None:
+                    writer(update)
                 return
 
             event_id = str(data.get("id") or create_id("ai_run_event"))
@@ -1864,9 +1914,41 @@ class WorkspaceGraphRunner:
                 )
                 self.db.add(event)
                 self.db.flush()
-            writer({"event": "progress", "data": serialize_ai_run_event(event)})
+                self._commit_stream_checkpoint(state, run_status=str(data.get("status") or "running"))
+            if writer is not None:
+                writer({"event": "progress", "data": serialize_ai_run_event(event)})
 
         return write
+
+    def _cache_live_message_delta(self, state: WorkspaceGraphState, data: dict[str, Any]) -> None:
+        delta = str(data.get("delta") or "")
+        if not delta:
+            return
+        message_id = str(data.get("message_id") or "").strip() or create_id("ai_message")
+        part_id = str(data.get("part_id") or "").strip() or create_id("ai_part")
+        run_id = str(data.get("run_id") or state["run_id"])
+        live_ai_stream_cache.append_delta(
+            family_id=state["family_id"],
+            conversation_id=state["conversation_id"],
+            run_id=run_id,
+            message_id=message_id,
+            part_id=part_id,
+            delta=delta,
+            created_by=state.get("user_id"),
+        )
+
+    def _commit_stream_checkpoint(self, state: WorkspaceGraphState, *, run_status: str) -> None:
+        try:
+            self.db.commit()
+        except Exception:
+            self.db.rollback()
+            logger.exception(
+                "AI graph failed to persist stream checkpoint run_id=%s conversation_id=%s family_id=%s status=%s",
+                state.get("run_id"),
+                state.get("conversation_id"),
+                state.get("family_id"),
+                run_status,
+            )
 
 
     def _run_id_from_update(self, update: Any) -> str:

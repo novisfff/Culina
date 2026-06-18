@@ -1,4 +1,5 @@
 .ace-tool/
+.playwright-cli/
 node_modules/
 dist/
 frontend/dist/

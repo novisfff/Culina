@@ -7,6 +7,7 @@ const maxNewReactFileLines = 1000;
 const trackedLargeFiles = new Map([
   ['src/App.tsx', 2200],
   ['src/components/ai/AiApprovalPanel.tsx', 1800],
+  ['src/components/ai/AiWorkspace.tsx', 1400],
   ['src/components/foods/FoodWorkspace.tsx', 2400],
   ['src/components/ingredients/IngredientWorkspace.tsx', 3400],
   ['src/components/recipes/RecipeWorkspace.tsx', 2200],

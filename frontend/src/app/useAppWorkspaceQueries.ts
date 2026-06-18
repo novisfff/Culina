@@ -123,6 +123,7 @@ export function useAppWorkspaceQueries(args: {
     queryKey: queryKeys.aiConversations,
     queryFn: api.getAiConversations,
     enabled: args.isAuthenticated && needsAiConversations,
+    refetchInterval: args.isAuthenticated && needsAiConversations ? 2000 : false,
   });
 
   const isBootLoading =

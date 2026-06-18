@@ -4889,6 +4889,36 @@
   color: #8a4828;
 }
 
+.ai-conversation-item.is-running {
+  border-color: rgba(210, 107, 51, 0.18);
+  background: rgba(255, 250, 245, 0.72);
+}
+
+.ai-conversation-main strong,
+.ai-mobile-conversation strong {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.ai-history-title-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ai-history-spinner {
+  display: inline-block;
+  flex: 0 0 auto;
+  width: 12px;
+  height: 12px;
+  border: 2px solid rgba(210, 107, 51, 0.18);
+  border-top-color: var(--accent);
+  border-radius: 999px;
+  animation: ai-send-spin 0.82s linear infinite;
+}
+
 .ai-side-icon {
   display: inline-grid;
   place-items: center;
@@ -8414,13 +8444,17 @@
 @media (max-width: 767px) {
   .app-shell-ai {
     --ai-mobile-header-height: calc(100vw * 0.1622);
-    --ai-mobile-composer-height: 108px;
-    --ai-mobile-nav-space: calc(8px + env(safe-area-inset-bottom, 0px));
-    height: 100vh;
-    height: 100dvh;
-    min-height: 100vh;
-    min-height: 100dvh;
+    --ai-mobile-composer-height: 88px;
+    --ai-mobile-composer-safe-bottom: env(safe-area-inset-bottom, 0px);
+    --ai-mobile-viewport-height: 100dvh;
+    --ai-mobile-viewport-top: 0px;
+    position: fixed;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    min-height: 100%;
     overflow: hidden;
+    overscroll-behavior: none;
     padding: 0;
     background: linear-gradient(180deg, #fffaf5 0%, #fffdfb 42%, #fff 100%);
   }
@@ -8446,6 +8480,14 @@
 
   .ai-mobile-page {
     display: block;
+    position: fixed;
+    top: var(--ai-mobile-viewport-top, 0px);
+    left: 0;
+    right: 0;
+    height: var(--ai-mobile-viewport-height, 100dvh);
+    min-height: 0;
+    overflow: hidden;
+    background: linear-gradient(180deg, #fffaf5 0%, #fffdfb 42%, #fff 100%);
   }
 
   .ai-main-panel {
@@ -8463,7 +8505,7 @@
   }
 
   .ai-mobile-topbar {
-    position: fixed;
+    position: absolute;
     top: 0;
     left: 0;
     right: 0;
@@ -8664,17 +8706,17 @@
   }
 
   .ai-thread-scroll {
-    position: fixed;
+    position: absolute;
     top: var(--ai-mobile-header-height);
     left: 0;
     right: 0;
-    bottom: 0;
+    bottom: var(--ai-mobile-composer-height, 88px);
     min-height: 0;
     overflow-y: auto;
     overscroll-behavior: contain;
     -webkit-overflow-scrolling: touch;
     gap: 18px;
-    padding: 14px 16px calc(86px + env(safe-area-inset-bottom, 0px));
+    padding: 14px 16px 18px;
     background: transparent;
   }
 
@@ -9011,7 +9053,7 @@
   }
 
   .ai-composer-dock {
-    position: fixed;
+    position: absolute;
     left: 0;
     right: 0;
     bottom: 0;
@@ -9019,7 +9061,7 @@
     gap: 6px;
     border-top: 1px solid rgba(30, 26, 23, 0.08);
     background: rgba(255, 255, 255, 0.95);
-    padding: 8px 12px calc(8px + env(safe-area-inset-bottom, 0px));
+    padding: 8px 12px calc(8px + var(--ai-mobile-composer-safe-bottom, env(safe-area-inset-bottom, 0px)));
     backdrop-filter: blur(18px);
   }
 
@@ -9152,6 +9194,11 @@
   .ai-mobile-conversation.active {
     background: #fff1e7;
     color: var(--accent-strong);
+  }
+
+  .ai-mobile-conversation.is-running {
+    background: rgba(255, 250, 245, 0.88);
+    box-shadow: inset 0 0 0 1px rgba(210, 107, 51, 0.16);
   }
 
   .ai-mobile-conversation strong,
@@ -9693,7 +9740,7 @@
 .ai-message-actions-bar {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 5px;
   opacity: 0;
   visibility: hidden;
   transition: opacity 0.2s ease, visibility 0.2s ease;
@@ -10189,16 +10236,16 @@
 
 .ai-message-footer.has-actions {
   margin-top: 2px;
-  padding-top: 8px;
+  padding-top: 6px;
 }
 
 .ai-message-action-btn {
-  flex-basis: 34px;
-  width: 34px;
-  height: 34px;
-  min-width: 34px;
-  min-height: 34px;
-  border-radius: 10px;
+  flex-basis: 30px;
+  width: 30px;
+  height: 30px;
+  min-width: 30px;
+  min-height: 30px;
+  border-radius: 9px;
 }
 
 .ai-message-sent-mark {
@@ -10801,12 +10848,12 @@
   }
 
   .ai-message-action-btn {
-    flex-basis: 40px;
-    width: 40px;
-    height: 40px;
-    min-width: 40px;
-    min-height: 40px;
-    border-radius: 12px;
+    flex-basis: 32px;
+    width: 32px;
+    height: 32px;
+    min-width: 32px;
+    min-height: 32px;
+    border-radius: 10px;
   }
 
   .ai-run-progress-bar {
