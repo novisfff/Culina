@@ -1,4 +1,4 @@
-import { useRef, useEffect, type FormEventHandler } from 'react';
+import { useRef, useEffect, useLayoutEffect, type FormEventHandler, type RefObject } from 'react';
 import type {
   AiConversation,
   AiInventoryOperationAction,
@@ -11,12 +11,13 @@ import type {
 } from '../../api/types';
 import { MessageBubble, type AiApprovalDecisionSubmit, type AiResourceOptionLoader } from './AiConversationThread';
 import { AiMobileChrome } from './AiMobileChrome';
-import { AI_WELCOME_SUGGESTIONS } from './AiWorkspaceOptions';
+import { AiWelcomePrompt } from './AiWelcomePrompt';
 
 type Props = {
   conversations: AiConversation[];
   isLoading: boolean;
-  activeConversationId: string | null;
+  activeConversationKey: string | null;
+  runningConversationKeys: Set<string>;
   isMobileHistoryOpen: boolean;
   currentUser: UserSummary | null;
   resourceOptionLoader: AiResourceOptionLoader;
@@ -53,8 +54,94 @@ type Props = {
   onCancelSending: () => void;
 };
 
+function setPixelVariable(element: HTMLElement, name: string, value: number) {
+  element.style.setProperty(name, `${Math.max(0, Math.round(value))}px`);
+}
+
+function useAiMobileViewport(composerDockRef: RefObject<HTMLDivElement>) {
+  const pageRef = useRef<HTMLElement | null>(null);
+
+  useLayoutEffect(() => {
+    const page = pageRef.current;
+    if (!page) return undefined;
+
+    const viewport = window.visualViewport;
+    const raf = window.requestAnimationFrame ?? ((callback: FrameRequestCallback) => window.setTimeout(callback, 16));
+    const cancelRaf = window.cancelAnimationFrame ?? window.clearTimeout;
+    let frameId: number | undefined;
+
+    const updateViewportVars = () => {
+      if (frameId !== undefined) {
+        cancelRaf(frameId);
+      }
+      frameId = raf(() => {
+        const currentViewport = window.visualViewport;
+        const layoutHeight = window.innerHeight || document.documentElement.clientHeight || 0;
+        const viewportHeight = currentViewport?.height ?? layoutHeight;
+        const viewportTop = currentViewport?.offsetTop ?? 0;
+        const keyboardInset = currentViewport
+          ? Math.max(0, layoutHeight - currentViewport.height - currentViewport.offsetTop)
+          : 0;
+        const measuredComposerHeight = composerDockRef.current?.getBoundingClientRect().height ?? 0;
+        const composerHeight = measuredComposerHeight > 0 ? measuredComposerHeight : 88;
+        const isKeyboardOpen = keyboardInset > 80;
+
+        setPixelVariable(page, '--ai-mobile-viewport-height', viewportHeight);
+        setPixelVariable(page, '--ai-mobile-viewport-top', viewportTop);
+        setPixelVariable(page, '--ai-mobile-composer-height', composerHeight);
+        page.style.setProperty(
+          '--ai-mobile-composer-safe-bottom',
+          isKeyboardOpen ? '0px' : 'env(safe-area-inset-bottom, 0px)',
+        );
+      });
+    };
+
+    const updateAfterKeyboardTransition = () => {
+      updateViewportVars();
+      window.setTimeout(updateViewportVars, 80);
+      window.setTimeout(updateViewportVars, 260);
+    };
+
+    updateViewportVars();
+    window.addEventListener('resize', updateViewportVars);
+    window.addEventListener('orientationchange', updateAfterKeyboardTransition);
+    viewport?.addEventListener('resize', updateViewportVars);
+    viewport?.addEventListener('scroll', updateViewportVars);
+    document.addEventListener('focusin', updateAfterKeyboardTransition, true);
+    document.addEventListener('focusout', updateAfterKeyboardTransition, true);
+
+    const resizeObserver = typeof ResizeObserver === 'undefined'
+      ? null
+      : new ResizeObserver(updateViewportVars);
+    if (composerDockRef.current) {
+      resizeObserver?.observe(composerDockRef.current);
+    }
+
+    return () => {
+      if (frameId !== undefined) {
+        cancelRaf(frameId);
+      }
+      resizeObserver?.disconnect();
+      window.removeEventListener('resize', updateViewportVars);
+      window.removeEventListener('orientationchange', updateAfterKeyboardTransition);
+      viewport?.removeEventListener('resize', updateViewportVars);
+      viewport?.removeEventListener('scroll', updateViewportVars);
+      document.removeEventListener('focusin', updateAfterKeyboardTransition, true);
+      document.removeEventListener('focusout', updateAfterKeyboardTransition, true);
+      page.style.removeProperty('--ai-mobile-viewport-height');
+      page.style.removeProperty('--ai-mobile-viewport-top');
+      page.style.removeProperty('--ai-mobile-composer-height');
+      page.style.removeProperty('--ai-mobile-composer-safe-bottom');
+    };
+  }, [composerDockRef]);
+
+  return pageRef;
+}
+
 export function AiMobilePage(props: Props) {
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const composerDockRef = useRef<HTMLDivElement | null>(null);
+  const pageRef = useAiMobileViewport(composerDockRef);
 
   useEffect(() => {
     if (textareaRef.current) {
@@ -64,11 +151,12 @@ export function AiMobilePage(props: Props) {
   }, [props.draft]);
 
   return (
-    <section className="ai-mobile-page">
+    <section className="ai-mobile-page" ref={pageRef}>
       <AiMobileChrome
         conversations={props.conversations}
         isLoading={props.isLoading}
-        activeConversationId={props.activeConversationId}
+        activeConversationKey={props.activeConversationKey}
+        runningConversationKeys={props.runningConversationKeys}
         isMobileHistoryOpen={props.isMobileHistoryOpen}
         onBackHome={props.onBackHome}
         onOpenMobileHistory={props.onOpenMobileHistory}
@@ -112,34 +200,11 @@ export function AiMobilePage(props: Props) {
             ))}
           </>
         ) : (
-          <div className="ai-empty-prompt">
-            <section className="ai-welcome-card">
-              <div className="ai-welcome-visual" aria-hidden="true">
-                <img src="/assets/bot_area.webp" alt="" className="ai-bot-visual-img" />
-              </div>
-              <div className="ai-welcome-copy">
-                <strong>你好，我是你的 AI 厨房助手 👋</strong>
-                <span>我可以帮你根据现有食材推荐菜谱、安排晚餐、分析临期食材、生成采购清单。</span>
-              </div>
-            </section>
-            <div className="ai-welcome-grid" aria-label="快捷问题">
-              {AI_WELCOME_SUGGESTIONS.map((suggestion) => (
-                <button
-                  key={suggestion.title}
-                  type="button"
-                  className="ai-suggestion-grid-card"
-                  onClick={() => props.onPickSuggestion(suggestion.prompt)}
-                >
-                  <strong>{suggestion.title}</strong>
-                  <span>{suggestion.desc}</span>
-                </button>
-              ))}
-            </div>
-          </div>
+          <AiWelcomePrompt onPickSuggestion={props.onPickSuggestion} />
         )}
       </div>
 
-      <div className="ai-composer-dock">
+      <div className="ai-composer-dock" ref={composerDockRef}>
         {props.sendError && <p className="form-error">{props.sendError}</p>}
         {props.isComposerPaused && <p className="ai-composer-pause-note">{props.composerPauseMessage ?? '请先确认上面的草稿，确认后可以继续对话。'}</p>}
         <form className="ai-composer" onSubmit={props.onSubmit}>
@@ -157,7 +222,7 @@ export function AiMobilePage(props: Props) {
             className="text-input"
             rows={1}
             value={props.draft}
-            placeholder={props.isComposerPaused ? props.composerPauseMessage ?? '等待你确认草稿...' : '输入你的问题，或让 AI 帮你安排一餐...'}
+            placeholder={props.isComposerPaused ? props.composerPauseMessage ?? '等待你确认草稿...' : '问问 AI 厨房助手...'}
             disabled={props.isComposerPaused}
             onChange={(event) => props.onDraftChange(event.target.value)}
           />

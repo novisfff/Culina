@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import StreamingResponse
 import json
-from sqlalchemy import delete, select, update
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.orm import Session
 
 from app.core.deps import get_current_auth
@@ -45,6 +45,7 @@ from app.ai.skills import build_workspace_skill_registry
 from app.ai.tools import build_workspace_tool_registry
 from app.ai.workspace_service import AIApplicationService
 from app.ai.workflows.checkpoint import SQLAlchemyCheckpointSaver
+from app.ai.workflows.live_stream_cache import live_ai_stream_cache
 from app.services.serializers import serialize_ai_conversation, serialize_ai_message, serialize_ai_run_event
 from app.services.ai_quality import build_ai_quality_metrics
 
@@ -99,7 +100,7 @@ def list_ai_conversations(auth: tuple = Depends(get_current_auth), db: Session =
         db.scalars(
             select(AIConversation)
             .where(AIConversation.family_id == membership.family_id)
-            .order_by(AIConversation.created_at.desc())
+            .order_by(func.coalesce(AIConversation.last_message_at, AIConversation.created_at).desc(), AIConversation.created_at.desc())
             .limit(20)
         )
     )
@@ -329,6 +330,8 @@ def stream_chat_ai(
             ):
                 if event == "response":
                     commit_session(db)
+                    run_id = data.get("run", {}).get("id") if isinstance(data.get("run"), dict) else None
+                    live_ai_stream_cache.clear_run(run_id)
                 yield encode(event, data)
         except AIConflictError as exc:
             logger.warning(
@@ -412,7 +415,12 @@ def list_ai_messages(
             .order_by(AIMessage.created_at.asc())
         )
     )
-    return [serialize_ai_message(item) for item in messages]
+    serialized_messages = [serialize_ai_message(item) for item in messages]
+    return live_ai_stream_cache.overlay_messages(
+        family_id=membership.family_id,
+        conversation_id=conversation_id,
+        messages=serialized_messages,
+    )
 
 
 @router.post("/api/ai/messages/{message_id}/recommendation-selection", response_model=AIMessageDTO)
@@ -646,6 +654,8 @@ def stream_ai_approval_decision(
             ):
                 if event == "response":
                     commit_session(db)
+                    run_id = data.get("run", {}).get("id") if isinstance(data.get("run"), dict) else None
+                    live_ai_stream_cache.clear_run(run_id)
                 yield encode(event, data)
         except LookupError as exc:
             yield encode("error", {"detail": str(exc), "status": 404})

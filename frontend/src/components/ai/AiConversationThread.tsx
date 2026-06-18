@@ -79,6 +79,12 @@ function isDraftToolEvent(event: AiRunEvent) {
   return event.internal_code.includes('.create_draft') || event.user_message.startsWith('生成「');
 }
 
+function isMessageFooterReady(message: AiMessage) {
+  if (message.role === 'user') return true;
+  const status = message.status.toLowerCase();
+  return status !== 'pending' && status !== 'running';
+}
+
 function hasDraftContent(message: AiMessage) {
   return message.parts.some((part) => Boolean(part.approval || part.draft));
 }
@@ -294,6 +300,7 @@ export function MessageBubble({
 
   const [messageCopied, setMessageCopied] = useState(false);
   const [feedback, setFeedback] = useState<'up' | 'down' | null>(null);
+  const showFooter = isMessageFooterReady(message);
 
   const copyMessageText = async () => {
     const textContent = message.parts
@@ -309,7 +316,7 @@ export function MessageBubble({
     }
   };
 
-  const showActions = !isUser && hasRenderableParts;
+  const showActions = showFooter && !isUser && hasRenderableParts;
 
   return (
     <article className={`ai-message ai-message-${message.role}`}>
@@ -389,7 +396,7 @@ export function MessageBubble({
               </span>
             </div>
           )}
-          {(showActions || messageTime) && (
+          {showFooter && (showActions || messageTime) && (
             <div className={`ai-message-footer${showActions ? ' has-actions' : ''}`}>
               {showActions && (
                 <div className="ai-message-actions-bar">

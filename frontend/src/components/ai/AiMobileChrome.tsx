@@ -5,7 +5,8 @@ import { EmptyState } from '../ui-kit';
 export function AiMobileChrome(props: {
   conversations: AiConversation[];
   isLoading: boolean;
-  activeConversationId: string | null;
+  activeConversationKey: string | null;
+  runningConversationKeys: Set<string>;
   isMobileHistoryOpen: boolean;
   onBackHome?: () => void;
   onOpenMobileHistory: () => void;
@@ -85,11 +86,18 @@ export function AiMobileChrome(props: {
                       {group.items.map((conversation) => (
                         <button
                           key={conversation.id}
-                          className={conversation.id === props.activeConversationId ? 'ai-mobile-conversation active' : 'ai-mobile-conversation'}
+                          className={[
+                            'ai-mobile-conversation',
+                            conversation.id === props.activeConversationKey ? 'active' : '',
+                            props.runningConversationKeys.has(conversation.id) ? 'is-running' : '',
+                          ].filter(Boolean).join(' ')}
                           type="button"
                           onClick={() => props.onSelectConversation(conversation.id)}
                         >
-                          <strong>{conversation.title || conversation.prompt || 'AI 会话'}</strong>
+                          <strong>
+                            {props.runningConversationKeys.has(conversation.id) && <i className="ai-history-spinner" aria-hidden="true" />}
+                            <span className="ai-history-title-text">{conversation.title || conversation.prompt || 'AI 会话'}</span>
+                          </strong>
                           <span>{conversation.summary || conversation.response || '等待继续对话'}</span>
                         </button>
                       ))}

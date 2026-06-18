@@ -1,7 +1,147 @@
+import threading
+
 from ._support import *
 
 
+class BlockingStreamingChatProvider(BaseChatProvider):
+    model_name = "blocking-stream-model"
+
+    def __init__(self, first_delta_persisted: threading.Event, continue_stream: threading.Event) -> None:
+        self.first_delta_persisted = first_delta_persisted
+        self.continue_stream = continue_stream
+
+    def generate(self, *, system: str, user: str, response_schema: dict | None = None) -> ChatProviderResult:
+        if "工作台的 Planner" in system:
+            return ChatProviderResult(text='{"skills":[]}', status="completed", model=self.model_name)
+        raise AssertionError("streaming chat should not call blocking generate")
+
+    def stream_generate(self, *, system: str, user: str, response_schema: dict | None = None):
+        yield "第一段"
+        self.first_delta_persisted.set()
+        if not self.continue_stream.wait(timeout=5):
+            raise RuntimeError("stream test timed out")
+        yield "第二段"
+
+
 class AIWorkspaceStreamingTestCase(AIAgentInfraTestCase):
+        def test_ai_workspace_caches_live_delta_for_other_clients_before_final_response(self) -> None:
+            first_delta_persisted = threading.Event()
+            continue_stream = threading.Event()
+            provider = BlockingStreamingChatProvider(first_delta_persisted, continue_stream)
+            captured: dict[str, str | int] = {}
+            errors: list[BaseException] = []
+
+            def consume_stream() -> None:
+                try:
+                    with patch("app.ai.workspace_service.get_chat_provider", return_value=provider):
+                        with self.client.stream(
+                            "POST",
+                            "/api/ai/chat/stream",
+                            json={"message": "随便聊聊", "client_run_id": "agent_run-live-persist-test"},
+                        ) as response:
+                            captured["status_code"] = response.status_code
+                            captured["body"] = "".join(response.iter_text())
+                except BaseException as exc:
+                    errors.append(exc)
+
+            thread = threading.Thread(target=consume_stream)
+            thread.start()
+            try:
+                self.assertTrue(first_delta_persisted.wait(timeout=5))
+                with self.SessionLocal() as db:
+                    run = db.get(AIAgentRun, "agent_run-live-persist-test")
+                    self.assertIsNotNone(run)
+                    assert run is not None
+                    conversation = db.get(AIConversation, run.conversation_id)
+                    self.assertIsNotNone(conversation)
+                    assert conversation is not None
+                    message = db.scalar(
+                        select(AIMessage).where(AIMessage.run_id == run.id, AIMessage.role == "assistant")
+                    )
+                    self.assertIsNone(message)
+                    self.assertEqual(conversation.last_run_status, "running")
+                    self.assertEqual(conversation.context.get("activeRunId"), run.id)
+
+                messages_response = self.client.get(f"/api/ai/conversations/{conversation.id}/messages")
+                self.assertEqual(messages_response.status_code, 200, messages_response.text)
+                live_messages = messages_response.json()
+                assistant_messages = [message for message in live_messages if message["role"] == "assistant"]
+                self.assertEqual(len(assistant_messages), 1)
+                self.assertEqual(assistant_messages[0]["content"], "第一段")
+                self.assertEqual(assistant_messages[0]["status"], "running")
+                self.assertTrue(assistant_messages[0]["metadata"].get("liveStreaming"))
+
+                continue_stream.set()
+                thread.join(timeout=5)
+                self.assertFalse(thread.is_alive())
+                self.assertFalse(errors)
+                self.assertEqual(captured.get("status_code"), 200)
+                self.assertIn("event: response", str(captured.get("body") or ""))
+                with self.SessionLocal() as db:
+                    run = db.get(AIAgentRun, "agent_run-live-persist-test")
+                    assert run is not None
+                    conversation = db.get(AIConversation, run.conversation_id)
+                    assert conversation is not None
+                    message = db.scalar(
+                        select(AIMessage).where(AIMessage.run_id == run.id, AIMessage.role == "assistant")
+                    )
+                    assert message is not None
+                    self.assertEqual(message.content, "第一段第二段")
+                    self.assertEqual(message.status, "completed")
+                    self.assertNotIn("liveStreaming", message.message_metadata or {})
+                    self.assertNotIn("liveTextPartIds", message.message_metadata or {})
+                    self.assertNotIn("activeRunId", conversation.context or {})
+                    self.assertEqual(conversation.last_run_status, "completed")
+                messages_response = self.client.get(f"/api/ai/conversations/{conversation.id}/messages")
+                self.assertEqual(messages_response.status_code, 200, messages_response.text)
+                final_messages = messages_response.json()
+                assistant_messages = [message for message in final_messages if message["role"] == "assistant"]
+                self.assertEqual(len(assistant_messages), 1)
+                self.assertEqual(assistant_messages[0]["content"], "第一段第二段")
+                self.assertEqual(assistant_messages[0]["status"], "completed")
+                self.assertFalse(assistant_messages[0]["metadata"].get("liveStreaming", False))
+            finally:
+                continue_stream.set()
+                thread.join(timeout=5)
+
+        def test_ai_conversation_history_orders_by_latest_message_time(self) -> None:
+            with self.SessionLocal() as db:
+                older_active = AIConversation(
+                    id="conversation-older-active",
+                    family_id=self.family.id,
+                    mode=AiMode.RECOMMENDATION,
+                    prompt="旧会话刚回复",
+                    response="",
+                    context={"workspace": True},
+                    title="旧会话刚回复",
+                    status="active",
+                    created_at=datetime(2026, 5, 1, 8, 0, 0),
+                    last_message_at=datetime(2026, 6, 1, 8, 0, 0),
+                    last_run_status="completed",
+                    created_by=self.user.id,
+                )
+                newer_inactive = AIConversation(
+                    id="conversation-newer-inactive",
+                    family_id=self.family.id,
+                    mode=AiMode.RECOMMENDATION,
+                    prompt="新建但无新消息",
+                    response="",
+                    context={"workspace": True},
+                    title="新建但无新消息",
+                    status="active",
+                    created_at=datetime(2026, 5, 20, 8, 0, 0),
+                    last_message_at=datetime(2026, 5, 20, 8, 0, 0),
+                    last_run_status="completed",
+                    created_by=self.user.id,
+                )
+                db.add_all([newer_inactive, older_active])
+                db.commit()
+
+            response = self.client.get("/api/ai/conversations")
+            self.assertEqual(response.status_code, 200, response.text)
+            ids = [item["id"] for item in response.json()]
+            self.assertLess(ids.index("conversation-older-active"), ids.index("conversation-newer-inactive"))
+
         def test_ai_workspace_phase4_streams_progress_and_final_response(self) -> None:
             with self.client.stream(
                 "POST",
@@ -113,6 +253,11 @@ class AIWorkspaceStreamingTestCase(AIAgentInfraTestCase):
                 self.assertIsNotNone(message)
                 assert message is not None
                 self.assertEqual(message.status, "failed")
+                self.assertNotIn("liveStreaming", message.message_metadata or {})
+                conversation = db.get(AIConversation, run.conversation_id)
+                self.assertIsNotNone(conversation)
+                assert conversation is not None
+                self.assertNotIn("activeRunId", conversation.context or {})
                 event = db.scalar(
                     select(AIRunEvent).where(
                         AIRunEvent.run_id == run.id,
@@ -125,10 +270,20 @@ class AIWorkspaceStreamingTestCase(AIAgentInfraTestCase):
 
         def test_ai_workspace_phase4_cancel_running_run_records_event(self) -> None:
             with self.SessionLocal() as db:
+                conversation = AIConversation(
+                    id="conversation-cancel",
+                    family_id=self.family.id,
+                    mode=AiMode.RECOMMENDATION,
+                    prompt="安排三天晚餐",
+                    response="",
+                    context={"activeRunId": "agent-run-cancel", "workspace": True},
+                    last_run_status="running",
+                    created_by=self.user.id,
+                )
                 run = AIAgentRun(
                     id="agent-run-cancel",
                     family_id=self.family.id,
-                    conversation_id=None,
+                    conversation_id=conversation.id,
                     message_id=None,
                     agent_key="workspace_orchestrator",
                     feature_key="ai_workspace_chat",
@@ -144,13 +299,19 @@ class AIWorkspaceStreamingTestCase(AIAgentInfraTestCase):
                     duration_ms=0,
                     created_by=self.user.id,
                 )
-                db.add(run)
+                db.add_all([conversation, run])
                 db.commit()
             response = self.client.post("/api/ai/runs/agent-run-cancel/cancel")
             self.assertEqual(response.status_code, 200, response.text)
             data = response.json()
             self.assertEqual(data["run"]["status"], "cancelled")
             self.assertEqual(data["events"][0]["internal_code"], "user_cancel")
+            with self.SessionLocal() as db:
+                conversation = db.get(AIConversation, "conversation-cancel")
+                self.assertIsNotNone(conversation)
+                assert conversation is not None
+                self.assertEqual(conversation.last_run_status, "cancelled")
+                self.assertNotIn("activeRunId", conversation.context or {})
 
         def test_ai_workspace_finalize_does_not_overwrite_cancelled_run(self) -> None:
             from app.ai.workflows.runner import WorkspaceGraphRunner

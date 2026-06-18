@@ -3,10 +3,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createRoot, type Root } from 'react-dom/client';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { api } from '../../api/client';
+import { queryKeys } from '../../api/queryKeys';
 import type { AiApprovalRequest, AiChatResponse, AiConversation, AiGeneratedRecipeDraft, AiQualityMetrics, AiResultCard, Food, Ingredient } from '../../api/types';
 import { ResultCard } from './AiResultCards';
 import { MessageBubble } from './AiConversationThread';
 import { AiWorkspace, ApprovalPanel } from './AiWorkspace';
+import { AiMobilePage } from './AiMobilePage';
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -361,7 +363,7 @@ async function renderWithQuery(element: React.ReactElement) {
   const container = document.createElement('div');
   document.body.appendChild(container);
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
-  let root: Root;
+  let root: Root | null = null;
   await act(async () => {
     root = createRoot(container);
     root.render(<QueryClientProvider client={queryClient}>{element}</QueryClientProvider>);
@@ -369,9 +371,14 @@ async function renderWithQuery(element: React.ReactElement) {
   return {
     container,
     queryClient,
+    rerender: async (nextElement: React.ReactElement) => {
+      await act(async () => {
+        root?.render(<QueryClientProvider client={queryClient}>{nextElement}</QueryClientProvider>);
+      });
+    },
     unmount: () => {
       act(() => {
-        root.unmount();
+        root?.unmount();
         container.remove();
       });
     },
@@ -393,6 +400,29 @@ function changeSelect(select: HTMLSelectElement, value: string) {
     valueSetter?.call(select, value);
     select.dispatchEvent(new Event('change', { bubbles: true }));
   });
+}
+
+function mockVisualViewport({ height, offsetTop }: { height: number; offsetTop: number }) {
+  const originalDescriptor = Object.getOwnPropertyDescriptor(window, 'visualViewport');
+  const viewport = new EventTarget() as VisualViewport;
+  Object.defineProperties(viewport, {
+    height: { value: height, writable: true, configurable: true },
+    offsetTop: { value: offsetTop, writable: true, configurable: true },
+    width: { value: 390, writable: true, configurable: true },
+    offsetLeft: { value: 0, writable: true, configurable: true },
+    pageLeft: { value: 0, writable: true, configurable: true },
+    pageTop: { value: 0, writable: true, configurable: true },
+    scale: { value: 1, writable: true, configurable: true },
+  });
+  Object.defineProperty(window, 'visualViewport', { value: viewport, configurable: true });
+
+  return () => {
+    if (originalDescriptor) {
+      Object.defineProperty(window, 'visualViewport', originalDescriptor);
+    } else {
+      delete (window as unknown as Record<string, unknown>).visualViewport;
+    }
+  };
 }
 
 afterEach(() => {
@@ -419,6 +449,58 @@ async function advanceTimers(ms: number) {
     await vi.advanceTimersByTimeAsync(ms);
   });
 }
+
+describe('MessageBubble', () => {
+  it('hides assistant footer actions until the message finishes loading', async () => {
+    const rendered = await renderWithQuery(
+      <MessageBubble
+        message={{
+          id: 'message-running',
+          conversation_id: 'conversation-1',
+          role: 'assistant',
+          content: '我正在整理建议。',
+          content_type: 'parts',
+          parts: [{ id: 'part-running', type: 'text', text: '我正在整理建议。' }],
+          run_id: 'run-running',
+          status: 'running',
+          metadata: {},
+          created_at: '2026-05-30T00:00:00Z',
+        }}
+        user={{ id: 'user-1', username: 'me', display_name: '我', avatar_seed: 'seed', avatar_image: null }}
+        onApprovalDecision={() => undefined}
+      />,
+    );
+
+    expect(rendered.container.querySelector('.ai-message-footer')).toBeNull();
+    expect(rendered.container.querySelector('.ai-message-actions-bar')).toBeNull();
+    rendered.unmount();
+  });
+
+  it('shows assistant footer actions after the message is complete', async () => {
+    const rendered = await renderWithQuery(
+      <MessageBubble
+        message={{
+          id: 'message-completed',
+          conversation_id: 'conversation-1',
+          role: 'assistant',
+          content: '建议今晚做番茄鸡蛋面。',
+          content_type: 'parts',
+          parts: [{ id: 'part-completed', type: 'text', text: '建议今晚做番茄鸡蛋面。' }],
+          run_id: 'run-completed',
+          status: 'completed',
+          metadata: {},
+          created_at: '2026-05-30T00:00:00Z',
+        }}
+        user={{ id: 'user-1', username: 'me', display_name: '我', avatar_seed: 'seed', avatar_image: null }}
+        onApprovalDecision={() => undefined}
+      />,
+    );
+
+    expect(rendered.container.querySelector('.ai-message-footer')).not.toBeNull();
+    expect(rendered.container.querySelectorAll('.ai-message-action-btn')).toHaveLength(3);
+    rendered.unmount();
+  });
+});
 
 describe('ApprovalPanel', () => {
   it('renders clarification progress as waiting instead of completed', async () => {
@@ -1127,6 +1209,59 @@ describe('AiWorkspace quality diagnostics', () => {
   });
 });
 
+describe('AiMobilePage viewport', () => {
+  it('uses the visual viewport height while the Safari keyboard is open', async () => {
+    const restoreVisualViewport = mockVisualViewport({ height: 520, offsetTop: 0 });
+    vi.spyOn(window, 'innerHeight', 'get').mockReturnValue(900);
+    let rendered: Awaited<ReturnType<typeof renderWithQuery>> | null = null;
+    try {
+      rendered = await renderWithQuery(
+        <AiMobilePage
+          conversations={[]}
+          isLoading={false}
+          activeConversationKey={null}
+          runningConversationKeys={new Set()}
+          isMobileHistoryOpen={false}
+          currentUser={null}
+          resourceOptionLoader={async () => []}
+          messages={[]}
+          runEventsById={{}}
+          streamProgress={[]}
+          activeStreamRunId={null}
+          draft=""
+          isSending={false}
+          isComposerPaused={false}
+          messagesLoading={false}
+          onRetryMessages={() => undefined}
+          onOpenMobileHistory={() => undefined}
+          onCloseMobileHistory={() => undefined}
+          onStartNewConversation={() => undefined}
+          onSelectConversation={() => undefined}
+          onDraftChange={() => undefined}
+          onPickSuggestion={() => undefined}
+          onSubmit={(event) => event.preventDefault()}
+          onApprovalDecision={() => undefined}
+          onAddRecommendationToPlan={() => undefined}
+          onInventoryAction={() => undefined}
+          isInventoryActionPending={false}
+          onCancelSending={() => undefined}
+        />,
+      );
+
+      await waitForResourceLoad(30);
+
+      const page = rendered.container.querySelector<HTMLElement>('.ai-mobile-page');
+      expect(page?.style.getPropertyValue('--ai-mobile-viewport-height')).toBe('520px');
+      expect(page?.style.getPropertyValue('--ai-mobile-viewport-top')).toBe('0px');
+      expect(page?.style.getPropertyValue('--ai-mobile-composer-height')).toBe('88px');
+      expect(page?.style.getPropertyValue('--ai-mobile-composer-safe-bottom')).toBe('0px');
+    } finally {
+      rendered?.unmount();
+      restoreVisualViewport();
+    }
+  });
+});
+
 describe('AiWorkspace pending approval restore', () => {
   it('restores pending approvals as an assistant message when history is missing', async () => {
     vi.spyOn(api, 'getAiMessages').mockResolvedValue([]);
@@ -1729,6 +1864,396 @@ describe('AiWorkspace pending approval restore', () => {
     rendered.unmount();
   });
 
+  it('merges a pending local conversation into the server conversation before the stream settles', async () => {
+    vi.spyOn(api, 'getAiMessages').mockResolvedValue([]);
+    vi.spyOn(api, 'getPendingAiApprovals').mockResolvedValue([]);
+    let streamedRunId = 'agent_run-client';
+    vi.spyOn(api, 'streamChatAi').mockImplementation(async (payload, handlers) => {
+      streamedRunId = payload.client_run_id ?? streamedRunId;
+      handlers?.onMessageDelta?.({
+        message_id: 'message-live-new',
+        conversation_id: 'conversation-server-new',
+        run_id: streamedRunId,
+        part_id: 'part-live-new',
+        delta: '你好，我正在整理。',
+      });
+      return new Promise<AiChatResponse>(() => undefined);
+    });
+
+    const rendered = await renderWithQuery(<AiWorkspace conversations={[]} isLoading={false} />);
+    await flush();
+    changeInput(rendered.container.querySelector<HTMLTextAreaElement>('textarea.text-input') as HTMLTextAreaElement, '你好');
+    await act(async () => {
+      rendered.container.querySelector<HTMLFormElement>('form.ai-composer')?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    });
+    await flush();
+    expect(rendered.container.querySelectorAll('.ai-desktop-view .ai-conversation-item')).toHaveLength(1);
+
+    const serverConversation: AiConversation = {
+      ...conversation(),
+      id: 'conversation-server-new',
+      prompt: '你好',
+      title: '你好',
+      response: '你好，我正在整理。',
+      summary: '你好，我正在整理。',
+      context: { activeRunId: streamedRunId },
+      last_run_status: 'running',
+      last_message_at: '2026-05-30T00:02:00Z',
+    };
+    await rendered.rerender(<AiWorkspace conversations={[serverConversation]} isLoading={false} />);
+    await flush();
+
+    const desktopView = rendered.container.querySelector('.ai-desktop-view') as HTMLElement;
+    const historyItems = Array.from(desktopView.querySelectorAll('.ai-conversation-item'));
+    expect(historyItems).toHaveLength(1);
+    expect(historyItems[0].textContent).toContain('你好');
+    expect(historyItems[0].className).toContain('active');
+    expect(historyItems[0].className).toContain('is-running');
+    expect(desktopView.textContent).toContain('你好，我正在整理。');
+    rendered.unmount();
+  });
+
+  it('keeps appending streamed text after a pending conversation migrates to the server id', async () => {
+    vi.spyOn(api, 'getAiMessages').mockResolvedValue([]);
+    vi.spyOn(api, 'getPendingAiApprovals').mockResolvedValue([]);
+    let emitSecondDelta: (() => void) | null = null;
+    let streamedRunId = 'agent_run-client';
+    vi.spyOn(api, 'streamChatAi').mockImplementation(async (payload, handlers) => {
+      streamedRunId = payload.client_run_id ?? streamedRunId;
+      handlers?.onMessageDelta?.({
+        message_id: 'message-live-new',
+        conversation_id: 'conversation-server-new',
+        run_id: streamedRunId,
+        part_id: 'part-live-new',
+        delta: '配',
+      });
+      emitSecondDelta = () => {
+        handlers?.onMessageDelta?.({
+          message_id: 'message-live-new',
+          conversation_id: 'conversation-server-new',
+          run_id: streamedRunId,
+          part_id: 'part-live-new',
+          delta: '菜建议已经整理好了。',
+        });
+      };
+      return new Promise<AiChatResponse>(() => undefined);
+    });
+
+    const rendered = await renderWithQuery(<AiWorkspace conversations={[]} isLoading={false} />);
+    await flush();
+    changeInput(rendered.container.querySelector<HTMLTextAreaElement>('textarea.text-input') as HTMLTextAreaElement, '配菜');
+    await act(async () => {
+      rendered.container.querySelector<HTMLFormElement>('form.ai-composer')?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    });
+    await flush();
+    expect((rendered.container.querySelector('.ai-desktop-view') as HTMLElement).textContent).toContain('配');
+
+    const serverConversation: AiConversation = {
+      ...conversation(),
+      id: 'conversation-server-new',
+      prompt: '配菜',
+      title: '配菜',
+      response: '配',
+      summary: '配',
+      context: { activeRunId: streamedRunId },
+      last_run_status: 'running',
+      last_message_at: '2026-05-30T00:02:00Z',
+    };
+    await rendered.rerender(<AiWorkspace conversations={[serverConversation]} isLoading={false} />);
+    await flush();
+    await flush();
+
+    await act(async () => {
+      emitSecondDelta?.();
+    });
+    await flush();
+
+    const desktopView = rendered.container.querySelector('.ai-desktop-view') as HTMLElement;
+    expect(desktopView.textContent).toContain('配菜建议已经整理好了。');
+    rendered.unmount();
+  });
+
+  it('replaces the migrated live assistant message when the final response arrives', async () => {
+    vi.spyOn(api, 'getAiMessages').mockResolvedValue([]);
+    vi.spyOn(api, 'getPendingAiApprovals').mockResolvedValue([]);
+    let emitSecondDelta: (() => void) | null = null;
+    let resolveStream: ((response: AiChatResponse) => void) | null = null;
+    let streamedRunId = 'agent_run-client';
+    vi.spyOn(api, 'streamChatAi').mockImplementation(async (payload, handlers) => {
+      streamedRunId = payload.client_run_id ?? streamedRunId;
+      handlers?.onMessageDelta?.({
+        message_id: 'message-live-new',
+        conversation_id: 'conversation-server-new',
+        run_id: streamedRunId,
+        part_id: 'part-live-new',
+        delta: '你好，',
+      });
+      emitSecondDelta = () => {
+        handlers?.onMessageDelta?.({
+          message_id: 'message-live-new',
+          conversation_id: 'conversation-server-new',
+          run_id: streamedRunId,
+          part_id: 'part-live-new',
+          delta: '我是 Culina 的厨房助手。',
+        });
+      };
+      return new Promise<AiChatResponse>((resolve) => {
+        resolveStream = resolve;
+      });
+    });
+
+    const rendered = await renderWithQuery(<AiWorkspace conversations={[]} isLoading={false} />);
+    await flush();
+    changeInput(rendered.container.querySelector<HTMLTextAreaElement>('textarea.text-input') as HTMLTextAreaElement, '你好');
+    await act(async () => {
+      rendered.container.querySelector<HTMLFormElement>('form.ai-composer')?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    });
+    await flush();
+
+    const serverConversation: AiConversation = {
+      ...conversation(),
+      id: 'conversation-server-new',
+      prompt: '你好',
+      title: '你好',
+      response: '你好，',
+      summary: '你好，',
+      context: { activeRunId: streamedRunId },
+      last_run_status: 'running',
+      last_message_at: '2026-05-30T00:02:00Z',
+    };
+    await rendered.rerender(<AiWorkspace conversations={[serverConversation]} isLoading={false} />);
+    await flush();
+    await act(async () => {
+      emitSecondDelta?.();
+    });
+    await flush();
+
+    await act(async () => {
+      resolveStream?.({
+        conversation_id: 'conversation-server-new',
+        message: {
+          id: 'message-final-new',
+          conversation_id: 'conversation-server-new',
+          role: 'assistant',
+          content: '你好，我是 Culina 的厨房助手。',
+          content_type: 'parts',
+          parts: [{ id: 'part-final-new', type: 'text', text: '你好，我是 Culina 的厨房助手。' }],
+          run_id: streamedRunId,
+          status: 'completed',
+          metadata: {},
+          created_at: '2026-05-30T00:02:01Z',
+        },
+        run: {
+          id: streamedRunId,
+          agent_key: 'general_chat_agent',
+          intent: 'general_chat',
+          status: 'completed',
+          model: 'rules',
+          created_at: '2026-05-30T00:02:00Z',
+        },
+        events: [],
+        included: { result_cards: [], drafts: [], approvals: [] },
+      });
+    });
+    await flush();
+
+    const assistantMessages = rendered.container.querySelectorAll('.ai-desktop-view .ai-message-assistant');
+    expect(assistantMessages).toHaveLength(1);
+    expect((assistantMessages[0] as HTMLElement).textContent).toContain('你好，我是 Culina 的厨房助手。');
+    rendered.unmount();
+  });
+
+  it('keeps streamed replies attached to the original conversation after switching history', async () => {
+    const otherConversation: AiConversation = {
+      ...conversation(),
+      id: 'conversation-2',
+      prompt: '第二个会话',
+      title: '第二个会话',
+      last_message_at: '2026-05-30T00:01:00Z',
+    };
+    vi.spyOn(api, 'getAiMessages').mockImplementation(async (conversationId) => {
+      if (conversationId === 'conversation-2') {
+        return [
+          {
+            id: 'message-conversation-2',
+            conversation_id: 'conversation-2',
+            role: 'assistant',
+            content: '这是第二个会话的历史消息。',
+            content_type: 'parts',
+            parts: [{ id: 'part-conversation-2', type: 'text', text: '这是第二个会话的历史消息。' }],
+            run_id: 'run-conversation-2',
+            status: 'completed',
+            metadata: {},
+            created_at: '2026-05-30T00:01:00Z',
+          },
+        ];
+      }
+      return [];
+    });
+    vi.spyOn(api, 'getPendingAiApprovals').mockResolvedValue([]);
+    let emitDelta: (() => void) | null = null;
+    let resolveStream: ((response: AiChatResponse) => void) | null = null;
+    let streamedRunId = 'agent_run-client';
+    vi.spyOn(api, 'streamChatAi').mockImplementation(async (payload, handlers) => {
+      streamedRunId = payload.client_run_id ?? streamedRunId;
+      emitDelta = () => {
+        handlers?.onMessageDelta?.({
+          message_id: 'message-streaming-original',
+          conversation_id: 'conversation-1',
+          run_id: streamedRunId,
+          part_id: 'part-streaming-original',
+          delta: '这是第一个会话的后台回复。',
+        });
+      };
+      return new Promise<AiChatResponse>((resolve) => {
+        resolveStream = resolve;
+      });
+    });
+
+    const rendered = await renderWithQuery(<AiWorkspace conversations={[conversation(), otherConversation]} isLoading={false} />);
+    await flush();
+    changeInput(rendered.container.querySelector<HTMLTextAreaElement>('textarea.text-input') as HTMLTextAreaElement, '安排三天晚餐');
+    await act(async () => {
+      rendered.container.querySelector<HTMLFormElement>('form.ai-composer')?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    });
+    await flush();
+
+    const desktopHistoryButtons = () => Array.from(rendered.container.querySelectorAll<HTMLButtonElement>('.ai-desktop-view .ai-conversation-main'));
+    await act(async () => {
+      desktopHistoryButtons().find((button) => button.textContent?.includes('第二个会话'))?.click();
+    });
+    await flush();
+    await act(async () => {
+      emitDelta?.();
+    });
+    await flush();
+
+    const desktopView = rendered.container.querySelector('.ai-desktop-view') as HTMLElement;
+    expect(desktopView.textContent).toContain('这是第二个会话的历史消息。');
+    expect(desktopView.textContent).not.toContain('这是第一个会话的后台回复。');
+    expect(desktopView.querySelector('.ai-conversation-item.is-running .ai-history-spinner')).not.toBeNull();
+
+    await act(async () => {
+      desktopHistoryButtons().find((button) => button.textContent?.includes('帮我生成菜谱'))?.click();
+    });
+    await flush();
+    expect(desktopView.textContent).toContain('这是第一个会话的后台回复。');
+
+    await act(async () => {
+      resolveStream?.({
+        conversation_id: 'conversation-1',
+        message: {
+          id: 'message-final-original',
+          conversation_id: 'conversation-1',
+          role: 'assistant',
+          content: '这是第一个会话的后台回复。',
+          content_type: 'parts',
+          parts: [{ id: 'part-final-original', type: 'text', text: '这是第一个会话的后台回复。' }],
+          run_id: streamedRunId,
+          status: 'completed',
+          metadata: {},
+          created_at: '2026-05-30T00:00:00Z',
+        },
+        run: {
+          id: streamedRunId,
+          agent_key: 'meal_plan_agent',
+          intent: 'meal_plan',
+          status: 'completed',
+          model: 'rules',
+          created_at: '2026-05-30T00:00:00Z',
+        },
+        events: [],
+        included: { result_cards: [], drafts: [], approvals: [] },
+      });
+    });
+    await flush();
+    rendered.unmount();
+  });
+
+  it('shows a remote live reply for the same running conversation', async () => {
+    const runningConversation: AiConversation = {
+      ...conversation(),
+      context: { activeRunId: 'run-live-remote' },
+      last_run_status: 'running',
+    };
+    vi.spyOn(api, 'getAiMessages').mockResolvedValue([
+      {
+        id: 'message-user-live',
+        conversation_id: 'conversation-1',
+        role: 'user',
+        content: '今晚吃什么？',
+        content_type: 'parts',
+        parts: [{ id: 'part-user-live', type: 'text', text: '今晚吃什么？' }],
+        status: 'completed',
+        metadata: {},
+        created_at: '2026-05-30T00:00:00Z',
+      },
+      {
+        id: 'message-assistant-live',
+        conversation_id: 'conversation-1',
+        role: 'assistant',
+        content: '我正在看库存，先考虑临期番茄。',
+        content_type: 'parts',
+        parts: [{ id: 'part-assistant-live', type: 'text', text: '我正在看库存，先考虑临期番茄。' }],
+        run_id: 'run-live-remote',
+        status: 'running',
+        metadata: { liveStreaming: true },
+        created_at: '2026-05-30T00:00:01Z',
+      },
+    ]);
+    vi.spyOn(api, 'getPendingAiApprovals').mockResolvedValue([]);
+    vi.spyOn(api, 'getAiRunEvents').mockResolvedValue([
+      {
+        id: 'event-live-remote',
+        run_id: 'run-live-remote',
+        type: 'skill',
+        internal_code: 'meal_plan.start',
+        user_message: '调用「餐食计划」技能',
+        status: 'running',
+        created_at: '2026-05-30T00:00:01Z',
+      },
+    ]);
+
+    const rendered = await renderWithQuery(<AiWorkspace conversations={[runningConversation]} isLoading={false} />);
+    await flush();
+
+    const desktopView = rendered.container.querySelector('.ai-desktop-view') as HTMLElement;
+    expect(desktopView.textContent).toContain('我正在看库存，先考虑临期番茄。');
+    expect(desktopView.querySelector('.ai-conversation-item.is-running .ai-history-spinner')).not.toBeNull();
+    expect(desktopView.querySelector<HTMLButtonElement>('.ai-send-button')?.getAttribute('aria-label')).toBe('中止生成');
+    rendered.unmount();
+  });
+
+  it('does not pause an idle conversation because another remote conversation is running', async () => {
+    const idleConversation = conversation();
+    const runningConversation: AiConversation = {
+      ...conversation(),
+      id: 'conversation-running-remote',
+      prompt: '后台会话',
+      title: '后台会话',
+      context: { activeRunId: 'run-remote-other' },
+      last_run_status: 'running',
+      last_message_at: '2026-05-30T00:02:00Z',
+    };
+    vi.spyOn(api, 'getAiMessages').mockResolvedValue([]);
+    vi.spyOn(api, 'getPendingAiApprovals').mockResolvedValue([]);
+
+    const rendered = await renderWithQuery(<AiWorkspace conversations={[idleConversation, runningConversation]} isLoading={false} />);
+    await flush();
+
+    const desktopView = rendered.container.querySelector('.ai-desktop-view') as HTMLElement;
+    expect(desktopView.querySelector('.ai-conversation-item.is-running .ai-history-spinner')).not.toBeNull();
+    const input = desktopView.querySelector<HTMLTextAreaElement>('textarea.text-input') as HTMLTextAreaElement;
+    expect(input.disabled).toBe(false);
+    changeInput(input, '当前会话继续问一个问题');
+    await flush();
+    const sendButton = desktopView.querySelector<HTMLButtonElement>('.ai-send-button') as HTMLButtonElement;
+    expect(sendButton.getAttribute('aria-label')).toBe('发送消息');
+    expect(sendButton.disabled).toBe(false);
+    expect(desktopView.textContent).not.toContain('另一个会话正在后台回复');
+    rendered.unmount();
+  });
+
   it('shows included approvals immediately when the streamed response settles', async () => {
     vi.spyOn(api, 'getAiMessages').mockResolvedValue([]);
     const pendingApprovalsSpy = vi
@@ -1916,6 +2441,54 @@ describe('AiWorkspace pending approval restore', () => {
       });
     });
     await flush();
+    rendered.unmount();
+  });
+
+  it('deduplicates a completed remote reply against a local live stream copy with the same run id', async () => {
+    vi.spyOn(api, 'getAiMessages').mockResolvedValue([]);
+    vi.spyOn(api, 'getPendingAiApprovals').mockResolvedValue([]);
+    let streamedRunId = 'agent_run-client';
+    vi.spyOn(api, 'streamChatAi').mockImplementation(async (payload, handlers) => {
+      streamedRunId = payload.client_run_id ?? streamedRunId;
+      handlers?.onMessageDelta?.({
+        message_id: 'message-live-race',
+        conversation_id: payload.conversation_id ?? 'conversation-1',
+        run_id: streamedRunId,
+        part_id: 'part-live-race',
+        delta: '建议今晚做番茄鸡蛋面。',
+      });
+      return new Promise<AiChatResponse>(() => undefined);
+    });
+
+    const rendered = await renderWithQuery(<AiWorkspace conversations={[conversation()]} isLoading={false} />);
+    await flush();
+    changeInput(rendered.container.querySelector<HTMLTextAreaElement>('textarea.text-input') as HTMLTextAreaElement, '今晚吃什么？');
+    await act(async () => {
+      rendered.container.querySelector<HTMLFormElement>('form.ai-composer')?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    });
+    await flush();
+
+    await act(async () => {
+      rendered.queryClient.setQueryData(queryKeys.aiMessages('conversation-1'), [
+        {
+          id: 'message-final-race',
+          conversation_id: 'conversation-1',
+          role: 'assistant',
+          content: '建议今晚做番茄鸡蛋面。',
+          content_type: 'parts',
+          parts: [{ id: 'part-final-race', type: 'text', text: '建议今晚做番茄鸡蛋面。' }],
+          run_id: streamedRunId,
+          status: 'completed',
+          metadata: {},
+          created_at: '2026-05-30T00:00:01Z',
+        },
+      ]);
+    });
+    await flush();
+
+    const assistantMessages = rendered.container.querySelectorAll('.ai-desktop-view .ai-message-assistant');
+    expect(assistantMessages).toHaveLength(1);
+    expect((assistantMessages[0] as HTMLElement).textContent).toContain('建议今晚做番茄鸡蛋面。');
     rendered.unmount();
   });
 
