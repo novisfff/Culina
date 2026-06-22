@@ -175,7 +175,7 @@ class AIWorkspaceChatTestCase(AIAgentInfraTestCase):
             self.assertEqual(response.status_code, 200, response.text)
             data = response.json()
             self.assertIn("conversation_id", data)
-            self.assertEqual(data["run"]["agent_key"], "meal_plan_agent")
+            self.assertEqual(data["run"]["agent_key"], "workspace_orchestrator")
             self.assertEqual(data["run"]["intent"], "meal_plan")
             self.assertEqual(data["included"]["drafts"], [])
             self.assertEqual(data["included"]["approvals"], [])
@@ -219,9 +219,9 @@ class AIWorkspaceChatTestCase(AIAgentInfraTestCase):
                 run = db.get(AIAgentRun, data["run"]["id"])
                 self.assertEqual(len(messages), 2)
                 event_messages = [event.user_message for event in events]
-                self.assertIn("调用「餐食计划」技能", event_messages)
+                self.assertIn("调用「餐食安排」技能", event_messages)
                 self.assertIn("调用「可用库存」", event_messages)
-                self.assertIn("餐食计划执行完成", event_messages)
+                self.assertNotIn("餐食安排执行完成", event_messages)
                 self.assertIsNotNone(run)
                 assert run is not None
                 self.assertEqual(run.intent, "meal_plan")
@@ -254,7 +254,7 @@ class AIWorkspaceChatTestCase(AIAgentInfraTestCase):
             response = self.client.post("/api/ai/chat", json={"message": "今晚吃什么？"})
             self.assertEqual(response.status_code, 200, response.text)
             data = response.json()
-            self.assertEqual(data["run"]["agent_key"], "meal_plan_agent")
+            self.assertEqual(data["run"]["agent_key"], "workspace_orchestrator")
             self.assertEqual(data["run"]["intent"], "meal_plan")
             self.assertEqual(data["included"]["drafts"], [])
             self.assertEqual(data["included"]["approvals"], [])
@@ -390,44 +390,47 @@ class AIWorkspaceChatTestCase(AIAgentInfraTestCase):
             self.assertEqual(response.status_code, 409, response.text)
 
         def test_ai_workspace_rejects_new_message_when_conversation_has_active_run(self) -> None:
-            with self.SessionLocal() as db:
-                conversation = AIConversation(
-                    id="conversation-active-run",
-                    family_id=self.family.id,
-                    mode=AiMode.RECOMMENDATION,
-                    prompt="处理中",
-                    response="",
-                    context={"workspace": True},
-                    created_by=self.user.id,
-                )
-                run = AIAgentRun(
-                    id="agent_run-active-conversation",
-                    family_id=self.family.id,
-                    conversation_id=conversation.id,
-                    message_id=None,
-                    agent_key="workspace_orchestrator",
-                    feature_key="ai_workspace_chat",
-                    intent="general_chat",
-                    input_summary="处理中",
-                    context_summary={},
-                    output_summary="",
-                    status="running",
-                    model="fake-model",
-                    input={"prompt": "处理中", "subject": {}},
-                    output={},
-                    tool_calls=[],
-                    duration_ms=0,
-                    created_by=self.user.id,
-                )
-                db.add_all([conversation, run])
-                db.commit()
+            for status in ("running", "waiting_input"):
+                with self.subTest(status=status):
+                    conversation_id = f"conversation-active-run-{status}"
+                    with self.SessionLocal() as db:
+                        conversation = AIConversation(
+                            id=conversation_id,
+                            family_id=self.family.id,
+                            mode=AiMode.RECOMMENDATION,
+                            prompt="处理中",
+                            response="",
+                            context={"workspace": True},
+                            created_by=self.user.id,
+                        )
+                        run = AIAgentRun(
+                            id=f"agent_run-active-conversation-{status}",
+                            family_id=self.family.id,
+                            conversation_id=conversation.id,
+                            message_id=None,
+                            agent_key="workspace_orchestrator",
+                            feature_key="ai_workspace_chat",
+                            intent="general_chat",
+                            input_summary="处理中",
+                            context_summary={},
+                            output_summary="",
+                            status=status,
+                            model="fake-model",
+                            input={"prompt": "处理中", "subject": {}},
+                            output={},
+                            tool_calls=[],
+                            duration_ms=0,
+                            created_by=self.user.id,
+                        )
+                        db.add_all([conversation, run])
+                        db.commit()
 
-            response = self.client.post(
-                "/api/ai/chat",
-                json={"message": "新消息", "conversation_id": "conversation-active-run"},
-            )
-            self.assertEqual(response.status_code, 409, response.text)
-            self.assertIn("当前会话已有 AI 任务", response.text)
+                    response = self.client.post(
+                        "/api/ai/chat",
+                        json={"message": "新消息", "conversation_id": conversation_id},
+                    )
+                    self.assertEqual(response.status_code, 409, response.text)
+                    self.assertIn("当前会话已有 AI 任务", response.text)
 
         def test_ai_status_reports_disabled_provider_without_secrets(self) -> None:
             settings = SimpleNamespace(ai_provider="disabled", ai_model="", ai_api_key="")
@@ -458,97 +461,3 @@ class AIWorkspaceChatTestCase(AIAgentInfraTestCase):
         def test_ai_chat_request_rejects_overlong_message_before_running_agent(self) -> None:
             response = self.client.post("/api/ai/chat", json={"message": "x" * 2001})
             self.assertEqual(response.status_code, 422, response.text)
-
-        def test_ai_workspace_messages_normalize_legacy_result_cards_missing_id_and_title(self) -> None:
-            with self.SessionLocal() as db:
-                db.add(
-                    AIConversation(
-                        id="conversation-legacy-card",
-                        family_id=self.family.id,
-                        mode=AiMode.RECOMMENDATION,
-                        prompt="库存概览",
-                        response="库存概览",
-                        context={},
-                        created_by=self.user.id,
-                    )
-                )
-                message = AIMessage(
-                    id="ai-message-legacy-card",
-                    family_id=self.family.id,
-                    conversation_id="conversation-legacy-card",
-                    role="assistant",
-                    content="库存概览",
-                    content_type="parts",
-                    parts=[
-                        {"id": "part-text", "type": "text", "text": "库存概览"},
-                        {
-                            "id": "part-card",
-                            "type": "result_card",
-                            "card": {
-                                "id": None,
-                                "type": "inventory_summary",
-                                "title": None,
-                                "data": {"availableCount": 6, "expiringCount": 3, "lowStockCount": 3},
-                            },
-                        },
-                    ],
-                    status="completed",
-                    created_by=self.user.id,
-                )
-                db.add(message)
-                db.commit()
-
-            response = self.client.get("/api/ai/conversations/conversation-legacy-card/messages")
-            self.assertEqual(response.status_code, 200, response.text)
-            card = response.json()[0]["parts"][1]["card"]
-            self.assertEqual(card["id"], "part-card-card")
-            self.assertEqual(card["title"], "库存概览")
-
-        def test_ai_workspace_messages_normalize_legacy_clarification_cards_missing_question_fields(self) -> None:
-            with self.SessionLocal() as db:
-                db.add(
-                    AIConversation(
-                        id="conversation-legacy-clarification-card",
-                        family_id=self.family.id,
-                        mode=AiMode.RECOMMENDATION,
-                        prompt="补全信息",
-                        response="补全信息",
-                        context={},
-                        created_by=self.user.id,
-                    )
-                )
-                db.add(
-                    AIMessage(
-                        id="ai-message-legacy-clarification-card",
-                        family_id=self.family.id,
-                        conversation_id="conversation-legacy-clarification-card",
-                        role="assistant",
-                        content="还需要你确认一下",
-                        content_type="parts",
-                        parts=[
-                            {"id": "part-text", "type": "text", "text": "还需要你确认一下"},
-                            {
-                                "id": "part-card",
-                                "type": "result_card",
-                                "card": {
-                                    "id": "card-legacy-clarification",
-                                    "type": "clarification_request",
-                                    "title": "还需要你确认一下",
-                                    "data": {"missingFields": [], "candidates": [], "allowFreeText": True},
-                                },
-                            },
-                        ],
-                        status="completed",
-                        created_by=self.user.id,
-                    )
-                )
-                db.commit()
-
-            response = self.client.get("/api/ai/conversations/conversation-legacy-clarification-card/messages")
-            self.assertEqual(response.status_code, 200, response.text)
-            card_data = response.json()[0]["parts"][1]["card"]["data"]
-            self.assertEqual(card_data["question"], "还需要你确认一下")
-            self.assertEqual(card_data["questionType"], "other")
-            self.assertEqual(card_data["missingFields"], [])
-            self.assertEqual(card_data["candidates"], [])
-            self.assertTrue(card_data["allowFreeText"])

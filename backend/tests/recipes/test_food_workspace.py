@@ -157,7 +157,7 @@ class RecipeFoodWorkspaceTestCase(RecipeApiTestCase):
             self.assertEqual(plan_items[0]["meal_log_id"], quick_add.json()["id"])
             self.assertIsNotNone(plan_items[0]["completed_at"])
 
-        def test_meal_logs_can_load_ready_made_food_type_values(self) -> None:
+        def test_meal_logs_can_load_current_ready_made_food_types(self) -> None:
             with self.SessionLocal() as db:
                 food = Food(
                     id="food-ready-made",
@@ -203,51 +203,3 @@ class RecipeFoodWorkspaceTestCase(RecipeApiTestCase):
             response = self.client.get("/api/meal-logs")
             self.assertEqual(response.status_code, 200, response.text)
             self.assertEqual(response.json()[0]["food_entries"][0]["food_name"], "即食鸡胸")
-
-        def test_food_list_normalizes_legacy_enum_name_values(self) -> None:
-            with self.SessionLocal() as db:
-                db.add_all(
-                    [
-                        Food(
-                            id="food-legacy-self-made",
-                            family_id=self.family.id,
-                            name="旧家常菜",
-                            type="SELF_MADE",
-                            category="家常菜",
-                            flavor_tags=[],
-                            suitable_meal_types=["dinner"],
-                            source_name="家庭厨房",
-                            purchase_source="家庭厨房",
-                            scene="晚餐",
-                            notes="",
-                            routine_note="",
-                            favorite=False,
-                            created_by=self.user.id,
-                            updated_by=self.user.id,
-                        ),
-                        Food(
-                            id="food-legacy-takeout",
-                            family_id=self.family.id,
-                            name="旧外卖",
-                            type="TAKEOUT",
-                            category="外卖",
-                            flavor_tags=[],
-                            suitable_meal_types=["lunch"],
-                            source_name="餐厅",
-                            purchase_source="餐厅",
-                            scene="午餐",
-                            notes="",
-                            routine_note="",
-                            favorite=False,
-                            created_by=self.user.id,
-                            updated_by=self.user.id,
-                        ),
-                    ]
-                )
-                db.commit()
-
-            response = self.client.get("/api/foods")
-            self.assertEqual(response.status_code, 200, response.text)
-            foods_by_id = {item["id"]: item for item in response.json()}
-            self.assertEqual(foods_by_id["food-legacy-self-made"]["type"], "selfMade")
-            self.assertEqual(foods_by_id["food-legacy-takeout"]["type"], "takeout")

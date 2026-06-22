@@ -62,7 +62,9 @@ def build_planner_conversation(
     drafts_by_message: dict[str, list[AITaskDraft]] = {}
     for draft in drafts:
         if draft.message_id:
-            drafts_by_message.setdefault(draft.message_id, []).append(draft)
+            if draft.message_id not in drafts_by_message:
+                drafts_by_message[draft.message_id] = []
+            drafts_by_message[draft.message_id].append(draft)
     timeline: list[dict[str, Any]] = []
     for message in sorted(recent, key=lambda item: (item.created_at.timestamp(), item.id)):
         metadata = dict(message.message_metadata or {})

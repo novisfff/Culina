@@ -4,8 +4,6 @@ import pytest
 
 from app.core.security import BCRYPT_SHA256_PREFIX, get_password_hash, verify_password
 
-LEGACY_PBKDF2_HASH = "$pbkdf2-sha256$29000$SEmptRaC0JozpnQuBWAsZQ$W65J7xkTYV8CZFHMwEqiRz5wkA8L4pYchkQjzKo8l5k"
-
 
 def test_password_hash_uses_bcrypt_sha256_strategy() -> None:
     hashed = get_password_hash("Culina123!")
@@ -23,9 +21,9 @@ def test_password_hash_rejects_weak_passwords() -> None:
         get_password_hash("passwordonly")
 
 
-def test_verify_password_supports_legacy_pbkdf2_hashes() -> None:
-    assert verify_password("Culina123!", LEGACY_PBKDF2_HASH)
-    assert not verify_password("wrong-password", LEGACY_PBKDF2_HASH)
+def test_verify_password_rejects_non_current_hash_formats() -> None:
+    pbkdf2_hash = "$pbkdf2-sha256$29000$SEmptRaC0JozpnQuBWAsZQ$W65J7xkTYV8CZFHMwEqiRz5wkA8L4pYchkQjzKo8l5k"
+    assert not verify_password("Culina123!", pbkdf2_hash)
 
 
 def test_verify_password_treats_malformed_hash_as_invalid() -> None:

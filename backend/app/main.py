@@ -9,7 +9,7 @@ from fastapi.responses import JSONResponse
 
 from app.api.router import api_router
 from app.ai.images.jobs import ImageGenerationWorker
-from app.core.config import get_settings
+from app.core.config import LOCAL_ENVIRONMENTS, Settings, get_settings
 from app.core.logging import configure_logging
 from app.db.session import SessionLocal
 from app.services.bootstrap import initialize_configured_admin
@@ -17,6 +17,19 @@ from app.services.bootstrap import initialize_configured_admin
 configure_logging()
 settings = get_settings()
 logger = logging.getLogger(__name__)
+
+
+def local_dev_origin_regex(current_settings: Settings) -> str | None:
+    if current_settings.environment.strip().lower() not in LOCAL_ENVIRONMENTS:
+        return None
+    return r"^http://(localhost|127\.0\.0\.1):\d+$"
+
+
+def cors_allowed_origins(current_settings: Settings) -> list[str]:
+    origins = [current_settings.frontend_origin]
+    if current_settings.environment.strip().lower() in LOCAL_ENVIRONMENTS:
+        origins.append("http://127.0.0.1:5173")
+    return list(dict.fromkeys(origins))
 
 
 @asynccontextmanager
@@ -49,7 +62,8 @@ async def log_unhandled_exception(request: Request, exc: Exception) -> JSONRespo
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[settings.frontend_origin, "http://127.0.0.1:5173"],
+    allow_origins=cors_allowed_origins(settings),
+    allow_origin_regex=local_dev_origin_regex(settings),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

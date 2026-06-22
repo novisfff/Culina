@@ -144,7 +144,7 @@ def register_food_tools(registry: ToolRegistry) -> None:
         description=(
             "生成食物资料草稿，不写入业务表。创建食物资料时必须提供 name、type、category；"
             "用户原话可推断时必须填入，例如“盒装牛奶，类型是即食，适合早餐”应填 name=盒装牛奶、type=readyMade、category=饮品、suitable_meal_types=[breakfast]。"
-            "确实缺少名称或类型时不要调用本工具，改用 intent.request_clarification。"
+            "确实缺少名称或类型时不要调用本工具，改用 human.request_input。"
         ),
         side_effect="draft",
         handler=food_profile_create_draft,

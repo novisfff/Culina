@@ -81,18 +81,6 @@ def artifact_by_id(context: SkillContext, artifact_id: str, artifact_type: str) 
     )
 
 
-def legacy_subject(context: SkillContext) -> dict[str, Any]:
-    artifacts = conversation_artifacts(context)
-    if not artifacts:
-        return {}
-    latest = artifacts[-1]
-    return {
-        "currentDraft": latest.get("payload"),
-        "currentDraftType": latest.get("type"),
-        "currentDraftId": latest.get("id"),
-    }
-
-
 def json_object(text: str) -> dict[str, Any] | None:
     try:
         return json.loads(text)

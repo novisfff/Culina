@@ -104,20 +104,6 @@ def apply_ai_approval_decision(
     approval.resolved_at = now
     approval.updated_by = user_id
 
-    audit = AIUserApproval(
-        id=create_id("ai_user_approval"),
-        family_id=family_id,
-        approval_request_id=approval.id,
-        draft_id=draft.id,
-        approved_by=user_id,
-        approved_at=now,
-        decision=decision,
-        approval_payload=submitted_values,
-        operation_summary={},
-        comment=approval.comment,
-    )
-    db.add(audit)
-
     operation: AIOperation | None = None
     business_entity: dict[str, Any] | None = None
     if decision == "rejected":
@@ -132,6 +118,20 @@ def apply_ai_approval_decision(
         )
         draft.status = "rejected"
         draft.updated_by = user_id
+        db.add(
+            AIUserApproval(
+                id=create_id("ai_user_approval"),
+                family_id=family_id,
+                approval_request_id=approval.id,
+                draft_id=draft.id,
+                approved_by=user_id,
+                approved_at=now,
+                decision=decision,
+                approval_payload=submitted_values,
+                operation_summary={},
+                comment=approval.comment,
+            )
+        )
         db.flush()
         sync_message_approval_parts(db, draft=draft, approval=approval)
         return {
@@ -178,6 +178,7 @@ def apply_ai_approval_decision(
     except IntegrityError as exc:
         raise AIConflictError("该确认请求已经创建过执行操作") from exc
     decision_approval = approval
+    operation_summary: dict[str, Any] = {}
     try:
         with db.begin_nested():
             business_entity, entity_ids = execute_ai_operation_draft(
@@ -194,7 +195,7 @@ def apply_ai_approval_decision(
         draft.status = "confirmed"
         draft.payload = submitted_payload
         draft.updated_by = user_id
-        audit.operation_summary = {"operationId": operation.id, "entityIds": entity_ids}
+        operation_summary = {"operationId": operation.id, "entityIds": entity_ids}
         if draft.draft_type == "inventory_operation":
             refresh_inventory_result_card(
                 db,
@@ -237,7 +238,7 @@ def apply_ai_approval_decision(
         draft.status = "pending_retry"
         draft.payload = submitted_payload
         draft.updated_by = user_id
-        audit.operation_summary = failure_summary
+        operation_summary = failure_summary
         retry_approval = create_retry_ai_approval(
             db,
             family_id=family_id,
@@ -253,8 +254,21 @@ def apply_ai_approval_decision(
         sync_message_approval_parts(db, draft=draft, approval=decision_approval)
         append_message_approval_part(db, approval=retry_approval)
         approval = retry_approval
-    finally:
-        db.flush()
+    db.add(
+        AIUserApproval(
+            id=create_id("ai_user_approval"),
+            family_id=family_id,
+            approval_request_id=decision_approval.id,
+            draft_id=draft.id,
+            approved_by=user_id,
+            approved_at=now,
+            decision=decision,
+            approval_payload=submitted_values,
+            operation_summary=operation_summary,
+            comment=decision_approval.comment,
+        )
+    )
+    db.flush()
     sync_message_approval_parts(db, draft=draft, approval=approval)
     decision_result = {
         "approval": serialize_ai_approval_request(approval),

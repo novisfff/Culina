@@ -1,28 +1,6 @@
 ---
 name: food-profile
-key: food_profile
-display_name: 食物资料
 description: 查询、创建、更新或收藏当前家庭的食物资料，适用于食物库里的菜品、即食食品、外卖/堂食记录对象和可选菜谱关联；不处理食材档案、库存数量、菜谱正文、餐食计划或已吃餐食记录。
-allowed_tools:
-  - food.search
-  - food.read_by_id
-  - intent.request_clarification
-  - food_profile.create_draft
-context_policy:
-  - foods
-output_types:
-  - clarification_request
-draft_types:
-  - food_profile
-approval_policy: draft_then_confirm
-intent: food_profile
-agent_key: food_profile_agent
-examples:
-  - 新增食物资料：盒装牛奶，类型即食，适合早餐。
-  - 整理蓝莓酸奶的食物资料。
-  - 把盒装牛奶改成适合早餐并收藏。
-  - 取消收藏这个食物。
-  - 查询蓝莓酸奶的食物资料。
 ---
 
 # 食物资料 Skill
@@ -46,7 +24,7 @@ examples:
 - 用户原话已经给出或可稳定推断时，必须先填入草稿，不要直接追问。例如“盒装牛奶，类型是即食，适合早餐”应生成 `name=盒装牛奶`、`type=readyMade`、`category=饮品`、`suitable_meal_types=["breakfast"]`。
 - 类型映射：自制/家常菜=`selfMade`，外卖=`takeout`，堂食/外食=`diningOut`，即食/现成/盒装/瓶装=`readyMade`，速食/方便食品=`instant`。
 - 分类可以根据食物名称给可编辑默认值，例如牛奶/酸奶/豆浆/咖啡/果汁=`饮品`，面包/吐司/饭团=`主食`，鸡胸/肉/鱼/蛋=`蛋白质`。
-- 只有名称、类型等关键信息在用户原话和上下文里都无法判断时，才调用 `intent.request_clarification`，并提供候选摘要。
+- 只有名称、类型等关键信息在用户原话和上下文里都无法判断时，才调用 `human.request_input`，用 `choice` 或 `choice_or_text` 提供候选摘要。
 - 如果设置 `recipe_id`，必须来自当前家庭真实菜谱；名称必须与所选菜谱一致。
 - 不编造品牌、价格、评分、库存、过期日期或业务 ID。
 - 品牌、价格、评分、库存、过期日期等没有明确证据时留空，不要编造。

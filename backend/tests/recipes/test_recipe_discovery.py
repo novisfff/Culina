@@ -20,7 +20,7 @@ class RecipeRecipeDiscoveryTestCase(RecipeApiTestCase):
                             "note": "打散",
                         }
                     ],
-                    "steps": ["搅拌", "小火煎"],
+                    "steps": [{"text": "搅拌"}, {"text": "小火煎"}],
                     "tips": "早餐快手",
                     "scene_tags": ["早餐"],
                     "media_ids": [],

@@ -1,34 +1,6 @@
 ---
 name: recipe-cook
-key: recipe_cook
-display_name: 菜谱做菜
 description: 按已有菜谱实际做一次菜，预览缺料和库存扣减，并在可做时生成做菜执行草稿，可关联计划和可选记录餐食；不新建/编辑菜谱、不做普通餐食记录或未来餐食安排。
-allowed_tools:
-  - intent.request_clarification
-  - recipe.search
-  - recipe.read_by_id
-  - recipe.preview_cook
-  - recipe.create_cook_draft
-  - inventory.read_available_items
-  - meal_plan.read_existing
-context_policy:
-  - recipes
-  - inventory
-  - meal_plan
-output_types:
-  - clarification_request
-draft_types:
-  - recipe_cook
-approval_policy: draft_then_confirm
-intent: recipe_cook
-agent_key: recipe_cook_agent
-examples:
-  - 做一份番茄炒蛋，顺便扣减库存。
-  - 今晚按这个菜谱做 3 份。
-  - 把明天晚餐那条番茄炒蛋计划做掉。
-  - 预览一下红烧牛肉做 2 人份够不够。
-  - 按今晚计划做番茄炒蛋并记录餐食。
-  - 这道菜库存够的话帮我生成做菜确认。
 ---
 
 # 菜谱做菜 Skill
@@ -66,8 +38,8 @@ examples:
 
 - 先调用 `recipe.search` 或 `recipe.read_by_id`。
 - 必须锁定唯一 `recipeId` 后才能继续。
-- 没找到菜谱时调用 `intent.request_clarification` 或直接说明“请先创建菜谱”，不要调用 `recipe.create_cook_draft`，也不要临时生成菜谱。
-- 找到多个候选菜谱时调用 `intent.request_clarification`，候选项必须来自 `recipe.search` 返回结果。
+- 没找到菜谱时调用 `human.request_input` 或直接说明“请先创建菜谱”，不要调用 `recipe.create_cook_draft`，也不要临时生成菜谱。
+- 找到多个候选菜谱时调用 `human.request_input`，候选项必须来自 `recipe.search` 返回结果。
 
 ### 3. 可选关联计划项
 
@@ -78,14 +50,14 @@ examples:
 - 用户提到日期时同时传 `planDate`；用户提到餐别时同时传 `mealType`。
 - 只允许使用 `meal_plan.read_existing` 返回项中 `item.recipeId == recipeId` 的 `item.id` 作为 `planItemId`。
 - 不允许从历史消息、推荐卡、旧草稿、未过滤计划列表或字段名 `foodPlanItemId` 中复用计划 id。
-- 没有匹配计划项时，调用 `intent.request_clarification` 让用户选择“不关联计划继续”或补充正确计划。
-- 多个匹配计划项时，调用 `intent.request_clarification`，必须展示每个候选的日期、餐别、标题、状态；不要自动选最近项。
+- 没有匹配计划项时，调用 `human.request_input` 让用户选择“不关联计划继续”或补充正确计划。
+- 多个匹配计划项时，调用 `human.request_input`，必须展示每个候选的日期、餐别、标题、状态；不要自动选最近项。
 
 ### 4. 预览库存
 
 - 调用 `recipe.preview_cook`，传入 `recipeId`、份数，只有通过第 3 阶段确认的计划项才传 `planItemId`。
 - 如果 `recipe.preview_cook` 返回 `planItemWarning`，说明流程前面没有按 `recipeId` 正确查计划；不要继续把该 `planItemId` 传给 `recipe.create_cook_draft`。用户明确要求做掉计划时，必须重新按第 3 阶段查询或澄清；用户只是要求做菜并记录餐食时，可以不关联计划继续。
-- 预览中有 `shortages` 时，不生成 `recipe_cook` 草稿，也不要让用户确认一个注定会失败的执行。直接说明缺少哪些食材、建议先补库存或调整份量；需要用户选择时调用 `intent.request_clarification`。
+- 预览中有 `shortages` 时，不生成 `recipe_cook` 草稿，也不要让用户确认一个注定会失败的执行。直接说明缺少哪些食材、建议先补库存或调整份量；需要用户选择时调用 `human.request_input`。
 
 ### 5. 生成确认草稿
 
@@ -98,7 +70,7 @@ examples:
 
 ## 澄清触发条件
 
-以下情况必须调用 `intent.request_clarification`：
+以下情况必须调用 `human.request_input`：
 
 - 菜谱不存在或菜谱候选不唯一。
 - 用户要求关联计划，但计划项不存在或不唯一。

@@ -1,0 +1,23 @@
+version: 2
+key: ingredient_profile
+display_name: 食材档案整理
+intent: ingredient_profile
+agent_key: ingredient_profile_agent
+context_policy:
+- ingredients
+allowed_tools:
+- ingredient.search
+- ingredient.read_by_id
+- human.request_input
+- ingredient_profile.create_draft
+script_files: []
+output_types: []
+draft_types:
+- ingredient_profile
+approval_policy: draft_then_confirm
+examples:
+- 新增鸡胸肉食材，默认单位克，冷冻保存。
+- 把番茄默认保质期改成 7 天。
+- 查询鸡蛋支持哪些单位。
+- 把刚才鸡胸肉 1 袋等于 500 克保存成副单位。
+- 设置牛奶低库存提醒为 2 盒。

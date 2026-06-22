@@ -10,6 +10,26 @@ from app.ai.skills.toolcall import ToolCallingSkill
 from app.ai.tools.registry import ToolRegistry
 
 
+SKILL_RUNTIME_FRONTMATTER_KEYS = {
+    "agent_key",
+    "allowed_tools",
+    "approval_policy",
+    "context_policy",
+    "contextPolicy",
+    "display_name",
+    "displayName",
+    "draft_types",
+    "examples",
+    "instruction_files",
+    "intent",
+    "key",
+    "output_types",
+    "runner",
+    "script_files",
+    "tools",
+}
+
+
 class SkillDirectoryLoader:
     def __init__(self, skills_dir: Path | None = None, *, tool_registry: ToolRegistry | None = None) -> None:
         self.skills_dir = skills_dir or Path(__file__).resolve().parent / "catalog"
@@ -28,10 +48,16 @@ class SkillDirectoryLoader:
     def _load_skill(self, skill_dir: Path) -> BaseSkill:
         markdown_path = skill_dir / "SKILL.md"
         frontmatter, body = self._read_frontmatter(markdown_path)
-        manifest = self._manifest_from_frontmatter(skill_dir, frontmatter)
-        workflow_path = skill_dir / "workflows.md"
-        workflow = workflow_path.read_text(encoding="utf-8").strip() if workflow_path.exists() else ""
-        return ToolCallingSkill(manifest, skill_dir, instructions=self._join_instructions(body, workflow))
+        runtime_path = skill_dir / "skill.yaml"
+        if not runtime_path.exists():
+            raise FileNotFoundError(f"Skill directory {skill_dir.name} missing required file: skill.yaml")
+        runtime = self._read_yaml_file(runtime_path)
+        manifest = self._manifest_from_metadata(skill_dir, frontmatter, runtime)
+        return ToolCallingSkill(
+            manifest,
+            skill_dir,
+            instructions=self._join_instructions(body, self._instruction_sections(skill_dir, runtime)),
+        )
 
     def _read_frontmatter(self, path: Path) -> tuple[dict[str, Any], str]:
         text = path.read_text(encoding="utf-8")
@@ -46,32 +72,56 @@ class SkillDirectoryLoader:
             raise ValueError(f"{path} frontmatter must be a YAML mapping")
         return data, body
 
-    def _manifest_from_frontmatter(self, skill_dir: Path, data: dict[str, Any]) -> SkillManifest:
-        slug = self._required_text(data, "name")
-        key = self._text(data.get("key")) or slug.replace("-", "_")
+    def _read_yaml_file(self, path: Path) -> dict[str, Any]:
+        data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+        if not isinstance(data, dict):
+            raise ValueError(f"{path} must be a YAML mapping")
+        return data
+
+    def _manifest_from_metadata(
+        self,
+        skill_dir: Path,
+        frontmatter: dict[str, Any],
+        runtime: dict[str, Any],
+    ) -> SkillManifest:
+        self._validate_v2_runtime(skill_dir, frontmatter, runtime)
+        slug = self._required_text(frontmatter, "name")
+        description = self._required_text(frontmatter, "description")
+        key = self._text(runtime.get("key")) or slug.replace("-", "_")
         if skill_dir.name not in {slug, key}:
             raise ValueError(f"Skill directory {skill_dir.name} does not match SKILL.md name {slug}")
-        display_name = self._text(data.get("display_name")) or self._text(data.get("displayName")) or key
-        description = self._required_text(data, "description")
-        approval_policy = self._text(data.get("approval_policy")) or ("draft_then_confirm" if self._list(data.get("draft_types")) else "none")
+        approval_policy = self._text(runtime.get("approval_policy")) or (
+            "draft_then_confirm" if self._list(runtime.get("draft_types")) else "none"
+        )
         manifest = SkillManifest(
             key=key,
             slug=slug,
-            name=display_name,
+            name=self._text(runtime.get("display_name")) or self._text(runtime.get("displayName")) or key,
             description=description,
-            examples=self._list(data.get("examples")),
-            context_policy=self._list(data.get("context_policy")),
-            tools=self._list(data.get("allowed_tools") or data.get("tools")),
-            script_files=self._list(data.get("script_files")),
-            output_types=self._list(data.get("output_types")),
-            draft_types=self._list(data.get("draft_types")),
+            examples=self._list(runtime.get("examples")),
+            context_policy=self._list(runtime.get("context_policy") or runtime.get("contextPolicy")),
+            tools=self._list(runtime.get("allowed_tools") or runtime.get("tools")),
+            script_files=self._list(runtime.get("script_files")),
+            output_types=self._list(runtime.get("output_types")),
+            draft_types=self._list(runtime.get("draft_types")),
             approval_policy=approval_policy,
-            intent=self._text(data.get("intent")) or key,
-            agent_key=self._text(data.get("agent_key")) or f"{key}_agent",
+            intent=self._text(runtime.get("intent")) or key,
+            agent_key=self._text(runtime.get("agent_key")) or f"{key}_agent",
         )
         self._validate_manifest(manifest)
         self._validate_manifest_tools(manifest)
         return manifest
+
+    def _validate_v2_runtime(self, skill_dir: Path, frontmatter: dict[str, Any], runtime: dict[str, Any]) -> None:
+        version = runtime.get("version")
+        if version not in {2, "2"}:
+            raise ValueError(f"Skill {skill_dir.name} skill.yaml must declare version: 2")
+        runtime_keys = sorted(set(frontmatter).intersection(SKILL_RUNTIME_FRONTMATTER_KEYS))
+        if runtime_keys:
+            raise ValueError(
+                f"Skill {skill_dir.name} SKILL.md must not include Culina runtime fields when skill.yaml is present: "
+                f"{', '.join(runtime_keys)}"
+            )
 
     def _validate_manifest(self, manifest: SkillManifest) -> None:
         if manifest.approval_policy not in {"none", "draft_then_confirm"}:
@@ -105,10 +155,27 @@ class SkillDirectoryLoader:
         if unconfirmed:
             raise ValueError(f"Skill {manifest.key} exposes draft tools that do not require confirmation: {', '.join(unconfirmed)}")
 
-    def _join_instructions(self, body: str, workflow: str) -> str:
+    def _instruction_sections(self, skill_dir: Path, runtime: dict[str, Any]) -> list[str]:
+        declared_files = self._list(runtime.get("instruction_files"))
+        paths = [skill_dir / item for item in declared_files]
+        if not paths:
+            paths = [skill_dir / "references" / "workflows.md"]
+        sections: list[str] = []
+        skill_root = skill_dir.resolve()
+        for path in paths:
+            if not path.exists():
+                if declared_files:
+                    raise ValueError(f"Skill {skill_dir.name} instruction file does not exist: {path}")
+                continue
+            resolved = path.resolve()
+            if not resolved.is_relative_to(skill_root):
+                raise ValueError(f"Skill {skill_dir.name} instruction file must stay inside the skill directory")
+            sections.append(f"# {resolved.relative_to(skill_root)}\n\n{resolved.read_text(encoding='utf-8').strip()}")
+        return sections
+
+    def _join_instructions(self, body: str, references: list[str]) -> str:
         chunks = [body.strip()]
-        if workflow:
-            chunks.append(f"# workflows.md\n\n{workflow}")
+        chunks.extend(references)
         return "\n\n---\n\n".join(chunk for chunk in chunks if chunk)
 
     def _required_text(self, data: dict[str, Any], key: str) -> str:

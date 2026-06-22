@@ -23,27 +23,6 @@ class FoodType(str, Enum):
 
 
 FOOD_TYPE_VALUES = {item.value for item in FoodType}
-LEGACY_FOOD_TYPE_VALUES = {
-    "SELF_MADE": FoodType.SELF_MADE.value,
-    "TAKEOUT": FoodType.TAKEOUT.value,
-    "DINING_OUT": FoodType.DINING_OUT.value,
-    "READY_MADE": FoodType.READY_MADE.value,
-    "INSTANT": FoodType.INSTANT.value,
-    "PACKAGED": FoodType.READY_MADE.value,
-}
-
-
-def normalize_food_type(value: FoodType | str) -> str:
-    raw_value = value.value if isinstance(value, FoodType) else value
-    return LEGACY_FOOD_TYPE_VALUES.get(raw_value, raw_value)
-
-
-def food_type_values(food_type: FoodType) -> tuple[str, ...]:
-    return tuple(
-        legacy_value
-        for legacy_value, normalized_value in LEGACY_FOOD_TYPE_VALUES.items()
-        if normalized_value == food_type.value
-    ) + (food_type.value,)
 
 
 class MealType(str, Enum):

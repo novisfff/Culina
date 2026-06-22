@@ -9,7 +9,7 @@ import type {
   AiTodayRecommendationItem,
   UserSummary,
 } from '../../api/types';
-import { MessageBubble, type AiApprovalDecisionSubmit, type AiResourceOptionLoader } from './AiConversationThread';
+import { MessageBubble, type AiApprovalDecisionSubmit, type AiHumanInputResponseSubmit, type AiResourceOptionLoader } from './AiConversationThread';
 import { AiMobileChrome } from './AiMobileChrome';
 import { AiWelcomePrompt } from './AiWelcomePrompt';
 
@@ -42,6 +42,7 @@ type Props = {
   onPickSuggestion: (value: string) => void;
   onSubmit: FormEventHandler<HTMLFormElement>;
   onApprovalDecision: AiApprovalDecisionSubmit;
+  onHumanInputResponse?: AiHumanInputResponseSubmit;
   onAddRecommendationToPlan: (item: AiTodayRecommendationItem, card: AiResultCard, messageId: string, partId: string) => void;
   onInventoryAction: (
     item: AiInventoryResultItem,
@@ -193,6 +194,7 @@ export function AiMobilePage(props: Props) {
                 }
                 isLatestAssistant={message.role === 'assistant' && index === props.messages.length - 1}
                 onApprovalDecision={props.onApprovalDecision}
+                onHumanInputResponse={props.onHumanInputResponse}
                 onAddRecommendationToPlan={props.onAddRecommendationToPlan}
                 onInventoryAction={props.onInventoryAction}
                 isInventoryActionPending={props.isInventoryActionPending}

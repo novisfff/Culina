@@ -32,6 +32,7 @@ from app.schemas.ai import (
     AIConversationOut,
     AIMessageDTO,
     AIInventoryQuickDraftRequest,
+    AIHumanInputResponseRequest,
     AIQualityMetricsResponse,
     AIRecommendationSelectionRequest,
     AIRegistryResponse,
@@ -624,6 +625,89 @@ def decide_ai_approval(
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     commit_session(db)
     return result
+
+
+@router.post("/api/ai/conversations/{conversation_id}/human-input/{request_id}/response", response_model=AIChatResponse)
+def respond_ai_human_input(
+    conversation_id: str,
+    request_id: str,
+    payload: AIHumanInputResponseRequest,
+    auth: tuple = Depends(get_current_auth),
+    db: Session = Depends(get_db),
+) -> dict:
+    user, membership = auth
+    try:
+        result = AIApplicationService(db).respond_human_input(
+            family_id=membership.family_id,
+            user_id=user.id,
+            conversation_id=conversation_id,
+            request_id=request_id,
+            selected_option_ids=payload.selected_option_ids,
+            text=payload.text,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except LookupError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    commit_session(db)
+    return result
+
+
+@router.post("/api/ai/conversations/{conversation_id}/human-input/{request_id}/response/stream")
+def stream_ai_human_input_response(
+    conversation_id: str,
+    request_id: str,
+    payload: AIHumanInputResponseRequest,
+    auth: tuple = Depends(get_current_auth),
+    db: Session = Depends(get_db),
+) -> StreamingResponse:
+    user, membership = auth
+
+    def encode(event: str, data: dict) -> str:
+        return f"event: {event}\ndata: {json.dumps(jsonable_encoder(data), ensure_ascii=False)}\n\n"
+
+    def generate():
+        try:
+            service = AIApplicationService(db)
+            for event, data in service.stream_human_input_response(
+                family_id=membership.family_id,
+                user_id=user.id,
+                conversation_id=conversation_id,
+                request_id=request_id,
+                selected_option_ids=payload.selected_option_ids,
+                text=payload.text,
+            ):
+                if event == "response":
+                    commit_session(db)
+                    run_id = data.get("run", {}).get("id") if isinstance(data.get("run"), dict) else None
+                    live_ai_stream_cache.clear_run(run_id)
+                yield encode(event, data)
+        except ValueError as exc:
+            yield encode("error", {"detail": str(exc), "status": 400})
+            return
+        except LookupError as exc:
+            yield encode("error", {"detail": str(exc), "status": 404})
+            return
+        except Exception:
+            logger.exception(
+                "AI human input stream failed family_id=%s user_id=%s conversation_id=%s request_id=%s",
+                membership.family_id,
+                user.id,
+                conversation_id,
+                request_id,
+            )
+            yield encode("error", {"detail": "AI 服务暂时不可用，请稍后重试。", "status": 500})
+            return
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache, no-transform",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @router.post("/api/ai/conversations/{conversation_id}/approvals/{approval_id}/decision/stream")

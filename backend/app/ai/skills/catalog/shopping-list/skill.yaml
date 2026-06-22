@@ -1,0 +1,30 @@
+version: 2
+key: shopping_list
+display_name: 购物清单整理
+intent: shopping
+agent_key: shopping_agent
+context_policy:
+- shopping
+- inventory
+- ingredients
+- artifacts
+allowed_tools:
+- human.request_input
+- ingredient.search
+- ingredient.read_by_id
+- shopping.read_pending
+- shopping.read_by_id
+- inventory.read_available_items
+- shopping.create_draft
+script_files: []
+output_types: []
+draft_types:
+- shopping_list
+approval_policy: draft_then_confirm
+examples:
+- 生成购物清单。
+- 基于这个计划生成采购清单。
+- 把牛奶加入购物清单，买 2 盒。
+- 鸡蛋已经买到了，帮我标记完成。
+- 删除购物清单里的香菜。
+- 看看低库存还需要买什么。

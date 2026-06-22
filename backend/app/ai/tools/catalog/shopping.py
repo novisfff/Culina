@@ -10,7 +10,6 @@ from app.ai.tools.draft_validation import normalize_shopping_list_draft
 from app.ai.tools.registry import ToolRegistry
 from app.ai.tools.schemas import READ_BY_ID_INPUT, SHOPPING_LIST_DRAFT_SCHEMA, draft_input_schema, draft_output_schema
 from app.models.domain import ShoppingListItem
-from app.services.serializers import serialize_shopping_item
 
 
 SHOPPING_ITEM_OUTPUT = {
@@ -70,20 +69,21 @@ def shopping_read_pending(context: ToolContext, payload: dict[str, Any]) -> dict
     has_more = len(items) > limit
     items = items[:limit]
     return {
-        "items": [
-            {
-                "id": item.id,
-                "title": item.title,
-                "quantity": float(item.quantity),
-                "unit": item.unit,
-                "reason": item.reason,
-                "done": item.done,
-                "updatedAt": item.updated_at.isoformat() if item.updated_at is not None else None,
-            }
-            for item in items
-        ],
+        "items": [serialize_shopping_tool_item(item) for item in items],
         "count": len(items),
         "hasMore": has_more,
+    }
+
+
+def serialize_shopping_tool_item(item: ShoppingListItem) -> dict[str, Any]:
+    return {
+        "id": item.id,
+        "title": item.title,
+        "quantity": float(item.quantity),
+        "unit": item.unit,
+        "reason": item.reason,
+        "done": item.done,
+        "updatedAt": item.updated_at.isoformat() if item.updated_at is not None else None,
     }
 
 
@@ -96,7 +96,7 @@ def shopping_read_by_id(context: ToolContext, payload: dict[str, Any]) -> dict[s
     )
     if item is None:
         raise ValueError("购物项不存在或不属于当前家庭")
-    return {"item": serialize_shopping_item(item)}
+    return {"item": serialize_shopping_tool_item(item)}
 
 
 def shopping_list_create_draft(context: ToolContext, payload: dict[str, Any]) -> dict[str, Any]:

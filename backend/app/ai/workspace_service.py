@@ -347,6 +347,48 @@ class AIApplicationService:
             comment=comment,
         )
 
+    def respond_human_input(
+        self,
+        *,
+        family_id: str,
+        user_id: str,
+        conversation_id: str,
+        request_id: str,
+        selected_option_ids: list[str],
+        text: str | None,
+    ) -> dict[str, Any]:
+        from app.ai.workflows.runner import WorkspaceGraphRunner
+
+        return WorkspaceGraphRunner(self).resume_human_input(
+            family_id=family_id,
+            user_id=user_id,
+            conversation_id=conversation_id,
+            request_id=request_id,
+            selected_option_ids=selected_option_ids,
+            text=text,
+        )
+
+    def stream_human_input_response(
+        self,
+        *,
+        family_id: str,
+        user_id: str,
+        conversation_id: str,
+        request_id: str,
+        selected_option_ids: list[str],
+        text: str | None,
+    ) -> Iterator[tuple[str, dict[str, Any]]]:
+        from app.ai.workflows.runner import WorkspaceGraphRunner
+
+        return WorkspaceGraphRunner(self).stream_resume_human_input(
+            family_id=family_id,
+            user_id=user_id,
+            conversation_id=conversation_id,
+            request_id=request_id,
+            selected_option_ids=selected_option_ids,
+            text=text,
+        )
+
     def _apply_approval_decision(
         self,
         *,

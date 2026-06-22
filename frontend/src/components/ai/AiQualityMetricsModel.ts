@@ -1,14 +1,14 @@
 import type { AiQualityMetrics } from '../../api/types';
 
 export const AI_SKILL_LABELS: Record<string, string> = {
-  inventory_analysis: '库存分析',
-  meal_plan: '餐食计划',
-  shopping_list: '购物清单',
-  meal_log: '餐食记录',
-  food_profile: '食物资料',
-  ingredient_profile: '食材档案',
-  recipe_draft: '菜谱草稿',
-  recipe_cook: '做菜记录',
+  inventory_analysis: '库存查看与处理',
+  meal_plan: '餐食安排',
+  shopping_list: '购物清单整理',
+  meal_log: '用餐记录',
+  food_profile: '食物资料整理',
+  ingredient_profile: '食材档案整理',
+  recipe_draft: '菜谱整理',
+  recipe_cook: '按菜谱做菜',
 };
 
 export const AI_INTENT_LABELS: Record<string, string> = {

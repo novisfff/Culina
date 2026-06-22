@@ -77,7 +77,7 @@ class AIWorkspaceApprovalsTestCase(AIAgentInfraTestCase):
                 )
             self.assertEqual(response.status_code, 200, response.text)
             data = response.json()
-            self.assertEqual(data["run"]["agent_key"], "recipe_draft_agent")
+            self.assertEqual(data["run"]["agent_key"], "workspace_orchestrator")
             self.assertEqual(data["run"]["intent"], "recipe_draft")
             self.assertEqual(len(data["included"]["drafts"]), 1)
             self.assertEqual(len(data["included"]["approvals"]), 1)
@@ -1569,18 +1569,6 @@ class AIWorkspaceApprovalsTestCase(AIAgentInfraTestCase):
                 self.assertEqual(approval_stats["byDraftType"]["meal_plan"]["rejected"], 1)
                 self.assertEqual(approval_stats["lastDecision"]["status"], "rejected")
                 self.assertEqual(approval_stats["lastDecision"]["draftType"], "meal_plan")
-
-        def test_workspace_runner_routes_waiting_approval_to_finalize(self) -> None:
-            with self.SessionLocal() as db:
-                service = AIApplicationService(db, provider=FakeChatProvider())
-                runner = WorkspaceGraphRunner(service)
-                state = {
-                    "status": "waiting_approval",
-                    "skill_index": 0,
-                    "plan": PlannerResult(skills=["meal_plan", "shopping_list"]).model_dump(mode="json"),
-                }
-
-                self.assertEqual(runner._route_after_skill(state), "finalize")
 
         def test_meal_plan_mixed_operations_use_dynamic_batch_copy(self) -> None:
             with self.SessionLocal() as db:

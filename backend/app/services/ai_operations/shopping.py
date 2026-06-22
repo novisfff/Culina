@@ -50,84 +50,64 @@ def _apply_shopping_item_operations(
     results: list[dict[str, Any]] = []
     entity_ids: list[str] = []
     for operation in payload.get("operations") or []:
-        try:
-            action = str(operation.get("action") or "")
-            if action == "create":
-                item_in = CreateShoppingListItemRequest.model_validate(operation.get("payload") or {})
-                item = ShoppingListItem(
-                    id=create_id("shopping"),
-                    family_id=family_id,
-                    title=item_in.title,
-                    quantity=Decimal(str(item_in.quantity)),
-                    unit=item_in.unit,
-                    reason=item_in.reason,
-                    done=False,
-                    created_by=user_id,
-                    updated_by=user_id,
-                )
-                db.add(item)
-                db.flush()
-                log_activity(
-                    db,
-                    family_id=family_id,
-                    actor_id=user_id,
-                    action=ActivityAction.CREATE,
-                    entity_type="ShoppingListItem",
-                    entity_id=item.id,
-                    summary=f"AI 加入购物清单 {item.title}",
-                )
-                results.append({"operationId": operation.get("operationId"), "action": "create", "item": serialize_shopping_item(item)})
-                entity_ids.append(item.id)
-                continue
-            item = db.scalar(
-                select(ShoppingListItem)
-                .where(ShoppingListItem.family_id == family_id, ShoppingListItem.id == str(operation["targetId"]))
-                .with_for_update()
-            )
-            if item is None:
-                raise AIConflictError("购物项不存在或已被删除")
-            assert_updated_at_matches(
-                actual=item.updated_at,
-                expected=str(operation["baseUpdatedAt"]),
-                label=f"购物项 {item.title}",
-            )
-            if action == "delete":
-                snapshot = serialize_shopping_item(item)
-                db.delete(item)
-                log_activity(
-                    db,
-                    family_id=family_id,
-                    actor_id=user_id,
-                    action=ActivityAction.UPDATE,
-                    entity_type="ShoppingListItem",
-                    entity_id=item.id,
-                    summary=f"AI 删除购物项 {item.title}",
-                )
-                results.append({"operationId": operation.get("operationId"), "action": "delete", "item": snapshot})
-                entity_ids.append(item.id)
-                continue
-            if action == "set_done":
-                done = bool((operation.get("payload") or {}).get("done"))
-                item.done = done
-                item.updated_by = user_id
-                db.flush()
-                log_activity(
-                    db,
-                    family_id=family_id,
-                    actor_id=user_id,
-                    action=ActivityAction.UPDATE,
-                    entity_type="ShoppingListItem",
-                    entity_id=item.id,
-                    summary=f"AI {'完成' if done else '恢复'}购物项 {item.title}",
-                )
-                results.append({"operationId": operation.get("operationId"), "action": "set_done", "item": serialize_shopping_item(item)})
-                entity_ids.append(item.id)
-                continue
+        action = str(operation.get("action") or "")
+        if action == "create":
             item_in = CreateShoppingListItemRequest.model_validate(operation.get("payload") or {})
-            item.title = item_in.title
-            item.quantity = Decimal(str(item_in.quantity))
-            item.unit = item_in.unit
-            item.reason = item_in.reason
+            item = ShoppingListItem(
+                id=create_id("shopping"),
+                family_id=family_id,
+                title=item_in.title,
+                quantity=Decimal(str(item_in.quantity)),
+                unit=item_in.unit,
+                reason=item_in.reason,
+                done=False,
+                created_by=user_id,
+                updated_by=user_id,
+            )
+            db.add(item)
+            db.flush()
+            log_activity(
+                db,
+                family_id=family_id,
+                actor_id=user_id,
+                action=ActivityAction.CREATE,
+                entity_type="ShoppingListItem",
+                entity_id=item.id,
+                summary=f"AI 加入购物清单 {item.title}",
+            )
+            results.append({"operationId": operation.get("operationId"), "action": "create", "item": serialize_shopping_item(item)})
+            entity_ids.append(item.id)
+            continue
+        item = db.scalar(
+            select(ShoppingListItem)
+            .where(ShoppingListItem.family_id == family_id, ShoppingListItem.id == str(operation["targetId"]))
+            .with_for_update()
+        )
+        if item is None:
+            raise AIConflictError("购物项不存在或已被删除")
+        assert_updated_at_matches(
+            actual=item.updated_at,
+            expected=str(operation["baseUpdatedAt"]),
+            label=f"购物项 {item.title}",
+        )
+        if action == "delete":
+            snapshot = serialize_shopping_item(item)
+            db.delete(item)
+            log_activity(
+                db,
+                family_id=family_id,
+                actor_id=user_id,
+                action=ActivityAction.UPDATE,
+                entity_type="ShoppingListItem",
+                entity_id=item.id,
+                summary=f"AI 删除购物项 {item.title}",
+            )
+            results.append({"operationId": operation.get("operationId"), "action": "delete", "item": snapshot})
+            entity_ids.append(item.id)
+            continue
+        if action == "set_done":
+            done = bool((operation.get("payload") or {}).get("done"))
+            item.done = done
             item.updated_by = user_id
             db.flush()
             log_activity(
@@ -137,12 +117,29 @@ def _apply_shopping_item_operations(
                 action=ActivityAction.UPDATE,
                 entity_type="ShoppingListItem",
                 entity_id=item.id,
-                summary=f"AI 更新购物项 {item.title}",
+                summary=f"AI {'完成' if done else '恢复'}购物项 {item.title}",
             )
-            results.append({"operationId": operation.get("operationId"), "action": "update", "item": serialize_shopping_item(item)})
+            results.append({"operationId": operation.get("operationId"), "action": "set_done", "item": serialize_shopping_item(item)})
             entity_ids.append(item.id)
-        except Exception as exc:
-            raise type(exc)(_operation_error_message(operation, exc)) from exc
+            continue
+        item_in = CreateShoppingListItemRequest.model_validate(operation.get("payload") or {})
+        item.title = item_in.title
+        item.quantity = Decimal(str(item_in.quantity))
+        item.unit = item_in.unit
+        item.reason = item_in.reason
+        item.updated_by = user_id
+        db.flush()
+        log_activity(
+            db,
+            family_id=family_id,
+            actor_id=user_id,
+            action=ActivityAction.UPDATE,
+            entity_type="ShoppingListItem",
+            entity_id=item.id,
+            summary=f"AI 更新购物项 {item.title}",
+        )
+        results.append({"operationId": operation.get("operationId"), "action": "update", "item": serialize_shopping_item(item)})
+        entity_ids.append(item.id)
     return {"operations": results}, list(dict.fromkeys(entity_ids))
 
 

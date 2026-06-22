@@ -19,14 +19,14 @@ from sqlalchemy.pool import StaticPool
 from sqlalchemy import create_engine
 
 from app.ai.kitchen.recipe_drafts import build_recipe_image_render_payload
-from app.ai.planning import PlannerRequest, PlannerResult, WorkspacePlanner
 from app.ai.runtime.provider import BaseChatProvider, ChatProviderResult, DisabledChatProvider, OpenAICompatibleChatProvider
-from app.ai.skills import BaseSkill, SkillContext, SkillDirectoryLoader, SkillExecutor, SkillManifest, SkillRegistry, SkillResult, SkillScriptCatalog, SkillScriptExecutor, ToolCallingSkill, build_workspace_skill_registry
+from app.ai.skills import BaseSkill, SkillContext, SkillDirectoryLoader, SkillManifest, SkillRegistry, SkillResult, SkillScriptCatalog, SkillScriptExecutor, ToolCallingSkill, build_workspace_skill_registry
 from app.ai.skills.shared import json_object
 from app.ai.tools import ToolContext, ToolExecutor, build_workspace_tool_registry
 from app.ai.tools.draft_validation import normalize_inventory_operation_draft
 from app.ai.workspace_service import AIApplicationService
 from app.ai.workflows.checkpoint import SQLAlchemyCheckpointSaver
+from app.ai.workflows.orchestrator import SkillInjectionManager, WorkspaceOrchestratorAgent
 from app.ai.workflows.runner import WorkspaceGraphRunner
 from app.ai.workflows.timeline import build_planner_conversation
 from app.core.deps import get_current_auth
@@ -85,62 +85,6 @@ class FakeChatProvider(BaseChatProvider):
         self.text = text or "模型回答：优先处理库存并安排清淡晚餐。"
 
     def generate(self, *, system: str, user: str, response_schema: dict | None = None) -> ChatProviderResult:
-        if "工作台的 Planner" in system:
-            payload = json.loads(user)
-            message = str(payload.get("conversation", [])[-1].get("content") or "")
-            if "购物" in message or "采购" in message or "补货" in message:
-                skills = ["meal_plan", "shopping_list"] if any(term in message for term in ["安排", "三天", "晚餐"]) else ["shopping_list"]
-            elif any(term in message for term in ["菜单", "安排", "三天", "晚餐", "第二天", "清淡"]):
-                skills = ["meal_plan"]
-            elif any(term in message for term in ["菜谱", "做法"]):
-                skills = ["recipe_draft"]
-            elif any(term in message for term in ["记录餐食", "今晚吃了", "今天吃了"]):
-                skills = ["meal_log"]
-            elif any(term in message for term in ["食材档案", "新增食材", "食材资料"]):
-                skills = ["ingredient_profile"]
-            elif any(term in message for term in ["食物资料", "整理食物"]):
-                skills = ["food_profile"]
-            elif any(term in message for term in ["库存", "临期", "快过期"]):
-                skills = ["inventory_analysis"]
-            elif any(term in message for term in ["今日吃什么", "今天吃什么", "今晚吃什么"]):
-                skills = ["meal_plan"]
-            else:
-                skills = []
-            return ChatProviderResult(text=json.dumps({"skills": skills}), status="completed", model=self.model_name)
-        if "Markdown Skill Runner" in system:
-            payload = json.loads(user)
-            inventory = payload.get("toolOutputs", {}).get("inventory.read_summary", {})
-            available_count = inventory.get("availableCount", 0)
-            expiring_count = inventory.get("expiringCount", 0)
-            low_stock_count = inventory.get("lowStockCount", 0)
-            return ChatProviderResult(
-                text=json.dumps(
-                    {
-                        "text": f"当前可用库存 {available_count} 项，临期 {expiring_count} 项，低库存 {low_stock_count} 项。",
-                        "cards": [
-                            {
-                                "id": "inventory-summary",
-                                "type": "inventory_summary",
-                                "title": "库存概览",
-                                "data": inventory,
-                            }
-                        ],
-                        "events": [{"type": "tool", "message": "已读取库存摘要"}],
-                        "context_summary": {
-                            "inventoryItemCount": available_count,
-                            "expiringItemCount": expiring_count,
-                            "lowStockItemCount": low_stock_count,
-                        },
-                        "state_patch": {},
-                        "requires_clarification": False,
-                        "status": "completed",
-                        "error": None,
-                    },
-                    ensure_ascii=False,
-                ),
-                status="completed",
-                model=self.model_name,
-            )
         if "餐食计划 Skill" in system:
             payload = json.loads(user)
             message = str(payload.get("currentMessage") or "")
@@ -366,7 +310,8 @@ class FakeChatProvider(BaseChatProvider):
         max_rounds: int = 8,
         visible_text_handler=None,
     ) -> ChatProviderResult:
-        del system, response_schema, max_rounds
+        is_orchestrator = "主 Orchestrator" in system
+        del response_schema, max_rounds
         payload = json.loads(user)
         message = str(payload.get("currentMessage") or "")
         quick_task = payload.get("quickTask")
@@ -377,6 +322,20 @@ class FakeChatProvider(BaseChatProvider):
             and not any(term in message for term in ["安排", "计划", "菜单", "制定", "修改", "第二天", "三天"])
         )
 
+        injected_skills = payload.get("injectedSkills") if isinstance(payload.get("injectedSkills"), list) else []
+        if is_orchestrator and not injected_skills:
+            skills = self._orchestrator_skills_for_message(message, quick_task)
+            if skills:
+                return ChatProviderResult(
+                    text=(
+                        f'<structured_result>{{"action":"continue","injectSkills":'
+                        f"{json.dumps(skills, ensure_ascii=False)}}}</structured_result>"
+                    ),
+                    status="completed",
+                    model=self.model_name,
+                    structured_mode="tool_call",
+                )
+
         def emit_visible(text: str) -> None:
             if visible_text_handler is not None:
                 visible_text_handler(f"<visible_text>{text}</visible_text>")
@@ -384,6 +343,9 @@ class FakeChatProvider(BaseChatProvider):
         def call(name: str, args: dict | None = None) -> dict:
             tool_names.append(name)
             return tool_handler(name, args or {})
+
+        if "shopping.create_draft" in available_tool_names and self._should_create_downstream_shopping(payload):
+            return self._shopping_tool_result(payload, message, call, emit_visible, tool_names)
 
         if "meal_plan.create_draft" in available_tool_names and not recommendation_mode:
             emit_visible("我先看一下临期食材和最近餐食。")
@@ -397,6 +359,7 @@ class FakeChatProvider(BaseChatProvider):
             operation = "modify" if artifacts or "第二天" in message else "create"
             source_id = artifacts[-1]["id"] if artifacts else None
             if "帮我做菜单" in message:
+                emit_visible("我需要先确认计划范围：你想安排几天、哪些餐别？")
                 return self._tool_result(
                     {
                         "text": "我需要先确认计划范围：你想安排几天、哪些餐别？",
@@ -477,42 +440,7 @@ class FakeChatProvider(BaseChatProvider):
             )
 
         if "shopping.create_draft" in available_tool_names:
-            emit_visible("我先核对已有购物项和可用库存。")
-            pending = call("shopping.read_pending", {"limit": 50})
-            call("inventory.read_available_items", {"limit": 80})
-            plans = [artifact for artifact in payload.get("artifacts", []) if artifact.get("type") == "meal_plan"]
-            source_id = plans[-1]["id"] if plans else None
-            items = [{"title": "鸡蛋", "quantity": 2, "unit": "个", "reason": "用于番茄鸡蛋面", "sourceMeals": ["番茄鸡蛋面"], "alreadyPending": False}]
-            canonical_title = call("script.normalize_ingredient", {"name": items[0]["title"]})["result"]
-            merged_items = call("script.merge_ingredients", {"items": items})["result"]
-            items = [
-                {
-                    **item,
-                    "title": canonical_title if index == 0 else item["title"],
-                    "reason": "用于番茄鸡蛋面",
-                    "sourceMeals": ["番茄鸡蛋面"],
-                    "alreadyPending": False,
-                }
-                for index, item in enumerate(merged_items)
-            ]
-            draft = {"draftType": "shopping_list", "schemaVersion": "shopping_list.v1", "items": items, "sourceDraftId": source_id}
-            call("shopping.create_draft", {"draft": draft})
-            emit_visible("我根据餐食计划里的缺失食材合并了 1 个购物清单草稿项。")
-            return self._tool_result(
-                {
-                    "text": "我根据餐食计划里的缺失食材合并了 1 个购物清单草稿项。",
-                    "cards": [],
-                    "events": [{"type": "draft", "message": "已生成购物清单草稿"}],
-                    "context_summary": {"pendingShoppingCount": pending.get("count", 0), "draftType": "shopping_list"},
-                    "state_patch": {"activeTask": "shopping_list", "activeDraftType": "shopping_list"},
-                    "requires_clarification": False,
-                    "status": "completed",
-                    "error": None,
-                    "operation": "derive" if source_id else "create",
-                    "source_artifact_id": source_id,
-                },
-                tool_names,
-            )
+            return self._shopping_tool_result(payload, message, call, emit_visible, tool_names)
 
         if "recipe.create_draft" in available_tool_names:
             emit_visible("我先查一下可用食材。")
@@ -696,7 +624,80 @@ class FakeChatProvider(BaseChatProvider):
 
         return self._tool_result({"text": self.text, "cards": [], "events": [], "context_summary": {}, "state_patch": {}, "requires_clarification": False, "status": "completed", "error": None}, tool_names)
 
+    def _orchestrator_skills_for_message(self, message: str, quick_task: str | None) -> list[str]:
+        if quick_task == "recipe_draft":
+            return ["recipe_draft"]
+        if quick_task == "today_recommendation":
+            return ["meal_plan"]
+        if "购物" in message or "采购" in message or "补货" in message:
+            return ["meal_plan", "shopping_list"] if any(term in message for term in ["安排", "三天", "晚餐"]) else ["shopping_list"]
+        if any(term in message for term in ["菜单", "安排", "三天", "晚餐", "第二天", "清淡"]):
+            return ["meal_plan"]
+        if any(term in message for term in ["菜谱", "做法"]):
+            return ["recipe_draft"]
+        if any(term in message for term in ["记录餐食", "今晚吃了", "今天吃了"]):
+            return ["meal_log"]
+        if any(term in message for term in ["食材档案", "新增食材", "食材资料"]):
+            return ["ingredient_profile"]
+        if any(term in message for term in ["食物资料", "整理食物"]):
+            return ["food_profile"]
+        if any(term in message for term in ["库存", "临期", "快过期"]):
+            return ["inventory_analysis"]
+        if any(term in message for term in ["今日吃什么", "今天吃什么", "今晚吃什么"]):
+            return ["meal_plan"]
+        return []
+
+    def _should_create_downstream_shopping(self, payload: dict) -> bool:
+        artifacts = [
+            artifact
+            for key in ("artifacts", "currentRunArtifacts")
+            for artifact in (payload.get(key) if isinstance(payload.get(key), list) else [])
+            if isinstance(artifact, dict)
+        ]
+        has_meal_plan_decision = any(
+            artifact.get("type") == "approval_decision"
+            and isinstance(artifact.get("payload"), dict)
+            and isinstance(artifact["payload"].get("draft"), dict)
+            and artifact["payload"]["draft"].get("draft_type") == "meal_plan"
+            for artifact in artifacts
+        )
+        has_shopping_output = any(artifact.get("type") == "shopping_list" for artifact in artifacts)
+        return has_meal_plan_decision and not has_shopping_output
+
+    def _shopping_tool_result(self, payload: dict, message: str, call, emit_visible, tool_names: list[str]) -> ChatProviderResult:
+        del message
+        emit_visible("我先核对已有购物项和可用库存。")
+        pending = call("shopping.read_pending", {"limit": 50})
+        call("inventory.read_available_items", {"limit": 80})
+        plans = [
+            artifact
+            for key in ("artifacts", "currentRunArtifacts")
+            for artifact in (payload.get(key) if isinstance(payload.get(key), list) else [])
+            if isinstance(artifact, dict) and artifact.get("type") == "meal_plan"
+        ]
+        source_id = plans[-1]["id"] if plans else None
+        items = [{"title": "鸡蛋", "quantity": 2, "unit": "个", "reason": "用于番茄鸡蛋面", "sourceMeals": ["番茄鸡蛋面"], "alreadyPending": False}]
+        draft = {"draftType": "shopping_list", "schemaVersion": "shopping_list.v1", "items": items, "sourceDraftId": source_id}
+        call("shopping.create_draft", {"draft": draft})
+        emit_visible("我根据餐食计划里的缺失食材合并了 1 个购物清单草稿项。")
+        return self._tool_result(
+            {
+                "text": "我根据餐食计划里的缺失食材合并了 1 个购物清单草稿项。",
+                "cards": [],
+                "events": [{"type": "draft", "message": "已生成购物清单草稿"}],
+                "context_summary": {"pendingShoppingCount": pending.get("count", 0), "draftType": "shopping_list"},
+                "state_patch": {"activeTask": "shopping_list", "activeDraftType": "shopping_list"},
+                "requires_clarification": False,
+                "status": "completed",
+                "error": None,
+                "operation": "derive" if source_id else "create",
+                "source_artifact_id": source_id,
+            },
+            tool_names,
+        )
+
     def _tool_result(self, payload: dict, tool_names: list[str]) -> ChatProviderResult:
+        payload = {"action": "finalize", **payload}
         return ChatProviderResult(
             text=json.dumps(payload, ensure_ascii=False, default=str),
             status="completed",
@@ -732,26 +733,67 @@ class StreamingChatProvider(BaseChatProvider):
     model_name = "stream-model"
 
     def generate(self, *, system: str, user: str, response_schema: dict | None = None) -> ChatProviderResult:
-        if "工作台的 Planner" in system:
-            return ChatProviderResult(text='{"skills":[]}', status="completed", model=self.model_name)
         raise AssertionError("streaming chat should not call blocking generate")
 
     def stream_generate(self, *, system: str, user: str, response_schema: dict | None = None):
         yield "第一段"
         yield "第二段"
 
+    def generate_with_tools(
+        self,
+        *,
+        system: str,
+        user: str,
+        tools: list,
+        tool_handler,
+        response_schema: dict | None = None,
+        max_rounds: int = 8,
+        visible_text_handler=None,
+    ) -> ChatProviderResult:
+        del tools, tool_handler, response_schema, max_rounds
+        chunks = []
+        for chunk in self.stream_generate(system=system, user=user):
+            chunks.append(chunk)
+            if visible_text_handler is not None:
+                visible_text_handler(f"<visible_text>{chunk}</visible_text>")
+        text = "".join(chunks)
+        return ChatProviderResult(
+            text=f'<structured_result>{{"action":"finalize","text":{json.dumps(text, ensure_ascii=False)},"status":"completed","cards":[]}}</structured_result>',
+            status="completed",
+            model=self.model_name,
+            structured_mode="tool_call",
+        )
+
 
 class FailingStreamingChatProvider(BaseChatProvider):
     model_name = "stream-failing-model"
 
     def generate(self, *, system: str, user: str, response_schema: dict | None = None) -> ChatProviderResult:
-        if "工作台的 Planner" in system:
-            return ChatProviderResult(text='{"skills":[]}', status="completed", model=self.model_name)
         raise AssertionError("streaming chat should not call blocking generate")
 
     def stream_generate(self, *, system: str, user: str, response_schema: dict | None = None):
         yield "第一段"
         raise RuntimeError("stream broke")
+
+    def generate_with_tools(
+        self,
+        *,
+        system: str,
+        user: str,
+        tools: list,
+        tool_handler,
+        response_schema: dict | None = None,
+        max_rounds: int = 8,
+        visible_text_handler=None,
+    ) -> ChatProviderResult:
+        del tools, tool_handler, response_schema, max_rounds
+        try:
+            for chunk in self.stream_generate(system=system, user=user):
+                if visible_text_handler is not None:
+                    visible_text_handler(f"<visible_text>{chunk}</visible_text>")
+        except RuntimeError as exc:
+            return ChatProviderResult(text="", status="failed", model=self.model_name, error=str(exc))
+        return ChatProviderResult(text="", status="completed", model=self.model_name)
 
 
 class CapturingGeneralChatProvider(BaseChatProvider):
@@ -761,13 +803,36 @@ class CapturingGeneralChatProvider(BaseChatProvider):
         self.general_payloads: list[dict] = []
 
     def generate(self, *, system: str, user: str, response_schema: dict | None = None) -> ChatProviderResult:
-        if "工作台的 Planner" in system:
-            return ChatProviderResult(text='{"skills":[]}', status="completed", model=self.model_name)
         raise AssertionError("general chat should use stream_generate")
 
     def stream_generate(self, *, system: str, user: str, response_schema: dict | None = None):
         self.general_payloads.append(json.loads(user))
         yield "收到，我会接着前文回答。"
+
+    def generate_with_tools(
+        self,
+        *,
+        system: str,
+        user: str,
+        tools: list,
+        tool_handler,
+        response_schema: dict | None = None,
+        max_rounds: int = 8,
+        visible_text_handler=None,
+    ) -> ChatProviderResult:
+        del tools, tool_handler, response_schema, max_rounds
+        chunks = []
+        for chunk in self.stream_generate(system=system, user=user):
+            chunks.append(chunk)
+            if visible_text_handler is not None:
+                visible_text_handler(f"<visible_text>{chunk}</visible_text>")
+        text = "".join(chunks)
+        return ChatProviderResult(
+            text=f'<structured_result>{{"action":"finalize","text":{json.dumps(text, ensure_ascii=False)},"status":"completed","cards":[]}}</structured_result>',
+            status="completed",
+            model=self.model_name,
+            structured_mode="tool_call",
+        )
 
 
 class CapturingToolSubjectProvider(FakeChatProvider):
@@ -974,6 +1039,7 @@ class SequenceChatProvider(BaseChatProvider):
         return ChatProviderResult(text=text, status="completed", model=self.model_name, structured_mode="tool_call")
 
     def _result(self, payload: dict, tool_names: list[str]) -> ChatProviderResult:
+        payload = {"action": "finalize", **payload}
         return ChatProviderResult(
             text=json.dumps(payload, ensure_ascii=False, default=str),
             status="completed",

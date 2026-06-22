@@ -31,10 +31,6 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
         if hashed_password.startswith(BCRYPT_SHA256_PREFIX):
             bcrypt_hash = hashed_password.removeprefix(BCRYPT_SHA256_PREFIX).encode("utf-8")
             return bcrypt.checkpw(_password_digest(plain_password), bcrypt_hash)
-        if hashed_password.startswith("$pbkdf2-sha256$"):
-            from passlib.hash import pbkdf2_sha256
-
-            return pbkdf2_sha256.verify(plain_password, hashed_password)
     except (TypeError, ValueError):
         return False
     return False

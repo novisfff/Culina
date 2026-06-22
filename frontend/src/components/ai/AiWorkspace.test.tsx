@@ -476,6 +476,80 @@ describe('MessageBubble', () => {
     rendered.unmount();
   });
 
+  it('hides assistant footer actions while waiting for approval', async () => {
+    const pendingApproval = approval({ id: 'approval-waiting-footer', status: 'pending' });
+    const rendered = await renderWithQuery(
+      <MessageBubble
+        message={{
+          id: 'message-waiting-approval',
+          conversation_id: 'conversation-1',
+          role: 'assistant',
+          content: '请先确认这个计划。',
+          content_type: 'parts',
+          parts: [
+            { id: 'part-text-waiting-approval', type: 'text', text: '请先确认这个计划。' },
+            { id: 'part-approval-waiting', type: 'approval_request', approval: pendingApproval },
+          ],
+          run_id: 'run-waiting-approval',
+          status: 'waiting_approval',
+          metadata: {},
+          created_at: '2026-05-30T00:00:00Z',
+        }}
+        user={{ id: 'user-1', username: 'me', display_name: '我', avatar_seed: 'seed', avatar_image: null }}
+        onApprovalDecision={() => undefined}
+      />,
+    );
+
+    expect(rendered.container.querySelector('.ai-message-footer')).toBeNull();
+    expect(rendered.container.querySelector('.ai-message-actions-bar')).toBeNull();
+    rendered.unmount();
+  });
+
+  it('hides assistant footer actions while waiting for human input', async () => {
+    const rendered = await renderWithQuery(
+      <MessageBubble
+        message={{
+          id: 'message-waiting-human-input-footer',
+          conversation_id: 'conversation-1',
+          role: 'assistant',
+          content: '你想安排几天晚餐？',
+          content_type: 'parts',
+          parts: [
+            { id: 'part-text-waiting-human-input', type: 'text', text: '你想安排几天晚餐？' },
+            {
+              id: 'part-human-input-waiting',
+              type: 'human_input_request',
+              status: 'pending',
+              request: {
+                id: 'human-input-waiting-footer',
+                question: '你想安排几天晚餐？',
+                inputMode: 'choice_or_text',
+                options: [{ id: 'three-days', label: '三天' }],
+                allowMultiple: false,
+                required: true,
+                reason: null,
+                sourceSkills: ['meal_plan'],
+                resumeHint: {},
+              },
+            },
+          ],
+          run_id: 'run-waiting-human-input',
+          status: 'waiting_input',
+          metadata: {},
+          created_at: '2026-05-30T00:00:00Z',
+        }}
+        user={{ id: 'user-1', username: 'me', display_name: '我', avatar_seed: 'seed', avatar_image: null }}
+        isLatestAssistant
+        onApprovalDecision={() => undefined}
+        onHumanInputResponse={vi.fn().mockResolvedValue(undefined)}
+      />,
+    );
+
+    expect(rendered.container.querySelector('.ai-message-footer')).toBeNull();
+    expect(rendered.container.querySelector('.ai-message-actions-bar')).toBeNull();
+    rendered.unmount();
+  });
+
   it('shows assistant footer actions after the message is complete', async () => {
     const rendered = await renderWithQuery(
       <MessageBubble
@@ -498,6 +572,359 @@ describe('MessageBubble', () => {
 
     expect(rendered.container.querySelector('.ai-message-footer')).not.toBeNull();
     expect(rendered.container.querySelectorAll('.ai-message-action-btn')).toHaveLength(3);
+    rendered.unmount();
+  });
+
+  it('submits a preset human input option directly and collapses with the answer summary', async () => {
+    const respond = vi.fn().mockResolvedValue(undefined);
+    const rendered = await renderWithQuery(
+      <MessageBubble
+        message={{
+          id: 'message-human-input',
+          conversation_id: 'conversation-1',
+          role: 'assistant',
+          content: '你想怎么处理缺少的青椒？',
+          content_type: 'parts',
+          parts: [
+            {
+              id: 'human-input-part',
+              type: 'human_input_request',
+              status: 'pending',
+              request: {
+                id: 'human-input-1',
+                question: '你想怎么处理缺少的青椒？',
+                inputMode: 'choice_or_text',
+                options: [{ id: 'restock', label: '先补青椒库存后再做' }],
+                allowMultiple: false,
+                required: true,
+                reason: null,
+                sourceSkills: ['recipe_draft'],
+                resumeHint: {},
+              },
+            },
+          ],
+          run_id: 'run-human-input',
+          status: 'completed',
+          metadata: {},
+          created_at: '2026-05-30T00:00:00Z',
+        }}
+        user={{ id: 'user-1', username: 'me', display_name: '我', avatar_seed: 'seed', avatar_image: null }}
+        isLatestAssistant
+        onApprovalDecision={() => undefined}
+        onHumanInputResponse={respond}
+      />,
+    );
+
+    expect(rendered.container.querySelector('.ai-approval-panel.is-expanded')).not.toBeNull();
+    await act(async () => {
+      rendered.container.querySelector<HTMLButtonElement>('.ai-clarification-option')?.click();
+    });
+    await flush();
+
+    expect(respond).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'message-human-input' }),
+      expect.objectContaining({ id: 'human-input-1' }),
+      { selected_option_ids: ['restock'], text: undefined },
+    );
+    expect(rendered.container.querySelector('.ai-approval-panel.is-human-input-resolved')).not.toBeNull();
+    expect(rendered.container.querySelector('.ai-approval-body-wrapper')?.getAttribute('aria-hidden')).toBe('true');
+    expect(rendered.container.textContent).toContain('已提交');
+    expect(rendered.container.textContent).toContain('回答');
+    expect(rendered.container.textContent).toContain('先补青椒库存后再做');
+
+    await act(async () => {
+      rendered.container.querySelector<HTMLElement>('.ai-approval-head')?.click();
+    });
+    expect(rendered.container.querySelector('.ai-approval-panel.is-expanded')).not.toBeNull();
+    expect(rendered.container.querySelector('.ai-approval-body-wrapper')?.getAttribute('aria-hidden')).toBe('false');
+    rendered.unmount();
+  });
+
+  it('renders persisted human input answers after reloading messages', async () => {
+    const respond = vi.fn().mockResolvedValue(undefined);
+    const rendered = await renderWithQuery(
+      <MessageBubble
+        message={{
+          id: 'message-human-input-completed',
+          conversation_id: 'conversation-1',
+          role: 'assistant',
+          content: '你想安排几天晚餐？',
+          content_type: 'parts',
+          parts: [
+            {
+              id: 'human-input-part-completed',
+              type: 'human_input_request',
+              status: 'completed',
+              responded_at: '2026-05-30T00:01:00Z',
+              request: {
+                id: 'human-input-1',
+                question: '你想安排几天晚餐？',
+                inputMode: 'choice_or_text',
+                options: [{ id: 'three-days', label: '三天' }],
+                allowMultiple: false,
+                required: true,
+                reason: null,
+                sourceSkills: ['meal_plan'],
+                resumeHint: {},
+              },
+              response: {
+                selectedOptionIds: ['three-days'],
+                text: '',
+                summary: '三天',
+              },
+            },
+          ],
+          run_id: 'run-human-input',
+          status: 'completed',
+          metadata: {},
+          created_at: '2026-05-30T00:00:00Z',
+        }}
+        user={{ id: 'user-1', username: 'me', display_name: '我', avatar_seed: 'seed', avatar_image: null }}
+        isLatestAssistant
+        onApprovalDecision={() => undefined}
+        onHumanInputResponse={respond}
+      />,
+    );
+
+    expect(rendered.container.querySelector('.ai-approval-panel.is-human-input-resolved')).not.toBeNull();
+    expect(rendered.container.querySelector('.ai-approval-body-wrapper')?.getAttribute('aria-hidden')).toBe('true');
+    expect(rendered.container.textContent).toContain('回答');
+    expect(rendered.container.textContent).toContain('三天');
+    expect(respond).not.toHaveBeenCalled();
+    rendered.unmount();
+  });
+
+  it('keeps streamed content append-only when activity arrives between text parts', async () => {
+    const updateApproval = approval({
+      id: 'approval-ingredient-update',
+      title: '确认更新食材档案',
+      instruction: '确认后会更新当前家庭的食材档案。',
+      approval_type: 'ingredient_profile.update',
+      draft_schema_version: 'ingredient_profile.v1',
+      field_schema: [{ name: 'draft', label: '草稿内容', type: 'object', widget: 'textarea', required: true }],
+      initial_values: {
+        draft: {
+          draftType: 'ingredient_profile',
+          schemaVersion: 'ingredient_profile.v1',
+          name: '秋葵自动测0622010623',
+          defaultUnit: '根',
+          storage: '常温',
+        },
+      },
+      submitted_values: {},
+    });
+    const renderMessage = (parts: Parameters<typeof MessageBubble>[0]['message']['parts'], runEvents = [] as Parameters<typeof MessageBubble>[0]['runEvents']) => (
+      <MessageBubble
+        message={{
+          id: 'message-append-only',
+          conversation_id: 'conversation-1',
+          role: 'assistant',
+          content: parts.filter((part) => part.type === 'text').map((part) => part.text).filter(Boolean).join('\n\n'),
+          content_type: 'parts',
+          parts,
+          run_id: 'run-append-only',
+          status: 'completed',
+          metadata: {},
+          created_at: '2026-05-30T00:00:00Z',
+        }}
+        user={{ id: 'user-1', username: 'me', display_name: '我', avatar_seed: 'seed', avatar_image: null }}
+        runEvents={runEvents}
+        isLatestAssistant
+        onApprovalDecision={() => undefined}
+        onHumanInputResponse={vi.fn().mockResolvedValue(undefined)}
+      />
+    );
+    const parts = {
+      firstText: { id: 'text-before-tool', type: 'text' as const, text: '我先看一下当前食材。' },
+      secondText: { id: 'text-after-tool', type: 'text' as const, text: '已经查到同名食材，继续生成确认草稿。' },
+      approval: { id: 'approval-part', type: 'approval_request' as const, approval: updateApproval },
+    };
+    const events = {
+      lookup: {
+        id: 'progress-lookup',
+        run_id: 'run-append-only',
+        type: 'tool',
+        internal_code: 'ingredient_profile.lookup',
+        user_message: '调用「食材资料」',
+        status: 'completed',
+        created_at: '2026-05-30T00:00:01Z',
+      } as const,
+      draft: {
+        id: 'progress-draft',
+        run_id: 'run-append-only',
+        type: 'tool',
+        internal_code: 'ingredient_profile.create_draft',
+        user_message: '生成「食材档案确认表单」',
+        status: 'completed',
+        created_at: '2026-05-30T00:00:02Z',
+      } as const,
+    };
+    const rendered = await renderWithQuery(
+      renderMessage([parts.firstText]),
+    );
+
+    await flush();
+    await rendered.rerender(renderMessage([parts.firstText, { id: 'activity-lookup', type: 'run_activity', activity: events.lookup }]));
+    await flush();
+    await rendered.rerender(renderMessage([parts.firstText, { id: 'activity-lookup', type: 'run_activity', activity: events.lookup }, parts.secondText]));
+    await flush();
+    await rendered.rerender(renderMessage([
+      parts.firstText,
+      { id: 'activity-lookup', type: 'run_activity', activity: events.lookup },
+      parts.secondText,
+      { id: 'activity-draft', type: 'run_activity', activity: events.draft },
+      parts.approval,
+    ]));
+    await flush();
+    const messageBody = rendered.container.querySelector('.ai-message-body') as HTMLElement;
+    const textBlocks = Array.from(messageBody.querySelectorAll<HTMLElement>('.ai-message-text-block'));
+    const activities = Array.from(messageBody.querySelectorAll<HTMLElement>('.ai-run-activity'));
+    const approvalTitle = Array.from(messageBody.querySelectorAll('h3')).find((title) => title.textContent === '确认更新食材档案') as HTMLElement;
+    const approvalPanel = approvalTitle.closest('.ai-approval-panel') as HTMLElement;
+    expect(textBlocks).toHaveLength(2);
+    expect(activities).toHaveLength(2);
+    expect(textBlocks[0]?.textContent).toContain('我先看一下当前食材。');
+    expect(activities[0]?.textContent).toContain('调用「食材资料」');
+    expect(textBlocks[1]?.textContent).toContain('已经查到同名食材');
+    expect(activities[1]?.textContent).toContain('生成「食材档案确认表单」');
+    expect(textBlocks[0]?.compareDocumentPosition(activities[0] as HTMLElement) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(activities[0]?.compareDocumentPosition(textBlocks[1] as HTMLElement) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(textBlocks[1]?.compareDocumentPosition(activities[1] as HTMLElement) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(activities[1]?.compareDocumentPosition(approvalPanel) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    rendered.unmount();
+  });
+
+  it('shows manual input only after choosing the manual option', async () => {
+    const respond = vi.fn().mockResolvedValue(undefined);
+    const rendered = await renderWithQuery(
+      <MessageBubble
+        message={{
+          id: 'message-human-input',
+          conversation_id: 'conversation-1',
+          role: 'assistant',
+          content: '你想怎么处理缺少的青椒？',
+          content_type: 'parts',
+          parts: [
+            {
+              id: 'human-input-part',
+              type: 'human_input_request',
+              status: 'pending',
+              request: {
+                id: 'human-input-1',
+                question: '你想怎么处理缺少的青椒？',
+                inputMode: 'choice_or_text',
+                options: [{ id: 'restock', label: '先补青椒库存后再做' }],
+                allowMultiple: false,
+                required: true,
+                reason: null,
+                sourceSkills: ['recipe_draft'],
+                resumeHint: {},
+              },
+            },
+          ],
+          run_id: 'run-human-input',
+          status: 'completed',
+          metadata: {},
+          created_at: '2026-05-30T00:00:00Z',
+        }}
+        user={{ id: 'user-1', username: 'me', display_name: '我', avatar_seed: 'seed', avatar_image: null }}
+        isLatestAssistant
+        onApprovalDecision={() => undefined}
+        onHumanInputResponse={respond}
+      />,
+    );
+
+    expect(rendered.container.querySelector('.ai-human-input-manual-panel')).toBeNull();
+    const options = rendered.container.querySelectorAll<HTMLButtonElement>('.ai-clarification-option');
+    expect(options).toHaveLength(2);
+    expect(options[1].textContent).toContain('手动输入');
+
+    await act(async () => {
+      options[1].click();
+    });
+    const textarea = rendered.container.querySelector<HTMLTextAreaElement>('.ai-human-input-manual-panel textarea.text-input') as HTMLTextAreaElement;
+    expect(textarea).not.toBeNull();
+    changeInput(textarea, '先把菜谱改成不需要青椒');
+    await act(async () => {
+      rendered.container.querySelector<HTMLButtonElement>('.ai-human-input-submit')?.click();
+    });
+    await flush();
+
+    expect(respond).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'message-human-input' }),
+      expect.objectContaining({ id: 'human-input-1' }),
+      { selected_option_ids: [], text: '先把菜谱改成不需要青椒' },
+    );
+    expect(rendered.container.textContent).toContain('先把菜谱改成不需要青椒');
+    rendered.unmount();
+  });
+
+  it('warns before replacing a drafted manual input with a preset option', async () => {
+    const respond = vi.fn().mockResolvedValue(undefined);
+    const rendered = await renderWithQuery(
+      <MessageBubble
+        message={{
+          id: 'message-human-input',
+          conversation_id: 'conversation-1',
+          role: 'assistant',
+          content: '你想怎么处理缺少的青椒？',
+          content_type: 'parts',
+          parts: [
+            {
+              id: 'human-input-part',
+              type: 'human_input_request',
+              status: 'pending',
+              request: {
+                id: 'human-input-1',
+                question: '你想怎么处理缺少的青椒？',
+                inputMode: 'choice_or_text',
+                options: [{ id: 'restock', label: '先补青椒库存后再做' }],
+                allowMultiple: false,
+                required: true,
+                reason: null,
+                sourceSkills: ['recipe_draft'],
+                resumeHint: {},
+              },
+            },
+          ],
+          run_id: 'run-human-input',
+          status: 'completed',
+          metadata: {},
+          created_at: '2026-05-30T00:00:00Z',
+        }}
+        user={{ id: 'user-1', username: 'me', display_name: '我', avatar_seed: 'seed', avatar_image: null }}
+        isLatestAssistant
+        onApprovalDecision={() => undefined}
+        onHumanInputResponse={respond}
+      />,
+    );
+
+    const options = rendered.container.querySelectorAll<HTMLButtonElement>('.ai-clarification-option');
+    await act(async () => {
+      options[1].click();
+    });
+    const textarea = rendered.container.querySelector<HTMLTextAreaElement>('.ai-human-input-manual-panel textarea.text-input') as HTMLTextAreaElement;
+    changeInput(textarea, '我想先改菜谱');
+    await act(async () => {
+      options[0].click();
+    });
+    await flush();
+
+    expect(respond).not.toHaveBeenCalled();
+    expect(rendered.container.textContent).toContain('手动输入还没提交');
+    expect(textarea.value).toBe('我想先改菜谱');
+
+    await act(async () => {
+      rendered.container.querySelector<HTMLButtonElement>('.ai-human-input-switch-warning .solid-button')?.click();
+    });
+    await flush();
+
+    expect(respond).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'message-human-input' }),
+      expect.objectContaining({ id: 'human-input-1' }),
+      { selected_option_ids: ['restock'], text: undefined },
+    );
+    expect(rendered.container.textContent).toContain('先补青椒库存后再做');
     rendered.unmount();
   });
 });
@@ -570,12 +997,15 @@ describe('ApprovalPanel', () => {
       />,
     );
 
-    const progressBar = rendered.container.querySelector('.ai-run-progress-bar') as HTMLElement;
-    expect(progressBar.textContent).toContain('待补充');
-    expect(progressBar.textContent).toContain('购物清单');
-    expect(progressBar.textContent).toContain('等待用户补充信息');
-    expect(progressBar.textContent).not.toContain('已完成');
-    expect(rendered.container.querySelector('.ai-run-current-skill')?.className).toContain('status-waiting');
+    const activityText = Array.from(rendered.container.querySelectorAll<HTMLElement>('.ai-run-activity')).map((item) => item.textContent).join('\n');
+    expect(activityText).toContain('等待补充');
+    expect(activityText).toContain('购物清单');
+    expect(activityText).toContain('等待用户补充信息');
+    expect(activityText).not.toContain('已完成');
+    const skillRows = Array.from(rendered.container.querySelectorAll<HTMLElement>('.ai-run-activity-row.kind-skill'));
+    expect(skillRows.some((row) => row.textContent === '调用技能：购物清单')).toBe(true);
+    expect(skillRows.some((row) => row.querySelector('.ai-run-skill-icon'))).toBe(true);
+    expect(skillRows.some((row) => row.className.includes('status-waiting'))).toBe(false);
     rendered.unmount();
   });
 
@@ -1361,6 +1791,228 @@ describe('AiWorkspace pending approval restore', () => {
     rendered.unmount();
   });
 
+  it('does not pause composers for answered human input request parts', async () => {
+    vi.spyOn(api, 'getAiMessages').mockResolvedValue([
+      {
+        id: 'message-human-input',
+        conversation_id: 'conversation-1',
+        role: 'assistant',
+        content: '你想安排几天晚餐？\n\n好的，我继续整理。',
+        content_type: 'parts',
+        parts: [
+          { id: 'text-question', type: 'text', text: '你想安排几天晚餐？' },
+          {
+            id: 'human-input-part',
+            type: 'human_input_request',
+            status: 'completed',
+            responded_at: '2026-05-30T00:01:00Z',
+            request: {
+              id: 'human-input-1',
+              question: '你想安排几天晚餐？',
+              inputMode: 'choice_or_text',
+              options: [{ id: 'three-days', label: '三天' }],
+              allowMultiple: false,
+              required: true,
+              reason: null,
+              sourceSkills: ['meal_plan'],
+              resumeHint: {},
+            },
+          },
+          { id: 'text-resumed', type: 'text', text: '好的，我继续整理。' },
+        ],
+        run_id: 'run-1',
+        status: 'completed',
+        metadata: {},
+        created_at: '2026-05-30T00:00:00Z',
+      },
+    ]);
+    vi.spyOn(api, 'getPendingAiApprovals').mockResolvedValue([]);
+    const rendered = await renderWithQuery(<AiWorkspace conversations={[conversation()]} isLoading={false} />);
+    await flush();
+
+    expect(rendered.container.textContent).not.toContain('请先回答上面的问题，AI 会接着处理当前任务。');
+    expect(Array.from(rendered.container.querySelectorAll<HTMLTextAreaElement>('.ai-composer textarea')).every((textarea) => !textarea.disabled)).toBe(true);
+    rendered.unmount();
+  });
+
+  it('keeps both composers on the cancellable pause button while human input is pending', async () => {
+    vi.spyOn(api, 'getAiMessages').mockResolvedValue([
+      {
+        id: 'message-human-input',
+        conversation_id: 'conversation-1',
+        role: 'assistant',
+        content: '你想怎么处理缺少的青椒？',
+        content_type: 'parts',
+        parts: [
+          { id: 'text-question', type: 'text', text: '你想怎么处理缺少的青椒？' },
+          {
+            id: 'human-input-part',
+            type: 'human_input_request',
+            status: 'pending',
+            request: {
+              id: 'human-input-1',
+              question: '你想怎么处理缺少的青椒？',
+              inputMode: 'choice_or_text',
+              options: [{ id: 'restock', label: '先补青椒库存后再做' }],
+              allowMultiple: false,
+              required: true,
+              reason: null,
+              sourceSkills: ['recipe_draft'],
+              resumeHint: {},
+            },
+          },
+        ],
+        run_id: 'run-human-input',
+        status: 'completed',
+        metadata: {},
+        created_at: '2026-05-30T00:00:00Z',
+      },
+    ]);
+    vi.spyOn(api, 'getPendingAiApprovals').mockResolvedValue([]);
+    const cancelSpy = vi.spyOn(api, 'cancelAiRun').mockResolvedValue({
+      run: { id: 'run-human-input', status: 'cancelled' },
+      events: [
+        {
+          id: 'cancel-event',
+          run_id: 'run-human-input',
+          type: 'cancel',
+          internal_code: 'user_cancel',
+          user_message: '已取消这次任务',
+          status: 'failed',
+          created_at: '2026-05-30T00:00:00Z',
+        },
+      ],
+    });
+    const rendered = await renderWithQuery(<AiWorkspace conversations={[conversation()]} isLoading={false} />);
+    await flush();
+
+    expect(rendered.container.textContent).toContain('手动输入');
+    expect(rendered.container.textContent).toContain('请先回答上面的问题，AI 会接着处理当前任务。');
+    expect(Array.from(rendered.container.querySelectorAll<HTMLTextAreaElement>('.ai-composer textarea')).every((textarea) => textarea.disabled)).toBe(true);
+    expect(Array.from(rendered.container.querySelectorAll<HTMLButtonElement>('.ai-send-button')).every((button) => !button.disabled)).toBe(true);
+    expect(Array.from(rendered.container.querySelectorAll<HTMLButtonElement>('.ai-send-button')).every((button) => button.getAttribute('aria-label') === '中止生成')).toBe(true);
+
+    await act(async () => {
+      rendered.container.querySelector<HTMLButtonElement>('.ai-send-button')?.click();
+    });
+    await flush();
+
+    expect(cancelSpy).toHaveBeenCalledWith('run-human-input');
+    rendered.unmount();
+  });
+
+  it('shows the current human input submission state instead of the background conversation pause', async () => {
+    vi.spyOn(api, 'getAiMessages').mockResolvedValue([
+      {
+        id: 'message-human-input',
+        conversation_id: 'conversation-1',
+        role: 'assistant',
+        content: '你想怎么处理缺少的青椒？',
+        content_type: 'parts',
+        parts: [
+          { id: 'text-question', type: 'text', text: '你想怎么处理缺少的青椒？' },
+          {
+            id: 'human-input-part',
+            type: 'human_input_request',
+            status: 'pending',
+            request: {
+              id: 'human-input-1',
+              question: '你想怎么处理缺少的青椒？',
+              inputMode: 'choice_or_text',
+              options: [{ id: 'restock', label: '先补青椒库存后再做' }],
+              allowMultiple: false,
+              required: true,
+              reason: null,
+              sourceSkills: ['recipe_draft'],
+              resumeHint: {},
+            },
+          },
+        ],
+        run_id: 'run-human-input',
+        status: 'completed',
+        metadata: {},
+        created_at: '2026-05-30T00:00:00Z',
+      },
+    ]);
+    vi.spyOn(api, 'getPendingAiApprovals').mockResolvedValue([]);
+    vi.spyOn(api, 'streamAiHumanInputResponse').mockImplementation(() => new Promise<AiChatResponse>(() => undefined));
+
+    const rendered = await renderWithQuery(<AiWorkspace conversations={[conversation()]} isLoading={false} />);
+    await flush();
+    const desktopView = rendered.container.querySelector('.ai-desktop-view') as HTMLElement;
+
+    await act(async () => {
+      desktopView.querySelector<HTMLButtonElement>('.ai-clarification-option')?.click();
+      await Promise.resolve();
+    });
+    await flush();
+
+    expect(desktopView.textContent).toContain('正在提交你的回答，AI 会接着处理当前任务。');
+    expect(desktopView.textContent).not.toContain('另一个会话正在后台回复');
+    rendered.unmount();
+  });
+
+  it('streams assistant text after submitting a human input answer', async () => {
+    vi.spyOn(api, 'getAiMessages').mockResolvedValue([
+      {
+        id: 'message-human-input-stream',
+        conversation_id: 'conversation-1',
+        role: 'assistant',
+        content: '你想安排几天？',
+        content_type: 'parts',
+        parts: [
+          { id: 'text-question', type: 'text', text: '你想安排几天？' },
+          {
+            id: 'human-input-part',
+            type: 'human_input_request',
+            status: 'pending',
+            request: {
+              id: 'human-input-stream',
+              question: '你想安排几天？',
+              inputMode: 'choice',
+              options: [{ id: 'three-days', label: '三天' }],
+              allowMultiple: false,
+              required: true,
+              reason: null,
+              sourceSkills: ['meal_plan'],
+              resumeHint: {},
+            },
+          },
+        ],
+        run_id: 'run-human-input-stream',
+        status: 'completed',
+        metadata: {},
+        created_at: '2026-05-30T00:00:00Z',
+      },
+    ]);
+    vi.spyOn(api, 'getPendingAiApprovals').mockResolvedValue([]);
+    vi.spyOn(api, 'streamAiHumanInputResponse').mockImplementation((_conversationId, _requestId, _payload, handlers) => {
+      handlers?.onMessageDelta?.({
+        message_id: 'message-human-input-stream',
+        conversation_id: 'conversation-1',
+        run_id: 'run-human-input-stream',
+        part_id: 'part-after-human-input',
+        delta: '已按三天继续安排。',
+      });
+      return new Promise<AiChatResponse>(() => undefined);
+    });
+
+    const rendered = await renderWithQuery(<AiWorkspace conversations={[conversation()]} isLoading={false} />);
+    await flush();
+    const desktopView = rendered.container.querySelector('.ai-desktop-view') as HTMLElement;
+
+    await act(async () => {
+      desktopView.querySelector<HTMLButtonElement>('.ai-clarification-option')?.click();
+      await Promise.resolve();
+    });
+    await flush();
+
+    const assistantMessages = desktopView.querySelectorAll('.ai-message-assistant');
+    expect(assistantMessages).toHaveLength(1);
+    expect((assistantMessages[0] as HTMLElement).textContent).toContain('已按三天继续安排。');
+    rendered.unmount();
+  });
+
   it('resumes the composers after the pending approval is settled and refetched', async () => {
     const pending = approval();
     vi.spyOn(api, 'getAiMessages').mockResolvedValue([]);
@@ -1583,9 +2235,11 @@ describe('AiWorkspace pending approval restore', () => {
     await flush();
     await flush();
     const desktopView = rendered.container.querySelector('.ai-desktop-view') as HTMLElement;
-    expect(desktopView.querySelector('.ai-run-progress-bar')?.textContent).toContain('餐食计划');
-    expect(desktopView.querySelector('.ai-run-progress-bar')?.textContent).toContain('调用「可用库存」');
-    expect(desktopView.querySelector('.ai-run-progress-step.status-completed')).toBeNull();
+    const activityText = Array.from(desktopView.querySelectorAll<HTMLElement>('.ai-run-activity')).map((item) => item.textContent).join('\n');
+    expect(activityText).toContain('餐食计划');
+    expect(activityText).toContain('调用「可用库存」');
+    expect(desktopView.querySelector('.ai-run-activity-toggle')).toBeNull();
+    expect(desktopView.querySelector('.ai-run-activity-detail')).toBeNull();
     rendered.unmount();
   });
 
@@ -1654,7 +2308,7 @@ describe('AiWorkspace pending approval restore', () => {
     await flush();
     expect(rendered.container.textContent).toContain('餐食计划');
     expect(rendered.container.textContent).not.toContain('等待工具调用');
-    expect(rendered.container.querySelector('.ai-run-tool-marquee')).toBeNull();
+    expect(rendered.container.querySelector('.ai-run-activity-row.kind-tool')).toBeNull();
     expect(rendered.container.querySelector('.ai-stream-progress-strip')).toBeNull();
     expect(rendered.container.querySelector<HTMLButtonElement>('.ai-send-button')?.getAttribute('aria-label')).toBe('中止生成');
     await act(async () => {
@@ -1675,24 +2329,37 @@ describe('AiWorkspace pending approval restore', () => {
     let streamedRunId = 'agent_run-client';
     vi.spyOn(api, 'streamChatAi').mockImplementation(async (payload, handlers) => {
       streamedRunId = payload.client_run_id ?? streamedRunId;
-      handlers?.onProgress?.({
+      const skillEvent = {
         id: 'progress-skill',
-        run_id: 'pending',
+        run_id: streamedRunId,
         type: 'skill',
         internal_code: 'meal_plan.start',
         user_message: '调用「餐食计划」技能',
         status: 'running',
         created_at: '2026-05-30T00:00:00Z',
-      });
-      handlers?.onProgress?.({
+      } as const;
+      const inventoryEvent = {
         id: 'progress-1',
-        run_id: 'pending',
+        run_id: streamedRunId,
         type: 'tool',
         internal_code: 'inventory.read_available_items',
         user_message: '调用「可用库存」',
         status: 'completed',
         created_at: '2026-05-30T00:00:00Z',
-      });
+      } as const;
+      const draftEvent = {
+        id: 'progress-2',
+        run_id: streamedRunId,
+        type: 'tool',
+        internal_code: 'meal_plan.create_draft',
+        user_message: '生成「餐食计划确认表单」',
+        status: 'completed',
+        created_at: '2026-05-30T00:00:00Z',
+      } as const;
+      handlers?.onMessagePart?.({ message_id: 'message-streaming-draft', conversation_id: payload.conversation_id ?? 'conversation-1', run_id: streamedRunId, part: { id: 'activity-progress-skill', type: 'run_activity', activity: skillEvent } });
+      handlers?.onProgress?.(skillEvent);
+      handlers?.onMessagePart?.({ message_id: 'message-streaming-draft', conversation_id: payload.conversation_id ?? 'conversation-1', run_id: streamedRunId, part: { id: 'activity-progress-1', type: 'run_activity', activity: inventoryEvent } });
+      handlers?.onProgress?.(inventoryEvent);
       handlers?.onMessageDelta?.({
         message_id: 'message-streaming-draft',
         conversation_id: payload.conversation_id ?? 'conversation-1',
@@ -1700,24 +2367,8 @@ describe('AiWorkspace pending approval restore', () => {
         part_id: 'part-streaming-draft',
         delta: '我会先整理计划。',
       });
-      handlers?.onProgress?.({
-        id: 'progress-2',
-        run_id: 'pending',
-        type: 'tool',
-        internal_code: 'meal_plan.create_draft',
-        user_message: '生成「餐食计划确认表单」',
-        status: 'completed',
-        created_at: '2026-05-30T00:00:00Z',
-      });
-      handlers?.onProgress?.({
-        id: 'progress-skill-completed',
-        run_id: 'pending',
-        type: 'skill',
-        internal_code: 'meal_plan.completed',
-        user_message: '餐食计划执行完成',
-        status: 'completed',
-        created_at: '2026-05-30T00:00:01Z',
-      });
+      handlers?.onMessagePart?.({ message_id: 'message-streaming-draft', conversation_id: payload.conversation_id ?? 'conversation-1', run_id: streamedRunId, part: { id: 'activity-progress-2', type: 'run_activity', activity: draftEvent } });
+      handlers?.onProgress?.(draftEvent);
       return new Promise<AiChatResponse>((resolve) => {
         resolveStream = resolve;
       });
@@ -1731,55 +2382,45 @@ describe('AiWorkspace pending approval restore', () => {
     await advanceTimers(0);
     await advanceTimers(0);
     const desktopView = rendered.container.querySelector('.ai-desktop-view') as HTMLElement;
-    const progressBar = desktopView.querySelector('.ai-run-progress-bar') as HTMLElement;
+    const activity = desktopView.querySelector('.ai-run-activity') as HTMLElement;
     expect(rendered.container.querySelectorAll('.ai-desktop-view .ai-message-assistant')).toHaveLength(1);
-    expect(progressBar.textContent).toContain('正在执行');
-    expect(progressBar.textContent).toContain('餐食计划');
-    expect(progressBar.textContent).not.toContain('调用「餐食计划」技能');
+    expect(activity.textContent).toContain('调用技能');
+    expect(activity.textContent).toContain('餐食计划');
+    expect(activity.textContent).not.toContain('调用「餐食计划」技能');
     expect(desktopView.textContent).toContain('正在准备可确认草稿');
     const messageBody = desktopView.querySelector('.ai-message-assistant .ai-message-body') as HTMLElement;
     const markdown = messageBody.querySelector('.ai-message-markdown') as HTMLElement;
     const draftCue = messageBody.querySelector('.ai-draft-generating-cue') as HTMLElement;
     expect(markdown.textContent).toContain('我会先整理计划。');
+    expect(activity.compareDocumentPosition(markdown) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(markdown.compareDocumentPosition(draftCue) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(desktopView.querySelector('.ai-run-tool-marquee.is-scrollable')).toBeNull();
-    let toolChips = Array.from(desktopView.querySelectorAll<HTMLElement>('.ai-run-tool-chip'));
-    expect(toolChips.map((chip) => chip.textContent)).toEqual(['调用「可用库存」']);
-    expect(toolChips[0]?.className).toContain('is-newest');
+    expect(desktopView.querySelector('.ai-run-progress-bar')).toBeNull();
+    expect(desktopView.querySelector('.ai-run-tool-marquee')).toBeNull();
+    let activityRows = Array.from(desktopView.querySelectorAll<HTMLElement>('.ai-run-activity-summary .ai-run-activity-row'));
+    expect(activityRows.map((row) => row.textContent)).toEqual(['调用技能：餐食计划', '调用「可用库存」', '生成「餐食计划确认表单」']);
+    expect(activityRows[0]?.className).toContain('status-called');
+    expect(activityRows[0]?.className).not.toContain('status-running');
+    expect(activityRows[0]?.className).not.toContain('is-active');
+    expect(activityRows[0]?.querySelector('.ai-run-skill-icon')).not.toBeNull();
     await advanceTimers(1999);
-    toolChips = Array.from(desktopView.querySelectorAll<HTMLElement>('.ai-run-tool-chip'));
-    expect(toolChips.map((chip) => chip.textContent)).toEqual(['调用「可用库存」']);
+    activityRows = Array.from(desktopView.querySelectorAll<HTMLElement>('.ai-run-activity-summary .ai-run-activity-row'));
+    expect(activityRows.map((row) => row.textContent)).toEqual(['调用技能：餐食计划', '调用「可用库存」', '生成「餐食计划确认表单」']);
     await advanceTimers(1);
-    toolChips = Array.from(desktopView.querySelectorAll<HTMLElement>('.ai-run-tool-chip'));
-    expect(toolChips.map((chip) => chip.textContent)).toEqual(['生成「餐食计划确认表单」', '调用「可用库存」']);
-    expect(toolChips[0]?.className).toContain('is-newest');
-    expect(toolChips[0]?.className).toContain('kind-form');
-    expect(toolChips[0]?.querySelector('.ai-run-tool-icon.icon-form')).not.toBeNull();
-    expect(toolChips[1]?.className).toContain('is-shifted');
-    expect(toolChips[1]?.className).toContain('kind-tool');
-    expect(toolChips[1]?.querySelector('.ai-run-tool-icon.icon-tool')).not.toBeNull();
+    activityRows = Array.from(desktopView.querySelectorAll<HTMLElement>('.ai-run-activity-summary .ai-run-activity-row'));
+    expect(activityRows.map((row) => row.textContent)).toEqual(['调用技能：餐食计划', '调用「可用库存」', '生成「餐食计划确认表单」']);
+    expect(activityRows[2]?.className).toContain('kind-draft');
+    expect(activityRows[2]?.querySelector('.ai-run-tool-icon.icon-form')).not.toBeNull();
+    expect(activityRows[1]?.className).toContain('kind-tool');
+    expect(activityRows[1]?.querySelector('.ai-run-tool-icon.icon-tool')).not.toBeNull();
     expect(desktopView.textContent).not.toContain('meal_plan.create_draft');
-    expect(desktopView.querySelector('.ai-run-progress-step.status-completed')).toBeNull();
-    expect(desktopView.querySelector('.ai-run-progress-step.status-running')).toBeNull();
+    expect(desktopView.querySelector('.ai-run-activity-toggle')).toBeNull();
+    expect(desktopView.querySelector('.ai-run-activity-detail')).toBeNull();
     expect(rendered.container.querySelector('.ai-stream-progress-strip')).toBeNull();
-    await act(async () => {
-      desktopView.querySelector<HTMLButtonElement>('.ai-run-progress-toggle')?.click();
-    });
-    await advanceTimers(0);
-    expect(desktopView.querySelector('.ai-run-progress-step.status-running')?.textContent).toContain('开始执行');
-    expect(desktopView.querySelector('.ai-run-progress-step.status-running')?.textContent).toContain('调用「餐食计划」技能');
-    expect(desktopView.querySelectorAll('.ai-run-progress-step.status-completed')).toHaveLength(3);
-    expect(desktopView.querySelectorAll('.ai-run-progress-step .ai-run-tool-icon.icon-tool')).toHaveLength(1);
-    expect(desktopView.querySelectorAll('.ai-run-progress-step .ai-run-tool-icon.icon-form')).toHaveLength(1);
-    expect(desktopView.querySelectorAll('.ai-run-progress-step .ai-run-detail-status-dot')).toHaveLength(2);
     expect(desktopView.querySelector('.ai-run-step-status')).toBeNull();
     expect(desktopView.querySelector('.ai-run-step-type')).toBeNull();
     expect(desktopView.textContent).not.toContain('复制执行日志');
-    await act(async () => {
-      desktopView.querySelector<HTMLButtonElement>('.ai-run-progress-toggle')?.click();
-    });
-    await advanceTimers(0);
-    expect(desktopView.querySelector('.ai-run-progress-step.status-running')).toBeNull();
+    expect(desktopView.textContent).not.toContain('展开执行细节');
+    expect(desktopView.textContent).not.toContain('收起执行细节');
     await act(async () => {
       resolveStream?.({
         conversation_id: 'conversation-1',
@@ -1809,13 +2450,14 @@ describe('AiWorkspace pending approval restore', () => {
     });
     await advanceTimers(0);
     expect(rendered.container.textContent).toContain('已安排好晚餐。');
-    const settledProgressBar = desktopView.querySelector('.ai-run-progress-bar');
-    expect(settledProgressBar?.textContent).toContain('已完成');
-    expect(settledProgressBar?.textContent).toContain('餐食计划');
-    expect(settledProgressBar?.textContent).toContain('调用「可用库存」');
-    expect(settledProgressBar?.textContent).toContain('生成「餐食计划确认表单」');
+    const settledActivityText = Array.from(desktopView.querySelectorAll<HTMLElement>('.ai-run-activity')).map((item) => item.textContent).join('\n');
+    expect(settledActivityText).toContain('调用技能');
+    expect(settledActivityText).not.toContain('已完成：餐食计划');
+    expect(settledActivityText).toContain('餐食计划');
+    expect(settledActivityText).toContain('调用「可用库存」');
+    expect(settledActivityText).toContain('生成「餐食计划确认表单」');
     expect(desktopView.textContent).not.toContain('正在准备可确认草稿');
-    expect(desktopView.querySelector('.ai-run-progress-step.status-completed')).toBeNull();
+    expect(desktopView.querySelector('.ai-run-activity-detail')).toBeNull();
     rendered.unmount();
   });
 
@@ -2254,6 +2896,38 @@ describe('AiWorkspace pending approval restore', () => {
     rendered.unmount();
   });
 
+  it('keeps waiting conversations marked as running in history', async () => {
+    const waitingApprovalConversation: AiConversation = {
+      ...conversation(),
+      id: 'conversation-waiting-approval',
+      title: '等待确认餐食计划',
+      prompt: '安排三天晚餐',
+      last_run_status: 'waiting_approval',
+      last_message_at: '2026-05-30T00:02:00Z',
+    };
+    const waitingInputConversation: AiConversation = {
+      ...conversation(),
+      id: 'conversation-waiting-input',
+      title: '等待补充信息',
+      prompt: '帮我调整购物清单',
+      last_run_status: 'waiting_input',
+      last_message_at: '2026-05-30T00:01:00Z',
+    };
+    vi.spyOn(api, 'getAiMessages').mockResolvedValue([]);
+    vi.spyOn(api, 'getPendingAiApprovals').mockResolvedValue([]);
+
+    const rendered = await renderWithQuery(
+      <AiWorkspace conversations={[waitingApprovalConversation, waitingInputConversation]} isLoading={false} />,
+    );
+    await flush();
+
+    const desktopView = rendered.container.querySelector('.ai-desktop-view') as HTMLElement;
+    expect(desktopView.querySelectorAll('.ai-conversation-item.is-running .ai-history-spinner')).toHaveLength(2);
+    expect(desktopView.textContent).toContain('等待确认餐食计划');
+    expect(desktopView.textContent).toContain('等待补充信息');
+    rendered.unmount();
+  });
+
   it('shows included approvals immediately when the streamed response settles', async () => {
     vi.spyOn(api, 'getAiMessages').mockResolvedValue([]);
     const pendingApprovalsSpy = vi
@@ -2492,6 +3166,54 @@ describe('AiWorkspace pending approval restore', () => {
     rendered.unmount();
   });
 
+  it('deduplicates a running remote live reply against a local stream copy with the same run id', async () => {
+    vi.spyOn(api, 'getAiMessages').mockResolvedValue([]);
+    vi.spyOn(api, 'getPendingAiApprovals').mockResolvedValue([]);
+    let streamedRunId = 'agent_run-client';
+    vi.spyOn(api, 'streamChatAi').mockImplementation(async (payload, handlers) => {
+      streamedRunId = payload.client_run_id ?? streamedRunId;
+      handlers?.onMessageDelta?.({
+        message_id: 'message-live-running',
+        conversation_id: payload.conversation_id ?? 'conversation-1',
+        run_id: streamedRunId,
+        part_id: 'part-live-running',
+        delta: '我正在生成食材档案草稿。',
+      });
+      return new Promise<AiChatResponse>(() => undefined);
+    });
+
+    const rendered = await renderWithQuery(<AiWorkspace conversations={[conversation()]} isLoading={false} />);
+    await flush();
+    changeInput(rendered.container.querySelector<HTMLTextAreaElement>('textarea.text-input') as HTMLTextAreaElement, '创建秋葵食材档案');
+    await act(async () => {
+      rendered.container.querySelector<HTMLFormElement>('form.ai-composer')?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    });
+    await flush();
+
+    await act(async () => {
+      rendered.queryClient.setQueryData(queryKeys.aiMessages('conversation-1'), [
+        {
+          id: 'message-live-running',
+          conversation_id: 'conversation-1',
+          role: 'assistant',
+          content: '我正在生成食材档案草稿。',
+          content_type: 'parts',
+          parts: [{ id: 'part-live-running', type: 'text', text: '我正在生成食材档案草稿。' }],
+          run_id: streamedRunId,
+          status: 'running',
+          metadata: { liveStreaming: true },
+          created_at: '2026-05-30T00:00:01Z',
+        },
+      ]);
+    });
+    await flush();
+
+    const assistantMessages = rendered.container.querySelectorAll('.ai-desktop-view .ai-message-assistant');
+    expect(assistantMessages).toHaveLength(1);
+    expect((assistantMessages[0] as HTMLElement).textContent).toContain('我正在生成食材档案草稿。');
+    rendered.unmount();
+  });
+
   it('starts streamed assistant text on a new paragraph after progress events', async () => {
     vi.spyOn(api, 'getAiMessages').mockResolvedValue([]);
     vi.spyOn(api, 'getPendingAiApprovals').mockResolvedValue([]);
@@ -2515,18 +3237,36 @@ describe('AiWorkspace pending approval restore', () => {
         status: 'completed',
         created_at: '2026-05-30T00:00:00Z',
       });
+      handlers?.onMessagePart?.({
+        message_id: 'message-streaming',
+        conversation_id: payload.conversation_id ?? 'conversation-1',
+        run_id: streamedRunId,
+        part: {
+          id: 'activity-progress-tool',
+          type: 'run_activity',
+          activity: {
+            id: 'progress-tool',
+            run_id: streamedRunId,
+            type: 'tool',
+            internal_code: 'inventory.read_available_items',
+            user_message: '调用「可用库存」',
+            status: 'completed',
+            created_at: '2026-05-30T00:00:00Z',
+          },
+        },
+      });
       handlers?.onMessageDelta?.({
         message_id: 'message-streaming',
         conversation_id: payload.conversation_id ?? 'conversation-1',
         run_id: streamedRunId,
-        part_id: 'part-streaming',
+        part_id: 'part-streaming-after-progress',
         delta: '库存看完了，',
       });
       handlers?.onMessageDelta?.({
         message_id: 'message-streaming',
         conversation_id: payload.conversation_id ?? 'conversation-1',
         run_id: streamedRunId,
-        part_id: 'part-streaming',
+        part_id: 'part-streaming-after-progress',
         delta: '推荐番茄鸡蛋面。',
       });
       return new Promise<AiChatResponse>((resolve) => {
@@ -2540,9 +3280,13 @@ describe('AiWorkspace pending approval restore', () => {
       rendered.container.querySelector<HTMLFormElement>('form.ai-composer')?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
     });
     await flush();
-    const desktopMarkdown = rendered.container.querySelector('.ai-desktop-view .ai-message-assistant .ai-message-markdown') as HTMLElement;
-    const paragraphs = Array.from(desktopMarkdown.querySelectorAll('p')).map((item) => item.textContent);
+    const messageBody = rendered.container.querySelector('.ai-desktop-view .ai-message-assistant .ai-message-body') as HTMLElement;
+    const markdownBlocks = Array.from(messageBody.querySelectorAll<HTMLElement>('.ai-message-markdown'));
+    const paragraphs = markdownBlocks.flatMap((block) => Array.from(block.querySelectorAll('p')).map((item) => item.textContent));
     expect(paragraphs).toEqual(['我先查一下库存。', '库存看完了，推荐番茄鸡蛋面。']);
+    const activity = messageBody.querySelector('.ai-run-activity') as HTMLElement;
+    expect(markdownBlocks[0]?.compareDocumentPosition(activity) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(activity.compareDocumentPosition(markdownBlocks[1] as HTMLElement) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     await act(async () => {
       resolveStream?.({
         conversation_id: 'conversation-1',
@@ -2574,7 +3318,7 @@ describe('AiWorkspace pending approval restore', () => {
     rendered.unmount();
   });
 
-  it('keeps unfinished streamed text on the same line after progress events', async () => {
+  it('keeps streamed text after progress events below the inline activity', async () => {
     vi.spyOn(api, 'getAiMessages').mockResolvedValue([]);
     vi.spyOn(api, 'getPendingAiApprovals').mockResolvedValue([]);
     let resolveStream: ((response: AiChatResponse) => void) | null = null;
@@ -2597,11 +3341,29 @@ describe('AiWorkspace pending approval restore', () => {
         status: 'completed',
         created_at: '2026-05-30T00:00:00Z',
       });
+      handlers?.onMessagePart?.({
+        message_id: 'message-streaming-fragment',
+        conversation_id: payload.conversation_id ?? 'conversation-1',
+        run_id: streamedRunId,
+        part: {
+          id: 'activity-progress-tool-fragment',
+          type: 'run_activity',
+          activity: {
+            id: 'progress-tool-fragment',
+            run_id: streamedRunId,
+            type: 'tool',
+            internal_code: 'inventory.read_available_items',
+            user_message: '调用「可用库存」',
+            status: 'completed',
+            created_at: '2026-05-30T00:00:00Z',
+          },
+        },
+      });
       handlers?.onMessageDelta?.({
         message_id: 'message-streaming-fragment',
         conversation_id: payload.conversation_id ?? 'conversation-1',
         run_id: streamedRunId,
-        part_id: 'part-streaming-fragment',
+        part_id: 'part-streaming-fragment-after-progress',
         delta: '到当前显示已过期的有 3 项。',
       });
       return new Promise<AiChatResponse>((resolve) => {
@@ -2615,9 +3377,13 @@ describe('AiWorkspace pending approval restore', () => {
       rendered.container.querySelector<HTMLFormElement>('form.ai-composer')?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
     });
     await flush();
-    const desktopMarkdown = rendered.container.querySelector('.ai-desktop-view .ai-message-assistant .ai-message-markdown') as HTMLElement;
-    const paragraphs = Array.from(desktopMarkdown.querySelectorAll('p')).map((item) => item.textContent);
-    expect(paragraphs).toEqual(['我查到当前显示已过期的有 3 项。']);
+    const messageBody = rendered.container.querySelector('.ai-desktop-view .ai-message-assistant .ai-message-body') as HTMLElement;
+    const markdownBlocks = Array.from(messageBody.querySelectorAll<HTMLElement>('.ai-message-markdown'));
+    const paragraphs = markdownBlocks.flatMap((block) => Array.from(block.querySelectorAll('p')).map((item) => item.textContent));
+    expect(paragraphs).toEqual(['我查', '到当前显示已过期的有 3 项。']);
+    const activity = messageBody.querySelector('.ai-run-activity') as HTMLElement;
+    expect(markdownBlocks[0]?.compareDocumentPosition(activity) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(activity.compareDocumentPosition(markdownBlocks[1] as HTMLElement) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     await act(async () => {
       resolveStream?.({
         conversation_id: 'conversation-1',

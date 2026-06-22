@@ -27,7 +27,7 @@ RECIPE_CREATE_DRAFT_SCHEMA = {
         "draftType": {"type": "string", "enum": ["recipe"]},
         "schemaVersion": {"type": "string", "enum": ["recipe.v1", "recipe_operation.v1"]},
     },
-    "description": "新增菜谱草稿必须填写 title、servings、prep_minutes、difficulty、ingredient_items、steps；信息不足时先调用 intent.request_clarification。",
+    "description": "新增菜谱草稿必须填写 title、servings、prep_minutes、difficulty、ingredient_items、steps；信息不足时先调用 human.request_input。",
 }
 RECIPE_OPERATION_DRAFT_SCHEMA = {
     "type": "object",

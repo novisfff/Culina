@@ -113,6 +113,7 @@ const coreCases = [
     skill: 'recipe_cook',
     prompt: '开始做番茄炒蛋，按 2 人份，做完后记录到今晚晚餐。',
     panelTexts: ['番茄炒蛋'],
+    allowHumanInput: true,
     allowNoApprovalTexts: ['库存不足', '缺少', '补库存', '调整份量'],
   },
 ];
@@ -356,12 +357,17 @@ async function runCase(page, testCase) {
   }, undefined, { timeout: 10_000 });
   await sendButton.click();
 
-  const panel = await waitForApprovalOrAllowedNoApproval(page, panelCountBefore, testCase);
-  if (!panel) {
+  const waitResult = await waitForApprovalOrAllowedNoApproval(page, panelCountBefore, testCase);
+  if (waitResult.type === 'allowed-no-approval') {
     console.log(`[${testCase.key}] no approval: matched allowed non-approval text`);
     return { key: testCase.key, status: 'no-approval-allowed' };
   }
+  if (waitResult.type === 'human-input') {
+    console.log(`[${testCase.key}] human input required: allowed by case`);
+    return { key: testCase.key, status: 'human-input-required' };
+  }
 
+  const panel = waitResult.panel;
   const text = await panelContent(panel);
   for (const expected of testCase.panelTexts ?? []) {
     if (!text.includes(expected)) {
@@ -414,22 +420,32 @@ async function runDiagnostics(page) {
 
 async function waitForApprovalOrAllowedNoApproval(page, panelCountBefore, testCase) {
   const startedAt = Date.now();
+  const humanInputCountBefore = await page.locator('.ai-human-input-request').count();
   while (Date.now() - startedAt < DEFAULT_TIMEOUT_MS) {
     const failureText = await latestExecutionFailureText(page);
     if (failureText) {
       throw new Error(`[${testCase.key}] AI 执行失败：${failureText}`);
+    }
+    if (testCase.allowHumanInput) {
+      const humanInputPanels = page.locator('.ai-human-input-request');
+      const humanInputCount = await humanInputPanels.count();
+      if (humanInputCount > humanInputCountBefore) {
+        const panel = humanInputPanels.nth(humanInputCount - 1);
+        await panel.waitFor({ state: 'visible', timeout: 10_000 });
+        return { type: 'human-input', panel };
+      }
     }
     const panels = page.locator('.ai-approval-panel');
     const panelCount = await panels.count();
     if (panelCount > panelCountBefore) {
       const panel = panels.nth(panelCount - 1);
       await panel.waitFor({ state: 'visible', timeout: 10_000 });
-      return panel;
+      return { type: 'approval', panel };
     }
     if (testCase.allowNoApprovalTexts?.length) {
       const bodyText = await page.locator('body').innerText().catch(() => '');
       if (testCase.allowNoApprovalTexts.some((text) => bodyText.includes(text))) {
-        return null;
+        return { type: 'allowed-no-approval' };
       }
     }
     await delay(500);

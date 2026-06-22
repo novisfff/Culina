@@ -12,13 +12,16 @@ class WorkspaceGraphState(TypedDict, total=False):
     client_run_id: str | None
     quick_task: str | None
     subject: dict[str, Any]
-    preplanned_plan: dict[str, Any]
-    general_text: str
     run_id: str
     user_message_id: str
-    plan: dict[str, Any]
     run_artifacts: list[dict[str, Any]]
-    skill_index: int
+    injected_skill_keys: list[str]
+    injection_history: list[dict[str, Any]]
+    agent_rounds: int
+    last_structured_result: dict[str, Any]
+    pending_human_input: dict[str, Any]
+    pending_approval_id: str
+    last_human_input_result: dict[str, Any]
     status: str
     error: str | None
     last_decision: dict[str, Any]

@@ -90,11 +90,14 @@ describe('aiApi', () => {
       status: 'completed',
       created_at: '2026-05-30T00:00:00Z',
     };
+    const part = { id: 'activity-event-1', type: 'run_activity' as const, activity: progress };
+    const messagePart = { message_id: 'message-1', conversation_id: 'conversation-1', run_id: 'run-1', part };
     const delta = { message_id: 'message-1', conversation_id: 'conversation-1', run_id: 'run-1', part_id: 'part-1', delta: '已继续处理。' };
     const fetchSpy = vi
       .spyOn(globalThis, 'fetch')
-      .mockResolvedValue(new Response(streamFrom(`${sseBlock('progress', progress)}${sseBlock('message_delta', delta)}${sseBlock('response', response)}`), { status: 200 }));
+      .mockResolvedValue(new Response(streamFrom(`${sseBlock('message_part', messagePart)}${sseBlock('progress', progress)}${sseBlock('message_delta', delta)}${sseBlock('response', response)}`), { status: 200 }));
     const progressSpy = vi.fn();
+    const partSpy = vi.fn();
     const deltaSpy = vi.fn();
 
     await expect(
@@ -102,10 +105,70 @@ describe('aiApi', () => {
         'conversation-1',
         'approval-1',
         { decision: 'approved', draft_version: 1, values: { draft: {} } },
-        { onProgress: progressSpy, onMessageDelta: deltaSpy },
+        { onProgress: progressSpy, onMessagePart: partSpy, onMessageDelta: deltaSpy },
       ),
     ).resolves.toEqual(response);
     expect(String(fetchSpy.mock.calls[0]?.[0])).toContain('/api/ai/conversations/conversation-1/approvals/approval-1/decision/stream');
+    expect(partSpy).toHaveBeenCalledWith(messagePart);
+    expect(progressSpy).toHaveBeenCalledWith(progress);
+    expect(deltaSpy).toHaveBeenCalledWith(delta);
+  });
+
+  it('streams human input responses through the shared SSE parser', async () => {
+    const response: AiChatResponse = {
+      conversation_id: 'conversation-1',
+      message: {
+        id: 'message-1',
+        conversation_id: 'conversation-1',
+        role: 'assistant',
+        content: '已按你的补充继续处理。',
+        content_type: 'parts',
+        parts: [{ id: 'part-1', type: 'text', text: '已按你的补充继续处理。' }],
+        run_id: 'run-1',
+        status: 'completed',
+        metadata: {},
+        created_at: '2026-05-30T00:00:00Z',
+      },
+      run: {
+        id: 'run-1',
+        agent_key: 'workspace_orchestrator',
+        intent: 'workspace_orchestrator',
+        status: 'completed',
+        model: 'fake',
+        created_at: '2026-05-30T00:00:00Z',
+      },
+      events: [],
+      included: { result_cards: [], drafts: [], approvals: [] },
+    };
+    const progress = {
+      id: 'event-1',
+      run_id: 'run-1',
+      type: 'tool',
+      internal_code: 'inventory.read_available_items',
+      user_message: '调用「可用库存」',
+      status: 'completed',
+      created_at: '2026-05-30T00:00:00Z',
+    };
+    const part = { id: 'activity-event-1', type: 'run_activity' as const, activity: progress };
+    const messagePart = { message_id: 'message-1', conversation_id: 'conversation-1', run_id: 'run-1', part };
+    const delta = { message_id: 'message-1', conversation_id: 'conversation-1', run_id: 'run-1', part_id: 'part-1', delta: '已按你的补充继续处理。' };
+    const fetchSpy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValue(new Response(streamFrom(`${sseBlock('message_part', messagePart)}${sseBlock('progress', progress)}${sseBlock('message_delta', delta)}${sseBlock('response', response)}`), { status: 200 }));
+    const progressSpy = vi.fn();
+    const partSpy = vi.fn();
+    const deltaSpy = vi.fn();
+
+    await expect(
+      aiApi.streamAiHumanInputResponse(
+        'conversation-1',
+        'human-input-1',
+        { selected_option_ids: ['three-days'], text: '三天' },
+        { onProgress: progressSpy, onMessagePart: partSpy, onMessageDelta: deltaSpy },
+      ),
+    ).resolves.toEqual(response);
+    expect(String(fetchSpy.mock.calls[0]?.[0])).toContain('/api/ai/conversations/conversation-1/human-input/human-input-1/response/stream');
+    expect(partSpy).toHaveBeenCalledWith(messagePart);
     expect(progressSpy).toHaveBeenCalledWith(progress);
     expect(deltaSpy).toHaveBeenCalledWith(delta);
   });

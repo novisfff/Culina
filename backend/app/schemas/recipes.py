@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import date as date_type, datetime
 from typing import Literal
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field
 
 from app.core.enums import Difficulty, MealType
 from app.schemas.media import MediaAssetOut
@@ -29,13 +29,6 @@ class RecipeStepIn(BaseModel):
     estimated_minutes: int | None = None
     tip: str = ""
     key_points: list[str] = Field(default_factory=list)
-
-    @model_validator(mode="before")
-    @classmethod
-    def coerce_legacy_step(cls, value: object) -> object:
-        if isinstance(value, str):
-            return {"title": "", "text": value}
-        return value
 
 
 class RecipeStepOut(BaseModel):

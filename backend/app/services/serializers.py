@@ -4,7 +4,6 @@ from collections import defaultdict
 from datetime import UTC, datetime
 from decimal import Decimal
 
-from app.core.enums import normalize_food_type
 from app.models.domain import (
     ActivityLog,
     AIConversation,
@@ -326,7 +325,7 @@ def serialize_food(food: Food, media_map: dict[tuple[str, str], list[MediaAsset]
         "id": food.id,
         "family_id": food.family_id,
         "name": food.name,
-        "type": normalize_food_type(food.type),
+        "type": food.type.value if hasattr(food.type, "value") else food.type,
         "category": food.category,
         "flavor_tags": list(food.flavor_tags or []),
         "scene_tags": list(food.scene_tags or []),
@@ -433,50 +432,12 @@ def serialize_ai_recommendation(item: AIRecommendation) -> dict:
     }
 
 
-AI_RESULT_CARD_DEFAULT_TITLES = {
-    "today_recommendation": "今日吃什么",
-    "recipe_draft": "菜谱草稿",
-    "approval_request": "确认请求",
-    "error_recovery": "这次没有生成成功",
-    "inventory_summary": "库存概览",
-    "clarification_request": "还需要你确认一下",
-    "meal_plan_draft": "餐食计划草稿",
-    "shopping_list_draft": "购物清单草稿",
-    "meal_log_draft": "餐食记录草稿",
-    "food_profile_draft": "食物资料草稿",
-}
-
-
 def _normalize_ai_message_parts(parts: list[dict] | None) -> list[dict]:
     normalized: list[dict] = []
-    for index, part in enumerate(parts or []):
+    for part in parts or []:
         if not isinstance(part, dict):
             continue
-        next_part = dict(part)
-        if next_part.get("type") in {"result_card", "error_recovery"} and isinstance(next_part.get("card"), dict):
-            card = dict(next_part["card"])
-            card_type = str(card.get("type") or "inventory_summary")
-            if not isinstance(card.get("id"), str) or not card["id"].strip():
-                card["id"] = f"{next_part.get('id') or f'ai_part_{index}'}-card"
-            if not isinstance(card.get("title"), str) or not card["title"].strip():
-                card["title"] = AI_RESULT_CARD_DEFAULT_TITLES.get(card_type, "AI 结果")
-            if not isinstance(card.get("data"), dict):
-                card["data"] = {}
-            if card_type == "clarification_request":
-                data = dict(card["data"])
-                if not isinstance(data.get("question"), str) or not data["question"].strip():
-                    data["question"] = card["title"]
-                if not isinstance(data.get("questionType"), str) or not data["questionType"].strip():
-                    data["questionType"] = "other"
-                if not isinstance(data.get("missingFields"), list):
-                    data["missingFields"] = []
-                if not isinstance(data.get("candidates"), list):
-                    data["candidates"] = []
-                if not isinstance(data.get("allowFreeText"), bool):
-                    data["allowFreeText"] = True
-                card["data"] = data
-            next_part["card"] = card
-        normalized.append(next_part)
+        normalized.append(dict(part))
     return normalized
 
 

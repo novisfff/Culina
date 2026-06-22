@@ -4,6 +4,7 @@ from copy import deepcopy
 from dataclasses import dataclass, field
 from datetime import datetime
 from threading import RLock
+from typing import Any
 
 from app.core.utils import utcnow
 
@@ -17,23 +18,69 @@ class LiveMessageSnapshot:
     created_by: str | None
     created_at: datetime
     updated_at: datetime
-    part_order: list[str] = field(default_factory=list)
-    text_by_part_id: dict[str, str] = field(default_factory=dict)
+    parts: list[dict[str, Any]] = field(default_factory=list)
+    text_source_by_part_id: dict[str, str] = field(default_factory=dict)
+    text_segment_count_by_source: dict[str, int] = field(default_factory=dict)
 
-    def append(self, part_id: str, delta: str) -> None:
-        if part_id not in self.text_by_part_id:
-            self.part_order.append(part_id)
-            self.text_by_part_id[part_id] = ""
-        self.text_by_part_id[part_id] = f"{self.text_by_part_id[part_id]}{delta}"
+    def append_delta(self, source_part_id: str, delta: str) -> str:
+        part_id = source_part_id
+        last_part = self.parts[-1] if self.parts else None
+        if (
+            isinstance(last_part, dict)
+            and last_part.get("type") == "text"
+            and self.text_source_by_part_id.get(str(last_part.get("id") or "")) == source_part_id
+        ):
+            part_id = str(last_part.get("id") or source_part_id)
+            last_part["text"] = f"{last_part.get('text') or ''}{delta}"
+            self.updated_at = utcnow()
+            return part_id
+
+        if any(part.get("id") == part_id for part in self.parts if isinstance(part, dict)):
+            count = self.text_segment_count_by_source.get(source_part_id, 1) + 1
+            self.text_segment_count_by_source[source_part_id] = count
+            part_id = f"{source_part_id}__stream_segment_{count}"
+        else:
+            self.text_segment_count_by_source[source_part_id] = 1
+        self.parts.append({"id": part_id, "type": "text", "text": delta})
+        self.text_source_by_part_id[part_id] = source_part_id
         self.updated_at = utcnow()
+        return part_id
+
+    def append_activity(self, part: dict[str, Any]) -> dict[str, Any]:
+        part_id = str(part.get("id") or "")
+        if part_id:
+            for index, current in enumerate(self.parts):
+                if isinstance(current, dict) and current.get("id") == part_id:
+                    self.parts[index] = dict(part)
+                    self.updated_at = utcnow()
+                    return dict(part)
+        self.parts.append(dict(part))
+        self.updated_at = utcnow()
+        return dict(part)
 
     @property
     def content(self) -> str:
         return "\n\n".join(
-            text.strip()
-            for text in (self.text_by_part_id.get(part_id, "") for part_id in self.part_order)
-            if text.strip()
+            str(part.get("text") or "").strip()
+            for part in self.parts
+            if isinstance(part, dict) and part.get("type") == "text" and str(part.get("text") or "").strip()
         )
+
+    @property
+    def live_text_part_ids(self) -> list[str]:
+        return [
+            str(part.get("id"))
+            for part in self.parts
+            if isinstance(part, dict) and part.get("type") == "text" and part.get("id")
+        ]
+
+    @property
+    def live_part_ids(self) -> list[str]:
+        return [
+            str(part.get("id"))
+            for part in self.parts
+            if isinstance(part, dict) and part.get("id")
+        ]
 
     def to_message(self, existing: dict | None = None) -> dict:
         if existing is not None:
@@ -41,8 +88,17 @@ class LiveMessageSnapshot:
             message["run_id"] = self.run_id
             message["status"] = "running"
             message["content_type"] = "parts"
-            message["metadata"] = {**(message.get("metadata") or {}), "liveStreaming": True, "liveTextPartIds": list(self.part_order)}
-            parts = [dict(part) for part in message.get("parts") or [] if isinstance(part, dict)]
+            message["metadata"] = {
+                **(message.get("metadata") or {}),
+                "liveStreaming": True,
+                "liveTextPartIds": self.live_text_part_ids,
+                "livePartIds": self.live_part_ids,
+            }
+            existing_parts = [
+                dict(part)
+                for part in message.get("parts") or []
+                if isinstance(part, dict) and str(part.get("id") or "") not in set(self.live_part_ids)
+            ]
         else:
             message = {
                 "id": self.message_id,
@@ -53,25 +109,20 @@ class LiveMessageSnapshot:
                 "parts": [],
                 "run_id": self.run_id,
                 "status": "running",
-                "metadata": {"liveStreaming": True, "liveTextPartIds": list(self.part_order)},
+                "metadata": {
+                    "liveStreaming": True,
+                    "liveTextPartIds": self.live_text_part_ids,
+                    "livePartIds": self.live_part_ids,
+                },
                 "client_message_id": None,
                 "created_at": self.created_at,
             }
-            parts = []
+            existing_parts = []
 
-        for part_id in self.part_order:
-            text = self.text_by_part_id.get(part_id, "")
-            for index, part in enumerate(parts):
-                if part.get("id") == part_id and part.get("type") == "text":
-                    parts[index] = {**part, "text": text}
-                    break
-            else:
-                parts.append({"id": part_id, "type": "text", "text": text})
-
-        message["parts"] = parts
+        message["parts"] = [*deepcopy(self.parts), *existing_parts]
         message["content"] = "\n\n".join(
             str(part.get("text") or "").strip()
-            for part in parts
+            for part in message["parts"]
             if part.get("type") == "text" and str(part.get("text") or "").strip()
         )
         return message
@@ -93,24 +144,74 @@ class LiveAIStreamCache:
         part_id: str,
         delta: str,
         created_by: str | None,
-    ) -> None:
+    ) -> tuple[str, str]:
         if not delta:
-            return
+            return message_id, part_id
+        with self._lock:
+            snapshot = self._get_or_create_snapshot(
+                family_id=family_id,
+                conversation_id=conversation_id,
+                run_id=run_id,
+                message_id=message_id,
+                created_by=created_by,
+            )
+            return snapshot.message_id, snapshot.append_delta(part_id, delta)
+
+    def append_activity(
+        self,
+        *,
+        family_id: str,
+        conversation_id: str,
+        run_id: str,
+        message_id: str,
+        part: dict[str, Any],
+        created_by: str | None,
+    ) -> tuple[str, dict[str, Any]]:
+        with self._lock:
+            snapshot = self._get_or_create_snapshot(
+                family_id=family_id,
+                conversation_id=conversation_id,
+                run_id=run_id,
+                message_id=message_id,
+                created_by=created_by,
+            )
+            return snapshot.message_id, snapshot.append_activity(part)
+
+    def parts_for_run(self, run_id: str | None) -> list[dict[str, Any]]:
+        if not run_id:
+            return []
         with self._lock:
             snapshot = self._messages_by_run_id.get(run_id)
             if snapshot is None:
-                snapshot = LiveMessageSnapshot(
-                    family_id=family_id,
-                    conversation_id=conversation_id,
-                    run_id=run_id,
-                    message_id=message_id,
-                    created_by=created_by,
-                    created_at=utcnow(),
-                    updated_at=utcnow(),
-                )
-                self._messages_by_run_id[run_id] = snapshot
-                self._run_ids_by_conversation_id.setdefault(conversation_id, set()).add(run_id)
-            snapshot.append(part_id, delta)
+                return []
+            return deepcopy(snapshot.parts)
+
+    def _get_or_create_snapshot(
+        self,
+        *,
+        family_id: str,
+        conversation_id: str,
+        run_id: str,
+        message_id: str,
+        created_by: str | None,
+    ) -> LiveMessageSnapshot:
+        snapshot = self._messages_by_run_id.get(run_id)
+        if snapshot is not None:
+            return snapshot
+        snapshot = LiveMessageSnapshot(
+            family_id=family_id,
+            conversation_id=conversation_id,
+            run_id=run_id,
+            message_id=message_id,
+            created_by=created_by,
+            created_at=utcnow(),
+            updated_at=utcnow(),
+        )
+        self._messages_by_run_id[run_id] = snapshot
+        if conversation_id not in self._run_ids_by_conversation_id:
+            self._run_ids_by_conversation_id[conversation_id] = set()
+        self._run_ids_by_conversation_id[conversation_id].add(run_id)
+        return snapshot
 
     def overlay_messages(self, *, family_id: str, conversation_id: str, messages: list[dict]) -> list[dict]:
         with self._lock:

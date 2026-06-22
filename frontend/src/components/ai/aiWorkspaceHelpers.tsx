@@ -1,4 +1,4 @@
-import type { AiApprovalRequest, AiChatResponse, AiMessage, AiRunEvent } from '../../api/types';
+import type { AiApprovalRequest, AiChatResponse, AiMessage, AiMessagePart, AiRunEvent } from '../../api/types';
 
 export function TrashIcon() {
   return (
@@ -10,6 +10,11 @@ export function TrashIcon() {
       <path d="M14 11v6" />
     </svg>
   );
+}
+
+export function isPendingHumanInputPart(part: AiMessagePart) {
+  if (part.type !== 'human_input_request' || !part.request) return false;
+  return (part.status ?? 'pending') === 'pending';
 }
 
 export function mergePendingApprovalsIntoMessages(messages: AiMessage[], approvals: AiApprovalRequest[]): AiMessage[] {
@@ -122,13 +127,11 @@ export function createLocalAssistantMessage(runId: string, conversationId: strin
 }
 
 export function appendAssistantDelta(currentText: string, delta: string, shouldSeparate: boolean) {
-  const currentTextEndsAtSentenceBoundary = /[。！？!?]\s*$/.test(currentText);
   if (
     !shouldSeparate
     || !currentText.trim()
     || currentText.endsWith('\n\n')
     || delta.startsWith('\n')
-    || !currentTextEndsAtSentenceBoundary
   ) {
     return `${currentText}${delta}`;
   }
@@ -146,21 +149,19 @@ export function appendDeltaToMessageParts(
   parts: AiMessage['parts'],
   delta: string,
   partId: string,
-  shouldSeparate: boolean,
+  _shouldSeparate: boolean,
   appendAfterNonText: boolean,
 ) {
-  if (appendAfterNonText) {
-    const existingContinuation = parts.find((part) => part.type === 'text' && part.id === partId);
-    if (existingContinuation) {
-      return parts.map((part) =>
-        part.id === partId && part.type === 'text'
-          ? { ...part, text: appendAssistantDelta(part.text ?? '', delta, false) }
-          : part,
-      );
-    }
+  const existingContinuation = parts.find((part) => part.type === 'text' && part.id === partId);
+  if (existingContinuation) {
+    return parts.map((part) =>
+      part.id === partId && part.type === 'text'
+        ? { ...part, text: appendAssistantDelta(part.text ?? '', delta, false) }
+        : part,
+    );
+  }
+  if (appendAfterNonText || parts.length > 0) {
     return [...parts, { id: partId, type: 'text' as const, text: delta }];
   }
-  return parts.some((part) => part.type === 'text')
-    ? parts.map((part) => (part.type === 'text' ? { ...part, id: partId || part.id, text: appendAssistantDelta(part.text ?? '', delta, shouldSeparate) } : part))
-    : [{ id: partId, type: 'text' as const, text: delta }, ...parts];
+  return [{ id: partId, type: 'text' as const, text: delta }];
 }
