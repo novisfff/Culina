@@ -109,7 +109,9 @@ class LiveAIStreamCache:
                     updated_at=utcnow(),
                 )
                 self._messages_by_run_id[run_id] = snapshot
-                self._run_ids_by_conversation_id.setdefault(conversation_id, set()).add(run_id)
+                if conversation_id not in self._run_ids_by_conversation_id:
+                    self._run_ids_by_conversation_id[conversation_id] = set()
+                self._run_ids_by_conversation_id[conversation_id].add(run_id)
             snapshot.append(part_id, delta)
 
     def overlay_messages(self, *, family_id: str, conversation_id: str, messages: list[dict]) -> list[dict]:

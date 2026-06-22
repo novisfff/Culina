@@ -95,7 +95,9 @@ def load_available_inventory_by_ingredient(
             continue
         if remaining_quantity(item) <= 0:
             continue
-        items_by_ingredient.setdefault(item.ingredient_id, []).append(item)
+        if item.ingredient_id not in items_by_ingredient:
+            items_by_ingredient[item.ingredient_id] = []
+        items_by_ingredient[item.ingredient_id].append(item)
 
     for available_items in items_by_ingredient.values():
         available_items.sort(key=lambda item: (*expiry_sort_key(item.expiry_date), item.purchase_date, item.created_at))

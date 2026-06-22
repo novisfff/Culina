@@ -1,0 +1,26 @@
+version: 2
+key: meal_log
+display_name: 用餐记录
+intent: meal_log
+agent_key: meal_log_agent
+context_policy:
+- foods
+- meal_logs
+allowed_tools:
+- food.search
+- human.request_input
+- meal_log.read_recent
+- meal_log.read_by_id
+- meal_log.create_draft
+script_files: []
+output_types: []
+draft_types:
+- meal_log
+approval_policy: draft_then_confirm
+examples:
+- 今晚吃了番茄小炒。
+- 记录一餐。
+- 给昨天的晚餐补充一下心情和照片。
+- 把那顿番茄小炒打 4 分。
+- 昨天早餐吃了盒装牛奶和面包。
+- 刚才加餐吃了蓝莓酸奶。

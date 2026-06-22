@@ -7,6 +7,7 @@ import type {
   AiApprovalRequest,
   AiChatResponse,
   AiConversation,
+  AiHumanInputRequest,
   AiInventoryOperationAction,
   AiInventoryResultItem,
   AiMessage,
@@ -27,7 +28,7 @@ import {
 } from './AiConversationHistory';
 import { AiDeleteConversationDialog } from './AiDeleteConversationDialog';
 import { AiMobilePage } from './AiMobilePage';
-import { MessageBubble, type AiApprovalDecisionSubmit, type AiResourceOptionLoader } from './AiConversationThread';
+import { MessageBubble, type AiApprovalDecisionSubmit, type AiHumanInputResponseSubmit, type AiResourceOptionLoader } from './AiConversationThread';
 import { AiQualityDiagnosticsModal } from './AiQualityDiagnosticsModal';
 import { AiRecommendationPlanDialog, type AiRecommendationPlanRequest } from './AiRecommendationPlanDialog';
 import { AiWelcomePrompt } from './AiWelcomePrompt';
@@ -38,7 +39,8 @@ import {
   createLocalAssistantMessage,
   appendDeltaToMessageParts,
   messageTextFromParts,
-  appendAssistantDelta
+  appendAssistantDelta,
+  isPendingHumanInputPart,
 } from './aiWorkspaceHelpers';
 import { useAiConversationLiveSync } from './useAiConversationLiveSync';
 import { useAiInventoryDraftAction } from './useAiInventoryDraftAction';
@@ -54,6 +56,10 @@ export { ApprovalPanel } from './AiConversationThread';
 function getLocalPendingRunId(conversationKey: string, messages: AiMessage[]) {
   return messages.find((message) => message.role === 'assistant' && message.run_id)?.run_id
     ?? conversationKey.replace(/^pending-conversation-/, '');
+}
+
+function hasRenderableMessageContent(message: AiMessage) {
+  return Boolean(message.content?.trim()) || message.parts.some((part) => part.type !== 'text' || Boolean(part.text?.trim()));
 }
 
 export function AiWorkspace({
@@ -262,19 +268,32 @@ export function AiWorkspace({
     const remote = messagesQuery.data ?? [];
     if (activeLocalMessages.length === 0) return remote;
     const localById = new Map(activeLocalMessages.map((item) => [item.id, item]));
+    const localAssistantByRunId = new Map(
+      activeLocalMessages
+        .filter((item) => item.role === 'assistant' && item.run_id)
+        .map((item) => [item.run_id as string, item]),
+    );
     const knownIds = new Set(remote.map((item) => item.id));
     const knownClientIds = new Set(remote.map((item) => item.client_message_id).filter(Boolean));
-    const completedAssistantRunIds = new Set(
+    const remoteAssistantRunIds = new Set(
       remote
-        .filter((item) => item.role === 'assistant' && item.run_id && item.status !== 'running')
+        .filter((item) => item.role === 'assistant' && item.run_id)
         .map((item) => item.run_id as string),
     );
     return [
-      ...remote.map((item) => localById.get(item.id) ?? item),
+      ...remote.map((item) => {
+        const localByRunId = item.role === 'assistant' && item.run_id ? localAssistantByRunId.get(item.run_id) : undefined;
+        const matchingLocal = localById.get(item.id) ?? localByRunId;
+        if (!matchingLocal) return item;
+        if (item.role === 'assistant' && item.run_id && hasRenderableMessageContent(item) && !hasRenderableMessageContent(matchingLocal)) {
+          return item;
+        }
+        return matchingLocal;
+      }),
       ...activeLocalMessages.filter((item) => {
         if (knownIds.has(item.id)) return false;
         if (item.client_message_id && knownClientIds.has(item.client_message_id)) return false;
-        if (item.role === 'assistant' && item.run_id && completedAssistantRunIds.has(item.run_id)) return false;
+        if (item.role === 'assistant' && item.run_id && remoteAssistantRunIds.has(item.run_id)) return false;
         return true;
       }),
     ];
@@ -301,6 +320,10 @@ export function AiWorkspace({
     if ((pendingApprovalsQuery.data ?? []).some((approval) => approval.status === 'pending')) return true;
     return displayedMessages.some((message) => message.parts.some((part) => part.approval?.status === 'pending'));
   }, [displayedMessages, pendingApprovalsQuery.data]);
+  const hasPendingHumanInput = useMemo(
+    () => displayedMessages.some((message) => message.parts.some(isPendingHumanInputPart)),
+    [displayedMessages],
+  );
   const activeApprovalRunId = useMemo(() => {
     const pendingApproval = (pendingApprovalsQuery.data ?? []).find((approval) => approval.status === 'pending' && approval.run_id);
     if (pendingApproval?.run_id) return pendingApproval.run_id;
@@ -310,6 +333,12 @@ export function AiWorkspace({
     }
     return null;
   }, [displayedMessages, pendingApprovalsQuery.data]);
+  const activeHumanInputRunId = useMemo(() => {
+    for (const message of displayedMessages) {
+      if (message.run_id && message.parts.some(isPendingHumanInputPart)) return message.run_id;
+    }
+    return null;
+  }, [displayedMessages]);
   const activeStreamRunId = activeConversationKey ? activeStreamRunIdsByConversationKey[activeConversationKey] ?? null : null;
   const activeVisibleRunId = activeStreamRunId ?? (isActiveConversationServerRunning ? serverActiveRunId : null);
   const streamProgress = activeStreamRunId
@@ -318,11 +347,13 @@ export function AiWorkspace({
       ? runEventsById[activeVisibleRunId] ?? []
       : [];
   const isAiUnavailable = aiStatusQuery.data?.enabled === false;
-  const isComposerPaused = hasPendingApproval || isAiUnavailable;
+  const isComposerPaused = hasPendingApproval || hasPendingHumanInput || isAiUnavailable;
   const composerPauseMessage = isAiUnavailable
     ? aiStatusQuery.data?.detail || 'AI 模型未配置，暂时不能发送消息。'
     : hasPendingApproval
       ? '请先确认上面的草稿，确认后可以继续对话。'
+      : hasPendingHumanInput
+        ? '请先回答上面的问题，AI 会接着处理当前任务。'
       : undefined;
   const aiStatusLabel = isAiUnavailable ? 'AI 未配置' : aiStatusQuery.isLoading ? 'AI 检查中' : 'AI 已就绪';
   const loadResourceOptions = useCallback<AiResourceOptionLoader>(async (kind, params) => {
@@ -681,6 +712,13 @@ export function AiWorkspace({
       void refreshAfterApprovalSettled();
     },
   });
+  const humanInputMutation = useMutation({
+    mutationFn: (payload: { message: AiMessage; request: AiHumanInputRequest; response: { selected_option_ids?: string[]; text?: string } }) =>
+      api.respondAiHumanInput(payload.message.conversation_id, payload.request.id, payload.response).then((response) => {
+        applyChatResponse(response, payload.message.conversation_id, response.run.id);
+        return response;
+      }),
+  });
   const deleteConversationMutation = useMutation({
     mutationFn: api.deleteAiConversation,
     onSuccess: async (_, conversationId) => {
@@ -702,14 +740,21 @@ export function AiWorkspace({
     },
     onSettled: () => setDeletingConversationId(null),
   });
-  const isLocalAssistantBusy = chatMutation.isPending || approvalStreamMutation.isPending;
-  const isAnotherConversationRunning = isLocalAssistantBusy && (!activeConversationKey || !runningConversationKeys.has(activeConversationKey));
-  const isAssistantBusy = Boolean(activeVisibleRunId) || Boolean(activeApprovalRunId);
+  const isLocalAssistantBusy = chatMutation.isPending || approvalStreamMutation.isPending || humanInputMutation.isPending;
+  const isSubmittingActiveApproval = approvalStreamMutation.isPending && Boolean(activeApprovalRunId);
+  const isSubmittingActiveHumanInput = humanInputMutation.isPending && Boolean(activeHumanInputRunId);
+  const isActiveConversationLocalBusy = Boolean(activeStreamRunId) || isActiveConversationServerRunning || isSubmittingActiveApproval || isSubmittingActiveHumanInput;
+  const isAnotherConversationRunning = isLocalAssistantBusy && !isActiveConversationLocalBusy;
+  const isAssistantBusy = Boolean(activeVisibleRunId) || Boolean(activeApprovalRunId) || Boolean(activeHumanInputRunId);
   const effectiveComposerPaused = isComposerPaused || isAnotherConversationRunning;
-  const effectiveComposerPauseMessage = isAnotherConversationRunning
-    ? '另一个会话正在后台回复，可以切回历史查看进度。'
-    : composerPauseMessage;
-  const activeCancellableRunId = activeStreamRunId ?? activeApprovalRunId ?? (isActiveConversationServerRunning ? serverActiveRunId : null);
+  const effectiveComposerPauseMessage = isSubmittingActiveHumanInput
+    ? '正在提交你的回答，AI 会接着处理当前任务。'
+    : isSubmittingActiveApproval
+      ? '正在提交确认结果，AI 会接着处理当前任务。'
+      : isAnotherConversationRunning
+        ? '另一个会话正在后台回复，可以切回历史查看进度。'
+        : composerPauseMessage;
+  const activeCancellableRunId = activeStreamRunId ?? activeApprovalRunId ?? activeHumanInputRunId ?? (isActiveConversationServerRunning ? serverActiveRunId : null);
   function deleteConversation(conversation: AiConversation) {
     if (deleteConversationMutation.isPending) return;
     setPendingDeleteConversation(conversation);
@@ -782,6 +827,10 @@ export function AiWorkspace({
       setStreamProgressByRunId((current) => ({ ...current, [approval.run_id as string]: [] }));
     }
     await approvalStreamMutation.mutateAsync({ approval, decision, values, comment });
+  };
+  const submitHumanInputResponse: AiHumanInputResponseSubmit = async (message, request, response) => {
+    if (humanInputMutation.isPending) return;
+    await humanInputMutation.mutateAsync({ message, request, response });
   };
   function openRecommendationPlan(item: AiTodayRecommendationItem, card: AiResultCard, messageId: string, partId: string) {
     if (!item.foodId || !createFoodPlanItem) return;
@@ -943,6 +992,7 @@ export function AiWorkspace({
         onPickSuggestion={setDraft}
         onSubmit={sendMessage}
         onApprovalDecision={submitApprovalDecision}
+        onHumanInputResponse={submitHumanInputResponse}
         onAddRecommendationToPlan={openRecommendationPlan}
         onInventoryAction={createInventoryOperationDraft}
         isInventoryActionPending={inventoryDraftAction.isPending}
@@ -1019,6 +1069,7 @@ export function AiWorkspace({
                     }
                     isLatestAssistant={message.id === latestAssistantMessageId}
                     onApprovalDecision={submitApprovalDecision}
+                    onHumanInputResponse={submitHumanInputResponse}
                     onAddRecommendationToPlan={openRecommendationPlan}
                     onInventoryAction={createInventoryOperationDraft}
                     isInventoryActionPending={inventoryDraftAction.isPending}

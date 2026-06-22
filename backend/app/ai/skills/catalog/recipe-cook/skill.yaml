@@ -1,0 +1,29 @@
+version: 2
+key: recipe_cook
+display_name: 按菜谱做菜
+intent: recipe_cook
+agent_key: recipe_cook_agent
+context_policy:
+- recipes
+- inventory
+- meal_plan
+allowed_tools:
+- human.request_input
+- recipe.search
+- recipe.read_by_id
+- recipe.preview_cook
+- recipe.create_cook_draft
+- inventory.read_available_items
+- meal_plan.read_existing
+script_files: []
+output_types: []
+draft_types:
+- recipe_cook
+approval_policy: draft_then_confirm
+examples:
+- 做一份番茄炒蛋，顺便扣减库存。
+- 今晚按这个菜谱做 3 份。
+- 把明天晚餐那条番茄炒蛋计划做掉。
+- 预览一下红烧牛肉做 2 人份够不够。
+- 按今晚计划做番茄炒蛋并记录餐食。
+- 这道菜库存够的话帮我生成做菜确认。

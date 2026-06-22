@@ -1,0 +1,41 @@
+version: 2
+key: meal_plan
+display_name: 餐食安排
+intent: meal_plan
+agent_key: meal_plan_agent
+context_policy:
+- inventory
+- meal_logs
+- foods
+- recipes
+- meal_plan
+allowed_tools:
+- inventory.read_expiring_items
+- inventory.read_available_items
+- human.request_input
+- meal_log.read_recent
+- food.search
+- food.read_by_id
+- recipe.search
+- recipe.read_by_id
+- meal_plan.read_existing
+- meal_plan.read_by_id
+- meal_plan.create_draft
+script_files:
+- scripts/expand_meal_slots.py
+- scripts/validate_meal_plan.py
+- scripts/render_plan_preview.py
+output_types:
+- today_recommendation
+draft_types:
+- meal_plan
+approval_policy: draft_then_confirm
+examples:
+- 今晚吃什么？
+- 今天用现有食材推荐一下。
+- 安排三天晚餐。
+- 第二天不要鸡肉。
+- 明天早餐和晚餐帮我排一下。
+- 把周五晚餐改成番茄炒蛋。
+- 删除明天午餐计划。
+- 这周末午晚餐都安排清淡一点。

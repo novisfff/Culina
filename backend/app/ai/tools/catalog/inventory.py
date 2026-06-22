@@ -21,7 +21,7 @@ from app.ai.tools.schemas import (
 from app.ai.tools.catalog.inventory_unit_conversion import (
     build_unit_conversion_candidate,
     build_unit_mismatch_inventory_payload,
-    unit_mismatch_from_pending_clarification,
+    unit_mismatch_from_tool_payload,
 )
 from app.models.domain import InventoryItem
 from app.services.clock import today_for_family
@@ -80,9 +80,9 @@ def inventory_items_output_schema(query_focus: str) -> dict[str, Any]:
 UNIT_CONVERSION_OPERATION_INPUT = {
     "type": "object",
     "additionalProperties": False,
-    "required": ["pendingClarification", "ratioToDefault"],
+    "required": ["unitMismatch", "ratioToDefault"],
     "properties": {
-        "pendingClarification": {"type": "object"},
+        "unitMismatch": {"type": "object"},
         "ratioToDefault": {"type": "number", "exclusiveMinimum": 0},
         "sourceMessage": {"type": ["string", "null"], "maxLength": 300},
     },
@@ -91,12 +91,11 @@ UNIT_CONVERSION_OPERATION_INPUT = {
 UNIT_CONVERSION_OPERATION_OUTPUT = {
     "type": "object",
     "additionalProperties": False,
-    "required": ["draft", "itemCount", "clearsPendingClarification", "clarificationResolution"],
+    "required": ["draft", "itemCount", "unitConversionResolution"],
     "properties": {
         "draft": INVENTORY_OPERATION_DRAFT_SCHEMA,
         "itemCount": {"type": "integer", "minimum": 0},
-        "clearsPendingClarification": {"type": "boolean"},
-        "clarificationResolution": {"type": "object"},
+        "unitConversionResolution": {"type": "object"},
     },
 }
 
@@ -323,28 +322,26 @@ def inventory_create_operation_draft(context: ToolContext, payload: dict[str, An
 
 
 def inventory_create_unit_conversion_operation_draft(context: ToolContext, payload: dict[str, Any]) -> dict[str, Any]:
-    pending_clarification = payload.get("pendingClarification") if isinstance(payload.get("pendingClarification"), dict) else {}
-    unit_mismatch = unit_mismatch_from_pending_clarification(pending_clarification)
+    unit_mismatch = unit_mismatch_from_tool_payload(payload)
     ratio_to_default = Decimal(str(payload.get("ratioToDefault")))
     if ratio_to_default <= 0:
         raise ValueError("换算比例必须大于 0")
     draft = build_unit_mismatch_inventory_payload(
         context.db,
         family_id=context.family_id,
-        pending=unit_mismatch,
+        unit_mismatch=unit_mismatch,
         ratio_to_default=ratio_to_default,
     )
     normalized = normalize_inventory_operation_draft(context.db, family_id=context.family_id, payload=draft)
     candidate = build_unit_conversion_candidate(
-        pending=unit_mismatch,
+        unit_mismatch=unit_mismatch,
         ratio_to_default=ratio_to_default,
         source_message=str(payload.get("sourceMessage") or ""),
     )
     return {
         "draft": normalized,
         "itemCount": len(normalized["operations"]),
-        "clearsPendingClarification": True,
-        "clarificationResolution": {"type": "unit_conversion", "payload": candidate},
+        "unitConversionResolution": {"type": "unit_conversion", "payload": candidate},
     }
 
 
@@ -404,8 +401,8 @@ def register_inventory_tools(registry: ToolRegistry) -> None:
         name="inventory.create_unit_conversion_operation_draft",
         display_name="本次单位换算入库确认表单",
         description=(
-            "当 pendingClarification.questionType=unit_conversion 且用户已明确本次 1 个不支持单位等于多少主单位时，"
-            "按本次换算生成普通库存处理草稿；只用于本次入库，不保存食材副单位。"
+            "当 human.request_input 的 resumeHint.questionType=unit_conversion 且用户已明确本次 1 个不支持单位等于多少主单位时，"
+            "传入 resumeHint.unitMismatch 并按本次换算生成普通库存处理草稿；只用于本次入库，不保存食材副单位。"
         ),
         side_effect="draft",
         handler=inventory_create_unit_conversion_operation_draft,

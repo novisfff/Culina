@@ -96,22 +96,27 @@ def meal_plan_read_existing(context: ToolContext, payload: dict[str, Any]) -> di
     has_more = len(plans) > limit
     plans = plans[:limit]
     return {
-        "items": [
-            {
-                "id": item.id,
-                "date": item.plan_date.isoformat(),
-                "mealType": item.meal_type.value if hasattr(item.meal_type, "value") else str(item.meal_type),
-                "title": item.food.name if item.food else (item.note or "未命名餐食"),
-                "foodId": item.food_id,
-                "note": item.note,
-                "status": item.status,
-                "recipeId": item.food.recipe_id if item.food is not None else None,
-                "updatedAt": item.updated_at.isoformat() if item.updated_at is not None else None,
-            }
-            for item in plans
-        ],
+        "items": [serialize_meal_plan_tool_item(item) for item in plans],
         "count": len(plans),
         "hasMore": has_more,
+    }
+
+
+def serialize_meal_plan_tool_item(item: FoodPlanItem) -> dict[str, Any]:
+    record = serialize_food_plan_item(item)
+    meal_type = record["meal_type"]
+    plan_date = record["plan_date"]
+    updated_at = record["updated_at"]
+    return {
+        "id": record["id"],
+        "date": plan_date.isoformat() if hasattr(plan_date, "isoformat") else str(plan_date),
+        "mealType": meal_type.value if hasattr(meal_type, "value") else str(meal_type),
+        "title": record.get("food_name") or record.get("note") or "未命名餐食",
+        "foodId": record["food_id"],
+        "note": record["note"],
+        "status": record["status"],
+        "recipeId": record.get("recipe_id"),
+        "updatedAt": updated_at.isoformat() if hasattr(updated_at, "isoformat") else updated_at,
     }
 
 
@@ -127,7 +132,7 @@ def meal_plan_read_by_id(context: ToolContext, payload: dict[str, Any]) -> dict[
     )
     if item is None:
         raise ValueError("餐食计划不存在或不属于当前用户")
-    return {"item": serialize_food_plan_item(item)}
+    return {"item": serialize_meal_plan_tool_item(item)}
 
 
 def meal_plan_create_draft(context: ToolContext, payload: dict[str, Any]) -> dict[str, Any]:

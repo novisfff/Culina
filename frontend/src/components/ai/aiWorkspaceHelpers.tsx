@@ -1,4 +1,4 @@
-import type { AiApprovalRequest, AiChatResponse, AiMessage, AiRunEvent } from '../../api/types';
+import type { AiApprovalRequest, AiChatResponse, AiMessage, AiMessagePart, AiRunEvent } from '../../api/types';
 
 export function TrashIcon() {
   return (
@@ -10,6 +10,11 @@ export function TrashIcon() {
       <path d="M14 11v6" />
     </svg>
   );
+}
+
+export function isPendingHumanInputPart(part: AiMessagePart) {
+  if (part.type !== 'human_input_request' || !part.request) return false;
+  return (part.status ?? 'pending') === 'pending';
 }
 
 export function mergePendingApprovalsIntoMessages(messages: AiMessage[], approvals: AiApprovalRequest[]): AiMessage[] {

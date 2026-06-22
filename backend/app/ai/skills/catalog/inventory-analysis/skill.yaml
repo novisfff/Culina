@@ -1,0 +1,31 @@
+version: 2
+key: inventory_analysis
+display_name: 库存查看与处理
+intent: inventory
+agent_key: inventory_agent
+context_policy:
+- inventory
+allowed_tools:
+- ingredient.search
+- ingredient.read_by_id
+- inventory.read_summary
+- inventory.read_expiring_items
+- inventory.read_expired_items
+- inventory.read_low_stock_items
+- inventory.read_available_items
+- human.request_input
+- inventory.create_operation_draft
+- inventory.create_unit_conversion_operation_draft
+script_files: []
+output_types:
+- inventory_summary
+draft_types:
+- inventory_operation
+approval_policy: draft_then_confirm
+examples:
+- 快过期食材有哪些？
+- 库存怎么样？
+- 还有哪些菜能用的食材？
+- 鸡蛋入库 12 个，冷藏。
+- 做饭用了 2 个番茄，帮我扣库存。
+- 把过期的牛奶销毁掉。

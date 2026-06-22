@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session, selectinload
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from app.core.deps import get_current_auth
-from app.core.enums import ActivityAction, FoodType, MealType, food_type_values, normalize_food_type
+from app.core.enums import ActivityAction, FoodType, MealType
 from app.core.utils import create_id
 from app.db.session import get_db
 from app.db.transactions import commit_session
@@ -104,14 +104,14 @@ def _days_until(value: date | None, today: date) -> int | None:
 
 
 def _food_has_missing_decision_info(food: Food) -> bool:
-    normalized_type = normalize_food_type(food.type)
+    food_type = food.type.value if hasattr(food.type, "value") else food.type
     if not food.suitable_meal_types:
         return True
-    if normalized_type != FoodType.SELF_MADE.value and not food.source_name.strip() and not food.purchase_source.strip():
+    if food_type != FoodType.SELF_MADE.value and not food.source_name.strip() and not food.purchase_source.strip():
         return True
     if not food.routine_note.strip() and not food.notes.strip() and not food.scene.strip() and not (food.scene_tags or []):
         return True
-    if normalized_type in READY_LIKE_TYPES and (food.stock_quantity is None or food.stock_quantity <= 0 or not food.stock_unit.strip() or food.expiry_date is None):
+    if food_type in READY_LIKE_TYPES and (food.stock_quantity is None or food.stock_quantity <= 0 or not food.stock_unit.strip() or food.expiry_date is None):
         return True
     return False
 
@@ -135,7 +135,7 @@ def _score_food(
     target_date: date,
     recipe_availability_by_id: dict[str, dict],
 ) -> dict:
-    normalized_type = normalize_food_type(food.type)
+    food_type = food.type.value if hasattr(food.type, "value") else food.type
     target_meal_value = target_meal_type.value
     suitable_meals = [_normalize_meal_type_value(item) for item in (food.suitable_meal_types or [])]
     score = 0.0
@@ -182,7 +182,7 @@ def _score_food(
     elif food.repurchase is False:
         add(-140)
 
-    if normalized_type in READY_LIKE_TYPES:
+    if food_type in READY_LIKE_TYPES:
         days = _days_until(food.expiry_date, target_date)
         if food.stock_quantity is not None and food.stock_quantity <= 0:
             add(-180)
@@ -194,7 +194,7 @@ def _score_food(
             elif days <= 7:
                 add(150, "expiring_soon", days=days)
 
-    if normalized_type == FoodType.SELF_MADE.value:
+    if food_type == FoodType.SELF_MADE.value:
         if food.recipe is None:
             add(-90)
         else:
@@ -213,9 +213,9 @@ def _score_food(
 
     primary_action = (
         "cook_recipe"
-        if normalized_type == FoodType.SELF_MADE.value and food.recipe_id
+        if food_type == FoodType.SELF_MADE.value and food.recipe_id
         else "quick_add_meal"
-        if normalized_type in OUTSIDE_TYPES or normalized_type in READY_LIKE_TYPES
+        if food_type in OUTSIDE_TYPES or food_type in READY_LIKE_TYPES
         else "review_food"
     )
     reasons = [reason for _, reason in sorted(reason_scores, key=lambda item: item[0], reverse=True)]
@@ -226,19 +226,19 @@ def _score_food(
         "reasons": deduped_reasons,
         "primary_action": primary_action,
         "recipe_availability": recipe_availability,
-        "normalized_type": normalized_type,
-        "is_expiring": normalized_type in READY_LIKE_TYPES and (_days_until(food.expiry_date, target_date) is not None and (_days_until(food.expiry_date, target_date) or 0) <= 7),
+        "food_type": food_type,
+        "is_expiring": food_type in READY_LIKE_TYPES and (_days_until(food.expiry_date, target_date) is not None and (_days_until(food.expiry_date, target_date) or 0) <= 7),
     }
 
 
-def _recommendation_bucket(normalized_type: str) -> str:
-    if normalized_type == FoodType.SELF_MADE.value:
+def _recommendation_bucket(food_type: str) -> str:
+    if food_type == FoodType.SELF_MADE.value:
         return "selfMade"
-    if normalized_type in OUTSIDE_TYPES:
+    if food_type in OUTSIDE_TYPES:
         return "outside"
-    if normalized_type in READY_LIKE_TYPES:
+    if food_type in READY_LIKE_TYPES:
         return "ready"
-    return normalized_type
+    return food_type
 
 
 def _diversify_recommendations(scored: list[dict], limit: int) -> list[dict]:
@@ -252,7 +252,7 @@ def _diversify_recommendations(scored: list[dict], limit: int) -> list[dict]:
     for bucket in ["selfMade", "outside", "ready"]:
         if len(selected) >= 3:
             break
-        candidate = next((item for item in scored if item not in selected and _recommendation_bucket(item["normalized_type"]) == bucket), None)
+        candidate = next((item for item in scored if item not in selected and _recommendation_bucket(item["food_type"]) == bucket), None)
         if candidate:
             selected.append(candidate)
     for item in scored:
@@ -456,7 +456,7 @@ def update_food(
     food = db.scalar(select(Food).where(Food.id == food_id, Food.family_id == membership.family_id))
     if food is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Food not found")
-    if food.type in food_type_values(FoodType.SELF_MADE) or food.recipe_id is not None:
+    if food.type == FoodType.SELF_MADE.value or food.recipe_id is not None:
         if payload.type != FoodType.SELF_MADE or payload.recipe_id != food.recipe_id:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=SYNCED_SELF_MADE_MESSAGE)
         _apply_self_made_food_profile(food, payload)

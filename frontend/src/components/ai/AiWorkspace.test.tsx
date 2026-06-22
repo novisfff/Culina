@@ -500,6 +500,205 @@ describe('MessageBubble', () => {
     expect(rendered.container.querySelectorAll('.ai-message-action-btn')).toHaveLength(3);
     rendered.unmount();
   });
+
+  it('submits a preset human input option directly and collapses with the answer summary', async () => {
+    const respond = vi.fn().mockResolvedValue(undefined);
+    const rendered = await renderWithQuery(
+      <MessageBubble
+        message={{
+          id: 'message-human-input',
+          conversation_id: 'conversation-1',
+          role: 'assistant',
+          content: '你想怎么处理缺少的青椒？',
+          content_type: 'parts',
+          parts: [
+            {
+              id: 'human-input-part',
+              type: 'human_input_request',
+              status: 'pending',
+              request: {
+                id: 'human-input-1',
+                question: '你想怎么处理缺少的青椒？',
+                inputMode: 'choice_or_text',
+                options: [{ id: 'restock', label: '先补青椒库存后再做' }],
+                allowMultiple: false,
+                required: true,
+                reason: null,
+                sourceSkills: ['recipe_draft'],
+                resumeHint: {},
+              },
+            },
+          ],
+          run_id: 'run-human-input',
+          status: 'completed',
+          metadata: {},
+          created_at: '2026-05-30T00:00:00Z',
+        }}
+        user={{ id: 'user-1', username: 'me', display_name: '我', avatar_seed: 'seed', avatar_image: null }}
+        isLatestAssistant
+        onApprovalDecision={() => undefined}
+        onHumanInputResponse={respond}
+      />,
+    );
+
+    expect(rendered.container.querySelector('.ai-approval-panel.is-expanded')).not.toBeNull();
+    await act(async () => {
+      rendered.container.querySelector<HTMLButtonElement>('.ai-clarification-option')?.click();
+    });
+    await flush();
+
+    expect(respond).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'message-human-input' }),
+      expect.objectContaining({ id: 'human-input-1' }),
+      { selected_option_ids: ['restock'], text: undefined },
+    );
+    expect(rendered.container.querySelector('.ai-approval-panel.is-human-input-resolved')).not.toBeNull();
+    expect(rendered.container.querySelector('.ai-approval-body-wrapper')?.getAttribute('aria-hidden')).toBe('true');
+    expect(rendered.container.textContent).toContain('已提交');
+    expect(rendered.container.textContent).toContain('回答');
+    expect(rendered.container.textContent).toContain('先补青椒库存后再做');
+
+    await act(async () => {
+      rendered.container.querySelector<HTMLElement>('.ai-approval-head')?.click();
+    });
+    expect(rendered.container.querySelector('.ai-approval-panel.is-expanded')).not.toBeNull();
+    expect(rendered.container.querySelector('.ai-approval-body-wrapper')?.getAttribute('aria-hidden')).toBe('false');
+    rendered.unmount();
+  });
+
+  it('shows manual input only after choosing the manual option', async () => {
+    const respond = vi.fn().mockResolvedValue(undefined);
+    const rendered = await renderWithQuery(
+      <MessageBubble
+        message={{
+          id: 'message-human-input',
+          conversation_id: 'conversation-1',
+          role: 'assistant',
+          content: '你想怎么处理缺少的青椒？',
+          content_type: 'parts',
+          parts: [
+            {
+              id: 'human-input-part',
+              type: 'human_input_request',
+              status: 'pending',
+              request: {
+                id: 'human-input-1',
+                question: '你想怎么处理缺少的青椒？',
+                inputMode: 'choice_or_text',
+                options: [{ id: 'restock', label: '先补青椒库存后再做' }],
+                allowMultiple: false,
+                required: true,
+                reason: null,
+                sourceSkills: ['recipe_draft'],
+                resumeHint: {},
+              },
+            },
+          ],
+          run_id: 'run-human-input',
+          status: 'completed',
+          metadata: {},
+          created_at: '2026-05-30T00:00:00Z',
+        }}
+        user={{ id: 'user-1', username: 'me', display_name: '我', avatar_seed: 'seed', avatar_image: null }}
+        isLatestAssistant
+        onApprovalDecision={() => undefined}
+        onHumanInputResponse={respond}
+      />,
+    );
+
+    expect(rendered.container.querySelector('.ai-human-input-manual-panel')).toBeNull();
+    const options = rendered.container.querySelectorAll<HTMLButtonElement>('.ai-clarification-option');
+    expect(options).toHaveLength(2);
+    expect(options[1].textContent).toContain('手动输入');
+
+    await act(async () => {
+      options[1].click();
+    });
+    const textarea = rendered.container.querySelector<HTMLTextAreaElement>('.ai-human-input-manual-panel textarea.text-input') as HTMLTextAreaElement;
+    expect(textarea).not.toBeNull();
+    changeInput(textarea, '先把菜谱改成不需要青椒');
+    await act(async () => {
+      rendered.container.querySelector<HTMLButtonElement>('.ai-human-input-submit')?.click();
+    });
+    await flush();
+
+    expect(respond).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'message-human-input' }),
+      expect.objectContaining({ id: 'human-input-1' }),
+      { selected_option_ids: [], text: '先把菜谱改成不需要青椒' },
+    );
+    expect(rendered.container.textContent).toContain('先把菜谱改成不需要青椒');
+    rendered.unmount();
+  });
+
+  it('warns before replacing a drafted manual input with a preset option', async () => {
+    const respond = vi.fn().mockResolvedValue(undefined);
+    const rendered = await renderWithQuery(
+      <MessageBubble
+        message={{
+          id: 'message-human-input',
+          conversation_id: 'conversation-1',
+          role: 'assistant',
+          content: '你想怎么处理缺少的青椒？',
+          content_type: 'parts',
+          parts: [
+            {
+              id: 'human-input-part',
+              type: 'human_input_request',
+              status: 'pending',
+              request: {
+                id: 'human-input-1',
+                question: '你想怎么处理缺少的青椒？',
+                inputMode: 'choice_or_text',
+                options: [{ id: 'restock', label: '先补青椒库存后再做' }],
+                allowMultiple: false,
+                required: true,
+                reason: null,
+                sourceSkills: ['recipe_draft'],
+                resumeHint: {},
+              },
+            },
+          ],
+          run_id: 'run-human-input',
+          status: 'completed',
+          metadata: {},
+          created_at: '2026-05-30T00:00:00Z',
+        }}
+        user={{ id: 'user-1', username: 'me', display_name: '我', avatar_seed: 'seed', avatar_image: null }}
+        isLatestAssistant
+        onApprovalDecision={() => undefined}
+        onHumanInputResponse={respond}
+      />,
+    );
+
+    const options = rendered.container.querySelectorAll<HTMLButtonElement>('.ai-clarification-option');
+    await act(async () => {
+      options[1].click();
+    });
+    const textarea = rendered.container.querySelector<HTMLTextAreaElement>('.ai-human-input-manual-panel textarea.text-input') as HTMLTextAreaElement;
+    changeInput(textarea, '我想先改菜谱');
+    await act(async () => {
+      options[0].click();
+    });
+    await flush();
+
+    expect(respond).not.toHaveBeenCalled();
+    expect(rendered.container.textContent).toContain('手动输入还没提交');
+    expect(textarea.value).toBe('我想先改菜谱');
+
+    await act(async () => {
+      rendered.container.querySelector<HTMLButtonElement>('.ai-human-input-switch-warning .solid-button')?.click();
+    });
+    await flush();
+
+    expect(respond).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'message-human-input' }),
+      expect.objectContaining({ id: 'human-input-1' }),
+      { selected_option_ids: ['restock'], text: undefined },
+    );
+    expect(rendered.container.textContent).toContain('先补青椒库存后再做');
+    rendered.unmount();
+  });
 });
 
 describe('ApprovalPanel', () => {
@@ -1358,6 +1557,167 @@ describe('AiWorkspace pending approval restore', () => {
     });
     await flush();
     expect(streamSpy).not.toHaveBeenCalled();
+    rendered.unmount();
+  });
+
+  it('does not pause composers for answered human input request parts', async () => {
+    vi.spyOn(api, 'getAiMessages').mockResolvedValue([
+      {
+        id: 'message-human-input',
+        conversation_id: 'conversation-1',
+        role: 'assistant',
+        content: '你想安排几天晚餐？\n\n好的，我继续整理。',
+        content_type: 'parts',
+        parts: [
+          { id: 'text-question', type: 'text', text: '你想安排几天晚餐？' },
+          {
+            id: 'human-input-part',
+            type: 'human_input_request',
+            status: 'completed',
+            responded_at: '2026-05-30T00:01:00Z',
+            request: {
+              id: 'human-input-1',
+              question: '你想安排几天晚餐？',
+              inputMode: 'choice_or_text',
+              options: [{ id: 'three-days', label: '三天' }],
+              allowMultiple: false,
+              required: true,
+              reason: null,
+              sourceSkills: ['meal_plan'],
+              resumeHint: {},
+            },
+          },
+          { id: 'text-resumed', type: 'text', text: '好的，我继续整理。' },
+        ],
+        run_id: 'run-1',
+        status: 'completed',
+        metadata: {},
+        created_at: '2026-05-30T00:00:00Z',
+      },
+    ]);
+    vi.spyOn(api, 'getPendingAiApprovals').mockResolvedValue([]);
+    const rendered = await renderWithQuery(<AiWorkspace conversations={[conversation()]} isLoading={false} />);
+    await flush();
+
+    expect(rendered.container.textContent).not.toContain('请先回答上面的问题，AI 会接着处理当前任务。');
+    expect(Array.from(rendered.container.querySelectorAll<HTMLTextAreaElement>('.ai-composer textarea')).every((textarea) => !textarea.disabled)).toBe(true);
+    rendered.unmount();
+  });
+
+  it('keeps both composers on the cancellable pause button while human input is pending', async () => {
+    vi.spyOn(api, 'getAiMessages').mockResolvedValue([
+      {
+        id: 'message-human-input',
+        conversation_id: 'conversation-1',
+        role: 'assistant',
+        content: '你想怎么处理缺少的青椒？',
+        content_type: 'parts',
+        parts: [
+          { id: 'text-question', type: 'text', text: '你想怎么处理缺少的青椒？' },
+          {
+            id: 'human-input-part',
+            type: 'human_input_request',
+            status: 'pending',
+            request: {
+              id: 'human-input-1',
+              question: '你想怎么处理缺少的青椒？',
+              inputMode: 'choice_or_text',
+              options: [{ id: 'restock', label: '先补青椒库存后再做' }],
+              allowMultiple: false,
+              required: true,
+              reason: null,
+              sourceSkills: ['recipe_draft'],
+              resumeHint: {},
+            },
+          },
+        ],
+        run_id: 'run-human-input',
+        status: 'completed',
+        metadata: {},
+        created_at: '2026-05-30T00:00:00Z',
+      },
+    ]);
+    vi.spyOn(api, 'getPendingAiApprovals').mockResolvedValue([]);
+    const cancelSpy = vi.spyOn(api, 'cancelAiRun').mockResolvedValue({
+      run: { id: 'run-human-input', status: 'cancelled' },
+      events: [
+        {
+          id: 'cancel-event',
+          run_id: 'run-human-input',
+          type: 'cancel',
+          internal_code: 'user_cancel',
+          user_message: '已取消这次任务',
+          status: 'failed',
+          created_at: '2026-05-30T00:00:00Z',
+        },
+      ],
+    });
+    const rendered = await renderWithQuery(<AiWorkspace conversations={[conversation()]} isLoading={false} />);
+    await flush();
+
+    expect(rendered.container.textContent).toContain('手动输入');
+    expect(rendered.container.textContent).toContain('请先回答上面的问题，AI 会接着处理当前任务。');
+    expect(Array.from(rendered.container.querySelectorAll<HTMLTextAreaElement>('.ai-composer textarea')).every((textarea) => textarea.disabled)).toBe(true);
+    expect(Array.from(rendered.container.querySelectorAll<HTMLButtonElement>('.ai-send-button')).every((button) => !button.disabled)).toBe(true);
+    expect(Array.from(rendered.container.querySelectorAll<HTMLButtonElement>('.ai-send-button')).every((button) => button.getAttribute('aria-label') === '中止生成')).toBe(true);
+
+    await act(async () => {
+      rendered.container.querySelector<HTMLButtonElement>('.ai-send-button')?.click();
+    });
+    await flush();
+
+    expect(cancelSpy).toHaveBeenCalledWith('run-human-input');
+    rendered.unmount();
+  });
+
+  it('shows the current human input submission state instead of the background conversation pause', async () => {
+    vi.spyOn(api, 'getAiMessages').mockResolvedValue([
+      {
+        id: 'message-human-input',
+        conversation_id: 'conversation-1',
+        role: 'assistant',
+        content: '你想怎么处理缺少的青椒？',
+        content_type: 'parts',
+        parts: [
+          { id: 'text-question', type: 'text', text: '你想怎么处理缺少的青椒？' },
+          {
+            id: 'human-input-part',
+            type: 'human_input_request',
+            status: 'pending',
+            request: {
+              id: 'human-input-1',
+              question: '你想怎么处理缺少的青椒？',
+              inputMode: 'choice_or_text',
+              options: [{ id: 'restock', label: '先补青椒库存后再做' }],
+              allowMultiple: false,
+              required: true,
+              reason: null,
+              sourceSkills: ['recipe_draft'],
+              resumeHint: {},
+            },
+          },
+        ],
+        run_id: 'run-human-input',
+        status: 'completed',
+        metadata: {},
+        created_at: '2026-05-30T00:00:00Z',
+      },
+    ]);
+    vi.spyOn(api, 'getPendingAiApprovals').mockResolvedValue([]);
+    vi.spyOn(api, 'respondAiHumanInput').mockImplementation(() => new Promise<AiChatResponse>(() => undefined));
+
+    const rendered = await renderWithQuery(<AiWorkspace conversations={[conversation()]} isLoading={false} />);
+    await flush();
+    const desktopView = rendered.container.querySelector('.ai-desktop-view') as HTMLElement;
+
+    await act(async () => {
+      desktopView.querySelector<HTMLButtonElement>('.ai-clarification-option')?.click();
+      await Promise.resolve();
+    });
+    await flush();
+
+    expect(desktopView.textContent).toContain('正在提交你的回答，AI 会接着处理当前任务。');
+    expect(desktopView.textContent).not.toContain('另一个会话正在后台回复');
     rendered.unmount();
   });
 
@@ -2489,6 +2849,54 @@ describe('AiWorkspace pending approval restore', () => {
     const assistantMessages = rendered.container.querySelectorAll('.ai-desktop-view .ai-message-assistant');
     expect(assistantMessages).toHaveLength(1);
     expect((assistantMessages[0] as HTMLElement).textContent).toContain('建议今晚做番茄鸡蛋面。');
+    rendered.unmount();
+  });
+
+  it('deduplicates a running remote live reply against a local stream copy with the same run id', async () => {
+    vi.spyOn(api, 'getAiMessages').mockResolvedValue([]);
+    vi.spyOn(api, 'getPendingAiApprovals').mockResolvedValue([]);
+    let streamedRunId = 'agent_run-client';
+    vi.spyOn(api, 'streamChatAi').mockImplementation(async (payload, handlers) => {
+      streamedRunId = payload.client_run_id ?? streamedRunId;
+      handlers?.onMessageDelta?.({
+        message_id: 'message-live-running',
+        conversation_id: payload.conversation_id ?? 'conversation-1',
+        run_id: streamedRunId,
+        part_id: 'part-live-running',
+        delta: '我正在生成食材档案草稿。',
+      });
+      return new Promise<AiChatResponse>(() => undefined);
+    });
+
+    const rendered = await renderWithQuery(<AiWorkspace conversations={[conversation()]} isLoading={false} />);
+    await flush();
+    changeInput(rendered.container.querySelector<HTMLTextAreaElement>('textarea.text-input') as HTMLTextAreaElement, '创建秋葵食材档案');
+    await act(async () => {
+      rendered.container.querySelector<HTMLFormElement>('form.ai-composer')?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    });
+    await flush();
+
+    await act(async () => {
+      rendered.queryClient.setQueryData(queryKeys.aiMessages('conversation-1'), [
+        {
+          id: 'message-live-running',
+          conversation_id: 'conversation-1',
+          role: 'assistant',
+          content: '我正在生成食材档案草稿。',
+          content_type: 'parts',
+          parts: [{ id: 'part-live-running', type: 'text', text: '我正在生成食材档案草稿。' }],
+          run_id: streamedRunId,
+          status: 'running',
+          metadata: { liveStreaming: true },
+          created_at: '2026-05-30T00:00:01Z',
+        },
+      ]);
+    });
+    await flush();
+
+    const assistantMessages = rendered.container.querySelectorAll('.ai-desktop-view .ai-message-assistant');
+    expect(assistantMessages).toHaveLength(1);
+    expect((assistantMessages[0] as HTMLElement).textContent).toContain('我正在生成食材档案草稿。');
     rendered.unmount();
   });
 

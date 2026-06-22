@@ -29,7 +29,7 @@ class SkillManifest:
     intent: str = ""
     agent_key: str = ""
 
-    def to_planner_record(self) -> dict[str, Any]:
+    def to_catalog_record(self) -> dict[str, Any]:
         return {
             "key": self.key,
             "slug": self.slug or self.key.replace("_", "-"),
@@ -54,10 +54,10 @@ class SkillContext:
     current_message: str
     tool_executor: ToolExecutor
     subject: dict[str, Any] = field(default_factory=dict)
+    quick_task: str | None = None
     provider: BaseChatProvider | None = None
     previous_results: list["SkillResult"] = field(default_factory=list)
     current_run_artifacts: list[dict[str, Any]] = field(default_factory=list)
-    pending_clarification: dict[str, Any] | None = None
     stream_writer: Callable[[dict[str, Any]], None] | None = None
     cancel_check: Callable[[], bool] | None = None
 
@@ -109,21 +109,6 @@ class SkillResult:
     operation: str | None = None
     source_artifact_id: str | None = None
     requires_clarification: bool = False
-
-
-@dataclass(slots=True)
-class SkillExecutionResult:
-    text: str
-    cards: list[dict[str, Any]]
-    drafts: list[dict[str, Any]]
-    events: list[dict[str, Any]]
-    tool_calls: list[dict[str, Any]]
-    context_summary: dict[str, Any]
-    state_patch: dict[str, Any]
-    status: str
-    model: str
-    error: str | None = None
-
 
 class BaseSkill:
     manifest: SkillManifest

@@ -12,7 +12,7 @@ class AIRegistryAndMetricsTestCase(AIAgentInfraTestCase):
             self.assertEqual(len(skills), 8)
             self.assertNotIn("today_recommendation", skills)
             self.assertIn("today_recommendation", skills["meal_plan"]["output_types"])
-            self.assertIn("clarification_request", skills["meal_plan"]["output_types"])
+            self.assertNotIn("clarification_request", skills["meal_plan"]["output_types"])
             self.assertIn("ingredient_profile", skills)
             self.assertIn("meal_log", skills)
             self.assertIn("recipe_cook", skills)
@@ -29,15 +29,7 @@ class AIRegistryAndMetricsTestCase(AIAgentInfraTestCase):
                 skills["meal_plan"]["scripts"],
                 ["script.expand_meal_slots", "script.validate_meal_plan", "script.render_plan_preview"],
             )
-            self.assertEqual(
-                skills["shopping_list"]["scripts"],
-                [
-                    "script.merge_ingredients",
-                    "script.normalize_ingredient",
-                    "script.normalize_ingredient_detail",
-                    "script.suggest_items_from_sources",
-                ],
-            )
+            self.assertEqual(skills["shopping_list"]["scripts"], [])
             self.assertEqual(skills["recipe_draft"]["scripts"], ["script.lint_recipe_draft"])
             self.assertIn("ingredient.search", skills["recipe_draft"]["tools"])
             self.assertEqual(tools["ingredient.search"]["display_name"], "食材资料")
@@ -48,20 +40,10 @@ class AIRegistryAndMetricsTestCase(AIAgentInfraTestCase):
             self.assertEqual(tools["meal_log.read_by_id"]["display_name"], "餐食记录详情")
             self.assertEqual(tools["meal_log.read_by_id"]["side_effect"], "read")
             self.assertEqual(tools["inventory.create_unit_conversion_operation_draft"]["side_effect"], "draft")
-            self.assertEqual(tools["intent.request_clarification"]["display_name"], "补充信息请求")
-            self.assertEqual(tools["intent.request_clarification"]["side_effect"], "read")
+            self.assertNotIn("intent." + "request_clarification", tools)
             self.assertEqual(tools["recipe.create_cook_draft"]["display_name"], "做菜确认表单")
             self.assertEqual(tools["recipe.create_cook_draft"]["side_effect"], "draft")
             self.assertNotIn("shopping_list.create_draft", tools)
-            self.assertEqual(
-                sorted(tools["intent.request_clarification"]["input_schema"]["required"]),
-                ["question", "questionType"],
-            )
-            self.assertIn(
-                "unit_conversion",
-                tools["intent.request_clarification"]["input_schema"]["properties"]["questionType"]["enum"],
-            )
-            self.assertIn("unitMismatch", tools["intent.request_clarification"]["input_schema"]["properties"])
             self.assertEqual(
                 tools["meal_log.create_draft"]["input_schema"]["properties"]["draft"]["properties"]["draftType"]["enum"],
                 ["meal_log"],

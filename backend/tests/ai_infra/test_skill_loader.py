@@ -17,30 +17,56 @@ class AISkillLoaderTestCase(AIAgentInfraTestCase):
                 if path.is_dir() and not path.name.startswith("__")
             )
             records = []
+            runtime_frontmatter_keys = {
+                "agent_key",
+                "allowed_tools",
+                "approval_policy",
+                "context_policy",
+                "contextPolicy",
+                "display_name",
+                "displayName",
+                "draft_types",
+                "examples",
+                "instruction_files",
+                "intent",
+                "key",
+                "output_types",
+                "runner",
+                "script_files",
+                "tools",
+            }
             for skill_dir in skill_dirs:
                 skill_markdown = (skill_dir / "SKILL.md").read_text(encoding="utf-8")
                 self.assertTrue(skill_markdown.startswith("---\n"))
                 frontmatter = yaml.safe_load(skill_markdown.split("---\n", 2)[1])
+                runtime_path = skill_dir / "skill.yaml"
+                self.assertTrue(runtime_path.exists(), f"{skill_dir.name} missing skill.yaml")
+                runtime = yaml.safe_load(runtime_path.read_text(encoding="utf-8"))
+                self.assertEqual(runtime["version"], 2)
                 slug = frontmatter["name"]
-                key = frontmatter.get("key") or slug.replace("-", "_")
-                records.append((key, frontmatter))
+                key = runtime.get("key") or slug.replace("-", "_")
+                records.append((key, runtime))
                 self.assertEqual(skill_dir.name, slug)
-                self.assertIn("description", frontmatter)
-                declared_tool_names = frontmatter.get("allowed_tools", [])
+                self.assertEqual(set(frontmatter), {"name", "description"})
+                self.assertFalse(
+                    set(frontmatter).intersection(runtime_frontmatter_keys),
+                    f"{key} keeps Culina runtime fields in SKILL.md",
+                )
+                declared_tool_names = runtime.get("allowed_tools", [])
                 self.assertTrue(set(declared_tool_names).issubset(tool_names), f"{key} declares unknown tools")
                 declared_tools = [tool_registry.get(name) for name in declared_tool_names]
-                approval_policy = frontmatter.get("approval_policy")
+                approval_policy = runtime.get("approval_policy")
                 self.assertIn(approval_policy, {"none", "draft_then_confirm"})
                 if approval_policy == "none":
                     self.assertTrue(all(tool.side_effect == "read" for tool in declared_tools), f"{key} exposes non-read tools without approval")
-                    self.assertEqual(frontmatter.get("draft_types", []), [])
+                    self.assertEqual(runtime.get("draft_types", []), [])
                 else:
-                    self.assertTrue(frontmatter.get("draft_types", []), f"{key} requires approval but declares no draft type")
+                    self.assertTrue(runtime.get("draft_types", []), f"{key} requires approval but declares no draft type")
                     self.assertTrue(any(tool.side_effect == "draft" for tool in declared_tools), f"{key} requires approval but exposes no draft tool")
-                    self.assertTrue(set(frontmatter["draft_types"]).issubset(DRAFT_APPROVAL_CONFIG), f"{key} declares unsupported draft types")
+                    self.assertTrue(set(runtime["draft_types"]).issubset(DRAFT_APPROVAL_CONFIG), f"{key} declares unsupported draft types")
                 self.assertFalse(any(tool.side_effect == "write" for tool in declared_tools), f"{key} must not expose write tools")
 
-            keys = [key for key, _frontmatter in records]
+            keys = [key for key, _runtime in records]
             self.assertEqual(
                 keys,
                 ["food_profile", "ingredient_profile", "inventory_analysis", "meal_plan", "meal_log", "recipe_cook", "recipe_draft", "shopping_list"],
@@ -59,7 +85,7 @@ class AISkillLoaderTestCase(AIAgentInfraTestCase):
             self.assertIsInstance(skill_registry.get("meal_plan"), ToolCallingSkill)
             self.assertFalse(any(BACKEND_DIR.glob("app/ai/skills/catalog/*/skill.py")))
 
-        def test_skill_loader_accepts_markdown_only_skill_without_python_entrypoint(self) -> None:
+        def test_skill_loader_rejects_skill_without_runtime_contract(self) -> None:
             with tempfile.TemporaryDirectory() as tmp_dir:
                 catalog_dir = Path(tmp_dir)
                 skill_dir = catalog_dir / "simple-skill"
@@ -73,11 +99,10 @@ class AISkillLoaderTestCase(AIAgentInfraTestCase):
                     "---\n",
                     encoding="utf-8",
                 )
-                skills = SkillDirectoryLoader(catalog_dir).load()
-                self.assertEqual(len(skills), 1)
-                self.assertIsInstance(skills[0], ToolCallingSkill)
+                with self.assertRaises(FileNotFoundError):
+                    SkillDirectoryLoader(catalog_dir).load()
 
-        def test_skill_loader_includes_conventional_workflow_without_frontmatter_noise(self) -> None:
+        def test_skill_loader_ignores_root_workflow_file(self) -> None:
             with tempfile.TemporaryDirectory() as tmp_dir:
                 catalog_dir = Path(tmp_dir)
                 skill_dir = catalog_dir / "simple-skill"
@@ -85,11 +110,18 @@ class AISkillLoaderTestCase(AIAgentInfraTestCase):
                 (skill_dir / "SKILL.md").write_text(
                     "---\n"
                     "name: simple-skill\n"
-                    "display_name: 简单 Skill\n"
                     "description: Markdown only.\n"
-                    "approval_policy: none\n"
                     "---\n"
                     "# Root\n\nBody instructions.\n",
+                    encoding="utf-8",
+                )
+                (skill_dir / "skill.yaml").write_text(
+                    "version: 2\n"
+                    "key: simple_skill\n"
+                    "display_name: 简单 Skill\n"
+                    "approval_policy: none\n"
+                    "allowed_tools: []\n"
+                    "draft_types: []\n",
                     encoding="utf-8",
                 )
                 (skill_dir / "workflows.md").write_text("workflow content", encoding="utf-8")
@@ -97,8 +129,42 @@ class AISkillLoaderTestCase(AIAgentInfraTestCase):
                 self.assertIsInstance(skills[0], ToolCallingSkill)
                 instructions = skills[0].instructions
                 self.assertIn("Body instructions.", instructions)
-                self.assertIn("workflow content", instructions)
+                self.assertNotIn("workflow content", instructions)
                 self.assertNotIn("name: simple-skill", instructions)
+
+        def test_skill_loader_accepts_v2_skill_yaml_runtime_contract(self) -> None:
+            with tempfile.TemporaryDirectory() as tmp_dir:
+                catalog_dir = Path(tmp_dir)
+                skill_dir = catalog_dir / "simple-skill"
+                references_dir = skill_dir / "references"
+                references_dir.mkdir(parents=True)
+                (skill_dir / "SKILL.md").write_text(
+                    "---\n"
+                    "name: simple-skill\n"
+                    "description: Markdown only.\n"
+                    "---\n"
+                    "# Root\n\nBody instructions.\n",
+                    encoding="utf-8",
+                )
+                (skill_dir / "skill.yaml").write_text(
+                    "version: 2\n"
+                    "key: simple_skill\n"
+                    "display_name: 简单 Skill\n"
+                    "approval_policy: none\n"
+                    "allowed_tools: []\n"
+                    "draft_types: []\n"
+                    "examples:\n"
+                    "  - 简单查询。\n",
+                    encoding="utf-8",
+                )
+                (references_dir / "workflows.md").write_text("workflow content", encoding="utf-8")
+                skills = SkillDirectoryLoader(catalog_dir).load()
+                self.assertEqual(skills[0].manifest.key, "simple_skill")
+                self.assertEqual(skills[0].manifest.name, "简单 Skill")
+                self.assertEqual(skills[0].manifest.examples, ["简单查询。"])
+                self.assertIn("Body instructions.", skills[0].instructions)
+                self.assertIn("workflow content", skills[0].instructions)
+                self.assertNotIn("display_name: 简单 Skill", skills[0].instructions)
 
         def test_skill_catalog_instructions_include_operational_guardrails(self) -> None:
             skill_registry = build_workspace_skill_registry()
@@ -180,7 +246,7 @@ class AISkillLoaderTestCase(AIAgentInfraTestCase):
                 "skill:script",
             )
 
-        def test_skill_script_helpers_expand_slots_and_normalize_ingredient_detail(self) -> None:
+        def test_skill_script_helpers_expand_slots_and_lint_recipe_draft(self) -> None:
             context = SkillContext(
                 db=MagicMock(),
                 family_id="family-test",
@@ -221,36 +287,6 @@ class AISkillLoaderTestCase(AIAgentInfraTestCase):
             self.assertIn("同一天同餐别存在重复计划", validation["errors"][0]["message"])
             self.assertEqual(validation["warnings"][0]["field"], "foodId")
 
-            shopping = build_workspace_skill_registry().get("shopping_list")
-            shopping_executor = SkillScriptExecutor(shopping.script_catalog, context)
-            normalized = shopping_executor.call("script.normalize_ingredient_detail", {"name": "鸡脯肉"})["result"]
-            self.assertEqual(normalized["normalized"], "鸡胸肉")
-            self.assertTrue(normalized["changed"])
-            self.assertGreaterEqual(normalized["confidence"], 0.9)
-            suggested = shopping_executor.call(
-                "script.suggest_items_from_sources",
-                {
-                    "meal_plan_items": [
-                        {
-                            "date": "2026-06-18",
-                            "mealType": "dinner",
-                            "title": "番茄牛肉",
-                            "missingIngredientItems": [
-                                {"name": "西红柿", "quantity": 3, "unit": "个"},
-                                {"name": "鸡脯肉", "quantity": 500, "unit": "g"},
-                            ],
-                        }
-                    ],
-                    "inventory_items": [{"name": "番茄", "quantity": 1, "unit": "个"}],
-                    "pending_items": [{"title": "鸡胸肉", "quantity": 500, "unit": "克", "done": False}],
-                },
-            )["result"]
-            self.assertEqual(suggested["itemCount"], 1)
-            self.assertEqual(suggested["items"][0]["title"], "番茄")
-            self.assertEqual(suggested["items"][0]["quantity"], 2.0)
-            self.assertEqual(suggested["skipped"][0]["title"], "鸡胸肉")
-            self.assertTrue(suggested["skipped"][0]["alreadyPending"])
-
             recipe = build_workspace_skill_registry().get("recipe_draft")
             recipe_executor = SkillScriptExecutor(recipe.script_catalog, context)
             lint = recipe_executor.call(
@@ -272,18 +308,6 @@ class AISkillLoaderTestCase(AIAgentInfraTestCase):
             self.assertTrue(lint["valid"])
             self.assertEqual(lint["errors"], [])
 
-        def test_tool_calling_skill_prompt_includes_tool_output_schema(self) -> None:
-            skill = build_workspace_skill_registry().get("inventory_analysis")
-            tool_registry = build_workspace_tool_registry()
-            prompt = skill._system_prompt([tool_registry.get("inventory.read_low_stock_items")])
-            allowed_tools = json.loads(prompt.split("Allowed tools:\n", 1)[1].split("\n\nSkill instructions:", 1)[0])
-
-            self.assertEqual(allowed_tools[0]["name"], "inventory.read_low_stock_items")
-            self.assertIn("input_schema", allowed_tools[0])
-            self.assertIn("output_schema", allowed_tools[0])
-            self.assertEqual(allowed_tools[0]["output_schema"]["required"], ["queryFocus", "count", "items"])
-            self.assertIn("ingredientId", allowed_tools[0]["output_schema"]["properties"]["items"]["items"]["properties"])
-
         def test_skill_loader_rejects_unsafe_script_imports(self) -> None:
             with tempfile.TemporaryDirectory() as tmp_dir:
                 catalog_dir = Path(tmp_dir)
@@ -294,9 +318,17 @@ class AISkillLoaderTestCase(AIAgentInfraTestCase):
                     "---\n"
                     "name: unsafe-skill\n"
                     "description: Unsafe script.\n"
-                    "script_files: [scripts/unsafe.py]\n"
-                    "approval_policy: none\n"
                     "---\n",
+                    encoding="utf-8",
+                )
+                (skill_dir / "skill.yaml").write_text(
+                    "version: 2\n"
+                    "key: unsafe_skill\n"
+                    "display_name: Unsafe Skill\n"
+                    "approval_policy: none\n"
+                    "allowed_tools: []\n"
+                    "draft_types: []\n"
+                    "script_files: [scripts/unsafe.py]\n",
                     encoding="utf-8",
                 )
                 (scripts_dir / "unsafe.py").write_text(
@@ -319,9 +351,17 @@ class AISkillLoaderTestCase(AIAgentInfraTestCase):
                     "---\n"
                     "name: unsafe-skill\n"
                     "description: Unsafe script.\n"
-                    "script_files: [scripts/unsafe.py]\n"
-                    "approval_policy: none\n"
                     "---\n",
+                    encoding="utf-8",
+                )
+                (skill_dir / "skill.yaml").write_text(
+                    "version: 2\n"
+                    "key: unsafe_skill\n"
+                    "display_name: Unsafe Skill\n"
+                    "approval_policy: none\n"
+                    "allowed_tools: []\n"
+                    "draft_types: []\n"
+                    "script_files: [scripts/unsafe.py]\n",
                     encoding="utf-8",
                 )
                 (scripts_dir / "unsafe.py").write_text(
@@ -366,98 +406,6 @@ class AISkillLoaderTestCase(AIAgentInfraTestCase):
 
                 self.assertEqual(executor.records()[0]["status"], "failed")
 
-        def test_tool_calling_skill_executes_script_through_model_tool_handler(self) -> None:
-            class ScriptCallingProvider(BaseChatProvider):
-                model_name = "script-calling-model"
-
-                def generate(self, *, system: str, user: str, response_schema: dict | None = None) -> ChatProviderResult:
-                    raise AssertionError("tool-calling skill should use generate_with_tools")
-
-                def generate_with_tools(
-                    self,
-                    *,
-                    system: str,
-                    user: str,
-                    tools: list,
-                    tool_handler,
-                    response_schema: dict | None = None,
-                    max_rounds: int = 8,
-                ) -> ChatProviderResult:
-                    del system, user, response_schema, max_rounds
-                    self.assert_script_is_exposed = "script.validate_meal_plan" in {
-                        tool.name for tool in tools
-                    }
-                    validation = tool_handler(
-                        "script.validate_meal_plan",
-                        {
-                            "plan": [
-                                {
-                                    "date": date.today().isoformat(),
-                                    "mealType": "dinner",
-                                    "title": "番茄小炒",
-                                    "foodId": "food-tomato",
-                                }
-                            ]
-                        },
-                    )["result"]
-                    return ChatProviderResult(
-                        text=json.dumps(
-                            {
-                                "text": "计划结构检查完成。",
-                                "cards": [],
-                                "drafts": [],
-                                "events": [],
-                                "context_summary": {"scriptValidation": validation},
-                                "state_patch": {},
-                                "requires_clarification": False,
-                                "status": "completed",
-                                "error": None,
-                            },
-                            ensure_ascii=False,
-                        ),
-                        status="completed",
-                        model=self.model_name,
-                        structured_mode="tool_call",
-                    )
-
-            provider = ScriptCallingProvider()
-            progress_events: list[dict] = []
-            skill = build_workspace_skill_registry().get("meal_plan")
-            with self.SessionLocal() as db:
-                result = skill.run(
-                    SkillContext(
-                        db=db,
-                        family_id=self.family.id,
-                        user_id=self.user.id,
-                        conversation_id="conversation-test",
-                        run_id="run-test",
-                        conversation=[],
-                        current_message="检查这个餐食计划",
-                        tool_executor=ToolExecutor(
-                            build_workspace_tool_registry(),
-                            ToolContext(
-                                db=db,
-                                family_id=self.family.id,
-                                user_id=self.user.id,
-                                conversation_id="conversation-test",
-                                run_id="run-test",
-                            ),
-                        ),
-                        provider=provider,
-                        stream_writer=progress_events.append,
-                    )
-                )
-
-            self.assertTrue(provider.assert_script_is_exposed)
-            self.assertEqual(result.context_summary["scriptValidation"], {"valid": True, "errors": [], "warnings": []})
-            self.assertEqual(result.tool_calls[0]["name"], "script.validate_meal_plan")
-            self.assertTrue(
-                any(
-                    event.get("data", {}).get("type") == "script"
-                    for event in progress_events
-                )
-            )
-
         def test_skill_loader_rejects_unknown_allowed_tool_when_registry_is_available(self) -> None:
             with tempfile.TemporaryDirectory() as tmp_dir:
                 catalog_dir = Path(tmp_dir)
@@ -467,9 +415,16 @@ class AISkillLoaderTestCase(AIAgentInfraTestCase):
                     "---\n"
                     "name: bad-skill\n"
                     "description: Invalid.\n"
-                    "allowed_tools: [inventory.not_a_real_tool]\n"
-                    "approval_policy: none\n"
                     "---\n",
+                    encoding="utf-8",
+                )
+                (skill_dir / "skill.yaml").write_text(
+                    "version: 2\n"
+                    "key: bad_skill\n"
+                    "display_name: Bad Skill\n"
+                    "approval_policy: none\n"
+                    "allowed_tools: [inventory.not_a_real_tool]\n"
+                    "draft_types: []\n",
                     encoding="utf-8",
                 )
                 with self.assertRaisesRegex(ValueError, "unknown allowed tool"):
@@ -484,9 +439,16 @@ class AISkillLoaderTestCase(AIAgentInfraTestCase):
                     "---\n"
                     "name: bad-skill\n"
                     "description: Invalid.\n"
-                    "allowed_tools: [shopping.create_draft]\n"
-                    "approval_policy: none\n"
                     "---\n",
+                    encoding="utf-8",
+                )
+                (skill_dir / "skill.yaml").write_text(
+                    "version: 2\n"
+                    "key: bad_skill\n"
+                    "display_name: Bad Skill\n"
+                    "approval_policy: none\n"
+                    "allowed_tools: [shopping.create_draft]\n"
+                    "draft_types: []\n",
                     encoding="utf-8",
                 )
                 with self.assertRaisesRegex(ValueError, "exposes non-read tools without approval"):

@@ -74,14 +74,13 @@ class GenerateRecipeDraftResponse(BaseModel):
 
 
 AIMessageRole = Literal["user", "assistant", "system"]
-AIMessagePartType = Literal["text", "result_card", "draft", "approval_request", "error_recovery"]
+AIMessagePartType = Literal["text", "result_card", "draft", "approval_request", "human_input_request", "error_recovery"]
 AIResultCardType = Literal[
     "today_recommendation",
     "recipe_draft",
     "approval_request",
     "error_recovery",
     "inventory_summary",
-    "clarification_request",
     "operation_result",
     "meal_plan_draft",
     "shopping_list_draft",
@@ -200,22 +199,6 @@ class AITodayRecommendationCardDataDTO(BaseModel):
     contextSummary: AITodayRecommendationContextDTO
 
 
-class AIClarificationCandidateDTO(BaseModel):
-    id: str
-    label: str
-    summary: str | None = None
-    entityType: str | None = None
-    updatedAt: str | None = None
-
-
-class AIClarificationCardDataDTO(BaseModel):
-    question: str = Field(min_length=1)
-    questionType: str = Field(min_length=1)
-    missingFields: list[str] = Field(default_factory=list)
-    candidates: list[AIClarificationCandidateDTO] = Field(default_factory=list)
-    allowFreeText: bool = True
-
-
 class AIOperationResultEntityDTO(BaseModel):
     id: str
     label: str
@@ -237,31 +220,15 @@ class AIResultCardDTO(BaseModel):
     id: str
     type: AIResultCardType
     title: str
-    data: dict = Field(default_factory=dict)
+    data: dict
 
     @model_validator(mode="after")
     def validate_query_card_data(self) -> "AIResultCardDTO":
         if self.type == "inventory_summary":
-            self.data.setdefault("availableCount", 0)
-            self.data.setdefault("expiringCount", 0)
-            self.data.setdefault("lowStockCount", 0)
-            self.data.setdefault("items", [])
             AIInventorySummaryCardDataDTO.model_validate(self.data)
         elif self.type == "today_recommendation":
-            self.data.setdefault("recommendations", [])
-            self.data.setdefault(
-                "contextSummary",
-                {"inventoryCount": 0, "expiringCount": 0, "recentMealCount": 0, "recipeCount": 0},
-            )
             AITodayRecommendationCardDataDTO.model_validate(self.data)
-        elif self.type == "clarification_request":
-            self.data.setdefault("missingFields", [])
-            self.data.setdefault("candidates", [])
-            self.data.setdefault("allowFreeText", True)
-            AIClarificationCardDataDTO.model_validate(self.data)
         elif self.type == "operation_result":
-            self.data.setdefault("entityCount", 0)
-            self.data.setdefault("entities", [])
             AIOperationResultCardDataDTO.model_validate(self.data)
         return self
 
@@ -334,13 +301,34 @@ class AIApprovalRequestDTO(BaseModel):
     created_at: datetime
 
 
+class AIHumanInputOptionDTO(BaseModel):
+    id: str
+    label: str
+    description: str | None = None
+
+
+class AIHumanInputRequestDTO(BaseModel):
+    id: str
+    question: str
+    inputMode: Literal["choice", "text", "choice_or_text"]
+    options: list[AIHumanInputOptionDTO] = Field(default_factory=list)
+    allowMultiple: bool = False
+    required: bool = True
+    reason: str | None = None
+    sourceSkills: list[str] = Field(default_factory=list)
+    resumeHint: dict = Field(default_factory=dict)
+
+
 class AIMessagePartDTO(BaseModel):
     id: str
     type: AIMessagePartType
+    status: str | None = None
+    responded_at: datetime | None = None
     text: str | None = None
     card: AIResultCardDTO | None = None
     draft: AITaskDraftDTO | None = None
     approval: AIApprovalRequestDTO | None = None
+    request: AIHumanInputRequestDTO | None = None
 
 
 class AIMessageDTO(BaseModel):
@@ -477,6 +465,11 @@ class AIApprovalDecisionRequest(BaseModel):
     draft_version: int
     values: dict = Field(default_factory=dict)
     comment: str | None = None
+
+
+class AIHumanInputResponseRequest(BaseModel):
+    selected_option_ids: list[str] = Field(default_factory=list, max_length=20)
+    text: str | None = Field(default=None, max_length=2000)
 
 
 class AIApprovalDecisionResponse(BaseModel):

@@ -4,129 +4,86 @@ from typing import Any
 
 from app.ai.tools.base import ToolContext
 from app.ai.tools.catalog.common import register_tool
-from app.ai.tools.catalog.inventory_unit_conversion import normalize_pending_unit_mismatch
 from app.ai.tools.registry import ToolRegistry
-from app.ai.tools.schemas import INVENTORY_OPERATION_DRAFT_SCHEMA
 
 
-UNIT_MISMATCH_INPUT = {
-    "type": "object",
-    "additionalProperties": False,
-    "required": [
-        "ingredientId",
-        "ingredientName",
-        "defaultUnit",
-        "unsupportedUnit",
-        "supportedUnits",
-        "originalDraft",
-    ],
-    "properties": {
-        "type": {"type": "string", "enum": ["inventory_unit_mismatch"]},
-        "ingredientId": {"type": "string", "minLength": 1, "maxLength": 64},
-        "ingredientName": {"type": "string", "minLength": 1, "maxLength": 120},
-        "defaultUnit": {"type": "string", "minLength": 1, "maxLength": 32},
-        "unsupportedUnit": {"type": "string", "minLength": 1, "maxLength": 32},
-        "supportedUnits": {
-            "type": "array",
-            "minItems": 1,
-            "maxItems": 20,
-            "items": {"type": "string", "minLength": 1, "maxLength": 32},
-        },
-        "originalDraft": INVENTORY_OPERATION_DRAFT_SCHEMA,
-    },
-}
-UNIT_MISMATCH_OUTPUT = {
-    **UNIT_MISMATCH_INPUT,
-    "required": [*UNIT_MISMATCH_INPUT["required"], "type"],
-    "properties": {"type": {"type": "string"}, **UNIT_MISMATCH_INPUT["properties"]},
-}
-
-
-CLARIFICATION_INPUT = {
+HUMAN_INPUT_OPTION_SCHEMA = {
     "type": "object",
     "additionalProperties": False,
     "properties": {
-        "question": {"type": "string", "minLength": 1, "maxLength": 200},
-        "questionType": {
-            "type": "string",
-            "enum": [
-                "missing_fields",
-                "entity_disambiguation",
-                "meal_plan_disambiguation",
-                "quantity",
-                "delete_impact",
-                "time_scope",
-                "confirmation",
-                "unit_conversion",
-                "other",
-            ],
-        },
-        "missingFields": {"type": "array", "items": {"type": "string"}},
-        "candidates": {
-            "type": "array",
-            "items": {
-                "type": "object",
-                "additionalProperties": False,
-                "properties": {
-                    "id": {"type": "string", "minLength": 1, "maxLength": 64},
-                    "label": {"type": "string", "minLength": 1, "maxLength": 120},
-                    "summary": {"type": ["string", "null"], "maxLength": 240},
-                    "entityType": {"type": ["string", "null"], "maxLength": 40},
-                    "updatedAt": {"type": ["string", "null"], "maxLength": 64},
-                },
-                "required": ["id", "label"],
-            },
-        },
-        "allowFreeText": {"type": "boolean"},
-        "unitMismatch": UNIT_MISMATCH_INPUT,
+        "id": {"type": "string", "minLength": 1, "maxLength": 120},
+        "label": {"type": "string", "minLength": 1, "maxLength": 160},
+        "description": {"type": ["string", "null"], "maxLength": 360},
     },
-    "required": ["question", "questionType"],
+    "required": ["id", "label"],
 }
-CLARIFICATION_OUTPUT = {
+HUMAN_INPUT_REQUEST_SCHEMA = {
     "type": "object",
-    "required": ["question", "questionType", "missingFields", "candidates", "allowFreeText"],
+    "additionalProperties": False,
+    "properties": {
+        "question": {"type": "string", "minLength": 1, "maxLength": 240},
+        "inputMode": {"type": "string", "enum": ["choice", "text", "choice_or_text"]},
+        "options": {
+            "type": "array",
+            "items": HUMAN_INPUT_OPTION_SCHEMA,
+            "maxItems": 12,
+        },
+        "allowMultiple": {"type": "boolean"},
+        "required": {"type": "boolean"},
+        "reason": {"type": ["string", "null"], "maxLength": 360},
+        "sourceSkills": {
+            "type": "array",
+            "items": {"type": "string", "minLength": 1, "maxLength": 80},
+            "maxItems": 8,
+        },
+        "resumeHint": {"type": "object"},
+    },
+    "required": ["question", "inputMode"],
+}
+HUMAN_INPUT_RESULT_SCHEMA = {
+    "type": "object",
+    "additionalProperties": False,
     "properties": {
         "question": {"type": "string"},
-        "questionType": {"type": "string"},
-        "missingFields": {"type": "array", "items": {"type": "string"}},
-        "candidates": {"type": "array", "items": {"type": "object"}},
-        "allowFreeText": {"type": "boolean"},
-        "unitMismatch": UNIT_MISMATCH_OUTPUT,
+        "inputMode": {"type": "string"},
+        "options": {"type": "array", "items": HUMAN_INPUT_OPTION_SCHEMA},
+        "allowMultiple": {"type": "boolean"},
+        "required": {"type": "boolean"},
+        "reason": {"type": ["string", "null"]},
+        "sourceSkills": {"type": "array", "items": {"type": "string"}},
+        "resumeHint": {"type": "object"},
     },
+    "required": ["question", "inputMode", "options", "allowMultiple", "required", "sourceSkills", "resumeHint"],
 }
 
 
-def intent_request_clarification(context: ToolContext, payload: dict[str, Any]) -> dict[str, Any]:
+def human_request_input(context: ToolContext, payload: dict[str, Any]) -> dict[str, Any]:
     del context
-    question_type = str(payload.get("questionType") or "other")
-    unit_mismatch = None
-    if question_type == "unit_conversion":
-        raw_unit_mismatch = payload.get("unitMismatch") if isinstance(payload.get("unitMismatch"), dict) else None
-        if raw_unit_mismatch is None:
-            raise ValueError("单位换算澄清必须提供 unitMismatch")
-        unit_mismatch = normalize_pending_unit_mismatch(raw_unit_mismatch)
+    input_mode = str(payload.get("inputMode") or "choice_or_text")
+    options = payload.get("options") if isinstance(payload.get("options"), list) else []
     return {
         "question": str(payload.get("question") or "").strip(),
-        "questionType": question_type,
-        "missingFields": payload.get("missingFields") or [],
-        "candidates": payload.get("candidates") or [],
-        "allowFreeText": bool(payload.get("allowFreeText", True)),
-        **({"unitMismatch": unit_mismatch} if unit_mismatch is not None else {}),
+        "inputMode": input_mode,
+        "options": options,
+        "allowMultiple": bool(payload.get("allowMultiple", False)),
+        "required": bool(payload.get("required", True)),
+        "reason": str(payload.get("reason") or "").strip() or None,
+        "sourceSkills": payload.get("sourceSkills") if isinstance(payload.get("sourceSkills"), list) else [],
+        "resumeHint": payload.get("resumeHint") if isinstance(payload.get("resumeHint"), dict) else {},
     }
 
 
 def register_intent_tools(registry: ToolRegistry) -> None:
     register_tool(
         registry,
-        name="intent.request_clarification",
-        display_name="补充信息请求",
+        name="human.request_input",
+        display_name="询问用户",
         description=(
-            "请求用户补充缺失信息。库存入库遇到食材不支持的单位时，必须使用 questionType=unit_conversion，"
-            "并提供 unitMismatch：食材 id/名称、主单位、不支持单位、支持单位列表和原始 inventory_operation 草稿；"
-            "不要先调用 inventory.create_operation_draft 去触发单位错误。"
+            "当信息不足、需要用户从候选项中选择，或需要自由文本补充时调用。"
+            "该工具只收集信息，不代表用户批准写入；正式写入仍必须走 draft approval。"
         ),
         side_effect="read",
-        handler=intent_request_clarification,
-        input_schema=CLARIFICATION_INPUT,
-        output_schema=CLARIFICATION_OUTPUT,
+        handler=human_request_input,
+        input_schema=HUMAN_INPUT_REQUEST_SCHEMA,
+        output_schema=HUMAN_INPUT_RESULT_SCHEMA,
     )

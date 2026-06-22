@@ -166,7 +166,7 @@ class ToolExecutor:
             return
         visible_status = "failed" if status == "failed" else status
         visible_message = user_message
-        if name == "intent.request_clarification" and status != "failed":
+        if name == "human.request_input" and status != "failed":
             visible_status = "waiting"
             visible_message = "等待用户补充信息"
         self.context.stream_writer(

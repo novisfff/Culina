@@ -3,7 +3,7 @@ from __future__ import annotations
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.core.enums import FoodType, MealType, food_type_values
+from app.core.enums import FoodType, MealType
 from app.core.utils import create_id
 from app.models.domain import Food, MediaAsset, Recipe
 from app.services.media import replace_media_assets
@@ -22,7 +22,7 @@ def ensure_food_for_recipe(
         select(Food).where(
             Food.family_id == family_id,
             Food.recipe_id == recipe.id,
-            Food.type.in_(food_type_values(FoodType.SELF_MADE)),
+            Food.type == FoodType.SELF_MADE.value,
         )
     )
     created = food is None
@@ -32,7 +32,7 @@ def ensure_food_for_recipe(
             .where(
                 Food.family_id == family_id,
                 Food.recipe_id.is_(None),
-                Food.type.in_(food_type_values(FoodType.SELF_MADE)),
+                Food.type == FoodType.SELF_MADE.value,
                 Food.name == recipe.title,
             )
             .order_by(Food.updated_at.desc())

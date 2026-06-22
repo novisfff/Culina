@@ -6042,18 +6042,72 @@
 
 .ai-clarification-options {
   display: grid;
-  gap: 8px;
-  margin-top: 10px;
+  gap: 10px;
+  margin: 14px 20px;
 }
 
 .ai-clarification-option {
-  display: grid;
-  gap: 4px;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
   min-width: 0;
-  padding: 10px 12px;
-  border: 1px solid rgba(210, 107, 51, 0.16);
-  border-radius: 14px;
-  background: rgba(255, 248, 241, 0.78);
+  padding: 14px 16px;
+  border: 1px solid rgba(147, 96, 63, 0.14);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.9);
+  color: inherit;
+  text-align: left;
+  box-shadow: 0 2px 8px rgba(74, 54, 40, 0.02);
+  transition: all 0.22s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.ai-clarification-option > span:last-child {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+button.ai-clarification-option {
+  cursor: pointer;
+}
+
+button.ai-clarification-option:disabled {
+  cursor: default;
+  opacity: 0.58;
+}
+
+button.ai-clarification-option:hover:not(:disabled) {
+  border-color: rgba(210, 107, 51, 0.35);
+  background: rgba(255, 250, 245, 0.95);
+  box-shadow: 0 4px 14px rgba(210, 107, 51, 0.08);
+  transform: translateY(-1px);
+}
+
+button.ai-clarification-option:hover:not(:disabled) .ai-clarification-option-index {
+  background: rgba(210, 107, 51, 0.12);
+  color: var(--accent-strong);
+}
+
+.ai-clarification-option.is-selected {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  box-shadow: 0 4px 16px rgba(210, 107, 51, 0.14);
+}
+
+.ai-clarification-option.is-selected .ai-clarification-option-index {
+  background: var(--accent);
+  color: #ffffff;
+}
+
+.ai-clarification-option-manual {
+  border-style: dashed;
+  background: rgba(252, 250, 247, 0.88);
+}
+
+.ai-clarification-option-manual.is-selected {
+  border-style: solid;
 }
 
 .ai-clarification-option strong,
@@ -6075,14 +6129,31 @@
 }
 
 .ai-clarification-option-index {
-  width: fit-content;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 24px;
+  height: 24px;
   border-radius: var(--radius-pill);
   padding: 2px 8px;
-  background: var(--warning-soft);
-  color: #9c6c3a;
-  font-size: 0.75rem;
+  background: rgba(147, 96, 63, 0.08);
+  color: var(--text-soft);
+  font-size: 0.8125rem;
   font-weight: 700;
-  line-height: 1.3;
+  line-height: 1;
+  flex-shrink: 0;
+  transition: all 0.2s ease;
+}
+
+@media (max-width: 767px) {
+  .ai-clarification-options {
+    margin: 10px 16px;
+    gap: 8px;
+  }
+  .ai-clarification-option {
+    padding: 12px 14px;
+    gap: 10px;
+  }
 }
 
 .ai-query-empty {
@@ -7058,28 +7129,43 @@
 
 .ai-approval-comment-field {
   display: grid;
-  gap: 6px;
-  margin: 8px 20px 16px;
-  padding: 12px 14px;
-  border: 1px solid rgba(226, 214, 205, 0.58);
-  border-radius: 16px;
-  background: rgba(255, 255, 255, 0.62);
+  gap: 8px;
+  margin: 12px 20px 16px;
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
   color: var(--text-soft);
-  font-size: 0.8rem;
+  font-size: 0.875rem;
 }
 
 .ai-approval-comment-field span {
-  font-weight: 850;
-  color: #7c7067;
+  font-weight: 600;
+  color: var(--text-soft);
   margin-bottom: 2px;
 }
 
 .ai-approval-comment-field .text-input {
-  min-height: 38px;
-  border-radius: 10px;
-  border-color: rgba(92, 67, 48, 0.11);
+  min-height: 40px;
+  border: 1px solid rgba(147, 96, 63, 0.14);
+  border-radius: 14px;
   background: #ffffff;
-  font-size: 0.86rem;
+  padding: 10px 12px;
+  font-size: 0.875rem;
+  color: var(--text);
+  box-shadow: inset 0 2px 4px rgba(147, 96, 63, 0.02);
+  transition: all 0.2s ease;
+}
+
+.ai-approval-comment-field .text-input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: inset 0 2px 4px rgba(147, 96, 63, 0.02), 0 0 0 3px rgba(210, 107, 51, 0.08);
+}
+
+.ai-approval-comment-field textarea.text-input {
+  min-height: 80px;
+  resize: vertical;
 }
 
 .ai-editor-grid {
@@ -7107,6 +7193,147 @@
   background: rgba(255, 253, 250, 0.98);
   padding: 12px 20px 16px;
   box-shadow: 0 -10px 24px rgba(255, 253, 250, 0.82);
+}
+
+.ai-human-input-request .ai-approval-actions {
+  position: static;
+  border: none;
+  background: transparent;
+  box-shadow: none;
+  padding: 0 20px 20px;
+  justify-content: flex-end;
+  align-self: stretch;
+  min-width: 0;
+}
+
+.ai-human-input-request .ai-human-input-submit {
+  max-width: 100%;
+  min-width: 0;
+  white-space: nowrap;
+}
+
+.ai-human-input-manual-panel {
+  display: grid;
+  gap: 0;
+  animation: aiHumanInputReveal 180ms ease-out;
+}
+
+.ai-human-input-switch-warning {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0 20px 14px;
+  border: 1px solid rgba(230, 154, 46, 0.22);
+  border-radius: 16px;
+  background: rgba(255, 243, 215, 0.72);
+  padding: 12px 14px;
+}
+
+.ai-human-input-switch-warning > div:first-child {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.ai-human-input-switch-warning strong {
+  color: #7a4d17;
+  font-size: 0.875rem;
+  font-weight: 850;
+}
+
+.ai-human-input-switch-warning span {
+  color: #806343;
+  font-size: 0.8125rem;
+  line-height: 1.4;
+}
+
+.ai-human-input-switch-warning > div:last-child {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.ai-human-input-switch-warning .ghost-button,
+.ai-human-input-switch-warning .solid-button {
+  min-height: 38px;
+  border-radius: 12px;
+  padding-inline: 12px;
+  font-size: 0.875rem;
+}
+
+@keyframes aiHumanInputReveal {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ai-human-input-manual-panel {
+    animation: none;
+  }
+}
+
+.ai-human-input-answer-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  max-width: 100% !important;
+  margin-top: 6px !important;
+  color: var(--text-soft) !important;
+}
+
+.ai-human-input-answer-summary span {
+  color: var(--text-faint);
+  font-size: 0.8125rem;
+  font-weight: 700;
+}
+
+.ai-human-input-answer-summary strong {
+  min-width: 0;
+  color: var(--text);
+  font-size: 0.875rem;
+  font-weight: 850;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.ai-human-input-request .ai-approval-panel {
+  transition: max-height 240ms ease, box-shadow 180ms ease, border-color 180ms ease;
+}
+
+.ai-human-input-request .ai-approval-panel.is-human-input-resolved {
+  max-height: 124px;
+}
+
+@media (max-width: 767px) {
+  .ai-human-input-request .ai-approval-actions {
+    padding: 0 16px 16px;
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .ai-human-input-request .ai-human-input-submit {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .ai-human-input-switch-warning {
+    display: grid;
+    margin: 0 16px 12px;
+  }
+
+  .ai-human-input-switch-warning > div:last-child {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
 }
 
 .ai-approval-actions .ghost-button,
@@ -8023,22 +8250,8 @@
 .ai-ingredient-remove-button:hover {
   background: rgba(177, 111, 77, 0.1);
 }
+/* Legacy duplicate overrides removed */
 
-.ai-approval-comment-field {
-  margin: 0 20px;
-}
-
-.ai-approval-comment-field > span {
-  color: #776a60;
-  font-size: 0.75rem;
-  font-weight: 820;
-}
-
-.ai-approval-comment-field .text-input {
-  min-height: 38px;
-  border-radius: 13px;
-  font-size: 0.84rem;
-}
 
 .ai-recipe-editor .text-input:disabled {
   color: #5f5148;
@@ -10707,11 +10920,12 @@
 }
 
 .ai-approval-comment-field {
-  gap: 5px;
+  gap: 6px;
   margin: 0 16px 12px;
-  border-color: var(--ai-card-line);
-  border-radius: 16px;
-  padding: 10px 12px;
+  border: none;
+  border-radius: 0;
+  padding: 0;
+  background: transparent;
 }
 
 .ai-approval-actions {

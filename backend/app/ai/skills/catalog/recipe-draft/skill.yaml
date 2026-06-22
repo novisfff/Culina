@@ -1,0 +1,27 @@
+version: 2
+key: recipe_draft
+display_name: 菜谱整理
+intent: recipe_draft
+agent_key: recipe_draft_agent
+context_policy:
+- ingredients
+- recipes
+allowed_tools:
+- ingredient.search
+- human.request_input
+- recipe.search
+- recipe.read_by_id
+- recipe.create_draft
+script_files:
+- scripts/lint_recipe_draft.py
+output_types: []
+draft_types:
+- recipe
+approval_policy: draft_then_confirm
+examples:
+- 帮我生成一份番茄鸡蛋面的菜谱。
+- 把这个菜谱补全步骤和用量。
+- 更新红烧牛肉菜谱，改成 3 人份。
+- 删除这份菜谱。
+- 收藏番茄炒蛋菜谱。
+- 用鸡胸肉和西兰花设计一个低油菜谱。

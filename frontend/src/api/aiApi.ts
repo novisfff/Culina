@@ -31,6 +31,10 @@ type AiApprovalDecisionPayload = {
   values: Record<string, unknown>;
   comment?: string;
 };
+type AiHumanInputResponsePayload = {
+  selected_option_ids?: string[];
+  text?: string;
+};
 
 async function streamAiResponse(url: string, payload: unknown, handlers: AiChatStreamHandlers = {}): Promise<AiChatResponse> {
   const headers = new Headers({ 'Content-Type': 'application/json' });
@@ -150,6 +154,11 @@ export const aiApi = {
     payload: AiApprovalDecisionPayload,
     handlers: AiChatStreamHandlers = {},
   ) => streamAiResponse(`${API_BASE_URL}/api/ai/conversations/${conversationId}/approvals/${approvalId}/decision/stream`, payload, handlers),
+  respondAiHumanInput: (conversationId: string, requestId: string, payload: AiHumanInputResponsePayload) =>
+    request<AiChatResponse>(`/api/ai/conversations/${conversationId}/human-input/${requestId}/response`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
   generateRecipeDraft: (payload: GenerateRecipeDraftPayload) =>
     request<GenerateRecipeDraftResponse>('/api/ai/recipes/draft', {
       method: 'POST',

@@ -1,0 +1,23 @@
+version: 2
+key: food_profile
+display_name: 食物资料整理
+intent: food_profile
+agent_key: food_profile_agent
+context_policy:
+- foods
+allowed_tools:
+- food.search
+- food.read_by_id
+- human.request_input
+- food_profile.create_draft
+script_files: []
+output_types: []
+draft_types:
+- food_profile
+approval_policy: draft_then_confirm
+examples:
+- 新增食物资料：盒装牛奶，类型即食，适合早餐。
+- 整理蓝莓酸奶的食物资料。
+- 把盒装牛奶改成适合早餐并收藏。
+- 取消收藏这个食物。
+- 查询蓝莓酸奶的食物资料。

@@ -603,7 +603,7 @@ FOOD_PROFILE_DRAFT_SCHEMA: dict[str, Any] = {
     "description": (
         "食物资料草稿。创建食物资料时必须填写 name、type、category；"
         "如果用户描述中可推断这些字段，必须先推断并填入，不要提交空 payload；"
-        "确实无法推断时应调用 intent.request_clarification，而不是调用本工具。"
+        "确实无法推断时应调用 human.request_input，而不是调用本工具。"
     ),
     "additionalProperties": False,
     "required": ["draftType", "schemaVersion"],
@@ -763,7 +763,14 @@ INVENTORY_OPERATION_DRAFT_SCHEMA: dict[str, Any] = {
                     "action": {"type": "string", "enum": ["restock", "consume", "dispose"]},
                     "ingredientId": {"type": "string", "minLength": 1, "maxLength": 64},
                     "ingredientName": {"type": "string", "maxLength": 120},
-                    "inventoryItemId": {"type": ["string", "null"], "maxLength": 64},
+                    "inventoryItemId": {
+                        "type": ["string", "null"],
+                        "maxLength": 64,
+                        "description": (
+                            "库存批次 ID。consume 操作可省略，后端会按到期日、采购日和创建时间扣减可用批次，"
+                            "并在草稿中展示 batchOptions；dispose 操作必须提供真实批次 ID。"
+                        ),
+                    },
                     "quantity": {"type": ["number", "null"], "exclusiveMinimum": 0},
                     "unit": {"type": "string", "minLength": 1, "maxLength": 32},
                     "purchaseDate": {"type": ["string", "null"], "maxLength": 10},
@@ -781,6 +788,7 @@ INVENTORY_OPERATION_DRAFT_SCHEMA: dict[str, Any] = {
                     "remainingQuantity": {"type": ["number", "null"], "minimum": 0},
                     "batchOptions": {
                         "type": "array",
+                        "description": "后端归一化草稿时补充的可用批次候选，供用户审批时核对；模型不需要自行编造。",
                         "items": {
                             "type": "object",
                             "additionalProperties": False,

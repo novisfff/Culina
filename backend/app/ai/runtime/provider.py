@@ -12,7 +12,7 @@ from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
 from langchain_openai import ChatOpenAI
 
 from app.ai.tools.base import ToolDefinition
-from app.ai.errors import AIExecutionCancelled
+from app.ai.errors import AIExecutionCancelled, HumanInputRequired
 from app.core.config import get_settings
 
 logger = logging.getLogger(__name__)
@@ -285,7 +285,7 @@ class OpenAICompatibleChatProvider(BaseChatProvider):
                 )
                 try:
                     output = tool_handler(name, args)
-                except AIExecutionCancelled:
+                except (AIExecutionCancelled, HumanInputRequired):
                     raise
                 except Exception as exc:
                     logger.warning(
@@ -393,7 +393,7 @@ class OpenAICompatibleChatProvider(BaseChatProvider):
                 )
                 try:
                     output = tool_handler(name, args)
-                except AIExecutionCancelled:
+                except (AIExecutionCancelled, HumanInputRequired):
                     raise
                 except Exception as exc:
                     logger.warning(
@@ -455,7 +455,9 @@ class OpenAICompatibleChatProvider(BaseChatProvider):
             if not isinstance(chunk, dict):
                 continue
             key = str(chunk.get("index") if chunk.get("index") is not None else index)
-            item = by_index.setdefault(key, {"id": "", "name": "", "args": ""})
+            if key not in by_index:
+                by_index[key] = {"id": "", "name": "", "args": ""}
+            item = by_index[key]
             if chunk.get("id"):
                 item["id"] += str(chunk["id"])
             if chunk.get("name"):

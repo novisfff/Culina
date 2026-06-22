@@ -87,10 +87,14 @@ def recipe_recommendation_usage_maps(
         }
         for recipe_id in recipe_ids:
             if recipe_id:
-                event_dates_by_recipe_id.setdefault(recipe_id, []).append(log.date)
+                if recipe_id not in event_dates_by_recipe_id:
+                    event_dates_by_recipe_id[recipe_id] = []
+                event_dates_by_recipe_id[recipe_id].append(log.date)
     for recipe in recipes:
         for cook_log in recipe.cook_logs:
-            event_dates_by_recipe_id.setdefault(recipe.id, []).append(cook_log.cook_date)
+            if recipe.id not in event_dates_by_recipe_id:
+                event_dates_by_recipe_id[recipe.id] = []
+            event_dates_by_recipe_id[recipe.id].append(cook_log.cook_date)
 
     window_start = today - timedelta(days=90)
     counts = {

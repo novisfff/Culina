@@ -1,28 +1,6 @@
 ---
 name: ingredient-profile
-key: ingredient_profile
-display_name: 食材档案
 description: 查询、创建和更新当前家庭的食材基础档案，包括默认单位、支持单位、保存位置、保质期和低库存阈值；不处理库存入库/消耗数量、购物项、菜谱正文或食物资料。
-allowed_tools:
-  - ingredient.search
-  - ingredient.read_by_id
-  - intent.request_clarification
-  - ingredient_profile.create_draft
-context_policy:
-  - ingredients
-output_types:
-  - clarification_request
-draft_types:
-  - ingredient_profile
-approval_policy: draft_then_confirm
-intent: ingredient_profile
-agent_key: ingredient_profile_agent
-examples:
-  - 新增鸡胸肉食材，默认单位克，冷冻保存。
-  - 把番茄默认保质期改成 7 天。
-  - 查询鸡蛋支持哪些单位。
-  - 把刚才鸡胸肉 1 袋等于 500 克保存成副单位。
-  - 设置牛奶低库存提醒为 2 盒。
 ---
 
 # 食材档案 Skill
@@ -43,7 +21,7 @@ examples:
 
 - 搜索时优先使用 `ingredient.search`，需要确定目标时改用 `ingredient.read_by_id`。
 - 同名或近似名称结果会影响写入目标时，不能自动猜测为唯一目标，必须基于真实结果确认。
-- 需要用户补充数量、目标或同名候选时，调用 `intent.request_clarification`，并带上候选摘要与问题类型。
+- 需要用户补充数量、目标或同名候选时，调用 `human.request_input`，并带上候选摘要、原因和 `resumeHint`。
 - 创建和更新都只能通过 `ingredient_profile.create_draft` 生成可确认草稿。
 - 更新时必须先读取真实食材详情，并引用真实 `targetId` 和 `baseUpdatedAt`，不能只靠名称修改。
 - 更新 payload 不是局部补丁；必须在现有详情基础上合成完整可编辑字段，再叠加用户要求的变化。至少保留或填写 `name`、`category`、`default_unit`、`default_storage`、`default_expiry_mode`，否则先读取详情或追问。

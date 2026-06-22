@@ -574,7 +574,7 @@ export interface GenerateRecipeDraftPayload {
 }
 
 export type AiMessageRole = 'user' | 'assistant' | 'system';
-export type AiMessagePartType = 'text' | 'result_card' | 'draft' | 'approval_request' | 'error_recovery';
+export type AiMessagePartType = 'text' | 'result_card' | 'draft' | 'approval_request' | 'human_input_request' | 'error_recovery';
 export type AiResultCardType =
   | 'today_recommendation'
   | 'recipe_draft'
@@ -816,13 +816,34 @@ export interface AiApprovalRequest {
   created_at: string;
 }
 
+export interface AiHumanInputOption {
+  id: string;
+  label: string;
+  description?: string | null;
+}
+
+export interface AiHumanInputRequest {
+  id: string;
+  question: string;
+  inputMode: 'choice' | 'text' | 'choice_or_text';
+  options: AiHumanInputOption[];
+  allowMultiple: boolean;
+  required: boolean;
+  reason?: string | null;
+  sourceSkills: string[];
+  resumeHint: Record<string, unknown>;
+}
+
 export interface AiMessagePart {
   id: string;
   type: AiMessagePartType;
+  status?: 'pending' | 'completed' | string | null;
+  responded_at?: string | null;
   text?: string | null;
   card?: AiResultCard | null;
   draft?: AiTaskDraft | null;
   approval?: AiApprovalRequest | null;
+  request?: AiHumanInputRequest | null;
 }
 
 export interface AiMessage {

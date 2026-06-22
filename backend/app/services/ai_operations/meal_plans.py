@@ -48,83 +48,59 @@ def _apply_meal_plan_operations(
     results: list[dict[str, Any]] = []
     entity_ids: list[str] = []
     for operation in payload.get("operations") or []:
-        try:
-            action = str(operation.get("action") or "")
-            if action == "create":
-                result, ids = _create_meal_plan_items_from_payload(
-                    db,
-                    family_id=family_id,
-                    user_id=user_id,
-                    payload={"items": [operation.get("payload") or {}]},
-                )
-                created_item = (result.get("items") or [None])[0]
-                results.append({"operationId": operation.get("operationId"), "action": "create", "item": created_item})
-                entity_ids.extend(ids)
-                continue
-            item = db.scalar(
-                select(FoodPlanItem)
-                .options(selectinload(FoodPlanItem.food))
-                .where(
-                    FoodPlanItem.family_id == family_id,
-                    FoodPlanItem.user_id == user_id,
-                    FoodPlanItem.id == str(operation["targetId"]),
-                )
-                .with_for_update()
+        action = str(operation.get("action") or "")
+        if action == "create":
+            result, ids = _create_meal_plan_items_from_payload(
+                db,
+                family_id=family_id,
+                user_id=user_id,
+                payload={"items": [operation.get("payload") or {}]},
             )
-            if item is None:
-                raise AIConflictError("餐食计划不存在或已被删除")
-            label = item.food.name if item.food is not None else "计划项"
-            assert_updated_at_matches(
-                actual=item.updated_at,
-                expected=str(operation["baseUpdatedAt"]),
-                label=f"餐食计划 {label}",
+            created_item = (result.get("items") or [None])[0]
+            results.append({"operationId": operation.get("operationId"), "action": "create", "item": created_item})
+            entity_ids.extend(ids)
+            continue
+        item = db.scalar(
+            select(FoodPlanItem)
+            .options(selectinload(FoodPlanItem.food))
+            .where(
+                FoodPlanItem.family_id == family_id,
+                FoodPlanItem.user_id == user_id,
+                FoodPlanItem.id == str(operation["targetId"]),
             )
-            if action == "delete":
-                snapshot = serialize_food_plan_item(item)
-                db.delete(item)
-                log_activity(
-                    db,
-                    family_id=family_id,
-                    actor_id=user_id,
-                    action=ActivityAction.UPDATE,
-                    entity_type="FoodPlanItem",
-                    entity_id=item.id,
-                    summary=f"AI 删除菜单计划 {label}",
-                )
-                results.append({"operationId": operation.get("operationId"), "action": "delete", "item": snapshot})
-                entity_ids.append(item.id)
-                continue
-            if action == "set_status":
-                next_status = str((operation.get("payload") or {}).get("status") or "")
-                if next_status not in {"planned", "cooked", "skipped"}:
-                    raise ValueError("餐食计划状态不正确")
-                item.status = next_status
-                item.completed_at = utcnow() if next_status == "cooked" else None
-                if next_status != "cooked":
-                    item.meal_log_id = None
-                item.updated_by = user_id
-                db.flush()
-                log_activity(
-                    db,
-                    family_id=family_id,
-                    actor_id=user_id,
-                    action=ActivityAction.UPDATE,
-                    entity_type="FoodPlanItem",
-                    entity_id=item.id,
-                    summary=f"AI 将菜单计划 {label} 标记为 {next_status}",
-                )
-                results.append({"operationId": operation.get("operationId"), "action": "set_status", "item": serialize_food_plan_item(item)})
-                entity_ids.append(item.id)
-                continue
-            item_payload = operation.get("payload") or {}
-            food = db.scalar(select(Food).where(Food.id == str(item_payload["foodId"]), Food.family_id == family_id))
-            if food is None:
-                raise ValueError("草稿包含不属于当前家庭的食物")
-            item.food_id = food.id
-            item.food = food
-            item.plan_date = date.fromisoformat(str(item_payload["date"]))
-            item.meal_type = MealType(str(item_payload["mealType"]))
-            item.note = str(item_payload.get("reason") or "")
+            .with_for_update()
+        )
+        if item is None:
+            raise AIConflictError("餐食计划不存在或已被删除")
+        label = item.food.name if item.food is not None else "计划项"
+        assert_updated_at_matches(
+            actual=item.updated_at,
+            expected=str(operation["baseUpdatedAt"]),
+            label=f"餐食计划 {label}",
+        )
+        if action == "delete":
+            snapshot = serialize_food_plan_item(item)
+            db.delete(item)
+            log_activity(
+                db,
+                family_id=family_id,
+                actor_id=user_id,
+                action=ActivityAction.UPDATE,
+                entity_type="FoodPlanItem",
+                entity_id=item.id,
+                summary=f"AI 删除菜单计划 {label}",
+            )
+            results.append({"operationId": operation.get("operationId"), "action": "delete", "item": snapshot})
+            entity_ids.append(item.id)
+            continue
+        if action == "set_status":
+            next_status = str((operation.get("payload") or {}).get("status") or "")
+            if next_status not in {"planned", "cooked", "skipped"}:
+                raise ValueError("餐食计划状态不正确")
+            item.status = next_status
+            item.completed_at = utcnow() if next_status == "cooked" else None
+            if next_status != "cooked":
+                item.meal_log_id = None
             item.updated_by = user_id
             db.flush()
             log_activity(
@@ -134,12 +110,33 @@ def _apply_meal_plan_operations(
                 action=ActivityAction.UPDATE,
                 entity_type="FoodPlanItem",
                 entity_id=item.id,
-                summary=f"AI 更新菜单计划 {food.name}",
+                summary=f"AI 将菜单计划 {label} 标记为 {next_status}",
             )
-            results.append({"operationId": operation.get("operationId"), "action": "update", "item": serialize_food_plan_item(item)})
+            results.append({"operationId": operation.get("operationId"), "action": "set_status", "item": serialize_food_plan_item(item)})
             entity_ids.append(item.id)
-        except Exception as exc:
-            raise type(exc)(_operation_error_message(operation, exc)) from exc
+            continue
+        item_payload = operation.get("payload") or {}
+        food = db.scalar(select(Food).where(Food.id == str(item_payload["foodId"]), Food.family_id == family_id))
+        if food is None:
+            raise ValueError("草稿包含不属于当前家庭的食物")
+        item.food_id = food.id
+        item.food = food
+        item.plan_date = date.fromisoformat(str(item_payload["date"]))
+        item.meal_type = MealType(str(item_payload["mealType"]))
+        item.note = str(item_payload.get("reason") or "")
+        item.updated_by = user_id
+        db.flush()
+        log_activity(
+            db,
+            family_id=family_id,
+            actor_id=user_id,
+            action=ActivityAction.UPDATE,
+            entity_type="FoodPlanItem",
+            entity_id=item.id,
+            summary=f"AI 更新菜单计划 {food.name}",
+        )
+        results.append({"operationId": operation.get("operationId"), "action": "update", "item": serialize_food_plan_item(item)})
+        entity_ids.append(item.id)
     return {"operations": results}, list(dict.fromkeys(entity_ids))
 
 

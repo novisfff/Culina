@@ -32,6 +32,7 @@ from app.schemas.ai import (
     AIConversationOut,
     AIMessageDTO,
     AIInventoryQuickDraftRequest,
+    AIHumanInputResponseRequest,
     AIQualityMetricsResponse,
     AIRecommendationSelectionRequest,
     AIRegistryResponse,
@@ -622,6 +623,32 @@ def decide_ai_approval(
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    commit_session(db)
+    return result
+
+
+@router.post("/api/ai/conversations/{conversation_id}/human-input/{request_id}/response", response_model=AIChatResponse)
+def respond_ai_human_input(
+    conversation_id: str,
+    request_id: str,
+    payload: AIHumanInputResponseRequest,
+    auth: tuple = Depends(get_current_auth),
+    db: Session = Depends(get_db),
+) -> dict:
+    user, membership = auth
+    try:
+        result = AIApplicationService(db).respond_human_input(
+            family_id=membership.family_id,
+            user_id=user.id,
+            conversation_id=conversation_id,
+            request_id=request_id,
+            selected_option_ids=payload.selected_option_ids,
+            text=payload.text,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except LookupError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     commit_session(db)
     return result
 

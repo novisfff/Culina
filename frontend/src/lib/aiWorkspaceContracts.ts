@@ -1,6 +1,6 @@
 import type { AiMessagePartType, AiResultCardType } from '../api/types';
 
-export const AI_MESSAGE_PART_TYPES = ['text', 'result_card', 'draft', 'approval_request', 'error_recovery'] as const satisfies readonly AiMessagePartType[];
+export const AI_MESSAGE_PART_TYPES = ['text', 'result_card', 'draft', 'approval_request', 'human_input_request', 'error_recovery'] as const satisfies readonly AiMessagePartType[];
 export const AI_RESULT_CARD_TYPES = [
   'today_recommendation',
   'recipe_draft',
@@ -20,6 +20,7 @@ export const AI_MESSAGE_PART_RENDERERS = {
   result_card: true,
   draft: true,
   approval_request: true,
+  human_input_request: true,
   error_recovery: true,
 } as const satisfies Record<AiMessagePartType, true>;
 
