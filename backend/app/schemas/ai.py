@@ -319,6 +319,12 @@ class AIHumanInputRequestDTO(BaseModel):
     resumeHint: dict = Field(default_factory=dict)
 
 
+class AIHumanInputResponseDTO(BaseModel):
+    selectedOptionIds: list[str] = Field(default_factory=list)
+    text: str = ""
+    summary: str = ""
+
+
 class AIMessagePartDTO(BaseModel):
     id: str
     type: AIMessagePartType
@@ -329,6 +335,7 @@ class AIMessagePartDTO(BaseModel):
     draft: AITaskDraftDTO | None = None
     approval: AIApprovalRequestDTO | None = None
     request: AIHumanInputRequestDTO | None = None
+    response: AIHumanInputResponseDTO | None = None
 
 
 class AIMessageDTO(BaseModel):

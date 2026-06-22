@@ -566,6 +566,60 @@ describe('MessageBubble', () => {
     rendered.unmount();
   });
 
+  it('renders persisted human input answers after reloading messages', async () => {
+    const respond = vi.fn().mockResolvedValue(undefined);
+    const rendered = await renderWithQuery(
+      <MessageBubble
+        message={{
+          id: 'message-human-input-completed',
+          conversation_id: 'conversation-1',
+          role: 'assistant',
+          content: '你想安排几天晚餐？',
+          content_type: 'parts',
+          parts: [
+            {
+              id: 'human-input-part-completed',
+              type: 'human_input_request',
+              status: 'completed',
+              responded_at: '2026-05-30T00:01:00Z',
+              request: {
+                id: 'human-input-1',
+                question: '你想安排几天晚餐？',
+                inputMode: 'choice_or_text',
+                options: [{ id: 'three-days', label: '三天' }],
+                allowMultiple: false,
+                required: true,
+                reason: null,
+                sourceSkills: ['meal_plan'],
+                resumeHint: {},
+              },
+              response: {
+                selectedOptionIds: ['three-days'],
+                text: '',
+                summary: '三天',
+              },
+            },
+          ],
+          run_id: 'run-human-input',
+          status: 'completed',
+          metadata: {},
+          created_at: '2026-05-30T00:00:00Z',
+        }}
+        user={{ id: 'user-1', username: 'me', display_name: '我', avatar_seed: 'seed', avatar_image: null }}
+        isLatestAssistant
+        onApprovalDecision={() => undefined}
+        onHumanInputResponse={respond}
+      />,
+    );
+
+    expect(rendered.container.querySelector('.ai-approval-panel.is-human-input-resolved')).not.toBeNull();
+    expect(rendered.container.querySelector('.ai-approval-body-wrapper')?.getAttribute('aria-hidden')).toBe('true');
+    expect(rendered.container.textContent).toContain('回答');
+    expect(rendered.container.textContent).toContain('三天');
+    expect(respond).not.toHaveBeenCalled();
+    rendered.unmount();
+  });
+
   it('shows manual input only after choosing the manual option', async () => {
     const respond = vi.fn().mockResolvedValue(undefined);
     const rendered = await renderWithQuery(

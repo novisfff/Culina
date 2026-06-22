@@ -1,6 +1,7 @@
 import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import type {
   AiHumanInputRequest,
+  AiHumanInputResponse,
   AiInventoryOperationAction,
   AiInventoryResultItem,
   AiMessage,
@@ -34,6 +35,11 @@ function buildHumanInputAnswerSummary(request: AiHumanInputRequest, selectedIds:
     .filter((label): label is string => Boolean(label));
   const trimmedText = text.trim();
   return [...selectedLabels, trimmedText].join('；');
+}
+
+function humanInputResponseSummary(request: AiHumanInputRequest, response?: AiHumanInputResponse | null) {
+  if (!response) return '';
+  return response.summary?.trim() || buildHumanInputAnswerSummary(request, response.selectedOptionIds ?? [], response.text ?? '');
 }
 
 type PendingHumanInputOption = {
@@ -281,21 +287,24 @@ function HumanInputRequestPanel({
   request,
   isLatest,
   isPending,
+  response,
   onResponse,
 }: {
   message: AiMessage;
   request: AiHumanInputRequest;
   isLatest: boolean;
   isPending: boolean;
+  response?: AiHumanInputResponse | null;
   onResponse?: AiHumanInputResponseSubmit;
 }) {
-  const [selectedIds, setSelectedIds] = useState<string[]>([]);
-  const [text, setText] = useState('');
+  const persistedAnswerSummary = humanInputResponseSummary(request, response);
+  const [selectedIds, setSelectedIds] = useState<string[]>(response?.selectedOptionIds ?? []);
+  const [text, setText] = useState(response?.text ?? '');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isAnswered, setIsAnswered] = useState(!isPending);
   const [isExpanded, setIsExpanded] = useState(isPending);
   const [isManualOpen, setIsManualOpen] = useState(request.inputMode === 'text' || (request.inputMode === 'choice_or_text' && request.options.length === 0));
-  const [submittedAnswerSummary, setSubmittedAnswerSummary] = useState('');
+  const [submittedAnswerSummary, setSubmittedAnswerSummary] = useState(persistedAnswerSummary);
   const [pendingOption, setPendingOption] = useState<PendingHumanInputOption | null>(null);
   const [error, setError] = useState('');
   const canChoose = request.inputMode === 'choice' || request.inputMode === 'choice_or_text';
@@ -305,7 +314,7 @@ function HumanInputRequestPanel({
   const isResolved = isAnswered || !isPending;
   const isInteractive = isLatest && isPending && !isResolved && Boolean(onResponse);
   const isDisabled = !isInteractive || isSubmitting;
-  const answerSummary = submittedAnswerSummary || (isResolved ? '已提交回答' : '');
+  const answerSummary = submittedAnswerSummary || persistedAnswerSummary || (isResolved ? '已提交回答' : '');
 
   useEffect(() => {
     if (!isPending) {
@@ -313,6 +322,12 @@ function HumanInputRequestPanel({
       setIsExpanded(false);
     }
   }, [isPending]);
+  useEffect(() => {
+    if (!response) return;
+    setSelectedIds(response.selectedOptionIds ?? []);
+    setText(response.text ?? '');
+    setSubmittedAnswerSummary(persistedAnswerSummary);
+  }, [persistedAnswerSummary, response]);
 
   const submitResponse = async ({
     selectedOptionIds,
@@ -636,6 +651,7 @@ export function MessageBubble({
                   key={part.id}
                   message={message}
                   request={part.request}
+                  response={part.response}
                   isLatest={isLatestAssistant && isPendingHumanInput}
                   isPending={isPendingHumanInput}
                   onResponse={onHumanInputResponse}

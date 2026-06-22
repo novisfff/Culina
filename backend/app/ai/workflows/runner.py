@@ -1114,6 +1114,12 @@ class WorkspaceGraphRunner:
             if str(item).strip()
         ]
         text = str(resume.get("text") or "").strip()
+        answer_summary = self._human_input_answer_summary(pending, selected_option_ids, text)
+        response_payload = {
+            "selectedOptionIds": selected_option_ids,
+            "text": text,
+            "summary": answer_summary,
+        }
         result_artifact = {
             "id": f"human_input:{pending['id']}",
             "type": "human.input_result",
@@ -1122,8 +1128,7 @@ class WorkspaceGraphRunner:
             "status": "completed",
             "payload": {
                 "request": pending,
-                "selectedOptionIds": selected_option_ids,
-                "text": text,
+                **response_payload,
             },
         }
         run = self.db.get(AIAgentRun, state["run_id"])
@@ -1150,6 +1155,7 @@ class WorkspaceGraphRunner:
                             **part,
                             "status": "completed",
                             "responded_at": responded_at,
+                            "response": response_payload,
                         }
                     )
                 else:
@@ -1179,6 +1185,26 @@ class WorkspaceGraphRunner:
             "injected_skill_keys": list(state.get("injected_skill_keys") or []),
             "injection_history": list(state.get("injection_history") or []),
         }
+
+    @staticmethod
+    def _human_input_answer_summary(
+        pending: dict[str, Any],
+        selected_option_ids: list[str],
+        text: str,
+    ) -> str:
+        options = pending.get("options") if isinstance(pending.get("options"), list) else []
+        labels_by_id = {
+            str(option.get("id")): str(option.get("label") or "").strip()
+            for option in options
+            if isinstance(option, dict) and str(option.get("id") or "").strip()
+        }
+        selected_labels = [
+            labels_by_id.get(option_id, option_id)
+            for option_id in selected_option_ids
+            if option_id
+        ]
+        values = list(dict.fromkeys(value for value in [*selected_labels, text.strip()] if value))
+        return "；".join(values) or "已提交回答"
 
     def _resume_pending_approval(
         self,

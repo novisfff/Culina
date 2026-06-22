@@ -834,6 +834,12 @@ export interface AiHumanInputRequest {
   resumeHint: Record<string, unknown>;
 }
 
+export interface AiHumanInputResponse {
+  selectedOptionIds: string[];
+  text: string;
+  summary: string;
+}
+
 export interface AiMessagePart {
   id: string;
   type: AiMessagePartType;
@@ -844,6 +850,7 @@ export interface AiMessagePart {
   draft?: AiTaskDraft | null;
   approval?: AiApprovalRequest | null;
   request?: AiHumanInputRequest | null;
+  response?: AiHumanInputResponse | null;
 }
 
 export interface AiMessage {

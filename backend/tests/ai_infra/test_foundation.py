@@ -832,6 +832,7 @@ class AIFoundationTestCase(AIAgentInfraTestCase):
             assert message is not None
             self.assertEqual(run.status, "completed")
             self.assertEqual(run.context_summary["lastHumanInputResult"]["selectedOptionIds"], ["three-days"])
+            self.assertEqual(run.context_summary["lastHumanInputResult"]["summary"], "三天")
             self.assertEqual(run.context_summary["orchestrator"]["injectedSkills"], ["meal_plan"])
             self.assertEqual(provider.resume_injected_skills, ["meal_plan"])
             self.assertIn("meal_plan", provider.resume_artifacts[-1].get("payload", {}).get("request", {}).get("sourceSkills", []))
@@ -849,6 +850,9 @@ class AIFoundationTestCase(AIAgentInfraTestCase):
             ]
             self.assertEqual(human_input_parts[0].get("status"), "completed")
             self.assertIsNotNone(human_input_parts[0].get("responded_at"))
+            self.assertEqual(human_input_parts[0].get("response", {}).get("selectedOptionIds"), ["three-days"])
+            self.assertEqual(human_input_parts[0].get("response", {}).get("text"), "三天")
+            self.assertEqual(human_input_parts[0].get("response", {}).get("summary"), "三天")
 
         def test_human_input_response_api_accepts_path_request_id_only(self) -> None:
             class HumanInputApiProvider(BaseChatProvider):
@@ -906,6 +910,13 @@ class AIFoundationTestCase(AIAgentInfraTestCase):
                 )
                 request_id = request_part["request"]["id"]
 
+                conflict_response = self.client.post(
+                    "/api/ai/chat",
+                    json={"conversation_id": first_data["conversation_id"], "message": "再安排两天"},
+                )
+                self.assertEqual(conflict_response.status_code, 409, conflict_response.text)
+                self.assertIn("当前会话已有 AI 任务正在处理中", conflict_response.json()["detail"])
+
                 response = self.client.post(
                     f"/api/ai/conversations/{first_data['conversation_id']}/human-input/{request_id}/response",
                     json={"selected_option_ids": ["one-day"], "text": "一天"},
@@ -921,3 +932,6 @@ class AIFoundationTestCase(AIAgentInfraTestCase):
                 if part.get("type") == "human_input_request"
             )
             self.assertEqual(response_request_part.get("status"), "completed")
+            self.assertEqual(response_request_part.get("response", {}).get("selectedOptionIds"), ["one-day"])
+            self.assertEqual(response_request_part.get("response", {}).get("text"), "一天")
+            self.assertEqual(response_request_part.get("response", {}).get("summary"), "一天")
