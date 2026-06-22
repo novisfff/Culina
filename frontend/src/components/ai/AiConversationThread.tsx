@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useRef, useState } from 'react';
+import { lazy, Suspense, useEffect, useState } from 'react';
 import type {
   AiHumanInputRequest,
   AiHumanInputResponse,
@@ -57,44 +57,21 @@ function formatMessageTime(value: string) {
   return date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false });
 }
 
-function lastOf<T>(items: T[]) {
-  return items.length > 0 ? items[items.length - 1] : undefined;
-}
-
-function formatRunEventTime(value: string) {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return '';
-  return date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
-}
-
 function isActiveRunStatus(status: AiRunEvent['status']) {
   return status === 'pending' || status === 'running';
-}
-
-function runStatusText(status: AiRunEvent['status']) {
-  if (status === 'failed') return '执行失败';
-  if (status === 'waiting') return '待补充';
-  if (status === 'completed') return '已完成';
-  return '正在执行';
-}
-
-function runEventStatusText(event: AiRunEvent) {
-  if (event.type === 'skill' && isActiveRunStatus(event.status)) return '开始执行';
-  if (event.type === 'tool' && event.status === 'waiting') return '待补充';
-  return runStatusText(event.status);
 }
 
 function extractSkillName(event: AiRunEvent | undefined) {
   if (!event) return '任务规划';
   const match = event.user_message.match(/「(.+?)」技能/);
-  return match?.[1] ?? event.user_message;
+  if (match?.[1]) return match[1];
+  return event.user_message.replace(/(?:执行完成|等待补充信息|等待补充)$/, '').trim() || event.user_message;
 }
 
-const TOOL_REVEAL_INTERVAL_MS = 2000;
-
-type ToolEventEntry = {
+type RunActivityEventEntry = {
   key: string;
   event: AiRunEvent;
+  sequence: number;
 };
 
 function runEventKey(event: AiRunEvent, index: number) {
@@ -105,10 +82,58 @@ function isDraftToolEvent(event: AiRunEvent) {
   return event.internal_code.includes('.create_draft') || event.user_message.startsWith('生成「');
 }
 
+type RunActivityItem = {
+  key: string;
+  event: AiRunEvent;
+  kind: 'skill' | 'tool' | 'draft';
+  label: string;
+};
+
+function toRunEventEntries(events: AiRunEvent[]) {
+  return events
+    .map((event, index) => ({ key: runEventKey(event, index), event, sequence: index + 1 }));
+}
+
+function runActivitySkillLabel(event: AiRunEvent) {
+  const skillName = extractSkillName(event);
+  return `调用技能：${skillName}`;
+}
+
+function runActivityToolLabel(event: AiRunEvent) {
+  if (event.status === 'waiting') return `等待补充：${event.user_message}`;
+  if (event.status === 'failed') return `执行失败：${event.user_message}`;
+  if (isDraftToolEvent(event)) return event.user_message.startsWith('生成「') ? event.user_message : `生成「${event.user_message}」`;
+  return event.user_message.startsWith('调用「') ? event.user_message : `调用「${event.user_message}」`;
+}
+
+function runActivityKind(event: AiRunEvent): RunActivityItem['kind'] {
+  if (event.type === 'skill') return 'skill';
+  return isDraftToolEvent(event) ? 'draft' : 'tool';
+}
+
+function runActivityEventLabel(event: AiRunEvent) {
+  if (event.type === 'skill') return runActivitySkillLabel(event);
+  return runActivityToolLabel(event);
+}
+
+const UNFINISHED_ASSISTANT_MESSAGE_STATUSES = new Set(['pending', 'running', 'waiting_approval', 'waiting_input']);
+
+function isPendingApprovalPart(part: AiMessage['parts'][number]) {
+  if (part.type !== 'approval_request' || !part.approval) return false;
+  const status = part.approval.status.toLowerCase();
+  return status === 'pending' || status === 'pending_retry';
+}
+
+function isUnfinishedAssistantMessage(message: AiMessage) {
+  if (message.role !== 'assistant') return false;
+  const status = message.status.toLowerCase();
+  return UNFINISHED_ASSISTANT_MESSAGE_STATUSES.has(status)
+    || message.parts.some((part) => isPendingApprovalPart(part) || isPendingHumanInputPart(part));
+}
+
 function isMessageFooterReady(message: AiMessage) {
   if (message.role === 'user') return true;
-  const status = message.status.toLowerCase();
-  return status !== 'pending' && status !== 'running';
+  return !isUnfinishedAssistantMessage(message);
 }
 
 function hasDraftContent(message: AiMessage) {
@@ -118,7 +143,7 @@ function hasDraftContent(message: AiMessage) {
 function ToolEventIcon({ event }: { event: AiRunEvent }) {
   if (isDraftToolEvent(event)) {
     return (
-      <svg className="ai-run-tool-icon icon-form" viewBox="0 0 24 24" aria-hidden="true">
+      <svg className="ai-run-activity-icon ai-run-tool-icon icon-form" viewBox="0 0 24 24" aria-hidden="true">
         <rect x="5" y="3.75" width="14" height="16.5" rx="3" />
         <path d="M8.25 8.25h7.5" />
         <path d="M8.25 12h7.5" />
@@ -127,7 +152,7 @@ function ToolEventIcon({ event }: { event: AiRunEvent }) {
     );
   }
   return (
-    <svg className="ai-run-tool-icon icon-tool" viewBox="0 0 24 24" aria-hidden="true">
+    <svg className="ai-run-activity-icon ai-run-tool-icon icon-tool" viewBox="0 0 24 24" aria-hidden="true">
       <path
         fillRule="evenodd"
         clipRule="evenodd"
@@ -137,149 +162,133 @@ function ToolEventIcon({ event }: { event: AiRunEvent }) {
   );
 }
 
-function ProgressEventIcon({ event }: { event: AiRunEvent }) {
-  if (event.type === 'tool') {
-    return <ToolEventIcon event={event} />;
-  }
-  return <span className="ai-run-detail-status-dot" aria-hidden="true" />;
+function SkillEventIcon() {
+  return (
+    <svg className="ai-run-activity-icon ai-run-skill-icon" viewBox="0 0 24 24" aria-hidden="true">
+      <rect x="4.75" y="4.75" width="6.5" height="6.5" rx="1.8" />
+      <rect x="12.75" y="4.75" width="6.5" height="6.5" rx="1.8" />
+      <rect x="4.75" y="12.75" width="6.5" height="6.5" rx="1.8" />
+      <path d="M14.3 16h3.4" />
+      <path d="M16 14.3v3.4" />
+    </svg>
+  );
 }
 
-function RunProgressTimeline({ events, isLive }: { events: AiRunEvent[]; isLive: boolean }) {
-  const [isExpanded, setIsExpanded] = useState(false);
-  const sortedEvents = [...events].sort((left, right) => {
-    const leftTime = new Date(left.created_at).getTime();
-    const rightTime = new Date(right.created_at).getTime();
-    return (Number.isNaN(leftTime) ? 0 : leftTime) - (Number.isNaN(rightTime) ? 0 : rightTime);
-  });
-  const skillEvents = sortedEvents.filter((event) => event.type === 'skill');
-  const currentSkill = lastOf(skillEvents);
-  const toolEvents = sortedEvents.filter((event) => event.type === 'tool');
-  const toolEntries: ToolEventEntry[] = toolEvents.map((event, index) => ({ key: runEventKey(event, index), event }));
-  const toolEntrySignature = toolEntries.map((entry) => entry.key).join('\u001f');
-  const shouldQueueToolEvents = useRef(isLive);
-  if (isLive) {
-    shouldQueueToolEvents.current = true;
-  }
-  const [toolDisplay, setToolDisplay] = useState(() => ({
-    visibleKeys: shouldQueueToolEvents.current ? [] : toolEntries.map((entry) => entry.key),
-    queuedKeys: [] as string[],
-    latestKey: null as string | null,
-    revealVersion: 0,
-    lastRevealAt: null as number | null,
-  }));
-  useEffect(() => {
-    setToolDisplay((current) => {
-      if (!shouldQueueToolEvents.current) {
-        const visibleKeys = toolEntries.map((entry) => entry.key);
-        const hasSameVisibleKeys = visibleKeys.length === current.visibleKeys.length && visibleKeys.every((key, index) => key === current.visibleKeys[index]);
-        if (hasSameVisibleKeys && current.queuedKeys.length === 0) {
-          return current;
-        }
-        return { ...current, visibleKeys, queuedKeys: [], latestKey: null };
-      }
-      const knownKeys = new Set(toolEntries.map((entry) => entry.key));
-      const visibleKeys = current.visibleKeys.filter((key) => knownKeys.has(key));
-      const queuedKeys = current.queuedKeys.filter((key) => knownKeys.has(key));
-      const existingKeys = new Set([...visibleKeys, ...queuedKeys]);
-      for (const entry of toolEntries) {
-        if (!existingKeys.has(entry.key)) {
-          queuedKeys.push(entry.key);
-          existingKeys.add(entry.key);
-        }
-      }
-      const latestKey = current.latestKey && knownKeys.has(current.latestKey) ? current.latestKey : null;
-      if (
-        visibleKeys.length === current.visibleKeys.length &&
-        queuedKeys.length === current.queuedKeys.length &&
-        latestKey === current.latestKey
-      ) {
-        return current;
-      }
-      return { ...current, visibleKeys, queuedKeys, latestKey };
-    });
-  }, [toolEntrySignature]);
-  useEffect(() => {
-    if (toolDisplay.queuedKeys.length === 0) return undefined;
-    const elapsedMs = toolDisplay.lastRevealAt === null ? TOOL_REVEAL_INTERVAL_MS : Date.now() - toolDisplay.lastRevealAt;
-    const waitMs = Math.max(0, TOOL_REVEAL_INTERVAL_MS - elapsedMs);
-    const timer = window.setTimeout(() => {
-      setToolDisplay((current) => {
-        const [nextKey, ...queuedKeys] = current.queuedKeys;
-        if (!nextKey) return current;
-        return {
-          visibleKeys: current.visibleKeys.includes(nextKey) ? current.visibleKeys : [...current.visibleKeys, nextKey],
-          queuedKeys,
-          latestKey: nextKey,
-          revealVersion: current.revealVersion + 1,
-          lastRevealAt: Date.now(),
-        };
-      });
-    }, waitMs);
-    return () => window.clearTimeout(timer);
-  }, [toolDisplay.queuedKeys.length, toolDisplay.lastRevealAt]);
-  if (events.length === 0) return null;
-  const visibleToolKeys = new Set(toolDisplay.visibleKeys);
-  const visibleToolEvents = toolEntries.filter((entry) => visibleToolKeys.has(entry.key)).reverse();
-  const hasActiveEvent = Boolean(currentSkill && isActiveRunStatus(currentSkill.status)) || toolEvents.some((event) => isActiveRunStatus(event.status));
-  const currentSkillName = extractSkillName(currentSkill);
-  const currentStatus: AiRunEvent['status'] =
-    hasActiveEvent || (isLive && currentSkill?.status !== 'failed' && currentSkill?.status !== 'waiting')
-      ? 'running'
-      : currentSkill?.status ?? 'completed';
+function RunActivityInline({
+  entries,
+  events = [],
+  isLive,
+  includeCompletedSkill = false,
+}: {
+  entries?: RunActivityEventEntry[];
+  events?: AiRunEvent[];
+  isLive: boolean;
+  includeCompletedSkill?: boolean;
+}) {
+  const activityEntries = entries ?? toRunEventEntries(events);
+  const skillEntries = activityEntries.filter(({ event }) => event.type === 'skill');
+  const displayedSkillEntry = includeCompletedSkill && !isLive
+    ? skillEntries[skillEntries.length - 1]
+    : [...skillEntries].reverse().find(({ event }) => event.status !== 'completed') ?? (includeCompletedSkill ? skillEntries[skillEntries.length - 1] : undefined);
+  const visibleActivityItems: RunActivityItem[] = activityEntries
+    .filter(({ event, key }) => event.type !== 'skill' || (displayedSkillEntry?.key === key && (includeCompletedSkill || event.status !== 'completed')))
+    .map(({ event, key }) => ({
+      key,
+      event,
+      kind: runActivityKind(event),
+      label: runActivityEventLabel(event),
+    }));
+  if (visibleActivityItems.length === 0) return null;
+  const newestKey = isLive ? visibleActivityItems[visibleActivityItems.length - 1]?.key : null;
 
   return (
-    <section className={`ai-run-progress${isExpanded ? ' is-expanded' : ''}`} aria-label="AI 执行进度">
-      <div className={`ai-run-progress-bar${toolEvents.length > 0 ? ' has-tools' : ''}`}>
-        <div className={`ai-run-current-skill status-${currentStatus}${hasActiveEvent ? ' is-active' : ''}`}>
-          <span className="ai-run-status-dot" aria-hidden="true" />
-          <strong>{runStatusText(currentStatus)}</strong>
-          <span title={currentSkillName}>{currentSkillName}</span>
-        </div>
-        {toolEvents.length > 0 && (
-          <div className="ai-run-tool-marquee" aria-label="执行工具">
-            <div className="ai-run-tool-track">
-              {visibleToolEvents.map(({ event, key }) => {
-                const movementClass =
-                  key === toolDisplay.latestKey
-                    ? ' is-newest'
-                    : toolDisplay.latestKey
-                      ? ` is-shifted shift-${toolDisplay.revealVersion % 2 === 0 ? 'even' : 'odd'}`
-                      : '';
-                return (
-                  <span
-                    key={key}
-                    className={`ai-run-tool-chip ${isDraftToolEvent(event) ? 'kind-form' : 'kind-tool'} status-${event.status}${movementClass}`}
-                    title={event.user_message}
-                  >
-                    <ToolEventIcon event={event} />
-                    {event.user_message}
-                  </span>
-                );
-              })}
+    <section className="ai-run-activity" aria-label="AI 执行过程">
+      <div className="ai-run-activity-summary">
+        {visibleActivityItems.map((item) => {
+          const movementClass = item.key === newestKey ? ' is-newest' : '';
+          const displayStatus = item.kind === 'skill' ? 'called' : item.event.status;
+          const isActive = item.kind !== 'skill' && isActiveRunStatus(item.event.status);
+          return (
+            <div
+              key={item.key}
+              className={`ai-run-activity-row kind-${item.kind} status-${displayStatus}${isActive ? ' is-active' : ''}${movementClass}`}
+            >
+              {item.kind === 'skill' ? <SkillEventIcon /> : <ToolEventIcon event={item.event} />}
+              <span title={item.label}>{item.label}</span>
             </div>
-          </div>
-        )}
-        <button className={`ai-run-progress-toggle${isExpanded ? ' is-expanded' : ''}`} type="button" onClick={() => setIsExpanded((current) => !current)}>
-          <span>{isExpanded ? '收起进度' : '查看详情'}</span>
-          <span className="ai-run-toggle-chevron" aria-hidden="true" />
-        </button>
+          );
+        })}
       </div>
-      {isExpanded && (
-        <div className="ai-run-progress-detail">
-          <div className="ai-run-progress-steps">
-            {sortedEvents.map((event, index) => (
-              <div key={event.id || `${event.internal_code}-${index}`} className={`ai-run-progress-step status-${event.status}`}>
-                <ProgressEventIcon event={event} />
-                <strong>{runEventStatusText(event)}</strong>
-                <p title={event.user_message}>{event.user_message}</p>
-                <time dateTime={event.created_at}>{formatRunEventTime(event.created_at)}</time>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
     </section>
   );
+}
+
+type MessageTimelineItem =
+  | { key: string; type: 'activity'; entry: RunActivityEventEntry }
+  | { key: string; type: 'text'; text: string }
+  | { key: string; type: 'part'; part: AiMessage['parts'][number] };
+
+function createMessageTimelineItems(parts: AiMessage['parts'], runEventEntries: RunActivityEventEntry[]): MessageTimelineItem[] {
+  if (parts.some((part) => part.type === 'run_activity' && part.activity)) {
+    return parts.flatMap((part, partIndex): MessageTimelineItem[] => {
+      if (part.type === 'run_activity' && part.activity) {
+        return [{
+          key: `activity-part:${part.id || partIndex}`,
+          type: 'activity',
+          entry: { key: part.activity.id || part.id || `activity-${partIndex}`, event: part.activity, sequence: partIndex + 1 },
+        }];
+      }
+      if (part.type === 'text') {
+        const textSegments = (part.text ?? '').split(/\n\n+/).map((segment) => segment.trim()).filter(Boolean);
+        return textSegments.map((text, segmentIndex) => ({
+          key: `text:${part.id}:${segmentIndex}`,
+          type: 'text',
+          text,
+        }));
+      }
+      return [{ key: `part:${part.id || partIndex}`, type: 'part', part }];
+    });
+  }
+  const eventCount = runEventEntries.length;
+  const groupedParts = new Map<number, MessageTimelineItem[]>();
+  const addPartAtBoundary = (boundary: number, item: MessageTimelineItem) => {
+    const normalizedBoundary = Math.max(0, Math.min(boundary, eventCount));
+    groupedParts.set(normalizedBoundary, [...(groupedParts.get(normalizedBoundary) ?? []), item]);
+  };
+  parts.forEach((part, partIndex) => {
+    if (part.type === 'text') {
+      const textSegments = (part.text ?? '').split(/\n\n+/).map((segment) => segment.trim()).filter(Boolean);
+      textSegments.forEach((text, segmentIndex) => {
+        addPartAtBoundary(0, {
+          key: `text:${part.id}:${segmentIndex}`,
+          type: 'text',
+          text,
+        });
+      });
+      return;
+    }
+    addPartAtBoundary(eventCount, {
+      key: `part:${part.id || partIndex}`,
+      type: 'part',
+      part,
+    });
+  });
+
+  const timeline: MessageTimelineItem[] = [...(groupedParts.get(0) ?? [])];
+  const displayedSkillNames = new Set<string>();
+  runEventEntries.forEach((entry) => {
+    if (entry.event.type === 'skill') {
+      const skillName = extractSkillName(entry.event);
+      if (displayedSkillNames.has(skillName)) {
+        timeline.push(...(groupedParts.get(entry.sequence) ?? []));
+        return;
+      }
+      displayedSkillNames.add(skillName);
+    }
+    timeline.push({ key: `activity:${entry.key}`, type: 'activity', entry });
+    timeline.push(...(groupedParts.get(entry.sequence) ?? []));
+  });
+  return timeline;
 }
 
 function HumanInputRequestPanel({
@@ -559,10 +568,13 @@ export function MessageBubble({
   const messageTime = formatMessageTime(message.created_at);
   const hasRenderableParts = message.parts.some((part) => {
     if (part.type === 'text') return Boolean(part.text?.trim());
+    if (part.type === 'run_activity') return Boolean(part.activity);
     return Boolean(part.card || part.approval || part.draft || part.request);
   });
   const isWaitingForAssistant = !isUser && message.status === 'running' && !hasRenderableParts && runEvents.length === 0;
   const isGeneratingDraft = !isUser && message.status === 'running' && runEvents.some(isDraftToolEvent) && !hasDraftContent(message);
+  const runEventEntries = !isUser ? toRunEventEntries(runEvents) : [];
+  const timelineItems = createMessageTimelineItems(message.parts, runEventEntries);
 
   const [messageCopied, setMessageCopied] = useState(false);
   const [feedback, setFeedback] = useState<'up' | 'down' | null>(null);
@@ -602,7 +614,6 @@ export function MessageBubble({
       <div className="ai-message-content">
         <div className="ai-message-role">{isUser ? userName : 'AI 厨房助手'}</div>
         <div className="ai-message-body">
-          {!isUser && <RunProgressTimeline events={runEvents} isLive={message.status === 'running'} />}
           {isWaitingForAssistant && (
             <div className="ai-thinking-cue" aria-live="polite">
               <span>正在整理回复</span>
@@ -611,17 +622,23 @@ export function MessageBubble({
               <i aria-hidden="true" />
             </div>
           )}
-          {message.parts.map((part) => {
-            if (part.type === 'text') {
+          {timelineItems.map((item) => {
+            if (item.type === 'activity') {
+              return <RunActivityInline key={item.key} entries={[item.entry]} isLive={isUnfinishedAssistantMessage(message)} includeCompletedSkill />;
+            }
+            if (item.type === 'text') {
               return (
-                <Suspense key={part.id} fallback={<p>{part.text}</p>}>
-                  <MarkdownMessage text={part.text ?? ''} />
-                </Suspense>
+                <div key={item.key} className="ai-message-text-block">
+                  <Suspense fallback={<p>{item.text}</p>}>
+                    <MarkdownMessage text={item.text} />
+                  </Suspense>
+                </div>
               );
             }
+            const { part } = item;
             if ((part.type === 'result_card' || part.type === 'error_recovery') && part.card) {
               return (
-                <div key={part.id} className="ai-message-part">
+                <div key={item.key} className="ai-message-part">
                   <ResultCard
                     card={part.card}
                     onAddToPlan={(item, card) => onAddRecommendationToPlan?.(item, card, message.id, part.id)}
@@ -634,7 +651,7 @@ export function MessageBubble({
             if (part.type === 'approval_request' && part.approval) {
               return (
                 <ApprovalPanel
-                  key={part.id}
+                  key={item.key}
                   approval={part.approval}
                   foods={foods}
                   ingredients={ingredients}
@@ -648,7 +665,7 @@ export function MessageBubble({
               const isPendingHumanInput = isPendingHumanInputPart(part);
               return (
                 <HumanInputRequestPanel
-                  key={part.id}
+                  key={item.key}
                   message={message}
                   request={part.request}
                   response={part.response}

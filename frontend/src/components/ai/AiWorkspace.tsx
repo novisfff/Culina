@@ -11,6 +11,7 @@ import type {
   AiInventoryOperationAction,
   AiInventoryResultItem,
   AiMessage,
+  AiMessagePart,
   AiResultCard,
   AiRunEvent,
   AiTodayRecommendationItem,
@@ -39,7 +40,6 @@ import {
   createLocalAssistantMessage,
   appendDeltaToMessageParts,
   messageTextFromParts,
-  appendAssistantDelta,
   isPendingHumanInputPart,
 } from './aiWorkspaceHelpers';
 import { useAiConversationLiveSync } from './useAiConversationLiveSync';
@@ -153,7 +153,6 @@ export function AiWorkspace({
   };
   const [streamProgressByRunId, setStreamProgressByRunId] = useState<Record<string, AiRunEvent[]>>({});
   const streamProgressRef = useRef<Record<string, AiRunEvent[]>>({});
-  const streamDeltaBoundaryRef = useRef<Record<string, number>>({});
   const streamMessageTargetRef = useRef<Record<string, string>>({});
   const streamConversationTargetRef = useRef<Record<string, string>>({});
   const requestedRunEventsRef = useRef<Set<string>>(new Set());
@@ -456,15 +455,49 @@ export function AiWorkspace({
     const messageWithIncludedApprovals = targetMessageId && targetMessageId !== includedMessage.id
       ? { ...includedMessage, id: targetMessageId, run_id: response.run.id }
       : includedMessage;
+    const mergeWithLocalStreamParts = (localMessage: AiMessage | undefined): AiMessage => {
+      if (!localMessage?.parts.length) return messageWithIncludedApprovals;
+      if (messageWithIncludedApprovals.parts.some((part) => part.type === 'run_activity')) {
+        const localPartsById = new Map(localMessage.parts.map((part) => [part.id, part]));
+        const parts = messageWithIncludedApprovals.parts.map((part) => {
+          const localPart = localPartsById.get(part.id);
+          if (
+            part.type === 'text'
+            && localPart?.type === 'text'
+            && (localPart.text?.length ?? 0) > (part.text?.length ?? 0)
+          ) {
+            return { ...part, text: localPart.text };
+          }
+          return part;
+        });
+        return {
+          ...messageWithIncludedApprovals,
+          parts,
+          content_type: 'parts',
+          content: messageTextFromParts(parts) || messageWithIncludedApprovals.content,
+        };
+      }
+      const localPartIds = new Set(localMessage.parts.map((part) => part.id));
+      const appendedFinalParts = messageWithIncludedApprovals.parts.filter((part) => !localPartIds.has(part.id));
+      const parts = [...localMessage.parts, ...appendedFinalParts];
+      return {
+        ...messageWithIncludedApprovals,
+        parts,
+        content_type: 'parts',
+        content: messageTextFromParts(parts) || messageWithIncludedApprovals.content,
+      };
+    };
     setActiveConversationKey((current) => (current === conversationKey ? response.conversation_id : current));
     setIsStartingNewConversation(false);
     setLocalMessagesByConversationKey((current) => {
       const currentItems = current[conversationKey] ?? [];
+      const localStreamMessage = currentItems.find((item) => item.id === messageWithIncludedApprovals.id || item.id === response.message.id || item.run_id === response.run.id);
+      const appendOnlyMessage = mergeWithLocalStreamParts(localStreamMessage);
       const movedItems = [
         ...currentItems
-          .filter((item) => item.id !== messageWithIncludedApprovals.id && item.id !== response.message.id && item.run_id !== response.run.id)
+          .filter((item) => item.id !== appendOnlyMessage.id && item.id !== response.message.id && item.run_id !== response.run.id)
           .map((item) => ({ ...item, conversation_id: response.conversation_id })),
-        messageWithIncludedApprovals,
+        appendOnlyMessage,
       ];
       const next = { ...current };
       delete next[conversationKey];
@@ -486,7 +519,6 @@ export function AiWorkspace({
     ]);
     setRunEventsById((current) => ({ ...current, [response.run.id]: mergedEvents }));
     streamProgressRef.current = { ...streamProgressRef.current, [runId]: [] };
-    streamDeltaBoundaryRef.current = {};
     delete streamMessageTargetRef.current[response.run.id];
     delete streamConversationTargetRef.current[conversationKey];
     delete streamConversationTargetRef.current[response.run.id];
@@ -511,12 +543,7 @@ export function AiWorkspace({
             ? displayedMessages.find((item) => item.id === messageId) ?? messages.find((item) => item.id === messageId)
             : undefined;
         if (sourceMessage) {
-          const textPart = sourceMessage.parts.find((part) => part.type === 'text');
-          const currentText = textPart?.text ?? sourceMessage.content ?? '';
-          const hasNonTextParts = sourceMessage.parts.some((part) => part.type !== 'text');
-          const progressCount = (streamProgressRef.current[runId] ?? []).filter((progress) => progress.run_id === runId).length + (runEventsById[runId]?.length ?? 0);
-          const shouldSeparate = hasNonTextParts || progressCount > 0;
-          const nextParts = appendDeltaToMessageParts(sourceMessage.parts, event.delta, partId, shouldSeparate, isApprovalContinuation && hasNonTextParts);
+          const nextParts = appendDeltaToMessageParts(sourceMessage.parts, event.delta, partId, false, isApprovalContinuation);
           return [
             ...items,
             {
@@ -547,26 +574,55 @@ export function AiWorkspace({
       }
       return items.map((item, index) => {
         if (index !== existingIndex) return item;
-        const textPart = item.parts.find((part) => part.type === 'text');
-        const currentText = textPart?.text ?? item.content ?? '';
-        const hasNonTextParts = item.parts.some((part) => part.type !== 'text');
-        const progressCount = runId
-          ? (streamProgressRef.current[runId] ?? []).filter((progress) => progress.run_id === runId).length + (runEventsById[runId]?.length ?? 0)
-          : 0;
-        const boundaryKey = `${messageId}:${runId}`;
-        const lastSeparatedProgressCount = streamDeltaBoundaryRef.current[boundaryKey] ?? 0;
-        const shouldSeparate = (hasNonTextParts && !currentText.includes('\n\n')) || progressCount > lastSeparatedProgressCount;
-        const willInsertSeparator = shouldSeparate && Boolean(currentText.trim()) && !currentText.endsWith('\n\n') && !event.delta.startsWith('\n');
-        const nextText = appendAssistantDelta(currentText, event.delta, shouldSeparate);
-        if (willInsertSeparator && progressCount > 0) {
-          streamDeltaBoundaryRef.current = { ...streamDeltaBoundaryRef.current, [boundaryKey]: progressCount };
-        }
-        const nextParts = appendDeltaToMessageParts(item.parts, event.delta, partId, shouldSeparate, isApprovalContinuation && hasNonTextParts);
+        const nextParts = appendDeltaToMessageParts(item.parts, event.delta, partId, false, isApprovalContinuation);
         return {
           ...item,
           id: messageId,
           conversation_id: event.conversation_id || item.conversation_id,
           content: messageTextFromParts(nextParts),
+          parts: nextParts,
+        };
+      });
+    });
+    if (event.conversation_id && !isPendingConversationKey(event.conversation_id)) {
+      queryClient.setQueryData<AiMessage[]>(queryKeys.aiMessages(event.conversation_id), (items = []) => items);
+    }
+  }
+  function applyStreamPart(event: { message_id?: string; conversation_id?: string; run_id?: string; part: AiMessagePart }, conversationKey: string) {
+    if (!event.part?.id) return;
+    const runId = event.run_id || activeStreamRunIdsByConversationKey[conversationKey] || 'pending';
+    const messageId = streamMessageTargetRef.current[runId] || event.message_id || `local-assistant-${runId}`;
+    updateStreamLocalMessages(conversationKey, runId, event.conversation_id, (items, targetConversationKey) => {
+      const existingIndex = items.findIndex((item) => item.id === messageId || item.id === `local-assistant-${runId}` || item.run_id === runId);
+      if (existingIndex === -1) {
+        return [
+          ...items,
+          {
+            id: messageId,
+            conversation_id: event.conversation_id || targetConversationKey,
+            role: 'assistant',
+            content: '',
+            content_type: 'parts',
+            parts: [event.part],
+            run_id: runId,
+            status: 'running',
+            metadata: {},
+            created_at: new Date().toISOString(),
+          },
+        ];
+      }
+      return items.map((item, index) => {
+        if (index !== existingIndex) return item;
+        const existingPartIndex = item.parts.findIndex((part) => part.id === event.part.id);
+        const nextParts = existingPartIndex >= 0
+          ? item.parts.map((part, partIndex) => (partIndex === existingPartIndex ? event.part : part))
+          : [...item.parts, event.part];
+        return {
+          ...item,
+          id: messageId,
+          conversation_id: event.conversation_id || item.conversation_id,
+          content: messageTextFromParts(nextParts),
+          content_type: 'parts',
           parts: nextParts,
         };
       });
@@ -626,6 +682,7 @@ export function AiWorkspace({
           ensureStreamingAssistantMessage(eventRunId, conversationKey);
           upsertStreamProgressEvent(nextEvent);
         },
+        onMessagePart: (event) => applyStreamPart(event, conversationKey),
         onMessageDelta: (event) => applyStreamDelta(event, conversationKey),
       }).then((response) => {
         applyChatResponse(response, conversationKey, payload.client_run_id);
@@ -691,6 +748,7 @@ export function AiWorkspace({
           }
           upsertStreamProgressEvent(nextEvent);
         },
+          onMessagePart: (event) => applyStreamPart(event, conversationKey),
           onMessageDelta: (event) => applyStreamDelta(event, conversationKey),
         },
       ).then((response) => {
@@ -713,11 +771,52 @@ export function AiWorkspace({
     },
   });
   const humanInputMutation = useMutation({
-    mutationFn: (payload: { message: AiMessage; request: AiHumanInputRequest; response: { selected_option_ids?: string[]; text?: string } }) =>
-      api.respondAiHumanInput(payload.message.conversation_id, payload.request.id, payload.response).then((response) => {
-        applyChatResponse(response, payload.message.conversation_id, response.run.id);
+    mutationFn: (payload: { message: AiMessage; request: AiHumanInputRequest; response: { selected_option_ids?: string[]; text?: string } }) => {
+      const controller = new AbortController();
+      const conversationKey = payload.message.conversation_id;
+      const runId = payload.message.run_id;
+      if (runId) {
+        chatAbortByRunIdRef.current = { ...chatAbortByRunIdRef.current, [runId]: controller };
+        streamMessageTargetRef.current = { ...streamMessageTargetRef.current, [runId]: payload.message.id };
+        setActiveStreamRunIdsByConversationKey((current) => ({ ...current, [conversationKey]: runId }));
+      }
+      return api.streamAiHumanInputResponse(payload.message.conversation_id, payload.request.id, payload.response, {
+        signal: controller.signal,
+        onProgress: (event) => {
+          const eventRunId = 'run_id' in event && typeof event.run_id === 'string' && event.run_id !== 'pending' ? event.run_id : runId ?? 'pending';
+          const nextEvent: AiRunEvent = {
+            id: 'id' in event && typeof event.id === 'string' ? event.id : `human-input-stream-${event.internal_code}-${Date.now()}`,
+            run_id: eventRunId,
+            type: event.type,
+            internal_code: event.internal_code,
+            user_message: event.user_message,
+            status: event.status,
+            created_at: 'created_at' in event && typeof event.created_at === 'string' ? event.created_at : new Date().toISOString(),
+          };
+          if (!streamMessageTargetRef.current[eventRunId]) {
+            ensureStreamingAssistantMessage(eventRunId, conversationKey);
+          }
+          upsertStreamProgressEvent(nextEvent);
+        },
+        onMessagePart: (event) => applyStreamPart(event, conversationKey),
+        onMessageDelta: (event) => applyStreamDelta(event, conversationKey),
+      }).then((response) => {
+        applyChatResponse(response, payload.message.conversation_id, runId ?? response.run.id);
         return response;
-      }),
+      });
+    },
+    onSettled: (_data, _error, variables) => {
+      const runId = variables?.message.run_id;
+      if (!runId || !variables) return;
+      const { [runId]: _removed, ...remainingControllers } = chatAbortByRunIdRef.current;
+      chatAbortByRunIdRef.current = remainingControllers;
+      setActiveStreamRunIdsByConversationKey((current) => {
+        if (current[variables.message.conversation_id] !== runId) return current;
+        const next = { ...current };
+        delete next[variables.message.conversation_id];
+        return next;
+      });
+    },
   });
   const deleteConversationMutation = useMutation({
     mutationFn: api.deleteAiConversation,
@@ -798,7 +897,6 @@ export function AiWorkspace({
     const assistantMessage = createLocalAssistantMessage(clientRunId, conversationKey);
     updateLocalMessages(conversationKey, (items) => [...items, tempMessage, assistantMessage]);
     streamProgressRef.current = { ...streamProgressRef.current, [clientRunId]: [] };
-    streamDeltaBoundaryRef.current = {};
     streamMessageTargetRef.current = {};
     setStreamProgressByRunId((current) => ({ ...current, [clientRunId]: [] }));
     setActiveStreamRunIdsByConversationKey((current) => ({ ...current, [conversationKey]: clientRunId }));
@@ -822,7 +920,6 @@ export function AiWorkspace({
     if (approval.run_id) {
       streamProgressRef.current = { ...streamProgressRef.current, [approval.run_id]: [] };
     }
-    streamDeltaBoundaryRef.current = {};
     if (approval.run_id) {
       setStreamProgressByRunId((current) => ({ ...current, [approval.run_id as string]: [] }));
     }
@@ -830,6 +927,10 @@ export function AiWorkspace({
   };
   const submitHumanInputResponse: AiHumanInputResponseSubmit = async (message, request, response) => {
     if (humanInputMutation.isPending) return;
+    if (message.run_id) {
+      streamProgressRef.current = { ...streamProgressRef.current, [message.run_id]: [] };
+      setStreamProgressByRunId((current) => ({ ...current, [message.run_id as string]: [] }));
+    }
     await humanInputMutation.mutateAsync({ message, request, response });
   };
   function openRecommendationPlan(item: AiTodayRecommendationItem, card: AiResultCard, messageId: string, partId: string) {

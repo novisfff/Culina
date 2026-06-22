@@ -74,7 +74,7 @@ class GenerateRecipeDraftResponse(BaseModel):
 
 
 AIMessageRole = Literal["user", "assistant", "system"]
-AIMessagePartType = Literal["text", "result_card", "draft", "approval_request", "human_input_request", "error_recovery"]
+AIMessagePartType = Literal["text", "result_card", "draft", "approval_request", "human_input_request", "error_recovery", "run_activity"]
 AIResultCardType = Literal[
     "today_recommendation",
     "recipe_draft",
@@ -336,6 +336,7 @@ class AIMessagePartDTO(BaseModel):
     approval: AIApprovalRequestDTO | None = None
     request: AIHumanInputRequestDTO | None = None
     response: AIHumanInputResponseDTO | None = None
+    activity: AIRunEventDTO | None = None
 
 
 class AIMessageDTO(BaseModel):

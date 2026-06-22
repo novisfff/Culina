@@ -484,6 +484,7 @@ class WorkspaceGraphRunner:
                 metadata = dict(message.message_metadata or {})
                 metadata.pop("liveStreaming", None)
                 metadata.pop("liveTextPartIds", None)
+                metadata.pop("livePartIds", None)
                 message.message_metadata = metadata
 
             event = AIRunEvent(
@@ -650,6 +651,95 @@ class WorkspaceGraphRunner:
         if not run_id:
             raise RuntimeError("LangGraph 恢复后没有运行记录")
         return self._chat_response(conversation_id, run_id)
+
+
+    def stream_resume_human_input(
+        self,
+        *,
+        family_id: str,
+        user_id: str,
+        conversation_id: str,
+        request_id: str,
+        selected_option_ids: list[str],
+        text: str | None,
+    ) -> Iterator[tuple[str, dict[str, Any]]]:
+        require_conversation(self.db, family_id=family_id, conversation_id=conversation_id)
+        config = self._config(conversation_id)
+        snapshot = self.graph.get_state(config)
+        if not snapshot.values or not snapshot.next:
+            raise LookupError("用户补充信息请求不存在或已结束")
+        run_id = str((snapshot.values or {}).get("run_id") or "")
+        logger.info(
+            "AI graph human input stream resume started family_id=%s user_id=%s conversation_id=%s request_id=%s run_id=%s has_snapshot=%s next=%s",
+            family_id,
+            user_id,
+            conversation_id,
+            request_id,
+            run_id,
+            bool(snapshot.values),
+            list(snapshot.next or []),
+        )
+
+        seen_event_ids: set[str] = set()
+        try:
+            for chunk in self.graph.stream(
+                Command(
+                    resume={
+                        "requestId": request_id,
+                        "selectedOptionIds": selected_option_ids,
+                        "text": text or "",
+                        "userId": user_id,
+                        "familyId": family_id,
+                    }
+                ),
+                config=config,
+                stream_mode=["updates", "custom"],
+                durability="sync",
+            ):
+                mode, update = chunk if isinstance(chunk, tuple) else ("updates", chunk)
+                if mode == "custom":
+                    event, data = self._custom_stream_event(update)
+                    if event:
+                        if event == "progress" and isinstance(data.get("id"), str):
+                            seen_event_ids.add(data["id"])
+                        yield (event, data)
+                    continue
+                if mode != "updates":
+                    continue
+                if not run_id:
+                    run_id = self._run_id_from_update(update) or run_id
+                if run_id:
+                    yield from self._new_progress_events(run_id, seen_event_ids)
+        except GeneratorExit:
+            if run_id:
+                self._cancel_after_disconnect(run_id)
+            raise
+        except Exception as exc:
+            if run_id:
+                self._mark_stream_run_failed(
+                    run_id=run_id,
+                    conversation_id=conversation_id,
+                    family_id=family_id,
+                    user_id=user_id,
+                    error=str(exc),
+                )
+            raise
+
+        if not run_id:
+            state = self.graph.get_state(config)
+            run_id = str(state.values.get("run_id") or "")
+        if not run_id:
+            raise RuntimeError("LangGraph 恢复后没有运行记录")
+        yield from self._new_progress_events(run_id, seen_event_ids)
+        logger.info(
+            "AI graph human input stream resume completed family_id=%s user_id=%s conversation_id=%s request_id=%s run_id=%s",
+            family_id,
+            user_id,
+            conversation_id,
+            request_id,
+            run_id,
+        )
+        yield ("response", self._chat_response(conversation_id, run_id))
 
 
     def stream_resume_approval(
@@ -1407,7 +1497,7 @@ class WorkspaceGraphRunner:
             if not result.text.strip():
                 result.text = "已取消这次任务。"
         cards = [] if result.drafts else validate_result_cards(result.cards)
-        next_parts: list[dict[str, Any]] = [{"id": create_id("ai_part"), "type": "text", "text": result.text}]
+        next_parts = self._base_assistant_parts_from_live_stream(state, result.text)
         for card in cards:
             next_parts.append({"id": create_id("ai_part"), "type": "result_card", "card": card})
         pending_human_input = (
@@ -1468,6 +1558,7 @@ class WorkspaceGraphRunner:
                 existing_parts = [part for part in existing_parts if str(part.get("id") or "") not in live_text_part_ids]
                 metadata.pop("liveStreaming", None)
                 metadata.pop("liveTextPartIds", None)
+                metadata.pop("livePartIds", None)
             message.parts = [*existing_parts, *next_parts]
             if skill_key:
                 skill_keys = list(metadata.get("skillKeys") or [])
@@ -1840,6 +1931,7 @@ class WorkspaceGraphRunner:
             metadata["liveTextPartIds"] = live_text_part_ids
         else:
             metadata.pop("liveTextPartIds", None)
+            metadata.pop("livePartIds", None)
             metadata.pop("liveStreaming", None)
         message.message_metadata = metadata
         text_parts = [
@@ -2029,9 +2121,9 @@ class WorkspaceGraphRunner:
         def write(update: dict[str, Any]) -> None:
             event_name, data = self._custom_stream_event(update)
             if event_name == "message_delta":
-                self._cache_live_message_delta(state, data)
+                data = self._cache_live_message_delta(state, data)
                 if writer is not None:
-                    writer(update)
+                    writer({"event": "message_delta", "data": data})
                 return
             if event_name != "progress":
                 if writer is not None:
@@ -2055,19 +2147,32 @@ class WorkspaceGraphRunner:
                 self.db.add(event)
                 self.db.flush()
                 self._commit_stream_checkpoint(state, run_status=str(data.get("status") or "running"))
+            serialized_event = serialize_ai_run_event(event)
+            message_id, part = self._cache_live_activity_part(state, serialized_event)
             if writer is not None:
-                writer({"event": "progress", "data": serialize_ai_run_event(event)})
+                writer(
+                    {
+                        "event": "message_part",
+                        "data": {
+                            "message_id": message_id,
+                            "conversation_id": state["conversation_id"],
+                            "run_id": event.run_id,
+                            "part": part,
+                        },
+                    }
+                )
+                writer({"event": "progress", "data": serialized_event})
 
         return write
 
-    def _cache_live_message_delta(self, state: WorkspaceGraphState, data: dict[str, Any]) -> None:
+    def _cache_live_message_delta(self, state: WorkspaceGraphState, data: dict[str, Any]) -> dict[str, Any]:
         delta = str(data.get("delta") or "")
         if not delta:
-            return
-        message_id = str(data.get("message_id") or "").strip() or create_id("ai_message")
+            return data
+        message_id = self._live_message_id(state, data)
         part_id = str(data.get("part_id") or "").strip() or create_id("ai_part")
         run_id = str(data.get("run_id") or state["run_id"])
-        live_ai_stream_cache.append_delta(
+        message_id, part_id = live_ai_stream_cache.append_delta(
             family_id=state["family_id"],
             conversation_id=state["conversation_id"],
             run_id=run_id,
@@ -2076,6 +2181,51 @@ class WorkspaceGraphRunner:
             delta=delta,
             created_by=state.get("user_id"),
         )
+        return {
+            **data,
+            "message_id": message_id,
+            "conversation_id": state["conversation_id"],
+            "run_id": run_id,
+            "part_id": part_id,
+        }
+
+    def _cache_live_activity_part(self, state: WorkspaceGraphState, event: dict[str, Any]) -> tuple[str, dict[str, Any]]:
+        run_id = str(event.get("run_id") or state["run_id"])
+        part = {
+            "id": f"activity-{event.get('id') or create_id('ai_run_event')}",
+            "type": "run_activity",
+            "activity": event,
+        }
+        return live_ai_stream_cache.append_activity(
+            family_id=state["family_id"],
+            conversation_id=state["conversation_id"],
+            run_id=run_id,
+            message_id=self._live_message_id(state, {}),
+            part=jsonable_encoder(part),
+            created_by=state.get("user_id"),
+        )
+
+    def _live_message_id(self, state: WorkspaceGraphState, data: dict[str, Any]) -> str:
+        return str(data.get("message_id") or "").strip() or f"{state['run_id']}:assistant"
+
+    def _base_assistant_parts_from_live_stream(self, state: WorkspaceGraphState, result_text: str) -> list[dict[str, Any]]:
+        live_parts = live_ai_stream_cache.parts_for_run(state.get("run_id"))
+        if not live_parts:
+            return [{"id": create_id("ai_part"), "type": "text", "text": result_text}]
+        parts = [dict(part) for part in live_parts if isinstance(part, dict)]
+        live_text = "\n\n".join(
+            str(part.get("text") or "").strip()
+            for part in parts
+            if part.get("type") == "text" and str(part.get("text") or "").strip()
+        )
+        final_text = (result_text or "").strip()
+        if final_text and not live_text:
+            parts.append({"id": create_id("ai_part"), "type": "text", "text": result_text})
+        elif final_text and final_text.startswith(live_text) and final_text != live_text:
+            tail = final_text[len(live_text):].strip()
+            if tail:
+                parts.append({"id": create_id("ai_part"), "type": "text", "text": tail})
+        return parts
 
     def _commit_stream_checkpoint(self, state: WorkspaceGraphState, *, run_status: str) -> None:
         try:

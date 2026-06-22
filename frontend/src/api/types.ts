@@ -574,7 +574,7 @@ export interface GenerateRecipeDraftPayload {
 }
 
 export type AiMessageRole = 'user' | 'assistant' | 'system';
-export type AiMessagePartType = 'text' | 'result_card' | 'draft' | 'approval_request' | 'human_input_request' | 'error_recovery';
+export type AiMessagePartType = 'text' | 'result_card' | 'draft' | 'approval_request' | 'human_input_request' | 'error_recovery' | 'run_activity';
 export type AiResultCardType =
   | 'today_recommendation'
   | 'recipe_draft'
@@ -851,6 +851,7 @@ export interface AiMessagePart {
   approval?: AiApprovalRequest | null;
   request?: AiHumanInputRequest | null;
   response?: AiHumanInputResponse | null;
+  activity?: AiRunEvent | null;
 }
 
 export interface AiMessage {

@@ -935,3 +935,97 @@ class AIFoundationTestCase(AIAgentInfraTestCase):
             self.assertEqual(response_request_part.get("response", {}).get("selectedOptionIds"), ["one-day"])
             self.assertEqual(response_request_part.get("response", {}).get("text"), "一天")
             self.assertEqual(response_request_part.get("response", {}).get("summary"), "一天")
+
+        def test_human_input_response_stream_returns_message_deltas(self) -> None:
+            class HumanInputStreamProvider(BaseChatProvider):
+                model_name = "human-input-stream-model"
+
+                def __init__(self) -> None:
+                    self.calls = 0
+
+                def generate(self, *, system: str, user: str, response_schema: dict | None = None) -> ChatProviderResult:
+                    raise AssertionError("orchestrator should use generate_with_tools")
+
+                def generate_with_tools(
+                    self,
+                    *,
+                    system: str,
+                    user: str,
+                    tools: list,
+                    tool_handler,
+                    response_schema: dict | None = None,
+                    max_rounds: int = 8,
+                    visible_text_handler=None,
+                ) -> ChatProviderResult:
+                    del system, user, tools, response_schema, max_rounds
+                    self.calls += 1
+                    if self.calls == 1:
+                        tool_handler(
+                            "human.request_input",
+                            {
+                                "question": "要安排几天？",
+                                "inputMode": "choice",
+                                "options": [{"id": "three-days", "label": "三天"}],
+                                "sourceSkills": ["meal_plan"],
+                                "resumeHint": {"expectedField": "days"},
+                            },
+                        )
+                    text = "已按三天继续安排。"
+                    if visible_text_handler is not None:
+                        visible_text_handler(f"<visible_text>{text}</visible_text>")
+                    return ChatProviderResult(
+                        text=f'<structured_result>{{"action":"finalize","text":{json.dumps(text, ensure_ascii=False)},"status":"completed","cards":[]}}</structured_result>',
+                        status="completed",
+                        model=self.model_name,
+                        structured_mode="tool_call",
+                    )
+
+            provider = HumanInputStreamProvider()
+            with patch("app.ai.workspace_service.get_chat_provider", return_value=provider):
+                first_response = self.client.post("/api/ai/chat", json={"message": "帮我安排晚餐"})
+                self.assertEqual(first_response.status_code, 200, first_response.text)
+                first_data = first_response.json()
+                request_part = next(
+                    part
+                    for part in first_data["message"]["parts"]
+                    if part.get("type") == "human_input_request"
+                )
+                first_text_part = next(
+                    part
+                    for part in first_data["message"]["parts"]
+                    if part.get("type") == "text"
+                )
+                request_id = request_part["request"]["id"]
+
+                with self.client.stream(
+                    "POST",
+                    f"/api/ai/conversations/{first_data['conversation_id']}/human-input/{request_id}/response/stream",
+                    json={"selected_option_ids": ["three-days"], "text": "三天"},
+                ) as response:
+                    self.assertEqual(response.status_code, 200)
+                    body = "".join(response.iter_text())
+
+            self.assertIn("event: message_delta", body)
+            self.assertIn("已按三天继续安排。", body)
+            self.assertIn("event: response", body)
+            self.assertEqual(provider.calls, 2)
+            events: list[tuple[str, dict]] = []
+            for block in body.split("\n\n"):
+                if not block.strip():
+                    continue
+                event_name = ""
+                data_lines: list[str] = []
+                for line in block.splitlines():
+                    if line.startswith("event:"):
+                        event_name = line.removeprefix("event:").strip()
+                    elif line.startswith("data:"):
+                        data_lines.append(line.removeprefix("data:").strip())
+                if event_name and data_lines:
+                    events.append((event_name, json.loads("\n".join(data_lines))))
+            delta_event = next(data for event_name, data in events if event_name == "message_delta")
+            self.assertNotEqual(delta_event["part_id"], first_text_part["id"])
+            response_event = next(data for event_name, data in events if event_name == "response")
+            parts = response_event["message"]["parts"]
+            human_input_index = next(index for index, part in enumerate(parts) if part.get("type") == "human_input_request")
+            resumed_text_index = next(index for index, part in enumerate(parts) if part.get("type") == "text" and "已按三天继续安排。" in str(part.get("text") or ""))
+            self.assertLess(human_input_index, resumed_text_index)

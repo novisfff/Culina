@@ -221,7 +221,7 @@ class AIWorkspaceChatTestCase(AIAgentInfraTestCase):
                 event_messages = [event.user_message for event in events]
                 self.assertIn("调用「餐食安排」技能", event_messages)
                 self.assertIn("调用「可用库存」", event_messages)
-                self.assertIn("餐食安排执行完成", event_messages)
+                self.assertNotIn("餐食安排执行完成", event_messages)
                 self.assertIsNotNone(run)
                 assert run is not None
                 self.assertEqual(run.intent, "meal_plan")
@@ -390,44 +390,47 @@ class AIWorkspaceChatTestCase(AIAgentInfraTestCase):
             self.assertEqual(response.status_code, 409, response.text)
 
         def test_ai_workspace_rejects_new_message_when_conversation_has_active_run(self) -> None:
-            with self.SessionLocal() as db:
-                conversation = AIConversation(
-                    id="conversation-active-run",
-                    family_id=self.family.id,
-                    mode=AiMode.RECOMMENDATION,
-                    prompt="处理中",
-                    response="",
-                    context={"workspace": True},
-                    created_by=self.user.id,
-                )
-                run = AIAgentRun(
-                    id="agent_run-active-conversation",
-                    family_id=self.family.id,
-                    conversation_id=conversation.id,
-                    message_id=None,
-                    agent_key="workspace_orchestrator",
-                    feature_key="ai_workspace_chat",
-                    intent="general_chat",
-                    input_summary="处理中",
-                    context_summary={},
-                    output_summary="",
-                    status="running",
-                    model="fake-model",
-                    input={"prompt": "处理中", "subject": {}},
-                    output={},
-                    tool_calls=[],
-                    duration_ms=0,
-                    created_by=self.user.id,
-                )
-                db.add_all([conversation, run])
-                db.commit()
+            for status in ("running", "waiting_input"):
+                with self.subTest(status=status):
+                    conversation_id = f"conversation-active-run-{status}"
+                    with self.SessionLocal() as db:
+                        conversation = AIConversation(
+                            id=conversation_id,
+                            family_id=self.family.id,
+                            mode=AiMode.RECOMMENDATION,
+                            prompt="处理中",
+                            response="",
+                            context={"workspace": True},
+                            created_by=self.user.id,
+                        )
+                        run = AIAgentRun(
+                            id=f"agent_run-active-conversation-{status}",
+                            family_id=self.family.id,
+                            conversation_id=conversation.id,
+                            message_id=None,
+                            agent_key="workspace_orchestrator",
+                            feature_key="ai_workspace_chat",
+                            intent="general_chat",
+                            input_summary="处理中",
+                            context_summary={},
+                            output_summary="",
+                            status=status,
+                            model="fake-model",
+                            input={"prompt": "处理中", "subject": {}},
+                            output={},
+                            tool_calls=[],
+                            duration_ms=0,
+                            created_by=self.user.id,
+                        )
+                        db.add_all([conversation, run])
+                        db.commit()
 
-            response = self.client.post(
-                "/api/ai/chat",
-                json={"message": "新消息", "conversation_id": "conversation-active-run"},
-            )
-            self.assertEqual(response.status_code, 409, response.text)
-            self.assertIn("当前会话已有 AI 任务", response.text)
+                    response = self.client.post(
+                        "/api/ai/chat",
+                        json={"message": "新消息", "conversation_id": conversation_id},
+                    )
+                    self.assertEqual(response.status_code, 409, response.text)
+                    self.assertIn("当前会话已有 AI 任务", response.text)
 
         def test_ai_status_reports_disabled_provider_without_secrets(self) -> None:
             settings = SimpleNamespace(ai_provider="disabled", ai_model="", ai_api_key="")

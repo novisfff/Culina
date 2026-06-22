@@ -219,6 +219,7 @@ class WorkspaceOrchestratorAgent:
                 }
             )
 
+        stream_session_id = create_id("ai_stream")
         try:
             for round_index in range(1, self.max_rounds + 1):
                 context.ensure_active()
@@ -257,7 +258,7 @@ class WorkspaceOrchestratorAgent:
                             )
                     return output
 
-                message_id = f"{context.run_id}:orchestrator:{round_index}"
+                message_id = f"{context.run_id}:orchestrator:{stream_session_id}:{round_index}"
                 part_id = f"{message_id}:text"
                 visible_stream = VisibleTextStream(lambda delta: emit_visible_delta(message_id, part_id, delta))
                 provider_result = self.provider.generate_with_tools(
@@ -352,14 +353,6 @@ class WorkspaceOrchestratorAgent:
                     draft_outputs,
                     read_outputs,
                 )
-                for key in active_skill_keys:
-                    bundle = self.injection_manager.bundle_for(key)
-                    if result.status == "failed":
-                        context.emit_progress("skill", f"{key}.failed", f"{bundle.display_name}执行失败", "failed")
-                    elif result.status == "waiting_input":
-                        context.emit_progress("skill", f"{key}.waiting_input", f"{bundle.display_name}等待补充信息", "waiting")
-                    else:
-                        context.emit_progress("skill", f"{key}.completed", f"{bundle.display_name}执行完成", "completed")
                 return result
         except HumanInputRequired as exc:
             return SkillResult(
