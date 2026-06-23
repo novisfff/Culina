@@ -2,6 +2,7 @@ import { API_BASE_URL, getAccessToken, request } from './request';
 import type {
   AiApprovalDecisionResponse,
   AiApprovalRequest,
+  AiChatAttachment,
   AiChatResponse,
   AiRunEvent,
   AiConversation,
@@ -20,6 +21,7 @@ type AiChatPayload = {
   client_run_id?: string;
   quick_task?: string;
   subject?: Record<string, unknown>;
+  attachments?: AiChatAttachment[];
 };
 type AiChatStreamHandlers = {
   signal?: AbortSignal;

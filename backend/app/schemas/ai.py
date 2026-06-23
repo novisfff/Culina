@@ -6,6 +6,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.core.enums import AiMode, Difficulty
+from app.schemas.media import MediaAssetOut
 from app.schemas.recipes import RecipeIngredientIn, RecipeStepIn
 
 
@@ -37,6 +38,7 @@ class AIStatusResponse(BaseModel):
     enabled: bool
     provider: str
     model: str
+    supports_vision: bool = False
     status: Literal["ready", "disabled", "missing_api_key", "unsupported_provider"]
     detail: str
 
@@ -74,7 +76,16 @@ class GenerateRecipeDraftResponse(BaseModel):
 
 
 AIMessageRole = Literal["user", "assistant", "system"]
-AIMessagePartType = Literal["text", "result_card", "draft", "approval_request", "human_input_request", "error_recovery", "run_activity"]
+AIMessagePartType = Literal[
+    "text",
+    "image",
+    "result_card",
+    "draft",
+    "approval_request",
+    "human_input_request",
+    "error_recovery",
+    "run_activity",
+]
 AIResultCardType = Literal[
     "today_recommendation",
     "recipe_draft",
@@ -132,17 +143,36 @@ class AISubjectIn(BaseModel):
         return normalized
 
 
+class AIChatAttachmentIn(BaseModel):
+    type: Literal["image"] = "image"
+    media_id: str = Field(max_length=64)
+    client_attachment_id: str | None = Field(default=None, max_length=120)
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_attachment_keys(cls, value):
+        if not isinstance(value, dict):
+            return value
+        normalized = dict(value)
+        if "mediaId" in normalized and "media_id" not in normalized:
+            normalized["media_id"] = normalized["mediaId"]
+        if "clientAttachmentId" in normalized and "client_attachment_id" not in normalized:
+            normalized["client_attachment_id"] = normalized["clientAttachmentId"]
+        return normalized
+
+
 class AIChatRequest(BaseModel):
-    message: str = Field(min_length=1, max_length=2000)
+    message: str = Field(default="", max_length=2000)
     conversation_id: str | None = Field(default=None, max_length=64)
     client_message_id: str | None = Field(default=None, max_length=120)
     client_run_id: str | None = Field(default=None, max_length=64)
     quick_task: str | None = Field(default=None, max_length=80)
     subject: AISubjectIn | None = None
+    attachments: list[AIChatAttachmentIn] = Field(default_factory=list, max_length=6)
 
     @model_validator(mode="after")
     def validate_message_text(self) -> "AIChatRequest":
-        if not self.message.strip():
+        if not self.message.strip() and not self.attachments:
             raise ValueError("消息不能为空")
         return self
 
@@ -325,12 +355,19 @@ class AIHumanInputResponseDTO(BaseModel):
     summary: str = ""
 
 
+class AIMessageImageDTO(BaseModel):
+    media_id: str
+    asset: MediaAssetOut
+    alt: str = ""
+
+
 class AIMessagePartDTO(BaseModel):
     id: str
     type: AIMessagePartType
     status: str | None = None
     responded_at: datetime | None = None
     text: str | None = None
+    image: AIMessageImageDTO | None = None
     card: AIResultCardDTO | None = None
     draft: AITaskDraftDTO | None = None
     approval: AIApprovalRequestDTO | None = None

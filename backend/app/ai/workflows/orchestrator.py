@@ -8,6 +8,7 @@ from datetime import date
 from typing import Any
 
 from app.ai.errors import AIExecutionCancelled, HumanInputRequired
+from app.ai.runtime.provider import ProviderUserInput
 from app.ai.runtime.provider import BaseChatProvider, ChatProviderResult
 from app.ai.skills.base import SkillContext, SkillResult
 from app.ai.skills.registry import SkillRegistry
@@ -263,15 +264,11 @@ class WorkspaceOrchestratorAgent:
                 visible_stream = VisibleTextStream(lambda delta: emit_visible_delta(message_id, part_id, delta))
                 provider_result = self.provider.generate_with_tools(
                     system=self._system_prompt(active_skill_keys),
-                    user=json.dumps(
-                        self._user_payload(
-                            context,
-                            active_skill_keys,
-                            injection_history,
-                            validation_error=validation_error,
-                        ),
-                        ensure_ascii=False,
-                        default=str,
+                    user=self._provider_user_input(
+                        context,
+                        active_skill_keys,
+                        injection_history,
+                        validation_error=validation_error,
                     ),
                     tools=tools,
                     tool_handler=call_tool,
@@ -437,6 +434,7 @@ class WorkspaceOrchestratorAgent:
         allowed_draft_types = sorted(self.injection_manager.allowed_draft_types(active_skill_keys))
         return {
             "currentMessage": context.current_message,
+            "currentAttachments": context.current_message_attachments,
             "quickTask": context.quick_task,
             "subject": context.subject,
             "conversation": context.conversation,
@@ -456,6 +454,28 @@ class WorkspaceOrchestratorAgent:
                 else {}
             ),
         }
+
+    def _provider_user_input(
+        self,
+        context: SkillContext,
+        active_skill_keys: list[str],
+        injection_history: list[dict[str, Any]],
+        *,
+        validation_error: str = "",
+    ) -> str | ProviderUserInput:
+        text = json.dumps(
+            self._user_payload(
+                context,
+                active_skill_keys,
+                injection_history,
+                validation_error=validation_error,
+            ),
+            ensure_ascii=False,
+            default=str,
+        )
+        if not context.current_message_images:
+            return text
+        return ProviderUserInput(text=text, images=context.current_message_images)
 
     def _response_schema(self, active_skill_keys: list[str]) -> dict[str, Any]:
         schema = deepcopy(ORCHESTRATOR_RESULT_SCHEMA)

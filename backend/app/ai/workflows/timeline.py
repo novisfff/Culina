@@ -8,6 +8,27 @@ from sqlalchemy.orm import Session
 from app.models.domain import AIMessage, AITaskDraft
 
 
+def _message_attachment_summaries(message: AIMessage) -> list[dict[str, Any]]:
+    attachments: list[dict[str, Any]] = []
+    for part in message.parts or []:
+        if not isinstance(part, dict) or part.get("type") != "image":
+            continue
+        image = part.get("image")
+        if not isinstance(image, dict):
+            continue
+        media_id = str(image.get("media_id") or "").strip()
+        if not media_id:
+            continue
+        attachments.append(
+            {
+                "type": "image",
+                "mediaId": media_id,
+                "alt": str(image.get("alt") or ""),
+            }
+        )
+    return attachments
+
+
 def build_planner_conversation(
     db: Session,
     *,
@@ -76,6 +97,7 @@ def build_planner_conversation(
                 "id": message.id,
                 "role": message.role,
                 "content": message.content,
+                "attachments": _message_attachment_summaries(message),
                 "metadata": metadata,
                 "artifacts": [
                     *[

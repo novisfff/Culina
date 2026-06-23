@@ -54,18 +54,27 @@ router = APIRouter(tags=["ai"])
 logger = logging.getLogger(__name__)
 
 
+def _model_supports_vision(model: str, configured: bool | None) -> bool:
+    if configured is not None:
+        return configured
+    normalized_model = model.strip().lower()
+    return any(marker in normalized_model for marker in ("gpt-4o", "gpt-4.1", "gpt-5", "o3", "o4", "vision", "qwen-vl", "vl"))
+
+
 @router.get("/api/ai/status", response_model=AIStatusResponse)
 def get_ai_status(auth: tuple = Depends(get_current_auth)) -> dict:
     _, _membership = auth
     settings = get_settings()
     provider = (settings.ai_provider or "disabled").strip().lower()
     model = settings.ai_model or "gpt-4o-mini"
+    supports_vision = _model_supports_vision(model, getattr(settings, "ai_supports_vision", None))
     supported = {"enable", "enabled", "openai", "openai-compatible", "compatible", "custom", "dashscope"}
     if provider in {"", "disabled", "mock"}:
         return {
             "enabled": False,
             "provider": provider or "disabled",
             "model": model,
+            "supports_vision": False,
             "status": "disabled",
             "detail": "AI 模型未配置。",
         }
@@ -74,6 +83,7 @@ def get_ai_status(auth: tuple = Depends(get_current_auth)) -> dict:
             "enabled": False,
             "provider": provider,
             "model": model,
+            "supports_vision": False,
             "status": "unsupported_provider",
             "detail": "AI provider 配置不受支持。",
         }
@@ -82,6 +92,7 @@ def get_ai_status(auth: tuple = Depends(get_current_auth)) -> dict:
             "enabled": False,
             "provider": provider,
             "model": model,
+            "supports_vision": False,
             "status": "missing_api_key",
             "detail": "AI API Key 未配置。",
         }
@@ -89,6 +100,7 @@ def get_ai_status(auth: tuple = Depends(get_current_auth)) -> dict:
         "enabled": True,
         "provider": provider,
         "model": model,
+        "supports_vision": supports_vision,
         "status": "ready",
         "detail": "AI 已就绪。",
     }
@@ -253,6 +265,7 @@ def chat_ai(
             client_run_id=payload.client_run_id,
             quick_task=payload.quick_task,
             subject=payload.subject.model_dump() if payload.subject else {},
+            attachments=[attachment.model_dump() for attachment in payload.attachments],
         )
     except AIConflictError as exc:
         logger.warning(
@@ -328,6 +341,7 @@ def stream_chat_ai(
                 client_run_id=payload.client_run_id,
                 quick_task=payload.quick_task,
                 subject=payload.subject.model_dump() if payload.subject else {},
+                attachments=[attachment.model_dump() for attachment in payload.attachments],
             ):
                 if event == "response":
                     commit_session(db)

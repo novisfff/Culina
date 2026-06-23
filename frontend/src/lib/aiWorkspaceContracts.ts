@@ -1,13 +1,12 @@
 import type { AiMessagePartType, AiResultCardType } from '../api/types';
 
-export const AI_MESSAGE_PART_TYPES = ['text', 'run_activity', 'result_card', 'draft', 'approval_request', 'human_input_request', 'error_recovery'] as const satisfies readonly AiMessagePartType[];
+export const AI_MESSAGE_PART_TYPES = ['text', 'image', 'run_activity', 'result_card', 'draft', 'approval_request', 'human_input_request', 'error_recovery'] as const satisfies readonly AiMessagePartType[];
 export const AI_RESULT_CARD_TYPES = [
   'today_recommendation',
   'recipe_draft',
   'approval_request',
   'error_recovery',
   'inventory_summary',
-  'clarification_request',
   'operation_result',
   'meal_plan_draft',
   'shopping_list_draft',
@@ -17,6 +16,7 @@ export const AI_RESULT_CARD_TYPES = [
 
 export const AI_MESSAGE_PART_RENDERERS = {
   text: true,
+  image: true,
   run_activity: true,
   result_card: true,
   draft: true,
@@ -31,7 +31,6 @@ export const AI_RESULT_CARD_RENDERERS = {
   approval_request: true,
   error_recovery: true,
   inventory_summary: true,
-  clarification_request: true,
   operation_result: true,
   meal_plan_draft: true,
   shopping_list_draft: true,

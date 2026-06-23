@@ -30,6 +30,7 @@ class Settings(BaseSettings):
     ai_api_base: str = "https://api.openai.com/v1"
     ai_api_key: str = ""
     ai_model: str = ""
+    ai_supports_vision: bool | None = None
     ai_timeout_seconds: float = 180.0
     ai_image_reference_provider: str = "disabled"
     ai_image_reference_api_base: str = ""

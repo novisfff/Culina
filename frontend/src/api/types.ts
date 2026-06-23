@@ -573,15 +573,20 @@ export interface GenerateRecipeDraftPayload {
   generate_image?: boolean;
 }
 
+export interface AiChatAttachment {
+  type: 'image';
+  media_id: string;
+  client_attachment_id?: string;
+}
+
 export type AiMessageRole = 'user' | 'assistant' | 'system';
-export type AiMessagePartType = 'text' | 'result_card' | 'draft' | 'approval_request' | 'human_input_request' | 'error_recovery' | 'run_activity';
+export type AiMessagePartType = 'text' | 'image' | 'result_card' | 'draft' | 'approval_request' | 'human_input_request' | 'error_recovery' | 'run_activity';
 export type AiResultCardType =
   | 'today_recommendation'
   | 'recipe_draft'
   | 'approval_request'
   | 'error_recovery'
   | 'inventory_summary'
-  | 'clarification_request'
   | 'operation_result'
   | 'meal_plan_draft'
   | 'shopping_list_draft'
@@ -840,12 +845,19 @@ export interface AiHumanInputResponse {
   summary: string;
 }
 
+export interface AiMessageImagePartData {
+  media_id: string;
+  asset: MediaAsset;
+  alt: string;
+}
+
 export interface AiMessagePart {
   id: string;
   type: AiMessagePartType;
   status?: 'pending' | 'completed' | string | null;
   responded_at?: string | null;
   text?: string | null;
+  image?: AiMessageImagePartData | null;
   card?: AiResultCard | null;
   draft?: AiTaskDraft | null;
   approval?: AiApprovalRequest | null;
@@ -891,6 +903,7 @@ export interface AiStatus {
   enabled: boolean;
   provider: string;
   model: string;
+  supports_vision: boolean;
   status: 'ready' | 'disabled' | 'missing_api_key' | 'unsupported_provider';
   detail: string;
 }
