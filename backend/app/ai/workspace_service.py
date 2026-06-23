@@ -78,6 +78,7 @@ class AIApplicationService:
         client_run_id: str | None = None,
         quick_task: str | None = None,
         subject: dict[str, Any] | None = None,
+        attachments: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         from app.ai.workflows.runner import WorkspaceGraphRunner
 
@@ -90,6 +91,7 @@ class AIApplicationService:
             client_run_id=client_run_id,
             quick_task=quick_task,
             subject=subject,
+            attachments=attachments,
         )
 
     def stream_chat(
@@ -103,6 +105,7 @@ class AIApplicationService:
         client_run_id: str | None = None,
         quick_task: str | None = None,
         subject: dict[str, Any] | None = None,
+        attachments: list[dict[str, Any]] | None = None,
     ) -> Iterator[tuple[str, dict[str, Any]]]:
         from app.ai.workflows.runner import WorkspaceGraphRunner
 
@@ -115,6 +118,7 @@ class AIApplicationService:
             client_run_id=client_run_id,
             quick_task=quick_task,
             subject=subject,
+            attachments=attachments,
         )
 
     def normalize_subject(self, *, family_id: str, subject: dict[str, Any] | None) -> dict[str, Any]:

@@ -436,6 +436,7 @@ beforeEach(() => {
     enabled: true,
     provider: 'openai-compatible',
     model: 'fake-model',
+    supports_vision: true,
     status: 'ready',
     detail: 'AI 已就绪。',
   });
@@ -572,6 +573,58 @@ describe('MessageBubble', () => {
 
     expect(rendered.container.querySelector('.ai-message-footer')).not.toBeNull();
     expect(rendered.container.querySelectorAll('.ai-message-action-btn')).toHaveLength(3);
+    rendered.unmount();
+  });
+
+  it('renders image parts in message bubbles', async () => {
+    const rendered = await renderWithQuery(
+      <MessageBubble
+        message={{
+          id: 'message-image',
+          conversation_id: 'conversation-1',
+          role: 'user',
+          content: '上传了 1 张图片',
+          content_type: 'parts',
+          parts: [
+            {
+              id: 'part-image',
+              type: 'image',
+              image: {
+                media_id: 'media-image-1',
+                alt: '冰箱里的蔬菜',
+                asset: {
+                  id: 'media-image-1',
+                  name: 'fridge.jpg',
+                  url: '/media/family-1/fridge.jpg',
+                  source: 'upload',
+                  alt: '冰箱里的蔬菜',
+                  variants: {
+                    thumb: {
+                      url: '/media/family-1/variants/media-image-1/thumb.webp',
+                      width: 240,
+                      height: 180,
+                      content_type: 'image/webp',
+                      byte_size: 1024,
+                    },
+                  },
+                  created_at: '2026-05-30T00:00:00Z',
+                },
+              },
+            },
+          ],
+          run_id: 'run-image',
+          status: 'completed',
+          metadata: {},
+          created_at: '2026-05-30T00:00:00Z',
+        }}
+        user={{ id: 'user-1', username: 'me', display_name: '我', avatar_seed: 'seed', avatar_image: null }}
+        onApprovalDecision={() => undefined}
+      />,
+    );
+
+    const image = rendered.container.querySelector<HTMLImageElement>('.ai-message-image-grid img');
+    expect(image?.alt).toBe('冰箱里的蔬菜');
+    expect(image?.src).toContain('/media/family-1/variants/media-image-1/thumb.webp');
     rendered.unmount();
   });
 
@@ -955,7 +1008,7 @@ describe('ApprovalPanel', () => {
                   candidates: [],
                   allowFreeText: true,
                 },
-              },
+              } as unknown as AiResultCard,
             },
           ],
           run_id: 'run-waiting',
@@ -1021,7 +1074,7 @@ describe('ApprovalPanel', () => {
         candidates: [],
         allowFreeText: true,
       },
-    };
+    } as unknown as AiResultCard;
     const rendered = await renderWithQuery(<ResultCard card={card} />);
 
     expect(rendered.container.textContent).toContain('需要确认单位换算');
@@ -1659,6 +1712,10 @@ describe('AiMobilePage viewport', () => {
           streamProgress={[]}
           activeStreamRunId={null}
           draft=""
+          attachments={[]}
+          canAddAttachment
+          hasUploadingAttachment={false}
+          hasFailedAttachment={false}
           isSending={false}
           isComposerPaused={false}
           messagesLoading={false}
@@ -1668,6 +1725,10 @@ describe('AiMobilePage viewport', () => {
           onStartNewConversation={() => undefined}
           onSelectConversation={() => undefined}
           onDraftChange={() => undefined}
+          onAttachmentFiles={() => undefined}
+          onRemoveAttachment={() => undefined}
+          onPasteFiles={() => undefined}
+          onDropFiles={() => undefined}
           onPickSuggestion={() => undefined}
           onSubmit={(event) => event.preventDefault()}
           onApprovalDecision={() => undefined}
@@ -1771,6 +1832,7 @@ describe('AiWorkspace pending approval restore', () => {
       enabled: false,
       provider: 'disabled',
       model: 'gpt-4o-mini',
+      supports_vision: false,
       status: 'disabled',
       detail: 'AI 模型未配置。',
     });

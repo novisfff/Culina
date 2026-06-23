@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 from collections.abc import Callable
 from collections.abc import Iterator
 from dataclasses import dataclass, field
@@ -28,21 +29,37 @@ class ChatProviderResult:
     tool_calls: list[dict[str, Any]] = field(default_factory=list)
 
 
+@dataclass(slots=True)
+class ProviderImageInput:
+    media_id: str
+    content_type: str
+    payload: bytes
+    filename: str = ""
+
+
+@dataclass(slots=True)
+class ProviderUserInput:
+    text: str
+    images: list[ProviderImageInput] = field(default_factory=list)
+
+
 ToolCallHandler = Callable[[str, dict[str, Any]], dict[str, Any]]
 VisibleTextHandler = Callable[[str], None]
+ProviderUserContent = str | ProviderUserInput
 
 
 class BaseChatProvider:
     model_name: str = ""
+    supports_vision: bool = False
 
-    def generate(self, *, system: str, user: str, response_schema: dict[str, Any] | None = None) -> ChatProviderResult:  # pragma: no cover - interface
+    def generate(self, *, system: str, user: ProviderUserContent, response_schema: dict[str, Any] | None = None) -> ChatProviderResult:  # pragma: no cover - interface
         raise NotImplementedError
 
     def generate_with_tools(
         self,
         *,
         system: str,
-        user: str,
+        user: ProviderUserContent,
         tools: list[ToolDefinition],
         tool_handler: ToolCallHandler,
         response_schema: dict[str, Any] | None = None,
@@ -56,7 +73,7 @@ class BaseChatProvider:
         self,
         *,
         system: str,
-        user: str,
+        user: ProviderUserContent,
         response_schema: dict[str, Any] | None = None,
     ) -> Iterator[str]:
         result = self.generate(system=system, user=user, response_schema=response_schema)
@@ -68,14 +85,21 @@ class DisabledChatProvider(BaseChatProvider):
     def __init__(self, model_name: str = "") -> None:
         self.model_name = model_name
 
-    def generate(self, *, system: str, user: str, response_schema: dict[str, Any] | None = None) -> ChatProviderResult:
+    def generate(self, *, system: str, user: ProviderUserContent, response_schema: dict[str, Any] | None = None) -> ChatProviderResult:
+        if isinstance(user, ProviderUserInput) and user.images:
+            return ChatProviderResult(
+                text=None,
+                status="fallback",
+                model=self.model_name,
+                error="provider does not support vision input",
+            )
         return ChatProviderResult(text=None, status="fallback", model=self.model_name, error=None)
 
     def generate_with_tools(
         self,
         *,
         system: str,
-        user: str,
+        user: ProviderUserContent,
         tools: list[ToolDefinition],
         tool_handler: ToolCallHandler,
         response_schema: dict[str, Any] | None = None,
@@ -94,8 +118,10 @@ class OpenAICompatibleChatProvider(BaseChatProvider):
         api_key: str,
         model_name: str,
         timeout_seconds: float = 20.0,
+        supports_vision: bool = False,
     ) -> None:
         self.model_name = model_name
+        self.supports_vision = supports_vision
         self.client = ChatOpenAI(
             model=model_name,
             api_key=api_key,
@@ -112,9 +138,27 @@ class OpenAICompatibleChatProvider(BaseChatProvider):
             )
         return str(content or "")
 
-    def generate(self, *, system: str, user: str, response_schema: dict[str, Any] | None = None) -> ChatProviderResult:
+    def _human_content(self, user: ProviderUserContent) -> str | list[dict[str, Any]]:
+        if isinstance(user, str):
+            return user
+        if user.images and not self.supports_vision:
+            raise ValueError("当前 AI 模型暂不支持图片识别，请切换支持视觉输入的模型后再试。")
+        content: list[dict[str, Any]] = [{"type": "text", "text": user.text}]
+        for image in user.images:
+            encoded = base64.b64encode(image.payload).decode("ascii")
+            content.append(
+                {
+                    "type": "image_url",
+                    "image_url": {
+                        "url": f"data:{image.content_type};base64,{encoded}",
+                    },
+                }
+            )
+        return content
+
+    def generate(self, *, system: str, user: ProviderUserContent, response_schema: dict[str, Any] | None = None) -> ChatProviderResult:
         def invoke(client) -> str:
-            message = client.invoke([SystemMessage(content=system), HumanMessage(content=user)])
+            message = client.invoke([SystemMessage(content=system), HumanMessage(content=self._human_content(user))])
             return self._content_to_text(message.content).strip()
 
         attempts: list[tuple[str, Any]] = []
@@ -188,7 +232,7 @@ class OpenAICompatibleChatProvider(BaseChatProvider):
         self,
         *,
         system: str,
-        user: str,
+        user: ProviderUserContent,
         tools: list[ToolDefinition],
         tool_handler: ToolCallHandler,
         response_schema: dict[str, Any] | None = None,
@@ -204,7 +248,7 @@ class OpenAICompatibleChatProvider(BaseChatProvider):
                 "\n\nFinal response JSON Schema:\n"
                 f"{json.dumps(response_schema, ensure_ascii=False, default=str)}"
             )
-        messages: list[Any] = [SystemMessage(content=f"{system}{schema_instruction}"), HumanMessage(content=user)]
+        messages: list[Any] = [SystemMessage(content=f"{system}{schema_instruction}"), HumanMessage(content=self._human_content(user))]
         requested_calls: list[dict[str, Any]] = []
 
         for _round in range(max(1, max_rounds)):
@@ -325,7 +369,7 @@ class OpenAICompatibleChatProvider(BaseChatProvider):
         self,
         *,
         system: str,
-        user: str,
+        user: ProviderUserContent,
         tools: list[ToolDefinition],
         tool_handler: ToolCallHandler,
         response_schema: dict[str, Any] | None = None,
@@ -340,7 +384,7 @@ class OpenAICompatibleChatProvider(BaseChatProvider):
                 "\n\nFinal response JSON Schema:\n"
                 f"{json.dumps(response_schema, ensure_ascii=False, default=str)}"
             )
-        messages: list[Any] = [SystemMessage(content=f"{system}{schema_instruction}"), HumanMessage(content=user)]
+        messages: list[Any] = [SystemMessage(content=f"{system}{schema_instruction}"), HumanMessage(content=self._human_content(user))]
         requested_calls: list[dict[str, Any]] = []
 
         for _round in range(max(1, max_rounds)):
@@ -494,14 +538,14 @@ class OpenAICompatibleChatProvider(BaseChatProvider):
         self,
         *,
         system: str,
-        user: str,
+        user: ProviderUserContent,
         response_schema: dict[str, Any] | None = None,
     ) -> Iterator[str]:
         if response_schema:
             yield from super().stream_generate(system=system, user=user, response_schema=response_schema)
             return
         try:
-            for chunk in self.client.stream([SystemMessage(content=system), HumanMessage(content=user)]):
+            for chunk in self.client.stream([SystemMessage(content=system), HumanMessage(content=self._human_content(user))]):
                 text = self._content_to_text(chunk.content)
                 if text:
                     yield text
@@ -515,6 +559,13 @@ def get_chat_provider() -> BaseChatProvider:
     settings = get_settings()
     provider_name = (settings.ai_provider or "disabled").strip().lower()
     model_name = settings.ai_model or "gpt-4o-mini"
+    supports_vision = getattr(settings, "ai_supports_vision", None)
+    if supports_vision is None:
+        normalized_model = model_name.strip().lower()
+        supports_vision = any(
+            marker in normalized_model
+            for marker in ("gpt-4o", "gpt-4.1", "gpt-5", "o3", "o4", "vision", "qwen-vl", "vl")
+        )
     if provider_name in {"", "disabled", "mock"} or not settings.ai_api_key:
         return DisabledChatProvider(model_name=model_name)
     if provider_name in {"enable", "enabled", "openai", "openai-compatible", "compatible", "custom", "dashscope"}:
@@ -523,5 +574,6 @@ def get_chat_provider() -> BaseChatProvider:
             api_key=settings.ai_api_key,
             model_name=model_name,
             timeout_seconds=settings.ai_timeout_seconds,
+            supports_vision=bool(supports_vision),
         )
     return DisabledChatProvider(model_name=model_name)

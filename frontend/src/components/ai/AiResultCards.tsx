@@ -313,7 +313,7 @@ export function ResultCard({
     );
   }
   if (card.type === 'today_recommendation') return <RecommendationCard card={card} onAddToPlan={onAddToPlan} />;
-  if (card.type === 'clarification_request') return <ClarificationCard card={card} />;
+  if ((card.type as string) === 'clarification_request') return <ClarificationCard card={card} />;
   if (card.type === 'operation_result') return <OperationResultCard card={card} />;
 
   if (card.type === 'recipe_draft') {

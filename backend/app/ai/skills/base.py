@@ -7,7 +7,7 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
-from app.ai.runtime.provider import BaseChatProvider
+from app.ai.runtime.provider import BaseChatProvider, ProviderImageInput
 from app.ai.tools.executor import ToolExecutor
 from app.core.utils import create_id, utcnow
 
@@ -54,6 +54,8 @@ class SkillContext:
     current_message: str
     tool_executor: ToolExecutor
     subject: dict[str, Any] = field(default_factory=dict)
+    current_message_attachments: list[dict[str, Any]] = field(default_factory=list)
+    current_message_images: list[ProviderImageInput] = field(default_factory=list)
     quick_task: str | None = None
     provider: BaseChatProvider | None = None
     previous_results: list["SkillResult"] = field(default_factory=list)

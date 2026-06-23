@@ -243,7 +243,7 @@ describe('AI query result cards', () => {
         ],
         allowFreeText: true,
       },
-    });
+    } as unknown as Parameters<typeof renderCard>[0]);
 
     expect(view.textContent).toContain('你要修改哪一条晚餐计划？');
     expect(view.textContent).toContain('目标计划');

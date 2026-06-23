@@ -5,6 +5,7 @@ import type {
   AiInventoryOperationAction,
   AiInventoryResultItem,
   AiMessage,
+  AiMessageImagePartData,
   AiResultCard,
   AiRunEvent,
   AiTodayRecommendationItem,
@@ -16,6 +17,7 @@ import { resolveAssetUrl } from '../../lib/assets';
 import { avatarColor, initials } from '../../lib/ui';
 import { ApprovalPanel } from './AiApprovalPanel';
 import type { AiApprovalDecisionSubmit, AiResourceOptionLoader } from './AiApprovalPanel';
+import { AiMessageImageGrid } from './AiMessageImageGrid';
 import { ResultCard } from './AiResultCards';
 import { isPendingHumanInputPart } from './aiWorkspaceHelpers';
 
@@ -569,6 +571,7 @@ export function MessageBubble({
   const hasRenderableParts = message.parts.some((part) => {
     if (part.type === 'text') return Boolean(part.text?.trim());
     if (part.type === 'run_activity') return Boolean(part.activity);
+    if (part.type === 'image') return Boolean(part.image);
     return Boolean(part.card || part.approval || part.draft || part.request);
   });
   const isWaitingForAssistant = !isUser && message.status === 'running' && !hasRenderableParts && runEvents.length === 0;
@@ -636,6 +639,13 @@ export function MessageBubble({
               );
             }
             const { part } = item;
+            if (part.type === 'image' && part.image) {
+              return (
+                <div key={item.key} className="ai-message-part ai-message-image-part">
+                  <AiMessageImageGrid images={[part.image as AiMessageImagePartData]} />
+                </div>
+              );
+            }
             if ((part.type === 'result_card' || part.type === 'error_recovery') && part.card) {
               return (
                 <div key={item.key} className="ai-message-part">

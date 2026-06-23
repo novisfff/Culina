@@ -8,6 +8,7 @@ class WorkspaceGraphState(TypedDict, total=False):
     user_id: str
     conversation_id: str
     message: str
+    current_message_attachments: list[dict[str, Any]]
     client_message_id: str | None
     client_run_id: str | None
     quick_task: str | None

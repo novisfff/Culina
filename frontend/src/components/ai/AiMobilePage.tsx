@@ -1,4 +1,4 @@
-import { useRef, useEffect, useLayoutEffect, type FormEventHandler, type RefObject } from 'react';
+import { useRef, useEffect, useLayoutEffect, type ClipboardEventHandler, type DragEventHandler, type FormEventHandler, type RefObject } from 'react';
 import type {
   AiConversation,
   AiInventoryOperationAction,
@@ -10,8 +10,10 @@ import type {
   UserSummary,
 } from '../../api/types';
 import { MessageBubble, type AiApprovalDecisionSubmit, type AiHumanInputResponseSubmit, type AiResourceOptionLoader } from './AiConversationThread';
+import { AiComposerAttachments } from './AiComposerAttachments';
 import { AiMobileChrome } from './AiMobileChrome';
 import { AiWelcomePrompt } from './AiWelcomePrompt';
+import type { AiComposerAttachment } from './useAiAttachmentState';
 
 type Props = {
   conversations: AiConversation[];
@@ -26,6 +28,10 @@ type Props = {
   streamProgress: AiRunEvent[];
   activeStreamRunId: string | null;
   draft: string;
+  attachments: AiComposerAttachment[];
+  canAddAttachment: boolean;
+  hasUploadingAttachment: boolean;
+  hasFailedAttachment: boolean;
   isSending: boolean;
   isComposerPaused: boolean;
   composerPauseMessage?: string;
@@ -39,6 +45,10 @@ type Props = {
   onStartNewConversation: () => void;
   onSelectConversation: (conversationId: string) => void;
   onDraftChange: (value: string) => void;
+  onAttachmentFiles: (files: File[]) => void;
+  onRemoveAttachment: (clientAttachmentId: string) => void;
+  onPasteFiles: ClipboardEventHandler<HTMLTextAreaElement>;
+  onDropFiles: DragEventHandler<HTMLFormElement>;
   onPickSuggestion: (value: string) => void;
   onSubmit: FormEventHandler<HTMLFormElement>;
   onApprovalDecision: AiApprovalDecisionSubmit;
@@ -141,6 +151,7 @@ function useAiMobileViewport(composerDockRef: RefObject<HTMLDivElement>) {
 
 export function AiMobilePage(props: Props) {
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const composerDockRef = useRef<HTMLDivElement | null>(null);
   const pageRef = useAiMobileViewport(composerDockRef);
 
@@ -209,13 +220,26 @@ export function AiMobilePage(props: Props) {
       <div className="ai-composer-dock" ref={composerDockRef}>
         {props.sendError && <p className="form-error">{props.sendError}</p>}
         {props.isComposerPaused && <p className="ai-composer-pause-note">{props.composerPauseMessage ?? '请先确认上面的草稿，确认后可以继续对话。'}</p>}
-        <form className="ai-composer" onSubmit={props.onSubmit}>
+        <AiComposerAttachments attachments={props.attachments} disabled={props.isComposerPaused || props.isSending} onRemove={props.onRemoveAttachment} />
+        <form className="ai-composer" onSubmit={props.onSubmit} onDrop={props.onDropFiles} onDragOver={(event) => event.preventDefault()}>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/png,image/jpeg,image/webp,image/bmp"
+            multiple
+            hidden
+            onChange={(event) => {
+              props.onAttachmentFiles(Array.from(event.target.files ?? []));
+              event.currentTarget.value = '';
+            }}
+          />
           <button
             type="button"
             className="ai-attachment-button"
             title="添加图片"
             aria-label="添加图片"
-            onClick={() => alert('已接入媒体库，可以在下方对话中输入食材名称或生成请求。')}
+            disabled={props.isComposerPaused || props.isSending || !props.canAddAttachment}
+            onClick={() => fileInputRef.current?.click()}
           >
             <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
           </button>
@@ -227,12 +251,21 @@ export function AiMobilePage(props: Props) {
             placeholder={props.isComposerPaused ? props.composerPauseMessage ?? '等待你确认草稿...' : '问问 AI 厨房助手...'}
             disabled={props.isComposerPaused}
             onChange={(event) => props.onDraftChange(event.target.value)}
+            onPaste={props.onPasteFiles}
           />
           <div className="ai-composer-actions">
             <button
               className={`ai-send-button ${props.isSending ? 'is-sending' : ''}`}
               type={props.isSending ? 'button' : 'submit'}
-              disabled={!props.isSending && (props.isComposerPaused || !props.draft.trim())}
+              disabled={
+                !props.isSending
+                && (
+                  props.isComposerPaused
+                  || props.hasUploadingAttachment
+                  || props.hasFailedAttachment
+                  || (!props.draft.trim() && props.attachments.every((item) => item.status !== 'ready'))
+                )
+              }
               aria-label={props.isSending ? '中止生成' : '发送消息'}
               onClick={props.isSending ? props.onCancelSending : undefined}
             >

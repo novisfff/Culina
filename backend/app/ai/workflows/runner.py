@@ -15,6 +15,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.ai.errors import AIConflictError, AIExecutionCancelled
+from app.ai.runtime.provider import ProviderImageInput
 from app.ai.skills import SkillContext, SkillResult, build_workspace_skill_registry
 from app.ai.skills.shared import result_artifacts
 from app.ai.tools import ToolContext, ToolExecutor, build_workspace_tool_registry
@@ -39,13 +40,16 @@ from app.models.domain import (
     AIMessage,
     AIRunEvent,
     AITaskDraft,
+    MediaAsset,
 )
+from app.services.media import read_media_object_for_ai
 from app.services.serializers import (
     serialize_ai_approval_request,
     serialize_ai_message,
     serialize_ai_run,
     serialize_ai_run_event,
     serialize_ai_task_draft,
+    serialize_media,
 )
 
 if TYPE_CHECKING:
@@ -74,19 +78,24 @@ class WorkspaceGraphRunner:
         client_run_id: str | None = None,
         quick_task: str | None = None,
         subject: dict[str, Any] | None = None,
+        attachments: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         prompt = message.strip()
-        if not prompt:
+        normalized_attachments = self._normalize_chat_attachments(attachments)
+        if not prompt and not normalized_attachments:
             raise ValueError("消息不能为空")
+        message_summary = self._message_summary(prompt, len(normalized_attachments))
         prepared = self._prepare_user_message(
             family_id=family_id,
             user_id=user_id,
             conversation_id=conversation_id,
             prompt=prompt,
+            message_summary=message_summary,
             client_message_id=client_message_id,
             client_run_id=client_run_id,
             quick_task=quick_task,
             subject=subject,
+            attachments=normalized_attachments,
         )
         if prepared["existing"]:
             return self._chat_response(prepared["conversation_id"], prepared["run_id"])
@@ -107,6 +116,7 @@ class WorkspaceGraphRunner:
                 "user_id": user_id,
                 "conversation_id": conversation_id,
                 "message": prompt,
+                "current_message_attachments": prepared["attachments"],
                 "client_message_id": client_message_id,
                 "client_run_id": client_run_id,
                 "quick_task": quick_task,
@@ -151,19 +161,24 @@ class WorkspaceGraphRunner:
         client_run_id: str | None = None,
         quick_task: str | None = None,
         subject: dict[str, Any] | None = None,
+        attachments: list[dict[str, Any]] | None = None,
     ) -> Iterator[tuple[str, dict[str, Any]]]:
         prompt = message.strip()
-        if not prompt:
+        normalized_attachments = self._normalize_chat_attachments(attachments)
+        if not prompt and not normalized_attachments:
             raise ValueError("消息不能为空")
+        message_summary = self._message_summary(prompt, len(normalized_attachments))
         prepared = self._prepare_user_message(
             family_id=family_id,
             user_id=user_id,
             conversation_id=conversation_id,
             prompt=prompt,
+            message_summary=message_summary,
             client_message_id=client_message_id,
             client_run_id=client_run_id,
             quick_task=quick_task,
             subject=subject,
+            attachments=normalized_attachments,
         )
         if prepared["existing"]:
             return iter(
@@ -178,6 +193,7 @@ class WorkspaceGraphRunner:
             family_id=family_id,
             user_id=user_id,
             prompt=prompt,
+            attachments=prepared["attachments"],
             client_message_id=client_message_id,
             client_run_id=client_run_id,
             quick_task=quick_task,
@@ -190,6 +206,7 @@ class WorkspaceGraphRunner:
         family_id: str,
         user_id: str,
         prompt: str,
+        attachments: list[dict[str, Any]],
         client_message_id: str | None,
         client_run_id: str | None,
         quick_task: str | None,
@@ -211,11 +228,12 @@ class WorkspaceGraphRunner:
         try:
             for chunk in self.graph.stream(
                 {
-                    "family_id": family_id,
-                    "user_id": user_id,
-                    "conversation_id": conversation_id,
-                    "message": prompt,
-                    "client_message_id": client_message_id,
+                "family_id": family_id,
+                "user_id": user_id,
+                "conversation_id": conversation_id,
+                "message": prompt,
+                "current_message_attachments": attachments,
+                "client_message_id": client_message_id,
                     "client_run_id": client_run_id,
                     "quick_task": quick_task,
                     "subject": prepared["subject"],
@@ -279,10 +297,12 @@ class WorkspaceGraphRunner:
         user_id: str,
         conversation_id: str | None,
         prompt: str,
+        message_summary: str,
         client_message_id: str | None,
         client_run_id: str | None,
         quick_task: str | None,
         subject: dict[str, Any] | None,
+        attachments: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         normalized_subject = normalize_workspace_subject(self.db, family_id=family_id, subject=subject)
         existing = find_idempotent_run(
@@ -299,7 +319,7 @@ class WorkspaceGraphRunner:
             family_id=family_id,
             user_id=user_id,
             conversation_id=conversation_id,
-            prompt=prompt,
+            prompt=message_summary,
             quick_task=quick_task,
         )
         active_run = find_active_conversation_run(
@@ -309,20 +329,28 @@ class WorkspaceGraphRunner:
         )
         if active_run is not None:
             raise AIConflictError("当前会话已有 AI 任务正在处理中，请稍后再发送。")
+        attachment_assets = self._load_ai_message_attachment_assets(family_id=family_id, attachments=attachments or [])
+        attachment_summaries = self._attachment_summaries(attachment_assets)
+        user_message_parts = self._build_user_message_parts(prompt, attachment_assets)
         user_message = AIMessage(
             id=create_id("ai_message"),
             family_id=family_id,
             conversation_id=conversation.id,
             role="user",
-            content=prompt,
-            content_type="text",
-            parts=[{"id": create_id("ai_part"), "type": "text", "text": prompt}],
+            content=message_summary,
+            content_type="parts" if attachment_assets else "text",
+            parts=self._json_record(user_message_parts),
             status="completed",
             client_message_id=client_message_id,
             created_by=user_id,
         )
         self.db.add(user_message)
         self.db.flush()
+        for asset in attachment_assets:
+            asset.entity_type = "ai_message"
+            asset.entity_id = user_message.id
+        if attachment_assets:
+            self.db.flush()
         timeline = build_planner_conversation(
             self.db,
             family_id=family_id,
@@ -337,13 +365,14 @@ class WorkspaceGraphRunner:
             agent_key="workspace_orchestrator",
             feature_key="ai_workspace_chat",
             intent="",
-            input_summary=prompt[:255],
+            input_summary=message_summary[:255],
             context_summary={"graph": {"runtime": "langgraph", "threadId": conversation.id}},
             output_summary="",
             status="running",
             model=getattr(self.provider, "model_name", ""),
             input={
                 "prompt": prompt,
+                "attachments": attachment_summaries,
                 "quickTask": quick_task,
                 "subject": normalized_subject,
                 "conversation": timeline,
@@ -354,7 +383,7 @@ class WorkspaceGraphRunner:
             created_by=user_id,
         )
         self.db.add(run)
-        conversation.prompt = prompt
+        conversation.prompt = message_summary
         conversation.last_message_at = utcnow()
         conversation.last_run_status = "running"
         conversation.context = self._json_record({
@@ -388,6 +417,7 @@ class WorkspaceGraphRunner:
             "run_id": run.id,
             "user_message_id": user_message.id,
             "subject": normalized_subject,
+            "attachments": attachment_summaries,
         }
 
     def _prepared_existing_run(self, run: AIAgentRun, subject: dict[str, Any]) -> dict[str, Any]:
@@ -411,6 +441,137 @@ class WorkspaceGraphRunner:
             "user_message_id": run.message_id,
             "subject": subject,
         }
+
+    @staticmethod
+    def _normalize_chat_attachments(attachments: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
+        normalized: list[dict[str, Any]] = []
+        seen_media_ids: set[str] = set()
+        for attachment in attachments or []:
+            if not isinstance(attachment, dict):
+                raise ValueError("附件格式不正确")
+            attachment_type = str(attachment.get("type") or "image")
+            if attachment_type != "image":
+                raise ValueError("当前仅支持图片附件")
+            media_id = str(attachment.get("media_id") or attachment.get("mediaId") or "").strip()
+            if not media_id:
+                raise ValueError("图片附件缺少 media_id")
+            if media_id in seen_media_ids:
+                continue
+            seen_media_ids.add(media_id)
+            normalized.append(
+                {
+                    "type": "image",
+                    "media_id": media_id,
+                    "client_attachment_id": str(
+                        attachment.get("client_attachment_id") or attachment.get("clientAttachmentId") or ""
+                    ).strip()
+                    or None,
+                }
+            )
+        if len(normalized) > 6:
+            raise ValueError("单次最多上传 6 张图片")
+        return normalized
+
+    @staticmethod
+    def _message_summary(prompt: str, attachment_count: int) -> str:
+        if prompt.strip():
+            return prompt.strip()
+        return f"上传了 {attachment_count} 张图片"
+
+    def _load_ai_message_attachment_assets(
+        self,
+        *,
+        family_id: str,
+        attachments: list[dict[str, Any]],
+    ) -> list[MediaAsset]:
+        if not attachments:
+            return []
+        media_ids = [str(item["media_id"]) for item in attachments]
+        assets = list(
+            self.db.scalars(
+                select(MediaAsset).where(
+                    MediaAsset.family_id == family_id,
+                    MediaAsset.id.in_(media_ids),
+                )
+            )
+        )
+        assets_by_id = {asset.id: asset for asset in assets}
+        missing_ids = [media_id for media_id in media_ids if media_id not in assets_by_id]
+        if missing_ids:
+            raise LookupError("图片附件不存在或不属于当前家庭")
+
+        ordered_assets = [assets_by_id[media_id] for media_id in media_ids]
+        already_bound = [asset for asset in ordered_assets if asset.entity_type or asset.entity_id]
+        if already_bound:
+            raise ValueError("已绑定到业务对象的图片暂不能作为 AI 附件发送")
+        return ordered_assets
+
+    def _attachment_summaries(self, assets: list[MediaAsset]) -> list[dict[str, Any]]:
+        return [
+            {
+                "type": "image",
+                "mediaId": asset.id,
+                "name": asset.name,
+                "alt": asset.alt,
+                "source": "current_message",
+            }
+            for asset in assets
+        ]
+
+    def _build_user_message_parts(self, prompt: str, attachment_assets: list[MediaAsset]) -> list[dict[str, Any]]:
+        parts: list[dict[str, Any]] = []
+        if prompt.strip():
+            parts.append({"id": create_id("ai_part"), "type": "text", "text": prompt.strip()})
+        for asset in attachment_assets:
+            parts.append(
+                {
+                    "id": create_id("ai_part"),
+                    "type": "image",
+                    "image": {
+                        "media_id": asset.id,
+                        "asset": serialize_media(asset),
+                        "alt": asset.alt or asset.name,
+                    },
+                }
+            )
+        return parts
+
+    def _provider_images_for_attachments(
+        self,
+        *,
+        family_id: str,
+        attachments: list[dict[str, Any]],
+    ) -> list[ProviderImageInput]:
+        if not attachments:
+            return []
+        if not getattr(self.provider, "supports_vision", False):
+            raise ValueError("当前 AI 模型暂不支持图片识别，请切换支持视觉输入的模型后再试。")
+
+        media_ids = [str(item.get("mediaId") or item.get("media_id") or "").strip() for item in attachments]
+        assets = list(
+            self.db.scalars(
+                select(MediaAsset).where(
+                    MediaAsset.family_id == family_id,
+                    MediaAsset.id.in_(media_ids),
+                )
+            )
+        )
+        assets_by_id = {asset.id: asset for asset in assets}
+        images: list[ProviderImageInput] = []
+        for media_id in media_ids:
+            asset = assets_by_id.get(media_id)
+            if asset is None:
+                raise LookupError("图片附件不存在或不属于当前家庭")
+            payload, content_type = read_media_object_for_ai(asset)
+            images.append(
+                ProviderImageInput(
+                    media_id=asset.id,
+                    content_type=content_type,
+                    payload=payload,
+                    filename=asset.name,
+                )
+            )
+        return images
 
     def _cancel_requested(self, run_id: str) -> bool:
         bind = self.db.get_bind()
@@ -1054,6 +1215,11 @@ class WorkspaceGraphRunner:
             if isinstance(item, dict)
         ):
             current_run_artifacts.append(last_human_input_result)
+        current_message_attachments = list(state.get("current_message_attachments") or [])
+        current_message_images = self._provider_images_for_attachments(
+            family_id=state["family_id"],
+            attachments=current_message_attachments,
+        )
         started_at = perf_counter()
         try:
             result = WorkspaceOrchestratorAgent(
@@ -1069,6 +1235,8 @@ class WorkspaceGraphRunner:
                     conversation=timeline,
                     current_message=state["message"],
                     subject=state.get("subject") or {},
+                    current_message_attachments=current_message_attachments,
+                    current_message_images=current_message_images,
                     quick_task=state.get("quick_task"),
                     tool_executor=root_tools,
                     provider=self.provider,

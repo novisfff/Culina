@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ClipboardEvent, type DragEvent, type FormEvent } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { invalidateAfterAiApprovalSettled, invalidateAfterAiMessageSent } from '../../api/cacheInvalidation';
 import { api } from '../../api/client';
 import { queryKeys } from '../../api/queryKeys';
 import type {
   AiApprovalRequest,
+  AiChatAttachment,
   AiChatResponse,
   AiConversation,
   AiHumanInputRequest,
@@ -30,6 +31,7 @@ import {
 import { AiDeleteConversationDialog } from './AiDeleteConversationDialog';
 import { AiMobilePage } from './AiMobilePage';
 import { MessageBubble, type AiApprovalDecisionSubmit, type AiHumanInputResponseSubmit, type AiResourceOptionLoader } from './AiConversationThread';
+import { AiComposerAttachments } from './AiComposerAttachments';
 import { AiQualityDiagnosticsModal } from './AiQualityDiagnosticsModal';
 import { AiRecommendationPlanDialog, type AiRecommendationPlanRequest } from './AiRecommendationPlanDialog';
 import { AiWelcomePrompt } from './AiWelcomePrompt';
@@ -43,6 +45,7 @@ import {
   isPendingHumanInputPart,
 } from './aiWorkspaceHelpers';
 import { useAiConversationLiveSync } from './useAiConversationLiveSync';
+import { useAiAttachmentState } from './useAiAttachmentState';
 import { useAiInventoryDraftAction } from './useAiInventoryDraftAction';
 type AiWorkspaceProps = {
   conversations: AiConversation[];
@@ -74,6 +77,7 @@ export function AiWorkspace({
   const [activeConversationKey, setActiveConversationKey] = useState<string | null>(conversations[0]?.id ?? null);
   const [isStartingNewConversation, setIsStartingNewConversation] = useState(false);
   const [draft, setDraft] = useState('');
+  const attachmentState = useAiAttachmentState();
   const [localMessagesByConversationKey, setLocalMessagesByConversationKey] = useState<Record<string, AiMessage[]>>({});
   const [runEventsById, setRunEventsById] = useState<Record<string, AiRunEvent[]>>({});
   const [recommendationPlanRequest, setRecommendationPlanRequest] = useState<AiRecommendationPlanRequest | null>(null);
@@ -111,6 +115,7 @@ export function AiWorkspace({
     }
   };
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const activeConversationId = isPendingConversationKey(activeConversationKey) ? null : activeConversationKey;
   const activeLocalMessages = activeConversationKey ? localMessagesByConversationKey[activeConversationKey] ?? [] : [];
   const localPendingConversations = useMemo<AiConversation[]>(() => {
@@ -662,7 +667,7 @@ export function AiWorkspace({
     setStreamProgressByRunId((current) => ({ ...current, [nextEvent.run_id]: nextItems }));
   }
   const chatMutation = useMutation({
-    mutationFn: (payload: { message: string; conversationKey: string; conversation_id?: string; client_message_id?: string; client_run_id: string; quick_task?: string; subject?: Record<string, unknown> }) => {
+    mutationFn: (payload: { message: string; conversationKey: string; conversation_id?: string; client_message_id?: string; client_run_id: string; quick_task?: string; subject?: Record<string, unknown>; attachments?: AiChatAttachment[] }) => {
       const controller = new AbortController();
       chatAbortByRunIdRef.current = { ...chatAbortByRunIdRef.current, [payload.client_run_id]: controller };
       const { conversationKey, ...requestPayload } = payload;
@@ -854,6 +859,36 @@ export function AiWorkspace({
         ? '另一个会话正在后台回复，可以切回历史查看进度。'
         : composerPauseMessage;
   const activeCancellableRunId = activeStreamRunId ?? activeApprovalRunId ?? activeHumanInputRunId ?? (isActiveConversationServerRunning ? serverActiveRunId : null);
+  const readyAttachments = attachmentState.readyAttachments;
+  const hasReadyAttachments = readyAttachments.length > 0;
+  const hasAnyAttachments = attachmentState.attachments.length > 0;
+  const isVisionUnavailableForAttachments = hasAnyAttachments && aiStatusQuery.data?.enabled === true && aiStatusQuery.data.supports_vision === false;
+  const isAttachmentSendBlocked = attachmentState.hasUploadingAttachment || attachmentState.hasFailedAttachment || isVisionUnavailableForAttachments;
+  const canSubmitMessage = Boolean(draft.trim()) || hasReadyAttachments;
+
+  function imageFilesFromList(files: FileList | File[]) {
+    return Array.from(files).filter((file) => file.type.startsWith('image/'));
+  }
+
+  function addAttachmentFiles(files: File[]) {
+    if (effectiveComposerPaused || isAssistantBusy || isLocalAssistantBusy) return;
+    attachmentState.uploadFiles(imageFilesFromList(files));
+  }
+
+  const handleComposerPaste = (event: ClipboardEvent<HTMLTextAreaElement>) => {
+    const files = imageFilesFromList(event.clipboardData.files);
+    if (files.length === 0) return;
+    event.preventDefault();
+    addAttachmentFiles(files);
+  };
+
+  const handleComposerDrop = (event: DragEvent<HTMLFormElement>) => {
+    const files = imageFilesFromList(event.dataTransfer.files);
+    if (files.length === 0) return;
+    event.preventDefault();
+    addAttachmentFiles(files);
+  };
+
   function deleteConversation(conversation: AiConversation) {
     if (deleteConversationMutation.isPending) return;
     setPendingDeleteConversation(conversation);
@@ -878,17 +913,42 @@ export function AiWorkspace({
     event.preventDefault();
     if (effectiveComposerPaused || isAssistantBusy || isLocalAssistantBusy) return;
     const text = draft.trim();
-    if (!text) return;
+    const sendableAttachments = readyAttachments.filter((item) => item.asset);
+    if ((!text && sendableAttachments.length === 0) || isAttachmentSendBlocked) return;
     const clientMessageId = `client-${Date.now()}-${Math.random().toString(36).slice(2)}`;
     const clientRunId = `agent_run-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
     const conversationKey = activeConversationId ?? createPendingConversationKey(clientRunId);
+    const messageSummary = text || `上传了 ${sendableAttachments.length} 张图片`;
+    const localParts: AiMessagePart[] = [];
+    if (text) {
+      localParts.push({ id: `local-part-${clientMessageId}`, type: 'text', text });
+    }
+    for (const attachment of sendableAttachments) {
+      if (!attachment.asset) continue;
+      localParts.push({
+        id: `local-part-${attachment.clientAttachmentId}`,
+        type: 'image',
+        image: {
+          media_id: attachment.asset.id,
+          asset: attachment.asset,
+          alt: attachment.asset.alt || attachment.fileName,
+        },
+      });
+    }
+    const requestAttachments: AiChatAttachment[] = sendableAttachments
+      .filter((attachment) => attachment.asset)
+      .map((attachment) => ({
+        type: 'image',
+        media_id: attachment.asset?.id ?? '',
+        client_attachment_id: attachment.clientAttachmentId,
+      }));
     const tempMessage: AiMessage = {
       id: `local-${clientMessageId}`,
       conversation_id: activeConversationId ?? conversationKey,
       role: 'user',
-      content: text,
-      content_type: 'text',
-      parts: [{ id: `local-part-${clientMessageId}`, type: 'text', text }],
+      content: messageSummary,
+      content_type: requestAttachments.length > 0 ? 'parts' : 'text',
+      parts: localParts,
       status: 'completed',
       metadata: {},
       client_message_id: clientMessageId,
@@ -910,7 +970,9 @@ export function AiWorkspace({
         conversation_id: activeConversationId ?? undefined,
         client_message_id: clientMessageId,
         client_run_id: clientRunId,
+        attachments: requestAttachments,
       });
+      attachmentState.clearAttachments();
     } catch {
       // The mutation state renders the request error; keep it out of the form event promise.
     }
@@ -1071,6 +1133,10 @@ export function AiWorkspace({
         streamProgress={streamProgress}
         activeStreamRunId={activeStreamRunId}
         draft={draft}
+        attachments={attachmentState.attachments}
+        canAddAttachment={attachmentState.canAddMore && !isVisionUnavailableForAttachments}
+        hasUploadingAttachment={attachmentState.hasUploadingAttachment}
+        hasFailedAttachment={attachmentState.hasFailedAttachment || isVisionUnavailableForAttachments}
         isSending={isAssistantBusy}
         isComposerPaused={effectiveComposerPaused}
         composerPauseMessage={effectiveComposerPauseMessage}
@@ -1090,6 +1156,10 @@ export function AiWorkspace({
         onStartNewConversation={startNewConversation}
         onSelectConversation={selectConversation}
         onDraftChange={setDraft}
+        onAttachmentFiles={addAttachmentFiles}
+        onRemoveAttachment={attachmentState.removeAttachment}
+        onPasteFiles={handleComposerPaste}
+        onDropFiles={handleComposerDrop}
         onPickSuggestion={setDraft}
         onSubmit={sendMessage}
         onApprovalDecision={submitApprovalDecision}
@@ -1184,13 +1254,31 @@ export function AiWorkspace({
           <div className="ai-composer-dock">
             {chatMutation.isError && <p className="form-error">{chatMutation.error.message}</p>}
             {effectiveComposerPaused && <p className="ai-composer-pause-note">{effectiveComposerPauseMessage}</p>}
-            <form className="ai-composer" onSubmit={sendMessage}>
+            {isVisionUnavailableForAttachments && <p className="ai-composer-pause-note">当前 AI 模型暂不支持图片识别，请移除图片或切换支持视觉输入的模型。</p>}
+            <AiComposerAttachments
+              attachments={attachmentState.attachments}
+              disabled={effectiveComposerPaused || isAssistantBusy}
+              onRemove={attachmentState.removeAttachment}
+            />
+            <form className="ai-composer" onSubmit={sendMessage} onDrop={handleComposerDrop} onDragOver={(event) => event.preventDefault()}>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/png,image/jpeg,image/webp,image/bmp"
+                multiple
+                hidden
+                onChange={(event) => {
+                  addAttachmentFiles(Array.from(event.target.files ?? []));
+                  event.currentTarget.value = '';
+                }}
+              />
               <button
                 type="button"
                 className="ai-attachment-button"
                 title="添加图片"
                 aria-label="添加图片"
-                onClick={() => alert('已接入媒体库，可以在下方对话中输入食材名称或生成请求。')}
+                disabled={effectiveComposerPaused || isAssistantBusy || !attachmentState.canAddMore || isVisionUnavailableForAttachments}
+                onClick={() => fileInputRef.current?.click()}
               >
                 <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
               </button>
@@ -1203,12 +1291,13 @@ export function AiWorkspace({
                 disabled={effectiveComposerPaused}
                 onChange={(event) => setDraft(event.target.value)}
                 onKeyDown={handleKeyDown}
+                onPaste={handleComposerPaste}
               />
               <div className="ai-composer-actions">
                 <button
                   className={`ai-send-button ${isAssistantBusy ? 'is-sending' : ''}`}
                   type={isAssistantBusy ? 'button' : 'submit'}
-                  disabled={!isAssistantBusy && (isAiUnavailable || !draft.trim() || effectiveComposerPaused || isLocalAssistantBusy)}
+                  disabled={!isAssistantBusy && (isAiUnavailable || !canSubmitMessage || isAttachmentSendBlocked || effectiveComposerPaused || isLocalAssistantBusy)}
                   aria-label={isAssistantBusy ? '中止生成' : '发送消息'}
                   onClick={isAssistantBusy ? cancelStreamingChat : undefined}
                 >

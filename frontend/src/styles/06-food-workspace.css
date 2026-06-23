@@ -9615,6 +9615,98 @@ button.ai-clarification-option:hover:not(:disabled) .ai-clarification-option-ind
   color: var(--accent);
 }
 
+.ai-attachment-button:disabled {
+  color: #c4bbb4;
+  background: rgba(92, 67, 48, 0.05);
+  cursor: not-allowed;
+}
+
+.ai-composer-attachments {
+  display: flex;
+  gap: 8px;
+  max-width: 100%;
+  overflow-x: auto;
+  padding: 2px 4px;
+  scrollbar-width: thin;
+}
+
+.ai-composer-attachment {
+  position: relative;
+  flex: 0 0 72px;
+  width: 72px;
+  height: 72px;
+  border: 1px solid rgba(147, 96, 63, 0.16);
+  border-radius: 16px;
+  background: #fffaf5;
+  overflow: hidden;
+  box-shadow: 0 8px 18px rgba(87, 61, 42, 0.08);
+}
+
+.ai-composer-attachment img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.ai-composer-attachment::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, rgba(47, 37, 30, 0) 34%, rgba(47, 37, 30, 0.58) 100%);
+  pointer-events: none;
+}
+
+.ai-composer-attachment-status {
+  position: absolute;
+  left: 6px;
+  right: 6px;
+  bottom: 5px;
+  z-index: 1;
+  color: #fff;
+  font-size: 0.72rem;
+  font-weight: 700;
+  line-height: 1.2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ai-composer-attachment.is-failed {
+  border-color: rgba(217, 75, 61, 0.38);
+}
+
+.ai-composer-attachment.is-failed::after {
+  background: linear-gradient(180deg, rgba(217, 75, 61, 0.12) 0%, rgba(111, 35, 28, 0.72) 100%);
+}
+
+.ai-composer-attachment.is-uploading img {
+  filter: saturate(0.75);
+  opacity: 0.72;
+}
+
+.ai-composer-attachment button {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  z-index: 2;
+  display: inline-grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.92);
+  color: #6a5b51;
+  cursor: pointer;
+  box-shadow: 0 4px 10px rgba(74, 54, 40, 0.16);
+}
+
+.ai-composer-attachment button:disabled {
+  cursor: not-allowed;
+  opacity: 0.62;
+}
+
 .ai-composer-actions {
   display: flex;
   align-items: center;
@@ -9659,6 +9751,39 @@ button.ai-clarification-option:hover:not(:disabled) .ai-clarification-option-ind
   inset: 5px;
   box-sizing: border-box;
   border-radius: 50%;
+}
+
+.ai-message-image-part {
+  width: 100%;
+}
+
+.ai-message-image-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(116px, 1fr));
+  gap: 8px;
+  width: min(100%, 360px);
+}
+
+.ai-message-image-link {
+  display: block;
+  aspect-ratio: 1 / 1;
+  min-width: 0;
+  border: 1px solid rgba(147, 96, 63, 0.14);
+  border-radius: 16px;
+  overflow: hidden;
+  background: #fffaf5;
+  box-shadow: 0 8px 18px rgba(87, 61, 42, 0.08);
+}
+
+.ai-message-image-link img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.ai-message-user .ai-message-image-grid {
+  margin-left: auto;
 }
 
 /* 7. Markdown code block upgrades */

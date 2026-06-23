@@ -33,6 +33,9 @@ MEDIA_VARIANT_SPECS = {
 MEDIA_VARIANT_CONTENT_TYPE = "image/webp"
 MEDIA_VARIANT_QUALITY = 82
 MEDIA_VARIANT_METHOD = 6
+AI_IMAGE_INPUT_MAX_EDGE = 1536
+AI_IMAGE_INPUT_CONTENT_TYPE = "image/jpeg"
+AI_IMAGE_INPUT_QUALITY = 86
 
 
 def _detect_image_content_type(payload: bytes) -> str | None:
@@ -217,6 +220,21 @@ def read_media_object(asset: MediaAsset) -> bytes:
             response.release_conn()
 
 
+def read_media_object_for_ai(asset: MediaAsset) -> tuple[bytes, str]:
+    payload = read_media_object(asset)
+    try:
+        with Image.open(BytesIO(payload)) as source:
+            source.load()
+            image = _normalize_raster_image(source)
+    except (UnidentifiedImageError, OSError) as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="AI 图片附件格式不受支持") from exc
+
+    image.thumbnail((AI_IMAGE_INPUT_MAX_EDGE, AI_IMAGE_INPUT_MAX_EDGE), Image.Resampling.LANCZOS)
+    output = BytesIO()
+    image.save(output, format="JPEG", quality=AI_IMAGE_INPUT_QUALITY, optimize=True)
+    return output.getvalue(), AI_IMAGE_INPUT_CONTENT_TYPE
+
+
 def read_media_object_by_key(object_key: str) -> tuple[bytes, str]:
     settings = get_settings()
     client = _storage_client()
@@ -289,14 +307,18 @@ def save_upload(
     object_key = _object_key(family_id=family_id, file_name=file_name)
     _put_media_object(object_key=object_key, payload=payload, content_type=content_type)
 
+    asset_id = create_id("photo")
+    variants = build_media_variants(family_id=family_id, asset_id=asset_id, payload=payload)
+
     asset = MediaAsset(
-        id=create_id("photo"),
+        id=asset_id,
         family_id=family_id,
         name=upload.filename or file_name,
         url=_public_url(object_key),
         file_path=object_key,
         source=source,
         alt=alt or (upload.filename or file_name),
+        variants=variants or None,
         created_at=utcnow(),
         created_by=user_id,
     )

@@ -55,6 +55,45 @@ describe('aiApi', () => {
     await expect(aiApi.streamChatAi({ message: '你好' })).resolves.toEqual(response);
   });
 
+  it('sends image attachments in streamed chat payloads', async () => {
+    const response: AiChatResponse = {
+      conversation_id: 'conversation-1',
+      message: {
+        id: 'message-1',
+        conversation_id: 'conversation-1',
+        role: 'assistant',
+        content: '我看到了这张图片。',
+        content_type: 'parts',
+        parts: [{ id: 'part-1', type: 'text', text: '我看到了这张图片。' }],
+        run_id: 'run-1',
+        status: 'completed',
+        metadata: {},
+        created_at: '2026-05-30T00:00:00Z',
+      },
+      run: {
+        id: 'run-1',
+        agent_key: 'workspace_orchestrator',
+        intent: 'workspace_orchestrator',
+        status: 'completed',
+        model: 'fake',
+        created_at: '2026-05-30T00:00:00Z',
+      },
+      events: [],
+      included: { result_cards: [], drafts: [], approvals: [] },
+    };
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(streamFrom(sseBlock('response', response)), { status: 200 }));
+
+    await aiApi.streamChatAi({
+      message: '',
+      attachments: [{ type: 'image', media_id: 'media-image-1', client_attachment_id: 'local-image-1' }],
+    });
+
+    expect(JSON.parse(String(fetchSpy.mock.calls[0]?.[1]?.body))).toEqual({
+      message: '',
+      attachments: [{ type: 'image', media_id: 'media-image-1', client_attachment_id: 'local-image-1' }],
+    });
+  });
+
   it('streams approval decisions through the shared SSE parser', async () => {
     const response: AiChatResponse = {
       conversation_id: 'conversation-1',
