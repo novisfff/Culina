@@ -45,6 +45,8 @@ services:
     build:
       context: ..
       dockerfile: backend/Dockerfile
+      args:
+        PIP_INDEX_URL: ${PIP_INDEX_URL:-https://mirrors.aliyun.com/pypi/simple}
     container_name: culina-backend
     restart: unless-stopped
     environment:
