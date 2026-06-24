@@ -1,7 +1,14 @@
 from ._support import *
 
+from typing import Any
+
 from app.ai.errors import HumanInputRequired
 from app.schemas.ai import AIResultCardDTO
+
+
+def _tool_names(tools) -> list[str]:
+    current_tools = tools()
+    return sorted(tool.name for tool in current_tools)
 
 
 class AIFoundationTestCase(AIAgentInfraTestCase):
@@ -89,27 +96,21 @@ class AIFoundationTestCase(AIAgentInfraTestCase):
             self.assertIn("番茄", output_text)
             self.assertNotIn("其他家庭牛排", output_text)
 
-        def test_openai_compatible_provider_falls_back_to_json_object_mode(self) -> None:
+        def test_openai_compatible_provider_generate_uses_plain_text_mode(self) -> None:
             provider = OpenAICompatibleChatProvider.__new__(OpenAICompatibleChatProvider)
             provider.model_name = "compatible-model"
             base_client = MagicMock()
-            schema_client = MagicMock()
-            json_object_client = MagicMock()
-            base_client.bind.side_effect = [schema_client, json_object_client, base_client]
-            schema_client.invoke.side_effect = RuntimeError("json_schema unsupported")
-            json_object_client.invoke.return_value = type("Message", (), {"content": '{"skills":["meal_plan"]}'})()
+            base_client.invoke.return_value = type("Message", (), {"content": "普通回复"})()
             provider.client = base_client
 
             result = provider.generate(
-                system="只输出 JSON",
+                system="直接回复",
                 user="安排晚餐",
-                response_schema={"type": "object"},
             )
 
-            self.assertEqual(result.text, '{"skills":["meal_plan"]}')
-            self.assertEqual(result.structured_mode, "json_object")
-            self.assertEqual(schema_client.invoke.call_count, 1)
-            self.assertEqual(json_object_client.invoke.call_count, 1)
+            self.assertEqual(result.text, "普通回复")
+            self.assertEqual(base_client.invoke.call_count, 1)
+            self.assertEqual(base_client.bind.call_count, 0)
 
         def test_openai_compatible_provider_propagates_human_input_interrupt(self) -> None:
             class ToolCallChunk:
@@ -140,13 +141,87 @@ class AIFoundationTestCase(AIAgentInfraTestCase):
 
             with self.assertRaises(HumanInputRequired):
                 provider.generate_with_tools(
-                    system="s",
-                    user="u",
-                    tools=[tool],
-                    tool_handler=lambda name, payload: (_ for _ in ()).throw(
-                        HumanInputRequired({"id": "human_input-test", **payload})
-                    ),
+                system="s",
+                user="u",
+                tools=lambda: [tool],
+                tool_handler=lambda name, payload: (_ for _ in ()).throw(
+                    HumanInputRequired({"id": "human_input-test", **payload})
+                ),
                 )
+
+        def test_openai_compatible_provider_retries_stream_failure_before_output(self) -> None:
+            class TextChunk:
+                tool_calls: list[dict[str, Any]] = []
+                tool_call_chunks: list[dict[str, Any]] = []
+
+                def __init__(self, content: str) -> None:
+                    self.content = content
+
+                def __add__(self, other):
+                    return TextChunk(f"{self.content}{getattr(other, 'content', '')}")
+
+            provider = OpenAICompatibleChatProvider.__new__(OpenAICompatibleChatProvider)
+            provider.model_name = "compatible-model"
+            stream_client = MagicMock()
+            tool_client = MagicMock()
+            tool_client.bind.return_value = stream_client
+            provider.client = MagicMock()
+            provider.client.bind_tools.return_value = tool_client
+            stream_client.stream.side_effect = [RuntimeError("incomplete chunked read"), [TextChunk("继续处理完成")]]
+
+            result = provider.generate_with_tools(
+                system="s",
+                user="u",
+                tools=lambda: [],
+                tool_handler=lambda _name, _payload: {},
+            )
+
+            self.assertEqual(result.status, "completed")
+            self.assertEqual(result.text, "继续处理完成")
+            self.assertEqual(stream_client.stream.call_count, 2)
+
+        def test_openai_compatible_provider_fails_after_stream_retries_when_tool_already_ran(self) -> None:
+            class ToolCallChunk:
+                content = ""
+                tool_calls = [
+                    {
+                        "id": "call-read-items",
+                        "name": "inventory_read_available_items",
+                        "args": {"limit": 50},
+                    }
+                ]
+                tool_call_chunks: list[dict[str, Any]] = []
+
+                def __add__(self, other):
+                    return other
+
+            provider = OpenAICompatibleChatProvider.__new__(OpenAICompatibleChatProvider)
+            provider.model_name = "compatible-model"
+            stream_client = MagicMock()
+            tool_client = MagicMock()
+            tool_client.bind.return_value = stream_client
+            provider.client = MagicMock()
+            provider.client.bind_tools.return_value = tool_client
+            stream_client.stream.side_effect = [
+                [ToolCallChunk()],
+                RuntimeError("incomplete chunked read"),
+                RuntimeError("incomplete chunked read"),
+                RuntimeError("incomplete chunked read"),
+                RuntimeError("incomplete chunked read"),
+            ]
+            tool = build_workspace_tool_registry().get("inventory.read_available_items")
+
+            result = provider.generate_with_tools(
+                system="s",
+                user="u",
+                tools=lambda: [tool],
+                tool_handler=lambda _name, _payload: {"items": []},
+            )
+
+            self.assertEqual(result.status, "failed")
+            self.assertIn("incomplete chunked read", result.error or "")
+            self.assertEqual(result.tool_calls, [{"id": "call-read-items", "name": "inventory.read_available_items", "args": {"limit": 50}}])
+            self.assertEqual(stream_client.stream.call_count, 5)
 
         def test_orchestrator_injects_multiple_skills_and_exposes_union_tools(self) -> None:
             class InjectingProvider(BaseChatProvider):
@@ -155,8 +230,9 @@ class AIFoundationTestCase(AIAgentInfraTestCase):
                 def __init__(self) -> None:
                     self.tool_names_by_call: list[list[str]] = []
                     self.systems: list[str] = []
+                    self.inject_result: dict = {}
 
-                def generate(self, *, system: str, user: str, response_schema: dict | None = None) -> ChatProviderResult:
+                def generate(self, *, system: str, user: str) -> ChatProviderResult:
                     raise AssertionError("orchestrator should use generate_with_tools")
 
                 def generate_with_tools(
@@ -164,30 +240,23 @@ class AIFoundationTestCase(AIAgentInfraTestCase):
                     *,
                     system: str,
                     user: str,
-                    tools: list,
+                    tools,
                     tool_handler,
-                    response_schema: dict | None = None,
+                    message_handler=None,
                     max_rounds: int = 8,
-                    visible_text_handler=None,
                 ) -> ChatProviderResult:
-                    del user, tool_handler, response_schema, max_rounds, visible_text_handler
+                    del user, max_rounds
                     self.systems.append(system)
-                    self.tool_names_by_call.append(sorted(tool.name for tool in tools))
-                    if len(self.tool_names_by_call) == 1:
-                        return ChatProviderResult(
-                            text='<structured_result>{"action":"continue","injectSkills":["meal_plan","shopping_list"]}</structured_result>',
-                            status="completed",
-                            model=self.model_name,
-                            structured_mode="tool_call",
-                        )
+                    self.tool_names_by_call.append(_tool_names(tools))
+                    self.inject_result = tool_handler("skill.inject", {"skills": ["meal_plan", "shopping_list"], "reason": "需要同时安排餐食和购物清单"})
+                    self.tool_names_by_call.append(_tool_names(tools))
+                    text = "已准备好餐食计划和购物清单能力。"
+                    if message_handler is not None:
+                        message_handler(text)
                     return ChatProviderResult(
-                        text=(
-                            "<visible_text>已准备好餐食计划和购物清单能力。</visible_text>"
-                            '<structured_result>{"action":"finalize","text":"已准备好餐食计划和购物清单能力。","status":"completed","cards":[]}</structured_result>'
-                        ),
+                        text=text,
                         status="completed",
                         model=self.model_name,
-                        structured_mode="tool_call",
                     )
 
             provider = InjectingProvider()
@@ -217,14 +286,19 @@ class AIFoundationTestCase(AIAgentInfraTestCase):
             ).run(context)
 
             self.assertEqual(result.status, "completed")
-            self.assertEqual(provider.tool_names_by_call[0], ["human.request_input"])
+            self.assertEqual(provider.tool_names_by_call[0], ["human.request_input", "skill.inject"])
             self.assertIn("meal_plan.create_draft", provider.tool_names_by_call[1])
             self.assertIn("shopping.create_draft", provider.tool_names_by_call[1])
             self.assertIn("script.validate_meal_plan", provider.tool_names_by_call[1])
             self.assertNotIn("script.suggest_items_from_sources", provider.tool_names_by_call[1])
             self.assertEqual(result.context_summary["orchestrator"]["injectedSkills"], ["meal_plan", "shopping_list"])
-            self.assertIn("餐食安排", provider.systems[1])
-            self.assertIn("购物清单整理", provider.systems[1])
+            injected_instructions = "\n".join(
+                str(item.get("instructions") or "")
+                for item in provider.inject_result.get("injectedSkills", [])
+                if isinstance(item, dict)
+            )
+            self.assertIn("餐食", injected_instructions)
+            self.assertIn("购物", injected_instructions)
 
         def test_skill_injection_manager_keeps_repeated_injection_as_noop(self) -> None:
             manager = SkillInjectionManager(build_workspace_skill_registry())
@@ -246,11 +320,11 @@ class AIFoundationTestCase(AIAgentInfraTestCase):
             with self.assertRaisesRegex(ValueError, "Draft tool custom.create_draft did not identify draft type"):
                 agent._draft_type_from_tool_output("custom.create_draft", {}, ["meal_plan", "shopping_list"])
 
-        def test_orchestrator_rejects_result_card_missing_required_fields(self) -> None:
+        def test_orchestrator_treats_model_card_json_as_plain_text(self) -> None:
             class MissingCardFieldsProvider(BaseChatProvider):
                 model_name = "missing-card-fields-model"
 
-                def generate(self, *, system: str, user: str, response_schema: dict | None = None) -> ChatProviderResult:
+                def generate(self, *, system: str, user: str) -> ChatProviderResult:
                     raise AssertionError("orchestrator should use generate_with_tools")
 
                 def generate_with_tools(
@@ -258,22 +332,19 @@ class AIFoundationTestCase(AIAgentInfraTestCase):
                     *,
                     system: str,
                     user: str,
-                    tools: list,
+                    tools,
                     tool_handler,
-                    response_schema: dict | None = None,
+                    message_handler=None,
                     max_rounds: int = 8,
-                    visible_text_handler=None,
                 ) -> ChatProviderResult:
-                    del system, user, tools, tool_handler, response_schema, max_rounds, visible_text_handler
+                    del system, user, tools, tool_handler, max_rounds
+                    text = '{"cards":[{"type":"inventory_summary"}]}'
+                    if message_handler is not None:
+                        message_handler(text)
                     return ChatProviderResult(
-                        text=(
-                            "<visible_text>库存如下。</visible_text>"
-                            '<structured_result>{"action":"finalize","text":"库存如下。","status":"completed",'
-                            '"cards":[{"type":"inventory_summary"}]}</structured_result>'
-                        ),
+                        text=text,
                         status="completed",
                         model=self.model_name,
-                        structured_mode="tool_call",
                     )
 
             result = WorkspaceOrchestratorAgent(
@@ -302,14 +373,15 @@ class AIFoundationTestCase(AIAgentInfraTestCase):
                 injected_skill_keys=["inventory_analysis"],
             )
 
-            self.assertEqual(result.status, "failed")
-            self.assertEqual(result.error, "invalid orchestrator structured result schema")
+            self.assertEqual(result.status, "completed")
+            self.assertEqual(result.cards, [])
+            self.assertEqual(result.text, '{"cards":[{"type":"inventory_summary"}]}')
 
-        def test_orchestrator_rejects_result_card_with_incomplete_data(self) -> None:
+        def test_orchestrator_does_not_create_result_cards_from_model_text(self) -> None:
             class IncompleteCardDataProvider(BaseChatProvider):
                 model_name = "incomplete-card-data-model"
 
-                def generate(self, *, system: str, user: str, response_schema: dict | None = None) -> ChatProviderResult:
+                def generate(self, *, system: str, user: str) -> ChatProviderResult:
                     raise AssertionError("orchestrator should use generate_with_tools")
 
                 def generate_with_tools(
@@ -317,22 +389,19 @@ class AIFoundationTestCase(AIAgentInfraTestCase):
                     *,
                     system: str,
                     user: str,
-                    tools: list,
+                    tools,
                     tool_handler,
-                    response_schema: dict | None = None,
+                    message_handler=None,
                     max_rounds: int = 8,
-                    visible_text_handler=None,
                 ) -> ChatProviderResult:
-                    del system, user, tools, tool_handler, response_schema, max_rounds, visible_text_handler
+                    del system, user, tools, tool_handler, max_rounds
+                    text = '{"id":"card-1","type":"inventory_summary","title":"库存概览","data":{}}'
+                    if message_handler is not None:
+                        message_handler(text)
                     return ChatProviderResult(
-                        text=(
-                            "<visible_text>库存如下。</visible_text>"
-                            '<structured_result>{"action":"finalize","text":"库存如下。","status":"completed",'
-                            '"cards":[{"id":"card-1","type":"inventory_summary","title":"库存概览","data":{}}]}</structured_result>'
-                        ),
+                        text=text,
                         status="completed",
                         model=self.model_name,
-                        structured_mode="tool_call",
                     )
 
             result = WorkspaceOrchestratorAgent(
@@ -361,19 +430,21 @@ class AIFoundationTestCase(AIAgentInfraTestCase):
                 injected_skill_keys=["inventory_analysis"],
             )
 
-            self.assertEqual(result.status, "failed")
-            self.assertIn("availableCount", result.error or "")
+            self.assertEqual(result.status, "completed")
+            self.assertEqual(result.cards, [])
+            self.assertEqual(result.error, None)
 
-        def test_orchestrator_schema_separates_result_cards_from_draft_types(self) -> None:
+        def test_orchestrator_payload_exposes_allowed_draft_types_as_prompt_context(self) -> None:
             class SchemaCapturingProvider(BaseChatProvider):
                 model_name = "orchestrator-schema-model"
 
                 def __init__(self) -> None:
-                    self.schemas: list[dict] = []
                     self.payloads: list[dict] = []
                     self.systems: list[str] = []
+                    self.tool_names_by_round: list[list[str]] = []
+                    self.inject_result: dict = {}
 
-                def generate(self, *, system: str, user: str, response_schema: dict | None = None) -> ChatProviderResult:
+                def generate(self, *, system: str, user: str) -> ChatProviderResult:
                     raise AssertionError("orchestrator should use generate_with_tools")
 
                 def generate_with_tools(
@@ -381,31 +452,24 @@ class AIFoundationTestCase(AIAgentInfraTestCase):
                     *,
                     system: str,
                     user: str,
-                    tools: list,
+                    tools,
                     tool_handler,
-                    response_schema: dict | None = None,
+                    message_handler=None,
                     max_rounds: int = 8,
-                    visible_text_handler=None,
                 ) -> ChatProviderResult:
-                    del tools, tool_handler, max_rounds, visible_text_handler
-                    self.schemas.append(response_schema or {})
+                    del max_rounds
                     self.payloads.append(json.loads(user))
                     self.systems.append(system)
-                    if len(self.schemas) == 1:
-                        return ChatProviderResult(
-                            text='<structured_result>{"action":"continue","injectSkills":["recipe_draft"]}</structured_result>',
-                            status="completed",
-                            model=self.model_name,
-                            structured_mode="tool_call",
-                        )
+                    self.tool_names_by_round.append(_tool_names(tools))
+                    self.inject_result = tool_handler("skill.inject", {"skills": ["recipe_draft"], "reason": "需要生成菜谱草稿"})
+                    self.tool_names_by_round.append(_tool_names(tools))
+                    text = "我会生成菜谱草稿，确认后再写入。"
+                    if message_handler is not None:
+                        message_handler(text)
                     return ChatProviderResult(
-                        text=(
-                            "<visible_text>我会生成菜谱草稿，确认后再写入。</visible_text>"
-                            '<structured_result>{"action":"finalize","text":"我会生成菜谱草稿，确认后再写入。","status":"completed","cards":[]}</structured_result>'
-                        ),
+                        text=text,
                         status="completed",
                         model=self.model_name,
-                        structured_mode="tool_call",
                     )
 
             provider = SchemaCapturingProvider()
@@ -435,25 +499,21 @@ class AIFoundationTestCase(AIAgentInfraTestCase):
             ).run(context)
 
             self.assertEqual(result.status, "completed")
-            card_schema = provider.schemas[1]["properties"]["cards"]["items"]
-            card_type_schema = card_schema["properties"]["type"]
-            self.assertFalse(card_schema["additionalProperties"])
-            self.assertEqual(card_schema["required"], ["id", "type", "title", "data"])
-            self.assertEqual(card_type_schema["enum"], ["error_recovery"])
-            self.assertNotIn("recipe", card_type_schema["enum"])
-            self.assertEqual(provider.payloads[1]["allowedCardTypes"], ["error_recovery"])
-            self.assertEqual(provider.payloads[1]["allowedDraftTypes"], ["recipe"])
-            self.assertIn("不能放进 cards[].type", provider.systems[1])
-            self.assertIn('"recipe"', provider.systems[1])
+            self.assertEqual(provider.payloads[0]["allowedDraftTypes"], [])
+            self.assertNotIn("allowedCardTypes", provider.payloads[0])
+            self.assertIn("recipe.create_draft", provider.tool_names_by_round[1])
+            self.assertIn("instructions", provider.inject_result["injectedSkills"][0])
+            self.assertIn("菜谱", provider.inject_result["injectedSkills"][0]["instructions"])
+            self.assertIn("这些是当前已注入 Skill 允许的 draft_types", provider.systems[0])
 
-        def test_orchestrator_rejects_model_draft_card_when_tool_created_draft(self) -> None:
+        def test_orchestrator_creates_draft_only_from_draft_tool(self) -> None:
             class DraftCardProvider(BaseChatProvider):
                 model_name = "orchestrator-draft-card-model"
 
                 def __init__(self) -> None:
                     self.tool_calls: list[str] = []
 
-                def generate(self, *, system: str, user: str, response_schema: dict | None = None) -> ChatProviderResult:
+                def generate(self, *, system: str, user: str) -> ChatProviderResult:
                     raise AssertionError("orchestrator should use generate_with_tools")
 
                 def generate_with_tools(
@@ -461,21 +521,17 @@ class AIFoundationTestCase(AIAgentInfraTestCase):
                     *,
                     system: str,
                     user: str,
-                    tools: list,
+                    tools,
                     tool_handler,
-                    response_schema: dict | None = None,
+                    message_handler=None,
                     max_rounds: int = 8,
-                    visible_text_handler=None,
                 ) -> ChatProviderResult:
-                    del system, user, tools, response_schema, max_rounds, visible_text_handler
-                    if not self.tool_calls:
-                        self.tool_calls.append("inject")
-                        return ChatProviderResult(
-                            text='<structured_result>{"action":"continue","injectSkills":["recipe_draft"]}</structured_result>',
-                            status="completed",
-                            model=self.model_name,
-                            structured_mode="tool_call",
-                        )
+                    del system, user, max_rounds
+                    tool_handler("skill.inject", {"skills": ["recipe_draft"], "reason": "需要生成菜谱草稿"})
+                    _tool_names(tools)
+                    text = "我先生成番茄菜谱草稿。"
+                    if message_handler is not None:
+                        message_handler(text)
                     self.tool_calls.append("recipe.create_draft")
                     tool_handler(
                         "recipe.create_draft",
@@ -531,14 +587,9 @@ class AIFoundationTestCase(AIAgentInfraTestCase):
                         },
                     )
                     return ChatProviderResult(
-                        text=(
-                            "<visible_text>我生成了菜谱草稿，请确认。</visible_text>"
-                            '<structured_result>{"action":"finalize","text":"我生成了菜谱草稿，请确认。",'
-                            '"status":"completed","cards":[{"type":"draft","title":"菜谱草稿","data":{}}]}</structured_result>'
-                        ),
-                        status="completed",
+                        text=text,
+                        status="waiting_approval",
                         model=self.model_name,
-                        structured_mode="tool_call",
                     )
 
             provider = DraftCardProvider()
@@ -568,17 +619,19 @@ class AIFoundationTestCase(AIAgentInfraTestCase):
                     skill_registry=build_workspace_skill_registry(),
                 ).run(context)
 
-            self.assertEqual(result.status, "failed")
-            self.assertEqual(result.error, "invalid orchestrator structured result schema")
+            self.assertEqual(result.status, "waiting_approval")
+            self.assertEqual([draft["draft_type"] for draft in result.drafts], ["recipe"])
+            self.assertEqual(result.cards, [])
+            self.assertEqual(provider.tool_calls, ["recipe.create_draft"])
 
-        def test_orchestrator_still_rejects_model_draft_card_without_tool_draft(self) -> None:
+        def test_orchestrator_does_not_create_draft_from_model_text(self) -> None:
             class DraftCardWithoutToolProvider(BaseChatProvider):
                 model_name = "orchestrator-draft-card-without-tool-model"
 
                 def __init__(self) -> None:
                     self.calls = 0
 
-                def generate(self, *, system: str, user: str, response_schema: dict | None = None) -> ChatProviderResult:
+                def generate(self, *, system: str, user: str) -> ChatProviderResult:
                     raise AssertionError("orchestrator should use generate_with_tools")
 
                 def generate_with_tools(
@@ -586,30 +639,20 @@ class AIFoundationTestCase(AIAgentInfraTestCase):
                     *,
                     system: str,
                     user: str,
-                    tools: list,
+                    tools,
                     tool_handler,
-                    response_schema: dict | None = None,
+                    message_handler=None,
                     max_rounds: int = 8,
-                    visible_text_handler=None,
                 ) -> ChatProviderResult:
-                    del system, user, tools, tool_handler, response_schema, max_rounds, visible_text_handler
+                    del system, user, tools, tool_handler, max_rounds
                     self.calls += 1
-                    if self.calls == 1:
-                        return ChatProviderResult(
-                            text='<structured_result>{"action":"continue","injectSkills":["recipe_draft"]}</structured_result>',
-                            status="completed",
-                            model=self.model_name,
-                            structured_mode="tool_call",
-                        )
+                    text = '{"cards":[{"type":"draft","title":"菜谱草稿","data":{}}]}'
+                    if message_handler is not None:
+                        message_handler(text)
                     return ChatProviderResult(
-                        text=(
-                            "<visible_text>我生成了菜谱草稿。</visible_text>"
-                            '<structured_result>{"action":"finalize","text":"我生成了菜谱草稿。",'
-                            '"status":"completed","cards":[{"type":"draft","title":"菜谱草稿","data":{}}]}</structured_result>'
-                        ),
+                        text=text,
                         status="completed",
                         model=self.model_name,
-                        structured_mode="tool_call",
                     )
 
             result = WorkspaceOrchestratorAgent(
@@ -637,14 +680,18 @@ class AIFoundationTestCase(AIAgentInfraTestCase):
                 )
             )
 
-            self.assertEqual(result.status, "failed")
-            self.assertEqual(result.error, "invalid orchestrator structured result schema")
+            self.assertEqual(result.status, "completed")
+            self.assertEqual(result.drafts, [])
+            self.assertEqual(result.cards, [])
 
         def test_orchestrator_rejects_tool_call_before_skill_injection(self) -> None:
             class PrematureToolProvider(BaseChatProvider):
                 model_name = "premature-tool-model"
 
-                def generate(self, *, system: str, user: str, response_schema: dict | None = None) -> ChatProviderResult:
+                def __init__(self) -> None:
+                    self.tool_result: dict = {}
+
+                def generate(self, *, system: str, user: str) -> ChatProviderResult:
                     raise AssertionError("orchestrator should use generate_with_tools")
 
                 def generate_with_tools(
@@ -652,15 +699,17 @@ class AIFoundationTestCase(AIAgentInfraTestCase):
                     *,
                     system: str,
                     user: str,
-                    tools: list,
+                    tools,
                     tool_handler,
-                    response_schema: dict | None = None,
+                    message_handler=None,
                     max_rounds: int = 8,
-                    visible_text_handler=None,
                 ) -> ChatProviderResult:
-                    del system, user, tools, response_schema, max_rounds, visible_text_handler
-                    tool_handler("meal_plan.create_draft", {})
-                    return ChatProviderResult(text='{"action":"finalize"}', status="completed", model=self.model_name)
+                    del system, user, tools, max_rounds
+                    self.tool_result = tool_handler("meal_plan.create_draft", {})
+                    text = "我还不能直接创建餐食计划草稿。"
+                    if message_handler is not None:
+                        message_handler(text)
+                    return ChatProviderResult(text=text, status="completed", model=self.model_name)
 
             context = SkillContext(
                 db=MagicMock(),
@@ -682,19 +731,21 @@ class AIFoundationTestCase(AIAgentInfraTestCase):
                 ),
             )
 
+            provider = PrematureToolProvider()
             result = WorkspaceOrchestratorAgent(
-                provider=PrematureToolProvider(),
+                provider=provider,
                 skill_registry=build_workspace_skill_registry(),
             ).run(context)
 
-            self.assertEqual(result.status, "failed")
-            self.assertIn("当前 Skill 未声明工具 meal_plan.create_draft", result.error or "")
+            self.assertEqual(result.status, "completed")
+            self.assertEqual(provider.tool_result.get("code"), "unavailable_tool")
+            self.assertEqual(result.drafts, [])
 
         def test_workspace_graph_can_run_orchestrator_as_langgraph_node(self) -> None:
             class DirectOrchestratorProvider(BaseChatProvider):
                 model_name = "direct-orchestrator-model"
 
-                def generate(self, *, system: str, user: str, response_schema: dict | None = None) -> ChatProviderResult:
+                def generate(self, *, system: str, user: str) -> ChatProviderResult:
                     raise AssertionError("orchestrator should use generate_with_tools")
 
                 def generate_with_tools(
@@ -702,21 +753,19 @@ class AIFoundationTestCase(AIAgentInfraTestCase):
                     *,
                     system: str,
                     user: str,
-                    tools: list,
+                    tools,
                     tool_handler,
-                    response_schema: dict | None = None,
+                    message_handler=None,
                     max_rounds: int = 8,
-                    visible_text_handler=None,
                 ) -> ChatProviderResult:
-                    del system, user, tools, tool_handler, response_schema, max_rounds, visible_text_handler
+                    del system, user, tools, tool_handler, max_rounds
+                    text = "可以，今天先吃清淡一点。"
+                    if message_handler is not None:
+                        message_handler(text)
                     return ChatProviderResult(
-                        text=(
-                            "<visible_text>可以，今天先吃清淡一点。</visible_text>"
-                            '<structured_result>{"action":"finalize","text":"可以，今天先吃清淡一点。","status":"completed","cards":[]}</structured_result>'
-                        ),
+                        text=text,
                         status="completed",
                         model=self.model_name,
-                        structured_mode="tool_call",
                     )
 
             with self.SessionLocal() as db:
@@ -744,7 +793,7 @@ class AIFoundationTestCase(AIAgentInfraTestCase):
                     self.resume_artifacts: list[dict] = []
                     self.resume_injected_skills: list[str] = []
 
-                def generate(self, *, system: str, user: str, response_schema: dict | None = None) -> ChatProviderResult:
+                def generate(self, *, system: str, user: str) -> ChatProviderResult:
                     raise AssertionError("orchestrator should use generate_with_tools")
 
                 def generate_with_tools(
@@ -752,25 +801,15 @@ class AIFoundationTestCase(AIAgentInfraTestCase):
                     *,
                     system: str,
                     user: str,
-                    tools: list,
+                    tools,
                     tool_handler,
-                    response_schema: dict | None = None,
+                    message_handler=None,
                     max_rounds: int = 8,
-                    visible_text_handler=None,
                 ) -> ChatProviderResult:
-                    del system, tools, response_schema, max_rounds, visible_text_handler
+                    del system, tools, max_rounds
                     self.calls += 1
                     if self.calls == 1:
-                        return ChatProviderResult(
-                            text=(
-                                "<visible_text></visible_text>"
-                                '<structured_result>{"action":"continue","injectSkills":["meal_plan"],"text":"","status":"running","cards":[]}</structured_result>'
-                            ),
-                            status="completed",
-                            model=self.model_name,
-                            structured_mode="tool_call",
-                        )
-                    if self.calls == 2:
+                        tool_handler("skill.inject", {"skills": ["meal_plan"], "reason": "需要安排餐食计划"})
                         tool_handler(
                             "human.request_input",
                             {
@@ -784,14 +823,13 @@ class AIFoundationTestCase(AIAgentInfraTestCase):
                     payload = json.loads(user)
                     self.resume_injected_skills = payload.get("injectedSkills") or []
                     self.resume_artifacts = [*(payload.get("artifacts") or []), *(payload.get("currentRunArtifacts") or [])]
+                    text = "好的，我按三天继续整理。"
+                    if message_handler is not None:
+                        message_handler(text)
                     return ChatProviderResult(
-                        text=(
-                            "<visible_text>好的，我按三天继续整理。</visible_text>"
-                            '<structured_result>{"action":"finalize","text":"好的，我按三天继续整理。","status":"completed","cards":[]}</structured_result>'
-                        ),
+                        text=text,
                         status="completed",
                         model=self.model_name,
-                        structured_mode="tool_call",
                     )
 
             provider = HumanInputProvider()
@@ -825,7 +863,7 @@ class AIFoundationTestCase(AIAgentInfraTestCase):
 
             self.assertEqual(resumed["run"]["status"], "completed")
             self.assertEqual(resumed["message"]["content"], "你想安排几天晚餐？\n\n好的，我按三天继续整理。")
-            self.assertEqual(provider.calls, 3)
+            self.assertEqual(provider.calls, 2)
             self.assertIsNotNone(run)
             self.assertIsNotNone(message)
             assert run is not None
@@ -861,7 +899,7 @@ class AIFoundationTestCase(AIAgentInfraTestCase):
                 def __init__(self) -> None:
                     self.calls = 0
 
-                def generate(self, *, system: str, user: str, response_schema: dict | None = None) -> ChatProviderResult:
+                def generate(self, *, system: str, user: str) -> ChatProviderResult:
                     raise AssertionError("orchestrator should use generate_with_tools")
 
                 def generate_with_tools(
@@ -869,15 +907,15 @@ class AIFoundationTestCase(AIAgentInfraTestCase):
                     *,
                     system: str,
                     user: str,
-                    tools: list,
+                    tools,
                     tool_handler,
-                    response_schema: dict | None = None,
+                    message_handler=None,
                     max_rounds: int = 8,
-                    visible_text_handler=None,
                 ) -> ChatProviderResult:
-                    del system, user, tools, response_schema, max_rounds, visible_text_handler
+                    del system, user, tools, max_rounds
                     self.calls += 1
                     if self.calls == 1:
+                        tool_handler("skill.inject", {"skills": ["meal_plan"], "reason": "需要安排晚餐"})
                         tool_handler(
                             "human.request_input",
                             {
@@ -888,14 +926,13 @@ class AIFoundationTestCase(AIAgentInfraTestCase):
                                 "resumeHint": {"expectedField": "days"},
                             },
                         )
+                    text = "已按一天继续。"
+                    if message_handler is not None:
+                        message_handler(text)
                     return ChatProviderResult(
-                        text=(
-                            "<visible_text>已按一天继续。</visible_text>"
-                            '<structured_result>{"action":"finalize","text":"已按一天继续。","status":"completed","cards":[]}</structured_result>'
-                        ),
+                        text=text,
                         status="completed",
                         model=self.model_name,
-                        structured_mode="tool_call",
                     )
 
             provider = HumanInputApiProvider()
@@ -943,7 +980,7 @@ class AIFoundationTestCase(AIAgentInfraTestCase):
                 def __init__(self) -> None:
                     self.calls = 0
 
-                def generate(self, *, system: str, user: str, response_schema: dict | None = None) -> ChatProviderResult:
+                def generate(self, *, system: str, user: str) -> ChatProviderResult:
                     raise AssertionError("orchestrator should use generate_with_tools")
 
                 def generate_with_tools(
@@ -951,15 +988,15 @@ class AIFoundationTestCase(AIAgentInfraTestCase):
                     *,
                     system: str,
                     user: str,
-                    tools: list,
+                    tools,
                     tool_handler,
-                    response_schema: dict | None = None,
+                    message_handler=None,
                     max_rounds: int = 8,
-                    visible_text_handler=None,
                 ) -> ChatProviderResult:
-                    del system, user, tools, response_schema, max_rounds
+                    del system, user, tools, max_rounds
                     self.calls += 1
                     if self.calls == 1:
+                        tool_handler("skill.inject", {"skills": ["meal_plan"], "reason": "需要安排晚餐"})
                         tool_handler(
                             "human.request_input",
                             {
@@ -971,13 +1008,12 @@ class AIFoundationTestCase(AIAgentInfraTestCase):
                             },
                         )
                     text = "已按三天继续安排。"
-                    if visible_text_handler is not None:
-                        visible_text_handler(f"<visible_text>{text}</visible_text>")
+                    if message_handler is not None:
+                        message_handler(text)
                     return ChatProviderResult(
-                        text=f'<structured_result>{{"action":"finalize","text":{json.dumps(text, ensure_ascii=False)},"status":"completed","cards":[]}}</structured_result>',
+                        text=text,
                         status="completed",
                         model=self.model_name,
-                        structured_mode="tool_call",
                     )
 
             provider = HumanInputStreamProvider()

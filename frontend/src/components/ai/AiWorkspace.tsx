@@ -5,6 +5,7 @@ import { api } from '../../api/client';
 import { queryKeys } from '../../api/queryKeys';
 import type {
   AiApprovalRequest,
+  AiApprovalDecisionResponse,
   AiChatAttachment,
   AiChatResponse,
   AiConversation,
@@ -82,6 +83,7 @@ export function AiWorkspace({
   const [runEventsById, setRunEventsById] = useState<Record<string, AiRunEvent[]>>({});
   const [recommendationPlanRequest, setRecommendationPlanRequest] = useState<AiRecommendationPlanRequest | null>(null);
   const [planFeedback, setPlanFeedback] = useState('');
+  const [streamError, setStreamError] = useState('');
   const [isQualityModalOpen, setIsQualityModalOpen] = useState(false);
   const inventoryDraftAction = useAiInventoryDraftAction({
     setLocalMessages: (updater) => {
@@ -462,29 +464,23 @@ export function AiWorkspace({
       : includedMessage;
     const mergeWithLocalStreamParts = (localMessage: AiMessage | undefined): AiMessage => {
       if (!localMessage?.parts.length) return messageWithIncludedApprovals;
-      if (messageWithIncludedApprovals.parts.some((part) => part.type === 'run_activity')) {
-        const localPartsById = new Map(localMessage.parts.map((part) => [part.id, part]));
-        const parts = messageWithIncludedApprovals.parts.map((part) => {
-          const localPart = localPartsById.get(part.id);
-          if (
-            part.type === 'text'
-            && localPart?.type === 'text'
-            && (localPart.text?.length ?? 0) > (part.text?.length ?? 0)
-          ) {
-            return { ...part, text: localPart.text };
-          }
-          return part;
-        });
-        return {
-          ...messageWithIncludedApprovals,
-          parts,
-          content_type: 'parts',
-          content: messageTextFromParts(parts) || messageWithIncludedApprovals.content,
-        };
-      }
+      const finalPartsById = new Map(messageWithIncludedApprovals.parts.map((part) => [part.id, part]));
       const localPartIds = new Set(localMessage.parts.map((part) => part.id));
-      const appendedFinalParts = messageWithIncludedApprovals.parts.filter((part) => !localPartIds.has(part.id));
-      const parts = [...localMessage.parts, ...appendedFinalParts];
+      const parts = [
+        ...localMessage.parts.map((localPart) => {
+          const finalPart = finalPartsById.get(localPart.id);
+          if (!finalPart) return localPart;
+          if (
+            finalPart.type === 'text'
+            && localPart.type === 'text'
+            && (localPart.text?.length ?? 0) > (finalPart.text?.length ?? 0)
+          ) {
+            return { ...finalPart, text: localPart.text };
+          }
+          return finalPart;
+        }),
+        ...messageWithIncludedApprovals.parts.filter((part) => !localPartIds.has(part.id)),
+      ];
       return {
         ...messageWithIncludedApprovals,
         parts,
@@ -533,6 +529,39 @@ export function AiWorkspace({
       return next;
     });
     invalidateAfterAiMessageSent(queryClient, response.conversation_id);
+  }
+  function applyApprovalDecisionResponse(response: AiApprovalDecisionResponse, conversationKey: string) {
+    const nextApproval = response.approval;
+    const replaceApproval = (message: AiMessage): AiMessage => {
+      let changed = false;
+      const parts = message.parts.map((part) => {
+        if (part.type !== 'approval_request' || part.approval?.id !== nextApproval.id) return part;
+        changed = true;
+        return { ...part, approval: nextApproval };
+      });
+      if (!changed) return message;
+      const hasPendingApproval = parts.some((part) => part.approval?.status === 'pending');
+      return {
+        ...message,
+        content_type: 'parts',
+        parts,
+        status: hasPendingApproval ? 'waiting_approval' : message.status === 'waiting_approval' ? 'completed' : message.status,
+      };
+    };
+    setLocalMessagesByConversationKey((current) => {
+      const next = { ...current };
+      for (const [key, items] of Object.entries(current)) {
+        if (key !== conversationKey && key !== nextApproval.conversation_id) continue;
+        next[key] = items.map(replaceApproval);
+      }
+      return next;
+    });
+    queryClient.setQueryData<AiMessage[]>(queryKeys.aiMessages(nextApproval.conversation_id), (items = []) => items.map(replaceApproval));
+    queryClient.setQueryData<AiApprovalRequest[]>(queryKeys.aiPendingApprovals(nextApproval.conversation_id), (items = []) =>
+      items
+        .map((item) => (item.id === nextApproval.id ? nextApproval : item))
+        .filter((item) => item.status === 'pending'),
+    );
   }
   function applyStreamDelta(event: { message_id?: string; conversation_id?: string; run_id?: string; part_id?: string; delta: string }, conversationKey: string) {
     if (!event.delta) return;
@@ -638,25 +667,28 @@ export function AiWorkspace({
   }
   function markStreamingAssistantStopped(runId: string | null, text = '已取消这次任务。') {
     if (!runId) return;
-    setLocalMessagesByConversationKey((current) => {
-      const next = { ...current };
-      for (const [conversationKey, items] of Object.entries(current)) {
-        next[conversationKey] = items.map((item) => {
-          if (item.run_id !== runId && item.id !== `local-assistant-${runId}`) return item;
-          const textPart = item.parts.find((part) => part.type === 'text');
-          const nextText = textPart?.text?.trim() || item.content || text;
-          return {
-            ...item,
-            content: nextText,
-            status: 'failed',
-            parts: item.parts.some((part) => part.type === 'text')
-              ? item.parts.map((part) => (part.type === 'text' ? { ...part, text: nextText } : part))
-              : [{ id: `local-cancel-part-${runId}`, type: 'text' as const, text: nextText }, ...item.parts],
-          };
-        });
-      }
-      return next;
-    });
+    const markItems = (items: AiMessage[]) =>
+      items.map((item) => {
+        if (item.run_id !== runId && item.id !== `local-assistant-${runId}`) return item;
+        const textPart = item.parts.find((part) => part.type === 'text');
+        const nextText = text === '已取消这次任务。' ? textPart?.text?.trim() || item.content || text : text;
+        return {
+          ...item,
+          content: nextText,
+          status: 'failed' as const,
+          parts: item.parts.some((part) => part.type === 'text')
+            ? item.parts.map((part) => (part.type === 'text' ? { ...part, text: nextText } : part))
+            : [{ id: `local-cancel-part-${runId}`, type: 'text' as const, text: nextText }, ...item.parts],
+        };
+      });
+    setLocalMessagesByConversationKey((current) => Object.fromEntries(Object.entries(current).map(([key, items]) => [key, markItems(items)])));
+    const conversationIds = new Set([activeConversationId, ...conversations.map((conversation) => conversation.id), ...Object.keys(localMessagesByConversationKey).filter((key) => !isPendingConversationKey(key))].filter((id): id is string => Boolean(id)));
+    for (const conversationId of conversationIds) {
+      queryClient.setQueryData<AiMessage[]>(queryKeys.aiMessages(conversationId), (items = []) => markItems(items));
+    }
+  }
+  function streamFailureMessage(error: unknown) {
+    return error instanceof Error && error.message.trim() ? error.message : 'AI 后续处理失败，请稍后重试。';
   }
   function upsertStreamProgressEvent(nextEvent: AiRunEvent) {
     const currentItems = streamProgressRef.current[nextEvent.run_id] ?? [];
@@ -668,6 +700,7 @@ export function AiWorkspace({
   }
   const chatMutation = useMutation({
     mutationFn: (payload: { message: string; conversationKey: string; conversation_id?: string; client_message_id?: string; client_run_id: string; quick_task?: string; subject?: Record<string, unknown>; attachments?: AiChatAttachment[] }) => {
+      setStreamError('');
       const controller = new AbortController();
       chatAbortByRunIdRef.current = { ...chatAbortByRunIdRef.current, [payload.client_run_id]: controller };
       const { conversationKey, ...requestPayload } = payload;
@@ -714,9 +747,24 @@ export function AiWorkspace({
     },
   });
   const approvalStreamMutation = useMutation({
-    mutationFn: (payload: { approval: Parameters<AiApprovalDecisionSubmit>[0]; decision: 'approved' | 'rejected'; values: Record<string, unknown>; comment?: string }) => {
+    mutationFn: async (payload: { approval: Parameters<AiApprovalDecisionSubmit>[0]; decision: 'approved' | 'rejected'; values: Record<string, unknown>; comment?: string }) => {
+      setStreamError('');
       const controller = new AbortController();
       const conversationKey = payload.approval.conversation_id;
+      const runId = payload.approval.run_id;
+      const isRunAlreadyStreaming = Boolean(runId && activeStreamRunIdsByConversationKey[conversationKey] === runId);
+      const decisionPayload = {
+        decision: payload.decision,
+        draft_version: payload.approval.draft_version,
+        values: payload.values,
+        comment: payload.comment,
+      };
+      const decisionResponse = await api.decideAiApproval(payload.approval.conversation_id, payload.approval.id, decisionPayload);
+      applyApprovalDecisionResponse(decisionResponse, conversationKey);
+      void refreshAfterApprovalSettled();
+      if (!runId || isRunAlreadyStreaming) {
+        return decisionResponse;
+      }
       if (payload.approval.run_id) {
         chatAbortByRunIdRef.current = { ...chatAbortByRunIdRef.current, [payload.approval.run_id]: controller };
         setActiveStreamRunIdsByConversationKey((current) => ({ ...current, [conversationKey]: payload.approval.run_id as string }));
@@ -726,15 +774,10 @@ export function AiWorkspace({
           ensureStreamingAssistantMessage(payload.approval.run_id, conversationKey);
         }
       }
-      return api.streamAiApprovalDecision(
+      void api.streamAiApprovalDecision(
         payload.approval.conversation_id,
         payload.approval.id,
-        {
-          decision: payload.decision,
-          draft_version: payload.approval.draft_version,
-          values: payload.values,
-          comment: payload.comment,
-        },
+        decisionPayload,
         {
           signal: controller.signal,
           onProgress: (event) => {
@@ -755,28 +798,38 @@ export function AiWorkspace({
         },
           onMessagePart: (event) => applyStreamPart(event, conversationKey),
           onMessageDelta: (event) => applyStreamDelta(event, conversationKey),
+          onResponse: (response) => applyChatResponse(response, conversationKey, payload.approval.run_id ?? response.run.id),
         },
       ).then((response) => {
         applyChatResponse(response, payload.approval.conversation_id, payload.approval.run_id ?? response.run.id);
-        return response;
-      });
-    },
-    onSettled: (_data, _error, variables) => {
-      if (variables?.approval.run_id) {
-        const { [variables.approval.run_id]: _removed, ...remainingControllers } = chatAbortByRunIdRef.current;
+      }).catch((error) => {
+        const message = streamFailureMessage(error);
+        setStreamError(message);
+        applyApprovalDecisionResponse(decisionResponse, conversationKey);
+        markStreamingAssistantStopped(payload.approval.run_id ?? null, `AI 后续处理失败：${message}`);
+        void refreshAfterApprovalSettled();
+      }).finally(() => {
+        const activeRunId = payload.approval.run_id;
+        if (!activeRunId) return;
+        const { [activeRunId]: _removed, ...remainingControllers } = chatAbortByRunIdRef.current;
         chatAbortByRunIdRef.current = remainingControllers;
         setActiveStreamRunIdsByConversationKey((current) => {
-          if (current[variables.approval.conversation_id] !== variables.approval.run_id) return current;
+          if (current[payload.approval.conversation_id] !== activeRunId) return current;
           const next = { ...current };
-          delete next[variables.approval.conversation_id];
+          delete next[payload.approval.conversation_id];
           return next;
         });
-      }
+        void refreshAfterApprovalSettled();
+      });
+      return decisionResponse;
+    },
+    onSettled: () => {
       void refreshAfterApprovalSettled();
     },
   });
   const humanInputMutation = useMutation({
     mutationFn: (payload: { message: AiMessage; request: AiHumanInputRequest; response: { selected_option_ids?: string[]; text?: string } }) => {
+      setStreamError('');
       const controller = new AbortController();
       const conversationKey = payload.message.conversation_id;
       const runId = payload.message.run_id;
@@ -821,6 +874,11 @@ export function AiWorkspace({
         delete next[variables.message.conversation_id];
         return next;
       });
+    },
+    onError: (error, variables) => {
+      const message = streamFailureMessage(error);
+      setStreamError(message);
+      markStreamingAssistantStopped(variables?.message.run_id ?? null, `AI 后续处理失败：${message}`);
     },
   });
   const deleteConversationMutation = useMutation({
@@ -963,6 +1021,7 @@ export function AiWorkspace({
     setActiveConversationKey(conversationKey);
     setIsStartingNewConversation(false);
     setDraft('');
+    attachmentState.hideAttachments(sendableAttachments.map((attachment) => attachment.clientAttachmentId));
     try {
       await chatMutation.mutateAsync({
         message: text,
@@ -972,8 +1031,9 @@ export function AiWorkspace({
         client_run_id: clientRunId,
         attachments: requestAttachments,
       });
-      attachmentState.clearAttachments();
+      attachmentState.discardHiddenAttachments(sendableAttachments);
     } catch {
+      attachmentState.restoreHiddenAttachments(sendableAttachments);
       // The mutation state renders the request error; keep it out of the form event promise.
     }
   }
@@ -1131,7 +1191,7 @@ export function AiWorkspace({
         messages={displayedMessages}
         runEventsById={runEventsById}
         streamProgress={streamProgress}
-        activeStreamRunId={activeStreamRunId}
+        activeAssistantRunId={activeVisibleRunId}
         draft={draft}
         attachments={attachmentState.attachments}
         canAddAttachment={attachmentState.canAddMore && !isVisionUnavailableForAttachments}
@@ -1239,6 +1299,13 @@ export function AiWorkspace({
                             : []
                     }
                     isLatestAssistant={message.id === latestAssistantMessageId}
+                    isAssistantResponseActive={
+                      message.role === 'assistant'
+                      && Boolean(
+                        (message.run_id && message.run_id === activeVisibleRunId)
+                        || (message.id.startsWith('local-') && activeVisibleRunId),
+                      )
+                    }
                     onApprovalDecision={submitApprovalDecision}
                     onHumanInputResponse={submitHumanInputResponse}
                     onAddRecommendationToPlan={openRecommendationPlan}
@@ -1253,6 +1320,7 @@ export function AiWorkspace({
           </div>
           <div className="ai-composer-dock">
             {chatMutation.isError && <p className="form-error">{chatMutation.error.message}</p>}
+            {streamError && <p className="form-error">{streamError}</p>}
             {effectiveComposerPaused && <p className="ai-composer-pause-note">{effectiveComposerPauseMessage}</p>}
             {isVisionUnavailableForAttachments && <p className="ai-composer-pause-note">当前 AI 模型暂不支持图片识别，请移除图片或切换支持视觉输入的模型。</p>}
             <AiComposerAttachments

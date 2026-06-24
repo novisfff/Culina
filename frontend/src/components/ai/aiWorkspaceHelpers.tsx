@@ -39,6 +39,7 @@ export function mergePendingApprovalsIntoMessages(messages: AiMessage[], approva
     return {
       ...message,
       content_type: 'parts',
+      status: messageApprovals.some((approval) => approval.status === 'pending') ? 'waiting_approval' : message.status,
       parts: [
         ...message.parts,
         ...messageApprovals.map((approval) => ({
@@ -70,7 +71,7 @@ export function mergePendingApprovalsIntoMessages(messages: AiMessage[], approva
         approval,
       })),
       run_id: firstApproval.run_id,
-      status: 'completed',
+      status: messageApprovals.some((approval) => approval.status === 'pending') ? 'waiting_approval' : 'completed',
       metadata: { restoredApproval: true },
       created_at: firstApproval.created_at,
     };

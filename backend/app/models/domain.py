@@ -574,6 +574,7 @@ class AITaskDraft(Base):
     version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
     schema_version: Mapped[str] = mapped_column(String(32), default="recipe.v1", nullable=False)
     validation_errors: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list, nullable=False)
+    ai_metadata: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
     idempotency_key: Mapped[str] = mapped_column(String(120), nullable=False, unique=True, index=True)
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)

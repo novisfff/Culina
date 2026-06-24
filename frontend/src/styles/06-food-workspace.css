@@ -6964,6 +6964,13 @@ button.ai-clarification-option:hover:not(:disabled) .ai-clarification-option-ind
   resize: vertical;
 }
 
+.ai-approval-submit-hint {
+  margin: -4px 20px 14px;
+  color: var(--text-soft);
+  font-size: 0.82rem;
+  line-height: 1.5;
+}
+
 .ai-editor-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(120px, 1fr));

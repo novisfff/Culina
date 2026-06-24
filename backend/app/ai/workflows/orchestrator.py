@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from copy import deepcopy
 import json
 import logging
 from dataclasses import dataclass, field
@@ -13,47 +12,16 @@ from app.ai.runtime.provider import BaseChatProvider, ChatProviderResult
 from app.ai.skills.base import SkillContext, SkillResult
 from app.ai.skills.registry import SkillRegistry
 from app.ai.skills.scripts import SkillScriptExecutor
-from app.ai.skills.shared import conversation_artifacts, json_object, model_name
-from app.ai.skills.toolcall import (
-    STRUCTURED_RESULT_CLOSE,
-    STRUCTURED_RESULT_OPEN,
-    VISIBLE_TEXT_CLOSE,
-    VISIBLE_TEXT_OPEN,
-    VisibleTextStream,
-)
+from app.ai.skills.shared import conversation_artifacts, model_name
 from app.ai.tools.base import ToolDefinition
-from app.ai.tools.validation import validate_json_value
 from app.ai.workflows.result_cards import validate_result_cards
 from app.core.utils import create_id
 
 logger = logging.getLogger(__name__)
-ORCHESTRATOR_BASE_TOOL_NAMES = {"human.request_input"}
-
-
-ORCHESTRATOR_RESULT_SCHEMA: dict[str, Any] = {
-    "type": "object",
-    "additionalProperties": False,
-    "properties": {
-        "action": {"type": "string", "enum": ["continue", "finalize"]},
-        "injectSkills": {
-            "type": "array",
-            "items": {"type": "string"},
-            "uniqueItems": True,
-        },
-        "text": {"type": "string"},
-        "cards": {"type": "array", "items": {"type": "object"}},
-        "events": {"type": "array", "items": {"type": "object"}},
-        "context_summary": {"type": "object"},
-        "state_patch": {"type": "object"},
-        "requires_clarification": {"type": "boolean"},
-        "status": {"type": "string", "enum": ["completed", "failed", "running"]},
-        "error": {"type": ["string", "null"]},
-        "operation": {"type": ["string", "null"]},
-        "source_artifact_id": {"type": ["string", "null"]},
-        "reason": {"type": "string"},
-    },
-    "required": ["action"],
-}
+ORCHESTRATOR_BASE_TOOL_NAMES = {"skill.inject", "human.request_input"}
+MAX_BUSINESS_SKILLS_PER_RUN = 4
+MAX_TOTAL_TOOL_CALLS_PER_RUN = 32
+MAX_SAME_READ_TOOL_CALLS_PER_RUN = 3
 
 
 @dataclass(slots=True)
@@ -156,7 +124,7 @@ class SkillInjectionManager:
         return definitions, script_executors
 
     def scoped_tool_executor(self, context: SkillContext, skill_keys: list[str]):
-        allowed_side_effects = {"read"}
+        allowed_side_effects = {"read", "control"}
         if any(self.skill_registry.get(key).manifest.approval_policy == "draft_then_confirm" for key in skill_keys):
             allowed_side_effects.add("draft")
         return context.tool_executor.scoped(
@@ -200,12 +168,17 @@ class WorkspaceOrchestratorAgent:
             for bundle in initial_bundles
         ]
         draft_outputs: list[dict[str, Any]] = []
+        published_drafts_by_key: dict[tuple[str, str], dict[str, Any]] = {}
+        draft_input_keys_this_call: set[tuple[str, str]] = set()
         read_outputs: dict[str, list[dict[str, Any]]] = {}
-        validation_error = ""
+        historical_tool_signatures = self._historical_tool_signatures(context)
+        tool_signatures_this_call: list[str] = []
+        draft_created_this_call = False
+        human_input_requested_this_call = False
 
         def emit_visible_delta(message_id: str, part_id: str, delta: str) -> None:
             context.ensure_active()
-            if context.stream_writer is None or not delta:
+            if context.stream_writer is None or not delta or draft_created_this_call:
                 return
             context.stream_writer(
                 {
@@ -221,136 +194,221 @@ class WorkspaceOrchestratorAgent:
             )
 
         stream_session_id = create_id("ai_stream")
-        try:
-            for round_index in range(1, self.max_rounds + 1):
-                context.ensure_active()
-                scoped_executor = self.injection_manager.scoped_tool_executor(context, active_skill_keys)
-                context.tool_executor = scoped_executor
-                tools, script_executors = self.injection_manager.tool_definitions(active_skill_keys, context)
+        message_id = f"{context.run_id}:orchestrator:{stream_session_id}:text"
+        part_id = f"{message_id}:text"
+        streamed_text: list[str] = []
+        current_scoped_executor = self.injection_manager.scoped_tool_executor(context, active_skill_keys)
+        current_script_executors: dict[str, SkillScriptExecutor] = {}
+        current_tool_names: set[str] = set()
 
-                def call_tool(name: str, payload: dict[str, Any]) -> dict[str, Any]:
-                    context.ensure_active()
-                    if name in script_executors:
-                        return script_executors[name].call(name, payload)
-                    definition = scoped_executor.registry.get(name)
-                    output = scoped_executor.call(name, payload)
-                    context.ensure_active()
-                    if definition.side_effect == "read":
-                        if name not in read_outputs:
-                            read_outputs[name] = []
-                        read_outputs[name].append(output)
-                    if name == "human.request_input":
-                        request = {
-                            "id": create_id("human_input"),
-                            **output,
-                        }
-                        raise HumanInputRequired(request)
-                    if definition.side_effect == "draft":
-                        draft = output.get("draft")
-                        if isinstance(draft, dict):
-                            draft_type = self._draft_type_from_tool_output(name, draft, active_skill_keys)
-                            draft_outputs.append(
-                                {
-                                    "draft_type": draft_type,
-                                    "payload": draft,
-                                    "schema_version": str(draft.get("schemaVersion") or f"{draft_type}.v1"),
-                                    "tool": name,
-                                }
-                            )
-                    return output
+        def refresh_tools() -> list[ToolDefinition]:
+            nonlocal current_scoped_executor, current_script_executors, current_tool_names
+            context.ensure_active()
+            current_scoped_executor = self.injection_manager.scoped_tool_executor(context, active_skill_keys)
+            context.tool_executor = current_scoped_executor
+            tools, current_script_executors = self.injection_manager.tool_definitions(active_skill_keys, context)
+            current_tool_names = {definition.name for definition in tools}
+            return tools
 
-                message_id = f"{context.run_id}:orchestrator:{stream_session_id}:{round_index}"
-                part_id = f"{message_id}:text"
-                visible_stream = VisibleTextStream(lambda delta: emit_visible_delta(message_id, part_id, delta))
-                provider_result = self.provider.generate_with_tools(
-                    system=self._system_prompt(active_skill_keys),
-                    user=self._provider_user_input(
-                        context,
-                        active_skill_keys,
-                        injection_history,
-                        validation_error=validation_error,
-                    ),
-                    tools=tools,
-                    tool_handler=call_tool,
-                    response_schema=self._response_schema(active_skill_keys),
-                    max_rounds=max(4, min(18, len(tools) + 4)),
-                    visible_text_handler=visible_stream.feed,
+        def inject_skills(payload: dict[str, Any]) -> dict[str, Any]:
+            nonlocal active_skill_keys
+            requested = self._as_list(payload.get("skills"))
+            if not requested:
+                return {"injectedSkills": [], "alreadyInjected": [], "availableTools": sorted(current_tool_names)}
+            if len(active_skill_keys) >= MAX_BUSINESS_SKILLS_PER_RUN:
+                return {
+                    "error": f"本次任务最多注入 {MAX_BUSINESS_SKILLS_PER_RUN} 个业务 Skill。",
+                    "code": "skill_budget_exhausted",
+                    "injectedSkills": [],
+                    "alreadyInjected": [key for key in requested if key in active_skill_keys],
+                    "availableTools": sorted(current_tool_names),
+                }
+            available_slots = max(0, MAX_BUSINESS_SKILLS_PER_RUN - len(active_skill_keys))
+            requested_existing = [key for key in requested if key in active_skill_keys]
+            requested_new = [key for key in requested if key not in active_skill_keys][:available_slots]
+            active_skill_keys, added = self.injection_manager.inject(active_skill_keys, requested_new)
+            if added:
+                injection_history.extend(
+                    {"skillKey": bundle.key, "displayName": bundle.display_name, "source": "tool"}
+                    for bundle in added
                 )
-                visible_stream.flush()
-                if provider_result.status in {"failed", "fallback"} and not provider_result.text:
-                    return self._failed_result(
-                        provider_result,
-                        context,
-                        "orchestrator provider unavailable",
-                        active_skill_keys=active_skill_keys,
-                        injection_history=injection_history,
-                    )
-                parsed = self._parse_result(provider_result.text or "")
-                if parsed is None:
-                    validation_error = "structured_result 必须是裸 JSON 对象，不能是 Markdown、普通文本或数组。"
-                    logger.warning(
-                        "Workspace orchestrator invalid structured JSON run_id=%s conversation_id=%s family_id=%s round=%s raw_preview=%r",
-                        context.run_id,
-                        context.conversation_id,
-                        context.family_id,
-                        round_index,
-                        (provider_result.text or "")[:500],
-                    )
-                    if round_index < self.max_rounds:
-                        continue
-                    return self._failed_result(
-                        provider_result,
-                        context,
-                        "invalid orchestrator model response",
-                        active_skill_keys=active_skill_keys,
-                        injection_history=injection_history,
-                    )
-                schema_error = self._structured_result_schema_error(parsed, active_skill_keys)
-                if schema_error:
-                    validation_error = schema_error
-                    logger.warning(
-                        "Workspace orchestrator structured result schema failed run_id=%s conversation_id=%s family_id=%s round=%s error=%s parsed_keys=%s",
-                        context.run_id,
-                        context.conversation_id,
-                        context.family_id,
-                        round_index,
-                        schema_error,
-                        sorted(parsed.keys()),
-                    )
-                    if round_index < self.max_rounds:
-                        continue
-                    return self._failed_result(
-                        provider_result,
-                        context,
-                        "invalid orchestrator structured result schema",
-                        active_skill_keys=active_skill_keys,
-                        injection_history=injection_history,
-                    )
-                validation_error = ""
+                for bundle in added:
+                    context.emit_progress("skill", f"{bundle.key}.start", f"调用「{bundle.display_name}」技能", status="completed")
+            next_tools, _ = self.injection_manager.tool_definitions(active_skill_keys, context)
+            return {
+                "injectedSkills": [
+                    {
+                        "key": bundle.key,
+                        "displayName": bundle.display_name,
+                        "instructions": bundle.instructions,
+                        "allowedTools": bundle.allowed_tools,
+                        "draftTypes": bundle.draft_types,
+                    }
+                    for bundle in added
+                ],
+                "alreadyInjected": requested_existing,
+                "availableTools": sorted(definition.name for definition in next_tools),
+            }
 
-                requested_skills = self._as_list(parsed.get("injectSkills"))
-                active_skill_keys, added = self.injection_manager.inject(active_skill_keys, requested_skills)
-                if added:
-                    injection_history.extend(
-                        {"skillKey": bundle.key, "displayName": bundle.display_name, "source": "model"}
-                        for bundle in added
-                    )
-                    for bundle in added:
-                        context.emit_progress("skill", f"{bundle.key}.start", f"调用「{bundle.display_name}」技能")
-                    continue
-                if str(parsed.get("action") or "") == "continue":
-                    continue
-                result = self._skill_result_from_parsed(
-                    parsed,
+        try:
+            refresh_tools()
+
+            def call_tool(name: str, payload: dict[str, Any]) -> dict[str, Any]:
+                nonlocal draft_created_this_call, human_input_requested_this_call
+                context.ensure_active()
+                if name == "skill.inject":
+                    return inject_skills(payload)
+                if name not in current_tool_names:
+                    return {
+                        "error": f"当前 round 未暴露工具 {name}。如需业务能力，请先调用 skill.inject。",
+                        "code": "unavailable_tool",
+                        "status": "unavailable_tool",
+                    }
+                if name in current_script_executors:
+                    return current_script_executors[name].call(name, payload)
+                definition = current_scoped_executor.registry.get(name)
+                tool_payload = payload
+                after_approval = {}
+                if definition.side_effect == "draft" and isinstance(payload.get("draft"), dict):
+                    input_properties = definition.input_schema.get("properties") if isinstance(definition.input_schema, dict) else {}
+                    tool_payload = {"draft": payload["draft"]} if isinstance(input_properties, dict) and "draft" in input_properties else payload["draft"]
+                    after_approval = payload.get("afterApproval") if isinstance(payload.get("afterApproval"), dict) else {}
+                tool_signature = self._tool_signature(name, tool_payload)
+                total_tool_count = len(historical_tool_signatures) + len(context.tool_executor.records())
+                if total_tool_count >= MAX_TOTAL_TOOL_CALLS_PER_RUN:
+                    return {
+                        "error": "本次任务的工具调用次数已经达到上限。请基于已有结果总结，或让用户缩小任务范围。",
+                        "code": "tool_budget_exhausted",
+                        "status": "stop_current_run",
+                    }
+                if (
+                    definition.side_effect == "read"
+                    and (historical_tool_signatures + tool_signatures_this_call).count(tool_signature) >= MAX_SAME_READ_TOOL_CALLS_PER_RUN
+                ):
+                    return {
+                        "error": "已经读取过相同数据多次。请基于已有工具结果继续，不要重复调用同一个读取工具。",
+                        "code": "tool_loop_detected",
+                        "status": "use_existing_result",
+                    }
+                if definition.side_effect == "draft" and draft_created_this_call:
+                    retry_draft = tool_payload.get("draft") if isinstance(tool_payload.get("draft"), dict) else {}
+                    if retry_draft:
+                        retry_draft_type = self._draft_type_from_tool_output(name, retry_draft, active_skill_keys)
+                        retry_key = (
+                            retry_draft_type,
+                            json.dumps(retry_draft, sort_keys=True, ensure_ascii=False, default=str),
+                        )
+                        if retry_key in draft_input_keys_this_call:
+                            return {
+                                "draft": retry_draft,
+                                "status": "already_published",
+                                "code": "draft_already_published",
+                                "__tool_loop_stop__": {"status": "waiting_approval"},
+                            }
+                    return {
+                        "error": "本轮已经生成一个草稿。请结束当前动作，等待用户确认后再继续生成后续草稿。",
+                        "code": "draft_budget_exhausted",
+                        "status": "wait_for_approval",
+                        "__tool_loop_stop__": {"status": "waiting_approval"},
+                    }
+                if name == "human.request_input" and human_input_requested_this_call:
+                    return {
+                        "error": "本轮已经请求过用户补充信息。请结束当前动作，等待用户回复。",
+                        "code": "human_input_budget_exhausted",
+                        "status": "waiting_input",
+                    }
+                output = current_scoped_executor.call(name, tool_payload)
+                tool_signatures_this_call.append(tool_signature)
+                context.ensure_active()
+                if definition.side_effect == "read":
+                    if name not in read_outputs:
+                        read_outputs[name] = []
+                    read_outputs[name].append(output)
+                if name == "human.request_input":
+                    human_input_requested_this_call = True
+                    request = {
+                        "id": create_id("human_input"),
+                        **output,
+                    }
+                    raise HumanInputRequired(request)
+                if definition.side_effect == "draft":
+                    draft_created_this_call = True
+                    input_draft = tool_payload.get("draft") if isinstance(tool_payload.get("draft"), dict) else {}
+                    draft = output.get("draft")
+                    if isinstance(draft, dict):
+                        draft_type = self._draft_type_from_tool_output(name, draft, active_skill_keys)
+                        if input_draft:
+                            draft_input_keys_this_call.add(
+                                (
+                                    self._draft_type_from_tool_output(name, input_draft, active_skill_keys),
+                                    json.dumps(input_draft, sort_keys=True, ensure_ascii=False, default=str),
+                                )
+                            )
+                        draft_record = {
+                            "draft_type": draft_type,
+                            "payload": draft,
+                            "schema_version": str(draft.get("schemaVersion") or f"{draft_type}.v1"),
+                            "tool": name,
+                            "after_approval": after_approval,
+                        }
+                        draft_key = (
+                            draft_type,
+                            json.dumps(draft, sort_keys=True, ensure_ascii=False, default=str),
+                        )
+                        published = published_drafts_by_key.get(draft_key)
+                        if published is None and context.progressive_draft_publisher is not None:
+                            published = context.progressive_draft_publisher(draft_record)
+                            published_drafts_by_key[draft_key] = published
+                        if published:
+                            draft_record.update(published)
+                        draft_outputs.append(draft_record)
+                    return {**output, "__tool_loop_stop__": {"status": "waiting_approval"}}
+                return output
+
+            def handle_message_delta(delta: str) -> None:
+                if not delta:
+                    return
+                streamed_text.append(delta)
+                emit_visible_delta(message_id, part_id, delta)
+
+            provider_result = self.provider.generate_with_tools(
+                system=self._system_prompt(active_skill_keys),
+                user=self._provider_user_input(context, active_skill_keys, injection_history),
+                tools=refresh_tools,
+                tool_handler=call_tool,
+                message_handler=handle_message_delta,
+                max_rounds=max(4, self.max_rounds),
+            )
+            if provider_result.status in {"failed", "fallback"}:
+                return self._failed_result(
                     provider_result,
                     context,
-                    visible_stream.text,
-                    active_skill_keys,
-                    injection_history,
-                    draft_outputs,
-                    read_outputs,
+                    "orchestrator provider unavailable",
+                    active_skill_keys=active_skill_keys,
+                    injection_history=injection_history,
                 )
-                return result
+            text = provider_result.text or "".join(streamed_text).strip()
+            drafts = self._validated_drafts(draft_outputs, active_skill_keys)
+            status = "waiting_approval" if drafts else "completed"
+            cards = [] if drafts else self._program_result_cards(context, read_outputs)
+            context_summary = {
+                "orchestrator": {
+                    "injectedSkills": active_skill_keys,
+                    "injectionHistory": injection_history,
+                    "readTools": sorted(read_outputs.keys()),
+                },
+                **self._program_context_summary(read_outputs),
+            }
+            return SkillResult(
+                text=text or "",
+                cards=cards,
+                drafts=drafts,
+                context_summary=context_summary,
+                status=status,
+                model=provider_result.model or model_name(context),
+                error=provider_result.error,
+                tool_calls=context.tool_executor.records(),
+            )
         except HumanInputRequired as exc:
             return SkillResult(
                 text=str(exc.request.get("question") or "我需要你补充一点信息。"),
@@ -395,21 +453,29 @@ class WorkspaceOrchestratorAgent:
 
     def _system_prompt(self, active_skill_keys: list[str]) -> str:
         bundles = self.injection_manager.bundles_for(active_skill_keys)
-        allowed_card_types = sorted(self.injection_manager.allowed_output_types(active_skill_keys) | {"error_recovery"})
         allowed_draft_types = sorted(self.injection_manager.allowed_draft_types(active_skill_keys))
         return (
             "你是 Culina AI 工作台的主 Orchestrator。"
-            "你负责直接回答、按需注入 Skill、调用已注入 Skill 的工具，并组织最终用户回复。"
+            "你可以输出普通 assistant 文本，也可以调用工具；普通文本会直接展示给用户。"
+            "你负责直接回答、按需调用 skill.inject 注入 Skill、调用已注入 Skill 的工具，并组织用户可见回复。"
+            "本系统采用 agent run loop：每次只推进一个有边界的下一步动作，而不是一次性完成所有后续动作。"
             "Skill 是能力和上下文注入包，不是独立子 agent；注入后本 run 内持续可见。"
-            "初始只能根据 catalog record 判断需要哪些能力；只有注入后才能使用该 Skill 的完整 instructions 和 tools。"
-            "你不能调用未注入 Skill 的业务工具。如果需要新能力，先在 structured_result.injectSkills 中声明。"
+            "初始只能根据 catalog record 判断需要哪些能力；如果需要新能力，必须先调用 skill.inject。"
+            "你不能调用未注入 Skill 的业务工具。"
             "正式写入必须通过 draft tool 生成草稿并等待 approval；不要声称已经完成正式写入。"
-            f"本轮 structured_result.cards[].type 只能使用这些 result card 类型：{json.dumps(allowed_card_types, ensure_ascii=False)}。"
-            f"这些是 draft_types，不是 card type，不能放进 cards[].type：{json.dumps(allowed_draft_types, ensure_ascii=False)}。"
-            "需要创建或修改正式数据时必须调用对应 draft tool，并让 cards 保持空数组，等待审批结果卡片由系统生成。"
-            f"最终回复必须包含 {VISIBLE_TEXT_OPEN}用户可见回复{VISIBLE_TEXT_CLOSE}，随后输出 "
-            f"{STRUCTURED_RESULT_OPEN}Orchestrator JSON{STRUCTURED_RESULT_CLOSE}。"
-            "structured_result 只放裸 JSON，不放 Markdown 代码块或解释文字。"
+            "本轮最多生成一个 draft；生成 draft 后必须结束当前动作并等待 approval。"
+            "准备调用 draft tool 前，必须先输出普通文本，说明接下来要生成什么草稿以及为什么。"
+            "调用 draft tool 后，不要再输出任何用户可见文本；不要说“已生成”“请确认”“草稿准备好了”。"
+            "如果 draft 确认后还需要继续推进，请在 draft tool 参数 afterApproval 中写入简短、可执行的后续任务说明。"
+            "当 currentRunArtifacts 里出现 approval_decision 且 approval.status=rejected 时，把它当作 HumanInLoop 工具返回：先尊重拒绝结果，再判断是结束、调整重做，还是继续处理同一任务中的下一项。"
+            "拒绝后不要默认停止，也不要盲目执行原草稿的 afterApproval；是否继续由你基于用户原始目标、拒绝结果和当前上下文决定。"
+            "当 currentRunArtifacts 里出现 type=draft_after_approval 或 type=resume_after_approval，且最近 approval_decision 不是 rejected 时，优先执行其 payload.instruction 指定的确认后下一步。"
+            "当 currentRunArtifacts 同时包含 approval_decision 和确认后继续 artifact 时，确认后的总结和下一步说明都由本 Orchestrator 输出；"
+            "在调用下一个工具前，用普通文本简短说明已按确认完成了什么，以及接下来继续做什么，例如“已创建白切鸡。接下来我继续整理下一份菜谱草稿。”"
+            "确认后如果马上需要生成下一个 draft，把这段自然语言作为下一个 draft 前置说明，而不是上一个 draft 的尾巴。"
+            f"这些是当前已注入 Skill 允许的 draft_types：{json.dumps(allowed_draft_types, ensure_ascii=False)}。"
+            "需要创建或修改正式数据时必须调用对应 draft tool，等待审批结果卡片由系统生成。"
+            "不要输出 XML 标签、JSON 状态对象、Markdown 代码块或 structured_result。"
             "\n\nCatalog records:\n"
             f"{json.dumps(self.injection_manager.catalog_records(), ensure_ascii=False, default=str)}"
             "\n\nInjected skills:\n"
@@ -427,10 +493,7 @@ class WorkspaceOrchestratorAgent:
         context: SkillContext,
         active_skill_keys: list[str],
         injection_history: list[dict[str, Any]],
-        *,
-        validation_error: str = "",
     ) -> dict[str, Any]:
-        allowed_card_types = sorted(self.injection_manager.allowed_output_types(active_skill_keys) | {"error_recovery"})
         allowed_draft_types = sorted(self.injection_manager.allowed_draft_types(active_skill_keys))
         return {
             "currentMessage": context.current_message,
@@ -443,16 +506,7 @@ class WorkspaceOrchestratorAgent:
             "currentRunArtifacts": context.current_run_artifacts,
             "injectedSkills": active_skill_keys,
             "injectionHistory": injection_history,
-            "allowedCardTypes": allowed_card_types,
             "allowedDraftTypes": allowed_draft_types,
-            **(
-                {
-                    "previousStructuredResultError": validation_error,
-                    "instruction": "上一次 structured_result 不符合契约。请修正后只输出 visible_text 和 structured_result。",
-                }
-                if validation_error
-                else {}
-            ),
         }
 
     def _provider_user_input(
@@ -460,15 +514,12 @@ class WorkspaceOrchestratorAgent:
         context: SkillContext,
         active_skill_keys: list[str],
         injection_history: list[dict[str, Any]],
-        *,
-        validation_error: str = "",
     ) -> str | ProviderUserInput:
         text = json.dumps(
             self._user_payload(
                 context,
                 active_skill_keys,
                 injection_history,
-                validation_error=validation_error,
             ),
             ensure_ascii=False,
             default=str,
@@ -476,25 +527,6 @@ class WorkspaceOrchestratorAgent:
         if not context.current_message_images:
             return text
         return ProviderUserInput(text=text, images=context.current_message_images)
-
-    def _response_schema(self, active_skill_keys: list[str]) -> dict[str, Any]:
-        schema = deepcopy(ORCHESTRATOR_RESULT_SCHEMA)
-        allowed_card_types = sorted(self.injection_manager.allowed_output_types(active_skill_keys) | {"error_recovery"})
-        schema["properties"]["cards"] = {
-            "type": "array",
-            "items": {
-                "type": "object",
-                "additionalProperties": False,
-                "properties": {
-                    "id": {"type": "string", "minLength": 1},
-                    "type": {"type": "string", "enum": allowed_card_types},
-                    "title": {"type": "string", "minLength": 1},
-                    "data": {"type": "object"},
-                },
-                "required": ["id", "type", "title", "data"],
-            },
-        }
-        return schema
 
     def _cards_from_read_outputs(
         self,
@@ -509,6 +541,73 @@ class WorkspaceOrchestratorAgent:
                 continue
             normalized.append(card)
         return normalized
+
+    def _program_result_cards(
+        self,
+        context: SkillContext,
+        read_outputs: dict[str, list[dict[str, Any]]],
+    ) -> list[dict[str, Any]]:
+        message = str(context.current_message or "")
+        inventory_summary = self._latest_tool_output(read_outputs, "inventory.read_summary")
+        recommendation_mode = context.quick_task == "today_recommendation" or (
+            any(term in message for term in ["今日吃什么", "今天吃什么", "今晚吃什么", "推荐一餐"])
+            and not any(term in message for term in ["安排", "计划", "菜单", "制定", "修改", "第二天", "三天"])
+        )
+        if not recommendation_mode:
+            if inventory_summary:
+                return [
+                    {
+                        "id": create_id("ai_card"),
+                        "type": "inventory_summary",
+                        "title": "库存概览",
+                        "data": inventory_summary,
+                    }
+                ]
+            return []
+        foods = self._latest_tool_items(read_outputs, "food.search")
+        recipes = self._latest_tool_items(read_outputs, "recipe.search")
+        candidates: list[dict[str, Any]] = [
+            {"foodId": str(item["id"]), "reason": "优先使用当前家庭已有食物。"}
+            for item in foods
+            if item.get("id")
+        ]
+        if not candidates:
+            candidates = [
+                {"recipeId": str(item["id"]), "reason": "结合当前库存和菜谱库推荐。"}
+                for item in recipes
+                if item.get("id")
+            ]
+        if not candidates:
+            return []
+        return self._cards_from_read_outputs(
+            [
+                {
+                    "id": create_id("ai_card"),
+                    "type": "today_recommendation",
+                    "title": "今日吃什么",
+                    "data": {
+                        "recommendations": candidates[:3],
+                        "contextSummary": {},
+                    },
+                }
+            ],
+            read_outputs,
+        )
+
+    def _program_context_summary(self, read_outputs: dict[str, list[dict[str, Any]]]) -> dict[str, Any]:
+        summary: dict[str, Any] = {}
+        inventory_summary = self._latest_tool_output(read_outputs, "inventory.read_summary")
+        if inventory_summary:
+            summary["inventoryItemCount"] = inventory_summary.get("availableCount", 0)
+            summary["expiringItemCount"] = inventory_summary.get("expiringCount", 0)
+            summary["lowStockItemCount"] = inventory_summary.get("lowStockCount", 0)
+        available = self._latest_tool_output(read_outputs, "inventory.read_available_items")
+        if available and "count" in available:
+            summary.setdefault("inventoryItemCount", available.get("count", 0))
+        expiring = self._latest_tool_output(read_outputs, "inventory.read_expiring_items")
+        if expiring and "count" in expiring:
+            summary["expiringItemCount"] = expiring.get("count", summary.get("expiringItemCount", 0))
+        return summary
 
     def _normalize_recommendation_card(
         self,
@@ -599,70 +698,18 @@ class WorkspaceOrchestratorAgent:
             },
         }
 
-    def _skill_result_from_parsed(
-        self,
-        parsed: dict[str, Any],
-        provider_result: ChatProviderResult,
-        context: SkillContext,
-        visible_text: str,
-        active_skill_keys: list[str],
-        injection_history: list[dict[str, Any]],
-        draft_outputs: list[dict[str, Any]],
-        read_outputs: dict[str, list[dict[str, Any]]],
-    ) -> SkillResult:
-        drafts = self._validated_drafts(draft_outputs, active_skill_keys)
-        model_drafts = self._as_list_of_dicts(parsed.get("drafts"))
-        if model_drafts and not drafts:
-            return SkillResult(
-                text="模型返回了草稿但没有调用草稿工具。",
-                status="failed",
-                model=provider_result.model or model_name(context),
-                error="drafts require draft tool call",
-            )
-        model_cards = self._as_list_of_dicts(parsed.get("cards"))
-        cards = self._validated_cards(
-            self._cards_from_read_outputs(model_cards, read_outputs),
-            active_skill_keys,
-        )
-        result_text = (visible_text or str(parsed.get("text") or "")).strip()
-        state_patch = self._as_dict(parsed.get("state_patch"))
-        context_summary = self._as_dict(parsed.get("context_summary"))
-        context_summary["orchestrator"] = {
-            "injectedSkills": active_skill_keys,
-            "injectionHistory": injection_history,
-            "readTools": sorted(read_outputs.keys()),
-        }
-        return SkillResult(
-            text=result_text,
-            cards=cards,
-            drafts=drafts,
-            events=self._as_list_of_dicts(parsed.get("events")),
-            context_summary=context_summary,
-            state_patch=state_patch,
-            status=str(parsed.get("status") or "completed"),
-            model=provider_result.model or model_name(context),
-            error=self._optional_text(parsed.get("error")),
-            operation=self._optional_text(parsed.get("operation")),
-            source_artifact_id=self._optional_text(parsed.get("source_artifact_id")),
-            requires_clarification=bool(parsed.get("requires_clarification")),
-            tool_calls=context.tool_executor.records(),
-        )
+    def _historical_tool_signatures(self, context: SkillContext) -> list[str]:
+        signatures: list[str] = []
+        for artifact in context.current_run_artifacts:
+            if not isinstance(artifact, dict) or artifact.get("type") != "tool_call":
+                continue
+            signature = str(artifact.get("signature") or "").strip()
+            if signature:
+                signatures.append(signature)
+        return signatures
 
-    def _parse_result(self, text: str) -> dict[str, Any] | None:
-        structured_text = text
-        start = text.find(STRUCTURED_RESULT_OPEN)
-        end = text.find(STRUCTURED_RESULT_CLOSE)
-        if start >= 0 and end > start:
-            structured_text = text[start + len(STRUCTURED_RESULT_OPEN) : end]
-        parsed = json_object(structured_text or text)
-        return parsed if isinstance(parsed, dict) else None
-
-    def _structured_result_schema_error(self, parsed: dict[str, Any], active_skill_keys: list[str]) -> str:
-        try:
-            validate_json_value(parsed, self._response_schema(active_skill_keys), location="orchestrator structured_result")
-        except Exception as exc:
-            return str(exc)[:1000]
-        return ""
+    def _tool_signature(self, name: str, payload: dict[str, Any] | None) -> str:
+        return f"{name}:{json.dumps(payload or {}, sort_keys=True, ensure_ascii=False, default=str)}"
 
     def _draft_type_from_tool_output(self, tool_name: str, draft: dict[str, Any], active_skill_keys: list[str]) -> str:
         draft_type = str(draft.get("draftType") or draft.get("draft_type") or "").strip()
@@ -709,6 +756,17 @@ class WorkspaceOrchestratorAgent:
                     "draft_type": draft_type,
                     "payload": payload,
                     "schema_version": str(draft.get("schema_version") or f"{draft_type}.v1"),
+                    "tool": draft.get("tool"),
+                    "after_approval": draft.get("after_approval") if isinstance(draft.get("after_approval"), dict) else {},
+                    **(
+                        {
+                            "draft_id": draft["draft_id"],
+                            "approval_id": draft["approval_id"],
+                            "published_part_ids": draft.get("published_part_ids") or [],
+                        }
+                        if draft.get("draft_id") and draft.get("approval_id")
+                        else {}
+                    ),
                 }
             )
         return validated
@@ -769,10 +827,14 @@ class WorkspaceOrchestratorAgent:
         return []
 
     def _latest_tool_items(self, read_outputs: dict[str, list[dict[str, Any]]], tool_name: str) -> list[dict[str, Any]]:
+        return self._as_list_of_dicts(self._latest_tool_output(read_outputs, tool_name).get("items"))
+
+    def _latest_tool_output(self, read_outputs: dict[str, list[dict[str, Any]]], tool_name: str) -> dict[str, Any]:
         outputs = read_outputs.get(tool_name, [])
         if not outputs:
-            return []
-        return self._as_list_of_dicts(outputs[-1].get("items"))
+            return {}
+        latest = outputs[-1]
+        return latest if isinstance(latest, dict) else {}
 
     @staticmethod
     def _iso_date_text(value: Any) -> str | None:

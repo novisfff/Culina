@@ -10,14 +10,13 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.ai.kitchen.context import load_agent_context
 from app.ai.kitchen.recipe_drafts import (
-    RECIPE_DRAFT_JSON_SCHEMA,
     RecipeDraftGenerationInput,
     build_recipe_draft_messages,
     build_recipe_image_render_payload,
-    normalize_recipe_draft,
 )
 from app.ai.runtime.provider import BaseChatProvider, get_chat_provider
 from app.ai.skills import build_workspace_skill_registry
+from app.ai.tools import ToolContext, ToolExecutor, build_workspace_tool_registry
 from app.ai.workflows.conversations import (
     find_active_conversation_run,
     find_idempotent_run,
@@ -160,19 +159,52 @@ class AIApplicationService:
             include_meal_logs=False,
         )
         system, user_prompt = build_recipe_draft_messages(context, draft_input)
-        result = self.provider.generate(system=system, user=user_prompt, response_schema=RECIPE_DRAFT_JSON_SCHEMA)
+        tool_executor = ToolExecutor(
+            build_workspace_tool_registry(),
+            ToolContext(
+                db=self.db,
+                family_id=family_id,
+                user_id=user_id,
+                conversation_id="recipe-draft",
+                run_id="recipe-draft",
+            ),
+            allowed_tools={"recipe.create_draft"},
+            allowed_side_effects={"draft"},
+        )
+        recipe_tool = tool_executor.registry.get("recipe.create_draft")
+        draft_output: dict[str, Any] | None = None
+
+        def call_recipe_tool(name: str, payload: dict[str, Any]) -> dict[str, Any]:
+            nonlocal draft_output
+            if name != "recipe.create_draft":
+                return {"error": f"独立菜谱生成只允许调用 recipe.create_draft，收到 {name}", "code": "unavailable_tool"}
+            output = tool_executor.call(name, payload)
+            draft_output = output.get("draft") if isinstance(output.get("draft"), dict) else None
+            return output
+
+        try:
+            result = self.provider.generate_with_tools(
+                system=system,
+                user=user_prompt,
+                tools=lambda: [recipe_tool],
+                tool_handler=call_recipe_tool,
+                max_rounds=4,
+            )
+        except Exception as exc:
+            result = None
+            error = str(exc)
+        else:
+            error = result.error
         draft = None
         image_render_payload = None
         status = "failed"
-        error = result.error
-        if result.text and result.status == "completed":
-            draft = normalize_recipe_draft(result.text, context, draft_input)
-            if draft is None:
-                error = error or "model returned invalid recipe draft JSON"
-            else:
-                status = "completed"
-                error = None
-                image_render_payload = build_recipe_image_render_payload(draft) if generate_image else None
+        if result is not None and result.status == "completed" and draft_output:
+            draft = draft_output
+            status = "completed"
+            error = None
+            image_render_payload = build_recipe_image_render_payload(draft) if generate_image else None
+        elif result is not None and result.status == "completed":
+            error = error or "model did not call recipe.create_draft"
         else:
             error = error or "AI recipe draft provider is unavailable"
 
@@ -186,15 +218,15 @@ class AIApplicationService:
             context_summary=context.to_record(),
             output_summary="已生成可编辑的菜谱草稿。" if status == "completed" else "AI 菜谱生成失败，请稍后重试。",
             status=status,
-            model=result.model or getattr(self.provider, "model_name", ""),
+            model=(result.model if result is not None else None) or getattr(self.provider, "model_name", ""),
             input={
                 "prompt": prompt,
                 "subject": subject,
-                "responseFormat": "recipe_draft",
+                "responseFormat": "recipe_draft_tool_call",
                 "context": context.to_record(),
             },
             output={"recipeDraft": draft, "imageRenderPayload": image_render_payload},
-            tool_calls=[],
+            tool_calls=tool_executor.records(),
             error=error,
             created_by=user_id,
         )
@@ -315,7 +347,7 @@ class AIApplicationService:
     ) -> dict[str, Any]:
         from app.ai.workflows.runner import WorkspaceGraphRunner
 
-        return WorkspaceGraphRunner(self).resume_approval(
+        return WorkspaceGraphRunner(self).apply_approval_decision_fast(
             family_id=family_id,
             user_id=user_id,
             conversation_id=conversation_id,
@@ -462,6 +494,11 @@ class AIApplicationService:
             payload=dict(draft_payload.get("payload") or {}),
         )
         summary = self._draft_preview_summary(draft_type, payload)
+        after_approval = draft_payload.get("after_approval") if isinstance(draft_payload.get("after_approval"), dict) else {}
+        ai_metadata = {
+            "toolName": str(draft_payload.get("tool") or ""),
+            **({"afterApproval": after_approval} if after_approval else {}),
+        }
         return create_ai_draft_approval(
             self.db,
             family_id=family_id,
@@ -473,6 +510,7 @@ class AIApplicationService:
             schema_version=draft_payload.get("schema_version"),
             payload=payload,
             preview_summary=summary,
+            ai_metadata=ai_metadata,
         )
 
     def _operation_current_value(self, *, family_id: str, draft_type: str, target_id: str) -> dict[str, Any] | None:

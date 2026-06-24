@@ -160,7 +160,7 @@ def build_recipe_draft_messages(context: AgentContext, request: RecipeDraftGener
     extra_ingredients = _subject_list(request, "extraIngredients") or _subject_list(request, "extra_ingredients")
 
     system = """
-你是 Culina 的家庭菜谱生成智能体。只输出一个符合 schema 的 JSON object，不输出 Markdown、代码块、解释或额外文本。
+你是 Culina 的家庭菜谱生成智能体。你不能输出 JSON 作为最终答案；必须调用 recipe.create_draft 工具生成菜谱草稿。
 硬规则：
 - 菜谱必须真实可做，适合家庭厨房复做，不生成品牌、人物、医疗功效或营养治疗承诺。
 - 系统食材必须保留对应 ingredient_id，并优先使用默认单位；自由食材 ingredient_id 必须为 null。
@@ -170,7 +170,7 @@ def build_recipe_draft_messages(context: AgentContext, request: RecipeDraftGener
 - icon 只能是 pan、tomato、bowl、timer、tip、plate；difficulty 只能是 easy、medium、hard。
 - summary 概括本步目的，tip 给火候/口味/失败规避建议，key_points 最多 3 条可执行短句。
 - scene_tags 必须是字符串数组，每个数组元素只能是一个独立标签，例如 ["家常菜","快手菜"]；禁止输出 ["家常菜、快手菜"] 这种合并标签。
-JSON 字段固定为 title、servings、prep_minutes、difficulty、ingredient_items、steps、tips、scene_tags。
+工具参数 draft 字段固定为 title、servings、prep_minutes、difficulty、ingredient_items、steps、tips、scene_tags。
 """.strip()
 
     user = "\n".join(

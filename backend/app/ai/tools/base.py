@@ -8,7 +8,7 @@ from typing import Any, Literal
 from sqlalchemy.orm import Session
 
 
-ToolSideEffect = Literal["read", "draft", "write"]
+ToolSideEffect = Literal["read", "draft", "write", "control"]
 ToolHandler = Callable[["ToolContext", dict[str, Any]], dict[str, Any]]
 
 

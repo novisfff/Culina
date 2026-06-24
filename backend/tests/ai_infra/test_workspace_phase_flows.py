@@ -48,7 +48,24 @@ class AIWorkspacePhaseFlowsTestCase(AIAgentInfraTestCase):
 
             pending_response = self.client.get(f"/api/ai/conversations/{data['conversation_id']}/approvals/pending")
             self.assertEqual(pending_response.status_code, 200, pending_response.text)
-            pending = pending_response.json()
+            self.assertEqual(pending_response.json(), [])
+
+            with self.client.stream(
+                "POST",
+                f"/api/ai/conversations/{data['conversation_id']}/approvals/{meal_plan_approval['id']}/decision/stream",
+                json={
+                    "decision": "approved",
+                    "draft_version": meal_plan_approval["draft_version"],
+                    "values": meal_plan_approval["initial_values"],
+                },
+            ) as stream_response:
+                self.assertEqual(stream_response.status_code, 200)
+                stream_body = "".join(stream_response.iter_text())
+            self.assertIn("shopping_list.create", stream_body)
+
+            pending_after_stream_response = self.client.get(f"/api/ai/conversations/{data['conversation_id']}/approvals/pending")
+            self.assertEqual(pending_after_stream_response.status_code, 200, pending_after_stream_response.text)
+            pending = pending_after_stream_response.json()
             self.assertEqual([approval["approval_type"] for approval in pending], ["shopping_list.create"])
             shopping_approval = pending[0]
 
@@ -118,7 +135,7 @@ class AIWorkspacePhaseFlowsTestCase(AIAgentInfraTestCase):
                 self.assertGreaterEqual(db.query(FoodPlanItem).count(), 3)
                 self.assertGreaterEqual(db.query(ShoppingListItem).count(), 1)
 
-        def test_ai_workspace_composite_rejection_stops_downstream_skills(self) -> None:
+        def test_ai_workspace_composite_rejection_waits_for_agent_continuation(self) -> None:
             response = self.client.post("/api/ai/chat", json={"message": "安排三天晚餐，顺便生成购物清单"})
             self.assertEqual(response.status_code, 200, response.text)
             data = response.json()
@@ -142,7 +159,7 @@ class AIWorkspacePhaseFlowsTestCase(AIAgentInfraTestCase):
                 run = db.get(AIAgentRun, data["run"]["id"])
                 self.assertIsNotNone(run)
                 assert run is not None
-                self.assertEqual(run.status, "cancelled")
+                self.assertEqual(run.status, "running")
                 self.assertNotIn("shopping.create_draft", [item["name"] for item in run.tool_calls])
 
         def test_ai_workspace_single_draft_approval_completes_without_duplicate_draft(self) -> None:
@@ -207,7 +224,7 @@ class AIWorkspacePhaseFlowsTestCase(AIAgentInfraTestCase):
                 self.assertIsNotNone(run)
                 self.assertIsNotNone(message)
                 assert run is not None and message is not None
-                self.assertEqual(run.status, "cancelled")
+                self.assertEqual(run.status, "completed")
                 self.assertEqual(message.run_id, data["run"]["id"])
                 self.assertEqual(message.role, "assistant")
                 self.assertIn("模型看到 HumanInLoop 结果后继续回复。", message.content)
@@ -423,7 +440,7 @@ class AIWorkspacePhaseFlowsTestCase(AIAgentInfraTestCase):
                 self.assertIn("shopping_list", artifact_types)
                 routing = run.context_summary["routing"]
                 self.assertEqual(routing["skills"], ["meal_plan"])
-                self.assertEqual(run.context_summary["skillExecutions"][0]["operation"], "modify")
+                self.assertIn("meal_plan.create_draft", [item["name"] for item in run.tool_calls])
 
         def test_ai_workspace_phase2_asks_clarifying_question_for_underspecified_plan(self) -> None:
             response = self.client.post("/api/ai/chat", json={"message": "帮我做菜单"})

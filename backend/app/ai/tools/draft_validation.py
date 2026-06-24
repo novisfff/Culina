@@ -450,7 +450,7 @@ def normalize_recipe_draft_for_tools(db: Session, *, family_id: str, payload: An
         ingredient_id = item.get("ingredient_id")
         if ingredient_id:
             ingredient = ingredients_by_id[str(ingredient_id)]
-            item = {**item, "ingredient_id": ingredient.id, "ingredient_name": ingredient.name}
+            item = {**item, "ingredient_id": ingredient.id, "ingredient_name": ingredient.name, "unit": ingredient.default_unit}
         normalized_items.append(item)
     return {**recipe, "ingredient_items": normalized_items}
 

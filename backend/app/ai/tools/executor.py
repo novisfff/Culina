@@ -100,11 +100,23 @@ class ToolExecutor:
             self.context.family_id,
             sorted(tool_input.keys()),
         )
+        progress_event_id = create_id("ai_run_event")
+        self._emit_tool_progress(
+            definition.name,
+            self._tool_message(definition.display_name, definition.side_effect, "running"),
+            "running",
+            event_id=progress_event_id,
+        )
         result = timed_call(definition, self.context, tool_input)
         if self.context.cancel_check is not None and self.context.cancel_check():
             raise AIExecutionCancelled("AI run was cancelled")
         self.results.append(result)
-        self._emit_tool_progress(definition.name, self._tool_message(definition.display_name, definition.side_effect, result.status), result.status)
+        self._emit_tool_progress(
+            definition.name,
+            self._tool_message(definition.display_name, definition.side_effect, result.status),
+            result.status,
+            event_id=progress_event_id,
+        )
         if result.status == "failed":
             logger.warning(
                 "AI tool call failed tool=%s side_effect=%s run_id=%s conversation_id=%s family_id=%s duration_ms=%s error=%s",
@@ -161,7 +173,7 @@ class ToolExecutor:
     def records(self) -> list[dict[str, Any]]:
         return [result.to_record() for result in self.results]
 
-    def _emit_tool_progress(self, name: str, user_message: str, status: str) -> None:
+    def _emit_tool_progress(self, name: str, user_message: str, status: str, *, event_id: str | None = None) -> None:
         if self.context.stream_writer is None:
             return
         visible_status = "failed" if status == "failed" else status
@@ -173,7 +185,7 @@ class ToolExecutor:
             {
                 "event": "progress",
                 "data": {
-                    "id": create_id("ai_run_event"),
+                    "id": event_id or create_id("ai_run_event"),
                     "run_id": self.context.run_id,
                     "type": "tool",
                     "internal_code": name,

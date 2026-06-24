@@ -61,6 +61,7 @@ class SkillContext:
     previous_results: list["SkillResult"] = field(default_factory=list)
     current_run_artifacts: list[dict[str, Any]] = field(default_factory=list)
     stream_writer: Callable[[dict[str, Any]], None] | None = None
+    progressive_draft_publisher: Callable[[dict[str, Any]], dict[str, Any]] | None = None
     cancel_check: Callable[[], bool] | None = None
 
     def ensure_active(self) -> None:
@@ -122,3 +123,19 @@ class BaseSkill:
 
     def run(self, context: SkillContext) -> SkillResult:  # pragma: no cover - interface
         raise NotImplementedError
+
+
+class CatalogSkill(BaseSkill):
+    def __init__(self, manifest: SkillManifest, skill_dir: Path | None = None, *, instructions: str = "") -> None:
+        super().__init__(manifest, skill_dir)
+        self.instructions = instructions
+        if skill_dir is None:
+            self.script_catalog = None
+        else:
+            from app.ai.skills.scripts import SkillScriptCatalog
+
+            self.script_catalog = SkillScriptCatalog(skill_dir, manifest.script_files)
+
+    def run(self, context: SkillContext) -> SkillResult:  # pragma: no cover - catalog-only skill
+        del context
+        raise RuntimeError("CatalogSkill is a context/tool package and is not executed directly")

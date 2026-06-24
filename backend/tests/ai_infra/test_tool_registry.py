@@ -603,7 +603,9 @@ class AIToolRegistryTestCase(AIAgentInfraTestCase):
                 )
 
             messages = [event["data"]["user_message"] for event in events]
-            self.assertEqual(messages, ["调用「可用库存」", "生成「餐食计划确认表单」"])
+            statuses = [event["data"]["status"] for event in events]
+            self.assertEqual(messages, ["调用「可用库存」", "调用「可用库存」", "生成「餐食计划确认表单」", "生成「餐食计划确认表单」"])
+            self.assertEqual(statuses, ["running", "completed", "running", "completed"])
             self.assertNotIn("inventory.read_available_items", "\n".join(messages))
 
         def test_meal_log_read_by_id_matches_tool_schema(self) -> None:

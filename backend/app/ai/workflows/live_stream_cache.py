@@ -46,7 +46,7 @@ class LiveMessageSnapshot:
         self.updated_at = utcnow()
         return part_id
 
-    def append_activity(self, part: dict[str, Any]) -> dict[str, Any]:
+    def append_part(self, part: dict[str, Any]) -> dict[str, Any]:
         part_id = str(part.get("id") or "")
         if part_id:
             for index, current in enumerate(self.parts):
@@ -57,6 +57,9 @@ class LiveMessageSnapshot:
         self.parts.append(dict(part))
         self.updated_at = utcnow()
         return dict(part)
+
+    def append_activity(self, part: dict[str, Any]) -> dict[str, Any]:
+        return self.append_part(part)
 
     @property
     def content(self) -> str:
@@ -176,6 +179,26 @@ class LiveAIStreamCache:
                 created_by=created_by,
             )
             return snapshot.message_id, snapshot.append_activity(part)
+
+    def append_part(
+        self,
+        *,
+        family_id: str,
+        conversation_id: str,
+        run_id: str,
+        message_id: str,
+        part: dict[str, Any],
+        created_by: str | None,
+    ) -> tuple[str, dict[str, Any]]:
+        with self._lock:
+            snapshot = self._get_or_create_snapshot(
+                family_id=family_id,
+                conversation_id=conversation_id,
+                run_id=run_id,
+                message_id=message_id,
+                created_by=created_by,
+            )
+            return snapshot.message_id, snapshot.append_part(part)
 
     def parts_for_run(self, run_id: str | None) -> list[dict[str, Any]]:
         if not run_id:

@@ -17,6 +17,7 @@ from app.ai.errors import AIExecutionCancelled, HumanInputRequired
 from app.core.config import get_settings
 
 logger = logging.getLogger(__name__)
+STREAM_TOOL_CALL_RETRY_COUNT = 3
 
 
 @dataclass(slots=True)
@@ -25,7 +26,6 @@ class ChatProviderResult:
     status: str
     model: str
     error: str | None = None
-    structured_mode: str | None = None
     tool_calls: list[dict[str, Any]] = field(default_factory=list)
 
 
@@ -44,7 +44,8 @@ class ProviderUserInput:
 
 
 ToolCallHandler = Callable[[str, dict[str, Any]], dict[str, Any]]
-VisibleTextHandler = Callable[[str], None]
+AssistantMessageHandler = Callable[[str], None]
+ToolProvider = Callable[[], list[ToolDefinition]]
 ProviderUserContent = str | ProviderUserInput
 
 
@@ -52,7 +53,7 @@ class BaseChatProvider:
     model_name: str = ""
     supports_vision: bool = False
 
-    def generate(self, *, system: str, user: ProviderUserContent, response_schema: dict[str, Any] | None = None) -> ChatProviderResult:  # pragma: no cover - interface
+    def generate(self, *, system: str, user: ProviderUserContent) -> ChatProviderResult:  # pragma: no cover - interface
         raise NotImplementedError
 
     def generate_with_tools(
@@ -60,13 +61,12 @@ class BaseChatProvider:
         *,
         system: str,
         user: ProviderUserContent,
-        tools: list[ToolDefinition],
+        tools: ToolProvider,
         tool_handler: ToolCallHandler,
-        response_schema: dict[str, Any] | None = None,
+        message_handler: AssistantMessageHandler | None = None,
         max_rounds: int = 8,
-        visible_text_handler: VisibleTextHandler | None = None,
     ) -> ChatProviderResult:
-        del tools, tool_handler, response_schema, max_rounds, visible_text_handler
+        del tools, tool_handler, message_handler, max_rounds
         return self.generate(system=system, user=user)
 
     def stream_generate(
@@ -74,9 +74,8 @@ class BaseChatProvider:
         *,
         system: str,
         user: ProviderUserContent,
-        response_schema: dict[str, Any] | None = None,
     ) -> Iterator[str]:
-        result = self.generate(system=system, user=user, response_schema=response_schema)
+        result = self.generate(system=system, user=user)
         if result.text:
             yield result.text
 
@@ -85,7 +84,7 @@ class DisabledChatProvider(BaseChatProvider):
     def __init__(self, model_name: str = "") -> None:
         self.model_name = model_name
 
-    def generate(self, *, system: str, user: ProviderUserContent, response_schema: dict[str, Any] | None = None) -> ChatProviderResult:
+    def generate(self, *, system: str, user: ProviderUserContent) -> ChatProviderResult:
         if isinstance(user, ProviderUserInput) and user.images:
             return ChatProviderResult(
                 text=None,
@@ -100,13 +99,12 @@ class DisabledChatProvider(BaseChatProvider):
         *,
         system: str,
         user: ProviderUserContent,
-        tools: list[ToolDefinition],
+        tools: ToolProvider,
         tool_handler: ToolCallHandler,
-        response_schema: dict[str, Any] | None = None,
+        message_handler: AssistantMessageHandler | None = None,
         max_rounds: int = 8,
-        visible_text_handler: VisibleTextHandler | None = None,
     ) -> ChatProviderResult:
-        del system, user, tools, tool_handler, response_schema, max_rounds, visible_text_handler
+        del system, user, tools, tool_handler, message_handler, max_rounds
         return ChatProviderResult(text=None, status="fallback", model=self.model_name, error="provider unavailable")
 
 
@@ -156,76 +154,28 @@ class OpenAICompatibleChatProvider(BaseChatProvider):
             )
         return content
 
-    def generate(self, *, system: str, user: ProviderUserContent, response_schema: dict[str, Any] | None = None) -> ChatProviderResult:
-        def invoke(client) -> str:
-            message = client.invoke([SystemMessage(content=system), HumanMessage(content=self._human_content(user))])
-            return self._content_to_text(message.content).strip()
-
-        attempts: list[tuple[str, Any]] = []
-        if response_schema:
-            attempts.extend(
-                [
-                    (
-                        "json_schema",
-                        self.client.bind(
-                            temperature=0,
-                            response_format={
-                                "type": "json_schema",
-                                "json_schema": {
-                                    "name": "culina_structured_response",
-                                    "schema": response_schema,
-                                    "strict": True,
-                                },
-                            },
-                        ),
-                    ),
-                    (
-                        "json_object",
-                        self.client.bind(
-                            temperature=0,
-                            response_format={"type": "json_object"},
-                        ),
-                    ),
-                ]
-            )
-        attempts.append(("text", self.client.bind(temperature=0) if response_schema else self.client))
-
-        errors: list[str] = []
-        for mode, client in attempts:
-            try:
-                text = invoke(client)
-            except AIExecutionCancelled:
-                raise
-            except Exception as exc:  # pragma: no cover - network/provider failure
-                logger.warning(
-                    "AI provider generate attempt failed model=%s mode=%s schema=%s error=%s",
-                    self.model_name,
-                    mode,
-                    bool(response_schema),
-                    exc,
-                    exc_info=True,
-                )
-                errors.append(f"{mode}: {exc}")
-                continue
-            if text:
-                return ChatProviderResult(
-                    text=text,
-                    status="completed",
-                    model=self.model_name,
-                    structured_mode=mode,
-                )
-            errors.append(f"{mode}: empty model response")
+    def generate(self, *, system: str, user: ProviderUserContent) -> ChatProviderResult:
+        try:
+            message = self.client.invoke([SystemMessage(content=system), HumanMessage(content=self._human_content(user))])
+            text = self._content_to_text(message.content).strip()
+        except AIExecutionCancelled:
+            raise
+        except Exception as exc:  # pragma: no cover - network/provider failure
             logger.warning(
-                "AI provider returned empty response model=%s mode=%s schema=%s",
+                "AI provider generate failed model=%s error=%s",
                 self.model_name,
-                mode,
-                bool(response_schema),
+                exc,
+                exc_info=True,
             )
+            return ChatProviderResult(text=None, status="fallback", model=self.model_name, error=str(exc))
+        if text:
+            return ChatProviderResult(text=text, status="completed", model=self.model_name)
+        logger.warning("AI provider returned empty response model=%s", self.model_name)
         return ChatProviderResult(
             text=None,
             status="fallback",
             model=self.model_name,
-            error="; ".join(errors) or "empty model response",
+            error="empty model response",
         )
 
     def generate_with_tools(
@@ -233,85 +183,92 @@ class OpenAICompatibleChatProvider(BaseChatProvider):
         *,
         system: str,
         user: ProviderUserContent,
-        tools: list[ToolDefinition],
+        tools: ToolProvider,
         tool_handler: ToolCallHandler,
-        response_schema: dict[str, Any] | None = None,
+        message_handler: AssistantMessageHandler | None = None,
         max_rounds: int = 8,
-        visible_text_handler: VisibleTextHandler | None = None,
     ) -> ChatProviderResult:
-        name_map = {self._model_tool_name(tool.name): tool.name for tool in tools}
-        model_tools = [self._tool_definition_to_model_tool(tool) for tool in tools]
-        client = self.client.bind_tools(model_tools).bind(temperature=0)
-        schema_instruction = ""
-        if response_schema:
-            schema_instruction = (
-                "\n\nFinal response JSON Schema:\n"
-                f"{json.dumps(response_schema, ensure_ascii=False, default=str)}"
-            )
-        messages: list[Any] = [SystemMessage(content=f"{system}{schema_instruction}"), HumanMessage(content=self._human_content(user))]
+        messages: list[Any] = [SystemMessage(content=system), HumanMessage(content=self._human_content(user))]
         requested_calls: list[dict[str, Any]] = []
+        text_parts: list[str] = []
 
         for _round in range(max(1, max_rounds)):
+            current_tools = tools()
+            name_map = {self._model_tool_name(tool.name): tool.name for tool in current_tools}
+            model_tools = [self._tool_definition_to_model_tool(tool) for tool in current_tools]
+            client = self.client.bind_tools(model_tools).bind(temperature=0)
             message = None
-            try:
-                for chunk in client.stream(messages):
-                    message = chunk if message is None else message + chunk
-                    text = self._content_to_text(getattr(chunk, "content", ""))
-                    if text and visible_text_handler is not None:
-                        visible_text_handler(text)
-            except Exception as exc:  # pragma: no cover - network/provider failure
-                logger.warning(
-                    "AI provider streaming tool-call invoke failed model=%s round=%s tool_count=%s requested_calls=%s error=%s",
-                    self.model_name,
-                    _round + 1,
-                    len(tools),
-                    len(requested_calls),
-                    exc,
-                    exc_info=True,
-                )
-                if not requested_calls:
-                    return self._generate_with_tools_blocking(
-                        system=system,
-                        user=user,
-                        tools=tools,
-                        tool_handler=tool_handler,
-                        response_schema=response_schema,
-                        max_rounds=max_rounds,
+            for attempt in range(STREAM_TOOL_CALL_RETRY_COUNT + 1):
+                emitted_text_this_attempt = False
+                message = None
+                try:
+                    for chunk in client.stream(messages):
+                        message = chunk if message is None else message + chunk
+                        text = self._content_to_text(getattr(chunk, "content", ""))
+                        if text:
+                            emitted_text_this_attempt = True
+                            text_parts.append(text)
+                            if message_handler is not None:
+                                message_handler(text)
+                    break
+                except AIExecutionCancelled:
+                    raise
+                except Exception as exc:  # pragma: no cover - network/provider failure
+                    retrying = attempt < STREAM_TOOL_CALL_RETRY_COUNT and not emitted_text_this_attempt
+                    logger.warning(
+                        "AI provider streaming tool-call invoke failed model=%s round=%s attempt=%s/%s retrying=%s tool_count=%s requested_calls=%s error=%s",
+                        self.model_name,
+                        _round + 1,
+                        attempt + 1,
+                        STREAM_TOOL_CALL_RETRY_COUNT + 1,
+                        retrying,
+                        len(current_tools),
+                        len(requested_calls),
+                        exc,
+                        exc_info=True,
                     )
-                return ChatProviderResult(
-                    text=None,
-                    status="fallback",
-                    model=self.model_name,
-                    error=str(exc),
-                    structured_mode="tool_call",
-                    tool_calls=requested_calls,
-                )
+                    if retrying:
+                        continue
+                    if not requested_calls:
+                        return self._generate_with_tools_blocking(
+                            system=system,
+                            user=user,
+                            tools=tools,
+                            tool_handler=tool_handler,
+                            message_handler=message_handler,
+                            max_rounds=max_rounds,
+                        )
+                    return ChatProviderResult(
+                        text=None,
+                        status="failed",
+                        model=self.model_name,
+                        error=str(exc),
+                        tool_calls=requested_calls,
+                    )
             if message is None:
                 logger.warning(
                     "AI provider streaming tool-call returned no chunks model=%s round=%s tool_count=%s requested_calls=%s",
                     self.model_name,
                     _round + 1,
-                    len(tools),
+                    len(current_tools),
                     len(requested_calls),
                 )
                 return ChatProviderResult(
                     text=None,
-                    status="fallback",
+                    status="failed",
                     model=self.model_name,
                     error="empty model stream",
-                    structured_mode="tool_call",
                     tool_calls=requested_calls,
                 )
             messages.append(message)
             tool_calls = self._message_tool_calls(message)
             if not tool_calls:
-                text = self._content_to_text(message.content).strip()
+                text = "".join(text_parts).strip() or self._content_to_text(message.content).strip()
                 return ChatProviderResult(
                     text=text or None,
-                    status="completed" if text else "fallback",
+                    status="completed",
                     model=self.model_name,
-                    error=None if text else "empty model response",
-                    structured_mode="tool_call",
+                    error=None,
                     tool_calls=requested_calls,
                 )
             for call in tool_calls:
@@ -345,7 +302,15 @@ class OpenAICompatibleChatProvider(BaseChatProvider):
                         status="failed",
                         model=self.model_name,
                         error=str(exc),
-                        structured_mode="tool_call",
+                        tool_calls=requested_calls,
+                    )
+                stop_loop = output.pop("__tool_loop_stop__", None) if isinstance(output, dict) else None
+                if isinstance(stop_loop, dict):
+                    return ChatProviderResult(
+                        text="".join(text_parts).strip() or None,
+                        status=str(stop_loop.get("status") or "completed"),
+                        model=self.model_name,
+                        error=None,
                         tool_calls=requested_calls,
                     )
                 messages.append(ToolMessage(content=json.dumps(output, ensure_ascii=False, default=str), tool_call_id=call_id))
@@ -361,7 +326,6 @@ class OpenAICompatibleChatProvider(BaseChatProvider):
             status="failed",
             model=self.model_name,
             error=f"tool conversation exceeded max_rounds={max_rounds}",
-            structured_mode="tool_call",
             tool_calls=requested_calls,
         )
 
@@ -370,24 +334,20 @@ class OpenAICompatibleChatProvider(BaseChatProvider):
         *,
         system: str,
         user: ProviderUserContent,
-        tools: list[ToolDefinition],
+        tools: ToolProvider,
         tool_handler: ToolCallHandler,
-        response_schema: dict[str, Any] | None = None,
+        message_handler: AssistantMessageHandler | None = None,
         max_rounds: int = 8,
     ) -> ChatProviderResult:
-        name_map = {self._model_tool_name(tool.name): tool.name for tool in tools}
-        model_tools = [self._tool_definition_to_model_tool(tool) for tool in tools]
-        client = self.client.bind_tools(model_tools).bind(temperature=0)
-        schema_instruction = ""
-        if response_schema:
-            schema_instruction = (
-                "\n\nFinal response JSON Schema:\n"
-                f"{json.dumps(response_schema, ensure_ascii=False, default=str)}"
-            )
-        messages: list[Any] = [SystemMessage(content=f"{system}{schema_instruction}"), HumanMessage(content=self._human_content(user))]
+        messages: list[Any] = [SystemMessage(content=system), HumanMessage(content=self._human_content(user))]
         requested_calls: list[dict[str, Any]] = []
+        text_parts: list[str] = []
 
         for _round in range(max(1, max_rounds)):
+            current_tools = tools()
+            name_map = {self._model_tool_name(tool.name): tool.name for tool in current_tools}
+            model_tools = [self._tool_definition_to_model_tool(tool) for tool in current_tools]
+            client = self.client.bind_tools(model_tools).bind(temperature=0)
             try:
                 message = client.invoke(messages)
             except AIExecutionCancelled:
@@ -397,29 +357,32 @@ class OpenAICompatibleChatProvider(BaseChatProvider):
                     "AI provider tool-call invoke failed model=%s round=%s tool_count=%s requested_calls=%s error=%s",
                     self.model_name,
                     _round + 1,
-                    len(tools),
+                    len(current_tools),
                     len(requested_calls),
                     exc,
                     exc_info=True,
                 )
                 return ChatProviderResult(
                     text=None,
-                    status="fallback",
+                    status="failed",
                     model=self.model_name,
                     error=str(exc),
-                    structured_mode="tool_call",
                     tool_calls=requested_calls,
                 )
             messages.append(message)
+            text = self._content_to_text(getattr(message, "content", ""))
+            if text:
+                text_parts.append(text)
+                if message_handler is not None:
+                    message_handler(text)
             tool_calls = self._message_tool_calls(message)
             if not tool_calls:
-                text = self._content_to_text(message.content).strip()
+                text = "".join(text_parts).strip()
                 return ChatProviderResult(
                     text=text or None,
-                    status="completed" if text else "fallback",
+                    status="completed",
                     model=self.model_name,
-                    error=None if text else "empty model response",
-                    structured_mode="tool_call",
+                    error=None,
                     tool_calls=requested_calls,
                 )
             for call in tool_calls:
@@ -453,7 +416,15 @@ class OpenAICompatibleChatProvider(BaseChatProvider):
                         status="failed",
                         model=self.model_name,
                         error=str(exc),
-                        structured_mode="tool_call",
+                        tool_calls=requested_calls,
+                    )
+                stop_loop = output.pop("__tool_loop_stop__", None) if isinstance(output, dict) else None
+                if isinstance(stop_loop, dict):
+                    return ChatProviderResult(
+                        text="".join(text_parts).strip() or None,
+                        status=str(stop_loop.get("status") or "completed"),
+                        model=self.model_name,
+                        error=None,
                         tool_calls=requested_calls,
                     )
                 messages.append(ToolMessage(content=json.dumps(output, ensure_ascii=False, default=str), tool_call_id=call_id))
@@ -469,7 +440,6 @@ class OpenAICompatibleChatProvider(BaseChatProvider):
             status="failed",
             model=self.model_name,
             error=f"tool conversation exceeded max_rounds={max_rounds}",
-            structured_mode="tool_call",
             tool_calls=requested_calls,
         )
 
@@ -522,12 +492,42 @@ class OpenAICompatibleChatProvider(BaseChatProvider):
 
     def _tool_definition_to_model_tool(self, definition: ToolDefinition) -> dict[str, Any]:
         description = f"{definition.display_name}: {definition.description} original_name={definition.name} side_effect={definition.side_effect}"
+        parameters = definition.input_schema
+        if definition.side_effect == "draft":
+            draft_schema = definition.input_schema
+            if isinstance(definition.input_schema.get("properties"), dict) and isinstance(
+                definition.input_schema["properties"].get("draft"),
+                dict,
+            ):
+                draft_schema = definition.input_schema["properties"]["draft"]
+            description = (
+                f"{description}. Use arguments.draft for the business draft payload. "
+                "Use arguments.afterApproval only for internal continuation instructions after user approval."
+            )
+            parameters = {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {
+                    "draft": draft_schema,
+                    "afterApproval": {
+                        "type": "object",
+                        "additionalProperties": True,
+                        "properties": {
+                            "continue": {"type": "boolean"},
+                            "instruction": {"type": "string"},
+                            "nextDraftType": {"type": "string"},
+                            "taskState": {"type": "object"},
+                        },
+                    },
+                },
+                "required": ["draft"],
+            }
         return {
             "type": "function",
             "function": {
                 "name": self._model_tool_name(definition.name),
                 "description": description,
-                "parameters": definition.input_schema,
+                "parameters": parameters,
             },
         }
 
@@ -539,11 +539,7 @@ class OpenAICompatibleChatProvider(BaseChatProvider):
         *,
         system: str,
         user: ProviderUserContent,
-        response_schema: dict[str, Any] | None = None,
     ) -> Iterator[str]:
-        if response_schema:
-            yield from super().stream_generate(system=system, user=user, response_schema=response_schema)
-            return
         try:
             for chunk in self.client.stream([SystemMessage(content=system), HumanMessage(content=self._human_content(user))]):
                 text = self._content_to_text(chunk.content)

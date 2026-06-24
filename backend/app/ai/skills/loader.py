@@ -5,8 +5,7 @@ from typing import Any
 
 import yaml
 
-from app.ai.skills.base import BaseSkill, SkillManifest
-from app.ai.skills.toolcall import ToolCallingSkill
+from app.ai.skills.base import BaseSkill, CatalogSkill, SkillManifest
 from app.ai.tools.registry import ToolRegistry
 
 
@@ -53,7 +52,7 @@ class SkillDirectoryLoader:
             raise FileNotFoundError(f"Skill directory {skill_dir.name} missing required file: skill.yaml")
         runtime = self._read_yaml_file(runtime_path)
         manifest = self._manifest_from_metadata(skill_dir, frontmatter, runtime)
-        return ToolCallingSkill(
+        return CatalogSkill(
             manifest,
             skill_dir,
             instructions=self._join_instructions(body, self._instruction_sections(skill_dir, runtime)),

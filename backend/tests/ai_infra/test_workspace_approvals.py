@@ -2244,7 +2244,16 @@ class AIWorkspaceApprovalsTestCase(AIAgentInfraTestCase):
                     conversation_id=conversation.id,
                     role="assistant",
                     content="请确认计划调整。",
-                    parts=[],
+                    parts=[
+                        {"id": "part-text-before", "type": "text", "text": "请确认计划调整。"},
+                        {"id": "part-draft", "type": "draft", "draft": {"id": "draft-1"}},
+                        {
+                            "id": "part-approval",
+                            "type": "approval_request",
+                            "approval": {"id": "approval-1", "status": "pending"},
+                        },
+                        {"id": "part-text-after", "type": "text", "text": "我继续处理下一步。"},
+                    ],
                     created_by=self.user.id,
                 )
                 db.add(conversation)
@@ -2311,3 +2320,9 @@ class AIWorkspaceApprovalsTestCase(AIAgentInfraTestCase):
                 self.assertEqual(result_cards[0]["data"]["workspaceHint"], "可前往菜单计划查看")
                 self.assertEqual(result_cards[0]["data"]["entities"][0]["label"], "番茄炒蛋")
                 self.assertEqual(result_cards[0]["data"]["entities"][0]["operationLabel"], "状态变更")
+                part_types = [part["type"] for part in message.parts]
+                self.assertEqual(
+                    part_types,
+                    ["text", "draft", "approval_request", "result_card", "text"],
+                )
+                self.assertEqual(message.parts[3]["card"]["id"], result_cards[0]["id"])

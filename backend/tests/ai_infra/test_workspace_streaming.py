@@ -5,6 +5,16 @@ from app.ai.workflows.live_stream_cache import live_ai_stream_cache
 from ._support import *
 
 
+def _tool_names(tools) -> set[str]:
+    current_tools = tools()
+    return {tool.name for tool in current_tools}
+
+
+def _emit_text(message_handler, text: str) -> None:
+    if message_handler is not None:
+        message_handler(text)
+
+
 class BlockingStreamingChatProvider(BaseChatProvider):
     model_name = "blocking-stream-model"
 
@@ -12,10 +22,10 @@ class BlockingStreamingChatProvider(BaseChatProvider):
         self.first_delta_persisted = first_delta_persisted
         self.continue_stream = continue_stream
 
-    def generate(self, *, system: str, user: str, response_schema: dict | None = None) -> ChatProviderResult:
+    def generate(self, *, system: str, user: str) -> ChatProviderResult:
         raise AssertionError("streaming chat should not call blocking generate")
 
-    def stream_generate(self, *, system: str, user: str, response_schema: dict | None = None):
+    def stream_generate(self, *, system: str, user: str):
         yield "第一段"
         self.first_delta_persisted.set()
         if not self.continue_stream.wait(timeout=5):
@@ -27,24 +37,358 @@ class BlockingStreamingChatProvider(BaseChatProvider):
         *,
         system: str,
         user: str,
-        tools: list,
+        tools,
         tool_handler,
-        response_schema: dict | None = None,
+        message_handler=None,
         max_rounds: int = 8,
-        visible_text_handler=None,
     ) -> ChatProviderResult:
-        del tools, tool_handler, response_schema, max_rounds
+        del tools, tool_handler, max_rounds
         chunks = []
         for chunk in self.stream_generate(system=system, user=user):
             chunks.append(chunk)
-            if visible_text_handler is not None:
-                visible_text_handler(f"<visible_text>{chunk}</visible_text>")
+            _emit_text(message_handler, chunk)
         text = "".join(chunks)
         return ChatProviderResult(
-            text=f'<structured_result>{{"action":"finalize","text":{json.dumps(text, ensure_ascii=False)},"status":"completed","cards":[]}}</structured_result>',
+            text=text,
             status="completed",
             model=self.model_name,
-            structured_mode="tool_call",
+        )
+
+
+class ProgressiveMultiDraftProvider(BaseChatProvider):
+    model_name = "progressive-multi-draft-model"
+
+    def __init__(self) -> None:
+        self.active_calls = 0
+
+    def generate(self, *, system: str, user: str) -> ChatProviderResult:
+        raise AssertionError("workspace orchestrator should use generate_with_tools")
+
+    def stream_generate(self, *, system: str, user: str):
+        del system, user
+        raise AssertionError("approval resume should continue through the orchestrator agent loop")
+
+    def generate_with_tools(
+        self,
+        *,
+        system: str,
+        user: str,
+        tools,
+        tool_handler,
+        message_handler=None,
+        max_rounds: int = 8,
+    ) -> ChatProviderResult:
+        del system, max_rounds
+        payload = json.loads(user)
+        tool_handler("skill.inject", {"skills": ["meal_plan", "shopping_list"], "reason": "需要先安排餐食，确认后继续购物清单"})
+        tool_names = _tool_names(tools)
+        assert "meal_plan.create_draft" in tool_names
+        assert "shopping.create_draft" in tool_names
+        current_artifacts = payload.get("currentRunArtifacts") if isinstance(payload.get("currentRunArtifacts"), list) else []
+        resume_artifacts = [
+            artifact
+            for artifact in current_artifacts
+            if isinstance(artifact, dict) and artifact.get("type") == "draft_after_approval"
+        ]
+        meal_plan_draft = {
+            "draftType": "meal_plan",
+            "schemaVersion": "meal_plan.v1",
+            "items": [
+                {
+                    "date": date.today().isoformat(),
+                    "mealType": "dinner",
+                    "title": "番茄小炒",
+                    "foodId": "food-tomato",
+                    "recipeId": "",
+                    "reason": "先安排晚餐",
+                    "usedInventory": [],
+                    "missingIngredients": [],
+                }
+            ],
+            "source": {"days": 1, "mealTypes": ["dinner"]},
+        }
+        shopping_draft = {
+            "draftType": "shopping_list",
+            "schemaVersion": "shopping_list.v1",
+            "items": [{"title": "鸡蛋", "quantity": 2, "unit": "个", "reason": "搭配晚餐"}],
+        }
+        self.active_calls += 1
+        if self.active_calls == 1:
+            text = "我先生成餐食计划草稿，确认后再继续购物清单。"
+            _emit_text(message_handler, text)
+            tool_handler(
+                "meal_plan.create_draft",
+                {
+                    "draft": meal_plan_draft,
+                    "afterApproval": {
+                        "continue": True,
+                        "instruction": "确认餐食计划后，继续生成购物清单草稿。",
+                        "nextDraftType": "shopping_list",
+                    },
+                },
+            )
+            second_draft_result = tool_handler("shopping.create_draft", {"draft": shopping_draft})
+            assert second_draft_result.get("code") == "draft_budget_exhausted"
+            return ChatProviderResult(
+                text=text,
+                status="waiting_approval",
+                model=self.model_name,
+            )
+        assert resume_artifacts
+        assert "购物清单" in str(resume_artifacts[-1].get("payload", {}))
+        text = "已确认餐食计划。接下来我根据已确认的餐食计划生成购物清单草稿。"
+        _emit_text(message_handler, text)
+        tool_handler("shopping.create_draft", {"draft": shopping_draft})
+        return ChatProviderResult(
+            text=text,
+            status="waiting_approval",
+            model=self.model_name,
+        )
+
+
+class BlockingProgressiveRecipeDraftProvider(BaseChatProvider):
+    model_name = "blocking-progressive-recipe-draft-model"
+
+    def __init__(self, draft_published: threading.Event, continue_stream: threading.Event) -> None:
+        self.draft_published = draft_published
+        self.continue_stream = continue_stream
+
+    def generate(self, *, system: str, user: str) -> ChatProviderResult:
+        raise AssertionError("workspace orchestrator should use generate_with_tools")
+
+    def generate_with_tools(
+        self,
+        *,
+        system: str,
+        user: str,
+        tools,
+        tool_handler,
+        message_handler=None,
+        max_rounds: int = 8,
+    ) -> ChatProviderResult:
+        del system, user, max_rounds
+        tool_handler("skill.inject", {"skills": ["recipe_draft"], "reason": "需要生成菜谱草稿"})
+        assert "recipe.create_draft" in _tool_names(tools)
+        text = "我先生成菜谱草稿。"
+        _emit_text(message_handler, text)
+        tool_handler(
+            "recipe.create_draft",
+            {
+                "draft": {
+                    "draftType": "recipe",
+                    "schemaVersion": "recipe.v1",
+                    "title": "番茄鸡蛋面",
+                    "servings": 2,
+                    "prep_minutes": 20,
+                    "difficulty": "easy",
+                    "ingredient_items": [
+                        {"ingredient_id": None, "ingredient_name": "番茄", "quantity": 2, "unit": "个", "note": ""},
+                        {"ingredient_id": None, "ingredient_name": "鸡蛋", "quantity": 2, "unit": "个", "note": ""},
+                    ],
+                    "steps": [
+                        {
+                            "title": "备菜",
+                            "text": "番茄切块，鸡蛋打散。",
+                            "icon": "bowl",
+                            "summary": "备菜",
+                            "estimated_minutes": 5,
+                            "tip": "",
+                            "key_points": [],
+                        },
+                        {
+                            "title": "煮面",
+                            "text": "煮面后加入番茄鸡蛋汤底。",
+                            "icon": "pan",
+                            "summary": "煮熟",
+                            "estimated_minutes": 15,
+                            "tip": "",
+                            "key_points": [],
+                        },
+                        {
+                            "title": "调味",
+                            "text": "出锅前尝味，按家人口味少量加盐。",
+                            "icon": "plate",
+                            "summary": "调味出锅",
+                            "estimated_minutes": 2,
+                            "tip": "",
+                            "key_points": [],
+                        },
+                    ],
+                    "tips": "",
+                    "scene_tags": [],
+                    "media_ids": [],
+                }
+            },
+        )
+        self.draft_published.set()
+        if not self.continue_stream.wait(timeout=5):
+            raise RuntimeError("stream test timed out")
+        return ChatProviderResult(
+            text=text,
+            status="waiting_approval",
+            model=self.model_name,
+        )
+
+
+class RetrySameDraftProvider(BaseChatProvider):
+    model_name = "retry-same-draft-model"
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def generate(self, *, system: str, user: str) -> ChatProviderResult:
+        raise AssertionError("workspace orchestrator should use generate_with_tools")
+
+    def generate_with_tools(
+        self,
+        *,
+        system: str,
+        user: str,
+        tools,
+        tool_handler,
+        message_handler=None,
+        max_rounds: int = 8,
+    ) -> ChatProviderResult:
+        del system, user, max_rounds
+        tool_handler("skill.inject", {"skills": ["shopping_list"], "reason": "需要生成购物清单草稿"})
+        assert "shopping.create_draft" in _tool_names(tools)
+        draft = {
+            "draftType": "shopping_list",
+            "schemaVersion": "shopping_list.v1",
+            "items": [{"title": "牛奶", "quantity": 1, "unit": "瓶", "reason": "早餐"}],
+        }
+        text = "我先生成购物清单草稿。"
+        _emit_text(message_handler, text)
+        tool_handler("shopping.create_draft", {"draft": draft})
+        self.calls += 1
+        second = tool_handler("shopping.create_draft", {"draft": draft})
+        assert second.get("code") == "draft_already_published"
+        return ChatProviderResult(
+            text=text,
+            status="waiting_approval",
+            model=self.model_name,
+        )
+
+
+class CommitGatedRecipeProvider(BaseChatProvider):
+    model_name = "commit-gated-recipe-model"
+
+    def __init__(self) -> None:
+        self.active_calls = 0
+
+    def generate(self, *, system: str, user: str) -> ChatProviderResult:
+        raise AssertionError("workspace orchestrator should use generate_with_tools")
+
+    def generate_with_tools(
+        self,
+        *,
+        system: str,
+        user: str,
+        tools,
+        tool_handler,
+        message_handler=None,
+        max_rounds: int = 8,
+    ) -> ChatProviderResult:
+        del system, user, max_rounds
+        tool_handler("skill.inject", {"skills": ["recipe_draft", "meal_plan"], "reason": "先创建菜谱，确认后才能安排餐食计划"})
+        self.active_calls += 1
+        tool_names = _tool_names(tools)
+        assert "recipe.create_draft" in tool_names
+        assert "meal_plan.create_draft" in tool_names
+        recipe_draft = {
+            "draftType": "recipe",
+            "schemaVersion": "recipe.v1",
+            "title": "红烧牛肉",
+            "servings": 2,
+            "prep_minutes": 45,
+            "difficulty": "medium",
+            "ingredient_items": [{"ingredient_id": None, "ingredient_name": "牛肉", "quantity": 500, "unit": "克", "note": ""}],
+            "steps": [
+                {
+                    "title": "焯水",
+                    "text": "牛肉冷水下锅，煮出浮沫后捞出冲净。",
+                    "icon": "pan",
+                    "summary": "去除浮沫",
+                    "estimated_minutes": 10,
+                    "tip": "",
+                    "key_points": [],
+                },
+                {
+                    "title": "炒香",
+                    "text": "锅中加少量油，放入牛肉和调味料炒香。",
+                    "icon": "pan",
+                    "summary": "炒出香味",
+                    "estimated_minutes": 8,
+                    "tip": "",
+                    "key_points": [],
+                },
+                {
+                    "title": "炖煮",
+                    "text": "加入热水，小火炖煮至牛肉软烂。",
+                    "icon": "timer",
+                    "summary": "炖到软烂",
+                    "estimated_minutes": 45,
+                    "tip": "",
+                    "key_points": [],
+                }
+            ],
+            "tips": "",
+            "scene_tags": [],
+            "media_ids": [],
+        }
+        text = "我先创建红烧牛肉菜谱草稿，确认后再安排到明天晚餐。"
+        _emit_text(message_handler, text)
+        tool_handler(
+            "recipe.create_draft",
+            {
+                "draft": recipe_draft,
+                "afterApproval": {
+                    "continue": True,
+                    "instruction": "确认菜谱后，继续把这道菜安排到明天晚餐。",
+                    "nextDraftType": "meal_plan",
+                },
+            },
+        )
+        return ChatProviderResult(
+            text=text,
+            status="waiting_approval",
+            model=self.model_name,
+        )
+
+
+class RepeatedReadToolProvider(BaseChatProvider):
+    model_name = "repeated-read-tool-model"
+
+    def __init__(self) -> None:
+        self.blocked_result: dict | None = None
+
+    def generate(self, *, system: str, user: str) -> ChatProviderResult:
+        raise AssertionError("workspace orchestrator should use generate_with_tools")
+
+    def generate_with_tools(
+        self,
+        *,
+        system: str,
+        user: str,
+        tools,
+        tool_handler,
+        message_handler=None,
+        max_rounds: int = 8,
+    ) -> ChatProviderResult:
+        del system, user, max_rounds
+        tool_handler("skill.inject", {"skills": ["meal_plan"], "reason": "需要读取库存"})
+        assert "inventory.read_available_items" in _tool_names(tools)
+        read_payload = {"limit": 5}
+        tool_handler("inventory.read_available_items", read_payload)
+        tool_handler("inventory.read_available_items", read_payload)
+        tool_handler("inventory.read_available_items", read_payload)
+        self.blocked_result = tool_handler("inventory.read_available_items", read_payload)
+        text = "我已基于已有库存读取结果停止重复查询。"
+        _emit_text(message_handler, text)
+        return ChatProviderResult(
+            text=text,
+            status="completed",
+            model=self.model_name,
         )
 
 
@@ -135,7 +479,7 @@ class AIWorkspaceStreamingTestCase(AIAgentInfraTestCase):
                         select(AIMessage).where(AIMessage.run_id == run.id, AIMessage.role == "assistant")
                     )
                     assert message is not None
-                    self.assertEqual(message.content, "第一段\n第二段")
+                    self.assertEqual(message.content, "第一段第二段")
                     self.assertEqual(message.status, "completed")
                     self.assertNotIn("liveStreaming", message.message_metadata or {})
                     self.assertNotIn("liveTextPartIds", message.message_metadata or {})
@@ -146,9 +490,80 @@ class AIWorkspaceStreamingTestCase(AIAgentInfraTestCase):
                 final_messages = messages_response.json()
                 assistant_messages = [message for message in final_messages if message["role"] == "assistant"]
                 self.assertEqual(len(assistant_messages), 1)
-                self.assertEqual(assistant_messages[0]["content"], "第一段\n第二段")
+                self.assertEqual(assistant_messages[0]["content"], "第一段第二段")
                 self.assertEqual(assistant_messages[0]["status"], "completed")
                 self.assertFalse(assistant_messages[0]["metadata"].get("liveStreaming", False))
+            finally:
+                continue_stream.set()
+                thread.join(timeout=5)
+
+        def test_fast_approval_before_original_response_does_not_restore_pending(self) -> None:
+            draft_published = threading.Event()
+            continue_stream = threading.Event()
+            provider = BlockingProgressiveRecipeDraftProvider(draft_published, continue_stream)
+            captured: dict[str, str | int] = {}
+            errors: list[BaseException] = []
+
+            def consume_stream() -> None:
+                try:
+                    with patch("app.ai.workspace_service.get_chat_provider", return_value=provider):
+                        with self.client.stream(
+                            "POST",
+                            "/api/ai/chat/stream",
+                            json={"message": "生成番茄鸡蛋面菜谱", "client_run_id": "agent_run-fast-approval-before-final"},
+                        ) as response:
+                            captured["status_code"] = response.status_code
+                            captured["body"] = "".join(response.iter_text())
+                except BaseException as exc:
+                    errors.append(exc)
+
+            thread = threading.Thread(target=consume_stream)
+            thread.start()
+            try:
+                self.assertTrue(draft_published.wait(timeout=5))
+                with self.SessionLocal() as db:
+                    approval = db.scalar(
+                        select(AIApprovalRequest).where(AIApprovalRequest.run_id == "agent_run-fast-approval-before-final")
+                    )
+                    self.assertIsNotNone(approval)
+                    assert approval is not None
+                    approval_id = approval.id
+                    conversation_id = approval.conversation_id
+                    draft_version = approval.draft_version
+                    values = approval.initial_values
+
+                decision_response = self.client.post(
+                    f"/api/ai/conversations/{conversation_id}/approvals/{approval_id}/decision",
+                    json={"decision": "approved", "draft_version": draft_version, "values": values},
+                )
+                self.assertEqual(decision_response.status_code, 200, decision_response.text)
+                self.assertEqual(decision_response.json()["approval"]["status"], "approved")
+
+                continue_stream.set()
+                thread.join(timeout=5)
+                self.assertFalse(thread.is_alive())
+                self.assertFalse(errors)
+                self.assertEqual(captured.get("status_code"), 200)
+                response_event = _response_event(str(captured.get("body") or ""))
+                approval_parts = [
+                    part
+                    for part in response_event["message"]["parts"]
+                    if part.get("type") == "approval_request" and part.get("approval", {}).get("id") == approval_id
+                ]
+                self.assertEqual(len(approval_parts), 1)
+                self.assertEqual(approval_parts[0]["approval"]["status"], "approved")
+                self.assertEqual(response_event["included"]["approvals"][0]["status"], "approved")
+                with self.SessionLocal() as db:
+                    message = db.scalar(select(AIMessage).where(AIMessage.run_id == "agent_run-fast-approval-before-final"))
+                    self.assertIsNotNone(message)
+                    assert message is not None
+                    stored_approval_parts = [
+                        part
+                        for part in message.parts
+                        if part.get("type") == "approval_request" and part.get("approval", {}).get("id") == approval_id
+                    ]
+                    self.assertEqual(len(stored_approval_parts), 1)
+                    self.assertEqual(stored_approval_parts[0]["approval"]["status"], "approved")
             finally:
                 continue_stream.set()
                 thread.join(timeout=5)
@@ -336,29 +751,49 @@ class AIWorkspaceStreamingTestCase(AIAgentInfraTestCase):
             self.assertIn("生成「餐食计划确认表单」", body)
             self.assertIn("event: message_delta", body)
             self.assertIn("我先看一下临期食材和最近餐食。", body)
-            self.assertIn("我生成了 3 条餐食计划草稿。", body)
+            self.assertNotIn("我生成了 3 条餐食计划草稿。", body)
             self.assertNotIn("<structured_result>", body)
             self.assertNotIn("正在生成餐食计划结构化结果", body)
             self.assertNotIn("餐食计划：已准备草稿", body)
             self.assertNotIn("餐食安排执行完成", body)
             self.assertLess(body.index("我先看一下临期食材和最近餐食。"), body.index("调用「临期食材」"))
-            self.assertLess(body.index("生成「餐食计划确认表单」"), body.index("我生成了 3 条餐食计划草稿。"))
             self.assertLess(body.index("调用「餐食安排」技能"), body.index("调用「临期食材」"))
             self.assertLess(body.index("调用「临期食材」"), body.index("生成「餐食计划确认表单」"))
             self.assertLess(body.index("调用「餐食安排」技能"), body.index("event: response"))
             self.assertIn("waiting_approval", body)
             self.assertIn("meal_plan.create", body)
+            events = _sse_events(body)
+            draft_activity_events = [
+                data
+                for event_name, data in events
+                if event_name == "message_part"
+                and data.get("part", {}).get("type") == "run_activity"
+                and data.get("part", {}).get("activity", {}).get("internal_code") == "meal_plan.create_draft"
+            ]
+            self.assertEqual(
+                [event["part"]["activity"]["status"] for event in draft_activity_events],
+                ["running", "completed"],
+            )
+            first_approval_event_index = next(
+                index
+                for index, (event_name, data) in enumerate(events)
+                if event_name == "message_part" and data.get("part", {}).get("type") == "approval_request"
+            )
+            self.assertLess(
+                next(index for index, item in enumerate(events) if item[1] in draft_activity_events),
+                first_approval_event_index,
+            )
             response_event = _response_event(body)
             parts = response_event["message"]["parts"]
             text_parts = [part["text"].strip() for part in parts if part["type"] == "text"]
-            self.assertEqual(text_parts[:2], ["我先看一下临期食材和最近餐食。", "我生成了 3 条餐食计划草稿。"])
+            self.assertEqual(text_parts, ["我先看一下临期食材和最近餐食。"])
             self.assertLess(
                 next(index for index, part in enumerate(parts) if part.get("text", "").startswith("我先看一下临期食材")),
                 next(index for index, part in enumerate(parts) if part.get("activity", {}).get("user_message") == "调用「临期食材」"),
             )
             self.assertLess(
                 next(index for index, part in enumerate(parts) if part.get("activity", {}).get("user_message") == "生成「餐食计划确认表单」"),
-                next(index for index, part in enumerate(parts) if part.get("text", "").startswith("我生成了 3 条")),
+                next(index for index, part in enumerate(parts) if part.get("type") == "approval_request"),
             )
             events_response = self.client.get("/api/ai/runs/agent_run-draft-stream-test/events")
             self.assertEqual(events_response.status_code, 200)
@@ -367,6 +802,258 @@ class AIWorkspaceStreamingTestCase(AIAgentInfraTestCase):
             self.assertIn("调用「临期食材」", event_messages)
             self.assertIn("生成「餐食计划确认表单」", event_messages)
             self.assertNotIn("餐食安排执行完成", event_messages)
+
+        def test_ai_workspace_stops_after_first_draft_before_approval(self) -> None:
+            provider = ProgressiveMultiDraftProvider()
+            with patch("app.ai.workspace_service.get_chat_provider", return_value=provider):
+                with self.client.stream(
+                    "POST",
+                    "/api/ai/chat/stream",
+                    json={"message": "安排晚餐并列购物清单", "client_run_id": "agent_run-progressive-drafts"},
+                ) as response:
+                    self.assertEqual(response.status_code, 200)
+                    body = "".join(response.iter_text())
+
+            self.assertEqual(provider.active_calls, 1)
+            events = _sse_events(body)
+            approval_part_events = [
+                data
+                for event_name, data in events
+                if event_name == "message_part"
+                and data.get("part", {}).get("type") == "approval_request"
+            ]
+            self.assertEqual(len(approval_part_events), 1)
+            self.assertLess(body.index('"type": "approval_request"'), body.index("event: response"))
+            self.assertEqual(
+                [item["part"]["approval"]["approval_type"] for item in approval_part_events],
+                ["meal_plan.create"],
+            )
+            response_event = _response_event(body)
+            parts = response_event["message"]["parts"]
+            approval_parts = [part for part in parts if part.get("type") == "approval_request"]
+            draft_parts = [part for part in parts if part.get("type") == "draft"]
+            self.assertEqual(len(approval_parts), 1)
+            self.assertEqual(len(draft_parts), 1)
+            self.assertEqual(response_event["message"]["status"], "waiting_approval")
+            self.assertEqual(response_event["run"]["status"], "waiting_approval")
+            self.assertEqual(len(response_event["included"]["drafts"]), 1)
+            self.assertEqual(len(response_event["included"]["approvals"]), 1)
+            with self.SessionLocal() as db:
+                drafts = list(db.scalars(select(AITaskDraft).where(AITaskDraft.source_run_id == "agent_run-progressive-drafts")))
+                approvals = list(db.scalars(select(AIApprovalRequest).where(AIApprovalRequest.run_id == "agent_run-progressive-drafts")))
+                self.assertEqual(len(drafts), 1)
+                self.assertEqual(len(approvals), 1)
+                conversation = db.get(AIConversation, response_event["conversation_id"])
+                self.assertIsNotNone(conversation)
+                assert conversation is not None
+                self.assertEqual(drafts[0].ai_metadata["afterApproval"]["nextDraftType"], "shopping_list")
+
+        def test_ai_workspace_approval_resume_generates_next_draft(self) -> None:
+            provider = ProgressiveMultiDraftProvider()
+            with patch("app.ai.workspace_service.get_chat_provider", return_value=provider):
+                with self.client.stream(
+                    "POST",
+                    "/api/ai/chat/stream",
+                    json={"message": "安排晚餐并列购物清单", "client_run_id": "agent_run-approval-resume-next-draft"},
+                ) as response:
+                    self.assertEqual(response.status_code, 200)
+                    body = "".join(response.iter_text())
+
+            response_event = _response_event(body)
+            approval = response_event["included"]["approvals"][0]
+            decision_response = self.client.post(
+                f"/api/ai/conversations/{response_event['conversation_id']}/approvals/{approval['id']}/decision",
+                json={
+                    "decision": "approved",
+                    "draft_version": approval["draft_version"],
+                    "values": approval["initial_values"],
+                },
+            )
+            self.assertEqual(decision_response.status_code, 200, decision_response.text)
+            with patch("app.ai.workspace_service.get_chat_provider", return_value=provider):
+                with self.client.stream(
+                    "POST",
+                    f"/api/ai/conversations/{response_event['conversation_id']}/approvals/{approval['id']}/decision/stream",
+                    json={
+                        "decision": "approved",
+                        "draft_version": approval["draft_version"],
+                        "values": approval["initial_values"],
+                    },
+                ) as response:
+                    self.assertEqual(response.status_code, 200)
+                    resume_body = "".join(response.iter_text())
+
+            self.assertEqual(provider.active_calls, 2)
+            self.assertIn("已确认餐食计划。接下来我根据已确认的餐食计划生成购物清单草稿。", resume_body)
+            self.assertNotIn("如果还有", resume_body)
+            self.assertNotIn("你也可以", resume_body)
+            self.assertIn("生成「购物清单确认表单」", resume_body)
+            self.assertNotIn("购物清单草稿也准备好了。", resume_body)
+            resume_events = _sse_events(resume_body)
+            result_part_index = next(
+                index
+                for index, (event_name, data) in enumerate(resume_events)
+                if event_name == "message_part"
+                and data.get("part", {}).get("type") == "result_card"
+                and data.get("part", {}).get("card", {}).get("type") == "operation_result"
+                and data.get("part", {}).get("card", {}).get("data", {}).get("approvalId") == approval["id"]
+            )
+            self.assertEqual(result_part_index, 0)
+            followup_text_index = next(
+                index
+                for index, (event_name, data) in enumerate(resume_events)
+                if event_name == "message_delta"
+                and "接下来我根据已确认的餐食计划生成购物清单草稿。" in data.get("delta", "")
+            )
+            next_draft_activity_index = next(
+                index
+                for index, (event_name, data) in enumerate(resume_events)
+                if event_name == "message_part"
+                and data.get("part", {}).get("type") == "run_activity"
+                and data.get("part", {}).get("activity", {}).get("user_message") == "生成「购物清单确认表单」"
+            )
+            self.assertLess(result_part_index, followup_text_index)
+            self.assertLess(result_part_index, next_draft_activity_index)
+            self.assertLess(
+                resume_body.index("接下来我根据已确认的餐食计划生成购物清单草稿。"),
+                resume_body.index("生成「购物清单确认表单」"),
+            )
+            self.assertLess(
+                resume_body.index("生成「购物清单确认表单」"),
+                resume_body.index('"type": "approval_request"'),
+            )
+            self.assertIn("shopping_list.create", resume_body)
+            resume_response = _response_event(resume_body)
+            self.assertEqual(resume_response["message"]["status"], "waiting_approval")
+            self.assertEqual(resume_response["run"]["status"], "waiting_approval")
+            self.assertEqual(len(resume_response["included"]["drafts"]), 2)
+            self.assertEqual(len(resume_response["included"]["approvals"]), 2)
+            pending_approvals = [
+                approval
+                for approval in resume_response["included"]["approvals"]
+                if approval["status"] == "pending"
+            ]
+            self.assertEqual([approval["approval_type"] for approval in pending_approvals], ["shopping_list.create"])
+            resume_parts = resume_response["message"]["parts"]
+            self.assertEqual(
+                [part["text"].strip() for part in resume_parts if part.get("type") == "text"],
+                [
+                    "我先生成餐食计划草稿，确认后再继续购物清单。",
+                    "已确认餐食计划。接下来我根据已确认的餐食计划生成购物清单草稿。",
+                ],
+            )
+            self.assertLess(
+                next(index for index, part in enumerate(resume_parts) if part.get("text", "").startswith("已确认餐食计划")),
+                next(index for index, part in enumerate(resume_parts) if part.get("activity", {}).get("user_message") == "生成「购物清单确认表单」"),
+            )
+            self.assertLess(
+                next(index for index, part in enumerate(resume_parts) if part.get("activity", {}).get("user_message") == "生成「购物清单确认表单」"),
+                next(index for index, part in enumerate(resume_parts) if part.get("approval", {}).get("approval_type") == "shopping_list.create"),
+            )
+            with self.SessionLocal() as db:
+                drafts = list(db.scalars(select(AITaskDraft).where(AITaskDraft.source_run_id == "agent_run-approval-resume-next-draft")))
+                approvals = list(db.scalars(select(AIApprovalRequest).where(AIApprovalRequest.run_id == "agent_run-approval-resume-next-draft")))
+                self.assertEqual(len(drafts), 2)
+                self.assertEqual(len(approvals), 2)
+                conversation = db.get(AIConversation, response_event["conversation_id"])
+                self.assertIsNotNone(conversation)
+                assert conversation is not None
+                self.assertNotIn("resumeAfterApproval", conversation.context or {})
+
+        def test_ai_workspace_commit_gated_draft_waits_for_approval_before_next_action(self) -> None:
+            provider = CommitGatedRecipeProvider()
+            with patch("app.ai.workspace_service.get_chat_provider", return_value=provider):
+                with self.client.stream(
+                    "POST",
+                    "/api/ai/chat/stream",
+                    json={"message": "创建红烧牛肉菜谱，然后安排到明天晚餐", "client_run_id": "agent_run-commit-gated"},
+                ) as response:
+                    self.assertEqual(response.status_code, 200)
+                    body = "".join(response.iter_text())
+
+            self.assertEqual(provider.active_calls, 1)
+            response_event = _response_event(body)
+            self.assertEqual(response_event["message"]["status"], "waiting_approval")
+            self.assertEqual(response_event["run"]["status"], "waiting_approval")
+            self.assertEqual(len(response_event["included"]["drafts"]), 1)
+            self.assertEqual(len(response_event["included"]["approvals"]), 1)
+            approval_parts = [part for part in response_event["message"]["parts"] if part.get("type") == "approval_request"]
+            self.assertEqual(len(approval_parts), 1)
+            self.assertEqual(approval_parts[0]["approval"]["approval_type"], "recipe.create")
+            with self.SessionLocal() as db:
+                drafts = list(db.scalars(select(AITaskDraft).where(AITaskDraft.source_run_id == "agent_run-commit-gated")))
+                approvals = list(db.scalars(select(AIApprovalRequest).where(AIApprovalRequest.run_id == "agent_run-commit-gated")))
+                self.assertEqual([draft.draft_type for draft in drafts], ["recipe"])
+                self.assertEqual(len(approvals), 1)
+
+        def test_ai_workspace_repeated_read_tool_is_guarded(self) -> None:
+            provider = RepeatedReadToolProvider()
+            with patch("app.ai.workspace_service.get_chat_provider", return_value=provider):
+                with self.client.stream(
+                    "POST",
+                    "/api/ai/chat/stream",
+                    json={"message": "反复检查库存", "client_run_id": "agent_run-repeated-read"},
+                ) as response:
+                    self.assertEqual(response.status_code, 200)
+                    body = "".join(response.iter_text())
+
+            self.assertIsNotNone(provider.blocked_result)
+            self.assertEqual(provider.blocked_result.get("code"), "tool_loop_detected")
+            response_event = _response_event(body)
+            self.assertEqual(response_event["run"]["status"], "completed")
+            with self.SessionLocal() as db:
+                run = db.get(AIAgentRun, "agent_run-repeated-read")
+                self.assertIsNotNone(run)
+                tool_calls = [record for record in (run.tool_calls or []) if record.get("name") == "inventory.read_available_items"]
+                self.assertEqual(len(tool_calls), 3)
+
+        def test_ai_workspace_non_stream_chat_returns_progressive_drafts_without_duplicates(self) -> None:
+            provider = ProgressiveMultiDraftProvider()
+            with patch("app.ai.workspace_service.get_chat_provider", return_value=provider):
+                response = self.client.post(
+                    "/api/ai/chat",
+                    json={"message": "安排晚餐并列购物清单", "client_run_id": "agent_run-progressive-drafts-non-stream"},
+            )
+            self.assertEqual(response.status_code, 200, response.text)
+            self.assertEqual(provider.active_calls, 1)
+            data = response.json()
+            self.assertEqual(data["run"]["status"], "waiting_approval")
+            self.assertEqual(len(data["included"]["drafts"]), 1)
+            self.assertEqual(len(data["included"]["approvals"]), 1)
+            self.assertEqual(len([part for part in data["message"]["parts"] if part["type"] == "approval_request"]), 1)
+            with self.SessionLocal() as db:
+                drafts = list(db.scalars(select(AITaskDraft).where(AITaskDraft.source_run_id == "agent_run-progressive-drafts-non-stream")))
+                approvals = list(db.scalars(select(AIApprovalRequest).where(AIApprovalRequest.run_id == "agent_run-progressive-drafts-non-stream")))
+                self.assertEqual(len(drafts), 1)
+                self.assertEqual(len(approvals), 1)
+
+        def test_ai_workspace_progressive_draft_publish_dedupes_structured_retry(self) -> None:
+            provider = RetrySameDraftProvider()
+            with patch("app.ai.workspace_service.get_chat_provider", return_value=provider):
+                with self.client.stream(
+                    "POST",
+                    "/api/ai/chat/stream",
+                    json={"message": "买一瓶牛奶", "client_run_id": "agent_run-progressive-draft-retry"},
+                ) as response:
+                    self.assertEqual(response.status_code, 200)
+                    body = "".join(response.iter_text())
+
+            self.assertEqual(provider.calls, 1)
+            response_event = _response_event(body)
+            self.assertEqual(len(response_event["included"]["drafts"]), 1)
+            self.assertEqual(len(response_event["included"]["approvals"]), 1)
+            approval_part_events = [
+                data
+                for event_name, data in _sse_events(body)
+                if event_name == "message_part"
+                and data.get("part", {}).get("type") == "approval_request"
+            ]
+            self.assertEqual(len(approval_part_events), 1)
+            with self.SessionLocal() as db:
+                drafts = list(db.scalars(select(AITaskDraft).where(AITaskDraft.source_run_id == "agent_run-progressive-draft-retry")))
+                approvals = list(db.scalars(select(AIApprovalRequest).where(AIApprovalRequest.run_id == "agent_run-progressive-draft-retry")))
+                self.assertEqual(len(drafts), 1)
+                self.assertEqual(len(approvals), 1)
 
         def test_ai_workspace_phase4_streams_fallback_model_deltas_before_final_response(self) -> None:
             with patch("app.ai.workspace_service.get_chat_provider", return_value=StreamingChatProvider()):

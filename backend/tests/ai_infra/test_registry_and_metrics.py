@@ -34,6 +34,8 @@ class AIRegistryAndMetricsTestCase(AIAgentInfraTestCase):
             self.assertIn("ingredient.search", skills["recipe_draft"]["tools"])
             self.assertEqual(tools["ingredient.search"]["display_name"], "食材资料")
             self.assertEqual(tools["ingredient.search"]["side_effect"], "read")
+            self.assertEqual(tools["skill.inject"]["side_effect"], "control")
+            self.assertEqual(tools["human.request_input"]["side_effect"], "control")
             self.assertEqual(tools["meal_log.create_draft"]["display_name"], "餐食记录确认表单")
             self.assertEqual(tools["meal_log.create_draft"]["permission"], "family:draft")
             self.assertEqual(tools["meal_log.create_draft"]["side_effect"], "draft")

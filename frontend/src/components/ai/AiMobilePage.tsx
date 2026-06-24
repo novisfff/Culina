@@ -26,7 +26,7 @@ type Props = {
   messages: AiMessage[];
   runEventsById: Record<string, AiRunEvent[]>;
   streamProgress: AiRunEvent[];
-  activeStreamRunId: string | null;
+  activeAssistantRunId: string | null;
   draft: string;
   attachments: AiComposerAttachment[];
   canAddAttachment: boolean;
@@ -195,7 +195,7 @@ export function AiMobilePage(props: Props) {
                 user={props.currentUser}
                 resourceOptionLoader={props.resourceOptionLoader}
                 runEvents={
-                  message.run_id && message.run_id === props.activeStreamRunId
+                  message.run_id && message.run_id === props.activeAssistantRunId
                     ? props.streamProgress
                     : message.run_id
                       ? props.runEventsById[message.run_id] ?? (message.id.startsWith('local-') ? props.streamProgress : [])
@@ -204,6 +204,13 @@ export function AiMobilePage(props: Props) {
                         : []
                 }
                 isLatestAssistant={message.role === 'assistant' && index === props.messages.length - 1}
+                isAssistantResponseActive={
+                  message.role === 'assistant'
+                  && Boolean(
+                    (message.run_id && message.run_id === props.activeAssistantRunId)
+                    || (message.id.startsWith('local-') && props.activeAssistantRunId),
+                  )
+                }
                 onApprovalDecision={props.onApprovalDecision}
                 onHumanInputResponse={props.onHumanInputResponse}
                 onAddRecommendationToPlan={props.onAddRecommendationToPlan}

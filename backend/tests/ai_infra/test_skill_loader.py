@@ -75,14 +75,14 @@ class AISkillLoaderTestCase(AIAgentInfraTestCase):
             self.assertEqual([manifest.key for manifest in skill_registry.list_manifests()], keys)
             self.assertNotIn("general_chat", skill_registry.keys())
             self.assertNotIn("today_recommendation", skill_registry.keys())
-            self.assertIsInstance(skill_registry.get("inventory_analysis"), ToolCallingSkill)
+            self.assertIsInstance(skill_registry.get("inventory_analysis"), CatalogSkill)
             self.assertIn("ingredient.search", skill_registry.get("shopping_list").manifest.tools)
             self.assertIn("ingredient.read_by_id", skill_registry.get("shopping_list").manifest.tools)
 
         def test_skill_loader_uses_unified_toolcall_runner_without_skill_python_entrypoint(self) -> None:
             skill_registry = build_workspace_skill_registry()
             self.assertEqual(skill_registry.get("meal_plan").manifest.runner, "toolcall")
-            self.assertIsInstance(skill_registry.get("meal_plan"), ToolCallingSkill)
+            self.assertIsInstance(skill_registry.get("meal_plan"), CatalogSkill)
             self.assertFalse(any(BACKEND_DIR.glob("app/ai/skills/catalog/*/skill.py")))
 
         def test_skill_loader_rejects_skill_without_runtime_contract(self) -> None:
@@ -126,7 +126,7 @@ class AISkillLoaderTestCase(AIAgentInfraTestCase):
                 )
                 (skill_dir / "workflows.md").write_text("workflow content", encoding="utf-8")
                 skills = SkillDirectoryLoader(catalog_dir).load()
-                self.assertIsInstance(skills[0], ToolCallingSkill)
+                self.assertIsInstance(skills[0], CatalogSkill)
                 instructions = skills[0].instructions
                 self.assertIn("Body instructions.", instructions)
                 self.assertNotIn("workflow content", instructions)

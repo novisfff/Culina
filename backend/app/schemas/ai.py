@@ -478,7 +478,7 @@ class AIToolRegistryItemDTO(BaseModel):
     display_name: str
     description: str
     permission: str
-    side_effect: Literal["read", "draft", "write"]
+    side_effect: Literal["read", "draft", "write", "control"]
     requires_confirmation: bool
     input_schema: dict = Field(default_factory=dict)
     output_schema: dict = Field(default_factory=dict)

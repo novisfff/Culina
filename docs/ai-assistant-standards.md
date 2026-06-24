@@ -10,7 +10,7 @@ Culina AI 工作台由 LangGraph Orchestrator、Skill Runtime、Tool、Skill Scr
 
 - `WorkspaceOrchestratorAgent` 是默认主路径，负责直接回复、按需注入一个或多个 Skill，并在同一个模型工具循环中调度工具。
 - Skill 是能力包和上下文注入单元，不是独立子 agent；注入后本 run 内持续可见，状态使用 `injected_skill_keys` 和注入历史，不使用单选 `activeSkill`。
-- `ToolCallingSkill` 仅作为 Skill catalog 包承载 manifest、instructions 和 scripts；AI workspace 不再保留 Planner 或单 Skill runtime 路径。
+- `CatalogSkill` 是 Skill catalog 包的运行时表示，承载 manifest、instructions 和 scripts；AI workspace 不再保留 Planner、`ToolCallingSkill` 或单 Skill runtime 路径。
 - Tool 提供家庭范围内的业务读取和草稿校验能力。
 - Skill Script 提供不访问业务状态的确定性计算能力，并以 `script.*` 工具暴露给模型。
 - LangGraph 负责 orchestrator 节点循环、approval interrupt、human input interrupt 和恢复。
@@ -163,7 +163,7 @@ Runner 固定为 `toolcall`。确认要求由 `approval_policy`、`draft_types` 
 
 默认主路径位于 `backend/app/ai/workflows/orchestrator.py`，由 `WorkspaceGraphRunner` 调用。
 
-Orchestrator 输入完整对话、catalog records、已注入 Skill 和当前 run artifacts。它可以直接回答用户，也可以在任意 round 通过 structured result 请求注入一个或多个 Skill。注入后，主 agent 获得该 Skill 的 `SKILL.md` instructions、`allowed_tools`、`script_files`、`output_types`、`draft_types` 和 `approval_policy`，并继续由同一个主 agent 调用工具。
+Orchestrator 输入完整对话、catalog records、已注入 Skill 和当前 run artifacts。它可以直接输出普通 assistant 文本，也可以调用工具。需要新能力时，主 agent 调用 `skill.inject` control tool 注入一个或多个 Skill；注入后，同一个 provider tool loop 的下一轮获得该 Skill 的 `SKILL.md` instructions、`allowed_tools`、`script_files`、`output_types`、`draft_types` 和 `approval_policy`，并继续由同一个主 agent 调用工具。
 
 Runtime 加载流程：
 
@@ -174,18 +174,18 @@ Runtime 加载流程：
 5. 校验 `script_files`，从公开函数签名生成模型 Tool Schema。
 6. 创建统一的 Skill catalog 包，供 Orchestrator 注入 instructions、tools、scripts 和输出契约。
 
-Orchestrator scoped injection 负责暴露工具白名单、执行脚本和业务 Tool、通过 `generate_with_tools()` 让模型在已授权工具内自主选择工具、捕获 draft tool 的真实输出、校验卡片类型、草稿类型和最终结构化结果。
+Orchestrator scoped injection 负责暴露工具白名单、执行脚本和业务 Tool、通过 `generate_with_tools()` 让模型在已授权工具内自主选择工具、捕获 draft tool 的真实输出，并由程序状态判断 run 是否 completed、waiting_input、waiting_approval 或 failed。
 
 `WorkspaceGraphRunner` 执行 LangGraph orchestrator 节点，并负责运行状态、SSE 进度、消息持久化、draft 持久化、approval interrupt、human input interrupt 和恢复。不要因为前端时间戳相同就假设后端并行执行多个 Tool。
 
-流式双通道协议：
+模型输出协议：
 
 ```text
-<visible_text>用户可见文本</visible_text>
-<structured_result>{SkillResult JSON}</structured_result>
+普通 assistant 文本
+provider tool call
 ```
 
-Runtime 必须避免把 structured result 或重复 fallback 文本发送给用户。
+Runtime 不再解析 `<visible_text>` 或 `<structured_result>`。普通 assistant 文本直接进入 `message_delta`，工具调用结果由程序状态和 message part 持久化。
 
 ## 7. Tool、Script 与权限
 
@@ -196,16 +196,18 @@ Tool 注册在 `backend/app/ai/tools/catalog/`。
 - `read`：读取家庭范围内的业务数据。
 - `draft`：校验并归一化草稿，不写正式业务表。
 - `write`：正式写入能力，不暴露给模型。
+- `control`：控制 agent loop，例如注入 Skill 或请求用户补充信息，不写正式业务表。
 
-通用 Human-in-the-loop 提问工具：
+通用 control 工具：
 
+- `skill.inject`：按需注入一个或多个 Skill；调用后同一个 provider tool loop 的下一轮暴露对应工具集合。
 - `human.request_input`：信息不足、需要用户选择候选项或补充自由文本时使用。它只收集信息，不代表批准写入。
 
 Orchestrator 根据已注入 Skill 的 `approval_policy` 创建 Tool 作用域：
 
-- 未注入业务 Skill：只允许基础工具，例如 `human.request_input`。
-- 已注入 Skill 且 `approval_policy: none`：允许该 Skill 声明的 `read` 工具和 scripts。
-- 已注入 Skill 且 `approval_policy: draft_then_confirm`：允许该 Skill 声明的 `read`、`draft` 工具和 scripts。
+- 未注入业务 Skill：只允许基础 control 工具，例如 `skill.inject`、`human.request_input`。
+- 已注入 Skill 且 `approval_policy: none`：允许基础 control 工具、该 Skill 声明的 `read` 工具和 scripts。
+- 已注入 Skill 且 `approval_policy: draft_then_confirm`：允许基础 control 工具、该 Skill 声明的 `read`、`draft` 工具和 scripts。
 - `write` 工具永远不暴露给模型。
 
 Script 约束：

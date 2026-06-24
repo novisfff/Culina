@@ -84,6 +84,12 @@ function isDraftToolEvent(event: AiRunEvent) {
   return event.internal_code.includes('.create_draft') || event.user_message.startsWith('生成「');
 }
 
+function runActivityCollapseKey(event: AiRunEvent) {
+  if (event.type === 'skill') return `skill:${extractSkillName(event)}`;
+  if (event.type === 'tool' || event.type === 'script') return event.id ? `${event.type}:${event.id}` : `${event.type}:${event.internal_code}`;
+  return '';
+}
+
 type RunActivityItem = {
   key: string;
   event: AiRunEvent;
@@ -96,16 +102,57 @@ function toRunEventEntries(events: AiRunEvent[]) {
     .map((event, index) => ({ key: runEventKey(event, index), event, sequence: index + 1 }));
 }
 
+function collapseRunActivityEntries(entries: RunActivityEventEntry[]) {
+  const collapsedEntries: RunActivityEventEntry[] = [];
+  const indexByCollapseKey = new Map<string, number>();
+  entries.forEach((entry) => {
+    const collapseKey = runActivityCollapseKey(entry.event);
+    if (!collapseKey) {
+      collapsedEntries.push(entry);
+      return;
+    }
+    const existingIndex = indexByCollapseKey.get(collapseKey);
+    if (existingIndex === undefined) {
+      indexByCollapseKey.set(collapseKey, collapsedEntries.length);
+      collapsedEntries.push(entry);
+      return;
+    }
+    collapsedEntries[existingIndex] = {
+      ...collapsedEntries[existingIndex],
+      event: entry.event,
+    };
+  });
+  return collapsedEntries.map((entry, index) => ({ ...entry, sequence: index + 1 }));
+}
+
 function runActivitySkillLabel(event: AiRunEvent) {
   const skillName = extractSkillName(event);
   return `调用技能：${skillName}`;
 }
 
+function extractScriptName(event: AiRunEvent) {
+  const match = event.user_message.match(/脚本「(.+?)」/);
+  if (match?.[1]) return match[1];
+  return event.internal_code.replace(/^script\./, '') || event.user_message;
+}
+
+function runActivityScriptLabel(event: AiRunEvent) {
+  const scriptName = extractScriptName(event);
+  if (event.status === 'failed') return `脚本「${scriptName}」执行失败`;
+  return `调用脚本「${scriptName}」`;
+}
+
+function normalizeToolMessage(message: string) {
+  return message.replace(/执行完成$/, '').trim();
+}
+
 function runActivityToolLabel(event: AiRunEvent) {
+  if (event.type === 'script') return runActivityScriptLabel(event);
   if (event.status === 'waiting') return `等待补充：${event.user_message}`;
   if (event.status === 'failed') return `执行失败：${event.user_message}`;
   if (isDraftToolEvent(event)) return event.user_message.startsWith('生成「') ? event.user_message : `生成「${event.user_message}」`;
-  return event.user_message.startsWith('调用「') ? event.user_message : `调用「${event.user_message}」`;
+  const message = normalizeToolMessage(event.user_message);
+  return message.startsWith('调用「') ? message : `调用「${message}」`;
 }
 
 function runActivityKind(event: AiRunEvent): RunActivityItem['kind'] {
@@ -133,8 +180,13 @@ function isUnfinishedAssistantMessage(message: AiMessage) {
     || message.parts.some((part) => isPendingApprovalPart(part) || isPendingHumanInputPart(part));
 }
 
-function isMessageFooterReady(message: AiMessage) {
+function hasActiveRunEvent(runEvents: AiRunEvent[]) {
+  return runEvents.some((event) => isActiveRunStatus(event.status));
+}
+
+function isMessageFooterReady(message: AiMessage, isAssistantResponseActive: boolean, runEvents: AiRunEvent[]) {
   if (message.role === 'user') return true;
+  if (isAssistantResponseActive || hasActiveRunEvent(runEvents)) return false;
   return !isUnfinishedAssistantMessage(message);
 }
 
@@ -187,7 +239,7 @@ function RunActivityInline({
   isLive: boolean;
   includeCompletedSkill?: boolean;
 }) {
-  const activityEntries = entries ?? toRunEventEntries(events);
+  const activityEntries = collapseRunActivityEntries(entries ?? toRunEventEntries(events));
   const skillEntries = activityEntries.filter(({ event }) => event.type === 'skill');
   const displayedSkillEntry = includeCompletedSkill && !isLive
     ? skillEntries[skillEntries.length - 1]
@@ -232,12 +284,23 @@ type MessageTimelineItem =
 
 function createMessageTimelineItems(parts: AiMessage['parts'], runEventEntries: RunActivityEventEntry[]): MessageTimelineItem[] {
   if (parts.some((part) => part.type === 'run_activity' && part.activity)) {
+    const latestActivityByCollapseKey = new Map<string, AiRunEvent>();
+    parts.forEach((part) => {
+      if (part.type !== 'run_activity' || !part.activity) return;
+      const collapseKey = runActivityCollapseKey(part.activity);
+      if (collapseKey) latestActivityByCollapseKey.set(collapseKey, part.activity);
+    });
+    const displayedActivityKeys = new Set<string>();
     return parts.flatMap((part, partIndex): MessageTimelineItem[] => {
       if (part.type === 'run_activity' && part.activity) {
+        const collapseKey = runActivityCollapseKey(part.activity);
+        if (collapseKey && displayedActivityKeys.has(collapseKey)) return [];
+        if (collapseKey) displayedActivityKeys.add(collapseKey);
+        const activity = collapseKey ? latestActivityByCollapseKey.get(collapseKey) ?? part.activity : part.activity;
         return [{
           key: `activity-part:${part.id || partIndex}`,
           type: 'activity',
-          entry: { key: part.activity.id || part.id || `activity-${partIndex}`, event: part.activity, sequence: partIndex + 1 },
+          entry: { key: part.activity.id || part.id || `activity-${partIndex}`, event: activity, sequence: partIndex + 1 },
         }];
       }
       if (part.type === 'text') {
@@ -251,7 +314,8 @@ function createMessageTimelineItems(parts: AiMessage['parts'], runEventEntries: 
       return [{ key: `part:${part.id || partIndex}`, type: 'part', part }];
     });
   }
-  const eventCount = runEventEntries.length;
+  const collapsedRunEventEntries = collapseRunActivityEntries(runEventEntries);
+  const eventCount = collapsedRunEventEntries.length;
   const groupedParts = new Map<number, MessageTimelineItem[]>();
   const addPartAtBoundary = (boundary: number, item: MessageTimelineItem) => {
     const normalizedBoundary = Math.max(0, Math.min(boundary, eventCount));
@@ -278,7 +342,7 @@ function createMessageTimelineItems(parts: AiMessage['parts'], runEventEntries: 
 
   const timeline: MessageTimelineItem[] = [...(groupedParts.get(0) ?? [])];
   const displayedSkillNames = new Set<string>();
-  runEventEntries.forEach((entry) => {
+  collapsedRunEventEntries.forEach((entry) => {
     if (entry.event.type === 'skill') {
       const skillName = extractSkillName(entry.event);
       if (displayedSkillNames.has(skillName)) {
@@ -539,6 +603,7 @@ export function MessageBubble({
   resourceOptionLoader,
   runEvents = [],
   isLatestAssistant = false,
+  isAssistantResponseActive = false,
   onApprovalDecision,
   onAddRecommendationToPlan,
   onInventoryAction,
@@ -552,6 +617,7 @@ export function MessageBubble({
   resourceOptionLoader?: AiResourceOptionLoader;
   runEvents?: AiRunEvent[];
   isLatestAssistant?: boolean;
+  isAssistantResponseActive?: boolean;
   onApprovalDecision: AiApprovalDecisionSubmit;
   onAddRecommendationToPlan?: (item: AiTodayRecommendationItem, card: AiResultCard, messageId: string, partId: string) => void;
   onInventoryAction?: (
@@ -578,10 +644,11 @@ export function MessageBubble({
   const isGeneratingDraft = !isUser && message.status === 'running' && runEvents.some(isDraftToolEvent) && !hasDraftContent(message);
   const runEventEntries = !isUser ? toRunEventEntries(runEvents) : [];
   const timelineItems = createMessageTimelineItems(message.parts, runEventEntries);
+  const firstPendingApprovalId = message.parts.find((part) => part.approval?.status === 'pending')?.approval?.id ?? null;
 
   const [messageCopied, setMessageCopied] = useState(false);
   const [feedback, setFeedback] = useState<'up' | 'down' | null>(null);
-  const showFooter = isMessageFooterReady(message);
+  const showFooter = isMessageFooterReady(message, isAssistantResponseActive, runEvents);
 
   const copyMessageText = async () => {
     const textContent = message.parts
@@ -659,6 +726,16 @@ export function MessageBubble({
               );
             }
             if (part.type === 'approval_request' && part.approval) {
+              const isPendingApproval = part.approval.status === 'pending';
+              const canSubmitApproval =
+                isLatestAssistant
+                && isPendingApproval
+                && part.approval.id === firstPendingApprovalId;
+              const submitDisabledReason = isPendingApproval && part.approval.id !== firstPendingApprovalId
+                  ? '请先处理上一个草稿，再确认这一项。'
+                  : !isLatestAssistant && isPendingApproval
+                    ? '请先处理最新的待确认草稿。'
+                    : undefined;
               return (
                 <ApprovalPanel
                   key={item.key}
@@ -668,6 +745,8 @@ export function MessageBubble({
                   resourceOptionLoader={resourceOptionLoader}
                   onDecision={onApprovalDecision}
                   isLatest={isLatestAssistant}
+                  canSubmit={canSubmitApproval || !isPendingApproval}
+                  submitDisabledReason={submitDisabledReason}
                 />
               );
             }
