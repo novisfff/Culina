@@ -3,6 +3,8 @@ from __future__ import annotations
 from collections.abc import Iterator
 import json
 import logging
+from queue import Queue
+from threading import Thread
 from time import perf_counter
 from typing import TYPE_CHECKING, Any
 
@@ -56,6 +58,7 @@ if TYPE_CHECKING:
     from app.ai.workspace_service import AIApplicationService
 
 logger = logging.getLogger(__name__)
+_STREAM_DONE = object()
 
 class WorkspaceGraphRunner:
     def __init__(self, service: AIApplicationService) -> None:
@@ -65,6 +68,7 @@ class WorkspaceGraphRunner:
         self.skill_registry = build_workspace_skill_registry()
         self.checkpointer = SQLAlchemyCheckpointSaver(self.db)
         self.graph = self._build_graph()
+        self._direct_stream_sink: Any = None
 
     def invoke_user_message(
         self,
@@ -224,45 +228,45 @@ class WorkspaceGraphRunner:
             len(prompt),
         )
         try:
-            for chunk in self.graph.stream(
-                {
-                "family_id": family_id,
-                "user_id": user_id,
-                "conversation_id": conversation_id,
-                "message": prompt,
-                "current_message_attachments": attachments,
-                "client_message_id": client_message_id,
-                    "client_run_id": client_run_id,
-                    "quick_task": quick_task,
-                    "subject": prepared["subject"],
-                    "run_artifacts": [],
-                    "injected_skill_keys": [],
-                    "injection_history": [],
-                    "agent_rounds": 0,
-                    "pending_human_input": {},
-                    "pending_approval_id": "",
-                    "last_human_input_result": {},
-                    "status": "running",
-                    "error": None,
-                    "run_id": run_id,
-                    "user_message_id": prepared["user_message_id"],
-                },
-                config=config,
-                stream_mode=["updates", "custom"],
-                durability="sync",
-            ):
-                mode, update = chunk if isinstance(chunk, tuple) else ("updates", chunk)
-                if mode == "custom":
-                    event, data = self._custom_stream_event(update)
-                    if event:
-                        if event == "progress" and isinstance(data.get("id"), str):
-                            seen_event_ids.add(data["id"])
-                        yield (event, data)
-                    continue
-                if mode != "updates":
-                    continue
+            def graph_stream() -> Iterator[Any]:
+                return self.graph.stream(
+                    {
+                        "family_id": family_id,
+                        "user_id": user_id,
+                        "conversation_id": conversation_id,
+                        "message": prompt,
+                        "current_message_attachments": attachments,
+                        "client_message_id": client_message_id,
+                        "client_run_id": client_run_id,
+                        "quick_task": quick_task,
+                        "subject": prepared["subject"],
+                        "run_artifacts": [],
+                        "injected_skill_keys": [],
+                        "injection_history": [],
+                        "agent_rounds": 0,
+                        "pending_human_input": {},
+                        "pending_approval_id": "",
+                        "last_human_input_result": {},
+                        "status": "running",
+                        "error": None,
+                        "run_id": run_id,
+                        "user_message_id": prepared["user_message_id"],
+                    },
+                    config=config,
+                    stream_mode=["updates", "custom"],
+                    durability="sync",
+                )
+
+            def handle_update(_update: Any) -> Iterator[tuple[str, dict[str, Any]]]:
                 if run_id:
                     yield from self._new_progress_events(run_id, seen_event_ids)
+
+            yield from self._stream_graph_events(
+                graph_stream,
+                handle_update=handle_update,
+                seen_event_ids=seen_event_ids,
+                on_disconnect=lambda: self._cancel_after_disconnect(run_id),
+            )
         except GeneratorExit:
             self._cancel_after_disconnect(run_id)
             raise
@@ -898,34 +902,35 @@ class WorkspaceGraphRunner:
 
         seen_event_ids: set[str] = set()
         try:
-            for chunk in self.graph.stream(
-                Command(
-                    resume={
-                        "requestId": request_id,
-                        "selectedOptionIds": selected_option_ids,
-                        "text": text or "",
-                        "userId": user_id,
-                        "familyId": family_id,
-                    }
-                ),
-                config=config,
-                stream_mode=["updates", "custom"],
-                durability="sync",
-            ):
-                mode, update = chunk if isinstance(chunk, tuple) else ("updates", chunk)
-                if mode == "custom":
-                    event, data = self._custom_stream_event(update)
-                    if event:
-                        if event == "progress" and isinstance(data.get("id"), str):
-                            seen_event_ids.add(data["id"])
-                        yield (event, data)
-                    continue
-                if mode != "updates":
-                    continue
+            def graph_stream() -> Iterator[Any]:
+                return self.graph.stream(
+                    Command(
+                        resume={
+                            "requestId": request_id,
+                            "selectedOptionIds": selected_option_ids,
+                            "text": text or "",
+                            "userId": user_id,
+                            "familyId": family_id,
+                        }
+                    ),
+                    config=config,
+                    stream_mode=["updates", "custom"],
+                    durability="sync",
+                )
+
+            def handle_update(update: Any) -> Iterator[tuple[str, dict[str, Any]]]:
+                nonlocal run_id
                 if not run_id:
                     run_id = self._run_id_from_update(update) or run_id
                 if run_id:
                     yield from self._new_progress_events(run_id, seen_event_ids)
+
+            yield from self._stream_graph_events(
+                graph_stream,
+                handle_update=handle_update,
+                seen_event_ids=seen_event_ids,
+                on_disconnect=lambda: self._cancel_after_disconnect(run_id) if run_id else None,
+            )
         except GeneratorExit:
             if run_id:
                 self._cancel_after_disconnect(run_id)
@@ -1029,38 +1034,38 @@ class WorkspaceGraphRunner:
 
         yield from emit_approval_result_part()
         try:
-            for chunk in self.graph.stream(
-                Command(
-                    resume={
-                        "approvalId": approval_id,
-                        "decision": decision,
-                        "draftVersion": draft_version,
-                        "values": values,
-                        "comment": comment,
-                        "userId": user_id,
-                        "familyId": family_id,
-                    }
-                ),
-                config=config,
-                stream_mode=["updates", "custom"],
-                durability="sync",
-            ):
-                mode, update = chunk if isinstance(chunk, tuple) else ("updates", chunk)
-                if mode == "custom":
-                    yield from emit_approval_result_part()
-                    event, data = self._custom_stream_event(update)
-                    if event:
-                        if event == "progress" and isinstance(data.get("id"), str):
-                            seen_event_ids.add(data["id"])
-                        yield (event, data)
-                    continue
-                if mode != "updates":
-                    continue
+            def graph_stream() -> Iterator[Any]:
+                return self.graph.stream(
+                    Command(
+                        resume={
+                            "approvalId": approval_id,
+                            "decision": decision,
+                            "draftVersion": draft_version,
+                            "values": values,
+                            "comment": comment,
+                            "userId": user_id,
+                            "familyId": family_id,
+                        }
+                    ),
+                    config=config,
+                    stream_mode=["updates", "custom"],
+                    durability="sync",
+                )
+
+            def handle_update(update: Any) -> Iterator[tuple[str, dict[str, Any]]]:
+                nonlocal run_id
                 if not run_id:
                     run_id = self._run_id_from_update(update) or run_id
                 yield from emit_approval_result_part()
                 if run_id:
                     yield from self._new_progress_events(run_id, seen_event_ids)
+
+            yield from self._stream_graph_events(
+                graph_stream,
+                handle_update=handle_update,
+                seen_event_ids=seen_event_ids,
+                on_disconnect=lambda: self._cancel_after_disconnect(run_id) if run_id else None,
+            )
         except GeneratorExit:
             if run_id:
                 self._cancel_after_disconnect(run_id)
@@ -2395,6 +2400,58 @@ class WorkspaceGraphRunner:
         context_summary["approvalStats"] = approvals
         run.context_summary = context_summary
 
+    def _stream_graph_events(
+        self,
+        graph_stream: Any,
+        *,
+        handle_update: Any,
+        seen_event_ids: set[str],
+        on_disconnect: Any,
+    ) -> Iterator[tuple[str, dict[str, Any]]]:
+        event_queue: Queue[Any] = Queue()
+        previous_sink = self._direct_stream_sink
+
+        def enqueue(event: str, data: dict[str, Any]) -> None:
+            if event == "progress" and isinstance(data.get("id"), str):
+                seen_event_ids.add(data["id"])
+            event_queue.put((event, data))
+
+        def consume_graph() -> None:
+            self._direct_stream_sink = enqueue
+            try:
+                for chunk in graph_stream():
+                    mode, update = chunk if isinstance(chunk, tuple) else ("updates", chunk)
+                    if mode == "custom":
+                        event, data = self._custom_stream_event(update)
+                        if event:
+                            enqueue(event, data)
+                        continue
+                    if mode != "updates":
+                        continue
+                    for event, data in handle_update(update):
+                        enqueue(event, data)
+            except BaseException as exc:
+                event_queue.put(exc)
+            finally:
+                self._direct_stream_sink = previous_sink
+                event_queue.put(_STREAM_DONE)
+
+        worker = Thread(target=consume_graph, name="ai-workspace-stream", daemon=True)
+        worker.start()
+        try:
+            while True:
+                item = event_queue.get()
+                if item is _STREAM_DONE:
+                    break
+                if isinstance(item, BaseException):
+                    raise item
+                yield item
+        except GeneratorExit:
+            on_disconnect()
+            raise
+        finally:
+            worker.join(timeout=1)
+
 
     def _stream_approval_followup(
         self,
@@ -2725,18 +2782,27 @@ class WorkspaceGraphRunner:
     def _persistent_progress_writer(self, writer: Any, state: WorkspaceGraphState) -> Any:
         def write(update: dict[str, Any]) -> None:
             event_name, data = self._custom_stream_event(update)
+            direct_sink = self._direct_stream_sink
+
+            def emit(event: str, payload: dict[str, Any]) -> None:
+                if direct_sink is not None:
+                    direct_sink(event, payload)
+                    return
+                if writer is not None:
+                    writer({"event": event, "data": payload})
+
             if event_name == "message_delta":
                 data = self._cache_live_message_delta(state, data)
-                if writer is not None:
-                    writer({"event": "message_delta", "data": data})
+                emit("message_delta", data)
                 return
             if event_name == "message_part":
                 data = self._cache_live_message_part(state, data)
-                if writer is not None:
-                    writer({"event": "message_part", "data": data})
+                emit("message_part", data)
                 return
             if event_name != "progress":
-                if writer is not None:
+                if event_name:
+                    emit(event_name, data)
+                elif writer is not None:
                     writer(update)
                 return
 
@@ -2767,19 +2833,16 @@ class WorkspaceGraphRunner:
                 self._commit_stream_checkpoint(state, run_status=event.status)
             serialized_event = serialize_ai_run_event(event)
             message_id, part = self._cache_live_activity_part(state, serialized_event)
-            if writer is not None:
-                writer(
-                    {
-                        "event": "message_part",
-                        "data": {
-                            "message_id": message_id,
-                            "conversation_id": state["conversation_id"],
-                            "run_id": event.run_id,
-                            "part": part,
-                        },
-                    }
-                )
-                writer({"event": "progress", "data": serialized_event})
+            emit(
+                "message_part",
+                {
+                    "message_id": message_id,
+                    "conversation_id": state["conversation_id"],
+                    "run_id": event.run_id,
+                    "part": part,
+                },
+            )
+            emit("progress", serialized_event)
 
         return write
 

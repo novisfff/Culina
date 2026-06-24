@@ -30,7 +30,7 @@ class ToolExecutor:
         self.allowed_side_effects = allowed_side_effects
         self.results = results if results is not None else []
 
-    def call(self, name: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
+    def call(self, name: str, payload: dict[str, Any] | None = None, *, progress_event_id: str | None = None) -> dict[str, Any]:
         if self.context.cancel_check is not None and self.context.cancel_check():
             raise AIExecutionCancelled("AI run was cancelled")
         tool_input = payload or {}
@@ -81,6 +81,13 @@ class ToolExecutor:
         try:
             validate_json_value(tool_input, definition.input_schema, location=f"{name} input")
         except Exception:
+            if progress_event_id:
+                self._emit_tool_progress(
+                    definition.name,
+                    self._tool_message(definition.display_name, definition.side_effect, "failed"),
+                    "failed",
+                    event_id=progress_event_id,
+                )
             logger.warning(
                 "AI tool input validation failed tool=%s run_id=%s conversation_id=%s family_id=%s input_keys=%s",
                 name,
@@ -100,14 +107,23 @@ class ToolExecutor:
             self.context.family_id,
             sorted(tool_input.keys()),
         )
-        progress_event_id = create_id("ai_run_event")
+        progress_event_id = progress_event_id or create_id("ai_run_event")
         self._emit_tool_progress(
             definition.name,
             self._tool_message(definition.display_name, definition.side_effect, "running"),
             "running",
             event_id=progress_event_id,
         )
-        result = timed_call(definition, self.context, tool_input)
+        try:
+            result = timed_call(definition, self.context, tool_input)
+        except Exception:
+            self._emit_tool_progress(
+                definition.name,
+                self._tool_message(definition.display_name, definition.side_effect, "failed"),
+                "failed",
+                event_id=progress_event_id,
+            )
+            raise
         if self.context.cancel_check is not None and self.context.cancel_check():
             raise AIExecutionCancelled("AI run was cancelled")
         self.results.append(result)
@@ -132,6 +148,12 @@ class ToolExecutor:
         try:
             validate_json_value(result.output, definition.output_schema, location=f"{name} output")
         except Exception:
+            self._emit_tool_progress(
+                definition.name,
+                self._tool_message(definition.display_name, definition.side_effect, "failed"),
+                "failed",
+                event_id=progress_event_id,
+            )
             logger.warning(
                 "AI tool output validation failed tool=%s run_id=%s conversation_id=%s family_id=%s output_keys=%s",
                 name,

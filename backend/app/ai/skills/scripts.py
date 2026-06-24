@@ -163,10 +163,15 @@ class SkillScriptExecutor:
     def has(self, tool_name: str) -> bool:
         return self.catalog.has(tool_name)
 
-    def call(self, tool_name: str, payload: dict[str, Any]) -> dict[str, Any]:
+    def call(self, tool_name: str, payload: dict[str, Any], *, progress_event_id: str | None = None) -> dict[str, Any]:
         function = self.catalog.get(tool_name)
-        validate_json_value(payload, function.input_schema, location=f"{tool_name} input")
-        self._emit_progress(tool_name, "running")
+        try:
+            validate_json_value(payload, function.input_schema, location=f"{tool_name} input")
+        except Exception:
+            if progress_event_id:
+                self._emit_progress(tool_name, "failed", event_id=progress_event_id)
+            raise
+        self._emit_progress(tool_name, "running", event_id=progress_event_id)
         started_at = time.perf_counter()
         try:
             output = self._run_subprocess(function, payload)
@@ -186,7 +191,7 @@ class SkillScriptExecutor:
                 output=wrapped_output,
             )
             self._record_result(result)
-            self._emit_progress(tool_name, "completed")
+            self._emit_progress(tool_name, "completed", event_id=progress_event_id)
             return wrapped_output
         except Exception as exc:
             self._record_result(
@@ -200,7 +205,7 @@ class SkillScriptExecutor:
                     error=str(exc),
                 )
             )
-            self._emit_progress(tool_name, "failed")
+            self._emit_progress(tool_name, "failed", event_id=progress_event_id)
             raise
 
     def records(self) -> list[dict[str, Any]]:
@@ -277,7 +282,7 @@ class SkillScriptExecutor:
             raise RuntimeError(f"skill script failed: {function.tool_name}: {error}")
         return response.get("result")
 
-    def _emit_progress(self, tool_name: str, status: str) -> None:
+    def _emit_progress(self, tool_name: str, status: str, *, event_id: str | None = None) -> None:
         function_name = tool_name.removeprefix("script.")
         if status == "failed":
             user_message = f"脚本「{function_name}」执行失败"
@@ -290,6 +295,7 @@ class SkillScriptExecutor:
             tool_name,
             user_message,
             status,
+            event_id=event_id,
         )
 
 

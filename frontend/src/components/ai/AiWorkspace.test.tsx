@@ -4,7 +4,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { api } from '../../api/client';
 import { queryKeys } from '../../api/queryKeys';
-import type { AiApprovalRequest, AiChatResponse, AiConversation, AiGeneratedRecipeDraft, AiMessage, AiQualityMetrics, AiResultCard, AiTaskDraft, Food, Ingredient } from '../../api/types';
+import type { AiApprovalRequest, AiChatResponse, AiConversation, AiGeneratedRecipeDraft, AiMessage, AiQualityMetrics, AiResultCard, AiRunEvent, AiTaskDraft, Food, Ingredient } from '../../api/types';
 import { ResultCard } from './AiResultCards';
 import { MessageBubble } from './AiConversationThread';
 import { AiWorkspace, ApprovalPanel } from './AiWorkspace';
@@ -991,6 +991,48 @@ describe('MessageBubble', () => {
     activityRows = Array.from(rendered.container.querySelectorAll<HTMLElement>('.ai-run-activity-summary .ai-run-activity-row'));
     expect(activityRows.map((row) => row.textContent)).toEqual(['调用脚本「lint_recipe_draft」', '调用「可用库存」']);
     expect(rendered.container.textContent).not.toContain('执行完成');
+    rendered.unmount();
+  });
+
+  it('marks running tool activity rows as active for the execution animation', async () => {
+    const toolRunning: AiRunEvent = {
+      id: 'tool-running-active',
+      run_id: 'run-active-tool',
+      type: 'tool',
+      internal_code: 'recipe.create_draft',
+      user_message: '生成「菜谱确认表单」',
+      status: 'running',
+      created_at: '2026-05-30T00:00:03Z',
+    };
+    const renderMessage = (activity = toolRunning) => (
+      <MessageBubble
+        message={{
+          id: 'message-active-tool',
+          conversation_id: 'conversation-1',
+          role: 'assistant',
+          content: '',
+          content_type: 'parts',
+          parts: [{ id: 'tool-running-active-part', type: 'run_activity', activity }],
+          run_id: 'run-active-tool',
+          status: activity.status === 'running' ? 'running' : 'completed',
+          metadata: {},
+          created_at: '2026-05-30T00:00:00Z',
+        }}
+        user={{ id: 'user-1', username: 'me', display_name: '我', avatar_seed: 'seed', avatar_image: null }}
+        runEvents={[]}
+        onApprovalDecision={() => undefined}
+      />
+    );
+    const rendered = await renderWithQuery(renderMessage());
+    await flush();
+    let row = rendered.container.querySelector<HTMLElement>('.ai-run-activity-row');
+    expect(row?.className).toContain('is-active');
+    expect(row?.className).toContain('kind-draft');
+
+    await rendered.rerender(renderMessage({ ...toolRunning, status: 'completed', created_at: '2026-05-30T00:00:04Z' }));
+    await flush();
+    row = rendered.container.querySelector<HTMLElement>('.ai-run-activity-row');
+    expect(row?.className).not.toContain('is-active');
     rendered.unmount();
   });
 
@@ -2000,6 +2042,7 @@ describe('AiMobilePage viewport', () => {
           messages={[]}
           runEventsById={{}}
           streamProgress={[]}
+          thinkingRunIds={new Set()}
           activeAssistantRunId={null}
           draft=""
           attachments={[]}
@@ -2679,6 +2722,102 @@ describe('AiWorkspace pending approval restore', () => {
     rendered.unmount();
   });
 
+  it('keeps thinking below an approval operation result until the continuation emits content', async () => {
+    vi.useFakeTimers();
+    const pending = approval();
+    vi.spyOn(api, 'getAiMessages').mockResolvedValue([
+      {
+        id: 'message-1',
+        conversation_id: 'conversation-1',
+        role: 'assistant',
+        content: '菜谱草稿已经生成，请确认。',
+        content_type: 'parts',
+        parts: [
+          { id: 'text-1', type: 'text', text: '菜谱草稿已经生成，请确认。' },
+          { id: 'approval-part-1', type: 'approval_request', approval: pending },
+        ],
+        run_id: 'run-1',
+        status: 'waiting_approval',
+        metadata: {},
+        created_at: '2026-05-30T00:00:00Z',
+      },
+    ]);
+    vi.spyOn(api, 'getPendingAiApprovals').mockResolvedValueOnce([pending]).mockResolvedValue([]);
+    vi.spyOn(api, 'decideAiApproval').mockResolvedValue({
+      approval: { ...pending, status: 'approved', decision: 'approved', submitted_values: pending.initial_values },
+      draft: {
+        id: pending.draft_id,
+        conversation_id: pending.conversation_id,
+        message_id: pending.message_id,
+        run_id: pending.run_id,
+        draft_type: 'recipe',
+        payload: pending.initial_values.recipe ?? {},
+        preview_summary: '菜谱草稿',
+        status: 'confirmed',
+        version: pending.draft_version,
+        schema_version: 'recipe.v1',
+        validation_errors: [],
+        expires_at: null,
+        created_at: '2026-05-30T00:00:00Z',
+        updated_at: '2026-05-30T00:00:00Z',
+      },
+      operation: { status: 'succeeded' },
+      business_entity: {},
+    });
+    let streamHandlers: Parameters<typeof api.streamAiApprovalDecision>[3] | undefined;
+    vi.spyOn(api, 'streamAiApprovalDecision').mockImplementation(async (_conversationId, _approvalId, _payload, handlers) => {
+      streamHandlers = handlers;
+      handlers?.onMessagePart?.({
+        message_id: 'message-1',
+        conversation_id: 'conversation-1',
+        run_id: 'run-1',
+        part: {
+          id: 'operation-result-part-1',
+          type: 'result_card',
+          card: {
+            id: 'operation-result-card-1',
+            type: 'operation_result',
+            title: '已创建菜谱',
+            data: {
+              actionSummary: '番茄鸡蛋面已写入菜谱库。',
+              entityCount: 1,
+              entityCountLabel: '1 道菜谱',
+              workspaceLabel: '菜谱库',
+            },
+          } as AiResultCard,
+        },
+      });
+      return new Promise<AiChatResponse>(() => undefined);
+    });
+    const rendered = await renderWithQuery(<AiWorkspace conversations={[conversation()]} isLoading={false} />);
+    await advanceTimers(0);
+    await act(async () => {
+      rendered.container.querySelector<HTMLButtonElement>('.ai-desktop-view .ai-approval-actions .solid-button')?.click();
+    });
+    await advanceTimers(300);
+
+    const desktopBody = rendered.container.querySelector<HTMLElement>('.ai-desktop-view .ai-message-assistant .ai-message-body') as HTMLElement;
+    const operationCard = desktopBody.querySelector<HTMLElement>('.ai-operation-result-card') as HTMLElement;
+    const thinkingCue = desktopBody.querySelector<HTMLElement>('.ai-thinking-cue') as HTMLElement;
+    expect(operationCard?.textContent).toContain('已创建菜谱');
+    expect(thinkingCue?.textContent).toContain('正在思考');
+    expect(operationCard.compareDocumentPosition(thinkingCue) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+    await act(async () => {
+      streamHandlers?.onMessageDelta?.({
+        message_id: 'message-1',
+        conversation_id: 'conversation-1',
+        run_id: 'run-1',
+        part_id: 'resume-text-after-operation',
+        delta: '接下来我继续处理下一道菜。',
+      });
+    });
+    await advanceTimers(0);
+    expect(rendered.container.textContent).toContain('接下来我继续处理下一道菜。');
+    expect(rendered.container.querySelector('.ai-thinking-cue')).toBeNull();
+    rendered.unmount();
+  });
+
   it('merges a restored approval into its original assistant message', async () => {
     vi.spyOn(api, 'getAiMessages').mockResolvedValue([
       {
@@ -2858,6 +2997,80 @@ describe('AiWorkspace pending approval restore', () => {
     expect(cancelSpy.mock.calls[0]?.[0]).toMatch(/^agent_run-/);
     expect(streamAborted).toBe(true);
     expect(rendered.container.textContent).toContain('已取消这次任务');
+    rendered.unmount();
+  });
+
+  it('shows a local thinking cue until the first streamed delta or active tool progress', async () => {
+    vi.useFakeTimers();
+    vi.spyOn(api, 'getAiMessages').mockResolvedValue([]);
+    vi.spyOn(api, 'getPendingAiApprovals').mockResolvedValue([]);
+    let resolveStream: ((response: AiChatResponse) => void) | null = null;
+    let streamHandlers: Parameters<typeof api.streamChatAi>[1] | undefined;
+    let streamedRunId = 'agent_run-client';
+    vi.spyOn(api, 'streamChatAi').mockImplementation(async (payload, handlers) => {
+      streamedRunId = payload.client_run_id ?? streamedRunId;
+      streamHandlers = handlers;
+      return new Promise<AiChatResponse>((resolve) => {
+        resolveStream = resolve;
+      });
+    });
+    const rendered = await renderWithQuery(<AiWorkspace conversations={[conversation()]} isLoading={false} />);
+    await advanceTimers(0);
+    changeInput(rendered.container.querySelector<HTMLTextAreaElement>('textarea.text-input') as HTMLTextAreaElement, '安排三天晚餐');
+    await act(async () => {
+      rendered.container.querySelector<HTMLFormElement>('form.ai-composer')?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    });
+    await advanceTimers(299);
+    expect(rendered.container.querySelector('.ai-thinking-cue')).toBeNull();
+    await advanceTimers(1);
+    expect(rendered.container.querySelector('.ai-desktop-view .ai-thinking-cue')?.textContent).toContain('正在思考');
+    expect(rendered.container.querySelector('.ai-mobile-page .ai-thinking-cue')?.textContent).toContain('正在思考');
+
+    await act(async () => {
+      streamHandlers?.onProgress?.({
+        id: 'progress-tool-running',
+        run_id: streamedRunId,
+        type: 'tool',
+        internal_code: 'inventory.read_available_items',
+        user_message: '调用「可用库存」',
+        status: 'running',
+        created_at: '2026-05-30T00:00:00Z',
+      });
+    });
+    await advanceTimers(0);
+    expect(rendered.container.querySelector('.ai-thinking-cue')).toBeNull();
+    expect(rendered.container.textContent).toContain('调用「可用库存」');
+
+    await act(async () => {
+      resolveStream?.({
+        conversation_id: 'conversation-1',
+        message: {
+          id: 'message-final-thinking',
+          conversation_id: 'conversation-1',
+          role: 'assistant',
+          content: '已整理好建议。',
+          content_type: 'parts',
+          parts: [{ id: 'part-final-thinking', type: 'text', text: '已整理好建议。' }],
+          run_id: streamedRunId,
+          status: 'completed',
+          metadata: {},
+          created_at: '2026-05-30T00:00:00Z',
+        },
+        run: {
+          id: streamedRunId,
+          agent_key: 'workspace_planner',
+          intent: 'multi_skill',
+          status: 'completed',
+          model: 'rules',
+          created_at: '2026-05-30T00:00:00Z',
+        },
+        events: [],
+        included: { result_cards: [], drafts: [], approvals: [] },
+      });
+    });
+    await advanceTimers(0);
+    expect(rendered.container.textContent).toContain('已整理好建议。');
+    expect(rendered.container.querySelector('.ai-thinking-cue')).toBeNull();
     rendered.unmount();
   });
 

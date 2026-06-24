@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import inspect
 from dataclasses import dataclass, field
 from datetime import date
 from typing import Any
@@ -200,15 +201,43 @@ class WorkspaceOrchestratorAgent:
         current_scoped_executor = self.injection_manager.scoped_tool_executor(context, active_skill_keys)
         current_script_executors: dict[str, SkillScriptExecutor] = {}
         current_tool_names: set[str] = set()
+        current_tool_definitions: dict[str, ToolDefinition] = {}
+        preview_event_ids_by_key: dict[str, str] = {}
 
         def refresh_tools() -> list[ToolDefinition]:
-            nonlocal current_scoped_executor, current_script_executors, current_tool_names
+            nonlocal current_scoped_executor, current_script_executors, current_tool_names, current_tool_definitions
             context.ensure_active()
             current_scoped_executor = self.injection_manager.scoped_tool_executor(context, active_skill_keys)
             context.tool_executor = current_scoped_executor
             tools, current_script_executors = self.injection_manager.tool_definitions(active_skill_keys, context)
             current_tool_names = {definition.name for definition in tools}
+            current_tool_definitions = {definition.name: definition for definition in tools}
             return tools
+
+        def tool_progress_message(name: str, status: str) -> tuple[str, str]:
+            definition = current_tool_definitions.get(name)
+            display_name = definition.display_name if definition else name
+            side_effect = definition.side_effect if definition else "read"
+            if name == "human.request_input" and status != "failed":
+                return "waiting", "等待用户补充信息"
+            if status == "failed":
+                return "failed", f"「{display_name}」调用失败"
+            if side_effect == "draft":
+                return status, f"生成「{display_name}」"
+            return status, f"调用「{display_name}」"
+
+        def preview_tool_call(name: str, preview_key: str, status: str) -> str | None:
+            context.ensure_active()
+            if name == "skill.inject":
+                return None
+            if name not in current_tool_names:
+                return None
+            event_id = create_id("ai_run_event") if status == "running" else preview_event_ids_by_key.get(preview_key) or create_id("ai_run_event")
+            preview_event_ids_by_key[preview_key] = event_id
+            event_type = "script" if name in current_script_executors else "tool"
+            visible_status, user_message = tool_progress_message(name, status)
+            context.emit_progress(event_type, name, user_message, status=visible_status, event_id=event_id)
+            return event_id
 
         def inject_skills(payload: dict[str, Any]) -> dict[str, Any]:
             nonlocal active_skill_keys
@@ -253,7 +282,7 @@ class WorkspaceOrchestratorAgent:
         try:
             refresh_tools()
 
-            def call_tool(name: str, payload: dict[str, Any]) -> dict[str, Any]:
+            def call_tool(name: str, payload: dict[str, Any], progress_event_id: str | None = None) -> dict[str, Any]:
                 nonlocal draft_created_this_call, human_input_requested_this_call
                 context.ensure_active()
                 if name == "skill.inject":
@@ -265,7 +294,7 @@ class WorkspaceOrchestratorAgent:
                         "status": "unavailable_tool",
                     }
                 if name in current_script_executors:
-                    return current_script_executors[name].call(name, payload)
+                    return current_script_executors[name].call(name, payload, progress_event_id=progress_event_id)
                 definition = current_scoped_executor.registry.get(name)
                 tool_payload = payload
                 after_approval = {}
@@ -317,7 +346,7 @@ class WorkspaceOrchestratorAgent:
                         "code": "human_input_budget_exhausted",
                         "status": "waiting_input",
                     }
-                output = current_scoped_executor.call(name, tool_payload)
+                output = current_scoped_executor.call(name, tool_payload, progress_event_id=progress_event_id)
                 tool_signatures_this_call.append(tool_signature)
                 context.ensure_active()
                 if definition.side_effect == "read":
@@ -371,14 +400,17 @@ class WorkspaceOrchestratorAgent:
                 streamed_text.append(delta)
                 emit_visible_delta(message_id, part_id, delta)
 
-            provider_result = self.provider.generate_with_tools(
-                system=self._system_prompt(active_skill_keys),
-                user=self._provider_user_input(context, active_skill_keys, injection_history),
-                tools=refresh_tools,
-                tool_handler=call_tool,
-                message_handler=handle_message_delta,
-                max_rounds=max(4, self.max_rounds),
-            )
+            provider_kwargs = {
+                "system": self._system_prompt(active_skill_keys),
+                "user": self._provider_user_input(context, active_skill_keys, injection_history),
+                "tools": refresh_tools,
+                "tool_handler": call_tool,
+                "message_handler": handle_message_delta,
+                "max_rounds": max(4, self.max_rounds),
+            }
+            if "tool_preview_handler" in inspect.signature(self.provider.generate_with_tools).parameters:
+                provider_kwargs["tool_preview_handler"] = preview_tool_call
+            provider_result = self.provider.generate_with_tools(**provider_kwargs)
             if provider_result.status in {"failed", "fallback"}:
                 return self._failed_result(
                     provider_result,

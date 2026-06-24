@@ -602,6 +602,7 @@ export function MessageBubble({
   ingredients = [],
   resourceOptionLoader,
   runEvents = [],
+  isThinking = false,
   isLatestAssistant = false,
   isAssistantResponseActive = false,
   onApprovalDecision,
@@ -616,6 +617,7 @@ export function MessageBubble({
   ingredients?: Ingredient[];
   resourceOptionLoader?: AiResourceOptionLoader;
   runEvents?: AiRunEvent[];
+  isThinking?: boolean;
   isLatestAssistant?: boolean;
   isAssistantResponseActive?: boolean;
   onApprovalDecision: AiApprovalDecisionSubmit;
@@ -640,8 +642,13 @@ export function MessageBubble({
     if (part.type === 'image') return Boolean(part.image);
     return Boolean(part.card || part.approval || part.draft || part.request);
   });
-  const isWaitingForAssistant = !isUser && message.status === 'running' && !hasRenderableParts && runEvents.length === 0;
   const isGeneratingDraft = !isUser && message.status === 'running' && runEvents.some(isDraftToolEvent) && !hasDraftContent(message);
+  const hasPendingInteractivePart = message.parts.some((part) => isPendingApprovalPart(part) || isPendingHumanInputPart(part));
+  const hasSpecificProgressCue = hasActiveRunEvent(runEvents) || isGeneratingDraft || hasPendingInteractivePart;
+  const shouldShowThinking =
+    !isUser
+    && !hasSpecificProgressCue
+    && isThinking;
   const runEventEntries = !isUser ? toRunEventEntries(runEvents) : [];
   const timelineItems = createMessageTimelineItems(message.parts, runEventEntries);
   const firstPendingApprovalId = message.parts.find((part) => part.approval?.status === 'pending')?.approval?.id ?? null;
@@ -684,14 +691,6 @@ export function MessageBubble({
       <div className="ai-message-content">
         <div className="ai-message-role">{isUser ? userName : 'AI 厨房助手'}</div>
         <div className="ai-message-body">
-          {isWaitingForAssistant && (
-            <div className="ai-thinking-cue" aria-live="polite">
-              <span>正在整理回复</span>
-              <i aria-hidden="true" />
-              <i aria-hidden="true" />
-              <i aria-hidden="true" />
-            </div>
-          )}
           {timelineItems.map((item) => {
             if (item.type === 'activity') {
               return <RunActivityInline key={item.key} entries={[item.entry]} isLive={isUnfinishedAssistantMessage(message)} includeCompletedSkill />;
@@ -766,6 +765,14 @@ export function MessageBubble({
             }
             return null;
           })}
+          {shouldShowThinking && (
+            <div className="ai-thinking-cue" aria-live="polite">
+              <span>正在思考</span>
+              <i aria-hidden="true" />
+              <i aria-hidden="true" />
+              <i aria-hidden="true" />
+            </div>
+          )}
           {isGeneratingDraft && (
             <div className="ai-draft-generating-cue" aria-live="polite">
               <span className="ai-draft-generating-icon" aria-hidden="true">

@@ -230,6 +230,57 @@ class BlockingProgressiveRecipeDraftProvider(BaseChatProvider):
         )
 
 
+class PreviewedRecipeDraftProvider(BaseChatProvider):
+    model_name = "previewed-recipe-draft-model"
+
+    def generate(self, *, system: str, user: str) -> ChatProviderResult:
+        raise AssertionError("workspace orchestrator should use generate_with_tools")
+
+    def generate_with_tools(
+        self,
+        *,
+        system: str,
+        user: str,
+        tools,
+        tool_handler,
+        message_handler=None,
+        tool_preview_handler=None,
+        max_rounds: int = 8,
+    ) -> ChatProviderResult:
+        del system, user, max_rounds
+        tool_handler("skill.inject", {"skills": ["recipe_draft"], "reason": "需要生成菜谱草稿"})
+        assert "recipe.create_draft" in _tool_names(tools)
+        event_id = tool_preview_handler("recipe.create_draft", "0", "running") if tool_preview_handler is not None else None
+        _emit_text(message_handler, "我先生成菜谱草稿。")
+        tool_handler(
+            "recipe.create_draft",
+            {
+                "draft": {
+                    "draftType": "recipe",
+                    "schemaVersion": "recipe.v1",
+                    "title": "番茄鸡蛋面",
+                    "servings": 2,
+                    "prep_minutes": 20,
+                    "difficulty": "easy",
+                    "ingredient_items": [
+                        {"ingredient_id": None, "ingredient_name": "番茄", "quantity": 2, "unit": "个", "note": ""},
+                        {"ingredient_id": None, "ingredient_name": "鸡蛋", "quantity": 2, "unit": "个", "note": ""},
+                    ],
+                    "steps": [
+                        {"title": "备菜", "text": "番茄切块，鸡蛋打散。", "icon": "bowl", "summary": "备菜", "estimated_minutes": 5, "tip": "", "key_points": []},
+                        {"title": "煮面", "text": "煮面后加入番茄鸡蛋汤底。", "icon": "pan", "summary": "煮熟", "estimated_minutes": 15, "tip": "", "key_points": []},
+                        {"title": "调味", "text": "出锅前少量加盐调味。", "icon": "plate", "summary": "调味出锅", "estimated_minutes": 2, "tip": "", "key_points": []},
+                    ],
+                    "tips": "",
+                    "scene_tags": [],
+                    "media_ids": [],
+                }
+            },
+            event_id,
+        )
+        return ChatProviderResult(text="我先生成菜谱草稿。", status="waiting_approval", model=self.model_name)
+
+
 class RetrySameDraftProvider(BaseChatProvider):
     model_name = "retry-same-draft-model"
 
@@ -417,6 +468,28 @@ def _response_event(body: str) -> dict:
 
 
 class AIWorkspaceStreamingTestCase(AIAgentInfraTestCase):
+        def test_stream_chat_yields_delta_before_orchestrator_node_finishes(self) -> None:
+            first_delta_persisted = threading.Event()
+            continue_stream = threading.Event()
+            provider = BlockingStreamingChatProvider(first_delta_persisted, continue_stream)
+
+            with self.SessionLocal() as db:
+                stream = AIApplicationService(db, provider=provider).stream_chat(
+                    family_id=self.family.id,
+                    user_id=self.user.id,
+                    message="随便聊聊",
+                    client_run_id="agent_run-realtime-delta-test",
+                )
+                event_name, data = next(stream)
+                self.assertEqual(event_name, "message_delta")
+                self.assertEqual(data["delta"], "第一段")
+                self.assertTrue(first_delta_persisted.is_set())
+
+                continue_stream.set()
+                remaining_events = list(stream)
+
+            self.assertTrue(any(event_name == "response" for event_name, _data in remaining_events))
+
         def test_ai_workspace_caches_live_delta_for_other_clients_before_final_response(self) -> None:
             first_delta_persisted = threading.Event()
             continue_stream = threading.Event()
@@ -770,10 +843,8 @@ class AIWorkspaceStreamingTestCase(AIAgentInfraTestCase):
                 and data.get("part", {}).get("type") == "run_activity"
                 and data.get("part", {}).get("activity", {}).get("internal_code") == "meal_plan.create_draft"
             ]
-            self.assertEqual(
-                [event["part"]["activity"]["status"] for event in draft_activity_events],
-                ["running", "completed"],
-            )
+            self.assertEqual(draft_activity_events[0]["part"]["activity"]["status"], "running")
+            self.assertEqual(draft_activity_events[-1]["part"]["activity"]["status"], "completed")
             first_approval_event_index = next(
                 index
                 for index, (event_name, data) in enumerate(events)
@@ -802,6 +873,38 @@ class AIWorkspaceStreamingTestCase(AIAgentInfraTestCase):
             self.assertIn("调用「临期食材」", event_messages)
             self.assertIn("生成「餐食计划确认表单」", event_messages)
             self.assertNotIn("餐食安排执行完成", event_messages)
+
+        def test_ai_workspace_streams_previewed_tool_name_as_single_activity(self) -> None:
+            with patch("app.ai.workspace_service.get_chat_provider", return_value=PreviewedRecipeDraftProvider()):
+                with self.client.stream(
+                    "POST",
+                    "/api/ai/chat/stream",
+                    json={"message": "生成一个番茄鸡蛋面菜谱", "client_run_id": "agent_run-preview-tool-name"},
+                ) as response:
+                    self.assertEqual(response.status_code, 200)
+                    body = "".join(response.iter_text())
+
+            events = _sse_events(body)
+            draft_activity_events = [
+                data
+                for event_name, data in events
+                if event_name == "message_part"
+                and data.get("part", {}).get("type") == "run_activity"
+                and data.get("part", {}).get("activity", {}).get("internal_code") == "recipe.create_draft"
+            ]
+            self.assertEqual(draft_activity_events[0]["part"]["activity"]["status"], "running")
+            self.assertEqual(draft_activity_events[-1]["part"]["activity"]["status"], "completed")
+            self.assertEqual(
+                len({event["part"]["activity"]["id"] for event in draft_activity_events}),
+                1,
+            )
+            approval_index = next(
+                index
+                for index, (event_name, data) in enumerate(events)
+                if event_name == "message_part" and data.get("part", {}).get("type") == "approval_request"
+            )
+            first_draft_activity_index = next(index for index, item in enumerate(events) if item[1] in draft_activity_events)
+            self.assertLess(first_draft_activity_index, approval_index)
 
         def test_ai_workspace_stops_after_first_draft_before_approval(self) -> None:
             provider = ProgressiveMultiDraftProvider()

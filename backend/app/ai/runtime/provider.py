@@ -4,6 +4,7 @@ import base64
 from collections.abc import Callable
 from collections.abc import Iterator
 from dataclasses import dataclass, field
+import inspect
 import json
 import logging
 import re
@@ -43,8 +44,9 @@ class ProviderUserInput:
     images: list[ProviderImageInput] = field(default_factory=list)
 
 
-ToolCallHandler = Callable[[str, dict[str, Any]], dict[str, Any]]
+ToolCallHandler = Callable[[str, dict[str, Any], str | None], dict[str, Any]]
 AssistantMessageHandler = Callable[[str], None]
+ToolPreviewHandler = Callable[[str, str, str], str | None]
 ToolProvider = Callable[[], list[ToolDefinition]]
 ProviderUserContent = str | ProviderUserInput
 
@@ -64,9 +66,10 @@ class BaseChatProvider:
         tools: ToolProvider,
         tool_handler: ToolCallHandler,
         message_handler: AssistantMessageHandler | None = None,
+        tool_preview_handler: ToolPreviewHandler | None = None,
         max_rounds: int = 8,
     ) -> ChatProviderResult:
-        del tools, tool_handler, message_handler, max_rounds
+        del tools, tool_handler, message_handler, tool_preview_handler, max_rounds
         return self.generate(system=system, user=user)
 
     def stream_generate(
@@ -102,9 +105,10 @@ class DisabledChatProvider(BaseChatProvider):
         tools: ToolProvider,
         tool_handler: ToolCallHandler,
         message_handler: AssistantMessageHandler | None = None,
+        tool_preview_handler: ToolPreviewHandler | None = None,
         max_rounds: int = 8,
     ) -> ChatProviderResult:
-        del system, user, tools, tool_handler, message_handler, max_rounds
+        del system, user, tools, tool_handler, message_handler, tool_preview_handler, max_rounds
         return ChatProviderResult(text=None, status="fallback", model=self.model_name, error="provider unavailable")
 
 
@@ -186,6 +190,7 @@ class OpenAICompatibleChatProvider(BaseChatProvider):
         tools: ToolProvider,
         tool_handler: ToolCallHandler,
         message_handler: AssistantMessageHandler | None = None,
+        tool_preview_handler: ToolPreviewHandler | None = None,
         max_rounds: int = 8,
     ) -> ChatProviderResult:
         messages: list[Any] = [SystemMessage(content=system), HumanMessage(content=self._human_content(user))]
@@ -198,18 +203,36 @@ class OpenAICompatibleChatProvider(BaseChatProvider):
             model_tools = [self._tool_definition_to_model_tool(tool) for tool in current_tools]
             client = self.client.bind_tools(model_tools).bind(temperature=0)
             message = None
+            preview_names_by_key: dict[str, str] = {}
+            preview_event_ids_by_key: dict[str, str] = {}
             for attempt in range(STREAM_TOOL_CALL_RETRY_COUNT + 1):
                 emitted_text_this_attempt = False
+                streamed_text_this_attempt: list[str] = []
                 message = None
                 try:
                     for chunk in client.stream(messages):
                         message = chunk if message is None else message + chunk
+                        self._emit_tool_call_previews(
+                            chunk,
+                            name_map=name_map,
+                            preview_names_by_key=preview_names_by_key,
+                            preview_event_ids_by_key=preview_event_ids_by_key,
+                            tool_preview_handler=tool_preview_handler,
+                        )
                         text = self._content_to_text(getattr(chunk, "content", ""))
                         if text:
                             emitted_text_this_attempt = True
+                            streamed_text_this_attempt.append(text)
                             text_parts.append(text)
                             if message_handler is not None:
                                 message_handler(text)
+                    if message is not None:
+                        self._emit_unstreamed_message_text(
+                            message,
+                            streamed_text_parts=streamed_text_this_attempt,
+                            text_parts=text_parts,
+                            message_handler=message_handler,
+                        )
                     break
                 except AIExecutionCancelled:
                     raise
@@ -229,6 +252,11 @@ class OpenAICompatibleChatProvider(BaseChatProvider):
                     )
                     if retrying:
                         continue
+                    self._mark_tool_call_previews_failed(
+                        preview_names_by_key=preview_names_by_key,
+                        preview_event_ids_by_key=preview_event_ids_by_key,
+                        tool_preview_handler=tool_preview_handler,
+                    )
                     if not requested_calls:
                         return self._generate_with_tools_blocking(
                             system=system,
@@ -236,6 +264,7 @@ class OpenAICompatibleChatProvider(BaseChatProvider):
                             tools=tools,
                             tool_handler=tool_handler,
                             message_handler=message_handler,
+                            tool_preview_handler=tool_preview_handler,
                             max_rounds=max_rounds,
                         )
                     return ChatProviderResult(
@@ -276,6 +305,8 @@ class OpenAICompatibleChatProvider(BaseChatProvider):
                 name = name_map.get(model_name, model_name)
                 args = call.get("args") if isinstance(call.get("args"), dict) else {}
                 call_id = str(call.get("id") or f"tool_call_{len(requested_calls) + 1}")
+                preview_key = str(call.get("_preview_key") or len(requested_calls))
+                progress_event_id = preview_event_ids_by_key.get(preview_key)
                 requested_calls.append({"id": call_id, "name": name, "args": args})
                 logger.info(
                     "AI provider requested tool model=%s call_id=%s tool=%s arg_keys=%s",
@@ -285,7 +316,7 @@ class OpenAICompatibleChatProvider(BaseChatProvider):
                     sorted(args.keys()),
                 )
                 try:
-                    output = tool_handler(name, args)
+                    output = self._invoke_tool_handler(tool_handler, name, args, progress_event_id)
                 except (AIExecutionCancelled, HumanInputRequired):
                     raise
                 except Exception as exc:
@@ -337,8 +368,10 @@ class OpenAICompatibleChatProvider(BaseChatProvider):
         tools: ToolProvider,
         tool_handler: ToolCallHandler,
         message_handler: AssistantMessageHandler | None = None,
+        tool_preview_handler: ToolPreviewHandler | None = None,
         max_rounds: int = 8,
     ) -> ChatProviderResult:
+        del tool_preview_handler
         messages: list[Any] = [SystemMessage(content=system), HumanMessage(content=self._human_content(user))]
         requested_calls: list[dict[str, Any]] = []
         text_parts: list[str] = []
@@ -399,7 +432,7 @@ class OpenAICompatibleChatProvider(BaseChatProvider):
                     sorted(args.keys()),
                 )
                 try:
-                    output = tool_handler(name, args)
+                    output = self._invoke_tool_handler(tool_handler, name, args, None)
                 except (AIExecutionCancelled, HumanInputRequired):
                     raise
                 except Exception as exc:
@@ -446,7 +479,7 @@ class OpenAICompatibleChatProvider(BaseChatProvider):
     def _message_tool_calls(self, message: Any) -> list[dict[str, Any]]:
         tool_calls = list(getattr(message, "tool_calls", None) or [])
         normalized: list[dict[str, Any]] = []
-        for call in tool_calls:
+        for index, call in enumerate(tool_calls):
             if not isinstance(call, dict):
                 continue
             args = call.get("args")
@@ -458,6 +491,7 @@ class OpenAICompatibleChatProvider(BaseChatProvider):
                     "id": call.get("id"),
                     "name": call.get("name"),
                     "args": args if isinstance(args, dict) else {},
+                    "_preview_key": str(call.get("index") if call.get("index") is not None else index),
                 }
             )
         if normalized:
@@ -470,7 +504,7 @@ class OpenAICompatibleChatProvider(BaseChatProvider):
                 continue
             key = str(chunk.get("index") if chunk.get("index") is not None else index)
             if key not in by_index:
-                by_index[key] = {"id": "", "name": "", "args": ""}
+                by_index[key] = {"id": "", "name": "", "args": "", "preview_key": key}
             item = by_index[key]
             if chunk.get("id"):
                 item["id"] += str(chunk["id"])
@@ -480,8 +514,122 @@ class OpenAICompatibleChatProvider(BaseChatProvider):
                 item["args"] += str(chunk["args"])
         for item in by_index.values():
             args = self._json_object(item["args"])
-            normalized.append({"id": item["id"] or None, "name": item["name"], "args": args if isinstance(args, dict) else {}})
+            normalized.append(
+                {
+                    "id": item["id"] or None,
+                    "name": item["name"],
+                    "args": args if isinstance(args, dict) else {},
+                    "_preview_key": item["preview_key"],
+                }
+            )
         return normalized
+
+    def _emit_unstreamed_message_text(
+        self,
+        message: Any,
+        *,
+        streamed_text_parts: list[str],
+        text_parts: list[str],
+        message_handler: AssistantMessageHandler | None,
+    ) -> None:
+        final_text = self._content_to_text(getattr(message, "content", ""))
+        if not final_text:
+            return
+        streamed_text = "".join(streamed_text_parts)
+        if final_text == streamed_text:
+            return
+        if not streamed_text:
+            delta = final_text
+        elif final_text.startswith(streamed_text):
+            delta = final_text[len(streamed_text):]
+        else:
+            return
+        if not delta:
+            return
+        text_parts.append(delta)
+        if message_handler is not None:
+            message_handler(delta)
+
+    def _emit_tool_call_previews(
+        self,
+        chunk: Any,
+        *,
+        name_map: dict[str, str],
+        preview_names_by_key: dict[str, str],
+        preview_event_ids_by_key: dict[str, str],
+        tool_preview_handler: ToolPreviewHandler | None,
+    ) -> None:
+        if tool_preview_handler is None:
+            return
+        for key, model_name in self._tool_call_names_from_chunk(chunk).items():
+            if key in preview_event_ids_by_key:
+                continue
+            previous_name = preview_names_by_key.get(key, "")
+            if model_name in name_map or not previous_name or model_name.startswith(previous_name):
+                candidate_name = model_name
+            else:
+                candidate_name = f"{previous_name}{model_name}"
+            preview_names_by_key[key] = candidate_name
+            tool_name = name_map.get(candidate_name)
+            if not tool_name:
+                continue
+            event_id = tool_preview_handler(tool_name, key, "running")
+            if event_id:
+                preview_names_by_key[key] = tool_name
+                preview_event_ids_by_key[key] = event_id
+
+    def _mark_tool_call_previews_failed(
+        self,
+        *,
+        preview_names_by_key: dict[str, str],
+        preview_event_ids_by_key: dict[str, str],
+        tool_preview_handler: ToolPreviewHandler | None,
+    ) -> None:
+        if tool_preview_handler is None:
+            return
+        for key, event_id in preview_event_ids_by_key.items():
+            tool_name = preview_names_by_key.get(key)
+            if tool_name and event_id:
+                tool_preview_handler(tool_name, key, "failed")
+
+    def _invoke_tool_handler(
+        self,
+        tool_handler: ToolCallHandler,
+        name: str,
+        args: dict[str, Any],
+        progress_event_id: str | None,
+    ) -> dict[str, Any]:
+        try:
+            parameters = inspect.signature(tool_handler).parameters
+        except (TypeError, ValueError):
+            return tool_handler(name, args, progress_event_id)
+        positional = [
+            parameter
+            for parameter in parameters.values()
+            if parameter.kind in {inspect.Parameter.POSITIONAL_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD}
+        ]
+        has_varargs = any(parameter.kind == inspect.Parameter.VAR_POSITIONAL for parameter in parameters.values())
+        if has_varargs or len(positional) >= 3:
+            return tool_handler(name, args, progress_event_id)
+        return tool_handler(name, args)
+
+    def _tool_call_names_from_chunk(self, chunk: Any) -> dict[str, str]:
+        names: dict[str, str] = {}
+        tool_calls = list(getattr(chunk, "tool_calls", None) or [])
+        for index, call in enumerate(tool_calls):
+            if not isinstance(call, dict):
+                continue
+            name = str(call.get("name") or "")
+            if name:
+                names[str(call.get("index") if call.get("index") is not None else index)] = name
+        chunks = list(getattr(chunk, "tool_call_chunks", None) or [])
+        for index, item in enumerate(chunks):
+            if not isinstance(item, dict):
+                continue
+            name = str(item.get("name") or "")
+            if name:
+                names[str(item.get("index") if item.get("index") is not None else index)] = name
+        return names
 
     def _json_object(self, text: str) -> dict[str, Any] | None:
         try:

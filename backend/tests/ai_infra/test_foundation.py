@@ -180,6 +180,153 @@ class AIFoundationTestCase(AIAgentInfraTestCase):
             self.assertEqual(result.text, "继续处理完成")
             self.assertEqual(stream_client.stream.call_count, 2)
 
+        def test_openai_compatible_provider_previews_tool_name_before_args_complete(self) -> None:
+            class StreamChunk:
+                content = ""
+                tool_calls: list[dict[str, Any]] = []
+
+                def __init__(self, chunks: list[dict[str, Any]]) -> None:
+                    self.tool_call_chunks = chunks
+
+                def __add__(self, other):
+                    return StreamChunk([*self.tool_call_chunks, *getattr(other, "tool_call_chunks", [])])
+
+            class TextChunk:
+                tool_calls: list[dict[str, Any]] = []
+                tool_call_chunks: list[dict[str, Any]] = []
+
+                def __init__(self, content: str) -> None:
+                    self.content = content
+
+                def __add__(self, other):
+                    return TextChunk(f"{self.content}{getattr(other, 'content', '')}")
+
+            provider = OpenAICompatibleChatProvider.__new__(OpenAICompatibleChatProvider)
+            provider.model_name = "compatible-model"
+            stream_client = MagicMock()
+            tool_client = MagicMock()
+            tool_client.bind.return_value = stream_client
+            provider.client = MagicMock()
+            provider.client.bind_tools.return_value = tool_client
+            stream_client.stream.side_effect = [
+                [
+                    StreamChunk([{"index": 0, "id": "call-read-items", "name": "inventory_read_available_items", "args": ""}]),
+                    StreamChunk([{"index": 0, "args": "{\"limit\": 50}"}]),
+                ],
+                [TextChunk("读取完成")],
+            ]
+            tool = build_workspace_tool_registry().get("inventory.read_available_items")
+            previews: list[tuple[str, str, str]] = []
+            handler_event_ids: list[str | None] = []
+
+            def preview_handler(name: str, preview_key: str, status: str) -> str:
+                previews.append((name, preview_key, status))
+                return f"event-{preview_key}"
+
+            def tool_handler(name: str, payload: dict[str, Any], progress_event_id: str | None = None) -> dict[str, Any]:
+                handler_event_ids.append(progress_event_id)
+                self.assertEqual(name, "inventory.read_available_items")
+                self.assertEqual(payload, {"limit": 50})
+                return {"items": []}
+
+            result = provider.generate_with_tools(
+                system="s",
+                user="u",
+                tools=lambda: [tool],
+                tool_handler=tool_handler,
+                tool_preview_handler=preview_handler,
+            )
+
+            self.assertEqual(result.status, "completed")
+            self.assertEqual(previews, [("inventory.read_available_items", "0", "running")])
+            self.assertEqual(handler_event_ids, ["event-0"])
+
+        def test_openai_compatible_provider_flushes_final_text_before_tool_execution(self) -> None:
+            class AggregateChunk:
+                content = ""
+                tool_calls: list[dict[str, Any]] = []
+
+                def __init__(self, final_content: str = "", chunks: list[dict[str, Any]] | None = None) -> None:
+                    self.final_content = final_content
+                    self.tool_call_chunks = chunks or []
+
+                def __add__(self, other):
+                    current_content = getattr(self, "content", "") or getattr(self, "final_content", "")
+                    next_content = getattr(other, "content", "") or getattr(other, "final_content", "")
+                    return AggregateMessage(
+                        content=f"{current_content}{next_content}",
+                        chunks=[*getattr(self, "tool_call_chunks", []), *getattr(other, "tool_call_chunks", [])],
+                    )
+
+            class AggregateMessage:
+                tool_calls: list[dict[str, Any]] = []
+
+                def __init__(self, *, content: str, chunks: list[dict[str, Any]]) -> None:
+                    self.content = content
+                    self.tool_call_chunks = chunks
+
+                def __add__(self, other):
+                    next_content = getattr(other, "content", "") or getattr(other, "final_content", "")
+                    return AggregateMessage(
+                        content=f"{self.content}{next_content}",
+                        chunks=[*self.tool_call_chunks, *getattr(other, "tool_call_chunks", [])],
+                    )
+
+            class TextChunk:
+                tool_calls: list[dict[str, Any]] = []
+                tool_call_chunks: list[dict[str, Any]] = []
+
+                def __init__(self, content: str) -> None:
+                    self.content = content
+
+                def __add__(self, other):
+                    return TextChunk(f"{self.content}{getattr(other, 'content', '')}")
+
+            provider = OpenAICompatibleChatProvider.__new__(OpenAICompatibleChatProvider)
+            provider.model_name = "compatible-model"
+            stream_client = MagicMock()
+            tool_client = MagicMock()
+            tool_client.bind.return_value = stream_client
+            provider.client = MagicMock()
+            provider.client.bind_tools.return_value = tool_client
+            stream_client.stream.side_effect = [
+                [
+                    AggregateChunk(final_content="我先看一下库存，再继续整理建议。"),
+                    AggregateChunk(chunks=[{"index": 0, "id": "call-read-items", "name": "inventory_read_available_items", "args": "{\"limit\": 50}"}]),
+                ],
+                [TextChunk("整理完成。")],
+            ]
+            tool = build_workspace_tool_registry().get("inventory.read_available_items")
+            order: list[str] = []
+
+            def message_handler(delta: str) -> None:
+                order.append(f"text:{delta}")
+
+            def tool_handler(name: str, payload: dict[str, Any], progress_event_id: str | None = None) -> dict[str, Any]:
+                del progress_event_id
+                order.append(f"tool:{name}")
+                self.assertEqual(payload, {"limit": 50})
+                return {"items": []}
+
+            result = provider.generate_with_tools(
+                system="s",
+                user="u",
+                tools=lambda: [tool],
+                tool_handler=tool_handler,
+                message_handler=message_handler,
+            )
+
+            self.assertEqual(result.status, "completed")
+            self.assertEqual(
+                order,
+                [
+                    "text:我先看一下库存，再继续整理建议。",
+                    "tool:inventory.read_available_items",
+                    "text:整理完成。",
+                ],
+            )
+            self.assertEqual(result.text, "我先看一下库存，再继续整理建议。整理完成。")
+
         def test_openai_compatible_provider_fails_after_stream_retries_when_tool_already_ran(self) -> None:
             class ToolCallChunk:
                 content = ""
@@ -299,6 +446,71 @@ class AIFoundationTestCase(AIAgentInfraTestCase):
             )
             self.assertIn("餐食", injected_instructions)
             self.assertIn("购物", injected_instructions)
+
+        def test_orchestrator_tool_preview_skips_skill_inject_and_does_not_reuse_next_call_id(self) -> None:
+            outer = self
+
+            class PreviewProvider(BaseChatProvider):
+                model_name = "orchestrator-preview-model"
+
+                def generate(self, *, system: str, user: str) -> ChatProviderResult:
+                    raise AssertionError("orchestrator should use generate_with_tools")
+
+                def generate_with_tools(
+                    self,
+                    *,
+                    system: str,
+                    user: str,
+                    tools,
+                    tool_handler,
+                    message_handler=None,
+                    tool_preview_handler=None,
+                    max_rounds: int = 8,
+                ) -> ChatProviderResult:
+                    del system, user, max_rounds, message_handler
+                    assert tool_preview_handler is not None
+                    outer.assertIsNone(tool_preview_handler("skill.inject", "0", "running"))
+                    tool_handler("skill.inject", {"skills": ["recipe_draft"], "reason": "需要整理菜谱"})
+                    _tool_names(tools)
+                    first_id = tool_preview_handler("recipe.create_draft", "0", "running")
+                    second_id = tool_preview_handler("recipe.create_draft", "0", "running")
+                    outer.assertIsNotNone(first_id)
+                    outer.assertIsNotNone(second_id)
+                    outer.assertNotEqual(first_id, second_id)
+                    return ChatProviderResult(text="继续整理。", status="completed", model=self.model_name)
+
+            progress_events: list[dict[str, Any]] = []
+            context = SkillContext(
+                db=MagicMock(),
+                family_id=self.family.id,
+                user_id=self.user.id,
+                conversation_id="conversation-orchestrator-preview",
+                run_id="run-orchestrator-preview",
+                conversation=[{"id": "message-1", "role": "user", "content": "整理菜谱", "artifacts": []}],
+                current_message="整理菜谱",
+                tool_executor=ToolExecutor(
+                    build_workspace_tool_registry(),
+                    ToolContext(
+                        db=MagicMock(),
+                        family_id=self.family.id,
+                        user_id=self.user.id,
+                        conversation_id="conversation-orchestrator-preview",
+                        run_id="run-orchestrator-preview",
+                    ),
+                ),
+                stream_writer=lambda update: progress_events.append(update["data"]) if update.get("event") == "progress" else None,
+            )
+
+            result = WorkspaceOrchestratorAgent(
+                provider=PreviewProvider(),
+                skill_registry=build_workspace_skill_registry(),
+            ).run(context)
+
+            self.assertEqual(result.status, "completed")
+            self.assertNotIn("skill.inject", [event["internal_code"] for event in progress_events])
+            recipe_events = [event for event in progress_events if event["internal_code"] == "recipe.create_draft"]
+            self.assertEqual(len(recipe_events), 2)
+            self.assertEqual(len({event["id"] for event in recipe_events}), 2)
 
         def test_skill_injection_manager_keeps_repeated_injection_as_noop(self) -> None:
             manager = SkillInjectionManager(build_workspace_skill_registry())

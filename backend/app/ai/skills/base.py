@@ -76,6 +76,7 @@ class SkillContext:
         internal_code: str,
         user_message: str,
         status: str = "running",
+        event_id: str | None = None,
     ) -> None:
         self.ensure_active()
         if self.stream_writer is None:
@@ -84,7 +85,7 @@ class SkillContext:
             {
                 "event": "progress",
                 "data": {
-                    "id": create_id("ai_run_event"),
+                    "id": event_id or create_id("ai_run_event"),
                     "run_id": self.run_id,
                     "type": event_type,
                     "internal_code": internal_code,

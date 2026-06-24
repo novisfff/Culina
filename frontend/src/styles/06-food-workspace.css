@@ -6325,15 +6325,33 @@ button.ai-clarification-option:hover:not(:disabled) .ai-clarification-option-ind
 }
 
 .ai-run-activity-row {
+  position: relative;
   display: grid;
   grid-template-columns: 18px minmax(0, 1fr);
   align-items: center;
   gap: 8px;
   min-width: 0;
+  overflow: hidden;
+  border-radius: 10px;
   color: #7a6a5e;
   font-size: 0.875rem;
   font-weight: 650;
   line-height: 1.4;
+}
+
+.ai-run-activity-row.is-active:not(.kind-skill)::before {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  pointer-events: none;
+  background: linear-gradient(110deg, transparent 0%, rgba(210, 107, 51, 0.08) 42%, rgba(255, 244, 232, 0.72) 50%, rgba(210, 107, 51, 0.08) 58%, transparent 100%);
+  transform: translateX(-115%);
+  animation: ai-run-activity-sweep 1.35s ease-in-out infinite;
+}
+
+.ai-run-activity-row > * {
+  position: relative;
+  z-index: 1;
 }
 
 .ai-run-activity-row > span:last-child {
@@ -6461,9 +6479,22 @@ button.ai-clarification-option:hover:not(:disabled) .ai-clarification-option-ind
   }
 }
 
+@keyframes ai-run-activity-sweep {
+  0% {
+    transform: translateX(-115%);
+  }
+
+  55%,
+  100% {
+    transform: translateX(115%);
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
+  .ai-thinking-cue i,
   .ai-run-activity-row.is-newest,
-  .ai-run-activity-row.is-active .ai-run-activity-dot {
+  .ai-run-activity-row.is-active .ai-run-activity-dot,
+  .ai-run-activity-row.is-active:not(.kind-skill)::before {
     animation: none;
   }
 }

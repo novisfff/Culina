@@ -26,6 +26,7 @@ type Props = {
   messages: AiMessage[];
   runEventsById: Record<string, AiRunEvent[]>;
   streamProgress: AiRunEvent[];
+  thinkingRunIds: Set<string>;
   activeAssistantRunId: string | null;
   draft: string;
   attachments: AiComposerAttachment[];
@@ -203,6 +204,7 @@ export function AiMobilePage(props: Props) {
                         ? props.streamProgress
                         : []
                 }
+                isThinking={Boolean(message.run_id && props.thinkingRunIds.has(message.run_id))}
                 isLatestAssistant={message.role === 'assistant' && index === props.messages.length - 1}
                 isAssistantResponseActive={
                   message.role === 'assistant'
