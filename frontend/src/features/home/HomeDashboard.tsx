@@ -554,7 +554,7 @@ export function HomeDashboard(props: HomeDashboardProps) {
                                     alt={item.ingredient_name}
                                   />
                                 </div>
-                                <div>
+                                <div className="dashboard-expiry-info">
                                   <strong>{item.ingredient_name}</strong>
                                   <p>{item.storage_location || INVENTORY_STATUS_LABELS[item.status]}</p>
                                 </div>

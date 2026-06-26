@@ -143,7 +143,7 @@ function App() {
   const [ingredientNavigationRequest, setIngredientNavigationRequest] = useState<IngredientNavigationRequest | null>(null);
   const ingredientNavigationRequestIdRef = useRef(0);
   const { notice, showNotice, clearNotice } = useNotice();
-  const aiImageJobMonitor = useAiImageJobMonitor(isAuthenticated);
+  const aiImageJobMonitor = useAiImageJobMonitor(isAuthenticated, { onNotice: showNotice });
 
   useEffect(() => {
     writeStringStorage('culina-active-tab', activeTab);
@@ -506,6 +506,16 @@ function App() {
       </button>
     </div>
   ) : null;
+  const mobileNotificationCenter = (
+    <AppNotificationCenter
+      jobs={aiImageJobMonitor.jobs}
+      isLoading={aiImageJobMonitor.isLoading}
+      variant="mobileIcon"
+      onDismissJob={aiImageJobMonitor.dismissJob}
+      onRetryJob={aiImageJobMonitor.retryJob}
+      retryingJobId={aiImageJobMonitor.retryingJobId}
+    />
+  );
 
   return (
     <AppShell
@@ -525,6 +535,8 @@ function App() {
       imageJobs={aiImageJobMonitor.jobs}
       imageJobsLoading={aiImageJobMonitor.isLoading}
       onDismissImageJob={aiImageJobMonitor.dismissJob}
+      onRetryImageJob={aiImageJobMonitor.retryJob}
+      retryingImageJobId={aiImageJobMonitor.retryingJobId}
       onTabChange={setActiveTab}
       onToggleSidebar={() => setSidebarCollapsed((current) => !current)}
       onOpenProfile={() => setFamilyOverlayMode('profile')}
@@ -539,7 +551,7 @@ function App() {
             sidebarMemberLabel={sidebarMemberLabel}
             sidebarActivityLabel={sidebarActivityLabel}
             inventoryAlerts={inventoryAlerts}
-            notificationCenter={<AppNotificationCenter jobs={aiImageJobMonitor.jobs} isLoading={aiImageJobMonitor.isLoading} variant="mobileIcon" onDismissJob={aiImageJobMonitor.dismissJob} />}
+            notificationCenter={mobileNotificationCenter}
             dashboardStats={dashboardStats}
             dashboardRecommendationItems={dashboardRecommendationItems}
             dashboardRecommendationPageCount={dashboardRecommendationPageCount}
@@ -609,7 +621,7 @@ function App() {
               foodScenes={foodScenes}
               foodPlanItems={foodPlanItems}
               foodPlanWeekRange={foodPlanWeekRange}
-              notificationCenter={<AppNotificationCenter jobs={aiImageJobMonitor.jobs} isLoading={aiImageJobMonitor.isLoading} variant="mobileIcon" onDismissJob={aiImageJobMonitor.dismissJob} />}
+              notificationCenter={mobileNotificationCenter}
               createFood={(payload) => createFoodMutation.mutateAsync(payload)}
               updateFood={(foodId, payload) => updateFoodMutation.mutateAsync({ foodId, payload })}
               updateFoodFavorite={(foodId, favorite) => toggleFavoriteMutation.mutateAsync({ foodId, favorite })}
@@ -659,7 +671,7 @@ function App() {
                 recipePlanWeekRange={foodPlanWeekRange}
                 startRecipeId={pendingRecipeCookId}
                 startFoodPlanItemId={pendingFoodPlanCookItemId}
-                notificationCenter={<AppNotificationCenter jobs={aiImageJobMonitor.jobs} isLoading={aiImageJobMonitor.isLoading} variant="mobileIcon" onDismissJob={aiImageJobMonitor.dismissJob} />}
+                notificationCenter={mobileNotificationCenter}
                 onStartRecipeHandled={() => {
                   setPendingRecipeCookId(null);
                   setPendingFoodPlanCookItemId(null);
@@ -716,7 +728,7 @@ function App() {
               inventoryItems={inventoryItems}
               shoppingItems={shoppingItems}
               recipes={recipes}
-              notificationCenter={<AppNotificationCenter jobs={aiImageJobMonitor.jobs} isLoading={aiImageJobMonitor.isLoading} variant="mobileIcon" onDismissJob={aiImageJobMonitor.dismissJob} />}
+              notificationCenter={mobileNotificationCenter}
               navigationRequest={ingredientNavigationRequest}
               createIngredient={(payload) => createIngredientMutation.mutateAsync(payload)}
               updateIngredient={(ingredientId, payload) => updateIngredientMutation.mutateAsync({ ingredientId, payload })}
@@ -749,7 +761,7 @@ function App() {
             isUpdatingMeal={updateMealMutation.isPending}
             isGeneratingPhoto={mealLogComposer.imageComposer.state.isGenerating}
             photoErrorMessage={mealLogComposer.imageComposer.state.errorMessage}
-            notificationCenter={<AppNotificationCenter jobs={aiImageJobMonitor.jobs} isLoading={aiImageJobMonitor.isLoading} variant="mobileIcon" onDismissJob={aiImageJobMonitor.dismissJob} />}
+            notificationCenter={mobileNotificationCenter}
             updateMealLog={(mealLogId, payload) => updateMealMutation.mutateAsync({ mealLogId, payload })}
             onBackHome={() => setActiveTab('home')}
             onSubmit={mealLogComposer.submit}
@@ -789,7 +801,7 @@ function App() {
               currentUserRecentLogs={currentUserRecentLogs}
               familyOwnerMember={familyOwnerMember}
               activityLogs={activityLogs}
-              notificationCenter={<AppNotificationCenter jobs={aiImageJobMonitor.jobs} isLoading={aiImageJobMonitor.isLoading} variant="mobileIcon" onDismissJob={aiImageJobMonitor.dismissJob} />}
+              notificationCenter={mobileNotificationCenter}
               overlayMode={familyOverlayMode}
               editingMember={editingMember}
               inviteForm={inviteForm}

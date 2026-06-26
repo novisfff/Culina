@@ -38,7 +38,9 @@ export type DashboardIconName =
   | 'more'
   | 'shield'
   | 'bar-chart'
-  | 'link';
+  | 'link'
+  | 'refresh'
+  | 'x';
 
 function IconBase(props: { children: ReactNode }) {
   return (
@@ -339,6 +341,22 @@ export function DashboardIcon(props: { name: DashboardIconName }) {
         <IconBase>
           <path d="M10 13a5 5 0 0 0 7.1 0l1.4-1.4a5 5 0 0 0-7.1-7.1L10.5 5" />
           <path d="M14 11a5 5 0 0 0-7.1 0l-1.4 1.4a5 5 0 0 0 7.1 7.1l.9-.9" />
+        </IconBase>
+      );
+    case 'refresh':
+      return (
+        <IconBase>
+          <path d="M20 12a8 8 0 0 1-13.5 5.8" />
+          <path d="M4 12A8 8 0 0 1 17.5 6.2" />
+          <path d="M17 3v4h-4" />
+          <path d="M7 21v-4h4" />
+        </IconBase>
+      );
+    case 'x':
+      return (
+        <IconBase>
+          <path d="m7 7 10 10" />
+          <path d="m17 7-10 10" />
         </IconBase>
       );
   }

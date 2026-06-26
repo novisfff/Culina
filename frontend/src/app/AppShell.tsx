@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type { AiRenderResponse } from '../api/types';
 import { Avatar } from '../components/ui-kit';
 import { DashboardIcon, ShellIcon, type ShellIconName } from './shellIcons';
@@ -51,21 +51,83 @@ function imageJobStatusLabel(job: AiRenderResponse) {
   return '已生成';
 }
 
+function imageJobStatusDescription(job: AiRenderResponse) {
+  if (job.status === 'queued') return '已加入队列，稍后开始生成';
+  if (job.status === 'running') return '正在生成图片，可以先处理其他内容';
+  if (job.status === 'failed') return job.error?.trim() || '生成失败，可以直接重试';
+  if (job.bind_status === 'skipped') return '已有用户图片，生成图已保留';
+  if (job.bind_status === 'bound') return '主图已自动更新';
+  return '生成图已保留在图片资产中';
+}
+
+function notificationSummary(activeCount: number, failedCount: number, totalCount: number) {
+  if (failedCount > 0) return `${failedCount} 条失败待处理`;
+  if (activeCount > 0) return `${activeCount} 条任务正在处理`;
+  if (totalCount > 0) return `${totalCount} 条最近通知`;
+  return '暂无新通知';
+}
+
+function notificationSummaryTone(activeCount: number, failedCount: number) {
+  if (failedCount > 0) return 'danger';
+  if (activeCount > 0) return 'active';
+  return 'quiet';
+}
+
 export function AppNotificationCenter(props: {
   jobs: AiRenderResponse[];
   isLoading?: boolean;
   variant?: 'desktop' | 'sidebar' | 'mobileIcon';
   onDismissJob?: (jobId: string) => void;
+  onRetryJob?: (jobId: string) => void;
+  retryingJobId?: string | null;
 }) {
   const [isOpen, setIsOpen] = useState(false);
+  const centerRef = useRef<HTMLDivElement | null>(null);
   const variant = props.variant ?? 'desktop';
   const activeCount = props.jobs.filter((job) => job.status === 'queued' || job.status === 'running').length;
   const failedCount = props.jobs.filter((job) => job.status === 'failed').length;
   const hasJobs = props.jobs.length > 0;
   const totalCount = props.jobs.length;
+  const summaryTone = notificationSummaryTone(activeCount, failedCount);
+
+  useEffect(() => {
+    if (!isOpen) return;
+
+    function isInsideCenter(target: EventTarget | null) {
+      return target instanceof Node && Boolean(centerRef.current?.contains(target));
+    }
+
+    function handlePointerDown(event: PointerEvent) {
+      if (!isInsideCenter(event.target)) {
+        setIsOpen(false);
+      }
+    }
+
+    function handleFocusIn(event: FocusEvent) {
+      if (!isInsideCenter(event.target)) {
+        setIsOpen(false);
+      }
+    }
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === 'Escape') {
+        setIsOpen(false);
+      }
+    }
+
+    document.addEventListener('pointerdown', handlePointerDown);
+    document.addEventListener('focusin', handleFocusIn);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('pointerdown', handlePointerDown);
+      document.removeEventListener('focusin', handleFocusIn);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isOpen]);
 
   return (
     <div
+      ref={centerRef}
       className={
         variant === 'mobileIcon'
           ? 'app-notification-center mobile-notification-center'
@@ -88,36 +150,66 @@ export function AppNotificationCenter(props: {
         {variant !== 'mobileIcon' && <strong>通知</strong>}
       </button>
       {isOpen && (
-        <div className="app-notification-popover" role="status" aria-live="polite">
+        <div className="app-notification-popover" role="dialog" aria-label="通知" aria-live="polite">
           <div className="app-notification-popover-head">
-            <strong>通知</strong>
-            <span>{activeCount > 0 ? `${activeCount} 条任务正在处理` : '最近通知状态'}</span>
+            <span className="app-notification-head-copy">
+              <span>通知</span>
+              <strong>图片生成任务</strong>
+            </span>
+            <span className={`app-notification-summary tone-${summaryTone}`}>
+              {notificationSummary(activeCount, failedCount, totalCount)}
+            </span>
           </div>
           {props.isLoading ? (
             <p className="app-notification-empty">正在读取通知...</p>
           ) : hasJobs ? (
             <div className="app-notification-list">
-              {props.jobs.slice(0, 6).map((job) => (
-                <div key={job.job_id ?? `${job.target_entity_type}-${job.target_entity_id}`} className={`app-notification-row status-${job.status}`}>
-                  <span className="app-notification-row-icon" aria-hidden="true">
-                    <DashboardIcon name={job.status === 'failed' ? 'bell' : 'check'} />
-                  </span>
-                  <span className="app-notification-row-copy">
-                    <strong title={imageJobTitle(job)}>{imageJobTitle(job)}</strong>
-                    <small>{imageJobStatusLabel(job)}</small>
-                  </span>
-                  {job.job_id && (job.status === 'succeeded' || job.status === 'failed') && (
-                    <button
-                      className="app-notification-clear"
-                      type="button"
-                      onClick={() => props.onDismissJob?.(job.job_id!)}
-                      aria-label={`清除${imageJobTitle(job)}通知`}
-                    >
-                      清除
-                    </button>
-                  )}
-                </div>
-              ))}
+              {props.jobs.slice(0, 6).map((job) => {
+                const jobId = job.job_id ?? null;
+                const isRetrying = Boolean(jobId && props.retryingJobId === jobId);
+                const canRetry = Boolean(jobId && job.status === 'failed' && props.onRetryJob);
+                return (
+                  <div key={jobId ?? `${job.target_entity_type}-${job.target_entity_id}`} className={`app-notification-row status-${job.status}`}>
+                    <span className="app-notification-row-icon" aria-hidden="true">
+                      <DashboardIcon name={job.status === 'failed' ? 'bell' : job.status === 'succeeded' ? 'check' : 'circle'} />
+                    </span>
+                    <span className="app-notification-row-copy">
+                      <span className="app-notification-row-title">
+                        <strong title={imageJobTitle(job)}>{imageJobTitle(job)}</strong>
+                        <em>{imageJobStatusLabel(job)}</em>
+                      </span>
+                      <small title={imageJobStatusDescription(job)}>{imageJobStatusDescription(job)}</small>
+                    </span>
+                    {jobId && (job.status === 'succeeded' || job.status === 'failed') && (
+                      <span className="app-notification-row-actions">
+                        {canRetry && (
+                          <button
+                            className="app-notification-retry"
+                            type="button"
+                            onClick={() => props.onRetryJob?.(jobId)}
+                            disabled={isRetrying}
+                            aria-label={`重试${imageJobTitle(job)}`}
+                          >
+                            <span aria-hidden="true">
+                              <DashboardIcon name="refresh" />
+                            </span>
+                            {isRetrying ? '提交中' : '重试'}
+                          </button>
+                        )}
+                        <button
+                          className="app-notification-clear"
+                          type="button"
+                          onClick={() => props.onDismissJob?.(jobId)}
+                          aria-label={`清除${imageJobTitle(job)}通知`}
+                          title="清除"
+                        >
+                          <DashboardIcon name="x" />
+                        </button>
+                      </span>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           ) : (
             <p className="app-notification-empty">当前没有通知。</p>
@@ -145,6 +237,8 @@ type AppShellProps = {
   imageJobs?: AiRenderResponse[];
   imageJobsLoading?: boolean;
   onDismissImageJob?: (jobId: string) => void;
+  onRetryImageJob?: (jobId: string) => void;
+  retryingImageJobId?: string | null;
   children: ReactNode;
   onTabChange: (tab: TabKey) => void;
   onToggleSidebar: () => void;
@@ -169,6 +263,8 @@ export function AppShell({
   imageJobs = [],
   imageJobsLoading = false,
   onDismissImageJob,
+  onRetryImageJob,
+  retryingImageJobId,
   children,
   onTabChange,
   onToggleSidebar,
@@ -195,7 +291,14 @@ export function AppShell({
                   <span>家庭厨房工作台</span>
                 </div>
                 <div className="sidebar-brand-actions">
-                  <AppNotificationCenter jobs={imageJobs} isLoading={imageJobsLoading} variant="sidebar" onDismissJob={onDismissImageJob} />
+                  <AppNotificationCenter
+                    jobs={imageJobs}
+                    isLoading={imageJobsLoading}
+                    variant="sidebar"
+                    onDismissJob={onDismissImageJob}
+                    onRetryJob={onRetryImageJob}
+                    retryingJobId={retryingImageJobId}
+                  />
                   <button
                     className="sidebar-toggle"
                     type="button"

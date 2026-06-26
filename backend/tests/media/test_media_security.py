@@ -13,6 +13,7 @@ from sqlalchemy.pool import StaticPool
 
 from app.core.deps import get_current_auth
 from app.core.enums import ImageGenerationMode, MediaEntityType, MediaSource, MembershipStatus, UserRole
+from app.core.utils import utcnow
 from app.db.session import get_db
 from app.main import app
 from app.models.domain import AIImageGenerationJob, Base, Family, Food, MediaAsset, Membership, User
@@ -267,6 +268,48 @@ class MediaSecurityTestCase(unittest.TestCase):
         self.assertEqual(variants["card"]["width"], 4)
         self.assertEqual(variants["card"]["height"], 3)
         self.assertTrue(variants["card"]["url"].endswith("/card.webp"))
+
+    def test_retry_failed_ai_render_requeues_job(self) -> None:
+        response = self.client.post(
+            "/api/media/ai-render",
+            json={
+                "mode": ImageGenerationMode.TEXT.value,
+                "entity_type": MediaEntityType.FOOD.value,
+                "title": "番茄炒蛋",
+            },
+        )
+        self.assertEqual(response.status_code, 202)
+        job_id = response.json()["job_id"]
+        failed_at = utcnow()
+        with self.SessionLocal() as db:
+            job = db.get(AIImageGenerationJob, job_id)
+            self.assertIsNotNone(job)
+            assert job is not None
+            job.status = "failed"
+            job.error = "provider down"
+            job.attempt_count = 3
+            job.locked_at = failed_at
+            job.started_at = failed_at
+            job.completed_at = failed_at
+            db.commit()
+
+        retry_response = self.client.post(f"/api/media/ai-render/{job_id}/retry")
+        self.assertEqual(retry_response.status_code, 202)
+        payload = retry_response.json()
+        self.assertEqual(payload["job_id"], job_id)
+        self.assertEqual(payload["status"], "queued")
+        self.assertIsNone(payload["error"])
+
+        with self.SessionLocal() as db:
+            job = db.get(AIImageGenerationJob, job_id)
+            self.assertIsNotNone(job)
+            assert job is not None
+            self.assertEqual(job.status, "queued")
+            self.assertIsNone(job.error)
+            self.assertEqual(job.attempt_count, 0)
+            self.assertIsNone(job.locked_at)
+            self.assertIsNone(job.started_at)
+            self.assertIsNone(job.completed_at)
 
     def test_ai_render_binds_target_when_entity_has_no_user_image(self) -> None:
         with self.SessionLocal() as db:

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api/client';
 import { invalidateAfterAiImageJobChanged } from '../api/cacheInvalidation';
 import { queryKeys } from '../api/queryKeys';
@@ -66,6 +66,42 @@ export function useAiImageJobMonitor(enabled: boolean, options: { onNotice?: (no
     enabled,
     refetchInterval: enabled ? 3000 : false,
   });
+  const retryJobMutation = useMutation({
+    mutationFn: (jobId: string) => api.retryAiRenderJob(jobId),
+    onSuccess: (retriedJob) => {
+      if (retriedJob.job_id) {
+        handledJobsRef.current.delete(retriedJob.job_id);
+        previousStatusesRef.current.set(retriedJob.job_id, retriedJob.status);
+        setDismissedJobIds((current) => {
+          if (!retriedJob.job_id || !current.has(retriedJob.job_id)) {
+            return current;
+          }
+          const next = new Set(current);
+          next.delete(retriedJob.job_id);
+          writeJsonStorage(DISMISSED_AI_IMAGE_JOB_KEY, Array.from(next));
+          return next;
+        });
+      }
+      queryClient.setQueryData<AiRenderResponse[]>(queryKeys.aiImageJobs, (current) => {
+        const jobs = current ?? [];
+        if (!retriedJob.job_id) {
+          return jobs;
+        }
+        if (jobs.some((job) => job.job_id === retriedJob.job_id)) {
+          return jobs.map((job) => (job.job_id === retriedJob.job_id ? retriedJob : job));
+        }
+        return [retriedJob, ...jobs];
+      });
+      void activeJobsQuery.refetch();
+    },
+    onError: (reason) => {
+      onNotice?.({
+        tone: 'danger',
+        title: '重试失败',
+        message: reason instanceof Error && reason.message ? reason.message : '图片生成任务没有重新提交成功，请稍后再试。',
+      });
+    },
+  });
 
   useEffect(() => {
     if (!activeJobsQuery.data) {
@@ -104,6 +140,10 @@ export function useAiImageJobMonitor(enabled: boolean, options: { onNotice?: (no
     });
   }, [activeJobsQuery.data]);
 
+  const retryJob = useCallback((jobId: string) => {
+    void retryJobMutation.mutateAsync(jobId).catch(() => undefined);
+  }, [retryJobMutation]);
+
   const visibleJobs = useMemo(
     () => (activeJobsQuery.data ?? []).filter((job) => !job.job_id || !isTerminalJob(job) || !dismissedJobIds.has(job.job_id)),
     [activeJobsQuery.data, dismissedJobIds]
@@ -113,5 +153,7 @@ export function useAiImageJobMonitor(enabled: boolean, options: { onNotice?: (no
     jobs: visibleJobs,
     isLoading: activeJobsQuery.isLoading,
     dismissJob,
+    retryJob,
+    retryingJobId: retryJobMutation.isPending ? retryJobMutation.variables ?? null : null,
   };
 }

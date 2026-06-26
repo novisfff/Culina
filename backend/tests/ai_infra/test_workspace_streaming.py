@@ -81,6 +81,48 @@ class EmptyApprovalFollowupProvider(BaseChatProvider):
         raise AssertionError("approval follow-up test should not run the orchestrator loop")
 
 
+class BlockingApprovalResumeProvider(BaseChatProvider):
+    model_name = "blocking-approval-resume-model"
+
+    def __init__(
+        self,
+        approval_commit_persisted: threading.Event,
+        resume_started: threading.Event,
+        continue_resume: threading.Event,
+    ) -> None:
+        self.approval_commit_persisted = approval_commit_persisted
+        self.resume_started = resume_started
+        self.continue_resume = continue_resume
+        self.commit_seen_at_resume_start = False
+
+    def generate(self, *, system: str, user: str) -> ChatProviderResult:
+        raise AssertionError("workspace orchestrator should use generate_with_tools")
+
+    def stream_generate(self, *, system: str, user: str):
+        raise AssertionError("approval resume should not use stream_generate")
+
+    def generate_with_tools(
+        self,
+        *,
+        system: str,
+        user: str,
+        tools,
+        tool_handler,
+        message_handler=None,
+        max_rounds: int = 8,
+    ) -> ChatProviderResult:
+        del system, user, tools, tool_handler, message_handler, max_rounds
+        self.commit_seen_at_resume_start = self.approval_commit_persisted.is_set()
+        self.resume_started.set()
+        if not self.continue_resume.wait(timeout=5):
+            raise RuntimeError("approval resume stream test timed out")
+        return ChatProviderResult(
+            text="已确认菜谱，图片生成任务已开始。",
+            status="completed",
+            model=self.model_name,
+        )
+
+
 class ProgressiveMultiDraftProvider(BaseChatProvider):
     model_name = "progressive-multi-draft-model"
 
@@ -1339,6 +1381,100 @@ class AIWorkspaceStreamingTestCase(AIAgentInfraTestCase):
                 self.assertIsNotNone(conversation)
                 assert conversation is not None
                 self.assertNotIn("resumeAfterApproval", conversation.context or {})
+
+        def test_ai_workspace_stream_approval_commits_image_job_before_resume_finishes(self) -> None:
+            with patch("app.ai.workspace_service.get_chat_provider", return_value=PreviewedRecipeDraftProvider()):
+                with self.client.stream(
+                    "POST",
+                    "/api/ai/chat/stream",
+                    json={"message": "创建番茄鸡蛋面菜谱", "client_run_id": "agent_run-approval-image-early-commit"},
+                ) as response:
+                    self.assertEqual(response.status_code, 200)
+                    body = "".join(response.iter_text())
+
+            response_event = _response_event(body)
+            approval = response_event["included"]["approvals"][0]
+
+            approval_commit_persisted = threading.Event()
+            resume_started = threading.Event()
+            continue_resume = threading.Event()
+            provider = BlockingApprovalResumeProvider(
+                approval_commit_persisted,
+                resume_started,
+                continue_resume,
+            )
+            captured: dict[str, str | int] = {}
+            errors: list[BaseException] = []
+            original_commit = WorkspaceGraphRunner._commit_stream_checkpoint
+
+            def spy_commit(runner: WorkspaceGraphRunner, state: dict, *, run_status: str) -> bool:
+                persisted = original_commit(runner, state, run_status=run_status)
+                if persisted and state.get("run_id") == response_event["run"]["id"] and run_status == "running":
+                    approval_commit_persisted.set()
+                return persisted
+
+            def assert_recipe_image_job_committed() -> None:
+                with self.SessionLocal() as db:
+                    recipe = db.scalar(
+                        select(Recipe).where(
+                            Recipe.family_id == self.family.id,
+                            Recipe.title == "番茄鸡蛋面",
+                        )
+                    )
+                    self.assertIsNotNone(recipe)
+                    assert recipe is not None
+                    image_job = db.scalar(
+                        select(AIImageGenerationJob).where(
+                            AIImageGenerationJob.family_id == self.family.id,
+                            AIImageGenerationJob.target_entity_type == "recipe",
+                            AIImageGenerationJob.target_entity_id == recipe.id,
+                        )
+                    )
+                    self.assertIsNotNone(image_job)
+                    assert image_job is not None
+                    self.assertEqual(image_job.status, "queued")
+                    self.assertEqual(image_job.bind_status, "pending")
+                    self.assertEqual(image_job.request_payload["entity_type"], "recipe")
+                    approval_row = db.get(AIApprovalRequest, approval["id"])
+                    self.assertIsNotNone(approval_row)
+                    assert approval_row is not None
+                    self.assertEqual(approval_row.status, "approved")
+
+            def consume_decision_stream() -> None:
+                try:
+                    with patch("app.ai.workspace_service.get_chat_provider", return_value=provider):
+                        with patch.object(WorkspaceGraphRunner, "_commit_stream_checkpoint", spy_commit):
+                            with self.client.stream(
+                                "POST",
+                                f"/api/ai/conversations/{response_event['conversation_id']}/approvals/{approval['id']}/decision/stream",
+                                json={
+                                    "decision": "approved",
+                                    "draft_version": approval["draft_version"],
+                                    "values": approval["initial_values"],
+                                },
+                            ) as response:
+                                captured["status_code"] = response.status_code
+                                captured["body"] = "".join(response.iter_text())
+                except BaseException as exc:
+                    errors.append(exc)
+
+            thread = threading.Thread(target=consume_decision_stream)
+            thread.start()
+            try:
+                self.assertTrue(resume_started.wait(timeout=5))
+                self.assertTrue(provider.commit_seen_at_resume_start)
+                self.assertTrue(approval_commit_persisted.is_set())
+                self.assertEqual(captured, {})
+                assert_recipe_image_job_committed()
+            finally:
+                continue_resume.set()
+                thread.join(timeout=5)
+
+            self.assertFalse(thread.is_alive())
+            self.assertFalse(errors)
+            self.assertEqual(captured.get("status_code"), 200)
+            self.assertIn("event: response", str(captured.get("body") or ""))
+            assert_recipe_image_job_committed()
 
         def test_ai_workspace_commit_gated_draft_waits_for_approval_before_next_action(self) -> None:
             provider = CommitGatedRecipeProvider()

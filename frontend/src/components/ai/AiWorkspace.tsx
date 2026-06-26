@@ -309,6 +309,10 @@ export function AiWorkspace({
     activeStreamRunIdsByConversationKey,
     setRunEventsById,
   });
+  const shouldRefreshActiveConversation = Boolean(
+    isActiveConversationServerRunning
+    || (activeConversationId && waitingConversationKeys.has(activeConversationId)),
+  );
   useEffect(() => {
     if (!activeConversationKey && !isStartingNewConversation && conversations[0]) {
       setActiveConversationKey(conversations[0].id);
@@ -318,7 +322,7 @@ export function AiWorkspace({
     queryKey: queryKeys.aiMessages(activeConversationId),
     queryFn: () => api.getAiMessages(activeConversationId as string),
     enabled: Boolean(activeConversationId),
-    refetchInterval: isActiveConversationServerRunning ? 1200 : false,
+    refetchInterval: shouldRefreshActiveConversation ? 1200 : false,
   });
   const aiStatusQuery = useQuery({
     queryKey: queryKeys.aiStatus,
@@ -334,7 +338,7 @@ export function AiWorkspace({
     queryKey: queryKeys.aiPendingApprovals(activeConversationId),
     queryFn: () => api.getPendingAiApprovals(activeConversationId as string),
     enabled: Boolean(activeConversationId),
-    refetchInterval: isActiveConversationServerRunning ? 1800 : false,
+    refetchInterval: shouldRefreshActiveConversation ? 1800 : false,
   });
   const messages = useMemo(() => {
     const remote = messagesQuery.data ?? [];
