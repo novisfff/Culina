@@ -33,7 +33,8 @@ class Settings(BaseSettings):
     ai_supports_vision: bool | None = None
     ai_timeout_seconds: float = 180.0
     ai_trace_enabled: bool = True
-    ai_trace_capture_llm_exchanges: bool = True
+    ai_trace_capture_llm_exchanges: bool = False
+    ai_trace_capture_message_content: bool = False
     ai_trace_capture_stream_chunks: bool = False
     ai_trace_capture_image_bytes: bool = False
     ai_trace_payload_mode: str = "redacted"

@@ -22,6 +22,7 @@ SENSITIVE_KEYS = {
 }
 
 DATA_URL_RE = re.compile(r"^data:(?P<content_type>[^;,]+)(?:;[^,]+)?,(?P<payload>.*)$", re.DOTALL)
+MESSAGE_CONTENT_KEYS = {"content", "text", "args", "arguments"}
 
 
 def redact_for_trace(
@@ -30,13 +31,18 @@ def redact_for_trace(
     payload_mode: str = "redacted",
     max_bytes: int = 1024 * 1024,
     capture_image_bytes: bool = False,
+    capture_message_content: bool = False,
 ) -> Any:
     encoded = _safe_jsonable(value)
     normalized_mode = payload_mode.strip().lower()
     if normalized_mode == "summary":
         encoded = _summarize(encoded)
     elif normalized_mode != "full":
-        encoded = _redact(encoded, capture_image_bytes=capture_image_bytes)
+        encoded = _redact(
+            encoded,
+            capture_image_bytes=capture_image_bytes,
+            capture_message_content=capture_message_content,
+        )
     return _truncate_to_bytes(encoded, max_bytes=max_bytes)
 
 
@@ -57,7 +63,7 @@ def _safe_jsonable(value: Any) -> Any:
         return str(value)
 
 
-def _redact(value: Any, *, capture_image_bytes: bool) -> Any:
+def _redact(value: Any, *, capture_image_bytes: bool, capture_message_content: bool) -> Any:
     if isinstance(value, dict):
         result: dict[str, Any] = {}
         for key, item in value.items():
@@ -65,13 +71,27 @@ def _redact(value: Any, *, capture_image_bytes: bool) -> Any:
             if any(sensitive in normalized_key for sensitive in SENSITIVE_KEYS):
                 result[key] = "[REDACTED]"
                 continue
+            if not capture_message_content and normalized_key in MESSAGE_CONTENT_KEYS:
+                result[key] = _summarize_without_preview(item)
+                continue
             if key == "url" and isinstance(item, str) and item.startswith("data:") and not capture_image_bytes:
                 result[key] = _redact_data_url(item)
                 continue
-            result[key] = _redact(item, capture_image_bytes=capture_image_bytes)
+            result[key] = _redact(
+                item,
+                capture_image_bytes=capture_image_bytes,
+                capture_message_content=capture_message_content,
+            )
         return result
     if isinstance(value, list):
-        return [_redact(item, capture_image_bytes=capture_image_bytes) for item in value]
+        return [
+            _redact(
+                item,
+                capture_image_bytes=capture_image_bytes,
+                capture_message_content=capture_message_content,
+            )
+            for item in value
+        ]
     if isinstance(value, bytes):
         if capture_image_bytes:
             return base64.b64encode(value).decode("ascii")
@@ -118,6 +138,25 @@ def _summarize(value: Any) -> Any:
     if isinstance(value, str):
         return {"type": "string", "length": len(value), "preview": value[:160]}
     return {"type": type(value).__name__, "value": value}
+
+
+def _summarize_without_preview(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {
+            "type": "object",
+            "keys": sorted(str(key) for key in value.keys()),
+            "fields": {str(key): _summarize_without_preview(item) for key, item in value.items()},
+        }
+    if isinstance(value, list):
+        return {
+            "type": "array",
+            "count": len(value),
+            "items": [_summarize_without_preview(item) for item in value[:5]],
+            **({"truncatedItems": len(value) - 5} if len(value) > 5 else {}),
+        }
+    if isinstance(value, str):
+        return {"type": "string", "length": len(value)}
+    return {"type": type(value).__name__}
 
 
 def _truncate_to_bytes(value: Any, *, max_bytes: int) -> Any:

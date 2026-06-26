@@ -41,7 +41,11 @@ class LLMExchangeHandle:
             clean_response_message = self.recorder._clean_response(self.recorder.serialize_message(response_message))
             clean_response_tool_calls = self.recorder._clean_response(response_tool_calls or [])
             clean_stream_chunks = self.recorder._clean_response(stream_chunks or [])
-            clean_response_text = self.recorder._clean_response(response_text) if response_text is not None else None
+            clean_response_text = (
+                self.recorder._clean_response(response_text)
+                if response_text is not None and self.recorder.capture_message_content
+                else None
+            )
             original_response_payload = self.recorder._clean_response(
                 {
                     "message": self.recorder.serialize_message(response_message),
@@ -115,6 +119,7 @@ class LLMExchangeRecorder:
         )
         self.capture_stream_chunks = bool(getattr(settings, "ai_trace_capture_stream_chunks", False))
         self.capture_image_bytes = bool(getattr(settings, "ai_trace_capture_image_bytes", False))
+        self.capture_message_content = bool(getattr(settings, "ai_trace_capture_message_content", False))
         self.payload_mode = str(getattr(settings, "ai_trace_payload_mode", "redacted") or "redacted")
         self.max_request_bytes = int(getattr(settings, "ai_trace_max_request_bytes", 1024 * 1024) or 1024 * 1024)
         self.max_response_bytes = int(getattr(settings, "ai_trace_max_response_bytes", 1024 * 1024) or 1024 * 1024)
@@ -237,7 +242,7 @@ class LLMExchangeRecorder:
 
     def stream_chunks_payload(self, chunks: list[str]) -> list[dict[str, Any]]:
         try:
-            if not self.capture_stream_chunks:
+            if not self.capture_stream_chunks or not self.capture_message_content:
                 return []
             return [{"index": index, "text": text} for index, text in enumerate(chunks)]
         except Exception:
@@ -273,6 +278,7 @@ class LLMExchangeRecorder:
             payload_mode=self.payload_mode,
             max_bytes=self.max_request_bytes if max_bytes is None else max_bytes,
             capture_image_bytes=self.capture_image_bytes,
+            capture_message_content=self.capture_message_content,
         )
 
     def _clean_response(self, value: Any, *, max_bytes: int | None = None) -> Any:
@@ -281,6 +287,7 @@ class LLMExchangeRecorder:
             payload_mode=self.payload_mode,
             max_bytes=self.max_response_bytes if max_bytes is None else max_bytes,
             capture_image_bytes=self.capture_image_bytes,
+            capture_message_content=self.capture_message_content,
         )
 
     def payload_metadata(self, value: Any) -> tuple[str, int, bool]:

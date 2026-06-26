@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import timedelta
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
@@ -8,6 +9,7 @@ from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from app.ai.observability.llm_exchange import LLMExchangeRecorder
 from app.ai.observability.tracer import AIRunTracer
 from app.ai.runtime.provider import BaseChatProvider, ChatProviderResult, OpenAICompatibleChatProvider
+from app.core.config import Settings
 from app.core.utils import create_id, utcnow
 from app.models.domain import AIRunLLMExchange, AIRunTraceSpan
 from app.ai.workspace_service import AIApplicationService
@@ -17,6 +19,40 @@ from ._support import AIAgentInfraTestCase
 
 
 class AIObservabilityTestCase(AIAgentInfraTestCase):
+    def setUp(self) -> None:
+        super().setUp()
+        self.llm_trace_settings_patcher = patch(
+            "app.ai.observability.llm_exchange.get_settings",
+            return_value=self._trace_settings(
+                ai_trace_capture_llm_exchanges=True,
+                ai_trace_capture_message_content=True,
+            ),
+        )
+        self.llm_trace_settings_patcher.start()
+
+    def tearDown(self) -> None:
+        self.llm_trace_settings_patcher.stop()
+        super().tearDown()
+
+    def _trace_settings(self, **overrides):
+        values = {
+            "ai_trace_enabled": True,
+            "ai_trace_capture_llm_exchanges": False,
+            "ai_trace_capture_stream_chunks": False,
+            "ai_trace_capture_image_bytes": False,
+            "ai_trace_capture_message_content": False,
+            "ai_trace_payload_mode": "redacted",
+            "ai_trace_max_request_bytes": 1024 * 1024,
+            "ai_trace_max_response_bytes": 1024 * 1024,
+        }
+        values.update(overrides)
+        return SimpleNamespace(**values)
+
+    def test_settings_default_do_not_capture_llm_exchange_content(self) -> None:
+        settings = Settings()
+        self.assertFalse(settings.ai_trace_capture_llm_exchanges)
+        self.assertFalse(settings.ai_trace_capture_message_content)
+
     def test_observability_tables_do_not_depend_on_business_foreign_keys(self) -> None:
         self.assertEqual(set(AIRunTraceSpan.__table__.foreign_keys), set())
         self.assertEqual(set(AIRunLLMExchange.__table__.foreign_keys), set())
@@ -272,6 +308,76 @@ class AIObservabilityTestCase(AIAgentInfraTestCase):
         image_url = exchange["requestMessages"][1]["content"][1]["image_url"]["url"]
         self.assertTrue(image_url["redacted"])
         self.assertEqual(image_url["contentType"], "image/png")
+
+    def test_llm_exchange_content_capture_requires_explicit_setting(self) -> None:
+        response = self.client.post(
+            "/api/ai/chat",
+            json={"message": "随便聊聊", "client_run_id": "agent_run-observability-content-off"},
+        )
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        run_id = data["run"]["id"]
+        conversation_id = data["conversation_id"]
+
+        with patch(
+            "app.ai.observability.llm_exchange.get_settings",
+            return_value=self._trace_settings(
+                ai_trace_capture_llm_exchanges=True,
+                ai_trace_capture_message_content=False,
+            ),
+        ):
+            with self.SessionLocal() as db:
+                recorder = LLMExchangeRecorder(
+                    db=db,
+                    family_id=self.family.id,
+                    run_id=run_id,
+                    conversation_id=conversation_id,
+                    trace_id="ai_trace-content-off",
+                    user_id=self.user.id,
+                )
+                handle = recorder.start_exchange(
+                    span_id="ai_span-content-off",
+                    provider_round=1,
+                    attempt_index=1,
+                    mode="stream",
+                    model="debug-model",
+                    request_messages=[
+                        SystemMessage(content="系统提示不应落库"),
+                        HumanMessage(content="用户正文不应落库"),
+                    ],
+                    request_tools=[],
+                    request_options={},
+                )
+                handle.finish(
+                    response_message=AIMessage(
+                        content="响应正文不应落库",
+                        tool_calls=[{"id": "tool-call-1", "name": "debug_tool", "args": {"secret": "参数不应落库"}}],
+                    ),
+                    response_text="响应正文不应落库",
+                    response_tool_calls=[{"id": "tool-call-1", "name": "debug.tool", "args": {"value": "参数不应落库"}}],
+                    stream_chunks=[{"index": 0, "text": "流式正文不应落库"}],
+                    status="completed",
+                )
+                db.commit()
+
+        exchange_response = self.client.get(f"/api/ai/runs/{run_id}/llm-exchanges")
+        self.assertEqual(exchange_response.status_code, 200)
+        exchanges = [
+            item
+            for item in exchange_response.json()["exchanges"]
+            if item["traceId"] == "ai_trace-content-off"
+        ]
+        self.assertEqual(len(exchanges), 1)
+        exchange = exchanges[0]
+        self.assertIsNone(exchange["responseText"])
+        self.assertEqual(exchange["requestMessages"][0]["content"]["type"], "string")
+        self.assertEqual(exchange["responseMessage"]["content"]["type"], "string")
+        self.assertEqual(exchange["responseToolCalls"][0]["args"]["type"], "object")
+        serialized = str(exchange)
+        self.assertNotIn("系统提示不应落库", serialized)
+        self.assertNotIn("用户正文不应落库", serialized)
+        self.assertNotIn("响应正文不应落库", serialized)
+        self.assertNotIn("参数不应落库", serialized)
 
     def test_llm_exchange_api_orders_by_started_at_with_narrow_id_query_before_loading_payloads(self) -> None:
         response = self.client.post(
