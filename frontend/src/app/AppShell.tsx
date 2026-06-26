@@ -164,7 +164,7 @@ export function AppNotificationCenter(props: {
             <p className="app-notification-empty">正在读取通知...</p>
           ) : hasJobs ? (
             <div className="app-notification-list">
-              {props.jobs.slice(0, 6).map((job) => {
+              {props.jobs.map((job) => {
                 const jobId = job.job_id ?? null;
                 const isRetrying = Boolean(jobId && props.retryingJobId === jobId);
                 const canRetry = Boolean(jobId && job.status === 'failed' && props.onRetryJob);

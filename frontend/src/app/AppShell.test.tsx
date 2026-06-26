@@ -99,4 +99,20 @@ describe('AppNotificationCenter', () => {
 
     expect(view.querySelector('.app-notification-popover')).toBeNull();
   });
+
+  it('keeps every image job in the scrollable notification list', () => {
+    const jobs = Array.from({ length: 8 }, (_, index) =>
+      failedImageJob({
+        job_id: `image-job-${index + 1}`,
+        target_entity_id: `recipe-${index + 1}`,
+        target_entity_name: `菜谱 ${index + 1}`,
+      }),
+    );
+    const view = renderNotificationCenter({ jobs });
+
+    click(view.querySelector('.app-notification-trigger'));
+
+    expect(view.querySelectorAll('.app-notification-row')).toHaveLength(8);
+    expect(view.textContent).toContain('菜谱 8的菜谱图片生成');
+  });
 });
