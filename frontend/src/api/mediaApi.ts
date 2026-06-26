@@ -21,5 +21,9 @@ export const mediaApi = {
       body: JSON.stringify(payload),
     }),
   getAiRenderJob: (jobId: string) => request<AiRenderResponse>(`/api/media/ai-render/${jobId}`),
+  retryAiRenderJob: (jobId: string) =>
+    request<AiRenderResponse>(`/api/media/ai-render/${jobId}/retry`, {
+      method: 'POST',
+    }),
   getActiveAiRenderJobs: () => request<AiRenderResponse[]>('/api/media/ai-render/active'),
 };

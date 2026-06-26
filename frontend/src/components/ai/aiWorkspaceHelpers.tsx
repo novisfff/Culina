@@ -223,11 +223,35 @@ export function mergeRemoteAndLocalMessage(remote: AiMessage, local: AiMessage, 
 }
 
 export function mergePendingApprovalsIntoMessages(messages: AiMessage[], approvals: AiApprovalRequest[]): AiMessage[] {
+  const pendingApprovalsById = new Map(approvals.map((approval) => [approval.id, approval]));
+  const messagesWithFreshApprovals = messages.map((message) => {
+    let hasConfirmedPendingApproval = false;
+    let changed = false;
+    const parts = message.parts.map((part) => {
+      if (part.type !== 'approval_request' || !part.approval?.id) return part;
+      const pendingApproval = pendingApprovalsById.get(part.approval.id);
+      if (!pendingApproval) return part;
+      hasConfirmedPendingApproval = true;
+      if (part.approval === pendingApproval) return part;
+      changed = true;
+      return { ...part, approval: pendingApproval };
+    });
+    const nextStatus = hasConfirmedPendingApproval && message.status !== 'waiting_approval'
+      ? 'waiting_approval'
+      : message.status;
+    if (!changed && nextStatus === message.status) return message;
+    return {
+      ...message,
+      content_type: 'parts' as const,
+      status: nextStatus,
+      parts,
+    };
+  });
   const embeddedApprovalIds = new Set(
-    messages.flatMap((message) => message.parts.map((part) => part.approval?.id).filter((id): id is string => Boolean(id))),
+    messagesWithFreshApprovals.flatMap((message) => message.parts.map((part) => part.approval?.id).filter((id): id is string => Boolean(id))),
   );
   const missingApprovals = approvals.filter((approval) => !embeddedApprovalIds.has(approval.id));
-  if (missingApprovals.length === 0) return messages;
+  if (missingApprovals.length === 0) return messagesWithFreshApprovals;
 
   const approvalsByMessageId = new Map<string, AiApprovalRequest[]>();
   for (const approval of missingApprovals) {
@@ -237,7 +261,7 @@ export function mergePendingApprovalsIntoMessages(messages: AiMessage[], approva
     approvalsByMessageId.set(approval.message_id, items);
   }
 
-  const merged = messages.map((message) => {
+  const merged = messagesWithFreshApprovals.map((message) => {
     const messageApprovals = approvalsByMessageId.get(message.id) ?? [];
     if (messageApprovals.length === 0) return message;
     approvalsByMessageId.delete(message.id);

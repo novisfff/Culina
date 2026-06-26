@@ -15,6 +15,7 @@ from app.ai.images.jobs import (
     enqueue_image_generation,
     get_image_generation_job,
     list_active_image_generation_jobs,
+    retry_failed_image_generation_job,
 )
 from app.services.media import (
     delete_media_file,
@@ -215,6 +216,23 @@ def get_ai_image_render_job(
     job = get_image_generation_job(db, family_id=membership.family_id, job_id=job_id)
     if job is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="AI image render job not found")
+    return _render_job_response(job, db=db, family_id=membership.family_id)
+
+
+@router.post("/api/media/ai-render/{job_id}/retry", response_model=AiRenderResponse, status_code=status.HTTP_202_ACCEPTED)
+def retry_ai_image_render_job(
+    job_id: str,
+    auth: tuple = Depends(get_current_auth),
+    db: Session = Depends(get_db),
+) -> dict:
+    _, membership = auth
+    try:
+        job = retry_failed_image_generation_job(db, family_id=membership.family_id, job_id=job_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    if job is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="AI image render job not found")
+    commit_session(db)
     return _render_job_response(job, db=db, family_id=membership.family_id)
 
 

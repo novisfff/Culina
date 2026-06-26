@@ -467,15 +467,16 @@
 .dashboard-expiry-item {
   min-width: 0;
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  grid-template-columns: 56px minmax(0, 1fr) auto auto;
   align-items: center;
-  gap: 9px;
-  min-height: 50px;
-  padding: 6px 8px;
+  gap: 12px;
+  min-height: 56px;
+  padding: 0 12px 0 0;
   border: 1px solid var(--line-soft);
   border-radius: 12px;
   background: rgba(255, 255, 255, 0.82);
   transition: transform 0.18s ease, border-color 0.18s ease, background-color 0.18s ease, box-shadow 0.18s ease;
+  overflow: hidden;
 }
 
 .dashboard-expiry-item:hover {
@@ -484,35 +485,63 @@
 }
 
 .dashboard-expiry-item.expiry-expired {
-  background: rgba(253, 235, 232, 0.5);
-  border-color: rgba(217, 75, 61, 0.18);
+  background: rgba(253, 235, 232, 0.35);
+  border-color: rgba(217, 75, 61, 0.15);
 }
 
 .dashboard-expiry-item.expiry-expired:hover {
-  background: rgba(253, 235, 232, 0.8);
-  border-color: rgba(217, 75, 61, 0.32);
+  background: rgba(253, 235, 232, 0.55);
+  border-color: rgba(217, 75, 61, 0.25);
 }
 
 .dashboard-expiry-item.expiry-today,
 .dashboard-expiry-item.expiry-soon {
-  background: rgba(255, 243, 215, 0.45);
-  border-color: rgba(230, 154, 46, 0.18);
+  background: rgba(253, 244, 219, 0.4);
+  border-color: rgba(230, 154, 46, 0.15);
 }
 
 .dashboard-expiry-item.expiry-today:hover,
 .dashboard-expiry-item.expiry-soon:hover {
-  background: rgba(255, 243, 215, 0.75);
-  border-color: rgba(230, 154, 46, 0.32);
+  background: rgba(253, 244, 219, 0.6);
+  border-color: rgba(230, 154, 46, 0.25);
 }
 
 .dashboard-expiry-item.expiry-later {
-  background: rgba(234, 246, 234, 0.45);
+  background: rgba(235, 245, 233, 0.4);
   border-color: rgba(79, 154, 88, 0.12);
 }
 
 .dashboard-expiry-item.expiry-later:hover {
-  background: rgba(234, 246, 234, 0.75);
-  border-color: rgba(79, 154, 88, 0.28);
+  background: rgba(235, 245, 233, 0.6);
+  border-color: rgba(79, 154, 88, 0.22);
+}
+
+.dashboard-expiry-info {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  padding: 8px 0;
+}
+
+.dashboard-expiry-info strong {
+  font-size: 0.9rem;
+  color: var(--text);
+  font-weight: 600;
+  line-height: 1.25;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dashboard-expiry-info p {
+  margin: 0;
+  color: var(--text-soft);
+  font-size: 0.75rem;
+  line-height: 1.3;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .dashboard-expiry-item p,
@@ -524,15 +553,17 @@
 }
 
 .dashboard-ingredient-thumb {
-  width: 40px;
-  height: 40px;
+  width: 56px;
+  height: 100%;
+  align-self: stretch;
   overflow: hidden;
   display: grid;
   place-items: center;
-  border-radius: 10px;
+  border-radius: 0;
   background: #f5eadf;
   color: var(--accent-strong);
   font-weight: 800;
+  border-right: 1px solid rgba(147, 96, 63, 0.06);
 }
 
 .dashboard-ingredient-thumb img,
@@ -551,30 +582,57 @@
 .dashboard-expiry-badge {
   white-space: nowrap;
   border: 1px solid transparent;
+  padding: 4px 8px;
+  font-size: 0.72rem;
+  font-weight: 500;
+  border-radius: 6px;
 }
 
 .dashboard-expiry-badge-expired {
   color: #b42318;
   background: #fff0ed;
-  border-color: rgba(180, 35, 24, 0.18);
+  border-color: rgba(180, 35, 24, 0.12);
 }
 
 .dashboard-expiry-badge-today {
   color: #c2410c;
   background: #ffedd5;
-  border-color: rgba(194, 65, 12, 0.18);
+  border-color: rgba(194, 65, 12, 0.12);
 }
 
 .dashboard-expiry-badge-soon {
   color: #b45309;
   background: #fef3c7;
-  border-color: rgba(180, 83, 9, 0.18);
+  border-color: rgba(180, 83, 9, 0.12);
 }
 
 .dashboard-expiry-badge-later {
   color: #2f7d5b;
   background: #e8f5e9;
-  border-color: rgba(47, 125, 91, 0.18);
+  border-color: rgba(47, 125, 91, 0.12);
+}
+
+.dashboard-expiry-item .solid-button {
+  font-size: 0.8125rem;
+  font-weight: 500;
+  min-height: 28px;
+  height: 28px;
+  padding: 0 12px;
+  border-radius: 8px;
+  background: var(--accent);
+  border: none;
+  color: #ffffff;
+  cursor: pointer;
+  transition: background-color 0.2s, transform 0.1s;
+  box-shadow: none;
+}
+
+.dashboard-expiry-item .solid-button:hover {
+  background: var(--accent-strong);
+}
+
+.dashboard-expiry-item .solid-button:active {
+  transform: scale(0.96);
 }
 
 .dashboard-expiry-loading {

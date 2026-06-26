@@ -1943,6 +1943,8 @@ class WorkspaceGraphRunner:
         if conversation is not None:
             conversation.last_run_status = "running"
         self.db.flush()
+        if not self._commit_stream_checkpoint(state, run_status="running"):
+            raise RuntimeError("确认结果持久化失败，请稍后重试")
         next_run_artifacts = [*run_artifacts, *approval_artifacts]
         resume_artifact = self._consume_resume_after_approval(state, serialized)
         if resume_artifact is None:

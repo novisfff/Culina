@@ -2722,6 +2722,50 @@ describe('AiWorkspace pending approval restore', () => {
     rendered.unmount();
   });
 
+  it('unlocks an embedded pending approval when the restored message is still marked running', async () => {
+    const pending = approval({
+      message_id: 'message-background-approval',
+      run_id: 'run-background-approval',
+    });
+    vi.spyOn(api, 'getAiMessages').mockResolvedValue([
+      {
+        id: 'message-background-approval',
+        conversation_id: 'conversation-1',
+        role: 'assistant',
+        content: '菜谱草稿已经生成，请确认。',
+        content_type: 'parts',
+        parts: [
+          { id: 'text-background-approval', type: 'text', text: '菜谱草稿已经生成，请确认。' },
+          { id: 'approval-background-approval', type: 'approval_request', approval: pending },
+        ],
+        run_id: 'run-background-approval',
+        status: 'running',
+        metadata: {},
+        created_at: '2026-05-30T00:00:00Z',
+      },
+    ]);
+    vi.spyOn(api, 'getPendingAiApprovals').mockResolvedValue([pending]);
+    const rendered = await renderWithQuery(
+      <AiWorkspace
+        conversations={[
+          {
+            ...conversation(),
+            context: { activeRunId: 'run-background-approval' },
+            last_run_status: 'waiting_approval',
+          },
+        ]}
+        isLoading={false}
+      />,
+    );
+    await flush();
+
+    const desktopView = rendered.container.querySelector('.ai-desktop-view') as HTMLElement;
+    expect(desktopView.textContent).toContain('确认创建菜谱');
+    expect(desktopView.textContent).not.toContain('确认入口正在准备，稍后即可确认。');
+    expect(desktopView.querySelector('.ai-approval-actions .solid-button')).not.toBeNull();
+    rendered.unmount();
+  });
+
   it('pauses both composers but keeps the pending approval run cancellable', async () => {
     vi.spyOn(api, 'getAiMessages').mockResolvedValue([]);
     vi.spyOn(api, 'getPendingAiApprovals').mockResolvedValue([approval()]);

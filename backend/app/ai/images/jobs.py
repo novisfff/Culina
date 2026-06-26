@@ -126,6 +126,27 @@ def get_image_generation_job(db: Session, *, family_id: str, job_id: str) -> AII
     return db.scalar(select(AIImageGenerationJob).where(AIImageGenerationJob.family_id == family_id, AIImageGenerationJob.id == job_id))
 
 
+def retry_failed_image_generation_job(db: Session, *, family_id: str, job_id: str) -> AIImageGenerationJob | None:
+    job = get_image_generation_job(db, family_id=family_id, job_id=job_id)
+    if job is None:
+        return None
+    if job.status != "failed":
+        raise ValueError("Only failed AI image render jobs can be retried")
+
+    now = utcnow()
+    job.status = "queued"
+    job.error = None
+    job.attempt_count = 0
+    job.locked_at = None
+    job.started_at = None
+    job.completed_at = None
+    job.generated_media_id = None
+    job.bind_status = "pending" if job.target_entity_type and job.target_entity_id else "unbound"
+    job.updated_at = now
+    db.flush()
+    return job
+
+
 def list_active_image_generation_jobs(db: Session, *, family_id: str) -> list[AIImageGenerationJob]:
     cutoff = utcnow() - ACTIVE_COMPLETED_WINDOW
     statement = (
