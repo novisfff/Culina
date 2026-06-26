@@ -41,8 +41,8 @@ def execute_inventory_operation_draft(
                 family_id=family_id,
                 user_id=user_id,
                 ingredient=ingredient,
-                quantity=Decimal(str(operation["quantity"])),
-                unit=str(operation["unit"]),
+                quantity=Decimal(str(operation["quantity"])) if operation.get("quantity") is not None else None,
+                unit=str(operation.get("unit") or ingredient.default_unit),
                 status=InventoryStatus(str(operation["status"])),
                 purchase_date=date.fromisoformat(str(operation["purchaseDate"])),
                 expiry_date=date.fromisoformat(str(operation["expiryDate"])) if operation.get("expiryDate") else None,
@@ -59,8 +59,8 @@ def execute_inventory_operation_draft(
                 "ingredient_id": ingredient.id,
                 "ingredient_name": ingredient.name,
                 "inventory_item_id": item.id,
-                "quantity": float(operation["quantity"]),
-                "unit": str(operation["unit"]),
+                "quantity": float(operation["quantity"]) if operation.get("quantity") is not None else None,
+                "unit": str(operation.get("unit") or ingredient.default_unit),
                 "inventory_item": serialize_inventory_item(item),
             }
             entity_ids.append(item.id)
@@ -70,8 +70,8 @@ def execute_inventory_operation_draft(
                 family_id=family_id,
                 user_id=user_id,
                 ingredient=ingredient,
-                quantity=Decimal(str(operation["quantity"])),
-                unit=str(operation["unit"]),
+                quantity=Decimal(str(operation["quantity"])) if operation.get("quantity") is not None else None,
+                unit=str(operation.get("unit") or ingredient.default_unit),
                 today=today,
                 inventory_item_id=operation.get("inventoryItemId"),
             )
@@ -88,8 +88,8 @@ def execute_inventory_operation_draft(
                 family_id=family_id,
                 user_id=user_id,
                 item=item,
-                quantity=Decimal(str(operation["quantity"])),
-                unit=str(operation["unit"]),
+                quantity=Decimal(str(operation["quantity"])) if operation.get("quantity") is not None else None,
+                unit=str(operation.get("unit") or item.unit),
                 reason=str(operation["reason"]),
             )
             entity_ids.append(item.id)

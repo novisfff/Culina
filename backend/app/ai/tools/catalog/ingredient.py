@@ -17,12 +17,13 @@ from app.services.serializers import serialize_ingredient
 
 INGREDIENT_ITEM_OUTPUT = {
     "type": "object",
-    "required": ["id", "name", "category", "defaultUnit", "supportedUnits"],
+    "required": ["id", "name", "category", "defaultUnit", "quantityTrackingMode", "supportedUnits"],
     "properties": {
         "id": {"type": "string"},
         "name": {"type": "string"},
         "category": {"type": "string"},
         "defaultUnit": {"type": "string"},
+        "quantityTrackingMode": {"type": "string", "enum": ["track_quantity", "not_track_quantity"]},
         "supportedUnits": {"type": "array", "items": {"type": "string"}},
         "unitConversions": {"type": "array", "items": {"type": "object"}},
         "defaultStorage": {"type": ["string", "null"]},
@@ -80,6 +81,7 @@ def ingredient_search(context: ToolContext, payload: dict[str, Any]) -> dict[str
                 "name": item.name,
                 "category": item.category,
                 "defaultUnit": item.default_unit,
+                "quantityTrackingMode": item.quantity_tracking_mode.value if hasattr(item.quantity_tracking_mode, "value") else str(item.quantity_tracking_mode),
                 "supportedUnits": get_supported_units(item.default_unit, item.unit_conversions),
                 "unitConversions": serialize_unit_conversions(item.default_unit, item.unit_conversions),
                 "defaultStorage": item.default_storage,
@@ -118,6 +120,7 @@ def ingredient_read_by_id(context: ToolContext, payload: dict[str, Any]) -> dict
         "item": {
             **item,
             "defaultUnit": ingredient.default_unit,
+            "quantityTrackingMode": ingredient.quantity_tracking_mode.value if hasattr(ingredient.quantity_tracking_mode, "value") else str(ingredient.quantity_tracking_mode),
             "supportedUnits": get_supported_units(ingredient.default_unit, ingredient.unit_conversions),
             "unitConversions": serialize_unit_conversions(ingredient.default_unit, ingredient.unit_conversions),
         }

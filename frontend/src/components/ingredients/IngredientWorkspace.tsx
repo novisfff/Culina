@@ -53,6 +53,7 @@ import {
   normalizeIngredientUnit,
   resolvePreferredIngredientUnit,
 } from '../../lib/ingredientUnits';
+import { tracksIngredientQuantity } from '../../lib/ingredientTracking';
 import {
   buildDisposableExpiredInventoryItems,
   buildInventoryCardPresentation,
@@ -145,6 +146,7 @@ type IngredientWorkspaceProps = {
     name: string;
     category: string;
     default_unit: string;
+    quantity_tracking_mode?: Ingredient['quantity_tracking_mode'];
     unit_conversions: IngredientUnitConversion[];
     default_storage: string;
     default_expiry_mode: IngredientExpiryMode;
@@ -159,6 +161,7 @@ type IngredientWorkspaceProps = {
       name: string;
       category: string;
       default_unit: string;
+      quantity_tracking_mode?: Ingredient['quantity_tracking_mode'];
       unit_conversions: IngredientUnitConversion[];
       default_storage: string;
       default_expiry_mode: IngredientExpiryMode;
@@ -170,8 +173,8 @@ type IngredientWorkspaceProps = {
   ) => Promise<Ingredient>;
   createInventory: (payload: {
     ingredient_id: string;
-    quantity: number;
-    unit: string;
+    quantity?: number | null;
+    unit?: string | null;
     status: InventoryStatus;
     purchase_date: string;
     expiry_date?: string;
@@ -181,8 +184,8 @@ type IngredientWorkspaceProps = {
   }) => Promise<InventoryItem>;
   consumeInventory: (payload: {
     ingredient_id: string;
-    quantity: number;
-    unit: string;
+    quantity?: number | null;
+    unit?: string | null;
   }) => Promise<ConsumeInventoryResponse>;
   disposeExpiredInventory: (payload: {
     ingredient_id: string;
@@ -190,8 +193,11 @@ type IngredientWorkspaceProps = {
   }) => Promise<DisposeExpiredInventoryResponse>;
   createShoppingItem: (payload: {
     title: string;
-    quantity: number;
-    unit: string;
+    quantity?: number | null;
+    unit?: string | null;
+    ingredient_id?: string | null;
+    quantity_mode?: ShoppingListItem['quantity_mode'];
+    display_label?: string | null;
     reason: string;
   }) => Promise<ShoppingListItem>;
   updateShoppingItem: (payload: { itemId: string; done: boolean }) => Promise<ShoppingListItem>;
@@ -694,6 +700,9 @@ function buildInventoryRowDescription(summary: IngredientSummaryViewModel) {
 }
 
 function buildInventoryTotalLabel(summary: IngredientSummaryViewModel) {
+  if (!tracksIngredientQuantity(summary.ingredient)) {
+    return summary.availableInventoryItems.length > 0 ? '已有' : '未配置';
+  }
   const totalQuantity = getIngredientAvailableQuantityInDefault(summary.ingredient, summary.inventoryItems);
   if (totalQuantity <= 0) {
     return `0${summary.ingredient.default_unit || '个'}`;
@@ -1075,6 +1084,7 @@ function InventoryIngredientCard(props: InventoryIngredientCardProps) {
   const alertTone = summary.alerts.length > 0 ? getIngredientAlertTone(summary) : null;
   const imageUrl = resolveMediaUrl(summary.ingredient.image, 'card');
   const hasCustomImage = Boolean(summary.ingredient.image?.url);
+  const tracksQuantity = tracksIngredientQuantity(summary.ingredient);
   const metaLine = [summary.ingredient.category || '未分类', summary.primaryStorage].join(' · ');
   const totalInventoryLabel = buildInventoryTotalLabel(summary);
   const cardClassName = [
@@ -1191,7 +1201,7 @@ function InventoryIngredientCard(props: InventoryIngredientCardProps) {
                 查看批次
               </ActionButton>
             </>
-          ) : summary.quantitySummaries.length > 0 ? (
+          ) : tracksQuantity && summary.quantitySummaries.length > 0 ? (
             <>
               <ActionButton
                 tone="secondary"
@@ -1210,6 +1220,27 @@ function InventoryIngredientCard(props: InventoryIngredientCardProps) {
                 onClick={props.onRestock}
               >
                 补货
+              </ActionButton>
+            </>
+          ) : !tracksQuantity && summary.inventoryItems.length > 0 ? (
+            <>
+              <ActionButton
+                tone="secondary"
+                size="compact"
+                type="button"
+                className="ingredient-work-card-action-button ingredient-work-card-action-button-primary"
+                onClick={props.onDetail}
+              >
+                查看
+              </ActionButton>
+              <ActionButton
+                tone="secondary"
+                size="compact"
+                type="button"
+                className="ingredient-work-card-action-button ingredient-work-card-action-button-secondary"
+                onClick={props.onRestock}
+              >
+                补充
               </ActionButton>
             </>
           ) : (
@@ -1265,7 +1296,8 @@ function IngredientCatalogCard(props: IngredientCatalogCardProps) {
   const imageUrl = resolveMediaUrl(summary.ingredient.image, 'card');
   const alertTone = getIngredientAlertTone(summary);
   const status = buildCatalogCardStatus(summary);
-  const canConsume = summary.availableInventoryItems.length > 0;
+  const tracksQuantity = tracksIngredientQuantity(summary.ingredient);
+  const canConsume = tracksQuantity && summary.availableInventoryItems.length > 0;
   const disposableExpiredItems = buildDisposableExpiredInventoryItems(summary);
   const canDestroyExpired = disposableExpiredItems.length > 0;
   const metaLine = [
@@ -1415,7 +1447,7 @@ function IngredientCatalogCard(props: IngredientCatalogCardProps) {
                 查看批次
               </ActionButton>
             </>
-          ) : summary.quantitySummaries.length > 0 ? (
+          ) : canConsume ? (
             <>
               <ActionButton
                 tone="secondary"
@@ -1434,6 +1466,27 @@ function IngredientCatalogCard(props: IngredientCatalogCardProps) {
                 onClick={props.onRestock}
               >
                 补货
+              </ActionButton>
+            </>
+          ) : !tracksQuantity && summary.inventoryItems.length > 0 ? (
+            <>
+              <ActionButton
+                tone="secondary"
+                size="compact"
+                type="button"
+                className="ingredient-work-card-action-button ingredient-work-card-action-button-primary"
+                onClick={props.onDetail}
+              >
+                查看
+              </ActionButton>
+              <ActionButton
+                tone="secondary"
+                size="compact"
+                type="button"
+                className="ingredient-work-card-action-button ingredient-work-card-action-button-secondary"
+                onClick={props.onRestock}
+              >
+                补充
               </ActionButton>
             </>
           ) : (
@@ -1465,7 +1518,7 @@ function IngredientCatalogCard(props: IngredientCatalogCardProps) {
             <span className="ingredient-work-card-footer-icon" aria-hidden="true">
               i
             </span>
-            {canConsume ? '可消费库存已剔除过期批次' : '当前无可消费库存'}
+            {!tracksQuantity ? '只记录有无，做菜时不按数量扣减' : canConsume ? '可消费库存已剔除过期批次' : '当前无可消费库存'}
           </span>
         </div>
       </div>
@@ -1613,6 +1666,7 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
     completedShoppingCards,
     pendingShoppingCards,
     visiblePendingShoppingCards,
+    visiblePendingShoppingGroups,
     visibleCompletedShoppingCards,
     shoppingOverview,
     activeShoppingOverview,
@@ -1622,6 +1676,7 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
     mobileStorageCards,
     mobileCatalogSummaries,
     mobileShoppingCards,
+    mobileShoppingGroups,
     mobileHasCatalogFilters,
     quickRestockIngredients,
   } = useIngredientWorkspaceData({
@@ -1645,6 +1700,7 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
     filterIngredientSummariesByCatalogStatus,
     isPendingShopping,
   });
+  const mobileCatalogResetKey = [catalogSearch, mobileIngredientFilter, mobileStorageFocus].join('|');
   const maxCatalogItems = Math.max(STORAGE_SHELF_MAX_DISPLAY_COLUMNS, filteredSummaries.length);
 
   const editorState = useIngredientEditorState({
@@ -1920,7 +1976,9 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
         mobilePrioritySummaries={mobilePrioritySummaries}
         mobileStorageCards={mobileStorageCards}
         mobileCatalogSummaries={mobileCatalogSummaries}
+        mobileCatalogResetKey={mobileCatalogResetKey}
         mobileShoppingCards={mobileShoppingCards}
+        mobileShoppingGroups={mobileShoppingGroups}
         mobileHasCatalogFilters={mobileHasCatalogFilters}
         notificationCenter={props.notificationCenter}
         openDetailView={openDetailView}
@@ -1975,6 +2033,7 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
         setShoppingSearch={setShoppingSearch}
         pendingShoppingCards={pendingShoppingCards}
         visiblePendingShoppingCards={visiblePendingShoppingCards}
+        visiblePendingShoppingGroups={visiblePendingShoppingGroups}
         completedShoppingCards={completedShoppingCards}
         visibleCompletedShoppingCards={visibleCompletedShoppingCards}
         activeShoppingOverview={activeShoppingOverview}

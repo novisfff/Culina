@@ -4,12 +4,14 @@ import {
   buildInventoryStorageOverview,
   buildIngredientCategoryFilters,
   buildIngredientSummaries,
+  buildShoppingCardGroups,
   buildShoppingCards,
   buildShoppingOverview,
   buildStorageGroups,
   filterShoppingCards,
   filterIngredientSummaries,
   filterIngredientSummariesForInventory,
+  isSeasoningIngredient,
   sortInventorySummariesByExpiry,
   type IngredientSummaryViewModel,
   type InventoryStorageOverviewViewModel,
@@ -48,6 +50,32 @@ type UseIngredientWorkspaceDataArgs = {
   ) => IngredientSummaryViewModel[];
   isPendingShopping: (item: ShoppingListItem) => boolean;
 };
+
+export function filterMobileCatalogSummaries(args: {
+  summaries: IngredientSummaryViewModel[];
+  catalogSearch: string;
+  mobileIngredientFilter: MobileIngredientFilter;
+  mobileStorageFocus: InventoryStorageFocus;
+}) {
+  return filterIngredientSummaries(args.summaries, args.catalogSearch, 'all').filter((summary) => {
+    if (args.mobileStorageFocus !== 'all' && summary.primaryStorage !== args.mobileStorageFocus) {
+      return false;
+    }
+    if (args.mobileIngredientFilter === 'alerted') {
+      return summary.alerts.length > 0;
+    }
+    if (args.mobileIngredientFilter === 'seasoning') {
+      return isSeasoningIngredient(summary.ingredient);
+    }
+    if (args.mobileIngredientFilter === 'empty') {
+      return summary.quantitySummaries.length === 0;
+    }
+    if (args.mobileIngredientFilter === 'stocked') {
+      return summary.quantitySummaries.length > 0;
+    }
+    return true;
+  });
+}
 
 export function useIngredientWorkspaceData(args: UseIngredientWorkspaceDataArgs) {
   const summaries = buildIngredientSummaries({
@@ -92,6 +120,7 @@ export function useIngredientWorkspaceData(args: UseIngredientWorkspaceDataArgs)
   const shoppingOverview = buildShoppingOverview(pendingShoppingCards);
   const visiblePendingShoppingCards = filterShoppingCards(pendingShoppingCards, args.shoppingSearch, args.shoppingFocus);
   const visibleCompletedShoppingCards = filterShoppingCards(completedShoppingCards, args.shoppingSearch, 'all');
+  const visiblePendingShoppingGroups = buildShoppingCardGroups(visiblePendingShoppingCards);
   const activeShoppingOverview =
     shoppingOverview.find((item) => item.key === args.shoppingFocus) ?? shoppingOverview[0] ?? null;
   const stockedIngredientCount = summaries.filter((item) => item.quantitySummaries.length > 0).length;
@@ -116,25 +145,14 @@ export function useIngredientWorkspaceData(args: UseIngredientWorkspaceDataArgs)
   const mobileStorageCards = buildInventoryStorageOverview(summaries).filter((item) =>
     ['冷藏', '冷冻', '常温'].includes(item.key)
   );
-  const mobileSearchSummaries = filterIngredientSummaries(summaries, args.catalogSearch, 'all');
-  const mobileCatalogSummaries = mobileSearchSummaries
-    .filter((summary) => {
-      if (args.mobileStorageFocus !== 'all' && summary.primaryStorage !== args.mobileStorageFocus) {
-        return false;
-      }
-      if (args.mobileIngredientFilter === 'alerted') {
-        return summary.alerts.length > 0;
-      }
-      if (args.mobileIngredientFilter === 'empty') {
-        return summary.quantitySummaries.length === 0;
-      }
-      if (args.mobileIngredientFilter === 'stocked') {
-        return summary.quantitySummaries.length > 0;
-      }
-      return true;
-    })
-    .slice(0, 6);
+  const mobileCatalogSummaries = filterMobileCatalogSummaries({
+    summaries,
+    catalogSearch: args.catalogSearch,
+    mobileIngredientFilter: args.mobileIngredientFilter,
+    mobileStorageFocus: args.mobileStorageFocus,
+  });
   const mobileShoppingCards = pendingShoppingCards.slice(0, 4);
+  const mobileShoppingGroups = buildShoppingCardGroups(mobileShoppingCards);
   const mobileHasCatalogFilters =
     Boolean(args.catalogSearch.trim()) || args.mobileIngredientFilter !== 'all' || args.mobileStorageFocus !== 'all';
   const quickRestockIngredients = (
@@ -168,6 +186,7 @@ export function useIngredientWorkspaceData(args: UseIngredientWorkspaceDataArgs)
     completedShoppingCards,
     pendingShoppingCards,
     visiblePendingShoppingCards,
+    visiblePendingShoppingGroups,
     visibleCompletedShoppingCards,
     shoppingOverview,
     activeShoppingOverview,
@@ -177,6 +196,7 @@ export function useIngredientWorkspaceData(args: UseIngredientWorkspaceDataArgs)
     mobileStorageCards,
     mobileCatalogSummaries,
     mobileShoppingCards,
+    mobileShoppingGroups,
     mobileHasCatalogFilters,
     quickRestockIngredients,
   };

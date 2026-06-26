@@ -64,6 +64,7 @@ def create_ingredient(
         category=payload.category,
         default_unit=payload.default_unit,
         unit_conversions=unit_conversions,
+        quantity_tracking_mode=payload.quantity_tracking_mode,
         default_storage=payload.default_storage,
         default_expiry_mode=payload.default_expiry_mode,
         default_expiry_days=payload.default_expiry_days,
@@ -132,6 +133,7 @@ def update_ingredient(
     ingredient.category = payload.category
     ingredient.default_unit = payload.default_unit
     ingredient.unit_conversions = unit_conversions
+    ingredient.quantity_tracking_mode = payload.quantity_tracking_mode
     ingredient.default_storage = payload.default_storage
     ingredient.default_expiry_mode = payload.default_expiry_mode
     ingredient.default_expiry_days = payload.default_expiry_days

@@ -56,9 +56,12 @@ def _apply_shopping_item_operations(
             item = ShoppingListItem(
                 id=create_id("shopping"),
                 family_id=family_id,
+                ingredient_id=item_in.ingredient_id,
                 title=item_in.title,
-                quantity=Decimal(str(item_in.quantity)),
-                unit=item_in.unit,
+                quantity=Decimal(str(item_in.quantity or 1)),
+                unit=item_in.unit or "份",
+                quantity_mode=item_in.quantity_mode,
+                display_label=item_in.display_label,
                 reason=item_in.reason,
                 done=False,
                 created_by=user_id,
@@ -123,9 +126,12 @@ def _apply_shopping_item_operations(
             entity_ids.append(item.id)
             continue
         item_in = CreateShoppingListItemRequest.model_validate(operation.get("payload") or {})
+        item.ingredient_id = item_in.ingredient_id
         item.title = item_in.title
-        item.quantity = Decimal(str(item_in.quantity))
-        item.unit = item_in.unit
+        item.quantity = Decimal(str(item_in.quantity or 1))
+        item.unit = item_in.unit or "份"
+        item.quantity_mode = item_in.quantity_mode
+        item.display_label = item_in.display_label
         item.reason = item_in.reason
         item.updated_by = user_id
         db.flush()
@@ -156,9 +162,12 @@ def _create_shopping_items_from_payload(
         item = ShoppingListItem(
             id=create_id("shopping"),
             family_id=family_id,
+            ingredient_id=item_in.ingredient_id,
             title=item_in.title,
-            quantity=Decimal(str(item_in.quantity)),
-            unit=item_in.unit,
+            quantity=Decimal(str(item_in.quantity or 1)),
+            unit=item_in.unit or "份",
+            quantity_mode=item_in.quantity_mode,
+            display_label=item_in.display_label,
             reason=item_in.reason,
             done=False,
             created_by=user_id,

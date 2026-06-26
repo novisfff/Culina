@@ -3,7 +3,13 @@ import type { CookRecipePreviewResponse, MealType } from '../../api/types';
 import { formatDate } from '../../lib/ui';
 import { ActionButton, WorkspaceModal } from '../ui-kit';
 import { MEAL_TYPE_OPTIONS } from './RecipeWorkspaceOptions';
-import { formatCookQuantity, type RecipeCookSessionState } from './RecipeWorkspaceModel';
+import {
+  formatCookPreviewRequestLabel,
+  formatCookQuantity,
+  formatCookShortageDetail,
+  getCookPreviewActionLabel,
+  type RecipeCookSessionState,
+} from './RecipeWorkspaceModel';
 
 type RecipeCookFinishDialogProps = {
   recipeTitle: string;
@@ -19,12 +25,14 @@ type RecipeCookFinishDialogProps = {
 };
 
 export function RecipeCookFinishDialog(props: RecipeCookFinishDialogProps) {
+  const submitLabel = props.isCooking ? '处理中...' : getCookPreviewActionLabel(props.cookPreview?.preview_items);
+
   return (
     <div className="workspace-overlay-root">
       <div className="workspace-overlay-backdrop" onClick={props.onClose} />
       <WorkspaceModal
         title={`完成烹饪：${props.recipeTitle}`}
-        description={props.cookPreview?.shortages.length ? '还有缺料，先加入采购或补齐库存后再确认。' : '确认本次份量、餐次和库存扣减。'}
+        description={props.cookPreview?.shortages.length ? '还有缺料，先加入采购或补齐库存后再确认。' : '确认本次份量、餐次和库存处理。'}
         eyebrow="完成确认"
         onClose={props.onClose}
         className="recipe-cook-finish-modal"
@@ -42,7 +50,7 @@ export function RecipeCookFinishDialog(props: RecipeCookFinishDialogProps) {
               props.cookPreview.shortages.map((item) => (
                 <article key={`${item.ingredient_name}-${item.unit}`} className="alert-card warning">
                   <h3>{item.ingredient_name}</h3>
-                  <p>还缺 {formatCookQuantity(item.missing_quantity)}{item.unit}，暂不能确认扣库存。</p>
+                  <p>{formatCookShortageDetail(item)}</p>
                 </article>
               ))
             ) : props.cookPreview?.preview_items.length ? (
@@ -50,17 +58,20 @@ export function RecipeCookFinishDialog(props: RecipeCookFinishDialogProps) {
                 <article key={`${item.ingredient_id}-${item.unit}`} className="recipe-cook-preview-row">
                   <div className="recipe-cook-preview-row-head">
                     <h3>{item.ingredient_name}</h3>
-                    <span>{formatCookQuantity(item.requested_quantity)}{item.unit}</span>
+                    <span>{formatCookPreviewRequestLabel(item)}</span>
                   </div>
-                  <div className="recipe-cook-preview-batches">
-                    {item.batches.map((batch) => (
-                      <p key={batch.inventory_item_id}>
-                        <strong>{formatCookQuantity(batch.quantity)}{batch.unit}</strong>
-                        <span>{batch.storage_location}</span>
-                        <span>{batch.expiry_date ? `到期 ${formatDate(batch.expiry_date)}` : '未设到期'}</span>
-                      </p>
-                    ))}
-                  </div>
+                  {item.deduction_note ? <p className="recipe-cook-preview-note">{item.deduction_note}</p> : null}
+                  {item.batches.length > 0 ? (
+                    <div className="recipe-cook-preview-batches">
+                      {item.batches.map((batch) => (
+                        <p key={batch.inventory_item_id}>
+                          <strong>{formatCookQuantity(batch.quantity)}{batch.unit}</strong>
+                          <span>{batch.storage_location}</span>
+                          <span>{batch.expiry_date ? `到期 ${formatDate(batch.expiry_date)}` : '未设到期'}</span>
+                        </p>
+                      ))}
+                    </div>
+                  ) : null}
                 </article>
               ))
             ) : (
@@ -109,7 +120,7 @@ export function RecipeCookFinishDialog(props: RecipeCookFinishDialogProps) {
           <div className="workspace-overlay-actions">
             <ActionButton tone="secondary" type="button" onClick={props.onClose}>继续做</ActionButton>
             <ActionButton tone="primary" type="submit" disabled={props.submitDisabled}>
-              {props.isCooking ? '处理中...' : '确认扣库存'}
+              {submitLabel}
             </ActionButton>
           </div>
         </form>

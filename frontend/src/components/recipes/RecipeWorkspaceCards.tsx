@@ -502,7 +502,14 @@ export function MobileRecipeSceneCard(props: {
 }) {
   return (
     <button className="mobile-recipe-scene-card" type="button" onClick={props.onClick}>
-      {props.coverUrl ? <img src={resolveAssetUrl(props.coverUrl)} alt="" /> : <i aria-hidden="true">{props.scene.name.slice(0, 2)}</i>}
+      <MediaWithPlaceholder
+        className="mobile-recipe-scene-media"
+        src={resolveAssetUrl(props.coverUrl)}
+        alt=""
+        emptyLabel="暂无场景图"
+        loadingLabel="加载场景图"
+        errorLabel="场景图失败"
+      />
       <span>
         <strong>{props.scene.name}</strong>
         <small>{props.scene.description || `${props.scene.count} 道菜谱`}</small>

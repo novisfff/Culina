@@ -700,22 +700,66 @@ export function ImageComposer(props: {
       </div>
       <div className="image-composer-stage">
         {!showResults ? (
-          <label className="upload-dropzone image-composer-primary-dropzone">
-            <input
-              type="file"
-              accept="image/*,.svg"
-              capture="environment"
-              disabled={props.isGenerating}
-              onChange={(event) => {
-                props.onUpload(event.target.files);
-                event.currentTarget.value = '';
-              }}
-            />
-            <div className="image-composer-dropzone-copy">
-              <strong>{props.uploadTitle ?? '上传参考图'}</strong>
-              <span>{props.uploadHint ?? '上传后自动生成统一风格主图'}</span>
+          props.variant === 'workspace-inline' ? (
+            <div className="image-composer-intro-grid">
+              <div className="image-composer-intro-card">
+                <div className="intro-card-header">
+                  <div className="intro-card-icon-badge">
+                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364-6.364l-.707.707M6.343 17.657l-.707.707m0-12.728l.707.707m10.607 10.607l.707.707N12 8a4 4 0 100 8 4 4 0 000-8z" />
+                    </svg>
+                  </div>
+                  <strong>AI 主图美化</strong>
+                </div>
+                <p className="intro-card-desc">
+                  上传您的日常实拍作为<b>参考图</b>，AI 将自动将其美化为温馨的手绘插画主图。
+                </p>
+                <div className="intro-card-tips">
+                  <div className="intro-tip-item">
+                    <span className="tip-dot">✦</span>
+                    <span>支持拍照或相册上传参考图，效果更佳</span>
+                  </div>
+                  <div className="intro-tip-item">
+                    <span className="tip-dot">✦</span>
+                    <span>若无参考图，也可直接基于食物名称一键生成</span>
+                  </div>
+                </div>
+              </div>
+              <label className="upload-dropzone image-composer-primary-dropzone">
+                <input
+                  type="file"
+                  accept="image/*,.svg"
+                  capture="environment"
+                  disabled={props.isGenerating}
+                  onChange={(event) => {
+                    props.onUpload(event.target.files);
+                    event.currentTarget.value = '';
+                  }}
+                />
+                <div className="image-composer-dropzone-copy">
+                  <strong>{props.uploadTitle ?? '上传参考图'}</strong>
+                  <span>{props.uploadHint ?? '上传后自动生成统一风格主图'}</span>
+                </div>
+              </label>
             </div>
-          </label>
+          ) : (
+            <label className="upload-dropzone image-composer-primary-dropzone">
+              <input
+                type="file"
+                accept="image/*,.svg"
+                capture="environment"
+                disabled={props.isGenerating}
+                onChange={(event) => {
+                  props.onUpload(event.target.files);
+                  event.currentTarget.value = '';
+                }}
+              />
+              <div className="image-composer-dropzone-copy">
+                <strong>{props.uploadTitle ?? '上传参考图'}</strong>
+                <span>{props.uploadHint ?? '上传后自动生成统一风格主图'}</span>
+              </div>
+            </label>
+          )
         ) : (
           <div className={hasReference ? 'image-composer-result-grid has-reference' : 'image-composer-result-grid'}>
             {hasReference && (

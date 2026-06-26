@@ -8,6 +8,7 @@ from typing import Iterable
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
+from app.core.enums import IngredientQuantityTrackingMode
 from app.models.domain import Ingredient, InventoryItem, Recipe
 from app.services.ingredient_units import UnitConversionError, convert_quantity_from_default_unit, convert_quantity_to_default_unit
 
@@ -25,6 +26,8 @@ class CookInventoryPlanItem:
     ingredient_item: object
     requested_quantity: Decimal
     requested_in_default: Decimal
+    quantity_tracking_mode: str = IngredientQuantityTrackingMode.TRACK_QUANTITY.value
+    deduction_note: str | None = None
     deductions: list[InventoryDeduction] = field(default_factory=list)
 
 
@@ -36,6 +39,7 @@ class InventoryShortage:
     available_quantity: Decimal
     missing_quantity: Decimal
     unit: str
+    shortage_type: str = "quantity"
 
     def as_dict(self) -> dict:
         return {
@@ -45,7 +49,14 @@ class InventoryShortage:
             "available_quantity": float(self.available_quantity),
             "missing_quantity": float(self.missing_quantity),
             "unit": self.unit,
+            "shortage_type": self.shortage_type,
         }
+
+
+def tracks_quantity(ingredient: Ingredient) -> bool:
+    mode = getattr(ingredient, "quantity_tracking_mode", IngredientQuantityTrackingMode.TRACK_QUANTITY)
+    value = mode.value if hasattr(mode, "value") else str(mode)
+    return value != IngredientQuantityTrackingMode.NOT_TRACK_QUANTITY.value
 
 
 def remaining_quantity(item: InventoryItem) -> Decimal:
@@ -53,6 +64,12 @@ def remaining_quantity(item: InventoryItem) -> Decimal:
         item.quantity - item.consumed_quantity - getattr(item, "disposed_quantity", Decimal("0")),
         Decimal("0"),
     )
+
+
+def is_presence_available(item: InventoryItem, *, today: date) -> bool:
+    if item.expiry_date is not None and item.expiry_date < today:
+        return False
+    return item.quantity - getattr(item, "disposed_quantity", Decimal("0")) > 0
 
 
 def expiry_sort_key(expiry_date: date | None) -> tuple[int, date]:
@@ -91,10 +108,14 @@ def load_available_inventory_by_ingredient(
     )
     items_by_ingredient: dict[str, list[InventoryItem]] = {}
     for item in items:
-        if item.expiry_date is not None and item.expiry_date < today:
-            continue
-        if remaining_quantity(item) <= 0:
-            continue
+        if item.ingredient is not None and not tracks_quantity(item.ingredient):
+            if not is_presence_available(item, today=today):
+                continue
+        else:
+            if item.expiry_date is not None and item.expiry_date < today:
+                continue
+            if remaining_quantity(item) <= 0:
+                continue
         if item.ingredient_id not in items_by_ingredient:
             items_by_ingredient[item.ingredient_id] = []
         items_by_ingredient[item.ingredient_id].append(item)
@@ -135,6 +156,13 @@ def build_cook_inventory_plan(
     consumption_plan: list[CookInventoryPlanItem] = []
     shortages: list[dict] = []
     reserved_quantities_by_inventory_item: dict[str, Decimal] = {}
+    ingredient_ids = [item.ingredient_id for item in recipe.ingredient_items if item.ingredient_id]
+    ingredients_by_id = {
+        ingredient.id: ingredient
+        for ingredient in db.scalars(
+            select(Ingredient).where(Ingredient.family_id == family_id, Ingredient.id.in_(ingredient_ids))
+        )
+    } if ingredient_ids else {}
 
     for ingredient_item in recipe.ingredient_items:
         requested_quantity = Decimal(str(ingredient_item.quantity)) * scale
@@ -153,6 +181,7 @@ def build_cook_inventory_plan(
             )
             continue
 
+        ingredient = ingredients_by_id.get(ingredient_item.ingredient_id)
         available_items = available_inventory_for_ingredient(
             db,
             family_id=family_id,
@@ -160,7 +189,7 @@ def build_cook_inventory_plan(
             today=today,
             inventory_by_ingredient=inventory_by_ingredient,
         )
-        ingredient = available_items[0].ingredient if available_items else None
+        ingredient = ingredient or (available_items[0].ingredient if available_items else None)
         if ingredient is None:
             shortages.append(
                 InventoryShortage(
@@ -171,6 +200,33 @@ def build_cook_inventory_plan(
                     missing_quantity=requested_quantity,
                     unit=ingredient_item.unit,
                 ).as_dict()
+            )
+            continue
+
+        if not tracks_quantity(ingredient):
+            if not available_items:
+                shortages.append(
+                    InventoryShortage(
+                        ingredient_id=ingredient_item.ingredient_id,
+                        ingredient_name=ingredient_item.ingredient_name,
+                        required_quantity=requested_quantity,
+                        available_quantity=Decimal("0"),
+                        missing_quantity=requested_quantity,
+                        unit=ingredient_item.unit,
+                        shortage_type="presence",
+                    ).as_dict()
+                )
+                continue
+            consumption_plan.append(
+                CookInventoryPlanItem(
+                    ingredient=ingredient,
+                    ingredient_item=ingredient_item,
+                    requested_quantity=requested_quantity,
+                    requested_in_default=Decimal("0"),
+                    quantity_tracking_mode=IngredientQuantityTrackingMode.NOT_TRACK_QUANTITY.value,
+                    deduction_note="仅确认有库存，未扣减数量",
+                    deductions=[],
+                )
             )
             continue
 
@@ -231,6 +287,7 @@ def build_cook_inventory_plan(
                 ingredient_item=ingredient_item,
                 requested_quantity=requested_quantity,
                 requested_in_default=requested_in_default,
+                quantity_tracking_mode=IngredientQuantityTrackingMode.TRACK_QUANTITY.value,
                 deductions=deductions,
             )
         )
@@ -244,6 +301,8 @@ def serialize_cook_preview_item(plan: CookInventoryPlanItem) -> dict:
         "ingredient_name": plan.ingredient_item.ingredient_name,
         "requested_quantity": float(plan.requested_quantity),
         "unit": plan.ingredient_item.unit,
+        "quantity_tracking_mode": plan.quantity_tracking_mode,
+        "deduction_note": plan.deduction_note,
         "batches": [
             {
                 "inventory_item_id": deduction.item.id,
@@ -306,6 +365,9 @@ def build_ingredient_consumption_plan(
     unit: str,
     today: date,
 ) -> tuple[Decimal, Decimal, list[InventoryDeduction]]:
+    if not tracks_quantity(ingredient):
+        return Decimal("0"), Decimal("0"), []
+
     requested_quantity_in_default = convert_quantity_to_default_unit(
         requested_quantity,
         ingredient.default_unit,

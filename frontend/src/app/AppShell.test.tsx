@@ -115,4 +115,23 @@ describe('AppNotificationCenter', () => {
     expect(view.querySelectorAll('.app-notification-row')).toHaveLength(8);
     expect(view.textContent).toContain('菜谱 8的菜谱图片生成');
   });
+
+  it('renders the mobile popover outside the topbar stacking context', () => {
+    const view = renderNotificationCenter({
+      jobs: [failedImageJob()],
+      variant: 'mobileIcon',
+    });
+
+    click(view.querySelector('.app-notification-trigger'));
+
+    const popover = document.body.querySelector('.mobile-notification-popover');
+    expect(popover).not.toBeNull();
+    expect(view.querySelector('.mobile-notification-popover')).toBeNull();
+
+    act(() => {
+      popover?.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }));
+    });
+
+    expect(document.body.querySelector('.mobile-notification-popover')).not.toBeNull();
+  });
 });

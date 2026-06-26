@@ -10,6 +10,7 @@ import type {
 } from '../api/types';
 import { todayKey } from './date';
 import { getIngredientAvailableQuantityInDefault, getInventoryRemainingQuantity } from './ingredientUnits';
+import { tracksIngredientQuantity } from './ingredientTracking';
 
 export { todayKey };
 
@@ -136,6 +137,9 @@ export function buildInventoryAlerts(
   const todayTime = new Date(todayKey()).getTime();
 
   for (const ingredient of ingredients) {
+    if (!tracksIngredientQuantity(ingredient)) {
+      continue;
+    }
     if (ingredient.default_low_stock_threshold === null || ingredient.default_low_stock_threshold === undefined) {
       continue;
     }

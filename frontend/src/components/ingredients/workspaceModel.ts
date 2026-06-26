@@ -5,6 +5,7 @@ import {
   getIngredientUnitConversions,
   getInventoryRemainingQuantity,
 } from '../../lib/ingredientUnits';
+import { tracksIngredientQuantity } from '../../lib/ingredientTracking';
 
 export type IngredientWorkspaceView = 'hub' | 'catalog' | 'detail' | 'create';
 export type IngredientOverlayMode = 'inventory' | 'shopping' | 'consume' | 'destroyExpired' | null;
@@ -121,6 +122,8 @@ export type IngredientCategoryPreset = {
   label: string;
   defaultUnit: string;
   defaultStorage: string;
+  quantityTrackingMode?: Ingredient['quantity_tracking_mode'];
+  icon: string;
 };
 
 export type ShoppingCardFocus = 'all' | 'attention' | 'linked' | 'freeform';
@@ -159,28 +162,61 @@ export type ShoppingOverviewViewModel = {
   detail: string;
 };
 
+export type SeasoningStatus = 'stocked' | 'needsRestock' | 'unconfigured';
+
+export type SeasoningSummaryViewModel = {
+  summary: IngredientSummaryViewModel;
+  status: SeasoningStatus;
+  statusLabel: '已有' | '需补充' | '未配置';
+  detail: string;
+};
+
+export type ShoppingCardGroupKey = 'regular' | 'seasoning';
+
+export type ShoppingCardGroupViewModel = {
+  key: ShoppingCardGroupKey;
+  title: string;
+  detail: string;
+  cards: ShoppingCardViewModel[];
+};
+
 const STORAGE_ORDER = ['冷藏', '冷冻', '常温'];
 const ALL_CATEGORY_FILTER = 'all';
+const SEASONING_CATEGORY_LABELS = new Set(['调料', '调味料', '酱料']);
 
 export const INGREDIENT_CATEGORY_PRESETS: IngredientCategoryPreset[] = [
-  { label: '蔬菜', defaultUnit: '个', defaultStorage: '冷藏' },
-  { label: '水果', defaultUnit: '个', defaultStorage: '常温' },
-  { label: '肉类', defaultUnit: '份', defaultStorage: '冷冻' },
-  { label: '水产', defaultUnit: '块', defaultStorage: '冷冻' },
-  { label: '蛋奶', defaultUnit: '个', defaultStorage: '冷藏' },
-  { label: '豆制品', defaultUnit: '盒', defaultStorage: '冷藏' },
-  { label: '菌菇', defaultUnit: '盒', defaultStorage: '冷藏' },
-  { label: '主食', defaultUnit: '份', defaultStorage: '常温' },
-  { label: '干货', defaultUnit: '袋', defaultStorage: '常温' },
-  { label: '坚果果干', defaultUnit: '袋', defaultStorage: '常温' },
-  { label: '烘焙原料', defaultUnit: '袋', defaultStorage: '常温' },
-  { label: '调味料', defaultUnit: '瓶', defaultStorage: '常温' },
-  { label: '酱料', defaultUnit: '瓶', defaultStorage: '常温' },
-  { label: '罐头腌菜', defaultUnit: '罐', defaultStorage: '常温' },
-  { label: '熟食', defaultUnit: '份', defaultStorage: '冷藏' },
-  { label: '速冻食品', defaultUnit: '袋', defaultStorage: '冷冻' },
-  { label: '零食饮品', defaultUnit: '包', defaultStorage: '常温' },
-  { label: '其他', defaultUnit: '份', defaultStorage: '常温' },
+  { label: '蔬菜', defaultUnit: '个', defaultStorage: '冷藏', icon: 'vegetable' },
+  { label: '水果', defaultUnit: '个', defaultStorage: '常温', icon: 'fruit' },
+  { label: '肉类', defaultUnit: '份', defaultStorage: '冷冻', icon: 'meat' },
+  { label: '水产', defaultUnit: '块', defaultStorage: '冷冻', icon: 'fish' },
+  { label: '蛋奶', defaultUnit: '个', defaultStorage: '冷藏', icon: 'egg' },
+  { label: '豆制品', defaultUnit: '盒', defaultStorage: '冷藏', icon: 'tofu' },
+  { label: '菌菇', defaultUnit: '盒', defaultStorage: '冷藏', icon: 'mushroom' },
+  { label: '主食', defaultUnit: '份', defaultStorage: '常温', icon: 'staple' },
+  { label: '干货', defaultUnit: '袋', defaultStorage: '常温', icon: 'dryGoods' },
+  { label: '坚果果干', defaultUnit: '袋', defaultStorage: '常温', icon: 'nuts' },
+  { label: '烘焙原料', defaultUnit: '袋', defaultStorage: '常温', icon: 'baking' },
+  { label: '调料', defaultUnit: '瓶', defaultStorage: '常温', quantityTrackingMode: 'not_track_quantity', icon: 'seasoning' },
+  { label: '调味料', defaultUnit: '瓶', defaultStorage: '常温', icon: 'seasoning' },
+  { label: '酱料', defaultUnit: '瓶', defaultStorage: '常温', icon: 'seasoning' },
+  { label: '罐头腌菜', defaultUnit: '罐', defaultStorage: '常温', icon: 'canned' },
+  { label: '熟食', defaultUnit: '份', defaultStorage: '冷藏', icon: 'prepared' },
+  { label: '速冻食品', defaultUnit: '袋', defaultStorage: '冷冻', icon: 'frozen' },
+  { label: '零食饮品', defaultUnit: '包', defaultStorage: '常温', icon: 'snack' },
+  { label: '其他', defaultUnit: '份', defaultStorage: '常温', icon: 'more' },
+];
+
+const INGREDIENT_EDITOR_CATEGORY_PRESET_LABELS = [
+  '蔬菜',
+  '水果',
+  '肉类',
+  '水产',
+  '蛋奶',
+  '豆制品',
+  '主食',
+  '干货',
+  '调料',
+  '其他',
 ];
 
 const INGREDIENT_CATEGORY_PRESET_MAP = new Map(
@@ -189,6 +225,10 @@ const INGREDIENT_CATEGORY_PRESET_MAP = new Map(
 
 function normalizeCategoryLabel(value: string) {
   return value.trim() || '未分类';
+}
+
+export function isSeasoningIngredient(ingredient: Pick<Ingredient, 'category' | 'quantity_tracking_mode'>) {
+  return !tracksIngredientQuantity(ingredient) || SEASONING_CATEGORY_LABELS.has(normalizeCategoryLabel(ingredient.category));
 }
 
 function storageWeight(label: string) {
@@ -217,6 +257,9 @@ function formatQuantityValue(value: number) {
 }
 
 function buildSummaryQuantityLabel(summary: IngredientSummaryViewModel) {
+  if (!tracksIngredientQuantity(summary.ingredient)) {
+    return summary.availableInventoryItems.length > 0 ? '已有' : summary.inventoryItems.length > 0 ? '需补充' : '未配置';
+  }
   if (summary.quantitySummaries.length > 0) {
     return summary.quantitySummaries
       .slice(0, 2)
@@ -258,6 +301,10 @@ function isRemainingInventory(item: InventoryItem) {
   return getInventoryRemainingQuantity(item) > 0;
 }
 
+function isPresenceInventory(item: InventoryItem) {
+  return item.quantity - (item.disposed_quantity ?? 0) > 0;
+}
+
 function isAvailableInventory(item: InventoryItem, todayTime: number) {
   return (
     isRemainingInventory(item) &&
@@ -274,6 +321,9 @@ export function buildIngredientAlerts(
   const todayTime = new Date(today).getTime();
 
   for (const ingredient of ingredients) {
+    if (!tracksIngredientQuantity(ingredient)) {
+      continue;
+    }
     if (ingredient.default_low_stock_threshold === null || ingredient.default_low_stock_threshold === undefined) {
       continue;
     }
@@ -377,11 +427,24 @@ export function buildIngredientSummaries(args: {
       const ingredientInventory = inventoryItems
         .filter((item) => item.ingredient_id === ingredient.id)
         .sort((left, right) => right.updated_at.localeCompare(left.updated_at));
-      const availableInventory = ingredientInventory.filter((item) => isAvailableInventory(item, todayTime));
-      const remainingInventory = ingredientInventory.filter(isRemainingInventory);
+      const tracksQuantity = tracksIngredientQuantity(ingredient);
+      const availableInventory = tracksQuantity
+        ? ingredientInventory.filter((item) => isAvailableInventory(item, todayTime))
+        : ingredientInventory.filter((item) => isPresenceInventory(item) && (!item.expiry_date || new Date(item.expiry_date).getTime() >= todayTime));
+      const remainingInventory = tracksQuantity
+        ? ingredientInventory.filter(isRemainingInventory)
+        : ingredientInventory.filter(isPresenceInventory);
       const totalAvailableInDefault = getIngredientAvailableQuantityInDefault(ingredient, availableInventory);
       const quantitySummaries =
-        totalAvailableInDefault > 0
+        !tracksQuantity && availableInventory.length > 0
+          ? [
+              {
+                unit: '',
+                total: availableInventory.length,
+                label: '已有',
+              },
+            ]
+          : totalAvailableInDefault > 0
           ? [
               {
                 unit: ingredient.default_unit,
@@ -752,6 +815,12 @@ export function getIngredientCategoryPreset(category: string) {
   return INGREDIENT_CATEGORY_PRESET_MAP.get(category.trim());
 }
 
+export function getIngredientEditorCategoryPresets() {
+  return INGREDIENT_EDITOR_CATEGORY_PRESET_LABELS
+    .map((label) => INGREDIENT_CATEGORY_PRESET_MAP.get(label))
+    .filter((item): item is IngredientCategoryPreset => Boolean(item));
+}
+
 export function buildIngredientCategoryFilters(ingredients: Ingredient[]) {
   const existingCategories = uniqueLabels(ingredients.map((item) => normalizeCategoryLabel(item.category)));
   const presetLabels = INGREDIENT_CATEGORY_PRESETS.map((item) => item.label).filter((label) =>
@@ -834,11 +903,17 @@ export function buildShoppingCards(
   const summaryByName = new Map(
     summaries.map((summary) => [summary.ingredient.name.trim(), summary] satisfies [string, IngredientSummaryViewModel])
   );
+  const summaryById = new Map(
+    summaries.map((summary) => [summary.ingredient.id, summary] satisfies [string, IngredientSummaryViewModel])
+  );
 
   return [...shoppingItems]
     .map((shoppingItem) => {
       const normalizedTitle = shoppingItem.title.trim();
-      const linkedSummary = summaryByName.get(normalizedTitle) ?? null;
+      const linkedSummary =
+        (shoppingItem.ingredient_id ? summaryById.get(shoppingItem.ingredient_id) ?? null : null) ??
+        summaryByName.get(normalizedTitle) ??
+        null;
       const hasAttention = Boolean(linkedSummary && linkedSummary.alerts.length > 0);
       const status = linkedSummary ? buildInventoryCardStatus(linkedSummary) : null;
       const reasonLabel = shoppingItem.reason.trim() || (linkedSummary ? '纳入近期采购计划' : '待补货');
@@ -892,12 +967,21 @@ export function buildShoppingCards(
         .join(' ');
       const subline = reasonLabel;
 
+      const usesPresenceQuantity =
+        shoppingItem.quantity_mode === 'not_track_quantity' ||
+        Boolean(linkedSummary && !tracksIngredientQuantity(linkedSummary.ingredient));
+      const shoppingQuantityLabel = shoppingItem.display_label?.trim() || '需要补充';
+
       return {
         shoppingItem,
         linkedSummary,
         title: normalizedTitle || shoppingItem.title,
-        headline: `${formatQuantityValue(shoppingItem.quantity)}${shoppingItem.unit}`,
-        quantityLabel: `${formatQuantityValue(shoppingItem.quantity)}${shoppingItem.unit}`,
+        headline: usesPresenceQuantity
+          ? shoppingQuantityLabel
+          : `${formatQuantityValue(shoppingItem.quantity)}${shoppingItem.unit}`,
+        quantityLabel: usesPresenceQuantity
+          ? shoppingQuantityLabel
+          : `${formatQuantityValue(shoppingItem.quantity)}${shoppingItem.unit}`,
         subline,
         contextTags,
         reasonLabel,
@@ -974,6 +1058,55 @@ export function buildShoppingOverview(cards: ShoppingCardViewModel[]): ShoppingO
       detail: freeformCount > 0 ? '临时采购或未建档项目' : '当前没有自由采购项',
     },
   ];
+}
+
+export function buildSeasoningSummaries(summaries: IngredientSummaryViewModel[]): SeasoningSummaryViewModel[] {
+  return summaries
+    .filter((summary) => isSeasoningIngredient(summary.ingredient))
+    .map((summary) => {
+      const hasAvailable = summary.availableInventoryItems.length > 0 || summary.quantitySummaries.length > 0;
+      const status: SeasoningStatus = hasAvailable
+        ? 'stocked'
+        : summary.inventoryItems.length > 0
+          ? 'needsRestock'
+          : 'unconfigured';
+      const statusLabel: SeasoningSummaryViewModel['statusLabel'] =
+        status === 'stocked' ? '已有' : status === 'needsRestock' ? '需补充' : '未配置';
+      const detail =
+        status === 'stocked'
+          ? `常放 ${summary.primaryStorage || summary.ingredient.default_storage || '常温'}`
+          : status === 'needsRestock'
+            ? '这类常备品需要补充'
+            : '还没有登记库存';
+      return { summary, status, statusLabel, detail };
+    })
+    .sort((left, right) => {
+      const statusWeight = { needsRestock: 0, unconfigured: 1, stocked: 2 } satisfies Record<SeasoningStatus, number>;
+      return (
+        statusWeight[left.status] - statusWeight[right.status] ||
+        right.summary.latestUpdatedAt.localeCompare(left.summary.latestUpdatedAt) ||
+        left.summary.ingredient.name.localeCompare(right.summary.ingredient.name, 'zh-CN')
+      );
+    });
+}
+
+export function buildShoppingCardGroups(cards: ShoppingCardViewModel[]): ShoppingCardGroupViewModel[] {
+  const regularCards = cards.filter((card) => !card.linkedSummary || !isSeasoningIngredient(card.linkedSummary.ingredient));
+  const seasoningCards = cards.filter((card) => card.linkedSummary && isSeasoningIngredient(card.linkedSummary.ingredient));
+  return [
+    {
+      key: 'regular' as const,
+      title: '普通食材',
+      detail: '按数量补齐的食材采购项',
+      cards: regularCards,
+    },
+    {
+      key: 'seasoning' as const,
+      title: '调料常备',
+      detail: '只看是否需要补充，不强制精确数量',
+      cards: seasoningCards,
+    },
+  ].filter((group) => group.cards.length > 0);
 }
 
 export function filterShoppingCards(

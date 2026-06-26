@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import type { AiRenderResponse } from '../api/types';
 import { Avatar } from '../components/ui-kit';
 import { DashboardIcon, ShellIcon, type ShellIconName } from './shellIcons';
@@ -22,6 +23,9 @@ const MOBILE_NAV_ITEMS: Array<{ key: TabKey; label: string; icon: ShellIconName 
   { key: 'ingredients', label: '食材', icon: 'ingredients' },
   { key: 'family', label: '家庭', icon: 'family' },
 ];
+
+const MOBILE_VIEWPORT_HEIGHT_VAR = '--app-visual-viewport-height';
+const MOBILE_VIEWPORT_BOTTOM_INSET_VAR = '--app-visual-viewport-bottom-inset';
 
 const IMAGE_JOB_TARGET_LABELS: Record<string, string> = {
   food: '食物',
@@ -73,6 +77,58 @@ function notificationSummaryTone(activeCount: number, failedCount: number) {
   return 'quiet';
 }
 
+function viewportPixelValue(value: number) {
+  return `${Math.max(0, Math.round(value))}px`;
+}
+
+function syncMobileVisualViewportMetrics() {
+  const root = document.documentElement;
+  const visualViewport = window.visualViewport ?? null;
+  const viewportHeight = visualViewport?.height ?? window.innerHeight;
+  const viewportOffsetTop = visualViewport?.offsetTop ?? 0;
+  const coveredBottom = Math.max(0, window.innerHeight - viewportHeight - viewportOffsetTop);
+
+  root.style.setProperty(MOBILE_VIEWPORT_HEIGHT_VAR, viewportPixelValue(viewportHeight));
+  root.style.setProperty(MOBILE_VIEWPORT_BOTTOM_INSET_VAR, viewportPixelValue(coveredBottom));
+}
+
+function useMobileVisualViewportMetrics(activeTab: TabKey) {
+  useEffect(() => {
+    let frameId: number | null = null;
+    const visualViewport = window.visualViewport ?? null;
+
+    const scheduleSync = () => {
+      if (frameId !== null) {
+        window.cancelAnimationFrame(frameId);
+      }
+      frameId = window.requestAnimationFrame(() => {
+        frameId = null;
+        syncMobileVisualViewportMetrics();
+      });
+    };
+
+    scheduleSync();
+    window.addEventListener('resize', scheduleSync);
+    window.addEventListener('orientationchange', scheduleSync);
+    window.addEventListener('pageshow', scheduleSync);
+    document.addEventListener('visibilitychange', scheduleSync);
+    visualViewport?.addEventListener('resize', scheduleSync);
+    visualViewport?.addEventListener('scroll', scheduleSync);
+
+    return () => {
+      if (frameId !== null) {
+        window.cancelAnimationFrame(frameId);
+      }
+      window.removeEventListener('resize', scheduleSync);
+      window.removeEventListener('orientationchange', scheduleSync);
+      window.removeEventListener('pageshow', scheduleSync);
+      document.removeEventListener('visibilitychange', scheduleSync);
+      visualViewport?.removeEventListener('resize', scheduleSync);
+      visualViewport?.removeEventListener('scroll', scheduleSync);
+    };
+  }, [activeTab]);
+}
+
 export function AppNotificationCenter(props: {
   jobs: AiRenderResponse[];
   isLoading?: boolean;
@@ -83,6 +139,7 @@ export function AppNotificationCenter(props: {
 }) {
   const [isOpen, setIsOpen] = useState(false);
   const centerRef = useRef<HTMLDivElement | null>(null);
+  const popoverRef = useRef<HTMLDivElement | null>(null);
   const variant = props.variant ?? 'desktop';
   const activeCount = props.jobs.filter((job) => job.status === 'queued' || job.status === 'running').length;
   const failedCount = props.jobs.filter((job) => job.status === 'failed').length;
@@ -94,7 +151,7 @@ export function AppNotificationCenter(props: {
     if (!isOpen) return;
 
     function isInsideCenter(target: EventTarget | null) {
-      return target instanceof Node && Boolean(centerRef.current?.contains(target));
+      return target instanceof Node && Boolean(centerRef.current?.contains(target) || popoverRef.current?.contains(target));
     }
 
     function handlePointerDown(event: PointerEvent) {
@@ -125,6 +182,80 @@ export function AppNotificationCenter(props: {
     };
   }, [isOpen]);
 
+  const popover = (
+    <div
+      ref={popoverRef}
+      className={variant === 'mobileIcon' ? 'app-notification-popover mobile-notification-popover' : 'app-notification-popover'}
+      role="dialog"
+      aria-label="通知"
+      aria-live="polite"
+    >
+      <div className="app-notification-popover-head">
+        <span className="app-notification-head-copy">
+          <span>通知</span>
+          <strong>图片生成任务</strong>
+        </span>
+        <span className={`app-notification-summary tone-${summaryTone}`}>
+          {notificationSummary(activeCount, failedCount, totalCount)}
+        </span>
+      </div>
+      {props.isLoading ? (
+        <p className="app-notification-empty">正在读取通知...</p>
+      ) : hasJobs ? (
+        <div className="app-notification-list">
+          {props.jobs.map((job) => {
+            const jobId = job.job_id ?? null;
+            const isRetrying = Boolean(jobId && props.retryingJobId === jobId);
+            const canRetry = Boolean(jobId && job.status === 'failed' && props.onRetryJob);
+            return (
+              <div key={jobId ?? `${job.target_entity_type}-${job.target_entity_id}`} className={`app-notification-row status-${job.status}`}>
+                <span className="app-notification-row-icon" aria-hidden="true">
+                  <DashboardIcon name={job.status === 'failed' ? 'bell' : job.status === 'succeeded' ? 'check' : 'circle'} />
+                </span>
+                <span className="app-notification-row-copy">
+                  <span className="app-notification-row-title">
+                    <strong title={imageJobTitle(job)}>{imageJobTitle(job)}</strong>
+                    <em>{imageJobStatusLabel(job)}</em>
+                  </span>
+                  <small title={imageJobStatusDescription(job)}>{imageJobStatusDescription(job)}</small>
+                </span>
+                {jobId && (job.status === 'succeeded' || job.status === 'failed') && (
+                  <span className="app-notification-row-actions">
+                    {canRetry && (
+                      <button
+                        className="app-notification-retry"
+                        type="button"
+                        onClick={() => props.onRetryJob?.(jobId)}
+                        disabled={isRetrying}
+                        aria-label={`重试${imageJobTitle(job)}`}
+                      >
+                        <span aria-hidden="true">
+                          <DashboardIcon name="refresh" />
+                        </span>
+                        {isRetrying ? '提交中' : '重试'}
+                      </button>
+                    )}
+                    <button
+                      className="app-notification-clear"
+                      type="button"
+                      onClick={() => props.onDismissJob?.(jobId)}
+                      aria-label={`清除${imageJobTitle(job)}通知`}
+                      title="清除"
+                    >
+                      <DashboardIcon name="x" />
+                    </button>
+                  </span>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      ) : (
+        <p className="app-notification-empty">当前没有通知。</p>
+      )}
+    </div>
+  );
+
   return (
     <div
       ref={centerRef}
@@ -149,73 +280,7 @@ export function AppNotificationCenter(props: {
         </span>
         {variant !== 'mobileIcon' && <strong>通知</strong>}
       </button>
-      {isOpen && (
-        <div className="app-notification-popover" role="dialog" aria-label="通知" aria-live="polite">
-          <div className="app-notification-popover-head">
-            <span className="app-notification-head-copy">
-              <span>通知</span>
-              <strong>图片生成任务</strong>
-            </span>
-            <span className={`app-notification-summary tone-${summaryTone}`}>
-              {notificationSummary(activeCount, failedCount, totalCount)}
-            </span>
-          </div>
-          {props.isLoading ? (
-            <p className="app-notification-empty">正在读取通知...</p>
-          ) : hasJobs ? (
-            <div className="app-notification-list">
-              {props.jobs.map((job) => {
-                const jobId = job.job_id ?? null;
-                const isRetrying = Boolean(jobId && props.retryingJobId === jobId);
-                const canRetry = Boolean(jobId && job.status === 'failed' && props.onRetryJob);
-                return (
-                  <div key={jobId ?? `${job.target_entity_type}-${job.target_entity_id}`} className={`app-notification-row status-${job.status}`}>
-                    <span className="app-notification-row-icon" aria-hidden="true">
-                      <DashboardIcon name={job.status === 'failed' ? 'bell' : job.status === 'succeeded' ? 'check' : 'circle'} />
-                    </span>
-                    <span className="app-notification-row-copy">
-                      <span className="app-notification-row-title">
-                        <strong title={imageJobTitle(job)}>{imageJobTitle(job)}</strong>
-                        <em>{imageJobStatusLabel(job)}</em>
-                      </span>
-                      <small title={imageJobStatusDescription(job)}>{imageJobStatusDescription(job)}</small>
-                    </span>
-                    {jobId && (job.status === 'succeeded' || job.status === 'failed') && (
-                      <span className="app-notification-row-actions">
-                        {canRetry && (
-                          <button
-                            className="app-notification-retry"
-                            type="button"
-                            onClick={() => props.onRetryJob?.(jobId)}
-                            disabled={isRetrying}
-                            aria-label={`重试${imageJobTitle(job)}`}
-                          >
-                            <span aria-hidden="true">
-                              <DashboardIcon name="refresh" />
-                            </span>
-                            {isRetrying ? '提交中' : '重试'}
-                          </button>
-                        )}
-                        <button
-                          className="app-notification-clear"
-                          type="button"
-                          onClick={() => props.onDismissJob?.(jobId)}
-                          aria-label={`清除${imageJobTitle(job)}通知`}
-                          title="清除"
-                        >
-                          <DashboardIcon name="x" />
-                        </button>
-                      </span>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          ) : (
-            <p className="app-notification-empty">当前没有通知。</p>
-          )}
-        </div>
-      )}
+      {isOpen && (variant === 'mobileIcon' ? createPortal(popover, document.body) : popover)}
     </div>
   );
 }
@@ -272,6 +337,7 @@ export function AppShell({
   onLogout,
 }: AppShellProps) {
   const isAiActive = activeTab === 'ai';
+  useMobileVisualViewportMetrics(activeTab);
 
   return (
     <div className={isAiActive ? 'app-shell app-shell-ai' : 'app-shell'}>

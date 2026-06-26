@@ -152,6 +152,8 @@ class CookRecipeConsumedItemOut(BaseModel):
     ingredient_name: str
     requested_quantity: float
     unit: str
+    quantity_tracking_mode: str = "track_quantity"
+    deduction_note: str | None = None
     affected_item_ids: list[str] = Field(default_factory=list)
 
 
@@ -169,6 +171,8 @@ class CookRecipePreviewItemOut(BaseModel):
     ingredient_name: str
     requested_quantity: float
     unit: str
+    quantity_tracking_mode: str = "track_quantity"
+    deduction_note: str | None = None
     batches: list[CookRecipePreviewBatchOut] = Field(default_factory=list)
 
 
@@ -179,6 +183,7 @@ class CookRecipeShortageOut(BaseModel):
     available_quantity: float
     missing_quantity: float
     unit: str
+    shortage_type: str = "quantity"
 
 
 class CookRecipeResponse(BaseModel):

@@ -3,6 +3,7 @@ import type { Ingredient, IngredientUnitConversion } from '../../api/types';
 import { MediaWithPlaceholder } from '../MediaPlaceholder';
 import { ActionButton, Badge, TouchStepperField, WorkspaceModal } from '../ui-kit';
 import { resolvePreferredIngredientUnit } from '../../lib/ingredientUnits';
+import { tracksIngredientQuantity } from '../../lib/ingredientTracking';
 import { buildUnitPresetOptions, formatNumericString, type ShoppingDialogFormState } from './ingredientWorkspaceForms';
 
 type IngredientShoppingOverlayProps = {
@@ -23,6 +24,7 @@ type IngredientShoppingOverlayProps = {
 
 export function IngredientShoppingOverlay(props: IngredientShoppingOverlayProps) {
   const shoppingUnitOptions = buildUnitPresetOptions(props.shoppingForm.unit || '个');
+  const tracksQuantity = tracksIngredientQuantity(props.selectedShoppingIngredient);
 
   return (
     <WorkspaceModal
@@ -82,6 +84,7 @@ export function IngredientShoppingOverlay(props: IngredientShoppingOverlayProps)
             </label>
           )}
 
+          {tracksQuantity ? (
           <section className="ingredients-restock-field-group ingredients-restock-quantity-section">
             <div className="ingredients-restock-quantity-row">
               <TouchStepperField
@@ -158,6 +161,14 @@ export function IngredientShoppingOverlay(props: IngredientShoppingOverlayProps)
               </section>
             </div>
           </section>
+          ) : (
+            <section className="ingredients-restock-field-group ingredients-restock-quantity-section">
+              <div className="ingredients-create-rule-note ingredients-create-lowstock-note">
+                <span>需要补充</span>
+                <p>这类食材不要求精确采购数量，清单里会显示为需要补充。</p>
+              </div>
+            </section>
+          )}
 
           <section className="ingredients-restock-field-group">
             <div className="ingredients-restock-field-head">

@@ -1487,7 +1487,8 @@
 
   .workspace-drawer,
   .workspace-modal {
-    width: calc(100vw - 12px);
+    width: calc(100% - 12px);
+    max-width: calc(100% - 12px);
     height: auto;
     max-height: calc(100vh - 12px);
     padding: 18px 16px 20px;
@@ -5647,6 +5648,11 @@
   color: #5d9566;
 }
 
+.recipe-shopping-pill.tone-presence {
+  background: #e2ecd8;
+  color: #4f6d3f;
+}
+
 .recipe-shopping-draft-controls,
 .recipe-shopping-custom-row {
   display: grid;
@@ -5698,6 +5704,30 @@
   font-weight: 760;
   text-align: center;
   outline: none;
+}
+
+.recipe-shopping-presence-control {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+}
+
+.recipe-shopping-presence-control span {
+  color: #8f7c70;
+  font-size: 0.72rem;
+  font-weight: 820;
+}
+
+.recipe-shopping-presence-control input {
+  width: 100%;
+  min-height: 52px;
+  border: 1px solid rgba(92, 67, 48, 0.14);
+  border-radius: 14px;
+  padding: 0 14px;
+  background: #fff;
+  color: #342019;
+  font: inherit;
+  font-weight: 760;
 }
 
 .recipe-shopping-select-shell {
@@ -6152,6 +6182,10 @@
 
   .recipe-shopping-stepper {
     grid-template-columns: 40px minmax(44px, 1fr) 40px;
+    min-height: 48px;
+  }
+
+  .recipe-shopping-presence-control input {
     min-height: 48px;
   }
 

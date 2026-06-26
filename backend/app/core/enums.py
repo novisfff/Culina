@@ -51,6 +51,11 @@ class IngredientExpiryMode(str, Enum):
     NONE = "none"
 
 
+class IngredientQuantityTrackingMode(str, Enum):
+    TRACK_QUANTITY = "track_quantity"
+    NOT_TRACK_QUANTITY = "not_track_quantity"
+
+
 class AiMode(str, Enum):
     FOOD_QA = "foodQa"
     INVENTORY_QA = "inventoryQa"

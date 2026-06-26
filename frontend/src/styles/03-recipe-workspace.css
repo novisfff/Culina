@@ -1424,6 +1424,17 @@
   gap: 8px;
 }
 
+.recipe-cook-preview-note {
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: 12px;
+  background: rgba(226, 236, 216, 0.62);
+  color: #5f744b;
+  font-size: 0.9rem;
+  font-weight: 780;
+  line-height: 1.35;
+}
+
 .recipe-cook-preview-batches p {
   flex-wrap: wrap;
   justify-content: flex-start;

@@ -15,7 +15,7 @@ type IngredientCreatePageProps = {
   activePanelBackLabel: string;
   ingredientForm: IngredientCreateFormState;
   setIngredientForm: Dispatch<SetStateAction<IngredientCreateFormState>>;
-  ingredientVisibleCategoryPresets: Array<{ label: string }>;
+  ingredientVisibleCategoryPresets: Array<{ label: string; icon: string }>;
   ingredientCategoryIsVisiblePreset: boolean;
   showIngredientCategoryCustomInput: boolean;
   setIngredientCustomCategoryOpen: (next: boolean) => void;

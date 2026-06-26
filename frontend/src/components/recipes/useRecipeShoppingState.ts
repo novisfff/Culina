@@ -17,7 +17,15 @@ import {
 
 type UseRecipeShoppingStateArgs = {
   ingredients: Ingredient[];
-  createShoppingItem: (payload: { title: string; quantity: number; unit: string; reason: string }) => Promise<ShoppingListItem>;
+  createShoppingItem: (payload: {
+    title: string;
+    quantity?: number | null;
+    unit?: string | null;
+    ingredient_id?: string | null;
+    quantity_mode?: ShoppingListItem['quantity_mode'];
+    display_label?: string | null;
+    reason: string;
+  }) => Promise<ShoppingListItem>;
   showRecipeNotice: (notice: RecipeNotice) => void;
 };
 
@@ -39,6 +47,7 @@ export function useRecipeShoppingState(args: UseRecipeShoppingStateArgs) {
         unit: ingredient.default_unit || '个',
         imageUrl: resolveIngredientImageUrl(ingredient, ingredient.name),
         category: ingredient.category,
+        quantityMode: ingredient.quantity_tracking_mode ?? 'track_quantity',
       })),
     [args.ingredients]
   );
@@ -64,7 +73,10 @@ export function useRecipeShoppingState(args: UseRecipeShoppingStateArgs) {
     setShoppingCustomForm({ title: '', quantity: '1', unit: '个' });
   }
 
-  function updateShoppingDraft(itemId: string, patch: Partial<Pick<RecipeShoppingDraftItem, 'title' | 'quantity' | 'unit' | 'reason'>>) {
+  function updateShoppingDraft(
+    itemId: string,
+    patch: Partial<Pick<RecipeShoppingDraftItem, 'title' | 'quantity' | 'unit' | 'reason' | 'quantityMode' | 'displayLabel' | 'ingredientId'>>
+  ) {
     setShoppingDrafts((current) => current.map((item) => (item.id === itemId ? { ...item, ...patch } : item)));
   }
 

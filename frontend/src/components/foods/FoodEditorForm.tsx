@@ -259,15 +259,6 @@ export function FoodEditorForm(props: Props) {
                   </div>
                 </section>
 
-                <label className="food-editor-meta-card food-editor-favorite-row">
-                  <div className="food-editor-field-head">
-                    <span>加入收藏</span>
-                    <small>收藏后可在食物库快速找到</small>
-                  </div>
-                  <input type="checkbox" checked={props.form.favorite} onChange={(event) => props.onFormChange({ ...props.form, favorite: event.target.checked })} />
-                  <i aria-hidden="true" />
-                </label>
-
                 <section className="food-editor-meta-card food-editor-tag-card">
                   <div className="food-editor-field-head">
                     <span>场景标签</span>
@@ -314,7 +305,17 @@ export function FoodEditorForm(props: Props) {
                   </div>
                 </section>
 
-                <section className="food-editor-meta-card">
+                <label className="food-editor-meta-card food-editor-favorite-row">
+                  <div className="food-editor-field-head">
+                    <span>加入收藏</span>
+                    <small>收藏后可在食物库快速找到</small>
+                  </div>
+                  <input type="checkbox" checked={props.form.favorite} onChange={(event) => props.onFormChange({ ...props.form, favorite: event.target.checked })} />
+                  <i aria-hidden="true" />
+                </label>
+
+
+                <section className="food-editor-meta-card food-editor-routine-note-card">
                   <div className="food-editor-field-head">
                     <span>常用备注</span>
                     <small>一句话提示家庭成员或复吃场景</small>

@@ -9,7 +9,7 @@ from app.core.enums import ActivityAction
 from app.core.utils import create_id
 from app.db.session import get_db
 from app.db.transactions import commit_session
-from app.models.domain import ShoppingListItem
+from app.models.domain import Ingredient, ShoppingListItem
 from app.schemas.shopping import CreateShoppingListItemRequest, ShoppingListItemOut, UpdateShoppingListItemRequest
 from app.services.activity import log_activity
 from app.services.serializers import serialize_shopping_item
@@ -37,12 +37,31 @@ def create_shopping_item(
     db: Session = Depends(get_db),
 ) -> dict:
     user, membership = auth
+    ingredient = None
+    if payload.ingredient_id:
+        ingredient = db.scalar(
+            select(Ingredient).where(Ingredient.id == payload.ingredient_id, Ingredient.family_id == membership.family_id)
+        )
+        if ingredient is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Ingredient not found")
+        payload.quantity_mode = ingredient.quantity_tracking_mode
+        payload.unit = payload.unit or ingredient.default_unit
+        if payload.quantity_mode.value == "not_track_quantity":
+            payload.display_label = payload.display_label or "需要补充"
+            payload.quantity = payload.quantity or 1
+    if payload.quantity is None or payload.quantity <= 0:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="采购数量必须大于 0")
+    if not payload.unit:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="采购单位不能为空")
     item = ShoppingListItem(
         id=create_id("shopping"),
         family_id=membership.family_id,
+        ingredient_id=ingredient.id if ingredient else payload.ingredient_id,
         title=payload.title,
-        quantity=payload.quantity,
-        unit=payload.unit,
+        quantity=payload.quantity or 1,
+        unit=payload.unit or "份",
+        quantity_mode=payload.quantity_mode,
+        display_label=payload.display_label,
         reason=payload.reason,
         done=False,
         created_by=user.id,

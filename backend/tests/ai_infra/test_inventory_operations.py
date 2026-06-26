@@ -1,7 +1,151 @@
 from ._support import *
+from app.services.inventory_operations import consume_ingredient_inventory, create_inventory_batch
 
 
 class AIInventoryOperationsTestCase(AIAgentInfraTestCase):
+        def test_ingredient_tools_expose_quantity_tracking_mode(self) -> None:
+            with self.SessionLocal() as db:
+                ingredient = Ingredient(
+                    id="ingredient-salt",
+                    family_id=self.family.id,
+                    name="盐",
+                    category="调料",
+                    default_unit="g",
+                    unit_conversions=[],
+                    quantity_tracking_mode=IngredientQuantityTrackingMode.NOT_TRACK_QUANTITY,
+                    default_storage="常温",
+                    default_expiry_mode=IngredientExpiryMode.NONE,
+                    notes="",
+                    created_by=self.user.id,
+                    updated_by=self.user.id,
+                )
+                db.add(ingredient)
+                db.flush()
+                executor = ToolExecutor(
+                    build_workspace_tool_registry(),
+                    ToolContext(
+                        db=db,
+                        family_id=self.family.id,
+                        user_id=self.user.id,
+                        conversation_id="conversation-seasoning-tools",
+                        run_id="run-seasoning-tools",
+                    ),
+                )
+                search = executor.call("ingredient.search", {"query": "盐", "exact": True})
+                detail = executor.call("ingredient.read_by_id", {"id": ingredient.id})
+
+            self.assertEqual(search["items"][0]["quantityTrackingMode"], "not_track_quantity")
+            self.assertEqual(detail["item"]["quantityTrackingMode"], "not_track_quantity")
+
+        def test_inventory_draft_allows_presence_restock_without_quantity(self) -> None:
+            with self.SessionLocal() as db:
+                ingredient = Ingredient(
+                    id="ingredient-vinegar",
+                    family_id=self.family.id,
+                    name="醋",
+                    category="调料",
+                    default_unit="瓶",
+                    unit_conversions=[],
+                    quantity_tracking_mode=IngredientQuantityTrackingMode.NOT_TRACK_QUANTITY,
+                    default_storage="常温",
+                    default_expiry_mode=IngredientExpiryMode.NONE,
+                    notes="",
+                    created_by=self.user.id,
+                    updated_by=self.user.id,
+                )
+                db.add(ingredient)
+                db.flush()
+                normalized = normalize_inventory_operation_draft(
+                    db,
+                    family_id=self.family.id,
+                    payload={
+                        "draftType": "inventory_operation",
+                        "schemaVersion": "inventory_operation.v1",
+                        "operations": [
+                            {
+                                "action": "restock",
+                                "ingredientId": ingredient.id,
+                                "storageLocation": "常温",
+                            }
+                        ],
+                    },
+                )
+
+            operation = normalized["operations"][0]
+            self.assertEqual(operation["ingredientName"], "醋")
+            self.assertEqual(operation["quantity"], None)
+            self.assertEqual(operation["unit"], "瓶")
+            self.assertEqual(operation["lowStockThreshold"], None)
+
+        def test_presence_inventory_operations_skip_quantity_deduction_and_dispose_whole_batch(self) -> None:
+            with self.SessionLocal() as db:
+                ingredient = Ingredient(
+                    id="ingredient-soy-sauce",
+                    family_id=self.family.id,
+                    name="酱油",
+                    category="调料",
+                    default_unit="瓶",
+                    unit_conversions=[],
+                    quantity_tracking_mode=IngredientQuantityTrackingMode.NOT_TRACK_QUANTITY,
+                    default_storage="常温",
+                    default_expiry_mode=IngredientExpiryMode.NONE,
+                    notes="",
+                    created_by=self.user.id,
+                    updated_by=self.user.id,
+                )
+                db.add(ingredient)
+                db.flush()
+
+                item = create_inventory_batch(
+                    db,
+                    family_id=self.family.id,
+                    user_id=self.user.id,
+                    ingredient=ingredient,
+                    quantity=None,
+                    unit=None,
+                    status=InventoryStatus.FRESH,
+                    purchase_date=date.today(),
+                    expiry_date=None,
+                    storage_location="常温",
+                )
+                self.assertEqual(item.quantity, Decimal("1"))
+                self.assertEqual(item.consumed_quantity, Decimal("0"))
+
+                consume_result = consume_ingredient_inventory(
+                    db,
+                    family_id=self.family.id,
+                    user_id=self.user.id,
+                    ingredient=ingredient,
+                    quantity=None,
+                    unit=None,
+                    today=date.today(),
+                )
+                self.assertEqual(consume_result["affected_item_ids"], [])
+                self.assertEqual(item.consumed_quantity, Decimal("0"))
+
+                with self.assertRaisesRegex(ValueError, "只能整批移除"):
+                    dispose_inventory_quantity(
+                        db,
+                        family_id=self.family.id,
+                        user_id=self.user.id,
+                        item=item,
+                        quantity=Decimal("0.5"),
+                        unit="瓶",
+                        reason="测试",
+                    )
+
+                dispose_result = dispose_inventory_quantity(
+                    db,
+                    family_id=self.family.id,
+                    user_id=self.user.id,
+                    item=item,
+                    quantity=None,
+                    unit=None,
+                    reason="用完",
+                )
+                self.assertEqual(dispose_result["remaining_quantity"], 0.0)
+                self.assertEqual(item.disposed_quantity, Decimal("1"))
+
         def test_ingredient_tools_expose_supported_units_for_inventory_flow(self) -> None:
             with self.SessionLocal() as db:
                 ingredient = self._add_egg_ingredient(db)

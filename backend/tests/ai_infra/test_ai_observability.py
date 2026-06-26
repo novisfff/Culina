@@ -4,7 +4,7 @@ from datetime import timedelta
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
+from langchain_core.messages import AIMessage, AIMessageChunk, HumanMessage, SystemMessage
 
 from app.ai.observability.llm_exchange import LLMExchangeRecorder
 from app.ai.observability.tracer import AIRunTracer
@@ -49,13 +49,103 @@ class AIObservabilityTestCase(AIAgentInfraTestCase):
         return SimpleNamespace(**values)
 
     def test_settings_default_do_not_capture_llm_exchange_content(self) -> None:
-        settings = Settings()
+        settings = Settings(_env_file=None)
         self.assertFalse(settings.ai_trace_capture_llm_exchanges)
         self.assertFalse(settings.ai_trace_capture_message_content)
 
     def test_observability_tables_do_not_depend_on_business_foreign_keys(self) -> None:
         self.assertEqual(set(AIRunTraceSpan.__table__.foreign_keys), set())
         self.assertEqual(set(AIRunLLMExchange.__table__.foreign_keys), set())
+
+    def test_openai_compatible_provider_requests_stream_usage(self) -> None:
+        provider = OpenAICompatibleChatProvider(
+            api_base="https://example.invalid/v1",
+            api_key="test-key",
+            model_name="debug-model",
+        )
+
+        self.assertTrue(getattr(provider.client, "stream_usage", False))
+
+    def test_streaming_tool_usage_chunk_is_recorded_on_exchange(self) -> None:
+        class UsageStreamClient:
+            stream_kwargs: dict | None = None
+
+            def stream(self, _messages, **kwargs):
+                self.stream_kwargs = kwargs
+                return iter(
+                    [
+                        AIMessageChunk(content="补货建议已整理。"),
+                        AIMessageChunk(
+                            content="",
+                            usage_metadata={
+                                "input_tokens": 41,
+                                "output_tokens": 9,
+                                "total_tokens": 50,
+                                "input_token_details": {"cache_read": 7},
+                            },
+                        ),
+                    ]
+                )
+
+        class BindingClient:
+            def __init__(self, stream_client: UsageStreamClient) -> None:
+                self.stream_client = stream_client
+
+            def bind_tools(self, _tools):
+                return self
+
+            def bind(self, **_kwargs):
+                return self.stream_client
+
+        response = self.client.post(
+            "/api/ai/chat",
+            json={"message": "随便聊聊", "client_run_id": "agent_run-observability-stream-usage"},
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        data = response.json()
+        run_id = data["run"]["id"]
+        conversation_id = data["conversation_id"]
+
+        stream_client = UsageStreamClient()
+        provider = OpenAICompatibleChatProvider(
+            api_base="https://example.invalid/v1",
+            api_key="test-key",
+            model_name="debug-model",
+        )
+        provider.client = BindingClient(stream_client)
+
+        with self.SessionLocal() as db:
+            recorder = LLMExchangeRecorder(
+                db=db,
+                family_id=self.family.id,
+                run_id=run_id,
+                conversation_id=conversation_id,
+                trace_id="ai_trace-stream-usage",
+                user_id=self.user.id,
+                span_id="ai_span-stream-usage",
+            )
+            result = provider.generate_with_tools(
+                system="系统",
+                user="用户",
+                tools=lambda: [],
+                tool_handler=lambda _name, _payload, _event_id=None: {},
+                trace_recorder=recorder,
+            )
+            db.commit()
+
+        self.assertEqual(result.text, "补货建议已整理。")
+        self.assertEqual(
+            stream_client.stream_kwargs,
+            {"stream_usage": True, "stream_options": {"include_usage": True}},
+        )
+        exchange_response = self.client.get(f"/api/ai/runs/{run_id}/llm-exchanges")
+        self.assertEqual(exchange_response.status_code, 200, exchange_response.text)
+        exchange = exchange_response.json()["exchanges"][-1]
+        self.assertEqual(exchange["traceId"], "ai_trace-stream-usage")
+        self.assertEqual(exchange["inputTokens"], 41)
+        self.assertEqual(exchange["outputTokens"], 9)
+        self.assertEqual(exchange["totalTokens"], 50)
+        self.assertEqual(exchange["cachedTokens"], 7)
 
     def test_observability_failures_do_not_touch_business_session_or_raise(self) -> None:
         response = self.client.post(
@@ -265,6 +355,14 @@ class AIObservabilityTestCase(AIAgentInfraTestCase):
             handle.finish(
                 response_message=AIMessage(
                     content="AI 响应完整内容",
+                    response_metadata={
+                        "token_usage": {
+                            "prompt_tokens": 120,
+                            "completion_tokens": 34,
+                            "total_tokens": 154,
+                            "prompt_tokens_details": {"cached_tokens": 20},
+                        }
+                    },
                     tool_calls=[
                         {
                             "id": "tool-call-1",
@@ -303,6 +401,13 @@ class AIObservabilityTestCase(AIAgentInfraTestCase):
         self.assertGreater(exchange["responseOriginalBytes"], 0)
         self.assertGreater(exchange["responseBytes"], 0)
         self.assertFalse(exchange["responseTruncated"])
+        self.assertEqual(exchange["inputTokens"], 120)
+        self.assertEqual(exchange["outputTokens"], 34)
+        self.assertEqual(exchange["totalTokens"], 154)
+        self.assertEqual(exchange["cachedTokens"], 20)
+        self.assertIsNone(exchange["estimatedCostUsd"])
+        self.assertEqual(exchange["tokenUsage"]["inputTokens"], 120)
+        self.assertIn("raw", exchange["tokenUsage"])
         self.assertIn("系统提示完整内容", exchange["requestMessages"][0]["content"])
         self.assertEqual(exchange["requestMessages"][1]["content"][0]["text"], "用户最终发送给 AI 的完整内容")
         image_url = exchange["requestMessages"][1]["content"][1]["image_url"]["url"]

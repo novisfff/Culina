@@ -31,6 +31,7 @@ class LLMExchangeHandle:
         response_text: str | None,
         response_tool_calls: list[dict[str, Any]] | None = None,
         stream_chunks: list[dict[str, Any]] | None = None,
+        token_usage: dict[str, Any] | None = None,
         status: str = "completed",
         error_code: str | None = None,
         error_message: str | None = None,
@@ -38,6 +39,7 @@ class LLMExchangeHandle:
         if self.exchange is None:
             return
         try:
+            token_usage = token_usage or self.recorder.extract_token_usage(response_message)
             clean_response_message = self.recorder._clean_response(self.recorder.serialize_message(response_message))
             clean_response_tool_calls = self.recorder._clean_response(response_tool_calls or [])
             clean_stream_chunks = self.recorder._clean_response(stream_chunks or [])
@@ -74,6 +76,12 @@ class LLMExchangeHandle:
                 response_digest=response_digest,
                 response_bytes=response_bytes,
                 response_truncated=response_truncated,
+                input_tokens=token_usage.get("inputTokens"),
+                output_tokens=token_usage.get("outputTokens"),
+                total_tokens=token_usage.get("totalTokens"),
+                cached_tokens=token_usage.get("cachedTokens"),
+                estimated_cost_usd=token_usage.get("estimatedCostUsd"),
+                token_usage=token_usage,
                 status=status,
                 error_code=error_code,
                 error_message=error_message,
@@ -177,6 +185,12 @@ class LLMExchangeRecorder:
                 response_digest="",
                 response_bytes=0,
                 response_truncated=False,
+                input_tokens=None,
+                output_tokens=None,
+                total_tokens=None,
+                cached_tokens=None,
+                estimated_cost_usd=None,
+                token_usage=None,
                 status="running",
                 started_at=utcnow(),
                 duration_ms=0,
@@ -248,6 +262,76 @@ class LLMExchangeRecorder:
         except Exception:
             logger.exception("AI LLM exchange stream chunk capture failed run_id=%s trace_id=%s", self.run_id, self.trace_id)
             return []
+
+    def extract_token_usage(self, response_message: Any) -> dict[str, Any]:
+        usage_metadata = getattr(response_message, "usage_metadata", None)
+        response_metadata = getattr(response_message, "response_metadata", None)
+        additional_kwargs = getattr(response_message, "additional_kwargs", None)
+        token_usage = response_metadata.get("token_usage") if isinstance(response_metadata, dict) else None
+        response_usage = response_metadata.get("usage") if isinstance(response_metadata, dict) else None
+        additional_usage = additional_kwargs.get("usage") if isinstance(additional_kwargs, dict) else None
+
+        raw_usage: dict[str, Any] = {}
+        if isinstance(token_usage, dict):
+            raw_usage.update(token_usage)
+        if isinstance(response_usage, dict):
+            raw_usage.update(response_usage)
+        if isinstance(additional_usage, dict):
+            raw_usage.update(additional_usage)
+        if isinstance(usage_metadata, dict):
+            raw_usage.update(usage_metadata)
+
+        input_tokens = self._int_usage_value(raw_usage, "input_tokens", "prompt_tokens", "inputTokens", "promptTokens")
+        output_tokens = self._int_usage_value(raw_usage, "output_tokens", "completion_tokens", "outputTokens", "completionTokens")
+        total_tokens = self._int_usage_value(raw_usage, "total_tokens", "totalTokens")
+        if total_tokens is None and (input_tokens is not None or output_tokens is not None):
+            total_tokens = int(input_tokens or 0) + int(output_tokens or 0)
+
+        cached_tokens = self._cached_token_count(raw_usage)
+        estimated_cost = self._float_usage_value(raw_usage, "estimated_cost_usd", "estimatedCostUsd")
+        if not raw_usage and all(value is None for value in (input_tokens, output_tokens, total_tokens, cached_tokens, estimated_cost)):
+            return {}
+        return {
+            "inputTokens": input_tokens,
+            "outputTokens": output_tokens,
+            "totalTokens": total_tokens,
+            "cachedTokens": cached_tokens,
+            "estimatedCostUsd": estimated_cost,
+            "raw": self._clean_response(raw_usage),
+        }
+
+    def _int_usage_value(self, data: dict[str, Any], *keys: str) -> int | None:
+        for key in keys:
+            value = data.get(key)
+            if isinstance(value, bool):
+                continue
+            if isinstance(value, int):
+                return value
+            if isinstance(value, float) and value.is_integer():
+                return int(value)
+        return None
+
+    def _float_usage_value(self, data: dict[str, Any], *keys: str) -> float | None:
+        for key in keys:
+            value = data.get(key)
+            if isinstance(value, bool):
+                continue
+            if isinstance(value, (int, float)):
+                return float(value)
+        return None
+
+    def _cached_token_count(self, data: dict[str, Any]) -> int | None:
+        direct = self._int_usage_value(data, "cached_tokens", "cachedTokens")
+        if direct is not None:
+            return direct
+        for detail_key in ("input_token_details", "prompt_tokens_details", "inputTokenDetails", "promptTokenDetails"):
+            details = data.get(detail_key)
+            if not isinstance(details, dict):
+                continue
+            cached = self._int_usage_value(details, "cache_read", "cached_tokens", "cachedTokens")
+            if cached is not None:
+                return cached
+        return None
 
     def provider_error_code(self, *, mode: str, empty: bool = False, max_rounds: bool = False) -> str:
         if empty:

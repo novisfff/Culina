@@ -2,6 +2,7 @@ import type { CSSProperties } from 'react';
 import type { Ingredient } from '../../api/types';
 import { resolveAssetUrl } from '../../lib/assets';
 import { convertQuantityToDefaultUnit, getIngredientUnitOptions, resolvePreferredIngredientUnit } from '../../lib/ingredientUnits';
+import { quantityTrackingLabel, tracksIngredientQuantity } from '../../lib/ingredientTracking';
 import {
   buildDisposableExpiredInventoryItems,
   buildInventoryCardPresentation,
@@ -128,7 +129,8 @@ export function IngredientWorkspaceOverlays(props: OverlayLayerProps) {
   const selectedShoppingIngredientMeta = selectedShoppingIngredient
     ? [
         selectedShoppingIngredient.category || '未分类',
-        `默认 ${selectedShoppingIngredient.default_unit || '个'}`,
+        quantityTrackingLabel(selectedShoppingIngredient),
+        tracksIngredientQuantity(selectedShoppingIngredient) ? `默认 ${selectedShoppingIngredient.default_unit || '个'}` : '做菜不扣减数量',
         selectedShoppingIngredient.default_storage || '常温',
       ]
     : [];
@@ -136,7 +138,8 @@ export function IngredientWorkspaceOverlays(props: OverlayLayerProps) {
   const selectedIngredientMeta = selectedInventoryIngredient
     ? [
         selectedInventoryIngredient.category || '未分类',
-        `默认 ${selectedInventoryIngredient.default_unit || '个'}`,
+        quantityTrackingLabel(selectedInventoryIngredient),
+        tracksIngredientQuantity(selectedInventoryIngredient) ? `默认 ${selectedInventoryIngredient.default_unit || '个'}` : '补充时不填数量',
         selectedInventoryIngredient.default_storage || '常温',
       ]
     : [];
@@ -144,7 +147,8 @@ export function IngredientWorkspaceOverlays(props: OverlayLayerProps) {
   const selectedConsumeMeta = selectedConsumeSummary
     ? [
         selectedConsumeSummary.ingredient.category || '未分类',
-        `默认 ${selectedConsumeSummary.ingredient.default_unit || '个'}`,
+        quantityTrackingLabel(selectedConsumeSummary.ingredient),
+        tracksIngredientQuantity(selectedConsumeSummary.ingredient) ? `默认 ${selectedConsumeSummary.ingredient.default_unit || '个'}` : '不扣减数量',
         selectedConsumeSummary.primaryStorage || selectedConsumeSummary.ingredient.default_storage || '常温',
       ]
     : [];

@@ -4,7 +4,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import Boolean, Date, DateTime, Enum as SqlEnum, ForeignKey, Integer, JSON, LargeBinary, Numeric, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, Date, DateTime, Enum as SqlEnum, Float, ForeignKey, Integer, JSON, LargeBinary, Numeric, String, Text, UniqueConstraint
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 from app.core.enums import (
@@ -14,6 +14,7 @@ from app.core.enums import (
     FoodType,
     ImageGenerationMode,
     IngredientExpiryMode,
+    IngredientQuantityTrackingMode,
     InventoryStatus,
     MealType,
     MediaSource,
@@ -137,6 +138,11 @@ class Ingredient(AuditMixin, Base):
     category: Mapped[str] = mapped_column(String(120), default="未分类", nullable=False)
     default_unit: Mapped[str] = mapped_column(String(32), default="个", nullable=False)
     unit_conversions: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list, nullable=False)
+    quantity_tracking_mode: Mapped[IngredientQuantityTrackingMode] = mapped_column(
+        SqlEnum(IngredientQuantityTrackingMode, native_enum=False),
+        default=IngredientQuantityTrackingMode.TRACK_QUANTITY,
+        nullable=False,
+    )
     default_storage: Mapped[str] = mapped_column(String(120), default="冷藏", nullable=False)
     default_expiry_mode: Mapped[IngredientExpiryMode] = mapped_column(
         SqlEnum(IngredientExpiryMode, native_enum=False),
@@ -149,6 +155,7 @@ class Ingredient(AuditMixin, Base):
 
     family: Mapped["Family"] = relationship(back_populates="ingredients")
     inventory_items: Mapped[list["InventoryItem"]] = relationship(back_populates="ingredient", cascade="all, delete-orphan")
+    shopping_items: Mapped[list["ShoppingListItem"]] = relationship(back_populates="ingredient")
 
 
 class InventoryItem(AuditMixin, Base):
@@ -179,13 +186,21 @@ class ShoppingListItem(AuditMixin, Base):
 
     id: Mapped[str] = mapped_column(String(64), primary_key=True, default=lambda: create_id("shopping"))
     family_id: Mapped[str] = mapped_column(ForeignKey("families.id", ondelete="CASCADE"), nullable=False, index=True)
+    ingredient_id: Mapped[str | None] = mapped_column(ForeignKey("ingredients.id", ondelete="SET NULL"), nullable=True, index=True)
     title: Mapped[str] = mapped_column(String(120), nullable=False)
     quantity: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
     unit: Mapped[str] = mapped_column(String(32), nullable=False)
+    quantity_mode: Mapped[IngredientQuantityTrackingMode] = mapped_column(
+        SqlEnum(IngredientQuantityTrackingMode, native_enum=False),
+        default=IngredientQuantityTrackingMode.TRACK_QUANTITY,
+        nullable=False,
+    )
+    display_label: Mapped[str | None] = mapped_column(String(80), nullable=True)
     reason: Mapped[str] = mapped_column(String(255), default="", nullable=False)
     done: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
     family: Mapped["Family"] = relationship(back_populates="shopping_items")
+    ingredient: Mapped["Ingredient | None"] = relationship(back_populates="shopping_items")
 
 
 class Recipe(AuditMixin, Base):
@@ -616,6 +631,12 @@ class AIRunLLMExchange(Base):
     response_digest: Mapped[str] = mapped_column(String(64), default="", nullable=False)
     response_bytes: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     response_truncated: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    input_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    output_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    total_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    cached_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    estimated_cost_usd: Mapped[float | None] = mapped_column(Float, nullable=True)
+    token_usage: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     status: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
     error_code: Mapped[str | None] = mapped_column(String(80), nullable=True, index=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)

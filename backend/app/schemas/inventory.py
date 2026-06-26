@@ -4,7 +4,7 @@ from datetime import date as date_type, datetime
 
 from pydantic import BaseModel, Field
 
-from app.core.enums import InventoryStatus
+from app.core.enums import IngredientQuantityTrackingMode, InventoryStatus
 
 
 class InventoryItemOut(BaseModel):
@@ -12,6 +12,7 @@ class InventoryItemOut(BaseModel):
     family_id: str
     ingredient_id: str
     ingredient_name: str
+    quantity_tracking_mode: IngredientQuantityTrackingMode = IngredientQuantityTrackingMode.TRACK_QUANTITY
     quantity: float
     consumed_quantity: float
     disposed_quantity: float
@@ -33,8 +34,8 @@ class InventoryItemOut(BaseModel):
 
 class CreateInventoryItemRequest(BaseModel):
     ingredient_id: str
-    quantity: float = Field(gt=0)
-    unit: str = Field(min_length=1)
+    quantity: float | None = Field(default=None, gt=0)
+    unit: str | None = Field(default=None, min_length=1)
     status: InventoryStatus
     purchase_date: date_type
     expiry_date: date_type | None = None
@@ -45,8 +46,8 @@ class CreateInventoryItemRequest(BaseModel):
 
 class ConsumeInventoryRequest(BaseModel):
     ingredient_id: str
-    quantity: float = Field(gt=0)
-    unit: str = Field(min_length=1)
+    quantity: float | None = Field(default=None, gt=0)
+    unit: str | None = Field(default=None, min_length=1)
 
 
 class ConsumeInventoryResponse(BaseModel):

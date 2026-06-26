@@ -76,6 +76,8 @@ def execute_recipe_cook_draft(
                 "ingredient_name": plan.ingredient_item.ingredient_name,
                 "requested_quantity": float(plan.requested_quantity),
                 "unit": plan.ingredient_item.unit,
+                "quantity_tracking_mode": plan.quantity_tracking_mode,
+                "deduction_note": plan.deduction_note,
                 "affected_item_ids": affected_item_ids,
             }
         )

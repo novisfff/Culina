@@ -30,7 +30,7 @@ from app.ai.workflows.orchestrator import SkillInjectionManager, WorkspaceOrches
 from app.ai.workflows.runner import WorkspaceGraphRunner
 from app.ai.workflows.timeline import build_planner_conversation
 from app.core.deps import get_current_auth
-from app.core.enums import AiMode, Difficulty, FoodType, ImageGenerationMode, IngredientExpiryMode, InventoryStatus, MealType, MediaEntityType, MediaSource, MembershipStatus, UserRole
+from app.core.enums import AiMode, Difficulty, FoodType, ImageGenerationMode, IngredientExpiryMode, IngredientQuantityTrackingMode, InventoryStatus, MealType, MediaEntityType, MediaSource, MembershipStatus, UserRole
 from app.core.utils import utcnow
 from app.db.session import get_db
 from app.main import app

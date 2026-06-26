@@ -6,6 +6,7 @@ import {
   clampStepIndex,
   clearCookSession,
   getNextManualTimerName,
+  getCookCompletionMessage,
   getStepSuggestedSeconds,
   loadCookSession,
   removeCookTimer,
@@ -487,7 +488,7 @@ export function useRecipeCookState(args: {
       args.showRecipeNotice({
         tone: 'success',
         title: '烹饪完成',
-        message: cookSession.createMealLog ? '已扣减库存并生成餐食记录。' : '已扣减库存。',
+        message: getCookCompletionMessage(response, cookSession.createMealLog),
       });
     } catch (reason) {
       args.showRecipeNotice({ tone: 'danger', title: '开始做失败', message: resolveErrorMessage(reason, '开始做失败') });

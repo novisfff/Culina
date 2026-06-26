@@ -82,6 +82,8 @@ export interface Member extends UserSummary {
   status: string;
 }
 
+export type IngredientQuantityTrackingMode = 'track_quantity' | 'not_track_quantity';
+
 export interface Ingredient {
   id: string;
   family_id: string;
@@ -89,6 +91,7 @@ export interface Ingredient {
   category: string;
   default_unit: string;
   unit_conversions: IngredientUnitConversion[];
+  quantity_tracking_mode?: IngredientQuantityTrackingMode;
   default_storage: string;
   default_expiry_mode: IngredientExpiryMode;
   default_expiry_days?: number | null;
@@ -106,6 +109,7 @@ export interface InventoryItem {
   family_id: string;
   ingredient_id: string;
   ingredient_name: string;
+  quantity_tracking_mode?: IngredientQuantityTrackingMode;
   quantity: number;
   consumed_quantity?: number;
   disposed_quantity?: number;
@@ -128,9 +132,12 @@ export interface InventoryItem {
 export interface ShoppingListItem {
   id: string;
   family_id: string;
+  ingredient_id?: string | null;
   title: string;
   quantity: number;
   unit: string;
+  quantity_mode?: IngredientQuantityTrackingMode;
+  display_label?: string | null;
   reason: string;
   done: boolean;
   created_at: string;
@@ -261,6 +268,8 @@ export interface CookRecipeConsumedItem {
   ingredient_name: string;
   requested_quantity: number;
   unit: string;
+  quantity_tracking_mode?: IngredientQuantityTrackingMode;
+  deduction_note?: string | null;
   affected_item_ids: string[];
 }
 
@@ -278,6 +287,8 @@ export interface CookRecipePreviewItem {
   ingredient_name: string;
   requested_quantity: number;
   unit: string;
+  quantity_tracking_mode?: IngredientQuantityTrackingMode;
+  deduction_note?: string | null;
   batches: CookRecipePreviewBatch[];
 }
 
@@ -288,6 +299,7 @@ export interface CookRecipeShortage {
   available_quantity: number;
   missing_quantity: number;
   unit: string;
+  shortage_type?: 'quantity' | 'presence' | string;
 }
 
 export interface CookRecipeResponse {
@@ -967,6 +979,12 @@ export interface AiRunLLMExchange {
   responseDigest: string;
   responseBytes: number;
   responseTruncated: boolean;
+  inputTokens?: number | null;
+  outputTokens?: number | null;
+  totalTokens?: number | null;
+  cachedTokens?: number | null;
+  estimatedCostUsd?: number | null;
+  tokenUsage: Record<string, unknown>;
   status: string;
   errorCode?: string | null;
   errorMessage?: string | null;

@@ -736,6 +736,8 @@ export function ApprovalPanel({
                 ? operation.before as Record<string, unknown>
                 : {};
               const actionLabel = action === 'create' ? '新增' : action === 'update' ? '修改' : action === 'set_done' ? '状态变更' : '删除';
+              const quantityMode = asText(payload.quantityMode) || asText(payload.quantity_mode);
+              const usesPresenceQuantity = quantityMode === 'not_track_quantity';
               return (
                 <div className="ai-confirmation-item" key={`${action}-${asText(operation.targetId)}-${index}`}>
                   <div className="ai-draft-editor-head">
@@ -772,18 +774,25 @@ export function ApprovalPanel({
                         disabled={readonly}
                         selectedOption={ingredientOptions.find((option) => option.id === (asText(payload.ingredientId) || asText(payload.ingredient_id)) || option.label === asText(payload.title)) ?? null}
                         loadOptions={loadApprovalResourceOptions}
-                        onSelect={(option) => updateOperationPayloadItem(index, { title: option.label, unit: option.unit || asText(payload.unit, '份') })}
+                        onSelect={(option) => updateOperationPayloadItem(index, { ingredient_id: option.id, title: option.label, unit: option.unit || asText(payload.unit, '份') })}
                       />
-                      <div className="ai-confirmation-grid ai-confirmation-grid-compact">
+                      {usesPresenceQuantity ? (
                         <label className="ai-resource-field">
-                          <span>数量</span>
-                          <input className="text-input" type="number" min={0.1} step={0.1} value={asNumber(payload.quantity)} disabled={readonly} onChange={(event) => updateOperationPayloadItem(index, { quantity: Number(event.target.value) || 1 })} />
+                          <span>采购表达</span>
+                          <input className="text-input" value={asText(payload.displayLabel) || asText(payload.display_label, '需要补充')} disabled={readonly} onChange={(event) => updateOperationPayloadItem(index, { display_label: event.target.value })} />
                         </label>
-                        <label className="ai-resource-field">
-                          <span>单位</span>
-                          <input className="text-input" value={asText(payload.unit, '份')} disabled={readonly} placeholder="单位" onChange={(event) => updateOperationPayloadItem(index, { unit: event.target.value })} />
-                        </label>
-                      </div>
+                      ) : (
+                        <div className="ai-confirmation-grid ai-confirmation-grid-compact">
+                          <label className="ai-resource-field">
+                            <span>数量</span>
+                            <input className="text-input" type="number" min={0.1} step={0.1} value={asNumber(payload.quantity)} disabled={readonly} onChange={(event) => updateOperationPayloadItem(index, { quantity: Number(event.target.value) || 1 })} />
+                          </label>
+                          <label className="ai-resource-field">
+                            <span>单位</span>
+                            <input className="text-input" value={asText(payload.unit, '份')} disabled={readonly} placeholder="单位" onChange={(event) => updateOperationPayloadItem(index, { unit: event.target.value })} />
+                          </label>
+                        </div>
+                      )}
                     </>
                   ) : null}
                   {action !== 'delete' && (
@@ -814,6 +823,11 @@ export function ApprovalPanel({
           </div>
           {items.map((item, index) => (
             <div className="ai-confirmation-item" key={`${asText(item.title)}-${index}`}>
+              {(() => {
+                const quantityMode = asText(item.quantityMode) || asText(item.quantity_mode);
+                const usesPresenceQuantity = quantityMode === 'not_track_quantity';
+                return (
+                  <>
               <SearchableResourceSelect
                 kind="ingredient"
                 label="采购食材"
@@ -824,20 +838,31 @@ export function ApprovalPanel({
                 selectedOption={ingredientOptions.find((option) => option.id === (asText(item.ingredientId) || asText(item.ingredient_id)) || option.label === asText(item.title)) ?? null}
                 loadOptions={loadApprovalResourceOptions}
                 onSelect={(option) => updateDraftItem('items', index, {
+                  ingredient_id: option.id,
                   title: option.label,
                   unit: option.unit || asText(item.unit, '份'),
                 })}
               />
-              <div className="ai-confirmation-grid ai-confirmation-grid-compact">
+              {usesPresenceQuantity ? (
                 <label className="ai-resource-field">
-                  <span>数量</span>
-                  <input className="text-input" type="number" min={0.1} step={0.1} value={asNumber(item.quantity)} disabled={readonly} onChange={(event) => updateDraftItem('items', index, { quantity: Number(event.target.value) || 1 })} />
+                  <span>采购表达</span>
+                  <input className="text-input" value={asText(item.displayLabel) || asText(item.display_label, '需要补充')} disabled={readonly} onChange={(event) => updateDraftItem('items', index, { display_label: event.target.value })} />
                 </label>
-                <label className="ai-resource-field">
-                  <span>单位</span>
-                  <input className="text-input" value={asText(item.unit, '份')} disabled={readonly} placeholder="单位" onChange={(event) => updateDraftItem('items', index, { unit: event.target.value })} />
-                </label>
-              </div>
+              ) : (
+                <div className="ai-confirmation-grid ai-confirmation-grid-compact">
+                  <label className="ai-resource-field">
+                    <span>数量</span>
+                    <input className="text-input" type="number" min={0.1} step={0.1} value={asNumber(item.quantity)} disabled={readonly} onChange={(event) => updateDraftItem('items', index, { quantity: Number(event.target.value) || 1 })} />
+                  </label>
+                  <label className="ai-resource-field">
+                    <span>单位</span>
+                    <input className="text-input" value={asText(item.unit, '份')} disabled={readonly} placeholder="单位" onChange={(event) => updateDraftItem('items', index, { unit: event.target.value })} />
+                  </label>
+                </div>
+              )}
+                  </>
+                );
+              })()}
               <label className="ai-resource-field ai-confirmation-copy-field">
                 <span>采购原因</span>
                 <textarea className="text-input" rows={2} value={asText(item.reason)} disabled={readonly} placeholder="为什么需要采购" onChange={(event) => updateDraftItem('items', index, { reason: event.target.value })} />

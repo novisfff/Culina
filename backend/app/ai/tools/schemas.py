@@ -91,11 +91,17 @@ SHOPPING_LIST_DRAFT_SCHEMA: dict[str, Any] = {
             "items": {
                 "type": "object",
                 "additionalProperties": False,
-                "required": ["title", "quantity", "unit"],
+                "required": ["title"],
                 "properties": {
                     "title": {"type": "string", "minLength": 1, "maxLength": 80},
+                    "ingredient_id": {"type": ["string", "null"]},
+                    "ingredientId": {"type": ["string", "null"]},
                     "quantity": {"type": "number", "exclusiveMinimum": 0},
                     "unit": {"type": "string", "minLength": 1, "maxLength": 20},
+                    "quantity_mode": {"type": "string", "enum": ["track_quantity", "not_track_quantity"]},
+                    "quantityMode": {"type": "string", "enum": ["track_quantity", "not_track_quantity"]},
+                    "display_label": {"type": ["string", "null"], "maxLength": 80},
+                    "displayLabel": {"type": ["string", "null"], "maxLength": 80},
                     "reason": {"type": "string", "maxLength": 255},
                     "sourceMeals": {"type": "array", "maxItems": 20, "items": {"type": "string", "maxLength": 80}},
                     "alreadyPending": {"type": "boolean"},
@@ -121,8 +127,14 @@ SHOPPING_LIST_DRAFT_SCHEMA: dict[str, Any] = {
                         "additionalProperties": False,
                         "properties": {
                             "title": {"type": "string", "minLength": 1, "maxLength": 80},
+                            "ingredient_id": {"type": ["string", "null"]},
+                            "ingredientId": {"type": ["string", "null"]},
                             "quantity": {"type": "number", "exclusiveMinimum": 0},
                             "unit": {"type": "string", "minLength": 1, "maxLength": 20},
+                            "quantity_mode": {"type": "string", "enum": ["track_quantity", "not_track_quantity"]},
+                            "quantityMode": {"type": "string", "enum": ["track_quantity", "not_track_quantity"]},
+                            "display_label": {"type": ["string", "null"], "maxLength": 80},
+                            "displayLabel": {"type": ["string", "null"], "maxLength": 80},
                             "reason": {"type": "string", "maxLength": 255},
                             "done": {"type": "boolean"},
                             "sourceMeals": {"type": "array", "maxItems": 20, "items": {"type": "string", "maxLength": 80}},
@@ -249,6 +261,7 @@ INGREDIENT_PROFILE_DRAFT_SCHEMA: dict[str, Any] = {
                 "name": {"type": "string", "minLength": 1, "maxLength": 120},
                 "category": {"type": "string", "minLength": 1, "maxLength": 120},
                 "default_unit": {"type": "string", "minLength": 1, "maxLength": 32},
+                "quantity_tracking_mode": {"type": "string", "enum": ["track_quantity", "not_track_quantity"]},
                 "unit_conversions": {
                     "type": "array",
                     "maxItems": 20,
@@ -350,7 +363,7 @@ SHOPPING_OPERATION_ITEM_SCHEMA["anyOf"] = [
     {
         "description": "新增购物项。",
         "required": ["action", "payload"],
-        "properties": {"action": {"enum": ["create"]}, "payload": {**SHOPPING_OPERATION_PAYLOAD_SCHEMA, "required": ["title", "quantity", "unit"]}},
+        "properties": {"action": {"enum": ["create"]}, "payload": {**SHOPPING_OPERATION_PAYLOAD_SCHEMA, "required": ["title"]}},
     },
     {
         "description": "更新购物项。",
@@ -359,7 +372,7 @@ SHOPPING_OPERATION_ITEM_SCHEMA["anyOf"] = [
             "action": {"enum": ["update"]},
             "targetId": {"type": "string", "minLength": 1},
             "baseUpdatedAt": {"type": "string", "minLength": 1},
-            "payload": {**SHOPPING_OPERATION_PAYLOAD_SCHEMA, "required": ["title", "quantity", "unit"]},
+            "payload": {**SHOPPING_OPERATION_PAYLOAD_SCHEMA, "required": ["title"]},
         },
     },
     {
@@ -758,7 +771,7 @@ INVENTORY_OPERATION_DRAFT_SCHEMA: dict[str, Any] = {
             "items": {
                 "type": "object",
                 "additionalProperties": False,
-                "required": ["action", "ingredientId", "quantity", "unit"],
+                "required": ["action", "ingredientId"],
                 "properties": {
                     "action": {"type": "string", "enum": ["restock", "consume", "dispose"]},
                     "ingredientId": {"type": "string", "minLength": 1, "maxLength": 64},

@@ -2,6 +2,7 @@ import type {
   ImageInputValue,
   Ingredient,
   IngredientExpiryMode,
+  IngredientQuantityTrackingMode,
   IngredientUnitConversion,
   InventoryItem,
   InventoryStatus,
@@ -26,6 +27,7 @@ export type IngredientCreateFormState = {
   name: string;
   category: string;
   defaultUnit: string;
+  quantityTrackingMode: IngredientQuantityTrackingMode;
   unitConversions: IngredientUnitConversionDraft[];
   defaultStorage: string;
   defaultExpiryMode: IngredientExpiryMode;
@@ -87,6 +89,7 @@ export function defaultIngredientForm(): IngredientCreateFormState {
     name: '',
     category: '',
     defaultUnit: '个',
+    quantityTrackingMode: 'track_quantity',
     unitConversions: [],
     defaultStorage: '冷藏',
     defaultExpiryMode: 'none',
@@ -111,6 +114,7 @@ export function buildIngredientForm(ingredient?: Ingredient | null): IngredientC
     name: ingredient.name,
     category: ingredient.category,
     defaultUnit: ingredient.default_unit,
+    quantityTrackingMode: ingredient.quantity_tracking_mode ?? 'track_quantity',
     unitConversions: buildIngredientUnitConversionDrafts(ingredient.unit_conversions),
     defaultStorage: ingredient.default_storage,
     defaultExpiryMode,
@@ -346,6 +350,10 @@ export function restoreIngredientForm(raw: unknown): IngredientCreateFormState {
     name: typeof candidate.name === 'string' ? candidate.name : fallback.name,
     category: typeof candidate.category === 'string' ? candidate.category : fallback.category,
     defaultUnit: typeof candidate.defaultUnit === 'string' ? candidate.defaultUnit : fallback.defaultUnit,
+    quantityTrackingMode:
+      candidate.quantityTrackingMode === 'track_quantity' || candidate.quantityTrackingMode === 'not_track_quantity'
+        ? candidate.quantityTrackingMode
+        : fallback.quantityTrackingMode,
     unitConversions: candidateUnitConversions,
     defaultStorage: typeof candidate.defaultStorage === 'string' ? candidate.defaultStorage : fallback.defaultStorage,
     defaultExpiryMode:

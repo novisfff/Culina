@@ -147,6 +147,7 @@ def serialize_ingredient(ingredient: Ingredient, media_map: dict[tuple[str, str]
         "category": ingredient.category,
         "default_unit": ingredient.default_unit,
         "unit_conversions": serialize_unit_conversions(ingredient.default_unit, ingredient.unit_conversions),
+        "quantity_tracking_mode": ingredient.quantity_tracking_mode.value if hasattr(ingredient.quantity_tracking_mode, "value") else ingredient.quantity_tracking_mode,
         "default_storage": ingredient.default_storage,
         "default_expiry_mode": ingredient.default_expiry_mode,
         "default_expiry_days": ingredient.default_expiry_days,
@@ -166,6 +167,13 @@ def serialize_inventory_item(item: InventoryItem) -> dict:
         "family_id": item.family_id,
         "ingredient_id": item.ingredient_id,
         "ingredient_name": item.ingredient.name if item.ingredient else "",
+        "quantity_tracking_mode": (
+            item.ingredient.quantity_tracking_mode.value
+            if item.ingredient and hasattr(item.ingredient.quantity_tracking_mode, "value")
+            else item.ingredient.quantity_tracking_mode
+            if item.ingredient
+            else "track_quantity"
+        ),
         "quantity": _to_float(item.quantity),
         "consumed_quantity": _to_float(item.consumed_quantity),
         "disposed_quantity": _to_float(item.disposed_quantity),
@@ -190,9 +198,12 @@ def serialize_shopping_item(item: ShoppingListItem) -> dict:
     return {
         "id": item.id,
         "family_id": item.family_id,
+        "ingredient_id": item.ingredient_id,
         "title": item.title,
         "quantity": _to_float(item.quantity),
         "unit": item.unit,
+        "quantity_mode": item.quantity_mode.value if hasattr(item.quantity_mode, "value") else item.quantity_mode,
+        "display_label": item.display_label,
         "reason": item.reason,
         "done": item.done,
         "created_at": _utc_datetime(item.created_at),

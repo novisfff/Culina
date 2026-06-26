@@ -20,6 +20,7 @@ import {
   type ShoppingDialogFormState,
 } from './ingredientWorkspaceForms';
 import type { PendingShoppingCompletion } from './IngredientWorkspaceOverlayTypes';
+import { tracksIngredientQuantity } from '../../lib/ingredientTracking';
 
 type UseIngredientActionStateArgs = {
   ingredientOptions: Ingredient[];
@@ -37,8 +38,8 @@ type UseIngredientActionStateArgs = {
   closeOverlay: () => void;
   createInventory: (payload: {
     ingredient_id: string;
-    quantity: number;
-    unit: string;
+    quantity?: number | null;
+    unit?: string | null;
     status: InventoryItem['status'];
     purchase_date: string;
     expiry_date?: string;
@@ -48,8 +49,8 @@ type UseIngredientActionStateArgs = {
   }) => Promise<InventoryItem>;
   consumeInventory: (payload: {
     ingredient_id: string;
-    quantity: number;
-    unit: string;
+    quantity?: number | null;
+    unit?: string | null;
   }) => Promise<ConsumeInventoryResponse>;
   disposeExpiredInventory: (payload: {
     ingredient_id: string;
@@ -57,8 +58,11 @@ type UseIngredientActionStateArgs = {
   }) => Promise<DisposeExpiredInventoryResponse>;
   createShoppingItem: (payload: {
     title: string;
-    quantity: number;
-    unit: string;
+    quantity?: number | null;
+    unit?: string | null;
+    ingredient_id?: string | null;
+    quantity_mode?: ShoppingListItem['quantity_mode'];
+    display_label?: string | null;
     reason: string;
   }) => Promise<ShoppingListItem>;
   updateShoppingItem: (payload: { itemId: string; done: boolean }) => Promise<ShoppingListItem>;
@@ -73,8 +77,9 @@ export function useIngredientActionState(args: UseIngredientActionStateArgs) {
       args.showNotice({ tone: 'warning', title: '还不能录入库存', message: '先选中这次补的是哪种食材，再保存这批库存。' });
       return;
     }
-    const quantity = parsePositiveNumber(args.inventoryForm.quantity);
-    if (quantity === null) {
+    const tracksQuantity = tracksIngredientQuantity(args.selectedInventoryIngredient);
+    const quantity = tracksQuantity ? parsePositiveNumber(args.inventoryForm.quantity) : null;
+    if (tracksQuantity && quantity === null) {
       args.showNotice({ tone: 'warning', title: '库存数量无效', message: '数量要大于 0，才能把这批库存记进系统。' });
       return;
     }
@@ -98,7 +103,9 @@ export function useIngredientActionState(args: UseIngredientActionStateArgs) {
       await args.createInventory({
         ingredient_id: args.inventoryForm.ingredientId,
         quantity,
-        unit: args.inventoryForm.unit.trim() || args.selectedInventoryIngredient?.default_unit || '个',
+        unit: tracksQuantity
+          ? args.inventoryForm.unit.trim() || args.selectedInventoryIngredient?.default_unit || '个'
+          : args.selectedInventoryIngredient?.default_unit || args.inventoryForm.unit.trim() || '份',
         status: args.inventoryForm.status,
         purchase_date: args.inventoryForm.purchaseDate,
         expiry_date: args.inventoryForm.expiryDate || undefined,
@@ -136,17 +143,25 @@ export function useIngredientActionState(args: UseIngredientActionStateArgs) {
     if (!args.shoppingForm.title.trim()) {
       return;
     }
-    const quantity = parsePositiveNumber(args.shoppingForm.quantity);
-    if (quantity === null) {
+    const selectedShoppingIngredient = args.shoppingForm.title.trim()
+      ? args.ingredientOptions.find((item) => item.name === args.shoppingForm.title.trim()) ?? null
+      : null;
+    const tracksQuantity = tracksIngredientQuantity(selectedShoppingIngredient);
+    const quantity = tracksQuantity ? parsePositiveNumber(args.shoppingForm.quantity) : 1;
+    if (tracksQuantity && quantity === null) {
       args.showNotice({ tone: 'warning', title: '待买数量无效', message: '请确认待买数量，至少要大于 0。' });
       return;
     }
+    const shoppingQuantity = quantity ?? 1;
     try {
       await args.createShoppingItem({
         title: args.shoppingForm.title.trim(),
-        quantity,
-        unit: args.shoppingForm.unit.trim() || '个',
-        reason: args.shoppingForm.reason.trim(),
+        quantity: tracksQuantity ? shoppingQuantity : null,
+        unit: tracksQuantity ? args.shoppingForm.unit.trim() || '个' : null,
+        ingredient_id: selectedShoppingIngredient?.id ?? null,
+        quantity_mode: tracksQuantity ? 'track_quantity' : 'not_track_quantity',
+        display_label: tracksQuantity ? null : '需要补充',
+        reason: args.shoppingForm.reason.trim() || (!tracksQuantity ? '需要补充' : ''),
       });
       args.setShoppingForm(buildShoppingForm());
       args.closeOverlay();
@@ -165,6 +180,10 @@ export function useIngredientActionState(args: UseIngredientActionStateArgs) {
     const selectedSummary = args.summaries.find((item) => item.ingredient.id === args.consumeForm.ingredientId) ?? null;
     if (!selectedSummary) {
       args.showNotice({ tone: 'warning', title: '食材不可用', message: '这份食材暂时不可用，请稍后再试。' });
+      return;
+    }
+    if (!tracksIngredientQuantity(selectedSummary.ingredient)) {
+      args.showNotice({ tone: 'warning', title: '不需要扣数量', message: '这类食材只记录家里有没有，做菜时不会扣减数量。' });
       return;
     }
 

@@ -47,6 +47,7 @@ def execute_ingredient_profile_draft(
             category=ingredient_in.category,
             default_unit=ingredient_in.default_unit,
             unit_conversions=unit_conversions,
+            quantity_tracking_mode=ingredient_in.quantity_tracking_mode,
             default_storage=ingredient_in.default_storage,
             default_expiry_mode=ingredient_in.default_expiry_mode,
             default_expiry_days=ingredient_in.default_expiry_days,
@@ -110,6 +111,7 @@ def execute_ingredient_profile_draft(
     ingredient.category = ingredient_in.category
     ingredient.default_unit = ingredient_in.default_unit
     ingredient.unit_conversions = unit_conversions
+    ingredient.quantity_tracking_mode = ingredient_in.quantity_tracking_mode
     ingredient.default_storage = ingredient_in.default_storage
     ingredient.default_expiry_mode = ingredient_in.default_expiry_mode
     ingredient.default_expiry_days = ingredient_in.default_expiry_days

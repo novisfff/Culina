@@ -14,12 +14,15 @@ from app.models.domain import ShoppingListItem
 
 SHOPPING_ITEM_OUTPUT = {
     "type": "object",
-    "required": ["id", "title", "quantity", "unit", "done"],
+    "required": ["id", "title", "quantity", "unit", "quantityMode", "done"],
     "properties": {
         "id": {"type": "string"},
+        "ingredientId": {"type": ["string", "null"]},
         "title": {"type": "string"},
         "quantity": {"type": "number"},
         "unit": {"type": "string"},
+        "quantityMode": {"type": "string", "enum": ["track_quantity", "not_track_quantity"]},
+        "displayLabel": {"type": ["string", "null"]},
         "reason": {"type": ["string", "null"]},
         "done": {"type": "boolean"},
         "updatedAt": {"type": ["string", "null"]},
@@ -78,9 +81,12 @@ def shopping_read_pending(context: ToolContext, payload: dict[str, Any]) -> dict
 def serialize_shopping_tool_item(item: ShoppingListItem) -> dict[str, Any]:
     return {
         "id": item.id,
+        "ingredientId": item.ingredient_id,
         "title": item.title,
         "quantity": float(item.quantity),
         "unit": item.unit,
+        "quantityMode": item.quantity_mode.value if hasattr(item.quantity_mode, "value") else item.quantity_mode,
+        "displayLabel": item.display_label,
         "reason": item.reason,
         "done": item.done,
         "updatedAt": item.updated_at.isoformat() if item.updated_at is not None else None,

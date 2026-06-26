@@ -133,7 +133,9 @@ export function useIngredientOverlayState(args: UseIngredientOverlayStateArgs) {
     }
     const normalizedTitle = item.title.trim();
     const matchedIngredient =
+      (item.ingredient_id ? args.ingredientOptions.find((ingredient) => ingredient.id === item.ingredient_id) ?? null : null) ??
       args.ingredientOptions.find((ingredient) => ingredient.name === normalizedTitle) ?? null;
+    const tracksQuantity = matchedIngredient?.quantity_tracking_mode !== 'not_track_quantity';
 
     setPendingShoppingToComplete({
       itemId: item.id,
@@ -143,7 +145,7 @@ export function useIngredientOverlayState(args: UseIngredientOverlayStateArgs) {
       buildInventoryForm(args.ingredientOptions, matchedIngredient?.id, {
         ingredientQuery: matchedIngredient?.name ?? normalizedTitle,
         ingredientLocked: Boolean(matchedIngredient),
-        quantity: formatNumericString(item.quantity),
+        quantity: tracksQuantity ? formatNumericString(item.quantity) : '',
         unit:
           resolvePreferredIngredientUnit(matchedIngredient, item.unit) ||
           matchedIngredient?.default_unit ||

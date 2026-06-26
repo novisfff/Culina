@@ -429,6 +429,45 @@ class AIToolRegistryTestCase(AIAgentInfraTestCase):
                         },
                     )
 
+                salt = Ingredient(
+                    id="ingredient-shopping-salt",
+                    family_id=self.family.id,
+                    name="盐",
+                    category="调料",
+                    default_unit="g",
+                    unit_conversions=[],
+                    quantity_tracking_mode=IngredientQuantityTrackingMode.NOT_TRACK_QUANTITY,
+                    default_storage="常温",
+                    default_expiry_mode=IngredientExpiryMode.NONE,
+                    notes="",
+                    created_by=self.user.id,
+                    updated_by=self.user.id,
+                )
+                db.add(salt)
+                db.flush()
+                seasoning_draft = executor.call(
+                    "shopping.create_draft",
+                    {
+                        "draft": {
+                            "draftType": "shopping_list",
+                            "schemaVersion": "shopping_list.v1",
+                            "items": [
+                                {
+                                    "ingredientId": salt.id,
+                                    "title": "盐",
+                                    "quantityMode": "not_track_quantity",
+                                    "reason": "需要补充",
+                                }
+                            ],
+                        }
+                    },
+                )
+                seasoning_item = seasoning_draft["draft"]["items"][0]
+                self.assertEqual(seasoning_item["ingredient_id"], salt.id)
+                self.assertEqual(seasoning_item["quantity_mode"], "not_track_quantity")
+                self.assertEqual(seasoning_item["display_label"], "需要补充")
+                self.assertEqual(seasoning_item["quantity"], 1)
+
         def test_operation_draft_tools_reject_cross_family_targets(self) -> None:
             with self.SessionLocal() as db:
                 other_food = Food(

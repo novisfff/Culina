@@ -8,15 +8,19 @@ import {
   buildIngredientAlerts,
   buildIngredientCategoryFilters,
   buildIngredientSummaries,
+  getIngredientEditorCategoryPresets,
   buildInventoryCardPresentation,
   buildInventoryCardStatus,
   buildInventoryStorageOverview,
+  buildSeasoningSummaries,
+  buildShoppingCardGroups,
   buildStorageGroups,
   filterShoppingCards,
   filterIngredientSummaries,
   getIngredientCategoryPreset,
   sortInventorySummariesByExpiry,
 } from './workspaceModel';
+import { filterMobileCatalogSummaries } from './useIngredientWorkspaceData';
 
 const ingredients: Ingredient[] = [
   {
@@ -183,12 +187,220 @@ const shoppingItems: ShoppingListItem[] = [
 ];
 
 describe('ingredient workspace model', () => {
+  it('keeps all matching mobile catalog summaries for paged mobile loading', () => {
+    const manyIngredients = Array.from({ length: 9 }, (_, index): Ingredient => ({
+      ...ingredients[0],
+      id: `ingredient-mobile-${index + 1}`,
+      name: `移动食材 ${index + 1}`,
+      default_storage: index % 2 === 0 ? '冷藏' : '常温',
+      created_at: `2026-03-20T10:0${index % 10}:00Z`,
+      updated_at: `2026-03-20T10:0${index % 10}:00Z`,
+    }));
+    const summaries = buildIngredientSummaries({
+      ingredients: manyIngredients,
+      inventoryItems: [],
+      recipes: [],
+      today: '2026-03-20',
+    });
+
+    const mobileCatalogSummaries = filterMobileCatalogSummaries({
+      summaries,
+      catalogSearch: '',
+      mobileIngredientFilter: 'all',
+      mobileStorageFocus: 'all',
+    });
+
+    expect(mobileCatalogSummaries).toHaveLength(9);
+  });
+
+  it('filters mobile catalog summaries to seasoning ingredients', () => {
+    const saltIngredient: Ingredient = {
+      ...ingredients[1],
+      id: 'ingredient-salt',
+      name: '盐',
+      category: '调料',
+      quantity_tracking_mode: 'not_track_quantity',
+    };
+    const oysterSauceIngredient: Ingredient = {
+      ...ingredients[1],
+      id: 'ingredient-oyster-sauce',
+      name: '蚝油',
+      category: '酱料',
+      quantity_tracking_mode: 'track_quantity',
+    };
+    const summaries = buildIngredientSummaries({
+      ingredients: [ingredients[0], saltIngredient, oysterSauceIngredient],
+      inventoryItems: [],
+      recipes: [],
+      today: '2026-03-20',
+    });
+
+    expect(
+      filterMobileCatalogSummaries({
+        summaries,
+        catalogSearch: '',
+        mobileIngredientFilter: 'seasoning',
+        mobileStorageFocus: 'all',
+      }).map((item) => item.ingredient.name)
+    ).toEqual(['蚝油', '盐']);
+  });
+
   it('builds low-stock alerts by ingredient total and keeps expiry per batch', () => {
     const alerts = buildIngredientAlerts(inventoryItems, ingredients, '2026-03-20');
 
     expect(alerts).toHaveLength(2);
     expect(alerts.some((item) => item.kind === 'lowStock' && item.ingredientName === '番茄')).toBe(true);
     expect(alerts.some((item) => item.kind === 'expiry' && item.ingredientName === '番茄')).toBe(true);
+  });
+
+  it('shows presence status instead of fake quantities for not-tracked ingredients', () => {
+    const saltIngredient: Ingredient = {
+      id: 'ingredient-salt',
+      family_id: 'family-1',
+      name: '盐',
+      category: '调料',
+      default_unit: 'g',
+      unit_conversions: [],
+      quantity_tracking_mode: 'not_track_quantity',
+      default_storage: '常温',
+      default_expiry_mode: 'none',
+      default_expiry_days: null,
+      default_low_stock_threshold: 1,
+      notes: '常备调料',
+      image: null,
+      created_at: '2026-03-20T10:00:00Z',
+      updated_at: '2026-03-20T10:00:00Z',
+    };
+    const saltInventory: InventoryItem = {
+      id: 'inventory-salt',
+      family_id: 'family-1',
+      ingredient_id: 'ingredient-salt',
+      ingredient_name: '盐',
+      quantity: 1,
+      consumed_quantity: 1,
+      disposed_quantity: 0,
+      remaining_quantity: 0,
+      unit: 'g',
+      status: 'fresh',
+      purchase_date: '2026-03-18',
+      expiry_date: null,
+      storage_location: '常温',
+      notes: '',
+      low_stock_threshold: 0,
+      created_at: '2026-03-18T10:00:00Z',
+      updated_at: '2026-03-20T09:00:00Z',
+    };
+    const saltShopping: ShoppingListItem = {
+      id: 'shopping-salt',
+      family_id: 'family-1',
+      ingredient_id: 'ingredient-salt',
+      title: '家里的盐',
+      quantity: 1,
+      unit: '份',
+      quantity_mode: 'not_track_quantity',
+      display_label: '需要补充',
+      reason: '需要补充',
+      done: false,
+      created_at: '2026-03-20T10:00:00Z',
+      updated_at: '2026-03-22T10:00:00Z',
+    };
+    const summaries = buildIngredientSummaries({
+      ingredients: [saltIngredient],
+      inventoryItems: [saltInventory],
+      recipes,
+      today: '2026-03-20',
+    });
+    const salt = summaries.find((item) => item.ingredient.id === 'ingredient-salt');
+    expect(salt?.quantitySummaries.map((item) => item.label)).toEqual(['已有']);
+
+    const cards = buildShoppingCards([saltShopping], summaries);
+    const saltCard = cards.find((item) => item.shoppingItem.id === 'shopping-salt');
+    expect(saltCard?.linkedSummary?.ingredient.id).toBe('ingredient-salt');
+    expect(saltCard?.headline).toBe('需要补充');
+    expect(saltCard?.quantityLabel).toBe('需要补充');
+    expect(saltCard?.inventoryLabel).toBe('已有');
+  });
+
+  it('builds seasoning summaries from seasoning categories and not-tracked ingredients', () => {
+    const saltIngredient: Ingredient = {
+      ...ingredients[1],
+      id: 'ingredient-salt',
+      name: '盐',
+      category: '调料',
+      default_unit: 'g',
+      quantity_tracking_mode: 'not_track_quantity',
+      default_low_stock_threshold: null,
+    };
+    const oysterSauceIngredient: Ingredient = {
+      ...ingredients[1],
+      id: 'ingredient-oyster-sauce',
+      name: '蚝油',
+      category: '酱料',
+      default_unit: '瓶',
+      quantity_tracking_mode: 'track_quantity',
+    };
+    const saltInventory: InventoryItem = {
+      ...inventoryItems[1],
+      id: 'inventory-salt',
+      ingredient_id: 'ingredient-salt',
+      ingredient_name: '盐',
+      quantity: 1,
+      consumed_quantity: 1,
+      remaining_quantity: 0,
+      unit: 'g',
+      storage_location: '常温',
+    };
+    const summaries = buildIngredientSummaries({
+      ingredients: [ingredients[0], saltIngredient, oysterSauceIngredient],
+      inventoryItems: [inventoryItems[0], saltInventory],
+      recipes: [],
+      today: '2026-03-20',
+    });
+    const seasoningSummaries = buildSeasoningSummaries(summaries);
+
+    expect(seasoningSummaries.map((item) => [item.summary.ingredient.name, item.statusLabel])).toEqual([
+      ['蚝油', '未配置'],
+      ['盐', '已有'],
+    ]);
+  });
+
+  it('groups shopping cards into regular food and seasoning sections', () => {
+    const soySauceIngredient: Ingredient = {
+      ...ingredients[1],
+      id: 'ingredient-soy-sauce',
+      name: '酱油',
+      category: '调料',
+      default_unit: '瓶',
+      quantity_tracking_mode: 'not_track_quantity',
+    };
+    const summaries = buildIngredientSummaries({
+      ingredients: [ingredients[0], soySauceIngredient],
+      inventoryItems: [inventoryItems[0]],
+      recipes: [],
+      today: '2026-03-20',
+    });
+    const cards = buildShoppingCards(
+      [
+        shoppingItems[0],
+        {
+          ...shoppingItems[1],
+          id: 'shopping-soy-sauce',
+          ingredient_id: 'ingredient-soy-sauce',
+          title: '酱油',
+          unit: '瓶',
+          quantity_mode: 'not_track_quantity',
+          display_label: '需要补充',
+          reason: '需要补充',
+        },
+      ],
+      summaries
+    );
+    const groups = buildShoppingCardGroups(cards);
+
+    expect(groups.map((group) => [group.key, group.cards.map((card) => card.title)])).toEqual([
+      ['regular', ['番茄']],
+      ['seasoning', ['酱油']],
+    ]);
   });
 
   it('excludes expired batches when checking aggregated low-stock alerts', () => {
@@ -693,15 +905,36 @@ describe('ingredient workspace model', () => {
     ]);
 
     expect(categoryFilters).toEqual(['蔬菜', '干货', '酱料', '海味']);
-    expect(getIngredientCategoryPreset('水产')).toEqual({
+    expect(getIngredientCategoryPreset('水产')).toMatchObject({
       label: '水产',
       defaultUnit: '块',
       defaultStorage: '冷冻',
     });
-    expect(getIngredientCategoryPreset('其他')).toEqual({
+    expect(getIngredientCategoryPreset('其他')).toMatchObject({
       label: '其他',
       defaultUnit: '份',
       defaultStorage: '常温',
+    });
+  });
+
+  it('shows seasoning in the editor category presets', () => {
+    expect(getIngredientEditorCategoryPresets().map((item) => item.label)).toEqual([
+      '蔬菜',
+      '水果',
+      '肉类',
+      '水产',
+      '蛋奶',
+      '豆制品',
+      '主食',
+      '干货',
+      '调料',
+      '其他',
+    ]);
+    expect(getIngredientCategoryPreset('调料')).toMatchObject({
+      label: '调料',
+      defaultStorage: '常温',
+      quantityTrackingMode: 'not_track_quantity',
+      icon: 'seasoning',
     });
   });
 

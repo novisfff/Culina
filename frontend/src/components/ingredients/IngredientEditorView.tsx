@@ -20,12 +20,100 @@ import {
 
 const EXPIRY_DAY_MARKS = [1, 3, 7, 14, 30];
 
+function IngredientCategoryIcon(props: { name: string }) {
+  switch (props.name) {
+    case 'vegetable':
+      return (
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M7 17c6.2-.4 9.6-3.6 10.5-10.3C10.8 7.4 7.4 10.7 7 17Z" />
+          <path d="M7 17c2.8-3.4 5.4-5.4 9-7" />
+        </svg>
+      );
+    case 'fruit':
+      return (
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M12 8.2c4.1-2.5 7.1.1 7.1 4.4 0 4.8-3.2 7.2-7.1 7.2s-7.1-2.4-7.1-7.2c0-4.3 3-6.9 7.1-4.4Z" />
+          <path d="M12 8.2c-.2-1.7.3-3 1.8-4" />
+          <path d="M13.8 5.4c1.3-.6 2.6-.4 3.7.6-1.3.8-2.5.9-3.7-.6Z" />
+        </svg>
+      );
+    case 'meat':
+      return (
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M7.2 15.8c-2-2.8-.8-7.5 3.1-9.4 4.1-2 8.5-.5 9.1 3 .6 3.2-1.7 7.1-5.5 8.6-2.8 1.1-5.1.2-6.7-2.2Z" />
+          <path d="M10.2 13.7c-1-1.4-.4-3.7 1.6-4.6 2-.9 4.1-.2 4.4 1.4.3 1.6-.8 3.5-2.7 4.2-1.4.5-2.5.1-3.3-1Z" />
+        </svg>
+      );
+    case 'fish':
+      return (
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M4.5 12c2.3-3.2 5.1-4.8 8.4-4.8 2.6 0 4.9 1.2 6.6 3.4" />
+          <path d="M4.5 12c2.3 3.2 5.1 4.8 8.4 4.8 2.6 0 4.9-1.2 6.6-3.4" />
+          <path d="M19.5 10.6 22 8.8v6.4l-2.5-1.8" />
+          <path d="M9.5 8.2c.9 1.2.9 6.4 0 7.6" />
+          <path d="M16.2 11.2h.01" />
+        </svg>
+      );
+    case 'egg':
+      return (
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M12 4.5c3.6 0 6.2 4.2 6.2 8.7 0 4-2.4 6.3-6.2 6.3s-6.2-2.3-6.2-6.3c0-4.5 2.6-8.7 6.2-8.7Z" />
+          <path d="M9.4 14.4c1.3 1.1 3.9 1.1 5.2 0" />
+        </svg>
+      );
+    case 'tofu':
+      return (
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M6 8.5 12 5l6 3.5v7L12 19l-6-3.5Z" />
+          <path d="M6 8.5 12 12l6-3.5" />
+          <path d="M12 12v7" />
+        </svg>
+      );
+    case 'staple':
+      return (
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M5 12.2h14c-.4 4.2-2.9 6.3-7 6.3s-6.6-2.1-7-6.3Z" />
+          <path d="M7.8 9.4c1.2-1.5 2.6-2.2 4.2-2.2s3 .7 4.2 2.2" />
+          <path d="M8.5 15.2h7" />
+        </svg>
+      );
+    case 'dryGoods':
+      return (
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M8 5.5h8l1.4 4v9H6.6v-9Z" />
+          <path d="M8 5.5c1.4 1.3 6.6 1.3 8 0" />
+          <path d="M9 12h6" />
+          <path d="M9 15h4" />
+        </svg>
+      );
+    case 'seasoning':
+      return (
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M9.2 7.5h5.6" />
+          <path d="M10 7.5V5h4v2.5" />
+          <path d="M8.4 10.5h7.2l.8 8.5H7.6Z" />
+          <path d="M10.2 13.8h3.6" />
+          <path d="M10.6 16.2h2.8" />
+        </svg>
+      );
+    default:
+      return (
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M7.5 12h.01" />
+          <path d="M12 12h.01" />
+          <path d="M16.5 12h.01" />
+          <circle cx="12" cy="12" r="7" />
+        </svg>
+      );
+  }
+}
+
 type IngredientEditorViewProps = {
   activePanelBackLabel: string;
   isEditingIngredient: boolean;
   ingredientForm: IngredientCreateFormState;
   setIngredientForm: Dispatch<SetStateAction<IngredientCreateFormState>>;
-  ingredientVisibleCategoryPresets: Array<{ label: string }>;
+  ingredientVisibleCategoryPresets: Array<{ label: string; icon: string }>;
   ingredientCategoryIsVisiblePreset: boolean;
   showIngredientCategoryCustomInput: boolean;
   setIngredientCustomCategoryOpen: (next: boolean) => void;
@@ -88,56 +176,89 @@ export function IngredientEditorView(props: IngredientEditorViewProps) {
           <section className="form-panel-section ingredients-create-section ingredients-create-basic-section">
             <div className="section-mini-title">基础信息</div>
             <div className="ingredients-create-form-stack">
-              <label className="ingredients-create-name-field">
-                <span>食材名称</span>
-                <input
-                  className="text-input"
-                  placeholder="请输入食材名称"
-                  value={props.ingredientForm.name}
-                  onChange={(event) => props.setIngredientForm({ ...props.ingredientForm, name: event.target.value })}
-                />
-              </label>
-              <div className="ingredients-category-field">
-                <span>分类</span>
-                <props.ScrollableChipRail ariaLabel="常见食材分类" railClassName="ingredients-category-presets">
-                  {props.ingredientVisibleCategoryPresets.map((item) => (
-                    <button
-                      key={item.label}
-                      className={
-                        props.ingredientForm.category.trim() === item.label
-                          ? 'chip ingredients-category-chip active'
-                          : 'chip ingredients-category-chip'
-                      }
-                      type="button"
-                      onClick={() => {
-                        props.setIngredientCustomCategoryOpen(false);
-                        props.applyIngredientCategoryPreset(item.label);
-                      }}
-                    >
-                      {item.label}
-                    </button>
-                  ))}
-                  {props.showIngredientCategoryCustomInput ? (
-                    <input
-                      className="ingredients-category-custom-input"
-                      placeholder="自定义分类"
-                      value={props.ingredientCategoryIsVisiblePreset ? '' : props.ingredientForm.category}
-                      onChange={(event) => props.setIngredientForm({ ...props.ingredientForm, category: event.target.value })}
-                      autoFocus
-                    />
-                  ) : (
-                    <button
-                      className="chip ingredients-category-chip"
-                      type="button"
-                      onClick={() => {
-                        props.setIngredientCustomCategoryOpen(true);
-                        props.setIngredientForm({ ...props.ingredientForm, category: '' });
-                      }}
-                    >
-                      + 自定义
-                    </button>
-                  )}
-                </props.ScrollableChipRail>
+              <div className="ingredients-create-form-left-col">
+                <label className="ingredients-create-name-field">
+                  <span>食材名称</span>
+                  <input
+                    className="text-input"
+                    placeholder="请输入食材名称"
+                    value={props.ingredientForm.name}
+                    onChange={(event) => props.setIngredientForm({ ...props.ingredientForm, name: event.target.value })}
+                  />
+                </label>
+                <div className="ingredients-quantity-tracking-card">
+                  <div className="ingredients-restock-field-head">
+                    <div>
+                      <span>数量记录方式</span>
+                      <p className="subtle">调料等常备品可只记录有无。</p>
+                    </div>
+                  </div>
+                  <SegmentedTabs
+                    options={[
+                      { value: 'track_quantity', label: '记录数量' },
+                      { value: 'not_track_quantity', label: '只记录有无' },
+                    ]}
+                    value={props.ingredientForm.quantityTrackingMode}
+                    onChange={(value) =>
+                      props.setIngredientForm({
+                        ...props.ingredientForm,
+                        quantityTrackingMode: value,
+                        defaultLowStockThreshold:
+                          value === 'not_track_quantity' ? '' : props.ingredientForm.defaultLowStockThreshold,
+                      })
+                    }
+                  />
+                </div>
+              </div>
+              <div className="ingredients-create-form-right-col">
+                <div className="ingredients-category-field">
+                  <span>分类</span>
+                  <div className="ingredients-category-presets" role="group" aria-label="常见食材分类">
+                    {props.ingredientVisibleCategoryPresets.map((item) => (
+                      <button
+                        key={item.label}
+                        className={
+                          props.ingredientForm.category.trim() === item.label
+                            ? 'chip ingredients-category-chip active'
+                            : 'chip ingredients-category-chip'
+                        }
+                        type="button"
+                        onClick={() => {
+                          props.setIngredientCustomCategoryOpen(false);
+                          props.applyIngredientCategoryPreset(item.label);
+                        }}
+                      >
+                        <span className="ingredients-category-chip-icon" aria-hidden="true">
+                          <IngredientCategoryIcon name={item.icon} />
+                        </span>
+                        {item.label}
+                      </button>
+                    ))}
+                    {props.showIngredientCategoryCustomInput ? (
+                      <input
+                        className="ingredients-category-custom-input"
+                        placeholder="自定义分类"
+                        value={props.ingredientCategoryIsVisiblePreset ? '' : props.ingredientForm.category}
+                        onChange={(event) => props.setIngredientForm({ ...props.ingredientForm, category: event.target.value })}
+                        autoFocus
+                      />
+                    ) : (
+                      <button
+                        className="chip ingredients-category-chip"
+                        type="button"
+                        onClick={() => {
+                          props.setIngredientCustomCategoryOpen(true);
+                          props.setIngredientForm({ ...props.ingredientForm, category: '' });
+                        }}
+                      >
+                        <span className="ingredients-category-chip-icon" aria-hidden="true">
+                          <IngredientCategoryIcon name="more" />
+                        </span>
+                        + 自定义
+                      </button>
+                    )}
+                  </div>
+                </div>
               </div>
               <div className="form-grid compact-grid">
                 <div className="ingredients-restock-field-group">
@@ -283,10 +404,12 @@ export function IngredientEditorView(props: IngredientEditorViewProps) {
                 </div>
                 <div className="ingredients-restock-field-group">
                   <div className="ingredients-restock-field-head">
-                    <span>默认存放位置</span>
-                    <p className="subtle">以后补库存时会先带出这里的建议位置。</p>
+                    <div>
+                      <span>默认存放位置</span>
+                      <p className="subtle">以后补库存时会先带出这里的建议位置。</p>
+                    </div>
                   </div>
-                  <div className="ingredients-restock-choice-row">
+                  <div className="ingredients-restock-choice-row ingredients-storage-choice-row">
                     {INVENTORY_STORAGE_PRESETS.map((storage) => (
                       <button
                         key={storage}
@@ -367,22 +490,33 @@ export function IngredientEditorView(props: IngredientEditorViewProps) {
               <div className="ingredients-restock-field-group ingredients-create-lowstock-card">
                 <div className="ingredients-restock-field-head">
                   <span>默认低库存提醒</span>
-                  <p className="subtle">按食材总量提醒，值越小越接近“快没了”。</p>
+                  <p className="subtle">
+                    {props.ingredientForm.quantityTrackingMode === 'not_track_quantity'
+                      ? '只记录有无的食材不做数量阈值提醒。'
+                      : '按食材总量提醒，值越小越接近“快没了”。'}
+                  </p>
                 </div>
-                <SegmentedTabs
-                  options={[
-                    { value: 'off', label: '不提醒' },
-                    { value: 'on', label: '设置提醒' },
-                  ]}
-                  value={props.ingredientLowStockEnabled ? 'on' : 'off'}
-                  onChange={(value) =>
-                    props.setIngredientForm({
-                      ...props.ingredientForm,
-                      defaultLowStockThreshold: value === 'on' ? formatNumericString(props.ingredientLowStockValue) : '',
-                    })
-                  }
-                />
-                {props.ingredientLowStockEnabled ? (
+                {props.ingredientForm.quantityTrackingMode === 'not_track_quantity' ? (
+                  <div className="ingredients-create-rule-note ingredients-create-lowstock-note">
+                    <span>提醒状态</span>
+                    <p>当前只判断家里是否有这类食材，不因为数量不足触发补货提醒。</p>
+                  </div>
+                ) : (
+                  <SegmentedTabs
+                    options={[
+                      { value: 'off', label: '不提醒' },
+                      { value: 'on', label: '设置提醒' },
+                    ]}
+                    value={props.ingredientLowStockEnabled ? 'on' : 'off'}
+                    onChange={(value) =>
+                      props.setIngredientForm({
+                        ...props.ingredientForm,
+                        defaultLowStockThreshold: value === 'on' ? formatNumericString(props.ingredientLowStockValue) : '',
+                      })
+                    }
+                  />
+                )}
+                {props.ingredientForm.quantityTrackingMode !== 'not_track_quantity' && props.ingredientLowStockEnabled ? (
                   <TouchStepperField
                     label="提醒阈值"
                     value={props.ingredientLowStockValue}
@@ -402,12 +536,12 @@ export function IngredientEditorView(props: IngredientEditorViewProps) {
                       })
                     }
                   />
-                ) : (
+                ) : props.ingredientForm.quantityTrackingMode !== 'not_track_quantity' ? (
                   <div className="ingredients-create-rule-note ingredients-create-lowstock-note">
                     <span>提醒状态</span>
                     <p>当前不做低库存提醒；需要时点一下就能开启，平时不用额外维护。</p>
                   </div>
-                )}
+                ) : null}
               </div>
               {props.ingredientForm.defaultExpiryMode === 'days' ? (
                 <TouchRangeField

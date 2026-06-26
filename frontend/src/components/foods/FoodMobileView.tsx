@@ -2,8 +2,10 @@ import type { ReactNode } from 'react';
 import type { Food, FoodRecommendationItem, MealLog, MealType, MediaAsset, Recipe } from '../../api/types';
 import { buildMediaSizes, buildMediaSrcSet, resolveMediaUrl } from '../../lib/assets';
 import { FOOD_TYPE_LABELS, MEAL_TYPE_LABELS, getFoodCoverAsset } from '../../lib/ui';
+import { chunkMobilePagedItems, useMobilePagedScroller } from '../../hooks/useMobilePagedScroller';
 import { MediaWithPlaceholder } from '../MediaPlaceholder';
 import { Badge, EmptyState } from '../ui-kit';
+import { resolveMobileSceneCoverSource } from './FoodMobileSceneModel';
 import { FoodUiIcon } from './FoodWorkspacePrimitives';
 
 type MobileRecommendationItem = {
@@ -43,6 +45,7 @@ export function FoodMobileView(props: {
   managementIssueCount: number;
   mobileScenePages: MobileSceneCard[][];
   mobileLibraryFoods: Food[];
+  mobileLibraryResetKey: string;
   hasFoodFilters: boolean;
   search: string;
   emptyTitle: string;
@@ -67,6 +70,12 @@ export function FoodMobileView(props: {
   onClearFoodFilters: () => void;
   filterTabs: MobileFilterTab[];
 }) {
+  const libraryPager = useMobilePagedScroller({
+    itemCount: props.mobileLibraryFoods.length,
+    resetKey: props.mobileLibraryResetKey,
+  });
+  const mobileLibraryFoodPages = chunkMobilePagedItems(props.mobileLibraryFoods, libraryPager.visiblePageCount);
+
   return (
     <section className="mobile-food-page" aria-label="手机食物页">
       <div className="mobile-food-topbar">
@@ -163,20 +172,24 @@ export function FoodMobileView(props: {
           {props.mobileScenePages.map((page, pageIndex) => (
             <div className="mobile-food-scene-grid" key={`scene-page-${pageIndex}`}>
               {page.map((item) => {
-                const coverAsset = item.imageAsset ?? (item.imageFood ? getFoodCoverAsset(item.imageFood, props.recipes) : null);
-                const cover = resolveMediaUrl(coverAsset, 'card') ?? (item.imageUrl ? props.resolveFoodAssetUrl(item.imageUrl) : undefined);
+                const cover = resolveMobileSceneCoverSource(item, props.recipes, props.resolveFoodAssetUrl);
                 return (
-                  <button key={item.key} type="button" onClick={item.onClick}>
-                    {cover ? (
-                      <img
-                        src={cover}
-                        srcSet={buildMediaSrcSet(coverAsset)}
-                        sizes={buildMediaSizes('card')}
-                        alt=""
-                      />
-                    ) : (
-                      <i aria-hidden="true">{item.title.slice(0, 2)}</i>
-                    )}
+                  <button
+                    key={item.key}
+                    className={cover.source === 'fallback' ? 'is-fallback' : undefined}
+                    type="button"
+                    onClick={item.onClick}
+                  >
+                    <MediaWithPlaceholder
+                      className="mobile-food-scene-media"
+                      src={cover.url}
+                      srcSet={buildMediaSrcSet(cover.asset)}
+                      sizes={buildMediaSizes('card')}
+                      alt=""
+                      emptyLabel="暂无场景图"
+                      loadingLabel="加载场景图"
+                      errorLabel="场景图失败"
+                    />
                     <span>
                       <strong>{item.title}</strong>
                       <small>{item.count} 份食物</small>
@@ -194,7 +207,12 @@ export function FoodMobileView(props: {
 
       <section className="mobile-food-panel mobile-food-library">
         <div className="mobile-food-section-head">
-          <h2>食物库</h2>
+          <h2>
+            食物库
+            {props.mobileLibraryFoods.length > 0 && (
+              <span>{libraryPager.visibleCount}/{props.mobileLibraryFoods.length}</span>
+            )}
+          </h2>
           <button type="button" onClick={props.hasFoodFilters ? props.onClearFoodFilters : props.onOpenCreate}>
             {props.hasFoodFilters ? '查看全部' : '新增'}
             <FoodUiIcon name="arrowRight" />
@@ -219,55 +237,61 @@ export function FoodMobileView(props: {
           </div>
         </div>
         {props.mobileLibraryFoods.length > 0 ? (
-          <div className="mobile-food-library-grid">
-            {props.mobileLibraryFoods.map((food) => {
-              const coverAsset = getFoodCoverAsset(food, props.recipes);
-              const cover = resolveMediaUrl(coverAsset, 'card');
-              const usageCount = countMealUsage(food, props.mealLogs);
-              const tagLabels = props.getFoodSceneTags(food).slice(0, 2);
-              const labels = tagLabels.length > 0 ? tagLabels : food.suitable_meal_types.slice(0, 2).map((meal) => MEAL_TYPE_LABELS[meal]);
-              return (
-                <article key={food.id} className="mobile-food-library-card">
-                  <button className="mobile-food-library-cover" type="button" onClick={() => props.onOpenDetail(food)}>
-                    <MediaWithPlaceholder
-                      src={cover}
-                      srcSet={buildMediaSrcSet(coverAsset)}
-                      sizes={buildMediaSizes('card')}
-                      alt={food.name}
-                    />
-                  </button>
-                  <div className="mobile-food-library-body">
-                    <h3>{food.name}</h3>
-                    <p>{[FOOD_TYPE_LABELS[food.type === 'packaged' ? 'readyMade' : food.type], usageCount > 0 ? '最近做过' : '未记录'].join(' · ')}</p>
-                    <div className="mobile-food-chip-row">
-                      {labels.map((label) => (
-                        <span key={label}>{label}</span>
-                      ))}
-                    </div>
-                    <div className="mobile-food-card-actions">
-                      <button
-                        className="mobile-food-primary"
-                        type="button"
-                        disabled={props.isQuickAdding}
-                        onClick={() => props.onHandleFoodCardPrimaryAction(food, props.getDefaultMealType(food))}
-                      >
-                        {props.getFoodCardPrimaryActionLabel(food)}
-                      </button>
-                      <button
-                        className={food.favorite ? 'active' : undefined}
-                        type="button"
-                        aria-label={`收藏：${food.name}`}
-                        disabled={props.isUpdatingFavorite}
-                        onClick={() => props.onToggleFavorite(food)}
-                      >
-                        <FoodUiIcon name={food.favorite ? 'heartFilled' : 'heart'} />
-                      </button>
-                    </div>
-                  </div>
-                </article>
-              );
-            })}
-          </div>
+          <>
+            <div className="mobile-food-library-scroller" aria-label="食物库横向分页" onScroll={libraryPager.handleScroll}>
+              {mobileLibraryFoodPages.map((page, pageIndex) => (
+                <div className="mobile-food-library-grid" key={`food-library-page-${pageIndex}`}>
+                  {page.map((food) => {
+                    const coverAsset = getFoodCoverAsset(food, props.recipes);
+                    const cover = resolveMediaUrl(coverAsset, 'card');
+                    const usageCount = countMealUsage(food, props.mealLogs);
+                    const tagLabels = props.getFoodSceneTags(food).slice(0, 2);
+                    const labels = tagLabels.length > 0 ? tagLabels : food.suitable_meal_types.slice(0, 2).map((meal) => MEAL_TYPE_LABELS[meal]);
+                    return (
+                      <article key={food.id} className="mobile-food-library-card">
+                        <button className="mobile-food-library-cover" type="button" onClick={() => props.onOpenDetail(food)}>
+                          <MediaWithPlaceholder
+                            src={cover}
+                            srcSet={buildMediaSrcSet(coverAsset)}
+                            sizes={buildMediaSizes('card')}
+                            alt={food.name}
+                          />
+                        </button>
+                        <div className="mobile-food-library-body">
+                          <h3>{food.name}</h3>
+                          <p>{[FOOD_TYPE_LABELS[food.type === 'packaged' ? 'readyMade' : food.type], usageCount > 0 ? '最近做过' : '未记录'].join(' · ')}</p>
+                          <div className="mobile-food-chip-row">
+                            {labels.map((label) => (
+                              <span key={label}>{label}</span>
+                            ))}
+                          </div>
+                          <div className="mobile-food-card-actions">
+                            <button
+                              className="mobile-food-primary"
+                              type="button"
+                              disabled={props.isQuickAdding}
+                              onClick={() => props.onHandleFoodCardPrimaryAction(food, props.getDefaultMealType(food))}
+                            >
+                              {props.getFoodCardPrimaryActionLabel(food)}
+                            </button>
+                            <button
+                              className={food.favorite ? 'active' : undefined}
+                              type="button"
+                              aria-label={`收藏：${food.name}`}
+                              disabled={props.isUpdatingFavorite}
+                              onClick={() => props.onToggleFavorite(food)}
+                            >
+                              <FoodUiIcon name={food.favorite ? 'heartFilled' : 'heart'} />
+                            </button>
+                          </div>
+                        </div>
+                      </article>
+                    );
+                  })}
+                </div>
+              ))}
+            </div>
+          </>
         ) : (
           <div className="mobile-food-empty">
             <strong>{props.emptyTitle}</strong>

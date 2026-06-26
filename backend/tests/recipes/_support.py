@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.core.deps import get_current_auth
-from app.core.enums import FoodType, IngredientExpiryMode, InventoryStatus, MealType, MembershipStatus, UserRole
+from app.core.enums import FoodType, IngredientExpiryMode, IngredientQuantityTrackingMode, InventoryStatus, MealType, MembershipStatus, UserRole
 from app.db.session import get_db
 from app.main import app
 from app.models.domain import Base, Family, Food, Ingredient, InventoryItem, MealLog, MealLogFood, Membership, RecipeCookLog, RecipeFavorite, User
@@ -70,7 +70,21 @@ class RecipeApiTestCase(unittest.TestCase):
                 created_by=self.user.id,
                 updated_by=self.user.id,
             )
-            db.add_all([self.family, self.user, self.membership, self.tomato, self.egg])
+            self.salt = Ingredient(
+                id="ingredient-salt",
+                family_id=self.family.id,
+                name="盐",
+                category="调料",
+                default_unit="g",
+                unit_conversions=[],
+                quantity_tracking_mode=IngredientQuantityTrackingMode.NOT_TRACK_QUANTITY,
+                default_storage="常温",
+                default_expiry_mode=IngredientExpiryMode.NONE,
+                notes="",
+                created_by=self.user.id,
+                updated_by=self.user.id,
+            )
+            db.add_all([self.family, self.user, self.membership, self.tomato, self.egg, self.salt])
             db.commit()
 
         def override_db():

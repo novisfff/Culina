@@ -4,7 +4,7 @@ from datetime import datetime
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-from app.core.enums import IngredientExpiryMode
+from app.core.enums import IngredientExpiryMode, IngredientQuantityTrackingMode
 from app.schemas.media import MediaAssetOut
 
 
@@ -35,6 +35,7 @@ class IngredientOut(BaseModel):
     category: str
     default_unit: str
     unit_conversions: list[IngredientUnitConversion] = Field(default_factory=list)
+    quantity_tracking_mode: IngredientQuantityTrackingMode = IngredientQuantityTrackingMode.TRACK_QUANTITY
     default_storage: str
     default_expiry_mode: IngredientExpiryMode
     default_expiry_days: int | None = None
@@ -52,6 +53,7 @@ class _IngredientRequestBase(BaseModel):
     category: str
     default_unit: str
     unit_conversions: list[IngredientUnitConversion] = Field(default_factory=list)
+    quantity_tracking_mode: IngredientQuantityTrackingMode = IngredientQuantityTrackingMode.TRACK_QUANTITY
     default_storage: str
     default_expiry_mode: IngredientExpiryMode = IngredientExpiryMode.NONE
     default_expiry_days: int | None = None
@@ -77,6 +79,8 @@ class _IngredientRequestBase(BaseModel):
             seen_units.add(entry.unit)
         if self.default_low_stock_threshold is not None and self.default_low_stock_threshold <= 0:
             raise ValueError("默认低库存提醒值必须大于 0")
+        if self.quantity_tracking_mode == IngredientQuantityTrackingMode.NOT_TRACK_QUANTITY:
+            self.default_low_stock_threshold = None
         return self
 
 

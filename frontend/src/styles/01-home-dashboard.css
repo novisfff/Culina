@@ -1349,9 +1349,20 @@
 }
 
 .dashboard-plan-dish > .media-with-placeholder {
+  --media-placeholder-icon-size: 20px;
   width: 42px;
   height: 100%;
   border-radius: 0;
+}
+
+.dashboard-plan-dish .media-placeholder {
+  gap: 0;
+}
+
+.dashboard-plan-dish .media-placeholder-label,
+.dashboard-plan-dish .media-placeholder-glow,
+.dashboard-plan-dish .media-placeholder-spark {
+  display: none;
 }
 
 .dashboard-plan-dish span {
@@ -1467,9 +1478,20 @@
 }
 
 .dashboard-shopping-image > .media-with-placeholder {
+  --media-placeholder-icon-size: 24px;
   width: 100%;
   height: 100%;
   display: block;
+}
+
+.dashboard-shopping-image .media-placeholder {
+  gap: 0;
+}
+
+.dashboard-shopping-image .media-placeholder-label,
+.dashboard-shopping-image .media-placeholder-glow,
+.dashboard-shopping-image .media-placeholder-spark {
+  display: none;
 }
 
 .dashboard-shopping-copy {
