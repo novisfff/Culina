@@ -3,7 +3,7 @@ from __future__ import annotations
 from functools import lru_cache
 from urllib.parse import quote_plus
 
-from pydantic import computed_field, model_validator
+from pydantic import computed_field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 LOCAL_ENVIRONMENTS = {"local", "development", "dev", "test", "testing"}
@@ -30,7 +30,7 @@ class Settings(BaseSettings):
     ai_api_base: str = "https://api.openai.com/v1"
     ai_api_key: str = ""
     ai_model: str = ""
-    ai_supports_vision: bool | None = None
+    ai_supports_vision: bool | None = True
     ai_timeout_seconds: float = 180.0
     ai_trace_enabled: bool = True
     ai_trace_capture_llm_exchanges: bool = False
@@ -59,6 +59,13 @@ class Settings(BaseSettings):
     initial_family_name: str = ""
     initial_family_motto: str = ""
     initial_family_location: str = ""
+
+    @field_validator("ai_supports_vision", mode="before")
+    @classmethod
+    def normalize_optional_bool(cls, value: object) -> object:
+        if isinstance(value, str) and not value.strip():
+            return None
+        return value
 
     @model_validator(mode="after")
     def validate_safe_runtime_settings(self) -> "Settings":
