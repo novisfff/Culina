@@ -64,6 +64,67 @@ class AIToolRegistryTestCase(AIAgentInfraTestCase):
             self.assertEqual(progress_events[0]["data"]["internal_code"], "human.request_input")
             self.assertEqual(progress_events[0]["data"]["status"], "waiting")
 
+        def test_workspace_read_artifact_returns_only_current_conversation_artifacts(self) -> None:
+            with self.SessionLocal() as db:
+                _service, draft, approval = self._create_ai_approval_for_test(
+                    db,
+                    draft_type="shopping_list",
+                    payload={
+                        "draftType": "shopping_list",
+                        "schemaVersion": "shopping_list.v1",
+                        "items": [{"title": "鸡蛋", "quantity": 2, "unit": "个", "reason": "搭配晚餐"}],
+                    },
+                    suffix="read-artifact",
+                )
+                db.commit()
+
+                executor = ToolExecutor(
+                    build_workspace_tool_registry(),
+                    ToolContext(
+                        db=db,
+                        family_id=self.family.id,
+                        user_id=self.user.id,
+                        conversation_id=approval.conversation_id,
+                        run_id="run-read-artifact",
+                    ),
+                )
+
+                draft_output = executor.call("workspace.read_artifact", {"id": draft.id, "kind": "draft"})
+                approval_output = executor.call("workspace.read_artifact", {"id": approval.id, "kind": "approval"})
+
+                self.assertEqual(draft_output["artifact"]["kind"], "draft")
+                self.assertEqual(draft_output["artifact"]["payload"]["items"][0]["title"], "鸡蛋")
+                self.assertEqual(approval_output["artifact"]["kind"], "approval")
+                self.assertEqual(approval_output["artifact"]["initialValues"]["draft"]["items"][0]["unit"], "个")
+
+                wrong_conversation_executor = ToolExecutor(
+                    build_workspace_tool_registry(),
+                    ToolContext(
+                        db=db,
+                        family_id=self.family.id,
+                        user_id=self.user.id,
+                        conversation_id="conversation-other",
+                        run_id="run-read-artifact-other-conversation",
+                    ),
+                )
+                with self.assertRaises(ValueError):
+                    wrong_conversation_executor.call("workspace.read_artifact", {"id": draft.id, "kind": "draft"})
+
+                wrong_family_executor = ToolExecutor(
+                    build_workspace_tool_registry(),
+                    ToolContext(
+                        db=db,
+                        family_id=self.other_family.id,
+                        user_id=self.user.id,
+                        conversation_id=approval.conversation_id,
+                        run_id="run-read-artifact-other-family",
+                    ),
+                )
+                with self.assertRaises(ValueError):
+                    wrong_family_executor.call("workspace.read_artifact", {"id": approval.id, "kind": "approval"})
+                with self.assertRaises(ValueError):
+                    executor.call("workspace.read_artifact", {"id": "missing-artifact", "kind": "draft"})
+
         def test_tool_executor_enforces_skill_allowlist_and_side_effect_policy(self) -> None:
             with self.SessionLocal() as db:
                 executor = ToolExecutor(

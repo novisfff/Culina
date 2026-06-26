@@ -32,10 +32,12 @@ def build_workspace_tool_registry() -> ToolRegistry:
         register_meal_plan_tools,
         register_recipe_tools,
         register_shopping_tools,
+        register_workspace_tools,
     )
 
     registry = ToolRegistry()
     register_intent_tools(registry)
+    register_workspace_tools(registry)
     register_ingredient_tools(registry)
     register_inventory_tools(registry)
     register_meal_log_tools(registry)

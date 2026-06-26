@@ -14,10 +14,18 @@ type AiRunDebugDrawerProps = {
 
 type DebugTab = 'timeline' | 'llm' | 'errors';
 
+type ExchangeDisplayInfo = {
+  title: string;
+  providerLabel: string;
+  runtimeLabel: string;
+  spanLabel: string;
+  compactLabel: string;
+};
+
 const DEBUG_TABS: Array<{ key: DebugTab; label: string }> = [
-  { key: 'timeline', label: 'Timeline' },
-  { key: 'llm', label: 'LLM' },
-  { key: 'errors', label: 'Errors' },
+  { key: 'timeline', label: '流程' },
+  { key: 'llm', label: '模型' },
+  { key: 'errors', label: '异常' },
 ];
 
 const STATUS_LABELS: Record<string, string> = {
@@ -42,18 +50,131 @@ function formatJson(value: unknown) {
   }
 }
 
+const TRACE_SPAN_TYPE_LABELS: Record<string, string> = {
+  run: '整次运行',
+  graph_node: '编排入口',
+  orchestrator_round: '编排轮次',
+  approval_followup: '人工确认后续响应',
+  draft_publish: '确认草稿',
+  skill_execution: 'Skill 执行',
+  tool_call: '工具调用',
+  script_call: '脚本调用',
+  provider_round: '模型轮次',
+  provider_attempt: '模型尝试',
+};
+
+const SUMMARY_KEY_LABELS: Record<string, string> = {
+  status: '状态',
+  agentRounds: '已完成轮次',
+  injectedSkills: '注入 Skill',
+  initialInjectedSkills: '初始 Skill',
+  historicalArtifactCount: '历史产物',
+  runArtifactCount: '运行产物',
+  conversationMessageCount: '对话消息',
+  pendingApprovalId: '等待确认',
+  terminalStatus: '终态',
+  approvalId: '确认',
+  decision: '决策',
+  model: '模型',
+  draftCount: '草稿',
+  cardCount: '结果卡',
+  toolCallCount: '工具调用',
+  readTools: '读取工具',
+  draftType: '草稿类型',
+  schemaVersion: 'Schema',
+  tool: '工具',
+  messageId: '消息',
+  inputKeys: '输入字段',
+  outputKeys: '输出字段',
+  sideEffect: '副作用',
+  permission: '权限',
+  requiresConfirmation: '需确认',
+  functionName: '函数',
+  scriptPath: '脚本',
+  timeoutSeconds: '超时',
+};
+
+function formatDuration(durationMs: number) {
+  if (!Number.isFinite(durationMs) || durationMs <= 0) return '0ms';
+  if (durationMs < 1000) return `${durationMs}ms`;
+  if (durationMs < 60000) return `${(durationMs / 1000).toFixed(durationMs < 10000 ? 1 : 0)}s`;
+  const minutes = Math.floor(durationMs / 60000);
+  const seconds = Math.round((durationMs % 60000) / 1000);
+  return `${minutes}m ${String(seconds).padStart(2, '0')}s`;
+}
+
+function roundLabel(span: AiRunTraceTreeNode) {
+  return span.roundIndex !== null && span.roundIndex !== undefined ? `第 ${span.roundIndex} 轮` : null;
+}
+
+function traceStepTitle(span: AiRunTraceTreeNode) {
+  const round = roundLabel(span);
+  if (span.spanType === 'run') return '整次运行';
+  if (span.spanType === 'graph_node') return `${round ? `${round} ` : ''}${span.name === 'orchestrator' ? '编排入口' : span.name}`;
+  if (span.spanType === 'orchestrator_round') return `${round ? `${round} ` : ''}AI 决策`;
+  if (span.spanType === 'approval_followup') return '确认后的回复';
+  if (span.spanType === 'draft_publish') return '生成确认草稿';
+  if (span.spanType === 'tool_call') return `工具调用：${span.name}`;
+  if (span.spanType === 'script_call') return `脚本调用：${span.name}`;
+  return `${TRACE_SPAN_TYPE_LABELS[span.spanType] ?? span.spanType}：${span.name}`;
+}
+
 function spanMeta(span: AiRunTraceTreeNode) {
+  const typeLabel = TRACE_SPAN_TYPE_LABELS[span.spanType] ?? span.spanType;
   return [
-    span.spanType,
-    span.roundIndex !== null && span.roundIndex !== undefined ? `round ${span.roundIndex}` : null,
-    span.attemptIndex !== null && span.attemptIndex !== undefined ? `attempt ${span.attemptIndex}` : null,
-    `${span.durationMs}ms`,
+    typeLabel,
+    roundLabel(span),
+    span.attemptIndex !== null && span.attemptIndex !== undefined ? `第 ${span.attemptIndex} 次尝试` : null,
+    formatDuration(span.durationMs),
   ].filter(Boolean).join(' · ');
 }
 
 function spanDisplayName(span: AiRunTraceTreeNode | undefined) {
-  if (!span) return '未关联 span';
-  return `${span.name} · ${span.spanType}`;
+  if (!span) return '未关联步骤';
+  return `${TRACE_SPAN_TYPE_LABELS[span.spanType] ?? span.spanType} · ${traceStepTitle(span)}`;
+}
+
+function formatSummaryValue(value: unknown, key?: string): string {
+  if (key === 'status' || key === 'terminalStatus') return statusLabel(String(value));
+  if (typeof value === 'boolean') return value ? '是' : '否';
+  if (typeof value === 'number') return String(value);
+  if (typeof value === 'string') return value.trim() || '空';
+  if (Array.isArray(value)) {
+    if (value.length === 0) return '无';
+    const simpleItems = value.filter((item) => ['string', 'number', 'boolean'].includes(typeof item));
+    if (simpleItems.length === value.length && simpleItems.length <= 3) return simpleItems.map(String).join('、');
+    return `${value.length} 项`;
+  }
+  if (value && typeof value === 'object') return `${Object.keys(value).length} 项`;
+  return '无';
+}
+
+function summaryItems(summary: Record<string, unknown>) {
+  return Object.entries(summary)
+    .filter(([, value]) => value !== undefined && value !== null && value !== '')
+    .slice(0, 6)
+    .map(([key, value]) => ({
+      key,
+      label: SUMMARY_KEY_LABELS[key] ?? key,
+      value: formatSummaryValue(value, key),
+    }));
+}
+
+function buildExchangeDisplayInfo(
+  exchange: AiRunLLMExchange,
+  index: number,
+  span?: AiRunTraceTreeNode,
+): ExchangeDisplayInfo {
+  const providerLabel = `模型轮次 ${exchange.providerRound} · 尝试 ${exchange.attemptIndex}`;
+  const runtimeLabel = `${exchange.mode} · ${exchange.model} · ${exchange.durationMs}ms`;
+  const spanLabel = spanDisplayName(span);
+  return {
+    title: `模型调用 ${index + 1}`,
+    providerLabel,
+    runtimeLabel,
+    spanLabel,
+    compactLabel: `模型 ${index + 1} · ${providerLabel} · ${statusLabel(exchange.status)}`,
+  };
 }
 
 function flattenTraceTree(nodes: AiRunTraceTreeNode[]): AiRunTraceTreeNode[] {
@@ -87,13 +208,60 @@ function JsonBlock({ title, value }: { title: string; value: unknown }) {
   );
 }
 
+function TraceSummary({ inputSummary, outputSummary }: { inputSummary: Record<string, unknown>; outputSummary: Record<string, unknown> }) {
+  const inputItems = summaryItems(inputSummary);
+  const outputItems = summaryItems(outputSummary);
+  if (inputItems.length === 0 && outputItems.length === 0) return null;
+  return (
+    <div className="ai-debug-step-summary">
+      {inputItems.length > 0 ? (
+        <div>
+          <strong>输入</strong>
+          <div className="ai-debug-summary-chips">
+            {inputItems.map((item) => (
+              <span key={`input-${item.key}`}>{item.label}: {item.value}</span>
+            ))}
+          </div>
+        </div>
+      ) : null}
+      {outputItems.length > 0 ? (
+        <div>
+          <strong>结果</strong>
+          <div className="ai-debug-summary-chips">
+            {outputItems.map((item) => (
+              <span key={`output-${item.key}`}>{item.label}: {item.value}</span>
+            ))}
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function TraceOverview({ spans, exchangeCount }: { spans: AiRunTraceTreeNode[]; exchangeCount: number }) {
+  const failedCount = spans.filter((span) => span.status === 'failed' || span.errorCode || span.errorMessage).length;
+  const waitingCount = spans.filter((span) => span.status === 'waiting').length;
+  const toolCount = spans.filter((span) => span.spanType === 'tool_call' || span.spanType === 'script_call').length;
+  return (
+    <div className="ai-debug-overview" aria-label="流程概览">
+      <span>步骤 {spans.length}</span>
+      <span>模型调用 {exchangeCount}</span>
+      <span>工具/脚本 {toolCount}</span>
+      <span>等待 {waitingCount}</span>
+      <span className={failedCount > 0 ? 'is-danger' : undefined}>异常 {failedCount}</span>
+    </div>
+  );
+}
+
 function TraceNode({
   node,
   exchangesBySpanId,
+  exchangeDisplayById,
   depth = 0,
 }: {
   node: AiRunTraceTreeNode;
   exchangesBySpanId: Map<string, AiRunLLMExchange[]>;
+  exchangeDisplayById: Map<string, ExchangeDisplayInfo>;
   depth?: number;
 }) {
   const linkedExchanges = exchangesBySpanId.get(node.spanId) ?? [];
@@ -102,7 +270,7 @@ function TraceNode({
       <div className="ai-debug-span-main">
         <span className={`ai-debug-status-dot is-${node.status}`} aria-hidden="true" />
         <div>
-          <strong>{node.name}</strong>
+          <strong>{traceStepTitle(node)}</strong>
           <span>{spanMeta(node)}</span>
         </div>
         <em>{statusLabel(node.status)}</em>
@@ -114,18 +282,19 @@ function TraceNode({
         </p>
       ) : null}
       {(Object.keys(node.inputSummary ?? {}).length > 0 || Object.keys(node.outputSummary ?? {}).length > 0) ? (
-        <div className="ai-debug-span-json">
-          <JsonBlock title="Input" value={node.inputSummary} />
-          <JsonBlock title="Output" value={node.outputSummary} />
+        <div className="ai-debug-span-details">
+          <TraceSummary inputSummary={node.inputSummary} outputSummary={node.outputSummary} />
+          <div className="ai-debug-span-json">
+            <JsonBlock title="调试输入" value={node.inputSummary} />
+            <JsonBlock title="调试输出" value={node.outputSummary} />
+          </div>
         </div>
       ) : null}
       {linkedExchanges.length > 0 ? (
         <div className="ai-debug-linked-exchanges" aria-label="关联 LLM 调用">
-          <strong>LLM exchange x {linkedExchanges.length}</strong>
+          <strong>模型调用 x {linkedExchanges.length}</strong>
           {linkedExchanges.slice(0, 4).map((exchange) => (
-            <span key={exchange.id}>
-              Round {exchange.providerRound} · Attempt {exchange.attemptIndex} · {exchange.mode} · {statusLabel(exchange.status)}
-            </span>
+            <span key={exchange.id}>{exchangeDisplayById.get(exchange.id)?.compactLabel ?? `模型 · ${statusLabel(exchange.status)}`}</span>
           ))}
           {linkedExchanges.length > 4 ? <em>还有 {linkedExchanges.length - 4} 条</em> : null}
         </div>
@@ -133,7 +302,7 @@ function TraceNode({
       {node.children.length > 0 ? (
         <ol className="ai-debug-tree">
           {node.children.map((child) => (
-            <TraceNode key={child.id} node={child} exchangesBySpanId={exchangesBySpanId} depth={depth + 1} />
+            <TraceNode key={child.id} node={child} exchangesBySpanId={exchangesBySpanId} exchangeDisplayById={exchangeDisplayById} depth={depth + 1} />
           ))}
         </ol>
       ) : null}
@@ -141,14 +310,15 @@ function TraceNode({
   );
 }
 
-function ExchangeCard({ exchange, span }: { exchange: AiRunLLMExchange; span?: AiRunTraceTreeNode }) {
+function ExchangeCard({ exchange, display }: { exchange: AiRunLLMExchange; display: ExchangeDisplayInfo }) {
   return (
     <article className={`ai-debug-exchange is-${exchange.status}`}>
       <header>
         <div>
-          <strong>Round {exchange.providerRound} · Attempt {exchange.attemptIndex}</strong>
-          <span>{exchange.mode} · {exchange.model} · {exchange.durationMs}ms</span>
-          <span>{spanDisplayName(span)}</span>
+          <strong>{display.title}</strong>
+          <span>{display.runtimeLabel}</span>
+          <span>{display.providerLabel}</span>
+          <span>{display.spanLabel}</span>
           <span>
             request {exchange.requestBytes} bytes{exchange.requestTruncated ? ' · truncated' : ''}
             {' · '}
@@ -215,6 +385,16 @@ export function AiRunDebugDrawer({ runId, open, onClose }: AiRunDebugDrawerProps
     }
     return grouped;
   }, [exchangesQuery.data?.exchanges]);
+  const exchangeDisplayById = useMemo(() => {
+    const displayById = new Map<string, ExchangeDisplayInfo>();
+    (exchangesQuery.data?.exchanges ?? []).forEach((exchange, index) => {
+      displayById.set(
+        exchange.id,
+        buildExchangeDisplayInfo(exchange, index, exchange.spanId ? spanBySpanId.get(exchange.spanId) : undefined),
+      );
+    });
+    return displayById;
+  }, [exchangesQuery.data?.exchanges, spanBySpanId]);
   const failedSpans = useMemo(() => spans.filter((span) => span.status === 'failed' || span.errorCode || span.errorMessage), [spans]);
   const failedExchanges = useMemo(
     () => (exchangesQuery.data?.exchanges ?? []).filter((exchange) => exchange.status === 'failed' || exchange.errorCode || exchange.errorMessage),
@@ -278,11 +458,14 @@ export function AiRunDebugDrawer({ runId, open, onClose }: AiRunDebugDrawerProps
           </div>
         ) : activeTab === 'timeline' ? (
           traceQuery.data?.tree.length ? (
-            <ol className="ai-debug-tree">
-              {traceQuery.data.tree.map((node) => (
-                <TraceNode key={node.id} node={node} exchangesBySpanId={exchangesBySpanId} />
-              ))}
-            </ol>
+            <div className="ai-debug-timeline">
+              <TraceOverview spans={spans} exchangeCount={exchangesQuery.data?.exchanges.length ?? 0} />
+              <ol className="ai-debug-tree">
+                {traceQuery.data.tree.map((node) => (
+                  <TraceNode key={node.id} node={node} exchangesBySpanId={exchangesBySpanId} exchangeDisplayById={exchangeDisplayById} />
+                ))}
+              </ol>
+            </div>
           ) : (
             <div className="ai-debug-state">暂无 trace span。</div>
           )
@@ -290,7 +473,11 @@ export function AiRunDebugDrawer({ runId, open, onClose }: AiRunDebugDrawerProps
           exchangesQuery.data?.exchanges.length ? (
             <div className="ai-debug-exchanges">
               {exchangesQuery.data.exchanges.map((exchange) => (
-                <ExchangeCard key={exchange.id} exchange={exchange} span={exchange.spanId ? spanBySpanId.get(exchange.spanId) : undefined} />
+                <ExchangeCard
+                  key={exchange.id}
+                  exchange={exchange}
+                  display={exchangeDisplayById.get(exchange.id) ?? buildExchangeDisplayInfo(exchange, 0)}
+                />
               ))}
             </div>
           ) : (
@@ -311,8 +498,9 @@ export function AiRunDebugDrawer({ runId, open, onClose }: AiRunDebugDrawerProps
             ))}
             {failedExchanges.map((exchange) => (
               <article key={exchange.id} className="ai-debug-error-card">
-                <strong>LLM Round {exchange.providerRound} · Attempt {exchange.attemptIndex}</strong>
+                <strong>{exchangeDisplayById.get(exchange.id)?.title ?? '模型调用'}</strong>
                 <span>{exchange.mode} · {exchange.model} · {exchange.durationMs}ms</span>
+                <span>{exchangeDisplayById.get(exchange.id)?.providerLabel ?? `模型轮次 ${exchange.providerRound} · 尝试 ${exchange.attemptIndex}`}</span>
                 {exchange.errorCode ? <code>{exchange.errorCode}</code> : null}
                 {exchange.errorMessage ? <p>{exchange.errorMessage}</p> : null}
               </article>

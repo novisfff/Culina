@@ -41,6 +41,7 @@ from app.models.domain import (
     AIConversation,
     AIGraphCheckpoint,
     AIGraphWrite,
+    AIImageGenerationJob,
     AIMessage,
     AIOperation,
     AIRunEvent,
@@ -370,6 +371,14 @@ class FakeChatProvider(BaseChatProvider):
             tool_names.append(name)
             return tool_handler(name, args or {})
 
+        def read_artifact_payload(artifact_id: str | None) -> dict:
+            if not artifact_id or "workspace.read_artifact" not in available_tool_names:
+                return {}
+            detail = call("workspace.read_artifact", {"id": artifact_id, "kind": "draft"})
+            artifact = detail.get("artifact") if isinstance(detail.get("artifact"), dict) else {}
+            payload = artifact.get("payload") if isinstance(artifact.get("payload"), dict) else {}
+            return payload
+
         if "shopping.create_draft" in available_tool_names and self._should_create_downstream_shopping(payload):
             return self._shopping_tool_result(payload, message, call, emit_visible, tool_names)
 
@@ -415,7 +424,7 @@ class FakeChatProvider(BaseChatProvider):
                 for index in range(days)
             ]
             if operation == "modify" and artifacts:
-                source_items = artifacts[-1].get("payload", {}).get("items", [])
+                source_items = read_artifact_payload(source_id).get("items") or artifacts[-1].get("payload", {}).get("items", [])
                 if source_items:
                     items = [dict(item) for item in source_items]
                     if len(items) > 1:

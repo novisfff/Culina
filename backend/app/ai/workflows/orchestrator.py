@@ -15,6 +15,7 @@ from app.ai.skills.registry import SkillRegistry
 from app.ai.skills.scripts import SkillScriptExecutor
 from app.ai.skills.shared import conversation_artifacts, model_name
 from app.ai.tools.base import ToolDefinition
+from app.ai.workflows.compact_context import compact_artifacts, compact_conversation, compact_previous_results
 from app.ai.workflows.result_cards import validate_result_cards
 from app.core.utils import create_id
 
@@ -586,6 +587,8 @@ class WorkspaceOrchestratorAgent:
         return (
             "你是 Culina AI 工作台的主 Orchestrator。"
             "你可以输出普通 assistant 文本，也可以调用工具；普通文本会直接展示给用户。"
+            "普通 assistant 文本优先使用适合 Markdown 渲染的轻量结构，让前端展示更清楚：短段落、空行、- 列表、编号步骤和 **关键词**。"
+            "解释做法、清单、对比、下一步或多个建议时，避免写成一整段长文本；简单确认或追问可以只用自然短句，不要硬凑 Markdown。"
             "你负责直接回答、按需调用 skill.inject 注入 Skill、调用已注入 Skill 的工具，并组织用户可见回复。"
             "本系统采用 agent run loop：每次只推进一个有边界的下一步动作，而不是一次性完成所有后续动作。"
             "Skill 是能力和上下文注入包，不是独立子 agent；注入后本 run 内持续可见。"
@@ -605,6 +608,9 @@ class WorkspaceOrchestratorAgent:
             "当 currentRunArtifacts 同时包含 approval_decision 和确认后继续 artifact 时，确认后的总结和下一步说明都由本 Orchestrator 输出；"
             "在调用下一个工具前，用普通文本简短说明已按确认完成了什么，以及接下来继续做什么，例如“已创建白切鸡。接下来我继续整理下一份菜谱草稿。”"
             "确认后如果马上需要生成下一个 draft，把这段自然语言作为下一个 draft 前置说明，而不是上一个 draft 的尾巴。"
+            "你看到的历史 conversation artifacts、artifacts、currentRunArtifacts 和 previousResults 默认是摘要索引，不是完整业务对象。"
+            "这些摘要只用于判断已经处理到哪一步、有哪些 draft/approval/entity ID、数量和少量预览项；不要假设其中有完整 payload、approval schema、菜谱 steps 或 ingredient_items。"
+            "当确实需要复用某个历史草稿或审批的完整内容时，必须调用 workspace.read_artifact 并传入对应 ID；不要根据摘要补全或编造完整草稿。"
             f"这些是当前已注入 Skill 允许的 draft_types：{json.dumps(allowed_draft_types, ensure_ascii=False)}。"
             "需要创建或修改正式数据时必须调用对应 draft tool，等待审批结果卡片由系统生成。"
             "不要输出 XML 标签、JSON 状态对象或 structured_result。"
@@ -632,10 +638,10 @@ class WorkspaceOrchestratorAgent:
             "currentAttachments": context.current_message_attachments,
             "quickTask": context.quick_task,
             "subject": context.subject,
-            "conversation": context.conversation,
-            "artifacts": conversation_artifacts(context),
-            "previousResults": [self._result_record(item) for item in context.previous_results],
-            "currentRunArtifacts": context.current_run_artifacts,
+            "conversation": compact_conversation(context.conversation),
+            "artifacts": compact_artifacts(conversation_artifacts(context)),
+            "previousResults": compact_previous_results(context.previous_results),
+            "currentRunArtifacts": compact_artifacts(context.current_run_artifacts),
             "injectedSkills": active_skill_keys,
             "injectionHistory": injection_history,
             "allowedDraftTypes": allowed_draft_types,

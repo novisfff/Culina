@@ -874,6 +874,147 @@ class AIFoundationTestCase(AIAgentInfraTestCase):
             self.assertNotIn('"slug"', prompt)
             self.assertNotIn('"name": "inventory-analysis"', prompt)
 
+        def test_orchestrator_prompt_prefers_lightweight_markdown_text(self) -> None:
+            agent = WorkspaceOrchestratorAgent(
+                provider=DisabledChatProvider(model_name="unused"),
+                skill_registry=build_workspace_skill_registry(),
+            )
+
+            prompt = agent._system_prompt([])
+
+            self.assertIn("适合 Markdown 渲染的轻量结构", prompt)
+            self.assertIn("短段落、空行、- 列表、编号步骤和 **关键词**", prompt)
+            self.assertIn("简单确认或追问可以只用自然短句", prompt)
+            self.assertIn("不要硬凑 Markdown", prompt)
+
+        def test_orchestrator_provider_payload_compacts_historical_drafts_and_approvals(self) -> None:
+            recipe_payload = {
+                "draftType": "recipe",
+                "schemaVersion": "recipe.v1",
+                "title": "番茄鸡蛋面",
+                "servings": 2,
+                "prep_minutes": 20,
+                "difficulty": "easy",
+                "ingredient_items": [
+                    {
+                        "ingredient_id": "ingredient-tomato",
+                        "ingredient_name": "番茄",
+                        "quantity": 2,
+                        "unit": "个",
+                        "note": "SECRET_INGREDIENT_NOTE",
+                    }
+                ],
+                "steps": [
+                    {
+                        "title": "炒汤底",
+                        "text": "SECRET_STEP_TEXT",
+                        "summary": "炒出汤底",
+                    }
+                ],
+            }
+            approval_artifact = {
+                "id": "human_in_loop:approval-compact",
+                "type": "approval_decision",
+                "kind": "human_in_loop_tool_result",
+                "version": 1,
+                "status": "approved",
+                "payload": {
+                    "approval": {
+                        "id": "approval-compact",
+                        "status": "approved",
+                        "approval_type": "recipe.create",
+                        "field_schema": [{"name": "draft", "widget": "recipe_draft_editor"}],
+                        "initial_values": {"draft": recipe_payload},
+                    },
+                    "draft": {
+                        "id": "draft-compact",
+                        "draft_type": "recipe",
+                        "payload": recipe_payload,
+                        "schema_version": "recipe.v1",
+                    },
+                    "operation": {
+                        "id": "operation-compact",
+                        "status": "succeeded",
+                        "action_summary": "已创建番茄鸡蛋面",
+                    },
+                    "business_entity": {"title": "番茄鸡蛋面", "steps": [{"text": "SECRET_BUSINESS_ENTITY_STEP"}]},
+                },
+                "sourceDraftId": "draft-compact",
+                "sourceApprovalId": "approval-compact",
+            }
+            context = SkillContext(
+                db=MagicMock(),
+                family_id=self.family.id,
+                user_id=self.user.id,
+                conversation_id="conversation-compact",
+                run_id="run-compact",
+                conversation=[
+                    {
+                        "id": "message-compact",
+                        "role": "assistant",
+                        "content": "已生成草稿",
+                        "metadata": {"artifacts": [approval_artifact]},
+                        "artifacts": [
+                            {
+                                "id": "draft-compact",
+                                "type": "recipe",
+                                "version": 1,
+                                "status": "pending",
+                                "payload": recipe_payload,
+                            },
+                            approval_artifact,
+                        ],
+                    }
+                ],
+                current_message="继续处理",
+                current_run_artifacts=[approval_artifact],
+                previous_results=[
+                    SkillResult(
+                        text="上一轮结果",
+                        status="waiting_approval",
+                        drafts=[
+                            {
+                                "draft_type": "recipe",
+                                "payload": recipe_payload,
+                                "schema_version": "recipe.v1",
+                                "draft_id": "draft-compact",
+                                "approval_id": "approval-compact",
+                            }
+                        ],
+                    )
+                ],
+                tool_executor=ToolExecutor(
+                    build_workspace_tool_registry(),
+                    ToolContext(
+                        db=MagicMock(),
+                        family_id=self.family.id,
+                        user_id=self.user.id,
+                        conversation_id="conversation-compact",
+                        run_id="run-compact",
+                    ),
+                ),
+            )
+            agent = WorkspaceOrchestratorAgent(
+                provider=DisabledChatProvider(model_name="unused"),
+                skill_registry=build_workspace_skill_registry(),
+            )
+
+            payload = agent._user_payload(context, ["recipe_draft"], [])
+            serialized = json.dumps(payload, ensure_ascii=False, sort_keys=True)
+
+            self.assertIn("draft-compact", serialized)
+            self.assertIn("approval-compact", serialized)
+            self.assertIn("ingredientCount", serialized)
+            self.assertIn("stepCount", serialized)
+            self.assertNotIn("SECRET_STEP_TEXT", serialized)
+            self.assertNotIn("SECRET_INGREDIENT_NOTE", serialized)
+            self.assertNotIn("SECRET_BUSINESS_ENTITY_STEP", serialized)
+            self.assertNotIn("ingredient_items", serialized)
+            self.assertNotIn('"steps"', serialized)
+            self.assertNotIn("field_schema", serialized)
+            self.assertNotIn("initial_values", serialized)
+            self.assertNotIn("business_entity", serialized)
+
         def test_orchestrator_rejects_ambiguous_draft_tool_without_type(self) -> None:
             agent = WorkspaceOrchestratorAgent(
                 provider=DisabledChatProvider(model_name="unused"),

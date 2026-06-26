@@ -9,6 +9,7 @@ context_policy:
 allowed_tools:
 - ingredient.search
 - human.request_input
+- workspace.read_artifact
 - recipe.search
 - recipe.read_by_id
 - recipe.create_draft

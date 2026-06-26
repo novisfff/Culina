@@ -53,9 +53,6 @@ export function isDraftRunActivityEvent(event: AiRunEvent) {
 
 export function runActivityCollapseKey(event: AiRunEvent) {
   if (event.type === 'skill') return `skill:${extractRunActivitySkillName(event)}`;
-  if ((event.type === 'tool' || event.type === 'script') && !isDraftRunActivityEvent(event)) {
-    return `${event.type}:${event.internal_code || event.user_message}`;
-  }
   if (event.type === 'tool' || event.type === 'script') {
     return event.id ? `${event.type}:${event.id}` : `${event.type}:${event.internal_code || event.user_message}`;
   }

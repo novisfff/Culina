@@ -10,6 +10,7 @@ import { MessageBubble } from './AiConversationThread';
 import { AiWorkspace, ApprovalPanel } from './AiWorkspace';
 import { AiMobilePage } from './AiMobilePage';
 import { appendDeltaToMessageParts, mergeRemoteAndLocalMessage } from './aiWorkspaceHelpers';
+import { useAiThreadAutoScroll } from './useAiThreadAutoScroll';
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -1366,60 +1367,41 @@ describe('MessageBubble', () => {
     rendered.unmount();
   });
 
-  it('keeps script activity updates at the latest inline position when event ids differ', async () => {
-    const scriptCompleted = {
-      id: 'script-completed-old-id',
-      run_id: 'run-script-reorder',
-      type: 'script',
-      internal_code: 'script.lint_recipe_draft',
-      user_message: '脚本「lint_recipe_draft」执行完成',
-      status: 'completed',
-      created_at: '2026-05-30T00:00:03Z',
-    } as const;
-    const skillCalled = {
-      id: 'skill-recipe-draft',
-      run_id: 'run-script-reorder',
-      type: 'skill',
-      internal_code: 'recipe_draft.start',
-      user_message: '调用「菜谱整理」技能',
+  it('keeps repeated non-draft tool calls visible when they are different events', async () => {
+    const firstLookup = {
+      id: 'food-lookup-first',
+      run_id: 'run-repeated-food-lookup',
+      type: 'tool',
+      internal_code: 'food.search',
+      user_message: '调用「食物资料」',
       status: 'completed',
       created_at: '2026-05-30T00:00:01Z',
     } as const;
-    const scriptRunning = {
-      id: 'script-running-new-id',
-      run_id: 'run-script-reorder',
-      type: 'script',
-      internal_code: 'script.lint_recipe_draft',
-      user_message: '调用脚本「lint_recipe_draft」',
-      status: 'running',
+    const secondLookup = {
+      ...firstLookup,
+      id: 'food-lookup-second',
       created_at: '2026-05-30T00:00:02Z',
     } as const;
-    const draftActivity = {
-      id: 'draft-recipe',
-      run_id: 'run-script-reorder',
-      type: 'tool',
-      internal_code: 'recipe.create_draft',
-      user_message: '生成「菜谱确认表单」',
-      status: 'completed',
-      created_at: '2026-05-30T00:00:04Z',
+    const thirdLookup = {
+      ...firstLookup,
+      id: 'food-lookup-third',
+      created_at: '2026-05-30T00:00:03Z',
     } as const;
     const rendered = await renderWithQuery(
       <MessageBubble
         message={{
-          id: 'message-script-reorder',
+          id: 'message-repeated-food-lookup',
           conversation_id: 'conversation-1',
           role: 'assistant',
-          content: '我会先整理第一份菜谱。',
+          content: '',
           content_type: 'parts',
           parts: [
-            { id: 'activity-script-completed-old', type: 'run_activity', activity: scriptCompleted },
-            { id: 'activity-skill', type: 'run_activity', activity: skillCalled },
-            { id: 'text-before-script', type: 'text', text: '我会先整理第一份菜谱。' },
-            { id: 'activity-script-running-new', type: 'run_activity', activity: scriptRunning },
-            { id: 'activity-draft', type: 'run_activity', activity: draftActivity },
+            { id: 'activity-food-lookup-first', type: 'run_activity', activity: firstLookup },
+            { id: 'activity-food-lookup-second', type: 'run_activity', activity: secondLookup },
+            { id: 'activity-food-lookup-third', type: 'run_activity', activity: thirdLookup },
           ],
-          run_id: 'run-script-reorder',
-          status: 'waiting_approval',
+          run_id: 'run-repeated-food-lookup',
+          status: 'completed',
           metadata: {},
           created_at: '2026-05-30T00:00:00Z',
         }}
@@ -1428,17 +1410,8 @@ describe('MessageBubble', () => {
       />,
     );
     await flush();
-    const messageBody = rendered.container.querySelector('.ai-message-body') as HTMLElement;
-    const scriptActivities = Array.from(messageBody.querySelectorAll<HTMLElement>('.ai-run-activity'))
-      .filter((activity) => activity.textContent?.includes('lint_recipe_draft'));
-    const textBlock = Array.from(messageBody.querySelectorAll<HTMLElement>('.ai-message-text-block'))
-      .find((block) => block.textContent?.includes('我会先整理第一份菜谱')) as HTMLElement;
-    const draftActivityRow = Array.from(messageBody.querySelectorAll<HTMLElement>('.ai-run-activity'))
-      .find((activity) => activity.textContent?.includes('菜谱确认表单')) as HTMLElement;
-    expect(scriptActivities).toHaveLength(1);
-    expect(scriptActivities[0]?.textContent).toContain('调用脚本「lint_recipe_draft」');
-    expect(textBlock.compareDocumentPosition(scriptActivities[0] as HTMLElement) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect((scriptActivities[0] as HTMLElement).compareDocumentPosition(draftActivityRow) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    const activityRows = Array.from(rendered.container.querySelectorAll<HTMLElement>('.ai-run-activity-summary .ai-run-activity-row'));
+    expect(activityRows.map((row) => row.textContent)).toEqual(['调用「食物资料」', '调用「食物资料」', '调用「食物资料」']);
     rendered.unmount();
   });
 
@@ -2574,6 +2547,7 @@ describe('AiMobilePage viewport', () => {
           isLoading={false}
           activeConversationKey={null}
           runningConversationKeys={new Set()}
+          waitingConversationKeys={new Set()}
           isMobileHistoryOpen={false}
           currentUser={null}
           resourceOptionLoader={async () => []}
@@ -2623,6 +2597,115 @@ describe('AiMobilePage viewport', () => {
       rendered?.unmount();
       restoreVisualViewport();
     }
+  });
+});
+
+function AutoScrollHarness({
+  contentKey,
+  activeOutputKey,
+  resetKey = 'conversation-1',
+}: {
+  contentKey: string;
+  activeOutputKey: string | null;
+  resetKey?: string | null;
+}) {
+  const autoScroll = useAiThreadAutoScroll({
+    contentKey,
+    resetKey,
+    activeOutputKey,
+    forceScrollKey: null,
+  });
+  return (
+    <div>
+      <div className="ai-thread-scroll" ref={autoScroll.threadScrollRef}>
+        <p>{contentKey}</p>
+      </div>
+      {autoScroll.isAutoScrollPaused ? (
+        <button type="button" className="ai-thread-follow-button" onClick={autoScroll.resumeAutoScroll}>
+          最新回复
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
+function setThreadScrollMetrics(node: HTMLElement, metrics: { scrollHeight: number; clientHeight: number; scrollTop: number }) {
+  Object.defineProperties(node, {
+    scrollHeight: { configurable: true, value: metrics.scrollHeight },
+    clientHeight: { configurable: true, value: metrics.clientHeight },
+    scrollTop: { configurable: true, value: metrics.scrollTop, writable: true },
+  });
+}
+
+describe('Ai thread auto scroll', () => {
+  it('follows streaming output while pinned to the bottom', async () => {
+    const rendered = await renderWithQuery(<AutoScrollHarness contentKey="step-1" activeOutputKey="run-1" />);
+    const thread = rendered.container.querySelector<HTMLElement>('.ai-thread-scroll') as HTMLElement;
+    setThreadScrollMetrics(thread, { scrollHeight: 900, clientHeight: 300, scrollTop: 600 });
+
+    await rendered.rerender(<AutoScrollHarness contentKey="step-2" activeOutputKey="run-1" />);
+    expect(thread.scrollTop).toBe(900);
+    expect(rendered.container.querySelector('.ai-thread-follow-button')).toBeNull();
+    rendered.unmount();
+  });
+
+  it('pauses follow mode when the user scrolls away and resumes from the button', async () => {
+    const rendered = await renderWithQuery(<AutoScrollHarness contentKey="step-1" activeOutputKey="run-1" />);
+    const thread = rendered.container.querySelector<HTMLElement>('.ai-thread-scroll') as HTMLElement;
+    setThreadScrollMetrics(thread, { scrollHeight: 900, clientHeight: 300, scrollTop: 600 });
+    await rendered.rerender(<AutoScrollHarness contentKey="step-2" activeOutputKey="run-1" />);
+
+    thread.scrollTop = 320;
+    await act(async () => {
+      thread.dispatchEvent(new Event('scroll'));
+    });
+    setThreadScrollMetrics(thread, { scrollHeight: 1100, clientHeight: 300, scrollTop: 320 });
+    await rendered.rerender(<AutoScrollHarness contentKey="step-3" activeOutputKey="run-1" />);
+
+    expect(thread.scrollTop).toBe(320);
+    const followButton = rendered.container.querySelector<HTMLButtonElement>('.ai-thread-follow-button');
+    expect(followButton).not.toBeNull();
+    await act(async () => {
+      followButton?.click();
+    });
+    expect(thread.scrollTop).toBe(1100);
+    rendered.unmount();
+  });
+
+  it('cancels queued follow frames as soon as the user scrolls upward', async () => {
+    let nextFrameId = 1;
+    const queuedFrames = new Map<number, FrameRequestCallback>();
+    vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback) => {
+      const frameId = nextFrameId;
+      nextFrameId += 1;
+      queuedFrames.set(frameId, callback);
+      return frameId;
+    });
+    vi.spyOn(window, 'cancelAnimationFrame').mockImplementation((frameId) => {
+      queuedFrames.delete(frameId);
+    });
+
+    const flushAnimationFrames = () => {
+      const callbacks = Array.from(queuedFrames.values());
+      queuedFrames.clear();
+      callbacks.forEach((callback) => callback(performance.now()));
+    };
+
+    const rendered = await renderWithQuery(<AutoScrollHarness contentKey="step-1" activeOutputKey="run-1" />);
+    const thread = rendered.container.querySelector<HTMLElement>('.ai-thread-scroll') as HTMLElement;
+    setThreadScrollMetrics(thread, { scrollHeight: 900, clientHeight: 300, scrollTop: 600 });
+    await rendered.rerender(<AutoScrollHarness contentKey="step-2" activeOutputKey="run-1" />);
+
+    thread.scrollTop = 320;
+    await act(async () => {
+      thread.dispatchEvent(new WheelEvent('wheel', { deltaY: -80 }));
+    });
+    setThreadScrollMetrics(thread, { scrollHeight: 1100, clientHeight: 300, scrollTop: 320 });
+    flushAnimationFrames();
+
+    expect(thread.scrollTop).toBe(320);
+    expect(rendered.container.querySelector('.ai-thread-follow-button')).not.toBeNull();
+    rendered.unmount();
   });
 });
 
@@ -4905,7 +4988,7 @@ describe('AiWorkspace pending approval restore', () => {
     rendered.unmount();
   });
 
-  it('keeps waiting conversations marked as running in history', async () => {
+  it('marks waiting conversations with the confirmation icon in history', async () => {
     const waitingApprovalConversation: AiConversation = {
       ...conversation(),
       id: 'conversation-waiting-approval',
@@ -4931,9 +5014,37 @@ describe('AiWorkspace pending approval restore', () => {
     await flush();
 
     const desktopView = rendered.container.querySelector('.ai-desktop-view') as HTMLElement;
-    expect(desktopView.querySelectorAll('.ai-conversation-item.is-running .ai-history-spinner')).toHaveLength(2);
+    expect(desktopView.querySelectorAll('.ai-conversation-item.is-waiting .ai-history-waiting-icon')).toHaveLength(2);
+    expect(desktopView.querySelectorAll('.ai-conversation-item.is-waiting .ai-history-spinner')).toHaveLength(0);
+    expect(desktopView.querySelectorAll('.ai-conversation-item.is-running')).toHaveLength(0);
     expect(desktopView.textContent).toContain('等待确认餐食计划');
     expect(desktopView.textContent).toContain('等待补充信息');
+    rendered.unmount();
+  });
+
+  it('does not mark a completed conversation as running when activeRunId is stale', async () => {
+    const completedConversationWithStaleRun: AiConversation = {
+      ...conversation(),
+      id: 'conversation-completed-stale-run',
+      title: '帮我新增一个食材',
+      prompt: '帮我新增一个食材',
+      response: '已完成处理。',
+      summary: '已完成处理。',
+      context: { activeRunId: 'agent_run-stale-completed' },
+      last_run_status: 'completed',
+      last_message_at: '2026-05-30T00:02:00Z',
+    };
+    vi.spyOn(api, 'getAiMessages').mockResolvedValue([]);
+    vi.spyOn(api, 'getPendingAiApprovals').mockResolvedValue([]);
+    vi.spyOn(api, 'getAiRunEvents').mockResolvedValue([]);
+
+    const rendered = await renderWithQuery(<AiWorkspace conversations={[completedConversationWithStaleRun]} isLoading={false} />);
+    await flush();
+
+    const desktopView = rendered.container.querySelector('.ai-desktop-view') as HTMLElement;
+    expect(desktopView.querySelectorAll('.ai-conversation-item.is-running')).toHaveLength(0);
+    expect(desktopView.querySelectorAll('.ai-history-spinner')).toHaveLength(0);
+    expect(api.getAiRunEvents).not.toHaveBeenCalled();
     rendered.unmount();
   });
 
@@ -5093,6 +5204,8 @@ describe('AiWorkspace pending approval restore', () => {
     expect(desktopView.textContent).toContain('确认创建菜谱');
     expect(desktopView.textContent).toContain('确认入口正在准备，稍后即可确认。');
     expect(desktopView.querySelector('.ai-approval-actions .solid-button')).toBeNull();
+    expect(desktopView.querySelector('.ai-conversation-item.is-waiting .ai-history-waiting-icon')).not.toBeNull();
+    expect(desktopView.querySelector('.ai-conversation-item.is-waiting .ai-history-spinner')).toBeNull();
     expect(streamDecisionSpy).not.toHaveBeenCalled();
 
     await act(async () => {
@@ -5714,7 +5827,7 @@ describe('AiWorkspace pending approval restore', () => {
               id: 'activity-script-completed-old',
               type: 'run_activity',
               activity: {
-                id: 'script-completed-old',
+                id: 'script-running-new',
                 run_id: streamedRunId,
                 type: 'script',
                 internal_code: 'script.lint_recipe_draft',

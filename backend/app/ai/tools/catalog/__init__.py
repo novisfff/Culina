@@ -6,6 +6,7 @@ from app.ai.tools.catalog.meal_log import register_meal_log_tools
 from app.ai.tools.catalog.meal_plan import register_meal_plan_tools
 from app.ai.tools.catalog.recipe import register_recipe_tools
 from app.ai.tools.catalog.shopping import register_shopping_tools
+from app.ai.tools.catalog.workspace import register_workspace_tools
 
 __all__ = [
     "register_food_tools",
@@ -16,4 +17,5 @@ __all__ = [
     "register_meal_plan_tools",
     "register_recipe_tools",
     "register_shopping_tools",
+    "register_workspace_tools",
 ]

@@ -54,6 +54,7 @@ import { useAiConversationLiveSync } from './useAiConversationLiveSync';
 import { useAiAttachmentState } from './useAiAttachmentState';
 import { useAiInventoryDraftAction } from './useAiInventoryDraftAction';
 import { useAiThinkingState } from './useAiThinkingState';
+import { aiThreadAutoScrollKey, latestUserMessageScrollKey, useAiThreadAutoScroll } from './useAiThreadAutoScroll';
 type AiWorkspaceProps = {
   conversations: AiConversation[];
   isLoading: boolean;
@@ -74,6 +75,10 @@ function hasRenderableMessageContent(message: AiMessage) {
 
 function isActiveStreamProgressStatus(status: AiRunEvent['status']) {
   return status === 'pending' || status === 'running' || status === 'waiting';
+}
+
+function isUnfinishedConversationStatus(status: string | null | undefined) {
+  return ['pending', 'running', 'waiting_approval', 'waiting_input'].includes((status ?? '').toLowerCase());
 }
 
 function isCompletedToolProgress(event: AiRunEvent) {
@@ -228,7 +233,10 @@ export function AiWorkspace({
   useEffect(() => {
     const serverConversationByRunId = new Map<string, AiConversation>();
     for (const conversation of conversations) {
-      const activeRunId = typeof conversation.context?.activeRunId === 'string' ? conversation.context.activeRunId : null;
+      const activeRunId =
+        isUnfinishedConversationStatus(conversation.last_run_status) && typeof conversation.context?.activeRunId === 'string'
+          ? conversation.context.activeRunId
+          : null;
       if (activeRunId) {
         serverConversationByRunId.set(activeRunId, conversation);
       }
@@ -292,6 +300,7 @@ export function AiWorkspace({
     serverActiveRunId,
     isActiveConversationServerRunning,
     runningConversationKeys,
+    waitingConversationKeys,
   } = useAiConversationLiveSync({
     activeConversationKey,
     activeConversationId,
@@ -1074,6 +1083,25 @@ export function AiWorkspace({
     && humanInputMutationConversationKey
     && isCurrentConversationBusyEntry({ conversationKey: humanInputMutationConversationKey, runId: humanInputMutationRunId }),
   );
+  const effectiveWaitingConversationKeys = useMemo(() => {
+    const keys = new Set(waitingConversationKeys);
+    if (!activeConversationKey) return keys;
+    if (isSubmittingActiveApproval || isSubmittingActiveHumanInput) {
+      keys.delete(activeConversationKey);
+      return keys;
+    }
+    if (hasPendingApproval || hasPendingHumanInput) {
+      keys.add(activeConversationKey);
+    }
+    return keys;
+  }, [
+    activeConversationKey,
+    hasPendingApproval,
+    hasPendingHumanInput,
+    isSubmittingActiveApproval,
+    isSubmittingActiveHumanInput,
+    waitingConversationKeys,
+  ]);
   const isAnotherConversationRunning = localBusyEntries.some((entry) => !isCurrentConversationBusyEntry(entry));
   const isAssistantBusy = Boolean(activeVisibleRunId) || Boolean(activeApprovalRunId) || Boolean(activeHumanInputRunId);
   const effectiveComposerPaused = isComposerPaused || isAnotherConversationRunning;
@@ -1333,6 +1361,18 @@ export function AiWorkspace({
   }
   const latestAssistantMessageId = [...displayedMessages].reverse().find((message) => message.role === 'assistant')?.id ?? null;
   const isMessageHistoryLoading = messagesQuery.isLoading && Boolean(activeConversationId) && displayedMessages.length === 0;
+  const activeThreadOutputKey =
+    activeStreamRunId
+    ?? (isActiveConversationServerRunning ? serverActiveRunId : null)
+    ?? (chatMutation.isPending ? chatMutationRunId : null)
+    ?? (approvalStreamMutation.isPending ? approvalMutationRunId : null)
+    ?? (humanInputMutation.isPending ? humanInputMutationRunId : null);
+  const threadAutoScroll = useAiThreadAutoScroll({
+    contentKey: aiThreadAutoScrollKey(displayedMessages, streamProgress, thinkingRunIds),
+    resetKey: activeConversationKey,
+    activeOutputKey: activeThreadOutputKey,
+    forceScrollKey: latestUserMessageScrollKey(displayedMessages),
+  });
   return (
     <main className={`ai-workspace-shell ${isSidebarCollapsed ? 'is-collapsed' : ''}`}>
       {planFeedback && (
@@ -1354,6 +1394,7 @@ export function AiWorkspace({
         isLoading={isLoading}
         activeConversationKey={activeConversationKey}
         runningConversationKeys={runningConversationKeys}
+        waitingConversationKeys={effectiveWaitingConversationKeys}
         isMobileHistoryOpen={isMobileHistoryOpen}
         currentUser={currentUser}
         resourceOptionLoader={loadResourceOptions}
@@ -1408,6 +1449,7 @@ export function AiWorkspace({
           isLoading={isLoading}
           activeConversationKey={activeConversationKey}
           runningConversationKeys={runningConversationKeys}
+          waitingConversationKeys={effectiveWaitingConversationKeys}
           deletingConversationId={deletingConversationId}
           onToggleSidebar={toggleSidebar}
           onStartNewConversation={startNewConversation}
@@ -1443,7 +1485,7 @@ export function AiWorkspace({
               </button>
             </div>
           </div>
-          <div className="ai-thread-scroll">
+          <div className="ai-thread-scroll" ref={threadAutoScroll.threadScrollRef}>
             {isMessageHistoryLoading ? (
               <p className="subtle">正在加载消息...</p>
             ) : messagesQuery.isError && activeConversationId ? (
@@ -1495,6 +1537,15 @@ export function AiWorkspace({
               <AiWelcomePrompt onPickSuggestion={setDraft} />
             )}
           </div>
+          {threadAutoScroll.isAutoScrollPaused ? (
+            <button className="ai-thread-follow-button" type="button" onClick={threadAutoScroll.resumeAutoScroll}>
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M12 5v14" />
+                <path d="m6 13 6 6 6-6" />
+              </svg>
+              <span>最新回复</span>
+            </button>
+          ) : null}
           <div className="ai-composer-dock">
             {chatMutation.isError && <p className="form-error">{chatMutation.error.message}</p>}
             {streamError && <p className="form-error">{streamError}</p>}

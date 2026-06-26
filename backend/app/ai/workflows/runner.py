@@ -2942,6 +2942,16 @@ class WorkspaceGraphRunner:
                 error_code="provider_stream_failed",
                 error_message=str(exc),
                 exception_type=type(exc).__name__,
+                output_summary={"fallbackAppended": True},
+            )
+            self._append_approval_followup_fallback(
+                state,
+                message,
+                part_id=part_id,
+                decision_result=decision_result,
+                status=terminal_status,
+                writer=writer,
+                reason="provider_stream_failed",
             )
             return
 
@@ -2955,9 +2965,18 @@ class WorkspaceGraphRunner:
             )
             followup_span.finish(
                 status="failed",
-                output_summary={"textLength": 0},
+                output_summary={"textLength": 0, "fallbackAppended": True},
                 error_code="provider_empty_response",
                 error_message="empty model response",
+            )
+            self._append_approval_followup_fallback(
+                state,
+                message,
+                part_id=part_id,
+                decision_result=decision_result,
+                status=terminal_status,
+                writer=writer,
+                reason="provider_empty_response",
             )
             return
         followup_span.finish(status="completed", output_summary={"textLength": len(text)})
@@ -2968,6 +2987,64 @@ class WorkspaceGraphRunner:
             text=text,
             status=terminal_status,
         )
+
+    def _append_approval_followup_fallback(
+        self,
+        state: WorkspaceGraphState,
+        message: AIMessage,
+        *,
+        part_id: str,
+        decision_result: dict[str, Any],
+        status: str,
+        writer: Any,
+        reason: str,
+    ) -> None:
+        text = self._approval_followup_fallback_text(decision_result, terminal_status=status)
+        logger.warning(
+            "AI graph approval follow-up fallback appended run_id=%s conversation_id=%s family_id=%s reason=%s text_length=%s",
+            state["run_id"],
+            state["conversation_id"],
+            state["family_id"],
+            reason,
+            len(text),
+        )
+        if writer is not None:
+            writer(
+                {
+                    "event": "message_delta",
+                    "data": {
+                        "message_id": message.id,
+                        "conversation_id": state["conversation_id"],
+                        "run_id": state["run_id"],
+                        "part_id": part_id,
+                        "delta": text,
+                    },
+                }
+            )
+        self._append_text_to_assistant_message(
+            state,
+            message,
+            part_id=part_id,
+            text=text,
+            status=status,
+        )
+
+    @staticmethod
+    def _approval_followup_fallback_text(decision_result: dict[str, Any], *, terminal_status: str) -> str:
+        approval = decision_result.get("approval") if isinstance(decision_result.get("approval"), dict) else {}
+        operation = decision_result.get("operation") if isinstance(decision_result.get("operation"), dict) else {}
+        decision = str(approval.get("decision") or approval.get("status") or "").lower()
+        operation_status = str(operation.get("status") or "").lower()
+        if terminal_status == "failed" or operation_status == "failed":
+            return "这次确认后的处理没有完成，请稍后重试。"
+        if decision == "rejected":
+            return "已取消这次草稿，不会写入正式数据。你可以继续调整后再让我整理。"
+        if operation_status == "succeeded":
+            action_summary = str(operation.get("action_summary") or operation.get("summary") or "").strip()
+            if action_summary:
+                return f"{action_summary} 你可以继续告诉我需要调整的内容。"
+            return "已按你的确认完成处理。你可以继续告诉我需要调整的内容。"
+        return "这次处理已结束。你可以继续告诉我需要调整的内容。"
 
     def _optional_stream_writer(self):
         try:
@@ -3035,6 +3112,35 @@ class WorkspaceGraphRunner:
             conversation.context = self._json_record(context)
         self.db.flush()
 
+    @staticmethod
+    def _is_terminal_run_status(status: str | None) -> bool:
+        return str(status or "").lower() in {"completed", "failed", "cancelled"}
+
+    @staticmethod
+    def _clear_message_live_metadata(message: AIMessage) -> None:
+        metadata = dict(message.message_metadata or {})
+        metadata.pop("liveStreaming", None)
+        metadata.pop("livePartIds", None)
+        metadata.pop("liveTextPartIds", None)
+        message.message_metadata = metadata
+
+    def _terminal_message_text(self, message: AIMessage, *, status: str) -> str:
+        text = str(message.content or "").strip()
+        if text:
+            return text
+        text_parts = [
+            str(part.get("text") or "").strip()
+            for part in (message.parts or [])
+            if isinstance(part, dict) and part.get("type") == "text" and str(part.get("text") or "").strip()
+        ]
+        if text_parts:
+            return "\n\n".join(text_parts)
+        if status == "failed":
+            return "AI 工作台暂时失败，请重试。"
+        if status == "cancelled":
+            return "已中止这次处理。"
+        return "任务已完成。"
+
     def _finalize(self, state: WorkspaceGraphState) -> dict[str, Any]:
         run = self.db.get(AIAgentRun, state["run_id"])
         conversation = self.db.get(AIConversation, state["conversation_id"])
@@ -3072,18 +3178,48 @@ class WorkspaceGraphRunner:
                 created_by=state["user_id"],
             )
             self.db.add(message)
+        terminal_text = self._terminal_message_text(message, status=status)
+        if self._is_terminal_run_status(status):
+            self._clear_message_live_metadata(message)
+            if not str(message.content or "").strip():
+                logger.warning(
+                    "AI graph finalizing terminal run with empty assistant text run_id=%s conversation_id=%s family_id=%s status=%s fallback_text=%s",
+                    state["run_id"],
+                    state["conversation_id"],
+                    state["family_id"],
+                    status,
+                    terminal_text,
+                )
+                message.content = terminal_text
+                message.content_type = "parts"
+                parts = [part for part in (message.parts or []) if isinstance(part, dict)]
+                if not any(part.get("type") == "text" and str(part.get("text") or "").strip() for part in parts):
+                    message.parts = [*parts, {"id": create_id("ai_part"), "type": "text", "text": terminal_text}]
+                terminal_text = self._terminal_message_text(message, status=status)
+            message.status = status
         if run is not None and run.status != "waiting_approval":
             run.status = status
             run.error = state.get("error")
             if not run.output_summary:
-                run.output_summary = message.content[:255]
-                run.output = self._json_record({"text": message.content, "cards": [], "routing": (run.context_summary or {}).get("routing", {})})
+                run.output_summary = terminal_text[:255]
+                run.output = self._json_record({"text": terminal_text, "cards": [], "routing": (run.context_summary or {}).get("routing", {})})
         if conversation is not None and conversation.last_run_status != "waiting_approval":
             conversation.last_run_status = status
             conversation.last_message_at = utcnow()
+            if self._is_terminal_run_status(status):
+                context = dict(conversation.context or {})
+                if context.pop("activeRunId", None) is not None:
+                    logger.warning(
+                        "AI graph finalized terminal run and cleared stale activeRunId run_id=%s conversation_id=%s family_id=%s status=%s",
+                        state["run_id"],
+                        state["conversation_id"],
+                        state["family_id"],
+                        status,
+                    )
+                conversation.context = self._json_record(context)
             if not conversation.response:
-                conversation.response = message.content
-                conversation.summary = message.content[:255]
+                conversation.response = terminal_text
+                conversation.summary = terminal_text[:255]
         self.db.flush()
         logger.info(
             "AI graph finalized run_id=%s conversation_id=%s family_id=%s status=%s run_status=%s conversation_status=%s message_id=%s",

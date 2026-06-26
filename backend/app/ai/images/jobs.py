@@ -32,6 +32,7 @@ from app.services.media import delete_media_file, get_media_asset, read_media_ob
 
 ImageJobStatus = Literal["queued", "running", "succeeded", "failed"]
 ImageJobBindStatus = Literal["pending", "bound", "skipped", "unbound"]
+IMAGE_BIND_STRATEGY_APPEND = "append"
 
 MAX_ATTEMPTS = 3
 JOB_LOCK_STALE_AFTER = timedelta(minutes=10)
@@ -261,6 +262,15 @@ def _bind_generated_asset_to_target(db: Session, job: AIImageGenerationJob) -> I
             )
         )
     )
+    append_to_existing = (job.request_payload or {}).get("bind_strategy") == IMAGE_BIND_STRATEGY_APPEND
+    if append_to_existing:
+        generated.entity_type = job.target_entity_type
+        generated.entity_id = job.target_entity_id
+        if job.target_entity_type == "recipe":
+            _sync_recipe_image_to_food(db, job=job, generated=generated, append_to_existing=True)
+        job.bind_status = "bound"
+        return "bound"
+
     non_ai_assets = [asset for asset in current_assets if asset.source != MediaSource.AI]
     if non_ai_assets:
         job.bind_status = "skipped"
@@ -280,7 +290,7 @@ def _bind_generated_asset_to_target(db: Session, job: AIImageGenerationJob) -> I
     return "bound"
 
 
-def _sync_recipe_image_to_food(db: Session, *, job: AIImageGenerationJob, generated: MediaAsset) -> None:
+def _sync_recipe_image_to_food(db: Session, *, job: AIImageGenerationJob, generated: MediaAsset, append_to_existing: bool = False) -> None:
     if not job.target_entity_id:
         return
     food = db.scalar(select(Food).where(Food.family_id == job.family_id, Food.recipe_id == job.target_entity_id))
@@ -295,6 +305,8 @@ def _sync_recipe_image_to_food(db: Session, *, job: AIImageGenerationJob, genera
             )
         )
     )
+    if append_to_existing:
+        current_food_assets = []
     if any(asset.source != MediaSource.AI for asset in current_food_assets):
         return
     for asset in current_food_assets:

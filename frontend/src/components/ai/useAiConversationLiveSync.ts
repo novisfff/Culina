@@ -4,6 +4,7 @@ import type { AiConversation, AiRunEvent } from '../../api/types';
 
 const SERVER_RUNNING_STATUSES = new Set(['pending', 'running']);
 const UNFINISHED_CONVERSATION_STATUSES = new Set(['pending', 'running', 'waiting_approval', 'waiting_input']);
+const WAITING_CONVERSATION_STATUSES = new Set(['waiting_approval', 'waiting_input']);
 
 function isServerRunningStatus(status: string | null | undefined) {
   return SERVER_RUNNING_STATUSES.has((status ?? '').toLowerCase());
@@ -11,6 +12,10 @@ function isServerRunningStatus(status: string | null | undefined) {
 
 function isUnfinishedConversationStatus(status: string | null | undefined) {
   return UNFINISHED_CONVERSATION_STATUSES.has((status ?? '').toLowerCase());
+}
+
+function isWaitingConversationStatus(status: string | null | undefined) {
+  return WAITING_CONVERSATION_STATUSES.has((status ?? '').toLowerCase());
 }
 
 export function useAiConversationLiveSync(args: {
@@ -25,27 +30,40 @@ export function useAiConversationLiveSync(args: {
     () => args.historyConversations.find((conversation) => conversation.id === args.activeConversationKey) ?? null,
     [args.activeConversationKey, args.historyConversations],
   );
+  const activeConversationStatus = activeConversation?.last_run_status ?? null;
   const serverActiveRunId =
-    activeConversation && typeof activeConversation.context?.activeRunId === 'string'
+    activeConversation &&
+    isUnfinishedConversationStatus(activeConversationStatus) &&
+    typeof activeConversation.context?.activeRunId === 'string'
       ? activeConversation.context.activeRunId
       : null;
   const isActiveConversationServerRunning = Boolean(
     args.activeConversationId &&
     activeConversation &&
-    (isServerRunningStatus(activeConversation.last_run_status) || serverActiveRunId),
+    (isServerRunningStatus(activeConversationStatus) || serverActiveRunId),
   );
   const runningConversationKeys = useMemo(() => {
     const keys = new Set(Object.keys(args.activeStreamRunIdsByConversationKey));
     for (const conversation of args.conversations) {
-      if (
-        isUnfinishedConversationStatus(conversation.last_run_status) ||
-        typeof conversation.context?.activeRunId === 'string'
-      ) {
+      if (isWaitingConversationStatus(conversation.last_run_status)) continue;
+      const hasUnfinishedActiveRun =
+        isUnfinishedConversationStatus(conversation.last_run_status) &&
+        typeof conversation.context?.activeRunId === 'string';
+      if (isServerRunningStatus(conversation.last_run_status) || hasUnfinishedActiveRun) {
         keys.add(conversation.id);
       }
     }
     return keys;
   }, [args.activeStreamRunIdsByConversationKey, args.conversations]);
+  const waitingConversationKeys = useMemo(() => {
+    const keys = new Set<string>();
+    for (const conversation of args.conversations) {
+      if (isWaitingConversationStatus(conversation.last_run_status)) {
+        keys.add(conversation.id);
+      }
+    }
+    return keys;
+  }, [args.conversations]);
 
   useEffect(() => {
     if (!serverActiveRunId || !isActiveConversationServerRunning) return undefined;
@@ -72,5 +90,6 @@ export function useAiConversationLiveSync(args: {
     serverActiveRunId,
     isActiveConversationServerRunning,
     runningConversationKeys,
+    waitingConversationKeys,
   };
 }

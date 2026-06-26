@@ -9,16 +9,37 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
 from app.ai.errors import AIConflictError
+from app.ai.images.jobs import attach_image_generation_job_to_entity
 from app.core.enums import ActivityAction
 from app.core.utils import create_id
 from app.models.domain import Recipe, RecipeFavorite, RecipeIngredient, RecipeStep
 from app.schemas.recipes import CreateRecipeRequest, UpdateRecipeRequest
 from app.services.activity import log_activity
+from app.services.ai_operations.image_jobs import build_recipe_image_request, enqueue_ai_entity_image_generation
 from app.services.media import bind_media_assets, replace_media_assets
 from app.services.recipe_food_sync import ensure_food_for_recipe
 
 
 UpdatedAtValidator = Callable[[datetime | None, str, str], None]
+
+
+def _enqueue_recipe_image_generation(
+    db: Session,
+    *,
+    family_id: str,
+    user_id: str,
+    recipe_id: str,
+    recipe_in: CreateRecipeRequest,
+) -> None:
+    enqueue_ai_entity_image_generation(
+        db,
+        family_id=family_id,
+        user_id=user_id,
+        request=build_recipe_image_request(recipe_in.model_dump(mode="json")),
+        media_ids=recipe_in.media_ids,
+        target_entity_type="recipe",
+        target_entity_id=recipe_id,
+    )
 
 
 def execute_recipe_draft(
@@ -246,6 +267,22 @@ def _create_recipe_from_draft(db: Session, *, family_id: str, user_id: str, payl
             )
         )
     bind_media_assets(db, family_id=family_id, media_ids=recipe_in.media_ids, entity_type="recipe", entity_id=recipe.id)
+    if recipe_in.pending_image_job_id:
+        attach_image_generation_job_to_entity(
+            db,
+            family_id=family_id,
+            job_id=recipe_in.pending_image_job_id,
+            entity_type="recipe",
+            entity_id=recipe.id,
+        )
+    else:
+        _enqueue_recipe_image_generation(
+            db,
+            family_id=family_id,
+            user_id=user_id,
+            recipe_id=recipe.id,
+            recipe_in=recipe_in,
+        )
     log_activity(
         db,
         family_id=family_id,

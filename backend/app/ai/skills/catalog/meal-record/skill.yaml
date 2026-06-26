@@ -9,6 +9,7 @@ context_policy:
 allowed_tools:
 - food.search
 - human.request_input
+- workspace.read_artifact
 - meal_log.read_recent
 - meal_log.read_by_id
 - meal_log.create_draft

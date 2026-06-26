@@ -4451,6 +4451,7 @@
 }
 
 .ai-main-panel {
+  position: relative;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto;
   gap: 14px;
@@ -4894,6 +4895,11 @@
   background: rgba(255, 250, 245, 0.72);
 }
 
+.ai-conversation-item.is-waiting {
+  border-color: rgba(230, 154, 46, 0.24);
+  background: rgba(255, 248, 231, 0.82);
+}
+
 .ai-conversation-main strong,
 .ai-mobile-conversation strong {
   display: flex;
@@ -4917,6 +4923,30 @@
   border-top-color: var(--accent);
   border-radius: 999px;
   animation: ai-send-spin 0.82s linear infinite;
+}
+
+.ai-history-waiting-icon {
+  display: inline-grid;
+  flex: 0 0 auto;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 999px;
+  background: #fff7df;
+  box-shadow:
+    inset 0 0 0 1px rgba(230, 154, 46, 0.32),
+    0 1px 3px rgba(129, 83, 35, 0.08);
+  color: #c7771d;
+  font-style: normal;
+}
+
+.ai-history-waiting-icon svg {
+  width: 11px;
+  height: 11px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.4;
+  stroke-linecap: round;
 }
 
 .ai-side-icon {
@@ -5177,6 +5207,42 @@
 
 .ai-thread-scroll::-webkit-scrollbar-corner {
   background: transparent;
+}
+
+.ai-thread-follow-button {
+  position: absolute;
+  z-index: 12;
+  right: 50%;
+  bottom: 104px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 36px;
+  border: 1px solid rgba(210, 107, 51, 0.2);
+  border-radius: 999px;
+  background: rgba(255, 252, 248, 0.96);
+  box-shadow: 0 10px 28px rgba(90, 62, 43, 0.12);
+  color: #b35122;
+  cursor: pointer;
+  font-size: 0.8125rem;
+  font-weight: 850;
+  padding: 0 12px 0 10px;
+  transform: translateX(50%);
+}
+
+.ai-thread-follow-button:hover {
+  border-color: rgba(210, 107, 51, 0.34);
+  background: #fff8f2;
+}
+
+.ai-thread-follow-button svg {
+  width: 15px;
+  height: 15px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 .ai-message {
@@ -5637,6 +5703,38 @@
   list-style: none;
 }
 
+.ai-debug-timeline {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+
+.ai-debug-overview {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
+  border: 1px solid rgba(147, 96, 63, 0.12);
+  border-radius: 16px;
+  background: #fffaf6;
+  padding: 10px;
+}
+
+.ai-debug-overview span {
+  border-radius: 999px;
+  background: #ffffff;
+  color: #6f6157;
+  font-size: 0.75rem;
+  font-weight: 800;
+  line-height: 1.35;
+  padding: 5px 9px;
+}
+
+.ai-debug-overview span.is-danger {
+  background: #fdebe8;
+  color: #a2382f;
+}
+
 .ai-debug-span {
   display: grid;
   gap: 10px;
@@ -5754,6 +5852,51 @@
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
   font-size: 0.75rem;
   padding: 3px 7px;
+}
+
+.ai-debug-span-details {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.ai-debug-step-summary {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.ai-debug-step-summary > div {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.ai-debug-step-summary strong {
+  color: #6d5f55;
+  font-size: 0.75rem;
+  font-weight: 850;
+}
+
+.ai-debug-summary-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
+}
+
+.ai-debug-summary-chips span {
+  max-width: 100%;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #f8f2ec;
+  color: #74655b;
+  font-size: 0.75rem;
+  font-weight: 750;
+  line-height: 1.35;
+  padding: 4px 8px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .ai-debug-span-json,
@@ -9181,6 +9324,13 @@ button.ai-clarification-option:hover:not(:disabled) .ai-clarification-option-ind
     background: transparent;
   }
 
+  .ai-mobile-page .ai-thread-follow-button {
+    z-index: 64;
+    bottom: calc(var(--ai-mobile-composer-height, 88px) + 12px);
+    min-height: 38px;
+    padding-inline: 12px 14px;
+  }
+
   .ai-message {
     display: grid;
     grid-template-columns: 44px minmax(0, 1fr);
@@ -9638,6 +9788,11 @@ button.ai-clarification-option:hover:not(:disabled) .ai-clarification-option-ind
   .ai-mobile-conversation.is-running {
     background: rgba(255, 250, 245, 0.88);
     box-shadow: inset 0 0 0 1px rgba(210, 107, 51, 0.16);
+  }
+
+  .ai-mobile-conversation.is-waiting {
+    background: rgba(255, 248, 231, 0.92);
+    box-shadow: inset 0 0 0 1px rgba(230, 154, 46, 0.2);
   }
 
   .ai-mobile-conversation strong,

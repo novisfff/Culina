@@ -57,6 +57,30 @@ class BlockingStreamingChatProvider(BaseChatProvider):
         )
 
 
+class EmptyApprovalFollowupProvider(BaseChatProvider):
+    model_name = "empty-approval-followup-model"
+
+    def generate(self, *, system: str, user: str) -> ChatProviderResult:
+        raise AssertionError("approval follow-up should use stream_generate")
+
+    def stream_generate(self, *, system: str, user: str):
+        del system, user
+        if False:
+            yield ""
+
+    def generate_with_tools(
+        self,
+        *,
+        system: str,
+        user: str,
+        tools,
+        tool_handler,
+        message_handler=None,
+        max_rounds: int = 8,
+    ) -> ChatProviderResult:
+        raise AssertionError("approval follow-up test should not run the orchestrator loop")
+
+
 class ProgressiveMultiDraftProvider(BaseChatProvider):
     model_name = "progressive-multi-draft-model"
 
@@ -1505,6 +1529,179 @@ class AIWorkspaceStreamingTestCase(AIAgentInfraTestCase):
                 assert conversation is not None
                 self.assertEqual(conversation.last_run_status, "cancelled")
                 self.assertNotIn("activeRunId", conversation.context or {})
+
+        def test_approval_followup_empty_response_appends_fallback_and_clears_active_run(self) -> None:
+            with self.SessionLocal() as db:
+                conversation = AIConversation(
+                    id="conversation-empty-followup",
+                    family_id=self.family.id,
+                    mode=AiMode.RECOMMENDATION,
+                    prompt="确认更新菜谱",
+                    response="",
+                    context={"activeRunId": "agent_run-empty-followup", "workspace": True},
+                    last_run_status="running",
+                    created_by=self.user.id,
+                )
+                run = AIAgentRun(
+                    id="agent_run-empty-followup",
+                    family_id=self.family.id,
+                    conversation_id=conversation.id,
+                    message_id=None,
+                    agent_key="workspace_orchestrator",
+                    feature_key="ai_workspace_chat",
+                    intent="recipe_draft",
+                    input_summary="确认更新菜谱",
+                    context_summary={},
+                    output_summary="",
+                    status="running",
+                    model="rules",
+                    input={"prompt": "确认更新菜谱", "subject": {}},
+                    output={},
+                    tool_calls=[],
+                    duration_ms=0,
+                    created_by=self.user.id,
+                )
+                message = AIMessage(
+                    id="message-empty-followup",
+                    family_id=self.family.id,
+                    conversation_id=conversation.id,
+                    role="assistant",
+                    content="",
+                    content_type="parts",
+                    parts=[
+                        {
+                            "id": "result-empty-followup",
+                            "type": "result_card",
+                            "card": {
+                                "id": "operation-result-empty-followup",
+                                "type": "operation_result",
+                                "title": "已更新菜谱",
+                                "data": {"approvalId": "approval-empty-followup"},
+                            },
+                        }
+                    ],
+                    run_id=run.id,
+                    status="running",
+                    message_metadata={"liveStreaming": True, "livePartIds": ["result-empty-followup"]},
+                    created_by=self.user.id,
+                )
+                db.add_all([conversation, run, message])
+                db.commit()
+
+                runner = WorkspaceGraphRunner(AIApplicationService(db, provider=EmptyApprovalFollowupProvider()))
+                runner._stream_approval_followup(
+                    {
+                        "family_id": self.family.id,
+                        "user_id": self.user.id,
+                        "conversation_id": conversation.id,
+                        "run_id": run.id,
+                        "message": "确认更新菜谱",
+                        "status": "running",
+                        "error": None,
+                    },
+                    {
+                        "approval": {
+                            "id": "approval-empty-followup",
+                            "message_id": message.id,
+                            "decision": "approved",
+                        },
+                        "operation": {
+                            "status": "succeeded",
+                            "action_summary": "已更新菜谱。",
+                        },
+                    },
+                    terminal_status="completed",
+                )
+                db.commit()
+
+            with self.SessionLocal() as db:
+                message = db.get(AIMessage, "message-empty-followup")
+                self.assertIsNotNone(message)
+                assert message is not None
+                self.assertIn("已更新菜谱。", message.content)
+                self.assertIn("你可以继续告诉我需要调整的内容。", message.content)
+                self.assertEqual(message.status, "completed")
+                self.assertNotIn("liveStreaming", message.message_metadata or {})
+                conversation = db.get(AIConversation, "conversation-empty-followup")
+                self.assertIsNotNone(conversation)
+                assert conversation is not None
+                self.assertEqual(conversation.last_run_status, "completed")
+                self.assertNotIn("activeRunId", conversation.context or {})
+
+        def test_finalize_terminal_run_clears_stale_live_state_and_empty_text(self) -> None:
+            from app.ai.workflows.runner import WorkspaceGraphRunner
+
+            with self.SessionLocal() as db:
+                conversation = AIConversation(
+                    id="conversation-finalize-stale-active",
+                    family_id=self.family.id,
+                    mode=AiMode.RECOMMENDATION,
+                    prompt="确认更新菜谱",
+                    response="",
+                    context={"activeRunId": "agent_run-finalize-stale-active", "workspace": True},
+                    last_run_status="running",
+                    created_by=self.user.id,
+                )
+                run = AIAgentRun(
+                    id="agent_run-finalize-stale-active",
+                    family_id=self.family.id,
+                    conversation_id=conversation.id,
+                    message_id=None,
+                    agent_key="workspace_orchestrator",
+                    feature_key="ai_workspace_chat",
+                    intent="recipe_draft",
+                    input_summary="确认更新菜谱",
+                    context_summary={},
+                    output_summary="",
+                    status="running",
+                    model="rules",
+                    input={"prompt": "确认更新菜谱", "subject": {}},
+                    output={},
+                    tool_calls=[],
+                    duration_ms=0,
+                    created_by=self.user.id,
+                )
+                message = AIMessage(
+                    id="message-finalize-stale-active",
+                    family_id=self.family.id,
+                    conversation_id=conversation.id,
+                    role="assistant",
+                    content="",
+                    content_type="parts",
+                    parts=[
+                        {
+                            "id": "result-finalize-stale-active",
+                            "type": "result_card",
+                            "card": {"id": "operation-result-finalize-stale-active", "type": "operation_result", "title": "已更新菜谱"},
+                        }
+                    ],
+                    run_id=run.id,
+                    status="running",
+                    message_metadata={"liveStreaming": True, "livePartIds": ["result-finalize-stale-active"]},
+                    created_by=self.user.id,
+                )
+                db.add_all([conversation, run, message])
+                db.flush()
+
+                WorkspaceGraphRunner(AIApplicationService(db, provider=FakeChatProvider()))._finalize(
+                    {
+                        "family_id": self.family.id,
+                        "user_id": self.user.id,
+                        "conversation_id": conversation.id,
+                        "run_id": run.id,
+                        "message": "确认更新菜谱",
+                        "status": "completed",
+                        "error": None,
+                    }
+                )
+
+                self.assertEqual(run.status, "completed")
+                self.assertEqual(conversation.last_run_status, "completed")
+                self.assertEqual(conversation.response, "任务已完成。")
+                self.assertNotIn("activeRunId", conversation.context or {})
+                self.assertEqual(message.content, "任务已完成。")
+                self.assertEqual(message.status, "completed")
+                self.assertNotIn("liveStreaming", message.message_metadata or {})
 
         def test_ai_workspace_finalize_does_not_overwrite_cancelled_run(self) -> None:
             from app.ai.workflows.runner import WorkspaceGraphRunner

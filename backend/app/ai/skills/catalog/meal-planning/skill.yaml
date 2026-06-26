@@ -13,6 +13,7 @@ allowed_tools:
 - inventory.read_expiring_items
 - inventory.read_available_items
 - human.request_input
+- workspace.read_artifact
 - meal_log.read_recent
 - food.search
 - food.read_by_id

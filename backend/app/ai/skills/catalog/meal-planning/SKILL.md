@@ -33,6 +33,7 @@ description: 处理“今天/今晚吃什么”的即时餐食推荐，以及未
 - 创建或修改时必须调用 `meal_plan.create_draft`。
 - 新增可以生成创建型草稿；修改、删除和状态变更必须生成带 `action`、`targetId` 和 `baseUpdatedAt` 的操作草稿。
 - 修改计划必须先通过 `meal_plan.read_by_id` 或明确的列表读取拿到真实目标，不能只靠名称猜测。
+- 历史 artifact 默认只提供摘要和 ID；如果要复用或修改历史 AI 草稿的完整 `items`，先调用 `workspace.read_artifact` 按 ID 读取，不要根据摘要补全计划项。
 - 同一天同餐别存在多条计划、用户未说明计划范围或要修改哪条计划时，调用 `human.request_input`，并提供候选摘要。
 - 状态变更使用 `set_status`，仅允许 `planned`、`cooked` 和 `skipped`。
 

@@ -1167,7 +1167,7 @@ def _string_ids(values: Any) -> list[str]:
 
 
 def _strip_transport_fields(payload: dict[str, Any]) -> dict[str, Any]:
-    return {key: value for key, value in payload.items() if key not in {"pending_image_job_id"}}
+    return {key: value for key, value in payload.items() if key != "pending_image_job_id" or value}
 
 
 def _string_list(value: Any, *, max_items: int) -> list[str]:

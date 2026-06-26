@@ -203,6 +203,10 @@ Tool 注册在 `backend/app/ai/tools/catalog/`。
 - `skill.inject`：按需注入一个或多个 Skill；调用后同一个 provider tool loop 的下一轮暴露对应工具集合。
 - `human.request_input`：信息不足、需要用户选择候选项或补充自由文本时使用。它只收集信息，不代表批准写入。
 
+通用上下文读取工具：
+
+- `workspace.read_artifact`：按 ID 读取当前家庭、当前会话中的完整 AI 草稿或审批详情。Orchestrator 传给模型的历史 artifact 默认是摘要索引；模型需要复用完整草稿内容时必须显式调用该工具，不能根据摘要补全完整 payload。
+
 Orchestrator 根据已注入 Skill 的 `approval_policy` 创建 Tool 作用域：
 
 - 未注入业务 Skill：只允许基础 control 工具，例如 `skill.inject`、`human.request_input`。
