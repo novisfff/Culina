@@ -32,8 +32,7 @@ class SkillManifest:
     def to_catalog_record(self) -> dict[str, Any]:
         return {
             "key": self.key,
-            "slug": self.slug or self.key.replace("_", "-"),
-            "name": self.name,
+            "displayName": self.name,
             "description": self.description,
             "examples": self.examples,
             "contextPolicy": self.context_policy,
@@ -63,6 +62,9 @@ class SkillContext:
     stream_writer: Callable[[dict[str, Any]], None] | None = None
     progressive_draft_publisher: Callable[[dict[str, Any]], dict[str, Any]] | None = None
     cancel_check: Callable[[], bool] | None = None
+    tracer: Any | None = None
+    trace_parent_span_id: str | None = None
+    trace_round_index: int | None = None
 
     def ensure_active(self) -> None:
         if self.cancel_check is not None and self.cancel_check():

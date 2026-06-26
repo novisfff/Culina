@@ -4,10 +4,10 @@ import json
 import logging
 import inspect
 from dataclasses import dataclass, field
-from datetime import date
 from typing import Any
 
-from app.ai.errors import AIExecutionCancelled, HumanInputRequired
+from app.ai.errors import AIExecutionCancelled, ApprovalRequired, HumanInputRequired
+from app.ai.observability.llm_exchange import LLMExchangeRecorder
 from app.ai.runtime.provider import ProviderUserInput
 from app.ai.runtime.provider import BaseChatProvider, ChatProviderResult
 from app.ai.skills.base import SkillContext, SkillResult
@@ -164,11 +164,33 @@ class WorkspaceOrchestratorAgent:
         context.ensure_active()
         root_tool_executor = context.tool_executor
         active_skill_keys, initial_bundles = self.injection_manager.inject([], injected_skill_keys or [])
+        trace_round_index = context.trace_round_index or 0
+        orchestrator_span = (
+            context.tracer.start_span(
+                "orchestrator_round",
+                "orchestrator",
+                parent_span_id=context.trace_parent_span_id,
+                round_index=trace_round_index,
+                input_summary={
+                    "initialInjectedSkills": list(injected_skill_keys or []),
+                    "historicalArtifactCount": len(context.current_run_artifacts),
+                    "conversationMessageCount": len(context.conversation),
+                },
+            )
+            if context.tracer is not None
+            else None
+        )
+        context.trace_parent_span_id = orchestrator_span.span_id if orchestrator_span is not None else context.trace_parent_span_id
+        context.trace_round_index = trace_round_index
+        root_tool_executor.context.tracer = context.tracer
+        root_tool_executor.context.trace_parent_span_id = context.trace_parent_span_id
+        root_tool_executor.context.trace_round_index = trace_round_index
         injection_history = [
             {"skillKey": bundle.key, "displayName": bundle.display_name, "source": "initial"}
             for bundle in initial_bundles
         ]
         draft_outputs: list[dict[str, Any]] = []
+        result_card_outputs: list[dict[str, Any]] = []
         published_drafts_by_key: dict[tuple[str, str], dict[str, Any]] = {}
         draft_input_keys_this_call: set[tuple[str, str]] = set()
         read_outputs: dict[str, list[dict[str, Any]]] = {}
@@ -204,11 +226,33 @@ class WorkspaceOrchestratorAgent:
         current_tool_definitions: dict[str, ToolDefinition] = {}
         preview_event_ids_by_key: dict[str, str] = {}
 
+        def finish_orchestrator_span(result: SkillResult) -> SkillResult:
+            if orchestrator_span is not None:
+                span_status = "waiting" if result.status in {"waiting_approval", "waiting_input"} else result.status
+                orchestrator_span.finish(
+                    status=span_status,
+                    output_summary={
+                        "status": result.status,
+                        "model": result.model,
+                        "draftCount": len(result.drafts),
+                        "cardCount": len(result.cards),
+                        "toolCallCount": len(result.tool_calls),
+                        "injectedSkills": active_skill_keys,
+                        "readTools": sorted(read_outputs.keys()),
+                    },
+                    error_code=result.error if result.status == "failed" else None,
+                    error_message=result.error if result.status == "failed" else None,
+                )
+            return result
+
         def refresh_tools() -> list[ToolDefinition]:
             nonlocal current_scoped_executor, current_script_executors, current_tool_names, current_tool_definitions
             context.ensure_active()
             current_scoped_executor = self.injection_manager.scoped_tool_executor(context, active_skill_keys)
             context.tool_executor = current_scoped_executor
+            current_scoped_executor.context.tracer = context.tracer
+            current_scoped_executor.context.trace_parent_span_id = context.trace_parent_span_id
+            current_scoped_executor.context.trace_round_index = trace_round_index
             tools, current_script_executors = self.injection_manager.tool_definitions(active_skill_keys, context)
             current_tool_names = {definition.name for definition in tools}
             current_tool_definitions = {definition.name: definition for definition in tools}
@@ -245,6 +289,17 @@ class WorkspaceOrchestratorAgent:
             if not requested:
                 return {"injectedSkills": [], "alreadyInjected": [], "availableTools": sorted(current_tool_names)}
             if len(active_skill_keys) >= MAX_BUSINESS_SKILLS_PER_RUN:
+                if context.tracer is not None:
+                    context.tracer.record_event(
+                        "skill_injection",
+                        "skill.inject",
+                        status="failed",
+                        parent_span_id=context.trace_parent_span_id,
+                        round_index=trace_round_index,
+                        payload={"requested": requested, "activeSkillCount": len(active_skill_keys)},
+                        error_code="skill_budget_exhausted",
+                        error_message="skill budget exhausted",
+                    )
                 return {
                     "error": f"本次任务最多注入 {MAX_BUSINESS_SKILLS_PER_RUN} 个业务 Skill。",
                     "code": "skill_budget_exhausted",
@@ -256,6 +311,18 @@ class WorkspaceOrchestratorAgent:
             requested_existing = [key for key in requested if key in active_skill_keys]
             requested_new = [key for key in requested if key not in active_skill_keys][:available_slots]
             active_skill_keys, added = self.injection_manager.inject(active_skill_keys, requested_new)
+            if context.tracer is not None:
+                context.tracer.record_event(
+                    "skill_injection",
+                    "skill.inject",
+                    parent_span_id=context.trace_parent_span_id,
+                    round_index=trace_round_index,
+                    payload={
+                        "requested": requested,
+                        "added": [bundle.key for bundle in added],
+                        "alreadyInjected": requested_existing,
+                    },
+                )
             if added:
                 injection_history.extend(
                     {"skillKey": bundle.key, "displayName": bundle.display_name, "source": "tool"}
@@ -328,18 +395,8 @@ class WorkspaceOrchestratorAgent:
                             json.dumps(retry_draft, sort_keys=True, ensure_ascii=False, default=str),
                         )
                         if retry_key in draft_input_keys_this_call:
-                            return {
-                                "draft": retry_draft,
-                                "status": "already_published",
-                                "code": "draft_already_published",
-                                "__tool_loop_stop__": {"status": "waiting_approval"},
-                            }
-                    return {
-                        "error": "本轮已经生成一个草稿。请结束当前动作，等待用户确认后再继续生成后续草稿。",
-                        "code": "draft_budget_exhausted",
-                        "status": "wait_for_approval",
-                        "__tool_loop_stop__": {"status": "waiting_approval"},
-                    }
+                            raise ApprovalRequired("approval required")
+                    raise ApprovalRequired("approval required")
                 if name == "human.request_input" and human_input_requested_this_call:
                     return {
                         "error": "本轮已经请求过用户补充信息。请结束当前动作，等待用户回复。",
@@ -353,6 +410,9 @@ class WorkspaceOrchestratorAgent:
                     if name not in read_outputs:
                         read_outputs[name] = []
                     read_outputs[name].append(output)
+                card = output.get("card") if isinstance(output.get("card"), dict) else None
+                if card is not None:
+                    result_card_outputs.append(card)
                 if name == "human.request_input":
                     human_input_requested_this_call = True
                     request = {
@@ -391,7 +451,7 @@ class WorkspaceOrchestratorAgent:
                         if published:
                             draft_record.update(published)
                         draft_outputs.append(draft_record)
-                    return {**output, "__tool_loop_stop__": {"status": "waiting_approval"}}
+                    raise ApprovalRequired("approval required")
                 return output
 
             def handle_message_delta(delta: str) -> None:
@@ -410,19 +470,29 @@ class WorkspaceOrchestratorAgent:
             }
             if "tool_preview_handler" in inspect.signature(self.provider.generate_with_tools).parameters:
                 provider_kwargs["tool_preview_handler"] = preview_tool_call
+            if "trace_recorder" in inspect.signature(self.provider.generate_with_tools).parameters and context.tracer is not None:
+                provider_kwargs["trace_recorder"] = LLMExchangeRecorder(
+                    db=context.db,
+                    family_id=context.family_id,
+                    run_id=context.run_id,
+                    conversation_id=context.conversation_id,
+                    trace_id=context.tracer.trace_id,
+                    user_id=context.user_id,
+                    span_id=orchestrator_span.span_id if orchestrator_span is not None else context.trace_parent_span_id,
+                )
             provider_result = self.provider.generate_with_tools(**provider_kwargs)
             if provider_result.status in {"failed", "fallback"}:
-                return self._failed_result(
-                    provider_result,
-                    context,
-                    "orchestrator provider unavailable",
-                    active_skill_keys=active_skill_keys,
-                    injection_history=injection_history,
+                return finish_orchestrator_span(
+                    self._failed_result(
+                        provider_result,
+                        context,
+                        "orchestrator provider unavailable",
+                        active_skill_keys=active_skill_keys,
+                        injection_history=injection_history,
+                    )
                 )
             text = provider_result.text or "".join(streamed_text).strip()
             drafts = self._validated_drafts(draft_outputs, active_skill_keys)
-            status = "waiting_approval" if drafts else "completed"
-            cards = [] if drafts else self._program_result_cards(context, read_outputs)
             context_summary = {
                 "orchestrator": {
                     "injectedSkills": active_skill_keys,
@@ -431,30 +501,55 @@ class WorkspaceOrchestratorAgent:
                 },
                 **self._program_context_summary(read_outputs),
             }
-            return SkillResult(
-                text=text or "",
-                cards=cards,
-                drafts=drafts,
-                context_summary=context_summary,
-                status=status,
-                model=provider_result.model or model_name(context),
-                error=provider_result.error,
-                tool_calls=context.tool_executor.records(),
+            status = "waiting_approval" if drafts else "completed"
+            cards = [] if drafts else self._validated_cards(result_card_outputs, active_skill_keys)
+            return finish_orchestrator_span(
+                SkillResult(
+                    text=text or "",
+                    cards=cards,
+                    drafts=drafts,
+                    context_summary=context_summary,
+                    status=status,
+                    model=provider_result.model or model_name(context),
+                    error=provider_result.error,
+                    tool_calls=context.tool_executor.records(),
+                )
+            )
+        except ApprovalRequired:
+            drafts = self._validated_drafts(draft_outputs, active_skill_keys)
+            return finish_orchestrator_span(
+                SkillResult(
+                    text="".join(streamed_text).strip(),
+                    drafts=drafts,
+                    context_summary={
+                        "orchestrator": {
+                            "injectedSkills": active_skill_keys,
+                            "injectionHistory": injection_history,
+                            "readTools": sorted(read_outputs.keys()),
+                        },
+                        **self._program_context_summary(read_outputs),
+                    },
+                    status="waiting_approval",
+                    model=model_name(context),
+                    tool_calls=context.tool_executor.records(),
+                )
             )
         except HumanInputRequired as exc:
-            return SkillResult(
-                text=str(exc.request.get("question") or "我需要你补充一点信息。"),
-                status="waiting_input",
-                model=model_name(context),
-                context_summary={
-                    "orchestrator": {
-                        "injectedSkills": active_skill_keys,
-                        "injectionHistory": injection_history,
-                        "readTools": sorted(read_outputs.keys()),
+            return finish_orchestrator_span(
+                SkillResult(
+                    text=str(exc.request.get("question") or "我需要你补充一点信息。"),
+                    status="waiting_input",
+                    model=model_name(context),
+                    context_summary={
+                        "orchestrator": {
+                            "injectedSkills": active_skill_keys,
+                            "injectionHistory": injection_history,
+                            "readTools": sorted(read_outputs.keys()),
+                        },
+                        "pendingHumanInput": exc.request,
                     },
-                    "pendingHumanInput": exc.request,
-                },
-                state_patch={"pendingHumanInput": exc.request},
+                    state_patch={"pendingHumanInput": exc.request},
+                )
             )
         except AIExecutionCancelled:
             raise
@@ -467,12 +562,14 @@ class WorkspaceOrchestratorAgent:
                 exc,
                 exc_info=True,
             )
-            return SkillResult(
-                text="AI 工作台执行失败，请重试。",
-                status="failed",
-                model=model_name(context),
-                error=str(exc),
-                diagnostic=str(exc),
+            return finish_orchestrator_span(
+                SkillResult(
+                    text="AI 工作台执行失败，请重试。",
+                    status="failed",
+                    model=model_name(context),
+                    error=str(exc),
+                    diagnostic=str(exc),
+                )
             )
         finally:
             context.tool_executor = root_tool_executor
@@ -493,21 +590,24 @@ class WorkspaceOrchestratorAgent:
             "本系统采用 agent run loop：每次只推进一个有边界的下一步动作，而不是一次性完成所有后续动作。"
             "Skill 是能力和上下文注入包，不是独立子 agent；注入后本 run 内持续可见。"
             "初始只能根据 catalog record 判断需要哪些能力；如果需要新能力，必须先调用 skill.inject。"
+            "调用 skill.inject 时，skills 只能填写 catalog record 的 key，也就是 skill.yaml:key；"
+            "不要使用 SKILL.md:name、目录 slug 或短横线形式。例如必须写 inventory_analysis，不能写 inventory-analysis。"
             "你不能调用未注入 Skill 的业务工具。"
             "正式写入必须通过 draft tool 生成草稿并等待 approval；不要声称已经完成正式写入。"
+            "需要输出 result card 时，必须调用已授权且明确返回 card 的工具；不要用普通文本或自造 JSON 代替卡片。"
             "本轮最多生成一个 draft；生成 draft 后必须结束当前动作并等待 approval。"
             "准备调用 draft tool 前，必须先输出普通文本，说明接下来要生成什么草稿以及为什么。"
             "调用 draft tool 后，不要再输出任何用户可见文本；不要说“已生成”“请确认”“草稿准备好了”。"
-            "如果 draft 确认后还需要继续推进，请在 draft tool 参数 afterApproval 中写入简短、可执行的后续任务说明。"
+            "如果 draft 确认后有明确的后续任务或终态总结要求，可以在 draft tool 参数 afterApproval 中写入简短、可执行的提示。"
             "当 currentRunArtifacts 里出现 approval_decision 且 approval.status=rejected 时，把它当作 HumanInLoop 工具返回：先尊重拒绝结果，再判断是结束、调整重做，还是继续处理同一任务中的下一项。"
             "拒绝后不要默认停止，也不要盲目执行原草稿的 afterApproval；是否继续由你基于用户原始目标、拒绝结果和当前上下文决定。"
-            "当 currentRunArtifacts 里出现 type=draft_after_approval 或 type=resume_after_approval，且最近 approval_decision 不是 rejected 时，优先执行其 payload.instruction 指定的确认后下一步。"
+            "每次 draft 确认后都会回到本 Orchestrator；当 currentRunArtifacts 里出现 type=draft_after_approval 或 type=resume_after_approval，且最近 approval_decision 不是 rejected 时，优先执行其 payload.instruction 指定的确认后下一步或终态总结。"
             "当 currentRunArtifacts 同时包含 approval_decision 和确认后继续 artifact 时，确认后的总结和下一步说明都由本 Orchestrator 输出；"
             "在调用下一个工具前，用普通文本简短说明已按确认完成了什么，以及接下来继续做什么，例如“已创建白切鸡。接下来我继续整理下一份菜谱草稿。”"
             "确认后如果马上需要生成下一个 draft，把这段自然语言作为下一个 draft 前置说明，而不是上一个 draft 的尾巴。"
             f"这些是当前已注入 Skill 允许的 draft_types：{json.dumps(allowed_draft_types, ensure_ascii=False)}。"
             "需要创建或修改正式数据时必须调用对应 draft tool，等待审批结果卡片由系统生成。"
-            "不要输出 XML 标签、JSON 状态对象、Markdown 代码块或 structured_result。"
+            "不要输出 XML 标签、JSON 状态对象或 structured_result。"
             "\n\nCatalog records:\n"
             f"{json.dumps(self.injection_manager.catalog_records(), ensure_ascii=False, default=str)}"
             "\n\nInjected skills:\n"
@@ -560,72 +660,6 @@ class WorkspaceOrchestratorAgent:
             return text
         return ProviderUserInput(text=text, images=context.current_message_images)
 
-    def _cards_from_read_outputs(
-        self,
-        cards: list[dict[str, Any]],
-        read_outputs: dict[str, list[dict[str, Any]]],
-    ) -> list[dict[str, Any]]:
-        normalized: list[dict[str, Any]] = []
-        for card in cards:
-            card_type = str(card.get("type") or "")
-            if card_type == "today_recommendation":
-                normalized.append(self._normalize_recommendation_card(card, read_outputs))
-                continue
-            normalized.append(card)
-        return normalized
-
-    def _program_result_cards(
-        self,
-        context: SkillContext,
-        read_outputs: dict[str, list[dict[str, Any]]],
-    ) -> list[dict[str, Any]]:
-        message = str(context.current_message or "")
-        inventory_summary = self._latest_tool_output(read_outputs, "inventory.read_summary")
-        recommendation_mode = context.quick_task == "today_recommendation" or (
-            any(term in message for term in ["今日吃什么", "今天吃什么", "今晚吃什么", "推荐一餐"])
-            and not any(term in message for term in ["安排", "计划", "菜单", "制定", "修改", "第二天", "三天"])
-        )
-        if not recommendation_mode:
-            if inventory_summary:
-                return [
-                    {
-                        "id": create_id("ai_card"),
-                        "type": "inventory_summary",
-                        "title": "库存概览",
-                        "data": inventory_summary,
-                    }
-                ]
-            return []
-        foods = self._latest_tool_items(read_outputs, "food.search")
-        recipes = self._latest_tool_items(read_outputs, "recipe.search")
-        candidates: list[dict[str, Any]] = [
-            {"foodId": str(item["id"]), "reason": "优先使用当前家庭已有食物。"}
-            for item in foods
-            if item.get("id")
-        ]
-        if not candidates:
-            candidates = [
-                {"recipeId": str(item["id"]), "reason": "结合当前库存和菜谱库推荐。"}
-                for item in recipes
-                if item.get("id")
-            ]
-        if not candidates:
-            return []
-        return self._cards_from_read_outputs(
-            [
-                {
-                    "id": create_id("ai_card"),
-                    "type": "today_recommendation",
-                    "title": "今日吃什么",
-                    "data": {
-                        "recommendations": candidates[:3],
-                        "contextSummary": {},
-                    },
-                }
-            ],
-            read_outputs,
-        )
-
     def _program_context_summary(self, read_outputs: dict[str, list[dict[str, Any]]]) -> dict[str, Any]:
         summary: dict[str, Any] = {}
         inventory_summary = self._latest_tool_output(read_outputs, "inventory.read_summary")
@@ -640,95 +674,6 @@ class WorkspaceOrchestratorAgent:
         if expiring and "count" in expiring:
             summary["expiringItemCount"] = expiring.get("count", summary.get("expiringItemCount", 0))
         return summary
-
-    def _normalize_recommendation_card(
-        self,
-        card: dict[str, Any],
-        read_outputs: dict[str, list[dict[str, Any]]],
-    ) -> dict[str, Any]:
-        foods = self._latest_tool_items(read_outputs, "food.search")
-        recipes = self._latest_tool_items(read_outputs, "recipe.search")
-        inventory = self._latest_tool_items(read_outputs, "inventory.read_available_items")
-        expiring = self._latest_tool_items(read_outputs, "inventory.read_expiring_items")
-        recent = self._latest_tool_items(read_outputs, "meal_log.read_recent")
-        foods_by_id = {str(item.get("id")): item for item in foods if item.get("id")}
-        recipes_by_id = {str(item.get("id")): item for item in recipes if item.get("id")}
-        data = card.get("data") if isinstance(card.get("data"), dict) else {}
-        raw_recommendations = data.get("recommendations")
-        if not isinstance(raw_recommendations, list) or not raw_recommendations:
-            raw_recommendations = card.get("items")
-        recommendations: list[dict[str, Any]] = []
-        for raw in self._as_list_of_dicts(raw_recommendations)[:3]:
-            food_id = self._optional_text(raw.get("foodId"))
-            recipe_id = self._optional_text(raw.get("recipeId"))
-            food_entity = foods_by_id.get(food_id or "") if food_id else None
-            recipe_entity = recipes_by_id.get(recipe_id or "") if recipe_id else None
-            if recipe_entity and not food_entity:
-                linked_food_ids = recipe_entity.get("foodIds") if isinstance(recipe_entity.get("foodIds"), list) else []
-                linked_food_id = next((str(item) for item in linked_food_ids if str(item) in foods_by_id), None)
-                if linked_food_id:
-                    food_id = linked_food_id
-                    food_entity = foods_by_id.get(food_id)
-            entity = food_entity or recipe_entity
-            entity_type = "food" if food_entity else "recipe" if recipe_entity else ""
-            if not entity:
-                logger.warning("Orchestrator discarded recommendation without real entity food_id=%s recipe_id=%s", food_id, recipe_id)
-                continue
-            evidence = []
-            for raw_evidence in self._as_list_of_dicts(raw.get("evidence"))[:3]:
-                label = raw_evidence.get("label") or raw_evidence.get("name")
-                if not label:
-                    continue
-                quantity = raw_evidence.get("quantity")
-                unit = raw_evidence.get("unit")
-                expiry_date = raw_evidence.get("expiryDate")
-                details = []
-                if quantity is not None:
-                    details.append(f"{quantity}{unit or ''}")
-                if expiry_date:
-                    details.append(f"保质期至 {expiry_date}")
-                evidence.append(
-                    {
-                        "type": str(raw_evidence.get("type") or "inventory"),
-                        "id": raw_evidence.get("id"),
-                        "label": str(label),
-                        "status": raw_evidence.get("displayStatus") or raw_evidence.get("status"),
-                        "detail": " · ".join(details) or None,
-                    }
-                )
-            recommendations.append(
-                {
-                    "entityType": entity_type,
-                    "entityId": str(entity["id"]),
-                    "foodId": food_id,
-                    "recipeId": recipe_id,
-                    "name": str(entity.get("name") or entity.get("title") or "推荐"),
-                    "image": entity.get("image"),
-                    "category": entity.get("category"),
-                    "foodType": entity.get("type"),
-                    "prepMinutes": entity.get("prepMinutes"),
-                    "servings": entity.get("servings"),
-                    "difficulty": entity.get("difficulty"),
-                    "reason": str(raw.get("reason") or ""),
-                    "evidence": evidence,
-                }
-            )
-        return {
-            "id": card.get("id"),
-            "type": card.get("type"),
-            "title": card.get("title"),
-            "data": {
-                "recommendations": recommendations,
-                "targetDate": self._iso_date_text(data.get("targetDate")),
-                "mealType": self._meal_type_text(data.get("mealType")),
-                "contextSummary": {
-                    "inventoryCount": len(inventory),
-                    "expiringCount": len(expiring),
-                    "recentMealCount": len(recent),
-                    "recipeCount": len(recipes),
-                },
-            },
-        }
 
     def _historical_tool_signatures(self, context: SkillContext) -> list[str]:
         signatures: list[str] = []
@@ -858,34 +803,9 @@ class WorkspaceOrchestratorAgent:
             return [value.strip()]
         return []
 
-    def _latest_tool_items(self, read_outputs: dict[str, list[dict[str, Any]]], tool_name: str) -> list[dict[str, Any]]:
-        return self._as_list_of_dicts(self._latest_tool_output(read_outputs, tool_name).get("items"))
-
     def _latest_tool_output(self, read_outputs: dict[str, list[dict[str, Any]]], tool_name: str) -> dict[str, Any]:
         outputs = read_outputs.get(tool_name, [])
         if not outputs:
             return {}
         latest = outputs[-1]
         return latest if isinstance(latest, dict) else {}
-
-    @staticmethod
-    def _iso_date_text(value: Any) -> str | None:
-        text = str(value or "").strip()
-        try:
-            return date.fromisoformat(text).isoformat()
-        except ValueError:
-            return None
-
-    @staticmethod
-    def _meal_type_text(value: Any) -> str | None:
-        text = str(value or "").strip()
-        return text if text in {"breakfast", "lunch", "dinner", "snack"} else None
-
-    def _as_list_of_dicts(self, value: Any) -> list[dict[str, Any]]:
-        if not isinstance(value, list):
-            return []
-        return [item for item in value if isinstance(item, dict)]
-
-    def _optional_text(self, value: Any) -> str | None:
-        text = str(value).strip() if value is not None else ""
-        return text or None

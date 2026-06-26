@@ -1,5 +1,9 @@
 from ._support import *
 
+from app.ai.errors import AIExecutionCancelled
+from app.ai.tools.base import ToolDefinition
+from app.ai.tools.registry import ToolRegistry
+
 
 class AIToolRegistryTestCase(AIAgentInfraTestCase):
         def test_phase_a_tool_executor_records_real_tool_calls(self) -> None:
@@ -81,6 +85,39 @@ class AIToolRegistryTestCase(AIAgentInfraTestCase):
                     executor.call("inventory.read_available_items", {"limit": 10})
                 with self.assertRaises(PermissionError):
                     executor.call("shopping.create_draft", {"draft": {"items": [{"title": "鸡蛋"}]}})
+
+        def test_tool_executor_preserves_control_interrupts_from_handlers(self) -> None:
+            registry = ToolRegistry()
+
+            def cancel_handler(_context, _payload):
+                raise AIExecutionCancelled("AI run was cancelled")
+
+            registry.register(
+                ToolDefinition(
+                    name="runtime.cancel",
+                    display_name="取消运行",
+                    description="测试控制中断直通。",
+                    input_schema={"type": "object", "properties": {}, "additionalProperties": False},
+                    output_schema={"type": "object", "properties": {}, "additionalProperties": False},
+                    permission="family:read",
+                    side_effect="control",
+                    handler=cancel_handler,
+                )
+            )
+            with self.SessionLocal() as db:
+                executor = ToolExecutor(
+                    registry,
+                    ToolContext(
+                        db=db,
+                        family_id=self.family.id,
+                        user_id=self.user.id,
+                        conversation_id="conversation-test",
+                        run_id="run-test",
+                    ),
+                )
+                with self.assertRaises(AIExecutionCancelled):
+                    executor.call("runtime.cancel", {})
+                self.assertEqual(executor.records(), [])
 
         def test_tool_executor_validates_input_schema(self) -> None:
             with self.SessionLocal() as db:

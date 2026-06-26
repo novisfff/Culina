@@ -154,7 +154,7 @@ Runner 固定为 `toolcall`。确认要求由 `approval_policy`、`draft_types` 
 
 `meal_plan` 有两个互斥模式：
 
-- 即时推荐模式：触发语义包括“今天吃什么”“今晚吃什么”“推荐一餐”；返回 `today_recommendation` 卡片；不调用 `meal_plan.create_draft`；不创建草稿或审批。
+- 即时推荐模式：触发语义包括“今天吃什么”“今晚吃什么”“推荐一餐”；调用明确返回 `card` 的推荐工具产出 `today_recommendation` 卡片；不调用 `meal_plan.create_draft`；不创建草稿或审批。
 - 正式计划模式：触发语义包括“安排、制定、生成、修改餐食计划”；用户给出日期、天数或餐别范围时也进入该模式；调用 `meal_plan.create_draft`；返回 `meal_plan` 草稿并中断等待确认。
 
 `quick_task=today_recommendation` 必须路由到 `meal_plan`，`today_recommendation` 只作为结果卡片类型使用。
@@ -174,7 +174,7 @@ Runtime 加载流程：
 5. 校验 `script_files`，从公开函数签名生成模型 Tool Schema。
 6. 创建统一的 Skill catalog 包，供 Orchestrator 注入 instructions、tools、scripts 和输出契约。
 
-Orchestrator scoped injection 负责暴露工具白名单、执行脚本和业务 Tool、通过 `generate_with_tools()` 让模型在已授权工具内自主选择工具、捕获 draft tool 的真实输出，并由程序状态判断 run 是否 completed、waiting_input、waiting_approval 或 failed。
+Orchestrator scoped injection 负责暴露工具白名单、执行脚本和业务 Tool、通过 `generate_with_tools()` 让模型在已授权工具内自主选择工具、捕获 draft tool 的真实输出和显式 tool card 输出，并由程序状态判断 run 是否 completed、waiting_input、waiting_approval 或 failed。
 
 `WorkspaceGraphRunner` 执行 LangGraph orchestrator 节点，并负责运行状态、SSE 进度、消息持久化、draft 持久化、approval interrupt、human input interrupt 和恢复。不要因为前端时间戳相同就假设后端并行执行多个 Tool。
 

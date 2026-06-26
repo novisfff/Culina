@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 from datetime import date
+import inspect
 import logging
 from typing import Any
 
@@ -14,6 +15,8 @@ from app.ai.kitchen.recipe_drafts import (
     build_recipe_draft_messages,
     build_recipe_image_render_payload,
 )
+from app.ai.observability.llm_exchange import LLMExchangeRecorder
+from app.ai.observability.tracer import AIRunTracer
 from app.ai.runtime.provider import BaseChatProvider, get_chat_provider
 from app.ai.skills import build_workspace_skill_registry
 from app.ai.tools import ToolContext, ToolExecutor, build_workspace_tool_registry
@@ -159,6 +162,42 @@ class AIApplicationService:
             include_meal_logs=False,
         )
         system, user_prompt = build_recipe_draft_messages(context, draft_input)
+        run = AIAgentRun(
+            id=create_id("agent_run"),
+            family_id=family_id,
+            agent_key="recipe_draft_agent",
+            feature_key="aiRecipeDraft",
+            intent="recipe_draft",
+            input_summary=prompt[:255],
+            context_summary=context.to_record(),
+            output_summary="",
+            status="running",
+            model=getattr(self.provider, "model_name", ""),
+            input={
+                "prompt": prompt,
+                "subject": subject,
+                "responseFormat": "recipe_draft_tool_call",
+                "context": context.to_record(),
+            },
+            output={},
+            tool_calls=[],
+            error=None,
+            created_by=user_id,
+        )
+        self.db.add(run)
+        self.db.flush()
+        tracer = AIRunTracer(
+            db=self.db,
+            family_id=family_id,
+            run_id=run.id,
+            conversation_id=None,
+            user_id=user_id,
+        )
+        tracer.record_event(
+            "run",
+            "recipe_draft.initialize",
+            payload={"subjectKeys": sorted(subject.keys()), "generateImage": generate_image},
+        )
         tool_executor = ToolExecutor(
             build_workspace_tool_registry(),
             ToolContext(
@@ -166,7 +205,7 @@ class AIApplicationService:
                 family_id=family_id,
                 user_id=user_id,
                 conversation_id="recipe-draft",
-                run_id="recipe-draft",
+                run_id=run.id,
             ),
             allowed_tools={"recipe.create_draft"},
             allowed_side_effects={"draft"},
@@ -183,13 +222,23 @@ class AIApplicationService:
             return output
 
         try:
-            result = self.provider.generate_with_tools(
-                system=system,
-                user=user_prompt,
-                tools=lambda: [recipe_tool],
-                tool_handler=call_recipe_tool,
-                max_rounds=4,
-            )
+            provider_kwargs: dict[str, Any] = {
+                "system": system,
+                "user": user_prompt,
+                "tools": lambda: [recipe_tool],
+                "tool_handler": call_recipe_tool,
+                "max_rounds": 4,
+            }
+            if "trace_recorder" in inspect.signature(self.provider.generate_with_tools).parameters:
+                provider_kwargs["trace_recorder"] = LLMExchangeRecorder(
+                    db=self.db,
+                    family_id=family_id,
+                    run_id=run.id,
+                    conversation_id=None,
+                    trace_id=tracer.trace_id,
+                    user_id=user_id,
+                )
+            result = self.provider.generate_with_tools(**provider_kwargs)
         except Exception as exc:
             result = None
             error = str(exc)
@@ -208,29 +257,12 @@ class AIApplicationService:
         else:
             error = error or "AI recipe draft provider is unavailable"
 
-        run = AIAgentRun(
-            id=create_id("agent_run"),
-            family_id=family_id,
-            agent_key="recipe_draft_agent",
-            feature_key="aiRecipeDraft",
-            intent="recipe_draft",
-            input_summary=prompt[:255],
-            context_summary=context.to_record(),
-            output_summary="已生成可编辑的菜谱草稿。" if status == "completed" else "AI 菜谱生成失败，请稍后重试。",
-            status=status,
-            model=(result.model if result is not None else None) or getattr(self.provider, "model_name", ""),
-            input={
-                "prompt": prompt,
-                "subject": subject,
-                "responseFormat": "recipe_draft_tool_call",
-                "context": context.to_record(),
-            },
-            output={"recipeDraft": draft, "imageRenderPayload": image_render_payload},
-            tool_calls=tool_executor.records(),
-            error=error,
-            created_by=user_id,
-        )
-        self.db.add(run)
+        run.output_summary = "已生成可编辑的菜谱草稿。" if status == "completed" else "AI 菜谱生成失败，请稍后重试。"
+        run.status = status
+        run.model = (result.model if result is not None else None) or getattr(self.provider, "model_name", "")
+        run.output = {"recipeDraft": draft, "imageRenderPayload": image_render_payload}
+        run.tool_calls = tool_executor.records()
+        run.error = error
         self.db.flush()
         return {
             "draft": draft,

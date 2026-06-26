@@ -9,7 +9,10 @@ import type {
   AiMessage,
   AiMessagePart,
   AiQualityMetrics,
+  AiRunLLMExchangeResponse,
   AiStatus,
+  AiRunTraceResponse,
+  AiRunTraceTreeResponse,
   GenerateRecipeDraftPayload,
   GenerateRecipeDraftResponse,
 } from './types';
@@ -145,6 +148,12 @@ export const aiApi = {
     }),
   getAiRunEvents: (runId: string) =>
     request<AiRunEvent[]>(`/api/ai/runs/${runId}/events`),
+  getAiRunTrace: (runId: string) =>
+    request<AiRunTraceResponse>(`/api/ai/runs/${runId}/trace`),
+  getAiRunTraceTree: (runId: string) =>
+    request<AiRunTraceTreeResponse>(`/api/ai/runs/${runId}/trace/tree`),
+  getAiRunLlmExchanges: (runId: string) =>
+    request<AiRunLLMExchangeResponse>(`/api/ai/runs/${runId}/llm-exchanges`),
   getPendingAiApprovals: (conversationId: string) =>
     request<AiApprovalRequest[]>(`/api/ai/conversations/${conversationId}/approvals/pending`),
   decideAiApproval: (

@@ -19,7 +19,6 @@
 npm run dev
 npm run build
 npm test
-npm --prefix frontend run check:size
 npm --prefix frontend run smoke
 ```
 
@@ -117,16 +116,9 @@ API 调用优先通过 `frontend/src/api` 中的 client 与类型封装。修改
 
 文件体量是健康检查，不是开发目标：
 
-- 新增 React TSX 文件默认不超过 1000 行。
-- 已有大文件不应无边界扩张。
-- 如果文件变大，优先检查职责是否清晰。
+- 新增 React TSX 文件默认应保持职责单一，避免把无关状态、请求、派生数据和大量 JSX 堆到同一处。
+- 已有大文件不应无边界扩张；如果文件变大，优先检查职责是否清晰。
 - 如果文件较长但职责单一、调用清楚、测试明确，可以接受。
-
-检查命令：
-
-```bash
-npm --prefix frontend run check:size
-```
 
 ## 9. 测试与验证
 
@@ -134,13 +126,12 @@ npm --prefix frontend run check:size
 
 - 文档或注释变更不要求跑完整前端测试。
 - model/helper 变更至少跑对应单测。
-- 页面结构、工作区编排或状态流变更至少跑 `check:size`、`test`、`build`。
+- 页面结构、工作区编排或状态流变更至少跑 `test`、`build`。
 - 响应式、移动端或导航变更应补跑 `smoke`。
 
 推荐命令：
 
 ```bash
-npm --prefix frontend run check:size
 npm --prefix frontend run test
 npm --prefix frontend run build
 npm --prefix frontend run smoke

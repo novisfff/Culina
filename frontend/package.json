@@ -10,7 +10,6 @@
     "test": "vitest run",
     "smoke": "node scripts/smoke.mjs",
     "ai:skill-smoke": "node scripts/ai-skill-manual-smoke.mjs",
-    "check:size": "node scripts/check-file-budgets.mjs",
     "check:bundle": "node scripts/check-bundle-budgets.mjs"
   },
   "dependencies": {

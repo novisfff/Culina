@@ -76,6 +76,11 @@ class AISkillLoaderTestCase(AIAgentInfraTestCase):
             self.assertNotIn("general_chat", skill_registry.keys())
             self.assertNotIn("today_recommendation", skill_registry.keys())
             self.assertIsInstance(skill_registry.get("inventory_analysis"), CatalogSkill)
+            catalog_record = skill_registry.get("inventory_analysis").manifest.to_catalog_record()
+            self.assertEqual(catalog_record["key"], "inventory_analysis")
+            self.assertEqual(catalog_record["displayName"], "库存查看与处理")
+            self.assertNotIn("slug", catalog_record)
+            self.assertNotIn("name", catalog_record)
             self.assertIn("ingredient.search", skill_registry.get("shopping_list").manifest.tools)
             self.assertIn("ingredient.read_by_id", skill_registry.get("shopping_list").manifest.tools)
 
@@ -191,6 +196,18 @@ class AISkillLoaderTestCase(AIAgentInfraTestCase):
             )
             self.assertIn(
                 "本 Skill 只能说明需要进入食材档案流程",
+                skill_registry.get("inventory_analysis").instructions,
+            )
+            self.assertIn(
+                '"draftType": "inventory_operation"',
+                skill_registry.get("inventory_analysis").instructions,
+            )
+            self.assertIn(
+                '"schemaVersion": "inventory_operation.v1"',
+                skill_registry.get("inventory_analysis").instructions,
+            )
+            self.assertIn(
+                "不要只提交 `draftType` / `schemaVersion` 的空壳，也不要省略 `draftType`。",
                 skill_registry.get("inventory_analysis").instructions,
             )
             self.assertIn(

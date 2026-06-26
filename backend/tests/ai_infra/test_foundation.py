@@ -2,7 +2,9 @@ from ._support import *
 
 from typing import Any
 
-from app.ai.errors import HumanInputRequired
+from langchain_core.messages import ToolMessage
+
+from app.ai.errors import ApprovalRequired, HumanInputRequired
 from app.schemas.ai import AIResultCardDTO
 
 
@@ -149,6 +151,273 @@ class AIFoundationTestCase(AIAgentInfraTestCase):
                 ),
                 )
 
+        def test_openai_compatible_provider_returns_tool_error_to_model(self) -> None:
+            class ToolCallChunk:
+                content = ""
+                tool_calls = [
+                    {
+                        "id": "call-bad-tool",
+                        "name": "inventory_read_available_items",
+                        "args": {"limit": -1},
+                    }
+                ]
+
+                def __add__(self, other):
+                    return other
+
+            class TextChunk:
+                tool_calls: list[dict[str, Any]] = []
+                tool_call_chunks: list[dict[str, Any]] = []
+
+                def __init__(self, content: str) -> None:
+                    self.content = content
+
+                def __add__(self, other):
+                    return TextChunk(f"{self.content}{getattr(other, 'content', '')}")
+
+            provider = OpenAICompatibleChatProvider.__new__(OpenAICompatibleChatProvider)
+            provider.model_name = "compatible-model"
+            stream_client = MagicMock()
+            tool_client = MagicMock()
+            tool_client.bind.return_value = stream_client
+            provider.client = MagicMock()
+            provider.client.bind_tools.return_value = tool_client
+            stream_client.stream.side_effect = [[ToolCallChunk()], [TextChunk("我已根据错误调整处理。")]]
+            tool = build_workspace_tool_registry().get("inventory.read_available_items")
+
+            result = provider.generate_with_tools(
+                system="s",
+                user="u",
+                tools=lambda: [tool],
+                tool_handler=lambda name, payload: (_ for _ in ()).throw(ValueError("limit must be positive")),
+            )
+
+            self.assertEqual(result.status, "completed")
+            self.assertEqual(result.text, "我已根据错误调整处理。")
+            self.assertEqual(stream_client.stream.call_count, 2)
+            second_messages = stream_client.stream.call_args_list[1].args[0]
+            tool_message = next(message for message in second_messages if isinstance(message, ToolMessage))
+            self.assertIsInstance(tool_message, ToolMessage)
+            self.assertIn("tool_execution_failed", str(tool_message.content))
+            self.assertIn("limit must be positive", str(tool_message.content))
+
+        def test_openai_compatible_provider_retries_empty_tool_response_before_completion(self) -> None:
+            class EmptyChunk:
+                content = ""
+                tool_calls: list[dict[str, Any]] = []
+                tool_call_chunks: list[dict[str, Any]] = []
+
+                def __add__(self, other):
+                    return other
+
+            class TextChunk:
+                tool_calls: list[dict[str, Any]] = []
+                tool_call_chunks: list[dict[str, Any]] = []
+
+                def __init__(self, content: str) -> None:
+                    self.content = content
+
+                def __add__(self, other):
+                    return TextChunk(f"{self.content}{getattr(other, 'content', '')}")
+
+            provider = OpenAICompatibleChatProvider.__new__(OpenAICompatibleChatProvider)
+            provider.model_name = "compatible-model"
+            stream_client = MagicMock()
+            tool_client = MagicMock()
+            tool_client.bind.return_value = stream_client
+            provider.client = MagicMock()
+            provider.client.bind_tools.return_value = tool_client
+            stream_client.stream.side_effect = [[EmptyChunk()], [TextChunk("重试后有结果。")]]
+            tool = build_workspace_tool_registry().get("inventory.read_available_items")
+
+            result = provider.generate_with_tools(
+                system="s",
+                user="u",
+                tools=lambda: [tool],
+                tool_handler=lambda name, payload: self.fail("tool handler should not run"),
+            )
+
+            self.assertEqual(result.status, "completed")
+            self.assertEqual(result.text, "重试后有结果。")
+            self.assertEqual(result.error, None)
+            self.assertEqual(stream_client.stream.call_count, 2)
+
+        def test_openai_compatible_provider_fails_after_empty_tool_response_retries(self) -> None:
+            class EmptyChunk:
+                content = ""
+                tool_calls: list[dict[str, Any]] = []
+                tool_call_chunks: list[dict[str, Any]] = []
+
+                def __add__(self, other):
+                    return other
+
+            provider = OpenAICompatibleChatProvider.__new__(OpenAICompatibleChatProvider)
+            provider.model_name = "compatible-model"
+            stream_client = MagicMock()
+            tool_client = MagicMock()
+            tool_client.bind.return_value = stream_client
+            provider.client = MagicMock()
+            provider.client.bind_tools.return_value = tool_client
+            stream_client.stream.return_value = [EmptyChunk()]
+            tool = build_workspace_tool_registry().get("inventory.read_available_items")
+
+            result = provider.generate_with_tools(
+                system="s",
+                user="u",
+                tools=lambda: [tool],
+                tool_handler=lambda name, payload: self.fail("tool handler should not run"),
+            )
+
+            self.assertEqual(result.status, "failed")
+            self.assertEqual(result.text, None)
+            self.assertEqual(result.error, "empty model response")
+            self.assertEqual(stream_client.stream.call_count, 4)
+
+        def test_openai_compatible_provider_does_not_duplicate_failed_preview_after_progress_handoff(self) -> None:
+            class ToolCallChunk:
+                content = ""
+                tool_call_chunks = [
+                    {
+                        "index": 0,
+                        "id": "call-bad-tool",
+                        "name": "inventory_read_available_items",
+                        "args": "",
+                    }
+                ]
+                tool_calls = [
+                    {
+                        "id": "call-bad-tool",
+                        "name": "inventory_read_available_items",
+                        "args": {"limit": -1},
+                    }
+                ]
+
+                def __add__(self, other):
+                    return other
+
+            class TextChunk:
+                tool_calls: list[dict[str, Any]] = []
+                tool_call_chunks: list[dict[str, Any]] = []
+
+                def __init__(self, content: str) -> None:
+                    self.content = content
+
+                def __add__(self, other):
+                    return TextChunk(f"{self.content}{getattr(other, 'content', '')}")
+
+            provider = OpenAICompatibleChatProvider.__new__(OpenAICompatibleChatProvider)
+            provider.model_name = "compatible-model"
+            stream_client = MagicMock()
+            tool_client = MagicMock()
+            tool_client.bind.return_value = stream_client
+            provider.client = MagicMock()
+            provider.client.bind_tools.return_value = tool_client
+            stream_client.stream.side_effect = [[ToolCallChunk()], [TextChunk("我已换一种方式处理。")]]
+            tool = build_workspace_tool_registry().get("inventory.read_available_items")
+            previews: list[tuple[str, str, str]] = []
+            handler_event_ids: list[str | None] = []
+
+            def preview_handler(name: str, preview_key: str, status: str) -> str:
+                previews.append((name, preview_key, status))
+                return f"event-{preview_key}"
+
+            def tool_handler(_name: str, _payload: dict[str, Any], progress_event_id: str | None = None) -> dict[str, Any]:
+                handler_event_ids.append(progress_event_id)
+                raise ValueError("limit must be positive")
+
+            result = provider.generate_with_tools(
+                system="s",
+                user="u",
+                tools=lambda: [tool],
+                tool_handler=tool_handler,
+                tool_preview_handler=preview_handler,
+            )
+
+            self.assertEqual(result.status, "completed")
+            self.assertEqual(result.text, "我已换一种方式处理。")
+            self.assertEqual(previews, [("inventory.read_available_items", "0", "running")])
+            self.assertEqual(handler_event_ids, ["event-0"])
+            second_messages = stream_client.stream.call_args_list[1].args[0]
+            tool_message = next(message for message in second_messages if isinstance(message, ToolMessage))
+            self.assertIn("tool_execution_failed", str(tool_message.content))
+
+        def test_openai_compatible_provider_ignores_tool_stop_marker_output(self) -> None:
+            class ToolCallChunk:
+                content = ""
+                tool_calls = [
+                    {
+                        "id": "call-read",
+                        "name": "inventory_read_available_items",
+                        "args": {"limit": 10},
+                    }
+                ]
+
+                def __add__(self, other):
+                    return other
+
+            class TextChunk:
+                tool_calls: list[dict[str, Any]] = []
+                tool_call_chunks: list[dict[str, Any]] = []
+
+                def __init__(self, content: str) -> None:
+                    self.content = content
+
+                def __add__(self, other):
+                    return TextChunk(f"{self.content}{getattr(other, 'content', '')}")
+
+            provider = OpenAICompatibleChatProvider.__new__(OpenAICompatibleChatProvider)
+            provider.model_name = "compatible-model"
+            stream_client = MagicMock()
+            tool_client = MagicMock()
+            tool_client.bind.return_value = stream_client
+            provider.client = MagicMock()
+            provider.client.bind_tools.return_value = tool_client
+            stream_client.stream.side_effect = [[ToolCallChunk()], [TextChunk("读取完成。")]]
+            tool = build_workspace_tool_registry().get("inventory.read_available_items")
+
+            result = provider.generate_with_tools(
+                system="s",
+                user="u",
+                tools=lambda: [tool],
+                tool_handler=lambda name, payload: {"__tool_loop_stop__": {"status": "waiting_approval"}},
+            )
+
+            self.assertEqual(result.status, "completed")
+            self.assertEqual(result.text, "读取完成。")
+            self.assertEqual(stream_client.stream.call_count, 2)
+
+        def test_openai_compatible_provider_propagates_approval_interrupt(self) -> None:
+            class ToolCallChunk:
+                content = ""
+                tool_calls = [
+                    {
+                        "id": "call-draft",
+                        "name": "recipe_create_draft",
+                        "args": {"draft": {"title": "番茄炒蛋"}},
+                    }
+                ]
+
+                def __add__(self, other):
+                    return other
+
+            provider = OpenAICompatibleChatProvider.__new__(OpenAICompatibleChatProvider)
+            provider.model_name = "compatible-model"
+            stream_client = MagicMock()
+            tool_client = MagicMock()
+            tool_client.bind.return_value = stream_client
+            provider.client = MagicMock()
+            provider.client.bind_tools.return_value = tool_client
+            stream_client.stream.return_value = [ToolCallChunk()]
+            tool = build_workspace_tool_registry().get("recipe.create_draft")
+
+            with self.assertRaises(ApprovalRequired):
+                provider.generate_with_tools(
+                    system="s",
+                    user="u",
+                    tools=lambda: [tool],
+                    tool_handler=lambda name, payload: (_ for _ in ()).throw(ApprovalRequired("approval required")),
+                )
+
         def test_openai_compatible_provider_retries_stream_failure_before_output(self) -> None:
             class TextChunk:
                 tool_calls: list[dict[str, Any]] = []
@@ -240,6 +509,73 @@ class AIFoundationTestCase(AIAgentInfraTestCase):
             self.assertEqual(result.status, "completed")
             self.assertEqual(previews, [("inventory.read_available_items", "0", "running")])
             self.assertEqual(handler_event_ids, ["event-0"])
+
+        def test_openai_compatible_provider_marks_preview_failed_without_final_tool_call(self) -> None:
+            class PreviewChunk:
+                content = ""
+                tool_calls: list[dict[str, Any]] = []
+
+                def __init__(self, chunks: list[dict[str, Any]]) -> None:
+                    self.tool_call_chunks = chunks
+
+                def __add__(self, other):
+                    return FinalTextMessage(getattr(other, "content", ""))
+
+            class TextChunk:
+                tool_calls: list[dict[str, Any]] = []
+                tool_call_chunks: list[dict[str, Any]] = []
+
+                def __init__(self, content: str) -> None:
+                    self.content = content
+
+                def __add__(self, other):
+                    return FinalTextMessage(f"{self.content}{getattr(other, 'content', '')}")
+
+            class FinalTextMessage:
+                tool_calls: list[dict[str, Any]] = []
+                tool_call_chunks: list[dict[str, Any]] = []
+
+                def __init__(self, content: str) -> None:
+                    self.content = content
+
+                def __add__(self, other):
+                    return FinalTextMessage(f"{self.content}{getattr(other, 'content', '')}")
+
+            provider = OpenAICompatibleChatProvider.__new__(OpenAICompatibleChatProvider)
+            provider.model_name = "compatible-model"
+            stream_client = MagicMock()
+            tool_client = MagicMock()
+            tool_client.bind.return_value = stream_client
+            provider.client = MagicMock()
+            provider.client.bind_tools.return_value = tool_client
+            stream_client.stream.return_value = [
+                PreviewChunk([{"index": 0, "id": "call-read-items", "name": "inventory_read_available_items", "args": ""}]),
+                TextChunk("我会先查看库存。"),
+            ]
+            tool = build_workspace_tool_registry().get("inventory.read_available_items")
+            previews: list[tuple[str, str, str]] = []
+
+            def preview_handler(name: str, preview_key: str, status: str) -> str:
+                previews.append((name, preview_key, status))
+                return f"event-{preview_key}"
+
+            result = provider.generate_with_tools(
+                system="s",
+                user="u",
+                tools=lambda: [tool],
+                tool_handler=lambda _name, _payload: self.fail("tool handler should not run"),
+                tool_preview_handler=preview_handler,
+            )
+
+            self.assertEqual(result.status, "completed")
+            self.assertEqual(result.text, "我会先查看库存。")
+            self.assertEqual(
+                previews,
+                [
+                    ("inventory.read_available_items", "0", "running"),
+                    ("inventory.read_available_items", "0", "failed"),
+                ],
+            )
 
         def test_openai_compatible_provider_flushes_final_text_before_tool_execution(self) -> None:
             class AggregateChunk:
@@ -522,6 +858,21 @@ class AIFoundationTestCase(AIAgentInfraTestCase):
             keys, added = manager.inject(keys, ["meal_plan", "shopping_list"])
             self.assertEqual(keys, ["meal_plan", "shopping_list"])
             self.assertEqual(added, [])
+
+        def test_orchestrator_catalog_prompt_uses_skill_keys_not_slugs(self) -> None:
+            agent = WorkspaceOrchestratorAgent(
+                provider=DisabledChatProvider(model_name="unused"),
+                skill_registry=build_workspace_skill_registry(),
+            )
+
+            prompt = agent._system_prompt([])
+
+            self.assertIn("skill.yaml:key", prompt)
+            self.assertIn("必须写 inventory_analysis", prompt)
+            self.assertIn('"key": "inventory_analysis"', prompt)
+            self.assertIn('"displayName": "库存查看与处理"', prompt)
+            self.assertNotIn('"slug"', prompt)
+            self.assertNotIn('"name": "inventory-analysis"', prompt)
 
         def test_orchestrator_rejects_ambiguous_draft_tool_without_type(self) -> None:
             agent = WorkspaceOrchestratorAgent(
@@ -889,12 +1240,68 @@ class AIFoundationTestCase(AIAgentInfraTestCase):
                             run_id="run-orchestrator-draft-card-without-tool",
                         ),
                     ),
-                )
+                ),
+                injected_skill_keys=["recipe_draft"],
             )
 
             self.assertEqual(result.status, "completed")
             self.assertEqual(result.drafts, [])
             self.assertEqual(result.cards, [])
+            self.assertEqual(result.error, None)
+
+        def test_orchestrator_allows_skill_completion_without_business_output(self) -> None:
+            class IncompleteRecipeCookProvider(BaseChatProvider):
+                model_name = "incomplete-recipe-cook-model"
+
+                def generate(self, *, system: str, user: str) -> ChatProviderResult:
+                    raise AssertionError("orchestrator should use generate_with_tools")
+
+                def generate_with_tools(
+                    self,
+                    *,
+                    system: str,
+                    user: str,
+                    tools,
+                    tool_handler,
+                    message_handler=None,
+                    max_rounds: int = 8,
+                ) -> ChatProviderResult:
+                    del system, user, tools, tool_handler, max_rounds
+                    text = "我会先查找番茄炒蛋的已有菜谱，并按 2 人份预览库存扣减。"
+                    if message_handler is not None:
+                        message_handler(text)
+                    return ChatProviderResult(text=text, status="completed", model=self.model_name)
+
+            result = WorkspaceOrchestratorAgent(
+                provider=IncompleteRecipeCookProvider(),
+                skill_registry=build_workspace_skill_registry(),
+            ).run(
+                SkillContext(
+                    db=MagicMock(),
+                    family_id=self.family.id,
+                    user_id=self.user.id,
+                    conversation_id="conversation-incomplete-recipe-cook",
+                    run_id="run-incomplete-recipe-cook",
+                    conversation=[{"id": "message-1", "role": "user", "content": "开始做番茄炒蛋，按 2 人份，做完后记录到今晚晚餐。", "artifacts": []}],
+                    current_message="开始做番茄炒蛋，按 2 人份，做完后记录到今晚晚餐。",
+                    tool_executor=ToolExecutor(
+                        build_workspace_tool_registry(),
+                        ToolContext(
+                            db=MagicMock(),
+                            family_id=self.family.id,
+                            user_id=self.user.id,
+                            conversation_id="conversation-incomplete-recipe-cook",
+                            run_id="run-incomplete-recipe-cook",
+                        ),
+                    ),
+                ),
+                injected_skill_keys=["recipe_cook"],
+            )
+
+            self.assertEqual(result.status, "completed")
+            self.assertEqual(result.drafts, [])
+            self.assertEqual(result.error, None)
+            self.assertEqual(result.context_summary["orchestrator"]["injectedSkills"], ["recipe_cook"])
 
         def test_orchestrator_rejects_tool_call_before_skill_injection(self) -> None:
             class PrematureToolProvider(BaseChatProvider):
@@ -1002,8 +1409,6 @@ class AIFoundationTestCase(AIAgentInfraTestCase):
 
                 def __init__(self) -> None:
                     self.calls = 0
-                    self.resume_artifacts: list[dict] = []
-                    self.resume_injected_skills: list[str] = []
 
                 def generate(self, *, system: str, user: str) -> ChatProviderResult:
                     raise AssertionError("orchestrator should use generate_with_tools")

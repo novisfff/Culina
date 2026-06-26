@@ -352,7 +352,7 @@ class FakeChatProvider(BaseChatProvider):
                 tool_names,
             )
         recommendation_mode = quick_task == "today_recommendation" or (
-            any(term in message for term in ["今日吃什么", "今天吃什么", "今晚吃什么", "推荐一餐"])
+            any(term in message for term in ["今日吃什么", "今天吃什么", "今晚吃什么", "中午吃啥", "早餐思路", "推荐一餐"])
             and not any(term in message for term in ["安排", "计划", "菜单", "制定", "修改", "第二天", "三天"])
         )
 
@@ -594,7 +594,7 @@ class FakeChatProvider(BaseChatProvider):
             return self._tool_result(
                 {
                     "text": text,
-                    "cards": [{"id": "inventory-summary", "type": "inventory_summary", "title": "库存概览", "data": summary}],
+                    "cards": [],
                     "events": [{"type": "tool", "message": "已读取库存摘要"}],
                     "context_summary": {
                         "inventoryItemCount": summary.get("availableCount", 0),
@@ -609,7 +609,7 @@ class FakeChatProvider(BaseChatProvider):
                 tool_names,
             )
 
-        if "recipe.search" in available_tool_names and "meal_log.read_recent" in available_tool_names:
+        if "meal_plan.recommend_today" in available_tool_names and "recipe.search" in available_tool_names and "meal_log.read_recent" in available_tool_names:
             emit_visible("我先看一下库存、菜谱和最近餐食。")
             inventory = call("inventory.read_available_items", {"limit": 50})
             expiring = call("inventory.read_expiring_items", {"days": 7})
@@ -619,28 +619,16 @@ class FakeChatProvider(BaseChatProvider):
             food_candidates = [item for item in foods.get("items", [])[:3] if item.get("id")]
             recipe_candidates = [item for item in recipes.get("items", [])[:3] if item.get("id")]
             candidates = (
-                [{"foodId": item["id"]} for item in food_candidates]
-                or [{"recipeId": item["id"]} for item in recipe_candidates]
+                [{"foodId": item["id"], "reason": "优先使用当前库存。", "evidence": expiring.get("items", [])[:1]} for item in food_candidates]
+                or [{"recipeId": item["id"], "reason": "结合当前库存和菜谱库推荐。", "evidence": expiring.get("items", [])[:1]} for item in recipe_candidates]
             )
-            card = {
-                "id": "today-recommendation",
-                "type": "today_recommendation",
-                "title": "今日吃什么",
-                "data": {
-                    "recommendations": [{**candidate, "reason": "优先使用当前库存。", "evidence": expiring.get("items", [])[:1]} for candidate in candidates[:3]],
-                    "contextSummary": {
-                        "inventoryCount": inventory.get("count", 0),
-                        "expiringCount": expiring.get("count", 0),
-                        "recentMealCount": recent.get("count", 0),
-                        "recipeCount": recipes.get("count", 0),
-                    },
-                },
-            }
+            meal_type = "breakfast" if "早餐" in message else "lunch" if "中午" in message else "dinner" if "今晚" in message else None
+            call("meal_plan.recommend_today", {"recommendations": candidates[:3], "mealType": meal_type})
             emit_visible("我按当前库存和最近餐食整理了今天的建议。")
             return self._tool_result(
                 {
                     "text": "我按当前库存和最近餐食整理了今天的建议。",
-                    "cards": [card],
+                    "cards": [],
                     "events": [{"type": "tool", "message": "已读取库存、菜谱和最近餐食"}],
                     "context_summary": {"inventoryItemCount": inventory.get("count", 0), "expiringItemCount": expiring.get("count", 0)},
                     "state_patch": {},
@@ -672,7 +660,7 @@ class FakeChatProvider(BaseChatProvider):
             return ["food_profile"]
         if any(term in message for term in ["库存", "临期", "快过期"]):
             return ["inventory_analysis"]
-        if any(term in message for term in ["今日吃什么", "今天吃什么", "今晚吃什么"]):
+        if any(term in message for term in ["今日吃什么", "今天吃什么", "今晚吃什么", "中午吃啥", "早餐思路", "推荐一餐"]):
             return ["meal_plan"]
         return []
 

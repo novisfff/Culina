@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { AiApprovalRequest, AiGeneratedRecipeDraft, Difficulty, Food, Ingredient } from '../../api/types';
 import { FoodRatingInput } from '../foods/FoodWorkspacePrimitives';
 import { resolveAssetUrl } from '../../lib/assets';
@@ -274,11 +274,20 @@ export function ApprovalPanel({
     ingredient: [],
   });
 
-  const [isExpanded, setIsExpanded] = useState(isLatest);
+  const [isExpanded, setIsExpanded] = useState(isLatest && approval.status === 'pending');
+  const foldTimeoutRef = useRef<any>(null);
 
   useEffect(() => {
-    setIsExpanded(isLatest);
-  }, [isLatest]);
+    setIsExpanded(isLatest && approval.status === 'pending');
+  }, [isLatest, approval.status]);
+
+  useEffect(() => {
+    return () => {
+      if (foldTimeoutRef.current) {
+        clearTimeout(foldTimeoutRef.current);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     if (approval.status !== 'pending') {
@@ -385,6 +394,9 @@ export function ApprovalPanel({
     try {
       setIsSubmitting(true);
       await onDecision(currentApproval, decision, values, comment);
+      foldTimeoutRef.current = setTimeout(() => {
+        setIsExpanded(false);
+      }, 300);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : '提交失败');
     } finally {

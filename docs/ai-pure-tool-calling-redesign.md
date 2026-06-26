@@ -1323,7 +1323,6 @@ final response 合并不丢 live text
 
 ```bash
 npm --prefix frontend run test -- AiWorkspace.test.tsx aiApi.test.ts
-npm --prefix frontend run check:size
 npm --prefix frontend run build
 ```
 

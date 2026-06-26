@@ -14,7 +14,7 @@ from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
 from langchain_openai import ChatOpenAI
 
 from app.ai.tools.base import ToolDefinition
-from app.ai.errors import AIExecutionCancelled, HumanInputRequired
+from app.ai.errors import AIExecutionCancelled, ApprovalRequired, HumanInputRequired
 from app.core.config import get_settings
 
 logger = logging.getLogger(__name__)
@@ -55,7 +55,15 @@ class BaseChatProvider:
     model_name: str = ""
     supports_vision: bool = False
 
-    def generate(self, *, system: str, user: ProviderUserContent) -> ChatProviderResult:  # pragma: no cover - interface
+    def generate(
+        self,
+        *,
+        system: str,
+        user: ProviderUserContent,
+        trace_recorder: Any | None = None,
+        trace_request_options: dict[str, Any] | None = None,
+    ) -> ChatProviderResult:  # pragma: no cover - interface
+        del trace_recorder, trace_request_options
         raise NotImplementedError
 
     def generate_with_tools(
@@ -68,17 +76,19 @@ class BaseChatProvider:
         message_handler: AssistantMessageHandler | None = None,
         tool_preview_handler: ToolPreviewHandler | None = None,
         max_rounds: int = 8,
+        trace_recorder: Any | None = None,
     ) -> ChatProviderResult:
         del tools, tool_handler, message_handler, tool_preview_handler, max_rounds
-        return self.generate(system=system, user=user)
+        return self.generate(system=system, user=user, trace_recorder=trace_recorder)
 
     def stream_generate(
         self,
         *,
         system: str,
         user: ProviderUserContent,
+        trace_recorder: Any | None = None,
     ) -> Iterator[str]:
-        result = self.generate(system=system, user=user)
+        result = self.generate(system=system, user=user, trace_recorder=trace_recorder)
         if result.text:
             yield result.text
 
@@ -87,7 +97,15 @@ class DisabledChatProvider(BaseChatProvider):
     def __init__(self, model_name: str = "") -> None:
         self.model_name = model_name
 
-    def generate(self, *, system: str, user: ProviderUserContent) -> ChatProviderResult:
+    def generate(
+        self,
+        *,
+        system: str,
+        user: ProviderUserContent,
+        trace_recorder: Any | None = None,
+        trace_request_options: dict[str, Any] | None = None,
+    ) -> ChatProviderResult:
+        del trace_recorder, trace_request_options
         if isinstance(user, ProviderUserInput) and user.images:
             return ChatProviderResult(
                 text=None,
@@ -107,8 +125,9 @@ class DisabledChatProvider(BaseChatProvider):
         message_handler: AssistantMessageHandler | None = None,
         tool_preview_handler: ToolPreviewHandler | None = None,
         max_rounds: int = 8,
+        trace_recorder: Any | None = None,
     ) -> ChatProviderResult:
-        del system, user, tools, tool_handler, message_handler, tool_preview_handler, max_rounds
+        del system, user, tools, tool_handler, message_handler, tool_preview_handler, max_rounds, trace_recorder
         return ChatProviderResult(text=None, status="fallback", model=self.model_name, error="provider unavailable")
 
 
@@ -158,13 +177,40 @@ class OpenAICompatibleChatProvider(BaseChatProvider):
             )
         return content
 
-    def generate(self, *, system: str, user: ProviderUserContent) -> ChatProviderResult:
+    def generate(
+        self,
+        *,
+        system: str,
+        user: ProviderUserContent,
+        trace_recorder: Any | None = None,
+        trace_request_options: dict[str, Any] | None = None,
+    ) -> ChatProviderResult:
+        messages = [SystemMessage(content=system), HumanMessage(content=self._human_content(user))]
+        request_options = {"model": self.model_name, "mode": "generate", "supportsVision": self.supports_vision}
+        if trace_request_options:
+            request_options.update(trace_request_options)
+        exchange = (
+            trace_recorder.start_exchange(
+                span_id=None,
+                provider_round=1,
+                attempt_index=1,
+                mode="generate",
+                model=self.model_name,
+                request_messages=messages,
+                request_tools=[],
+                request_options=request_options,
+            )
+            if trace_recorder is not None
+            else None
+        )
         try:
-            message = self.client.invoke([SystemMessage(content=system), HumanMessage(content=self._human_content(user))])
+            message = self.client.invoke(messages)
             text = self._content_to_text(message.content).strip()
         except AIExecutionCancelled:
             raise
         except Exception as exc:  # pragma: no cover - network/provider failure
+            if exchange is not None:
+                exchange.fail(error_code="provider_unavailable", error_message=str(exc))
             logger.warning(
                 "AI provider generate failed model=%s error=%s",
                 self.model_name,
@@ -173,8 +219,18 @@ class OpenAICompatibleChatProvider(BaseChatProvider):
             )
             return ChatProviderResult(text=None, status="fallback", model=self.model_name, error=str(exc))
         if text:
+            if exchange is not None:
+                exchange.finish(response_message=message, response_text=text, status="completed")
             return ChatProviderResult(text=text, status="completed", model=self.model_name)
         logger.warning("AI provider returned empty response model=%s", self.model_name)
+        if exchange is not None:
+            exchange.finish(
+                response_message=message,
+                response_text=None,
+                status="failed",
+                error_code="provider_empty_response",
+                error_message="empty model response",
+            )
         return ChatProviderResult(
             text=None,
             status="fallback",
@@ -192,6 +248,7 @@ class OpenAICompatibleChatProvider(BaseChatProvider):
         message_handler: AssistantMessageHandler | None = None,
         tool_preview_handler: ToolPreviewHandler | None = None,
         max_rounds: int = 8,
+        trace_recorder: Any | None = None,
     ) -> ChatProviderResult:
         messages: list[Any] = [SystemMessage(content=system), HumanMessage(content=self._human_content(user))]
         requested_calls: list[dict[str, Any]] = []
@@ -209,6 +266,29 @@ class OpenAICompatibleChatProvider(BaseChatProvider):
                 emitted_text_this_attempt = False
                 streamed_text_this_attempt: list[str] = []
                 message = None
+                exchange = (
+                    trace_recorder.start_exchange(
+                        span_id=None,
+                        provider_round=_round + 1,
+                        attempt_index=attempt + 1,
+                        mode="stream",
+                        model=self.model_name,
+                        request_messages=messages,
+                        request_tools=model_tools,
+                        request_options={
+                            "model": self.model_name,
+                            "mode": "stream",
+                            "roundIndex": _round + 1,
+                            "attemptIndex": attempt + 1,
+                            "maxRounds": max_rounds,
+                            "toolCount": len(current_tools),
+                            "supportsVision": self.supports_vision,
+                            "temperature": 0,
+                        },
+                    )
+                    if trace_recorder is not None
+                    else None
+                )
                 try:
                     for chunk in client.stream(messages):
                         message = chunk if message is None else message + chunk
@@ -226,6 +306,34 @@ class OpenAICompatibleChatProvider(BaseChatProvider):
                             text_parts.append(text)
                             if message_handler is not None:
                                 message_handler(text)
+                    if message is None:
+                        if exchange is not None:
+                            exchange.fail(error_code="provider_empty_response", error_message="empty model response")
+                        retrying = attempt < STREAM_TOOL_CALL_RETRY_COUNT
+                        logger.warning(
+                            "AI provider streaming tool-call returned no chunks model=%s round=%s attempt=%s/%s retrying=%s tool_count=%s requested_calls=%s",
+                            self.model_name,
+                            _round + 1,
+                            attempt + 1,
+                            STREAM_TOOL_CALL_RETRY_COUNT + 1,
+                            retrying,
+                            len(current_tools),
+                            len(requested_calls),
+                        )
+                        if retrying:
+                            continue
+                        self._mark_tool_call_previews_failed(
+                            preview_names_by_key=preview_names_by_key,
+                            preview_event_ids_by_key=preview_event_ids_by_key,
+                            tool_preview_handler=tool_preview_handler,
+                        )
+                        return ChatProviderResult(
+                            text=None,
+                            status="failed",
+                            model=self.model_name,
+                            error="empty model response",
+                            tool_calls=requested_calls,
+                        )
                     if message is not None:
                         self._emit_unstreamed_message_text(
                             message,
@@ -233,10 +341,53 @@ class OpenAICompatibleChatProvider(BaseChatProvider):
                             text_parts=text_parts,
                             message_handler=message_handler,
                         )
+                        if exchange is not None:
+                            response_text = "".join(streamed_text_this_attempt).strip() or self._content_to_text(message.content).strip() or None
+                            response_tool_calls = self._message_tool_calls(message)
+                            exchange.finish(
+                                response_message=message,
+                                response_text=response_text,
+                                response_tool_calls=response_tool_calls,
+                                stream_chunks=trace_recorder.stream_chunks_payload(streamed_text_this_attempt),
+                                status="failed" if not response_text and not response_tool_calls else "completed",
+                                error_code="provider_empty_response" if not response_text and not response_tool_calls else None,
+                                error_message="empty model response" if not response_text and not response_tool_calls else None,
+                            )
+                        response_text = "".join(streamed_text_this_attempt).strip() or self._content_to_text(message.content).strip()
+                        response_tool_calls = self._message_tool_calls(message)
+                        if not response_text and not response_tool_calls:
+                            retrying = attempt < STREAM_TOOL_CALL_RETRY_COUNT
+                            logger.warning(
+                                "AI provider streaming tool-call returned empty response model=%s round=%s attempt=%s/%s retrying=%s tool_count=%s requested_calls=%s",
+                                self.model_name,
+                                _round + 1,
+                                attempt + 1,
+                                STREAM_TOOL_CALL_RETRY_COUNT + 1,
+                                retrying,
+                                len(current_tools),
+                                len(requested_calls),
+                            )
+                            if retrying:
+                                message = None
+                                continue
+                            self._mark_tool_call_previews_failed(
+                                preview_names_by_key=preview_names_by_key,
+                                preview_event_ids_by_key=preview_event_ids_by_key,
+                                tool_preview_handler=tool_preview_handler,
+                            )
+                            return ChatProviderResult(
+                                text=None,
+                                status="failed",
+                                model=self.model_name,
+                                error="empty model response",
+                                tool_calls=requested_calls,
+                            )
                     break
                 except AIExecutionCancelled:
                     raise
                 except Exception as exc:  # pragma: no cover - network/provider failure
+                    if exchange is not None:
+                        exchange.fail(error_code="provider_stream_failed", error_message=str(exc), response_message=message)
                     retrying = attempt < STREAM_TOOL_CALL_RETRY_COUNT and not emitted_text_this_attempt
                     logger.warning(
                         "AI provider streaming tool-call invoke failed model=%s round=%s attempt=%s/%s retrying=%s tool_count=%s requested_calls=%s error=%s",
@@ -266,6 +417,7 @@ class OpenAICompatibleChatProvider(BaseChatProvider):
                             message_handler=message_handler,
                             tool_preview_handler=tool_preview_handler,
                             max_rounds=max_rounds,
+                            trace_recorder=trace_recorder,
                         )
                     return ChatProviderResult(
                         text=None,
@@ -276,7 +428,7 @@ class OpenAICompatibleChatProvider(BaseChatProvider):
                     )
             if message is None:
                 logger.warning(
-                    "AI provider streaming tool-call returned no chunks model=%s round=%s tool_count=%s requested_calls=%s",
+                    "AI provider streaming tool-call returned no chunks after retries model=%s round=%s tool_count=%s requested_calls=%s",
                     self.model_name,
                     _round + 1,
                     len(current_tools),
@@ -286,12 +438,17 @@ class OpenAICompatibleChatProvider(BaseChatProvider):
                     text=None,
                     status="failed",
                     model=self.model_name,
-                    error="empty model stream",
+                    error="empty model response",
                     tool_calls=requested_calls,
                 )
             messages.append(message)
             tool_calls = self._message_tool_calls(message)
             if not tool_calls:
+                self._mark_tool_call_previews_failed(
+                    preview_names_by_key=preview_names_by_key,
+                    preview_event_ids_by_key=preview_event_ids_by_key,
+                    tool_preview_handler=tool_preview_handler,
+                )
                 text = "".join(text_parts).strip() or self._content_to_text(message.content).strip()
                 return ChatProviderResult(
                     text=text or None,
@@ -317,34 +474,26 @@ class OpenAICompatibleChatProvider(BaseChatProvider):
                 )
                 try:
                     output = self._invoke_tool_handler(tool_handler, name, args, progress_event_id)
-                except (AIExecutionCancelled, HumanInputRequired):
+                except (AIExecutionCancelled, ApprovalRequired, HumanInputRequired):
                     raise
                 except Exception as exc:
                     logger.warning(
-                        "AI provider tool handler failed model=%s call_id=%s tool=%s error=%s",
+                        "AI provider tool handler returned recoverable error model=%s call_id=%s tool=%s error=%s",
                         self.model_name,
                         call_id,
                         name,
                         exc,
                         exc_info=True,
                     )
-                    return ChatProviderResult(
-                        text=None,
-                        status="failed",
-                        model=self.model_name,
-                        error=str(exc),
-                        tool_calls=requested_calls,
+                    if tool_preview_handler is not None and progress_event_id is None:
+                        tool_preview_handler(name, preview_key, "failed")
+                    output = self._tool_error_message(name, exc)
+                messages.append(
+                    ToolMessage(
+                        content=json.dumps(output, ensure_ascii=False, default=str),
+                        tool_call_id=call_id,
                     )
-                stop_loop = output.pop("__tool_loop_stop__", None) if isinstance(output, dict) else None
-                if isinstance(stop_loop, dict):
-                    return ChatProviderResult(
-                        text="".join(text_parts).strip() or None,
-                        status=str(stop_loop.get("status") or "completed"),
-                        model=self.model_name,
-                        error=None,
-                        tool_calls=requested_calls,
-                    )
-                messages.append(ToolMessage(content=json.dumps(output, ensure_ascii=False, default=str), tool_call_id=call_id))
+                )
 
         logger.warning(
             "AI provider tool-call exceeded max rounds model=%s max_rounds=%s requested_calls=%s",
@@ -370,6 +519,7 @@ class OpenAICompatibleChatProvider(BaseChatProvider):
         message_handler: AssistantMessageHandler | None = None,
         tool_preview_handler: ToolPreviewHandler | None = None,
         max_rounds: int = 8,
+        trace_recorder: Any | None = None,
     ) -> ChatProviderResult:
         del tool_preview_handler
         messages: list[Any] = [SystemMessage(content=system), HumanMessage(content=self._human_content(user))]
@@ -381,34 +531,118 @@ class OpenAICompatibleChatProvider(BaseChatProvider):
             name_map = {self._model_tool_name(tool.name): tool.name for tool in current_tools}
             model_tools = [self._tool_definition_to_model_tool(tool) for tool in current_tools]
             client = self.client.bind_tools(model_tools).bind(temperature=0)
-            try:
-                message = client.invoke(messages)
-            except AIExecutionCancelled:
-                raise
-            except Exception as exc:  # pragma: no cover - network/provider failure
+            exchange = (
+                trace_recorder.start_exchange(
+                    span_id=None,
+                    provider_round=_round + 1,
+                    attempt_index=1,
+                    mode="blocking",
+                    model=self.model_name,
+                    request_messages=messages,
+                    request_tools=model_tools,
+                    request_options={
+                        "model": self.model_name,
+                        "mode": "blocking",
+                        "roundIndex": _round + 1,
+                        "maxRounds": max_rounds,
+                        "toolCount": len(current_tools),
+                        "supportsVision": self.supports_vision,
+                        "temperature": 0,
+                    },
+                )
+                if trace_recorder is not None
+                else None
+            )
+            message = None
+            for attempt in range(STREAM_TOOL_CALL_RETRY_COUNT + 1):
+                if attempt:
+                    exchange = (
+                        trace_recorder.start_exchange(
+                            span_id=None,
+                            provider_round=_round + 1,
+                            attempt_index=attempt + 1,
+                            mode="blocking",
+                            model=self.model_name,
+                            request_messages=messages,
+                            request_tools=model_tools,
+                            request_options={
+                                "model": self.model_name,
+                                "mode": "blocking",
+                                "roundIndex": _round + 1,
+                                "attemptIndex": attempt + 1,
+                                "maxRounds": max_rounds,
+                                "toolCount": len(current_tools),
+                                "supportsVision": self.supports_vision,
+                                "temperature": 0,
+                            },
+                        )
+                        if trace_recorder is not None
+                        else None
+                    )
+                try:
+                    message = client.invoke(messages)
+                except AIExecutionCancelled:
+                    raise
+                except Exception as exc:  # pragma: no cover - network/provider failure
+                    if exchange is not None:
+                        exchange.fail(error_code="provider_blocking_failed", error_message=str(exc))
+                    logger.warning(
+                        "AI provider tool-call invoke failed model=%s round=%s attempt=%s/%s tool_count=%s requested_calls=%s error=%s",
+                        self.model_name,
+                        _round + 1,
+                        attempt + 1,
+                        STREAM_TOOL_CALL_RETRY_COUNT + 1,
+                        len(current_tools),
+                        len(requested_calls),
+                        exc,
+                        exc_info=True,
+                    )
+                    return ChatProviderResult(
+                        text=None,
+                        status="failed",
+                        model=self.model_name,
+                        error=str(exc),
+                        tool_calls=requested_calls,
+                    )
+                text = self._content_to_text(getattr(message, "content", ""))
+                tool_calls = self._message_tool_calls(message)
+                if exchange is not None:
+                    exchange.finish(
+                        response_message=message,
+                        response_text=text.strip() or None,
+                        response_tool_calls=tool_calls,
+                        status="failed" if not text.strip() and not tool_calls else "completed",
+                        error_code="provider_empty_response" if not text.strip() and not tool_calls else None,
+                        error_message="empty model response" if not text.strip() and not tool_calls else None,
+                    )
+                if text.strip() or tool_calls:
+                    break
+                retrying = attempt < STREAM_TOOL_CALL_RETRY_COUNT
                 logger.warning(
-                    "AI provider tool-call invoke failed model=%s round=%s tool_count=%s requested_calls=%s error=%s",
+                    "AI provider blocking tool-call returned empty response model=%s round=%s attempt=%s/%s retrying=%s tool_count=%s requested_calls=%s",
                     self.model_name,
                     _round + 1,
+                    attempt + 1,
+                    STREAM_TOOL_CALL_RETRY_COUNT + 1,
+                    retrying,
                     len(current_tools),
                     len(requested_calls),
-                    exc,
-                    exc_info=True,
                 )
-                return ChatProviderResult(
-                    text=None,
-                    status="failed",
-                    model=self.model_name,
-                    error=str(exc),
-                    tool_calls=requested_calls,
-                )
+                if not retrying:
+                    return ChatProviderResult(
+                        text=None,
+                        status="failed",
+                        model=self.model_name,
+                        error="empty model response",
+                        tool_calls=requested_calls,
+                    )
             messages.append(message)
             text = self._content_to_text(getattr(message, "content", ""))
+            tool_calls = self._message_tool_calls(message)
             if text:
                 text_parts.append(text)
                 if message_handler is not None:
                     message_handler(text)
-            tool_calls = self._message_tool_calls(message)
             if not tool_calls:
                 text = "".join(text_parts).strip()
                 return ChatProviderResult(
@@ -433,33 +667,18 @@ class OpenAICompatibleChatProvider(BaseChatProvider):
                 )
                 try:
                     output = self._invoke_tool_handler(tool_handler, name, args, None)
-                except (AIExecutionCancelled, HumanInputRequired):
+                except (AIExecutionCancelled, ApprovalRequired, HumanInputRequired):
                     raise
                 except Exception as exc:
                     logger.warning(
-                        "AI provider tool handler failed model=%s call_id=%s tool=%s error=%s",
+                        "AI provider tool handler returned recoverable error model=%s call_id=%s tool=%s error=%s",
                         self.model_name,
                         call_id,
                         name,
                         exc,
                         exc_info=True,
                     )
-                    return ChatProviderResult(
-                        text=None,
-                        status="failed",
-                        model=self.model_name,
-                        error=str(exc),
-                        tool_calls=requested_calls,
-                    )
-                stop_loop = output.pop("__tool_loop_stop__", None) if isinstance(output, dict) else None
-                if isinstance(stop_loop, dict):
-                    return ChatProviderResult(
-                        text="".join(text_parts).strip() or None,
-                        status=str(stop_loop.get("status") or "completed"),
-                        model=self.model_name,
-                        error=None,
-                        tool_calls=requested_calls,
-                    )
+                    output = self._tool_error_message(name, exc)
                 messages.append(ToolMessage(content=json.dumps(output, ensure_ascii=False, default=str), tool_call_id=call_id))
 
         logger.warning(
@@ -468,6 +687,21 @@ class OpenAICompatibleChatProvider(BaseChatProvider):
             max_rounds,
             len(requested_calls),
         )
+        if trace_recorder is not None:
+            max_round_exchange = trace_recorder.start_exchange(
+                span_id=None,
+                provider_round=max(1, max_rounds),
+                attempt_index=1,
+                mode="blocking",
+                model=self.model_name,
+                request_messages=messages,
+                request_tools=[],
+                request_options={"model": self.model_name, "mode": "blocking", "maxRounds": max_rounds},
+            )
+            max_round_exchange.fail(
+                error_code="provider_max_rounds_exceeded",
+                error_message=f"tool conversation exceeded max_rounds={max_rounds}",
+            )
         return ChatProviderResult(
             text=None,
             status="failed",
@@ -613,6 +847,15 @@ class OpenAICompatibleChatProvider(BaseChatProvider):
             return tool_handler(name, args, progress_event_id)
         return tool_handler(name, args)
 
+    def _tool_error_message(self, name: str, exc: Exception) -> dict[str, Any]:
+        return {
+            "status": "failed",
+            "code": "tool_execution_failed",
+            "tool": name,
+            "error": str(exc) or exc.__class__.__name__,
+            "recoverable": True,
+        }
+
     def _tool_call_names_from_chunk(self, chunk: Any) -> dict[str, str]:
         names: dict[str, str] = {}
         tool_calls = list(getattr(chunk, "tool_calls", None) or [])
@@ -650,7 +893,7 @@ class OpenAICompatibleChatProvider(BaseChatProvider):
                 draft_schema = definition.input_schema["properties"]["draft"]
             description = (
                 f"{description}. Use arguments.draft for the business draft payload. "
-                "Use arguments.afterApproval only for internal continuation instructions after user approval."
+                "Use arguments.afterApproval only for optional resume instructions after user approval."
             )
             parameters = {
                 "type": "object",
@@ -659,9 +902,8 @@ class OpenAICompatibleChatProvider(BaseChatProvider):
                     "draft": draft_schema,
                     "afterApproval": {
                         "type": "object",
-                        "additionalProperties": True,
+                        "additionalProperties": False,
                         "properties": {
-                            "continue": {"type": "boolean"},
                             "instruction": {"type": "string"},
                             "nextDraftType": {"type": "string"},
                             "taskState": {"type": "object"},
@@ -687,16 +929,61 @@ class OpenAICompatibleChatProvider(BaseChatProvider):
         *,
         system: str,
         user: ProviderUserContent,
+        trace_recorder: Any | None = None,
     ) -> Iterator[str]:
+        messages = [SystemMessage(content=system), HumanMessage(content=self._human_content(user))]
+        exchange = (
+            trace_recorder.start_exchange(
+                span_id=None,
+                provider_round=1,
+                attempt_index=1,
+                mode="stream_generate",
+                model=self.model_name,
+                request_messages=messages,
+                request_tools=[],
+                request_options={"model": self.model_name, "mode": "stream_generate", "supportsVision": self.supports_vision},
+            )
+            if trace_recorder is not None
+            else None
+        )
+        message = None
+        chunks: list[str] = []
         try:
-            for chunk in self.client.stream([SystemMessage(content=system), HumanMessage(content=self._human_content(user))]):
+            for chunk in self.client.stream(messages):
+                message = chunk if message is None else message + chunk
                 text = self._content_to_text(chunk.content)
                 if text:
+                    chunks.append(text)
                     yield text
-        except Exception:  # pragma: no cover - network/provider failure
-            result = self.generate(system=system, user=user)
+        except Exception as exc:  # pragma: no cover - network/provider failure
+            if exchange is not None:
+                exchange.fail(error_code="provider_stream_failed", error_message=str(exc), response_message=message)
+            fallback_options = {
+                "fallbackFromMode": "stream_generate",
+                "fallbackReason": str(exc),
+            }
+            if exchange is not None and exchange.exchange is not None:
+                fallback_options["fallbackOfExchangeId"] = exchange.exchange.id
+            result = self.generate(
+                system=system,
+                user=user,
+                trace_recorder=trace_recorder,
+                trace_request_options=fallback_options,
+            )
             if result.text:
                 yield result.text
+            return
+        response_text = "".join(chunks).strip() or (self._content_to_text(getattr(message, "content", "")).strip() if message is not None else "")
+        if exchange is not None:
+            exchange.finish(
+                response_message=message or {},
+                response_text=response_text or None,
+                response_tool_calls=[],
+                stream_chunks=trace_recorder.stream_chunks_payload(chunks),
+                status="completed" if response_text else "failed",
+                error_code=None if response_text else "provider_empty_response",
+                error_message=None if response_text else "empty model response",
+            )
 
 
 def get_chat_provider() -> BaseChatProvider:

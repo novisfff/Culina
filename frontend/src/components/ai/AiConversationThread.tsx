@@ -19,7 +19,13 @@ import { ApprovalPanel } from './AiApprovalPanel';
 import type { AiApprovalDecisionSubmit, AiResourceOptionLoader } from './AiApprovalPanel';
 import { AiMessageImageGrid } from './AiMessageImageGrid';
 import { ResultCard } from './AiResultCards';
-import { isPendingHumanInputPart } from './aiWorkspaceHelpers';
+import {
+  extractRunActivitySkillName,
+  isDraftRunActivityEvent,
+  isPendingHumanInputPart,
+  preferredRunActivityEvent,
+  runActivityCollapseKey,
+} from './aiWorkspaceHelpers';
 
 export { ApprovalPanel } from './AiApprovalPanel';
 export type { AiApprovalDecisionSubmit, AiResourceOptionLoader } from './AiApprovalPanel';
@@ -64,10 +70,7 @@ function isActiveRunStatus(status: AiRunEvent['status']) {
 }
 
 function extractSkillName(event: AiRunEvent | undefined) {
-  if (!event) return '任务规划';
-  const match = event.user_message.match(/「(.+?)」技能/);
-  if (match?.[1]) return match[1];
-  return event.user_message.replace(/(?:执行完成|等待补充信息|等待补充)$/, '').trim() || event.user_message;
+  return extractRunActivitySkillName(event);
 }
 
 type RunActivityEventEntry = {
@@ -80,15 +83,7 @@ function runEventKey(event: AiRunEvent, index: number) {
   return event.id || `${event.internal_code}-${event.created_at}-${event.user_message}-${index}`;
 }
 
-function isDraftToolEvent(event: AiRunEvent) {
-  return event.internal_code.includes('.create_draft') || event.user_message.startsWith('生成「');
-}
-
-function runActivityCollapseKey(event: AiRunEvent) {
-  if (event.type === 'skill') return `skill:${extractSkillName(event)}`;
-  if (event.type === 'tool' || event.type === 'script') return event.id ? `${event.type}:${event.id}` : `${event.type}:${event.internal_code}`;
-  return '';
-}
+const isDraftToolEvent = isDraftRunActivityEvent;
 
 type RunActivityItem = {
   key: string;
@@ -119,7 +114,7 @@ function collapseRunActivityEntries(entries: RunActivityEventEntry[]) {
     }
     collapsedEntries[existingIndex] = {
       ...collapsedEntries[existingIndex],
-      event: entry.event,
+      event: preferredRunActivityEvent(collapsedEntries[existingIndex].event, entry.event),
     };
   });
   return collapsedEntries.map((entry, index) => ({ ...entry, sequence: index + 1 }));
@@ -284,19 +279,24 @@ type MessageTimelineItem =
 
 function createMessageTimelineItems(parts: AiMessage['parts'], runEventEntries: RunActivityEventEntry[]): MessageTimelineItem[] {
   if (parts.some((part) => part.type === 'run_activity' && part.activity)) {
-    const latestActivityByCollapseKey = new Map<string, AiRunEvent>();
-    parts.forEach((part) => {
+    const activityStateByCollapseKey = new Map<string, { event: AiRunEvent; partIndex: number }>();
+    parts.forEach((part, partIndex) => {
       if (part.type !== 'run_activity' || !part.activity) return;
       const collapseKey = runActivityCollapseKey(part.activity);
-      if (collapseKey) latestActivityByCollapseKey.set(collapseKey, part.activity);
+      if (collapseKey) {
+        const existing = activityStateByCollapseKey.get(collapseKey);
+        activityStateByCollapseKey.set(collapseKey, {
+          event: existing ? preferredRunActivityEvent(existing.event, part.activity) : part.activity,
+          partIndex,
+        });
+      }
     });
-    const displayedActivityKeys = new Set<string>();
     return parts.flatMap((part, partIndex): MessageTimelineItem[] => {
       if (part.type === 'run_activity' && part.activity) {
         const collapseKey = runActivityCollapseKey(part.activity);
-        if (collapseKey && displayedActivityKeys.has(collapseKey)) return [];
-        if (collapseKey) displayedActivityKeys.add(collapseKey);
-        const activity = collapseKey ? latestActivityByCollapseKey.get(collapseKey) ?? part.activity : part.activity;
+        const activityState = collapseKey ? activityStateByCollapseKey.get(collapseKey) : undefined;
+        if (activityState && activityState.partIndex !== partIndex) return [];
+        const activity = activityState?.event ?? part.activity;
         return [{
           key: `activity-part:${part.id || partIndex}`,
           type: 'activity',
@@ -414,19 +414,29 @@ function HumanInputRequestPanel({
     summary: string;
   }) => {
     if (!onResponse || isDisabled) return;
+    const previousSelectedIds = selectedIds;
+    const previousSubmittedAnswerSummary = submittedAnswerSummary;
+    const previousIsAnswered = isAnswered;
+    const previousIsExpanded = isExpanded;
+    const previousPendingOption = pendingOption;
     setError('');
     setIsSubmitting(true);
+    setSelectedIds(selectedOptionIds);
+    setSubmittedAnswerSummary(summary || '已提交回答');
+    setIsAnswered(true);
+    setIsExpanded(false);
+    setPendingOption(null);
     try {
       await onResponse(message, request, {
         selected_option_ids: selectedOptionIds,
         text: answerText || undefined,
       });
-      setSelectedIds(selectedOptionIds);
-      setSubmittedAnswerSummary(summary || '已提交回答');
-      setIsAnswered(true);
-      setIsExpanded(false);
-      setPendingOption(null);
     } catch (err) {
+      setSelectedIds(previousSelectedIds);
+      setSubmittedAnswerSummary(previousSubmittedAnswerSummary);
+      setIsAnswered(previousIsAnswered);
+      setIsExpanded(previousIsAnswered ? previousIsExpanded : true);
+      setPendingOption(previousPendingOption);
       setError(err instanceof Error ? err.message : '提交失败，请稍后重试。');
     } finally {
       setIsSubmitting(false);
@@ -605,11 +615,14 @@ export function MessageBubble({
   isThinking = false,
   isLatestAssistant = false,
   isAssistantResponseActive = false,
+  activeStreamRunId = null,
+  submittingApprovalId = null,
   onApprovalDecision,
   onAddRecommendationToPlan,
   onInventoryAction,
   isInventoryActionPending,
   onHumanInputResponse,
+  onOpenRunDebug,
 }: {
   message: AiMessage;
   user: UserSummary | null;
@@ -620,6 +633,8 @@ export function MessageBubble({
   isThinking?: boolean;
   isLatestAssistant?: boolean;
   isAssistantResponseActive?: boolean;
+  activeStreamRunId?: string | null;
+  submittingApprovalId?: string | null;
   onApprovalDecision: AiApprovalDecisionSubmit;
   onAddRecommendationToPlan?: (item: AiTodayRecommendationItem, card: AiResultCard, messageId: string, partId: string) => void;
   onInventoryAction?: (
@@ -631,6 +646,7 @@ export function MessageBubble({
   ) => void;
   isInventoryActionPending?: boolean;
   onHumanInputResponse?: AiHumanInputResponseSubmit;
+  onOpenRunDebug?: (runId: string) => void;
 }) {
   const isUser = message.role === 'user';
   const userName = user?.display_name || user?.username || '我';
@@ -643,7 +659,9 @@ export function MessageBubble({
     return Boolean(part.card || part.approval || part.draft || part.request);
   });
   const isGeneratingDraft = !isUser && message.status === 'running' && runEvents.some(isDraftToolEvent) && !hasDraftContent(message);
-  const hasPendingInteractivePart = message.parts.some((part) => isPendingApprovalPart(part) || isPendingHumanInputPart(part));
+  const hasPendingApprovalPart = message.parts.some(isPendingApprovalPart);
+  const hasPendingHumanInputRequest = message.parts.some(isPendingHumanInputPart);
+  const hasPendingInteractivePart = hasPendingApprovalPart || (hasPendingHumanInputRequest && !isThinking);
   const hasSpecificProgressCue = hasActiveRunEvent(runEvents) || isGeneratingDraft || hasPendingInteractivePart;
   const shouldShowThinking =
     !isUser
@@ -671,7 +689,8 @@ export function MessageBubble({
     }
   };
 
-  const showActions = showFooter && !isUser && hasRenderableParts;
+  const canOpenRunDebug = !isUser && Boolean(message.run_id && onOpenRunDebug);
+  const showActions = showFooter && !isUser && (hasRenderableParts || canOpenRunDebug);
 
   return (
     <article className={`ai-message ai-message-${message.role}`}>
@@ -726,12 +745,24 @@ export function MessageBubble({
             }
             if (part.type === 'approval_request' && part.approval) {
               const isPendingApproval = part.approval.status === 'pending';
+              const isSubmittingThisApproval = isPendingApproval && part.approval.id === submittingApprovalId;
+              const isApprovalResumeReady =
+                message.status !== 'pending'
+                && message.status !== 'running'
+                && (
+                  !part.approval.run_id
+                  || part.approval.run_id !== activeStreamRunId
+                  || isSubmittingThisApproval
+                );
               const canSubmitApproval =
                 isLatestAssistant
                 && isPendingApproval
-                && part.approval.id === firstPendingApprovalId;
+                && part.approval.id === firstPendingApprovalId
+                && isApprovalResumeReady;
               const submitDisabledReason = isPendingApproval && part.approval.id !== firstPendingApprovalId
                   ? '请先处理上一个草稿，再确认这一项。'
+                  : isPendingApproval && !isApprovalResumeReady
+                    ? '确认入口正在准备，稍后即可确认。'
                   : !isLatestAssistant && isPendingApproval
                     ? '请先处理最新的待确认草稿。'
                     : undefined;
@@ -821,6 +852,17 @@ export function MessageBubble({
                   >
                     <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M10 15v4a3 3 0 0 0 3 3l4-9V2H5.72a2 2 0 0 0-2 1.7l-1.38 9a2 2 0 0 0 2 2.3zm12-5v9a2 2 0 0 0 2-2v-7a2 2 0 0 0-2-2z"></path></svg>
                   </button>
+                  {canOpenRunDebug && message.run_id ? (
+                    <button
+                      className="ai-message-action-btn ai-message-debug-btn"
+                      title="查看调试信息"
+                      aria-label="查看调试信息"
+                      type="button"
+                      onClick={() => onOpenRunDebug?.(message.run_id as string)}
+                    >
+                      <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"></rect><path d="m8 10 3 2.5L8 15"></path><path d="M13 15h4"></path></svg>
+                    </button>
+                  ) : null}
                 </div>
               )}
               {messageTime && (

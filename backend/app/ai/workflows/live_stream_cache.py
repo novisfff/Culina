@@ -8,6 +8,8 @@ from typing import Any
 
 from app.core.utils import utcnow
 
+LIVE_OVERLAY_MESSAGE_STATUSES = {"pending", "running", "waiting_approval", "waiting_input"}
+
 
 @dataclass
 class LiveMessageSnapshot:
@@ -85,6 +87,54 @@ class LiveMessageSnapshot:
             if isinstance(part, dict) and part.get("id")
         ]
 
+    @staticmethod
+    def _is_pending_interactive_part(part: dict[str, Any]) -> bool:
+        if part.get("type") == "approval_request":
+            approval = part.get("approval") if isinstance(part.get("approval"), dict) else {}
+            status = str(approval.get("status") or "").lower()
+            return status in {"pending", "pending_retry"}
+        if part.get("type") == "human_input_request":
+            return str(part.get("status") or "pending").lower() == "pending"
+        return False
+
+    def _merge_parts_with_existing(self, existing_parts: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        merged = deepcopy(existing_parts)
+        index_by_part_id = {
+            str(part.get("id")): index
+            for index, part in enumerate(merged)
+            if isinstance(part, dict) and part.get("id")
+        }
+        appended_parts: list[dict[str, Any]] = []
+        replaced_indexes: list[int] = []
+
+        for part in deepcopy(self.parts):
+            if not isinstance(part, dict):
+                continue
+            part_id = str(part.get("id") or "")
+            existing_index = index_by_part_id.get(part_id) if part_id else None
+            if existing_index is not None:
+                merged[existing_index] = part
+                replaced_indexes.append(existing_index)
+                continue
+            appended_parts.append(part)
+
+        if not appended_parts:
+            return merged
+
+        pending_index = next(
+            (
+                index
+                for index, part in enumerate(merged)
+                if isinstance(part, dict) and self._is_pending_interactive_part(part)
+            ),
+            None,
+        )
+        insert_index = len(merged)
+        if pending_index is not None and (not replaced_indexes or max(replaced_indexes) < pending_index):
+            insert_index = pending_index
+
+        return [*merged[:insert_index], *appended_parts, *merged[insert_index:]]
+
     def to_message(self, existing: dict | None = None) -> dict:
         if existing is not None:
             message = deepcopy(existing)
@@ -100,7 +150,7 @@ class LiveMessageSnapshot:
             existing_parts = [
                 dict(part)
                 for part in message.get("parts") or []
-                if isinstance(part, dict) and str(part.get("id") or "") not in set(self.live_part_ids)
+                if isinstance(part, dict)
             ]
         else:
             message = {
@@ -122,7 +172,7 @@ class LiveMessageSnapshot:
             }
             existing_parts = []
 
-        message["parts"] = [*deepcopy(self.parts), *existing_parts]
+        message["parts"] = self._merge_parts_with_existing(existing_parts)
         message["content"] = "\n\n".join(
             str(part.get("text") or "").strip()
             for part in message["parts"]
@@ -259,7 +309,12 @@ class LiveAIStreamCache:
                 -1,
             )
             if existing_index >= 0:
-                next_messages[existing_index] = snapshot.to_message(next_messages[existing_index])
+                existing_message = next_messages[existing_index]
+                existing_status = str(existing_message.get("status") or "").lower()
+                if existing_status and existing_status not in LIVE_OVERLAY_MESSAGE_STATUSES:
+                    self.clear_run(snapshot.run_id)
+                    continue
+                next_messages[existing_index] = snapshot.to_message(existing_message)
             else:
                 next_messages.append(snapshot.to_message())
         return next_messages

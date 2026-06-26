@@ -1,17 +1,18 @@
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, timedelta
 from typing import Any
 
-from sqlalchemy import or_, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import selectinload
 
 from app.ai.tools.base import ToolContext
-from app.ai.tools.catalog.common import register_tool
+from app.ai.tools.catalog.common import entity_media_map, first_entity_media, register_tool
 from app.ai.tools.draft_validation import normalize_meal_plan_draft
 from app.ai.tools.registry import ToolRegistry
 from app.ai.tools.schemas import MEAL_PLAN_DRAFT_SCHEMA, READ_BY_ID_INPUT, draft_input_schema, draft_output_schema
-from app.models.domain import Food, FoodPlanItem
+from app.core.utils import create_id
+from app.models.domain import Food, FoodPlanItem, InventoryItem, MealLog, Recipe
 from app.services.clock import today_for_family
 from app.services.serializers import serialize_food_plan_item
 
@@ -46,6 +47,64 @@ MEAL_PLAN_READ_OUTPUT = {
     "type": "object",
     "required": ["item"],
     "properties": {"item": MEAL_PLAN_ITEM_OUTPUT},
+}
+
+RECOMMENDATION_EVIDENCE_INPUT = {
+    "type": "object",
+    "additionalProperties": True,
+    "properties": {
+        "id": {"type": ["string", "null"]},
+        "type": {"type": ["string", "null"]},
+        "label": {"type": ["string", "null"], "maxLength": 120},
+        "name": {"type": ["string", "null"], "maxLength": 120},
+        "status": {"type": ["string", "null"], "maxLength": 40},
+        "displayStatus": {"type": ["string", "null"], "maxLength": 40},
+        "quantity": {"type": ["string", "number", "null"]},
+        "unit": {"type": ["string", "null"], "maxLength": 32},
+        "expiryDate": {"type": ["string", "null"]},
+    },
+}
+
+TODAY_RECOMMENDATION_INPUT = {
+    "type": "object",
+    "additionalProperties": False,
+    "required": ["recommendations"],
+    "properties": {
+        "recommendations": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 3,
+            "items": {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {
+                    "foodId": {"type": ["string", "null"], "minLength": 1},
+                    "recipeId": {"type": ["string", "null"], "minLength": 1},
+                    "reason": {"type": "string", "minLength": 1, "maxLength": 300},
+                    "evidence": {"type": "array", "maxItems": 3, "items": RECOMMENDATION_EVIDENCE_INPUT},
+                },
+            },
+        },
+        "targetDate": {"type": ["string", "null"], "format": "date"},
+        "mealType": {"type": ["string", "null"], "enum": ["breakfast", "lunch", "dinner", "snack", None]},
+    },
+}
+
+TODAY_RECOMMENDATION_OUTPUT = {
+    "type": "object",
+    "required": ["card"],
+    "properties": {
+        "card": {
+            "type": "object",
+            "required": ["id", "type", "title", "data"],
+            "properties": {
+                "id": {"type": "string"},
+                "type": {"type": "string", "enum": ["today_recommendation"]},
+                "title": {"type": "string"},
+                "data": {"type": "object"},
+            },
+        }
+    },
 }
 
 
@@ -147,6 +206,160 @@ def meal_plan_create_draft(context: ToolContext, payload: dict[str, Any]) -> dic
     return {"draft": normalized, "itemCount": item_count}
 
 
+def _remaining_expression():
+    return InventoryItem.quantity - InventoryItem.consumed_quantity - InventoryItem.disposed_quantity
+
+
+def _today_recommendation_context(context: ToolContext) -> dict[str, int]:
+    today = today_for_family(context.family_id)
+    available_count = context.db.scalar(
+        select(func.count(InventoryItem.id)).where(
+            InventoryItem.family_id == context.family_id,
+            _remaining_expression() > 0,
+        )
+    )
+    expiring_count = context.db.scalar(
+        select(func.count(InventoryItem.id)).where(
+            InventoryItem.family_id == context.family_id,
+            _remaining_expression() > 0,
+            InventoryItem.expiry_date.is_not(None),
+            InventoryItem.expiry_date >= today,
+            InventoryItem.expiry_date <= today + timedelta(days=7),
+        )
+    )
+    recent_ids = list(
+        context.db.scalars(
+            select(MealLog.id)
+            .where(MealLog.family_id == context.family_id)
+            .order_by(MealLog.date.desc(), MealLog.created_at.desc())
+            .limit(30)
+        )
+    )
+    recipe_count = context.db.scalar(select(func.count(Recipe.id)).where(Recipe.family_id == context.family_id))
+    return {
+        "inventoryCount": int(available_count or 0),
+        "expiringCount": int(expiring_count or 0),
+        "recentMealCount": len(recent_ids),
+        "recipeCount": int(recipe_count or 0),
+    }
+
+
+def _recommendation_evidence(raw_items: Any) -> list[dict[str, Any]]:
+    evidence: list[dict[str, Any]] = []
+    source_items = raw_items if isinstance(raw_items, list) else []
+    for raw in source_items[:3]:
+        if not isinstance(raw, dict):
+            continue
+        label = raw.get("label") or raw.get("name")
+        if not label:
+            continue
+        details: list[str] = []
+        if raw.get("quantity") is not None:
+            details.append(f"{raw.get('quantity')}{raw.get('unit') or ''}")
+        if raw.get("expiryDate"):
+            details.append(f"保质期至 {raw.get('expiryDate')}")
+        evidence.append(
+            {
+                "type": str(raw.get("type") or "inventory"),
+                "id": raw.get("id"),
+                "label": str(label),
+                "status": raw.get("displayStatus") or raw.get("status"),
+                "detail": " · ".join(details) or None,
+            }
+        )
+    return evidence
+
+
+def meal_plan_recommend_today(context: ToolContext, payload: dict[str, Any]) -> dict[str, Any]:
+    raw_recommendations = payload.get("recommendations") if isinstance(payload.get("recommendations"), list) else []
+    food_ids = [
+        str(item.get("foodId")).strip()
+        for item in raw_recommendations
+        if isinstance(item, dict) and item.get("foodId")
+    ]
+    recipe_ids = [
+        str(item.get("recipeId")).strip()
+        for item in raw_recommendations
+        if isinstance(item, dict) and item.get("recipeId")
+    ]
+    foods = list(
+        context.db.scalars(
+            select(Food).where(Food.family_id == context.family_id, Food.id.in_(food_ids))
+        )
+    ) if food_ids else []
+    recipes = list(
+        context.db.scalars(
+            select(Recipe)
+            .options(selectinload(Recipe.foods))
+            .where(Recipe.family_id == context.family_id, Recipe.id.in_(recipe_ids))
+        )
+    ) if recipe_ids else []
+    foods_by_id = {item.id: item for item in foods}
+    recipes_by_id = {item.id: item for item in recipes}
+    media_map = entity_media_map(
+        context.db,
+        family_id=context.family_id,
+        entity_types={"food", "recipe"},
+        entity_ids=[*foods_by_id.keys(), *recipes_by_id.keys()],
+    )
+    recommendations: list[dict[str, Any]] = []
+    seen_entities: set[tuple[str, str]] = set()
+    for raw in raw_recommendations[:3]:
+        if not isinstance(raw, dict):
+            continue
+        food_id = str(raw.get("foodId") or "").strip()
+        recipe_id = str(raw.get("recipeId") or "").strip()
+        food = foods_by_id.get(food_id) if food_id else None
+        recipe = recipes_by_id.get(recipe_id) if recipe_id else None
+        if recipe is not None and food is None:
+            linked_food = next((item for item in recipe.foods if item.id in foods_by_id), None)
+            if linked_food is not None:
+                food = linked_food
+                food_id = linked_food.id
+        entity_type = "food" if food is not None else "recipe" if recipe is not None else ""
+        entity_id = food.id if food is not None else recipe.id if recipe is not None else ""
+        if not entity_type or not entity_id or (entity_type, entity_id) in seen_entities:
+            continue
+        seen_entities.add((entity_type, entity_id))
+        recipe_difficulty = None
+        if recipe is not None:
+            recipe_difficulty = recipe.difficulty.value if hasattr(recipe.difficulty, "value") else str(recipe.difficulty)
+        recommendations.append(
+            {
+                "entityType": entity_type,
+                "entityId": entity_id,
+                "foodId": food_id or None,
+                "recipeId": recipe_id or None,
+                "name": food.name if food is not None else recipe.title if recipe is not None else "推荐",
+                "image": first_entity_media(media_map, entity_type, entity_id),
+                "category": food.category if food is not None else None,
+                "foodType": food.type if food is not None else None,
+                "prepMinutes": recipe.prep_minutes if recipe is not None else None,
+                "servings": recipe.servings if recipe is not None else None,
+                "difficulty": recipe_difficulty,
+                "reason": str(raw.get("reason") or "结合当前家庭数据推荐。"),
+                "evidence": _recommendation_evidence(raw.get("evidence")),
+            }
+        )
+    if not recommendations:
+        raise ValueError("即时推荐必须引用当前家庭真实存在的 foodId 或 recipeId")
+    target_date = str(payload.get("targetDate") or "") or today_for_family(context.family_id).isoformat()
+    meal_type = str(payload.get("mealType") or "") or None
+    return {
+        "card": {
+            "id": create_id("ai_card"),
+            "type": "today_recommendation",
+            "title": "今日吃什么",
+            "data": {
+                "recommendations": recommendations,
+                "targetDate": target_date,
+                "mealType": meal_type,
+                "contextSummary": _today_recommendation_context(context),
+            },
+        }
+    }
+
+
 def register_meal_plan_tools(registry: ToolRegistry) -> None:
     register_tool(
         registry,
@@ -191,4 +404,14 @@ def register_meal_plan_tools(registry: ToolRegistry) -> None:
         handler=meal_plan_create_draft,
         input_schema=draft_input_schema(MEAL_PLAN_DRAFT_SCHEMA),
         output_schema=draft_output_schema(MEAL_PLAN_DRAFT_SCHEMA),
+    )
+    register_tool(
+        registry,
+        name="meal_plan.recommend_today",
+        display_name="即时餐食推荐卡",
+        description="基于已读取的真实食物或菜谱 ID 生成 today_recommendation 结果卡；不创建草稿或审批。",
+        side_effect="read",
+        handler=meal_plan_recommend_today,
+        input_schema=TODAY_RECOMMENDATION_INPUT,
+        output_schema=TODAY_RECOMMENDATION_OUTPUT,
     )

@@ -8,7 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.utils import utcnow
-from app.models.domain import AIAgentRun
+from app.models.domain import AIAgentRun, AIRunLLMExchange, AIRunTraceSpan
 
 
 QUALITY_METRIC_KEYS = (
@@ -72,6 +72,7 @@ def build_ai_quality_metrics(
     totals = {key: 0 for key in QUALITY_METRIC_KEYS}
     total_duration_ms = 0
     recent_runs: list[dict[str, Any]] = []
+    run_error_codes: Counter[str] = Counter()
 
     for run in runs:
         status = str(run.status or "unknown")
@@ -85,6 +86,8 @@ def build_ai_quality_metrics(
         status_counts[status] += 1
         intent_counts[intent] += 1
         total_duration_ms += int(run.duration_ms or 0)
+        if run.error_code:
+            run_error_codes[str(run.error_code)] += 1
         for key in QUALITY_METRIC_KEYS:
             try:
                 totals[key] += int(run_metrics.get(key) or 0)
@@ -133,6 +136,7 @@ def build_ai_quality_metrics(
         )
 
     run_count = len(runs)
+    trace_metrics = _build_trace_quality_metrics(db, family_id=family_id, run_ids=[run.id for run in runs], run_error_codes=run_error_codes)
     return {
         "family_id": family_id,
         "window": {"limit": normalized_limit, "days": days},
@@ -150,5 +154,91 @@ def build_ai_quality_metrics(
             "totalDurationMs": total_duration_ms,
             "averageDurationMs": int(total_duration_ms / run_count) if run_count else 0,
         },
+        "trace_metrics": trace_metrics,
         "recent_runs": recent_runs,
+    }
+
+
+def _average_duration(items: list[int]) -> int:
+    return int(sum(items) / len(items)) if items else 0
+
+
+def _build_trace_quality_metrics(
+    db: Session,
+    *,
+    family_id: str,
+    run_ids: list[str],
+    run_error_codes: Counter[str],
+) -> dict[str, Any]:
+    if not run_ids:
+        return {
+            "traceSpanCount": 0,
+            "llmExchangeCount": 0,
+            "failedSpanCount": 0,
+            "failedExchangeCount": 0,
+            "averageProviderDurationMs": 0,
+            "averageToolDurationMs": 0,
+            "averageScriptDurationMs": 0,
+            "averageProviderRounds": 0,
+            "errorCodes": _counter_dict(run_error_codes),
+            "spanTypeCounts": {},
+            "spanStatusCounts": {},
+            "exchangeStatusCounts": {},
+        }
+
+    spans = list(
+        db.scalars(
+            select(AIRunTraceSpan)
+            .where(AIRunTraceSpan.family_id == family_id, AIRunTraceSpan.run_id.in_(run_ids))
+        )
+    )
+    exchanges = list(
+        db.scalars(
+            select(AIRunLLMExchange)
+            .where(AIRunLLMExchange.family_id == family_id, AIRunLLMExchange.run_id.in_(run_ids))
+        )
+    )
+    error_codes = Counter(run_error_codes)
+    span_type_counts: Counter[str] = Counter()
+    span_status_counts: Counter[str] = Counter()
+    exchange_status_counts: Counter[str] = Counter()
+    tool_durations: list[int] = []
+    script_durations: list[int] = []
+    provider_durations: list[int] = []
+    provider_rounds_by_run: dict[str, set[int]] = defaultdict(set)
+
+    for span in spans:
+        span_type = str(span.span_type or "unknown")
+        span_status = str(span.status or "unknown")
+        span_type_counts[span_type] += 1
+        span_status_counts[span_status] += 1
+        if span.error_code:
+            error_codes[str(span.error_code)] += 1
+        if span_type == "tool_call":
+            tool_durations.append(int(span.duration_ms or 0))
+        elif span_type == "script_call":
+            script_durations.append(int(span.duration_ms or 0))
+
+    for exchange in exchanges:
+        exchange_status = str(exchange.status or "unknown")
+        exchange_status_counts[exchange_status] += 1
+        provider_durations.append(int(exchange.duration_ms or 0))
+        provider_rounds_by_run[str(exchange.run_id)].add(int(exchange.provider_round or 0))
+        if exchange.error_code:
+            error_codes[str(exchange.error_code)] += 1
+
+    round_counts = [len(rounds) for rounds in provider_rounds_by_run.values()]
+    return {
+        "traceSpanCount": len(spans),
+        "llmExchangeCount": len(exchanges),
+        "failedSpanCount": sum(1 for span in spans if span.status == "failed" or span.error_code),
+        "failedExchangeCount": sum(1 for exchange in exchanges if exchange.status == "failed" or exchange.error_code),
+        "averageProviderDurationMs": _average_duration(provider_durations),
+        "averageToolDurationMs": _average_duration(tool_durations),
+        "averageScriptDurationMs": _average_duration(script_durations),
+        "averageProviderRounds": _average_duration(round_counts),
+        "errorCodes": _counter_dict(error_codes),
+        "spanTypeCounts": _counter_dict(span_type_counts),
+        "spanStatusCounts": _counter_dict(span_status_counts),
+        "exchangeStatusCounts": _counter_dict(exchange_status_counts),
     }

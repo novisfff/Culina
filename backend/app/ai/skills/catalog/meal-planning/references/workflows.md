@@ -6,7 +6,7 @@
 2. 读取可用库存、临期食材和最近餐食。
 3. 按需查询当前家庭食物和菜谱。
 4. 选择 1–3 个真实候选并说明推荐理由和依据。
-5. 返回 `today_recommendation` 卡片，不创建草稿。
+5. 调用 `meal_plan.recommend_today` 返回 `today_recommendation` 卡片，不创建草稿。
 
 ## 创建正式计划
 

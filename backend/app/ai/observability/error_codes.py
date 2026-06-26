@@ -1,0 +1,37 @@
+PROVIDER_UNAVAILABLE = "provider_unavailable"
+PROVIDER_EMPTY_RESPONSE = "provider_empty_response"
+PROVIDER_STREAM_FAILED = "provider_stream_failed"
+PROVIDER_BLOCKING_FAILED = "provider_blocking_failed"
+PROVIDER_TOOL_HANDLER_FAILED = "provider_tool_handler_failed"
+PROVIDER_MAX_ROUNDS_EXCEEDED = "provider_max_rounds_exceeded"
+
+TOOL_UNKNOWN = "tool_unknown"
+TOOL_PERMISSION_DENIED = "tool_permission_denied"
+TOOL_SIDE_EFFECT_DENIED = "tool_side_effect_denied"
+TOOL_INPUT_VALIDATION_FAILED = "tool_input_validation_failed"
+TOOL_OUTPUT_VALIDATION_FAILED = "tool_output_validation_failed"
+TOOL_HANDLER_FAILED = "tool_handler_failed"
+TOOL_BUDGET_EXHAUSTED = "tool_budget_exhausted"
+TOOL_LOOP_DETECTED = "tool_loop_detected"
+
+SCRIPT_INPUT_VALIDATION_FAILED = "script_input_validation_failed"
+SCRIPT_TIMEOUT = "script_timeout"
+SCRIPT_EXECUTION_FAILED = "script_execution_failed"
+SCRIPT_OUTPUT_VALIDATION_FAILED = "script_output_validation_failed"
+
+SKILL_INJECTION_UNKNOWN = "skill_injection_unknown"
+SKILL_BUDGET_EXHAUSTED = "skill_budget_exhausted"
+
+DRAFT_BUDGET_EXHAUSTED = "draft_budget_exhausted"
+DRAFT_VALIDATION_FAILED = "draft_validation_failed"
+DRAFT_WITHOUT_APPROVAL = "draft_without_approval"
+
+APPROVAL_WAITING = "approval_waiting"
+APPROVAL_RESUME_FAILED = "approval_resume_failed"
+HUMAN_INPUT_WAITING = "human_input_waiting"
+HUMAN_INPUT_RESUME_FAILED = "human_input_resume_failed"
+
+MESSAGE_PERSIST_FAILED = "message_persist_failed"
+STREAM_CHECKPOINT_FAILED = "stream_checkpoint_failed"
+CANCELLED = "cancelled"
+UNEXPECTED_ERROR = "unexpected_error"

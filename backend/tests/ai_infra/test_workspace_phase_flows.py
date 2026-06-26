@@ -162,7 +162,7 @@ class AIWorkspacePhaseFlowsTestCase(AIAgentInfraTestCase):
                 self.assertEqual(run.status, "running")
                 self.assertNotIn("shopping.create_draft", [item["name"] for item in run.tool_calls])
 
-        def test_ai_workspace_single_draft_approval_completes_without_duplicate_draft(self) -> None:
+        def test_ai_workspace_single_draft_approval_returns_to_agent_without_duplicate_draft(self) -> None:
             response = self.client.post("/api/ai/chat", json={"message": "安排三天晚餐"})
             self.assertEqual(response.status_code, 200, response.text)
             data = response.json()
@@ -187,7 +187,7 @@ class AIWorkspacePhaseFlowsTestCase(AIAgentInfraTestCase):
                 run = db.get(AIAgentRun, data["run"]["id"])
                 self.assertIsNotNone(run)
                 assert run is not None
-                self.assertEqual(run.status, "completed")
+                self.assertEqual(run.status, "running")
                 tool_names = [item["name"] for item in run.tool_calls]
                 self.assertEqual(tool_names.count("meal_plan.create_draft"), 1)
 

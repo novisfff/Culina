@@ -173,6 +173,7 @@ class AIInventoryOperationsTestCase(AIAgentInfraTestCase):
                 assert ingredient is not None
                 self.assertEqual(ingredient.unit_conversions, [])
                 inventory_item = db.scalar(select(InventoryItem).where(InventoryItem.ingredient_id == ingredient.id).order_by(InventoryItem.created_at.desc()))
+                self.assertIsNotNone(inventory_item)
                 assert inventory_item is not None
                 self.assertEqual(inventory_item.quantity, Decimal("20.00"))
                 self.assertEqual(inventory_item.unit, "个")

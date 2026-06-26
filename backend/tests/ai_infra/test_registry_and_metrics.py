@@ -1,4 +1,5 @@
 from ._support import *
+from app.models.domain import AIRunLLMExchange, AIRunTraceSpan
 
 
 class AIRegistryAndMetricsTestCase(AIAgentInfraTestCase):
@@ -35,6 +36,22 @@ class AIRegistryAndMetricsTestCase(AIAgentInfraTestCase):
             self.assertEqual(tools["ingredient.search"]["display_name"], "食材资料")
             self.assertEqual(tools["ingredient.search"]["side_effect"], "read")
             self.assertEqual(tools["skill.inject"]["side_effect"], "control")
+            skill_inject_skills_schema = tools["skill.inject"]["input_schema"]["properties"]["skills"]
+            self.assertIn("skill.yaml:key", skill_inject_skills_schema["description"])
+            self.assertEqual(
+                skill_inject_skills_schema["items"]["enum"],
+                [
+                    "food_profile",
+                    "ingredient_profile",
+                    "inventory_analysis",
+                    "meal_plan",
+                    "meal_log",
+                    "recipe_cook",
+                    "recipe_draft",
+                    "shopping_list",
+                ],
+            )
+            self.assertNotIn("inventory-analysis", skill_inject_skills_schema["items"]["enum"])
             self.assertEqual(tools["human.request_input"]["side_effect"], "control")
             self.assertEqual(tools["meal_log.create_draft"]["display_name"], "餐食记录确认表单")
             self.assertEqual(tools["meal_log.create_draft"]["permission"], "family:draft")
@@ -53,6 +70,10 @@ class AIRegistryAndMetricsTestCase(AIAgentInfraTestCase):
             self.assertEqual(
                 tools["recipe.create_cook_draft"]["input_schema"]["properties"]["draft"]["properties"]["draftType"]["enum"],
                 ["recipe_cook"],
+            )
+            self.assertEqual(
+                tools["inventory.create_operation_draft"]["input_schema"]["properties"]["draft"]["required"],
+                ["draftType", "schemaVersion", "operations"],
             )
 
         def test_ai_quality_metrics_endpoint_aggregates_family_scoped_run_diagnostics(self) -> None:
@@ -144,6 +165,104 @@ class AIRegistryAndMetricsTestCase(AIAgentInfraTestCase):
                         ),
                     ]
                 )
+                db.add_all(
+                    [
+                        AIRunTraceSpan(
+                            id="ai-span-quality-tool",
+                            family_id=self.family.id,
+                            run_id="agent-run-quality-plan",
+                            trace_id="ai-trace-quality-plan",
+                            span_id="ai-span-quality-tool",
+                            span_type="tool_call",
+                            name="inventory.read_available_items",
+                            status="failed",
+                            duration_ms=120,
+                            input_summary={},
+                            output_summary={},
+                            error_code="tool_input_validation_failed",
+                            payload={},
+                            started_at=utcnow() - timedelta(minutes=2),
+                        ),
+                        AIRunTraceSpan(
+                            id="ai-span-quality-script",
+                            family_id=self.family.id,
+                            run_id="agent-run-quality-recipe",
+                            trace_id="ai-trace-quality-recipe",
+                            span_id="ai-span-quality-script",
+                            span_type="script_call",
+                            name="script.validate_meal_plan",
+                            status="completed",
+                            duration_ms=40,
+                            input_summary={},
+                            output_summary={},
+                            payload={},
+                            started_at=utcnow() - timedelta(minutes=1),
+                        ),
+                        AIRunTraceSpan(
+                            id="ai-span-quality-other-family",
+                            family_id=self.other_family.id,
+                            run_id="agent-run-quality-other-family",
+                            trace_id="ai-trace-quality-other",
+                            span_id="ai-span-quality-other-family",
+                            span_type="tool_call",
+                            name="shopping_list.read",
+                            status="failed",
+                            duration_ms=999,
+                            input_summary={},
+                            output_summary={},
+                            error_code="other_family_error",
+                            payload={},
+                            started_at=utcnow(),
+                        ),
+                        AIRunLLMExchange(
+                            id="ai-exchange-quality-plan",
+                            family_id=self.family.id,
+                            run_id="agent-run-quality-plan",
+                            trace_id="ai-trace-quality-plan",
+                            provider_round=1,
+                            attempt_index=1,
+                            mode="stream",
+                            model="fake-model",
+                            request_messages=[],
+                            request_tools=[],
+                            request_options={},
+                            request_digest="request-digest-plan",
+                            request_bytes=20,
+                            response_message={},
+                            response_tool_calls=[],
+                            stream_chunks=[],
+                            response_digest="response-digest-plan",
+                            response_bytes=30,
+                            status="completed",
+                            duration_ms=500,
+                            started_at=utcnow() - timedelta(minutes=2),
+                        ),
+                        AIRunLLMExchange(
+                            id="ai-exchange-quality-recipe",
+                            family_id=self.family.id,
+                            run_id="agent-run-quality-recipe",
+                            trace_id="ai-trace-quality-recipe",
+                            provider_round=1,
+                            attempt_index=1,
+                            mode="stream",
+                            model="fake-model",
+                            request_messages=[],
+                            request_tools=[],
+                            request_options={},
+                            request_digest="request-digest-recipe",
+                            request_bytes=22,
+                            response_message={},
+                            response_tool_calls=[],
+                            stream_chunks=[],
+                            response_digest="response-digest-recipe",
+                            response_bytes=32,
+                            status="failed",
+                            error_code="provider_stream_failed",
+                            duration_ms=700,
+                            started_at=utcnow() - timedelta(minutes=1),
+                        ),
+                    ]
+                )
                 db.commit()
 
             response = self.client.get("/api/ai/quality-metrics?limit=10")
@@ -165,6 +284,18 @@ class AIRegistryAndMetricsTestCase(AIAgentInfraTestCase):
             self.assertEqual(data["totals"]["toolCallCount"], 5)
             self.assertEqual(data["totals"]["totalDurationMs"], 2000)
             self.assertEqual(data["totals"]["averageDurationMs"], 1000)
+            self.assertEqual(data["trace_metrics"]["traceSpanCount"], 2)
+            self.assertEqual(data["trace_metrics"]["llmExchangeCount"], 2)
+            self.assertEqual(data["trace_metrics"]["failedSpanCount"], 1)
+            self.assertEqual(data["trace_metrics"]["failedExchangeCount"], 1)
+            self.assertEqual(data["trace_metrics"]["averageProviderDurationMs"], 600)
+            self.assertEqual(data["trace_metrics"]["averageToolDurationMs"], 120)
+            self.assertEqual(data["trace_metrics"]["averageScriptDurationMs"], 40)
+            self.assertEqual(data["trace_metrics"]["averageProviderRounds"], 1)
+            self.assertEqual(data["trace_metrics"]["errorCodes"]["skill_failed"], 1)
+            self.assertEqual(data["trace_metrics"]["errorCodes"]["tool_input_validation_failed"], 1)
+            self.assertEqual(data["trace_metrics"]["errorCodes"]["provider_stream_failed"], 1)
+            self.assertNotIn("other_family_error", data["trace_metrics"]["errorCodes"])
             self.assertEqual([item["id"] for item in data["recent_runs"]], ["agent-run-quality-recipe", "agent-run-quality-plan"])
             self.assertEqual(data["recent_runs"][0]["error_code"], "skill_failed")
             self.assertNotIn("agent-run-quality-other-family", [item["id"] for item in data["recent_runs"]])

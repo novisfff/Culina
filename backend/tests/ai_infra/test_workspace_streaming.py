@@ -1,6 +1,8 @@
 import threading
 
+from app.ai.errors import ApprovalRequired
 from app.ai.workflows.live_stream_cache import live_ai_stream_cache
+from app.ai.workflows.runner import WorkspaceGraphRunner
 
 from ._support import *
 
@@ -121,14 +123,12 @@ class ProgressiveMultiDraftProvider(BaseChatProvider):
                 {
                     "draft": meal_plan_draft,
                     "afterApproval": {
-                        "continue": True,
+                        "continue": False,
                         "instruction": "确认餐食计划后，继续生成购物清单草稿。",
                         "nextDraftType": "shopping_list",
                     },
                 },
             )
-            second_draft_result = tool_handler("shopping.create_draft", {"draft": shopping_draft})
-            assert second_draft_result.get("code") == "draft_budget_exhausted"
             return ChatProviderResult(
                 text=text,
                 status="waiting_approval",
@@ -136,6 +136,7 @@ class ProgressiveMultiDraftProvider(BaseChatProvider):
             )
         assert resume_artifacts
         assert "购物清单" in str(resume_artifacts[-1].get("payload", {}))
+        assert "continue" not in resume_artifacts[-1].get("payload", {})
         text = "已确认餐食计划。接下来我根据已确认的餐食计划生成购物清单草稿。"
         _emit_text(message_handler, text)
         tool_handler("shopping.create_draft", {"draft": shopping_draft})
@@ -171,58 +172,61 @@ class BlockingProgressiveRecipeDraftProvider(BaseChatProvider):
         assert "recipe.create_draft" in _tool_names(tools)
         text = "我先生成菜谱草稿。"
         _emit_text(message_handler, text)
-        tool_handler(
-            "recipe.create_draft",
-            {
-                "draft": {
-                    "draftType": "recipe",
-                    "schemaVersion": "recipe.v1",
-                    "title": "番茄鸡蛋面",
-                    "servings": 2,
-                    "prep_minutes": 20,
-                    "difficulty": "easy",
-                    "ingredient_items": [
-                        {"ingredient_id": None, "ingredient_name": "番茄", "quantity": 2, "unit": "个", "note": ""},
-                        {"ingredient_id": None, "ingredient_name": "鸡蛋", "quantity": 2, "unit": "个", "note": ""},
-                    ],
-                    "steps": [
-                        {
-                            "title": "备菜",
-                            "text": "番茄切块，鸡蛋打散。",
-                            "icon": "bowl",
-                            "summary": "备菜",
-                            "estimated_minutes": 5,
-                            "tip": "",
-                            "key_points": [],
-                        },
-                        {
-                            "title": "煮面",
-                            "text": "煮面后加入番茄鸡蛋汤底。",
-                            "icon": "pan",
-                            "summary": "煮熟",
-                            "estimated_minutes": 15,
-                            "tip": "",
-                            "key_points": [],
-                        },
-                        {
-                            "title": "调味",
-                            "text": "出锅前尝味，按家人口味少量加盐。",
-                            "icon": "plate",
-                            "summary": "调味出锅",
-                            "estimated_minutes": 2,
-                            "tip": "",
-                            "key_points": [],
-                        },
-                    ],
-                    "tips": "",
-                    "scene_tags": [],
-                    "media_ids": [],
-                }
-            },
-        )
-        self.draft_published.set()
-        if not self.continue_stream.wait(timeout=5):
-            raise RuntimeError("stream test timed out")
+        try:
+            tool_handler(
+                "recipe.create_draft",
+                {
+                    "draft": {
+                        "draftType": "recipe",
+                        "schemaVersion": "recipe.v1",
+                        "title": "番茄鸡蛋面",
+                        "servings": 2,
+                        "prep_minutes": 20,
+                        "difficulty": "easy",
+                        "ingredient_items": [
+                            {"ingredient_id": None, "ingredient_name": "番茄", "quantity": 2, "unit": "个", "note": ""},
+                            {"ingredient_id": None, "ingredient_name": "鸡蛋", "quantity": 2, "unit": "个", "note": ""},
+                        ],
+                        "steps": [
+                            {
+                                "title": "备菜",
+                                "text": "番茄切块，鸡蛋打散。",
+                                "icon": "bowl",
+                                "summary": "备菜",
+                                "estimated_minutes": 5,
+                                "tip": "",
+                                "key_points": [],
+                            },
+                            {
+                                "title": "煮面",
+                                "text": "煮面后加入番茄鸡蛋汤底。",
+                                "icon": "pan",
+                                "summary": "煮熟",
+                                "estimated_minutes": 15,
+                                "tip": "",
+                                "key_points": [],
+                            },
+                            {
+                                "title": "调味",
+                                "text": "出锅前尝味，按家人口味少量加盐。",
+                                "icon": "plate",
+                                "summary": "调味出锅",
+                                "estimated_minutes": 2,
+                                "tip": "",
+                                "key_points": [],
+                            },
+                        ],
+                        "tips": "",
+                        "scene_tags": [],
+                        "media_ids": [],
+                    }
+                },
+            )
+        except ApprovalRequired:
+            self.draft_published.set()
+            if not self.continue_stream.wait(timeout=5):
+                raise RuntimeError("stream test timed out")
+            raise
         return ChatProviderResult(
             text=text,
             status="waiting_approval",
@@ -310,10 +314,8 @@ class RetrySameDraftProvider(BaseChatProvider):
         }
         text = "我先生成购物清单草稿。"
         _emit_text(message_handler, text)
-        tool_handler("shopping.create_draft", {"draft": draft})
         self.calls += 1
-        second = tool_handler("shopping.create_draft", {"draft": draft})
-        assert second.get("code") == "draft_already_published"
+        tool_handler("shopping.create_draft", {"draft": draft})
         return ChatProviderResult(
             text=text,
             status="waiting_approval",
@@ -394,7 +396,6 @@ class CommitGatedRecipeProvider(BaseChatProvider):
             {
                 "draft": recipe_draft,
                 "afterApproval": {
-                    "continue": True,
                     "instruction": "确认菜谱后，继续把这道菜安排到明天晚餐。",
                     "nextDraftType": "meal_plan",
                 },
@@ -728,6 +729,245 @@ class AIWorkspaceStreamingTestCase(AIAgentInfraTestCase):
             finally:
                 live_ai_stream_cache.clear_run(run_id)
 
+        def test_ai_workspace_live_overlay_preserves_resolved_approval_result_position(self) -> None:
+            run_id = "agent-run-overlay-approval-result-order"
+            conversation_id = "conversation-overlay-approval-result-order"
+            message_id = "message-overlay-approval-result-order"
+            result_part = {
+                "id": "operation-result-part-overlay",
+                "type": "result_card",
+                "card": {
+                    "id": "operation-result:approval-overlay-approved",
+                    "type": "operation_result",
+                    "title": "已创建菜谱",
+                    "data": {
+                        "approvalId": "approval-overlay-approved",
+                        "actionSummary": "白切鸡已写入菜谱库。",
+                        "entityCount": 1,
+                        "entityCountLabel": "1 个菜谱",
+                        "workspaceLabel": "菜谱库",
+                        "workspaceHint": "可前往菜谱库查看",
+                    },
+                },
+            }
+            with self.SessionLocal() as db:
+                conversation = AIConversation(
+                    id=conversation_id,
+                    family_id=self.family.id,
+                    mode=AiMode.RECOMMENDATION,
+                    prompt="生成菜谱",
+                    response="",
+                    context={"workspace": True},
+                    title="生成菜谱",
+                    status="active",
+                    last_run_status="running",
+                    created_by=self.user.id,
+                )
+                message = AIMessage(
+                    id=message_id,
+                    family_id=self.family.id,
+                    conversation_id=conversation_id,
+                    role="assistant",
+                    content="菜谱草稿已经生成，请确认。",
+                    content_type="parts",
+                    parts=[
+                        {"id": "text-before-approval", "type": "text", "text": "菜谱草稿已经生成，请确认。"},
+                        {
+                            "id": "draft-part-overlay",
+                            "type": "draft",
+                            "draft": {
+                                "id": "draft-overlay-approved",
+                                "conversation_id": conversation_id,
+                                "message_id": message_id,
+                                "run_id": run_id,
+                                "draft_type": "recipe",
+                                "payload": {"draftType": "recipe", "schemaVersion": "recipe.v1", "title": "白切鸡"},
+                                "preview_summary": "白切鸡",
+                                "status": "confirmed",
+                                "version": 1,
+                                "schema_version": "recipe.v1",
+                                "validation_errors": [],
+                                "expires_at": None,
+                                "created_at": utcnow().isoformat(),
+                                "updated_at": utcnow().isoformat(),
+                            },
+                        },
+                        {
+                            "id": "approval-part-overlay",
+                            "type": "approval_request",
+                            "approval": {
+                                "id": "approval-overlay-approved",
+                                "conversation_id": conversation_id,
+                                "message_id": message_id,
+                                "run_id": run_id,
+                                "draft_id": "draft-overlay-approved",
+                                "draft_version": 1,
+                                "draft_schema_version": "recipe.v1",
+                                "approval_type": "recipe.create",
+                                "status": "approved",
+                                "decision": "approved",
+                                "title": "确认创建菜谱",
+                                "instruction": "确认后会创建菜谱。",
+                                "approve_label": "创建菜谱",
+                                "reject_label": "暂不创建",
+                                "require_reject_comment": False,
+                                "field_schema": [],
+                                "initial_values": {},
+                                "submitted_values": {},
+                                "created_at": utcnow().isoformat(),
+                            },
+                        },
+                        result_part,
+                    ],
+                    run_id=run_id,
+                    status="running",
+                    message_metadata={},
+                    created_by=self.user.id,
+                )
+                db.add_all([conversation, message])
+                db.commit()
+
+            live_ai_stream_cache.append_part(
+                family_id=self.family.id,
+                conversation_id=conversation_id,
+                run_id=run_id,
+                message_id=message_id,
+                part=result_part,
+                created_by=self.user.id,
+            )
+            live_ai_stream_cache.append_activity(
+                family_id=self.family.id,
+                conversation_id=conversation_id,
+                run_id=run_id,
+                message_id=message_id,
+                part={
+                    "id": "activity-next-draft-overlay",
+                    "type": "run_activity",
+                    "activity": {
+                        "id": "progress-next-draft-overlay",
+                        "run_id": run_id,
+                        "type": "tool",
+                        "internal_code": "recipe.create_draft",
+                        "user_message": "生成「菜谱确认表单」",
+                        "status": "running",
+                        "created_at": utcnow().isoformat(),
+                    },
+                },
+                created_by=self.user.id,
+            )
+            try:
+                response = self.client.get(f"/api/ai/conversations/{conversation_id}/messages")
+                self.assertEqual(response.status_code, 200, response.text)
+                assistant_message = next(message for message in response.json() if message["id"] == message_id)
+                part_ids = [part["id"] for part in assistant_message["parts"]]
+                self.assertLess(part_ids.index("approval-part-overlay"), part_ids.index("operation-result-part-overlay"))
+                self.assertLess(part_ids.index("operation-result-part-overlay"), part_ids.index("activity-next-draft-overlay"))
+                self.assertEqual(part_ids.count("operation-result-part-overlay"), 1)
+                self.assertIn("approval-part-overlay", part_ids)
+            finally:
+                live_ai_stream_cache.clear_run(run_id)
+
+        def test_ai_workspace_live_overlay_does_not_replace_completed_message(self) -> None:
+            conversation_id = "conversation-live-overlay-completed"
+            run_id = "run-live-overlay-completed"
+            message_id = "message-live-overlay-completed"
+            with self.SessionLocal() as db:
+                conversation = AIConversation(
+                    id=conversation_id,
+                    family_id=self.family.id,
+                    mode=AiMode.RECOMMENDATION,
+                    prompt="已完成会话",
+                    response="已完成",
+                    context={"workspace": True},
+                    title="已完成会话",
+                    status="active",
+                    last_run_status="completed",
+                    created_by=self.user.id,
+                )
+                message = AIMessage(
+                    id=message_id,
+                    family_id=self.family.id,
+                    conversation_id=conversation_id,
+                    role="assistant",
+                    content="这是持久化完成消息。",
+                    content_type="parts",
+                    parts=[{"id": "text-completed", "type": "text", "text": "这是持久化完成消息。"}],
+                    run_id=run_id,
+                    status="completed",
+                    message_metadata={},
+                    created_by=self.user.id,
+                )
+                db.add_all([conversation, message])
+                db.commit()
+
+            live_ai_stream_cache.append_activity(
+                family_id=self.family.id,
+                conversation_id=conversation_id,
+                run_id=run_id,
+                message_id=message_id,
+                part={
+                    "id": "activity-stale-running",
+                    "type": "run_activity",
+                    "activity": {
+                        "id": "progress-stale-running",
+                        "run_id": run_id,
+                        "type": "tool",
+                        "internal_code": "recipe.create_draft",
+                        "user_message": "生成「菜谱确认表单」",
+                        "status": "running",
+                        "created_at": utcnow().isoformat(),
+                    },
+                },
+                created_by=self.user.id,
+            )
+            response = self.client.get(f"/api/ai/conversations/{conversation_id}/messages")
+            self.assertEqual(response.status_code, 200, response.text)
+            assistant_message = next(message for message in response.json() if message["id"] == message_id)
+            self.assertEqual(assistant_message["status"], "completed")
+            self.assertEqual([part["id"] for part in assistant_message["parts"]], ["text-completed"])
+            self.assertEqual(live_ai_stream_cache.parts_for_run(run_id), [])
+
+        def test_graph_stream_disconnect_continues_worker_without_blocking_close(self) -> None:
+            runner = WorkspaceGraphRunner.__new__(WorkspaceGraphRunner)
+            runner._direct_stream_sink = None
+            runner.db = SimpleNamespace(commit=lambda: None, rollback=lambda: None)
+            continue_stream = threading.Event()
+            graph_finished = threading.Event()
+            disconnected = threading.Event()
+            close_finished = threading.Event()
+
+            def graph_stream():
+                yield ("updates", {"step": 1})
+                continue_stream.wait(timeout=2)
+                graph_finished.set()
+
+            def handle_update(_update):
+                yield "progress", {
+                    "id": "event-disconnect-progress",
+                    "type": "tool",
+                    "internal_code": "recipe.create_draft",
+                    "user_message": "生成「菜谱确认表单」",
+                    "status": "running",
+                }
+
+            stream = runner._stream_graph_events(
+                lambda _runner: graph_stream(),
+                handle_update=lambda _runner, update: handle_update(update),
+                seen_event_ids=set(),
+                on_disconnect=disconnected.set,
+                runner_factory=lambda: runner,
+            )
+            self.assertEqual(next(stream)[0], "progress")
+
+            closer = threading.Thread(target=lambda: (stream.close(), close_finished.set()))
+            closer.start()
+            self.assertTrue(disconnected.wait(timeout=1))
+            self.assertTrue(close_finished.wait(timeout=1))
+            self.assertFalse(graph_finished.is_set())
+            continue_stream.set()
+            self.assertTrue(graph_finished.wait(timeout=1))
+            closer.join(timeout=1)
+
         def test_ai_conversation_history_orders_by_latest_message_time(self) -> None:
             with self.SessionLocal() as db:
                 older_active = AIConversation(
@@ -993,6 +1233,14 @@ class AIWorkspaceStreamingTestCase(AIAgentInfraTestCase):
             self.assertIn("生成「购物清单确认表单」", resume_body)
             self.assertNotIn("购物清单草稿也准备好了。", resume_body)
             resume_events = _sse_events(resume_body)
+            approval_result_index = next(
+                index
+                for index, (event_name, data) in enumerate(resume_events)
+                if event_name == "message_part"
+                and data.get("part", {}).get("type") == "approval_request"
+                and data.get("part", {}).get("approval", {}).get("id") == approval["id"]
+                and data.get("part", {}).get("approval", {}).get("status") == "approved"
+            )
             result_part_index = next(
                 index
                 for index, (event_name, data) in enumerate(resume_events)
@@ -1001,7 +1249,6 @@ class AIWorkspaceStreamingTestCase(AIAgentInfraTestCase):
                 and data.get("part", {}).get("card", {}).get("type") == "operation_result"
                 and data.get("part", {}).get("card", {}).get("data", {}).get("approvalId") == approval["id"]
             )
-            self.assertEqual(result_part_index, 0)
             followup_text_index = next(
                 index
                 for index, (event_name, data) in enumerate(resume_events)
@@ -1015,15 +1262,21 @@ class AIWorkspaceStreamingTestCase(AIAgentInfraTestCase):
                 and data.get("part", {}).get("type") == "run_activity"
                 and data.get("part", {}).get("activity", {}).get("user_message") == "生成「购物清单确认表单」"
             )
+            next_approval_index = next(
+                index
+                for index, (event_name, data) in enumerate(resume_events)
+                if event_name == "message_part"
+                and data.get("part", {}).get("type") == "approval_request"
+                and data.get("part", {}).get("approval", {}).get("approval_type") == "shopping_list.create"
+            )
+            self.assertLess(approval_result_index, result_part_index)
+            self.assertLess(approval_result_index, followup_text_index)
             self.assertLess(result_part_index, followup_text_index)
             self.assertLess(result_part_index, next_draft_activity_index)
+            self.assertLess(next_draft_activity_index, next_approval_index)
             self.assertLess(
                 resume_body.index("接下来我根据已确认的餐食计划生成购物清单草稿。"),
                 resume_body.index("生成「购物清单确认表单」"),
-            )
-            self.assertLess(
-                resume_body.index("生成「购物清单确认表单」"),
-                resume_body.index('"type": "approval_request"'),
             )
             self.assertIn("shopping_list.create", resume_body)
             resume_response = _response_event(resume_body)

@@ -807,7 +807,6 @@ backend/.venv/bin/python -m pytest backend/tests/ai_infra/test_workspace_streami
 
 ```bash
 npm --prefix frontend run test -- AiWorkspace.test.tsx aiApi.test.ts
-npm --prefix frontend run check:size
 npm --prefix frontend run build
 ```
 

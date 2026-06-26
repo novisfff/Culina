@@ -12,6 +12,8 @@ const artifactDir = resolve(repoRoot, 'tmp', 'ai-skill-manual-smoke');
 
 const DEFAULT_BACKEND_URL = 'http://127.0.0.1:8010';
 const DEFAULT_TIMEOUT_MS = 240_000;
+const ACTIVE_RUN_STATUSES = new Set(['pending', 'running', 'waiting', 'waiting_input', 'waiting_approval']);
+const IDLE_STABLE_MS = 1_500;
 
 const args = parseArgs(process.argv.slice(2));
 const runSuffix = args.suffix || timestampSuffix();
@@ -381,8 +383,10 @@ async function runCase(page, testCase) {
   }
 
   const decision = args.decision === 'approve' ? 'approved' : 'rejected';
+  await waitForApprovalReady(page, testCase.key);
   await submitDecision(panel, decision);
   await waitForDecisionStatus(page, decision);
+  await waitForLatestConversationIdle(page, testCase.key);
   await waitForComposerReady(page);
   console.log(`[${testCase.key}] ${decision}`);
   return { key: testCase.key, status: decision };
@@ -504,6 +508,67 @@ async function waitForComposerReady(page) {
     .catch((error) => {
       throw new Error(`等待 AI 输入框可用超时：${error instanceof Error ? error.message : String(error)}`);
     });
+}
+
+async function waitForApprovalReady(page, label) {
+  const startedAt = Date.now();
+  let lastState = 'no conversation';
+  while (Date.now() - startedAt < DEFAULT_TIMEOUT_MS) {
+    const state = await latestConversationRunState(page, args.backendUrl);
+    lastState = state.description;
+    if (state.status === 'waiting_approval') return;
+    if (!state.active && state.status !== 'empty') return;
+    await delay(500);
+  }
+  throw new Error(`[${label}] 等待审批可确认超时：${lastState}`);
+}
+
+async function waitForLatestConversationIdle(page, label) {
+  const startedAt = Date.now();
+  let idleSince = 0;
+  let lastState = 'no conversation';
+  while (Date.now() - startedAt < DEFAULT_TIMEOUT_MS) {
+    const state = await latestConversationRunState(page, args.backendUrl);
+    lastState = state.description;
+    if (!state.active) {
+      if (!idleSince) idleSince = Date.now();
+      if (Date.now() - idleSince >= IDLE_STABLE_MS) return;
+    } else {
+      idleSince = 0;
+    }
+    await delay(500);
+  }
+  throw new Error(`[${label}] 等待会话空闲超时：${lastState}`);
+}
+
+async function latestConversationRunState(page, backendUrl) {
+  return page.evaluate(async ({ url, activeStatuses }) => {
+    const token = localStorage.getItem('culina-access-token');
+    if (!token) {
+      return { active: false, description: 'missing token' };
+    }
+    const response = await fetch(`${url.replace(/\/$/, '')}/api/ai/conversations`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!response.ok) {
+      return { active: true, description: `conversation fetch ${response.status}` };
+    }
+    const conversations = await response.json();
+    if (!Array.isArray(conversations) || conversations.length === 0) {
+      return { active: false, description: 'no conversation' };
+    }
+    const latest = [...conversations].sort((left, right) => {
+      const leftTime = Date.parse(left.last_message_at || left.created_at || '') || 0;
+      const rightTime = Date.parse(right.last_message_at || right.created_at || '') || 0;
+      return rightTime - leftTime;
+    })[0];
+    const status = String(latest.last_run_status || '').toLowerCase();
+    return {
+      active: activeStatuses.includes(status),
+      status: status || 'empty',
+      description: `${latest.id || 'unknown'} last_run_status=${status || 'empty'}`,
+    };
+  }, { url: backendUrl, activeStatuses: Array.from(ACTIVE_RUN_STATUSES) });
 }
 
 async function expectVisibleText(page, text, label) {

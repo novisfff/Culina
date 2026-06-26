@@ -7,6 +7,8 @@ from typing import Any, Literal
 
 from sqlalchemy.orm import Session
 
+from app.ai.errors import AIExecutionCancelled, ApprovalRequired, HumanInputRequired
+
 
 ToolSideEffect = Literal["read", "draft", "write", "control"]
 ToolHandler = Callable[["ToolContext", dict[str, Any]], dict[str, Any]]
@@ -21,6 +23,9 @@ class ToolContext:
     run_id: str
     stream_writer: Callable[[dict[str, Any]], None] | None = None
     cancel_check: Callable[[], bool] | None = None
+    tracer: Any | None = None
+    trace_parent_span_id: str | None = None
+    trace_round_index: int | None = None
 
 
 @dataclass(slots=True)
@@ -86,6 +91,8 @@ def timed_call(definition: ToolDefinition, context: ToolContext, payload: dict[s
             status="completed",
             duration_ms=int((perf_counter() - started_at) * 1000),
         )
+    except (AIExecutionCancelled, ApprovalRequired, HumanInputRequired):
+        raise
     except Exception as exc:
         return ToolResult(
             name=definition.name,

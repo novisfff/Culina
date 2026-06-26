@@ -409,6 +409,88 @@ class AIRunEventDTO(BaseModel):
     created_at: datetime
 
 
+class AIRunTraceSpanDTO(BaseModel):
+    id: str
+    runId: str
+    conversationId: str | None = None
+    traceId: str
+    spanId: str
+    parentSpanId: str | None = None
+    spanType: str
+    name: str
+    status: str
+    roundIndex: int | None = None
+    attemptIndex: int | None = None
+    startedAt: datetime
+    endedAt: datetime | None = None
+    durationMs: int
+    inputSummary: dict = Field(default_factory=dict)
+    outputSummary: dict = Field(default_factory=dict)
+    errorCode: str | None = None
+    errorMessage: str | None = None
+    exceptionType: str | None = None
+    payload: dict = Field(default_factory=dict)
+
+
+class AIRunTraceResponse(BaseModel):
+    runId: str
+    traceId: str
+    status: str
+    spans: list[AIRunTraceSpanDTO]
+
+
+class AIRunTraceTreeNodeDTO(AIRunTraceSpanDTO):
+    children: list["AIRunTraceTreeNodeDTO"] = Field(default_factory=list)
+
+
+class AIRunTraceTreeResponse(BaseModel):
+    runId: str
+    traceId: str
+    status: str
+    tree: list[AIRunTraceTreeNodeDTO]
+
+
+class AIRunLLMExchangeDTO(BaseModel):
+    id: str
+    runId: str
+    conversationId: str | None = None
+    traceId: str
+    spanId: str | None = None
+    providerRound: int
+    attemptIndex: int
+    mode: str
+    model: str
+    requestMessages: list = Field(default_factory=list)
+    requestTools: list = Field(default_factory=list)
+    requestOptions: dict = Field(default_factory=dict)
+    requestOriginalDigest: str = ""
+    requestOriginalBytes: int = 0
+    requestDigest: str = ""
+    requestBytes: int = 0
+    requestTruncated: bool = False
+    responseMessage: dict = Field(default_factory=dict)
+    responseText: str | None = None
+    responseToolCalls: list = Field(default_factory=list)
+    streamChunks: list = Field(default_factory=list)
+    responseOriginalDigest: str = ""
+    responseOriginalBytes: int = 0
+    responseDigest: str = ""
+    responseBytes: int = 0
+    responseTruncated: bool = False
+    status: str
+    errorCode: str | None = None
+    errorMessage: str | None = None
+    startedAt: datetime
+    endedAt: datetime | None = None
+    durationMs: int
+
+
+class AIRunLLMExchangeResponse(BaseModel):
+    runId: str
+    traceId: str
+    exchanges: list[AIRunLLMExchangeDTO]
+
+
 class AIQualityWindowDTO(BaseModel):
     limit: int
     days: int | None = None
@@ -425,6 +507,21 @@ class AIQualityTotalsDTO(BaseModel):
     approvalRejectedCount: int = 0
     totalDurationMs: int = 0
     averageDurationMs: int = 0
+
+
+class AITraceQualityMetricsDTO(BaseModel):
+    traceSpanCount: int = 0
+    llmExchangeCount: int = 0
+    failedSpanCount: int = 0
+    failedExchangeCount: int = 0
+    averageProviderDurationMs: int = 0
+    averageToolDurationMs: int = 0
+    averageScriptDurationMs: int = 0
+    averageProviderRounds: int = 0
+    errorCodes: dict[str, int] = Field(default_factory=dict)
+    spanTypeCounts: dict[str, int] = Field(default_factory=dict)
+    spanStatusCounts: dict[str, int] = Field(default_factory=dict)
+    exchangeStatusCounts: dict[str, int] = Field(default_factory=dict)
 
 
 class AIQualityRecentRunDTO(BaseModel):
@@ -456,6 +553,7 @@ class AIQualityMetricsResponse(BaseModel):
     skill_diagnostics: dict[str, int] = Field(default_factory=dict)
     skill_status_counts: dict[str, int] = Field(default_factory=dict)
     totals: AIQualityTotalsDTO
+    trace_metrics: AITraceQualityMetricsDTO = Field(default_factory=AITraceQualityMetricsDTO)
     recent_runs: list[AIQualityRecentRunDTO] = Field(default_factory=list)
 
 

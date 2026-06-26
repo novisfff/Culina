@@ -20,6 +20,7 @@ allowed_tools:
 - recipe.read_by_id
 - meal_plan.read_existing
 - meal_plan.read_by_id
+- meal_plan.recommend_today
 - meal_plan.create_draft
 script_files:
 - scripts/expand_meal_slots.py

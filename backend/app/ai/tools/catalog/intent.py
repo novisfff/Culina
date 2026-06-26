@@ -7,13 +7,29 @@ from app.ai.tools.catalog.common import register_tool
 from app.ai.tools.registry import ToolRegistry
 
 
+SKILL_INJECT_SKILL_KEYS = [
+    "food_profile",
+    "ingredient_profile",
+    "inventory_analysis",
+    "meal_plan",
+    "meal_log",
+    "recipe_cook",
+    "recipe_draft",
+    "shopping_list",
+]
+
 SKILL_INJECT_REQUEST_SCHEMA = {
     "type": "object",
     "additionalProperties": False,
     "properties": {
         "skills": {
             "type": "array",
-            "items": {"type": "string", "minLength": 1, "maxLength": 80},
+            "description": "要注入的 Skill 稳定 key 列表。必须使用 skill.yaml:key，例如 inventory_analysis；不要使用 SKILL.md:name 或目录 slug，例如 inventory-analysis。",
+            "items": {
+                "type": "string",
+                "enum": SKILL_INJECT_SKILL_KEYS,
+                "description": "只能填写 skill.yaml:key。",
+            },
             "minItems": 1,
             "maxItems": 4,
         },
@@ -110,6 +126,8 @@ def register_intent_tools(registry: ToolRegistry) -> None:
         description=(
             "当当前任务需要新的业务能力时调用。"
             "调用后同一个 agent loop 的下一轮会暴露对应 Skill 的 tools 和 instructions。"
+            "skills 参数只能填写 skill.yaml:key，例如 inventory_analysis、meal_plan；"
+            "不要填写 SKILL.md:name、目录 slug 或短横线形式，例如 inventory-analysis。"
         ),
         side_effect="control",
         handler=skill_inject_placeholder,

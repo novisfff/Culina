@@ -23,6 +23,7 @@ from app.ai.tools.catalog.inventory_unit_conversion import (
     build_unit_mismatch_inventory_payload,
     unit_mismatch_from_tool_payload,
 )
+from app.core.utils import create_id
 from app.models.domain import InventoryItem
 from app.services.clock import today_for_family
 from app.services.inventory_usage import remaining_quantity
@@ -305,13 +306,27 @@ def inventory_read_summary(context: ToolContext, payload: dict[str, Any]) -> dic
         and remaining_quantity(item) <= item.low_stock_threshold
     ]
     selected_items = expiring[:6] or low_stock[:6] or items[:6]
-    media_map = entity_media_map(context.db, family_id=context.family_id, entity_types={"ingredient"}, entity_ids=[item.ingredient_id for item in selected_items])
-    return {
+    media_map = entity_media_map(
+        context.db,
+        family_id=context.family_id,
+        entity_types={"ingredient"},
+        entity_ids=[item.ingredient_id for item in selected_items],
+    )
+    data = {
         "queryFocus": "overview",
         "availableCount": len(items),
         "expiringCount": len(expiring),
         "lowStockCount": len(low_stock),
         "items": [inventory_record(item, media_map, today=today) for item in selected_items],
+    }
+    return {
+        **data,
+        "card": {
+            "id": create_id("ai_card"),
+            "type": "inventory_summary",
+            "title": "库存概览",
+            "data": data,
+        },
     }
 
 

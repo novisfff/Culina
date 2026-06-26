@@ -899,6 +899,88 @@ export interface AiRunEvent {
   created_at: string;
 }
 
+export interface AiRunTraceSpan {
+  id: string;
+  runId: string;
+  conversationId?: string | null;
+  traceId: string;
+  spanId: string;
+  parentSpanId?: string | null;
+  spanType: string;
+  name: string;
+  status: string;
+  roundIndex?: number | null;
+  attemptIndex?: number | null;
+  startedAt: string;
+  endedAt?: string | null;
+  durationMs: number;
+  inputSummary: Record<string, unknown>;
+  outputSummary: Record<string, unknown>;
+  errorCode?: string | null;
+  errorMessage?: string | null;
+  exceptionType?: string | null;
+  payload: Record<string, unknown>;
+}
+
+export interface AiRunTraceResponse {
+  runId: string;
+  traceId: string;
+  status: string;
+  spans: AiRunTraceSpan[];
+}
+
+export interface AiRunTraceTreeNode extends AiRunTraceSpan {
+  children: AiRunTraceTreeNode[];
+}
+
+export interface AiRunTraceTreeResponse {
+  runId: string;
+  traceId: string;
+  status: string;
+  tree: AiRunTraceTreeNode[];
+}
+
+export interface AiRunLLMExchange {
+  id: string;
+  runId: string;
+  conversationId?: string | null;
+  traceId: string;
+  spanId?: string | null;
+  providerRound: number;
+  attemptIndex: number;
+  mode: string;
+  model: string;
+  requestMessages: unknown[];
+  requestTools: unknown[];
+  requestOptions: Record<string, unknown>;
+  requestOriginalDigest: string;
+  requestOriginalBytes: number;
+  requestDigest: string;
+  requestBytes: number;
+  requestTruncated: boolean;
+  responseMessage: Record<string, unknown>;
+  responseText?: string | null;
+  responseToolCalls: unknown[];
+  streamChunks: unknown[];
+  responseOriginalDigest: string;
+  responseOriginalBytes: number;
+  responseDigest: string;
+  responseBytes: number;
+  responseTruncated: boolean;
+  status: string;
+  errorCode?: string | null;
+  errorMessage?: string | null;
+  startedAt: string;
+  endedAt?: string | null;
+  durationMs: number;
+}
+
+export interface AiRunLLMExchangeResponse {
+  runId: string;
+  traceId: string;
+  exchanges: AiRunLLMExchange[];
+}
+
 export interface AiStatus {
   enabled: boolean;
   provider: string;
@@ -934,6 +1016,20 @@ export interface AiQualityMetrics {
     approvalRejectedCount: number;
     totalDurationMs: number;
     averageDurationMs: number;
+  };
+  trace_metrics: {
+    traceSpanCount: number;
+    llmExchangeCount: number;
+    failedSpanCount: number;
+    failedExchangeCount: number;
+    averageProviderDurationMs: number;
+    averageToolDurationMs: number;
+    averageScriptDurationMs: number;
+    averageProviderRounds: number;
+    errorCodes: Record<string, number>;
+    spanTypeCounts: Record<string, number>;
+    spanStatusCounts: Record<string, number>;
+    exchangeStatusCounts: Record<string, number>;
   };
   recent_runs: Array<{
     id: string;

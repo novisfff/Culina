@@ -94,6 +94,40 @@ describe('aiApi', () => {
     });
   });
 
+  it('fetches AI run observability endpoints', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.endsWith('/api/ai/runs/run-1/trace')) {
+        return new Response(JSON.stringify({ runId: 'run-1', traceId: 'trace-1', status: 'completed', spans: [] }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      if (url.endsWith('/api/ai/runs/run-1/trace/tree')) {
+        return new Response(JSON.stringify({ runId: 'run-1', traceId: 'trace-1', status: 'completed', tree: [] }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      if (url.endsWith('/api/ai/runs/run-1/llm-exchanges')) {
+        return new Response(JSON.stringify({ runId: 'run-1', traceId: 'trace-1', exchanges: [] }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      return new Response('not found', { status: 404 });
+    });
+
+    await expect(aiApi.getAiRunTrace('run-1')).resolves.toEqual({ runId: 'run-1', traceId: 'trace-1', status: 'completed', spans: [] });
+    await expect(aiApi.getAiRunTraceTree('run-1')).resolves.toEqual({ runId: 'run-1', traceId: 'trace-1', status: 'completed', tree: [] });
+    await expect(aiApi.getAiRunLlmExchanges('run-1')).resolves.toEqual({ runId: 'run-1', traceId: 'trace-1', exchanges: [] });
+    expect(fetchSpy.mock.calls.map((call) => String(call[0]))).toEqual([
+      expect.stringContaining('/api/ai/runs/run-1/trace'),
+      expect.stringContaining('/api/ai/runs/run-1/trace/tree'),
+      expect.stringContaining('/api/ai/runs/run-1/llm-exchanges'),
+    ]);
+  });
+
   it('streams approval decisions through the shared SSE parser', async () => {
     const response: AiChatResponse = {
       conversation_id: 'conversation-1',

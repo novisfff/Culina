@@ -28,6 +28,8 @@ type Props = {
   streamProgress: AiRunEvent[];
   thinkingRunIds: Set<string>;
   activeAssistantRunId: string | null;
+  activeStreamRunId: string | null;
+  submittingApprovalId: string | null;
   draft: string;
   attachments: AiComposerAttachment[];
   canAddAttachment: boolean;
@@ -64,6 +66,7 @@ type Props = {
   ) => void;
   isInventoryActionPending: boolean;
   onCancelSending: () => void;
+  onOpenRunDebug?: (runId: string) => void;
 };
 
 function setPixelVariable(element: HTMLElement, name: string, value: number) {
@@ -206,6 +209,8 @@ export function AiMobilePage(props: Props) {
                 }
                 isThinking={Boolean(message.run_id && props.thinkingRunIds.has(message.run_id))}
                 isLatestAssistant={message.role === 'assistant' && index === props.messages.length - 1}
+                activeStreamRunId={props.activeStreamRunId}
+                submittingApprovalId={props.submittingApprovalId}
                 isAssistantResponseActive={
                   message.role === 'assistant'
                   && Boolean(
@@ -218,6 +223,7 @@ export function AiMobilePage(props: Props) {
                 onAddRecommendationToPlan={props.onAddRecommendationToPlan}
                 onInventoryAction={props.onInventoryAction}
                 isInventoryActionPending={props.isInventoryActionPending}
+                onOpenRunDebug={props.onOpenRunDebug}
               />
             ))}
           </>
