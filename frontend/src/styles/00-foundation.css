@@ -997,6 +997,11 @@ textarea:focus-visible {
 .app-notification-list {
   display: grid;
   gap: 6px;
+  max-height: 366px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: 2px;
+  scrollbar-width: thin;
 }
 
 .app-notification-row {

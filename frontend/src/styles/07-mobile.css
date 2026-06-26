@@ -4406,13 +4406,21 @@
   }
 
   .mobile-notification-center .app-notification-popover {
-    top: calc(100% + 8px);
-    right: 0;
-    z-index: var(--z-notification);
-    width: min(340px, calc(100vw - 28px));
-    max-height: min(420px, calc(100vh - 150px));
-    overflow-y: auto;
+    position: fixed;
+    top: calc(env(safe-area-inset-top, 0px) + 86px);
+    right: max(14px, calc((100vw - 480px) / 2 + 14px));
+    z-index: calc(var(--z-notification) + 1);
+    width: min(360px, calc(100vw - 28px));
+    max-height: min(456px, max(280px, calc(100dvh - 164px - env(safe-area-inset-bottom, 0px))));
+    overflow: hidden;
     border-radius: 22px;
+  }
+
+  .mobile-notification-center .app-notification-list {
+    gap: 8px;
+    max-height: min(320px, max(220px, calc(100dvh - 288px - env(safe-area-inset-bottom, 0px))));
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
   }
 
   .mobile-notification-center .app-notification-popover-head {
@@ -5592,11 +5600,11 @@
   }
 
   :is(.mobile-food-top-actions, .mobile-recipe-top-actions, .mobile-ingredient-top-actions, .mobile-log-top-actions, .mobile-dashboard-icon-actions, .mobile-family-top-actions) .mobile-notification-center .app-notification-popover {
-    top: calc(100% + 8px);
-    right: 0;
-    width: min(340px, calc(100vw - 28px));
-    max-height: min(420px, calc(100vh - 150px));
-    overflow-y: auto;
+    top: calc(env(safe-area-inset-top, 0px) + 86px);
+    right: max(14px, calc((100vw - 480px) / 2 + 14px));
+    width: min(360px, calc(100vw - 28px));
+    max-height: min(456px, max(280px, calc(100dvh - 164px - env(safe-area-inset-bottom, 0px))));
+    overflow: hidden;
   }
 
 
