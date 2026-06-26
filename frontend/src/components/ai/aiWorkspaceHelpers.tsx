@@ -1,5 +1,9 @@
 import type { AiApprovalRequest, AiChatResponse, AiMessage, AiMessagePart, AiRunEvent } from '../../api/types';
 
+type MergeMessageOptions = {
+  preferLocalOrder?: boolean;
+};
+
 export function TrashIcon() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
@@ -15,6 +19,207 @@ export function TrashIcon() {
 export function isPendingHumanInputPart(part: AiMessagePart) {
   if (part.type !== 'human_input_request' || !part.request) return false;
   return (part.status ?? 'pending') === 'pending';
+}
+
+function hasRenderableMessageContent(message: AiMessage) {
+  return Boolean(message.content?.trim()) || message.parts.some((part) => part.type !== 'text' || Boolean(part.text?.trim()));
+}
+
+function messageTextLength(message: AiMessage) {
+  const partsLength = message.parts
+    .filter((part) => part.type === 'text' && part.text)
+    .reduce((total, part) => total + (part.text?.length ?? 0), 0);
+  return partsLength || message.content?.length || 0;
+}
+
+function hasStructurePart(message: AiMessage) {
+  return message.parts.some((part) => part.type !== 'text');
+}
+
+function hasOnlyTextParts(message: AiMessage) {
+  return message.parts.length > 0 && message.parts.every((part) => part.type === 'text');
+}
+
+export function extractRunActivitySkillName(event: AiRunEvent | undefined) {
+  if (!event) return '任务规划';
+  const match = event.user_message.match(/「(.+?)」技能/);
+  if (match?.[1]) return match[1];
+  return event.user_message.replace(/(?:执行完成|等待补充信息|等待补充)$/, '').trim() || event.user_message;
+}
+
+export function isDraftRunActivityEvent(event: AiRunEvent) {
+  return event.internal_code.includes('.create_draft') || event.user_message.startsWith('生成「');
+}
+
+export function runActivityCollapseKey(event: AiRunEvent) {
+  if (event.type === 'skill') return `skill:${extractRunActivitySkillName(event)}`;
+  if (event.type === 'tool' || event.type === 'script') {
+    return event.id ? `${event.type}:${event.id}` : `${event.type}:${event.internal_code || event.user_message}`;
+  }
+  return '';
+}
+
+export function messagePartKey(part: AiMessagePart) {
+  if (part.type === 'approval_request' && part.approval?.id) return `approval:${part.approval.id}`;
+  if (part.type === 'draft' && part.draft?.id) return `draft:${part.draft.id}`;
+  if (part.type === 'result_card' && part.card?.id) return `card:${part.card.id}`;
+  if (part.type === 'human_input_request' && part.request?.id) return `human-input:${part.request.id}`;
+  if (part.type === 'run_activity' && part.activity) {
+    const collapseKey = runActivityCollapseKey(part.activity);
+    if (collapseKey) return `activity:${collapseKey}`;
+  }
+  if (part.type === 'run_activity' && part.id) return `activity-part:${part.id}`;
+  if (part.type === 'run_activity' && part.activity?.id) return `activity:${part.activity.id}`;
+  return `part:${part.id}`;
+}
+
+function approvalStatusRank(status: string | null | undefined) {
+  if (status === 'approved' || status === 'rejected') return 3;
+  if (status === 'expired' || status === 'cancelled') return 2;
+  if (status === 'pending') return 1;
+  return 0;
+}
+
+export function runActivityStatusRank(status: string | null | undefined) {
+  if (status === 'completed' || status === 'failed') return 3;
+  if (status === 'running' || status === 'waiting') return 2;
+  if (status === 'pending') return 1;
+  return 0;
+}
+
+export function runActivityTimeValue(event: AiRunEvent) {
+  const value = new Date(event.created_at).getTime();
+  return Number.isNaN(value) ? 0 : value;
+}
+
+export function preferredRunActivityEvent(current: AiRunEvent, next: AiRunEvent) {
+  const currentRank = runActivityStatusRank(current.status);
+  const nextRank = runActivityStatusRank(next.status);
+  if (nextRank !== currentRank) return nextRank > currentRank ? next : current;
+  return runActivityTimeValue(next) >= runActivityTimeValue(current) ? next : current;
+}
+
+export function mergeMessagePart(primary: AiMessagePart, secondary: AiMessagePart): AiMessagePart {
+  if (primary.type === 'text' && secondary.type === 'text') {
+    return (secondary.text?.length ?? 0) > (primary.text?.length ?? 0) ? secondary : primary;
+  }
+  if (primary.type === 'approval_request' && secondary.type === 'approval_request') {
+    return approvalStatusRank(secondary.approval?.status) >= approvalStatusRank(primary.approval?.status)
+      ? secondary
+      : primary;
+  }
+  if (primary.type === 'run_activity' && secondary.type === 'run_activity') {
+    if (!primary.activity || !secondary.activity) return secondary.activity ? secondary : primary;
+    return {
+      ...secondary,
+      activity: preferredRunActivityEvent(primary.activity, secondary.activity),
+    };
+  }
+  return secondary;
+}
+
+function messageTextPartToAppend(existingParts: AiMessagePart[], part: AiMessagePart) {
+  if (part.type !== 'text') return part;
+  const text = part.text?.trim();
+  if (!text) return null;
+  const existingText = messageTextFromParts(existingParts).trim();
+  if (!existingText) return part;
+  if (text === existingText || existingText.startsWith(text)) return null;
+  const normalizedText = text.replace(/\s+/g, ' ');
+  const normalizedExistingText = existingText.replace(/\s+/g, ' ');
+  if (normalizedText.length >= 12 && normalizedExistingText.includes(normalizedText)) return null;
+  if (text.startsWith(existingText)) {
+    const remainingText = text.slice(existingText.length).trim();
+    return remainingText ? { ...part, text: remainingText } : null;
+  }
+  return part;
+}
+
+function mergeMessageParts(primary: AiMessage, secondary: AiMessage) {
+  const secondaryPartsByKey = new Map(secondary.parts.map((part) => [messagePartKey(part), part]));
+  const primaryPartKeys = new Set(primary.parts.map(messagePartKey));
+  const primaryHasText = primary.parts.some((part) => part.type === 'text' && part.text?.trim());
+  const primaryHasStructure = hasStructurePart(primary);
+  const primaryText = messageTextFromParts(primary.parts);
+  const parts = primary.parts.map((part) => {
+    const secondaryPart = secondaryPartsByKey.get(messagePartKey(part));
+    return secondaryPart ? mergeMessagePart(part, secondaryPart) : part;
+  });
+  for (const part of secondary.parts) {
+    if (part.type === 'text' && primaryHasText && primaryHasStructure && part.text?.trim() === primaryText.trim()) continue;
+    if (!primaryPartKeys.has(messagePartKey(part))) {
+      const partToAppend = messageTextPartToAppend(parts, part);
+      if (partToAppend) parts.push(partToAppend);
+    }
+  }
+  return dedupeTextParts(parts);
+}
+
+function dedupeTextParts(parts: AiMessagePart[]) {
+  const nextParts: AiMessagePart[] = [];
+  let seenText = '';
+  for (const part of parts) {
+    if (part.type !== 'text') {
+      nextParts.push(part);
+      continue;
+    }
+    const text = part.text?.trim();
+    if (!text) continue;
+    const normalizedText = text.replace(/\s+/g, ' ');
+    const normalizedSeenText = seenText.replace(/\s+/g, ' ');
+    if (normalizedText.length >= 12 && normalizedSeenText.includes(normalizedText)) continue;
+    nextParts.push(part);
+    seenText = messageTextFromParts(nextParts);
+  }
+  return nextParts;
+}
+
+function mergeMessageStatus(remote: AiMessage, local: AiMessage, parts: AiMessagePart[]) {
+  if (parts.some((part) => part.type === 'approval_request' && part.approval?.status === 'pending')) return 'waiting_approval';
+  if (parts.some(isPendingHumanInputPart)) return 'waiting_input';
+  if (remote.status === 'failed' || local.status === 'failed') return 'failed';
+  if (remote.status === 'cancelled' || local.status === 'cancelled') return 'cancelled';
+  if (remote.status === 'completed' || local.status === 'completed') return 'completed';
+  if (remote.status === 'running' || local.status === 'running') return 'running';
+  return remote.status || local.status;
+}
+
+function hasCanonicalStreamOrder(message: AiMessage) {
+  return Boolean((message.metadata as Record<string, unknown> | undefined)?.streamOrderCanonical);
+}
+
+function isApprovalContinuationAppendOnly(remote: AiMessage, local: AiMessage) {
+  if (local.status !== 'running') return false;
+  if (!remote.parts.some((part) => part.type === 'approval_request')) return false;
+  const remotePartKeys = new Set(remote.parts.map(messagePartKey));
+  return local.parts.length > 0 && local.parts.every((part) => !remotePartKeys.has(messagePartKey(part)));
+}
+
+export function mergeRemoteAndLocalMessage(remote: AiMessage, local: AiMessage, options: MergeMessageOptions = {}): AiMessage {
+  if (!hasRenderableMessageContent(local)) return remote;
+  if (!hasRenderableMessageContent(remote)) return local;
+  const remoteHasStructure = hasStructurePart(remote);
+  const localHasStructure = hasStructurePart(local);
+  if (remoteHasStructure || localHasStructure) {
+    const shouldAppendLocalAfterRemote = isApprovalContinuationAppendOnly(remote, local);
+    const preferLocalOrder = !shouldAppendLocalAfterRemote && (
+      options.preferLocalOrder
+      || hasCanonicalStreamOrder(local)
+      || local.status === 'running'
+      || local.status === 'waiting_input'
+      || local.status === 'waiting_approval'
+      || (localHasStructure && hasOnlyTextParts(remote))
+    );
+    const parts = preferLocalOrder ? mergeMessageParts(local, remote) : mergeMessageParts(remote, local);
+    return {
+      ...remote,
+      status: mergeMessageStatus(remote, local, parts),
+      content_type: 'parts',
+      content: messageTextFromParts(parts) || remote.content || local.content,
+      parts,
+    };
+  }
+  return messageTextLength(remote) >= messageTextLength(local) ? remote : local;
 }
 
 export function mergePendingApprovalsIntoMessages(messages: AiMessage[], approvals: AiApprovalRequest[]): AiMessage[] {
@@ -39,6 +244,7 @@ export function mergePendingApprovalsIntoMessages(messages: AiMessage[], approva
     return {
       ...message,
       content_type: 'parts',
+      status: messageApprovals.some((approval) => approval.status === 'pending') ? 'waiting_approval' : message.status,
       parts: [
         ...message.parts,
         ...messageApprovals.map((approval) => ({
@@ -70,7 +276,7 @@ export function mergePendingApprovalsIntoMessages(messages: AiMessage[], approva
         approval,
       })),
       run_id: firstApproval.run_id,
-      status: 'completed',
+      status: messageApprovals.some((approval) => approval.status === 'pending') ? 'waiting_approval' : 'completed',
       metadata: { restoredApproval: true },
       created_at: firstApproval.created_at,
     };
@@ -152,16 +358,41 @@ export function appendDeltaToMessageParts(
   _shouldSeparate: boolean,
   appendAfterNonText: boolean,
 ) {
-  const existingContinuation = parts.find((part) => part.type === 'text' && part.id === partId);
+  const existingPartIndex = parts.findIndex((part) => part.type === 'text' && part.id === partId);
+  const continuationPrefix = `continuation-${partId}`;
+  const isContinuationPartId = (id: string) => id === continuationPrefix || id.startsWith(`${continuationPrefix}-`);
+  const lastPart = parts[parts.length - 1];
+  const canAppendToLastText =
+    lastPart?.type === 'text'
+    && (isContinuationPartId(lastPart.id) || (!appendAfterNonText && lastPart.id === partId));
+  const nextContinuationPartId = () => {
+    let candidate = continuationPrefix;
+    let suffix = 2;
+    const existingIds = new Set(parts.map((part) => part.id));
+    while (existingIds.has(candidate)) {
+      candidate = `${continuationPrefix}-${suffix}`;
+      suffix += 1;
+    }
+    return candidate;
+  };
+  const shouldAppendAtTail = existingPartIndex >= 0 && (existingPartIndex < parts.length - 1 || appendAfterNonText);
+  const effectivePartId = canAppendToLastText
+    ? lastPart.id
+    : appendAfterNonText
+      ? nextContinuationPartId()
+    : shouldAppendAtTail
+      ? nextContinuationPartId()
+      : partId;
+  const existingContinuation = parts.find((part) => part.type === 'text' && part.id === effectivePartId);
   if (existingContinuation) {
     return parts.map((part) =>
-      part.id === partId && part.type === 'text'
+      part.id === effectivePartId && part.type === 'text'
         ? { ...part, text: appendAssistantDelta(part.text ?? '', delta, false) }
         : part,
     );
   }
   if (appendAfterNonText || parts.length > 0) {
-    return [...parts, { id: partId, type: 'text' as const, text: delta }];
+    return [...parts, { id: effectivePartId, type: 'text' as const, text: delta }];
   }
-  return [{ id: partId, type: 'text' as const, text: delta }];
+  return [{ id: effectivePartId, type: 'text' as const, text: delta }];
 }

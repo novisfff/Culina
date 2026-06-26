@@ -12,3 +12,7 @@ class HumanInputRequired(Exception):
     def __init__(self, request: dict) -> None:
         super().__init__("human input required")
         self.request = request
+
+
+class ApprovalRequired(Exception):
+    """The current AI run produced a draft and must wait for approval."""

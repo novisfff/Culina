@@ -29,7 +29,7 @@ class AIInventoryOperationsTestCase(AIAgentInfraTestCase):
             class UnitMismatchProvider(BaseChatProvider):
                 model_name = "unit-mismatch-model"
 
-                def generate(self, *, system: str, user: str, response_schema: dict | None = None) -> ChatProviderResult:
+                def generate(self, *, system: str, user: str) -> ChatProviderResult:
                     return ChatProviderResult(text="已处理。", status="completed", model=self.model_name)
 
                 def generate_with_tools(
@@ -37,22 +37,15 @@ class AIInventoryOperationsTestCase(AIAgentInfraTestCase):
                     *,
                     system: str,
                     user: str,
-                    tools: list,
+                    tools,
                     tool_handler,
-                    response_schema: dict | None = None,
+                    message_handler=None,
                     max_rounds: int = 8,
-                    visible_text_handler=None,
                 ) -> ChatProviderResult:
-                    del system, tools, response_schema, max_rounds, visible_text_handler
+                    del system, message_handler, max_rounds
                     payload = json.loads(user)
-                    injected_skills = payload.get("injectedSkills") if isinstance(payload.get("injectedSkills"), list) else []
-                    if "inventory_analysis" not in injected_skills:
-                        return ChatProviderResult(
-                            text='<structured_result>{"action":"continue","injectSkills":["inventory_analysis"]}</structured_result>',
-                            status="completed",
-                            model=self.model_name,
-                            structured_mode="tool_call",
-                        )
+                    tool_handler("skill.inject", {"skills": ["inventory_analysis"], "reason": "需要处理库存单位换算"})
+                    tools()
                     human_input_result = next(
                         (
                             item
@@ -66,23 +59,20 @@ class AIInventoryOperationsTestCase(AIAgentInfraTestCase):
                         tool_handler(
                             "inventory.create_unit_conversion_operation_draft",
                             {
+                                "draft": {
+                                    "unitMismatch": request["resumeHint"]["unitMismatch"],
+                                    "ratioToDefault": 10,
+                                    "sourceMessage": payload.get("currentMessage"),
+                                },
                                 "unitMismatch": request["resumeHint"]["unitMismatch"],
                                 "ratioToDefault": 10,
                                 "sourceMessage": payload.get("currentMessage"),
                             },
                         )
                         return ChatProviderResult(
-                            text=json.dumps(
-                                {
-                                    "action": "finalize",
-                                    "text": "已按 1 盒 = 10 个整理为本次入库确认项，不会自动保存副单位。",
-                                    "status": "completed",
-                                },
-                                ensure_ascii=False,
-                            ),
+                            text="已按 1 盒 = 10 个整理为本次入库确认项，不会自动保存副单位。",
                             status="completed",
                             model=self.model_name,
-                            structured_mode="tool_call",
                         )
 
                     search = tool_handler("ingredient.search", {"query": "鸡蛋", "exact": True, "limit": 5})
@@ -124,18 +114,9 @@ class AIInventoryOperationsTestCase(AIAgentInfraTestCase):
                         },
                     )
                     return ChatProviderResult(
-                        text=json.dumps(
-                            {
-                                "action": "finalize",
-                                "text": "需要先确认鸡蛋这次的单位换算。",
-                                "status": "completed",
-                                "requires_clarification": True,
-                            },
-                            ensure_ascii=False,
-                        ),
+                        text="需要先确认鸡蛋这次的单位换算。",
                         status="completed",
                         model=self.model_name,
-                        structured_mode="tool_call",
                     )
 
             with self.SessionLocal() as db:
@@ -192,6 +173,7 @@ class AIInventoryOperationsTestCase(AIAgentInfraTestCase):
                 assert ingredient is not None
                 self.assertEqual(ingredient.unit_conversions, [])
                 inventory_item = db.scalar(select(InventoryItem).where(InventoryItem.ingredient_id == ingredient.id).order_by(InventoryItem.created_at.desc()))
+                self.assertIsNotNone(inventory_item)
                 assert inventory_item is not None
                 self.assertEqual(inventory_item.quantity, Decimal("20.00"))
                 self.assertEqual(inventory_item.unit, "个")
@@ -202,7 +184,7 @@ class AIInventoryOperationsTestCase(AIAgentInfraTestCase):
             class SaveUnitConversionProvider(BaseChatProvider):
                 model_name = "save-unit-conversion-model"
 
-                def generate(self, *, system: str, user: str, response_schema: dict | None = None) -> ChatProviderResult:
+                def generate(self, *, system: str, user: str) -> ChatProviderResult:
                     return ChatProviderResult(text="已处理。", status="completed", model=self.model_name)
 
                 def generate_with_tools(
@@ -210,22 +192,14 @@ class AIInventoryOperationsTestCase(AIAgentInfraTestCase):
                     *,
                     system: str,
                     user: str,
-                    tools: list,
+                    tools,
                     tool_handler,
-                    response_schema: dict | None = None,
+                    message_handler=None,
                     max_rounds: int = 8,
-                    visible_text_handler=None,
                 ) -> ChatProviderResult:
-                    del system, tools, response_schema, max_rounds, visible_text_handler
-                    payload = json.loads(user)
-                    injected_skills = payload.get("injectedSkills") if isinstance(payload.get("injectedSkills"), list) else []
-                    if "ingredient_profile" not in injected_skills:
-                        return ChatProviderResult(
-                            text='<structured_result>{"action":"continue","injectSkills":["ingredient_profile"]}</structured_result>',
-                            status="completed",
-                            model=self.model_name,
-                            structured_mode="tool_call",
-                        )
+                    del system, user, message_handler, max_rounds
+                    tool_handler("skill.inject", {"skills": ["ingredient_profile"], "reason": "需要保存食材副单位"})
+                    tools()
                     detail = tool_handler("ingredient.read_by_id", {"id": "ingredient-egg"})["item"]
                     updated_at = detail["updated_at"].isoformat() if hasattr(detail.get("updated_at"), "isoformat") else detail.get("updated_at")
                     tool_handler(
@@ -253,17 +227,9 @@ class AIInventoryOperationsTestCase(AIAgentInfraTestCase):
                         },
                     )
                     return ChatProviderResult(
-                        text=json.dumps(
-                            {
-                                "action": "finalize",
-                                "text": "已整理保存副单位的食材档案更新确认项。",
-                                "status": "completed",
-                            },
-                            ensure_ascii=False,
-                        ),
+                        text="已整理保存副单位的食材档案更新确认项。",
                         status="completed",
                         model=self.model_name,
-                        structured_mode="tool_call",
                     )
 
             with self.SessionLocal() as db:
@@ -314,7 +280,7 @@ class AIInventoryOperationsTestCase(AIAgentInfraTestCase):
             class ReaskUnitConversionProvider(BaseChatProvider):
                 model_name = "unit-reask-model"
 
-                def generate(self, *, system: str, user: str, response_schema: dict | None = None) -> ChatProviderResult:
+                def generate(self, *, system: str, user: str) -> ChatProviderResult:
                     return ChatProviderResult(text="已处理。", status="completed", model=self.model_name)
 
                 def generate_with_tools(
@@ -322,22 +288,15 @@ class AIInventoryOperationsTestCase(AIAgentInfraTestCase):
                     *,
                     system: str,
                     user: str,
-                    tools: list,
+                    tools,
                     tool_handler,
-                    response_schema: dict | None = None,
+                    message_handler=None,
                     max_rounds: int = 8,
-                    visible_text_handler=None,
                 ) -> ChatProviderResult:
-                    del system, tools, response_schema, max_rounds, visible_text_handler
+                    del system, message_handler, max_rounds
                     payload = json.loads(user)
-                    injected_skills = payload.get("injectedSkills") if isinstance(payload.get("injectedSkills"), list) else []
-                    if "inventory_analysis" not in injected_skills:
-                        return ChatProviderResult(
-                            text='<structured_result>{"action":"continue","injectSkills":["inventory_analysis"]}</structured_result>',
-                            status="completed",
-                            model=self.model_name,
-                            structured_mode="tool_call",
-                        )
+                    tool_handler("skill.inject", {"skills": ["inventory_analysis"], "reason": "需要确认库存单位换算"})
+                    tools()
                     human_input_result = next(
                         (
                             item
@@ -392,18 +351,9 @@ class AIInventoryOperationsTestCase(AIAgentInfraTestCase):
                         },
                     )
                     return ChatProviderResult(
-                        text=json.dumps(
-                            {
-                                "action": "finalize",
-                                "text": "我还需要知道这次 1 盒鸡蛋等于多少个。",
-                                "status": "completed",
-                                "requires_clarification": True,
-                            },
-                            ensure_ascii=False,
-                        ),
+                        text="我还需要知道这次 1 盒鸡蛋等于多少个。",
                         status="completed",
                         model=self.model_name,
-                        structured_mode="tool_call",
                     )
 
             with self.SessionLocal() as db:
@@ -438,7 +388,7 @@ class AIInventoryOperationsTestCase(AIAgentInfraTestCase):
             class TopicChangeProvider(BaseChatProvider):
                 model_name = "topic-change-model"
 
-                def generate(self, *, system: str, user: str, response_schema: dict | None = None) -> ChatProviderResult:
+                def generate(self, *, system: str, user: str) -> ChatProviderResult:
                     return ChatProviderResult(text="已处理。", status="completed", model=self.model_name)
 
                 def generate_with_tools(
@@ -446,27 +396,18 @@ class AIInventoryOperationsTestCase(AIAgentInfraTestCase):
                     *,
                     system: str,
                     user: str,
-                    tools: list,
+                    tools,
                     tool_handler,
-                    response_schema: dict | None = None,
+                    message_handler=None,
                     max_rounds: int = 8,
-                    visible_text_handler=None,
                 ) -> ChatProviderResult:
-                    del system, tools, tool_handler, response_schema, max_rounds, visible_text_handler
+                    del system, tools, tool_handler, message_handler, max_rounds
                     payload = json.loads(user)
                     assert "pending" + "Clarification" not in payload
                     return ChatProviderResult(
-                        text=json.dumps(
-                            {
-                                "action": "finalize",
-                                "text": "今晚可以优先安排一道清淡快手菜。",
-                                "status": "completed",
-                            },
-                            ensure_ascii=False,
-                        ),
+                        text="今晚可以优先安排一道清淡快手菜。",
                         status="completed",
                         model=self.model_name,
-                        structured_mode="tool_call",
                     )
 
             old_prompt_key = "pending" + "Clarification"
@@ -535,7 +476,7 @@ class AIInventoryOperationsTestCase(AIAgentInfraTestCase):
             class ClarificationProvider(BaseChatProvider):
                 model_name = "clarification-model"
 
-                def generate(self, *, system: str, user: str, response_schema: dict | None = None) -> ChatProviderResult:
+                def generate(self, *, system: str, user: str) -> ChatProviderResult:
                     raise AssertionError("unexpected generate call")
 
                 def generate_with_tools(
@@ -543,22 +484,14 @@ class AIInventoryOperationsTestCase(AIAgentInfraTestCase):
                     *,
                     system: str,
                     user: str,
-                    tools: list,
+                    tools,
                     tool_handler,
-                    response_schema: dict | None = None,
+                    message_handler=None,
                     max_rounds: int = 8,
-                    visible_text_handler=None,
                 ) -> ChatProviderResult:
-                    del system, tools, response_schema, max_rounds, visible_text_handler
-                    payload = json.loads(user)
-                    injected_skills = payload.get("injectedSkills") if isinstance(payload.get("injectedSkills"), list) else []
-                    if "meal_plan" not in injected_skills:
-                        return ChatProviderResult(
-                            text='<structured_result>{"action":"continue","injectSkills":["meal_plan"]}</structured_result>',
-                            status="completed",
-                            model=self.model_name,
-                            structured_mode="tool_call",
-                        )
+                    del system, user, message_handler, max_rounds
+                    tool_handler("skill.inject", {"skills": ["meal_plan"], "reason": "需要确认要修改的餐食计划"})
+                    tools()
                     tool_handler(
                         "human.request_input",
                         {
@@ -573,17 +506,9 @@ class AIInventoryOperationsTestCase(AIAgentInfraTestCase):
                         },
                     )
                     return ChatProviderResult(
-                        text=json.dumps(
-                            {
-                                "text": "我需要先确认你要改哪一条计划。",
-                                "status": "completed",
-                                "requires_clarification": True,
-                            },
-                            ensure_ascii=False,
-                        ),
+                        text="我需要先确认你要改哪一条计划。",
                         status="completed",
                         model=self.model_name,
-                        structured_mode="tool_call",
                     )
 
             with self.SessionLocal() as db:
@@ -842,14 +767,14 @@ class AIInventoryOperationsTestCase(AIAgentInfraTestCase):
                     "values": approval["initial_values"],
                 },
             )
-            self.assertEqual(decision.status_code, 409, decision.text)
-            self.assertIn("缺少可恢复的运行状态", decision.text)
+            self.assertEqual(decision.status_code, 200, decision.text)
+            self.assertEqual(decision.json()["operation"]["status"], "succeeded")
             with self.SessionLocal() as db:
                 item = db.get(InventoryItem, "inventory-tomato")
                 assert item is not None
-                self.assertEqual(item.disposed_quantity, Decimal("0.00"))
+                self.assertEqual(item.disposed_quantity, Decimal("3.00"))
                 stored_message = db.get(AIMessage, "message-inventory-quick")
                 assert stored_message is not None
                 card_item = stored_message.parts[0]["card"]["data"]["items"][0]
-                self.assertEqual(card_item["quantity"], "3")
-                self.assertNotIn("lastOperation", card_item)
+                self.assertEqual(card_item["quantity"], "0")
+                self.assertEqual(card_item["lastOperation"]["action"], "dispose")

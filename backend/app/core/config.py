@@ -32,6 +32,15 @@ class Settings(BaseSettings):
     ai_model: str = ""
     ai_supports_vision: bool | None = None
     ai_timeout_seconds: float = 180.0
+    ai_trace_enabled: bool = True
+    ai_trace_capture_llm_exchanges: bool = False
+    ai_trace_capture_message_content: bool = False
+    ai_trace_capture_stream_chunks: bool = False
+    ai_trace_capture_image_bytes: bool = False
+    ai_trace_payload_mode: str = "redacted"
+    ai_trace_retention_days: int = 7
+    ai_trace_max_request_bytes: int = 1024 * 1024
+    ai_trace_max_response_bytes: int = 1024 * 1024
     ai_image_reference_provider: str = "disabled"
     ai_image_reference_api_base: str = ""
     ai_image_reference_api_key: str = ""
@@ -54,6 +63,8 @@ class Settings(BaseSettings):
     @model_validator(mode="after")
     def validate_safe_runtime_settings(self) -> "Settings":
         environment = self.environment.strip().lower()
+        if self.ai_trace_payload_mode.strip().lower() == "full" and environment not in LOCAL_ENVIRONMENTS:
+            raise ValueError("Unsafe production settings: AI_TRACE_PAYLOAD_MODE=full is only allowed locally")
         if environment in LOCAL_ENVIRONMENTS:
             return self
 

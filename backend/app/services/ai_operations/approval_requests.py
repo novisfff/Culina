@@ -21,6 +21,7 @@ def create_ai_draft_approval(
     schema_version: str | None,
     payload: dict[str, Any],
     preview_summary: str,
+    ai_metadata: dict[str, Any] | None = None,
 ) -> tuple[AITaskDraft, AIApprovalRequest]:
     config = approval_config_for_payload(draft_type, payload)
     draft = AITaskDraft(
@@ -36,6 +37,7 @@ def create_ai_draft_approval(
         version=1,
         schema_version=schema_version or f"{draft_type}.v1",
         validation_errors=[],
+        ai_metadata=ai_metadata or {},
         idempotency_key=f"{run_id}:{draft_type}:{create_id('idem')}",
         created_by=user_id,
         updated_by=user_id,

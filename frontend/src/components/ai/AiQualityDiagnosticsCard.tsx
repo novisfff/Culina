@@ -3,6 +3,7 @@ import {
   AI_INTENT_LABELS,
   AI_SKILL_LABELS,
   aiRunSuccessRate,
+  formatAiDuration,
   formatAiMetricLabel,
   sumAiNestedStatus,
   topAiMetricEntry,
@@ -20,7 +21,9 @@ export function AiQualityDiagnosticsCard({ metrics, isLoading, isError, onRetry 
   const topIntent = topAiMetricEntry(metrics?.intent_counts);
   const topClarification = topAiMetricEntry(metrics?.clarification_reasons);
   const topDiagnostic = topAiMetricEntry(metrics?.skill_diagnostics);
+  const topTraceError = topAiMetricEntry(metrics?.trace_metrics.errorCodes);
   const failedRuns = metrics?.status_counts.failed ?? 0;
+  const failedTraceItems = (metrics?.trace_metrics.failedSpanCount ?? 0) + (metrics?.trace_metrics.failedExchangeCount ?? 0);
   const pendingApprovals = sumAiNestedStatus(metrics?.approval_by_draft_type, 'pending');
 
   if (isLoading && !metrics) {
@@ -84,6 +87,10 @@ export function AiQualityDiagnosticsCard({ metrics, isLoading, isError, onRetry 
           <span>审批</span>
           <strong>{metrics.totals.approvalRequestCount}</strong>
         </div>
+        <div className={failedTraceItems > 0 ? 'needs-attention' : ''}>
+          <span>Trace 失败</span>
+          <strong>{failedTraceItems}</strong>
+        </div>
       </div>
       <div className="ai-quality-lines">
         <p>
@@ -96,7 +103,15 @@ export function AiQualityDiagnosticsCard({ metrics, isLoading, isError, onRetry 
         </p>
         <p>
           <span>待关注</span>
-          <strong>{topClarification ? `${formatAiMetricLabel(topClarification.key)} · ${topClarification.count}` : topDiagnostic ? `${topDiagnostic.key} · ${topDiagnostic.count}` : pendingApprovals ? `待审批 · ${pendingApprovals}` : '状态平稳'}</strong>
+          <strong>{topTraceError ? `${formatAiMetricLabel(topTraceError.key)} · ${topTraceError.count}` : topClarification ? `${formatAiMetricLabel(topClarification.key)} · ${topClarification.count}` : topDiagnostic ? `${topDiagnostic.key} · ${topDiagnostic.count}` : pendingApprovals ? `待审批 · ${pendingApprovals}` : '状态平稳'}</strong>
+        </p>
+        <p>
+          <span>Provider</span>
+          <strong>{metrics.trace_metrics.llmExchangeCount ? `${formatAiDuration(metrics.trace_metrics.averageProviderDurationMs)} · ${metrics.trace_metrics.averageProviderRounds} 轮` : '暂无'}</strong>
+        </p>
+        <p>
+          <span>Tool / Script</span>
+          <strong>{metrics.trace_metrics.traceSpanCount ? `${formatAiDuration(metrics.trace_metrics.averageToolDurationMs)} / ${formatAiDuration(metrics.trace_metrics.averageScriptDurationMs)}` : '暂无'}</strong>
         </p>
       </div>
     </section>

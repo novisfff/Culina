@@ -8,13 +8,13 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
 from app.ai.errors import AIConflictError
-from app.ai.images.generation import ImageGenerationRequest
-from app.ai.images.jobs import enqueue_image_generation
-from app.core.enums import ActivityAction, ImageGenerationMode, MediaEntityType
+from app.ai.images.jobs import attach_image_generation_job_to_entity
+from app.core.enums import ActivityAction
 from app.core.utils import create_id
 from app.models.domain import Ingredient
 from app.schemas.ingredients import CreateIngredientRequest, UpdateIngredientRequest
 from app.services.activity import log_activity
+from app.services.ai_operations.image_jobs import build_ingredient_image_request, enqueue_ai_entity_image_generation
 from app.services.ingredient_units import UnitConversionError, validate_unit_conversions
 from app.services.media import bind_media_assets, replace_media_assets
 
@@ -58,18 +58,21 @@ def execute_ingredient_profile_draft(
         db.add(ingredient)
         db.flush()
         bind_media_assets(db, family_id=family_id, media_ids=ingredient_in.media_ids, entity_type="ingredient", entity_id=ingredient.id)
-        if not ingredient_in.media_ids:
-            enqueue_image_generation(
+        if ingredient_in.pending_image_job_id:
+            attach_image_generation_job_to_entity(
+                db,
+                family_id=family_id,
+                job_id=ingredient_in.pending_image_job_id,
+                entity_type="ingredient",
+                entity_id=ingredient.id,
+            )
+        else:
+            enqueue_ai_entity_image_generation(
                 db,
                 family_id=family_id,
                 user_id=user_id,
-                request=ImageGenerationRequest(
-                    entity_type=MediaEntityType.INGREDIENT,
-                    mode=ImageGenerationMode.TEXT,
-                    title=ingredient.name,
-                    category=ingredient.category,
-                    notes=ingredient.notes,
-                ),
+                request=build_ingredient_image_request(ingredient_in.model_dump(mode="json")),
+                media_ids=ingredient_in.media_ids,
                 target_entity_type="ingredient",
                 target_entity_id=ingredient.id,
             )

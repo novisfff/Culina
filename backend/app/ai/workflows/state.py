@@ -19,7 +19,6 @@ class WorkspaceGraphState(TypedDict, total=False):
     injected_skill_keys: list[str]
     injection_history: list[dict[str, Any]]
     agent_rounds: int
-    last_structured_result: dict[str, Any]
     pending_human_input: dict[str, Any]
     pending_approval_id: str
     last_human_input_result: dict[str, Any]

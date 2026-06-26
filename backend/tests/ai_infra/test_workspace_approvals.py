@@ -85,11 +85,13 @@ class AIWorkspaceApprovalsTestCase(AIAgentInfraTestCase):
             draft = data["included"]["drafts"][0]
             self.assertEqual(approval["status"], "pending")
             self.assertEqual(draft["status"], "pending")
+            self.assertIsNone(draft["payload"].get("pending_image_job_id"))
 
             with self.SessionLocal() as db:
                 self.assertEqual(db.query(Recipe).count(), 0)
                 self.assertEqual(db.query(AITaskDraft).count(), 1)
                 self.assertEqual(db.query(AIApprovalRequest).count(), 1)
+                self.assertEqual(db.query(AIImageGenerationJob).count(), 0)
                 run = db.get(AIAgentRun, data["run"]["id"])
                 self.assertIsNotNone(run)
                 assert run is not None
@@ -128,6 +130,21 @@ class AIWorkspaceApprovalsTestCase(AIAgentInfraTestCase):
             with self.SessionLocal() as db:
                 self.assertEqual(db.query(Recipe).count(), 1)
                 self.assertEqual(db.query(AIOperation).count(), 1)
+                recipe_id = decision_data["business_entity"]["id"]
+                image_job = db.scalar(
+                    select(AIImageGenerationJob).where(
+                        AIImageGenerationJob.family_id == self.family.id,
+                        AIImageGenerationJob.target_entity_type == "recipe",
+                        AIImageGenerationJob.target_entity_id == recipe_id,
+                    )
+                )
+                self.assertIsNotNone(image_job)
+                assert image_job is not None
+                self.assertEqual(image_job.status, "queued")
+                self.assertEqual(image_job.bind_status, "pending")
+                self.assertEqual(image_job.request_payload["entity_type"], "recipe")
+                self.assertEqual(image_job.request_payload["title"], "番茄鸡蛋面（确认版）")
+                self.assertIn("番茄", image_job.request_payload["ingredient_names"])
 
         def test_ai_workspace_approval_rejects_stale_draft_version(self) -> None:
             provider = FakeChatProvider(
@@ -1207,6 +1224,180 @@ class AIWorkspaceApprovalsTestCase(AIAgentInfraTestCase):
                         db.scalar(select(ActivityLog).where(ActivityLog.entity_type == "Recipe", ActivityLog.entity_id == recipe.id))
                     )
 
+        def test_ai_create_operations_enqueue_reference_image_generation_with_existing_media(self) -> None:
+            from app.ai.images.jobs import _bind_generated_asset_to_target
+
+            with self.SessionLocal() as db:
+                def add_upload_media(media_id: str, name: str) -> MediaAsset:
+                    asset = MediaAsset(
+                        id=media_id,
+                        family_id=self.family.id,
+                        name=name,
+                        url=f"/media/family-ai/{media_id}.png",
+                        file_path=f"family-ai/{media_id}.png",
+                        source=MediaSource.UPLOAD,
+                        alt=name,
+                        created_by=self.user.id,
+                    )
+                    db.add(asset)
+                    return asset
+
+                def approve_case(*, draft_type: str, suffix: str, payload: dict) -> dict:
+                    service, draft, approval = self._create_ai_approval_for_test(
+                        db,
+                        draft_type=draft_type,
+                        suffix=suffix,
+                        payload=payload,
+                    )
+                    return self._approve_ai_approval_for_test(service, draft=draft, approval=approval)
+
+                ingredient_reference = add_upload_media("media-ai-ingredient-reference", "黄瓜参考图")
+                food_reference = add_upload_media("media-ai-food-reference", "酸奶参考图")
+                recipe_reference = add_upload_media("media-ai-recipe-reference", "番茄汤参考图")
+                db.flush()
+
+                ingredient_result = approve_case(
+                    draft_type="ingredient_profile",
+                    suffix="ingredient-reference-image",
+                    payload={
+                        "draftType": "ingredient_profile",
+                        "schemaVersion": "ingredient_profile.v1",
+                        "action": "create",
+                        "payload": {
+                            "name": "参考黄瓜",
+                            "category": "蔬菜",
+                            "default_unit": "根",
+                            "unit_conversions": [],
+                            "default_storage": "冷藏",
+                            "default_expiry_mode": "none",
+                            "notes": "带参考图创建",
+                            "media_ids": [ingredient_reference.id],
+                        },
+                    },
+                )
+                food_result = approve_case(
+                    draft_type="food_profile",
+                    suffix="food-reference-image",
+                    payload={
+                        "draftType": "food_profile",
+                        "schemaVersion": "food_profile.v1",
+                        "action": "create",
+                        "payload": {
+                            "name": "参考酸奶",
+                            "type": "readyMade",
+                            "category": "乳品",
+                            "flavor_tags": ["酸甜"],
+                            "scene_tags": ["早餐"],
+                            "suitable_meal_types": ["breakfast"],
+                            "source_name": "AI 整理",
+                            "purchase_source": "超市",
+                            "scene": "早餐",
+                            "notes": "带参考图创建",
+                            "routine_note": "",
+                            "favorite": False,
+                            "recipe_id": None,
+                            "media_ids": [food_reference.id],
+                        },
+                    },
+                )
+                recipe_result = approve_case(
+                    draft_type="recipe",
+                    suffix="recipe-reference-image",
+                    payload={
+                        "draftType": "recipe",
+                        "schemaVersion": "recipe.v1",
+                        "title": "参考番茄汤",
+                        "servings": 2,
+                        "prep_minutes": 18,
+                        "difficulty": "easy",
+                        "ingredient_items": [
+                            {"ingredient_id": "ingredient-tomato", "ingredient_name": "番茄", "quantity": 1, "unit": "个", "note": "切块"},
+                        ],
+                        "steps": [
+                            {"title": "备菜", "text": "番茄切块。", "icon": "bowl", "summary": "备菜", "estimated_minutes": 5, "tip": "", "key_points": []},
+                            {"title": "煮汤", "text": "加水煮开。", "icon": "pan", "summary": "煮汤", "estimated_minutes": 8, "tip": "", "key_points": []},
+                        ],
+                        "tips": "少盐",
+                        "scene_tags": ["家常菜"],
+                        "media_ids": [recipe_reference.id],
+                    },
+                )
+
+                cases = [
+                    ("ingredient", ingredient_result["business_entity"]["id"], ingredient_reference.id),
+                    ("food", food_result["business_entity"]["id"], food_reference.id),
+                    ("recipe", recipe_result["business_entity"]["id"], recipe_reference.id),
+                ]
+                for entity_type, entity_id, reference_id in cases:
+                    with self.subTest(entity_type=entity_type):
+                        image_job = db.scalar(
+                            select(AIImageGenerationJob).where(
+                                AIImageGenerationJob.family_id == self.family.id,
+                                AIImageGenerationJob.target_entity_type == entity_type,
+                                AIImageGenerationJob.target_entity_id == entity_id,
+                            )
+                        )
+                        self.assertIsNotNone(image_job)
+                        assert image_job is not None
+                        self.assertEqual(image_job.status, "queued")
+                        self.assertEqual(image_job.bind_status, "pending")
+                        self.assertEqual(image_job.reference_media_id, reference_id)
+                        self.assertEqual(image_job.request_payload["mode"], "reference")
+                        self.assertEqual(image_job.request_payload["bind_strategy"], "append")
+
+                recipe_id = recipe_result["business_entity"]["id"]
+                recipe_job = db.scalar(
+                    select(AIImageGenerationJob).where(
+                        AIImageGenerationJob.family_id == self.family.id,
+                        AIImageGenerationJob.target_entity_type == "recipe",
+                        AIImageGenerationJob.target_entity_id == recipe_id,
+                    )
+                )
+                assert recipe_job is not None
+                generated = MediaAsset(
+                    id="media-ai-generated-recipe-reference",
+                    family_id=self.family.id,
+                    name="参考番茄汤 AI 图",
+                    url="/media/family-ai/generated-recipe-reference.png",
+                    file_path="family-ai/generated-recipe-reference.png",
+                    source=MediaSource.AI,
+                    generation_mode=ImageGenerationMode.REFERENCE,
+                    reference_media_id=recipe_reference.id,
+                    alt="参考番茄汤 AI 图",
+                    created_by=self.user.id,
+                )
+                db.add(generated)
+                db.flush()
+                recipe_job.generated_media_id = generated.id
+                self.assertEqual(_bind_generated_asset_to_target(db, recipe_job), "bound")
+                db.flush()
+
+                recipe_asset_ids = {
+                    asset.id
+                    for asset in db.scalars(
+                        select(MediaAsset).where(
+                            MediaAsset.family_id == self.family.id,
+                            MediaAsset.entity_type == "recipe",
+                            MediaAsset.entity_id == recipe_id,
+                        )
+                    )
+                }
+                self.assertIn(recipe_reference.id, recipe_asset_ids)
+                self.assertIn(generated.id, recipe_asset_ids)
+                synced_food = db.scalar(select(Food).where(Food.family_id == self.family.id, Food.recipe_id == recipe_id))
+                assert synced_food is not None
+                synced_food_assets = list(
+                    db.scalars(
+                        select(MediaAsset).where(
+                            MediaAsset.family_id == self.family.id,
+                            MediaAsset.entity_type == "food",
+                            MediaAsset.entity_id == synced_food.id,
+                        )
+                    )
+                )
+                self.assertTrue(any(asset.source == MediaSource.UPLOAD for asset in synced_food_assets))
+                self.assertTrue(any(asset.source == MediaSource.AI and asset.reference_media_id == recipe_reference.id for asset in synced_food_assets))
+
         def test_target_bound_operation_approvals_create_retry_on_stale_base_updated_at(self) -> None:
             stale_base_updated_at = "2026-01-01T00:00:00Z"
             with self.SessionLocal() as db:
@@ -2244,7 +2435,16 @@ class AIWorkspaceApprovalsTestCase(AIAgentInfraTestCase):
                     conversation_id=conversation.id,
                     role="assistant",
                     content="请确认计划调整。",
-                    parts=[],
+                    parts=[
+                        {"id": "part-text-before", "type": "text", "text": "请确认计划调整。"},
+                        {"id": "part-draft", "type": "draft", "draft": {"id": "draft-1"}},
+                        {
+                            "id": "part-approval",
+                            "type": "approval_request",
+                            "approval": {"id": "approval-1", "status": "pending"},
+                        },
+                        {"id": "part-text-after", "type": "text", "text": "我继续处理下一步。"},
+                    ],
                     created_by=self.user.id,
                 )
                 db.add(conversation)
@@ -2311,3 +2511,9 @@ class AIWorkspaceApprovalsTestCase(AIAgentInfraTestCase):
                 self.assertEqual(result_cards[0]["data"]["workspaceHint"], "可前往菜单计划查看")
                 self.assertEqual(result_cards[0]["data"]["entities"][0]["label"], "番茄炒蛋")
                 self.assertEqual(result_cards[0]["data"]["entities"][0]["operationLabel"], "状态变更")
+                part_types = [part["type"] for part in message.parts]
+                self.assertEqual(
+                    part_types,
+                    ["text", "draft", "approval_request", "result_card", "text"],
+                )
+                self.assertEqual(message.parts[3]["card"]["id"], result_cards[0]["id"])

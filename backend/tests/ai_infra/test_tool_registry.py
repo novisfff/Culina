@@ -1,5 +1,9 @@
 from ._support import *
 
+from app.ai.errors import AIExecutionCancelled
+from app.ai.tools.base import ToolDefinition
+from app.ai.tools.registry import ToolRegistry
+
 
 class AIToolRegistryTestCase(AIAgentInfraTestCase):
         def test_phase_a_tool_executor_records_real_tool_calls(self) -> None:
@@ -60,6 +64,67 @@ class AIToolRegistryTestCase(AIAgentInfraTestCase):
             self.assertEqual(progress_events[0]["data"]["internal_code"], "human.request_input")
             self.assertEqual(progress_events[0]["data"]["status"], "waiting")
 
+        def test_workspace_read_artifact_returns_only_current_conversation_artifacts(self) -> None:
+            with self.SessionLocal() as db:
+                _service, draft, approval = self._create_ai_approval_for_test(
+                    db,
+                    draft_type="shopping_list",
+                    payload={
+                        "draftType": "shopping_list",
+                        "schemaVersion": "shopping_list.v1",
+                        "items": [{"title": "鸡蛋", "quantity": 2, "unit": "个", "reason": "搭配晚餐"}],
+                    },
+                    suffix="read-artifact",
+                )
+                db.commit()
+
+                executor = ToolExecutor(
+                    build_workspace_tool_registry(),
+                    ToolContext(
+                        db=db,
+                        family_id=self.family.id,
+                        user_id=self.user.id,
+                        conversation_id=approval.conversation_id,
+                        run_id="run-read-artifact",
+                    ),
+                )
+
+                draft_output = executor.call("workspace.read_artifact", {"id": draft.id, "kind": "draft"})
+                approval_output = executor.call("workspace.read_artifact", {"id": approval.id, "kind": "approval"})
+
+                self.assertEqual(draft_output["artifact"]["kind"], "draft")
+                self.assertEqual(draft_output["artifact"]["payload"]["items"][0]["title"], "鸡蛋")
+                self.assertEqual(approval_output["artifact"]["kind"], "approval")
+                self.assertEqual(approval_output["artifact"]["initialValues"]["draft"]["items"][0]["unit"], "个")
+
+                wrong_conversation_executor = ToolExecutor(
+                    build_workspace_tool_registry(),
+                    ToolContext(
+                        db=db,
+                        family_id=self.family.id,
+                        user_id=self.user.id,
+                        conversation_id="conversation-other",
+                        run_id="run-read-artifact-other-conversation",
+                    ),
+                )
+                with self.assertRaises(ValueError):
+                    wrong_conversation_executor.call("workspace.read_artifact", {"id": draft.id, "kind": "draft"})
+
+                wrong_family_executor = ToolExecutor(
+                    build_workspace_tool_registry(),
+                    ToolContext(
+                        db=db,
+                        family_id=self.other_family.id,
+                        user_id=self.user.id,
+                        conversation_id=approval.conversation_id,
+                        run_id="run-read-artifact-other-family",
+                    ),
+                )
+                with self.assertRaises(ValueError):
+                    wrong_family_executor.call("workspace.read_artifact", {"id": approval.id, "kind": "approval"})
+                with self.assertRaises(ValueError):
+                    executor.call("workspace.read_artifact", {"id": "missing-artifact", "kind": "draft"})
+
         def test_tool_executor_enforces_skill_allowlist_and_side_effect_policy(self) -> None:
             with self.SessionLocal() as db:
                 executor = ToolExecutor(
@@ -81,6 +146,39 @@ class AIToolRegistryTestCase(AIAgentInfraTestCase):
                     executor.call("inventory.read_available_items", {"limit": 10})
                 with self.assertRaises(PermissionError):
                     executor.call("shopping.create_draft", {"draft": {"items": [{"title": "鸡蛋"}]}})
+
+        def test_tool_executor_preserves_control_interrupts_from_handlers(self) -> None:
+            registry = ToolRegistry()
+
+            def cancel_handler(_context, _payload):
+                raise AIExecutionCancelled("AI run was cancelled")
+
+            registry.register(
+                ToolDefinition(
+                    name="runtime.cancel",
+                    display_name="取消运行",
+                    description="测试控制中断直通。",
+                    input_schema={"type": "object", "properties": {}, "additionalProperties": False},
+                    output_schema={"type": "object", "properties": {}, "additionalProperties": False},
+                    permission="family:read",
+                    side_effect="control",
+                    handler=cancel_handler,
+                )
+            )
+            with self.SessionLocal() as db:
+                executor = ToolExecutor(
+                    registry,
+                    ToolContext(
+                        db=db,
+                        family_id=self.family.id,
+                        user_id=self.user.id,
+                        conversation_id="conversation-test",
+                        run_id="run-test",
+                    ),
+                )
+                with self.assertRaises(AIExecutionCancelled):
+                    executor.call("runtime.cancel", {})
+                self.assertEqual(executor.records(), [])
 
         def test_tool_executor_validates_input_schema(self) -> None:
             with self.SessionLocal() as db:
@@ -603,7 +701,9 @@ class AIToolRegistryTestCase(AIAgentInfraTestCase):
                 )
 
             messages = [event["data"]["user_message"] for event in events]
-            self.assertEqual(messages, ["调用「可用库存」", "生成「餐食计划确认表单」"])
+            statuses = [event["data"]["status"] for event in events]
+            self.assertEqual(messages, ["调用「可用库存」", "调用「可用库存」", "生成「餐食计划确认表单」", "生成「餐食计划确认表单」"])
+            self.assertEqual(statuses, ["running", "completed", "running", "completed"])
             self.assertNotIn("inventory.read_available_items", "\n".join(messages))
 
         def test_meal_log_read_by_id_matches_tool_schema(self) -> None:

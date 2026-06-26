@@ -9,7 +9,10 @@ import type {
   AiMessage,
   AiMessagePart,
   AiQualityMetrics,
+  AiRunLLMExchangeResponse,
   AiStatus,
+  AiRunTraceResponse,
+  AiRunTraceTreeResponse,
   GenerateRecipeDraftPayload,
   GenerateRecipeDraftResponse,
 } from './types';
@@ -28,6 +31,7 @@ type AiChatStreamHandlers = {
   onProgress?: (event: AiRunEvent | { type: string; internal_code: string; user_message: string; status: AiRunEvent['status'] }) => void;
   onMessageDelta?: (event: { message_id?: string; conversation_id?: string; run_id?: string; part_id?: string; delta: string }) => void;
   onMessagePart?: (event: { message_id?: string; conversation_id?: string; run_id?: string; part: AiMessagePart }) => void;
+  onResponse?: (response: AiChatResponse) => void;
 };
 type AiApprovalDecisionPayload = {
   decision: 'approved' | 'rejected';
@@ -75,6 +79,7 @@ async function streamAiResponse(url: string, payload: unknown, handlers: AiChatS
       handlers.onMessageDelta?.(data as { message_id?: string; conversation_id?: string; run_id?: string; part_id?: string; delta: string });
     } else if (event === 'response') {
       finalResponse = data as AiChatResponse;
+      handlers.onResponse?.(finalResponse);
     } else if (event === 'error') {
       const detail = typeof data === 'object' && data && 'detail' in data ? String((data as { detail: unknown }).detail) : '流式请求失败';
       throw new Error(detail);
@@ -143,6 +148,12 @@ export const aiApi = {
     }),
   getAiRunEvents: (runId: string) =>
     request<AiRunEvent[]>(`/api/ai/runs/${runId}/events`),
+  getAiRunTrace: (runId: string) =>
+    request<AiRunTraceResponse>(`/api/ai/runs/${runId}/trace`),
+  getAiRunTraceTree: (runId: string) =>
+    request<AiRunTraceTreeResponse>(`/api/ai/runs/${runId}/trace/tree`),
+  getAiRunLlmExchanges: (runId: string) =>
+    request<AiRunLLMExchangeResponse>(`/api/ai/runs/${runId}/llm-exchanges`),
   getPendingAiApprovals: (conversationId: string) =>
     request<AiApprovalRequest[]>(`/api/ai/conversations/${conversationId}/approvals/pending`),
   decideAiApproval: (

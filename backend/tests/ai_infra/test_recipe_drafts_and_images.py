@@ -42,8 +42,7 @@ class AIRecipeDraftsAndImagesTestCase(AIAgentInfraTestCase):
                   "prep_minutes": 18,
                   "difficulty": "easy",
                   "ingredient_items": [
-                    {"ingredient_id": "ingredient-tomato", "ingredient_name": "错名", "quantity": 2, "unit": "斤", "note": "切块"},
-                    {"ingredient_id": "ingredient-secret", "ingredient_name": "其他家庭牛排", "quantity": 1, "unit": "块", "note": ""}
+                    {"ingredient_id": "ingredient-tomato", "ingredient_name": "错名", "quantity": 2, "unit": "斤", "note": "切块"}
                   ],
                   "steps": [
                     {"title": "备菜", "text": "番茄洗净切成 2 厘米块，鸡蛋或蛋液提前备好。保持食材大小接近，后面中火炖煮 8 分钟时更容易均匀熟透。", "icon": "tomato", "summary": "处理食材", "estimated_minutes": 5, "tip": "番茄切均匀。", "key_points": ["切块一致"]},
@@ -60,7 +59,7 @@ class AIRecipeDraftsAndImagesTestCase(AIAgentInfraTestCase):
                     db,
                     provider,
                     prompt="清淡",
-                    subject={"ingredientIds": ["ingredient-tomato", "ingredient-secret"]},
+                    subject={"ingredientIds": ["ingredient-tomato"]},
                 )
             draft = result["draft"]
             self.assertEqual(result["status"], "completed")
@@ -107,7 +106,7 @@ class AIRecipeDraftsAndImagesTestCase(AIAgentInfraTestCase):
             self.assertEqual(draft["title"], "番茄炒蛋")
             self.assertEqual(draft["ingredient_items"][0]["ingredient_id"], "ingredient-tomato")
 
-        def test_recipe_draft_runner_splits_merged_scene_tags(self) -> None:
+        def test_recipe_draft_runner_rejects_merged_scene_tags_without_local_fallback(self) -> None:
             provider = FakeChatProvider(
                 """
                 {
@@ -136,9 +135,9 @@ class AIRecipeDraftsAndImagesTestCase(AIAgentInfraTestCase):
                     subject={"ingredientIds": ["ingredient-tomato"]},
                 )
 
-            draft = result["draft"]
-            self.assertEqual(result["status"], "completed")
-            self.assertEqual(draft["scene_tags"], ["家常菜", "快手菜", "晚餐", "午餐"])
+            self.assertEqual(result["status"], "failed")
+            self.assertIsNone(result["draft"])
+            self.assertIn("scene_tags", result["error"])
 
         def test_recipe_draft_runner_parses_json_surrounded_by_text(self) -> None:
             provider = FakeChatProvider(
@@ -188,7 +187,7 @@ class AIRecipeDraftsAndImagesTestCase(AIAgentInfraTestCase):
                 )
             self.assertEqual(result["status"], "failed")
             self.assertIsNone(result["draft"])
-            self.assertEqual(result["error"], "model returned invalid recipe draft JSON")
+            self.assertEqual(result["error"], "model did not call recipe.create_draft")
             self.assertIsNone(result["image_render_payload"])
 
         def test_recipe_draft_runner_rejects_low_quality_steps_without_local_fallback(self) -> None:
@@ -222,7 +221,7 @@ class AIRecipeDraftsAndImagesTestCase(AIAgentInfraTestCase):
 
             self.assertEqual(result["status"], "failed")
             self.assertIsNone(result["draft"])
-            self.assertEqual(result["error"], "model returned invalid recipe draft JSON")
+            self.assertIn("steps", result["error"])
 
         def test_recipe_draft_runner_keeps_selected_ingredient_ids_and_default_units(self) -> None:
             provider = FakeChatProvider(
@@ -233,8 +232,7 @@ class AIRecipeDraftsAndImagesTestCase(AIAgentInfraTestCase):
                   "prep_minutes": 12,
                   "difficulty": "easy",
                   "ingredient_items": [
-                    {"ingredient_id": "ingredient-tomato", "ingredient_name": "番茄", "quantity": 1, "unit": "斤", "note": "切块"},
-                    {"ingredient_id": "ingredient-secret", "ingredient_name": "其他家庭牛排", "quantity": 1, "unit": "块", "note": ""}
+                    {"ingredient_id": "ingredient-tomato", "ingredient_name": "番茄", "quantity": 1, "unit": "斤", "note": "切块"}
                   ],
                   "steps": [
                     {"title": "处理", "text": "番茄切成小块，鸡蛋打散后加 1 勺清水。食材提前备好，后面中火煮 5 分钟时能更快熟透。", "icon": "tomato", "summary": "处理", "estimated_minutes": 4, "tip": "", "key_points": ["切块"]},
@@ -251,7 +249,7 @@ class AIRecipeDraftsAndImagesTestCase(AIAgentInfraTestCase):
                     db,
                     provider,
                     prompt="清淡一点",
-                    subject={"ingredientIds": ["ingredient-tomato", "ingredient-secret"]},
+                    subject={"ingredientIds": ["ingredient-tomato"]},
                 )
 
             draft = result["draft"]

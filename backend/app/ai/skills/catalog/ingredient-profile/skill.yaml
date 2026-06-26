@@ -9,6 +9,7 @@ allowed_tools:
 - ingredient.search
 - ingredient.read_by_id
 - human.request_input
+- workspace.read_artifact
 - ingredient_profile.create_draft
 script_files: []
 output_types: []

@@ -450,7 +450,7 @@ def normalize_recipe_draft_for_tools(db: Session, *, family_id: str, payload: An
         ingredient_id = item.get("ingredient_id")
         if ingredient_id:
             ingredient = ingredients_by_id[str(ingredient_id)]
-            item = {**item, "ingredient_id": ingredient.id, "ingredient_name": ingredient.name}
+            item = {**item, "ingredient_id": ingredient.id, "ingredient_name": ingredient.name, "unit": ingredient.default_unit}
         normalized_items.append(item)
     return {**recipe, "ingredient_items": normalized_items}
 
@@ -1167,7 +1167,7 @@ def _string_ids(values: Any) -> list[str]:
 
 
 def _strip_transport_fields(payload: dict[str, Any]) -> dict[str, Any]:
-    return {key: value for key, value in payload.items() if key not in {"pending_image_job_id"}}
+    return {key: value for key, value in payload.items() if key != "pending_image_job_id" or value}
 
 
 def _string_list(value: Any, *, max_items: int) -> list[str]:

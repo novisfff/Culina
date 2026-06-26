@@ -10,6 +10,7 @@ context_policy:
 - artifacts
 allowed_tools:
 - human.request_input
+- workspace.read_artifact
 - ingredient.search
 - ingredient.read_by_id
 - shopping.read_pending

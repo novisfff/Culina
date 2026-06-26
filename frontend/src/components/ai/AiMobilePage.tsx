@@ -14,19 +14,24 @@ import { AiComposerAttachments } from './AiComposerAttachments';
 import { AiMobileChrome } from './AiMobileChrome';
 import { AiWelcomePrompt } from './AiWelcomePrompt';
 import type { AiComposerAttachment } from './useAiAttachmentState';
+import { aiThreadAutoScrollKey, latestUserMessageScrollKey, useAiThreadAutoScroll } from './useAiThreadAutoScroll';
 
 type Props = {
   conversations: AiConversation[];
   isLoading: boolean;
   activeConversationKey: string | null;
   runningConversationKeys: Set<string>;
+  waitingConversationKeys: Set<string>;
   isMobileHistoryOpen: boolean;
   currentUser: UserSummary | null;
   resourceOptionLoader: AiResourceOptionLoader;
   messages: AiMessage[];
   runEventsById: Record<string, AiRunEvent[]>;
   streamProgress: AiRunEvent[];
+  thinkingRunIds: Set<string>;
+  activeAssistantRunId: string | null;
   activeStreamRunId: string | null;
+  submittingApprovalId: string | null;
   draft: string;
   attachments: AiComposerAttachment[];
   canAddAttachment: boolean;
@@ -63,6 +68,7 @@ type Props = {
   ) => void;
   isInventoryActionPending: boolean;
   onCancelSending: () => void;
+  onOpenRunDebug?: (runId: string) => void;
 };
 
 function setPixelVariable(element: HTMLElement, name: string, value: number) {
@@ -154,6 +160,12 @@ export function AiMobilePage(props: Props) {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const composerDockRef = useRef<HTMLDivElement | null>(null);
   const pageRef = useAiMobileViewport(composerDockRef);
+  const threadAutoScroll = useAiThreadAutoScroll({
+    contentKey: aiThreadAutoScrollKey(props.messages, props.streamProgress, props.thinkingRunIds),
+    resetKey: props.activeConversationKey,
+    activeOutputKey: props.activeStreamRunId ?? props.activeAssistantRunId,
+    forceScrollKey: latestUserMessageScrollKey(props.messages),
+  });
 
   useEffect(() => {
     if (textareaRef.current) {
@@ -169,6 +181,7 @@ export function AiMobilePage(props: Props) {
         isLoading={props.isLoading}
         activeConversationKey={props.activeConversationKey}
         runningConversationKeys={props.runningConversationKeys}
+        waitingConversationKeys={props.waitingConversationKeys}
         isMobileHistoryOpen={props.isMobileHistoryOpen}
         onBackHome={props.onBackHome}
         onOpenMobileHistory={props.onOpenMobileHistory}
@@ -177,7 +190,7 @@ export function AiMobilePage(props: Props) {
         onSelectConversation={props.onSelectConversation}
       />
 
-      <div className="ai-thread-scroll">
+      <div className="ai-thread-scroll" ref={threadAutoScroll.threadScrollRef}>
         {props.messagesLoading ? (
           <p className="subtle">正在加载消息...</p>
         ) : props.messagesError ? (
@@ -195,7 +208,7 @@ export function AiMobilePage(props: Props) {
                 user={props.currentUser}
                 resourceOptionLoader={props.resourceOptionLoader}
                 runEvents={
-                  message.run_id && message.run_id === props.activeStreamRunId
+                  message.run_id && message.run_id === props.activeAssistantRunId
                     ? props.streamProgress
                     : message.run_id
                       ? props.runEventsById[message.run_id] ?? (message.id.startsWith('local-') ? props.streamProgress : [])
@@ -203,12 +216,23 @@ export function AiMobilePage(props: Props) {
                         ? props.streamProgress
                         : []
                 }
+                isThinking={Boolean(message.run_id && props.thinkingRunIds.has(message.run_id))}
                 isLatestAssistant={message.role === 'assistant' && index === props.messages.length - 1}
+                activeStreamRunId={props.activeStreamRunId}
+                submittingApprovalId={props.submittingApprovalId}
+                isAssistantResponseActive={
+                  message.role === 'assistant'
+                  && Boolean(
+                    (message.run_id && message.run_id === props.activeAssistantRunId)
+                    || (message.id.startsWith('local-') && props.activeAssistantRunId),
+                  )
+                }
                 onApprovalDecision={props.onApprovalDecision}
                 onHumanInputResponse={props.onHumanInputResponse}
                 onAddRecommendationToPlan={props.onAddRecommendationToPlan}
                 onInventoryAction={props.onInventoryAction}
                 isInventoryActionPending={props.isInventoryActionPending}
+                onOpenRunDebug={props.onOpenRunDebug}
               />
             ))}
           </>
@@ -216,6 +240,16 @@ export function AiMobilePage(props: Props) {
           <AiWelcomePrompt onPickSuggestion={props.onPickSuggestion} />
         )}
       </div>
+
+      {threadAutoScroll.isAutoScrollPaused ? (
+        <button className="ai-thread-follow-button" type="button" onClick={threadAutoScroll.resumeAutoScroll}>
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M12 5v14" />
+            <path d="m6 13 6 6 6-6" />
+          </svg>
+          <span>最新回复</span>
+        </button>
+      ) : null}
 
       <div className="ai-composer-dock" ref={composerDockRef}>
         {props.sendError && <p className="form-error">{props.sendError}</p>}

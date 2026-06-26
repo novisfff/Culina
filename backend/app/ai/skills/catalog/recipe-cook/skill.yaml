@@ -9,6 +9,7 @@ context_policy:
 - meal_plan
 allowed_tools:
 - human.request_input
+- workspace.read_artifact
 - recipe.search
 - recipe.read_by_id
 - recipe.preview_cook

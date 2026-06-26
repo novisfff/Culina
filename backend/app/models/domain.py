@@ -559,6 +559,71 @@ class AIRunEvent(Base):
     family: Mapped["Family"] = relationship(back_populates="ai_run_events")
 
 
+class AIRunTraceSpan(Base):
+    __tablename__ = "ai_run_trace_spans"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True, default=lambda: create_id("ai_span"))
+    family_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    run_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    conversation_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    trace_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    span_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    parent_span_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    span_type: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    name: Mapped[str] = mapped_column(String(120), nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    round_index: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    attempt_index: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+    ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    duration_ms: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    input_summary: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
+    output_summary: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
+    error_code: Mapped[str | None] = mapped_column(String(80), nullable=True, index=True)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    exception_type: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    payload: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
+    created_by: Mapped[str | None] = mapped_column(String(64), nullable=True)
+
+
+class AIRunLLMExchange(Base):
+    __tablename__ = "ai_run_llm_exchanges"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True, default=lambda: create_id("ai_llm_exchange"))
+    family_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    run_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    conversation_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    trace_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    span_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    provider_round: Mapped[int] = mapped_column(Integer, nullable=False)
+    attempt_index: Mapped[int] = mapped_column(Integer, nullable=False)
+    mode: Mapped[str] = mapped_column(String(32), nullable=False)
+    model: Mapped[str] = mapped_column(String(120), nullable=False)
+    request_messages: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list, nullable=False)
+    request_tools: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list, nullable=False)
+    request_options: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
+    request_original_digest: Mapped[str] = mapped_column(String(64), default="", nullable=False)
+    request_original_bytes: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    request_digest: Mapped[str] = mapped_column(String(64), default="", nullable=False)
+    request_bytes: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    request_truncated: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    response_message: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
+    response_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    response_tool_calls: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list, nullable=False)
+    stream_chunks: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list, nullable=False)
+    response_original_digest: Mapped[str] = mapped_column(String(64), default="", nullable=False)
+    response_original_bytes: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    response_digest: Mapped[str] = mapped_column(String(64), default="", nullable=False)
+    response_bytes: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    response_truncated: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    error_code: Mapped[str | None] = mapped_column(String(80), nullable=True, index=True)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+    ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    duration_ms: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    created_by: Mapped[str | None] = mapped_column(String(64), nullable=True)
+
 class AITaskDraft(Base):
     __tablename__ = "ai_task_drafts"
 
@@ -574,6 +639,7 @@ class AITaskDraft(Base):
     version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
     schema_version: Mapped[str] = mapped_column(String(32), default="recipe.v1", nullable=False)
     validation_errors: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list, nullable=False)
+    ai_metadata: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
     idempotency_key: Mapped[str] = mapped_column(String(120), nullable=False, unique=True, index=True)
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)

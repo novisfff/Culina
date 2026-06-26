@@ -75,14 +75,19 @@ class AISkillLoaderTestCase(AIAgentInfraTestCase):
             self.assertEqual([manifest.key for manifest in skill_registry.list_manifests()], keys)
             self.assertNotIn("general_chat", skill_registry.keys())
             self.assertNotIn("today_recommendation", skill_registry.keys())
-            self.assertIsInstance(skill_registry.get("inventory_analysis"), ToolCallingSkill)
+            self.assertIsInstance(skill_registry.get("inventory_analysis"), CatalogSkill)
+            catalog_record = skill_registry.get("inventory_analysis").manifest.to_catalog_record()
+            self.assertEqual(catalog_record["key"], "inventory_analysis")
+            self.assertEqual(catalog_record["displayName"], "库存查看与处理")
+            self.assertNotIn("slug", catalog_record)
+            self.assertNotIn("name", catalog_record)
             self.assertIn("ingredient.search", skill_registry.get("shopping_list").manifest.tools)
             self.assertIn("ingredient.read_by_id", skill_registry.get("shopping_list").manifest.tools)
 
         def test_skill_loader_uses_unified_toolcall_runner_without_skill_python_entrypoint(self) -> None:
             skill_registry = build_workspace_skill_registry()
             self.assertEqual(skill_registry.get("meal_plan").manifest.runner, "toolcall")
-            self.assertIsInstance(skill_registry.get("meal_plan"), ToolCallingSkill)
+            self.assertIsInstance(skill_registry.get("meal_plan"), CatalogSkill)
             self.assertFalse(any(BACKEND_DIR.glob("app/ai/skills/catalog/*/skill.py")))
 
         def test_skill_loader_rejects_skill_without_runtime_contract(self) -> None:
@@ -126,7 +131,7 @@ class AISkillLoaderTestCase(AIAgentInfraTestCase):
                 )
                 (skill_dir / "workflows.md").write_text("workflow content", encoding="utf-8")
                 skills = SkillDirectoryLoader(catalog_dir).load()
-                self.assertIsInstance(skills[0], ToolCallingSkill)
+                self.assertIsInstance(skills[0], CatalogSkill)
                 instructions = skills[0].instructions
                 self.assertIn("Body instructions.", instructions)
                 self.assertNotIn("workflow content", instructions)
@@ -191,6 +196,18 @@ class AISkillLoaderTestCase(AIAgentInfraTestCase):
             )
             self.assertIn(
                 "本 Skill 只能说明需要进入食材档案流程",
+                skill_registry.get("inventory_analysis").instructions,
+            )
+            self.assertIn(
+                '"draftType": "inventory_operation"',
+                skill_registry.get("inventory_analysis").instructions,
+            )
+            self.assertIn(
+                '"schemaVersion": "inventory_operation.v1"',
+                skill_registry.get("inventory_analysis").instructions,
+            )
+            self.assertIn(
+                "不要只提交 `draftType` / `schemaVersion` 的空壳，也不要省略 `draftType`。",
                 skill_registry.get("inventory_analysis").instructions,
             )
             self.assertIn(

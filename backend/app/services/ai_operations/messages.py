@@ -73,33 +73,51 @@ def persist_message_artifacts(db: Session, *, message_id: str | None, artifacts:
     message.message_metadata = metadata
 
 
-def append_message_result_card(db: Session, *, decision_result: dict[str, Any]) -> None:
+def append_message_result_card(db: Session, *, decision_result: dict[str, Any]) -> dict[str, Any] | None:
     card = approval_result_card(decision_result)
     if card is None:
-        return
+        return None
     approval = decision_result.get("approval") if isinstance(decision_result.get("approval"), dict) else {}
     message_id = str(approval.get("message_id") or "")
     if not message_id:
-        return
+        return None
     message = db.get(AIMessage, message_id)
     if message is None:
-        return
+        return None
     parts = [part for part in (message.parts or []) if isinstance(part, dict)]
-    if any(
-        part.get("type") == "result_card"
-        and isinstance(part.get("card"), dict)
-        and str(part["card"].get("id") or "") == str(card.get("id") or "")
-        for part in parts
-    ):
-        return
-    message.parts = [
-        *parts,
-        {
-            "id": create_id("ai_part"),
-            "type": "result_card",
-            "card": jsonable_encoder(card),
-        },
-    ]
+    existing_part = next(
+        (
+            part
+            for part in parts
+            if part.get("type") == "result_card"
+            and isinstance(part.get("card"), dict)
+            and str(part["card"].get("id") or "") == str(card.get("id") or "")
+        ),
+        None,
+    )
+    if existing_part is not None:
+        return existing_part
+    result_part = {
+        "id": create_id("ai_part"),
+        "type": "result_card",
+        "card": jsonable_encoder(card),
+    }
+    approval_id = str(approval.get("id") or "")
+    insert_after_index = next(
+        (
+            index
+            for index, part in enumerate(parts)
+            if part.get("type") == "approval_request"
+            and isinstance(part.get("approval"), dict)
+            and str(part["approval"].get("id") or "") == approval_id
+        ),
+        None,
+    )
+    if insert_after_index is None:
+        message.parts = [*parts, result_part]
+        return result_part
+    message.parts = [*parts[: insert_after_index + 1], result_part, *parts[insert_after_index + 1 :]]
+    return result_part
 
 
 def approval_result_card(decision_result: dict[str, Any]) -> dict[str, Any] | None:

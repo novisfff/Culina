@@ -420,7 +420,7 @@ human.request_input
 行为约定：
 
 - 审批通过后，如果还有复合任务，orchestrator 可以继续调用后续 Skill，例如 `meal_plan -> shopping_list`。
-- 审批拒绝后默认结束当前 run，并通过 follow-up 文本说明未写入。
+- 审批拒绝后不写入正式业务数据，但会作为 `approval_decision` 工具结果回到 orchestrator；是否结束、调整重做或继续下一项由 agent 根据上下文判断。
 - 审批失败或 stale `baseUpdatedAt` 冲突仍返回 `currentValue` 和 `recoveryHint`，由前端恢复，不在末端静默重建草稿。
 
 ### 3.8 文档与测试同步

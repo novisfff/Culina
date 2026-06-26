@@ -233,6 +233,7 @@ class AIWorkspaceChatTestCase(AIAgentInfraTestCase):
                 self.assertIn("food.search", tool_names)
                 self.assertIn("meal_log.read_recent", tool_names)
                 self.assertIn("recipe.search", tool_names)
+                self.assertIn("meal_plan.recommend_today", tool_names)
                 self.assertNotIn("meal_plan.create_draft", tool_names)
                 stored_message = db.get(AIMessage, data["message"]["id"])
                 self.assertEqual(
@@ -251,14 +252,22 @@ class AIWorkspaceChatTestCase(AIAgentInfraTestCase):
                 )
 
         def test_ai_workspace_routes_natural_today_recommendation_to_meal_plan_without_draft(self) -> None:
-            response = self.client.post("/api/ai/chat", json={"message": "今晚吃什么？"})
-            self.assertEqual(response.status_code, 200, response.text)
-            data = response.json()
-            self.assertEqual(data["run"]["agent_key"], "workspace_orchestrator")
-            self.assertEqual(data["run"]["intent"], "meal_plan")
-            self.assertEqual(data["included"]["drafts"], [])
-            self.assertEqual(data["included"]["approvals"], [])
-            self.assertEqual(data["included"]["result_cards"][0]["type"], "today_recommendation")
+            for message, meal_type in [("今晚吃什么？", "dinner"), ("中午吃啥？", "lunch"), ("给我早餐思路", "breakfast")]:
+                response = self.client.post("/api/ai/chat", json={"message": message})
+                self.assertEqual(response.status_code, 200, response.text)
+                data = response.json()
+                self.assertEqual(data["run"]["agent_key"], "workspace_orchestrator")
+                self.assertEqual(data["run"]["intent"], "meal_plan")
+                self.assertEqual(data["included"]["drafts"], [])
+                self.assertEqual(data["included"]["approvals"], [])
+                card = data["included"]["result_cards"][0]
+                self.assertEqual(card["type"], "today_recommendation")
+                self.assertEqual(card["data"]["mealType"], meal_type)
+                with self.SessionLocal() as db:
+                    run = db.get(AIAgentRun, data["run"]["id"])
+                    assert run is not None
+                    tool_names = [item["name"] for item in run.tool_calls]
+                    self.assertIn("meal_plan.recommend_today", tool_names)
 
         def test_ai_workspace_messages_are_family_scoped(self) -> None:
             create_response = self.client.post("/api/ai/chat", json={"message": "随便聊聊"})

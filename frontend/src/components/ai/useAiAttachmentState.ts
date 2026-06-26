@@ -27,6 +27,7 @@ function revokePreview(url: string) {
 export function useAiAttachmentState() {
   const [attachments, setAttachments] = useState<AiComposerAttachment[]>([]);
   const attachmentsRef = useRef<AiComposerAttachment[]>([]);
+  const hiddenAttachmentsRef = useRef<AiComposerAttachment[]>([]);
 
   useEffect(() => {
     attachmentsRef.current = attachments;
@@ -83,9 +84,48 @@ export function useAiAttachmentState() {
     });
   }, []);
 
+  const hideAttachments = useCallback((clientAttachmentIds: string[]) => {
+    if (clientAttachmentIds.length === 0) return;
+    const hiddenIds = new Set(clientAttachmentIds);
+    setAttachments((current) => {
+      const hidden = current.filter((item) => hiddenIds.has(item.clientAttachmentId));
+      if (hidden.length > 0) {
+        hiddenAttachmentsRef.current = [
+          ...hiddenAttachmentsRef.current.filter((item) => !hiddenIds.has(item.clientAttachmentId)),
+          ...hidden,
+        ];
+      }
+      return current.filter((item) => !hiddenIds.has(item.clientAttachmentId));
+    });
+  }, []);
+
+  const restoreHiddenAttachments = useCallback((items: AiComposerAttachment[]) => {
+    if (items.length === 0) return;
+    const itemIds = new Set(items.map((item) => item.clientAttachmentId));
+    hiddenAttachmentsRef.current = hiddenAttachmentsRef.current.filter((item) => !itemIds.has(item.clientAttachmentId));
+    setAttachments((current) => {
+      const currentIds = new Set(current.map((item) => item.clientAttachmentId));
+      return [
+        ...items.filter((item) => !currentIds.has(item.clientAttachmentId)),
+        ...current,
+      ];
+    });
+  }, []);
+
+  const discardHiddenAttachments = useCallback((items: AiComposerAttachment[]) => {
+    if (items.length === 0) return;
+    const itemIds = new Set(items.map((item) => item.clientAttachmentId));
+    hiddenAttachmentsRef.current = hiddenAttachmentsRef.current.filter((item) => {
+      if (!itemIds.has(item.clientAttachmentId)) return true;
+      revokePreview(item.previewUrl);
+      return false;
+    });
+  }, []);
+
   useEffect(() => {
     return () => {
       attachmentsRef.current.forEach((item) => revokePreview(item.previewUrl));
+      hiddenAttachmentsRef.current.forEach((item) => revokePreview(item.previewUrl));
     };
   }, []);
 
@@ -98,5 +138,8 @@ export function useAiAttachmentState() {
     uploadFiles,
     removeAttachment,
     clearAttachments,
+    hideAttachments,
+    restoreHiddenAttachments,
+    discardHiddenAttachments,
   };
 }

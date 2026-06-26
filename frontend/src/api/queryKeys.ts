@@ -21,5 +21,8 @@ export const queryKeys = {
   aiQualityMetrics: ['ai-quality-metrics'] as const,
   aiConversations: ['ai-conversations'] as const,
   aiMessages: (conversationId: string | null) => ['ai-messages', conversationId] as const,
+  aiRunTrace: (runId: string | null) => ['ai-run-trace', runId] as const,
+  aiRunTraceTree: (runId: string | null) => ['ai-run-trace-tree', runId] as const,
+  aiRunLlmExchanges: (runId: string | null) => ['ai-run-llm-exchanges', runId] as const,
   aiPendingApprovals: (conversationId: string | null) => ['ai-pending-approvals', conversationId] as const,
 };

@@ -25,6 +25,8 @@ def result_artifacts(skill_key: str, result: SkillResult) -> list[dict[str, Any]
                 "payload": draft.get("payload") or {},
                 "schemaVersion": draft.get("schema_version"),
                 "sourceSkill": skill_key,
+                **({"sourceDraftId": draft["draft_id"]} if draft.get("draft_id") else {}),
+                **({"sourceApprovalId": draft["approval_id"]} if draft.get("approval_id") else {}),
             }
         )
     for index, card in enumerate(result.cards):

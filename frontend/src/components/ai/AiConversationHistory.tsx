@@ -16,6 +16,21 @@ export function getConversationTitleFromMessages(messages: AiMessage[]) {
   return userMessage?.content?.trim() || userMessage?.parts.find((part) => part.type === 'text')?.text?.trim() || '新会话生成中';
 }
 
+export function AiHistoryStatusIcon(props: { status: 'running' | 'waiting' }) {
+  if (props.status === 'waiting') {
+    return (
+      <i className="ai-history-waiting-icon" aria-label="等待确认" title="等待确认">
+        <svg viewBox="0 0 16 16" aria-hidden="true">
+          <path d="M5.2 3.8v8.4" />
+          <path d="M10.8 3.8v8.4" />
+        </svg>
+      </i>
+    );
+  }
+
+  return <i className="ai-history-spinner" aria-label="正在输出" title="正在输出" />;
+}
+
 function groupConversationsByDate(conversations: AiConversation[]) {
   const today: AiConversation[] = [];
   const yesterday: AiConversation[] = [];
@@ -56,6 +71,7 @@ export function AiDesktopConversationHistory(props: {
   isLoading: boolean;
   activeConversationKey: string | null;
   runningConversationKeys: Set<string>;
+  waitingConversationKeys: Set<string>;
   deletingConversationId: string | null;
   onToggleSidebar: (collapsed: boolean) => void;
   onStartNewConversation: () => void;
@@ -91,33 +107,38 @@ export function AiDesktopConversationHistory(props: {
             <div key={group.title} className="ai-history-group">
               <h3 className="ai-history-group-title">{group.title}</h3>
               <div className="ai-history-group-items">
-                {group.items.map((conversation) => (
-                  <div
-                    key={conversation.id}
-                    className={[
-                      'ai-conversation-item',
-                      conversation.id === props.activeConversationKey ? 'active' : '',
-                      props.runningConversationKeys.has(conversation.id) ? 'is-running' : '',
-                    ].filter(Boolean).join(' ')}
-                  >
-                    <button className="ai-conversation-main" type="button" onClick={() => props.onSelectConversation(conversation.id)}>
-                      <strong>
-                        {props.runningConversationKeys.has(conversation.id) && <i className="ai-history-spinner" aria-hidden="true" />}
-                        <span className="ai-history-title-text">{conversation.title || conversation.prompt || 'AI 会话'}</span>
-                      </strong>
-                    </button>
-                    <button
-                      className="ai-conversation-delete"
-                      type="button"
-                      aria-label={`删除会话：${conversation.title || conversation.prompt || 'AI 会话'}`}
-                      title="删除"
-                      disabled={props.deletingConversationId === conversation.id}
-                      onClick={() => props.onDeleteConversation(conversation)}
+                {group.items.map((conversation) => {
+                  const isWaiting = props.waitingConversationKeys.has(conversation.id);
+                  const isRunning = !isWaiting && props.runningConversationKeys.has(conversation.id);
+                  return (
+                    <div
+                      key={conversation.id}
+                      className={[
+                        'ai-conversation-item',
+                        conversation.id === props.activeConversationKey ? 'active' : '',
+                        isRunning ? 'is-running' : '',
+                        isWaiting ? 'is-waiting' : '',
+                      ].filter(Boolean).join(' ')}
                     >
-                      <TrashIcon />
-                    </button>
-                  </div>
-                ))}
+                      <button className="ai-conversation-main" type="button" onClick={() => props.onSelectConversation(conversation.id)}>
+                        <strong>
+                          {isWaiting ? <AiHistoryStatusIcon status="waiting" /> : isRunning ? <AiHistoryStatusIcon status="running" /> : null}
+                          <span className="ai-history-title-text">{conversation.title || conversation.prompt || 'AI 会话'}</span>
+                        </strong>
+                      </button>
+                      <button
+                        className="ai-conversation-delete"
+                        type="button"
+                        aria-label={`删除会话：${conversation.title || conversation.prompt || 'AI 会话'}`}
+                        title="删除"
+                        disabled={props.deletingConversationId === conversation.id}
+                        onClick={() => props.onDeleteConversation(conversation)}
+                      >
+                        <TrashIcon />
+                      </button>
+                    </div>
+                  );
+                })}
               </div>
             </div>
           ))

@@ -1,12 +1,14 @@
 import { useMemo } from 'react';
 import type { AiConversation } from '../../api/types';
 import { EmptyState } from '../ui-kit';
+import { AiHistoryStatusIcon } from './AiConversationHistory';
 
 export function AiMobileChrome(props: {
   conversations: AiConversation[];
   isLoading: boolean;
   activeConversationKey: string | null;
   runningConversationKeys: Set<string>;
+  waitingConversationKeys: Set<string>;
   isMobileHistoryOpen: boolean;
   onBackHome?: () => void;
   onOpenMobileHistory: () => void;
@@ -83,24 +85,29 @@ export function AiMobileChrome(props: {
                   <div key={group.title} className="ai-mobile-history-group">
                     <h3 className="ai-mobile-history-group-title">{group.title}</h3>
                     <div className="ai-mobile-history-group-items">
-                      {group.items.map((conversation) => (
-                        <button
-                          key={conversation.id}
-                          className={[
-                            'ai-mobile-conversation',
-                            conversation.id === props.activeConversationKey ? 'active' : '',
-                            props.runningConversationKeys.has(conversation.id) ? 'is-running' : '',
-                          ].filter(Boolean).join(' ')}
-                          type="button"
-                          onClick={() => props.onSelectConversation(conversation.id)}
-                        >
-                          <strong>
-                            {props.runningConversationKeys.has(conversation.id) && <i className="ai-history-spinner" aria-hidden="true" />}
-                            <span className="ai-history-title-text">{conversation.title || conversation.prompt || 'AI 会话'}</span>
-                          </strong>
-                          <span>{conversation.summary || conversation.response || '等待继续对话'}</span>
-                        </button>
-                      ))}
+                      {group.items.map((conversation) => {
+                        const isWaiting = props.waitingConversationKeys.has(conversation.id);
+                        const isRunning = !isWaiting && props.runningConversationKeys.has(conversation.id);
+                        return (
+                          <button
+                            key={conversation.id}
+                            className={[
+                              'ai-mobile-conversation',
+                              conversation.id === props.activeConversationKey ? 'active' : '',
+                              isRunning ? 'is-running' : '',
+                              isWaiting ? 'is-waiting' : '',
+                            ].filter(Boolean).join(' ')}
+                            type="button"
+                            onClick={() => props.onSelectConversation(conversation.id)}
+                          >
+                            <strong>
+                              {isWaiting ? <AiHistoryStatusIcon status="waiting" /> : isRunning ? <AiHistoryStatusIcon status="running" /> : null}
+                              <span className="ai-history-title-text">{conversation.title || conversation.prompt || 'AI 会话'}</span>
+                            </strong>
+                            <span>{conversation.summary || conversation.response || '等待继续对话'}</span>
+                          </button>
+                        );
+                      })}
                     </div>
                   </div>
                 ))

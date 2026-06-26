@@ -9,7 +9,7 @@ import json
 from sqlalchemy import delete, func, select, update
 from sqlalchemy.orm import Session
 
-from app.core.deps import get_current_auth
+from app.core.deps import get_current_auth, require_owner
 from app.core.config import get_settings
 from app.db.session import get_db
 from app.db.transactions import commit_session
@@ -18,8 +18,10 @@ from app.models.domain import (
     AIApprovalRequest,
     AIConversation,
     AIMessage,
+    AIRunLLMExchange,
     AIOperation,
     AIRunEvent,
+    AIRunTraceSpan,
     AITaskDraft,
     AIUserApproval,
 )
@@ -36,8 +38,11 @@ from app.schemas.ai import (
     AIQualityMetricsResponse,
     AIRecommendationSelectionRequest,
     AIRegistryResponse,
+    AIRunLLMExchangeResponse,
     AIStatusResponse,
     AIRunEventDTO,
+    AIRunTraceResponse,
+    AIRunTraceTreeResponse,
     GenerateRecipeDraftRequest,
     GenerateRecipeDraftResponse,
 )
@@ -47,6 +52,7 @@ from app.ai.tools import build_workspace_tool_registry
 from app.ai.workspace_service import AIApplicationService
 from app.ai.workflows.checkpoint import SQLAlchemyCheckpointSaver
 from app.ai.workflows.live_stream_cache import live_ai_stream_cache
+from app.ai.observability.serializers import serialize_ai_run_llm_exchange, serialize_ai_run_trace_span
 from app.services.serializers import serialize_ai_conversation, serialize_ai_message, serialize_ai_run_event
 from app.services.ai_quality import build_ai_quality_metrics
 
@@ -527,6 +533,93 @@ def stream_ai_run_events(
             yield f"event: progress\ndata: {json.dumps(jsonable_encoder(serialize_ai_run_event(item)), ensure_ascii=False)}\n\n"
 
     return StreamingResponse(generate(), media_type="text/event-stream")
+
+
+@router.get("/api/ai/runs/{run_id}/trace", response_model=AIRunTraceResponse)
+def get_ai_run_trace(
+    run_id: str,
+    auth: tuple = Depends(require_owner),
+    db: Session = Depends(get_db),
+) -> dict:
+    _, membership = auth
+    run = db.scalar(select(AIAgentRun).where(AIAgentRun.id == run_id, AIAgentRun.family_id == membership.family_id))
+    if run is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="AI run not found")
+    spans = list(
+        db.scalars(
+            select(AIRunTraceSpan)
+            .where(AIRunTraceSpan.run_id == run_id, AIRunTraceSpan.family_id == membership.family_id)
+            .order_by(AIRunTraceSpan.started_at.asc(), AIRunTraceSpan.id.asc())
+        )
+    )
+    trace_id = spans[0].trace_id if spans else ""
+    return {
+        "runId": run.id,
+        "traceId": trace_id,
+        "status": run.status,
+        "spans": [serialize_ai_run_trace_span(item) for item in spans],
+    }
+
+
+@router.get("/api/ai/runs/{run_id}/trace/tree", response_model=AIRunTraceTreeResponse)
+def get_ai_run_trace_tree(
+    run_id: str,
+    auth: tuple = Depends(require_owner),
+    db: Session = Depends(get_db),
+) -> dict:
+    _, membership = auth
+    run = db.scalar(select(AIAgentRun).where(AIAgentRun.id == run_id, AIAgentRun.family_id == membership.family_id))
+    if run is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="AI run not found")
+    spans = list(
+        db.scalars(
+            select(AIRunTraceSpan)
+            .where(AIRunTraceSpan.run_id == run_id, AIRunTraceSpan.family_id == membership.family_id)
+            .order_by(AIRunTraceSpan.started_at.asc(), AIRunTraceSpan.id.asc())
+        )
+    )
+    serialized_by_span_id = {item.span_id: {**serialize_ai_run_trace_span(item), "children": []} for item in spans}
+    roots: list[dict] = []
+    for item in spans:
+        node = serialized_by_span_id[item.span_id]
+        if item.parent_span_id and item.parent_span_id in serialized_by_span_id:
+            serialized_by_span_id[item.parent_span_id]["children"].append(node)
+        else:
+            roots.append(node)
+    trace_id = spans[0].trace_id if spans else ""
+    return {"runId": run.id, "traceId": trace_id, "status": run.status, "tree": roots}
+
+
+@router.get("/api/ai/runs/{run_id}/llm-exchanges", response_model=AIRunLLMExchangeResponse)
+def list_ai_run_llm_exchanges(
+    run_id: str,
+    auth: tuple = Depends(require_owner),
+    db: Session = Depends(get_db),
+) -> dict:
+    _, membership = auth
+    run = db.scalar(select(AIAgentRun).where(AIAgentRun.id == run_id, AIAgentRun.family_id == membership.family_id))
+    if run is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="AI run not found")
+    exchange_ids = list(
+        db.scalars(
+            select(AIRunLLMExchange.id)
+            .where(AIRunLLMExchange.run_id == run_id, AIRunLLMExchange.family_id == membership.family_id)
+            .order_by(AIRunLLMExchange.started_at.asc(), AIRunLLMExchange.id.asc())
+        )
+    )
+    exchanges_by_id = {}
+    if exchange_ids:
+        exchanges_by_id = {
+            item.id: item
+            for item in db.scalars(select(AIRunLLMExchange).where(AIRunLLMExchange.id.in_(exchange_ids)))
+        }
+    exchanges = [exchanges_by_id[item_id] for item_id in exchange_ids if item_id in exchanges_by_id]
+    trace_id = exchanges[0].trace_id if exchanges else ""
+    return {
+        "runId": run.id,
+        "traceId": trace_id,
+        "exchanges": [serialize_ai_run_llm_exchange(item) for item in exchanges],
+    }
 
 
 @router.post("/api/ai/runs/{run_id}/cancel")

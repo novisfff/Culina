@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { AiApprovalRequest, AiGeneratedRecipeDraft, Difficulty, Food, Ingredient } from '../../api/types';
 import { FoodRatingInput } from '../foods/FoodWorkspacePrimitives';
 import { resolveAssetUrl } from '../../lib/assets';
@@ -251,6 +251,8 @@ export function ApprovalPanel({
   resourceOptionLoader,
   onDecision,
   isLatest = true,
+  canSubmit = true,
+  submitDisabledReason,
 }: {
   approval: AiApprovalRequest;
   foods?: Food[];
@@ -258,6 +260,8 @@ export function ApprovalPanel({
   resourceOptionLoader?: AiResourceOptionLoader;
   onDecision: AiApprovalDecisionSubmit;
   isLatest?: boolean;
+  canSubmit?: boolean;
+  submitDisabledReason?: string;
 }) {
   const [recipe, setRecipe] = useState<AiGeneratedRecipeDraft>(() => cloneRecipeDraft(getApprovalRecipe(approval)));
   const [structuredDraft, setStructuredDraft] = useState<Record<string, unknown>>(() => cloneDraftRecord(getApprovalDraft(approval)));
@@ -270,11 +274,20 @@ export function ApprovalPanel({
     ingredient: [],
   });
 
-  const [isExpanded, setIsExpanded] = useState(isLatest);
+  const [isExpanded, setIsExpanded] = useState(isLatest && approval.status === 'pending');
+  const foldTimeoutRef = useRef<any>(null);
 
   useEffect(() => {
-    setIsExpanded(isLatest);
-  }, [isLatest]);
+    setIsExpanded(isLatest && approval.status === 'pending');
+  }, [isLatest, approval.status]);
+
+  useEffect(() => {
+    return () => {
+      if (foldTimeoutRef.current) {
+        clearTimeout(foldTimeoutRef.current);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     if (approval.status !== 'pending') {
@@ -289,7 +302,8 @@ export function ApprovalPanel({
   }, [approval]);
 
   const currentApproval = approval;
-  const readonly = currentApproval.status !== 'pending';
+  const pendingButLocked = currentApproval.status === 'pending' && !canSubmit;
+  const readonly = currentApproval.status !== 'pending' || pendingButLocked;
   const recipeApproval = isRecipeApproval(currentApproval);
   const failureSummary = getApprovalFailureSummary(currentApproval);
   const draftType = getDraftType(currentApproval, structuredDraft);
@@ -345,8 +359,17 @@ export function ApprovalPanel({
   const submitDecision = async (decision: 'approved' | 'rejected') => {
     if (isSubmitting) return;
     setError(null);
+    if (pendingButLocked) {
+      if (submitDisabledReason) {
+        setError(submitDisabledReason);
+      }
+      return;
+    }
+    const isRejecting = decision === 'rejected';
     let values: Record<string, unknown>;
-    if (recipeApproval) {
+    if (isRejecting) {
+      values = {};
+    } else if (recipeApproval) {
       values = { recipe };
     } else if (usesStructuredDraftEditor) {
       if (draftType === 'inventory_operation') {
@@ -371,6 +394,9 @@ export function ApprovalPanel({
     try {
       setIsSubmitting(true);
       await onDecision(currentApproval, decision, values, comment);
+      foldTimeoutRef.current = setTimeout(() => {
+        setIsExpanded(false);
+      }, 300);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : '提交失败');
     } finally {
@@ -1745,7 +1771,12 @@ export function ApprovalPanel({
             <span>确认备注</span>
             <input className="text-input" value={comment} disabled={readonly} placeholder="可选，补充本次确认说明" onChange={(event) => setComment(event.target.value)} />
           </label>
-          {error && <p className="form-error">{error}</p>}
+          {pendingButLocked && submitDisabledReason && (
+            <p className="ai-approval-submit-hint">
+              {submitDisabledReason}
+            </p>
+          )}
+          {error && <p className="form-error" role="alert">{error}</p>}
           {!readonly && (
             <div className="ai-approval-actions">
               <button className="ghost-button" type="button" disabled={isSubmitting} onClick={() => submitDecision('rejected')}>

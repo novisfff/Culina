@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from app.ai.observability import error_codes
 from app.ai.skills.base import SkillContext
 from app.ai.tools.base import ToolContext, ToolDefinition, ToolResult
 from app.ai.tools.validation import validate_json_value
@@ -163,10 +164,38 @@ class SkillScriptExecutor:
     def has(self, tool_name: str) -> bool:
         return self.catalog.has(tool_name)
 
-    def call(self, tool_name: str, payload: dict[str, Any]) -> dict[str, Any]:
+    def call(self, tool_name: str, payload: dict[str, Any], *, progress_event_id: str | None = None) -> dict[str, Any]:
         function = self.catalog.get(tool_name)
-        validate_json_value(payload, function.input_schema, location=f"{tool_name} input")
-        self._emit_progress(tool_name, "running")
+        tracer = self.context.tracer
+        span = (
+            tracer.start_span(
+                "script_call",
+                tool_name,
+                parent_span_id=self.context.trace_parent_span_id,
+                round_index=self.context.trace_round_index,
+                input_summary={
+                    "inputKeys": sorted(payload.keys()),
+                    "functionName": function.function_name,
+                    "scriptPath": function.script_path.name,
+                    "timeoutSeconds": self.timeout_seconds,
+                },
+            )
+            if tracer is not None
+            else None
+        )
+        try:
+            validate_json_value(payload, function.input_schema, location=f"{tool_name} input")
+        except Exception:
+            if span is not None:
+                span.finish(
+                    status="failed",
+                    error_code=error_codes.SCRIPT_INPUT_VALIDATION_FAILED,
+                    error_message=f"{tool_name} input validation failed",
+                )
+            if progress_event_id:
+                self._emit_progress(tool_name, "failed", event_id=progress_event_id)
+            raise
+        self._emit_progress(tool_name, "running", event_id=progress_event_id)
         started_at = time.perf_counter()
         try:
             output = self._run_subprocess(function, payload)
@@ -186,7 +215,15 @@ class SkillScriptExecutor:
                 output=wrapped_output,
             )
             self._record_result(result)
-            self._emit_progress(tool_name, "completed")
+            self._emit_progress(tool_name, "completed", event_id=progress_event_id)
+            if span is not None:
+                span.finish(
+                    status="completed",
+                    output_summary={
+                        "durationMs": result.duration_ms,
+                        "outputKeys": sorted(wrapped_output.keys()),
+                    },
+                )
             return wrapped_output
         except Exception as exc:
             self._record_result(
@@ -200,7 +237,14 @@ class SkillScriptExecutor:
                     error=str(exc),
                 )
             )
-            self._emit_progress(tool_name, "failed")
+            self._emit_progress(tool_name, "failed", event_id=progress_event_id)
+            if span is not None:
+                span.finish(
+                    status="failed",
+                    error_code=error_codes.SCRIPT_EXECUTION_FAILED,
+                    error_message=str(exc),
+                    exception_type=type(exc).__name__,
+                )
             raise
 
     def records(self) -> list[dict[str, Any]]:
@@ -277,7 +321,7 @@ class SkillScriptExecutor:
             raise RuntimeError(f"skill script failed: {function.tool_name}: {error}")
         return response.get("result")
 
-    def _emit_progress(self, tool_name: str, status: str) -> None:
+    def _emit_progress(self, tool_name: str, status: str, *, event_id: str | None = None) -> None:
         function_name = tool_name.removeprefix("script.")
         if status == "failed":
             user_message = f"脚本「{function_name}」执行失败"
@@ -290,6 +334,7 @@ class SkillScriptExecutor:
             tool_name,
             user_message,
             status,
+            event_id=event_id,
         )
 
 
