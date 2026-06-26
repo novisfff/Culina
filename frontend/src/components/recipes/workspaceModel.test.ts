@@ -212,6 +212,76 @@ describe('recipe workspace model', () => {
     expect(missing?.shortages[0]?.unit).toBe('g');
   });
 
+  it('checks not-tracked ingredients by presence instead of quantity', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2026, 4, 13, 8, 0, 0));
+
+    const salt: Ingredient = {
+      id: 'ingredient-salt',
+      family_id: 'family-1',
+      name: '盐',
+      category: '调料',
+      default_unit: 'g',
+      unit_conversions: [],
+      quantity_tracking_mode: 'not_track_quantity',
+      default_storage: '常温',
+      default_expiry_mode: 'none',
+      default_expiry_days: null,
+      default_low_stock_threshold: null,
+      notes: '',
+      image: null,
+      created_at: '2026-05-01T10:00:00Z',
+      updated_at: '2026-05-01T10:00:00Z',
+    };
+    const saltRecipe: Recipe = {
+      id: 'recipe-salt',
+      family_id: 'family-1',
+      title: '盐拌番茄',
+      servings: 2,
+      prep_minutes: 5,
+      difficulty: 'easy',
+      ingredient_items: [{ id: 'ri-salt', ingredient_id: salt.id, ingredient_name: '盐', quantity: 5, unit: 'g', note: '' }],
+      steps: [{ id: 's-salt', title: '拌', text: '拌匀' }],
+      tips: '',
+      scene_tags: ['凉菜'],
+      images: [],
+      cook_logs: [],
+      created_at: '2026-05-01T10:00:00Z',
+      updated_at: '2026-05-04T10:00:00Z',
+    };
+    const saltInventory: InventoryItem = {
+      id: 'inventory-salt',
+      family_id: 'family-1',
+      ingredient_id: salt.id,
+      ingredient_name: '盐',
+      quantity: 1,
+      consumed_quantity: 1,
+      disposed_quantity: 0,
+      remaining_quantity: 0,
+      unit: 'g',
+      status: 'fresh',
+      purchase_date: '2026-05-01',
+      expiry_date: null,
+      storage_location: '常温',
+      notes: '',
+      low_stock_threshold: 0,
+      created_at: '2026-05-01T10:00:00Z',
+      updated_at: '2026-05-01T10:00:00Z',
+    };
+
+    const ready = buildRecipeCards([saltRecipe], [salt], [saltInventory], [], []);
+    expect(ready[0]?.availability).toBe('ready');
+    expect(ready[0]?.shortages).toEqual([]);
+
+    const missing = buildRecipeCards([saltRecipe], [salt], [], [], []);
+    expect(missing[0]?.availability).toBe('missing');
+    expect(missing[0]?.shortages[0]).toMatchObject({
+      ingredientId: salt.id,
+      ingredientName: '盐',
+      shortageType: 'presence',
+    });
+  });
+
   it('filters by search, common recipes, quick recipes, and availability sorting', () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date(2026, 4, 13, 8, 0, 0));

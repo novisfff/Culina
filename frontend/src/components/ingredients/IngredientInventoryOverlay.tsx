@@ -2,6 +2,7 @@ import { useMemo, useState, type FormEvent } from 'react';
 import type { Ingredient, IngredientExpiryMode, IngredientUnitConversion, InventoryStatus } from '../../api/types';
 import { resolveAssetUrl } from '../../lib/assets';
 import { addDateKeyDays } from '../../lib/date';
+import { tracksIngredientQuantity } from '../../lib/ingredientTracking';
 import { formatDate, INVENTORY_STATUS_LABELS, todayKey } from '../../lib/ui';
 import { MediaWithPlaceholder } from '../MediaPlaceholder';
 import {
@@ -46,6 +47,7 @@ type IngredientInventoryOverlayProps = {
 };
 
 export function IngredientInventoryOverlay(props: IngredientInventoryOverlayProps) {
+  const tracksQuantity = tracksIngredientQuantity(props.selectedInventoryIngredient);
   const [ingredientPickerOpen, setIngredientPickerOpen] = useState(false);
   const visibleIngredientOptions = useMemo(() => {
     const query = props.inventoryForm.ingredientQuery.trim().toLowerCase();
@@ -194,6 +196,7 @@ export function IngredientInventoryOverlay(props: IngredientInventoryOverlayProp
             </section>
           )}
 
+          {tracksQuantity ? (
           <section className="ingredients-restock-field-group ingredients-restock-quantity-section">
             <div className="ingredients-restock-quantity-row">
               <TouchStepperField
@@ -257,6 +260,14 @@ export function IngredientInventoryOverlay(props: IngredientInventoryOverlayProp
               </section>
             </div>
           </section>
+          ) : (
+            <section className="ingredients-restock-field-group ingredients-restock-quantity-section">
+              <div className="ingredients-create-rule-note ingredients-create-lowstock-note">
+                <span>只记录有无</span>
+                <p>这类食材只确认家里已经补上，不需要填写数量，做菜完成时也不会自动扣减。</p>
+              </div>
+            </section>
+          )}
 
           <section className="ingredients-restock-field-group">
             <div className="ingredients-restock-field-head">
@@ -520,7 +531,7 @@ export function IngredientInventoryOverlay(props: IngredientInventoryOverlayProp
               type="submit"
               disabled={props.isCreatingInventory || !props.inventoryForm.ingredientId}
             >
-              {props.isCreatingInventory ? '保存中...' : '保存这批库存'}
+              {props.isCreatingInventory ? '保存中...' : tracksQuantity ? '保存这批库存' : '确认已有'}
             </ActionButton>
           </div>
         </div>

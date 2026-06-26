@@ -23,6 +23,7 @@ import type {
   IngredientWorkspacePanel,
   InventoryStorageOverviewViewModel,
   ShoppingCardFocus,
+  ShoppingCardGroupViewModel,
   ShoppingCardViewModel,
   ShoppingOverviewViewModel,
   StorageGroupViewModel,
@@ -112,7 +113,9 @@ type IngredientHubPageProps = {
   mobilePrioritySummaries: IngredientSummaryViewModel[];
   mobileStorageCards: InventoryStorageOverviewViewModel[];
   mobileCatalogSummaries: IngredientSummaryViewModel[];
+  mobileCatalogResetKey: string;
   mobileShoppingCards: ShoppingCardViewModel[];
+  mobileShoppingGroups: ShoppingCardGroupViewModel[];
   mobileHasCatalogFilters: boolean;
   notificationCenter?: ReactNode;
   openDetailView: (ingredientId: string) => void;
@@ -176,6 +179,7 @@ type IngredientHubPageProps = {
   setShoppingSearch: (value: string) => void;
   pendingShoppingCards: ShoppingCardViewModel[];
   visiblePendingShoppingCards: ShoppingCardViewModel[];
+  visiblePendingShoppingGroups: ShoppingCardGroupViewModel[];
   completedShoppingCards: ShoppingCardViewModel[];
   visibleCompletedShoppingCards: ShoppingCardViewModel[];
   activeShoppingOverview: ShoppingOverviewViewModel | null;
@@ -278,6 +282,7 @@ export function IngredientHubPage(props: IngredientHubPageProps) {
         shoppingSearch={props.shoppingSearch}
         pendingShoppingCards={props.pendingShoppingCards}
         visiblePendingShoppingCards={props.visiblePendingShoppingCards}
+        visiblePendingShoppingGroups={props.visiblePendingShoppingGroups}
         completedShoppingCards={props.completedShoppingCards}
         visibleCompletedShoppingCards={props.visibleCompletedShoppingCards}
         activeShoppingOverview={props.activeShoppingOverview}
@@ -328,7 +333,9 @@ export function IngredientHubPage(props: IngredientHubPageProps) {
             mobilePrioritySummaries={props.mobilePrioritySummaries}
             mobileStorageCards={props.mobileStorageCards}
             mobileCatalogSummaries={props.mobileCatalogSummaries}
+            mobileCatalogResetKey={props.mobileCatalogResetKey}
             mobileShoppingCards={props.mobileShoppingCards}
+            mobileShoppingGroups={props.mobileShoppingGroups}
             mobileHasCatalogFilters={props.mobileHasCatalogFilters}
             notificationCenter={props.notificationCenter}
             openDetailView={props.openDetailView}

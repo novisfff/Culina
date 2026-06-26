@@ -9,6 +9,7 @@ import type {
   IngredientSummaryViewModel,
   InventoryStorageOverviewViewModel,
   ShoppingCardFocus,
+  ShoppingCardGroupViewModel,
   ShoppingCardViewModel,
   StorageGroupViewModel,
 } from './workspaceModel';
@@ -446,6 +447,7 @@ type ShoppingPanelProps = {
   shoppingSearch: string;
   pendingShoppingCards: ShoppingCardViewModel[];
   visiblePendingShoppingCards: ShoppingCardViewModel[];
+  visiblePendingShoppingGroups: ShoppingCardGroupViewModel[];
   completedShoppingCards: ShoppingCardViewModel[];
   visibleCompletedShoppingCards: ShoppingCardViewModel[];
   activeShoppingOverview: ShoppingOverviewItem | null;
@@ -535,23 +537,33 @@ export function IngredientShoppingPanel(props: ShoppingPanelProps) {
         </div>
 
         {props.visiblePendingShoppingCards.length > 0 ? (
-          <div className="shopping-work-row-list">
-            {props.visiblePendingShoppingCards.map((card) => (
-              <props.ShoppingWorkRow
-                key={card.shoppingItem.id}
-                card={card}
-                onComplete={() => props.onOpenInventoryFromShopping(card.shoppingItem)}
-                onDetail={
-                  card.linkedSummary
-                    ? () => {
-                        if (card.linkedSummary) {
-                          props.onOpenDetailView(card.linkedSummary);
-                        }
+          <div className="ingredients-shopping-group-stack">
+            {props.visiblePendingShoppingGroups.map((group) => (
+              <section key={group.key} className={`ingredients-shopping-card-group group-${group.key}`}>
+                <div className="ingredients-shopping-card-group-head">
+                  <h4>{group.title}</h4>
+                  <span>{group.cards.length} 项 · {group.detail}</span>
+                </div>
+                <div className="shopping-work-row-list">
+                  {group.cards.map((card) => (
+                    <props.ShoppingWorkRow
+                      key={card.shoppingItem.id}
+                      card={card}
+                      onComplete={() => props.onOpenInventoryFromShopping(card.shoppingItem)}
+                      onDetail={
+                        card.linkedSummary
+                          ? () => {
+                              if (card.linkedSummary) {
+                                props.onOpenDetailView(card.linkedSummary);
+                              }
+                            }
+                          : undefined
                       }
-                    : undefined
-                }
-                isBusy={props.isUpdatingShopping || props.isCreatingInventory}
-              />
+                      isBusy={props.isUpdatingShopping || props.isCreatingInventory}
+                    />
+                  ))}
+                </div>
+              </section>
             ))}
           </div>
         ) : (

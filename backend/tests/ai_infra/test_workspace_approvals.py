@@ -1095,6 +1095,22 @@ class AIWorkspaceApprovalsTestCase(AIAgentInfraTestCase):
                     )
 
                 with self.subTest("shopping.create"):
+                    salt = Ingredient(
+                        id="ingredient-shopping-approval-salt",
+                        family_id=self.family.id,
+                        name="盐",
+                        category="调料",
+                        default_unit="g",
+                        unit_conversions=[],
+                        quantity_tracking_mode=IngredientQuantityTrackingMode.NOT_TRACK_QUANTITY,
+                        default_storage="常温",
+                        default_expiry_mode=IngredientExpiryMode.NONE,
+                        notes="",
+                        created_by=self.user.id,
+                        updated_by=self.user.id,
+                    )
+                    db.add(salt)
+                    db.flush()
                     result = approve_case(
                         suffix="shopping-create",
                         draft_type="shopping_list",
@@ -1104,7 +1120,13 @@ class AIWorkspaceApprovalsTestCase(AIAgentInfraTestCase):
                             "operations": [
                                 {
                                     "action": "create",
-                                    "payload": {"title": "审计鸡蛋", "quantity": 2, "unit": "盒", "reason": "早餐"},
+                                    "payload": {
+                                        "ingredientId": salt.id,
+                                        "title": "盐",
+                                        "quantityMode": "not_track_quantity",
+                                        "displayLabel": "需要补充",
+                                        "reason": "调料补充",
+                                    },
                                 }
                             ],
                         },
@@ -1112,6 +1134,9 @@ class AIWorkspaceApprovalsTestCase(AIAgentInfraTestCase):
                     shopping_id = result["business_entity"]["operations"][0]["item"]["id"]
                     shopping = db.get(ShoppingListItem, shopping_id)
                     assert shopping is not None
+                    self.assertEqual(shopping.ingredient_id, salt.id)
+                    self.assertEqual(shopping.quantity_mode, IngredientQuantityTrackingMode.NOT_TRACK_QUANTITY)
+                    self.assertEqual(shopping.display_label, "需要补充")
                     self.assertEqual(shopping.created_by, self.user.id)
                     self.assertEqual(shopping.updated_by, self.user.id)
                     self.assertIsNotNone(

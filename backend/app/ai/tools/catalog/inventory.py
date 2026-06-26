@@ -26,7 +26,7 @@ from app.ai.tools.catalog.inventory_unit_conversion import (
 from app.core.utils import create_id
 from app.models.domain import InventoryItem
 from app.services.clock import today_for_family
-from app.services.inventory_usage import remaining_quantity
+from app.services.inventory_usage import remaining_quantity, tracks_quantity
 
 
 INVENTORY_SUMMARY_OUTPUT = {
@@ -46,7 +46,7 @@ INVENTORY_SUMMARY_OUTPUT = {
 
 INVENTORY_ITEM_OUTPUT = {
     "type": "object",
-    "required": ["id", "ingredientId", "name", "quantity", "unit", "status", "displayStatus"],
+    "required": ["id", "ingredientId", "name", "quantity", "unit", "status", "displayStatus", "quantityTrackingMode"],
     "properties": {
         "id": {"type": "string"},
         "ingredientId": {"type": "string"},
@@ -54,6 +54,7 @@ INVENTORY_ITEM_OUTPUT = {
         "image": {"type": ["object", "null"]},
         "quantity": {"type": "string"},
         "unit": {"type": "string"},
+        "quantityTrackingMode": {"type": "string", "enum": ["track_quantity", "not_track_quantity"]},
         "status": {"type": "string"},
         "displayStatus": {"type": "string", "enum": ["available", "expiring", "expired", "low_stock"]},
         "expiryDate": {"type": ["string", "null"]},
@@ -110,7 +111,15 @@ def inventory_record(
 ) -> dict[str, Any]:
     status = item.status.value if hasattr(item.status, "value") else str(item.status)
     remaining = remaining_quantity(item)
-    is_low_stock = item.low_stock_threshold is not None and item.low_stock_threshold > 0 and remaining <= item.low_stock_threshold
+    quantity_tracking_mode = (
+        item.ingredient.quantity_tracking_mode.value
+        if item.ingredient and hasattr(item.ingredient.quantity_tracking_mode, "value")
+        else str(item.ingredient.quantity_tracking_mode)
+        if item.ingredient
+        else "track_quantity"
+    )
+    is_tracked = item.ingredient is None or tracks_quantity(item.ingredient)
+    is_low_stock = is_tracked and item.low_stock_threshold is not None and item.low_stock_threshold > 0 and remaining <= item.low_stock_threshold
     resolved_today = today or today_for_family(item.family_id)
     days_until_expiry = (item.expiry_date - resolved_today).days if item.expiry_date else None
     display_status = "expired" if days_until_expiry is not None and days_until_expiry < 0 else "expiring" if days_until_expiry is not None and days_until_expiry <= 7 else "low_stock" if is_low_stock else "available"
@@ -119,8 +128,9 @@ def inventory_record(
         "ingredientId": item.ingredient_id,
         "name": item.ingredient.name if item.ingredient else item.ingredient_id,
         "image": first_entity_media(media_map or {}, "ingredient", item.ingredient_id),
-        "quantity": decimal_text(remaining),
+        "quantity": decimal_text(remaining) if is_tracked else "已有",
         "unit": item.unit,
+        "quantityTrackingMode": quantity_tracking_mode,
         "status": status,
         "displayStatus": display_status,
         "expiryDate": item.expiry_date.isoformat() if item.expiry_date else None,

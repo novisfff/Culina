@@ -38,6 +38,7 @@ MAX_ATTEMPTS = 3
 JOB_LOCK_STALE_AFTER = timedelta(minutes=10)
 ACTIVE_COMPLETED_WINDOW = timedelta(minutes=10)
 WORKER_SCAN_INTERVAL_SECONDS = 2.0
+MAX_ATTEMPTS_EXHAUSTED_ERROR = "服务重启或后台任务中断，图片生成已达到最大重试次数，请重新发起图片生成。"
 
 logger = logging.getLogger(__name__)
 
@@ -162,6 +163,47 @@ def list_active_image_generation_jobs(db: Session, *, family_id: str) -> list[AI
         .limit(100)
     )
     return list(db.scalars(statement))
+
+
+def recover_interrupted_image_generation_jobs(
+    db: Session,
+    *,
+    include_all_running: bool = False,
+    limit: int = 100,
+) -> int:
+    now = utcnow()
+    stale_lock_cutoff = now - JOB_LOCK_STALE_AFTER
+    running_filter = AIImageGenerationJob.status == "running"
+    if not include_all_running:
+        running_filter = and_(
+            running_filter,
+            or_(
+                AIImageGenerationJob.locked_at.is_(None),
+                AIImageGenerationJob.locked_at < stale_lock_cutoff,
+            ),
+        )
+    statement = (
+        select(AIImageGenerationJob)
+        .where(running_filter)
+        .order_by(AIImageGenerationJob.created_at, AIImageGenerationJob.id)
+        .limit(limit)
+        .with_for_update(skip_locked=True)
+    )
+    jobs = list(db.scalars(statement))
+    for job in jobs:
+        job.locked_at = None
+        job.updated_at = now
+        if job.attempt_count >= MAX_ATTEMPTS:
+            job.status = "failed"
+            job.error = MAX_ATTEMPTS_EXHAUSTED_ERROR
+            job.completed_at = now
+        else:
+            job.status = "queued"
+            job.error = None
+            job.completed_at = None
+    if jobs:
+        db.commit()
+    return len(jobs)
 
 
 def _target_exists(db: Session, *, family_id: str, entity_type: str, entity_id: str) -> bool:
@@ -461,6 +503,7 @@ class ImageGenerationWorker:
         if self._thread is not None:
             return
         self._stop_event.clear()
+        self._recover_startup_jobs()
         self._executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="culina-image")
         self._thread = Thread(target=self._run, name="culina-image-worker", daemon=True)
         self._thread.start()
@@ -478,6 +521,7 @@ class ImageGenerationWorker:
         while not self._stop_event.is_set():
             try:
                 with self._session_factory() as db:
+                    recover_interrupted_image_generation_jobs(db)
                     job_ids = claim_pending_image_generation_jobs(db)
                 if self._executor is None:
                     return
@@ -486,3 +530,12 @@ class ImageGenerationWorker:
             except Exception:
                 logger.exception("AI image worker scan failed")
             self._stop_event.wait(WORKER_SCAN_INTERVAL_SECONDS)
+
+    def _recover_startup_jobs(self) -> None:
+        try:
+            with self._session_factory() as db:
+                recovered_count = recover_interrupted_image_generation_jobs(db, include_all_running=True)
+            if recovered_count:
+                logger.info("Recovered interrupted AI image generation jobs count=%s", recovered_count)
+        except Exception:
+            logger.exception("AI image worker startup recovery failed")

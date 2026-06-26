@@ -70,6 +70,7 @@ export interface Ingredient extends EntityMeta {
   name: string;
   category: string;
   defaultUnit: string;
+  quantityTrackingMode?: 'track_quantity' | 'not_track_quantity';
   defaultStorage: string;
   notes: string;
   image?: PhotoAsset;
@@ -90,9 +91,12 @@ export interface InventoryItem extends EntityMeta {
 
 export interface ShoppingListItem extends EntityMeta {
   familyId: string;
+  ingredientId?: string | null;
   title: string;
   quantity: number;
   unit: string;
+  quantityMode?: 'track_quantity' | 'not_track_quantity';
+  displayLabel?: string | null;
   reason: string;
   done: boolean;
 }

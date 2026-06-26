@@ -1,11 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import type { Food, Ingredient, InventoryItem, MealLog, Recipe } from '../../api/types';
+import type { Food, Ingredient, InventoryItem, MealLog, MediaAsset, Recipe } from '../../api/types';
 import { todayKey } from '../../lib/ui';
 import {
   FOOD_CREATE_TYPE_OPTIONS,
   buildFoodPayloadFromForm,
   buildTodayFoodRecommendations,
   filterFoodWorkspaceItems,
+  getMobileDefaultFoodSceneCardMedia,
+  getMobileFoodSceneFilterState,
   getSuggestedMealTypeForHour,
   type FoodFormState,
 } from './FoodWorkspace';
@@ -56,6 +58,24 @@ const baseFood: Food = {
   recipe_id: null,
   created_at: '2026-05-01T10:00:00Z',
   updated_at: '2026-05-01T10:00:00Z',
+};
+
+const sceneCoverAsset: MediaAsset = {
+  id: 'media-scene-cover',
+  name: '场景封面',
+  url: '/media/scene-cover.jpg',
+  source: 'ai',
+  alt: '场景封面',
+  variants: {
+    card: {
+      url: '/media/scene-cover-card.jpg',
+      width: 640,
+      height: 420,
+      content_type: 'image/jpeg',
+      byte_size: 1200,
+    },
+  },
+  created_at: '2026-05-01T10:00:00Z',
 };
 
 const tomato: Ingredient = {
@@ -173,6 +193,50 @@ describe('food workspace helpers', () => {
     const packaged: Food = { ...baseFood, id: 'food-2', name: '无糖酸奶', type: 'packaged', suitable_meal_types: ['breakfast'] };
     expect(filterFoodWorkspaceItems([baseFood, packaged], '', 'readyMade', 'all')).toEqual([packaged]);
     expect(filterFoodWorkspaceItems([baseFood, packaged], '便利店', 'all', 'dinner')).toEqual([baseFood]);
+  });
+
+  it('keeps all matching foods for mobile paged loading', () => {
+    const manyFoods = Array.from({ length: 9 }, (_, index): Food => ({
+      ...baseFood,
+      id: `food-mobile-${index + 1}`,
+      name: `移动食物 ${index + 1}`,
+      updated_at: `2026-05-01T10:0${index % 10}:00Z`,
+    }));
+
+    expect(filterFoodWorkspaceItems(manyFoods, '', 'all', 'all')).toHaveLength(9);
+  });
+
+  it('uses one scene-filter contract for mobile scene cards', () => {
+    expect(getMobileFoodSceneFilterState('高蛋白')).toEqual({
+      search: '',
+      lensFilter: 'all',
+      typeFilter: 'all',
+      mealFilter: 'all',
+      sceneFilter: '高蛋白',
+      governanceIssueFilter: 'all',
+    });
+
+    expect(getMobileFoodSceneFilterState('工作日晚餐')).toMatchObject({
+      search: '',
+      lensFilter: 'all',
+      mealFilter: 'all',
+      sceneFilter: '工作日晚餐',
+    });
+  });
+
+  it('keeps generated scene media on default mobile scene cards', () => {
+    const sceneFood: Food = { ...baseFood, id: 'food-protein', scene_tags: ['高蛋白'] };
+    const media = getMobileDefaultFoodSceneCardMedia(
+      '高蛋白',
+      [sceneFood],
+      [{ name: '高蛋白', count: 1, imageUrl: sceneCoverAsset.url, imageAsset: sceneCoverAsset }],
+      0
+    );
+
+    expect(media.count).toBe(1);
+    expect(media.imageFood?.id).toBe(sceneFood.id);
+    expect(media.imageUrl).toBe(sceneCoverAsset.url);
+    expect(media.imageAsset?.id).toBe(sceneCoverAsset.id);
   });
 
   it('filters operational food lenses', () => {

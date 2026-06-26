@@ -65,7 +65,7 @@ def create_inventory_item(
             family_id=membership.family_id,
             user_id=user.id,
             ingredient=ingredient,
-            quantity=Decimal(str(payload.quantity)),
+            quantity=Decimal(str(payload.quantity)) if payload.quantity is not None else None,
             unit=payload.unit,
             status=payload.status,
             purchase_date=payload.purchase_date,
@@ -101,7 +101,7 @@ def consume_inventory(
             family_id=membership.family_id,
             user_id=user.id,
             ingredient=ingredient,
-            quantity=Decimal(str(payload.quantity)),
+            quantity=Decimal(str(payload.quantity)) if payload.quantity is not None else None,
             unit=payload.unit,
             today=today_for_family(membership.family_id),
         )

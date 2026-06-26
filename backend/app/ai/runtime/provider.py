@@ -149,6 +149,7 @@ class OpenAICompatibleChatProvider(BaseChatProvider):
             base_url=api_base.rstrip("/"),
             timeout=timeout_seconds,
             temperature=0.5,
+            stream_usage=True,
             max_retries=1,
         )
 
@@ -265,6 +266,7 @@ class OpenAICompatibleChatProvider(BaseChatProvider):
             for attempt in range(STREAM_TOOL_CALL_RETRY_COUNT + 1):
                 emitted_text_this_attempt = False
                 streamed_text_this_attempt: list[str] = []
+                stream_token_usage: dict[str, Any] | None = None
                 message = None
                 exchange = (
                     trace_recorder.start_exchange(
@@ -284,14 +286,20 @@ class OpenAICompatibleChatProvider(BaseChatProvider):
                             "toolCount": len(current_tools),
                             "supportsVision": self.supports_vision,
                             "temperature": 0,
+                            "streamOptions": {"includeUsage": True},
                         },
                     )
                     if trace_recorder is not None
                     else None
                 )
                 try:
-                    for chunk in client.stream(messages):
+                    for chunk in self._stream_with_usage(client, messages):
                         message = chunk if message is None else message + chunk
+                        stream_token_usage = self._latest_token_usage(
+                            trace_recorder,
+                            chunk,
+                            stream_token_usage,
+                        )
                         self._emit_tool_call_previews(
                             chunk,
                             name_map=name_map,
@@ -349,6 +357,7 @@ class OpenAICompatibleChatProvider(BaseChatProvider):
                                 response_text=response_text,
                                 response_tool_calls=response_tool_calls,
                                 stream_chunks=trace_recorder.stream_chunks_payload(streamed_text_this_attempt),
+                                token_usage=stream_token_usage,
                                 status="failed" if not response_text and not response_tool_calls else "completed",
                                 error_code="provider_empty_response" if not response_text and not response_tool_calls else None,
                                 error_message="empty model response" if not response_text and not response_tool_calls else None,
@@ -847,6 +856,29 @@ class OpenAICompatibleChatProvider(BaseChatProvider):
             return tool_handler(name, args, progress_event_id)
         return tool_handler(name, args)
 
+    def _latest_token_usage(
+        self,
+        trace_recorder: Any | None,
+        chunk: Any,
+        previous: dict[str, Any] | None,
+    ) -> dict[str, Any] | None:
+        if trace_recorder is None or not hasattr(trace_recorder, "extract_token_usage"):
+            return previous
+        usage = trace_recorder.extract_token_usage(chunk)
+        return usage if usage else previous
+
+    def _stream_with_usage(self, client: Any, messages: list[Any]) -> Iterator[Any]:
+        try:
+            yield from client.stream(
+                messages,
+                stream_usage=True,
+                stream_options={"include_usage": True},
+            )
+        except TypeError as exc:
+            if "stream_usage" not in str(exc) and "stream_options" not in str(exc):
+                raise
+            yield from client.stream(messages)
+
     def _tool_error_message(self, name: str, exc: Exception) -> dict[str, Any]:
         return {
             "status": "failed",
@@ -941,16 +973,23 @@ class OpenAICompatibleChatProvider(BaseChatProvider):
                 model=self.model_name,
                 request_messages=messages,
                 request_tools=[],
-                request_options={"model": self.model_name, "mode": "stream_generate", "supportsVision": self.supports_vision},
+                request_options={
+                    "model": self.model_name,
+                    "mode": "stream_generate",
+                    "supportsVision": self.supports_vision,
+                    "streamOptions": {"includeUsage": True},
+                },
             )
             if trace_recorder is not None
             else None
         )
         message = None
         chunks: list[str] = []
+        stream_token_usage: dict[str, Any] | None = None
         try:
-            for chunk in self.client.stream(messages):
+            for chunk in self._stream_with_usage(self.client, messages):
                 message = chunk if message is None else message + chunk
+                stream_token_usage = self._latest_token_usage(trace_recorder, chunk, stream_token_usage)
                 text = self._content_to_text(chunk.content)
                 if text:
                     chunks.append(text)
@@ -980,6 +1019,7 @@ class OpenAICompatibleChatProvider(BaseChatProvider):
                 response_text=response_text or None,
                 response_tool_calls=[],
                 stream_chunks=trace_recorder.stream_chunks_payload(chunks),
+                token_usage=stream_token_usage,
                 status="completed" if response_text else "failed",
                 error_code=None if response_text else "provider_empty_response",
                 error_message=None if response_text else "empty model response",

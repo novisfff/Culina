@@ -1,5 +1,6 @@
 import type { Difficulty, Food, Ingredient, InventoryItem, MealLog, MediaAsset, Recipe, RecipeFavorite, RecipeIngredient, RecipePlanItem } from '../../api/types';
 import { getIngredientAvailableQuantityInDefault, convertQuantityToDefaultUnit } from '../../lib/ingredientUnits';
+import { tracksIngredientQuantity } from '../../lib/ingredientTracking';
 import { addDateKeyDays, daysBetweenDateKeys, getWeekRange, parseDateKey, todayKey } from '../../lib/date';
 
 export type RecipeWorkspaceView = 'library' | 'cookable' | 'detail' | 'create' | 'edit' | 'cook';
@@ -14,6 +15,7 @@ export type RecipeShortageViewModel = {
   availableQuantity: number;
   missingQuantity: number;
   unit: string;
+  shortageType?: 'quantity' | 'presence';
 };
 
 export type RecipeIngredientAvailability = {
@@ -23,6 +25,7 @@ export type RecipeIngredientAvailability = {
   availableQuantity: number;
   missingQuantity: number;
   unit: string;
+  shortageType?: 'quantity' | 'presence';
   ready: boolean;
 };
 
@@ -149,6 +152,29 @@ function buildIngredientAvailability(
       };
     }
 
+    if (!tracksIngredientQuantity(ingredient)) {
+      const today = todayKey();
+      const hasPresence = inventoryItems.some((inventory) => {
+        if (inventory.ingredient_id !== ingredient.id) {
+          return false;
+        }
+        if (inventory.expiry_date && inventory.expiry_date < today) {
+          return false;
+        }
+        return inventory.quantity - (inventory.disposed_quantity ?? 0) > 0;
+      });
+      return {
+        item,
+        ingredient,
+        requiredQuantity: item.quantity,
+        availableQuantity: hasPresence ? item.quantity : 0,
+        missingQuantity: hasPresence ? 0 : item.quantity,
+        unit: item.unit,
+        shortageType: hasPresence ? undefined : 'presence',
+        ready: hasPresence,
+      };
+    }
+
     const requiredInDefault = convertQuantityToDefaultUnit(ingredient, item.quantity, item.unit);
     const availableInDefault = getIngredientAvailableQuantityInDefault(
       ingredient,
@@ -163,6 +189,7 @@ function buildIngredientAvailability(
         availableQuantity: 0,
         missingQuantity: item.quantity,
         unit: item.unit,
+        shortageType: 'quantity',
         ready: false,
       };
     }
@@ -175,6 +202,7 @@ function buildIngredientAvailability(
       availableQuantity: roundQuantity(availableInDefault),
       missingQuantity: roundQuantity(missingInDefault),
       unit: ingredient.default_unit,
+      shortageType: missingInDefault > 0 ? 'quantity' : undefined,
       ready: missingInDefault <= 0,
     };
   });
@@ -198,6 +226,7 @@ export function buildRecipeCards(
         availableQuantity: item.availableQuantity,
         missingQuantity: item.missingQuantity,
         unit: item.unit,
+        shortageType: item.shortageType,
       }));
     const readyCount = ingredientAvailability.filter((item) => item.ready).length;
     const availabilityScore =

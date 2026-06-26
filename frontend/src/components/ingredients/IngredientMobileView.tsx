@@ -1,16 +1,18 @@
 import type { ReactNode } from 'react';
-import { buildMediaSizes, buildMediaSrcSet, resolveAssetUrl, resolveMediaUrl } from '../../lib/assets';
+import { buildMediaSizes, buildMediaSrcSet, resolveMediaUrl } from '../../lib/assets';
 import type { ShoppingListItem } from '../../api/types';
+import { chunkMobilePagedItems, useMobilePagedScroller } from '../../hooks/useMobilePagedScroller';
 import { MediaWithPlaceholder } from '../MediaPlaceholder';
+import { tracksIngredientQuantity } from '../../lib/ingredientTracking';
 import type {
   IngredientSummaryViewModel,
   InventoryCardStatusViewModel,
   InventoryStorageOverviewViewModel,
+  ShoppingCardGroupViewModel,
   ShoppingCardViewModel,
 } from './workspaceModel';
 import type { InventoryStorageFocus } from './ingredientWorkspaceForms';
-
-type MobileIngredientFilter = 'all' | 'alerted' | 'empty' | 'stocked';
+import type { MobileIngredientFilter } from './useIngredientWorkspaceState';
 
 type CatalogCardStatus = {
   label: string;
@@ -33,7 +35,9 @@ type IngredientMobileViewProps = {
   mobilePrioritySummaries: IngredientSummaryViewModel[];
   mobileStorageCards: InventoryStorageOverviewViewModel[];
   mobileCatalogSummaries: IngredientSummaryViewModel[];
+  mobileCatalogResetKey: string;
   mobileShoppingCards: ShoppingCardViewModel[];
+  mobileShoppingGroups: ShoppingCardGroupViewModel[];
   mobileHasCatalogFilters: boolean;
   notificationCenter?: ReactNode;
   openDetailView: (ingredientId: string) => void;
@@ -55,6 +59,12 @@ type IngredientMobileViewProps = {
 };
 
 export function IngredientMobileView(props: IngredientMobileViewProps) {
+  const catalogPager = useMobilePagedScroller({
+    itemCount: props.mobileCatalogSummaries.length,
+    resetKey: props.mobileCatalogResetKey,
+  });
+  const mobileCatalogPages = chunkMobilePagedItems(props.mobileCatalogSummaries, catalogPager.visiblePageCount);
+
   return (
     <section className="mobile-ingredient-page" aria-label="手机食材页">
       <div className="mobile-ingredient-topbar">
@@ -132,7 +142,7 @@ export function IngredientMobileView(props: IngredientMobileViewProps) {
             {props.mobilePrioritySummaries.map((summary) => {
               const imageUrl = resolveMediaUrl(summary.ingredient.image, 'card');
               const status = props.buildPriorityStatus(summary);
-              const canConsume = summary.availableInventoryItems.length > 0;
+              const canConsume = tracksIngredientQuantity(summary.ingredient) && summary.availableInventoryItems.length > 0;
               const canDestroyExpired = props.countDisposableExpiredItems(summary) > 0;
               return (
                 <article key={summary.ingredient.id} className={`mobile-ingredient-priority-card tone-${status.tone}`}>
@@ -171,7 +181,7 @@ export function IngredientMobileView(props: IngredientMobileViewProps) {
                             查看批次
                           </button>
                         </>
-                      ) : summary.quantitySummaries.length > 0 ? (
+                      ) : canConsume ? (
                         <>
                           <button
                             className="mobile-ingredient-primary compact"
@@ -259,7 +269,12 @@ export function IngredientMobileView(props: IngredientMobileViewProps) {
 
       <section className="mobile-ingredient-panel mobile-ingredient-library">
         <div className="mobile-ingredient-section-head">
-          <h2>食材库</h2>
+          <h2>
+            食材库
+            {props.mobileCatalogSummaries.length > 0 && (
+              <span>{catalogPager.visibleCount}/{props.mobileCatalogSummaries.length}</span>
+            )}
+          </h2>
           <button
             type="button"
             onClick={
@@ -289,6 +304,7 @@ export function IngredientMobileView(props: IngredientMobileViewProps) {
           <div className="mobile-ingredient-tabs" aria-label="食材筛选">
             {[
               { value: 'all' as const, label: '全部' },
+              { value: 'seasoning' as const, label: '调料' },
               { value: 'alerted' as const, label: '提醒' },
               { value: 'empty' as const, label: '缺货' },
               { value: 'stocked' as const, label: '在库' },
@@ -305,91 +321,97 @@ export function IngredientMobileView(props: IngredientMobileViewProps) {
           </div>
         </div>
         {props.mobileCatalogSummaries.length > 0 ? (
-          <div className="mobile-ingredient-library-grid">
-            {props.mobileCatalogSummaries.map((summary) => {
-              const imageUrl = resolveMediaUrl(summary.ingredient.image, 'card');
-              const status = props.buildCatalogStatus(summary);
-              const canConsume = summary.availableInventoryItems.length > 0;
-              const canDestroyExpired = props.countDisposableExpiredItems(summary) > 0;
-              return (
-                <article key={summary.ingredient.id} className={`mobile-ingredient-library-card tone-${status.tone}`}>
-                  <button className="mobile-ingredient-library-cover" type="button" onClick={() => props.openDetailView(summary.ingredient.id)}>
-                    <MediaWithPlaceholder
-                      src={imageUrl}
-                      srcSet={buildMediaSrcSet(summary.ingredient.image)}
-                      sizes={buildMediaSizes('card')}
-                      alt={summary.ingredient.name}
-                    />
-                    {summary.alerts.length > 0 && <span>{summary.alerts.length} 提醒</span>}
-                  </button>
-                  <div className="mobile-ingredient-library-body">
-                    <h3>{summary.ingredient.name}</h3>
-                    <p>{summary.ingredient.category || '未分类'} · {summary.primaryStorage}</p>
-                    <div className="mobile-ingredient-chip-row">
-                      <span>{status.label}</span>
-                      <span>{props.buildInventorySummaryLine(summary)}</span>
-                    </div>
-                    <div className="mobile-ingredient-library-actions">
-                      {canDestroyExpired ? (
-                        <>
-                          <button
-                            className="mobile-ingredient-primary"
-                            type="button"
-                            onClick={() => props.openDestroyExpiredOverlay(summary.ingredient.id)}
-                          >
-                            处理
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => props.openDetailView(summary.ingredient.id)}
-                          >
-                            查看批次
-                          </button>
-                        </>
-                      ) : summary.quantitySummaries.length > 0 ? (
-                        <>
-                          <button
-                            className="mobile-ingredient-primary"
-                            type="button"
-                            onClick={() => props.openConsumeOverlay(summary.ingredient.id)}
-                          >
-                            消费
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => props.openInventoryOverlay(summary.ingredient.id)}
-                          >
-                            补货
-                          </button>
-                        </>
-                      ) : (
-                        <>
-                          <button
-                            className="mobile-ingredient-primary"
-                            type="button"
-                            onClick={() => props.openInventoryOverlay(summary.ingredient.id)}
-                          >
-                            {summary.inventoryItems.length > 0 ? '补货' : '登记首批'}
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() =>
-                              props.openShoppingOverlay({
-                                ingredient: summary.ingredient,
-                                reason: props.buildShoppingReason(summary),
-                              })
-                            }
-                          >
-                            采购
-                          </button>
-                        </>
-                      )}
-                    </div>
-                  </div>
-                </article>
-              );
-            })}
-          </div>
+          <>
+            <div className="mobile-ingredient-library-scroller" aria-label="食材库横向分页" onScroll={catalogPager.handleScroll}>
+              {mobileCatalogPages.map((page, pageIndex) => (
+                <div className="mobile-ingredient-library-grid" key={`ingredient-library-page-${pageIndex}`}>
+                  {page.map((summary) => {
+                    const imageUrl = resolveMediaUrl(summary.ingredient.image, 'card');
+                    const status = props.buildCatalogStatus(summary);
+                    const canConsume = tracksIngredientQuantity(summary.ingredient) && summary.availableInventoryItems.length > 0;
+                    const canDestroyExpired = props.countDisposableExpiredItems(summary) > 0;
+                    return (
+                      <article key={summary.ingredient.id} className={`mobile-ingredient-library-card tone-${status.tone}`}>
+                        <button className="mobile-ingredient-library-cover" type="button" onClick={() => props.openDetailView(summary.ingredient.id)}>
+                          <MediaWithPlaceholder
+                            src={imageUrl}
+                            srcSet={buildMediaSrcSet(summary.ingredient.image)}
+                            sizes={buildMediaSizes('card')}
+                            alt={summary.ingredient.name}
+                          />
+                          {summary.alerts.length > 0 && <span>{summary.alerts.length} 提醒</span>}
+                        </button>
+                        <div className="mobile-ingredient-library-body">
+                          <h3>{summary.ingredient.name}</h3>
+                          <p>{summary.ingredient.category || '未分类'} · {summary.primaryStorage}</p>
+                          <div className="mobile-ingredient-chip-row">
+                            <span>{status.label}</span>
+                            <span>{props.buildInventorySummaryLine(summary)}</span>
+                          </div>
+                          <div className="mobile-ingredient-library-actions">
+                            {canDestroyExpired ? (
+                              <>
+                                <button
+                                  className="mobile-ingredient-primary"
+                                  type="button"
+                                  onClick={() => props.openDestroyExpiredOverlay(summary.ingredient.id)}
+                                >
+                                  处理
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => props.openDetailView(summary.ingredient.id)}
+                                >
+                                  查看批次
+                                </button>
+                              </>
+                            ) : canConsume ? (
+                              <>
+                                <button
+                                  className="mobile-ingredient-primary"
+                                  type="button"
+                                  onClick={() => props.openConsumeOverlay(summary.ingredient.id)}
+                                >
+                                  消费
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => props.openInventoryOverlay(summary.ingredient.id)}
+                                >
+                                  补货
+                                </button>
+                              </>
+                            ) : (
+                              <>
+                                <button
+                                  className="mobile-ingredient-primary"
+                                  type="button"
+                                  onClick={() => props.openInventoryOverlay(summary.ingredient.id)}
+                                >
+                                  {summary.inventoryItems.length > 0 ? '补货' : '登记首批'}
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    props.openShoppingOverlay({
+                                      ingredient: summary.ingredient,
+                                      reason: props.buildShoppingReason(summary),
+                                    })
+                                  }
+                                >
+                                  采购
+                                </button>
+                              </>
+                            )}
+                          </div>
+                        </div>
+                      </article>
+                    );
+                  })}
+                </div>
+              ))}
+            </div>
+          </>
         ) : (
           <div className="mobile-ingredient-empty">
             <strong>{props.summariesCount === 0 ? '还没有食材档案' : '没有匹配的食材'}</strong>
@@ -422,32 +444,40 @@ export function IngredientMobileView(props: IngredientMobileViewProps) {
         </div>
         {props.mobileShoppingCards.length > 0 ? (
           <div className="mobile-ingredient-shopping-list">
-            {props.mobileShoppingCards.map((card) => {
-              const imageUrl = resolveMediaUrl(card.linkedSummary?.ingredient.image, 'thumb');
-              return (
-                <article key={card.shoppingItem.id} className={`mobile-ingredient-shopping-card tone-${card.statusTone}`}>
-                  <span className="mobile-ingredient-shopping-cover">
-                    <MediaWithPlaceholder
-                      src={imageUrl}
-                      srcSet={buildMediaSrcSet(card.linkedSummary?.ingredient.image)}
-                      sizes={buildMediaSizes('thumb')}
-                      alt={card.title}
-                    />
-                  </span>
-                  <div className="mobile-ingredient-shopping-copy">
-                    <strong>{card.title}</strong>
-                    <small>{card.quantityLabel} · {card.reasonLabel}</small>
-                  </div>
-                  <button
-                    type="button"
-                    disabled={props.isUpdatingShopping || props.isCreatingInventory}
-                    onClick={() => props.openInventoryFromShopping(card.shoppingItem)}
-                  >
-                    入库
-                  </button>
-                </article>
-              );
-            })}
+            {props.mobileShoppingGroups.map((group) => (
+              <section key={group.key} className={`mobile-ingredient-shopping-group group-${group.key}`}>
+                <div className="mobile-ingredient-shopping-group-head">
+                  <strong>{group.title}</strong>
+                  <span>{group.cards.length} 项</span>
+                </div>
+                {group.cards.map((card) => {
+                  const imageUrl = resolveMediaUrl(card.linkedSummary?.ingredient.image, 'thumb');
+                  return (
+                    <article key={card.shoppingItem.id} className={`mobile-ingredient-shopping-card tone-${card.statusTone}`}>
+                      <span className="mobile-ingredient-shopping-cover">
+                        <MediaWithPlaceholder
+                          src={imageUrl}
+                          srcSet={buildMediaSrcSet(card.linkedSummary?.ingredient.image)}
+                          sizes={buildMediaSizes('thumb')}
+                          alt={card.title}
+                        />
+                      </span>
+                      <div className="mobile-ingredient-shopping-copy">
+                        <strong>{card.title}</strong>
+                        <small>{card.quantityLabel} · {card.reasonLabel}</small>
+                      </div>
+                      <button
+                        type="button"
+                        disabled={props.isUpdatingShopping || props.isCreatingInventory}
+                        onClick={() => props.openInventoryFromShopping(card.shoppingItem)}
+                      >
+                        入库
+                      </button>
+                    </article>
+                  );
+                })}
+              </section>
+            ))}
           </div>
         ) : (
           <div className="mobile-ingredient-empty">

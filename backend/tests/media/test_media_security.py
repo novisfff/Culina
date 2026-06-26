@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import timedelta
 from io import BytesIO
 import unittest
 from types import SimpleNamespace
@@ -17,7 +18,12 @@ from app.core.utils import utcnow
 from app.db.session import get_db
 from app.main import app
 from app.models.domain import AIImageGenerationJob, Base, Family, Food, MediaAsset, Membership, User
-from app.ai.images.jobs import process_image_generation_job
+from app.ai.images.jobs import (
+    MAX_ATTEMPTS,
+    claim_pending_image_generation_jobs,
+    process_image_generation_job,
+    recover_interrupted_image_generation_jobs,
+)
 from app.ai.images.generation import ImageGenerationResult
 from app.services.media import build_media_variants, delete_media_file
 
@@ -310,6 +316,88 @@ class MediaSecurityTestCase(unittest.TestCase):
             self.assertIsNone(job.locked_at)
             self.assertIsNone(job.started_at)
             self.assertIsNone(job.completed_at)
+
+    def test_startup_recovery_requeues_interrupted_ai_render_job(self) -> None:
+        response = self.client.post(
+            "/api/media/ai-render",
+            json={
+                "mode": ImageGenerationMode.TEXT.value,
+                "entity_type": MediaEntityType.FOOD.value,
+                "title": "番茄炒蛋",
+            },
+        )
+        self.assertEqual(response.status_code, 202)
+        job_id = response.json()["job_id"]
+        locked_at = utcnow()
+        with self.SessionLocal() as db:
+            job = db.get(AIImageGenerationJob, job_id)
+            self.assertIsNotNone(job)
+            assert job is not None
+            job.status = "running"
+            job.error = "worker interrupted"
+            job.attempt_count = 1
+            job.locked_at = locked_at
+            job.started_at = locked_at
+            db.commit()
+
+        with self.SessionLocal() as db:
+            recovered_count = recover_interrupted_image_generation_jobs(db, include_all_running=True)
+            self.assertEqual(recovered_count, 1)
+
+        with self.SessionLocal() as db:
+            job = db.get(AIImageGenerationJob, job_id)
+            self.assertIsNotNone(job)
+            assert job is not None
+            self.assertEqual(job.status, "queued")
+            self.assertIsNone(job.error)
+            self.assertEqual(job.attempt_count, 1)
+            self.assertIsNone(job.locked_at)
+            self.assertIsNone(job.completed_at)
+            claimed_ids = claim_pending_image_generation_jobs(db)
+            self.assertEqual(claimed_ids, [job_id])
+
+    def test_recovery_fails_interrupted_ai_render_after_max_attempts(self) -> None:
+        response = self.client.post(
+            "/api/media/ai-render",
+            json={
+                "mode": ImageGenerationMode.TEXT.value,
+                "entity_type": MediaEntityType.FOOD.value,
+                "title": "番茄炒蛋",
+            },
+        )
+        self.assertEqual(response.status_code, 202)
+        job_id = response.json()["job_id"]
+        locked_at = utcnow() - timedelta(minutes=30)
+        with self.SessionLocal() as db:
+            job = db.get(AIImageGenerationJob, job_id)
+            self.assertIsNotNone(job)
+            assert job is not None
+            job.status = "running"
+            job.error = "worker interrupted"
+            job.attempt_count = MAX_ATTEMPTS
+            job.locked_at = locked_at
+            job.started_at = locked_at
+            db.commit()
+
+        with self.SessionLocal() as db:
+            recovered_count = recover_interrupted_image_generation_jobs(db)
+            self.assertEqual(recovered_count, 1)
+
+        poll_response = self.client.get(f"/api/media/ai-render/{job_id}")
+        self.assertEqual(poll_response.status_code, 200)
+        payload = poll_response.json()
+        self.assertEqual(payload["status"], "failed")
+        self.assertIn("最大重试次数", payload["error"])
+
+        with self.SessionLocal() as db:
+            job = db.get(AIImageGenerationJob, job_id)
+            self.assertIsNotNone(job)
+            assert job is not None
+            self.assertEqual(job.status, "failed")
+            self.assertIsNone(job.locked_at)
+            self.assertIsNotNone(job.completed_at)
+            claimed_ids = claim_pending_image_generation_jobs(db)
+            self.assertEqual(claimed_ids, [])
 
     def test_ai_render_binds_target_when_entity_has_no_user_image(self) -> None:
         with self.SessionLocal() as db:

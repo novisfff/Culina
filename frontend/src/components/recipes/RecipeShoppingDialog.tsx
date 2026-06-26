@@ -27,7 +27,10 @@ type RecipeShoppingDialogProps = {
   unitOptions: string[];
   resolveIngredientImageUrl: (ingredient: Ingredient | null | undefined, fallbackName: string) => string;
   onClose: () => void;
-  onUpdateDraft: (itemId: string, patch: Partial<Pick<RecipeShoppingDraftItem, 'title' | 'quantity' | 'unit' | 'reason'>>) => void;
+  onUpdateDraft: (
+    itemId: string,
+    patch: Partial<Pick<RecipeShoppingDraftItem, 'title' | 'quantity' | 'unit' | 'reason' | 'quantityMode' | 'displayLabel' | 'ingredientId'>>
+  ) => void;
   onAdjustDraftQuantity: (itemId: string, delta: number) => void;
   onRemoveDraft: (itemId: string) => void;
   onAddRecipeIngredient: (item: RecipeIngredient) => void;
@@ -63,60 +66,78 @@ export function RecipeShoppingDialog(props: RecipeShoppingDialogProps) {
             </div>
             {props.drafts.length > 0 ? (
               <div className="recipe-shopping-draft-list">
-                {props.drafts.map((item) => (
-                  <article key={item.id} className="recipe-shopping-draft-row">
-                    <div className="recipe-shopping-media">
-                      <MediaWithPlaceholder
-                        src={props.resolveIngredientImageUrl(
-                          props.ingredients.find((ingredient) => ingredient.name === item.title) ?? null,
-                          item.title
-                        )}
-                        alt={item.title || '采购项'}
-                      />
-                    </div>
-                    <div className="recipe-shopping-draft-main">
-                      <div className="recipe-shopping-draft-title">
-                        <strong>{item.title || '未命名食材'}</strong>
-                        <span className={`recipe-shopping-pill tone-${item.requirement}`}>{buildShoppingRequirementLabel(item.requirement)}</span>
-                        <span className="recipe-shopping-pill">{buildShoppingDraftSourceLabel(item.source)}</span>
-                      </div>
-                      <input
-                        className="text-input"
-                        value={item.title}
-                        placeholder="采购项名称"
-                        onChange={(event) => props.onUpdateDraft(item.id, { title: event.target.value })}
-                      />
-                    </div>
-                    <div className="recipe-shopping-draft-controls">
-                      <div className="recipe-shopping-stepper" aria-label={`${item.title} 数量`}>
-                        <button type="button" onClick={() => props.onAdjustDraftQuantity(item.id, -1)} aria-label={`${item.title} 数量减一`}>
-                          <RecipeUiIcon name="minus" />
-                        </button>
-                        <input
-                          value={item.quantity}
-                          inputMode="decimal"
-                          onChange={(event) => props.onUpdateDraft(item.id, { quantity: event.target.value })}
+                {props.drafts.map((item) => {
+                  const linkedIngredient =
+                    (item.ingredientId ? props.ingredients.find((ingredient) => ingredient.id === item.ingredientId) ?? null : null) ??
+                    props.ingredients.find((ingredient) => ingredient.name === item.title) ??
+                    null;
+                  const usesPresenceQuantity = item.quantityMode === 'not_track_quantity';
+                  return (
+                    <article key={item.id} className="recipe-shopping-draft-row">
+                      <div className="recipe-shopping-media">
+                        <MediaWithPlaceholder
+                          src={props.resolveIngredientImageUrl(linkedIngredient, item.title)}
+                          alt={item.title || '采购项'}
                         />
-                        <button type="button" onClick={() => props.onAdjustDraftQuantity(item.id, 1)} aria-label={`${item.title} 数量加一`}>
-                          <RecipeUiIcon name="plus" />
-                        </button>
                       </div>
-                      <div className="recipe-shopping-select-shell">
-                        <select
-                          value={item.unit}
-                          onChange={(event) => props.onUpdateDraft(item.id, { unit: event.target.value })}
-                          aria-label={`${item.title} 单位`}
-                        >
-                          {[item.unit, ...props.unitOptions].filter((unit, index, list) => unit && list.indexOf(unit) === index).map((unit) => (
-                            <option key={unit} value={unit}>{unit}</option>
-                          ))}
-                        </select>
-                        <RecipeUiIcon name="chevronDown" />
+                      <div className="recipe-shopping-draft-main">
+                        <div className="recipe-shopping-draft-title">
+                          <strong>{item.title || '未命名食材'}</strong>
+                          <span className={`recipe-shopping-pill tone-${item.requirement}`}>{buildShoppingRequirementLabel(item.requirement)}</span>
+                          <span className="recipe-shopping-pill">{buildShoppingDraftSourceLabel(item.source)}</span>
+                          {usesPresenceQuantity && <span className="recipe-shopping-pill tone-presence">只记录有无</span>}
+                        </div>
+                        <input
+                          className="text-input"
+                          value={item.title}
+                          placeholder="采购项名称"
+                          onChange={(event) => props.onUpdateDraft(item.id, { title: event.target.value })}
+                        />
                       </div>
-                      <button className="recipe-shopping-delete-button" type="button" onClick={() => props.onRemoveDraft(item.id)}>删除</button>
-                    </div>
-                  </article>
-                ))}
+                      <div className="recipe-shopping-draft-controls">
+                        {usesPresenceQuantity ? (
+                          <label className="recipe-shopping-presence-control">
+                            <span>采购表达</span>
+                            <input
+                              value={item.displayLabel ?? '需要补充'}
+                              placeholder="需要补充"
+                              onChange={(event) => props.onUpdateDraft(item.id, { displayLabel: event.target.value })}
+                            />
+                          </label>
+                        ) : (
+                          <>
+                            <div className="recipe-shopping-stepper" aria-label={`${item.title} 数量`}>
+                              <button type="button" onClick={() => props.onAdjustDraftQuantity(item.id, -1)} aria-label={`${item.title} 数量减一`}>
+                                <RecipeUiIcon name="minus" />
+                              </button>
+                              <input
+                                value={item.quantity}
+                                inputMode="decimal"
+                                onChange={(event) => props.onUpdateDraft(item.id, { quantity: event.target.value })}
+                              />
+                              <button type="button" onClick={() => props.onAdjustDraftQuantity(item.id, 1)} aria-label={`${item.title} 数量加一`}>
+                                <RecipeUiIcon name="plus" />
+                              </button>
+                            </div>
+                            <div className="recipe-shopping-select-shell">
+                              <select
+                                value={item.unit}
+                                onChange={(event) => props.onUpdateDraft(item.id, { unit: event.target.value })}
+                                aria-label={`${item.title} 单位`}
+                              >
+                                {[item.unit, ...props.unitOptions].filter((unit, index, list) => unit && list.indexOf(unit) === index).map((unit) => (
+                                  <option key={unit} value={unit}>{unit}</option>
+                                ))}
+                              </select>
+                              <RecipeUiIcon name="chevronDown" />
+                            </div>
+                          </>
+                        )}
+                        <button className="recipe-shopping-delete-button" type="button" onClick={() => props.onRemoveDraft(item.id)}>删除</button>
+                      </div>
+                    </article>
+                  );
+                })}
               </div>
             ) : (
               <EmptyState title="还没有待加入项" description="可以从下方已有食材点加号，或添加任意食材。" />
@@ -148,7 +169,13 @@ export function RecipeShoppingDialog(props: RecipeShoppingDialogProps) {
                       <strong>{item.ingredient_name}</strong>
                       <span>
                         {formatShoppingQuantity(item.quantity)}{item.unit} · {buildShoppingRequirementLabel(requirement)} ·{' '}
-                        {availability?.ready ? '已有' : availability ? `缺 ${formatShoppingQuantity(availability.missingQuantity)}${availability.unit}` : '未匹配库存'}
+                        {availability?.ready
+                          ? '已有'
+                          : availability?.shortageType === 'presence'
+                            ? '需补充'
+                            : availability
+                              ? `缺 ${formatShoppingQuantity(availability.missingQuantity)}${availability.unit}`
+                              : '未匹配库存'}
                       </span>
                     </div>
                     <button type="button" disabled={alreadyAdded} onClick={() => props.onAddRecipeIngredient(item)}>

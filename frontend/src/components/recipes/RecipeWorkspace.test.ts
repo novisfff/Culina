@@ -9,6 +9,11 @@ import {
   buildShoppingDraftFromRecipeIngredient,
   buildShoppingDraftsFromShortages,
   buildShoppingPayloadsFromDrafts,
+  formatCookPreviewRequestLabel,
+  formatCookShortageDetail,
+  formatCookShortageSummary,
+  getCookCompletionMessage,
+  getCookPreviewActionLabel,
   getRecipeDraftGenerationButtonLabel,
   getRecipeDraftGenerationStepState,
   getRecipeShoppingRequirement,
@@ -608,9 +613,12 @@ describe('recipe workspace payload helpers', () => {
     expect(buildShoppingDraftsFromShortages(card)).toEqual([
       {
         id: 'shortage-ingredient-tomato',
+        ingredientId: tomato.id,
         title: '番茄',
         quantity: '1.5',
         unit: '个',
+        quantityMode: 'track_quantity',
+        displayLabel: null,
         reason: '来自菜谱：番茄炒蛋',
         source: 'shortage',
         requirement: 'required',
@@ -618,9 +626,12 @@ describe('recipe workspace payload helpers', () => {
       },
       {
         id: 'shortage-ingredient-egg',
+        ingredientId: egg.id,
         title: '鸡蛋',
         quantity: '1',
         unit: '枚',
+        quantityMode: 'track_quantity',
+        displayLabel: null,
         reason: '来自菜谱：番茄炒蛋',
         source: 'shortage',
         requirement: 'optional',
@@ -628,9 +639,164 @@ describe('recipe workspace payload helpers', () => {
       },
     ]);
     expect(buildRecipeShortageShoppingPayloads(card)).toEqual([
-      { title: '番茄', quantity: 1.5, unit: '个', reason: '来自菜谱：番茄炒蛋' },
-      { title: '鸡蛋', quantity: 1, unit: '枚', reason: '来自菜谱：番茄炒蛋' },
+      {
+        title: '番茄',
+        quantity: 1.5,
+        unit: '个',
+        ingredient_id: tomato.id,
+        quantity_mode: 'track_quantity',
+        display_label: null,
+        reason: '来自菜谱：番茄炒蛋',
+      },
+      {
+        title: '鸡蛋',
+        quantity: 1,
+        unit: '枚',
+        ingredient_id: egg.id,
+        quantity_mode: 'track_quantity',
+        display_label: null,
+        reason: '来自菜谱：番茄炒蛋',
+      },
     ]);
+  });
+
+  it('builds presence-only shopping drafts for not-tracked shortages', () => {
+    const card = {
+      recipe: {
+        id: 'recipe-1',
+        family_id: 'family-1',
+        title: '番茄炒蛋',
+        servings: 2,
+        prep_minutes: 12,
+        difficulty: 'easy',
+        ingredient_items: [
+          { id: 'ri-salt', ingredient_id: 'ingredient-salt', ingredient_name: '盐', quantity: 5, unit: 'g', note: '' },
+        ],
+        steps: [],
+        tips: '',
+        scene_tags: [],
+        images: [],
+        cook_logs: [],
+        created_at: '2026-05-01T10:00:00Z',
+        updated_at: '2026-05-01T10:00:00Z',
+      },
+      shortages: [
+        {
+          ingredientId: 'ingredient-salt',
+          ingredientName: '盐',
+          requiredQuantity: 5,
+          availableQuantity: 0,
+          missingQuantity: 5,
+          unit: 'g',
+          shortageType: 'presence',
+        },
+      ],
+    } satisfies Pick<RecipeCardViewModel, 'recipe' | 'shortages'>;
+
+    expect(buildShoppingDraftsFromShortages(card)).toEqual([
+      {
+        id: 'shortage-ingredient-salt',
+        ingredientId: 'ingredient-salt',
+        title: '盐',
+        quantity: '',
+        unit: '',
+        quantityMode: 'not_track_quantity',
+        displayLabel: '需要补充',
+        reason: '来自菜谱：番茄炒蛋',
+        source: 'shortage',
+        requirement: 'required',
+        recipeIngredientId: 'ri-salt',
+      },
+    ]);
+    expect(buildRecipeShortageShoppingPayloads(card)).toEqual([
+      {
+        title: '盐',
+        quantity: null,
+        unit: null,
+        ingredient_id: 'ingredient-salt',
+        quantity_mode: 'not_track_quantity',
+        display_label: '需要补充',
+        reason: '来自菜谱：番茄炒蛋',
+      },
+    ]);
+  });
+
+  it('formats presence shortages and not-tracked cook previews without fake quantities', () => {
+    const presenceShortage = {
+      ingredient_id: 'ingredient-salt',
+      ingredient_name: '盐',
+      required_quantity: 5,
+      available_quantity: 0,
+      missing_quantity: 5,
+      unit: 'g',
+      shortage_type: 'presence',
+    };
+    const quantityShortage = {
+      ingredient_id: 'ingredient-tomato',
+      ingredient_name: '番茄',
+      required_quantity: 2,
+      available_quantity: 0.5,
+      missing_quantity: 1.5,
+      unit: '个',
+      shortage_type: 'quantity',
+    };
+
+    expect(formatCookShortageSummary(presenceShortage)).toBe('盐 需补充');
+    expect(formatCookShortageDetail(presenceShortage)).toBe('还没有可用库存记录，先登记已有或加入采购后再确认。');
+    expect(formatCookShortageSummary(quantityShortage)).toBe('番茄 1.5个');
+    expect(formatCookShortageDetail(quantityShortage)).toBe('还缺 1.5个，暂不能确认扣库存。');
+    expect(
+      formatCookPreviewRequestLabel({
+        requested_quantity: 5,
+        unit: 'g',
+        quantity_tracking_mode: 'not_track_quantity',
+      })
+    ).toBe('5g · 只判断有无');
+    expect(getCookPreviewActionLabel([{ batches: [] }])).toBe('确认完成');
+    expect(getCookPreviewActionLabel([{ batches: [{ inventory_item_id: 'inventory-1' }] }])).toBe('确认扣库存');
+    expect(
+      getCookCompletionMessage(
+        {
+          consumed_items: [
+            {
+              ingredient_id: 'ingredient-salt',
+              ingredient_name: '盐',
+              requested_quantity: 5,
+              unit: 'g',
+              quantity_tracking_mode: 'not_track_quantity',
+              deduction_note: '仅确认有库存，未扣减数量',
+              affected_item_ids: [],
+            },
+          ],
+        },
+        true
+      )
+    ).toBe('已记录完成并生成餐食记录，本次没有需要扣减的数量库存。');
+    expect(
+      getCookCompletionMessage(
+        {
+          consumed_items: [
+            {
+              ingredient_id: 'ingredient-tomato',
+              ingredient_name: '番茄',
+              requested_quantity: 2,
+              unit: '个',
+              quantity_tracking_mode: 'track_quantity',
+              affected_item_ids: ['inventory-1'],
+            },
+            {
+              ingredient_id: 'ingredient-salt',
+              ingredient_name: '盐',
+              requested_quantity: 5,
+              unit: 'g',
+              quantity_tracking_mode: 'not_track_quantity',
+              affected_item_ids: [],
+            },
+          ],
+        },
+        false
+      )
+    ).toBe('已扣减数量库存；只记录有无的食材未扣减数量。');
   });
 
   it('detects optional recipe ingredients from notes and builds existing ingredient drafts', () => {
@@ -655,6 +821,7 @@ describe('recipe workspace payload helpers', () => {
       source: 'existing',
       requirement: 'optional',
       recipeIngredientId: 'ri-egg',
+      ingredientId: egg.id,
     });
   });
 
@@ -676,6 +843,16 @@ describe('recipe workspace payload helpers', () => {
         { id: 'bad-title', title: ' ', quantity: '1', unit: '个', reason: 'x', source: 'custom', requirement: 'required' },
         { id: 'bad-quantity', title: '盐', quantity: '-1', unit: '包', reason: 'x', source: 'custom', requirement: 'required' },
       ])
-    ).toEqual([{ title: '厨房纸', quantity: 2, unit: '包', reason: '来自菜谱：番茄炒蛋' }]);
+    ).toEqual([
+      {
+        title: '厨房纸',
+        quantity: 2,
+        unit: '包',
+        ingredient_id: null,
+        quantity_mode: 'track_quantity',
+        display_label: null,
+        reason: '来自菜谱：番茄炒蛋',
+      },
+    ]);
   });
 });

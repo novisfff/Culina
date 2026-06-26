@@ -5,6 +5,7 @@ import { COOK_TIMER_PRESETS } from './RecipeWorkspaceOptions';
 import { RecipeUiIcon } from './RecipeWorkspaceCards';
 import {
   formatCookQuantity,
+  formatCookShortageSummary,
   formatCookTimer,
   formatCookTimerDuration,
   getRecipeStepIconName,
@@ -276,7 +277,7 @@ export function RecipeCookView({
                   <span><RecipeUiIcon name="warning" /></span>
                   <div>
                     <strong>缺 {cookPreview.shortages.length} 项</strong>
-                    <small>{cookPreview.shortages.map((item) => `${item.ingredient_name} ${formatCookQuantity(item.missing_quantity)}${item.unit}`).join('、')}</small>
+                    <small>{cookPreview.shortages.map(formatCookShortageSummary).join('、')}</small>
                   </div>
                   <button type="button" onClick={() => openShoppingDialog(activeCookCard)} disabled={isCreatingShopping}>采购</button>
                 </div>
@@ -290,7 +291,7 @@ export function RecipeCookView({
                 <span><RecipeUiIcon name="warning" /></span>
                 <div>
                   <strong>还缺 {cookPreview.shortages.length} 项食材</strong>
-                  <small>{cookPreview.shortages.map((item) => `${item.ingredient_name} ${formatCookQuantity(item.missing_quantity)}${item.unit}`).join('、')}</small>
+                  <small>{cookPreview.shortages.map(formatCookShortageSummary).join('、')}</small>
                 </div>
                 <button type="button" onClick={() => openShoppingDialog(activeCookCard)} disabled={isCreatingShopping}>
                   去采购

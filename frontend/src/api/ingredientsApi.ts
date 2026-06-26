@@ -22,6 +22,7 @@ export const ingredientsApi = {
     category: string;
     default_unit: string;
     unit_conversions: Array<{ unit: string; ratio_to_default: number }>;
+    quantity_tracking_mode?: Ingredient['quantity_tracking_mode'];
     default_storage: string;
     default_expiry_mode: string;
     default_expiry_days?: number | null;
@@ -41,6 +42,7 @@ export const ingredientsApi = {
       category: string;
       default_unit: string;
       unit_conversions: Array<{ unit: string; ratio_to_default: number }>;
+      quantity_tracking_mode?: Ingredient['quantity_tracking_mode'];
       default_storage: string;
       default_expiry_mode: string;
       default_expiry_days?: number | null;
@@ -57,8 +59,8 @@ export const ingredientsApi = {
   getInventory: () => request<InventoryItem[]>('/api/inventory'),
   createInventory: (payload: {
     ingredient_id: string;
-    quantity: number;
-    unit: string;
+    quantity?: number | null;
+    unit?: string | null;
     status: string;
     purchase_date: string;
     expiry_date?: string;
@@ -70,7 +72,7 @@ export const ingredientsApi = {
       method: 'POST',
       body: JSON.stringify(payload),
     }),
-  consumeInventory: (payload: { ingredient_id: string; quantity: number; unit: string }) =>
+  consumeInventory: (payload: { ingredient_id: string; quantity?: number | null; unit?: string | null }) =>
     request<ConsumeInventoryResponse>('/api/inventory/consume', {
       method: 'POST',
       body: JSON.stringify(payload),
@@ -86,7 +88,15 @@ export const ingredientsApi = {
       body: JSON.stringify(payload),
     }),
   getShoppingList: () => request<ShoppingListItem[]>('/api/shopping-list'),
-  createShoppingItem: (payload: { title: string; quantity: number; unit: string; reason: string }) =>
+  createShoppingItem: (payload: {
+    title: string;
+    quantity?: number | null;
+    unit?: string | null;
+    ingredient_id?: string | null;
+    quantity_mode?: ShoppingListItem['quantity_mode'];
+    display_label?: string | null;
+    reason: string;
+  }) =>
     request<ShoppingListItem>('/api/shopping-list', {
       method: 'POST',
       body: JSON.stringify(payload),

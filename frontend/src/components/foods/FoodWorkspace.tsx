@@ -11,6 +11,7 @@ import type {
   InventoryItem,
   MealLog,
   MealType,
+  MediaAsset,
   Recipe,
   RecipePayload,
 } from '../../api/types';
@@ -64,7 +65,7 @@ import {
   type FoodFormState,
 } from './FoodWorkspaceModel';
 import { useFoodPlanState } from './useFoodPlanState';
-import { useFoodSceneState } from './useFoodSceneState';
+import { useFoodSceneState, type FoodSceneCardView } from './useFoodSceneState';
 import { useFoodWorkspaceState } from './useFoodWorkspaceState';
 import { FoodDetailDrawer } from './FoodDetailDrawer';
 import { FoodEditorForm } from './FoodEditorForm';
@@ -211,6 +212,13 @@ const FOOD_QUICK_VIEW_OPTIONS: Array<{ value: FoodWorkspaceLens; label: string }
   { value: 'selfMade', label: '家常菜' },
   { value: 'outside', label: '外卖外食' },
   { value: 'ready', label: '成品速食' },
+];
+
+const MOBILE_DEFAULT_FOOD_SCENES = [
+  { key: 'protein', title: '高蛋白', fallbackIndex: 0 },
+  { key: 'dinner', title: '工作日晚餐', fallbackIndex: 1 },
+  { key: 'kid', title: '孩子也能吃', fallbackIndex: 2 },
+  { key: 'light', title: '周末轻食', fallbackIndex: 3 },
 ];
 
 function resolveFoodAssetUrl(url: string) {
@@ -451,6 +459,37 @@ export function filterFoodWorkspaceItems(
   });
 }
 
+export function getMobileFoodSceneFilterState(sceneName: string) {
+  return {
+    search: '',
+    lensFilter: 'all' as const,
+    typeFilter: 'all' as const,
+    mealFilter: 'all' as const,
+    sceneFilter: sceneName,
+    governanceIssueFilter: 'all' as const,
+  };
+}
+
+export function getMobileDefaultFoodSceneCardMedia(
+  sceneName: string,
+  foods: Food[],
+  sceneCards: Array<Pick<FoodSceneCardView, 'name' | 'count' | 'imageUrl' | 'imageAsset'>>,
+  fallbackIndex: number
+): {
+  count: number;
+  imageFood?: Food;
+  imageUrl?: string;
+  imageAsset?: MediaAsset | null;
+} {
+  const managedScene = sceneCards.find((scene) => scene.name === sceneName);
+  return {
+    count: managedScene?.count ?? foods.filter((food) => getFoodSceneTags(food).includes(sceneName)).length,
+    imageFood: foods.find((food) => getFoodSceneTags(food).includes(sceneName)) ?? foods[fallbackIndex] ?? foods[0],
+    imageUrl: managedScene?.imageUrl,
+    imageAsset: managedScene?.imageAsset,
+  };
+}
+
 export function FoodWorkspace(props: Props) {
   const {
     view,
@@ -648,65 +687,22 @@ export function FoodWorkspace(props: Props) {
     () => Array.from({ length: 7 }, (_, index) => addDateKeyDays(todayDate, index)),
     [todayDate]
   );
-  const mobileDefaultSceneCards = [
-    {
-      key: 'protein',
-      title: '高蛋白',
-      count: props.foods.filter((food) => [food.name, food.category, food.notes, food.routine_note, ...getFoodSceneTags(food)].join(' ').includes('蛋白')).length || props.foods.filter((food) => normalizeFoodType(food) === 'selfMade').length,
-      imageFood: props.foods.find((food) => [food.name, food.category, food.notes, food.routine_note, ...getFoodSceneTags(food)].join(' ').includes('蛋白')) ?? props.foods.find((food) => normalizeFoodType(food) === 'selfMade') ?? props.foods[0],
-      onClick: () => {
-        setLensFilter('all');
-        setTypeFilter('all');
-        setMealFilter('all');
-        setSearch('高蛋白');
-      },
-    },
-    {
-      key: 'dinner',
-      title: '工作日晚餐',
-      count: props.foods.filter((food) => food.suitable_meal_types.includes('dinner')).length,
-      imageFood:
-        props.foods.find((food) => food.suitable_meal_types.includes('dinner') && food.id !== props.foods[0]?.id && ![food.name, ...getFoodSceneTags(food)].join(' ').includes('蛋白')) ??
-        props.foods.find((food) => food.suitable_meal_types.includes('dinner') && food.id !== props.foods[0]?.id) ??
-        props.foods[1] ??
-        props.foods[0],
-      onClick: () => {
-        setLensFilter('today');
-        setTypeFilter('all');
-        setMealFilter('dinner');
-        setSearch('');
-      },
-    },
-    {
-      key: 'kid',
-      title: '孩子也能吃',
-      count: props.foods.filter((food) => [food.notes, food.routine_note, ...getFoodSceneTags(food)].join(' ').includes('孩子')).length,
-      imageFood: props.foods.find((food) => [food.notes, food.routine_note, ...getFoodSceneTags(food)].join(' ').includes('孩子')) ?? props.foods[2] ?? props.foods[1] ?? props.foods[0],
-      onClick: () => {
-        setLensFilter('all');
-        setTypeFilter('all');
-        setMealFilter('all');
-        setSearch('孩子');
-      },
-    },
-    {
-      key: 'light',
-      title: '周末轻食',
-      count: props.foods.filter((food) => [food.name, food.category, food.notes, food.routine_note, ...getFoodSceneTags(food)].join(' ').includes('轻食')).length || props.foods.filter((food) => food.suitable_meal_types.includes('snack')).length,
-      imageFood:
-        props.foods.find((food) => [food.name, food.category, food.notes, food.routine_note, ...getFoodSceneTags(food)].join(' ').includes('轻食')) ??
-        props.foods.find((food) => food.suitable_meal_types.includes('snack')) ??
-        props.foods.find((food) => !['selfMade', 'takeout'].includes(normalizeFoodType(food))) ??
-        props.foods[3] ??
-        props.foods[0],
-      onClick: () => {
-        setLensFilter('all');
-        setTypeFilter('all');
-        setMealFilter('snack');
-        setSearch('');
-      },
-    },
-  ];
+  function selectMobileFoodScene(sceneName: string) {
+    const nextFilters = getMobileFoodSceneFilterState(sceneName);
+    setSearch(nextFilters.search);
+    setLensFilter(nextFilters.lensFilter);
+    setTypeFilter(nextFilters.typeFilter);
+    setMealFilter(nextFilters.mealFilter);
+    setSceneFilter(nextFilters.sceneFilter);
+    setGovernanceIssueFilter(nextFilters.governanceIssueFilter);
+  }
+
+  const mobileDefaultSceneCards = MOBILE_DEFAULT_FOOD_SCENES.map((scene) => ({
+    key: scene.key,
+    title: scene.title,
+    ...getMobileDefaultFoodSceneCardMedia(scene.title, props.foods, sceneCards, scene.fallbackIndex),
+    onClick: () => selectMobileFoodScene(scene.title),
+  }));
   const mobileSceneExploreCards = [
     ...mobileDefaultSceneCards,
     ...sceneCards
@@ -718,19 +714,14 @@ export function FoodWorkspace(props: Props) {
         imageFood: props.foods.find((food) => getFoodSceneTags(food).includes(scene.name)) ?? props.foods[0],
         imageUrl: scene.imageUrl,
         imageAsset: scene.imageAsset,
-        onClick: () => {
-          setSceneFilter(scene.name);
-          setLensFilter('all');
-          setTypeFilter('all');
-          setMealFilter('all');
-          setSearch('');
-        },
+        onClick: () => selectMobileFoodScene(scene.name),
       })),
   ];
   const mobileScenePages = Array.from({ length: Math.ceil(mobileSceneExploreCards.length / 4) || 1 }, (_, index) =>
     mobileSceneExploreCards.slice(index * 4, index * 4 + 4)
   );
-  const mobileLibraryFoods = filteredFoods.slice(0, 4);
+  const mobileLibraryFoods = filteredFoods;
+  const mobileLibraryResetKey = [search, typeFilter, mealFilter, lensFilter, sceneFilter, governanceIssueFilter].join('|');
   const mobileFilterTabs = [
     {
       label: '全部',
@@ -1000,6 +991,7 @@ export function FoodWorkspace(props: Props) {
             managementIssueCount={managementIssueCount}
             mobileScenePages={mobileScenePages}
             mobileLibraryFoods={mobileLibraryFoods}
+            mobileLibraryResetKey={mobileLibraryResetKey}
             hasFoodFilters={hasFoodFilters}
             search={search}
             emptyTitle={currentLensCopy.emptyTitle}

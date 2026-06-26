@@ -3,7 +3,7 @@ import { IDLE_IMAGE_GENERATION_STATE, useImageComposer } from '../../hooks/useIm
 import { getMediaIds, getPendingImageJobId, type AiRenderPayload } from '../../lib/aiImages';
 import { getImagePreview } from '../../lib/ui';
 import type { Ingredient, IngredientExpiryMode, IngredientUnitConversion } from '../../api/types';
-import { getIngredientCategoryPreset, INGREDIENT_CATEGORY_PRESETS, type IngredientWorkspaceView } from './workspaceModel';
+import { getIngredientCategoryPreset, getIngredientEditorCategoryPresets, type IngredientWorkspaceView } from './workspaceModel';
 import {
   buildIngredientForm,
   buildInventoryForm,
@@ -43,6 +43,7 @@ type UseIngredientEditorStateArgs = {
     name: string;
     category: string;
     default_unit: string;
+    quantity_tracking_mode?: Ingredient['quantity_tracking_mode'];
     unit_conversions: IngredientUnitConversion[];
     default_storage: string;
     default_expiry_mode: IngredientExpiryMode;
@@ -57,6 +58,7 @@ type UseIngredientEditorStateArgs = {
       name: string;
       category: string;
       default_unit: string;
+      quantity_tracking_mode?: Ingredient['quantity_tracking_mode'];
       unit_conversions: IngredientUnitConversion[];
       default_storage: string;
       default_expiry_mode: IngredientExpiryMode;
@@ -124,6 +126,9 @@ export function useIngredientEditorState(args: UseIngredientEditorStateArgs) {
       category,
       defaultUnit: preset?.defaultUnit ?? current.defaultUnit,
       defaultStorage: preset?.defaultStorage ?? current.defaultStorage,
+      quantityTrackingMode: preset?.quantityTrackingMode ?? current.quantityTrackingMode,
+      defaultLowStockThreshold:
+        preset?.quantityTrackingMode === 'not_track_quantity' ? '' : current.defaultLowStockThreshold,
     }));
   }
 
@@ -138,7 +143,8 @@ export function useIngredientEditorState(args: UseIngredientEditorStateArgs) {
       args.ingredientForm.defaultExpiryMode === 'days'
         ? clampNumber(parsePositiveNumber(args.ingredientForm.defaultExpiryDays) ?? 0, 1, 30)
         : null;
-    const lowStockThreshold = parseOptionalNumber(args.ingredientForm.defaultLowStockThreshold);
+    const tracksQuantity = args.ingredientForm.quantityTrackingMode !== 'not_track_quantity';
+    const lowStockThreshold = tracksQuantity ? parseOptionalNumber(args.ingredientForm.defaultLowStockThreshold) : null;
     if (args.ingredientForm.defaultExpiryMode === 'days' && !parsePositiveNumber(args.ingredientForm.defaultExpiryDays)) {
       args.showNotice({
         tone: 'warning',
@@ -165,6 +171,7 @@ export function useIngredientEditorState(args: UseIngredientEditorStateArgs) {
         name: args.ingredientForm.name.trim(),
         category: args.ingredientForm.category.trim() || '未分类',
         default_unit: args.ingredientForm.defaultUnit.trim() || '个',
+        quantity_tracking_mode: args.ingredientForm.quantityTrackingMode,
         unit_conversions: unitConversions,
         default_storage: args.ingredientForm.defaultStorage.trim() || '冷藏',
         default_expiry_mode: args.ingredientForm.defaultExpiryMode,
@@ -215,7 +222,7 @@ export function useIngredientEditorState(args: UseIngredientEditorStateArgs) {
   const trimmedIngredientCategory = args.ingredientForm.category.trim();
   const trimmedIngredientUnit = args.ingredientForm.defaultUnit.trim();
   const trimmedIngredientStorage = args.ingredientForm.defaultStorage.trim();
-  const ingredientVisibleCategoryPresets = INGREDIENT_CATEGORY_PRESETS.slice(0, 5);
+  const ingredientVisibleCategoryPresets = getIngredientEditorCategoryPresets();
   const ingredientCategoryIsVisiblePreset = ingredientVisibleCategoryPresets.some(
     (item) => item.label === trimmedIngredientCategory
   );
@@ -228,7 +235,8 @@ export function useIngredientEditorState(args: UseIngredientEditorStateArgs) {
   const ingredientUsesCustomStorage = !INVENTORY_STORAGE_PRESETS.includes(
     args.ingredientForm.defaultStorage as (typeof INVENTORY_STORAGE_PRESETS)[number]
   );
-  const ingredientLowStockEnabled = Boolean(args.ingredientForm.defaultLowStockThreshold.trim());
+  const tracksQuantity = args.ingredientForm.quantityTrackingMode !== 'not_track_quantity';
+  const ingredientLowStockEnabled = tracksQuantity && Boolean(args.ingredientForm.defaultLowStockThreshold.trim());
   const ingredientLowStockValue =
     parsePositiveNumber(args.ingredientForm.defaultLowStockThreshold) ??
     resolveTouchDefaultValue(args.ingredientForm.defaultUnit || '个', 'threshold');
@@ -247,6 +255,7 @@ export function useIngredientEditorState(args: UseIngredientEditorStateArgs) {
   const createSummaryItems = [
     { label: '名称', value: trimmedIngredientName || '未填写食材名称' },
     { label: '分类', value: trimmedIngredientCategory || '未设置分类' },
+    { label: '数量记录', value: tracksQuantity ? '记录数量' : '只记录有无' },
     { label: '默认位置', value: trimmedIngredientStorage || '未设置位置' },
     {
       label: '默认保质期',

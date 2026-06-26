@@ -477,6 +477,12 @@ class AIRunLLMExchangeDTO(BaseModel):
     responseDigest: str = ""
     responseBytes: int = 0
     responseTruncated: bool = False
+    inputTokens: int | None = None
+    outputTokens: int | None = None
+    totalTokens: int | None = None
+    cachedTokens: int | None = None
+    estimatedCostUsd: float | None = None
+    tokenUsage: dict = Field(default_factory=dict)
     status: str
     errorCode: str | None = None
     errorMessage: str | None = None

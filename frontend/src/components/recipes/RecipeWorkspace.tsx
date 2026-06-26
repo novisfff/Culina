@@ -99,7 +99,12 @@ import {
   defaultRecipeDraftAiForm,
   defaultRecipeForm,
   defaultSceneDraft,
+  formatCookPreviewRequestLabel,
+  formatCookShortageDetail,
+  formatCookShortageSummary,
   formatShoppingQuantity,
+  getCookCompletionMessage,
+  getCookPreviewActionLabel,
   getRecipeDraftGenerationActionLabel,
   getRecipeDraftGenerationButtonLabel,
   getRecipeDraftGenerationStatusCopy,
@@ -145,6 +150,11 @@ export {
   buildShoppingDraftsFromShortages,
   buildShoppingDraftFromRecipeIngredient,
   buildShoppingPayloadsFromDrafts,
+  formatCookPreviewRequestLabel,
+  formatCookShortageDetail,
+  formatCookShortageSummary,
+  getCookCompletionMessage,
+  getCookPreviewActionLabel,
   getRecipeDraftGenerationButtonLabel,
   getRecipeDraftGenerationStepState,
   getRecipeShoppingRequirement,
@@ -183,7 +193,15 @@ type RecipeWorkspaceProps = {
   cookRecipe: (recipeId: string, payload: CookRecipeRequest) => Promise<CookRecipeResponse>;
   previewCookRecipe: (recipeId: string, payload: CookRecipeRequest) => Promise<CookRecipePreviewResponse>;
   generateRecipeDraft: (payload: GenerateRecipeDraftPayload) => Promise<GenerateRecipeDraftResponse>;
-  createShoppingItem: (payload: { title: string; quantity: number; unit: string; reason: string }) => Promise<ShoppingListItem>;
+  createShoppingItem: (payload: {
+    title: string;
+    quantity?: number | null;
+    unit?: string | null;
+    ingredient_id?: string | null;
+    quantity_mode?: ShoppingListItem['quantity_mode'];
+    display_label?: string | null;
+    reason: string;
+  }) => Promise<ShoppingListItem>;
   addRecipeFavorite: (recipeId: string) => Promise<RecipeFavorite>;
   removeRecipeFavorite: (recipeId: string) => Promise<void>;
   createRecipePlanItem: (payload: { recipe_id: string; plan_date: string; meal_type: MealType; note: string }) => Promise<RecipePlanItem>;

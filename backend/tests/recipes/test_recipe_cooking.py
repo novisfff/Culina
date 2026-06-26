@@ -165,3 +165,117 @@ class RecipeRecipeCookingTestCase(RecipeApiTestCase):
             payload = response.json()
             self.assertEqual(payload["consumed_items"], [])
             self.assertEqual({item["ingredient_name"] for item in payload["shortages"]}, {"番茄", "鸡蛋"})
+
+        def test_not_tracked_ingredient_only_requires_presence_and_is_not_deducted(self) -> None:
+            recipe = self.create_recipe(
+                auto_create_food=False,
+                ingredient_items=[
+                    {
+                        "ingredient_id": self.tomato.id,
+                        "ingredient_name": "番茄",
+                        "quantity": 2,
+                        "unit": "个",
+                        "note": "",
+                    },
+                    {
+                        "ingredient_id": self.salt.id,
+                        "ingredient_name": "盐",
+                        "quantity": 5,
+                        "unit": "g",
+                        "note": "调味",
+                    },
+                ],
+            )
+            today = date.today()
+            with self.SessionLocal() as db:
+                db.add_all(
+                    [
+                        InventoryItem(
+                            id="inventory-tomato-for-salt",
+                            family_id=self.family.id,
+                            ingredient_id=self.tomato.id,
+                            quantity=Decimal("2"),
+                            consumed_quantity=Decimal("0"),
+                            disposed_quantity=Decimal("0"),
+                            unit="个",
+                            status=InventoryStatus.FRESH,
+                            purchase_date=today,
+                            storage_location="冷藏",
+                            notes="",
+                            low_stock_threshold=Decimal("0"),
+                            created_by=self.user.id,
+                            updated_by=self.user.id,
+                        ),
+                        InventoryItem(
+                            id="inventory-salt-presence",
+                            family_id=self.family.id,
+                            ingredient_id=self.salt.id,
+                            quantity=Decimal("1"),
+                            consumed_quantity=Decimal("1"),
+                            disposed_quantity=Decimal("0"),
+                            unit="g",
+                            status=InventoryStatus.FRESH,
+                            purchase_date=today,
+                            storage_location="常温",
+                            notes="",
+                            low_stock_threshold=Decimal("0"),
+                            created_by=self.user.id,
+                            updated_by=self.user.id,
+                        ),
+                    ]
+                )
+                db.commit()
+
+            preview_response = self.client.post(
+                f"/api/recipes/{recipe['id']}/cook-preview",
+                json={"servings": 2, "create_meal_log": False},
+            )
+            self.assertEqual(preview_response.status_code, 200, preview_response.text)
+            preview = preview_response.json()
+            self.assertEqual(preview["shortages"], [])
+            salt_preview = next(item for item in preview["preview_items"] if item["ingredient_id"] == self.salt.id)
+            self.assertEqual(salt_preview["quantity_tracking_mode"], "not_track_quantity")
+            self.assertEqual(salt_preview["batches"], [])
+            self.assertEqual(salt_preview["deduction_note"], "仅确认有库存，未扣减数量")
+
+            cook_response = self.client.post(
+                f"/api/recipes/{recipe['id']}/cook",
+                json={"servings": 2, "create_meal_log": False},
+            )
+            self.assertEqual(cook_response.status_code, 200, cook_response.text)
+            payload = cook_response.json()
+            self.assertEqual(payload["shortages"], [])
+            salt_consumed = next(item for item in payload["consumed_items"] if item["ingredient_id"] == self.salt.id)
+            self.assertEqual(salt_consumed["quantity_tracking_mode"], "not_track_quantity")
+            self.assertEqual(salt_consumed["affected_item_ids"], [])
+            with self.SessionLocal() as db:
+                salt_item = db.scalar(select(InventoryItem).where(InventoryItem.id == "inventory-salt-presence"))
+                tomato_item = db.scalar(select(InventoryItem).where(InventoryItem.id == "inventory-tomato-for-salt"))
+                assert salt_item is not None and tomato_item is not None
+                self.assertEqual(salt_item.consumed_quantity, Decimal("1.00"))
+                self.assertEqual(salt_item.disposed_quantity, Decimal("0.00"))
+                self.assertEqual(tomato_item.consumed_quantity, Decimal("2.00"))
+
+        def test_not_tracked_ingredient_without_presence_is_presence_shortage(self) -> None:
+            recipe = self.create_recipe(
+                auto_create_food=False,
+                ingredient_items=[
+                    {
+                        "ingredient_id": self.salt.id,
+                        "ingredient_name": "盐",
+                        "quantity": 5,
+                        "unit": "g",
+                        "note": "调味",
+                    }
+                ],
+            )
+
+            response = self.client.post(
+                f"/api/recipes/{recipe['id']}/cook-preview",
+                json={"servings": 2, "create_meal_log": False},
+            )
+            self.assertEqual(response.status_code, 200, response.text)
+            payload = response.json()
+            self.assertEqual(payload["preview_items"], [])
+            self.assertEqual(payload["shortages"][0]["ingredient_name"], "盐")
+            self.assertEqual(payload["shortages"][0]["shortage_type"], "presence")

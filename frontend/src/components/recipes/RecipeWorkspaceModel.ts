@@ -1,6 +1,9 @@
 import type {
   AiGeneratedRecipeDraft,
+  CookRecipePreviewItem,
   CookRecipeRequest,
+  CookRecipeResponse,
+  CookRecipeShortage,
   Difficulty,
   ImageInputValue,
   Ingredient,
@@ -76,9 +79,12 @@ export type RecipeShoppingDraftSource = 'shortage' | 'existing' | 'custom';
 export type RecipeShoppingRequirement = 'required' | 'optional';
 export type RecipeShoppingDraftItem = {
   id: string;
+  ingredientId?: string | null;
   title: string;
   quantity: string;
   unit: string;
+  quantityMode?: 'track_quantity' | 'not_track_quantity';
+  displayLabel?: string | null;
   reason: string;
   source: RecipeShoppingDraftSource;
   requirement: RecipeShoppingRequirement;
@@ -130,6 +136,7 @@ export type RecipeShoppingIngredientOption = {
   unit: string;
   imageUrl: string;
   category: string;
+  quantityMode: 'track_quantity' | 'not_track_quantity';
 };
 
 export function newDraftId(prefix: string) {
@@ -398,6 +405,51 @@ export function buildRecipePayload(
 
 export function formatCookQuantity(value: number) {
   return Number(value.toFixed(2)).toString().replace(/\.0+$/, '');
+}
+
+export function isPresenceShortage(item: Pick<CookRecipeShortage, 'shortage_type'>) {
+  return item.shortage_type === 'presence';
+}
+
+type CookShortageDisplayInput = Pick<CookRecipeShortage, 'ingredient_name' | 'missing_quantity' | 'unit' | 'shortage_type'>;
+
+export function formatCookShortageSummary(item: CookShortageDisplayInput) {
+  if (isPresenceShortage(item)) {
+    return `${item.ingredient_name} 需补充`;
+  }
+  return `${item.ingredient_name} ${formatCookQuantity(item.missing_quantity)}${item.unit}`;
+}
+
+export function formatCookShortageDetail(item: CookShortageDisplayInput) {
+  if (isPresenceShortage(item)) {
+    return '还没有可用库存记录，先登记已有或加入采购后再确认。';
+  }
+  return `还缺 ${formatCookQuantity(item.missing_quantity)}${item.unit}，暂不能确认扣库存。`;
+}
+
+export function formatCookPreviewRequestLabel(item: Pick<CookRecipePreviewItem, 'requested_quantity' | 'unit' | 'quantity_tracking_mode'>) {
+  const requestedLabel = `${formatCookQuantity(item.requested_quantity)}${item.unit}`;
+  return item.quantity_tracking_mode === 'not_track_quantity'
+    ? `${requestedLabel} · 只判断有无`
+    : requestedLabel;
+}
+
+export function getCookPreviewActionLabel(preview: Array<{ batches: readonly unknown[] }> | null | undefined) {
+  return preview?.some((item) => item.batches.length > 0) ? '确认扣库存' : '确认完成';
+}
+
+export function getCookCompletionMessage(response: Pick<CookRecipeResponse, 'consumed_items'>, createMealLog: boolean) {
+  const deductedCount = response.consumed_items.filter((item) => item.affected_item_ids.length > 0).length;
+  const hasPresenceOnlyItems = response.consumed_items.some((item) => item.quantity_tracking_mode === 'not_track_quantity');
+  const mealLogSuffix = createMealLog ? '并生成餐食记录' : '';
+
+  if (deductedCount > 0 && hasPresenceOnlyItems) {
+    return `已扣减数量库存${mealLogSuffix}；只记录有无的食材未扣减数量。`;
+  }
+  if (deductedCount > 0) {
+    return createMealLog ? '已扣减库存并生成餐食记录。' : '已扣减库存。';
+  }
+  return createMealLog ? '已记录完成并生成餐食记录，本次没有需要扣减的数量库存。' : '已记录完成，本次没有需要扣减的数量库存。';
 }
 
 export function formatShoppingQuantity(value: number) {
@@ -777,11 +829,15 @@ export function applyRecipeIngredientRequirement(note: string, requirement: Reci
 export function buildShoppingDraftsFromShortages(card: Pick<RecipeCardViewModel, 'recipe' | 'shortages'>): RecipeShoppingDraftItem[] {
   return card.shortages.map((item) => {
     const recipeIngredient = card.recipe.ingredient_items.find((entry) => entry.id === item.ingredientId || entry.ingredient_id === item.ingredientId);
+    const usesPresenceQuantity = item.shortageType === 'presence';
     return {
       id: `shortage-${item.ingredientId || item.ingredientName}`,
+      ingredientId: item.ingredientId ?? null,
       title: item.ingredientName,
-      quantity: formatShoppingQuantity(Math.max(item.missingQuantity, 1)),
-      unit: item.unit,
+      quantity: usesPresenceQuantity ? '' : formatShoppingQuantity(Math.max(item.missingQuantity, 1)),
+      unit: usesPresenceQuantity ? '' : item.unit,
+      quantityMode: usesPresenceQuantity ? 'not_track_quantity' : 'track_quantity',
+      displayLabel: usesPresenceQuantity ? '需要补充' : null,
       reason: `来自菜谱：${card.recipe.title}`,
       source: 'shortage',
       requirement: recipeIngredient ? getRecipeShoppingRequirement(recipeIngredient) : 'required',
@@ -793,6 +849,7 @@ export function buildShoppingDraftsFromShortages(card: Pick<RecipeCardViewModel,
 export function buildShoppingDraftFromRecipeIngredient(recipeTitle: string, item: RecipeIngredient): RecipeShoppingDraftItem {
   return {
     id: `existing-${item.id}`,
+    ingredientId: item.ingredient_id ?? null,
     title: item.ingredient_name,
     quantity: formatShoppingQuantity(Math.max(item.quantity, 1)),
     unit: item.unit || '个',
@@ -820,13 +877,22 @@ export function buildCustomShoppingDraft(recipeTitle: string, item: RecipeShoppi
 
 export function buildShoppingPayloadsFromDrafts(drafts: RecipeShoppingDraftItem[]) {
   return drafts
-    .map((item) => ({
-      title: item.title.trim(),
-      quantity: Number(item.quantity),
-      unit: item.unit.trim() || '个',
-      reason: item.reason.trim(),
-    }))
-    .filter((item) => item.title && Number.isFinite(item.quantity) && item.quantity > 0);
+    .map((item) => {
+      const usesPresenceQuantity = item.quantityMode === 'not_track_quantity';
+      return {
+        title: item.title.trim(),
+        quantity: usesPresenceQuantity ? null : Number(item.quantity),
+        unit: usesPresenceQuantity ? null : item.unit.trim() || '个',
+        ingredient_id: item.ingredientId ?? null,
+        quantity_mode: item.quantityMode ?? 'track_quantity',
+        display_label: item.displayLabel ?? null,
+        reason: item.reason.trim(),
+      };
+    })
+    .filter((item) =>
+      item.title &&
+      (item.quantity_mode === 'not_track_quantity' || (Number.isFinite(item.quantity) && item.quantity !== null && item.quantity > 0))
+    );
 }
 
 function buildShoppingCandidateKey(item: RecipeIngredient) {

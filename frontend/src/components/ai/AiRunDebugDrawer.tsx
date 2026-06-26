@@ -22,6 +22,15 @@ type ExchangeDisplayInfo = {
   compactLabel: string;
 };
 
+type TokenUsageSummary = {
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+  cachedTokens: number;
+  estimatedCostUsd: number | null;
+  hasUsage: boolean;
+};
+
 const DEBUG_TABS: Array<{ key: DebugTab; label: string }> = [
   { key: 'timeline', label: '流程' },
   { key: 'llm', label: '模型' },
@@ -103,6 +112,57 @@ function formatDuration(durationMs: number) {
   return `${minutes}m ${String(seconds).padStart(2, '0')}s`;
 }
 
+function formatTokenCount(value: number | null | undefined) {
+  if (value === null || value === undefined || !Number.isFinite(value)) return '未记录';
+  return new Intl.NumberFormat('zh-CN').format(value);
+}
+
+function formatCost(value: number | null | undefined) {
+  if (value === null || value === undefined || !Number.isFinite(value)) return '未配置';
+  return `$${value.toFixed(value < 0.01 ? 6 : 4)}`;
+}
+
+function emptyTokenSummary(): TokenUsageSummary {
+  return { inputTokens: 0, outputTokens: 0, totalTokens: 0, cachedTokens: 0, estimatedCostUsd: null, hasUsage: false };
+}
+
+function summarizeUsage(exchanges: AiRunLLMExchange[]): TokenUsageSummary {
+  return exchanges.reduce<TokenUsageSummary>((summary, exchange) => {
+    const inputTokens = exchange.inputTokens ?? 0;
+    const outputTokens = exchange.outputTokens ?? 0;
+    const totalTokens = exchange.totalTokens ?? inputTokens + outputTokens;
+    const cachedTokens = exchange.cachedTokens ?? 0;
+    const estimatedCostUsd = exchange.estimatedCostUsd ?? null;
+    summary.inputTokens += inputTokens;
+    summary.outputTokens += outputTokens;
+    summary.totalTokens += totalTokens;
+    summary.cachedTokens += cachedTokens;
+    if (estimatedCostUsd !== null) {
+      summary.estimatedCostUsd = (summary.estimatedCostUsd ?? 0) + estimatedCostUsd;
+    }
+    summary.hasUsage = summary.hasUsage
+      || (exchange.inputTokens !== null && exchange.inputTokens !== undefined)
+      || (exchange.outputTokens !== null && exchange.outputTokens !== undefined)
+      || (exchange.totalTokens !== null && exchange.totalTokens !== undefined)
+      || (exchange.cachedTokens !== null && exchange.cachedTokens !== undefined)
+      || estimatedCostUsd !== null;
+    return summary;
+  }, emptyTokenSummary());
+}
+
+function TokenUsageChips({ summary, compact = false }: { summary: TokenUsageSummary; compact?: boolean }) {
+  const cacheLabel = summary.cachedTokens > 0 ? `缓存 ${formatTokenCount(summary.cachedTokens)}` : '缓存未命中';
+  return (
+    <div className={`ai-debug-token-chips${compact ? ' is-compact' : ''}`} aria-label="Token 用量">
+      <span>输入 {summary.hasUsage ? formatTokenCount(summary.inputTokens) : '未记录'}</span>
+      <span>输出 {summary.hasUsage ? formatTokenCount(summary.outputTokens) : '未记录'}</span>
+      <span>总计 {summary.hasUsage ? formatTokenCount(summary.totalTokens) : '未记录'}</span>
+      <span className={summary.cachedTokens > 0 ? 'is-cache-hit' : undefined}>{cacheLabel}</span>
+      {!compact ? <span>费用 {formatCost(summary.estimatedCostUsd)}</span> : null}
+    </div>
+  );
+}
+
 function roundLabel(span: AiRunTraceTreeNode) {
   return span.roundIndex !== null && span.roundIndex !== undefined ? `第 ${span.roundIndex} 轮` : null;
 }
@@ -166,14 +226,16 @@ function buildExchangeDisplayInfo(
   span?: AiRunTraceTreeNode,
 ): ExchangeDisplayInfo {
   const providerLabel = `模型轮次 ${exchange.providerRound} · 尝试 ${exchange.attemptIndex}`;
-  const runtimeLabel = `${exchange.mode} · ${exchange.model} · ${exchange.durationMs}ms`;
+  const runtimeLabel = `${exchange.mode} · ${exchange.model} · ${formatDuration(exchange.durationMs)}`;
   const spanLabel = spanDisplayName(span);
+  const totalTokens = exchange.totalTokens ?? ((exchange.inputTokens ?? 0) + (exchange.outputTokens ?? 0));
+  const tokenLabel = exchange.totalTokens !== null && exchange.totalTokens !== undefined ? ` · Token ${formatTokenCount(totalTokens)}` : '';
   return {
     title: `模型调用 ${index + 1}`,
     providerLabel,
     runtimeLabel,
     spanLabel,
-    compactLabel: `模型 ${index + 1} · ${providerLabel} · ${statusLabel(exchange.status)}`,
+    compactLabel: `模型 ${index + 1} · ${providerLabel}${tokenLabel} · ${statusLabel(exchange.status)}`,
   };
 }
 
@@ -185,6 +247,13 @@ function flattenTraceTree(nodes: AiRunTraceTreeNode[]): AiRunTraceTreeNode[] {
   };
   nodes.forEach(walk);
   return items;
+}
+
+function collectNodeExchanges(node: AiRunTraceTreeNode, exchangesBySpanId: Map<string, AiRunLLMExchange[]>): AiRunLLMExchange[] {
+  return [
+    ...(exchangesBySpanId.get(node.spanId) ?? []),
+    ...node.children.flatMap((child) => collectNodeExchanges(child, exchangesBySpanId)),
+  ];
 }
 
 function downloadTraceJson(runId: string, payload: unknown) {
@@ -238,17 +307,23 @@ function TraceSummary({ inputSummary, outputSummary }: { inputSummary: Record<st
   );
 }
 
-function TraceOverview({ spans, exchangeCount }: { spans: AiRunTraceTreeNode[]; exchangeCount: number }) {
+function TraceOverview({ spans, exchanges }: { spans: AiRunTraceTreeNode[]; exchanges: AiRunLLMExchange[] }) {
   const failedCount = spans.filter((span) => span.status === 'failed' || span.errorCode || span.errorMessage).length;
   const waitingCount = spans.filter((span) => span.status === 'waiting').length;
   const toolCount = spans.filter((span) => span.spanType === 'tool_call' || span.spanType === 'script_call').length;
+  const tokenSummary = summarizeUsage(exchanges);
+  const runDuration = spans.find((span) => span.spanType === 'run')?.durationMs ?? spans.reduce((total, span) => Math.max(total, span.durationMs), 0);
   return (
-    <div className="ai-debug-overview" aria-label="流程概览">
-      <span>步骤 {spans.length}</span>
-      <span>模型调用 {exchangeCount}</span>
-      <span>工具/脚本 {toolCount}</span>
-      <span>等待 {waitingCount}</span>
-      <span className={failedCount > 0 ? 'is-danger' : undefined}>异常 {failedCount}</span>
+    <div className="ai-debug-overview-panel" aria-label="流程概览">
+      <div className="ai-debug-overview">
+        <span>步骤 {spans.length}</span>
+        <span>模型调用 {exchanges.length}</span>
+        <span>工具/脚本 {toolCount}</span>
+        <span>总耗时 {formatDuration(runDuration)}</span>
+        <span>等待 {waitingCount}</span>
+        <span className={failedCount > 0 ? 'is-danger' : undefined}>异常 {failedCount}</span>
+      </div>
+      <TokenUsageChips summary={tokenSummary} />
     </div>
   );
 }
@@ -265,6 +340,13 @@ function TraceNode({
   depth?: number;
 }) {
   const linkedExchanges = exchangesBySpanId.get(node.spanId) ?? [];
+  const nodeExchanges = collectNodeExchanges(node, exchangesBySpanId);
+  const nodeUsage = summarizeUsage(nodeExchanges);
+  const tokenLabel = node.spanType === 'run'
+    ? '本次 Token'
+    : linkedExchanges.length > 0
+      ? '本步骤 Token'
+      : '下级 Token';
   return (
     <li className={`ai-debug-span is-${node.status}`} style={{ '--ai-debug-depth': depth } as CSSProperties}>
       <div className="ai-debug-span-main">
@@ -275,6 +357,12 @@ function TraceNode({
         </div>
         <em>{statusLabel(node.status)}</em>
       </div>
+      {nodeExchanges.length > 0 ? (
+        <div className="ai-debug-node-token-row" aria-label={`${traceStepTitle(node)} Token 用量`}>
+          <strong>{tokenLabel}</strong>
+          <TokenUsageChips summary={nodeUsage} compact />
+        </div>
+      ) : null}
       {node.errorCode || node.errorMessage ? (
         <p className="ai-debug-error-line">
           {node.errorCode ? <code>{node.errorCode}</code> : null}
@@ -311,6 +399,7 @@ function TraceNode({
 }
 
 function ExchangeCard({ exchange, display }: { exchange: AiRunLLMExchange; display: ExchangeDisplayInfo }) {
+  const tokenSummary = summarizeUsage([exchange]);
   return (
     <article className={`ai-debug-exchange is-${exchange.status}`}>
       <header>
@@ -327,6 +416,7 @@ function ExchangeCard({ exchange, display }: { exchange: AiRunLLMExchange; displ
         </div>
         <em>{statusLabel(exchange.status)}</em>
       </header>
+      <TokenUsageChips summary={tokenSummary} />
       {exchange.errorCode || exchange.errorMessage ? (
         <p className="ai-debug-error-line">
           {exchange.errorCode ? <code>{exchange.errorCode}</code> : null}
@@ -347,6 +437,7 @@ function ExchangeCard({ exchange, display }: { exchange: AiRunLLMExchange; displ
         }} />
         <JsonBlock title="Response message" value={exchange.responseMessage} />
         <JsonBlock title="Response tool calls" value={exchange.responseToolCalls} />
+        <JsonBlock title="Token usage" value={exchange.tokenUsage} />
         <JsonBlock title="Response digest" value={{
           originalDigest: exchange.responseOriginalDigest,
           originalBytes: exchange.responseOriginalBytes,
@@ -385,6 +476,7 @@ export function AiRunDebugDrawer({ runId, open, onClose }: AiRunDebugDrawerProps
     }
     return grouped;
   }, [exchangesQuery.data?.exchanges]);
+  const exchanges = exchangesQuery.data?.exchanges ?? [];
   const exchangeDisplayById = useMemo(() => {
     const displayById = new Map<string, ExchangeDisplayInfo>();
     (exchangesQuery.data?.exchanges ?? []).forEach((exchange, index) => {
@@ -412,7 +504,8 @@ export function AiRunDebugDrawer({ runId, open, onClose }: AiRunDebugDrawerProps
     traceConfig: {
       traceId: traceQuery.data?.traceId || exchangesQuery.data?.traceId || '',
       spanCount: spans.length,
-      llmExchangeCount: exchangesQuery.data?.exchanges.length ?? 0,
+      llmExchangeCount: exchanges.length,
+      tokenUsage: summarizeUsage(exchanges),
     },
   };
 
@@ -459,7 +552,7 @@ export function AiRunDebugDrawer({ runId, open, onClose }: AiRunDebugDrawerProps
         ) : activeTab === 'timeline' ? (
           traceQuery.data?.tree.length ? (
             <div className="ai-debug-timeline">
-              <TraceOverview spans={spans} exchangeCount={exchangesQuery.data?.exchanges.length ?? 0} />
+              <TraceOverview spans={spans} exchanges={exchanges} />
               <ol className="ai-debug-tree">
                 {traceQuery.data.tree.map((node) => (
                   <TraceNode key={node.id} node={node} exchangesBySpanId={exchangesBySpanId} exchangeDisplayById={exchangeDisplayById} />

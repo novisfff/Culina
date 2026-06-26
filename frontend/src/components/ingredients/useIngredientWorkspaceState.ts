@@ -9,7 +9,7 @@ import {
 import type { IngredientWorkspacePanel, IngredientWorkspaceView, ShoppingCardFocus } from './workspaceModel';
 
 export type CatalogStatusFilter = 'all' | 'expired' | 'expiring' | 'lowStock' | 'stable';
-export type MobileIngredientFilter = 'all' | 'alerted' | 'empty' | 'stocked';
+export type MobileIngredientFilter = 'all' | 'seasoning' | 'alerted' | 'empty' | 'stocked';
 export type InventoryQuickFilter = 'all' | 'alerted';
 
 export const STORAGE_SHELF_IDEAL_WIDTH = 260;

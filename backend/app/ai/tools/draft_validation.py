@@ -8,7 +8,7 @@ from fastapi.encoders import jsonable_encoder
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
-from app.core.enums import IngredientExpiryMode, InventoryStatus, MealType
+from app.core.enums import IngredientExpiryMode, IngredientQuantityTrackingMode, InventoryStatus, MealType
 from app.core.utils import create_id
 from app.models.domain import AITaskDraft, Food, FoodPlanItem, Ingredient, InventoryItem, MealLog, MealLogFood, Recipe, RecipeFavorite, ShoppingListItem
 from app.schemas.foods import CreateFoodRequest
@@ -24,7 +24,7 @@ from app.services.ingredient_units import (
     convert_quantity_to_default_unit,
     normalize_unit_label,
 )
-from app.services.inventory_usage import build_cook_inventory_plan, expiry_sort_key, inventory_remaining_in_default, serialize_cook_preview_item
+from app.services.inventory_usage import build_cook_inventory_plan, expiry_sort_key, inventory_remaining_in_default, serialize_cook_preview_item, tracks_quantity
 from app.services.serializers import serialize_food, serialize_food_plan_item, serialize_ingredient, serialize_meal_log, serialize_media, serialize_recipe, serialize_shopping_item
 
 
@@ -53,9 +53,39 @@ def normalize_shopping_list_draft(db: Session, *, family_id: str, conversation_i
     return {
         "draftType": "shopping_list",
         "schemaVersion": payload.get("schemaVersion") or "shopping_list.v1",
-        "items": [CreateShoppingListItemRequest.model_validate(item).model_dump(mode="json") for item in items],
+        "items": [
+            _normalize_shopping_item_payload(db, family_id=family_id, payload=item).model_dump(mode="json")
+            for item in items
+        ],
         "sourceDraftId": source_draft_id or None,
     }
+
+
+def _normalize_shopping_item_payload(
+    db: Session,
+    *,
+    family_id: str,
+    payload: Any,
+) -> CreateShoppingListItemRequest:
+    if not isinstance(payload, dict):
+        raise ValueError("购物清单项目格式不正确")
+    normalized = dict(payload)
+    ingredient_id = normalized.get("ingredient_id") or normalized.get("ingredientId")
+    if ingredient_id:
+        ingredient = db.scalar(select(Ingredient).where(Ingredient.family_id == family_id, Ingredient.id == str(ingredient_id)))
+        if ingredient is None:
+            raise ValueError("购物清单项目引用了不存在的食材")
+        normalized["ingredient_id"] = ingredient.id
+        normalized.setdefault("title", ingredient.name)
+        normalized["quantity_mode"] = ingredient.quantity_tracking_mode.value if hasattr(ingredient.quantity_tracking_mode, "value") else ingredient.quantity_tracking_mode
+        if normalized["quantity_mode"] == IngredientQuantityTrackingMode.NOT_TRACK_QUANTITY.value:
+            normalized.setdefault("quantity", 1)
+            normalized.setdefault("unit", ingredient.default_unit or "份")
+            normalized["display_label"] = normalized.get("display_label") or normalized.get("displayLabel") or "需要补充"
+    else:
+        normalized["quantity_mode"] = normalized.get("quantity_mode") or normalized.get("quantityMode") or IngredientQuantityTrackingMode.TRACK_QUANTITY.value
+        normalized["display_label"] = normalized.get("display_label") or normalized.get("displayLabel")
+    return CreateShoppingListItemRequest.model_validate(normalized)
 
 
 def _normalize_shopping_list_operation_draft(db: Session, *, family_id: str, payload: dict[str, Any]) -> dict[str, Any]:
@@ -82,7 +112,11 @@ def _normalize_shopping_list_operation_draft(db: Session, *, family_id: str, pay
                 {
                     "operationId": _normalize_operation_id(operation.get("operationId") or operation.get("operation_id")),
                     "action": "create",
-                    "payload": CreateShoppingListItemRequest.model_validate(operation.get("payload") or {}).model_dump(mode="json"),
+                    "payload": _normalize_shopping_item_payload(
+                        db,
+                        family_id=family_id,
+                        payload=operation.get("payload") or {},
+                    ).model_dump(mode="json"),
                 }
             )
             continue
@@ -99,8 +133,10 @@ def _normalize_shopping_list_operation_draft(db: Session, *, family_id: str, pay
             "payload": {"reason": str((operation.get("payload") or {}).get("reason") or "")},
         }
         if action == "update":
-            normalized_record["payload"] = CreateShoppingListItemRequest.model_validate(
-                operation.get("payload") or {}
+            normalized_record["payload"] = _normalize_shopping_item_payload(
+                db,
+                family_id=family_id,
+                payload=operation.get("payload") or {},
             ).model_dump(mode="json")
         elif action == "set_done":
             normalized_record["payload"] = {
@@ -742,12 +778,16 @@ def normalize_inventory_operation_draft(db: Session, *, family_id: str, payload:
             record["conversionNote"] = str(operation.get("conversionNote") or "").strip()
 
         if action == "restock":
-            if quantity is None:
+            if quantity is None and tracks_quantity(ingredient):
                 raise ValueError("入库数量不能为空")
-            try:
-                convert_quantity_to_default_unit(quantity, ingredient.default_unit, ingredient.unit_conversions, unit)
-            except UnitConversionError as exc:
-                raise ValueError(str(exc)) from exc
+            if tracks_quantity(ingredient):
+                try:
+                    convert_quantity_to_default_unit(quantity, ingredient.default_unit, ingredient.unit_conversions, unit)
+                except UnitConversionError as exc:
+                    raise ValueError(str(exc)) from exc
+            else:
+                record["quantity"] = float(quantity) if quantity is not None else None
+                record["unit"] = ingredient.default_unit
             purchase_date = date.fromisoformat(str(operation.get("purchaseDate") or today.isoformat()))
             expiry_value = operation.get("expiryDate")
             if expiry_value:
@@ -775,8 +815,15 @@ def normalize_inventory_operation_draft(db: Session, *, family_id: str, payload:
                 }
             )
         elif action == "consume":
-            if quantity is None:
+            if quantity is None and tracks_quantity(ingredient):
                 raise ValueError("消耗数量不能为空")
+            if not tracks_quantity(ingredient):
+                record["quantity"] = float(quantity) if quantity is not None else None
+                record["unit"] = unit
+                record["remainingQuantity"] = None
+                record["batchOptions"] = []
+                normalized.append(record)
+                continue
             candidate_items = [inventory_item] if inventory_item is not None else list(
                 db.scalars(
                     select(InventoryItem).where(
@@ -856,6 +903,36 @@ def normalize_inventory_operation_draft(db: Session, *, family_id: str, payload:
         else:
             if inventory_item is None:
                 raise ValueError("销毁操作必须指定库存批次")
+            if not tracks_quantity(ingredient):
+                if quantity is not None:
+                    raise ValueError("不记录数量的食材只能整批移除或重新补充")
+                if not record["reason"]:
+                    raise ValueError("销毁库存必须填写原因")
+                record["quantity"] = None
+                record["unit"] = inventory_item.unit
+                record["remainingQuantity"] = None
+                record["batchOptions"] = [
+                    {
+                        "id": inventory_item.id,
+                        "label": " · ".join(
+                            value
+                            for value in [
+                                f"到期 {inventory_item.expiry_date.isoformat()}"
+                                if inventory_item.expiry_date
+                                else "未记录到期日",
+                                inventory_item.storage_location,
+                            ]
+                            if value
+                        ),
+                        "remainingQuantity": 0,
+                        "unit": inventory_item.unit,
+                        "expiryDate": inventory_item.expiry_date.isoformat()
+                        if inventory_item.expiry_date
+                        else None,
+                    }
+                ]
+                normalized.append(record)
+                continue
             available = max(
                 inventory_remaining_in_default(inventory_item, ingredient)
                 - reserved_by_inventory_item.get(inventory_item.id, Decimal("0")),
@@ -982,9 +1059,12 @@ def _serialize_shopping_before(item: ShoppingListItem) -> dict[str, Any]:
     record = serialize_shopping_item(item)
     return {
         "id": record["id"],
+        "ingredientId": record["ingredient_id"],
         "title": record["title"],
         "quantity": record["quantity"],
         "unit": record["unit"],
+        "quantityMode": record["quantity_mode"],
+        "displayLabel": record["display_label"],
         "reason": record["reason"],
         "done": record["done"],
         "updatedAt": record["updated_at"].isoformat() if hasattr(record.get("updated_at"), "isoformat") else record.get("updated_at"),
