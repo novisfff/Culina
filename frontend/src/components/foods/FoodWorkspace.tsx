@@ -1537,6 +1537,7 @@ export function FoodWorkspace(props: Props) {
               onDelete={() => undefined}
               onOpenDraftDialog={() => undefined}
               updateIngredientRow={recipeEditor.updateIngredientRow}
+              selectIngredientRow={recipeEditor.selectIngredientRow}
               updateIngredientNote={recipeEditor.updateIngredientNote}
               updateIngredientRequirement={recipeEditor.updateIngredientRequirement}
               addIngredientRow={recipeEditor.addIngredientRow}

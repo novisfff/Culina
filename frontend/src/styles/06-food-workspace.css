@@ -945,17 +945,23 @@
 }
 
 .food-library-head {
-  display: grid;
-  grid-template-columns: minmax(120px, 0.34fr) minmax(320px, 1fr) auto;
-  gap: 18px;
+  display: flex;
   align-items: center;
+  gap: 24px;
 }
 
-.food-library-head .workspace-toolbar-summary {
-  justify-self: end;
+.food-library-head .workspace-toolbar-copy {
+  flex: 0 0 auto;
+}
+
+.food-library-head .food-search-field {
+  flex: 0 1 520px;
+  width: 100%;
 }
 
 .food-library-head-actions {
+  margin-left: auto;
+  flex: 0 0 auto;
   display: flex;
   min-width: 0;
   flex-wrap: wrap;
@@ -1455,13 +1461,12 @@
 }
 
 .food-search-field .text-input {
-  min-height: 38px;
-  padding: 7px 42px 7px 12px;
+  min-height: 46px;
+  padding: 0 48px 0 18px;
   border-color: rgba(92, 67, 48, 0.11);
-  border-radius: 9px;
-  font-size: 0.86rem;
-  line-height: 1.2;
-  box-shadow: none;
+  border-radius: 18px;
+  font-size: 0.9375rem;
+  line-height: 46px;
 }
 
 .food-filter-group {
@@ -4087,7 +4092,8 @@
   }
 
   .food-library-head {
-    grid-template-columns: minmax(110px, auto) minmax(0, 1fr) auto;
+    display: flex;
+    flex-wrap: wrap;
     gap: 12px;
   }
 }
@@ -4102,9 +4108,20 @@
   }
 
   .food-toolbar-controls,
-  .food-library-head,
   .food-editor-layout {
     grid-template-columns: 1fr;
+  }
+
+  .food-library-head {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+  }
+
+  .food-library-head-actions {
+    margin-left: 0;
+    justify-content: flex-start;
   }
 
   .food-repurchase-panel-grid {
@@ -11930,4 +11947,52 @@ button.ai-clarification-option:hover:not(:disabled) .ai-clarification-option-ind
   .ai-approval-actions .solid-button {
     min-height: 46px;
   }
+}
+
+/* Unified Food Workspace Placeholders (Desktop/iPad/Mobile) */
+.food-work-card-media .media-placeholder,
+.food-recommendation-media .media-placeholder,
+.food-quick-meal-cover .media-placeholder,
+.food-detail-cover .media-placeholder,
+.mobile-food-cover .media-placeholder,
+.mobile-food-priority-cover .media-placeholder,
+.mobile-food-library-cover .media-placeholder {
+  --media-placeholder-icon-size: 32px;
+  gap: 0;
+}
+
+.food-work-card-media .media-placeholder-label,
+.food-work-card-media .media-placeholder-glow,
+.food-work-card-media .media-placeholder-spark,
+.food-recommendation-media .media-placeholder-label,
+.food-recommendation-media .media-placeholder-glow,
+.food-recommendation-media .media-placeholder-spark,
+.food-quick-meal-cover .media-placeholder-label,
+.food-quick-meal-cover .media-placeholder-glow,
+.food-quick-meal-cover .media-placeholder-spark,
+.food-detail-cover .media-placeholder-label,
+.food-detail-cover .media-placeholder-glow,
+.food-detail-cover .media-placeholder-spark,
+.mobile-food-cover .media-placeholder-label,
+.mobile-food-cover .media-placeholder-glow,
+.mobile-recipe-cover .media-placeholder-spark,
+.mobile-food-priority-cover .media-placeholder-label,
+.mobile-food-priority-cover .media-placeholder-glow,
+.mobile-food-priority-cover .media-placeholder-spark,
+.mobile-food-library-cover .media-placeholder-label,
+.mobile-food-library-cover .media-placeholder-glow,
+.mobile-food-library-cover .media-placeholder-spark {
+  display: none !important;
+}
+
+/* Sidebar Food Scenes mini-thumb */
+.food-sidebar-scene-thumb .media-placeholder {
+  --media-placeholder-icon-size: 20px;
+  gap: 0;
+}
+
+.food-sidebar-scene-thumb .media-placeholder-label,
+.food-sidebar-scene-thumb .media-placeholder-glow,
+.food-sidebar-scene-thumb .media-placeholder-spark {
+  display: none !important;
 }

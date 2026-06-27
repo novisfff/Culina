@@ -208,14 +208,14 @@ export const INGREDIENT_CATEGORY_PRESETS: IngredientCategoryPreset[] = [
 
 const INGREDIENT_EDITOR_CATEGORY_PRESET_LABELS = [
   '蔬菜',
-  '水果',
   '肉类',
   '水产',
   '蛋奶',
-  '豆制品',
-  '主食',
-  '干货',
   '调料',
+  '水果',
+  '主食',
+  '豆制品',
+  '干货',
   '其他',
 ];
 
@@ -823,14 +823,15 @@ export function getIngredientEditorCategoryPresets() {
 
 export function buildIngredientCategoryFilters(ingredients: Ingredient[]) {
   const existingCategories = uniqueLabels(ingredients.map((item) => normalizeCategoryLabel(item.category)));
-  const presetLabels = INGREDIENT_CATEGORY_PRESETS.map((item) => item.label).filter((label) =>
-    existingCategories.includes(label)
-  );
+  const presetLabels = INGREDIENT_EDITOR_CATEGORY_PRESET_LABELS;
+  const secondaryPresetLabels = INGREDIENT_CATEGORY_PRESETS
+    .map((item) => item.label)
+    .filter((label) => !presetLabels.includes(label) && existingCategories.includes(label));
   const customLabels = existingCategories
     .filter((label) => !INGREDIENT_CATEGORY_PRESET_MAP.has(label))
     .sort((left, right) => left.localeCompare(right, 'zh-CN'));
 
-  return [...presetLabels, ...customLabels];
+  return [...presetLabels, ...secondaryPresetLabels, ...customLabels];
 }
 
 export function filterIngredientSummaries(

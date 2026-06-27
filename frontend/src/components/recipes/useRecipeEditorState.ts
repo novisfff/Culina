@@ -96,6 +96,21 @@ export function useRecipeEditorState(args: {
     );
   }
 
+  function selectIngredientRow(id: string, ingredient: Ingredient | null) {
+    setIngredientRows((current) =>
+      current.map((item) =>
+        item.id === id
+          ? {
+              ...item,
+              ingredient_id: ingredient?.id ?? '',
+              ingredient_name: ingredient?.name ?? '',
+              unit: ingredient?.default_unit ?? item.unit,
+            }
+          : item
+      )
+    );
+  }
+
   function updateIngredientNote(id: string, value: string) {
     setIngredientRows((current) =>
       current.map((item) =>
@@ -215,6 +230,7 @@ export function useRecipeEditorState(args: {
     openDetail,
     openEdit,
     updateIngredientRow,
+    selectIngredientRow,
     updateIngredientNote,
     updateIngredientRequirement,
     updateStepDraft,

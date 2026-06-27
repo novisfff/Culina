@@ -1789,3 +1789,23 @@
     width: 100%;
   }
 }
+
+/* Unified Food Card Placeholders (Desktop/iPad/Mobile) */
+.dashboard-food-cover .media-placeholder,
+.mobile-ingredient-priority-cover .media-placeholder,
+.mobile-ingredient-library-cover .media-placeholder {
+  --media-placeholder-icon-size: 32px;
+  gap: 0;
+}
+
+.dashboard-food-cover .media-placeholder-label,
+.dashboard-food-cover .media-placeholder-glow,
+.dashboard-food-cover .media-placeholder-spark,
+.mobile-ingredient-priority-cover .media-placeholder-label,
+.mobile-ingredient-priority-cover .media-placeholder-glow,
+.mobile-ingredient-priority-cover .media-placeholder-spark,
+.mobile-ingredient-library-cover .media-placeholder-label,
+.mobile-ingredient-library-cover .media-placeholder-glow,
+.mobile-ingredient-library-cover .media-placeholder-spark {
+  display: none !important;
+}

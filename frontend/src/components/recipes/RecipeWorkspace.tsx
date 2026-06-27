@@ -244,6 +244,76 @@ type RecipeWorkspaceProps = {
   isUpdatingScene?: boolean;
 };
 
+function RecipeToolbarDropdown({
+  value,
+  options,
+  icon,
+  title,
+  onChange,
+}: {
+  value: string;
+  options: { value: string; label: string }[];
+  icon: string;
+  title: string;
+  onChange: (value: any) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  const selectedOption = options.find((opt) => opt.value === value);
+
+  useEffect(() => {
+    if (!open) return;
+    const handlePointerDown = (event: MouseEvent) => {
+      if (!rootRef.current?.contains(event.target as Node)) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handlePointerDown);
+    return () => document.removeEventListener('mousedown', handlePointerDown);
+  }, [open]);
+
+  return (
+    <div className={open ? 'recipe-toolbar-dropdown is-open' : 'recipe-toolbar-dropdown'} ref={rootRef}>
+      <button
+        className="recipe-toolbar-dropdown-trigger"
+        type="button"
+        onClick={() => setOpen(!open)}
+        aria-expanded={open}
+      >
+        <span className="recipe-toolbar-dropdown-trigger-icon">
+          <RecipeUiIcon name={icon as any} />
+        </span>
+        <span className="recipe-toolbar-dropdown-trigger-text">
+          <span className="recipe-toolbar-dropdown-title">{title}</span>
+          <span className="recipe-toolbar-dropdown-value">{selectedOption?.label ?? value}</span>
+        </span>
+        <span className="recipe-toolbar-dropdown-trigger-chevron">
+          <RecipeUiIcon name="chevronDown" />
+        </span>
+      </button>
+      
+      {open && (
+        <div className="recipe-toolbar-dropdown-panel">
+          {options.map((opt) => (
+            <button
+              key={opt.value}
+              className={opt.value === value ? 'recipe-toolbar-dropdown-option is-selected' : 'recipe-toolbar-dropdown-option'}
+              type="button"
+              onClick={() => {
+                onChange(opt.value);
+                setOpen(false);
+              }}
+            >
+              <span>{opt.label}</span>
+              {opt.value === value && <RecipeUiIcon name="check" />}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function RecipeWorkspace(props: RecipeWorkspaceProps) {
   const categoryScrollRef = useRef<HTMLDivElement | null>(null);
   const discoveryScrollRef = useRef<HTMLDivElement | null>(null);
@@ -298,6 +368,7 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
     openDetail,
     openEdit,
     updateIngredientRow,
+    selectIngredientRow,
     updateIngredientNote,
     updateIngredientRequirement,
     updateStepDraft,
@@ -903,27 +974,25 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
               onChange={(event) => setSearch(event.target.value)}
             />
           </label>
-          <select
-            className="text-input recipe-filter-select"
+          <RecipeToolbarDropdown
             value={difficultyFilter}
-            onChange={(event) => setDifficultyFilter(event.target.value as 'all' | Difficulty)}
-          >
-            <option value="all">全部难度</option>
-            <option value="easy">简单</option>
-            <option value="medium">中等</option>
-            <option value="hard">复杂</option>
-          </select>
-          <select className="text-input recipe-filter-select" value={sortMode} onChange={(event) => setSortMode(event.target.value as RecipeSortMode)}>
-            {SORT_OPTIONS.map((item) => (
-              <option key={item.value} value={item.value}>
-                {item.label}
-              </option>
-            ))}
-          </select>
-          <button className="recipe-filter-action" type="button">
-            <RecipeUiIcon name="filter" />
-            筛选
-          </button>
+            options={[
+              { value: 'all', label: '全部' },
+              { value: 'easy', label: '简单' },
+              { value: 'medium', label: '中等' },
+              { value: 'hard', label: '复杂' },
+            ]}
+            icon="signal"
+            title="难度"
+            onChange={(val) => setDifficultyFilter(val as 'all' | Difficulty)}
+          />
+          <RecipeToolbarDropdown
+            value={sortMode}
+            options={SORT_OPTIONS}
+            icon="clock"
+            title="排序"
+            onChange={(val) => setSortMode(val as RecipeSortMode)}
+          />
         </div>
         <div className="recipe-filter-row">
           {QUICK_FILTERS.map((item) => (
@@ -1082,6 +1151,7 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
           onDelete={deleteSelectedRecipe}
           onOpenDraftDialog={() => setIsRecipeDraftDialogOpen(true)}
           updateIngredientRow={updateIngredientRow}
+          selectIngredientRow={selectIngredientRow}
           updateIngredientNote={updateIngredientNote}
           updateIngredientRequirement={updateIngredientRequirement}
           addIngredientRow={addIngredientRow}

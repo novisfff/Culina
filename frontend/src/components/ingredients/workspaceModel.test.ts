@@ -888,7 +888,7 @@ describe('ingredient workspace model', () => {
     ]);
   });
 
-  it('keeps preset categories first and appends custom categories for filter chips', () => {
+  it('shows core preset categories first and appends custom categories for filter chips', () => {
     const categoryFilters = buildIngredientCategoryFilters([
       ...ingredients,
       {
@@ -905,7 +905,20 @@ describe('ingredient workspace model', () => {
       },
     ]);
 
-    expect(categoryFilters).toEqual(['蔬菜', '干货', '酱料', '海味']);
+    expect(categoryFilters).toEqual([
+      '蔬菜',
+      '肉类',
+      '水产',
+      '蛋奶',
+      '调料',
+      '水果',
+      '主食',
+      '豆制品',
+      '干货',
+      '其他',
+      '酱料',
+      '海味',
+    ]);
     expect(getIngredientCategoryPreset('水产')).toMatchObject({
       label: '水产',
       defaultUnit: '块',
@@ -921,14 +934,14 @@ describe('ingredient workspace model', () => {
   it('shows seasoning in the editor category presets', () => {
     expect(getIngredientEditorCategoryPresets().map((item) => item.label)).toEqual([
       '蔬菜',
-      '水果',
       '肉类',
       '水产',
       '蛋奶',
-      '豆制品',
-      '主食',
-      '干货',
       '调料',
+      '水果',
+      '主食',
+      '豆制品',
+      '干货',
       '其他',
     ]);
     expect(getIngredientCategoryPreset('调料')).toMatchObject({
