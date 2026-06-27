@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from sqlalchemy import or_, select
+from sqlalchemy import select
 
 from app.ai.tools.base import ToolContext
 from app.ai.tools.catalog.common import entity_media_map, first_entity_media, register_tool
@@ -11,6 +11,7 @@ from app.ai.tools.registry import ToolRegistry
 from app.ai.tools.schemas import FOOD_PROFILE_DRAFT_SCHEMA, READ_BY_ID_INPUT, SEARCH_INPUT, draft_input_schema, draft_output_schema
 from app.models.domain import Food
 from app.repos.media import build_media_map, get_media_assets_for_entities
+from app.services.search.hybrid import hybrid_search
 from app.services.serializers import serialize_food
 
 
@@ -57,6 +58,27 @@ def food_search(context: ToolContext, payload: dict[str, Any]) -> dict[str, Any]
     ids = [str(item).strip() for item in payload.get("ids") or [] if str(item).strip()]
     exact = bool(payload.get("exact"))
     category = str(payload.get("category") or "").strip()
+    if query and not exact and not ids:
+        search_result = hybrid_search(
+            context.db,
+            family_id=context.family_id,
+            query=query,
+            scopes=["food"],
+            limit=max(limit + offset + 1, 80),
+            offset=0,
+        )
+        search_ids = [item.entity_id for item in search_result.items if item.entity_type == "food"]
+        if not search_ids:
+            foods: list[Food] = []
+        else:
+            statement = select(Food).where(Food.family_id == context.family_id, Food.id.in_(search_ids))
+            if category:
+                statement = statement.where(Food.category == category)
+            foods_by_id = {item.id: item for item in context.db.scalars(statement)}
+            foods = [foods_by_id[item_id] for item_id in search_ids if item_id in foods_by_id]
+            foods = foods[offset : offset + limit + 1]
+        return _food_search_response(context, foods, limit=limit)
+
     statement = select(Food).where(Food.family_id == context.family_id)
     if ids:
         statement = statement.where(Food.id.in_(ids))
@@ -65,10 +87,11 @@ def food_search(context: ToolContext, payload: dict[str, Any]) -> dict[str, Any]
     if query:
         if exact:
             statement = statement.where(Food.name == query)
-        else:
-            pattern = f"%{query}%"
-            statement = statement.where(or_(Food.name.ilike(pattern), Food.category.ilike(pattern), Food.scene.ilike(pattern)))
     foods = list(context.db.scalars(statement.order_by(Food.updated_at.desc(), Food.id).offset(offset).limit(limit + 1)))
+    return _food_search_response(context, foods, limit=limit)
+
+
+def _food_search_response(context: ToolContext, foods: list[Food], *, limit: int) -> dict[str, Any]:
     has_more = len(foods) > limit
     foods = foods[:limit]
     media_map = entity_media_map(context.db, family_id=context.family_id, entity_types={"food"}, entity_ids=[item.id for item in foods])

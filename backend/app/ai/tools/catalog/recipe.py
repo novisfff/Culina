@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from fastapi.encoders import jsonable_encoder
-from sqlalchemy import or_, select
+from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
 from app.ai.kitchen.recipe_drafts import RECIPE_DRAFT_JSON_SCHEMA
@@ -16,6 +16,7 @@ from app.models.domain import Food, FoodPlanItem, Recipe, RecipeFavorite
 from app.repos.media import build_media_map, get_media_assets_for_entities
 from app.services.clock import today_for_family
 from app.services.inventory_usage import build_cook_inventory_plan, serialize_cook_preview_item
+from app.services.search.hybrid import hybrid_search
 from app.services.serializers import serialize_recipe
 
 RECIPE_CREATE_DRAFT_SCHEMA = {
@@ -170,6 +171,31 @@ def recipe_search(context: ToolContext, payload: dict[str, Any]) -> dict[str, An
     ids = [str(item).strip() for item in payload.get("ids") or [] if str(item).strip()]
     exact = bool(payload.get("exact"))
     category = str(payload.get("category") or "").strip()
+    if query and not exact and not ids:
+        search_result = hybrid_search(
+            context.db,
+            family_id=context.family_id,
+            query=query,
+            scopes=["recipe"],
+            limit=max(limit + offset + 1, 80),
+            offset=0,
+        )
+        search_ids = [item.entity_id for item in search_result.items if item.entity_type == "recipe"]
+        if not search_ids:
+            recipes: list[Recipe] = []
+        else:
+            statement = (
+                select(Recipe)
+                .options(selectinload(Recipe.ingredient_items), selectinload(Recipe.foods))
+                .where(Recipe.family_id == context.family_id, Recipe.id.in_(search_ids))
+            )
+            if category:
+                statement = statement.where(Recipe.scene_tags.contains([category]))
+            recipes_by_id = {item.id: item for item in context.db.scalars(statement)}
+            recipes = [recipes_by_id[item_id] for item_id in search_ids if item_id in recipes_by_id]
+            recipes = recipes[offset : offset + limit + 1]
+        return _recipe_search_response(context, recipes, limit=limit)
+
     statement = (
         select(Recipe)
         .options(selectinload(Recipe.ingredient_items), selectinload(Recipe.foods))
@@ -182,14 +208,15 @@ def recipe_search(context: ToolContext, payload: dict[str, Any]) -> dict[str, An
     if query:
         if exact:
             statement = statement.where(Recipe.title == query)
-        else:
-            pattern = f"%{query}%"
-            statement = statement.where(or_(Recipe.title.ilike(pattern), Recipe.tips.ilike(pattern)))
     recipes = list(
         context.db.scalars(
             statement.order_by(Recipe.updated_at.desc(), Recipe.id).offset(offset).limit(limit + 1)
         )
     )
+    return _recipe_search_response(context, recipes, limit=limit)
+
+
+def _recipe_search_response(context: ToolContext, recipes: list[Recipe], *, limit: int) -> dict[str, Any]:
     has_more = len(recipes) > limit
     recipes = recipes[:limit]
     favorite_ids = set(

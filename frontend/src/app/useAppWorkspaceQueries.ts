@@ -60,7 +60,7 @@ export function useAppWorkspaceQueries(args: {
   });
   const inventoryQuery = useQuery({
     queryKey: queryKeys.inventory,
-    queryFn: api.getInventory,
+    queryFn: () => api.getInventory(),
     enabled: args.isAuthenticated && needsInventory,
   });
   const shoppingQuery = useQuery({
@@ -70,7 +70,7 @@ export function useAppWorkspaceQueries(args: {
   });
   const recipesQuery = useQuery({
     queryKey: queryKeys.recipes,
-    queryFn: api.getRecipes,
+    queryFn: () => api.getRecipes(),
     enabled: args.isAuthenticated && needsRecipes,
   });
   const recipeDiscoveryQuery = useQuery({

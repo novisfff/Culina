@@ -195,6 +195,11 @@ describe('food workspace helpers', () => {
     expect(filterFoodWorkspaceItems([baseFood, packaged], '便利店', 'all', 'dinner')).toEqual([baseFood]);
   });
 
+  it('keeps semantic food matches that do not match local text', () => {
+    expect(filterFoodWorkspaceItems([baseFood], '西红柿', 'all', 'all')).toEqual([]);
+    expect(filterFoodWorkspaceItems([baseFood], '西红柿', 'all', 'all', 'all', [], [baseFood.id])).toEqual([baseFood]);
+  });
+
   it('keeps all matching foods for mobile paged loading', () => {
     const manyFoods = Array.from({ length: 9 }, (_, index): Food => ({
       ...baseFood,

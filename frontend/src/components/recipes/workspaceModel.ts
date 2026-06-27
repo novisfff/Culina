@@ -295,11 +295,13 @@ export function filterRecipeCards(
     difficultyFilter: 'all' | Difficulty;
     sortMode: RecipeSortMode;
     favoriteRecipeIds?: Set<string>;
+    matchedRecipeIds?: readonly string[];
   }
 ) {
   const search = options.search.trim().toLowerCase();
+  const matchedIdSet = new Set(options.matchedRecipeIds ?? []);
   const filtered = cards.filter((card) => {
-    const searchMatch = !search || card.searchText.includes(search);
+    const searchMatch = !search || matchedIdSet.has(card.recipe.id) || card.searchText.includes(search);
     const quickMatch =
       options.quickFilter === 'all' ||
       options.quickFilter === 'recommend' ||

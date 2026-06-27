@@ -41,6 +41,15 @@ services:
     volumes:
       - culina_minio_data:/data
 
+  qdrant:
+    image: qdrant/qdrant:v1.12.6
+    container_name: culina-qdrant
+    restart: unless-stopped
+    ports:
+      - "${QDRANT_PORT:-6333}:6333"
+    volumes:
+      - culina_qdrant_data:/qdrant/storage
+
   backend:
     build:
       context: ..
@@ -89,6 +98,21 @@ services:
       AI_IMAGE_TEXT_API_BASE: ${AI_IMAGE_TEXT_API_BASE:-https://dashscope.aliyuncs.com/api/v1}
       AI_IMAGE_TEXT_API_KEY: ${AI_IMAGE_TEXT_API_KEY:-}
       AI_IMAGE_TEXT_MODEL: ${AI_IMAGE_TEXT_MODEL:-wan2.6-t2i}
+      SEARCH_ENABLED: ${SEARCH_ENABLED:-true}
+      SEARCH_DEFAULT_MODE: ${SEARCH_DEFAULT_MODE:-hybrid}
+      SEARCH_KEYWORD_BACKEND: ${SEARCH_KEYWORD_BACKEND:-mysql}
+      SEARCH_VECTOR_BACKEND: ${SEARCH_VECTOR_BACKEND:-qdrant}
+      SEARCH_VECTOR_DEGRADED_TO_KEYWORD: ${SEARCH_VECTOR_DEGRADED_TO_KEYWORD:-true}
+      SEARCH_EMBEDDING_PROVIDER: ${SEARCH_EMBEDDING_PROVIDER:-disabled}
+      SEARCH_EMBEDDING_API_BASE: ${SEARCH_EMBEDDING_API_BASE:-}
+      SEARCH_EMBEDDING_API_KEY: ${SEARCH_EMBEDDING_API_KEY:-}
+      SEARCH_EMBEDDING_MODEL: ${SEARCH_EMBEDDING_MODEL:-}
+      SEARCH_EMBEDDING_DIMENSIONS: ${SEARCH_EMBEDDING_DIMENSIONS:-0}
+      SEARCH_EMBEDDING_TIMEOUT_SECONDS: ${SEARCH_EMBEDDING_TIMEOUT_SECONDS:-30}
+      QDRANT_URL: ${QDRANT_URL:-http://qdrant:6333}
+      QDRANT_API_KEY: ${QDRANT_API_KEY:-}
+      QDRANT_COLLECTION: ${QDRANT_COLLECTION:-culina_search}
+      QDRANT_TIMEOUT_SECONDS: ${QDRANT_TIMEOUT_SECONDS:-10}
       INITIAL_ADMIN_USERNAME: ${INITIAL_ADMIN_USERNAME:-admin}
       INITIAL_ADMIN_PASSWORD: ${INITIAL_ADMIN_PASSWORD:-CulinaAdmin123!}
       INITIAL_ADMIN_DISPLAY_NAME: ${INITIAL_ADMIN_DISPLAY_NAME:-家庭管理员}
@@ -101,6 +125,8 @@ services:
       mysql:
         condition: service_healthy
       minio:
+        condition: service_started
+      qdrant:
         condition: service_started
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8010/api/health', timeout=5).read()\""]
@@ -129,3 +155,4 @@ services:
 volumes:
   culina_mysql_data:
   culina_minio_data:
+  culina_qdrant_data:

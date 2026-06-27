@@ -1,12 +1,16 @@
 import {
   useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
   type CSSProperties,
   type KeyboardEvent,
   type ReactNode,
 } from 'react';
+import { keepPreviousData, useQuery } from '@tanstack/react-query';
+import { api } from '../../api/client';
+import { queryKeys } from '../../api/queryKeys';
 import type {
   ConsumeInventoryResponse,
   DisposeExpiredInventoryResponse,
@@ -1650,6 +1654,34 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
     editingIngredientId,
     ingredientForm,
   });
+  const normalizedInventorySearch = inventorySearch.trim();
+  const normalizedCatalogSearch = catalogSearch.trim();
+  const catalogSearchQuery = useQuery({
+    queryKey: queryKeys.ingredientSearch(normalizedCatalogSearch),
+    queryFn: () => api.getIngredients({ q: normalizedCatalogSearch, limit: 100 }),
+    enabled: Boolean(normalizedCatalogSearch),
+    placeholderData: keepPreviousData,
+  });
+  const inventorySearchQuery = useQuery({
+    queryKey: queryKeys.inventorySearch(normalizedInventorySearch),
+    queryFn: () => api.getInventory({ q: normalizedInventorySearch }),
+    enabled: Boolean(normalizedInventorySearch),
+    placeholderData: keepPreviousData,
+  });
+  const inventorySearchMatchedIngredientIds = useMemo(
+    () =>
+      normalizedInventorySearch
+        ? Array.from(new Set((inventorySearchQuery.data ?? []).map((item) => item.ingredient_id)))
+        : [],
+    [normalizedInventorySearch, inventorySearchQuery.data]
+  );
+  const catalogSearchMatchedIngredientIds = useMemo(
+    () => (normalizedCatalogSearch ? Array.from(new Set((catalogSearchQuery.data ?? []).map((item) => item.id))) : []),
+    [normalizedCatalogSearch, catalogSearchQuery.data]
+  );
+  const searchAwareIngredients = normalizedCatalogSearch && catalogSearchQuery.data ? catalogSearchQuery.data : props.ingredients;
+  const searchAwareInventoryItems =
+    normalizedInventorySearch && inventorySearchQuery.data ? inventorySearchQuery.data : props.inventoryItems;
 
   const {
     summaries,
@@ -1680,17 +1712,19 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
     mobileHasCatalogFilters,
     quickRestockIngredients,
   } = useIngredientWorkspaceData({
-    ingredients: props.ingredients,
-    inventoryItems: props.inventoryItems,
+    ingredients: searchAwareIngredients,
+    inventoryItems: searchAwareInventoryItems,
     recipes: props.recipes,
     shoppingItems: props.shoppingItems,
     ingredientOptions,
     selectedIngredientId,
     catalogSearch,
+    catalogSearchMatchedIngredientIds,
     catalogCategoryFilter,
     catalogStatusFilter,
     inventoryQuickFilter,
     inventorySearch,
+    inventorySearchMatchedIngredientIds,
     inventoryStorageFocus,
     inventorySortMode,
     shoppingSearch,

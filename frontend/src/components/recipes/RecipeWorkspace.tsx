@@ -1,4 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
+import { keepPreviousData, useQuery } from '@tanstack/react-query';
+import { api } from '../../api/client';
+import { queryKeys } from '../../api/queryKeys';
 import type {
   AiGeneratedRecipeDraft,
   CookRecipePreviewResponse,
@@ -346,6 +349,18 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
     createShoppingItem: props.createShoppingItem,
     showRecipeNotice,
   });
+  const normalizedRecipeSearch = search.trim();
+  const recipeSearchQuery = useQuery({
+    queryKey: queryKeys.recipeSearch(normalizedRecipeSearch),
+    queryFn: () => api.getRecipes({ q: normalizedRecipeSearch, limit: 100 }),
+    enabled: Boolean(normalizedRecipeSearch),
+    placeholderData: keepPreviousData,
+  });
+  const matchedRecipeIds = useMemo(
+    () => (normalizedRecipeSearch ? Array.from(new Set((recipeSearchQuery.data ?? []).map((recipe) => recipe.id))) : []),
+    [normalizedRecipeSearch, recipeSearchQuery.data]
+  );
+  const searchAwareRecipes = normalizedRecipeSearch && recipeSearchQuery.data ? recipeSearchQuery.data : props.recipes;
 
   const {
     cards,
@@ -383,7 +398,7 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
     selectedCard,
     selectedReadyCount,
   } = useRecipeWorkspaceData({
-    recipes: props.recipes,
+    recipes: searchAwareRecipes,
     ingredients: props.ingredients,
     inventoryItems: props.inventoryItems,
     mealLogs: props.mealLogs,
@@ -399,6 +414,7 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
     difficultyFilter,
     sortMode,
     search,
+    matchedRecipeIds,
     recommendationPage,
     shoppingCustomForm,
     selectedRecipeId,

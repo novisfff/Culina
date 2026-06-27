@@ -4,7 +4,8 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import Boolean, Date, DateTime, Enum as SqlEnum, Float, ForeignKey, Integer, JSON, LargeBinary, Numeric, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, Date, DateTime, Enum as SqlEnum, Float, ForeignKey, Index, Integer, JSON, LargeBinary, Numeric, String, Text, UniqueConstraint
+from sqlalchemy.dialects import mysql
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 from app.core.enums import (
@@ -66,6 +67,7 @@ class Family(AuditMixin, Base):
     ai_user_approvals: Mapped[list["AIUserApproval"]] = relationship(back_populates="family", cascade="all, delete-orphan")
     ai_operations: Mapped[list["AIOperation"]] = relationship(back_populates="family", cascade="all, delete-orphan")
     ai_image_generation_jobs: Mapped[list["AIImageGenerationJob"]] = relationship(back_populates="family", cascade="all, delete-orphan")
+    search_documents: Mapped[list["SearchDocument"]] = relationship(back_populates="family", cascade="all, delete-orphan")
 
 
 class User(AuditMixin, Base):
@@ -127,6 +129,38 @@ class ActivityLog(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
 
     family: Mapped["Family"] = relationship(back_populates="activity_logs")
+
+
+class SearchDocument(Base):
+    __tablename__ = "search_documents"
+    __table_args__ = (
+        UniqueConstraint("family_id", "entity_type", "entity_id", name="uq_search_documents_entity"),
+        Index("ix_search_documents_family_scope", "family_id", "entity_type", "updated_at"),
+        Index("ix_search_documents_vector_status", "vector_status", "last_vector_attempt_at", "updated_at"),
+    )
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True, default=lambda: create_id("search-doc"))
+    family_id: Mapped[str] = mapped_column(ForeignKey("families.id", ondelete="CASCADE"), nullable=False, index=True)
+    entity_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    entity_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    title_text: Mapped[str] = mapped_column(String(255), default="", nullable=False)
+    keyword_text: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    detail_text: Mapped[str] = mapped_column(Text().with_variant(mysql.MEDIUMTEXT(), "mysql"), default="", nullable=False)
+    semantic_text: Mapped[str] = mapped_column(Text().with_variant(mysql.MEDIUMTEXT(), "mysql"), default="", nullable=False)
+    metadata_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
+    content_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    document_builder_version: Mapped[str] = mapped_column(String(32), nullable=False)
+    embedding_model: Mapped[str] = mapped_column(String(120), default="", nullable=False)
+    embedding_dimensions: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    vector_status: Mapped[str] = mapped_column(String(32), default="pending", nullable=False)
+    vector_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    vector_attempt_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    last_vector_attempt_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    indexed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False)
+
+    family: Mapped["Family"] = relationship(back_populates="search_documents")
 
 
 class Ingredient(AuditMixin, Base):

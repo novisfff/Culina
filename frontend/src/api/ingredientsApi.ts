@@ -56,7 +56,12 @@ export const ingredientsApi = {
       method: 'PATCH',
       body: JSON.stringify(payload),
     }),
-  getInventory: () => request<InventoryItem[]>('/api/inventory'),
+  getInventory: (params: { q?: string } = {}) => {
+    const search = new URLSearchParams();
+    if (params.q?.trim()) search.set('q', params.q.trim());
+    const suffix = search.size > 0 ? `?${search.toString()}` : '';
+    return request<InventoryItem[]>(`/api/inventory${suffix}`);
+  },
   createInventory: (payload: {
     ingredient_id: string;
     quantity?: number | null;

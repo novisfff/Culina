@@ -836,9 +836,11 @@ export function buildIngredientCategoryFilters(ingredients: Ingredient[]) {
 export function filterIngredientSummaries(
   summaries: IngredientSummaryViewModel[],
   term: string,
-  categoryFilter = ALL_CATEGORY_FILTER
+  categoryFilter = ALL_CATEGORY_FILTER,
+  matchedIngredientIds: readonly string[] = []
 ) {
   const normalized = term.trim();
+  const matchedIdSet = new Set(matchedIngredientIds);
   return summaries.filter((summary) => {
     const matchesCategory =
       categoryFilter === ALL_CATEGORY_FILTER || normalizeCategoryLabel(summary.ingredient.category) === categoryFilter;
@@ -849,6 +851,7 @@ export function filterIngredientSummaries(
       return true;
     }
     return (
+      matchedIdSet.has(summary.ingredient.id) ||
       summary.ingredient.name.includes(normalized) ||
       summary.ingredient.category.includes(normalized) ||
       summary.ingredient.notes.includes(normalized) ||
@@ -876,15 +879,18 @@ export function filterInventoryBatchGroups(groups: InventoryBatchGroupViewModel[
 
 export function filterIngredientSummariesForInventory(
   summaries: IngredientSummaryViewModel[],
-  term: string
+  term: string,
+  matchedIngredientIds: readonly string[] = []
 ) {
   const normalized = term.trim();
+  const matchedIdSet = new Set(matchedIngredientIds);
   if (!normalized) {
     return summaries;
   }
 
   return summaries.filter((summary) => {
     return (
+      matchedIdSet.has(summary.ingredient.id) ||
       summary.ingredient.name.includes(normalized) ||
       summary.ingredient.category.includes(normalized) ||
       summary.ingredient.notes.includes(normalized) ||

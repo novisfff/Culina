@@ -1,4 +1,7 @@
 import { useMemo, useState, type FormEvent, type ReactNode } from 'react';
+import { keepPreviousData, useQuery } from '@tanstack/react-query';
+import { api } from '../../api/client';
+import { queryKeys } from '../../api/queryKeys';
 import type {
   Food,
   FoodPlanItem,
@@ -437,13 +440,15 @@ export function filterFoodWorkspaceItems(
   typeFilter: 'all' | FoodType,
   mealFilter: 'all' | MealType,
   lensFilter: FoodWorkspaceLens = 'all',
-  recipes: Recipe[] = []
+  recipes: Recipe[] = [],
+  matchedFoodIds: readonly string[] = []
 ) {
   const keyword = search.trim().toLowerCase();
+  const matchedIdSet = new Set(matchedFoodIds);
   return foods.filter((food) => {
     const normalizedType = normalizeFoodType(food);
     const text = [food.name, food.category, food.source_name, food.purchase_source, food.scene, food.notes, food.routine_note, ...getFoodSceneTags(food)].join(' ').toLowerCase();
-    const searchMatch = !keyword || text.includes(keyword);
+    const searchMatch = !keyword || matchedIdSet.has(food.id) || text.includes(keyword);
     const typeMatch = typeFilter === 'all' || normalizedType === typeFilter;
     const mealMatch = mealFilter === 'all' || food.suitable_meal_types.includes(mealFilter);
     const lensMatch =
@@ -603,6 +608,18 @@ export function FoodWorkspace(props: Props) {
     onStartRecipe: props.onStartRecipe,
   });
   const recipeEditor = useRecipeEditorState({ ingredients: props.ingredients });
+  const normalizedFoodSearch = search.trim();
+  const foodSearchQuery = useQuery({
+    queryKey: queryKeys.foodSearch(normalizedFoodSearch),
+    queryFn: () => api.getFoods({ q: normalizedFoodSearch, limit: 100 }),
+    enabled: Boolean(normalizedFoodSearch),
+    placeholderData: keepPreviousData,
+  });
+  const matchedFoodIds = useMemo(
+    () => (normalizedFoodSearch ? Array.from(new Set((foodSearchQuery.data ?? []).map((food) => food.id))) : []),
+    [normalizedFoodSearch, foodSearchQuery.data]
+  );
+  const searchAwareFoods = normalizedFoodSearch && foodSearchQuery.data ? foodSearchQuery.data : props.foods;
 
   const foodUsageCards = useMemo(
     () => props.foods.map((food) => ({ food, usage: getMealUsage(food, props.mealLogs) })),
@@ -666,12 +683,16 @@ export function FoodWorkspace(props: Props) {
     [foodUsageCards]
   );
   const filteredFoods = useMemo(() => {
-    return filterFoodWorkspaceItems(props.foods, search, typeFilter, mealFilter, lensFilter, props.recipes)
+    const items = filterFoodWorkspaceItems(searchAwareFoods, search, typeFilter, mealFilter, lensFilter, props.recipes, matchedFoodIds)
       .filter((food) => sceneFilter === 'all' || getFoodSceneTags(food).includes(sceneFilter))
-      .filter((food) => lensFilter !== 'needsInfo' || governanceIssueFilter === 'all' || getFoodGovernanceIssues(food, props.recipes).includes(governanceIssueFilter))
+      .filter((food) => lensFilter !== 'needsInfo' || governanceIssueFilter === 'all' || getFoodGovernanceIssues(food, props.recipes).includes(governanceIssueFilter));
+    if (normalizedFoodSearch) {
+      return items;
+    }
+    return items
       .slice()
       .sort((a, b) => getFoodPriority(b, props.mealLogs, lensFilter, props.recipes) - getFoodPriority(a, props.mealLogs, lensFilter, props.recipes));
-  }, [governanceIssueFilter, lensFilter, mealFilter, props.foods, props.mealLogs, props.recipes, search, sceneFilter, typeFilter]);
+  }, [governanceIssueFilter, lensFilter, matchedFoodIds, mealFilter, normalizedFoodSearch, props.mealLogs, props.recipes, search, searchAwareFoods, sceneFilter, typeFilter]);
   const currentLensCopy = FOOD_LENS_COPY[lensFilter];
   const detailFood = detailFoodId ? props.foods.find((food) => food.id === detailFoodId) ?? null : null;
   const repeatFoodCount = foodUsageCards.filter(({ food, usage }) => food.favorite || usage.count >= 2).length;

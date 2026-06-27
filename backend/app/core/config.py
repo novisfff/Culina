@@ -49,6 +49,21 @@ class Settings(BaseSettings):
     ai_image_text_api_base: str = ""
     ai_image_text_api_key: str = ""
     ai_image_text_model: str = "wan2.6-t2i"
+    search_enabled: bool = True
+    search_default_mode: str = "hybrid"
+    search_keyword_backend: str = "mysql"
+    search_vector_backend: str = "qdrant"
+    search_vector_degraded_to_keyword: bool = True
+    search_embedding_provider: str = "disabled"
+    search_embedding_api_base: str = ""
+    search_embedding_api_key: str = ""
+    search_embedding_model: str = ""
+    search_embedding_dimensions: int = 0
+    search_embedding_timeout_seconds: float = 30.0
+    qdrant_url: str = "http://qdrant:6333"
+    qdrant_api_key: str = ""
+    qdrant_collection: str = "culina_search"
+    qdrant_timeout_seconds: float = 10.0
     frontend_origin: str = "http://localhost:5173"
     log_level: str = "INFO"
     initial_admin_username: str = ""
@@ -67,8 +82,31 @@ class Settings(BaseSettings):
             return None
         return value
 
+    @field_validator("search_embedding_dimensions", mode="before")
+    @classmethod
+    def normalize_optional_int(cls, value: object) -> object:
+        if isinstance(value, str) and not value.strip():
+            return 0
+        return value
+
     @model_validator(mode="after")
     def validate_safe_runtime_settings(self) -> "Settings":
+        search_vector_backend = self.search_vector_backend.strip().lower()
+        search_embedding_provider = self.search_embedding_provider.strip().lower()
+        if self.search_enabled and search_vector_backend == "qdrant" and search_embedding_provider != "disabled":
+            missing_search: list[str] = []
+            if not self.search_embedding_model.strip():
+                missing_search.append("SEARCH_EMBEDDING_MODEL")
+            if self.search_embedding_dimensions <= 0:
+                missing_search.append("SEARCH_EMBEDDING_DIMENSIONS")
+            if not self.qdrant_url.strip():
+                missing_search.append("QDRANT_URL")
+            if not self.qdrant_collection.strip():
+                missing_search.append("QDRANT_COLLECTION")
+            if missing_search:
+                unique_missing = ", ".join(dict.fromkeys(missing_search))
+                raise ValueError(f"Invalid search vector settings: set {unique_missing}")
+
         environment = self.environment.strip().lower()
         if self.ai_trace_payload_mode.strip().lower() == "full" and environment not in LOCAL_ENVIRONMENTS:
             raise ValueError("Unsafe production settings: AI_TRACE_PAYLOAD_MODE=full is only allowed locally")

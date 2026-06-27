@@ -16,6 +16,7 @@ import {
   buildShoppingCardGroups,
   buildStorageGroups,
   filterShoppingCards,
+  filterIngredientSummariesForInventory,
   filterIngredientSummaries,
   getIngredientCategoryPreset,
   sortInventorySummariesByExpiry,
@@ -949,6 +950,34 @@ describe('ingredient workspace model', () => {
     expect(filterIngredientSummaries(summaries, '', '蔬菜').map((item) => item.ingredient.name)).toEqual(['番茄']);
     expect(filterIngredientSummaries(summaries, '面', '蔬菜')).toEqual([]);
     expect(filterIngredientSummaries(summaries, '面', '干货').map((item) => item.ingredient.name)).toEqual(['面粉']);
+  });
+
+  it('keeps semantic catalog matches that do not match local text', () => {
+    const summaries = buildIngredientSummaries({
+      ingredients,
+      inventoryItems,
+      recipes,
+      today: '2026-03-20',
+    });
+
+    expect(filterIngredientSummaries(summaries, '西红柿', 'all')).toEqual([]);
+    expect(filterIngredientSummaries(summaries, '西红柿', 'all', ['ingredient-tomato']).map((item) => item.ingredient.name)).toEqual(['番茄']);
+  });
+
+  it('keeps semantic inventory matches that do not match local text', () => {
+    const summaries = buildIngredientSummaries({
+      ingredients,
+      inventoryItems,
+      recipes,
+      today: '2026-03-20',
+    });
+
+    expect(filterIngredientSummariesForInventory(summaries, '西红柿')).toEqual([]);
+    expect(
+      filterIngredientSummariesForInventory(summaries, '西红柿', ['ingredient-tomato']).map(
+        (item) => item.ingredient.name
+      )
+    ).toEqual(['番茄']);
   });
 
   it('builds shopping cards with exact archive matching and pending priority order', () => {

@@ -350,6 +350,29 @@ export interface RecipeStats {
   frequent: RecipeStatsItem[];
 }
 
+export type SearchEntityType = 'ingredient' | 'food' | 'recipe';
+export type SearchMode = 'keyword' | 'semantic' | 'hybrid' | string;
+export type SearchResultEntity = Ingredient | Food | Recipe;
+
+export interface SearchResultItem {
+  entity_type: SearchEntityType;
+  entity_id: string;
+  score: number;
+  keyword_score: number;
+  semantic_score: number;
+  business_score: number;
+  match_reason: string[];
+  entity: SearchResultEntity;
+}
+
+export interface SearchResponse {
+  items: SearchResultItem[];
+  total: number;
+  query: string;
+  search_mode: SearchMode;
+  degraded: boolean;
+}
+
 export interface RecipeFavorite {
   id: string;
   family_id: string;

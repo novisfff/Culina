@@ -288,6 +288,17 @@ describe('recipe workspace model', () => {
     const cards = buildRecipeCards(recipes, [tomato, flour], inventoryItems, mealLogs, foods);
 
     expect(filterRecipeCards(cards, { search: '番茄', quickFilter: 'all', sceneFilter: 'all', difficultyFilter: 'all', sortMode: 'updated' })).toHaveLength(1);
+    expect(filterRecipeCards(cards, { search: '西红柿', quickFilter: 'all', sceneFilter: 'all', difficultyFilter: 'all', sortMode: 'updated' })).toEqual([]);
+    expect(
+      filterRecipeCards(cards, {
+        search: '西红柿',
+        quickFilter: 'all',
+        sceneFilter: 'all',
+        difficultyFilter: 'all',
+        sortMode: 'updated',
+        matchedRecipeIds: ['recipe-ready'],
+      }).map((card) => card.recipe.id)
+    ).toEqual(['recipe-ready']);
     expect(filterRecipeCards(cards, { search: '', quickFilter: 'recommend', sceneFilter: 'all', difficultyFilter: 'all', sortMode: 'recommend' }).map((card) => card.recipe.id)).toEqual(['recipe-ready', 'recipe-missing']);
     expect(filterRecipeCards(cards, { search: '', quickFilter: 'common', sceneFilter: 'all', difficultyFilter: 'all', sortMode: 'updated' }).map((card) => card.recipe.id)).toEqual(['recipe-ready']);
     expect(filterRecipeCards(cards, { search: '', quickFilter: 'quick', sceneFilter: 'all', difficultyFilter: 'all', sortMode: 'updated' }).map((card) => card.recipe.id)).toEqual(['recipe-ready']);
