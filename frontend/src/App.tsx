@@ -679,6 +679,7 @@ function App() {
                 onRecipePlanPreviousWeek={() => setSelectedRecipePlanDate(addDateKeyDays(foodPlanWeekRange.start, -7))}
                 onRecipePlanCurrentWeek={() => setSelectedRecipePlanDate(todayKey())}
                 onRecipePlanNextWeek={() => setSelectedRecipePlanDate(addDateKeyDays(foodPlanWeekRange.end, 1))}
+                createIngredient={(payload) => createIngredientMutation.mutateAsync(payload)}
                 createRecipe={(payload) => createRecipeMutation.mutateAsync(payload)}
                 updateRecipe={(recipeId, payload) => updateRecipeMutation.mutateAsync({ recipeId, payload })}
                 deleteRecipe={(recipeId) => deleteRecipeMutation.mutateAsync(recipeId)}
@@ -703,6 +704,7 @@ function App() {
                 isCreatingRecipe={createRecipeMutation.isPending}
                 isUpdatingRecipe={updateRecipeMutation.isPending}
                 isDeletingRecipe={deleteRecipeMutation.isPending}
+                isCreatingIngredient={createIngredientMutation.isPending}
                 isCookingRecipe={cookRecipeMutation.isPending}
                 isCreatingShopping={createShoppingMutation.isPending}
                 isUpdatingFavorite={addRecipeFavoriteMutation.isPending || removeRecipeFavoriteMutation.isPending}

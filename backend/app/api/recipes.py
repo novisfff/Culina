@@ -31,6 +31,7 @@ from app.services.clock import today_for_family
 from app.services.ingredient_units import UnitConversionError
 from app.services.inventory_usage import build_cook_inventory_plan, load_available_inventory_by_ingredient, recipe_availability_rank, recipe_availability_summary, serialize_cook_preview_item
 from app.services.media import bind_media_assets, replace_media_assets
+from app.services.recipe_ingredient_refs import RecipeIngredientReferenceError, normalize_recipe_ingredient_items, recipe_ingredient_reference_error_detail
 from app.services.recipe_food_sync import ensure_food_for_recipe
 from app.services.search.hybrid import hybrid_search
 from app.services.search.indexing import delete_search_document, upsert_food_search_document, upsert_recipe_search_document
@@ -56,16 +57,21 @@ def _replace_recipe_children(db: Session, recipe: Recipe, payload: CreateRecipeR
     recipe.steps.clear()
     db.flush()
 
-    for index, item in enumerate(payload.ingredient_items):
+    ingredient_items = normalize_recipe_ingredient_items(
+        db,
+        family_id=recipe.family_id,
+        items=payload.ingredient_items,
+    )
+    for index, item in enumerate(ingredient_items):
         db.add(
             RecipeIngredient(
                 id=create_id("recipe-ingredient"),
                 recipe_id=recipe.id,
-                ingredient_id=item.ingredient_id,
-                ingredient_name=item.ingredient_name,
-                quantity=Decimal(str(item.quantity)),
-                unit=item.unit,
-                note=item.note,
+                ingredient_id=item["ingredient_id"],
+                ingredient_name=item["ingredient_name"],
+                quantity=Decimal(str(item["quantity"])),
+                unit=item["unit"],
+                note=item["note"],
                 sort_order=index,
             )
         )
@@ -274,7 +280,10 @@ def create_recipe(
     )
     db.add(recipe)
     db.flush()
-    _replace_recipe_children(db, recipe, payload)
+    try:
+        _replace_recipe_children(db, recipe, payload)
+    except RecipeIngredientReferenceError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=recipe_ingredient_reference_error_detail(exc)) from exc
 
     bind_media_assets(db, family_id=membership.family_id, media_ids=payload.media_ids, entity_type="recipe", entity_id=recipe.id)
     if payload.pending_image_job_id:
@@ -341,7 +350,10 @@ def update_recipe(
     recipe.tips = payload.tips
     recipe.scene_tags = list(dict.fromkeys(tag.strip() for tag in payload.scene_tags if tag.strip()))
     recipe.updated_by = user.id
-    _replace_recipe_children(db, recipe, payload)
+    try:
+        _replace_recipe_children(db, recipe, payload)
+    except RecipeIngredientReferenceError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=recipe_ingredient_reference_error_detail(exc)) from exc
     replace_media_assets(
         db,
         family_id=membership.family_id,

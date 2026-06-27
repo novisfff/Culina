@@ -25,6 +25,7 @@ from app.services.ingredient_units import (
     normalize_unit_label,
 )
 from app.services.inventory_usage import build_cook_inventory_plan, expiry_sort_key, inventory_remaining_in_default, serialize_cook_preview_item, tracks_quantity
+from app.services.recipe_ingredient_refs import normalize_recipe_ingredient_items
 from app.services.serializers import serialize_food, serialize_food_plan_item, serialize_ingredient, serialize_meal_log, serialize_media, serialize_recipe, serialize_shopping_item
 
 
@@ -479,16 +480,14 @@ def normalize_recipe_draft_for_tools(db: Session, *, family_id: str, payload: An
     if isinstance(payload, dict) and payload.get("action"):
         return _normalize_recipe_operation_draft(db, family_id=family_id, payload=payload)
     recipe = _strip_transport_fields(CreateRecipeRequest.model_validate(payload).model_dump(mode="json"))
-    ingredient_ids = _string_ids(item.get("ingredient_id") for item in recipe["ingredient_items"])
-    ingredients_by_id = _load_by_id(db, Ingredient, family_id=family_id, ids=ingredient_ids, label="食材")
-    normalized_items = []
-    for item in recipe["ingredient_items"]:
-        ingredient_id = item.get("ingredient_id")
-        if ingredient_id:
-            ingredient = ingredients_by_id[str(ingredient_id)]
-            item = {**item, "ingredient_id": ingredient.id, "ingredient_name": ingredient.name, "unit": ingredient.default_unit}
-        normalized_items.append(item)
-    return {**recipe, "ingredient_items": normalized_items}
+    return {
+        **recipe,
+        "ingredient_items": normalize_recipe_ingredient_items(
+            db,
+            family_id=family_id,
+            items=recipe["ingredient_items"],
+        ),
+    }
 
 
 def normalize_recipe_cook_draft(db: Session, *, family_id: str, user_id: str, payload: Any) -> dict[str, Any]:

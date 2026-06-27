@@ -75,6 +75,7 @@ import { RecipeCookFinishDialog } from './RecipeCookFinishDialog';
 import { RecipeCookView } from './RecipeCookView';
 import { RecipeDetailView } from './RecipeDetailView';
 import { RecipeEditorView } from './RecipeEditorView';
+import { RecipeIngredientResolutionDialog } from './RecipeIngredientResolutionDialog';
 import { RecipeLibraryView } from './RecipeLibraryView';
 import { RecipePlanDetailDialog, RecipePlanDialog } from './RecipePlanDialogs';
 import { RecipeSceneManagerDialog } from './RecipeSceneManagerDialog';
@@ -90,8 +91,10 @@ import {
   buildFormFromRecipe,
   buildRecipeFormFromGeneratedDraft,
   buildRecipeImagePayload,
+  buildRecipeIngredientCreatePayload,
   buildRecipePayload,
   buildRecipeShortageShoppingPayloads,
+  buildRecipeUnresolvedIngredientTargets,
   buildSceneImagePayload,
   buildShoppingDraftFromRecipeIngredient,
   buildShoppingDraftsFromShortages,
@@ -124,6 +127,7 @@ import {
   loadCookSession,
   recipeCookSessionKey,
   applyRecipeIngredientRequirement,
+  parseRecipeUnresolvedIngredientError,
   resolveErrorMessage,
   resolveIngredientImageUrl,
   resolveRecipeDifficulty,
@@ -142,6 +146,7 @@ import {
   type RecipeShoppingIngredientOption,
   type RecipeShoppingRequirement,
   type RecipeStepDraft,
+  type RecipeUnresolvedIngredientTarget,
 } from './RecipeWorkspaceModel';
 
 export {
@@ -163,6 +168,9 @@ export {
   getRecipeShoppingRequirement,
   hasRecipeDraftMinimumInput,
   isAiGeneratedRecipeDraft,
+  parseRecipeUnresolvedIngredientError,
+  buildRecipeUnresolvedIngredientTargets,
+  buildRecipeIngredientCreatePayload,
   loadCookSession,
   recipeCookSessionKey,
   sanitizeCookSession,
@@ -190,6 +198,7 @@ type RecipeWorkspaceProps = {
   onRecipePlanPreviousWeek: () => void;
   onRecipePlanCurrentWeek: () => void;
   onRecipePlanNextWeek: () => void;
+  createIngredient: (payload: ReturnType<typeof buildRecipeIngredientCreatePayload>) => Promise<Ingredient>;
   createRecipe: (payload: CreateRecipePayload) => Promise<Recipe>;
   updateRecipe: (recipeId: string, payload: RecipePayload) => Promise<Recipe>;
   deleteRecipe: (recipeId: string) => Promise<void>;
@@ -237,6 +246,7 @@ type RecipeWorkspaceProps = {
   isCreatingRecipe?: boolean;
   isUpdatingRecipe?: boolean;
   isDeletingRecipe?: boolean;
+  isCreatingIngredient?: boolean;
   isCookingRecipe?: boolean;
   isCreatingShopping?: boolean;
   isUpdatingFavorite?: boolean;
@@ -326,6 +336,8 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
   const [categoryScrollState, setCategoryScrollState] = useState({ canLeft: false, canRight: false });
   const [discoveryScrollState, setDiscoveryScrollState] = useState({ canLeft: false, canRight: false });
   const [recipeNotice, setRecipeNotice] = useState<RecipeNotice | null>(null);
+  const [isIngredientResolutionOpen, setIsIngredientResolutionOpen] = useState(false);
+  const [ingredientResolutionTargets, setIngredientResolutionTargets] = useState<RecipeUnresolvedIngredientTarget[]>([]);
   const {
     view,
     setView,
@@ -890,12 +902,69 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
     }
   }
 
-  async function submitRecipe(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const payload = buildRecipePayload(form, ingredientRows, props.ingredients, getPendingImageJobId(form.images));
+  function closeIngredientResolutionDialog() {
+    setIsIngredientResolutionOpen(false);
+    setIngredientResolutionTargets([]);
+  }
+
+  function removeIngredientResolutionTarget(target: RecipeUnresolvedIngredientTarget) {
+    setIngredientResolutionTargets((current) =>
+      current.filter((item) => item.rowId !== target.rowId || item.index !== target.index || item.reason !== target.reason)
+    );
+  }
+
+  function resolveIngredientRow(target: RecipeUnresolvedIngredientTarget, ingredient: Ingredient) {
+    if (target.rowId) {
+      setIngredientRows((current) =>
+        current.map((item) =>
+          item.id === target.rowId
+            ? {
+                ...item,
+                ingredient_id: ingredient.id,
+                ingredient_name: ingredient.name,
+                unit: ingredient.default_unit || item.unit,
+              }
+            : item
+        )
+      );
+    }
+    removeIngredientResolutionTarget(target);
+  }
+
+  function removeUnresolvedIngredientRow(target: RecipeUnresolvedIngredientTarget) {
+    if (target.rowId) {
+      setIngredientRows((current) => {
+        if (current.length <= 1) {
+          return defaultIngredientRows();
+        }
+        return current.filter((item) => item.id !== target.rowId);
+      });
+    }
+    removeIngredientResolutionTarget(target);
+  }
+
+  async function createIngredientForResolution(target: RecipeUnresolvedIngredientTarget) {
+    try {
+      const ingredient = await props.createIngredient(buildRecipeIngredientCreatePayload(target));
+      resolveIngredientRow(target, ingredient);
+      showRecipeNotice({
+        tone: 'success',
+        title: '食材已创建',
+        message: `已将「${ingredient.name}」绑定到菜谱原料。`,
+      });
+    } catch (reason) {
+      showRecipeNotice({
+        tone: 'danger',
+        title: '创建食材失败',
+        message: resolveErrorMessage(reason, '创建食材失败'),
+      });
+    }
+  }
+
+  async function saveRecipePayload(payload: RecipePayload) {
     if (!payload.title || payload.ingredient_items.length === 0) {
       showRecipeNotice({ tone: 'warning', title: '还不能保存菜谱', message: '菜谱至少要有标题和一个食材。' });
-      return;
+      return false;
     }
     try {
       if (isEditing && selectedRecipeId) {
@@ -908,13 +977,38 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
         recipeImageComposer.setState(IDLE_IMAGE_GENERATION_STATE);
         setView('detail');
       }
+      closeIngredientResolutionDialog();
+      return true;
     } catch (reason) {
+      const unresolvedItems = parseRecipeUnresolvedIngredientError(reason);
+      if (unresolvedItems) {
+        setIngredientResolutionTargets(buildRecipeUnresolvedIngredientTargets(unresolvedItems, ingredientRows));
+        setIsIngredientResolutionOpen(true);
+        showRecipeNotice({
+          tone: 'warning',
+          title: '先处理缺失食材',
+          message: '菜谱里还有未绑定到食材库的配料，确认后再保存。',
+        });
+        return false;
+      }
       showRecipeNotice({
         tone: 'danger',
         title: isEditing ? '更新菜谱失败' : '新增菜谱失败',
         message: resolveErrorMessage(reason, isEditing ? '更新菜谱失败' : '新增菜谱失败'),
       });
+      return false;
     }
+  }
+
+  async function retrySaveAfterIngredientResolution() {
+    const payload = buildRecipePayload(form, ingredientRows, props.ingredients, getPendingImageJobId(form.images));
+    await saveRecipePayload(payload);
+  }
+
+  async function submitRecipe(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const payload = buildRecipePayload(form, ingredientRows, props.ingredients, getPendingImageJobId(form.images));
+    await saveRecipePayload(payload);
   }
 
   async function deleteRecipeCard(card: RecipeCardViewModel) {
@@ -1112,6 +1206,18 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
             ×
           </button>
         </div>
+      )}
+      {isIngredientResolutionOpen && (
+        <RecipeIngredientResolutionDialog
+          targets={ingredientResolutionTargets}
+          ingredients={props.ingredients}
+          isCreatingIngredient={props.isCreatingIngredient}
+          onClose={closeIngredientResolutionDialog}
+          onRetrySave={retrySaveAfterIngredientResolution}
+          onResolveWithIngredient={resolveIngredientRow}
+          onCreateIngredient={createIngredientForResolution}
+          onRemoveIngredientRow={removeUnresolvedIngredientRow}
+        />
       )}
       {view === 'create' || view === 'edit' ? (
         <RecipeEditorView

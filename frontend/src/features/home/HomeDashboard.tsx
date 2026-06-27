@@ -636,7 +636,7 @@ export function HomeDashboard(props: HomeDashboardProps) {
                         </button>
                       </div>
                       <div className="dashboard-activity-list">
-                        {activityLogs.slice(0, 4).map((log, index) => {
+                        {activityLogs.map((log, index) => {
                           const meal = recentMeals[index];
                           const plannedFood = foods.find((item) => item.id === foodPlanItems[index]?.food_id);
                           const imageUrl = meal?.photos[0]?.url ?? (plannedFood ? getFoodCover(plannedFood, recipes) : undefined);

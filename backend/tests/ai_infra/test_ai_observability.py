@@ -734,8 +734,8 @@ class AIObservabilityTestCase(AIAgentInfraTestCase):
                     "prep_minutes": 15,
                     "difficulty": "easy",
                     "ingredient_items": [
-                        {"ingredient_id": None, "ingredient_name": "番茄", "quantity": 2, "unit": "个", "note": "切块"},
-                        {"ingredient_id": None, "ingredient_name": "鸡蛋", "quantity": 3, "unit": "个", "note": "打散"},
+                        {"ingredient_id": "ingredient-tomato", "ingredient_name": "番茄", "quantity": 2, "unit": "个", "note": "切块"},
+                        {"ingredient_id": "ingredient-egg", "ingredient_name": "鸡蛋", "quantity": 3, "unit": "个", "note": "打散"},
                     ],
                     "steps": [
                         {"title": "备菜", "text": "番茄洗净切块，鸡蛋打散备用。", "icon": "tomato", "summary": "处理食材", "estimated_minutes": 5, "tip": "", "key_points": []},
@@ -774,6 +774,7 @@ class AIObservabilityTestCase(AIAgentInfraTestCase):
                 )
 
         with self.SessionLocal() as db:
+            self._add_egg_ingredient(db)
             result = AIApplicationService(db, provider=TraceableRecipeProvider()).generate_recipe_draft(
                 family_id=self.family.id,
                 user_id=self.user.id,

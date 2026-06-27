@@ -86,6 +86,9 @@ class AIToolRegistryTestCase(AIAgentInfraTestCase):
                 recipe_result = executor.call("recipe.search", {"query": "紫苏叶", "limit": 5})
 
             self.assertEqual([item["id"] for item in ingredient_result["items"]], [ingredient.id])
+            self.assertIn("score", ingredient_result["items"][0])
+            self.assertIn("matchReason", ingredient_result["items"][0])
+            self.assertIn("degraded", ingredient_result)
             self.assertEqual([item["id"] for item in food_result["items"]], [food.id])
             self.assertEqual([item["id"] for item in recipe_result["items"]], [recipe.id])
 
@@ -480,7 +483,7 @@ class AIToolRegistryTestCase(AIAgentInfraTestCase):
                 with self.assertRaisesRegex(ValueError, "recipe.create_draft input.draft does not match any allowed shape"):
                     executor.call("recipe.create_draft", {"draft": {}})
 
-                with self.assertRaisesRegex(ValueError, "当前家庭"):
+                with self.assertRaisesRegex(ValueError, "未解析的食材"):
                     executor.call(
                         "recipe.create_draft",
                         {
@@ -491,6 +494,24 @@ class AIToolRegistryTestCase(AIAgentInfraTestCase):
                                 "difficulty": "easy",
                                 "ingredient_items": [
                                     {"ingredient_id": "ingredient-secret", "ingredient_name": "其他家庭牛排", "quantity": 1, "unit": "块", "note": ""}
+                                ],
+                                "steps": recipe_steps,
+                                "tips": "",
+                                "scene_tags": [],
+                            }
+                        },
+                    )
+                with self.assertRaisesRegex(ValueError, "ingredient_id must be string"):
+                    executor.call(
+                        "recipe.create_draft",
+                        {
+                            "draft": {
+                                "title": "库外食材菜",
+                                "servings": 2,
+                                "prep_minutes": 15,
+                                "difficulty": "easy",
+                                "ingredient_items": [
+                                    {"ingredient_id": None, "ingredient_name": "面条", "quantity": 200, "unit": "克", "note": ""}
                                 ],
                                 "steps": recipe_steps,
                                 "tips": "",

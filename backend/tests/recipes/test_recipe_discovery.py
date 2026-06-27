@@ -28,6 +28,23 @@ class RecipeRecipeDiscoveryTestCase(RecipeApiTestCase):
                 },
             )
             self.assertEqual(pancake_response.status_code, 201, pancake_response.text)
+            with self.SessionLocal() as db:
+                db.add(
+                    Ingredient(
+                        id="ingredient-banana",
+                        family_id=self.family.id,
+                        name="香蕉",
+                        category="水果",
+                        default_unit="根",
+                        unit_conversions=[],
+                        default_storage="常温",
+                        default_expiry_mode=IngredientExpiryMode.NONE,
+                        notes="",
+                        created_by=self.user.id,
+                        updated_by=self.user.id,
+                    )
+                )
+                db.commit()
             banana_pancake_response = self.client.post(
                 "/api/recipes",
                 json={
@@ -37,7 +54,7 @@ class RecipeRecipeDiscoveryTestCase(RecipeApiTestCase):
                     "difficulty": "medium",
                     "ingredient_items": [
                         {
-                            "ingredient_id": None,
+                            "ingredient_id": "ingredient-banana",
                             "ingredient_name": "香蕉",
                             "quantity": 1,
                             "unit": "根",

@@ -1523,7 +1523,22 @@
 }
 
 .dashboard-activity-list {
-  gap: 4px;
+  gap: 8px;
+  max-height: 228px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding-right: 4px;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+}
+
+.dashboard-activity-list::-webkit-scrollbar {
+  width: 7px;
+}
+
+.dashboard-activity-list::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: rgba(154, 139, 128, 0.22);
 }
 
 .dashboard-todo-item {
@@ -1662,8 +1677,9 @@
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
-  gap: 8px;
-  min-height: 29px;
+  gap: 10px;
+  min-height: 44px;
+  padding: 4px 0;
   font-size: 0.84rem;
 }
 
@@ -1707,14 +1723,14 @@
   .dashboard-expiry-panel {
     order: 2;
     grid-column: 1;
-    align-self: stretch;
+    align-self: start;
     grid-template-rows: auto 1fr;
   }
 
   .dashboard-activity-panel {
     order: 2;
     grid-column: 2;
-    align-self: stretch;
+    align-self: start;
     grid-template-rows: auto 1fr;
   }
 
@@ -1733,6 +1749,12 @@
   }
 
   .dashboard-expiry-panel,
+  .dashboard-activity-panel {
+    height: 320px;
+    min-height: 0;
+  }
+
+  .dashboard-expiry-panel,
   .dashboard-todo-panel,
   .dashboard-activity-panel,
   .dashboard-shopping-panel {
@@ -1742,8 +1764,10 @@
 
   .dashboard-expiry-list {
     grid-template-columns: 1fr;
+    min-height: 0;
     max-height: none;
-    overflow: visible;
+    overflow-y: auto;
+    overflow-x: hidden;
   }
 
   .dashboard-todo-list {
@@ -1761,6 +1785,17 @@
 
   .dashboard-activity-list {
     grid-template-columns: 1fr;
+    gap: 11px;
+    min-height: 0;
+    max-height: none;
+    overflow-y: auto;
+    overflow-x: hidden;
+  }
+
+  .dashboard-activity-item {
+    min-height: 52px;
+    gap: 12px;
+    padding: 5px 0;
   }
 
   .dashboard-shopping-row {

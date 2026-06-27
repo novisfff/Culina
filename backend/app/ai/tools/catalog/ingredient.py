@@ -33,6 +33,11 @@ INGREDIENT_ITEM_OUTPUT = {
         "defaultLowStockThreshold": {"type": ["string", "null"]},
         "notes": {"type": ["string", "null"]},
         "updatedAt": {"type": ["string", "null"]},
+        "score": {"type": "number"},
+        "keywordScore": {"type": "number"},
+        "semanticScore": {"type": "number"},
+        "businessScore": {"type": "number"},
+        "matchReason": {"type": "array", "items": {"type": "string"}},
     },
 }
 
@@ -42,6 +47,7 @@ INGREDIENT_SEARCH_OUTPUT = {
     "properties": {
         "count": {"type": "integer", "minimum": 0},
         "hasMore": {"type": "boolean"},
+        "degraded": {"type": "boolean"},
         "items": {"type": "array", "items": INGREDIENT_ITEM_OUTPUT},
     },
 }
@@ -69,7 +75,8 @@ def ingredient_search(context: ToolContext, payload: dict[str, Any]) -> dict[str
             limit=max(limit + offset + 1, 80),
             offset=0,
         )
-        search_ids = [item.entity_id for item in search_result.items if item.entity_type == "ingredient"]
+        search_items = [item for item in search_result.items if item.entity_type == "ingredient"]
+        search_ids = [item.entity_id for item in search_items]
         if not search_ids:
             ingredients: list[Ingredient] = []
         else:
@@ -79,7 +86,12 @@ def ingredient_search(context: ToolContext, payload: dict[str, Any]) -> dict[str
             ingredients_by_id = {item.id: item for item in context.db.scalars(statement)}
             ingredients = [ingredients_by_id[item_id] for item_id in search_ids if item_id in ingredients_by_id]
             ingredients = ingredients[offset : offset + limit + 1]
-        return _ingredient_search_response(ingredients, limit=limit)
+        return _ingredient_search_response(
+            ingredients,
+            limit=limit,
+            search_meta_by_id={item.entity_id: item for item in search_items},
+            degraded=search_result.degraded,
+        )
 
     statement = select(Ingredient).where(Ingredient.family_id == context.family_id)
     if ids:
@@ -91,10 +103,16 @@ def ingredient_search(context: ToolContext, payload: dict[str, Any]) -> dict[str
             statement = statement.where(Ingredient.name == query)
     statement = statement.order_by(Ingredient.updated_at.desc(), Ingredient.id).offset(offset).limit(limit + 1)
     ingredients = list(context.db.scalars(statement))
-    return _ingredient_search_response(ingredients, limit=limit)
+    return _ingredient_search_response(ingredients, limit=limit, degraded=False)
 
 
-def _ingredient_search_response(ingredients: list[Ingredient], *, limit: int) -> dict[str, Any]:
+def _ingredient_search_response(
+    ingredients: list[Ingredient],
+    *,
+    limit: int,
+    search_meta_by_id: dict[str, Any] | None = None,
+    degraded: bool = False,
+) -> dict[str, Any]:
     has_more = len(ingredients) > limit
     ingredients = ingredients[:limit]
     return {
@@ -113,11 +131,32 @@ def _ingredient_search_response(ingredients: list[Ingredient], *, limit: int) ->
                 "defaultLowStockThreshold": decimal_text(item.default_low_stock_threshold) if item.default_low_stock_threshold is not None else None,
                 "notes": item.notes,
                 "updatedAt": item.updated_at.isoformat() if item.updated_at is not None else None,
+                **_ingredient_search_meta(search_meta_by_id, item.id),
             }
             for item in ingredients
         ],
         "count": len(ingredients),
         "hasMore": has_more,
+        "degraded": degraded,
+    }
+
+
+def _ingredient_search_meta(search_meta_by_id: dict[str, Any] | None, ingredient_id: str) -> dict[str, Any]:
+    meta = (search_meta_by_id or {}).get(ingredient_id)
+    if meta is None:
+        return {
+            "score": 0,
+            "keywordScore": 0,
+            "semanticScore": 0,
+            "businessScore": 0,
+            "matchReason": [],
+        }
+    return {
+        "score": meta.score,
+        "keywordScore": meta.keyword_score,
+        "semanticScore": meta.semantic_score,
+        "businessScore": meta.business_score,
+        "matchReason": list(meta.match_reason or []),
     }
 
 
