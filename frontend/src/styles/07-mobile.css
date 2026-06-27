@@ -5021,7 +5021,6 @@
 
   .mobile-dashboard-food-cover {
     --media-placeholder-gap: 6px;
-    --media-placeholder-icon-size: clamp(76px, 62%, 94px);
     --media-placeholder-label-font-size: 0.72rem;
     --media-placeholder-label-padding: 3px 10px;
     --media-placeholder-glow-size: 58%;
@@ -5411,7 +5410,6 @@
   }
 
   .mobile-dashboard-plan-dish > .media-with-placeholder {
-    --media-placeholder-icon-size: 18px;
     width: 36px;
     height: 34px;
   }
@@ -5495,7 +5493,6 @@
   }
 
   .mobile-dashboard-shopping-pill .media-with-placeholder {
-    --media-placeholder-icon-size: 28px;
     width: 100%;
     height: 100%;
     display: block;

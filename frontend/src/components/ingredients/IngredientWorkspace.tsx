@@ -878,7 +878,13 @@ function resolveInventoryStorageAsset(storage: string) {
 }
 
 function InventoryStorageIllustration(props: { storage: string }) {
-  return <img src={resolveInventoryStorageAsset(props.storage)} alt="" aria-hidden="true" />;
+  return (
+    <img
+      src={resolveInventoryStorageAsset(props.storage)}
+      alt=""
+      className="ingredients-inventory-storage-illustration"
+    />
+  );
 }
 
 function InventoryStorageOverviewCard(props: InventoryStorageOverviewCardProps) {

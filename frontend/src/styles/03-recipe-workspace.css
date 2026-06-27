@@ -690,12 +690,36 @@
 .recipe-ingredient-picker-trigger-thumb {
   width: 32px;
   height: 32px;
+  min-width: 32px;
   border-radius: 50%;
   overflow: hidden;
-  flex-shrink: 0;
+  flex: 0 0 32px;
   object-fit: cover;
   border: 1px solid rgba(210, 107, 51, 0.12);
   box-shadow: 0 1px 3px rgba(210, 107, 51, 0.05);
+}
+
+.recipe-ingredient-picker-trigger-thumb.media-with-placeholder {
+  position: relative;
+  aspect-ratio: 1 / 1;
+  display: block;
+  width: 32px;
+  min-width: 32px;
+  max-width: 32px;
+  height: 32px;
+  min-height: 32px;
+  flex: 0 0 32px;
+  border-radius: 50%;
+  overflow: hidden;
+  clip-path: circle(50% at 50% 50%);
+}
+
+.recipe-ingredient-picker-trigger-thumb.media-with-placeholder > img,
+.recipe-ingredient-picker-trigger-thumb.media-with-placeholder > .media-placeholder {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  clip-path: circle(50% at 50% 50%);
 }
 
 /* Left Align picker trigger and make chevron down push to right */
@@ -854,7 +878,7 @@
   color: var(--text);
 }
 
-.recipe-ingredient-picker-trigger > span {
+.recipe-ingredient-picker-trigger > span:not(.recipe-ingredient-picker-trigger-thumb):not(.recipe-ingredient-picker-trigger-thumb-placeholder) {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -4708,7 +4732,6 @@
 }
 
 .recipe-inspiration-favorite-thumb .media-placeholder {
-  --media-placeholder-icon-size: 20px;
   gap: 0;
 }
 
@@ -4804,7 +4827,6 @@
 }
 
 .recipe-mini-thumb .media-placeholder {
-  --media-placeholder-icon-size: 26px;
   gap: 0;
 }
 
@@ -4818,7 +4840,6 @@
 .recipe-discovery-card-cover .media-placeholder,
 .recipe-work-cover .media-placeholder,
 .mobile-recipe-cover .media-placeholder {
-  --media-placeholder-icon-size: 32px;
   gap: 0;
 }
 

@@ -43,12 +43,24 @@ type MealPlanIngredientItem = {
   unit: string;
 };
 
+function isPublicAssetImage(url?: string): url is string {
+  return Boolean(url?.startsWith('/assets/'));
+}
+
 function ResourceThumbnail({ option }: { option?: AiResourceOption | null }) {
+  const imageUrl = option?.imageUrl;
+  if (isPublicAssetImage(imageUrl)) {
+    return (
+      <span className="ai-resource-thumbnail-frame">
+        <img className="ai-resource-thumbnail" src={imageUrl} alt="" />
+      </span>
+    );
+  }
   return (
     <MediaWithPlaceholder
       className="ai-resource-thumbnail-frame"
       imageClassName="ai-resource-thumbnail"
-      src={option?.imageUrl}
+      src={imageUrl}
       alt=""
     />
   );

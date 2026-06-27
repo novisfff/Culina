@@ -1,4 +1,5 @@
 import type { AiMessageImagePartData } from '../../api/types';
+import { MediaWithPlaceholder } from '../MediaPlaceholder';
 import { resolveAssetUrl } from '../../lib/assets';
 
 type Props = {
@@ -35,7 +36,13 @@ export function AiMessageImageGrid({ images }: Props) {
             rel="noreferrer"
             aria-label={image.alt || '查看上传图片'}
           >
-            <img src={thumbnailUrl} alt={image.alt || '上传图片'} loading="lazy" />
+            <MediaWithPlaceholder
+              src={thumbnailUrl}
+              alt={image.alt || '上传图片'}
+              loading="lazy"
+              className="ai-message-image-media"
+              showLabel={false}
+            />
           </a>
         );
       })}

@@ -1603,10 +1603,7 @@ textarea:focus-visible {
 
 .media-placeholder.state-loading {
   background:
-    linear-gradient(110deg, rgba(255, 255, 255, 0.34) 8%, rgba(255, 255, 255, 0.72) 18%, rgba(255, 255, 255, 0.34) 32%),
     linear-gradient(135deg, rgba(246, 235, 222, 0.94), rgba(232, 238, 222, 0.86));
-  background-size: 220% 100%, 100% 100%;
-  animation: media-placeholder-loading-sheen 1.35s ease-in-out infinite;
 }
 
 .media-placeholder.state-error {
@@ -1616,18 +1613,17 @@ textarea:focus-visible {
   color: rgba(164, 73, 58, 0.58);
 }
 
-.media-placeholder::after {
-  position: absolute;
-  inset: -40% auto -40% -35%;
-  width: 32%;
-  content: '';
-  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.42), transparent);
-  transform: skewX(-18deg);
-  animation: media-placeholder-shimmer 5.6s ease-in-out infinite;
-}
-
 .media-placeholder.state-loading::after {
-  opacity: 0;
+  position: absolute;
+  top: -42%;
+  bottom: -42%;
+  left: 0;
+  width: 38%;
+  content: '';
+  background: linear-gradient(90deg, transparent 0%, rgba(255, 255, 255, 0.5) 48%, transparent 100%);
+  transform: skewX(-18deg);
+  animation: media-placeholder-shimmer 3.6s cubic-bezier(0.42, 0, 0.32, 1) infinite;
+  animation-fill-mode: both;
 }
 
 .media-with-placeholder {
@@ -1664,7 +1660,9 @@ textarea:focus-visible {
 .media-placeholder svg {
   position: relative;
   z-index: 2;
-  width: var(--media-placeholder-icon-size, clamp(56px, 38%, 88px));
+  width: clamp(30px, 42%, 168px);
+  max-width: 64%;
+  max-height: 64%;
   min-width: 0;
   height: auto;
   fill: none;
@@ -1672,34 +1670,10 @@ textarea:focus-visible {
   stroke-width: 1.65;
   stroke-linecap: round;
   stroke-linejoin: round;
+}
+
+.media-placeholder.state-loading svg {
   animation: media-placeholder-breathe 3.8s ease-in-out infinite;
-}
-
-.media-placeholder-loader {
-  position: relative;
-  z-index: 2;
-  display: inline-grid;
-  grid-auto-flow: column;
-  gap: 5px;
-  place-items: center;
-  min-height: 22px;
-}
-
-.media-placeholder-loader span {
-  width: 7px;
-  height: 7px;
-  border-radius: 999px;
-  background: rgba(210, 107, 51, 0.38);
-  box-shadow: 0 0 0 4px rgba(210, 107, 51, 0.06);
-  animation: media-placeholder-loader-dot 900ms ease-in-out infinite;
-}
-
-.media-placeholder-loader span:nth-child(2) {
-  animation-delay: 140ms;
-}
-
-.media-placeholder-loader span:nth-child(3) {
-  animation-delay: 280ms;
 }
 
 .media-placeholder-label {
@@ -1746,6 +1720,55 @@ textarea:focus-visible {
 
 .media-placeholder-leaf-line {
   stroke: rgba(91, 125, 70, 0.36);
+}
+
+.media-placeholder-empty-slash-backdrop {
+  stroke: rgba(250, 248, 245, 0.82);
+  stroke-linecap: round;
+  stroke-width: 4.2;
+}
+
+.media-placeholder-empty-slash {
+  stroke: rgba(122, 96, 74, 0.62);
+  stroke-linecap: round;
+  stroke-width: 2.35;
+}
+
+.media-placeholder-error-frame {
+  stroke: rgba(132, 112, 92, 0.42);
+}
+
+.media-placeholder-error-hill {
+  fill: rgba(253, 235, 232, 0.2);
+  stroke: rgba(132, 112, 92, 0.38);
+}
+
+.media-placeholder-error-leaf {
+  fill: rgba(116, 148, 94, 0.13);
+  stroke: rgba(91, 125, 70, 0.38);
+}
+
+.media-placeholder-error-leaf-line {
+  stroke: rgba(91, 125, 70, 0.34);
+}
+
+.media-placeholder-error-crack {
+  stroke: rgba(132, 112, 92, 0.52);
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2.1;
+}
+
+.media-placeholder-error-badge {
+  fill: rgba(255, 255, 255, 0.42);
+  stroke: rgba(210, 126, 86, 0.62);
+  stroke-width: 1.9;
+}
+
+.media-placeholder-error-mark {
+  stroke: rgba(210, 126, 86, 0.76);
+  stroke-linecap: round;
+  stroke-width: 2.2;
 }
 
 .media-placeholder-glow {
@@ -1810,35 +1833,13 @@ textarea:focus-visible {
 
 @keyframes media-placeholder-shimmer {
   0%,
-  58% {
-    left: -35%;
+  26% {
+    transform: translateX(-150%) skewX(-18deg);
   }
 
+  68%,
   100% {
-    left: 118%;
-  }
-}
-
-@keyframes media-placeholder-loading-sheen {
-  0% {
-    background-position: 160% 0, 0 0;
-  }
-
-  100% {
-    background-position: -60% 0, 0 0;
-  }
-}
-
-@keyframes media-placeholder-loader-dot {
-  0%,
-  100% {
-    opacity: 0.34;
-    transform: translateY(0);
-  }
-
-  50% {
-    opacity: 0.95;
-    transform: translateY(-3px);
+    transform: translateX(360%) skewX(-18deg);
   }
 }
 
@@ -1859,14 +1860,10 @@ textarea:focus-visible {
   .media-placeholder::after,
   .media-placeholder svg,
   .media-placeholder-glow,
-  .media-placeholder-spark,
-  .media-placeholder-loader span {
+  .media-placeholder-spark {
     animation: none;
   }
 
-  .media-placeholder.state-loading {
-    animation: none;
-  }
 }
 
 /* Clean placeholder styles for all recipe, food, ingredient, dashboard, meal log, family settings, and profile covers/editors/subpages */
@@ -1879,7 +1876,6 @@ textarea:focus-visible {
 [class*="meal-"] .media-placeholder,
 [class*="family-"] .media-placeholder,
 [class*="profile-"] .media-placeholder {
-  --media-placeholder-icon-size: 32px;
   gap: 0;
 }
 
@@ -3171,6 +3167,15 @@ textarea:focus-visible {
   height: 100%;
   display: block;
   object-fit: cover;
+}
+
+.avatar.avatar-has-image {
+  background: transparent;
+  box-shadow: none;
+}
+
+.sidebar-user-card .avatar.avatar-has-image {
+  box-shadow: none;
 }
 
 .avatar.large {

@@ -1,4 +1,5 @@
 import type { AiComposerAttachment } from './useAiAttachmentState';
+import { MediaWithPlaceholder } from '../MediaPlaceholder';
 
 type Props = {
   attachments: AiComposerAttachment[];
@@ -19,7 +20,13 @@ export function AiComposerAttachments({ attachments, disabled = false, onRemove 
     <div className="ai-composer-attachments" aria-label="已添加的图片">
       {attachments.map((attachment) => (
         <div key={attachment.clientAttachmentId} className={`ai-composer-attachment is-${attachment.status}`}>
-          <img src={attachment.previewUrl} alt="" />
+          <MediaWithPlaceholder
+            src={attachment.previewUrl}
+            alt=""
+            className="ai-composer-attachment-media"
+            showLabel={false}
+            ariaHidden
+          />
           <span className="ai-composer-attachment-status">{attachmentStatusLabel(attachment)}</span>
           <button
             type="button"

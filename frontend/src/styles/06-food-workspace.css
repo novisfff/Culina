@@ -11957,7 +11957,6 @@ button.ai-clarification-option:hover:not(:disabled) .ai-clarification-option-ind
 .mobile-food-cover .media-placeholder,
 .mobile-food-priority-cover .media-placeholder,
 .mobile-food-library-cover .media-placeholder {
-  --media-placeholder-icon-size: 32px;
   gap: 0;
 }
 
@@ -11987,7 +11986,6 @@ button.ai-clarification-option:hover:not(:disabled) .ai-clarification-option-ind
 
 /* Sidebar Food Scenes mini-thumb */
 .food-sidebar-scene-thumb .media-placeholder {
-  --media-placeholder-icon-size: 20px;
   gap: 0;
 }
 

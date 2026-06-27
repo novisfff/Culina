@@ -60,7 +60,10 @@ export function HomeMobileDashboard(props: {
     <main className="mobile-dashboard-page" aria-label="手机首页">
       <section className="mobile-dashboard-hero">
         <div className="mobile-dashboard-kitchen" aria-hidden="true">
-          <img src="/assets/kitchen_transparent.webp" alt="" />
+          <img
+            src="/assets/kitchen_transparent.webp"
+            alt=""
+          />
         </div>
         <div className="mobile-dashboard-topbar">
           <div className="mobile-dashboard-brand">

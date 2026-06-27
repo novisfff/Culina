@@ -175,10 +175,11 @@ function RecipeIngredientPicker({ row, rowIndex, ingredients, onSelect }: Recipe
       >
         {selectedIngredient && (
           selectedIngredient.image?.url ? (
-            <img
+            <MediaWithPlaceholder
               src={resolveAssetUrl(selectedIngredient.image.url)}
               alt={selectedLabel}
               className="recipe-ingredient-picker-trigger-thumb"
+              showLabel={false}
             />
           ) : (
             <span className="recipe-ingredient-picker-trigger-thumb-placeholder">

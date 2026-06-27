@@ -66,7 +66,10 @@ describe('AI query result cards', () => {
     expect(view.textContent).toContain('3个');
     expect(view.textContent).toContain('保质期至 2026-06-16');
     expect(view.textContent).toContain('2 天后到期');
-    expect(view.querySelector<HTMLImageElement>('.ai-query-card-image')?.src).toContain('ai-food-ingredient-placeholder.png');
+    const fallbackImage = view.querySelector<HTMLImageElement>('img.ai-query-card-image');
+    expect(fallbackImage?.getAttribute('src')).toBe('/assets/ai-food-ingredient-placeholder.png');
+    expect(fallbackImage?.getAttribute('data-state')).toBeNull();
+    expect(view.querySelector('.ai-query-card-image .media-placeholder')).toBeNull();
   });
 
   it('renders only the suggested inventory action and the persisted operation result', async () => {

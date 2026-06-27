@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import type { AiInventoryBatchOption, MediaAsset } from '../../api/types';
 import { resolveMediaUrl } from '../../lib/assets';
+import { MediaWithPlaceholder } from '../MediaPlaceholder';
 import { ApprovalSelectField } from './AiApprovalFields';
 
 const ACTION_LABELS: Record<string, string> = {
@@ -92,7 +93,13 @@ export function AiInventoryOperationEditor({
           >
             <div className="ai-inventory-operation-main-row">
               {image ? (
-                <img className="ai-inventory-operation-img" src={resolveMediaUrl(image, 'thumb') ?? ''} alt="" />
+                <MediaWithPlaceholder
+                  className="ai-inventory-operation-img"
+                  src={resolveMediaUrl(image, 'thumb')}
+                  alt=""
+                  showLabel={false}
+                  ariaHidden
+                />
               ) : (
                 <span className="ai-inventory-operation-placeholder" aria-hidden="true">食</span>
               )}
