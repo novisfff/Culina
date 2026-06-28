@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.core.config import get_settings
 from app.core.enums import FoodType
-from app.models.domain import Food, Ingredient, InventoryItem, MealLog, Recipe, SearchDocument
+from app.models.domain import Food, FoodPlanItem, Ingredient, InventoryItem, MealLog, Recipe, SearchDocument
 from app.services.clock import today_for_family
 from app.services.ingredient_units import UnitConversionError
 from app.services.inventory_usage import load_available_inventory_by_ingredient, recipe_availability_summary, remaining_quantity, tracks_quantity
@@ -53,6 +53,7 @@ def hybrid_search(
     db: Session,
     *,
     family_id: str,
+    user_id: str | None = None,
     query: str,
     scopes: list[str],
     limit: int,
@@ -73,6 +74,7 @@ def hybrid_search(
     exact_name_hits = search_exact_name_documents(
         db,
         family_id=family_id,
+        user_id=user_id,
         query=normalized_query,
         scopes=scopes,
         limit=keyword_limit,
@@ -92,8 +94,10 @@ def hybrid_search(
         vector_store = vector_store or build_vector_store()
         try:
             query_vector = embedding_client.embed_text(normalized_query)
-            semantic_hits = vector_store.search(
+            semantic_hits = _search_vectors(
+                vector_store=vector_store,
                 family_id=family_id,
+                user_id=user_id,
                 scopes=scopes,
                 vector=query_vector,
                 limit=semantic_limit,
@@ -105,6 +109,7 @@ def hybrid_search(
     merged, rerank_degraded = _merge_hits(
         db,
         family_id=family_id,
+        user_id=user_id,
         query=normalized_query,
         exact_name_hits=exact_name_hits,
         keyword_hits=keyword_hits,
@@ -130,6 +135,7 @@ def _merge_hits(
     db: Session,
     *,
     family_id: str,
+    user_id: str | None,
     query: str,
     exact_name_hits: list[KeywordSearchHit],
     keyword_hits: list[KeywordSearchHit],
@@ -179,9 +185,9 @@ def _merge_hits(
 
     documents_by_key = _load_candidate_documents(db, family_id=family_id, keys=list(by_key))
     by_key = {key: result for key, result in by_key.items() if key in documents_by_key or result.exact_name_match}
-    existing_keys = _load_existing_business_keys(db, family_id=family_id, keys=list(by_key))
+    existing_keys = _load_existing_business_keys(db, family_id=family_id, user_id=user_id, keys=list(by_key))
     by_key = {key: result for key, result in by_key.items() if key in existing_keys}
-    business_signals_by_key = _load_business_signals(db, family_id=family_id, keys=list(by_key))
+    business_signals_by_key = _load_business_signals(db, family_id=family_id, user_id=user_id, keys=list(by_key))
     for key, result in by_key.items():
         score = score_search_candidate(
             entity_type=result.entity_type,
@@ -212,6 +218,25 @@ def _merge_hits(
         literal_fallback_min_score=literal_fallback_min_score,
         rerank_candidate_limit=rerank_candidate_limit,
     )
+
+
+def _search_vectors(
+    *,
+    vector_store: VectorStore,
+    family_id: str,
+    user_id: str | None,
+    scopes: list[str],
+    vector: list[float],
+    limit: int,
+) -> list[VectorSearchHit]:
+    if not user_id or "meal_plan" not in scopes:
+        return vector_store.search(family_id=family_id, scopes=scopes, vector=vector, limit=limit)
+    hits: list[VectorSearchHit] = []
+    other_scopes = [scope for scope in scopes if scope != "meal_plan"]
+    if other_scopes:
+        hits.extend(vector_store.search(family_id=family_id, scopes=other_scopes, vector=vector, limit=limit))
+    hits.extend(vector_store.search(family_id=family_id, scopes=["meal_plan"], vector=vector, limit=limit, user_id=user_id))
+    return sorted(hits, key=lambda item: item.semantic_rank)[:limit]
 
 
 def _load_candidate_documents(
@@ -391,6 +416,19 @@ def _literal_keyword_values(document: SearchDocument) -> list[tuple[str, str]]:
                 },
             )
         )
+    elif document.entity_type == "meal_plan":
+        values.extend(
+            _metadata_strings(
+                metadata,
+                {
+                    "food_name": "关键词匹配",
+                    "recipe_title": "关键词匹配",
+                    "meal_type_label": "餐次匹配",
+                    "status_label": "状态匹配",
+                    "plan_date": "日期匹配",
+                },
+            )
+        )
     return values
 
 
@@ -418,7 +456,7 @@ def _is_single_cjk_query(value: str) -> bool:
 
 
 def _rerank_document_texts(document: SearchDocument) -> list[str]:
-    entity_label = {"ingredient": "食材", "food": "食物", "recipe": "菜谱"}.get(document.entity_type, document.entity_type)
+    entity_label = {"ingredient": "食材", "food": "食物", "recipe": "菜谱", "meal_plan": "餐食计划"}.get(document.entity_type, document.entity_type)
     name_text = _build_limited_rerank_document(
         [
             ("类型", entity_label),
@@ -473,6 +511,7 @@ def _load_existing_business_keys(
     db: Session,
     *,
     family_id: str,
+    user_id: str | None,
     keys: list[tuple[str, str]],
 ) -> set[tuple[str, str]]:
     if not keys:
@@ -480,6 +519,7 @@ def _load_existing_business_keys(
     ingredient_ids = [entity_id for entity_type, entity_id in keys if entity_type == "ingredient"]
     food_ids = [entity_id for entity_type, entity_id in keys if entity_type == "food"]
     recipe_ids = [entity_id for entity_type, entity_id in keys if entity_type == "recipe"]
+    meal_plan_ids = [entity_id for entity_type, entity_id in keys if entity_type == "meal_plan"]
     existing: set[tuple[str, str]] = set()
     if ingredient_ids:
         existing.update(
@@ -502,6 +542,17 @@ def _load_existing_business_keys(
                 select(Recipe.id).where(Recipe.family_id == family_id, Recipe.id.in_(recipe_ids))
             )
         )
+    if meal_plan_ids and user_id:
+        existing.update(
+            ("meal_plan", entity_id)
+            for entity_id in db.scalars(
+                select(FoodPlanItem.id).where(
+                    FoodPlanItem.family_id == family_id,
+                    FoodPlanItem.user_id == user_id,
+                    FoodPlanItem.id.in_(meal_plan_ids),
+                )
+            )
+        )
     return existing
 
 
@@ -509,12 +560,14 @@ def _load_business_signals(
     db: Session,
     *,
     family_id: str,
+    user_id: str | None,
     keys: list[tuple[str, str]],
 ) -> dict[tuple[str, str], SearchBusinessSignals]:
     recipe_ids = [entity_id for entity_type, entity_id in keys if entity_type == "recipe"]
     food_ids = [entity_id for entity_type, entity_id in keys if entity_type == "food"]
     ingredient_ids = [entity_id for entity_type, entity_id in keys if entity_type == "ingredient"]
-    if not recipe_ids and not food_ids and not ingredient_ids:
+    meal_plan_ids = [entity_id for entity_type, entity_id in keys if entity_type == "meal_plan"]
+    if not recipe_ids and not food_ids and not ingredient_ids and not meal_plan_ids:
         return {}
     today = today_for_family(family_id)
     signals: dict[tuple[str, str], SearchBusinessSignals] = {}
@@ -522,6 +575,8 @@ def _load_business_signals(
         signals.update(_load_ingredient_business_signals(db, family_id=family_id, ingredient_ids=ingredient_ids, today=today))
     if food_ids:
         signals.update(_load_food_business_signals(db, family_id=family_id, food_ids=food_ids, today=today))
+    if meal_plan_ids and user_id:
+        signals.update(_load_meal_plan_business_signals(db, family_id=family_id, user_id=user_id, meal_plan_ids=meal_plan_ids, today=today))
     if not recipe_ids:
         return signals
     recipes = list(
@@ -648,6 +703,34 @@ def _load_food_business_signals(
             target_meal_type=target_meal_type,
             inventory_available=_food_inventory_available(food),
             days_until_expiry=(food.expiry_date - today).days if food.expiry_date is not None else None,
+        )
+    return signals
+
+
+def _load_meal_plan_business_signals(
+    db: Session,
+    *,
+    family_id: str,
+    user_id: str,
+    meal_plan_ids: list[str],
+    today,
+) -> dict[tuple[str, str], SearchBusinessSignals]:
+    items = list(
+        db.scalars(
+            select(FoodPlanItem).where(
+                FoodPlanItem.family_id == family_id,
+                FoodPlanItem.user_id == user_id,
+                FoodPlanItem.id.in_(meal_plan_ids),
+            )
+        )
+    )
+    signals: dict[tuple[str, str], SearchBusinessSignals] = {}
+    for item in items:
+        meal_type = item.meal_type.value if hasattr(item.meal_type, "value") else str(item.meal_type)
+        signals[("meal_plan", item.id)] = SearchBusinessSignals(
+            plan_date_delta=(item.plan_date - today).days if item.plan_date is not None else None,
+            meal_type=meal_type,
+            plan_status=str(item.status or ""),
         )
     return signals
 

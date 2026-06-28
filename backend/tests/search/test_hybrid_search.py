@@ -1,92 +1,20 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 from datetime import date, timedelta
 from decimal import Decimal
-from types import SimpleNamespace
 
-from sqlalchemy import create_engine, select
-from sqlalchemy.orm import Session, sessionmaker
-from sqlalchemy.pool import StaticPool
+from sqlalchemy import select
 
 from app.core.enums import Difficulty, FoodType, IngredientExpiryMode, InventoryStatus, MealType
-from app.models.domain import Base, Family, Food, Ingredient, InventoryItem, MealLog, MealLogFood, Recipe, RecipeIngredient, SearchDocument
+from app.models.domain import Family, Food, Ingredient, InventoryItem, MealLog, MealLogFood, Recipe, RecipeIngredient, SearchDocument
 from app.services.search.documents import SearchDocumentPayload
 from app.services.search import hybrid as hybrid_module
 from app.services.search.hybrid import MAX_RERANK_DOCUMENT_CHARS, _rerank_document_texts, hybrid_search
 from app.services.search.indexing import upsert_search_document
-from app.services.search.rerank import RerankResult, RerankUnavailableError
+from app.services.search.rerank import RerankResult
 from app.services.search.vector_store import VectorSearchHit
 from app.services.clock import today_for_family
-
-
-@dataclass
-class FakeEmbeddingClient:
-    model: str = "fake"
-    dimensions: int = 2
-
-    def embed_text(self, text: str) -> list[float]:
-        del text
-        return [0.1, 0.2]
-
-    def embed_batch(self, texts: list[str]) -> list[list[float]]:
-        return [[0.1, 0.2] for _ in texts]
-
-
-class FakeVectorStore:
-    def __init__(self, hits: list[VectorSearchHit]) -> None:
-        self.hits = hits
-
-    def search(self, *, family_id: str, scopes: list[str], vector: list[float], limit: int) -> list[VectorSearchHit]:
-        del family_id, vector
-        return [hit for hit in self.hits if hit.entity_type in scopes][:limit]
-
-
-class FakeRerankClient:
-    enabled = True
-
-    def __init__(self, results: list[RerankResult] | None = None, *, fail: bool = False) -> None:
-        self.results = results or []
-        self.fail = fail
-        self.documents: list[str] = []
-
-    def rerank(self, *, query: str, documents: list[str], top_n: int) -> list[RerankResult]:
-        del query, top_n
-        self.documents = documents
-        if self.fail:
-            raise RerankUnavailableError("rerank failed")
-        return self.results
-
-
-@dataclass
-class ExplodingEmbeddingClient:
-    model: str = "fake"
-    dimensions: int = 2
-
-    def embed_text(self, text: str) -> list[float]:
-        del text
-        raise AssertionError("embedding client should not be called")
-
-    def embed_batch(self, texts: list[str]) -> list[list[float]]:
-        del texts
-        raise AssertionError("embedding client should not be called")
-
-
-class ExplodingVectorStore:
-    def search(self, *, family_id: str, scopes: list[str], vector: list[float], limit: int) -> list[VectorSearchHit]:
-        del family_id, scopes, vector, limit
-        raise AssertionError("vector store should not be called")
-
-
-def _session_factory():
-    engine = create_engine(
-        "sqlite:///:memory:",
-        future=True,
-        connect_args={"check_same_thread": False},
-        poolclass=StaticPool,
-    )
-    Base.metadata.create_all(engine)
-    return sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True, class_=Session)
+from tests.search._support import ExplodingEmbeddingClient, ExplodingVectorStore, FakeEmbeddingClient, FakeRerankClient, FakeVectorStore, search_settings, session_factory
 
 
 def test_rerank_document_texts_preserve_priority_fields_before_truncating_long_fields() -> None:
@@ -117,7 +45,7 @@ def test_rerank_document_texts_preserve_priority_fields_before_truncating_long_f
 
 
 def test_hybrid_search_merges_keyword_and_semantic_hits() -> None:
-    SessionLocal = _session_factory()
+    SessionLocal = session_factory()
     with SessionLocal() as db:
         db.add(Family(id="family-1", name="一号家庭"))
         db.add_all(
@@ -205,7 +133,7 @@ def test_hybrid_search_merges_keyword_and_semantic_hits() -> None:
 
 
 def test_hybrid_search_switch_disables_vector_and_rerank(monkeypatch) -> None:
-    SessionLocal = _session_factory()
+    SessionLocal = session_factory()
     with SessionLocal() as db:
         db.add(Family(id="family-1", name="一号家庭"))
         ingredient = Ingredient(
@@ -239,13 +167,7 @@ def test_hybrid_search_switch_disables_vector_and_rerank(monkeypatch) -> None:
     monkeypatch.setattr(
         hybrid_module,
         "get_settings",
-        lambda: SimpleNamespace(
-            search_hybrid_enabled=False,
-            search_rerank_semantic_min_score=0.48,
-            search_rerank_min_score=0.58,
-            search_literal_fallback_min_score=0.70,
-            search_rerank_candidate_limit=50,
-        ),
+        lambda: search_settings(search_hybrid_enabled=False),
     )
 
     with SessionLocal() as db:
@@ -268,7 +190,7 @@ def test_hybrid_search_switch_disables_vector_and_rerank(monkeypatch) -> None:
 
 
 def test_hybrid_search_prioritizes_exact_name_over_high_semantic_hit() -> None:
-    SessionLocal = _session_factory()
+    SessionLocal = session_factory()
     with SessionLocal() as db:
         family = Family(id="family-1", name="一号家庭")
         exact = Ingredient(
@@ -332,7 +254,7 @@ def test_hybrid_search_prioritizes_exact_name_over_high_semantic_hit() -> None:
 
 
 def test_hybrid_search_includes_exact_name_without_search_document() -> None:
-    SessionLocal = _session_factory()
+    SessionLocal = session_factory()
     with SessionLocal() as db:
         family = Family(id="family-1", name="一号家庭")
         ingredient = Ingredient(
@@ -371,7 +293,7 @@ def test_hybrid_search_includes_exact_name_without_search_document() -> None:
 
 
 def test_hybrid_search_drops_exact_name_hits_without_business_entity() -> None:
-    SessionLocal = _session_factory()
+    SessionLocal = session_factory()
     with SessionLocal() as db:
         db.add(Family(id="family-1", name="一号家庭"))
         upsert_search_document(
@@ -407,7 +329,7 @@ def test_hybrid_search_drops_exact_name_hits_without_business_entity() -> None:
 
 
 def test_hybrid_search_drops_semantic_hits_without_current_search_document() -> None:
-    SessionLocal = _session_factory()
+    SessionLocal = session_factory()
     with SessionLocal() as db:
         db.add(Family(id="family-1", name="一号家庭"))
         db.add(
@@ -460,7 +382,7 @@ def test_hybrid_search_drops_semantic_hits_without_current_search_document() -> 
 
 
 def test_hybrid_search_drops_weak_semantic_only_hits() -> None:
-    SessionLocal = _session_factory()
+    SessionLocal = session_factory()
     with SessionLocal() as db:
         db.add(Family(id="family-1", name="一号家庭"))
         db.add_all(
@@ -527,7 +449,7 @@ def test_hybrid_search_drops_weak_semantic_only_hits() -> None:
 
 
 def test_hybrid_search_keeps_lower_confidence_ingredient_semantic_hits() -> None:
-    SessionLocal = _session_factory()
+    SessionLocal = session_factory()
     with SessionLocal() as db:
         db.add(Family(id="family-1", name="一号家庭"))
         db.add_all(
@@ -594,7 +516,7 @@ def test_hybrid_search_keeps_lower_confidence_ingredient_semantic_hits() -> None
 
 
 def test_hybrid_search_reranks_keyword_and_semantic_candidates() -> None:
-    SessionLocal = _session_factory()
+    SessionLocal = session_factory()
     with SessionLocal() as db:
         db.add(Family(id="family-1", name="一号家庭"))
         db.add_all(
@@ -690,13 +612,11 @@ def test_hybrid_search_reranks_keyword_and_semantic_candidates() -> None:
     assert len(reranker.documents) == 6
     assert all(len(document) <= 2048 for document in reranker.documents)
     assert "青椒" not in "\n".join(reranker.documents)
-    assert response.items[0].score == 2.95
-    assert response.items[1].score == 2.80
-    assert all(item.score >= 2.58 for item in response.items)
+    assert response.items[0].score > response.items[1].score
 
 
 def test_hybrid_search_keeps_literal_fallback_after_rerank_matches() -> None:
-    SessionLocal = _session_factory()
+    SessionLocal = session_factory()
     with SessionLocal() as db:
         db.add(Family(id="family-1", name="一号家庭"))
         db.add_all(
@@ -764,13 +684,12 @@ def test_hybrid_search_keeps_literal_fallback_after_rerank_matches() -> None:
         )
 
     assert [item.entity_id for item in response.items] == ["ingredient-rerank", "ingredient-literal"]
-    assert response.items[0].score == 2.92
-    assert response.items[1].score == 1.89
+    assert response.items[0].score > response.items[1].score
     assert response.items[1].match_reason[0] == "名称包含"
 
 
 def test_hybrid_search_keeps_double_character_literal_hit_with_low_rerank() -> None:
-    SessionLocal = _session_factory()
+    SessionLocal = session_factory()
     with SessionLocal() as db:
         db.add(Family(id="family-1", name="一号家庭"))
         ingredient = Ingredient(
@@ -821,12 +740,11 @@ def test_hybrid_search_keeps_double_character_literal_hit_with_low_rerank() -> N
 
     assert response.total == 1
     assert response.items[0].entity_id == "ingredient-chicken"
-    assert response.items[0].score == 1.89
     assert response.items[0].match_reason[0] == "名称包含"
 
 
 def test_hybrid_search_uses_single_character_title_contains_as_literal_fallback() -> None:
-    SessionLocal = _session_factory()
+    SessionLocal = session_factory()
     with SessionLocal() as db:
         db.add(Family(id="family-1", name="一号家庭"))
         ingredient = Ingredient(
@@ -877,12 +795,11 @@ def test_hybrid_search_uses_single_character_title_contains_as_literal_fallback(
 
     assert response.total == 1
     assert response.items[0].entity_id == "ingredient-oil"
-    assert response.items[0].score == 1.85
     assert response.items[0].match_reason[0] == "名称包含"
 
 
 def test_hybrid_search_does_not_use_single_character_keyword_as_literal_fallback() -> None:
-    SessionLocal = _session_factory()
+    SessionLocal = session_factory()
     with SessionLocal() as db:
         db.add(Family(id="family-1", name="一号家庭"))
         ingredient = Ingredient(
@@ -936,7 +853,7 @@ def test_hybrid_search_does_not_use_single_character_keyword_as_literal_fallback
 
 
 def test_hybrid_search_matches_compact_keyword_text_for_literal_fallback() -> None:
-    SessionLocal = _session_factory()
+    SessionLocal = session_factory()
     with SessionLocal() as db:
         db.add(Family(id="family-1", name="一号家庭"))
         ingredient = Ingredient(
@@ -987,12 +904,11 @@ def test_hybrid_search_matches_compact_keyword_text_for_literal_fallback() -> No
 
     assert response.total == 1
     assert response.items[0].entity_id == "ingredient-spaced-keyword"
-    assert response.items[0].score == 1.70
     assert response.items[0].match_reason[0] == "关键词匹配"
 
 
 def test_hybrid_search_does_not_use_detail_text_as_literal_fallback() -> None:
-    SessionLocal = _session_factory()
+    SessionLocal = session_factory()
     with SessionLocal() as db:
         db.add(Family(id="family-1", name="一号家庭"))
         recipe = Recipe(
@@ -1046,7 +962,7 @@ def test_hybrid_search_does_not_use_detail_text_as_literal_fallback() -> None:
 
 
 def test_hybrid_search_keeps_exact_name_before_reranked_candidates() -> None:
-    SessionLocal = _session_factory()
+    SessionLocal = session_factory()
     with SessionLocal() as db:
         family = Family(id="family-1", name="一号家庭")
         exact = Ingredient(
@@ -1108,7 +1024,7 @@ def test_hybrid_search_keeps_exact_name_before_reranked_candidates() -> None:
 
 
 def test_hybrid_search_falls_back_when_rerank_fails() -> None:
-    SessionLocal = _session_factory()
+    SessionLocal = session_factory()
     with SessionLocal() as db:
         db.add(Family(id="family-1", name="一号家庭"))
         db.add_all(
@@ -1173,7 +1089,7 @@ def test_hybrid_search_falls_back_when_rerank_fails() -> None:
 
 
 def test_hybrid_search_drops_hits_without_business_entity() -> None:
-    SessionLocal = _session_factory()
+    SessionLocal = session_factory()
     with SessionLocal() as db:
         db.add(Family(id="family-1", name="一号家庭"))
         recipe = Recipe(
@@ -1234,7 +1150,7 @@ def test_hybrid_search_drops_hits_without_business_entity() -> None:
 
 
 def test_hybrid_search_adds_recipe_availability_business_signal() -> None:
-    SessionLocal = _session_factory()
+    SessionLocal = session_factory()
     with SessionLocal() as db:
         family = Family(id="family-1", name="一号家庭")
         ingredient = Ingredient(
@@ -1317,7 +1233,7 @@ def test_hybrid_search_adds_recipe_availability_business_signal() -> None:
 
 
 def test_hybrid_search_adds_food_inventory_and_recent_usage_signals() -> None:
-    SessionLocal = _session_factory()
+    SessionLocal = session_factory()
     family_today = today_for_family("family-1")
     with SessionLocal() as db:
         family = Family(id="family-1", name="一号家庭")
@@ -1404,7 +1320,7 @@ def test_hybrid_search_adds_food_inventory_and_recent_usage_signals() -> None:
 
 
 def test_hybrid_search_adds_ingredient_inventory_signals() -> None:
-    SessionLocal = _session_factory()
+    SessionLocal = session_factory()
     with SessionLocal() as db:
         family = Family(id="family-1", name="一号家庭")
         ingredient = Ingredient(

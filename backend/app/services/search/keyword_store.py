@@ -7,7 +7,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.sql.elements import TextClause
 from sqlalchemy.orm import Session
 
-from app.models.domain import Food, Ingredient, Recipe, SearchDocument
+from app.models.domain import Food, FoodPlanItem, Ingredient, Recipe, SearchDocument
 
 
 @dataclass(frozen=True)
@@ -80,6 +80,7 @@ def search_exact_name_documents(
     db: Session,
     *,
     family_id: str,
+    user_id: str | None = None,
     query: str,
     scopes: list[str],
     limit: int = 80,
@@ -148,6 +149,30 @@ def search_exact_name_documents(
                     matched_fields=("title_text",),
                 )
                 for recipe_id in rows
+            )
+        elif scope == "meal_plan" and user_id:
+            rows = db.scalars(
+                select(FoodPlanItem.id)
+                .where(
+                    FoodPlanItem.family_id == family_id,
+                    FoodPlanItem.user_id == user_id,
+                    or_(
+                        func.lower(func.trim(FoodPlanItem.note)) == normalized_query,
+                        FoodPlanItem.food.has(func.lower(func.trim(Food.name)) == normalized_query),
+                        FoodPlanItem.food.has(Food.recipe.has(func.lower(func.trim(Recipe.title)) == normalized_query)),
+                    ),
+                )
+                .order_by(FoodPlanItem.updated_at.desc(), FoodPlanItem.id.asc())
+                .limit(remaining)
+            )
+            hits.extend(
+                KeywordSearchHit(
+                    entity_type="meal_plan",
+                    entity_id=item_id,
+                    keyword_score=1.0,
+                    matched_fields=("title_text",),
+                )
+                for item_id in rows
             )
     return hits
 

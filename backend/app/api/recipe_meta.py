@@ -29,6 +29,9 @@ from app.schemas.recipes import (
 from app.services.activity import log_activity
 from app.services.media import replace_media_assets
 from app.services.recipe_food_sync import ensure_food_for_recipe
+from app.services.search.hybrid import hybrid_search
+from app.services.search.indexing import delete_search_document
+from app.services.search.jobs import enqueue_search_index_job
 from app.services.serializers import serialize_food_plan_item, serialize_food_scene, serialize_recipe_favorite, serialize_recipe_plan_item
 
 router = APIRouter(tags=["recipe-meta"])
@@ -337,10 +340,26 @@ def remove_recipe_favorite(
 def list_food_plan(
     date_from: date = Query(...),
     date_to: date = Query(...),
+    q: str = Query(default="", max_length=100),
     auth: tuple = Depends(get_current_auth),
     db: Session = Depends(get_db),
 ) -> list[dict]:
     user, membership = auth
+    query = q.strip()
+    matching_ids: set[str] | None = None
+    if query:
+        search_result = hybrid_search(
+            db,
+            family_id=membership.family_id,
+            user_id=user.id,
+            query=query,
+            scopes=["meal_plan"],
+            limit=200,
+            offset=0,
+        )
+        matching_ids = {item.entity_id for item in search_result.items if item.entity_type == "meal_plan"}
+        if not matching_ids:
+            return []
     items = list(
         db.scalars(
             select(FoodPlanItem)
@@ -349,6 +368,7 @@ def list_food_plan(
                 FoodPlanItem.user_id == user.id,
                 FoodPlanItem.plan_date >= date_from,
                 FoodPlanItem.plan_date <= date_to,
+                *((FoodPlanItem.id.in_(matching_ids),) if matching_ids is not None else ()),
             )
             .options(selectinload(FoodPlanItem.food).selectinload(Food.recipe))
             .order_by(FoodPlanItem.plan_date.asc(), FoodPlanItem.meal_type.asc(), FoodPlanItem.created_at.asc())
@@ -377,6 +397,15 @@ def create_food_plan_item(
         updated_by=user.id,
     )
     db.add(item)
+    db.flush()
+    enqueue_search_index_job(
+        db,
+        family_id=membership.family_id,
+        user_id=user.id,
+        entity_type="meal_plan",
+        entity_id=item.id,
+        target_name=food.name,
+    )
     log_activity(
         db,
         family_id=membership.family_id,
@@ -418,6 +447,14 @@ def update_food_plan_item(
             item.completed_at = None
             item.meal_log_id = None
     item.updated_by = user.id
+    enqueue_search_index_job(
+        db,
+        family_id=membership.family_id,
+        user_id=user.id,
+        entity_type="meal_plan",
+        entity_id=item.id,
+        target_name=item.food.name if item.food else "餐食计划",
+    )
     log_activity(
         db,
         family_id=membership.family_id,
@@ -440,6 +477,13 @@ def delete_food_plan_item(
 ) -> None:
     user, membership = auth
     item = _load_plan_item(db, family_id=membership.family_id, user_id=user.id, item_id=item_id)
+    delete_search_document(
+        db,
+        family_id=membership.family_id,
+        entity_type="meal_plan",
+        entity_id=item.id,
+        delete_vector=True,
+    )
     db.delete(item)
     log_activity(
         db,
@@ -461,7 +505,7 @@ def list_recipe_plan(
     auth: tuple = Depends(get_current_auth),
     db: Session = Depends(get_db),
 ) -> list[dict]:
-    return list_food_plan(date_from=date_from, date_to=date_to, auth=auth, db=db)
+    return list_food_plan(date_from=date_from, date_to=date_to, q="", auth=auth, db=db)
 
 
 @router.post("/api/recipe-plan", response_model=RecipePlanItemOut, status_code=status.HTTP_201_CREATED)

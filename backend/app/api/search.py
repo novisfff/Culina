@@ -7,29 +7,40 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from app.core.deps import get_current_auth
 from app.db.session import get_db
 from app.db.transactions import commit_session
-from app.models.domain import Food, Ingredient, Recipe
+from app.models.domain import Food, FoodPlanItem, Ingredient, Recipe
 from app.repos.media import build_media_map, get_media_assets_for_entities
 from app.schemas.search import SearchIndexJobResponse, SearchResponseOut
 from app.services.search.hybrid import HybridSearchResult, hybrid_search
 from app.services.search.jobs import get_search_index_job, list_active_search_index_jobs, retry_failed_search_index_job
-from app.services.serializers import serialize_food, serialize_ingredient, serialize_recipe
+from app.services.serializers import serialize_food, serialize_food_plan_item, serialize_ingredient, serialize_recipe
 
 router = APIRouter(tags=["search"])
 
-SEARCH_SCOPES = {"ingredients": "ingredient", "foods": "food", "recipes": "recipe", "ingredient": "ingredient", "food": "food", "recipe": "recipe"}
-DEFAULT_SCOPES = ["recipe", "food", "ingredient"]
+SEARCH_SCOPES = {
+    "ingredients": "ingredient",
+    "foods": "food",
+    "recipes": "recipe",
+    "meal_plans": "meal_plan",
+    "food_plan": "meal_plan",
+    "food_plan_items": "meal_plan",
+    "ingredient": "ingredient",
+    "food": "food",
+    "recipe": "recipe",
+    "meal_plan": "meal_plan",
+}
+DEFAULT_SCOPES = ["recipe", "food", "ingredient", "meal_plan"]
 
 
 @router.get("/api/search", response_model=SearchResponseOut)
 def search(
     q: str = Query(default="", max_length=100),
-    scopes: str = Query(default="recipes,foods,ingredients"),
+    scopes: str = Query(default="recipes,foods,ingredients,meal_plans"),
     limit: int = Query(default=20, ge=1, le=50),
     offset: int = Query(default=0, ge=0, le=500),
     auth: tuple = Depends(get_current_auth),
     db: Session = Depends(get_db),
 ) -> dict:
-    _, membership = auth
+    user, membership = auth
     query = q.strip()
     normalized_scopes = _parse_scopes(scopes)
     if not query:
@@ -38,12 +49,13 @@ def search(
     search_result = hybrid_search(
         db,
         family_id=membership.family_id,
+        user_id=user.id,
         query=query,
         scopes=normalized_scopes,
         limit=limit,
         offset=offset,
     )
-    entity_payloads = _load_entities(db, family_id=membership.family_id, hits=search_result.items)
+    entity_payloads = _load_entities(db, family_id=membership.family_id, user_id=user.id, hits=search_result.items)
     items = []
     for item in search_result.items:
         entity = entity_payloads.get((item.entity_type, item.entity_id))
@@ -84,8 +96,8 @@ def _parse_scopes(value: str) -> list[str]:
     return scopes or list(DEFAULT_SCOPES)
 
 
-def _load_entities(db: Session, *, family_id: str, hits: list[HybridSearchResult]) -> dict[tuple[str, str], dict]:
-    ids_by_type: dict[str, list[str]] = {"ingredient": [], "food": [], "recipe": []}
+def _load_entities(db: Session, *, family_id: str, user_id: str, hits: list[HybridSearchResult]) -> dict[tuple[str, str], dict]:
+    ids_by_type: dict[str, list[str]] = {"ingredient": [], "food": [], "recipe": [], "meal_plan": []}
     for hit in hits:
         if hit.entity_id not in ids_by_type.get(hit.entity_type, []):
             ids_by_type[hit.entity_type].append(hit.entity_id)
@@ -128,6 +140,19 @@ def _load_entities(db: Session, *, family_id: str, hits: list[HybridSearchResult
         )
         media_map = build_media_map(get_media_assets_for_entities(db, family_id=family_id, entity_type="recipe", entity_ids=[item.id for item in recipes]))
         payloads.update({("recipe", item.id): serialize_recipe(item, media_map) for item in recipes})
+    if ids_by_type["meal_plan"]:
+        items = list(
+            db.scalars(
+                select(FoodPlanItem)
+                .where(
+                    FoodPlanItem.family_id == family_id,
+                    FoodPlanItem.user_id == user_id,
+                    FoodPlanItem.id.in_(ids_by_type["meal_plan"]),
+                )
+                .options(selectinload(FoodPlanItem.food).selectinload(Food.recipe))
+            )
+        )
+        payloads.update({("meal_plan", item.id): serialize_food_plan_item(item) for item in items})
     return payloads
 
 

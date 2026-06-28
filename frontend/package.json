@@ -5,12 +5,16 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "typecheck": "tsc -b --pretty false",
     "build": "tsc -b && vite build && node scripts/check-bundle-budgets.mjs",
     "preview": "vite preview",
     "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
     "smoke": "node scripts/smoke.mjs",
     "ai:skill-smoke": "node scripts/ai-skill-manual-smoke.mjs",
-    "check:bundle": "node scripts/check-bundle-budgets.mjs"
+    "check:bundle": "node scripts/check-bundle-budgets.mjs",
+    "check:style-tokens": "node scripts/check-style-token-drift.mjs",
+    "quality": "npm run typecheck && npm run test && npm run check:style-tokens"
   },
   "dependencies": {
     "@tanstack/react-query": "^5.64.2",
@@ -24,6 +28,7 @@
     "@types/react": "^18.3.18",
     "@types/react-dom": "^18.3.5",
     "@vitejs/plugin-react": "^4.3.4",
+    "@vitest/coverage-v8": "^2.1.9",
     "jsdom": "^25.0.1",
     "playwright": "^1.60.0",
     "typescript": "^5.7.2",

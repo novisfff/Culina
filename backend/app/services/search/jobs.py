@@ -13,9 +13,14 @@ from app.core.config import get_settings
 from app.core.utils import create_id, utcnow
 from app.db.session import SessionLocal
 from app.db.transactions import commit_session
-from app.models.domain import Food, Ingredient, Recipe, SearchDocument, SearchIndexJob
+from app.models.domain import Food, FoodPlanItem, Ingredient, Recipe, SearchDocument, SearchIndexJob
 from app.services.search.embeddings import EmbeddingUnavailableError, build_embedding_client
-from app.services.search.indexing import upsert_food_search_document, upsert_ingredient_search_document, upsert_recipe_search_document
+from app.services.search.indexing import (
+    upsert_food_search_document,
+    upsert_ingredient_search_document,
+    upsert_meal_plan_search_document,
+    upsert_recipe_search_document,
+)
 from app.services.search.vector_indexing import search_point_id
 from app.services.search.vector_store import VectorStoreUnavailableError, build_vector_store
 
@@ -25,7 +30,7 @@ MAX_ATTEMPTS = 3
 JOB_LOCK_STALE_AFTER = timedelta(minutes=15)
 WORKER_SCAN_INTERVAL_SECONDS = 3
 ACTIVE_COMPLETED_WINDOW = timedelta(hours=24)
-SEARCH_INDEX_ENTITY_TYPES = {"ingredient", "food", "recipe"}
+SEARCH_INDEX_ENTITY_TYPES = {"ingredient", "food", "recipe", "meal_plan"}
 
 
 def enqueue_search_index_job(
@@ -250,6 +255,17 @@ def _upsert_entity_search_document(db: Session, *, job: SearchIndexJob) -> Searc
         job.target_name = recipe.title[:255]
         return upsert_recipe_search_document(db, recipe)
 
+    if job.entity_type == "meal_plan":
+        item = db.scalar(
+            select(FoodPlanItem)
+            .where(FoodPlanItem.family_id == job.family_id, FoodPlanItem.id == job.entity_id)
+            .options(selectinload(FoodPlanItem.food).selectinload(Food.recipe))
+        )
+        if item is None:
+            raise ValueError("索引对象不存在或已删除")
+        job.target_name = ((item.food.name if item.food is not None else "") or item.note or "餐食计划")[:255]
+        return upsert_meal_plan_search_document(db, item)
+
     raise ValueError("Unsupported search index entity type")
 
 
@@ -283,6 +299,7 @@ def _index_vector_if_enabled(document: SearchDocument) -> str:
                 "family_id": document.family_id,
                 "entity_type": document.entity_type,
                 "entity_id": document.entity_id,
+                "user_id": str((document.metadata_json or {}).get("user_id") or ""),
                 "embedding_model": embedding_client.model,
                 "embedding_dimensions": embedding_client.dimensions,
                 "content_hash": document.content_hash,

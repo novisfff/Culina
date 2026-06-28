@@ -397,7 +397,7 @@ class Food(AuditMixin, Base):
 
     family: Mapped["Family"] = relationship(back_populates="foods")
     recipe: Mapped["Recipe | None"] = relationship(back_populates="foods")
-    meal_entries: Mapped[list["MealLogFood"]] = relationship(back_populates="food")
+    meal_entries: Mapped[list["MealLogFood"]] = relationship(back_populates="food", cascade="all, delete-orphan")
     plan_items: Mapped[list["FoodPlanItem"]] = relationship(back_populates="food", cascade="all, delete-orphan")
 
 

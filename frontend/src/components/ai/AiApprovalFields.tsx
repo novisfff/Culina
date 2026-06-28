@@ -1,13 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { MediaWithPlaceholder } from '../MediaPlaceholder';
-
-function asText(value: unknown, fallback = '') {
-  return typeof value === 'string' ? value : fallback;
-}
-
-function asNumber(value: unknown, fallback = 1) {
-  return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
-}
+import { buildUnitPresetOptions } from '../ingredients/ingredientWorkspaceForms';
+import { asNumber, asText } from './aiDraftValueUtils';
 
 function textFromUnknownItem(value: unknown) {
   if (typeof value === 'string') return value;
@@ -42,6 +36,10 @@ type MealPlanIngredientItem = {
   quantity: number;
   unit: string;
 };
+
+function unitPresetOptions(value: string) {
+  return buildUnitPresetOptions(value).map((unit) => ({ value: unit, label: unit }));
+}
 
 function isPublicAssetImage(url?: string): url is string {
   return Boolean(url?.startsWith('/assets/'));
@@ -556,6 +554,115 @@ export function normalizeMealPlanIngredientItems(value: unknown, options: AiReso
   });
 }
 
+function UnitComboboxInput({
+  value,
+  disabled,
+  ariaLabel,
+  onChange,
+}: {
+  value: string;
+  disabled: boolean;
+  ariaLabel: string;
+  onChange: (value: string) => void;
+}) {
+  const [isOpen, setIsOpen] = useState(false);
+  const [query, setQuery] = useState('');
+  const closeTimerRef = useRef<number | null>(null);
+  const options = useMemo(() => unitPresetOptions(''), []);
+  const normalizedQuery = normalizeSearchText(query);
+  const normalizedValue = normalizeSearchText(value);
+  const visibleOptions = options.filter((option) => {
+    if (!normalizedQuery) return true;
+    return normalizeSearchText(`${option.label} ${option.value}`).includes(normalizedQuery);
+  });
+  const exactMatch = options.some((option) => normalizeSearchText(option.value) === normalizedValue);
+  const customValue = value.trim();
+  const showCustom = customValue && !exactMatch;
+  const openMenu = () => {
+    if (closeTimerRef.current) {
+      window.clearTimeout(closeTimerRef.current);
+      closeTimerRef.current = null;
+    }
+    setQuery('');
+    setIsOpen(true);
+  };
+  const closeMenuSoon = () => {
+    closeTimerRef.current = window.setTimeout(() => setIsOpen(false), 120);
+  };
+  const selectValue = (nextValue: string) => {
+    onChange(nextValue);
+    setQuery('');
+    setIsOpen(false);
+  };
+
+  useEffect(() => () => {
+    if (closeTimerRef.current) window.clearTimeout(closeTimerRef.current);
+  }, []);
+
+  return (
+    <div className={`ai-ingredient-unit-combobox${isOpen ? ' is-open' : ''}`}>
+      <input
+        type="text"
+        value={value}
+        disabled={disabled}
+        aria-label={ariaLabel}
+        role="combobox"
+        aria-expanded={isOpen}
+        onFocus={openMenu}
+        onBlur={closeMenuSoon}
+        onChange={(event) => {
+          if (closeTimerRef.current) {
+            window.clearTimeout(closeTimerRef.current);
+            closeTimerRef.current = null;
+          }
+          setQuery(event.target.value);
+          onChange(event.target.value);
+          setIsOpen(true);
+        }}
+      />
+      {!disabled && isOpen && (
+        <div className="ai-resource-menu ai-combobox-menu ai-ingredient-unit-menu" role="listbox" onMouseDown={(event) => event.preventDefault()}>
+          {visibleOptions.map((option) => {
+            const selected = option.value === value;
+            return (
+              <button
+                key={option.value}
+                type="button"
+                className={selected ? 'is-selected' : ''}
+                role="option"
+                aria-selected={selected}
+                onClick={() => selectValue(option.value)}
+              >
+                <span className="ai-combobox-option-mark" aria-hidden="true" />
+                <span>
+                  <strong>{option.label}</strong>
+                </span>
+              </button>
+            );
+          })}
+          {showCustom && (
+            <button
+              type="button"
+              className="ai-combobox-custom-option"
+              role="option"
+              aria-selected="false"
+              onClick={() => selectValue(customValue)}
+            >
+              <span className="ai-combobox-option-mark is-custom" aria-hidden="true">＋</span>
+              <span>
+                <strong>使用自定义：{customValue}</strong>
+              </span>
+            </button>
+          )}
+          {visibleOptions.length === 0 && !showCustom && (
+            <p className="ai-resource-menu-state">没有匹配项</p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function IngredientQuantityPicker({
   label,
   items,
@@ -608,12 +715,11 @@ export function IngredientQuantityPicker({
                   aria-label={`${item.name}数量`}
                   onChange={(event) => updateItem(index, { quantity: Math.max(0.1, Number(event.target.value) || 1) })}
                 />
-                <input
-                  type="text"
+                <UnitComboboxInput
                   value={item.unit}
                   disabled={disabled}
-                  aria-label={`${item.name}单位`}
-                  onChange={(event) => updateItem(index, { unit: event.target.value })}
+                  ariaLabel={`${item.name}单位`}
+                  onChange={(unit) => updateItem(index, { unit })}
                 />
               </div>
             </label>

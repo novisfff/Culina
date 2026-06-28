@@ -9,13 +9,26 @@ from decimal import Decimal
 from enum import Enum
 from typing import Any, Iterable
 
-from app.models.domain import Food, Ingredient, Recipe
+from app.models.domain import Food, FoodPlanItem, Ingredient, Recipe
 
 DOCUMENT_BUILDER_VERSION = "v1"
 DEFAULT_EMBEDDING_MODEL = ""
 DEFAULT_EMBEDDING_DIMENSIONS = 0
 MAX_NOTE_CHARS = 500
 MAX_STEP_TEXT_CHARS = 700
+
+MEAL_TYPE_LABELS = {
+    "breakfast": "早餐",
+    "lunch": "午餐",
+    "dinner": "晚餐",
+    "snack": "加餐/夜宵",
+}
+
+MEAL_PLAN_STATUS_LABELS = {
+    "planned": "待安排",
+    "cooked": "已完成",
+    "skipped": "已跳过",
+}
 
 
 @dataclass(frozen=True)
@@ -205,6 +218,76 @@ def build_recipe_search_document(
         family_id=recipe.family_id,
         entity_type="recipe",
         entity_id=recipe.id,
+        title_text=title_text,
+        keyword_text=keyword_text,
+        detail_text=detail_text,
+        semantic_text=semantic_text,
+        metadata_json=metadata,
+        embedding_model=embedding_model,
+        embedding_dimensions=embedding_dimensions,
+    )
+
+
+def build_meal_plan_search_document(
+    item: FoodPlanItem,
+    *,
+    embedding_model: str = DEFAULT_EMBEDDING_MODEL,
+    embedding_dimensions: int = DEFAULT_EMBEDDING_DIMENSIONS,
+) -> SearchDocumentPayload:
+    food = item.food
+    recipe = food.recipe if food is not None else None
+    food_name = food.name if food is not None else ""
+    recipe_title = recipe.title if recipe is not None else ""
+    meal_type = _value(item.meal_type)
+    meal_type_label = MEAL_TYPE_LABELS.get(str(meal_type), str(meal_type))
+    status = str(item.status or "")
+    status_label = MEAL_PLAN_STATUS_LABELS.get(status, status)
+    plan_date = item.plan_date.isoformat() if item.plan_date is not None else ""
+    title_text = _normalize_text(food_name or recipe_title or item.note or "餐食计划")
+    metadata = {
+        "user_id": item.user_id,
+        "food_id": item.food_id,
+        "food_name": food_name,
+        "food_type": _value(food.type) if food is not None else "",
+        "recipe_id": food.recipe_id if food is not None else None,
+        "recipe_title": recipe_title,
+        "plan_date": plan_date,
+        "meal_type": meal_type,
+        "meal_type_label": meal_type_label,
+        "status": status,
+        "status_label": status_label,
+        "meal_log_id": item.meal_log_id,
+    }
+    keyword_text = _join_text(
+        food_name,
+        recipe_title,
+        plan_date,
+        meal_type,
+        meal_type_label,
+        status,
+        status_label,
+        _truncate(item.note, MAX_NOTE_CHARS),
+        _value(food.type) if food is not None else "",
+        food.category if food is not None else "",
+    )
+    detail_text = _join_text(
+        _truncate(item.note, MAX_NOTE_CHARS),
+        recipe_title,
+        food.category if food is not None else "",
+    )
+    semantic_text = _semantic_text(
+        ("餐食计划", title_text),
+        ("计划日期", plan_date),
+        ("餐次", meal_type_label),
+        ("状态", status_label),
+        ("关联食物", food_name),
+        ("关联菜谱", recipe_title),
+        ("备注", _truncate(item.note, MAX_NOTE_CHARS)),
+    )
+    return _payload(
+        family_id=item.family_id,
+        entity_type="meal_plan",
+        entity_id=item.id,
         title_text=title_text,
         keyword_text=keyword_text,
         detail_text=detail_text,

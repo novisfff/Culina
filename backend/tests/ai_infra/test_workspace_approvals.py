@@ -516,6 +516,28 @@ class AIWorkspaceApprovalsTestCase(AIAgentInfraTestCase):
                 )
                 db.add(food)
                 db.flush()
+                meal_log = MealLog(
+                    id="meal-delete-linked-food",
+                    family_id=self.family.id,
+                    date=date.today(),
+                    meal_type=MealType.DINNER,
+                    participant_user_ids=[self.user.id],
+                    notes="引用同步食物",
+                    mood="",
+                    created_by=self.user.id,
+                    updated_by=self.user.id,
+                )
+                db.add(meal_log)
+                db.flush()
+                meal_food = MealLogFood(
+                    id="meal-food-delete-linked-food",
+                    meal_log_id=meal_log.id,
+                    food_id=food.id,
+                    servings=Decimal("1"),
+                    note="",
+                )
+                db.add(meal_food)
+                db.flush()
                 service = AIApplicationService(db, provider=FakeChatProvider())
                 conversation = service._get_or_create_conversation(
                     family_id=self.family.id,
@@ -566,6 +588,8 @@ class AIWorkspaceApprovalsTestCase(AIAgentInfraTestCase):
                 self.assertTrue(result["business_entity"]["deleted"])
                 self.assertIsNone(db.get(Recipe, recipe.id))
                 self.assertIsNone(db.get(Food, food.id))
+                self.assertIsNotNone(db.get(MealLog, meal_log.id))
+                self.assertIsNone(db.get(MealLogFood, meal_food.id))
 
         def test_recipe_favorite_operation_updates_recipe_favorite(self) -> None:
             with self.SessionLocal() as db:
@@ -765,6 +789,66 @@ class AIWorkspaceApprovalsTestCase(AIAgentInfraTestCase):
                 self.assertIsNotNone(cook_log)
                 meal_log = db.scalar(select(MealLog).where(MealLog.id == plan_item.meal_log_id))
                 self.assertIsNotNone(meal_log)
+
+        def test_recipe_cook_tool_accepts_minimal_draft_and_recomputes_preview(self) -> None:
+            with self.SessionLocal() as db:
+                recipe = Recipe(
+                    id="recipe-cook-tool-minimal",
+                    family_id=self.family.id,
+                    title="番茄快炒工具测试",
+                    servings=2,
+                    prep_minutes=12,
+                    difficulty=Difficulty.EASY,
+                    tips="",
+                    scene_tags=["家常菜"],
+                    created_by=self.user.id,
+                    updated_by=self.user.id,
+                )
+                db.add(recipe)
+                db.flush()
+                db.add(
+                    RecipeIngredient(
+                        id="recipe-cook-tool-minimal-ingredient",
+                        recipe_id=recipe.id,
+                        ingredient_id="ingredient-tomato",
+                        ingredient_name="番茄",
+                        quantity=2,
+                        unit="个",
+                        note="切块",
+                        sort_order=0,
+                    )
+                )
+                db.flush()
+
+                executor = ToolExecutor(
+                    build_workspace_tool_registry(),
+                    ToolContext(db=db, family_id=self.family.id, user_id=self.user.id, conversation_id=None, run_id=None),
+                    allowed_tools={"recipe.create_cook_draft"},
+                    allowed_side_effects={"draft"},
+                )
+                result = executor.call(
+                    "recipe.create_cook_draft",
+                    {
+                        "draft": {
+                            "draftType": "recipe_cook",
+                            "schemaVersion": "recipe_cook_operation.v1",
+                            "recipeId": recipe.id,
+                            "servings": 1,
+                            "date": date.today().isoformat(),
+                            "mealType": "dinner",
+                            "createMealLog": True,
+                        }
+                    },
+                )
+
+                draft = result["draft"]
+                self.assertEqual(draft["recipeId"], recipe.id)
+                self.assertEqual(draft["title"], recipe.title)
+                self.assertEqual(draft["createMealLog"], True)
+                self.assertEqual(draft["mealType"], "dinner")
+                self.assertEqual(draft["shortages"], [])
+                self.assertEqual(draft["previewItems"][0]["ingredient_id"], "ingredient-tomato")
+                self.assertEqual(draft["previewItems"][0]["requested_quantity"], 1)
 
         def test_recipe_cook_tools_reject_mismatched_plan_item(self) -> None:
             from app.ai.tools.catalog.recipe import recipe_create_cook_draft, recipe_preview_cook

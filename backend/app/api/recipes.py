@@ -102,6 +102,24 @@ def _serialize_discovery_section(recipes: list[Recipe], media_map: dict[tuple[st
     }
 
 
+def _recipe_matches_query(recipe: Recipe, query: str) -> bool:
+    if not query:
+        return True
+    haystack_parts = [
+        recipe.title,
+        recipe.tips,
+        *(recipe.scene_tags or []),
+        *(item.ingredient_name for item in recipe.ingredient_items),
+        *(item.note for item in recipe.ingredient_items),
+        *(step.title or "" for step in recipe.steps),
+        *(step.summary for step in recipe.steps),
+        *(step.text for step in recipe.steps),
+        *(step.tip for step in recipe.steps),
+        *(point for step in recipe.steps for point in (step.key_points or [])),
+    ]
+    return query in " ".join(part.lower() for part in haystack_parts if part).strip()
+
+
 @router.get("/api/recipes", response_model=list[RecipeOut])
 def list_recipes(
     q: str | None = Query(default=None),
@@ -131,6 +149,8 @@ def list_recipes(
             offset=0,
         )
         recipe_ids = [item.entity_id for item in search_result.items if item.entity_type == "recipe"]
+        recipes_by_id: dict[str, Recipe] = {}
+        recipes: list[Recipe] = []
         if recipe_ids:
             statement = (
                 select(Recipe)
@@ -141,8 +161,17 @@ def list_recipes(
                 statement = statement.where(Recipe.difficulty == difficulty)
             recipes_by_id = {recipe.id: recipe for recipe in db.scalars(statement)}
             recipes = [recipes_by_id[recipe_id] for recipe_id in recipe_ids if recipe_id in recipes_by_id]
-        else:
-            recipes = []
+        fallback_recipes = load_recipes_for_family(
+            db,
+            membership.family_id,
+            difficulty=difficulty,
+            defer_pagination=True,
+        )
+        recipes.extend(
+            recipe
+            for recipe in fallback_recipes
+            if recipe.id not in recipes_by_id and _recipe_matches_query(recipe, normalized_q)
+        )
     else:
         recipes = load_recipes_for_family(
             db,

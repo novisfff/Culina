@@ -5,26 +5,53 @@
 .meal-log-command-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 14px;
+  gap: 16px;
 }
 
 .meal-log-metric-card {
+  position: relative;
   display: grid;
-  gap: 6px;
-  min-height: 128px;
-  padding: 18px;
-  border: 1px solid rgba(147, 96, 63, 0.11);
-  border-radius: 18px;
+  align-content: start;
+  gap: 10px;
+  min-height: 132px;
+  padding: 18px 20px;
+  overflow: hidden;
+  border: 1px solid rgba(147, 96, 63, 0.12);
+  border-radius: 20px;
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(250, 246, 240, 0.86));
+    linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(253, 249, 244, 0.88));
   box-shadow: var(--shadow-sm);
   transition: all 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.meal-log-metric-card::before {
+  content: '';
+  position: absolute;
+  inset: 0 0 auto;
+  height: 4px;
+  background: rgba(210, 107, 51, 0.28);
 }
 
 .meal-log-metric-card:hover {
   transform: translateY(-2px);
   box-shadow: 0 10px 24px rgba(74, 54, 40, 0.07);
   background: #ffffff;
+}
+
+.meal-log-metric-card.tone-orange::before {
+  background: rgba(210, 107, 51, 0.46);
+}
+
+.meal-log-metric-card.tone-amber::before {
+  background: rgba(226, 137, 44, 0.48);
+}
+
+.meal-log-metric-card.tone-green::before {
+  background: rgba(79, 154, 88, 0.46);
+}
+
+.meal-log-metric-card.tone-blue::before {
+  background: rgba(123, 111, 214, 0.38);
 }
 
 .meal-log-metric-card.tone-orange:hover {
@@ -40,7 +67,7 @@
 }
 
 .meal-log-metric-card.tone-blue:hover {
-  border-color: rgba(37, 99, 235, 0.22);
+  border-color: rgba(123, 111, 214, 0.22);
 }
 
 .meal-log-metric-card span {
@@ -48,8 +75,8 @@
   align-items: center;
   gap: 8px;
   color: var(--text-soft);
-  font-size: 0.86rem;
-  font-weight: 800;
+  font-size: 0.875rem;
+  font-weight: 750;
 }
 
 .meal-log-metric-card span svg {
@@ -60,16 +87,16 @@
 
 .meal-log-metric-card strong {
   color: #2f251e;
-  font-size: 2.1rem;
+  font-size: 2rem;
   line-height: 1;
-  font-weight: 950;
+  font-weight: 850;
 }
 
 .meal-log-metric-card p {
   margin: 0;
   color: var(--text-faint);
-  font-size: 0.82rem;
-  font-weight: 650;
+  font-size: 0.8125rem;
+  font-weight: 600;
 }
 
 .meal-enrichment-notes > span {
@@ -107,7 +134,7 @@
 .meal-log-center-page {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  gap: 18px;
+  gap: 20px;
   align-items: start;
 }
 
@@ -120,31 +147,34 @@
 
 .meal-log-record-panel {
   display: grid;
-  gap: 22px;
-  padding: 16px;
+  gap: 20px;
+  padding: 20px 22px 22px;
   min-width: 0;
   overflow: hidden;
+  border-color: rgba(147, 96, 63, 0.1);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(253, 250, 247, 0.9));
 }
 
 .meal-log-filter-bar {
   display: grid;
-  grid-template-columns: minmax(220px, 1fr) auto auto;
-  gap: 10px;
+  grid-template-columns: minmax(260px, 1fr) auto auto;
+  gap: 12px;
   align-items: center;
   min-width: 0;
   overflow: hidden;
 }
 
 .meal-log-search {
-  min-height: 42px;
+  min-height: 46px;
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
   align-items: center;
-  gap: 8px;
-  padding: 0 12px;
+  gap: 10px;
+  padding: 0 14px;
   border: 1px solid var(--line-soft);
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.82);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.9);
   transition: all 0.2s ease;
 }
 
@@ -172,7 +202,8 @@
   background: transparent;
   color: var(--text);
   outline: none;
-  font-size: 0.9rem;
+  font-size: 0.9375rem;
+  font-weight: 600;
 }
 
 .meal-log-segment,
@@ -182,8 +213,8 @@
   gap: 4px;
   padding: 3px;
   border: 1px solid var(--line-soft);
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.72);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.78);
 }
 
 .meal-log-meal-filter {
@@ -195,16 +226,17 @@
 
 .meal-log-segment button,
 .meal-log-meal-filter button {
-  min-height: 34px;
+  min-height: 38px;
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  padding: 0 10px;
+  gap: 6px;
+  padding: 0 12px;
   border: 0;
-  border-radius: 10px;
+  border-radius: 12px;
   background: transparent;
   color: var(--text-soft);
-  font-weight: 800;
+  font-size: 0.875rem;
+  font-weight: 750;
   white-space: nowrap;
   box-shadow: none;
 }
@@ -218,42 +250,74 @@
 
 .meal-log-timeline-head {
   display: flex;
-  align-items: baseline;
+  align-items: end;
+  justify-content: space-between;
   gap: 12px;
+}
+
+.meal-log-timeline-head > div {
+  display: grid;
+  gap: 4px;
 }
 
 .meal-log-timeline-head h2 {
   margin: 0;
   color: #2f251e;
-  font-size: 1.18rem;
+  font-size: 1.25rem;
   line-height: 1.2;
+  font-weight: 760;
 }
 
 .meal-log-timeline-head span {
   margin: 0;
   color: var(--text-faint);
-  font-size: 0.84rem;
-  font-weight: 700;
+  font-size: 0.875rem;
+  font-weight: 650;
+}
+
+.meal-log-timeline-head small {
+  min-height: 30px;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 11px;
+  border: 1px solid rgba(147, 96, 63, 0.1);
+  border-radius: 999px;
+  background: rgba(250, 246, 240, 0.72);
+  color: var(--text-soft);
+  font-size: 0.8125rem;
+  font-weight: 750;
 }
 
 .meal-log-record-timeline {
   display: grid;
-  gap: 18px;
+  gap: 16px;
 }
 
 .meal-log-day-group {
+  position: relative;
   display: grid;
-  grid-template-columns: 118px minmax(0, 1fr);
-  gap: 12px;
+  grid-template-columns: 132px minmax(0, 1fr);
+  gap: 16px;
 }
 
 .meal-log-day-label {
+  position: relative;
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
   align-items: start;
   gap: 10px;
   color: var(--text-soft);
-  font-weight: 850;
+  font-weight: 750;
+}
+
+.meal-log-day-label::after {
+  content: '';
+  position: absolute;
+  left: 5px;
+  top: 24px;
+  bottom: -16px;
+  width: 1px;
+  background: linear-gradient(180deg, rgba(210, 107, 51, 0.22), rgba(210, 107, 51, 0));
 }
 
 .meal-log-day-label span {
@@ -265,127 +329,135 @@
   box-shadow: 0 0 0 4px rgba(210, 107, 51, 0.14);
 }
 
+.meal-log-day-label div {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
 .meal-log-day-label strong {
   min-width: 0;
-  font-size: 0.9rem;
+  color: #3a2a22;
+  font-size: 0.9375rem;
   line-height: 1.28;
+}
+
+.meal-log-day-label small {
+  color: var(--text-faint);
+  font-size: 0.75rem;
+  font-weight: 700;
 }
 
 .meal-log-record-list {
   display: grid;
-  overflow-x: auto;
-  overflow-y: hidden;
+  gap: 10px;
   min-width: 0;
-  border: 1px solid rgba(147, 96, 63, 0.11);
-  border-radius: 15px;
-  background: rgba(255, 255, 255, 0.74);
-  overscroll-behavior-x: contain;
-  scrollbar-gutter: stable;
-}
-
-.meal-log-record-list::-webkit-scrollbar {
-  height: 8px;
-}
-
-.meal-log-record-list::-webkit-scrollbar-thumb {
-  border-radius: 999px;
-  background: rgba(210, 107, 51, 0.22);
 }
 
 .meal-log-record-row {
-  width: max(100%, 880px);
-  min-height: 54px;
-  display: flex;
+  width: 100%;
+  min-height: 74px;
+  display: grid;
+  grid-template-columns: 112px minmax(180px, 1fr) minmax(280px, auto) auto;
   align-items: center;
-  gap: 10px;
-  padding: 9px 12px 9px 16px;
-  border: 0;
-  border-bottom: 1px solid rgba(147, 96, 63, 0.06);
-  border-left: 3px solid transparent;
-  background: transparent;
+  gap: 14px;
+  padding: 13px 14px;
+  border: 1px solid rgba(147, 96, 63, 0.1);
+  border-left: 4px solid transparent;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.88);
   color: var(--text);
   text-align: left;
-  box-shadow: none;
+  box-shadow: 0 8px 18px rgba(74, 54, 40, 0.035);
   transition: all 0.16s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-.meal-log-record-row:last-child {
-  border-bottom: 0;
-}
-
 .meal-log-record-row.active {
-  background: rgba(255, 244, 236, 0.8);
-  padding-left: 20px;
+  background: linear-gradient(90deg, rgba(255, 245, 237, 0.96), rgba(255, 255, 255, 0.9));
+  border-color: rgba(210, 107, 51, 0.18);
   border-left-color: var(--accent);
+  box-shadow: 0 12px 26px rgba(210, 107, 51, 0.1);
 }
 
 .meal-log-record-row:hover:not(.active) {
-  background: rgba(255, 244, 236, 0.5);
-  padding-left: 20px;
+  transform: translateY(-1px);
+  background: #ffffff;
   border-left-color: rgba(210, 107, 51, 0.4);
+  border-color: rgba(210, 107, 51, 0.16);
+  box-shadow: 0 12px 24px rgba(74, 54, 40, 0.06);
 }
 
-.meal-log-record-row > strong,
-.meal-log-record-row time,
+.meal-log-record-main,
+.meal-log-record-main strong,
+.meal-log-record-subline,
 .meal-log-row-rating,
 .meal-log-row-meta,
 .meal-log-row-action {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.meal-log-record-row > strong {
-  flex: 1 1 180px;
-  min-width: 120px;
-  font-size: 0.92rem;
+.meal-log-record-main {
+  display: grid;
+  gap: 6px;
 }
 
-.meal-log-record-row time {
-  flex: 0 0 54px;
+.meal-log-record-main strong {
+  color: #2f251e;
+  font-size: 1rem;
+  font-weight: 800;
+  line-height: 1.25;
+}
+
+.meal-log-record-subline {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.meal-log-record-subline time {
   color: var(--text-faint);
-  font-size: 0.82rem;
-  font-weight: 600;
+  font-size: 0.8125rem;
+  font-weight: 650;
 }
 
-.meal-log-row-meta {
-  flex: 0 0 auto;
-  color: var(--text-faint);
-  font-size: 0.82rem;
-  font-weight: 750;
-}
-
-.meal-log-record-row > .badge {
-  flex: 0 0 106px;
+.meal-log-record-subline .badge {
+  min-height: 24px;
+  padding: 0 9px;
   justify-content: center;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 750;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .meal-log-record-row .badge-planned {
-  background: rgba(37, 99, 235, 0.05);
-  border-color: rgba(37, 99, 235, 0.12);
-  color: #1e40af;
+  background: rgba(123, 111, 214, 0.08);
+  border-color: rgba(123, 111, 214, 0.16);
+  color: #5a4fbd;
 }
 
 .meal-log-record-row .badge-manual {
-  background: rgba(92, 67, 48, 0.04);
-  border-color: rgba(92, 67, 48, 0.08);
+  background: rgba(92, 67, 48, 0.05);
+  border-color: rgba(92, 67, 48, 0.1);
   color: #7f6c60;
 }
 
 .meal-log-meal-pill {
-  flex: 0 0 96px;
   min-width: 0;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 5px;
-  padding: 4px 10px;
+  gap: 6px;
+  min-height: 38px;
+  padding: 0 12px;
   border-radius: 999px;
-  font-size: 0.78rem;
-  font-weight: 900;
+  font-size: 0.8125rem;
+  font-weight: 850;
   border: 1px solid transparent;
 }
 
@@ -396,73 +468,100 @@
 }
 
 .meal-tone-lunch {
-  background: rgba(6, 182, 212, 0.08);
-  border-color: rgba(6, 182, 212, 0.16);
-  color: #0891b2;
+  background: rgba(79, 154, 88, 0.08);
+  border-color: rgba(79, 154, 88, 0.16);
+  color: #3c7f43;
 }
 
 .meal-tone-dinner {
-  background: rgba(139, 92, 246, 0.08);
-  border-color: rgba(139, 92, 246, 0.16);
-  color: #6d28d9;
+  background: rgba(123, 111, 214, 0.1);
+  border-color: rgba(123, 111, 214, 0.18);
+  color: #6657c6;
 }
 
 .meal-tone-snack {
-  background: rgba(244, 63, 94, 0.06);
-  border-color: rgba(244, 63, 94, 0.14);
-  color: #be123c;
+  background: rgba(210, 107, 51, 0.08);
+  border-color: rgba(210, 107, 51, 0.16);
+  color: var(--accent-strong);
+}
+
+.meal-log-record-info {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  min-width: 0;
 }
 
 .meal-record-status {
-  flex: 0 0 94px;
   display: inline-flex;
+  align-items: center;
   justify-content: center;
-  padding: 5px 8px;
+  min-width: 82px;
+  min-height: 30px;
+  padding: 0 10px;
   border-radius: 999px;
-  font-size: 0.78rem;
-  font-weight: 900;
+  font-size: 0.8125rem;
+  font-weight: 850;
   border: 1px solid transparent;
+  white-space: nowrap;
 }
 
 .meal-record-status.status-done {
-  background: rgba(16, 185, 129, 0.08);
-  border-color: rgba(16, 185, 129, 0.16);
-  color: #047857;
+  background: var(--success-soft);
+  border-color: rgba(79, 154, 88, 0.18);
+  color: #28743a;
 }
 
 .meal-record-status.status-pending {
-  background: rgba(120, 110, 102, 0.07);
-  border-color: rgba(120, 110, 102, 0.14);
-  color: #706258;
+  background: var(--warning-soft);
+  border-color: rgba(226, 137, 44, 0.18);
+  color: #a9630d;
 }
 
 .meal-log-row-rating {
-  flex: 1 1 92px;
-  min-width: 52px;
-  max-width: 128px;
+  min-width: 74px;
+  color: var(--text-faint);
+  font-size: 0.8125rem;
+  font-weight: 750;
+}
+
+.meal-log-row-rating.has-rating {
   color: #c27803;
-  font-size: 0.82rem;
-  font-weight: 800;
+  font-weight: 850;
 }
 
 .meal-log-row-meta {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  min-width: 58px;
+  justify-content: flex-end;
+  gap: 9px;
+  min-width: 64px;
+  color: var(--text-faint);
+  font-size: 0.8125rem;
+  font-weight: 750;
+}
+
+.meal-log-row-meta > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
 }
 
 .meal-log-row-action {
-  flex: 0 0 auto;
   justify-self: end;
-  padding: 6px 12px;
+  min-height: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 14px;
   border: 1px solid rgba(210, 107, 51, 0.24);
   border-radius: 999px;
   color: var(--accent-strong);
-  font-size: 0.78rem;
-  font-weight: 900;
+  font-size: 0.8125rem;
+  font-weight: 850;
   transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
-  background: transparent;
+  background: rgba(255, 255, 255, 0.72);
 }
 
 .meal-log-record-row:hover .meal-log-row-action {
@@ -470,6 +569,91 @@
   color: #ffffff;
   border-color: transparent;
   box-shadow: 0 3px 8px rgba(210, 107, 51, 0.22);
+}
+
+@media (max-width: 1180px) {
+  .meal-log-command-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .meal-log-filter-bar {
+    grid-template-columns: minmax(0, 1fr);
+    overflow: visible;
+  }
+
+  .meal-log-segment,
+  .meal-log-meal-filter {
+    width: 100%;
+    justify-content: flex-start;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .meal-log-segment::-webkit-scrollbar,
+  .meal-log-meal-filter::-webkit-scrollbar {
+    display: none;
+  }
+
+  .meal-log-day-group {
+    grid-template-columns: 116px minmax(0, 1fr);
+  }
+
+  .meal-log-record-row {
+    grid-template-columns: 104px minmax(0, 1fr) auto;
+    align-items: start;
+  }
+
+  .meal-log-record-info {
+    grid-column: 2 / -1;
+    grid-row: 2;
+    justify-content: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .meal-log-row-action {
+    grid-column: 3;
+    grid-row: 1;
+    align-self: center;
+  }
+}
+
+@media (max-width: 900px) {
+  .meal-log-record-panel {
+    padding: 18px;
+  }
+
+  .meal-log-day-group {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 10px;
+  }
+
+  .meal-log-day-label::after {
+    display: none;
+  }
+
+  .meal-log-day-label {
+    align-items: center;
+  }
+
+  .meal-log-day-label span {
+    margin-top: 0;
+  }
+
+  .meal-log-record-row {
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 10px 12px;
+  }
+
+  .meal-log-record-info {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+
+  .meal-log-row-action {
+    grid-column: 1 / -1;
+    grid-row: 3;
+    justify-self: start;
+  }
 }
 
 .meal-log-preview-detail {

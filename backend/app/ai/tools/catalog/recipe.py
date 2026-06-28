@@ -11,7 +11,7 @@ from app.ai.tools.base import ToolContext
 from app.ai.tools.catalog.common import entity_media_map, first_entity_media, register_tool
 from app.ai.tools.draft_validation import normalize_recipe_cook_draft, normalize_recipe_draft_for_tools
 from app.ai.tools.registry import ToolRegistry
-from app.ai.tools.schemas import READ_BY_ID_INPUT, RECIPE_COOK_DRAFT_SCHEMA, SEARCH_INPUT, draft_input_schema, draft_output_schema
+from app.ai.tools.schemas import READ_BY_ID_INPUT, RECIPE_COOK_DRAFT_INPUT_SCHEMA, RECIPE_COOK_DRAFT_SCHEMA, SEARCH_INPUT, draft_input_schema, draft_output_schema
 from app.models.domain import Food, FoodPlanItem, Recipe, RecipeFavorite
 from app.repos.media import build_media_map, get_media_assets_for_entities
 from app.services.clock import today_for_family
@@ -449,6 +449,6 @@ def register_recipe_tools(registry: ToolRegistry) -> None:
         description="生成做菜扣减草稿，不直接写入库存或餐食记录。",
         side_effect="draft",
         handler=recipe_create_cook_draft,
-        input_schema=draft_input_schema(RECIPE_COOK_DRAFT_SCHEMA),
+        input_schema=draft_input_schema(RECIPE_COOK_DRAFT_INPUT_SCHEMA),
         output_schema=draft_output_schema(RECIPE_COOK_DRAFT_SCHEMA),
     )

@@ -145,6 +145,11 @@ type Props = {
     foodId: string;
     requestId: number;
   } | null;
+  foodPlanNavigationRequest?: {
+    itemId: string;
+    planDate: string;
+    requestId: number;
+  } | null;
   createFood: (payload: FoodPayload) => Promise<Food>;
   updateFood: (foodId: string, payload: FoodPayload) => Promise<Food>;
   updateFoodFavorite: (foodId: string, favorite: boolean) => Promise<Food>;
@@ -605,6 +610,7 @@ export function FoodWorkspace(props: Props) {
     foods: props.foods,
     foodPlanItems: props.foodPlanItems,
     foodPlanWeekRange: props.foodPlanWeekRange,
+    navigationRequest: props.foodPlanNavigationRequest,
     showNotice,
     setFeedback,
     getDefaultMealType,

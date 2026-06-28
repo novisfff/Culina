@@ -1,14 +1,11 @@
 from __future__ import annotations
 
-from sqlalchemy import create_engine
-from sqlalchemy.orm import Session, sessionmaker
-from sqlalchemy.pool import StaticPool
-
-from app.models.domain import Base, Family
+from app.models.domain import Family
 from app.services.search.documents import SearchDocumentPayload
 from app.services.search.indexing import delete_search_document, upsert_search_document
 from app.services.search.vector_cleanup import cleanup_stale_vector_points
 from app.services.search.vector_store import VectorPoint, VectorPointPage, VectorSearchHit, VectorStoreUnavailableError
+from tests.search._support import session_factory
 
 
 class FakeVectorStore:
@@ -83,14 +80,7 @@ class FailingDeleteVectorStore(FakeVectorStore):
 
 
 def test_cleanup_stale_vector_points_deletes_missing_or_changed_documents() -> None:
-    engine = create_engine(
-        "sqlite:///:memory:",
-        future=True,
-        connect_args={"check_same_thread": False},
-        poolclass=StaticPool,
-    )
-    Base.metadata.create_all(engine)
-    SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True, class_=Session)
+    SessionLocal = session_factory()
     vector_store = FakeVectorStore()
     with SessionLocal() as db:
         db.add(Family(id="family-1", name="一号家庭"))
@@ -136,14 +126,7 @@ def test_cleanup_stale_vector_points_deletes_missing_or_changed_documents() -> N
 
 
 def test_delete_search_document_can_delete_matching_vector_point() -> None:
-    engine = create_engine(
-        "sqlite:///:memory:",
-        future=True,
-        connect_args={"check_same_thread": False},
-        poolclass=StaticPool,
-    )
-    Base.metadata.create_all(engine)
-    SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True, class_=Session)
+    SessionLocal = session_factory()
     vector_store = FakeVectorStore()
     with SessionLocal() as db:
         db.add(Family(id="family-1", name="一号家庭"))
@@ -177,14 +160,7 @@ def test_delete_search_document_can_delete_matching_vector_point() -> None:
 
 
 def test_delete_search_document_ignores_vector_store_failures() -> None:
-    engine = create_engine(
-        "sqlite:///:memory:",
-        future=True,
-        connect_args={"check_same_thread": False},
-        poolclass=StaticPool,
-    )
-    Base.metadata.create_all(engine)
-    SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True, class_=Session)
+    SessionLocal = session_factory()
     with SessionLocal() as db:
         db.add(Family(id="family-1", name="一号家庭"))
         upsert_search_document(

@@ -3,7 +3,7 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
-import { AppNotificationCenter, type AppNotificationJob } from './AppShell';
+import { AppNotificationCenter, AppShell, type AppNotificationJob } from './AppShell';
 
 const actEnvironment = globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean };
 const previousActEnvironment = actEnvironment.IS_REACT_ACT_ENVIRONMENT;
@@ -36,6 +36,68 @@ function renderNotificationCenter(props: Parameters<typeof AppNotificationCenter
   return container;
 }
 
+function renderAppShell(children: React.ReactNode) {
+  container = document.createElement('div');
+  document.body.append(container);
+  root = createRoot(container);
+  act(() => {
+    root?.render(
+      <AppShell
+        activeTab="foods"
+        sidebarCollapsed={false}
+        familyName="今天家"
+        familyMotto="好好吃饭"
+        familyLocation="上海"
+        familyMemberLabel="3 人"
+        familyActivityLabel="今天有记录"
+        userName="小李"
+        userSeed="user"
+        userMeta="管理员"
+        userNote="负责今日晚餐"
+        onTabChange={() => undefined}
+        onToggleSidebar={() => undefined}
+        onOpenProfile={() => undefined}
+        onLogout={() => undefined}
+      >
+        {children}
+      </AppShell>,
+    );
+  });
+  return container;
+}
+
+function mockVisualViewport({ height, offsetTop }: { height: number; offsetTop: number }) {
+  const originalDescriptor = Object.getOwnPropertyDescriptor(window, 'visualViewport');
+  const viewport = new EventTarget() as VisualViewport;
+  Object.defineProperties(viewport, {
+    height: { value: height, writable: true, configurable: true },
+    offsetTop: { value: offsetTop, writable: true, configurable: true },
+    width: { value: 390, writable: true, configurable: true },
+    offsetLeft: { value: 0, writable: true, configurable: true },
+    pageLeft: { value: 0, writable: true, configurable: true },
+    pageTop: { value: 0, writable: true, configurable: true },
+    scale: { value: 1, writable: true, configurable: true },
+  });
+  Object.defineProperty(window, 'visualViewport', { value: viewport, configurable: true });
+
+  return {
+    viewport,
+    setMetrics(nextMetrics: { height: number; offsetTop: number }) {
+      Object.defineProperties(viewport, {
+        height: { value: nextMetrics.height, writable: true, configurable: true },
+        offsetTop: { value: nextMetrics.offsetTop, writable: true, configurable: true },
+      });
+    },
+    restore() {
+      if (originalDescriptor) {
+        Object.defineProperty(window, 'visualViewport', originalDescriptor);
+      } else {
+        delete (window as unknown as Record<string, unknown>).visualViewport;
+      }
+    },
+  };
+}
+
 function click(element: Element | null) {
   expect(element).not.toBeNull();
   act(() => {
@@ -55,6 +117,9 @@ afterEach(() => {
   act(() => root?.unmount());
   container?.remove();
   document.body.replaceChildren();
+  document.documentElement.classList.remove('app-mobile-keyboard-open');
+  document.documentElement.style.removeProperty('--app-visual-viewport-height');
+  document.documentElement.style.removeProperty('--app-visual-viewport-bottom-inset');
   root = null;
   container = null;
 });
@@ -154,5 +219,43 @@ describe('AppNotificationCenter', () => {
     });
 
     expect(document.body.querySelector('.mobile-notification-popover')).not.toBeNull();
+  });
+});
+
+describe('AppShell mobile keyboard layout', () => {
+  it('marks the mobile keyboard as open only while a text field owns focus', () => {
+    const rafSpy = vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback: FrameRequestCallback) => {
+      callback(0);
+      return 1;
+    });
+    vi.spyOn(window, 'cancelAnimationFrame').mockImplementation(() => undefined);
+    vi.spyOn(window, 'innerHeight', 'get').mockReturnValue(900);
+    const visualViewport = mockVisualViewport({ height: 520, offsetTop: 0 });
+
+    try {
+      const view = renderAppShell(<input aria-label="搜索食物" />);
+      const input = view.querySelector('input');
+      expect(input).not.toBeNull();
+
+      act(() => {
+        input?.focus();
+        visualViewport.viewport.dispatchEvent(new Event('resize'));
+      });
+
+      expect(document.documentElement.classList.contains('app-mobile-keyboard-open')).toBe(true);
+      expect(document.documentElement.style.getPropertyValue('--app-visual-viewport-bottom-inset')).toBe('380px');
+
+      visualViewport.setMetrics({ height: 900, offsetTop: 0 });
+      act(() => {
+        input?.blur();
+        visualViewport.viewport.dispatchEvent(new Event('resize'));
+      });
+
+      expect(document.documentElement.classList.contains('app-mobile-keyboard-open')).toBe(false);
+      expect(document.documentElement.style.getPropertyValue('--app-visual-viewport-bottom-inset')).toBe('0px');
+    } finally {
+      visualViewport.restore();
+      rafSpy.mockRestore();
+    }
   });
 });

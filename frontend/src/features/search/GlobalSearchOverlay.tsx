@@ -11,7 +11,7 @@ import { useDebouncedSearchValue, useSearchCompositionState } from '../../hooks/
 import { resolveAssetUrl } from '../../lib/assets';
 import { buildGlobalSearchResultView, type GlobalSearchResultView } from './globalSearchModel';
 
-const GLOBAL_SEARCH_SCOPES: SearchEntityType[] = ['ingredient', 'food', 'recipe'];
+const GLOBAL_SEARCH_SCOPES: SearchEntityType[] = ['ingredient', 'food', 'recipe', 'meal_plan'];
 const GLOBAL_SEARCH_LIMIT = 20;
 
 export type GlobalSearchSelection = {
@@ -135,8 +135,8 @@ export function GlobalSearchOverlay(props: Props) {
           <input
             ref={inputRef}
             value={query}
-            placeholder="搜索食材、食物、菜谱"
-            aria-label="搜索食材、食物、菜谱"
+            placeholder="搜索食材、食物、菜谱、餐食计划"
+            aria-label="搜索食材、食物、菜谱、餐食计划"
             onChange={(event) => setQuery(event.target.value)}
             onCompositionStart={searchComposition.onCompositionStart}
             onCompositionEnd={searchComposition.onCompositionEnd}

@@ -196,7 +196,7 @@ describe('aiApi', () => {
       },
       run: {
         id: 'run-1',
-        agent_key: 'workspace_planner',
+        agent_key: 'workspace_orchestrator',
         intent: 'multi_skill',
         status: 'completed',
         model: 'fake',

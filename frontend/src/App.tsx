@@ -1,13 +1,13 @@
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type UIEvent } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import { api } from './api/client';
 import { queryKeys } from './api/queryKeys';
 import { AppNotificationCenter, AppShell, type TabKey } from './app/AppShell';
+import { useAppGlobalSearchNavigation } from './app/useAppGlobalSearchNavigation';
 import { useAppHomeHandlers } from './app/useAppHomeHandlers';
 import { useAppHomeViewModel } from './app/useAppHomeViewModel';
 import { useAppMutations } from './app/useAppMutations';
 import { useAppWorkspaceQueries } from './app/useAppWorkspaceQueries';
 import type {
-  Food,
   MealLog,
   UpdateMealLogPayload,
 } from './api/types';
@@ -39,7 +39,7 @@ import { useAiImageJobMonitor } from './hooks/useAiImageJobMonitor';
 import { resolveAssetUrl } from './lib/assets';
 import { readStringStorage, writeStringStorage } from './lib/storage';
 import { HomeDashboard } from './features/home/HomeDashboard';
-import { GlobalSearchOverlay, type GlobalSearchSelection } from './features/search/GlobalSearchOverlay';
+import { GlobalSearchOverlay } from './features/search/GlobalSearchOverlay';
 
 const AiWorkspace = lazy(() =>
   import('./components/ai/AiWorkspace').then((module) => ({ default: module.AiWorkspace }))
@@ -59,22 +59,6 @@ const HomeDashboardDialogs = lazy(() =>
 const FamilySettings = lazy(() =>
   import('./features/family/FamilySettings').then((module) => ({ default: module.FamilySettings }))
 );
-
-type IngredientNavigationRequest = {
-  view: 'catalog' | 'detail';
-  ingredientId?: string;
-  requestId: number;
-};
-
-type FoodNavigationRequest = {
-  foodId: string;
-  requestId: number;
-};
-
-type RecipeNavigationRequest = {
-  recipeId: string;
-  requestId: number;
-};
 
 const SIDEBAR_COLLAPSED_KEY = 'culina-large-shell-sidebar-collapsed-v3';
 const PHONE_VIEWPORT_QUERY = '(max-width: 767px)';
@@ -177,13 +161,6 @@ function App() {
     selectHomePlanAddFood,
     closeHomePlanAddDialog,
   } = useHomeDashboardState({ foodPlanWeekRange });
-  const [ingredientNavigationRequest, setIngredientNavigationRequest] = useState<IngredientNavigationRequest | null>(null);
-  const [foodNavigationRequest, setFoodNavigationRequest] = useState<FoodNavigationRequest | null>(null);
-  const [recipeNavigationRequest, setRecipeNavigationRequest] = useState<RecipeNavigationRequest | null>(null);
-  const [globalSearchOpen, setGlobalSearchOpen] = useState(false);
-  const ingredientNavigationRequestIdRef = useRef(0);
-  const foodNavigationRequestIdRef = useRef(0);
-  const recipeNavigationRequestIdRef = useRef(0);
   const { notice, showNotice, clearNotice } = useNotice();
   const aiImageJobMonitor = useAiImageJobMonitor(isAuthenticated, { onNotice: showNotice });
 
@@ -235,6 +212,22 @@ function App() {
     isAuthenticated,
     foodPlanWeekRange,
   });
+  const {
+    ingredientNavigationRequest,
+    setIngredientNavigationRequest,
+    ingredientNavigationRequestIdRef,
+    foodNavigationRequest,
+    foodPlanNavigationRequest,
+    recipeNavigationRequest,
+    globalSearchOpen,
+    setGlobalSearchOpen,
+    handleGlobalSearchSelect,
+  } = useAppGlobalSearchNavigation({
+    foods,
+    isPhoneViewport,
+    setActiveTab,
+    setSelectedRecipePlanDate,
+  });
 
   const handleTabChange = useCallback((tab: TabKey) => {
     setActiveTab(isPhoneViewport && tab === 'recipes' ? 'foods' : tab);
@@ -253,28 +246,6 @@ function App() {
     setPendingFoodPlanCookItemId(foodPlanItemId ?? null);
     setActiveTab('recipes');
   }, []);
-
-  const openRecipeTarget = useCallback((recipeId: string) => {
-    if (isPhoneViewport) {
-      const linkedFood = foods.find((food) => food.recipe_id === recipeId);
-      if (linkedFood) {
-        foodNavigationRequestIdRef.current += 1;
-        setFoodNavigationRequest({
-          foodId: linkedFood.id,
-          requestId: foodNavigationRequestIdRef.current,
-        });
-      }
-      setActiveTab('foods');
-      return;
-    }
-
-    recipeNavigationRequestIdRef.current += 1;
-    setRecipeNavigationRequest({
-      recipeId,
-      requestId: recipeNavigationRequestIdRef.current,
-    });
-    setActiveTab('recipes');
-  }, [foods, isPhoneViewport]);
 
   useEffect(() => {
     if (!authLoading && !isWorkspaceBootLoading) {
@@ -538,30 +509,6 @@ function App() {
       : resolveMealSource(homeMealEnrichmentMeal, homeMealEnrichmentPlanItems)
     : null;
 
-  function handleGlobalSearchSelect(selection: GlobalSearchSelection) {
-    setGlobalSearchOpen(false);
-    if (selection.entityType === 'ingredient') {
-      ingredientNavigationRequestIdRef.current += 1;
-      setIngredientNavigationRequest({
-        view: 'detail',
-        ingredientId: selection.entityId,
-        requestId: ingredientNavigationRequestIdRef.current,
-      });
-      setActiveTab('ingredients');
-      return;
-    }
-    if (selection.entityType === 'food') {
-      foodNavigationRequestIdRef.current += 1;
-      setFoodNavigationRequest({
-        foodId: selection.entityId,
-        requestId: foodNavigationRequestIdRef.current,
-      });
-      setActiveTab('foods');
-      return;
-    }
-    openRecipeTarget(selection.entityId);
-  }
-
   async function saveHomeMealEnrichment(meal: MealLog, payload: UpdateMealLogPayload) {
     const planItem = homeMealEnrichmentRequest?.planItem;
     if (!meal.id.startsWith('draft-') || !planItem) {
@@ -722,6 +669,7 @@ function App() {
               foodPlanWeekRange={foodPlanWeekRange}
               notificationCenter={mobileNotificationCenter}
               navigationRequest={foodNavigationRequest}
+              foodPlanNavigationRequest={foodPlanNavigationRequest}
               createFood={(payload) => createFoodMutation.mutateAsync(payload)}
               updateFood={(foodId, payload) => updateFoodMutation.mutateAsync({ foodId, payload })}
               updateFoodFavorite={(foodId, favorite) => toggleFavoriteMutation.mutateAsync({ foodId, favorite })}

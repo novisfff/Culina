@@ -17,6 +17,12 @@ import {
 import type { AiResourceKind, AiResourceOption, AiResourceOptionLoader } from './AiApprovalFields';
 import { AiCompositeOperationPreview, validateCompositeOperationDraftForSubmit } from './AiCompositeOperationPreview';
 import { AiInventoryOperationEditor } from './AiInventoryOperationEditor';
+import {
+  inventoryOperationDraftFromRecord,
+  validateInventoryOperationDraftForSubmit,
+  type InventoryOperationDraftItemPatch,
+} from './aiInventoryOperationDraftModel';
+import { asDraftArray, asNumber, asText } from './aiDraftValueUtils';
 
 export type { AiResourceOptionLoader } from './AiApprovalFields';
 
@@ -117,18 +123,6 @@ function getDraftType(approval: AiApprovalRequest, draft: Record<string, unknown
   if (approval.approval_type.startsWith('ingredient.')) return 'ingredient_profile';
   if (approval.approval_type.startsWith('inventory.')) return 'inventory_operation';
   return '';
-}
-
-function asDraftArray(value: unknown): Record<string, unknown>[] {
-  return Array.isArray(value) ? value.filter((item): item is Record<string, unknown> => typeof item === 'object' && item !== null && !Array.isArray(item)) : [];
-}
-
-function asText(value: unknown, fallback = '') {
-  return typeof value === 'string' ? value : fallback;
-}
-
-function asNumber(value: unknown, fallback = 1) {
-  return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
 }
 
 function joinTextList(value: unknown) {
@@ -356,50 +350,6 @@ function validateIngredientProfileDraftForSubmit(draft: Record<string, unknown>)
   });
   if (invalidConversion) {
     return '单位换算需要填写副单位，并且换算数量必须大于 0';
-  }
-  return '';
-}
-
-function isIsoDateText(value: string) {
-  return /^\d{4}-\d{2}-\d{2}$/.test(value);
-}
-
-function validateInventoryOperationDraftForSubmit(draft: Record<string, unknown>) {
-  const operations = asDraftArray(draft.operations);
-  if (operations.length === 0) return '库存处理草稿至少需要 1 项处理';
-  for (const item of operations) {
-    const action = asText(item.action, 'consume');
-    const ingredientName = asText(item.ingredientName, '食材');
-    if (!INVENTORY_ACTION_OPTIONS.some((option) => option.value === action)) {
-      return `${ingredientName} 的库存处理方式无效`;
-    }
-    const quantity = item.quantity;
-    if (typeof quantity !== 'number' || !Number.isFinite(quantity) || quantity <= 0) {
-      return `${ingredientName} 的处理数量需要大于 0`;
-    }
-    if (!asText(item.unit).trim()) {
-      return `${ingredientName} 的单位不能为空`;
-    }
-    if (action === 'dispose' && !asText(item.reason).trim()) {
-      return '销毁库存必须填写原因';
-    }
-    if (action === 'restock') {
-      const purchaseDate = asText(item.purchaseDate);
-      const expiryDate = asText(item.expiryDate);
-      if (purchaseDate && expiryDate && isIsoDateText(purchaseDate) && isIsoDateText(expiryDate) && expiryDate < purchaseDate) {
-        return `${ingredientName} 的到期日期不能早于采购日期`;
-      }
-    }
-    if (action === 'consume') {
-      const inventoryItemId = asText(item.inventoryItemId) || asText(item.inventory_item_id);
-      if (inventoryItemId) {
-        const batchOptions = asDraftArray(item.batchOptions);
-        const hasBatch = batchOptions.some((option) => asText(option.id) === inventoryItemId);
-        if (!hasBatch) {
-          return `${ingredientName} 指定的库存批次必须从批次下拉中选择`;
-        }
-      }
-    }
   }
   return '';
 }
@@ -1072,6 +1022,10 @@ export function ApprovalPanel({
   const failureSummary = getApprovalFailureSummary(currentApproval);
   const draftType = getDraftType(currentApproval, structuredDraft);
   const usesStructuredDraftEditor = ['recipe', 'recipe_cook', 'meal_plan', 'shopping_list', 'meal_log', 'food_profile', 'ingredient_profile', 'inventory_operation', 'composite_operation'].includes(draftType);
+  const inventoryOperationDraft = useMemo(
+    () => inventoryOperationDraftFromRecord(structuredDraft),
+    [structuredDraft],
+  );
   const staticFoodOptions = useMemo<AiResourceOption[]>(() => foods.map((food) => ({
     id: food.id,
     label: food.name,
@@ -1155,7 +1109,7 @@ export function ApprovalPanel({
         }
       }
       if (draftType === 'inventory_operation') {
-        const inventoryError = validateInventoryOperationDraftForSubmit(structuredDraft);
+        const inventoryError = validateInventoryOperationDraftForSubmit(inventoryOperationDraft);
         if (inventoryError) {
           setError(inventoryError);
           return;
@@ -1270,6 +1224,9 @@ export function ApprovalPanel({
         )),
       };
     });
+  };
+  const updateInventoryOperationItem = (index: number, patch: InventoryOperationDraftItemPatch) => {
+    updateDraftItem('operations', index, patch as Record<string, unknown>);
   };
   const renderStructuredDraftEditor = () => {
     if (draftType === 'composite_operation') {
@@ -1578,9 +1535,9 @@ export function ApprovalPanel({
     if (draftType === 'inventory_operation') {
       return (
         <AiInventoryOperationEditor
-          draft={structuredDraft}
+          draft={inventoryOperationDraft}
           readonly={readonly}
-          onUpdateItem={(index, patch) => updateDraftItem('operations', index, patch)}
+          onUpdateItem={updateInventoryOperationItem}
           onRemoveItem={(index) => removeDraftItem('operations', index)}
         />
       );
@@ -2389,6 +2346,17 @@ export function ApprovalPanel({
                           onChange={(value) => updatePayload({ foodEntryRatings: foodRatings.map((ratingItem, ratingIndex) => ratingIndex === index ? { ...ratingItem, rating: Number(value) || null } : ratingItem) })}
                         />
                       </div>
+                      <label className="ai-resource-field ai-confirmation-copy-field">
+                        <span>评分备注</span>
+                        <textarea
+                          className="text-input"
+                          rows={2}
+                          value={asText(item.note)}
+                          disabled={readonly}
+                          placeholder="可选，记录这次评分原因"
+                          onChange={(event) => updatePayload({ foodEntryRatings: foodRatings.map((ratingItem, ratingIndex) => ratingIndex === index ? { ...ratingItem, note: event.target.value } : ratingItem) })}
+                        />
+                      </label>
                     </div>
                   );
                 })}
@@ -3188,13 +3156,13 @@ export function ApprovalPanel({
         return [actionLabel, title].filter(Boolean).join(' · ');
       }
       if (draftType === 'inventory_operation') {
-        const operations = asDraftArray(structuredDraft.operations);
-        const labels = operations.map((item) => INVENTORY_ACTION_OPTIONS.find((option) => option.value === asText(item.action))?.label ?? '处理');
+        const operations = inventoryOperationDraft.operations;
+        const labels = operations.map((item) => INVENTORY_ACTION_OPTIONS.find((option) => option.value === item.action)?.label ?? '处理');
         return `${operations.length}项库存处理 · ${Array.from(new Set(labels)).join('、')}`;
       }
     }
     return '';
-  }, [recipeApproval, recipe, usesStructuredDraftEditor, draftType, structuredDraft]);
+  }, [recipeApproval, recipe, usesStructuredDraftEditor, draftType, structuredDraft, inventoryOperationDraft]);
 
   return (
     <section className={`ai-approval-panel${isExpanded ? ' is-expanded' : ' is-collapsed'}`}>

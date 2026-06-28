@@ -14,7 +14,7 @@ export const queryKeys = {
   recipeStats: ['recipe-stats'] as const,
   recipeFavorites: ['recipe-favorites'] as const,
   foodPlanRoot: ['food-plan'] as const,
-  foodPlan: (start: string, end: string) => ['food-plan', start, end] as const,
+  foodPlan: (start: string, end: string, query = '') => ['food-plan', start, end, query.trim()] as const,
   foodScenes: ['food-scenes'] as const,
   foods: ['foods'] as const,
   foodSearch: (query: string) => ['foods', 'search', query.trim()] as const,

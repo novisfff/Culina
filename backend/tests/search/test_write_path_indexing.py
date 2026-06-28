@@ -161,6 +161,68 @@ class SearchWritePathIndexingTestCase(RecipeApiTestCase):
             self.assertNotEqual(document.content_hash, old_hash)
             self.assertEqual(document.vector_status, "disabled")
 
+    def test_food_plan_create_update_and_delete_syncs_search_document(self) -> None:
+        food_response = self.client.post(
+            "/api/foods",
+            json={
+                "name": "周日晚餐面",
+                "type": "instant",
+                "category": "主食",
+                "flavor_tags": [],
+                "suitable_meal_types": ["dinner"],
+                "source_name": "",
+                "purchase_source": "",
+                "scene": "",
+                "notes": "",
+                "routine_note": "",
+                "price": None,
+                "rating": None,
+                "repurchase": False,
+                "expiry_date": None,
+                "stock_quantity": None,
+                "stock_unit": "份",
+                "favorite": False,
+                "media_ids": [],
+            },
+        )
+        self.assertEqual(food_response.status_code, 201, food_response.text)
+        food = food_response.json()
+        plan_response = self.client.post(
+            "/api/food-plan",
+            json={
+                "food_id": food["id"],
+                "plan_date": "2026-06-29",
+                "meal_type": "dinner",
+                "note": "周日晚餐安排",
+            },
+        )
+        self.assertEqual(plan_response.status_code, 201, plan_response.text)
+        plan = plan_response.json()
+        self._process_index_job("meal_plan", plan["id"])
+        with self.SessionLocal() as db:
+            document = db.scalar(select(SearchDocument).where(SearchDocument.entity_type == "meal_plan", SearchDocument.entity_id == plan["id"]))
+            self.assertIsNotNone(document)
+            assert document is not None
+            self.assertEqual(document.metadata_json["user_id"], self.user.id)
+            self.assertIn("周日晚餐安排", document.semantic_text)
+            old_hash = document.content_hash
+
+        update_response = self.client.patch(f"/api/food-plan/{plan['id']}", json={"note": "改成周一晚餐", "status": "planned"})
+        self.assertEqual(update_response.status_code, 200, update_response.text)
+        self._process_index_job("meal_plan", plan["id"])
+        with self.SessionLocal() as db:
+            document = db.scalar(select(SearchDocument).where(SearchDocument.entity_type == "meal_plan", SearchDocument.entity_id == plan["id"]))
+            self.assertIsNotNone(document)
+            assert document is not None
+            self.assertIn("改成周一晚餐", document.semantic_text)
+            self.assertNotEqual(document.content_hash, old_hash)
+
+        delete_response = self.client.delete(f"/api/food-plan/{plan['id']}")
+        self.assertEqual(delete_response.status_code, 204, delete_response.text)
+        with self.SessionLocal() as db:
+            document = db.scalar(select(SearchDocument).where(SearchDocument.entity_type == "meal_plan", SearchDocument.entity_id == plan["id"]))
+            self.assertIsNone(document)
+
     def test_recipe_create_update_and_delete_syncs_recipe_and_food_documents(self) -> None:
         recipe = self.create_recipe(title="番茄炒蛋")
         recipe_id = recipe["id"]

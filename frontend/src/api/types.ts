@@ -350,11 +350,11 @@ export interface RecipeStats {
   frequent: RecipeStatsItem[];
 }
 
-export type SearchEntityType = 'ingredient' | 'food' | 'recipe';
+export type SearchEntityType = 'ingredient' | 'food' | 'recipe' | 'meal_plan';
 export type SearchMode = 'keyword' | 'semantic' | 'hybrid' | string;
 export type SearchIndexJobStatus = 'queued' | 'running' | 'succeeded' | 'failed';
 export type SearchIndexVectorStatus = 'pending' | 'indexed' | 'skipped' | 'failed';
-export type SearchResultEntity = Ingredient | Food | Recipe;
+export type SearchResultEntity = Ingredient | Food | Recipe | FoodPlanItem;
 
 export interface SearchResultItem {
   entity_type: SearchEntityType;

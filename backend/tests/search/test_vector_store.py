@@ -70,7 +70,7 @@ def _store() -> QdrantVectorStore:
 
 
 def test_ensure_collection_creates_collection_and_payload_indexes() -> None:
-    FakeHttpxClient.responses = [FakeResponse(status_code=404), FakeResponse(), FakeResponse(), FakeResponse()]
+    FakeHttpxClient.responses = [FakeResponse(status_code=404), FakeResponse(), FakeResponse(), FakeResponse(), FakeResponse()]
 
     _store().ensure_collection(vector_size=3)
 
@@ -92,6 +92,45 @@ def test_ensure_collection_creates_collection_and_payload_indexes() -> None:
             "PUT",
             "http://qdrant:6333/collections/culina_search/index",
             {"field_name": "entity_type", "field_schema": "keyword"},
+            {"api-key": "secret"},
+        ),
+        (
+            "PUT",
+            "http://qdrant:6333/collections/culina_search/index",
+            {"field_name": "user_id", "field_schema": "keyword"},
+            {"api-key": "secret"},
+        ),
+    ]
+
+
+def test_ensure_collection_refreshes_payload_indexes_for_existing_collection() -> None:
+    FakeHttpxClient.responses = [
+        FakeResponse(body={"result": {"config": {"params": {"vectors": {"size": 3, "distance": "Cosine"}}}}}),
+        FakeResponse(),
+        FakeResponse(),
+        FakeResponse(),
+    ]
+
+    _store().ensure_collection(vector_size=3)
+
+    assert FakeHttpxClient.requests == [
+        ("GET", "http://qdrant:6333/collections/culina_search", None, {"api-key": "secret"}),
+        (
+            "PUT",
+            "http://qdrant:6333/collections/culina_search/index",
+            {"field_name": "family_id", "field_schema": "keyword"},
+            {"api-key": "secret"},
+        ),
+        (
+            "PUT",
+            "http://qdrant:6333/collections/culina_search/index",
+            {"field_name": "entity_type", "field_schema": "keyword"},
+            {"api-key": "secret"},
+        ),
+        (
+            "PUT",
+            "http://qdrant:6333/collections/culina_search/index",
+            {"field_name": "user_id", "field_schema": "keyword"},
             {"api-key": "secret"},
         ),
     ]
@@ -171,6 +210,35 @@ def test_search_filters_by_family_and_scope_and_parses_hits() -> None:
             "must": [
                 {"key": "family_id", "match": {"value": "family-1"}},
                 {"key": "entity_type", "match": {"any": ["recipe", "food"]}},
+            ]
+        },
+    }
+
+
+def test_search_can_filter_meal_plan_vectors_by_user() -> None:
+    FakeHttpxClient.responses = [
+        FakeResponse(
+            body={
+                "result": [
+                    {"score": 0.91, "payload": {"entity_type": "meal_plan", "entity_id": "plan-1"}},
+                ]
+            }
+        )
+    ]
+
+    hits = _store().search(family_id="family-1", scopes=["meal_plan"], vector=[0.1, 0.2], limit=5, user_id="user-1")
+
+    assert [hit.entity_id for hit in hits] == ["plan-1"]
+    _, _, payload, _ = FakeHttpxClient.requests[0]
+    assert payload == {
+        "vector": [0.1, 0.2],
+        "limit": 5,
+        "with_payload": True,
+        "filter": {
+            "must": [
+                {"key": "family_id", "match": {"value": "family-1"}},
+                {"key": "entity_type", "match": {"any": ["meal_plan"]}},
+                {"key": "user_id", "match": {"value": "user-1"}},
             ]
         },
     }

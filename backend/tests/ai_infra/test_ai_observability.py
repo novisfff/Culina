@@ -57,6 +57,18 @@ class AIObservabilityTestCase(AIAgentInfraTestCase):
         self.assertEqual(set(AIRunTraceSpan.__table__.foreign_keys), set())
         self.assertEqual(set(AIRunLLMExchange.__table__.foreign_keys), set())
 
+    def test_agent_loop_logs_phase_perf_summary(self) -> None:
+        with self.assertLogs("app.ai.workflows.runner", level="INFO") as logs:
+            response = self.client.post(
+                "/api/ai/chat",
+                json={"message": "随便聊聊", "client_run_id": "agent_run-observability-phase-perf"},
+            )
+
+        self.assertEqual(response.status_code, 200, response.text)
+        output = "\n".join(logs.output)
+        self.assertIn("AI graph prepare completed", output)
+        self.assertIn("AI graph finalize perf summary", output)
+
     def test_openai_compatible_provider_requests_stream_usage(self) -> None:
         provider = OpenAICompatibleChatProvider(
             api_base="https://example.invalid/v1",

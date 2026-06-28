@@ -7,11 +7,12 @@ from sqlalchemy.orm import Session
 
 from app.core.config import DISABLED_SEARCH_PROVIDERS, get_settings
 from app.core.utils import create_id
-from app.models.domain import Food, Ingredient, Recipe, SearchDocument
+from app.models.domain import Food, FoodPlanItem, Ingredient, Recipe, SearchDocument
 from app.services.search.documents import (
     SearchDocumentPayload,
     build_food_search_document,
     build_ingredient_search_document,
+    build_meal_plan_search_document,
     build_recipe_search_document,
 )
 from app.services.search.vector_indexing import search_point_id
@@ -68,6 +69,10 @@ def upsert_food_search_document(db: Session, food: Food) -> SearchDocument:
 
 def upsert_recipe_search_document(db: Session, recipe: Recipe) -> SearchDocument:
     return upsert_search_document(db, build_recipe_search_document(recipe, **_embedding_document_config()))
+
+
+def upsert_meal_plan_search_document(db: Session, item: FoodPlanItem) -> SearchDocument:
+    return upsert_search_document(db, build_meal_plan_search_document(item, **_embedding_document_config()))
 
 
 def delete_search_document(

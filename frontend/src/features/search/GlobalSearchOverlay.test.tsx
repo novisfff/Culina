@@ -1,9 +1,9 @@
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { notifyManager, QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { api } from '../../api/client';
-import type { Food, Ingredient, Recipe, SearchResponse } from '../../api/types';
+import type { Food, FoodPlanItem, Ingredient, Recipe, SearchResponse } from '../../api/types';
 import { GlobalSearchOverlay } from './GlobalSearchOverlay';
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -70,6 +70,25 @@ const recipe: Recipe = {
   updated_at: '2026-06-01T00:00:00Z',
 };
 
+const mealPlan: FoodPlanItem = {
+  id: 'plan-dinner',
+  family_id: 'family-1',
+  user_id: 'user-1',
+  food_id: food.id,
+  food_name: '番茄面',
+  food_type: 'selfMade',
+  recipe_id: recipe.id,
+  recipe_title: recipe.title,
+  plan_date: '2026-06-29',
+  meal_type: 'dinner',
+  note: '晚餐安排',
+  status: 'planned',
+  completed_at: null,
+  meal_log_id: null,
+  created_at: '2026-06-01T00:00:00Z',
+  updated_at: '2026-06-01T00:00:00Z',
+};
+
 function changeInput(input: HTMLInputElement, value: string) {
   act(() => {
     const valueSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
@@ -80,14 +99,26 @@ function changeInput(input: HTMLInputElement, value: string) {
 
 async function waitForSearchRequest() {
   await act(async () => {
-    await new Promise((resolve) => window.setTimeout(resolve, 360));
+    await vi.advanceTimersByTimeAsync(300);
     await Promise.resolve();
+    await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(0);
   });
   expect(api.search).toHaveBeenCalled();
+  await act(async () => {
+    await vi.runOnlyPendingTimersAsync();
+    await Promise.resolve();
+  });
+}
+
+async function waitForBodyText(text: string) {
+  await vi.waitFor(() => {
+    expect(document.body.textContent).toContain(text);
+  });
 }
 
 async function renderOverlay(response: SearchResponse, onSelect = vi.fn()) {
-  vi.spyOn(api, 'search').mockResolvedValue(response);
+  vi.spyOn(api, 'search').mockImplementation(() => response as unknown as ReturnType<typeof api.search>);
   container = document.createElement('div');
   document.body.appendChild(container);
   root = createRoot(container);
@@ -102,10 +133,18 @@ async function renderOverlay(response: SearchResponse, onSelect = vi.fn()) {
         <GlobalSearchOverlay open onClose={vi.fn()} onSelect={onSelect} />
       </QueryClientProvider>
     );
+    await vi.advanceTimersByTimeAsync(0);
   });
 
   return { onSelect };
 }
+
+beforeEach(() => {
+  vi.useFakeTimers();
+  notifyManager.setNotifyFunction((callback) => {
+    act(callback);
+  });
+});
 
 afterEach(() => {
   act(() => {
@@ -117,6 +156,10 @@ afterEach(() => {
   container?.remove();
   container = null;
   document.body.innerHTML = '';
+  notifyManager.setNotifyFunction((callback) => {
+    callback();
+  });
+  vi.useRealTimers();
   vi.restoreAllMocks();
 });
 
@@ -154,27 +197,37 @@ describe('GlobalSearchOverlay', () => {
           match_reason: ['食材匹配'],
           entity: recipe,
         },
+        {
+          entity_type: 'meal_plan',
+          entity_id: mealPlan.id,
+          score: 2.5,
+          keyword_score: 1,
+          semantic_score: 0.6,
+          business_score: 0.1,
+          match_reason: ['晚餐计划'],
+          entity: mealPlan,
+        },
       ],
-      total: 3,
+      total: 4,
       query: '番茄',
       search_mode: 'hybrid',
       degraded: true,
     });
 
-    changeInput(document.querySelector<HTMLInputElement>('input[aria-label="搜索食材、食物、菜谱"]')!, '番茄');
+    changeInput(document.querySelector<HTMLInputElement>('input[aria-label="搜索食材、食物、菜谱、餐食计划"]')!, '番茄');
     await waitForSearchRequest();
 
     expect(api.search).toHaveBeenCalledWith({
       q: '番茄',
-      scopes: ['ingredient', 'food', 'recipe'],
+      scopes: ['ingredient', 'food', 'recipe', 'meal_plan'],
       limit: 20,
       offset: 0,
     });
-    await vi.waitFor(() => {
-      expect(document.body.textContent).toContain('食材');
-    });
+    await waitForBodyText('食材');
     expect(document.body.textContent).toContain('食物');
     expect(document.body.textContent).toContain('菜谱');
+    expect(document.body.textContent).toContain('餐食计划');
+    expect(document.body.textContent).toContain('晚餐安排');
     expect(document.body.textContent).toContain('检索结果可能不完整');
   });
 
@@ -199,12 +252,10 @@ describe('GlobalSearchOverlay', () => {
       degraded: false,
     }, onSelect);
 
-    changeInput(document.querySelector<HTMLInputElement>('input[aria-label="搜索食材、食物、菜谱"]')!, '番茄');
+    changeInput(document.querySelector<HTMLInputElement>('input[aria-label="搜索食材、食物、菜谱、餐食计划"]')!, '番茄');
     await waitForSearchRequest();
 
-    await vi.waitFor(() => {
-      expect(document.body.textContent).toContain('番茄炒蛋');
-    });
+    await waitForBodyText('番茄炒蛋');
     const resultButton = Array.from(document.querySelectorAll<HTMLButtonElement>('.global-search-result'))
       .find((button) => button.textContent?.includes('番茄炒蛋'));
     expect(resultButton).toBeTruthy();
@@ -238,12 +289,10 @@ describe('GlobalSearchOverlay', () => {
       degraded: false,
     });
 
-    const input = document.querySelector<HTMLInputElement>('input[aria-label="搜索食材、食物、菜谱"]')!;
+    const input = document.querySelector<HTMLInputElement>('input[aria-label="搜索食材、食物、菜谱、餐食计划"]')!;
     changeInput(input, '番茄');
     await waitForSearchRequest();
-    await vi.waitFor(() => {
-      expect(document.body.textContent).toContain('番茄');
-    });
+    await waitForBodyText('番茄');
 
     act(() => {
       document.querySelector<HTMLButtonElement>('.global-search-clear')?.click();

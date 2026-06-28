@@ -95,8 +95,8 @@
 }
 
 .global-search-clear {
-  width: 34px;
-  height: 34px;
+  width: 40px;
+  height: 40px;
   border: 1px solid rgba(147, 96, 63, 0.16);
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.72);
@@ -276,6 +276,11 @@
   --global-search-tone-bg: rgba(222, 239, 238, 0.86);
 }
 
+.global-search-result-meal_plan {
+  --global-search-tone: #6d63bd;
+  --global-search-tone-bg: rgba(240, 238, 255, 0.88);
+}
+
 .global-search-result-ingredient .global-search-result-media,
 .global-search-result-ingredient .global-search-type-pill {
   background: var(--global-search-tone-bg);
@@ -294,6 +299,12 @@
   color: var(--global-search-tone);
 }
 
+.global-search-result-meal_plan .global-search-result-media,
+.global-search-result-meal_plan .global-search-type-pill {
+  background: var(--global-search-tone-bg);
+  color: var(--global-search-tone);
+}
+
 @media (max-width: 720px) {
   .global-search-root {
     align-items: start;
@@ -308,15 +319,19 @@
 
   .global-search-input-row {
     min-height: 64px;
-    grid-template-columns: 32px minmax(0, 1fr) auto auto;
+    grid-template-columns: 36px minmax(0, 1fr) auto auto;
     gap: 8px;
     padding: 12px 14px;
   }
 
-  .global-search-input-icon,
-  .global-search-clear {
+  .global-search-input-icon {
     width: 36px;
     height: 36px;
+  }
+
+  .global-search-clear {
+    width: 44px;
+    height: 44px;
   }
 
   .global-search-input-icon svg {

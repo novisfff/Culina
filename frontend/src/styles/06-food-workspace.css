@@ -10286,7 +10286,7 @@ button.ai-clarification-option:hover:not(:disabled) .ai-clarification-option-ind
   display: grid;
   grid-template-columns: minmax(54px, 0.9fr) minmax(44px, 0.7fr);
   min-height: 38px;
-  overflow: hidden;
+  overflow: visible;
   border: 1px solid rgba(181, 198, 175, 0.9);
   border-radius: 13px;
   background: rgba(255, 255, 255, 0.88);
@@ -10313,6 +10313,27 @@ button.ai-clarification-option:hover:not(:disabled) .ai-clarification-option-ind
   border-left: 1px solid rgba(181, 198, 175, 0.72);
   color: #667b62;
   text-align: center;
+}
+
+.ai-ingredient-unit-combobox {
+  position: relative;
+  min-width: 0;
+  border-left: 1px solid rgba(181, 198, 175, 0.72);
+}
+
+.ai-ingredient-unit-combobox input {
+  color: #667b62;
+  text-align: center;
+}
+
+.ai-ingredient-unit-combobox.is-open input {
+  background: rgba(244, 250, 242, 0.82);
+}
+
+.ai-ingredient-unit-menu {
+  right: -8px;
+  left: auto;
+  width: min(190px, 70vw);
 }
 
 .ai-ingredient-remove-button {

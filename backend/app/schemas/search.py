@@ -5,7 +5,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 
 
-SearchEntityType = Literal["ingredient", "food", "recipe"]
+SearchEntityType = Literal["ingredient", "food", "recipe", "meal_plan"]
 SearchIndexJobStatus = Literal["queued", "running", "succeeded", "failed"]
 SearchIndexVectorStatus = Literal["pending", "indexed", "skipped", "failed"]
 

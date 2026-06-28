@@ -1,30 +1,16 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 from datetime import datetime, timezone
 
-from sqlalchemy import create_engine, select
-from sqlalchemy.orm import Session, sessionmaker
-from sqlalchemy.pool import StaticPool
+from sqlalchemy import select
+from sqlalchemy.orm import Session
 
-from app.models.domain import Base, Family, SearchDocument
+from app.models.domain import Family, SearchDocument
 from app.services.search.documents import SearchDocumentPayload
 from app.services.search.indexing import upsert_search_document
 from app.services.search.vector_indexing import index_pending_search_documents
 from app.services.search.vector_store import VectorSearchHit, VectorStoreUnavailableError
-
-
-@dataclass
-class FakeEmbeddingClient:
-    model: str = "fake-embedding"
-    dimensions: int = 2
-
-    def embed_text(self, text: str) -> list[float]:
-        del text
-        return [0.1, 0.2]
-
-    def embed_batch(self, texts: list[str]) -> list[list[float]]:
-        return [[0.1, 0.2] for _ in texts]
+from tests.search._support import FakeEmbeddingClient, session_factory
 
 
 class MutatingEmbeddingClient(FakeEmbeddingClient):
@@ -62,17 +48,6 @@ class RecordingVectorStore:
         return []
 
 
-def _session_factory():
-    engine = create_engine(
-        "sqlite:///:memory:",
-        future=True,
-        connect_args={"check_same_thread": False},
-        poolclass=StaticPool,
-    )
-    Base.metadata.create_all(engine)
-    return sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True, class_=Session)
-
-
 def _seed_document(db: Session, *, embedding_model: str = "fake-embedding", embedding_dimensions: int = 2) -> SearchDocument:
     db.add(Family(id="family-1", name="一号家庭"))
     document = upsert_search_document(
@@ -96,7 +71,7 @@ def _seed_document(db: Session, *, embedding_model: str = "fake-embedding", embe
 
 
 def test_index_pending_search_documents_upserts_vector_and_marks_indexed() -> None:
-    SessionLocal = _session_factory()
+    SessionLocal = session_factory()
     vector_store = RecordingVectorStore()
     with SessionLocal() as db:
         _seed_document(db)
@@ -120,7 +95,7 @@ def test_index_pending_search_documents_upserts_vector_and_marks_indexed() -> No
 
 
 def test_index_pending_search_documents_treats_null_attempt_count_as_zero() -> None:
-    SessionLocal = _session_factory()
+    SessionLocal = session_factory()
     vector_store = RecordingVectorStore()
     with SessionLocal() as db:
         document = _seed_document(db)
@@ -141,7 +116,7 @@ def test_index_pending_search_documents_treats_null_attempt_count_as_zero() -> N
 
 
 def test_index_pending_search_documents_records_failure() -> None:
-    SessionLocal = _session_factory()
+    SessionLocal = session_factory()
     with SessionLocal() as db:
         _seed_document(db)
         stats = index_pending_search_documents(
@@ -160,7 +135,7 @@ def test_index_pending_search_documents_records_failure() -> None:
 
 
 def test_index_pending_search_documents_rejects_stale_embedding_config() -> None:
-    SessionLocal = _session_factory()
+    SessionLocal = session_factory()
     vector_store = RecordingVectorStore()
     with SessionLocal() as db:
         _seed_document(db, embedding_model="", embedding_dimensions=0)
@@ -181,7 +156,7 @@ def test_index_pending_search_documents_rejects_stale_embedding_config() -> None
 
 
 def test_index_pending_search_documents_respects_failed_retry_backoff() -> None:
-    SessionLocal = _session_factory()
+    SessionLocal = session_factory()
     vector_store = RecordingVectorStore()
     with SessionLocal() as db:
         document = _seed_document(db)
@@ -201,7 +176,7 @@ def test_index_pending_search_documents_respects_failed_retry_backoff() -> None:
 
 
 def test_index_pending_search_documents_skips_stale_snapshot() -> None:
-    SessionLocal = _session_factory()
+    SessionLocal = session_factory()
     vector_store = RecordingVectorStore()
     with SessionLocal() as db:
         _seed_document(db)
@@ -222,7 +197,7 @@ def test_index_pending_search_documents_skips_stale_snapshot() -> None:
 
 
 def test_upsert_search_document_keeps_indexed_embedding_metadata_when_hash_unchanged() -> None:
-    SessionLocal = _session_factory()
+    SessionLocal = session_factory()
     with SessionLocal() as db:
         document = _seed_document(db)
         document.vector_status = "indexed"

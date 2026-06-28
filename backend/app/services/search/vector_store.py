@@ -53,7 +53,15 @@ class VectorStore(Protocol):
     ) -> VectorPointPage:
         ...
 
-    def search(self, *, family_id: str, scopes: list[str], vector: list[float], limit: int) -> list[VectorSearchHit]:
+    def search(
+        self,
+        *,
+        family_id: str,
+        scopes: list[str],
+        vector: list[float],
+        limit: int,
+        user_id: str | None = None,
+    ) -> list[VectorSearchHit]:
         ...
 
 
@@ -81,8 +89,16 @@ class DisabledVectorStore:
         del family_id, scopes, limit, offset
         raise VectorStoreUnavailableError("search vector store disabled")
 
-    def search(self, *, family_id: str, scopes: list[str], vector: list[float], limit: int) -> list[VectorSearchHit]:
-        del family_id, scopes, vector, limit
+    def search(
+        self,
+        *,
+        family_id: str,
+        scopes: list[str],
+        vector: list[float],
+        limit: int,
+        user_id: str | None = None,
+    ) -> list[VectorSearchHit]:
+        del family_id, scopes, vector, limit, user_id
         raise VectorStoreUnavailableError("search vector store disabled")
 
 
@@ -107,12 +123,7 @@ class QdrantVectorStore:
                         json={"vectors": {"size": vector_size, "distance": "Cosine"}},
                     )
                     create_response.raise_for_status()
-                    for field_name in ("family_id", "entity_type"):
-                        client.put(
-                            f"{self.url}/collections/{self.collection}/index",
-                            headers=headers,
-                            json={"field_name": field_name, "field_schema": "keyword"},
-                        ).raise_for_status()
+                    self._ensure_payload_indexes(client, headers=headers)
                     return
                 get_response.raise_for_status()
                 existing_size = _collection_vector_size(get_response.json())
@@ -120,6 +131,7 @@ class QdrantVectorStore:
                     raise VectorStoreUnavailableError(
                         f"qdrant collection vector size mismatch: existing={existing_size} expected={vector_size}"
                     )
+                self._ensure_payload_indexes(client, headers=headers)
         except httpx.HTTPError as exc:  # pragma: no cover - network failure
             raise VectorStoreUnavailableError(str(exc)) from exc
 
@@ -204,19 +216,30 @@ class QdrantVectorStore:
                 points.append(VectorPoint(point_id=point_id, payload=point_payload))
         return VectorPointPage(points=points, next_page_offset=result.get("next_page_offset"))
 
-    def search(self, *, family_id: str, scopes: list[str], vector: list[float], limit: int) -> list[VectorSearchHit]:
+    def search(
+        self,
+        *,
+        family_id: str,
+        scopes: list[str],
+        vector: list[float],
+        limit: int,
+        user_id: str | None = None,
+    ) -> list[VectorSearchHit]:
         if not vector or not scopes or limit <= 0:
             return []
         headers = {"api-key": self.api_key} if self.api_key else {}
+        must_filters: list[dict[str, object]] = [
+            {"key": "family_id", "match": {"value": family_id}},
+            {"key": "entity_type", "match": {"any": scopes}},
+        ]
+        if user_id:
+            must_filters.append({"key": "user_id", "match": {"value": user_id}})
         payload = {
             "vector": vector,
             "limit": limit,
             "with_payload": True,
             "filter": {
-                "must": [
-                    {"key": "family_id", "match": {"value": family_id}},
-                    {"key": "entity_type", "match": {"any": scopes}},
-                ]
+                "must": must_filters
             },
         }
         try:
@@ -252,6 +275,14 @@ class QdrantVectorStore:
 
     def _headers(self) -> dict[str, str]:
         return {"api-key": self.api_key} if self.api_key else {}
+
+    def _ensure_payload_indexes(self, client: httpx.Client, *, headers: dict[str, str]) -> None:
+        for field_name in ("family_id", "entity_type", "user_id"):
+            client.put(
+                f"{self.url}/collections/{self.collection}/index",
+                headers=headers,
+                json={"field_name": field_name, "field_schema": "keyword"},
+            ).raise_for_status()
 
 
 def _normalize_qdrant_score(value: object) -> float:

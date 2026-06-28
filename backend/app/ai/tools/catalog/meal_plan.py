@@ -14,6 +14,7 @@ from app.ai.tools.schemas import MEAL_PLAN_DRAFT_SCHEMA, READ_BY_ID_INPUT, draft
 from app.core.utils import create_id
 from app.models.domain import Food, FoodPlanItem, InventoryItem, MealLog, Recipe
 from app.services.clock import today_for_family
+from app.services.search.hybrid import hybrid_search
 from app.services.serializers import serialize_food_plan_item
 
 
@@ -120,7 +121,7 @@ def meal_plan_read_existing(context: ToolContext, payload: dict[str, Any]) -> di
     plan_date = str(payload.get("planDate") or payload.get("date") or "").strip()
     statement = (
         select(FoodPlanItem)
-        .options(selectinload(FoodPlanItem.food))
+        .options(selectinload(FoodPlanItem.food).selectinload(Food.recipe))
         .where(
             FoodPlanItem.family_id == context.family_id,
             FoodPlanItem.user_id == context.user_id,
@@ -139,14 +140,32 @@ def meal_plan_read_existing(context: ToolContext, payload: dict[str, Any]) -> di
         except ValueError as exc:
             raise ValueError("计划日期格式不正确") from exc
         statement = statement.where(FoodPlanItem.plan_date == parsed_plan_date)
-    if query:
-        if exact:
-            statement = statement.where(or_(FoodPlanItem.note == query, FoodPlanItem.food.has(Food.name == query)))
-        else:
-            pattern = f"%{query}%"
-            statement = statement.where(
-                or_(FoodPlanItem.note.ilike(pattern), FoodPlanItem.food.has(Food.name.ilike(pattern)))
-            )
+    if query and exact:
+        statement = statement.where(or_(FoodPlanItem.note == query, FoodPlanItem.food.has(Food.name == query)))
+    elif query:
+        search_result = hybrid_search(
+            context.db,
+            family_id=context.family_id,
+            user_id=context.user_id,
+            query=query,
+            scopes=["meal_plan"],
+            limit=max(80, (offset + limit + 1) * 4),
+            offset=0,
+        )
+        candidate_ids = [item.entity_id for item in search_result.items if item.entity_type == "meal_plan"]
+        if not candidate_ids:
+            return {"items": [], "count": 0, "hasMore": False}
+        rank_by_id = {item_id: index for index, item_id in enumerate(candidate_ids)}
+        statement = statement.where(FoodPlanItem.id.in_(candidate_ids))
+        plans = list(context.db.scalars(statement))
+        plans.sort(key=lambda item: (rank_by_id.get(item.id, len(rank_by_id)), item.plan_date, item.id))
+        has_more = len(plans) > offset + limit
+        plans = plans[offset : offset + limit]
+        return {
+            "items": [serialize_meal_plan_tool_item(item) for item in plans],
+            "count": len(plans),
+            "hasMore": has_more,
+        }
     plans = list(
         context.db.scalars(
             statement.order_by(FoodPlanItem.plan_date.asc(), FoodPlanItem.id.asc()).offset(offset).limit(limit + 1)

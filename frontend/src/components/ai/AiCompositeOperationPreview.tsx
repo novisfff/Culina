@@ -1,10 +1,4 @@
-function asText(value: unknown, fallback = '') {
-  return typeof value === 'string' ? value : fallback;
-}
-
-function asNumber(value: unknown, fallback = 0) {
-  return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
-}
+import { asDraftArray, asNumber, asText } from './aiDraftValueUtils';
 
 export function getCompositeSteps(draft: Record<string, unknown>) {
   const fromPreview = Array.isArray(draft.stepPreviews)
@@ -12,7 +6,7 @@ export function getCompositeSteps(draft: Record<string, unknown>) {
     : Array.isArray(draft.steps)
       ? draft.steps
       : [];
-  return fromPreview.filter((item): item is Record<string, unknown> => typeof item === 'object' && item !== null && !Array.isArray(item));
+  return asDraftArray(fromPreview);
 }
 
 function compositeStepActionLabel(value: unknown) {
@@ -96,9 +90,7 @@ function getImpact(step: Record<string, unknown>) {
 }
 
 function getDependencyRefs(step: Record<string, unknown>) {
-  return Array.isArray(step.dependencyRefs)
-    ? step.dependencyRefs.filter((item): item is Record<string, unknown> => typeof item === 'object' && item !== null && !Array.isArray(item))
-    : [];
+  return asDraftArray(step.dependencyRefs);
 }
 
 function getDependsOn(step: Record<string, unknown>) {

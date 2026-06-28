@@ -571,6 +571,8 @@ RECIPE_COOK_DRAFT_SCHEMA: dict[str, Any] = {
                     "ingredient_name": {"type": "string", "minLength": 1, "maxLength": 120},
                     "requested_quantity": {"type": "number", "exclusiveMinimum": 0},
                     "unit": {"type": "string", "minLength": 1, "maxLength": 32},
+                    "quantity_tracking_mode": {"type": "string", "enum": ["track_quantity", "not_track_quantity"]},
+                    "deduction_note": {"type": ["string", "null"], "maxLength": 255},
                     "batches": {
                         "type": "array",
                         "maxItems": 50,
@@ -605,10 +607,22 @@ RECIPE_COOK_DRAFT_SCHEMA: dict[str, Any] = {
                     "available_quantity": {"type": "number", "minimum": 0},
                     "missing_quantity": {"type": "number", "exclusiveMinimum": 0},
                     "unit": {"type": "string", "minLength": 1, "maxLength": 32},
+                    "shortage_type": {"type": "string", "maxLength": 64},
                 },
             },
         },
     },
+}
+
+RECIPE_COOK_DRAFT_INPUT_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "description": (
+        "做菜确认草稿输入。模型只需要提供真实 recipeId、份数和用户明确给出的日期/餐别/记录餐食意图；"
+        "previewItems 和 shortages 会由后端根据当前库存重新计算，不要求模型手写。"
+    ),
+    "additionalProperties": False,
+    "required": ["draftType", "schemaVersion", "recipeId", "servings"],
+    "properties": RECIPE_COOK_DRAFT_SCHEMA["properties"],
 }
 
 FOOD_PROFILE_DRAFT_SCHEMA: dict[str, Any] = {

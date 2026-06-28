@@ -1,7 +1,7 @@
-import type { Food, Ingredient, Recipe, SearchEntityType, SearchResultItem } from '../../api/types';
+import type { Food, FoodPlanItem, Ingredient, Recipe, SearchEntityType, SearchResultItem } from '../../api/types';
 import { FOOD_TYPE_LABELS, MEAL_TYPE_LABELS } from '../../lib/ui';
 
-export type GlobalSearchResultTone = 'ingredient' | 'food' | 'recipe';
+export type GlobalSearchResultTone = 'ingredient' | 'food' | 'recipe' | 'meal_plan';
 
 export type GlobalSearchResultView = {
   id: string;
@@ -12,7 +12,7 @@ export type GlobalSearchResultView = {
   meta: string;
   typeLabel: string;
   tone: GlobalSearchResultTone;
-  icon: 'leaf' | 'pot' | 'list';
+  icon: 'leaf' | 'pot' | 'list' | 'calendar';
   imageUrl?: string;
   matchReasons: string[];
   item: SearchResultItem;
@@ -22,6 +22,13 @@ const TYPE_LABELS: Record<SearchEntityType, string> = {
   ingredient: '食材',
   food: '食物',
   recipe: '菜谱',
+  meal_plan: '餐食计划',
+};
+
+const FOOD_PLAN_STATUS_LABELS: Record<string, string> = {
+  planned: '待安排',
+  cooked: '已完成',
+  skipped: '已跳过',
 };
 
 function compactParts(parts: Array<string | number | null | undefined>) {
@@ -97,8 +104,28 @@ function buildRecipeView(item: SearchResultItem): GlobalSearchResultView {
   };
 }
 
+function buildMealPlanView(item: SearchResultItem): GlobalSearchResultView {
+  const plan = item.entity as FoodPlanItem;
+  const mealLabel = MEAL_TYPE_LABELS[plan.meal_type] ?? plan.meal_type;
+  const statusLabel = FOOD_PLAN_STATUS_LABELS[plan.status] ?? plan.status;
+  return {
+    id: `${item.entity_type}:${item.entity_id}`,
+    entityType: item.entity_type,
+    entityId: item.entity_id,
+    title: plan.food_name || plan.recipe_title || plan.note || '餐食计划',
+    description: compactParts([plan.plan_date, mealLabel, statusLabel, plan.note]) || '菜单计划',
+    meta: compactParts([plan.recipe_title, FOOD_TYPE_LABELS[plan.food_type as keyof typeof FOOD_TYPE_LABELS]]),
+    typeLabel: TYPE_LABELS.meal_plan,
+    tone: 'meal_plan',
+    icon: 'calendar',
+    matchReasons: item.match_reason.slice(0, 2),
+    item,
+  };
+}
+
 export function buildGlobalSearchResultView(item: SearchResultItem): GlobalSearchResultView {
   if (item.entity_type === 'ingredient') return buildIngredientView(item);
   if (item.entity_type === 'food') return buildFoodView(item);
+  if (item.entity_type === 'meal_plan') return buildMealPlanView(item);
   return buildRecipeView(item);
 }

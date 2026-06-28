@@ -1,13 +1,14 @@
 from __future__ import annotations
 
+from datetime import date
 from decimal import Decimal
 
 from sqlalchemy.dialects import mysql
 from sqlalchemy.schema import CreateTable
 
 from app.core.enums import Difficulty, FoodType, IngredientExpiryMode, IngredientQuantityTrackingMode, MealType
-from app.models.domain import Food, Ingredient, Recipe, RecipeIngredient, RecipeStep, SearchDocument
-from app.services.search.documents import build_food_search_document, build_ingredient_search_document, build_recipe_search_document
+from app.models.domain import Food, FoodPlanItem, Ingredient, Recipe, RecipeIngredient, RecipeStep, SearchDocument
+from app.services.search.documents import build_food_search_document, build_ingredient_search_document, build_meal_plan_search_document, build_recipe_search_document
 
 
 def test_builds_ingredient_search_document_with_semantic_context() -> None:
@@ -113,6 +114,40 @@ def test_builds_recipe_search_document_from_ingredients_and_steps() -> None:
     assert "菜谱：番茄鸡蛋汤" in document.semantic_text
     assert "食材：番茄 2 个 切块" in document.semantic_text
     assert "步骤：煮汤 先炒番茄再加水 清淡、快手 番茄炒软后加水，倒入蛋液。 小火倒蛋液" in document.semantic_text
+
+
+def test_builds_meal_plan_search_document_with_user_and_plan_context() -> None:
+    recipe = Recipe(id="recipe-egg", family_id="family-1", title="番茄炒蛋")
+    food = Food(
+        id="food-egg",
+        family_id="family-1",
+        name="番茄炒蛋",
+        type=FoodType.SELF_MADE,
+        category="家常菜",
+        recipe_id=recipe.id,
+    )
+    food.recipe = recipe
+    item = FoodPlanItem(
+        id="food-plan-1",
+        family_id="family-1",
+        user_id="user-1",
+        food_id=food.id,
+        food=food,
+        plan_date=date(2026, 6, 29),
+        meal_type=MealType.DINNER,
+        note="周日晚餐",
+        status="planned",
+    )
+
+    document = build_meal_plan_search_document(item)
+
+    assert document.entity_type == "meal_plan"
+    assert document.title_text == "番茄炒蛋"
+    assert "晚餐" in document.keyword_text
+    assert "计划日期：2026-06-29" in document.semantic_text
+    assert "关联菜谱：番茄炒蛋" in document.semantic_text
+    assert document.metadata_json["user_id"] == "user-1"
+    assert document.metadata_json["meal_type_label"] == "晚餐"
 
 
 def test_content_hash_changes_with_embedding_model_and_dimensions() -> None:

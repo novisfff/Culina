@@ -17,12 +17,22 @@
     "frontend:build": "npm --prefix frontend run build --",
     "frontend:preview": "npm --prefix frontend run preview --",
     "frontend:test": "npm --prefix frontend run test --",
+    "frontend:test:coverage": "npm --prefix frontend run test:coverage --",
+    "frontend:typecheck": "npm --prefix frontend run typecheck --",
+    "frontend:quality": "npm --prefix frontend run quality --",
+    "frontend:smoke": "npm --prefix frontend run smoke --",
     "backend:venv": "python3 -m venv backend/.venv && backend/.venv/bin/pip install -r backend/requirements.txt",
     "backend:init-db": "cd backend && .venv/bin/python scripts/init_mysql.py",
     "backend:migrate": "cd backend && .venv/bin/alembic upgrade head",
     "backend:migrate-media": "cd backend && PYTHONPATH=. .venv/bin/python scripts/migrate_media_to_minio.py",
     "backend:prune-ai-trace": "cd backend && .venv/bin/python scripts/prune_ai_trace_records.py",
     "backend:dev": "cd backend && .venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8010 --reload",
-    "backend:test": "cd backend && .venv/bin/python -m pytest tests"
+    "backend:test": "cd backend && .venv/bin/python -m pytest tests",
+    "backend:test:service": "cd backend && .venv/bin/python -m pytest tests/account tests/activity tests/core tests/family tests/inventory tests/media tests/recipes tests/shopping",
+    "backend:test:ai": "cd backend && .venv/bin/python -m pytest tests/ai_infra",
+    "backend:test:search": "cd backend && .venv/bin/python -m pytest tests/search",
+    "backend:test:coverage": "cd backend && .venv/bin/python -m pytest tests --cov=app --cov-report=term --cov-report=json:coverage.json",
+    "backend:typecheck": "cd backend && PYTHONPATH=. .venv/bin/python -m compileall -q app tests",
+    "backend:quality": "npm run backend:typecheck && npm run backend:test"
   }
 }

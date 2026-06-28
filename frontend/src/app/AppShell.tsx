@@ -25,6 +25,7 @@ const MOBILE_NAV_ITEMS: Array<{ key: TabKey; label: string; icon: ShellIconName 
 
 const MOBILE_VIEWPORT_HEIGHT_VAR = '--app-visual-viewport-height';
 const MOBILE_VIEWPORT_BOTTOM_INSET_VAR = '--app-visual-viewport-bottom-inset';
+const MOBILE_KEYBOARD_OPEN_CLASS = 'app-mobile-keyboard-open';
 
 export type AppNotificationJob = {
   notification_id: string;
@@ -55,15 +56,23 @@ function viewportPixelValue(value: number) {
   return `${Math.max(0, Math.round(value))}px`;
 }
 
+function isTextEntryElement(element: Element | null) {
+  if (!(element instanceof HTMLElement)) return false;
+  if (element.isContentEditable) return true;
+  return element.matches('input, textarea, select');
+}
+
 function syncMobileVisualViewportMetrics() {
   const root = document.documentElement;
   const visualViewport = window.visualViewport ?? null;
   const viewportHeight = visualViewport?.height ?? window.innerHeight;
   const viewportOffsetTop = visualViewport?.offsetTop ?? 0;
   const coveredBottom = Math.max(0, window.innerHeight - viewportHeight - viewportOffsetTop);
+  const isKeyboardOpen = coveredBottom > 80 && isTextEntryElement(document.activeElement);
 
   root.style.setProperty(MOBILE_VIEWPORT_HEIGHT_VAR, viewportPixelValue(viewportHeight));
   root.style.setProperty(MOBILE_VIEWPORT_BOTTOM_INSET_VAR, viewportPixelValue(coveredBottom));
+  root.classList.toggle(MOBILE_KEYBOARD_OPEN_CLASS, isKeyboardOpen);
 }
 
 function useMobileVisualViewportMetrics(activeTab: TabKey) {
@@ -86,6 +95,8 @@ function useMobileVisualViewportMetrics(activeTab: TabKey) {
     window.addEventListener('orientationchange', scheduleSync);
     window.addEventListener('pageshow', scheduleSync);
     document.addEventListener('visibilitychange', scheduleSync);
+    document.addEventListener('focusin', scheduleSync);
+    document.addEventListener('focusout', scheduleSync);
     visualViewport?.addEventListener('resize', scheduleSync);
     visualViewport?.addEventListener('scroll', scheduleSync);
 
@@ -97,8 +108,11 @@ function useMobileVisualViewportMetrics(activeTab: TabKey) {
       window.removeEventListener('orientationchange', scheduleSync);
       window.removeEventListener('pageshow', scheduleSync);
       document.removeEventListener('visibilitychange', scheduleSync);
+      document.removeEventListener('focusin', scheduleSync);
+      document.removeEventListener('focusout', scheduleSync);
       visualViewport?.removeEventListener('resize', scheduleSync);
       visualViewport?.removeEventListener('scroll', scheduleSync);
+      document.documentElement.classList.remove(MOBILE_KEYBOARD_OPEN_CLASS);
     };
   }, [activeTab]);
 }

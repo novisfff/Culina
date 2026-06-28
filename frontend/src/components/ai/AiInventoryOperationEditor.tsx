@@ -1,9 +1,10 @@
 import { useState } from 'react';
-import type { AiInventoryBatchOption, MediaAsset } from '../../api/types';
+import type { AiInventoryBatchOption, InventoryStatus } from '../../api/types';
 import { resolveMediaUrl } from '../../lib/assets';
 import { INVENTORY_STORAGE_PRESETS, buildUnitPresetOptions } from '../ingredients/ingredientWorkspaceForms';
 import { MediaWithPlaceholder } from '../MediaPlaceholder';
 import { ApprovalComboboxField, ApprovalSelectField } from './AiApprovalFields';
+import type { InventoryOperationDraftItemPatch, InventoryOperationDraftItemViewModel, InventoryOperationDraftViewModel } from './aiInventoryOperationDraftModel';
 
 const ACTION_LABELS: Record<string, string> = {
   restock: '补货',
@@ -18,43 +19,20 @@ const INVENTORY_STATUS_OPTIONS = [
   { value: 'expiring', label: '临期' },
 ];
 
-function asText(value: unknown, fallback = '') {
-  return typeof value === 'string' ? value : fallback;
-}
-
-function asNumber(value: unknown, fallback = 1) {
-  return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
-}
-
-function asDraftArray(value: unknown): Record<string, unknown>[] {
-  return Array.isArray(value)
-    ? value.filter(
-        (item): item is Record<string, unknown> => (
-          typeof item === 'object' && item !== null && !Array.isArray(item)
-        ),
-      )
-    : [];
-}
-
-function formatInventoryQuantity(quantity: unknown, unit: unknown) {
-  const numeric = asNumber(quantity, 0);
+function formatInventoryQuantity(quantity: number | null | undefined, unit: string | null | undefined) {
+  const numeric = typeof quantity === 'number' && Number.isFinite(quantity) ? quantity : 0;
   const display = Number.isInteger(numeric) ? String(numeric) : String(Number(numeric.toFixed(2)));
-  const unitText = asText(unit);
+  const unitText = unit ?? '';
   return `${display}${unitText ? ` ${unitText}` : ''}`;
 }
 
-function optionListFromText(value: unknown) {
-  if (!Array.isArray(value)) return [];
-  return value.map((item) => asText(item).trim()).filter(Boolean);
-}
-
-function inventorySummaryItems(operations: Record<string, unknown>[]) {
+function inventorySummaryItems(operations: InventoryOperationDraftItemViewModel[]) {
   const counts = operations.reduce<Record<string, number>>((acc, item) => {
-    const action = asText(item.action, 'consume');
+    const action = item.action || 'consume';
     acc[action] = (acc[action] ?? 0) + 1;
     return acc;
   }, {});
-  const ingredientIds = new Set(operations.map((item) => asText(item.ingredientId) || asText(item.ingredient_id) || asText(item.ingredientName)).filter(Boolean));
+  const ingredientIds = new Set(operations.map((item) => item.ingredientId || item.ingredientName).filter(Boolean));
   return [
     { label: '补货', value: `${counts.restock ?? 0} 项` },
     { label: '消耗', value: `${counts.consume ?? 0} 项` },
@@ -63,19 +41,17 @@ function inventorySummaryItems(operations: Record<string, unknown>[]) {
   ];
 }
 
-function unitOptionsForItem(item: Record<string, unknown>) {
-  const preferred = asText(item.defaultUnit) || asText(item.default_unit) || asText(item.unit);
+function unitOptionsForItem(item: InventoryOperationDraftItemViewModel) {
+  const preferred = item.defaultUnit || item.unit;
   return buildUnitPresetOptions(preferred).map((unit) => ({ value: unit, label: unit }));
 }
 
-function storageOptionsForItem(item: Record<string, unknown>) {
+function storageOptionsForItem(item: InventoryOperationDraftItemViewModel) {
   const values = [
-    ...optionListFromText(item.storageLocationOptions),
-    ...optionListFromText(item.storage_locations),
-    ...optionListFromText(item.ingredientStorageLocations),
-    asText(item.defaultStorage),
-    asText(item.default_storage),
-    asText(item.storageLocation),
+    ...item.storageLocationOptions,
+    ...item.ingredientStorageLocations,
+    item.defaultStorage ?? '',
+    item.storageLocation ?? '',
     ...INVENTORY_STORAGE_PRESETS,
   ].map((value) => value.trim()).filter(Boolean);
   return Array.from(new Set(values)).map((value) => ({ value, label: value }));
@@ -86,18 +62,18 @@ function batchLabel(batchOptions: AiInventoryBatchOption[], inventoryItemId: str
   return batchOptions.find((option) => option.id === inventoryItemId)?.label ?? '当前所选批次';
 }
 
-function operationDescription(action: string, item: Record<string, unknown>, batchOptions: AiInventoryBatchOption[], inventoryItemId: string) {
+function operationDescription(action: string, item: InventoryOperationDraftItemViewModel, batchOptions: AiInventoryBatchOption[], inventoryItemId: string) {
   if (action === 'restock') {
     return [
-      asText(item.storageLocation) || '未设置存放位置',
-      asText(item.expiryDate) ? `到期 ${asText(item.expiryDate)}` : '未设置到期日',
+      item.storageLocation || '未设置存放位置',
+      item.expiryDate ? `到期 ${item.expiryDate}` : '未设置到期日',
     ].join(' · ');
   }
   if (action === 'dispose') {
     return [
       batchLabel(batchOptions, inventoryItemId),
       `剩余 ${formatInventoryQuantity(item.remainingQuantity, item.unit)}`,
-      asText(item.reason) || '待填写原因',
+      item.reason || '待填写原因',
     ].join(' · ');
   }
   return inventoryItemId
@@ -111,12 +87,12 @@ export function AiInventoryOperationEditor({
   onUpdateItem,
   onRemoveItem,
 }: {
-  draft: Record<string, unknown>;
+  draft: InventoryOperationDraftViewModel;
   readonly: boolean;
-  onUpdateItem: (index: number, patch: Record<string, unknown>) => void;
+  onUpdateItem: (index: number, patch: InventoryOperationDraftItemPatch) => void;
   onRemoveItem: (index: number) => void;
 }) {
-  const operations = asDraftArray(draft.operations);
+  const operations = draft.operations;
   const [expandedDetails, setExpandedDetails] = useState<Record<string, boolean>>({});
   const toggleDetails = (key: string) => {
     setExpandedDetails((current) => ({ ...current, [key]: !current[key] }));
@@ -149,22 +125,14 @@ export function AiInventoryOperationEditor({
         </div>
         <div className="ai-inventory-resolved-list">
           {operations.map((item, index) => {
-            const action = asText(item.action, 'consume');
-            const ingredientId = asText(item.ingredientId) || asText(item.ingredient_id);
-            const inventoryItemId = asText(item.inventoryItemId) || asText(item.inventory_item_id);
-            const batchOptions = Array.isArray(item.batchOptions)
-              ? item.batchOptions.filter(
-                  (option): option is AiInventoryBatchOption => (
-                    typeof option === 'object'
-                    && option !== null
-                    && typeof (option as AiInventoryBatchOption).id === 'string'
-                  ),
-                )
-              : [];
+            const action = item.action || 'consume';
+            const ingredientId = item.ingredientId;
+            const inventoryItemId = item.inventoryItemId ?? '';
+            const batchOptions = item.batchOptions;
             return (
               <article className={`ai-inventory-resolved-card action-${action}`} key={`${action}-${inventoryItemId || ingredientId}-${index}`}>
                 <div>
-                  <strong>{asText(item.ingredientName, '食材')}</strong>
+                  <strong>{item.ingredientName || '食材'}</strong>
                   <span>{operationDescription(action, item, batchOptions, inventoryItemId)}</span>
                 </div>
                 <em>{ACTION_LABELS[action] ?? '处理'} · {formatInventoryQuantity(item.quantity, item.unit)}</em>
@@ -200,25 +168,15 @@ export function AiInventoryOperationEditor({
         <span>核对食材、动作、数量和单位</span>
       </div>
       {operations.map((item, index) => {
-        const action = asText(item.action, 'consume');
-        const ingredientId = asText(item.ingredientId) || asText(item.ingredient_id);
-        const inventoryItemId = asText(item.inventoryItemId) || asText(item.inventory_item_id);
+        const action = item.action || 'consume';
+        const ingredientId = item.ingredientId;
+        const inventoryItemId = item.inventoryItemId ?? '';
         const detailKey = `${action}-${inventoryItemId || ingredientId}-${index}`;
-        const batchOptions = Array.isArray(item.batchOptions)
-          ? item.batchOptions.filter(
-              (option): option is AiInventoryBatchOption => (
-                typeof option === 'object'
-                && option !== null
-                && typeof (option as AiInventoryBatchOption).id === 'string'
-              ),
-            )
-          : [];
-        const image = typeof item.image === 'object' && item.image !== null
-          ? item.image as MediaAsset
-          : null;
-        const conversionNote = asText(item.conversionNote);
-        const sourceQuantity = typeof item.sourceQuantity === 'number' && Number.isFinite(item.sourceQuantity) ? item.sourceQuantity : null;
-        const sourceUnit = asText(item.sourceUnit);
+        const batchOptions = item.batchOptions;
+        const image = item.image;
+        const conversionNote = item.conversionNote ?? '';
+        const sourceQuantity = item.sourceQuantity;
+        const sourceUnit = item.sourceUnit ?? '';
         const conversionSummary = conversionNote || (
           sourceQuantity !== null && sourceUnit
             ? `来自 ${sourceQuantity} ${sourceUnit}`
@@ -244,15 +202,15 @@ export function AiInventoryOperationEditor({
               )}
               <div className="ai-inventory-operation-info">
                 <div className="ai-inventory-operation-title-row">
-                  <strong>{asText(item.ingredientName, '食材')}</strong>
+                  <strong>{item.ingredientName || '食材'}</strong>
                   <span className={`ai-inventory-operation-kind action-${action}`}>
                     {ACTION_LABELS[action] ?? '处理'}
                   </span>
                 </div>
                 {action === 'dispose' && (
                   <small>
-                    所选批次剩余 {asNumber(item.remainingQuantity, asNumber(item.quantity))}
-                    {asText(item.unit)}
+                    所选批次剩余 {item.remainingQuantity ?? item.quantity}
+                    {item.unit}
                   </small>
                 )}
                 {action === 'consume' && !inventoryItemId && <small>默认按临期优先扣减</small>}
@@ -268,7 +226,7 @@ export function AiInventoryOperationEditor({
                     type="number"
                     min={0.01}
                     step={0.01}
-                    value={asNumber(item.quantity)}
+                    value={item.quantity}
                     disabled={readonly}
                     onChange={(event) => onUpdateItem(index, {
                       quantity: Number(event.target.value) || 0.01,
@@ -276,7 +234,7 @@ export function AiInventoryOperationEditor({
                   />
                   <ApprovalComboboxField
                     label="单位"
-                    value={asText(item.unit)}
+                    value={item.unit}
                     disabled={readonly}
                     placeholder="单位"
                     options={unitOptionsForItem(item)}
@@ -326,7 +284,7 @@ export function AiInventoryOperationEditor({
                           className="text-input compact-reason-textarea"
                           rows={2}
                           required
-                          value={asText(item.reason)}
+                          value={item.reason}
                           disabled={readonly}
                           placeholder="请填写销毁原因，例如已过期、变质、包装破损"
                           onChange={(event) => onUpdateItem(index, { reason: event.target.value })}
@@ -395,7 +353,7 @@ export function AiInventoryOperationEditor({
                             <input
                               className="text-input"
                               type="date"
-                              value={asText(item.purchaseDate)}
+                              value={item.purchaseDate ?? ''}
                               disabled={readonly}
                               onChange={(event) => onUpdateItem(index, { purchaseDate: event.target.value })}
                             />
@@ -405,7 +363,7 @@ export function AiInventoryOperationEditor({
                             <input
                               className="text-input"
                               type="date"
-                              value={asText(item.expiryDate)}
+                              value={item.expiryDate ?? ''}
                               disabled={readonly}
                               onChange={(event) => onUpdateItem(index, {
                                 expiryDate: event.target.value || null,
@@ -416,7 +374,7 @@ export function AiInventoryOperationEditor({
                         <div className="ai-confirmation-grid">
                           <ApprovalComboboxField
                             label="存放位置"
-                            value={asText(item.storageLocation)}
+                            value={item.storageLocation ?? ''}
                             disabled={readonly}
                             placeholder="选择或输入位置"
                             options={storageOptionsForItem(item)}
@@ -425,11 +383,11 @@ export function AiInventoryOperationEditor({
                           />
                           <ApprovalSelectField
                             label="库存状态"
-                            value={asText(item.status, 'fresh')}
+                            value={item.status || 'fresh'}
                             disabled={readonly}
                             options={INVENTORY_STATUS_OPTIONS}
                             icon="type"
-                            onChange={(value) => onUpdateItem(index, { status: value })}
+                            onChange={(value) => onUpdateItem(index, { status: value as InventoryStatus })}
                           />
                         </div>
                         <div className="ai-inventory-section-heading compact">
@@ -441,7 +399,7 @@ export function AiInventoryOperationEditor({
                           <textarea
                             className="text-input"
                             rows={2}
-                            value={asText(item.notes)}
+                            value={item.notes}
                             disabled={readonly}
                             onChange={(event) => onUpdateItem(index, { notes: event.target.value })}
                           />

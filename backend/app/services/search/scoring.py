@@ -36,6 +36,9 @@ class SearchBusinessSignals:
     inventory_available: bool | None = None
     days_until_expiry: int | None = None
     low_stock: bool = False
+    plan_date_delta: int | None = None
+    meal_type: str | None = None
+    plan_status: str | None = None
 
 
 def score_search_candidate(
@@ -123,6 +126,8 @@ def business_score_candidates(
         return _food_business_candidates(query=query, metadata=metadata, signals=signals)
     if entity_type == "ingredient":
         return _ingredient_business_candidates(query=query, signals=signals)
+    if entity_type == "meal_plan":
+        return _meal_plan_business_candidates(query=query, metadata=metadata, signals=signals)
     return []
 
 
@@ -231,6 +236,33 @@ def _food_business_candidates(
         reasons.append(SearchReason(key="high_rating", label="高评分", weight=0.18, source="business"))
     if metadata.get("repurchase") is True:
         reasons.append(SearchReason(key="repurchase", label="愿意复购", weight=0.14, source="business"))
+    return reasons
+
+
+def _meal_plan_business_candidates(
+    *,
+    query: str,
+    metadata: dict[str, object],
+    signals: SearchBusinessSignals | None,
+) -> list[SearchReason]:
+    reasons: list[SearchReason] = []
+    meal_label_by_value = {"breakfast": "早餐", "lunch": "午餐", "dinner": "晚餐", "snack": "加餐"}
+    meal_type = (signals.meal_type if signals is not None else None) or str(metadata.get("meal_type") or "")
+    meal_label = meal_label_by_value.get(meal_type, str(metadata.get("meal_type_label") or ""))
+    if meal_label and meal_label in query:
+        reasons.append(SearchReason(key=f"meal_plan_{meal_type}", label=f"{meal_label}计划", weight=0.26, source="business"))
+    plan_status = (signals.plan_status if signals is not None else None) or str(metadata.get("status") or "")
+    if plan_status == "planned" and _contains_any(query, {"计划", "安排", "待做", "菜单"}):
+        reasons.append(SearchReason(key="meal_plan_planned", label="待安排", weight=0.16, source="business"))
+    elif plan_status == "cooked" and _contains_any(query, {"完成", "做过", "吃过", "记录"}):
+        reasons.append(SearchReason(key="meal_plan_cooked", label="已完成", weight=0.12, source="business"))
+    if signals is not None and signals.plan_date_delta is not None:
+        if signals.plan_date_delta == 0 and "今天" in query:
+            reasons.append(SearchReason(key="meal_plan_today", label="今天计划", weight=0.28, source="business"))
+        elif signals.plan_date_delta == 1 and "明天" in query:
+            reasons.append(SearchReason(key="meal_plan_tomorrow", label="明天计划", weight=0.24, source="business"))
+        elif 0 <= signals.plan_date_delta <= 6 and _contains_any(query, {"本周", "这周", "这星期"}):
+            reasons.append(SearchReason(key="meal_plan_this_week", label="本周计划", weight=0.18, source="business"))
     return reasons
 
 

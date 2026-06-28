@@ -178,8 +178,11 @@ export function MealLogWorkspace(props: Props) {
             </div>
 
             <div className="meal-log-timeline-head">
-              <h2>记录时间线</h2>
-              <span>按记录时间倒序展示</span>
+              <div>
+                <h2>记录时间线</h2>
+                <span>按记录时间倒序展示</span>
+              </div>
+              <small>{viewModel.groupedMeals.reduce((total, group) => total + group.meals.length, 0)} 条记录</small>
             </div>
 
             {viewModel.groupedMeals.length > 0 ? (
@@ -188,12 +191,16 @@ export function MealLogWorkspace(props: Props) {
                   <section key={group.date} className="meal-log-day-group">
                     <div className="meal-log-day-label">
                       <span />
-                      <strong>{formatDateGroupLabel(group.date)}</strong>
+                      <div>
+                        <strong>{formatDateGroupLabel(group.date)}</strong>
+                        <small>{group.meals.length} 条</small>
+                      </div>
                     </div>
                     <div className="meal-log-record-list">
                       {group.meals.map((meal) => {
                         const source = viewModel.mealSources.get(meal.id) ?? resolveMealSource(meal, props.foodPlanItems);
                         const isSelected = viewModel.selectedMeal?.id === meal.id;
+                        const ratingSummary = getMealRatingSummary(meal);
                         return (
                           <button
                             key={meal.id}
@@ -205,16 +212,24 @@ export function MealLogWorkspace(props: Props) {
                               <span style={iconSlotStyle}><MealLogIcon name={getMealIconName(meal.meal_type)} className="meal-log-ui-icon" /></span>
                               {MEAL_TYPE_LABELS[meal.meal_type]}
                             </span>
-                            <strong>{buildMealTitle(meal)}</strong>
-                            <time>{formatMealTime(meal)}</time>
-                            <Badge className={source.status === 'planned' ? 'badge-planned' : 'badge-manual'}>
-                              {source.status === 'planned' ? '来自菜单计划' : '手动补录'}
-                            </Badge>
-                            <span className={`meal-record-status status-${getMealLogStatus(meal)}`}>{getMealLogStatusLabel(meal)}</span>
-                            <span className="meal-log-row-rating">{getMealRatingSummary(meal) ? `★ ${getMealRatingSummary(meal)}` : '☆ -'}</span>
-                            <span className="meal-log-row-meta">
-                              <span><span style={compactIconSlotStyle}><MealLogIcon name="photo" className="meal-log-ui-icon" /></span>{meal.photos.length}</span>
-                              <span><span style={compactIconSlotStyle}><MealLogIcon name="note" className="meal-log-ui-icon" /></span>{meal.notes.trim() ? 1 : 0}</span>
+                            <span className="meal-log-record-main">
+                              <strong>{buildMealTitle(meal)}</strong>
+                              <span className="meal-log-record-subline">
+                                <time>{formatMealTime(meal)}</time>
+                                <Badge className={source.status === 'planned' ? 'badge-planned' : 'badge-manual'}>
+                                  {source.status === 'planned' ? '菜单计划' : '手动补录'}
+                                </Badge>
+                              </span>
+                            </span>
+                            <span className="meal-log-record-info">
+                              <span className={`meal-record-status status-${getMealLogStatus(meal)}`}>{getMealLogStatusLabel(meal)}</span>
+                              <span className={ratingSummary ? 'meal-log-row-rating has-rating' : 'meal-log-row-rating'}>
+                                {ratingSummary ? `★ ${ratingSummary}` : '待评分'}
+                              </span>
+                              <span className="meal-log-row-meta">
+                                <span><span style={compactIconSlotStyle}><MealLogIcon name="photo" className="meal-log-ui-icon" /></span>{meal.photos.length}</span>
+                                <span><span style={compactIconSlotStyle}><MealLogIcon name="note" className="meal-log-ui-icon" /></span>{meal.notes.trim() ? 1 : 0}</span>
+                              </span>
                             </span>
                             <span className="meal-log-row-action">{isMealLogEnriched(meal) ? '查看详情' : '补充记录'}</span>
                           </button>

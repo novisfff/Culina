@@ -12,12 +12,18 @@
     max-width: 100%;
     min-height: var(--app-visual-viewport-height, 100vh);
     overflow-x: hidden;
-    padding: 0 12px calc(104px + env(safe-area-inset-bottom, 0px) + var(--app-visual-viewport-bottom-inset, 0px));
+    padding: 0 12px calc(104px + env(safe-area-inset-bottom, 0px));
     background:
       radial-gradient(circle at 8% 2%, rgba(212, 112, 51, 0.11), transparent 24%),
       radial-gradient(circle at 92% 8%, rgba(128, 151, 115, 0.1), transparent 24%),
       linear-gradient(180deg, #fffdf9 0%, #faf4ed 52%, #f6efe7 100%);
     overscroll-behavior-x: none;
+  }
+
+  .app-shell.app-shell-ai {
+    min-height: 100%;
+    padding: 0;
+    background: linear-gradient(180deg, #fffaf5 0%, #fffdfb 42%, #fff 100%);
   }
 
   .app-frame,
@@ -37,6 +43,10 @@
   @supports (height: 100dvh) {
     .app-shell {
       min-height: var(--app-visual-viewport-height, 100dvh);
+    }
+
+    .app-shell.app-shell-ai {
+      min-height: 100%;
     }
   }
 
@@ -5530,7 +5540,7 @@
     position: fixed;
     left: 50%;
     right: auto;
-    bottom: calc(var(--mobile-nav-bottom-gap) + var(--app-visual-viewport-bottom-inset, 0px));
+    bottom: var(--mobile-nav-bottom-gap);
     z-index: 60;
     width: min(calc(100% - 24px), 456px);
     max-width: calc(100% - 24px);
@@ -5659,6 +5669,12 @@
   .mobile-bottom-nav-item.active:not(.mobile-bottom-nav-ai-item) svg {
     width: 17px;
     height: 17px;
+  }
+
+  .app-mobile-keyboard-open .mobile-bottom-nav {
+    opacity: 0;
+    pointer-events: none;
+    transform: translate3d(-50%, 14px, 0);
   }
 
 }
