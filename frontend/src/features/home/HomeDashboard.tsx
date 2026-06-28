@@ -81,6 +81,7 @@ export type HomeDashboardProps = {
   quickAddMeal: (payload: { food_id: string; date: string; meal_type: MealType; servings: number; note: string }) => Promise<unknown>;
   createFoodPlanItem: (payload: { food_id: string; plan_date: string; meal_type: MealType; note: string }) => Promise<FoodPlanItem>;
   onNavigate: (tab: TabKey) => void;
+  onOpenGlobalSearch: () => void;
   onRecommendationPageChange: Dispatch<SetStateAction<number>>;
   onStartRecipe: (recipeId: string, foodPlanItemId?: string) => void;
   onSelectedPlanDateChange: (date: string) => void;
@@ -171,6 +172,7 @@ export function HomeDashboard(props: HomeDashboardProps) {
     quickAddMeal,
     createFoodPlanItem,
     onNavigate,
+    onOpenGlobalSearch,
     onRecommendationPageChange,
     onStartRecipe,
     onSelectedPlanDateChange,
@@ -267,6 +269,7 @@ export function HomeDashboard(props: HomeDashboardProps) {
             isCreatingFoodPlanItem={isCreatingFoodPlanItem}
             resolveAssetUrl={resolveAssetUrl}
             onNavigate={onNavigate}
+            onOpenGlobalSearch={onOpenGlobalSearch}
             onRecommendationPageChange={onRecommendationPageChange}
             onSelectedPlanDateChange={onSelectedPlanDateChange}
             onFoodPlanPreviousWeek={onFoodPlanPreviousWeek}
@@ -432,13 +435,9 @@ export function HomeDashboard(props: HomeDashboardProps) {
               description="把今天要做、要买、要处理的事放在一个清晰工作台里。"
               actions={
                 <div className="dashboard-hero-actions">
-                  <button className="solid-button dashboard-action-primary" type="button" onClick={() => onNavigate('ingredients')}>
-                    <DashboardIcon name="plus" />
-                    新增食材
-                  </button>
-                  <button className="ghost-button dashboard-action-secondary" type="button" onClick={() => onNavigate('logs')}>
-                    <DashboardIcon name="receipt" />
-                    查看记录
+                  <button className="solid-button dashboard-action-primary" type="button" onClick={onOpenGlobalSearch}>
+                    <DashboardIcon name="search" />
+                    全局搜索
                   </button>
                 </div>
               }
@@ -636,7 +635,7 @@ export function HomeDashboard(props: HomeDashboardProps) {
                         </button>
                       </div>
                       <div className="dashboard-activity-list">
-                        {activityLogs.slice(0, 4).map((log, index) => {
+                        {activityLogs.map((log, index) => {
                           const meal = recentMeals[index];
                           const plannedFood = foods.find((item) => item.id === foodPlanItems[index]?.food_id);
                           const imageUrl = meal?.photos[0]?.url ?? (plannedFood ? getFoodCover(plannedFood, recipes) : undefined);

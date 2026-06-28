@@ -16,6 +16,7 @@ import {
   buildShoppingCardGroups,
   buildStorageGroups,
   filterShoppingCards,
+  filterIngredientSummariesForInventory,
   filterIngredientSummaries,
   getIngredientCategoryPreset,
   sortInventorySummariesByExpiry,
@@ -887,7 +888,7 @@ describe('ingredient workspace model', () => {
     ]);
   });
 
-  it('keeps preset categories first and appends custom categories for filter chips', () => {
+  it('shows core preset categories first and appends custom categories for filter chips', () => {
     const categoryFilters = buildIngredientCategoryFilters([
       ...ingredients,
       {
@@ -904,7 +905,20 @@ describe('ingredient workspace model', () => {
       },
     ]);
 
-    expect(categoryFilters).toEqual(['蔬菜', '干货', '酱料', '海味']);
+    expect(categoryFilters).toEqual([
+      '蔬菜',
+      '肉类',
+      '水产',
+      '蛋奶',
+      '调料',
+      '水果',
+      '主食',
+      '豆制品',
+      '干货',
+      '其他',
+      '酱料',
+      '海味',
+    ]);
     expect(getIngredientCategoryPreset('水产')).toMatchObject({
       label: '水产',
       defaultUnit: '块',
@@ -920,14 +934,14 @@ describe('ingredient workspace model', () => {
   it('shows seasoning in the editor category presets', () => {
     expect(getIngredientEditorCategoryPresets().map((item) => item.label)).toEqual([
       '蔬菜',
-      '水果',
       '肉类',
       '水产',
       '蛋奶',
-      '豆制品',
-      '主食',
-      '干货',
       '调料',
+      '水果',
+      '主食',
+      '豆制品',
+      '干货',
       '其他',
     ]);
     expect(getIngredientCategoryPreset('调料')).toMatchObject({
@@ -949,6 +963,82 @@ describe('ingredient workspace model', () => {
     expect(filterIngredientSummaries(summaries, '', '蔬菜').map((item) => item.ingredient.name)).toEqual(['番茄']);
     expect(filterIngredientSummaries(summaries, '面', '蔬菜')).toEqual([]);
     expect(filterIngredientSummaries(summaries, '面', '干货').map((item) => item.ingredient.name)).toEqual(['面粉']);
+  });
+
+  it('keeps semantic catalog matches that do not match local text', () => {
+    const summaries = buildIngredientSummaries({
+      ingredients,
+      inventoryItems,
+      recipes,
+      today: '2026-03-20',
+    });
+
+    expect(filterIngredientSummaries(summaries, '西红柿', 'all')).toEqual([]);
+    expect(filterIngredientSummaries(summaries, '西红柿', 'all', ['ingredient-tomato']).map((item) => item.ingredient.name)).toEqual(['番茄']);
+  });
+
+  it('uses backend catalog search order before default alert ordering', () => {
+    const searchIngredients: Ingredient[] = [
+      {
+        ...ingredients[0]!,
+        id: 'ingredient-alert',
+        name: '番茄',
+        notes: '',
+      },
+      {
+        ...ingredients[1]!,
+        id: 'ingredient-oil',
+        name: '食用油',
+        category: '调料',
+        notes: '',
+      },
+      {
+        ...ingredients[1]!,
+        id: 'ingredient-soy-sauce',
+        name: '酱油',
+        category: '调料',
+        notes: '',
+      },
+    ];
+    const searchInventoryItems: InventoryItem[] = [
+      {
+        ...inventoryItems[0]!,
+        id: 'inventory-alert',
+        ingredient_id: 'ingredient-alert',
+        ingredient_name: '番茄',
+      },
+    ];
+    const summaries = buildIngredientSummaries({
+      ingredients: searchIngredients,
+      inventoryItems: searchInventoryItems,
+      recipes: [],
+      today: '2026-03-20',
+    });
+
+    expect(summaries.map((item) => item.ingredient.name)[0]).toBe('番茄');
+    expect(
+      filterIngredientSummaries(summaries, '油', 'all', [
+        'ingredient-oil',
+        'ingredient-soy-sauce',
+        'ingredient-alert',
+      ]).map((item) => item.ingredient.name)
+    ).toEqual(['食用油', '酱油', '番茄']);
+  });
+
+  it('keeps semantic inventory matches that do not match local text', () => {
+    const summaries = buildIngredientSummaries({
+      ingredients,
+      inventoryItems,
+      recipes,
+      today: '2026-03-20',
+    });
+
+    expect(filterIngredientSummariesForInventory(summaries, '西红柿')).toEqual([]);
+    expect(
+      filterIngredientSummariesForInventory(summaries, '西红柿', ['ingredient-tomato']).map(
+        (item) => item.ingredient.name
+      )
+    ).toEqual(['番茄']);
   });
 
   it('builds shopping cards with exact archive matching and pending priority order', () => {

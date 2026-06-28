@@ -17,7 +17,9 @@ from app.schemas.recipes import CreateRecipeRequest, UpdateRecipeRequest
 from app.services.activity import log_activity
 from app.services.ai_operations.image_jobs import build_recipe_image_request, enqueue_ai_entity_image_generation
 from app.services.media import bind_media_assets, replace_media_assets
+from app.services.recipe_ingredient_refs import normalize_recipe_ingredient_items
 from app.services.recipe_food_sync import ensure_food_for_recipe
+from app.services.search.jobs import enqueue_search_index_job
 
 
 UpdatedAtValidator = Callable[[datetime | None, str, str], None]
@@ -141,6 +143,16 @@ def execute_recipe_draft(
         )
 
     recipe_in = UpdateRecipeRequest.model_validate(payload.get("payload") or {})
+    recipe_in = UpdateRecipeRequest.model_validate(
+        {
+            **recipe_in.model_dump(mode="json"),
+            "ingredient_items": normalize_recipe_ingredient_items(
+                db,
+                family_id=family_id,
+                items=recipe_in.ingredient_items,
+            ),
+        }
+    )
     recipe.title = recipe_in.title
     recipe.servings = recipe_in.servings
     recipe.prep_minutes = recipe_in.prep_minutes
@@ -213,6 +225,8 @@ def execute_recipe_draft(
         summary=f"{'AI 补建' if synced_food_created else 'AI 同步更新'}家常菜 {synced_food.name}",
     )
     db.flush()
+    enqueue_search_index_job(db, family_id=family_id, user_id=user_id, entity_type="recipe", entity_id=recipe.id, target_name=recipe.title)
+    enqueue_search_index_job(db, family_id=family_id, user_id=user_id, entity_type="food", entity_id=synced_food.id, target_name=synced_food.name)
     refreshed = db.scalar(
         select(Recipe)
         .where(Recipe.id == recipe.id)
@@ -224,6 +238,16 @@ def execute_recipe_draft(
 
 def _create_recipe_from_draft(db: Session, *, family_id: str, user_id: str, payload: dict[str, Any]) -> Recipe:
     recipe_in = CreateRecipeRequest.model_validate(payload)
+    recipe_in = CreateRecipeRequest.model_validate(
+        {
+            **recipe_in.model_dump(mode="json"),
+            "ingredient_items": normalize_recipe_ingredient_items(
+                db,
+                family_id=family_id,
+                items=recipe_in.ingredient_items,
+            ),
+        }
+    )
     recipe = Recipe(
         id=create_id("recipe"),
         family_id=family_id,
@@ -310,6 +334,8 @@ def _create_recipe_from_draft(db: Session, *, family_id: str, user_id: str, payl
         summary=f"AI 自动创建家常菜 {food.name}",
     )
     db.flush()
+    enqueue_search_index_job(db, family_id=family_id, user_id=user_id, entity_type="recipe", entity_id=recipe.id, target_name=recipe.title)
+    enqueue_search_index_job(db, family_id=family_id, user_id=user_id, entity_type="food", entity_id=food.id, target_name=food.name)
     recipe = db.scalar(
         select(Recipe)
         .where(Recipe.id == recipe.id)

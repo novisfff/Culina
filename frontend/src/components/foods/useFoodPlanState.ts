@@ -1,4 +1,4 @@
-import { useMemo, useState, type FormEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import type { Food, FoodPlanItem, MealLog, MealType } from '../../api/types';
 import type { NoticeState } from '../../hooks/useNotice';
 import { addDateKeyDays, todayKey } from '../../lib/date';
@@ -26,6 +26,11 @@ export function useFoodPlanState(input: {
   foods: Food[];
   foodPlanItems: FoodPlanItem[];
   foodPlanWeekRange: { start: string; end: string };
+  navigationRequest?: {
+    itemId: string;
+    planDate: string;
+    requestId: number;
+  } | null;
   showNotice: (notice: NoticeState) => void;
   setFeedback: (message: string) => void;
   getDefaultMealType: (food: Food) => MealType;
@@ -50,6 +55,7 @@ export function useFoodPlanState(input: {
     note: '',
   }));
   const [isPlanDetailEditing, setIsPlanDetailEditing] = useState(false);
+  const handledNavigationRequestIdRef = useRef<number | null>(null);
 
   const todayDate = todayKey();
   const activePlanItems = input.foodPlanItems.filter((item) => item.status !== 'skipped');
@@ -136,6 +142,16 @@ export function useFoodPlanState(input: {
     setPlanDetailForm({ planDate: item.plan_date < todayKey() ? todayKey() : item.plan_date, mealType: item.meal_type, note: item.note ?? '' });
     setIsPlanDetailEditing(false);
   }
+
+  useEffect(() => {
+    const request = input.navigationRequest;
+    if (!request || handledNavigationRequestIdRef.current === request.requestId) return;
+    if (request.planDate < input.foodPlanWeekRange.start || request.planDate > input.foodPlanWeekRange.end) return;
+    const item = input.foodPlanItems.find((entry) => entry.id === request.itemId);
+    if (!item) return;
+    openPlanDetail(item);
+    handledNavigationRequestIdRef.current = request.requestId;
+  }, [input.foodPlanItems, input.foodPlanWeekRange.end, input.foodPlanWeekRange.start, input.navigationRequest]);
 
   function closePlanDetail() {
     setPlanDetailItemId(null);

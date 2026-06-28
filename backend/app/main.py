@@ -12,6 +12,7 @@ from app.ai.images.jobs import ImageGenerationWorker
 from app.core.config import LOCAL_ENVIRONMENTS, Settings, get_settings
 from app.core.logging import configure_logging
 from app.db.session import SessionLocal
+from app.services.search.jobs import SearchIndexWorker
 from app.services.bootstrap import initialize_configured_admin
 
 configure_logging()
@@ -38,10 +39,15 @@ async def lifespan(app: FastAPI):
     with SessionLocal() as db:
         initialize_configured_admin(db)
     image_worker = ImageGenerationWorker()
+    search_index_worker = SearchIndexWorker()
     image_worker.start()
+    search_index_worker.start()
     logger.info("AI image generation worker started")
+    logger.info("Search index worker started")
     yield
+    search_index_worker.stop()
     image_worker.stop()
+    logger.info("Search index worker stopped")
     logger.info("AI image generation worker stopped")
 
 

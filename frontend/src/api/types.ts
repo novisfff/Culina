@@ -350,6 +350,41 @@ export interface RecipeStats {
   frequent: RecipeStatsItem[];
 }
 
+export type SearchEntityType = 'ingredient' | 'food' | 'recipe' | 'meal_plan';
+export type SearchMode = 'keyword' | 'semantic' | 'hybrid' | string;
+export type SearchIndexJobStatus = 'queued' | 'running' | 'succeeded' | 'failed';
+export type SearchIndexVectorStatus = 'pending' | 'indexed' | 'skipped' | 'failed';
+export type SearchResultEntity = Ingredient | Food | Recipe | FoodPlanItem;
+
+export interface SearchResultItem {
+  entity_type: SearchEntityType;
+  entity_id: string;
+  score: number;
+  keyword_score: number;
+  semantic_score: number;
+  business_score: number;
+  match_reason: string[];
+  entity: SearchResultEntity;
+}
+
+export interface SearchResponse {
+  items: SearchResultItem[];
+  total: number;
+  query: string;
+  search_mode: SearchMode;
+  degraded: boolean;
+}
+
+export interface SearchIndexJobResponse {
+  job_id: string;
+  status: SearchIndexJobStatus;
+  error?: string | null;
+  entity_type: SearchEntityType;
+  entity_id: string;
+  target_name: string;
+  vector_status: SearchIndexVectorStatus;
+}
+
 export interface RecipeFavorite {
   id: string;
   family_id: string;
@@ -962,6 +997,11 @@ export interface AiRunLLMExchange {
   attemptIndex: number;
   mode: string;
   model: string;
+  requestToolCount: number;
+  requestToolNames: string[];
+  responseToolCallCount: number;
+  responseToolCallNames: string[];
+  payloadIncluded: boolean;
   requestMessages: unknown[];
   requestTools: unknown[];
   requestOptions: Record<string, unknown>;

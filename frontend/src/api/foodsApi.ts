@@ -15,8 +15,14 @@ import type {
 } from './types';
 
 export const foodsApi = {
-  getFoodPlan: (dateFrom: string, dateTo: string) =>
-    request<FoodPlanItem[]>(`/api/food-plan?date_from=${encodeURIComponent(dateFrom)}&date_to=${encodeURIComponent(dateTo)}`),
+  getFoodPlan: (dateFrom: string, dateTo: string, q = '') => {
+    const search = new URLSearchParams({
+      date_from: dateFrom,
+      date_to: dateTo,
+    });
+    if (q.trim()) search.set('q', q.trim());
+    return request<FoodPlanItem[]>(`/api/food-plan?${search.toString()}`);
+  },
   createFoodPlanItem: (payload: CreateFoodPlanItemPayload) =>
     request<FoodPlanItem>('/api/food-plan', {
       method: 'POST',

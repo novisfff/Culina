@@ -13,6 +13,14 @@ description: 处理“今天/今晚吃什么”的即时餐食推荐，以及未
 - 用户目标唯一且工具结果明确时，不要重复追问；计划范围、修改目标或同日同餐候选不明确时才请求澄清。
 - 需要把“从明天开始三天晚餐”“周末午晚餐”等范围展开为具体日期/餐别时，可调用 `script.expand_meal_slots` 做确定性展开。
 
+## 字段取值规则
+
+- `mealType` 只能从 `breakfast`、`lunch`、`dinner`、`snack` 中选择；早饭/早餐=`breakfast`，午饭/午餐=`lunch`，晚饭/晚餐=`dinner`，夜宵/加餐/下午茶优先映射为 `snack`。
+- `set_status.payload.status` 只能是 `planned`、`cooked`、`skipped`；已做/完成/吃过映射为 `cooked`，不吃/跳过/取消这餐映射为 `skipped`，恢复计划映射为 `planned`。
+- 正式计划项必须优先使用当前家庭已有食物。食物库没有匹配时停止计划草稿，说明需要进入食物资料流程，不要提交自由标题或虚构 `foodId`。
+- `recipeId` 只能使用所选食物已经关联的真实菜谱；没有关联菜谱时填 `null`，不要把同名菜谱或历史摘要里的菜谱 ID 直接绑定。
+- 缺失食材提醒里的 `ingredientId` 能明确匹配当前家庭已有食材时必须绑定；不能匹配时可以保留名称作为计划缺料提醒，但不能假装已创建食材档案。
+
 ## 模式选择
 
 ### 即时推荐模式
@@ -43,6 +51,7 @@ description: 处理“今天/今晚吃什么”的即时餐食推荐，以及未
 - 正式计划的 `foodId` 必须来自 `food.search` 或 `food.read_by_id`，且标题必须使用对应食物名称。
 - `recipeId` 只能使用所选食物已关联的真实菜谱；没有关联时填 `null`。
 - 如果正式计划需要的食物不在食物库中，说明需要先补充食物资料，不得创建无效草稿，也不要在本 Skill 中调用或伪造 `food_profile` 草稿；由 Orchestrator 注入食物资料流程。
+- 从历史计划草稿继续修改时，必须先用 `workspace.read_artifact` 读取完整 `items`；不要根据摘要补全日期、餐别、食物 ID 或菜谱 ID。
 - 创建草稿前调用 `script.validate_meal_plan` 做确定性结构检查；需要文本预览时可调用 `script.render_plan_preview`。
 - `FoodPlanItem` 读取范围以当前用户和家庭时区为准，不得越过当前用户读取其他成员的个人计划。
 - 不直接写入正式 `FoodPlanItem`，草稿确认后由后端根据操作类型完成写入。

@@ -16,7 +16,28 @@ import type {
 } from './types';
 
 export const recipesApi = {
-  getRecipes: () => request<Recipe[]>('/api/recipes'),
+  getRecipes: (
+    params: {
+      q?: string;
+      scene?: string;
+      difficulty?: Recipe['difficulty'];
+      sort?: 'updated' | 'time' | 'difficulty' | 'availability' | string;
+      availability?: 'ready' | 'partial' | 'missing' | string;
+      limit?: number;
+      offset?: number;
+    } = {}
+  ) => {
+    const search = new URLSearchParams();
+    if (params.q?.trim()) search.set('q', params.q.trim());
+    if (params.scene?.trim()) search.set('scene', params.scene.trim());
+    if (params.difficulty) search.set('difficulty', params.difficulty);
+    if (params.sort) search.set('sort', params.sort);
+    if (params.availability) search.set('availability', params.availability);
+    if (params.limit !== undefined) search.set('limit', String(params.limit));
+    if (params.offset !== undefined) search.set('offset', String(params.offset));
+    const suffix = search.size > 0 ? `?${search.toString()}` : '';
+    return request<Recipe[]>(`/api/recipes${suffix}`);
+  },
   getRecipeDiscovery: (limit = 6) => request<RecipeDiscovery>(`/api/recipes/discovery?limit=${encodeURIComponent(String(limit))}`),
   getRecipeAvailability: (recipeId: string) => request<RecipeAvailabilitySummary>(`/api/recipes/${recipeId}/availability`),
   getRecipeStats: (dateFrom?: string, dateTo?: string, limit = 10) => {

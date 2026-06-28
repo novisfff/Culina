@@ -3,9 +3,95 @@ from ._support import *
 from app.ai.errors import AIExecutionCancelled
 from app.ai.tools.base import ToolDefinition
 from app.ai.tools.registry import ToolRegistry
+from app.services.search.documents import build_food_search_document, build_ingredient_search_document, build_recipe_search_document
+from app.services.search.indexing import upsert_search_document
 
 
 class AIToolRegistryTestCase(AIAgentInfraTestCase):
+        def test_catalog_search_tools_use_hybrid_search_documents_for_query(self) -> None:
+            with self.SessionLocal() as db:
+                ingredient = Ingredient(
+                    id="ingredient-hybrid-note",
+                    family_id=self.family.id,
+                    name="白萝卜",
+                    category="蔬菜",
+                    default_unit="根",
+                    unit_conversions=[],
+                    default_storage="冷藏",
+                    default_expiry_mode=IngredientExpiryMode.NONE,
+                    notes="适合清润汤水",
+                    created_by=self.user.id,
+                    updated_by=self.user.id,
+                )
+                food = Food(
+                    id="food-hybrid-routine",
+                    family_id=self.family.id,
+                    name="原味酸奶",
+                    type=FoodType.READY_MADE,
+                    category="乳制品",
+                    flavor_tags=[],
+                    scene_tags=[],
+                    suitable_meal_types=["snack"],
+                    source_name="",
+                    purchase_source="",
+                    scene="",
+                    notes="",
+                    routine_note="运动后加餐",
+                    created_by=self.user.id,
+                    updated_by=self.user.id,
+                )
+                recipe = Recipe(
+                    id="recipe-hybrid-ingredient",
+                    family_id=self.family.id,
+                    title="家常蒸蛋",
+                    servings=2,
+                    prep_minutes=12,
+                    difficulty=Difficulty.EASY,
+                    tips="",
+                    scene_tags=["早餐"],
+                    created_by=self.user.id,
+                    updated_by=self.user.id,
+                )
+                recipe.ingredient_items = [
+                    RecipeIngredient(
+                        id="recipe-ingredient-hybrid",
+                        recipe_id=recipe.id,
+                        ingredient_id=None,
+                        ingredient_name="紫苏叶",
+                        quantity=Decimal("1"),
+                        unit="把",
+                        note="切碎",
+                        sort_order=0,
+                    )
+                ]
+                db.add_all([ingredient, food, recipe])
+                db.flush()
+                upsert_search_document(db, build_ingredient_search_document(ingredient))
+                upsert_search_document(db, build_food_search_document(food))
+                upsert_search_document(db, build_recipe_search_document(recipe))
+                db.flush()
+                executor = ToolExecutor(
+                    build_workspace_tool_registry(),
+                    ToolContext(
+                        db=db,
+                        family_id=self.family.id,
+                        user_id=self.user.id,
+                        conversation_id="conversation-hybrid-tool-search",
+                        run_id="run-hybrid-tool-search",
+                    ),
+                )
+
+                ingredient_result = executor.call("ingredient.search", {"query": "清润汤水", "limit": 5})
+                food_result = executor.call("food.search", {"query": "运动后", "limit": 5})
+                recipe_result = executor.call("recipe.search", {"query": "紫苏叶", "limit": 5})
+
+            self.assertEqual([item["id"] for item in ingredient_result["items"]], [ingredient.id])
+            self.assertIn("score", ingredient_result["items"][0])
+            self.assertIn("matchReason", ingredient_result["items"][0])
+            self.assertIn("degraded", ingredient_result)
+            self.assertEqual([item["id"] for item in food_result["items"]], [food.id])
+            self.assertEqual([item["id"] for item in recipe_result["items"]], [recipe.id])
+
         def test_phase_a_tool_executor_records_real_tool_calls(self) -> None:
             with self.SessionLocal() as db:
                 executor = ToolExecutor(
@@ -397,7 +483,7 @@ class AIToolRegistryTestCase(AIAgentInfraTestCase):
                 with self.assertRaisesRegex(ValueError, "recipe.create_draft input.draft does not match any allowed shape"):
                     executor.call("recipe.create_draft", {"draft": {}})
 
-                with self.assertRaisesRegex(ValueError, "当前家庭"):
+                with self.assertRaisesRegex(ValueError, "未解析的食材"):
                     executor.call(
                         "recipe.create_draft",
                         {
@@ -408,6 +494,24 @@ class AIToolRegistryTestCase(AIAgentInfraTestCase):
                                 "difficulty": "easy",
                                 "ingredient_items": [
                                     {"ingredient_id": "ingredient-secret", "ingredient_name": "其他家庭牛排", "quantity": 1, "unit": "块", "note": ""}
+                                ],
+                                "steps": recipe_steps,
+                                "tips": "",
+                                "scene_tags": [],
+                            }
+                        },
+                    )
+                with self.assertRaisesRegex(ValueError, "ingredient_id must be string"):
+                    executor.call(
+                        "recipe.create_draft",
+                        {
+                            "draft": {
+                                "title": "库外食材菜",
+                                "servings": 2,
+                                "prep_minutes": 15,
+                                "difficulty": "easy",
+                                "ingredient_items": [
+                                    {"ingredient_id": None, "ingredient_name": "面条", "quantity": 200, "unit": "克", "note": ""}
                                 ],
                                 "steps": recipe_steps,
                                 "tips": "",

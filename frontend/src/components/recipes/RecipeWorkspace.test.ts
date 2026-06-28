@@ -4,8 +4,10 @@ import {
   buildCookPayload,
   buildCustomShoppingDraft,
   buildRecipeFormFromGeneratedDraft,
+  buildRecipeIngredientCreatePayload,
   buildRecipePayload,
   buildRecipeShortageShoppingPayloads,
+  buildRecipeUnresolvedIngredientTargets,
   buildShoppingDraftFromRecipeIngredient,
   buildShoppingDraftsFromShortages,
   buildShoppingPayloadsFromDrafts,
@@ -20,6 +22,7 @@ import {
   hasRecipeDraftMinimumInput,
   isAiGeneratedRecipeDraft,
   loadCookSession,
+  parseRecipeUnresolvedIngredientError,
   recipeCookSessionKey,
   sanitizeCookSession,
   type RecipeDraftIngredient,
@@ -155,6 +158,84 @@ describe('recipe workspace payload helpers', () => {
 
     expect(payload.ingredient_items).toEqual([{ ingredient_id: null, ingredient_name: '葱花', quantity: 0.5, unit: '个', note: '可选' }]);
     expect(payload.media_ids).toEqual([]);
+  });
+
+  it('parses unresolved ingredient API errors and maps them back to editable rows', () => {
+    const rows: RecipeDraftIngredient[] = [
+      { id: 'row-empty', ingredient_id: '', ingredient_name: '   ', quantity: 1, unit: '个', note: '' },
+      { id: 'row-tomato', ingredient_id: tomato.id, ingredient_name: '番茄', quantity: 2, unit: '个', note: '' },
+      { id: 'row-tofu', ingredient_id: '', ingredient_name: ' 嫩豆腐 ', quantity: 200, unit: '克', note: '切块' },
+    ];
+    const unresolvedItems = parseRecipeUnresolvedIngredientError({
+      payload: {
+        detail: {
+          code: 'recipe_unresolved_ingredients',
+          items: [
+            {
+              index: 1,
+              ingredient_id: null,
+              ingredient_name: '嫩豆腐',
+              quantity: 200,
+              unit: '克',
+              note: '切块',
+              reason: 'missing_ingredient_id',
+            },
+          ],
+        },
+      },
+    });
+
+    expect(unresolvedItems).toEqual([
+      {
+        index: 1,
+        ingredient_id: null,
+        ingredient_name: '嫩豆腐',
+        quantity: 200,
+        unit: '克',
+        note: '切块',
+        reason: 'missing_ingredient_id',
+      },
+    ]);
+    expect(buildRecipeUnresolvedIngredientTargets(unresolvedItems!, rows)).toEqual([
+      {
+        index: 1,
+        ingredient_id: null,
+        ingredient_name: '嫩豆腐',
+        quantity: 200,
+        unit: '克',
+        note: '切块',
+        reason: 'missing_ingredient_id',
+        rowId: 'row-tofu',
+      },
+    ]);
+  });
+
+  it('builds a conservative ingredient payload from an unresolved recipe row', () => {
+    expect(
+      buildRecipeIngredientCreatePayload({
+        index: 0,
+        rowId: 'row-tofu',
+        ingredient_id: null,
+        ingredient_name: ' 嫩豆腐 ',
+        quantity: 200,
+        unit: '克',
+        note: '',
+        reason: 'missing_ingredient_id',
+      })
+    ).toEqual({
+      name: '嫩豆腐',
+      category: '未分类',
+      default_unit: '克',
+      unit_conversions: [],
+      quantity_tracking_mode: 'track_quantity',
+      default_storage: '冷藏',
+      default_expiry_mode: 'none',
+      default_expiry_days: null,
+      default_low_stock_threshold: null,
+      notes: '从菜谱缺失食材创建',
+      media_ids: [],
+      pending_image_job_id: null,
+    });
   });
 
   it('maps generated AI recipe drafts into editable form state', () => {

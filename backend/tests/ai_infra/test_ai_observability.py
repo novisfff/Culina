@@ -57,6 +57,18 @@ class AIObservabilityTestCase(AIAgentInfraTestCase):
         self.assertEqual(set(AIRunTraceSpan.__table__.foreign_keys), set())
         self.assertEqual(set(AIRunLLMExchange.__table__.foreign_keys), set())
 
+    def test_agent_loop_logs_phase_perf_summary(self) -> None:
+        with self.assertLogs("app.ai.workflows.runner", level="INFO") as logs:
+            response = self.client.post(
+                "/api/ai/chat",
+                json={"message": "随便聊聊", "client_run_id": "agent_run-observability-phase-perf"},
+            )
+
+        self.assertEqual(response.status_code, 200, response.text)
+        output = "\n".join(logs.output)
+        self.assertIn("AI graph prepare completed", output)
+        self.assertIn("AI graph finalize perf summary", output)
+
     def test_openai_compatible_provider_requests_stream_usage(self) -> None:
         provider = OpenAICompatibleChatProvider(
             api_base="https://example.invalid/v1",
@@ -146,6 +158,146 @@ class AIObservabilityTestCase(AIAgentInfraTestCase):
         self.assertEqual(exchange["outputTokens"], 9)
         self.assertEqual(exchange["totalTokens"], 50)
         self.assertEqual(exchange["cachedTokens"], 7)
+
+    def test_openai_sdk_stream_usage_chunk_is_recorded_on_exchange(self) -> None:
+        class FakeCompletions:
+            request: dict | None = None
+
+            def create(self, **kwargs):
+                self.request = kwargs
+                return iter(
+                    [
+                        {
+                            "choices": [
+                                {
+                                    "delta": {
+                                        "content": "补货建议已整理。",
+                                        "tool_calls": None,
+                                    }
+                                }
+                            ],
+                            "usage": None,
+                        },
+                        {
+                            "choices": [],
+                            "usage": {
+                                "prompt_tokens": 61,
+                                "completion_tokens": 13,
+                                "total_tokens": 74,
+                                "prompt_tokens_details": {"cached_tokens": 5},
+                            },
+                        },
+                    ]
+                )
+
+        class FakeOpenAIClient:
+            def __init__(self) -> None:
+                self.completions = FakeCompletions()
+                self.chat = SimpleNamespace(completions=self.completions)
+
+        response = self.client.post(
+            "/api/ai/chat",
+            json={"message": "随便聊聊", "client_run_id": "agent_run-observability-openai-sdk-stream-usage"},
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        data = response.json()
+        run_id = data["run"]["id"]
+        conversation_id = data["conversation_id"]
+
+        provider = OpenAICompatibleChatProvider(
+            api_base="https://example.invalid/v1",
+            api_key="test-key",
+            model_name="debug-model",
+        )
+        fake_openai_client = FakeOpenAIClient()
+        provider.openai_client = fake_openai_client
+
+        with self.SessionLocal() as db:
+            recorder = LLMExchangeRecorder(
+                db=db,
+                family_id=self.family.id,
+                run_id=run_id,
+                conversation_id=conversation_id,
+                trace_id="ai_trace-openai-sdk-stream-usage",
+                user_id=self.user.id,
+                span_id="ai_span-openai-sdk-stream-usage",
+            )
+            result = provider.generate_with_tools(
+                system="系统",
+                user="用户",
+                tools=lambda: [],
+                tool_handler=lambda _name, _payload, _event_id=None: {},
+                trace_recorder=recorder,
+            )
+            db.commit()
+
+        self.assertEqual(result.text, "补货建议已整理。")
+        self.assertEqual(fake_openai_client.completions.request["stream_options"], {"include_usage": True})
+        exchange_response = self.client.get(f"/api/ai/runs/{run_id}/llm-exchanges")
+        self.assertEqual(exchange_response.status_code, 200, exchange_response.text)
+        exchange = exchange_response.json()["exchanges"][-1]
+        self.assertEqual(exchange["traceId"], "ai_trace-openai-sdk-stream-usage")
+        self.assertEqual(exchange["inputTokens"], 61)
+        self.assertEqual(exchange["outputTokens"], 13)
+        self.assertEqual(exchange["totalTokens"], 74)
+        self.assertEqual(exchange["cachedTokens"], 5)
+
+    def test_sdk_object_token_usage_is_recorded_on_exchange(self) -> None:
+        class UsageDetails:
+            cached_tokens = 12
+
+        class CompletionUsage:
+            prompt_tokens = "87"
+            completion_tokens = 23
+            total_tokens = 110
+            prompt_tokens_details = UsageDetails()
+
+        response = self.client.post(
+            "/api/ai/chat",
+            json={"message": "随便聊聊", "client_run_id": "agent_run-observability-object-usage"},
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        data = response.json()
+        run_id = data["run"]["id"]
+        conversation_id = data["conversation_id"]
+
+        with self.SessionLocal() as db:
+            recorder = LLMExchangeRecorder(
+                db=db,
+                family_id=self.family.id,
+                run_id=run_id,
+                conversation_id=conversation_id,
+                trace_id="ai_trace-object-usage",
+                user_id=self.user.id,
+                span_id="ai_span-object-usage",
+            )
+            exchange = recorder.start_exchange(
+                span_id=None,
+                provider_round=1,
+                attempt_index=1,
+                mode="generate",
+                model="debug-model",
+                request_messages=[HumanMessage(content="对象 usage")],
+                request_tools=[],
+                request_options={},
+            )
+            exchange.finish(
+                response_message=SimpleNamespace(
+                    content="对象 usage 响应",
+                    response_metadata=SimpleNamespace(usage=CompletionUsage()),
+                ),
+                response_text="对象 usage 响应",
+            )
+            db.commit()
+
+        exchange_response = self.client.get(f"/api/ai/runs/{run_id}/llm-exchanges")
+        self.assertEqual(exchange_response.status_code, 200, exchange_response.text)
+        exchange_payload = exchange_response.json()["exchanges"][-1]
+        self.assertEqual(exchange_payload["traceId"], "ai_trace-object-usage")
+        self.assertEqual(exchange_payload["inputTokens"], 87)
+        self.assertEqual(exchange_payload["outputTokens"], 23)
+        self.assertEqual(exchange_payload["totalTokens"], 110)
+        self.assertEqual(exchange_payload["cachedTokens"], 12)
 
     def test_observability_failures_do_not_touch_business_session_or_raise(self) -> None:
         response = self.client.post(
@@ -561,6 +713,68 @@ class AIObservabilityTestCase(AIAgentInfraTestCase):
             ["第二轮", "第一轮"],
         )
 
+    def test_llm_exchange_api_can_return_summary_then_detail_payload(self) -> None:
+        response = self.client.post(
+            "/api/ai/chat",
+            json={"message": "随便聊聊", "client_run_id": "agent_run-observability-exchange-summary"},
+        )
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        run_id = data["run"]["id"]
+        conversation_id = data["conversation_id"]
+
+        with self.SessionLocal() as db:
+            db.add(
+                AIRunLLMExchange(
+                    id="ai-exchange-summary-detail",
+                    family_id=self.family.id,
+                    run_id=run_id,
+                    conversation_id=conversation_id,
+                    trace_id="ai_trace-exchange-summary",
+                    provider_round=1,
+                    attempt_index=1,
+                    mode="tools",
+                    model="debug-model",
+                    request_messages=[{"role": "user", "content": "原始输入应按需加载"}],
+                    request_tools=[{"type": "function", "function": {"name": "ingredient.search"}}],
+                    request_options={"temperature": 0},
+                    request_digest="digest-summary",
+                    request_bytes=120,
+                    response_message={"content": "原始输出应按需加载"},
+                    response_text="原始输出应按需加载",
+                    response_tool_calls=[{"name": "ingredient.search", "args": {"query": "番茄"}}],
+                    stream_chunks=[],
+                    response_digest="response-digest-summary",
+                    response_bytes=130,
+                    status="completed",
+                    duration_ms=10,
+                    started_at=utcnow(),
+                )
+            )
+            db.commit()
+
+        summary_response = self.client.get(f"/api/ai/runs/{run_id}/llm-exchanges?includePayload=false")
+        self.assertEqual(summary_response.status_code, 200, summary_response.text)
+        summary = [item for item in summary_response.json()["exchanges"] if item["id"] == "ai-exchange-summary-detail"][0]
+        self.assertFalse(summary["payloadIncluded"])
+        self.assertEqual(summary["requestMessages"], [])
+        self.assertEqual(summary["requestTools"], [])
+        self.assertEqual(summary["responseMessage"], {})
+        self.assertIsNone(summary["responseText"])
+        self.assertEqual(summary["responseToolCalls"], [])
+        self.assertEqual(summary["requestToolCount"], 1)
+        self.assertEqual(summary["requestToolNames"], ["ingredient.search"])
+        self.assertEqual(summary["responseToolCallCount"], 1)
+        self.assertEqual(summary["responseToolCallNames"], ["ingredient.search"])
+
+        detail_response = self.client.get(f"/api/ai/runs/{run_id}/llm-exchanges/ai-exchange-summary-detail")
+        self.assertEqual(detail_response.status_code, 200, detail_response.text)
+        detail = detail_response.json()
+        self.assertTrue(detail["payloadIncluded"])
+        self.assertEqual(detail["requestMessages"][0]["content"], "原始输入应按需加载")
+        self.assertEqual(detail["responseText"], "原始输出应按需加载")
+        self.assertEqual(detail["responseToolCalls"][0]["args"]["query"], "番茄")
+
     def test_stream_generate_empty_response_is_recorded_as_failed_exchange(self) -> None:
         class EmptyStreamClient:
             def stream(self, _messages):
@@ -734,8 +948,8 @@ class AIObservabilityTestCase(AIAgentInfraTestCase):
                     "prep_minutes": 15,
                     "difficulty": "easy",
                     "ingredient_items": [
-                        {"ingredient_id": None, "ingredient_name": "番茄", "quantity": 2, "unit": "个", "note": "切块"},
-                        {"ingredient_id": None, "ingredient_name": "鸡蛋", "quantity": 3, "unit": "个", "note": "打散"},
+                        {"ingredient_id": "ingredient-tomato", "ingredient_name": "番茄", "quantity": 2, "unit": "个", "note": "切块"},
+                        {"ingredient_id": "ingredient-egg", "ingredient_name": "鸡蛋", "quantity": 3, "unit": "个", "note": "打散"},
                     ],
                     "steps": [
                         {"title": "备菜", "text": "番茄洗净切块，鸡蛋打散备用。", "icon": "tomato", "summary": "处理食材", "estimated_minutes": 5, "tip": "", "key_points": []},
@@ -774,6 +988,7 @@ class AIObservabilityTestCase(AIAgentInfraTestCase):
                 )
 
         with self.SessionLocal() as db:
+            self._add_egg_ingredient(db)
             result = AIApplicationService(db, provider=TraceableRecipeProvider()).generate_recipe_draft(
                 family_id=self.family.id,
                 user_id=self.user.id,

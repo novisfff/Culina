@@ -23,6 +23,7 @@ type RecipeDetailViewProps = {
   showFavoriteAction?: boolean;
   showEditAction?: boolean;
   showDeleteAction?: boolean;
+  backLabel?: string;
   onBack: () => void;
   onCook: (card: RecipeCardViewModel) => void;
   onPlan: (card: RecipeCardViewModel) => void;
@@ -49,6 +50,7 @@ export function RecipeDetailView({
   showFavoriteAction = true,
   showEditAction = true,
   showDeleteAction = true,
+  backLabel = '返回菜谱',
   onBack,
   onCook,
   onPlan,
@@ -63,7 +65,7 @@ export function RecipeDetailView({
             <div className="recipe-detail-topbar">
               <button className="workspace-back-link recipe-detail-back-link" type="button" onClick={() => onBack()}>
                 <RecipeUiIcon name="chevronLeft" />
-                返回菜谱
+                {backLabel}
               </button>
               <Badge className={`recipe-availability-badge tone-${selectedCard.availability}`}>
                 {selectedCard.availabilityLabel}

@@ -1,4 +1,5 @@
 from ._support import *
+from app.services.ai_operations.approval_requests import create_ai_draft_approval
 from app.services.ai_operations.messages import approval_result_card
 
 
@@ -48,6 +49,24 @@ class AIWorkspaceApprovalsTestCase(AIAgentInfraTestCase):
             self.assertIn("确认请求正在处理", response.json()["detail"])
 
         def test_ai_workspace_recipe_draft_approval_creates_recipe_after_decision(self) -> None:
+            with self.SessionLocal() as db:
+                self._add_egg_ingredient(db)
+                db.add(
+                    Ingredient(
+                        id="ingredient-noodle",
+                        family_id=self.family.id,
+                        name="面条",
+                        category="主食",
+                        default_unit="克",
+                        unit_conversions=[],
+                        default_storage="常温",
+                        default_expiry_mode=IngredientExpiryMode.NONE,
+                        notes="",
+                        created_by=self.user.id,
+                        updated_by=self.user.id,
+                    )
+                )
+                db.commit()
             provider = FakeChatProvider(
                 """
                 {
@@ -57,8 +76,8 @@ class AIWorkspaceApprovalsTestCase(AIAgentInfraTestCase):
                   "difficulty": "easy",
                   "ingredient_items": [
                     {"ingredient_id": "ingredient-tomato", "ingredient_name": "番茄", "quantity": 2, "unit": "个", "note": "切块"},
-                    {"ingredient_id": null, "ingredient_name": "鸡蛋", "quantity": 2, "unit": "个", "note": "打散"},
-                    {"ingredient_id": null, "ingredient_name": "面条", "quantity": 200, "unit": "克", "note": "提前备好"}
+                    {"ingredient_id": "ingredient-egg", "ingredient_name": "鸡蛋", "quantity": 2, "unit": "个", "note": "打散"},
+                    {"ingredient_id": "ingredient-noodle", "ingredient_name": "面条", "quantity": 200, "unit": "克", "note": "提前备好"}
                   ],
                   "steps": [
                     {"title": "备菜", "text": "番茄洗净后处理 5 分钟，切成 2 厘米块，鸡蛋打到没有透明蛋清。面条提前称好，葱花和调味料放在手边，方便后续连续操作。", "icon": "bowl", "summary": "处理食材", "estimated_minutes": 5, "tip": "番茄切均匀。", "key_points": ["番茄切块", "鸡蛋打散"]},
@@ -145,6 +164,70 @@ class AIWorkspaceApprovalsTestCase(AIAgentInfraTestCase):
                 self.assertEqual(image_job.request_payload["entity_type"], "recipe")
                 self.assertEqual(image_job.request_payload["title"], "番茄鸡蛋面（确认版）")
                 self.assertIn("番茄", image_job.request_payload["ingredient_names"])
+
+        def test_ai_workspace_recipe_approval_rejects_unresolved_ingredients_before_commit(self) -> None:
+            payload = {
+                "title": "番茄鸡蛋面",
+                "servings": 2,
+                "prep_minutes": 20,
+                "difficulty": "easy",
+                "ingredient_items": [
+                    {"ingredient_id": "ingredient-tomato", "ingredient_name": "番茄", "quantity": 2, "unit": "个", "note": "切块"},
+                    {"ingredient_id": None, "ingredient_name": "面条", "quantity": 200, "unit": "克", "note": "提前备好"},
+                ],
+                "steps": [
+                    {"title": "备菜", "text": "番茄切块，面条称好备用。", "icon": "bowl", "summary": "处理食材", "estimated_minutes": 5, "tip": "", "key_points": []},
+                    {"title": "煮面", "text": "番茄炒出汁后加水煮开，下面条煮熟。", "icon": "pan", "summary": "煮熟", "estimated_minutes": 10, "tip": "", "key_points": []},
+                ],
+                "tips": "",
+                "scene_tags": [],
+            }
+            with self.SessionLocal() as db:
+                service = AIApplicationService(db, provider=FakeChatProvider())
+                conversation = service._get_or_create_conversation(
+                    family_id=self.family.id,
+                    user_id=self.user.id,
+                    conversation_id=None,
+                    prompt="创建一份番茄鸡蛋面",
+                    quick_task=None,
+                )
+                message = AIMessage(
+                    id="ai-message-unresolved-recipe",
+                    family_id=self.family.id,
+                    conversation_id=conversation.id,
+                    role="assistant",
+                    content="",
+                    parts=[],
+                    created_by=self.user.id,
+                )
+                db.add(message)
+                db.flush()
+                draft, approval = create_ai_draft_approval(
+                    db,
+                    family_id=self.family.id,
+                    user_id=self.user.id,
+                    conversation_id=conversation.id,
+                    message_id=message.id,
+                    run_id=None,
+                    draft_type="recipe",
+                    schema_version="recipe.v1",
+                    payload=payload,
+                    preview_summary="创建菜谱 · 番茄鸡蛋面",
+                )
+                db.commit()
+
+            decision_response = self.client.post(
+                f"/api/ai/conversations/{approval.conversation_id}/approvals/{approval.id}/decision",
+                json={
+                    "decision": "approved",
+                    "draft_version": draft.version,
+                    "values": {"recipe": payload},
+                },
+            )
+            self.assertEqual(decision_response.status_code, 409, decision_response.text)
+            self.assertIn("未解析的食材", decision_response.json()["detail"])
+            with self.SessionLocal() as db:
+                self.assertEqual(db.query(Recipe).count(), 0)
 
         def test_ai_workspace_approval_rejects_stale_draft_version(self) -> None:
             provider = FakeChatProvider(
@@ -433,6 +516,28 @@ class AIWorkspaceApprovalsTestCase(AIAgentInfraTestCase):
                 )
                 db.add(food)
                 db.flush()
+                meal_log = MealLog(
+                    id="meal-delete-linked-food",
+                    family_id=self.family.id,
+                    date=date.today(),
+                    meal_type=MealType.DINNER,
+                    participant_user_ids=[self.user.id],
+                    notes="引用同步食物",
+                    mood="",
+                    created_by=self.user.id,
+                    updated_by=self.user.id,
+                )
+                db.add(meal_log)
+                db.flush()
+                meal_food = MealLogFood(
+                    id="meal-food-delete-linked-food",
+                    meal_log_id=meal_log.id,
+                    food_id=food.id,
+                    servings=Decimal("1"),
+                    note="",
+                )
+                db.add(meal_food)
+                db.flush()
                 service = AIApplicationService(db, provider=FakeChatProvider())
                 conversation = service._get_or_create_conversation(
                     family_id=self.family.id,
@@ -483,6 +588,8 @@ class AIWorkspaceApprovalsTestCase(AIAgentInfraTestCase):
                 self.assertTrue(result["business_entity"]["deleted"])
                 self.assertIsNone(db.get(Recipe, recipe.id))
                 self.assertIsNone(db.get(Food, food.id))
+                self.assertIsNotNone(db.get(MealLog, meal_log.id))
+                self.assertIsNone(db.get(MealLogFood, meal_food.id))
 
         def test_recipe_favorite_operation_updates_recipe_favorite(self) -> None:
             with self.SessionLocal() as db:
@@ -682,6 +789,66 @@ class AIWorkspaceApprovalsTestCase(AIAgentInfraTestCase):
                 self.assertIsNotNone(cook_log)
                 meal_log = db.scalar(select(MealLog).where(MealLog.id == plan_item.meal_log_id))
                 self.assertIsNotNone(meal_log)
+
+        def test_recipe_cook_tool_accepts_minimal_draft_and_recomputes_preview(self) -> None:
+            with self.SessionLocal() as db:
+                recipe = Recipe(
+                    id="recipe-cook-tool-minimal",
+                    family_id=self.family.id,
+                    title="番茄快炒工具测试",
+                    servings=2,
+                    prep_minutes=12,
+                    difficulty=Difficulty.EASY,
+                    tips="",
+                    scene_tags=["家常菜"],
+                    created_by=self.user.id,
+                    updated_by=self.user.id,
+                )
+                db.add(recipe)
+                db.flush()
+                db.add(
+                    RecipeIngredient(
+                        id="recipe-cook-tool-minimal-ingredient",
+                        recipe_id=recipe.id,
+                        ingredient_id="ingredient-tomato",
+                        ingredient_name="番茄",
+                        quantity=2,
+                        unit="个",
+                        note="切块",
+                        sort_order=0,
+                    )
+                )
+                db.flush()
+
+                executor = ToolExecutor(
+                    build_workspace_tool_registry(),
+                    ToolContext(db=db, family_id=self.family.id, user_id=self.user.id, conversation_id=None, run_id=None),
+                    allowed_tools={"recipe.create_cook_draft"},
+                    allowed_side_effects={"draft"},
+                )
+                result = executor.call(
+                    "recipe.create_cook_draft",
+                    {
+                        "draft": {
+                            "draftType": "recipe_cook",
+                            "schemaVersion": "recipe_cook_operation.v1",
+                            "recipeId": recipe.id,
+                            "servings": 1,
+                            "date": date.today().isoformat(),
+                            "mealType": "dinner",
+                            "createMealLog": True,
+                        }
+                    },
+                )
+
+                draft = result["draft"]
+                self.assertEqual(draft["recipeId"], recipe.id)
+                self.assertEqual(draft["title"], recipe.title)
+                self.assertEqual(draft["createMealLog"], True)
+                self.assertEqual(draft["mealType"], "dinner")
+                self.assertEqual(draft["shortages"], [])
+                self.assertEqual(draft["previewItems"][0]["ingredient_id"], "ingredient-tomato")
+                self.assertEqual(draft["previewItems"][0]["requested_quantity"], 1)
 
         def test_recipe_cook_tools_reject_mismatched_plan_item(self) -> None:
             from app.ai.tools.catalog.recipe import recipe_create_cook_draft, recipe_preview_cook
@@ -998,6 +1165,16 @@ class AIWorkspaceApprovalsTestCase(AIAgentInfraTestCase):
                     self.assertIsNotNone(
                         db.scalar(select(ActivityLog).where(ActivityLog.entity_type == "Ingredient", ActivityLog.entity_id == ingredient.id))
                     )
+                    index_job = db.scalar(
+                        select(SearchIndexJob).where(
+                            SearchIndexJob.family_id == self.family.id,
+                            SearchIndexJob.entity_type == "ingredient",
+                            SearchIndexJob.entity_id == ingredient.id,
+                        )
+                    )
+                    self.assertIsNotNone(index_job)
+                    assert index_job is not None
+                    self.assertEqual(index_job.status, "queued")
 
                 with self.subTest("food_profile.create"):
                     result = approve_case(
@@ -1032,6 +1209,16 @@ class AIWorkspaceApprovalsTestCase(AIAgentInfraTestCase):
                     self.assertIsNotNone(
                         db.scalar(select(ActivityLog).where(ActivityLog.entity_type == "Food", ActivityLog.entity_id == created_food.id))
                     )
+                    index_job = db.scalar(
+                        select(SearchIndexJob).where(
+                            SearchIndexJob.family_id == self.family.id,
+                            SearchIndexJob.entity_type == "food",
+                            SearchIndexJob.entity_id == created_food.id,
+                        )
+                    )
+                    self.assertIsNotNone(index_job)
+                    assert index_job is not None
+                    self.assertEqual(index_job.status, "queued")
 
                 with self.subTest("recipe.create"):
                     result = approve_case(

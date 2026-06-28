@@ -1,8 +1,9 @@
-import type { ReactNode } from 'react';
+import type { CompositionEventHandler, ReactNode } from 'react';
 import { buildMediaSizes, buildMediaSrcSet, resolveMediaUrl } from '../../lib/assets';
 import type { ShoppingListItem } from '../../api/types';
 import { chunkMobilePagedItems, useMobilePagedScroller } from '../../hooks/useMobilePagedScroller';
 import { MediaWithPlaceholder } from '../MediaPlaceholder';
+import { SearchLoadingIndicator } from '../ui-kit';
 import { tracksIngredientQuantity } from '../../lib/ingredientTracking';
 import type {
   IngredientSummaryViewModel,
@@ -27,6 +28,9 @@ type IngredientMobileViewProps = {
   pendingShoppingCount: number;
   summariesCount: number;
   catalogSearch: string;
+  isCatalogSearchFetching?: boolean;
+  onCatalogSearchCompositionStart?: CompositionEventHandler<HTMLInputElement>;
+  onCatalogSearchCompositionEnd?: CompositionEventHandler<HTMLInputElement>;
   setCatalogSearch: (value: string) => void;
   mobileIngredientFilter: MobileIngredientFilter;
   setMobileIngredientFilter: (value: MobileIngredientFilter) => void;
@@ -299,7 +303,10 @@ export function IngredientMobileView(props: IngredientMobileViewProps) {
               value={props.catalogSearch}
               placeholder="搜索食材、分类、备注或菜谱"
               onChange={(event) => props.setCatalogSearch(event.target.value)}
+              onCompositionStart={props.onCatalogSearchCompositionStart}
+              onCompositionEnd={props.onCatalogSearchCompositionEnd}
             />
+            <SearchLoadingIndicator active={Boolean(props.catalogSearch.trim()) && Boolean(props.isCatalogSearchFetching)} />
           </label>
           <div className="mobile-ingredient-tabs" aria-label="食材筛选">
             {[

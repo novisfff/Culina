@@ -2,6 +2,54 @@ from ._support import *
 from ._support import _build_provider_config
 
 
+class RecipeDraftSearchThenCreateProvider(BaseChatProvider):
+        model_name = "recipe-draft-search-then-create-test-model"
+
+        def __init__(self) -> None:
+            self.available_tool_names: set[str] = set()
+            self.search_output: dict | None = None
+
+        def generate_with_tools(
+            self,
+            *,
+            system: str,
+            user: str,
+            tools,
+            tool_handler,
+            message_handler=None,
+            max_rounds: int = 8,
+        ) -> ChatProviderResult:
+            del system, user, message_handler, max_rounds
+            self.available_tool_names = {tool.name for tool in tools()}
+            self.search_output = tool_handler("ingredient.search", {"query": "番茄", "limit": 5})
+            draft = {
+                "title": "番茄快手菜",
+                "servings": 2,
+                "prep_minutes": 15,
+                "difficulty": "easy",
+                "ingredient_items": [
+                    {"ingredient_id": "ingredient-tomato", "ingredient_name": "番茄", "quantity": 2, "unit": "个", "note": "切块"}
+                ],
+                "steps": [
+                    {"title": "备菜", "text": "番茄洗净切块，保持大小均匀。切好后放在手边，方便后续连续操作。", "icon": "tomato", "summary": "处理番茄", "estimated_minutes": 5, "tip": "番茄切均匀。", "key_points": ["切块"]},
+                    {"title": "炒制", "text": "锅中少油，中火下番茄翻炒 3 分钟。看到番茄出汁变软后继续小火收 2 分钟。", "icon": "pan", "summary": "炒出汁水", "estimated_minutes": 7, "tip": "保持中火。", "key_points": ["炒出汁"]},
+                    {"title": "装盘", "text": "确认番茄软烂、汤汁略浓后调味。关火装盘，趁热食用口感更好。", "icon": "plate", "summary": "调味装盘", "estimated_minutes": 3, "tip": "出锅前尝味。", "key_points": ["尝味"]}
+                ],
+                "tips": "缺失食材不要强行写入配料行。",
+                "scene_tags": ["家常菜"],
+            }
+            output = tool_handler("recipe.create_draft", {"draft": draft})
+            return ChatProviderResult(
+                text=None,
+                status="completed",
+                model=self.model_name,
+                tool_calls=[
+                    {"name": "ingredient.search", "args": {"query": "番茄", "limit": 5}, "output": self.search_output},
+                    {"name": "recipe.create_draft", "args": {"draft": draft}, "output": output},
+                ],
+            )
+
+
 class AIRecipeDraftsAndImagesTestCase(AIAgentInfraTestCase):
         def test_recipe_draft_api_returns_failed_without_fallback_draft_when_provider_disabled(self) -> None:
             response = self.client.post(
@@ -68,7 +116,27 @@ class AIRecipeDraftsAndImagesTestCase(AIAgentInfraTestCase):
             self.assertNotIn("ingredient-secret", [item["ingredient_id"] for item in draft["ingredient_items"]])
             self.assertIsInstance(draft["steps"][0], dict)
 
+        def test_recipe_draft_runner_allows_ingredient_search_before_create_draft(self) -> None:
+            provider = RecipeDraftSearchThenCreateProvider()
+            with self.SessionLocal() as db:
+                result = self._generate_recipe_draft(
+                    db,
+                    provider,
+                    prompt="用西红柿做一道快手菜",
+                    subject={"ingredientIds": ["ingredient-tomato"], "extraIngredients": ["西红柿"]},
+                )
+
+            self.assertEqual(result["status"], "completed")
+            self.assertIn("ingredient.search", provider.available_tool_names)
+            self.assertIn("recipe.create_draft", provider.available_tool_names)
+            self.assertIsNotNone(provider.search_output)
+            self.assertNotIn("error", provider.search_output or {})
+            self.assertEqual(result["draft"]["ingredient_items"][0]["ingredient_id"], "ingredient-tomato")
+
         def test_recipe_draft_runner_parses_fenced_json_response(self) -> None:
+            with self.SessionLocal() as db:
+                self._add_egg_ingredient(db)
+                db.commit()
             provider = FakeChatProvider(
                 """
                 ```json
@@ -79,7 +147,7 @@ class AIRecipeDraftsAndImagesTestCase(AIAgentInfraTestCase):
                   "difficulty": "easy",
                   "ingredient_items": [
                     {"ingredient_id": "ingredient-tomato", "ingredient_name": "番茄", "quantity": 2, "unit": "个", "note": "洗净切块"},
-                    {"ingredient_id": null, "ingredient_name": "鸡蛋", "quantity": 3, "unit": "个", "note": "打散备用"}
+                    {"ingredient_id": "ingredient-egg", "ingredient_name": "鸡蛋", "quantity": 3, "unit": "个", "note": "打散备用"}
                   ],
                   "steps": [
                     {"title": "备菜", "text": "番茄洗净切块，鸡蛋打散备用。保持食材大小接近，方便后面均匀受热。", "icon": "tomato", "summary": "处理食材", "estimated_minutes": 5, "tip": "番茄切均匀。", "key_points": ["切块一致"]},
@@ -140,6 +208,23 @@ class AIRecipeDraftsAndImagesTestCase(AIAgentInfraTestCase):
             self.assertIn("scene_tags", result["error"])
 
         def test_recipe_draft_runner_parses_json_surrounded_by_text(self) -> None:
+            with self.SessionLocal() as db:
+                db.add(
+                    Ingredient(
+                        id="ingredient-garlic",
+                        family_id=self.family.id,
+                        name="蒜",
+                        category="调料",
+                        default_unit="瓣",
+                        unit_conversions=[],
+                        default_storage="常温",
+                        default_expiry_mode=IngredientExpiryMode.NONE,
+                        notes="",
+                        created_by=self.user.id,
+                        updated_by=self.user.id,
+                    )
+                )
+                db.commit()
             provider = FakeChatProvider(
                 """
                 下面是生成结果：
@@ -150,7 +235,7 @@ class AIRecipeDraftsAndImagesTestCase(AIAgentInfraTestCase):
                   "difficulty": "easy",
                   "ingredient_items": [
                     {"ingredient_id": "ingredient-tomato", "ingredient_name": "番茄", "quantity": 2, "unit": "个", "note": "切块"},
-                    {"ingredient_id": null, "ingredient_name": "蒜", "quantity": 2, "unit": "瓣", "note": "拍碎"}
+                    {"ingredient_id": "ingredient-garlic", "ingredient_name": "蒜", "quantity": 2, "unit": "瓣", "note": "拍碎"}
                   ],
                   "steps": [
                     {"title": "备菜", "text": "番茄洗净切块，蒜瓣拍碎备用。切块尽量均匀，方便中火快炒。", "icon": "tomato", "summary": "处理食材", "estimated_minutes": 5, "tip": "番茄切均匀。", "key_points": ["切块一致"]},
@@ -191,6 +276,9 @@ class AIRecipeDraftsAndImagesTestCase(AIAgentInfraTestCase):
             self.assertIsNone(result["image_render_payload"])
 
         def test_recipe_draft_runner_rejects_low_quality_steps_without_local_fallback(self) -> None:
+            with self.SessionLocal() as db:
+                self._add_egg_ingredient(db)
+                db.commit()
             provider = FakeChatProvider(
                 """
                 {
@@ -200,7 +288,7 @@ class AIRecipeDraftsAndImagesTestCase(AIAgentInfraTestCase):
                   "difficulty": "easy",
                   "ingredient_items": [
                     {"ingredient_id": "ingredient-tomato", "ingredient_name": "番茄", "quantity": 1, "unit": "个", "note": ""},
-                    {"ingredient_id": null, "ingredient_name": "鸡蛋", "quantity": 1, "unit": "个", "note": ""}
+                    {"ingredient_id": "ingredient-egg", "ingredient_name": "鸡蛋", "quantity": 1, "unit": "个", "note": ""}
                   ],
                   "steps": [
                     {"title": "备菜", "text": "处理食材", "icon": "pan", "summary": "", "estimated_minutes": 2, "tip": "", "key_points": []},

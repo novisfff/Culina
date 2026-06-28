@@ -64,6 +64,10 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 _STREAM_DONE = object()
 
+
+def _elapsed_ms(started_at: float) -> int:
+    return int((perf_counter() - started_at) * 1000)
+
 class WorkspaceGraphRunner:
     def __init__(self, service: AIApplicationService) -> None:
         self.service = service
@@ -92,6 +96,7 @@ class WorkspaceGraphRunner:
         if not prompt and not normalized_attachments:
             raise ValueError("消息不能为空")
         message_summary = self._message_summary(prompt, len(normalized_attachments))
+        prepare_started_at = perf_counter()
         prepared = self._prepare_user_message(
             family_id=family_id,
             user_id=user_id,
@@ -103,6 +108,16 @@ class WorkspaceGraphRunner:
             quick_task=quick_task,
             subject=subject,
             attachments=normalized_attachments,
+        )
+        logger.info(
+            "AI graph prepare completed family_id=%s user_id=%s conversation_id=%s run_id=%s existing=%s attachment_count=%s prepare_ms=%s",
+            family_id,
+            user_id,
+            prepared["conversation_id"],
+            prepared["run_id"],
+            prepared["existing"],
+            len(prepared.get("attachments") or []),
+            _elapsed_ms(prepare_started_at),
         )
         if prepared["existing"]:
             return self._chat_response(prepared["conversation_id"], prepared["run_id"])
@@ -174,6 +189,7 @@ class WorkspaceGraphRunner:
         if not prompt and not normalized_attachments:
             raise ValueError("消息不能为空")
         message_summary = self._message_summary(prompt, len(normalized_attachments))
+        prepare_started_at = perf_counter()
         prepared = self._prepare_user_message(
             family_id=family_id,
             user_id=user_id,
@@ -185,6 +201,16 @@ class WorkspaceGraphRunner:
             quick_task=quick_task,
             subject=subject,
             attachments=normalized_attachments,
+        )
+        logger.info(
+            "AI graph prepare completed family_id=%s user_id=%s conversation_id=%s run_id=%s existing=%s attachment_count=%s prepare_ms=%s",
+            family_id,
+            user_id,
+            prepared["conversation_id"],
+            prepared["run_id"],
+            prepared["existing"],
+            len(prepared.get("attachments") or []),
+            _elapsed_ms(prepare_started_at),
         )
         if prepared["existing"]:
             return iter(
@@ -293,6 +319,13 @@ class WorkspaceGraphRunner:
                 on_disconnect=lambda: self._keep_running_after_disconnect(run_id),
                 after_graph=after_graph,
                 on_worker_exception=on_worker_exception,
+                perf_context={
+                    "flow": "user_message",
+                    "family_id": family_id,
+                    "user_id": user_id,
+                    "conversation_id": conversation_id,
+                    "run_id": run_id,
+                },
             )
         except GeneratorExit:
             raise
@@ -960,6 +993,13 @@ class WorkspaceGraphRunner:
                 on_disconnect=lambda: self._keep_running_after_disconnect(run_id),
                 after_graph=after_graph,
                 on_worker_exception=on_worker_exception,
+                perf_context={
+                    "flow": "human_input_resume",
+                    "family_id": family_id,
+                    "user_id": user_id,
+                    "conversation_id": conversation_id,
+                    "run_id": run_id,
+                },
             )
         except GeneratorExit:
             raise
@@ -1096,6 +1136,13 @@ class WorkspaceGraphRunner:
                 before_graph=before_graph,
                 after_graph=after_graph,
                 on_worker_exception=on_worker_exception,
+                perf_context={
+                    "flow": "approval_resume",
+                    "family_id": family_id,
+                    "user_id": user_id,
+                    "conversation_id": conversation_id,
+                    "run_id": run_id,
+                },
             )
         except GeneratorExit:
             raise
@@ -2682,27 +2729,70 @@ class WorkspaceGraphRunner:
         enqueue: Callable[[str, dict[str, Any]], None],
         before_graph: Callable[["WorkspaceGraphRunner"], Iterator[tuple[str, dict[str, Any]]]] | None,
         after_graph: Callable[["WorkspaceGraphRunner"], Iterator[tuple[str, dict[str, Any]]]] | None,
+        perf_context: dict[str, Any] | None,
     ) -> None:
-        if before_graph is not None:
-            for event, data in before_graph(worker_runner):
-                enqueue(event, data)
-        for chunk in graph_stream(worker_runner):
-            mode, update = chunk if isinstance(chunk, tuple) else ("updates", chunk)
-            if mode == "custom":
-                event, data = worker_runner._custom_stream_event(update)
-                if event:
+        total_started_at = perf_counter()
+        before_graph_ms = 0
+        graph_stream_ms = 0
+        after_graph_ms = 0
+        chunk_count = 0
+        custom_event_count = 0
+        emitted_event_count = 0
+        status = "completed"
+        try:
+            if before_graph is not None:
+                before_started_at = perf_counter()
+                for event, data in before_graph(worker_runner):
                     enqueue(event, data)
-                continue
-            if mode != "updates":
-                continue
-            for event, data in handle_update(worker_runner, update):
-                enqueue(event, data)
-        worker_runner.db.commit()
-        if after_graph is not None:
-            final_events = list(after_graph(worker_runner))
+                    emitted_event_count += 1
+                before_graph_ms = _elapsed_ms(before_started_at)
+            graph_started_at = perf_counter()
+            for chunk in graph_stream(worker_runner):
+                chunk_count += 1
+                mode, update = chunk if isinstance(chunk, tuple) else ("updates", chunk)
+                if mode == "custom":
+                    event, data = worker_runner._custom_stream_event(update)
+                    if event:
+                        enqueue(event, data)
+                        custom_event_count += 1
+                        emitted_event_count += 1
+                    continue
+                if mode != "updates":
+                    continue
+                for event, data in handle_update(worker_runner, update):
+                    enqueue(event, data)
+                    emitted_event_count += 1
+            graph_stream_ms = _elapsed_ms(graph_started_at)
             worker_runner.db.commit()
-            for event, data in final_events:
-                enqueue(event, data)
+            if after_graph is not None:
+                after_started_at = perf_counter()
+                final_events = list(after_graph(worker_runner))
+                worker_runner.db.commit()
+                for event, data in final_events:
+                    enqueue(event, data)
+                    emitted_event_count += 1
+                after_graph_ms = _elapsed_ms(after_started_at)
+        except BaseException:
+            status = "failed"
+            raise
+        finally:
+            context = perf_context or {}
+            logger.info(
+                "AI graph stream perf summary flow=%s family_id=%s user_id=%s conversation_id=%s run_id=%s status=%s before_graph_ms=%s graph_stream_ms=%s after_graph_ms=%s total_ms=%s chunk_count=%s custom_event_count=%s emitted_event_count=%s",
+                context.get("flow") or "unknown",
+                context.get("family_id"),
+                context.get("user_id"),
+                context.get("conversation_id"),
+                context.get("run_id"),
+                status,
+                before_graph_ms,
+                graph_stream_ms,
+                after_graph_ms,
+                _elapsed_ms(total_started_at),
+                chunk_count,
+                custom_event_count,
+                emitted_event_count,
+            )
 
     def _handle_stream_worker_exception(
         self,
@@ -2736,6 +2826,7 @@ class WorkspaceGraphRunner:
         after_graph: Callable[["WorkspaceGraphRunner"], Iterator[tuple[str, dict[str, Any]]]] | None,
         on_worker_exception: Callable[["WorkspaceGraphRunner", BaseException], None] | None,
         runner_factory: Callable[[], "WorkspaceGraphRunner"] | None,
+        perf_context: dict[str, Any] | None,
     ) -> None:
         worker_runner, close_worker_runner = self._make_stream_worker_runner(runner_factory)
         previous_sink = worker_runner._direct_stream_sink
@@ -2748,6 +2839,7 @@ class WorkspaceGraphRunner:
                 enqueue=enqueue,
                 before_graph=before_graph,
                 after_graph=after_graph,
+                perf_context=perf_context,
             )
         except BaseException as exc:
             self._handle_stream_worker_exception(
@@ -2774,6 +2866,7 @@ class WorkspaceGraphRunner:
         after_graph: Callable[["WorkspaceGraphRunner"], Iterator[tuple[str, dict[str, Any]]]] | None = None,
         on_worker_exception: Callable[["WorkspaceGraphRunner", BaseException], None] | None = None,
         runner_factory: Callable[[], "WorkspaceGraphRunner"] | None = None,
+        perf_context: dict[str, Any] | None = None,
     ) -> Iterator[tuple[str, dict[str, Any]]]:
         event_queue: Queue[Any] = Queue()
         disconnected = False
@@ -2804,6 +2897,7 @@ class WorkspaceGraphRunner:
                 "after_graph": after_graph,
                 "on_worker_exception": on_worker_exception,
                 "runner_factory": runner_factory,
+                "perf_context": perf_context,
             },
         )
         worker.start()
@@ -2832,6 +2926,7 @@ class WorkspaceGraphRunner:
         *,
         terminal_status: str,
     ) -> None:
+        followup_started_at = perf_counter()
         approval = decision_result.get("approval") if isinstance(decision_result.get("approval"), dict) else {}
         message_id = str(approval.get("message_id") or "")
         message = self.db.get(AIMessage, message_id) if message_id else None
@@ -2933,10 +3028,11 @@ class WorkspaceGraphRunner:
             raise
         except Exception as exc:
             logger.warning(
-                "AI graph approval follow-up model failed run_id=%s conversation_id=%s family_id=%s error=%s",
+                "AI graph approval follow-up model failed run_id=%s conversation_id=%s family_id=%s duration_ms=%s error=%s",
                 state["run_id"],
                 state["conversation_id"],
                 state["family_id"],
+                _elapsed_ms(followup_started_at),
                 exc,
             )
             followup_span.finish(
@@ -2960,10 +3056,11 @@ class WorkspaceGraphRunner:
         text = "".join(chunks).strip()
         if not text:
             logger.warning(
-                "AI graph approval follow-up returned empty response run_id=%s conversation_id=%s family_id=%s",
+                "AI graph approval follow-up returned empty response run_id=%s conversation_id=%s family_id=%s duration_ms=%s",
                 state["run_id"],
                 state["conversation_id"],
                 state["family_id"],
+                _elapsed_ms(followup_started_at),
             )
             followup_span.finish(
                 status="failed",
@@ -2982,6 +3079,14 @@ class WorkspaceGraphRunner:
             )
             return
         followup_span.finish(status="completed", output_summary={"textLength": len(text)})
+        logger.info(
+            "AI graph approval follow-up perf summary run_id=%s conversation_id=%s family_id=%s status=completed provider_stream_ms=%s text_length=%s",
+            state["run_id"],
+            state["conversation_id"],
+            state["family_id"],
+            _elapsed_ms(followup_started_at),
+            len(text),
+        )
         self._append_text_to_assistant_message(
             state,
             message,
@@ -3144,6 +3249,7 @@ class WorkspaceGraphRunner:
         return "任务已完成。"
 
     def _finalize(self, state: WorkspaceGraphState) -> dict[str, Any]:
+        finalize_started_at = perf_counter()
         run = self.db.get(AIAgentRun, state["run_id"])
         conversation = self.db.get(AIConversation, state["conversation_id"])
         status = str(state.get("status") or "completed")
@@ -3224,7 +3330,7 @@ class WorkspaceGraphRunner:
                 conversation.summary = terminal_text[:255]
         self.db.flush()
         logger.info(
-            "AI graph finalized run_id=%s conversation_id=%s family_id=%s status=%s run_status=%s conversation_status=%s message_id=%s",
+            "AI graph finalized run_id=%s conversation_id=%s family_id=%s status=%s run_status=%s conversation_status=%s message_id=%s finalize_ms=%s",
             state["run_id"],
             state["conversation_id"],
             state["family_id"],
@@ -3232,6 +3338,15 @@ class WorkspaceGraphRunner:
             run.status if run is not None else None,
             conversation.last_run_status if conversation is not None else None,
             message.id,
+            _elapsed_ms(finalize_started_at),
+        )
+        logger.info(
+            "AI graph finalize perf summary run_id=%s conversation_id=%s family_id=%s status=%s finalize_ms=%s",
+            state["run_id"],
+            state["conversation_id"],
+            state["family_id"],
+            status,
+            _elapsed_ms(finalize_started_at),
         )
         return {"status": status}
 

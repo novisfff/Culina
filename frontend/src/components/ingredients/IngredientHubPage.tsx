@@ -1,6 +1,7 @@
 import type {
   CSSProperties,
   ComponentType,
+  CompositionEventHandler,
   Dispatch,
   ReactNode,
   RefObject,
@@ -139,6 +140,9 @@ type IngredientHubPageProps = {
   renderIcon: (name: IngredientWorkspaceIconName) => ReactNode;
   isUpdatingShopping?: boolean;
   isCreatingInventory?: boolean;
+  isCatalogSearchFetching?: boolean;
+  onCatalogSearchCompositionStart?: CompositionEventHandler<HTMLInputElement>;
+  onCatalogSearchCompositionEnd?: CompositionEventHandler<HTMLInputElement>;
   catalogCountLabel: string;
   catalogCategoryFilter: string;
   catalogStatusFilter: CatalogStatusFilter;
@@ -160,6 +164,9 @@ type IngredientHubPageProps = {
   }>;
   IngredientCatalogCard: IngredientCatalogCardComponent;
   inventorySearch: string;
+  isInventorySearchFetching?: boolean;
+  onInventorySearchCompositionStart?: CompositionEventHandler<HTMLInputElement>;
+  onInventorySearchCompositionEnd?: CompositionEventHandler<HTMLInputElement>;
   setInventorySearch: (value: string) => void;
   inventoryQuickFilter: InventoryQuickFilter;
   setInventoryQuickFilter: Dispatch<SetStateAction<InventoryQuickFilter>>;
@@ -200,6 +207,9 @@ export function IngredientHubPage(props: IngredientHubPageProps) {
         stockedIngredientCount={props.stockedIngredientCount}
         catalogCountLabel={props.catalogCountLabel}
         catalogSearch={props.catalogSearch}
+        isCatalogSearchFetching={props.isCatalogSearchFetching}
+        onCatalogSearchCompositionStart={props.onCatalogSearchCompositionStart}
+        onCatalogSearchCompositionEnd={props.onCatalogSearchCompositionEnd}
         catalogCategoryFilter={props.catalogCategoryFilter}
         catalogStatusFilter={props.catalogStatusFilter}
         catalogCategories={props.catalogCategories}
@@ -244,6 +254,9 @@ export function IngredientHubPage(props: IngredientHubPageProps) {
       <IngredientInventoryPanel
         summariesCount={props.summariesCount}
         inventorySearch={props.inventorySearch}
+        isInventorySearchFetching={props.isInventorySearchFetching}
+        onInventorySearchCompositionStart={props.onInventorySearchCompositionStart}
+        onInventorySearchCompositionEnd={props.onInventorySearchCompositionEnd}
         inventoryQuickFilter={props.inventoryQuickFilter}
         inventoryStorageFocus={props.inventoryStorageFocus}
         inventorySortMode={props.inventorySortMode}
@@ -354,6 +367,9 @@ export function IngredientHubPage(props: IngredientHubPageProps) {
             renderIcon={(name) => props.renderIcon(name as IngredientWorkspaceIconName)}
             isUpdatingShopping={props.isUpdatingShopping}
             isCreatingInventory={props.isCreatingInventory}
+            isCatalogSearchFetching={props.isCatalogSearchFetching}
+            onCatalogSearchCompositionStart={props.onCatalogSearchCompositionStart}
+            onCatalogSearchCompositionEnd={props.onCatalogSearchCompositionEnd}
           />
         }
         workspaceMetrics={props.workspaceMetrics}

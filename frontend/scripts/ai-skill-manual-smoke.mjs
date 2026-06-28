@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { existsSync, mkdirSync } from 'node:fs';
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -12,6 +12,7 @@ const artifactDir = resolve(repoRoot, 'tmp', 'ai-skill-manual-smoke');
 
 const DEFAULT_BACKEND_URL = 'http://127.0.0.1:8010';
 const DEFAULT_TIMEOUT_MS = 240_000;
+const DEFAULT_SERVICE_TIMEOUT_MS = 60_000;
 const ACTIVE_RUN_STATUSES = new Set(['pending', 'running', 'waiting', 'waiting_input', 'waiting_approval']);
 const IDLE_STABLE_MS = 1_500;
 
@@ -21,7 +22,7 @@ const runSuffix = args.suffix || timestampSuffix();
 const names = {
   ingredient: `秋葵自动测${runSuffix}`,
   food: `盒装牛奶自动测${runSuffix}`,
-  recipe: `番茄鸡蛋面自动测${runSuffix}`,
+  recipe: `秋葵凉拌菜自动测${runSuffix}`,
   shoppingIngredient: `秋葵自动测${runSuffix}`,
 };
 
@@ -29,7 +30,7 @@ const coreCases = [
   {
     key: 'ingredient_create',
     skill: 'ingredient_profile',
-    prompt: `帮我新增一个食材：${names.ingredient}，默认单位按根，常温保存，不设置保质期。`,
+    prompt: `帮我新增一个食材：${names.ingredient}。类型优先选择系统已有的“蔬菜”，默认单位按根，常温保存，不设置保质期；如果系统已有同名食材就更新它，不要重复创建。`,
     panelTexts: [names.ingredient],
   },
   {
@@ -41,19 +42,19 @@ const coreCases = [
   {
     key: 'inventory_restock',
     skill: 'inventory_analysis',
-    prompt: '把今天买的番茄 2 个录入库存，放冷藏。',
-    panelTexts: ['番茄'],
+    prompt: `把今天买的${names.ingredient} 3 根录入库存，状态新鲜，放冷藏。这个食材应该优先使用已有的${names.ingredient}档案。`,
+    panelTexts: [names.ingredient],
   },
   {
     key: 'inventory_consume',
     skill: 'inventory_analysis',
-    prompt: '今天用了 1 个番茄。',
-    panelTexts: ['番茄'],
+    prompt: `今天用了 1 根${names.ingredient}，请从库存里扣减。`,
+    panelTexts: [names.ingredient],
   },
   {
     key: 'food_create',
     skill: 'food_profile',
-    prompt: `新增一个食物资料：${names.food}，类型是即食，适合早餐。`,
+    prompt: `新增一个食物资料：${names.food}，类型从已有选项里选“即食”，适合早餐；如果同名食物已存在就更新它，不要重复创建。`,
     panelTexts: [names.food],
   },
   {
@@ -65,26 +66,26 @@ const coreCases = [
   {
     key: 'recipe_create',
     skill: 'recipe_draft',
-    prompt: `帮我新增一道${names.recipe}的菜谱，2 人份，做法简单一点。`,
+    prompt: `帮我新增一道${names.recipe}的菜谱，2 人份，难度从已有选项里选“简单”。食材只使用已有的${names.ingredient} 2 根，不要临时编造食材 ID；步骤写清楚焯水、沥干和调味。`,
     panelTexts: [names.recipe],
   },
   {
     key: 'recipe_update',
     skill: 'recipe_draft',
-    prompt: `把${names.recipe}改成 3 人份，步骤里提醒先炒番茄出汁。`,
+    prompt: `把${names.recipe}改成 3 人份，步骤里补充“拌好后静置 5 分钟再装盘”。`,
     panelTexts: [names.recipe, '3'],
   },
   {
     key: 'meal_plan_create',
     skill: 'meal_plan',
-    prompt: `把明天晚餐安排成${names.food}。`,
+    prompt: `把明天晚餐追加安排成${names.food}；如果明天晚餐已有其他计划，也保留现有计划并追加为新的计划，不要替换任何已有计划。`,
     panelTexts: [names.food],
   },
   {
     key: 'meal_plan_update',
     skill: 'meal_plan',
-    prompt: `把明天晚餐里的${names.food}改成${names.recipe}。`,
-    panelTexts: [names.recipe],
+    prompt: `把明天晚餐里${names.food}的备注改成“自动测试少糖”，不要换成不存在的食物。`,
+    panelTexts: [names.food, '少糖'],
   },
   {
     key: 'shopping_create',
@@ -101,20 +102,20 @@ const coreCases = [
   {
     key: 'meal_log_create',
     skill: 'meal_log',
-    prompt: '记录今晚吃了番茄炒蛋，1 份，心情不错。',
-    panelTexts: ['番茄炒蛋'],
+    prompt: `记录今晚吃了${names.food}，1 份，心情不错。`,
+    panelTexts: [names.food],
   },
   {
     key: 'meal_log_rate',
     skill: 'meal_log',
-    prompt: '给刚才那顿番茄炒蛋打 4.5 分。',
+    prompt: `给刚才那顿${names.food}打 4.5 分。`,
     panelTexts: ['4.5'],
   },
   {
     key: 'recipe_cook',
     skill: 'recipe_cook',
-    prompt: '开始做番茄炒蛋，按 2 人份，做完后记录到今晚晚餐。',
-    panelTexts: ['番茄炒蛋'],
+    prompt: `预览开始做${names.recipe}，按 1 人份；如果库存足够，请生成做菜确认并在完成后记录到今晚晚餐，如果库存不足就说明缺什么。`,
+    panelTexts: [names.recipe],
     allowHumanInput: true,
     allowNoApprovalTexts: ['库存不足', '缺少', '补库存', '调整份量'],
   },
@@ -129,6 +130,13 @@ const destructiveCases = [
   },
 ];
 
+const diagnosticCases = [
+  {
+    key: 'diagnostics',
+    skill: 'workspace_diagnostics',
+  },
+];
+
 function parseArgs(argv) {
   const result = {
     backendUrl: process.env.CULINA_BACKEND_URL || DEFAULT_BACKEND_URL,
@@ -139,6 +147,7 @@ function parseArgs(argv) {
     decision: process.env.CULINA_AI_SKILL_DECISION || 'approve',
     headed: process.env.CULINA_HEADED === '1',
     includeDestructive: false,
+    startBackend: process.env.CULINA_START_BACKEND !== '0',
     cases: 'core',
     suffix: process.env.CULINA_TEST_SUFFIX || '',
     slowMo: Number(process.env.CULINA_PLAYWRIGHT_SLOW_MO || 0),
@@ -151,6 +160,8 @@ function parseArgs(argv) {
     }
     if (arg === '--headed') {
       result.headed = true;
+    } else if (arg === '--no-start-backend') {
+      result.startBackend = false;
     } else if (arg === '--include-destructive') {
       result.includeDestructive = true;
     } else if (arg.startsWith('--url=')) {
@@ -198,18 +209,22 @@ function printHelp() {
 
 常用参数：
   --url=http://127.0.0.1:5173          使用已启动的前端，不自动启动 Vite dev server
-  --backend=http://127.0.0.1:8010      自动启动前端时注入的后端地址
+  --backend=http://127.0.0.1:8010      后端地址；默认不可达时会自动运行 npm run backend:dev
+  --no-start-backend                   后端不可达时直接失败，不自动启动
   --decision=approve|reject|none       审批动作，默认 approve，会修改测试家庭数据
-  --cases=core|destructive|all|a,b     运行用例集合或逗号分隔 key，默认 core
+  --cases=core|destructive|diagnostics|all|a,b  运行用例集合或逗号分隔 key，默认 core
   --include-destructive                在 core 后追加删除类用例
   --suffix=ABC                         测试对象名称后缀，默认按时间生成
   --headed                             有界面运行
   --slow-mo=250                        每步操作延迟，方便观察
 
 前置条件：
-  1. 后端已启动，且 AI provider 可用。
-  2. 测试家庭已准备 docs/ai-skill-manual-test-guide.md 中的数据。
-  3. 使用专门测试家庭；approve 模式会真实写入业务数据。`);
+  1. 本地数据库和 MinIO 已启动；可先运行 npm run db:up。
+  2. AI provider 可用。
+  3. 使用专门测试家庭；approve 模式会真实写入业务数据。
+
+报告：
+  每次运行都会写入 tmp/ai-skill-manual-smoke/report-*.json 和 report-*.md。`);
 }
 
 function timestampSuffix() {
@@ -223,8 +238,9 @@ function selectedCases() {
     return args.includeDestructive ? [...coreCases, ...destructiveCases] : coreCases;
   }
   if (args.cases === 'destructive') return destructiveCases;
+  if (args.cases === 'diagnostics') return diagnosticCases;
   if (args.cases === 'all') return [...coreCases, ...destructiveCases];
-  const byKey = new Map([...coreCases, ...destructiveCases].map((testCase) => [testCase.key, testCase]));
+  const byKey = new Map([...coreCases, ...destructiveCases, ...diagnosticCases].map((testCase) => [testCase.key, testCase]));
   return args.cases.split(',').map((key) => {
     const testCase = byKey.get(key.trim());
     if (!testCase) {
@@ -251,12 +267,12 @@ async function findOpenPort() {
   });
 }
 
-async function waitForHttp(url, child) {
+async function waitForHttp(url, child, timeoutMs = 30_000, label = '服务') {
   const startedAt = Date.now();
   let lastError;
-  while (Date.now() - startedAt < 30_000) {
+  while (Date.now() - startedAt < timeoutMs) {
     if (child?.exitCode !== null && child?.exitCode !== undefined) {
-      throw new Error(`前端服务提前退出，exit code: ${child.exitCode}`);
+      throw new Error(`${label}提前退出，exit code: ${child.exitCode}`);
     }
     try {
       const response = await fetch(url);
@@ -266,7 +282,57 @@ async function waitForHttp(url, child) {
     }
     await delay(250);
   }
-  throw new Error(`等待前端服务超时：${lastError instanceof Error ? lastError.message : 'unknown error'}`);
+  throw new Error(`等待${label}超时：${lastError instanceof Error ? lastError.message : 'unknown error'}`);
+}
+
+async function startBackendServer() {
+  const healthUrl = `${trimTrailingSlash(args.backendUrl)}/api/health`;
+  if (await isHttpOk(healthUrl)) {
+    return { started: false, output: '', stop: async () => undefined };
+  }
+  if (!args.startBackend) {
+    throw new Error(`后端不可达：${healthUrl}。已使用 --no-start-backend，不会自动启动。`);
+  }
+  if (!existsSync(resolve(repoRoot, 'backend', '.venv'))) {
+    throw new Error('backend/.venv 不存在。请先运行 npm run backend:venv。');
+  }
+  const child = spawn('npm', ['run', 'backend:dev'], {
+    cwd: repoRoot,
+    stdio: ['ignore', 'pipe', 'pipe'],
+    env: { ...process.env },
+  });
+  let output = '';
+  const collect = (chunk) => {
+    output = trimOutputTail(`${output}${chunk.toString()}`);
+  };
+  child.stdout.on('data', collect);
+  child.stderr.on('data', collect);
+
+  try {
+    await waitForHttp(healthUrl, child, DEFAULT_SERVICE_TIMEOUT_MS, '后端服务');
+  } catch (error) {
+    if (child.exitCode === null) child.kill('SIGTERM');
+    throw new Error(`${error instanceof Error ? error.message : String(error)}\n--- backend output ---\n${output}`);
+  }
+  return {
+    started: true,
+    get output() {
+      return output;
+    },
+    stop: async () => {
+      if (child.exitCode === null) child.kill('SIGTERM');
+      await delay(500);
+    },
+  };
+}
+
+async function isHttpOk(url) {
+  try {
+    const response = await fetch(url);
+    return response.ok;
+  } catch {
+    return false;
+  }
 }
 
 async function startDevServer() {
@@ -276,7 +342,7 @@ async function startDevServer() {
   const port = await findOpenPort();
   const child = spawn(
     'npx',
-    ['vite', '--host', '127.0.0.1', '--port', String(port), '--strictPort'],
+    ['vite', '--host', '127.0.0.1', '--port', String(port), '--strictPort', '--force'],
     {
       cwd: frontendRoot,
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -293,7 +359,7 @@ async function startDevServer() {
 
   const url = `http://127.0.0.1:${port}`;
   try {
-    await waitForHttp(url, child);
+    await waitForHttp(url, child, 30_000, '前端服务');
   } catch (error) {
     child.kill('SIGTERM');
     throw new Error(`${error instanceof Error ? error.message : String(error)}\n${output}`);
@@ -322,6 +388,7 @@ async function login(page) {
     await page.getByLabel('密码').fill(args.password);
     await page.getByRole('button', { name: '进入家庭厨房' }).click();
   }
+  await page.waitForFunction(() => Boolean(localStorage.getItem('culina-access-token')), undefined, { timeout: 20_000 });
 }
 
 let resolvedFrontendUrl = '';
@@ -330,6 +397,10 @@ function frontendUrl() {
 }
 
 async function openAiWorkspace(page) {
+  const status = await fetchAiStatus(page, args.backendUrl);
+  if (!status?.enabled) {
+    throw new Error(`AI 未就绪：${status ? `${status.status}，${status.detail}` : '无法读取 /api/ai/status'}`);
+  }
   await page.getByRole('button', { name: 'AI' }).first().waitFor({ state: 'visible', timeout: 20_000 });
   await page.getByRole('button', { name: 'AI' }).first().click();
   await expectVisibleText(page, 'AI 厨房助手', 'AI 工作台');
@@ -345,6 +416,7 @@ async function openAiWorkspace(page) {
 }
 
 async function runCase(page, testCase) {
+  const startedAt = new Date();
   console.log(`\n[${testCase.key}] ${testCase.skill}`);
   console.log(`prompt: ${testCase.prompt}`);
   await waitForComposerReady(page);
@@ -362,15 +434,22 @@ async function runCase(page, testCase) {
   const waitResult = await waitForApprovalOrAllowedNoApproval(page, panelCountBefore, testCase);
   if (waitResult.type === 'allowed-no-approval') {
     console.log(`[${testCase.key}] no approval: matched allowed non-approval text`);
-    return { key: testCase.key, status: 'no-approval-allowed' };
+    return caseResult(testCase, startedAt, 'no-approval-allowed', {
+      matchedText: waitResult.matchedText,
+      conversation: await latestConversationRunState(page, args.backendUrl),
+    });
   }
   if (waitResult.type === 'human-input') {
     console.log(`[${testCase.key}] human input required: allowed by case`);
-    return { key: testCase.key, status: 'human-input-required' };
+    return caseResult(testCase, startedAt, 'human-input-required', {
+      panelText: await panelContent(waitResult.panel),
+      conversation: await latestConversationRunState(page, args.backendUrl),
+    });
   }
 
   const panel = waitResult.panel;
   const text = await panelContent(panel);
+  const approvalMeta = await approvalPanelMeta(panel);
   for (const expected of testCase.panelTexts ?? []) {
     if (!text.includes(expected)) {
       throw new Error(`[${testCase.key}] 审批面板缺少预期文本：${expected}\n--- panel ---\n${text}`);
@@ -379,7 +458,7 @@ async function runCase(page, testCase) {
 
   if (args.decision === 'none') {
     console.log(`[${testCase.key}] approval pending; --decision=none，脚本停止在当前页面。`);
-    return { key: testCase.key, status: 'pending' };
+    return caseResult(testCase, startedAt, 'pending', { approval: approvalMeta, panelText: text });
   }
 
   const decision = args.decision === 'approve' ? 'approved' : 'rejected';
@@ -389,7 +468,25 @@ async function runCase(page, testCase) {
   await waitForLatestConversationIdle(page, testCase.key);
   await waitForComposerReady(page);
   console.log(`[${testCase.key}] ${decision}`);
-  return { key: testCase.key, status: decision };
+  return caseResult(testCase, startedAt, decision, {
+    approval: approvalMeta,
+    conversation: await latestConversationRunState(page, args.backendUrl),
+  });
+}
+
+function caseResult(testCase, startedAt, status, extra = {}) {
+  const finishedAt = new Date();
+  return {
+    key: testCase.key,
+    skill: testCase.skill,
+    status,
+    prompt: testCase.prompt,
+    expectedPanelTexts: testCase.panelTexts ?? [],
+    startedAt: startedAt.toISOString(),
+    finishedAt: finishedAt.toISOString(),
+    durationMs: finishedAt.getTime() - startedAt.getTime(),
+    ...extra,
+  };
 }
 
 async function panelContent(panel) {
@@ -408,18 +505,41 @@ async function panelContent(panel) {
   });
 }
 
+async function approvalPanelMeta(panel) {
+  return panel.evaluate((element) => {
+    const text = element.textContent?.replace(/\s+/g, ' ').trim() ?? '';
+    const title =
+      element.querySelector('.ai-approval-title-row')?.textContent?.replace(/\s+/g, ' ').trim() ||
+      element.querySelector('.ai-approval-head-copy')?.textContent?.replace(/\s+/g, ' ').trim() ||
+      '';
+    const status =
+      element.querySelector('.ai-approval-status')?.textContent?.replace(/\s+/g, ' ').trim() || '';
+    return {
+      title,
+      status,
+      summary: text.slice(0, 500),
+    };
+  });
+}
+
 async function runDiagnostics(page) {
   console.log('\n[diagnostics] AI 质量诊断弹窗');
   await page.locator('.ai-quality-trigger').click();
   await expectVisibleText(page, 'AI 质量诊断', 'AI 质量诊断弹窗');
-  await expectVisibleText(page, 'Skill', 'AI 质量诊断内容');
+  await expectAnyVisibleText(page, ['常用 Skill', '暂时读不到指标', '发起一次 AI 任务后'], 'AI 质量诊断内容');
   const closeButton = page.getByRole('button', { name: /关闭 AI 质量诊断|关闭/ }).first();
   if (await closeButton.isVisible({ timeout: 2_000 }).catch(() => false)) {
     await closeButton.click();
   } else {
     await page.keyboard.press('Escape');
   }
-  return { key: 'diagnostics', status: 'checked' };
+  return {
+    key: 'diagnostics',
+    skill: 'workspace_diagnostics',
+    status: 'checked',
+    prompt: '',
+    durationMs: 0,
+  };
 }
 
 async function waitForApprovalOrAllowedNoApproval(page, panelCountBefore, testCase) {
@@ -447,9 +567,16 @@ async function waitForApprovalOrAllowedNoApproval(page, panelCountBefore, testCa
       return { type: 'approval', panel };
     }
     if (testCase.allowNoApprovalTexts?.length) {
-      const bodyText = await page.locator('body').innerText().catch(() => '');
-      if (testCase.allowNoApprovalTexts.some((text) => bodyText.includes(text))) {
-        return { type: 'allowed-no-approval' };
+      const state = await latestConversationRunState(page, args.backendUrl).catch(() => null);
+      if (state && !state.active && state.status !== 'empty' && Date.now() - startedAt > 2_000) {
+        const assistantText = await latestAssistantText(page);
+        const matchedText = testCase.allowNoApprovalTexts.find((text) => assistantText.includes(text));
+        if (matchedText) {
+          return { type: 'allowed-no-approval', matchedText };
+        }
+        throw new Error(
+          `[${testCase.key}] AI 已结束但没有出现审批面板，也没有匹配允许的无审批文本。\n--- latest assistant ---\n${assistantText.slice(-2_000)}`
+        );
       }
     }
     await delay(500);
@@ -466,6 +593,38 @@ async function latestExecutionFailureText(page) {
     }
     return '';
   }).catch(() => '');
+}
+
+async function latestAssistantText(page) {
+  return page.evaluate(() => {
+    const messages = Array.from(document.querySelectorAll('.ai-message-assistant'));
+    const latest = messages.at(-1);
+    return latest?.textContent?.replace(/\s+/g, ' ').trim() ?? '';
+  }).catch(() => '');
+}
+
+async function fetchAiStatus(page, backendUrl) {
+  return page.evaluate(async (url) => {
+    const token = localStorage.getItem('culina-access-token');
+    if (!token) return null;
+    const response = await fetch(`${url.replace(/\/$/, '')}/api/ai/status`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!response.ok) return null;
+    return response.json();
+  }, backendUrl).catch(() => null);
+}
+
+async function fetchAiRegistry(page, backendUrl) {
+  return page.evaluate(async (url) => {
+    const token = localStorage.getItem('culina-access-token');
+    if (!token) return null;
+    const response = await fetch(`${url.replace(/\/$/, '')}/api/ai/registry`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!response.ok) return null;
+    return response.json();
+  }, backendUrl).catch(() => null);
 }
 
 async function submitDecision(panel, decision) {
@@ -566,9 +725,37 @@ async function latestConversationRunState(page, backendUrl) {
     return {
       active: activeStatuses.includes(status),
       status: status || 'empty',
+      id: latest.id || '',
+      title: latest.title || latest.prompt || '',
+      lastMessageAt: latest.last_message_at || '',
       description: `${latest.id || 'unknown'} last_run_status=${status || 'empty'}`,
     };
   }, { url: backendUrl, activeStatuses: Array.from(ACTIVE_RUN_STATUSES) });
+}
+
+async function collectFailureDiagnostics(page, testCase, error, pageErrors, consoleErrors) {
+  mkdirSync(artifactDir, { recursive: true });
+  const key = testCase?.key || 'setup';
+  const screenshotPath = resolve(artifactDir, `failure-${Date.now()}-${key}.png`);
+  await page.screenshot({ path: screenshotPath, fullPage: true }).catch(() => undefined);
+  const latestPanelText = await page.locator('.ai-approval-panel').last().evaluate((element) => element.textContent ?? '').catch(() => '');
+  const latestHumanInputText = await page.locator('.ai-human-input-request').last().evaluate((element) => element.textContent ?? '').catch(() => '');
+  const bodyText = await page.locator('body').innerText().catch(() => '');
+  return {
+    key,
+    error: error instanceof Error ? error.message : String(error),
+    screenshotPath,
+    pageErrors: [...pageErrors],
+    consoleErrors: [...consoleErrors],
+    latestExecutionFailureText: await latestExecutionFailureText(page),
+    latestConversation: await latestConversationRunState(page, args.backendUrl).catch((reason) => ({
+      active: false,
+      description: reason instanceof Error ? reason.message : String(reason),
+    })),
+    latestPanelText: latestPanelText.slice(0, 4_000),
+    latestHumanInputText: latestHumanInputText.slice(0, 2_000),
+    bodyTextTail: bodyText.slice(-5_000),
+  };
 }
 
 async function expectVisibleText(page, text, label) {
@@ -594,12 +781,126 @@ async function expectVisibleText(page, text, label) {
     });
 }
 
+async function expectAnyVisibleText(page, texts, label) {
+  await page
+    .waitForFunction(
+      (expectedTexts) =>
+        Array.from(document.querySelectorAll('body *')).some((element) => {
+          const rect = element.getBoundingClientRect();
+          const style = window.getComputedStyle(element);
+          const text = element.textContent ?? '';
+          return (
+            rect.width > 0 &&
+            rect.height > 0 &&
+            style.visibility !== 'hidden' &&
+            style.display !== 'none' &&
+            expectedTexts.some((expectedText) => text.includes(expectedText))
+          );
+        }),
+      texts,
+      { timeout: 20_000 }
+    )
+    .catch((error) => {
+      throw new Error(`${label} 未渲染：${error instanceof Error ? error.message : String(error)}`);
+    });
+}
+
 function delay(ms) {
   return new Promise((resolveDelay) => setTimeout(resolveDelay, ms));
 }
 
+function trimTrailingSlash(value) {
+  return value.replace(/\/$/, '');
+}
+
+function trimOutputTail(value) {
+  return value.length > 12_000 ? value.slice(-12_000) : value;
+}
+
+function createRunReport(tests) {
+  return {
+    startedAt: new Date().toISOString(),
+    finishedAt: '',
+    status: 'running',
+    suffix: runSuffix,
+    frontendUrl: '',
+    backendUrl: args.backendUrl,
+    decision: args.decision,
+    casesRequested: tests.map((testCase) => testCase.key),
+    cases: [],
+    diagnostics: {},
+    failures: [],
+    runtimeErrors: {
+      pageErrors: [],
+      consoleErrors: [],
+    },
+    artifacts: {},
+  };
+}
+
+function writeReport(report) {
+  mkdirSync(artifactDir, { recursive: true });
+  const stamp = report.startedAt.replace(/[:.]/g, '-');
+  const jsonPath = resolve(artifactDir, `report-${stamp}.json`);
+  const markdownPath = resolve(artifactDir, `report-${stamp}.md`);
+  writeFileSync(jsonPath, `${JSON.stringify(report, null, 2)}\n`);
+  writeFileSync(markdownPath, renderMarkdownReport(report));
+  return { jsonPath, markdownPath };
+}
+
+function renderMarkdownReport(report) {
+  const lines = [
+    '# AI Skill Manual Smoke Report',
+    '',
+    `- status: ${report.status}`,
+    `- startedAt: ${report.startedAt}`,
+    `- finishedAt: ${report.finishedAt || ''}`,
+    `- frontendUrl: ${report.frontendUrl}`,
+    `- backendUrl: ${report.backendUrl}`,
+    `- decision: ${report.decision}`,
+    `- suffix: ${report.suffix}`,
+    '',
+    '## Cases',
+    '',
+    '| case | skill | status | durationMs | note |',
+    '| --- | --- | --- | ---: | --- |',
+  ];
+  for (const item of report.cases) {
+    lines.push(`| ${item.key} | ${item.skill || ''} | ${item.status} | ${item.durationMs ?? ''} | ${escapeMarkdownTable(item.approval?.title || item.matchedText || '')} |`);
+  }
+  if (report.failures.length > 0) {
+    lines.push('', '## Failures', '');
+    for (const failure of report.failures) {
+      lines.push(`### ${failure.key}`, '');
+      lines.push(`- error: ${escapeMarkdownInline(failure.error)}`);
+      lines.push(`- screenshot: ${failure.screenshotPath}`);
+      lines.push(`- latestConversation: ${escapeMarkdownInline(failure.latestConversation?.description || '')}`);
+      if (failure.latestExecutionFailureText) {
+        lines.push(`- latestExecutionFailureText: ${escapeMarkdownInline(failure.latestExecutionFailureText)}`);
+      }
+      lines.push('');
+    }
+  }
+  if (report.runtimeErrors.pageErrors.length || report.runtimeErrors.consoleErrors.length) {
+    lines.push('## Runtime Errors', '');
+    for (const error of report.runtimeErrors.pageErrors) lines.push(`- page: ${escapeMarkdownInline(error)}`);
+    for (const error of report.runtimeErrors.consoleErrors) lines.push(`- console: ${escapeMarkdownInline(error)}`);
+    lines.push('');
+  }
+  return `${lines.join('\n')}\n`;
+}
+
+function escapeMarkdownTable(value) {
+  return String(value).replace(/\|/g, '\\|').replace(/\n/g, ' ').slice(0, 160);
+}
+
+function escapeMarkdownInline(value) {
+  return String(value).replace(/\n/g, ' ').slice(0, 500);
+}
+
 async function main() {
   const tests = selectedCases();
+  const report = createRunReport(tests);
   if (tests.length === 0) {
     throw new Error('没有可执行用例。');
   }
@@ -608,15 +909,29 @@ async function main() {
   }
   console.log(`测试对象后缀：${runSuffix}`);
 
-  const devServer = args.frontendUrl ? null : await startDevServer();
+  let backendServer;
+  let devServer;
+  let browser;
+  let context;
+  let page;
+  const pageErrors = [];
+  const consoleErrors = [];
+  let currentCase = null;
+  try {
+    backendServer = await startBackendServer();
+    if (backendServer.started) {
+      console.log('后端服务：已自动启动 npm run backend:dev');
+    } else {
+      console.log('后端服务：复用已运行实例');
+    }
+    devServer = args.frontendUrl ? null : await startDevServer();
   resolvedFrontendUrl = args.frontendUrl || devServer.url;
+    report.frontendUrl = resolvedFrontendUrl;
   console.log(`前端地址：${resolvedFrontendUrl}`);
   console.log(`后端地址：${args.backendUrl}`);
 
-  const browser = await chromium.launch({ headless: !args.headed, slowMo: args.slowMo });
-  const context = await browser.newContext({ viewport: { width: 1440, height: 960 } });
-  const pageErrors = [];
-  const consoleErrors = [];
+    browser = await chromium.launch({ headless: !args.headed, slowMo: args.slowMo });
+    context = await browser.newContext({ viewport: { width: 1440, height: 960 } });
   context.on('page', (page) => {
     page.on('pageerror', (error) => pageErrors.push(error.message));
     page.on('console', (message) => {
@@ -629,33 +944,52 @@ async function main() {
       localStorage.setItem('culina-active-tab-v4', 'home');
     }, args.token);
   }
-  const page = await context.newPage();
+    page = await context.newPage();
 
-  const results = [];
-  try {
     await login(page);
+    report.diagnostics.aiStatus = await fetchAiStatus(page, args.backendUrl);
+    report.diagnostics.aiRegistry = await fetchAiRegistry(page, args.backendUrl);
     await openAiWorkspace(page);
     for (const testCase of tests) {
+      currentCase = testCase;
+      if (testCase.key === 'diagnostics') {
+        report.cases.push(await runDiagnostics(page));
+        continue;
+      }
       const result = await runCase(page, testCase);
-      results.push(result);
+      report.cases.push(result);
       if (result.status === 'pending') break;
     }
-    if (args.cases === 'core' || args.cases === 'all') {
-      results.push(await runDiagnostics(page));
+    if ((args.cases === 'core' || args.cases === 'all') && !report.cases.some((item) => item.key === 'diagnostics')) {
+      currentCase = { key: 'diagnostics', skill: 'workspace_diagnostics' };
+      report.cases.push(await runDiagnostics(page));
     }
     assertNoRuntimeErrors(pageErrors, consoleErrors);
+    report.status = 'passed';
     console.log('\nAI skill manual smoke passed.');
-    console.table(results);
+    console.table(report.cases.map(({ key, skill, status, durationMs }) => ({ key, skill, status, durationMs })));
   } catch (error) {
-    mkdirSync(artifactDir, { recursive: true });
-    const screenshotPath = resolve(artifactDir, `failure-${Date.now()}.png`);
-    await page.screenshot({ path: screenshotPath, fullPage: true }).catch(() => undefined);
-    console.error(`\n失败截图：${screenshotPath}`);
+    report.status = 'failed';
+    if (page) {
+      const failure = await collectFailureDiagnostics(page, currentCase, error, pageErrors, consoleErrors);
+      report.failures.push(failure);
+      console.error(`\n失败截图：${failure.screenshotPath}`);
+    }
     throw error;
   } finally {
-    await context.close();
-    await browser.close();
+    report.finishedAt = new Date().toISOString();
+    report.runtimeErrors.pageErrors = [...pageErrors];
+    report.runtimeErrors.consoleErrors = [...consoleErrors];
+    if (backendServer?.started) {
+      report.diagnostics.backendOutputTail = backendServer.output;
+    }
+    const paths = writeReport(report);
+    console.log(`报告 JSON：${paths.jsonPath}`);
+    console.log(`报告 Markdown：${paths.markdownPath}`);
+    await context?.close();
+    await browser?.close();
     await devServer?.stop();
+    await backendServer?.stop();
   }
 }
 

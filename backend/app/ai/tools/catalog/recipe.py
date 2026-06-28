@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from fastapi.encoders import jsonable_encoder
-from sqlalchemy import or_, select
+from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
 from app.ai.kitchen.recipe_drafts import RECIPE_DRAFT_JSON_SCHEMA
@@ -11,11 +11,12 @@ from app.ai.tools.base import ToolContext
 from app.ai.tools.catalog.common import entity_media_map, first_entity_media, register_tool
 from app.ai.tools.draft_validation import normalize_recipe_cook_draft, normalize_recipe_draft_for_tools
 from app.ai.tools.registry import ToolRegistry
-from app.ai.tools.schemas import READ_BY_ID_INPUT, RECIPE_COOK_DRAFT_SCHEMA, SEARCH_INPUT, draft_input_schema, draft_output_schema
+from app.ai.tools.schemas import READ_BY_ID_INPUT, RECIPE_COOK_DRAFT_INPUT_SCHEMA, RECIPE_COOK_DRAFT_SCHEMA, SEARCH_INPUT, draft_input_schema, draft_output_schema
 from app.models.domain import Food, FoodPlanItem, Recipe, RecipeFavorite
 from app.repos.media import build_media_map, get_media_assets_for_entities
 from app.services.clock import today_for_family
 from app.services.inventory_usage import build_cook_inventory_plan, serialize_cook_preview_item
+from app.services.search.hybrid import hybrid_search
 from app.services.serializers import serialize_recipe
 
 RECIPE_CREATE_DRAFT_SCHEMA = {
@@ -170,6 +171,31 @@ def recipe_search(context: ToolContext, payload: dict[str, Any]) -> dict[str, An
     ids = [str(item).strip() for item in payload.get("ids") or [] if str(item).strip()]
     exact = bool(payload.get("exact"))
     category = str(payload.get("category") or "").strip()
+    if query and not exact and not ids:
+        search_result = hybrid_search(
+            context.db,
+            family_id=context.family_id,
+            query=query,
+            scopes=["recipe"],
+            limit=max(limit + offset + 1, 80),
+            offset=0,
+        )
+        search_ids = [item.entity_id for item in search_result.items if item.entity_type == "recipe"]
+        if not search_ids:
+            recipes: list[Recipe] = []
+        else:
+            statement = (
+                select(Recipe)
+                .options(selectinload(Recipe.ingredient_items), selectinload(Recipe.foods))
+                .where(Recipe.family_id == context.family_id, Recipe.id.in_(search_ids))
+            )
+            if category:
+                statement = statement.where(Recipe.scene_tags.contains([category]))
+            recipes_by_id = {item.id: item for item in context.db.scalars(statement)}
+            recipes = [recipes_by_id[item_id] for item_id in search_ids if item_id in recipes_by_id]
+            recipes = recipes[offset : offset + limit + 1]
+        return _recipe_search_response(context, recipes, limit=limit)
+
     statement = (
         select(Recipe)
         .options(selectinload(Recipe.ingredient_items), selectinload(Recipe.foods))
@@ -182,14 +208,15 @@ def recipe_search(context: ToolContext, payload: dict[str, Any]) -> dict[str, An
     if query:
         if exact:
             statement = statement.where(Recipe.title == query)
-        else:
-            pattern = f"%{query}%"
-            statement = statement.where(or_(Recipe.title.ilike(pattern), Recipe.tips.ilike(pattern)))
     recipes = list(
         context.db.scalars(
             statement.order_by(Recipe.updated_at.desc(), Recipe.id).offset(offset).limit(limit + 1)
         )
     )
+    return _recipe_search_response(context, recipes, limit=limit)
+
+
+def _recipe_search_response(context: ToolContext, recipes: list[Recipe], *, limit: int) -> dict[str, Any]:
     has_more = len(recipes) > limit
     recipes = recipes[:limit]
     favorite_ids = set(
@@ -422,6 +449,6 @@ def register_recipe_tools(registry: ToolRegistry) -> None:
         description="生成做菜扣减草稿，不直接写入库存或餐食记录。",
         side_effect="draft",
         handler=recipe_create_cook_draft,
-        input_schema=draft_input_schema(RECIPE_COOK_DRAFT_SCHEMA),
+        input_schema=draft_input_schema(RECIPE_COOK_DRAFT_INPUT_SCHEMA),
         output_schema=draft_output_schema(RECIPE_COOK_DRAFT_SCHEMA),
     )

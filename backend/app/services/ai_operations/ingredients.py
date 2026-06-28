@@ -17,6 +17,7 @@ from app.services.activity import log_activity
 from app.services.ai_operations.image_jobs import build_ingredient_image_request, enqueue_ai_entity_image_generation
 from app.services.ingredient_units import UnitConversionError, validate_unit_conversions
 from app.services.media import bind_media_assets, replace_media_assets
+from app.services.search.jobs import enqueue_search_index_job
 
 
 UpdatedAtValidator = Callable[[datetime | None, str, str], None]
@@ -86,6 +87,7 @@ def execute_ingredient_profile_draft(
             entity_id=ingredient.id,
             summary=f"AI 创建食材 {ingredient.name}",
         )
+        enqueue_search_index_job(db, family_id=family_id, user_id=user_id, entity_type="ingredient", entity_id=ingredient.id, target_name=ingredient.name)
         return ingredient
 
     ingredient = db.scalar(
@@ -129,4 +131,5 @@ def execute_ingredient_profile_draft(
         summary=f"AI 更新食材 {ingredient.name}",
     )
     db.flush()
+    enqueue_search_index_job(db, family_id=family_id, user_id=user_id, entity_type="ingredient", entity_id=ingredient.id, target_name=ingredient.name)
     return ingredient

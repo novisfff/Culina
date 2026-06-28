@@ -34,10 +34,12 @@ type UseIngredientWorkspaceDataArgs = {
   ingredientOptions: Ingredient[];
   selectedIngredientId: string | null;
   catalogSearch: string;
+  catalogSearchMatchedIngredientIds?: readonly string[];
   catalogCategoryFilter: string;
   catalogStatusFilter: CatalogStatusFilter;
   inventoryQuickFilter: InventoryQuickFilter;
   inventorySearch: string;
+  inventorySearchMatchedIngredientIds?: readonly string[];
   inventoryStorageFocus: InventoryStorageFocus;
   inventorySortMode: 'default' | 'expiry';
   shoppingSearch: string;
@@ -54,10 +56,16 @@ type UseIngredientWorkspaceDataArgs = {
 export function filterMobileCatalogSummaries(args: {
   summaries: IngredientSummaryViewModel[];
   catalogSearch: string;
+  catalogSearchMatchedIngredientIds?: readonly string[];
   mobileIngredientFilter: MobileIngredientFilter;
   mobileStorageFocus: InventoryStorageFocus;
 }) {
-  return filterIngredientSummaries(args.summaries, args.catalogSearch, 'all').filter((summary) => {
+  return filterIngredientSummaries(
+    args.summaries,
+    args.catalogSearch,
+    'all',
+    args.catalogSearchMatchedIngredientIds
+  ).filter((summary) => {
     if (args.mobileStorageFocus !== 'all' && summary.primaryStorage !== args.mobileStorageFocus) {
       return false;
     }
@@ -84,7 +92,12 @@ export function useIngredientWorkspaceData(args: UseIngredientWorkspaceDataArgs)
     recipes: args.recipes,
   });
   const catalogCategories = buildIngredientCategoryFilters(args.ingredients);
-  const catalogBaseSummaries = filterIngredientSummaries(summaries, args.catalogSearch, args.catalogCategoryFilter);
+  const catalogBaseSummaries = filterIngredientSummaries(
+    summaries,
+    args.catalogSearch,
+    args.catalogCategoryFilter,
+    args.catalogSearchMatchedIngredientIds
+  );
   const filteredSummaries = args.filterIngredientSummariesByCatalogStatus(catalogBaseSummaries, args.catalogStatusFilter);
   const catalogHasActiveFilter =
     Boolean(args.catalogSearch.trim()) || args.catalogCategoryFilter !== 'all' || args.catalogStatusFilter !== 'all';
@@ -100,7 +113,11 @@ export function useIngredientWorkspaceData(args: UseIngredientWorkspaceDataArgs)
   } as const;
   const inventorySourceSummaries =
     args.inventoryQuickFilter === 'alerted' ? summaries.filter((item) => item.alerts.length > 0) : summaries;
-  const filteredInventorySummaries = filterIngredientSummariesForInventory(inventorySourceSummaries, args.inventorySearch);
+  const filteredInventorySummaries = filterIngredientSummariesForInventory(
+    inventorySourceSummaries,
+    args.inventorySearch,
+    args.inventorySearchMatchedIngredientIds
+  );
   const inventoryStorageOverview = buildInventoryStorageOverview(filteredInventorySummaries);
   const focusedInventorySummaries =
     args.inventoryStorageFocus === 'all'
@@ -148,6 +165,7 @@ export function useIngredientWorkspaceData(args: UseIngredientWorkspaceDataArgs)
   const mobileCatalogSummaries = filterMobileCatalogSummaries({
     summaries,
     catalogSearch: args.catalogSearch,
+    catalogSearchMatchedIngredientIds: args.catalogSearchMatchedIngredientIds,
     mobileIngredientFilter: args.mobileIngredientFilter,
     mobileStorageFocus: args.mobileStorageFocus,
   });

@@ -314,6 +314,79 @@ export function resolveErrorMessage(reason: unknown, fallback: string) {
   return reason instanceof Error && reason.message.trim() ? reason.message : fallback;
 }
 
+export type RecipeUnresolvedIngredientReason = 'missing_ingredient_id' | 'ingredient_not_found' | string;
+
+export type RecipeUnresolvedIngredientItem = {
+  index: number;
+  ingredient_id?: string | null;
+  ingredient_name: string;
+  quantity?: number | string | null;
+  unit: string;
+  note?: string | null;
+  reason: RecipeUnresolvedIngredientReason;
+};
+
+export type RecipeUnresolvedIngredientTarget = RecipeUnresolvedIngredientItem & {
+  rowId: string | null;
+};
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === 'object');
+}
+
+export function parseRecipeUnresolvedIngredientError(reason: unknown): RecipeUnresolvedIngredientItem[] | null {
+  if (!isRecord(reason) || !isRecord(reason.payload)) return null;
+  const detail = reason.payload.detail;
+  if (!isRecord(detail) || detail.code !== 'recipe_unresolved_ingredients' || !Array.isArray(detail.items)) return null;
+  const items = detail.items
+    .filter(isRecord)
+    .map((item) => ({
+      index: Number(item.index ?? 0),
+      ingredient_id: typeof item.ingredient_id === 'string' ? item.ingredient_id : null,
+      ingredient_name: String(item.ingredient_name ?? '').trim(),
+      quantity: typeof item.quantity === 'number' || typeof item.quantity === 'string' ? item.quantity : null,
+      unit: String(item.unit ?? '').trim(),
+      note: typeof item.note === 'string' ? item.note : '',
+      reason: String(item.reason ?? 'missing_ingredient_id'),
+    }))
+    .filter((item) => Number.isFinite(item.index));
+  return items.length > 0 ? items : null;
+}
+
+export function getRecipeSubmittedIngredientRows(rows: RecipeDraftIngredient[]) {
+  return rows.filter((item) => item.ingredient_id || item.ingredient_name.trim());
+}
+
+export function buildRecipeUnresolvedIngredientTargets(
+  items: RecipeUnresolvedIngredientItem[],
+  rows: RecipeDraftIngredient[]
+): RecipeUnresolvedIngredientTarget[] {
+  const submittedRows = getRecipeSubmittedIngredientRows(rows);
+  return items.map((item) => ({
+    ...item,
+    rowId: submittedRows[item.index]?.id ?? null,
+  }));
+}
+
+export function buildRecipeIngredientCreatePayload(item: RecipeUnresolvedIngredientTarget) {
+  const name = item.ingredient_name.trim() || '未命名食材';
+  const defaultUnit = item.unit.trim() || '个';
+  return {
+    name,
+    category: '未分类',
+    default_unit: defaultUnit,
+    unit_conversions: [],
+    quantity_tracking_mode: 'track_quantity' as const,
+    default_storage: '冷藏',
+    default_expiry_mode: 'none',
+    default_expiry_days: null,
+    default_low_stock_threshold: null,
+    notes: '从菜谱缺失食材创建',
+    media_ids: [],
+    pending_image_job_id: null,
+  };
+}
+
 function getRecipeMediaIds(images: ImageInputValue) {
   return images.generatedAsset ? [images.generatedAsset.id] : [];
 }

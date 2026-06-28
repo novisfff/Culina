@@ -1603,10 +1603,7 @@ textarea:focus-visible {
 
 .media-placeholder.state-loading {
   background:
-    linear-gradient(110deg, rgba(255, 255, 255, 0.34) 8%, rgba(255, 255, 255, 0.72) 18%, rgba(255, 255, 255, 0.34) 32%),
     linear-gradient(135deg, rgba(246, 235, 222, 0.94), rgba(232, 238, 222, 0.86));
-  background-size: 220% 100%, 100% 100%;
-  animation: media-placeholder-loading-sheen 1.35s ease-in-out infinite;
 }
 
 .media-placeholder.state-error {
@@ -1616,18 +1613,17 @@ textarea:focus-visible {
   color: rgba(164, 73, 58, 0.58);
 }
 
-.media-placeholder::after {
-  position: absolute;
-  inset: -40% auto -40% -35%;
-  width: 32%;
-  content: '';
-  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.42), transparent);
-  transform: skewX(-18deg);
-  animation: media-placeholder-shimmer 5.6s ease-in-out infinite;
-}
-
 .media-placeholder.state-loading::after {
-  opacity: 0;
+  position: absolute;
+  top: -42%;
+  bottom: -42%;
+  left: 0;
+  width: 38%;
+  content: '';
+  background: linear-gradient(90deg, transparent 0%, rgba(255, 255, 255, 0.5) 48%, transparent 100%);
+  transform: skewX(-18deg);
+  animation: media-placeholder-shimmer 3.6s cubic-bezier(0.42, 0, 0.32, 1) infinite;
+  animation-fill-mode: both;
 }
 
 .media-with-placeholder {
@@ -1664,7 +1660,9 @@ textarea:focus-visible {
 .media-placeholder svg {
   position: relative;
   z-index: 2;
-  width: var(--media-placeholder-icon-size, clamp(56px, 38%, 88px));
+  width: clamp(30px, 42%, 168px);
+  max-width: 64%;
+  max-height: 64%;
   min-width: 0;
   height: auto;
   fill: none;
@@ -1672,34 +1670,10 @@ textarea:focus-visible {
   stroke-width: 1.65;
   stroke-linecap: round;
   stroke-linejoin: round;
+}
+
+.media-placeholder.state-loading svg {
   animation: media-placeholder-breathe 3.8s ease-in-out infinite;
-}
-
-.media-placeholder-loader {
-  position: relative;
-  z-index: 2;
-  display: inline-grid;
-  grid-auto-flow: column;
-  gap: 5px;
-  place-items: center;
-  min-height: 22px;
-}
-
-.media-placeholder-loader span {
-  width: 7px;
-  height: 7px;
-  border-radius: 999px;
-  background: rgba(210, 107, 51, 0.38);
-  box-shadow: 0 0 0 4px rgba(210, 107, 51, 0.06);
-  animation: media-placeholder-loader-dot 900ms ease-in-out infinite;
-}
-
-.media-placeholder-loader span:nth-child(2) {
-  animation-delay: 140ms;
-}
-
-.media-placeholder-loader span:nth-child(3) {
-  animation-delay: 280ms;
 }
 
 .media-placeholder-label {
@@ -1746,6 +1720,55 @@ textarea:focus-visible {
 
 .media-placeholder-leaf-line {
   stroke: rgba(91, 125, 70, 0.36);
+}
+
+.media-placeholder-empty-slash-backdrop {
+  stroke: rgba(250, 248, 245, 0.82);
+  stroke-linecap: round;
+  stroke-width: 4.2;
+}
+
+.media-placeholder-empty-slash {
+  stroke: rgba(122, 96, 74, 0.62);
+  stroke-linecap: round;
+  stroke-width: 2.35;
+}
+
+.media-placeholder-error-frame {
+  stroke: rgba(132, 112, 92, 0.42);
+}
+
+.media-placeholder-error-hill {
+  fill: rgba(253, 235, 232, 0.2);
+  stroke: rgba(132, 112, 92, 0.38);
+}
+
+.media-placeholder-error-leaf {
+  fill: rgba(116, 148, 94, 0.13);
+  stroke: rgba(91, 125, 70, 0.38);
+}
+
+.media-placeholder-error-leaf-line {
+  stroke: rgba(91, 125, 70, 0.34);
+}
+
+.media-placeholder-error-crack {
+  stroke: rgba(132, 112, 92, 0.52);
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2.1;
+}
+
+.media-placeholder-error-badge {
+  fill: rgba(255, 255, 255, 0.42);
+  stroke: rgba(210, 126, 86, 0.62);
+  stroke-width: 1.9;
+}
+
+.media-placeholder-error-mark {
+  stroke: rgba(210, 126, 86, 0.76);
+  stroke-linecap: round;
+  stroke-width: 2.2;
 }
 
 .media-placeholder-glow {
@@ -1810,35 +1833,13 @@ textarea:focus-visible {
 
 @keyframes media-placeholder-shimmer {
   0%,
-  58% {
-    left: -35%;
+  26% {
+    transform: translateX(-150%) skewX(-18deg);
   }
 
+  68%,
   100% {
-    left: 118%;
-  }
-}
-
-@keyframes media-placeholder-loading-sheen {
-  0% {
-    background-position: 160% 0, 0 0;
-  }
-
-  100% {
-    background-position: -60% 0, 0 0;
-  }
-}
-
-@keyframes media-placeholder-loader-dot {
-  0%,
-  100% {
-    opacity: 0.34;
-    transform: translateY(0);
-  }
-
-  50% {
-    opacity: 0.95;
-    transform: translateY(-3px);
+    transform: translateX(360%) skewX(-18deg);
   }
 }
 
@@ -1859,14 +1860,53 @@ textarea:focus-visible {
   .media-placeholder::after,
   .media-placeholder svg,
   .media-placeholder-glow,
-  .media-placeholder-spark,
-  .media-placeholder-loader span {
+  .media-placeholder-spark {
     animation: none;
   }
 
-  .media-placeholder.state-loading {
-    animation: none;
-  }
+}
+
+/* Clean placeholder styles for all recipe, food, ingredient, dashboard, meal log, family settings, and profile covers/editors/subpages */
+[class*="recipe-"] .media-placeholder,
+[class*="food-"] .media-placeholder,
+[class*="mobile-"] .media-placeholder,
+[class*="dashboard-"] .media-placeholder,
+[class*="ai-approval-"] .media-placeholder,
+[class*="ingredient-"] .media-placeholder,
+[class*="meal-"] .media-placeholder,
+[class*="family-"] .media-placeholder,
+[class*="profile-"] .media-placeholder {
+  gap: 0;
+}
+
+[class*="recipe-"] .media-placeholder-label,
+[class*="recipe-"] .media-placeholder-glow,
+[class*="recipe-"] .media-placeholder-spark,
+[class*="food-"] .media-placeholder-label,
+[class*="food-"] .media-placeholder-glow,
+[class*="food-"] .media-placeholder-spark,
+[class*="mobile-"] .media-placeholder-label,
+[class*="mobile-"] .media-placeholder-glow,
+[class*="mobile-"] .media-placeholder-spark,
+[class*="dashboard-"] .media-placeholder-label,
+[class*="dashboard-"] .media-placeholder-glow,
+[class*="dashboard-"] .media-placeholder-spark,
+[class*="ai-approval-"] .media-placeholder-label,
+[class*="ai-approval-"] .media-placeholder-glow,
+[class*="ai-approval-"] .media-placeholder-spark,
+[class*="ingredient-"] .media-placeholder-label,
+[class*="ingredient-"] .media-placeholder-glow,
+[class*="ingredient-"] .media-placeholder-spark,
+[class*="meal-"] .media-placeholder-label,
+[class*="meal-"] .media-placeholder-glow,
+[class*="meal-"] .media-placeholder-spark,
+[class*="family-"] .media-placeholder-label,
+[class*="family-"] .media-placeholder-glow,
+[class*="family-"] .media-placeholder-spark,
+[class*="profile-"] .media-placeholder-label,
+[class*="profile-"] .media-placeholder-glow,
+[class*="profile-"] .media-placeholder-spark {
+  display: none !important;
 }
 
 .recipe-cover {
@@ -3129,8 +3169,136 @@ textarea:focus-visible {
   object-fit: cover;
 }
 
+.avatar.avatar-has-image {
+  background: transparent;
+  box-shadow: none;
+}
+
+.sidebar-user-card .avatar.avatar-has-image {
+  box-shadow: none;
+}
+
 .avatar.large {
   width: 46px;
   height: 46px;
   font-size: 0.96rem;
+}
+
+/* ==========================================================================
+   Culina Unified Main Search Fields
+   ========================================================================== */
+
+.food-search-field,
+.recipe-search-input-shell,
+.ingredients-catalog-search-input-shell {
+  position: relative;
+  min-width: 0;
+  --main-search-height: 46px;
+  --main-search-radius: 18px;
+  --main-search-border: rgba(92, 67, 48, 0.12);
+  --main-search-border-focus: rgba(210, 107, 51, 0.5);
+}
+
+.food-search-field .text-input,
+.recipe-search-input-shell .text-input,
+.ingredients-catalog-search-input-shell .text-input {
+  min-height: var(--main-search-height) !important;
+  height: var(--main-search-height) !important;
+  border-radius: var(--main-search-radius) !important;
+  border: 1px solid var(--main-search-border) !important;
+  background: linear-gradient(180deg, #ffffff 0%, #fffcf8 100%) !important;
+  padding: 0 48px 0 18px !important;
+  color: var(--text) !important;
+  font-size: 0.9375rem !important;
+  font-weight: 600 !important;
+  line-height: calc(var(--main-search-height) - 2px) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.9),
+    0 6px 18px rgba(74, 54, 40, 0.035) !important;
+  transition: border-color 160ms ease, box-shadow 160ms ease, background-color 160ms ease !important;
+}
+
+.food-search-field .text-input::placeholder,
+.recipe-search-input-shell .text-input::placeholder,
+.ingredients-catalog-search-input-shell .text-input::placeholder {
+  color: #9b9189 !important;
+  font-weight: 600 !important;
+}
+
+.food-search-field .text-input:focus,
+.recipe-search-input-shell .text-input:focus,
+.ingredients-catalog-search-input-shell .text-input:focus {
+  border-color: var(--main-search-border-focus) !important;
+  background: #ffffff !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.94),
+    0 0 0 3px rgba(210, 107, 51, 0.1),
+    0 8px 22px rgba(74, 54, 40, 0.05) !important;
+  outline: none !important;
+}
+
+.food-search-field svg,
+.recipe-search-input-icon,
+.ingredients-catalog-search-input-icon {
+  position: absolute !important;
+  right: 17px !important;
+  left: auto !important;
+  top: 50% !important;
+  z-index: 2 !important;
+  display: inline-flex !important;
+  width: 18px !important;
+  height: 18px !important;
+  color: #8f837a !important;
+  transform: translateY(-50%) !important;
+  pointer-events: none !important;
+}
+
+.recipe-search-input-icon svg,
+.ingredients-catalog-search-input-icon svg {
+  width: 100%;
+  height: 100%;
+}
+
+.search-loading-indicator {
+  display: inline-flex;
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
+  border: 2px solid rgba(210, 107, 51, 0.22);
+  border-top-color: var(--accent, #d26b33);
+  border-radius: 999px;
+  pointer-events: none;
+  animation: searchLoadingSpin 720ms linear infinite;
+}
+
+.food-search-field .search-loading-indicator,
+.recipe-search-input-shell .search-loading-indicator,
+.ingredients-catalog-search-input-shell .search-loading-indicator,
+.ingredients-inventory-search-input-shell .search-loading-indicator {
+  position: absolute;
+  top: calc(50% - 7px);
+  right: 43px;
+  z-index: 3;
+}
+
+@keyframes searchLoadingSpin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .search-loading-indicator {
+    animation: none;
+  }
+}
+
+.recipe-filter-select {
+  appearance: none !important;
+  -webkit-appearance: none !important;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='18' height='18' viewBox='0 0 24 24' fill='none' stroke='%236A5B51' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E") !important;
+  background-repeat: no-repeat !important;
+  background-position: right 14px center !important;
+  background-size: 18px !important;
+  padding-right: 40px !important;
 }

@@ -53,17 +53,121 @@ describe('api client errors', () => {
 });
 
 describe('paged resource lists', () => {
-  it('sends food and ingredient search pagination parameters', async () => {
-    const fetchSpy = vi.fn(async (_input: RequestInfo | URL) => new Response(JSON.stringify([]), {
+  function mockJsonFetch(payload: unknown = {}) {
+    const fetchSpy = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => new Response(JSON.stringify(payload), {
       status: 200,
       headers: { 'Content-Type': 'application/json' },
     }));
     vi.stubGlobal('fetch', fetchSpy);
+    return fetchSpy;
+  }
+
+  it('sends food and ingredient search pagination parameters', async () => {
+    const fetchSpy = mockJsonFetch([]);
 
     await api.getFoods({ q: '番茄 饭', limit: 6, offset: 12 });
     await api.getIngredients({ q: '蔬菜', limit: 6, offset: 6 });
+    await api.getInventory({ q: '西红柿' });
+    await api.getRecipes({ q: '快手菜', scene: '早餐', difficulty: 'easy', sort: 'time', limit: 8, offset: 4 });
 
     expect(String(fetchSpy.mock.calls[0]?.[0])).toContain('/api/foods?q=%E7%95%AA%E8%8C%84+%E9%A5%AD&limit=6&offset=12');
     expect(String(fetchSpy.mock.calls[1]?.[0])).toContain('/api/ingredients?q=%E8%94%AC%E8%8F%9C&limit=6&offset=6');
+    expect(String(fetchSpy.mock.calls[2]?.[0])).toContain('/api/inventory?q=%E8%A5%BF%E7%BA%A2%E6%9F%BF');
+    expect(String(fetchSpy.mock.calls[3]?.[0])).toContain(
+      '/api/recipes?q=%E5%BF%AB%E6%89%8B%E8%8F%9C&scene=%E6%97%A9%E9%A4%90&difficulty=easy&sort=time&limit=8&offset=4'
+    );
+  });
+
+  it('sends unified search parameters', async () => {
+    const fetchSpy = mockJsonFetch({
+      items: [],
+      total: 0,
+      query: '清淡晚饭',
+      search_mode: 'hybrid',
+      degraded: false,
+    });
+
+    await api.search({ q: '清淡晚饭', scopes: ['recipe', 'food'], limit: 10, offset: 5 });
+
+    expect(String(fetchSpy.mock.calls[0]?.[0])).toContain(
+      '/api/search?q=%E6%B8%85%E6%B7%A1%E6%99%9A%E9%A5%AD&scopes=recipe%2Cfood&limit=10&offset=5'
+    );
+  });
+
+  it('sends plan, recommendation and stats query parameters', async () => {
+    const fetchSpy = mockJsonFetch([]);
+
+    await api.getFoodPlan('2026-06-01', '2026-06-07', ' 晚餐 ');
+    await api.getRecipePlan('2026-06-01', '2026-06-07');
+    await api.getFoodRecommendations({ limit: 5, now: '2026-06-01T18:00:00Z', meal_type: 'dinner' });
+    await api.getRecipeStats('2026-06-01', '2026-06-30', 8);
+
+    expect(String(fetchSpy.mock.calls[0]?.[0])).toContain(
+      '/api/food-plan?date_from=2026-06-01&date_to=2026-06-07&q=%E6%99%9A%E9%A4%90'
+    );
+    expect(String(fetchSpy.mock.calls[1]?.[0])).toContain('/api/recipe-plan?date_from=2026-06-01&date_to=2026-06-07');
+    expect(String(fetchSpy.mock.calls[2]?.[0])).toContain(
+      '/api/foods/recommendations?limit=5&now=2026-06-01T18%3A00%3A00Z&meal_type=dinner'
+    );
+    expect(String(fetchSpy.mock.calls[3]?.[0])).toContain(
+      '/api/recipes/stats?limit=8&date_from=2026-06-01&date_to=2026-06-30'
+    );
+  });
+
+  it('sends mutation methods and JSON bodies for plan and ingredient updates', async () => {
+    const fetchSpy = mockJsonFetch({});
+
+    await api.createFoodPlanItem({ food_id: 'food-1', plan_date: '2026-06-01', meal_type: 'dinner', note: '加班餐' });
+    await api.updateFoodPlanItem('plan-1', { status: 'skipped', note: '临时取消' });
+    await api.deleteFoodPlanItem('plan-1');
+    await api.createRecipePlanItem({ recipe_id: 'recipe-1', plan_date: '2026-06-02', meal_type: 'lunch', note: '午餐' });
+    await api.updateRecipePlanItem('recipe-plan-1', { recipe_id: 'recipe-2', status: 'planned' });
+    await api.createIngredient({
+      name: '番茄',
+      category: '蔬菜',
+      default_unit: '个',
+      unit_conversions: [],
+      quantity_tracking_mode: 'track_quantity',
+      default_storage: '冷藏',
+      default_expiry_mode: 'days',
+      default_expiry_days: 3,
+      default_low_stock_threshold: 2,
+      notes: '常备',
+      media_ids: ['media-1'],
+    });
+
+    expect(fetchSpy.mock.calls.map((call) => [String(call[0]), (call[1] as RequestInit | undefined)?.method ?? 'GET'])).toEqual([
+      [expect.stringContaining('/api/food-plan'), 'POST'],
+      [expect.stringContaining('/api/food-plan/plan-1'), 'PATCH'],
+      [expect.stringContaining('/api/food-plan/plan-1'), 'DELETE'],
+      [expect.stringContaining('/api/recipe-plan'), 'POST'],
+      [expect.stringContaining('/api/recipe-plan/recipe-plan-1'), 'PATCH'],
+      [expect.stringContaining('/api/ingredients'), 'POST'],
+    ]);
+    expect(JSON.parse(String(fetchSpy.mock.calls[0]?.[1]?.body))).toEqual({
+      food_id: 'food-1',
+      plan_date: '2026-06-01',
+      meal_type: 'dinner',
+      note: '加班餐',
+    });
+    expect(JSON.parse(String(fetchSpy.mock.calls[1]?.[1]?.body))).toEqual({ status: 'skipped', note: '临时取消' });
+    expect(JSON.parse(String(fetchSpy.mock.calls[4]?.[1]?.body))).toEqual({ recipe_id: 'recipe-2', status: 'planned' });
+    expect(JSON.parse(String(fetchSpy.mock.calls[5]?.[1]?.body))).toMatchObject({
+      name: '番茄',
+      quantity_tracking_mode: 'track_quantity',
+      media_ids: ['media-1'],
+    });
+  });
+
+  it('sends search index job endpoint requests', async () => {
+    const fetchSpy = mockJsonFetch([]);
+
+    await api.getActiveSearchIndexJobs();
+    await api.retrySearchIndexJob('job-1');
+
+    expect(fetchSpy.mock.calls.map((call) => [String(call[0]), (call[1] as RequestInit | undefined)?.method ?? 'GET'])).toEqual([
+      [expect.stringContaining('/api/search/index-jobs/active'), 'GET'],
+      [expect.stringContaining('/api/search/index-jobs/job-1/retry'), 'POST'],
+    ]);
   });
 });

@@ -8,6 +8,7 @@ import type {
 } from '../../api/types';
 import { buildMediaSizes, buildMediaSrcSet, resolveMediaUrl } from '../../lib/assets';
 import { MEAL_TYPE_LABELS } from '../../lib/ui';
+import { MediaWithPlaceholder } from '../MediaPlaceholder';
 import { approvalStatusText } from './AiApprovalPanel';
 import {
   AI_RESULT_PLACEHOLDER,
@@ -23,13 +24,18 @@ import {
 } from './AiResultCardModel';
 
 export function ResultImage({ asset, alt }: { asset?: MediaAsset | null; alt: string }) {
+  const imageSrc = resolveMediaUrl(asset, 'thumb');
+  if (!imageSrc) {
+    return <img className="ai-query-card-image" src={AI_RESULT_PLACEHOLDER} alt={alt} />;
+  }
   return (
-    <img
+    <MediaWithPlaceholder
       className="ai-query-card-image"
-      src={resolveMediaUrl(asset, 'thumb') ?? AI_RESULT_PLACEHOLDER}
+      src={imageSrc}
       srcSet={buildMediaSrcSet(asset)}
       sizes={buildMediaSizes('thumb')}
       alt={alt}
+      showLabel={false}
     />
   );
 }

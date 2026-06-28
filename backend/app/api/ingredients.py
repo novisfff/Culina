@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from sqlalchemy import or_, select
+from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
@@ -16,6 +16,8 @@ from app.services.activity import log_activity
 from app.ai.images.jobs import attach_image_generation_job_to_entity
 from app.services.ingredient_units import UnitConversionError, validate_unit_conversions
 from app.services.media import bind_media_assets, replace_media_assets
+from app.services.search.hybrid import hybrid_search
+from app.services.search.jobs import enqueue_search_index_job
 from app.services.serializers import serialize_ingredient
 
 router = APIRouter(tags=["ingredients"])
@@ -30,11 +32,39 @@ def list_ingredients(
     db: Session = Depends(get_db),
 ) -> list[dict]:
     _, membership = auth
-    statement = select(Ingredient).where(Ingredient.family_id == membership.family_id)
     query = q.strip()
     if query:
-        pattern = f"%{query}%"
-        statement = statement.where(or_(Ingredient.name.ilike(pattern), Ingredient.category.ilike(pattern)))
+        search_limit = limit or 100
+        search_offset = offset if limit is not None else 0
+        search_result = hybrid_search(
+            db,
+            family_id=membership.family_id,
+            query=query,
+            scopes=["ingredient"],
+            limit=search_limit,
+            offset=search_offset,
+        )
+        ids = [item.entity_id for item in search_result.items if item.entity_type == "ingredient"]
+        if not ids:
+            return []
+        ingredients_by_id = {
+            item.id: item
+            for item in db.scalars(
+                select(Ingredient).where(Ingredient.family_id == membership.family_id, Ingredient.id.in_(ids))
+            )
+        }
+        ingredients = [ingredients_by_id[item_id] for item_id in ids if item_id in ingredients_by_id]
+        media_map = build_media_map(
+            get_media_assets_for_entities(
+                db,
+                family_id=membership.family_id,
+                entity_type="ingredient",
+                entity_ids=[item.id for item in ingredients],
+            )
+        )
+        return [serialize_ingredient(item, media_map) for item in ingredients]
+
+    statement = select(Ingredient).where(Ingredient.family_id == membership.family_id)
     statement = statement.order_by(Ingredient.updated_at.desc(), Ingredient.id)
     if limit is not None:
         statement = statement.offset(offset).limit(limit)
@@ -96,6 +126,7 @@ def create_ingredient(
         entity_id=ingredient.id,
         summary=f"新增食材 {ingredient.name}",
     )
+    enqueue_search_index_job(db, family_id=membership.family_id, user_id=user.id, entity_type="ingredient", entity_id=ingredient.id, target_name=ingredient.name)
     commit_session(db)
     media_map = build_media_map(get_media_assets_for_entities(db, family_id=membership.family_id, entity_type="ingredient", entity_ids=[ingredient.id]))
     return serialize_ingredient(ingredient, media_map)
@@ -167,6 +198,7 @@ def update_ingredient(
         entity_id=ingredient.id,
         summary=f"更新食材 {ingredient.name}",
     )
+    enqueue_search_index_job(db, family_id=membership.family_id, user_id=user.id, entity_type="ingredient", entity_id=ingredient.id, target_name=ingredient.name)
     commit_session(db)
     media_map = build_media_map(get_media_assets_for_entities(db, family_id=membership.family_id, entity_type="ingredient", entity_ids=[ingredient.id]))
     return serialize_ingredient(ingredient, media_map)

@@ -1,4 +1,4 @@
-import type { Dispatch, SetStateAction, UIEvent } from 'react';
+import type { Dispatch, MutableRefObject, SetStateAction, UIEvent } from 'react';
 import type { ShoppingListItem } from '../api/types';
 import {
   DASHBOARD_TODO_PAGE_SIZE,
@@ -8,15 +8,10 @@ import {
   type HomeRestockFormState,
 } from '../features/home/homeDashboardModel';
 import type { TabKey } from './AppShell';
-
-type IngredientNavigationRequest = {
-  view: 'catalog' | 'detail';
-  ingredientId?: string;
-  requestId: number;
-};
+import type { IngredientNavigationRequest } from './useAppGlobalSearchNavigation';
 
 type UseAppHomeHandlersArgs = {
-  ingredientNavigationRequestIdRef: React.MutableRefObject<number>;
+  ingredientNavigationRequestIdRef: MutableRefObject<number>;
   setIngredientNavigationRequest: Dispatch<SetStateAction<IngredientNavigationRequest | null>>;
   setActiveTab: Dispatch<SetStateAction<TabKey>>;
   setHomeExpiredDisposalIngredientId: Dispatch<SetStateAction<string | null>>;

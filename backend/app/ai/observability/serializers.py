@@ -29,7 +29,33 @@ def serialize_ai_run_trace_span(item: AIRunTraceSpan) -> dict:
     }
 
 
-def serialize_ai_run_llm_exchange(item: AIRunLLMExchange) -> dict:
+def _tool_name_from_payload(item: object) -> str | None:
+    if not isinstance(item, dict):
+        return None
+    for key in ("name", "tool", "functionName", "internal_code"):
+        value = item.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    function = item.get("function")
+    if isinstance(function, dict):
+        value = function.get("name")
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return None
+
+
+def _tool_names(items: list[dict]) -> list[str]:
+    names: list[str] = []
+    for item in items:
+        name = _tool_name_from_payload(item)
+        if name and name not in names:
+            names.append(name)
+    return names
+
+
+def serialize_ai_run_llm_exchange(item: AIRunLLMExchange, *, include_payload: bool = True) -> dict:
+    request_tool_names = _tool_names(item.request_tools or [])
+    response_tool_call_names = _tool_names(item.response_tool_calls or [])
     return {
         "id": item.id,
         "runId": item.run_id,
@@ -40,18 +66,23 @@ def serialize_ai_run_llm_exchange(item: AIRunLLMExchange) -> dict:
         "attemptIndex": item.attempt_index,
         "mode": item.mode,
         "model": item.model,
-        "requestMessages": item.request_messages,
-        "requestTools": item.request_tools,
-        "requestOptions": item.request_options,
+        "requestToolCount": len(item.request_tools or []),
+        "requestToolNames": request_tool_names,
+        "responseToolCallCount": len(item.response_tool_calls or []),
+        "responseToolCallNames": response_tool_call_names,
+        "payloadIncluded": include_payload,
+        "requestMessages": item.request_messages if include_payload else [],
+        "requestTools": item.request_tools if include_payload else [],
+        "requestOptions": item.request_options if include_payload else {},
         "requestOriginalDigest": item.request_original_digest,
         "requestOriginalBytes": item.request_original_bytes,
         "requestDigest": item.request_digest,
         "requestBytes": item.request_bytes,
         "requestTruncated": item.request_truncated,
-        "responseMessage": item.response_message,
-        "responseText": item.response_text,
-        "responseToolCalls": item.response_tool_calls,
-        "streamChunks": item.stream_chunks,
+        "responseMessage": item.response_message if include_payload else {},
+        "responseText": item.response_text if include_payload else None,
+        "responseToolCalls": item.response_tool_calls if include_payload else [],
+        "streamChunks": item.stream_chunks if include_payload else [],
         "responseOriginalDigest": item.response_original_digest,
         "responseOriginalBytes": item.response_original_bytes,
         "responseDigest": item.response_digest,

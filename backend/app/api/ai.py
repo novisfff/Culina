@@ -38,6 +38,7 @@ from app.schemas.ai import (
     AIQualityMetricsResponse,
     AIRecommendationSelectionRequest,
     AIRegistryResponse,
+    AIRunLLMExchangeDTO,
     AIRunLLMExchangeResponse,
     AIStatusResponse,
     AIRunEventDTO,
@@ -593,6 +594,7 @@ def get_ai_run_trace_tree(
 @router.get("/api/ai/runs/{run_id}/llm-exchanges", response_model=AIRunLLMExchangeResponse)
 def list_ai_run_llm_exchanges(
     run_id: str,
+    include_payload: bool = Query(True, alias="includePayload"),
     auth: tuple = Depends(require_owner),
     db: Session = Depends(get_db),
 ) -> dict:
@@ -618,8 +620,28 @@ def list_ai_run_llm_exchanges(
     return {
         "runId": run.id,
         "traceId": trace_id,
-        "exchanges": [serialize_ai_run_llm_exchange(item) for item in exchanges],
+        "exchanges": [serialize_ai_run_llm_exchange(item, include_payload=include_payload) for item in exchanges],
     }
+
+
+@router.get("/api/ai/runs/{run_id}/llm-exchanges/{exchange_id}", response_model=AIRunLLMExchangeDTO)
+def get_ai_run_llm_exchange(
+    run_id: str,
+    exchange_id: str,
+    auth: tuple = Depends(require_owner),
+    db: Session = Depends(get_db),
+) -> dict:
+    _, membership = auth
+    exchange = db.scalar(
+        select(AIRunLLMExchange).where(
+            AIRunLLMExchange.id == exchange_id,
+            AIRunLLMExchange.run_id == run_id,
+            AIRunLLMExchange.family_id == membership.family_id,
+        )
+    )
+    if exchange is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="AI LLM exchange not found")
+    return serialize_ai_run_llm_exchange(exchange)
 
 
 @router.post("/api/ai/runs/{run_id}/cancel")

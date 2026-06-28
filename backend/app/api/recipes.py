@@ -31,8 +31,12 @@ from app.services.clock import today_for_family
 from app.services.ingredient_units import UnitConversionError
 from app.services.inventory_usage import build_cook_inventory_plan, load_available_inventory_by_ingredient, recipe_availability_rank, recipe_availability_summary, serialize_cook_preview_item
 from app.services.media import bind_media_assets, replace_media_assets
+from app.services.recipe_ingredient_refs import RecipeIngredientReferenceError, normalize_recipe_ingredient_items, recipe_ingredient_reference_error_detail
 from app.services.recipe_food_sync import ensure_food_for_recipe
-from app.services.recipe_recommendations import build_availability_map, build_recipe_discovery, build_recipe_stats, load_recipes_for_family, recipe_search_text
+from app.services.search.hybrid import hybrid_search
+from app.services.search.indexing import delete_search_document
+from app.services.search.jobs import enqueue_search_index_job
+from app.services.recipe_recommendations import build_availability_map, build_recipe_discovery, build_recipe_stats, load_recipes_for_family
 from app.services.serializers import serialize_recipe
 
 router = APIRouter(tags=["recipes"])
@@ -54,16 +58,21 @@ def _replace_recipe_children(db: Session, recipe: Recipe, payload: CreateRecipeR
     recipe.steps.clear()
     db.flush()
 
-    for index, item in enumerate(payload.ingredient_items):
+    ingredient_items = normalize_recipe_ingredient_items(
+        db,
+        family_id=recipe.family_id,
+        items=payload.ingredient_items,
+    )
+    for index, item in enumerate(ingredient_items):
         db.add(
             RecipeIngredient(
                 id=create_id("recipe-ingredient"),
                 recipe_id=recipe.id,
-                ingredient_id=item.ingredient_id,
-                ingredient_name=item.ingredient_name,
-                quantity=Decimal(str(item.quantity)),
-                unit=item.unit,
-                note=item.note,
+                ingredient_id=item["ingredient_id"],
+                ingredient_name=item["ingredient_name"],
+                quantity=Decimal(str(item["quantity"])),
+                unit=item["unit"],
+                note=item["note"],
                 sort_order=index,
             )
         )
@@ -93,6 +102,24 @@ def _serialize_discovery_section(recipes: list[Recipe], media_map: dict[tuple[st
     }
 
 
+def _recipe_matches_query(recipe: Recipe, query: str) -> bool:
+    if not query:
+        return True
+    haystack_parts = [
+        recipe.title,
+        recipe.tips,
+        *(recipe.scene_tags or []),
+        *(item.ingredient_name for item in recipe.ingredient_items),
+        *(item.note for item in recipe.ingredient_items),
+        *(step.title or "" for step in recipe.steps),
+        *(step.summary for step in recipe.steps),
+        *(step.text for step in recipe.steps),
+        *(step.tip for step in recipe.steps),
+        *(point for step in recipe.steps for point in (step.key_points or [])),
+    ]
+    return query in " ".join(part.lower() for part in haystack_parts if part).strip()
+
+
 @router.get("/api/recipes", response_model=list[RecipeOut])
 def list_recipes(
     q: str | None = Query(default=None),
@@ -110,18 +137,51 @@ def list_recipes(
     normalized_scene = (scene or "").strip()
     normalized_availability = (availability or "").strip()
     needs_python_pagination = bool(normalized_q or normalized_scene or normalized_availability or sort == "availability")
-    recipes = load_recipes_for_family(
-        db,
-        membership.family_id,
-        difficulty=difficulty,
-        sort=sort,
-        limit=limit,
-        offset=offset,
-        defer_pagination=needs_python_pagination,
-    )
 
     if normalized_q:
-        recipes = [recipe for recipe in recipes if normalized_q in recipe_search_text(recipe)]
+        requested_window = offset + (limit or 100)
+        search_result = hybrid_search(
+            db,
+            family_id=membership.family_id,
+            query=normalized_q,
+            scopes=["recipe"],
+            limit=max(100, requested_window * 4),
+            offset=0,
+        )
+        recipe_ids = [item.entity_id for item in search_result.items if item.entity_type == "recipe"]
+        recipes_by_id: dict[str, Recipe] = {}
+        recipes: list[Recipe] = []
+        if recipe_ids:
+            statement = (
+                select(Recipe)
+                .where(Recipe.family_id == membership.family_id, Recipe.id.in_(recipe_ids))
+                .options(selectinload(Recipe.ingredient_items), selectinload(Recipe.steps), selectinload(Recipe.cook_logs))
+            )
+            if difficulty is not None:
+                statement = statement.where(Recipe.difficulty == difficulty)
+            recipes_by_id = {recipe.id: recipe for recipe in db.scalars(statement)}
+            recipes = [recipes_by_id[recipe_id] for recipe_id in recipe_ids if recipe_id in recipes_by_id]
+        fallback_recipes = load_recipes_for_family(
+            db,
+            membership.family_id,
+            difficulty=difficulty,
+            defer_pagination=True,
+        )
+        recipes.extend(
+            recipe
+            for recipe in fallback_recipes
+            if recipe.id not in recipes_by_id and _recipe_matches_query(recipe, normalized_q)
+        )
+    else:
+        recipes = load_recipes_for_family(
+            db,
+            membership.family_id,
+            difficulty=difficulty,
+            sort=sort,
+            limit=limit,
+            offset=offset,
+            defer_pagination=needs_python_pagination,
+        )
     if normalized_scene:
         recipes = [recipe for recipe in recipes if normalized_scene in (recipe.scene_tags or [])]
 
@@ -150,7 +210,7 @@ def list_recipes(
         recipes.sort(key=lambda recipe: (difficulty_weight.get(recipe.difficulty, 9), recipe.prep_minutes, recipe.updated_at))
     elif sort == "availability":
         recipes.sort(key=lambda recipe: (recipe_availability_rank(availability_map.get(recipe.id, {}).get("availability", "missing")), recipe.prep_minutes, recipe.updated_at))
-    elif needs_python_pagination:
+    elif needs_python_pagination and not normalized_q:
         recipes.sort(key=lambda recipe: recipe.updated_at, reverse=True)
 
     if needs_python_pagination and offset:
@@ -250,7 +310,10 @@ def create_recipe(
     )
     db.add(recipe)
     db.flush()
-    _replace_recipe_children(db, recipe, payload)
+    try:
+        _replace_recipe_children(db, recipe, payload)
+    except RecipeIngredientReferenceError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=recipe_ingredient_reference_error_detail(exc)) from exc
 
     bind_media_assets(db, family_id=membership.family_id, media_ids=payload.media_ids, entity_type="recipe", entity_id=recipe.id)
     if payload.pending_image_job_id:
@@ -292,6 +355,8 @@ def create_recipe(
         entity_id=food.id,
         summary=f"自动创建家常菜 {food.name}",
     )
+    enqueue_search_index_job(db, family_id=membership.family_id, user_id=user.id, entity_type="recipe", entity_id=recipe.id, target_name=recipe.title)
+    enqueue_search_index_job(db, family_id=membership.family_id, user_id=user.id, entity_type="food", entity_id=food.id, target_name=food.name)
 
     commit_session(db)
     db.refresh(recipe)
@@ -315,7 +380,10 @@ def update_recipe(
     recipe.tips = payload.tips
     recipe.scene_tags = list(dict.fromkeys(tag.strip() for tag in payload.scene_tags if tag.strip()))
     recipe.updated_by = user.id
-    _replace_recipe_children(db, recipe, payload)
+    try:
+        _replace_recipe_children(db, recipe, payload)
+    except RecipeIngredientReferenceError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=recipe_ingredient_reference_error_detail(exc)) from exc
     replace_media_assets(
         db,
         family_id=membership.family_id,
@@ -360,6 +428,8 @@ def update_recipe(
         entity_id=synced_food.id,
         summary=f"{'补建' if synced_food_created else '同步更新'}家常菜 {synced_food.name}",
     )
+    enqueue_search_index_job(db, family_id=membership.family_id, user_id=user.id, entity_type="recipe", entity_id=recipe.id, target_name=recipe.title)
+    enqueue_search_index_job(db, family_id=membership.family_id, user_id=user.id, entity_type="food", entity_id=synced_food.id, target_name=synced_food.name)
     commit_session(db)
     db.refresh(recipe)
     media_map = build_media_map(get_media_assets_for_entities(db, family_id=membership.family_id, entity_type="recipe", entity_ids=[recipe.id]))
@@ -375,6 +445,7 @@ def delete_recipe(
     user, membership = auth
     recipe = _load_recipe(db, family_id=membership.family_id, recipe_id=recipe_id)
     title = recipe.title
+    synced_food_ids = [food.id for food in list(recipe.foods)]
     for food in list(recipe.foods):
         replace_media_assets(
             db,
@@ -401,6 +472,9 @@ def delete_recipe(
         entity_id=recipe_id,
         summary=f"删除菜谱 {title}",
     )
+    delete_search_document(db, family_id=membership.family_id, entity_type="recipe", entity_id=recipe_id, delete_vector=True)
+    for food_id in synced_food_ids:
+        delete_search_document(db, family_id=membership.family_id, entity_type="food", entity_id=food_id, delete_vector=True)
     commit_session(db)
     return None
 

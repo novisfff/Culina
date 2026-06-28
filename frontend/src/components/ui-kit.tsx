@@ -82,6 +82,18 @@ export function Badge(props: { children: ReactNode; className?: string }) {
   return <span className={props.className ? `badge ${props.className}` : 'badge'}>{props.children}</span>;
 }
 
+export function SearchLoadingIndicator(props: { active: boolean; className?: string }) {
+  if (!props.active) return null;
+
+  return (
+    <span
+      className={props.className ? `search-loading-indicator ${props.className}` : 'search-loading-indicator'}
+      aria-label="正在检索"
+      role="status"
+    />
+  );
+}
+
 export function ActionButton(
   props: {
     tone?: 'primary' | 'secondary' | 'tertiary';
@@ -412,9 +424,15 @@ export function DenseListRow(props: {
 }
 
 export function Avatar(props: { label: string; seed: string; large?: boolean; imageUrl?: string | null }) {
+  const imageUrl = props.imageUrl ? (resolveAssetUrl(props.imageUrl) ?? props.imageUrl) : undefined;
+  const className = [
+    'avatar',
+    props.large ? 'large' : '',
+    imageUrl ? 'avatar-has-image' : '',
+  ].filter(Boolean).join(' ');
   return (
-    <div className={props.large ? 'avatar large' : 'avatar'} style={{ backgroundColor: avatarColor(props.seed) }}>
-      {props.imageUrl ? <img src={resolveAssetUrl(props.imageUrl)} alt={props.label} /> : initials(props.label)}
+    <div className={className} style={imageUrl ? undefined : { backgroundColor: avatarColor(props.seed) }}>
+      {imageUrl ? <img src={imageUrl} alt={props.label} /> : initials(props.label)}
     </div>
   );
 }

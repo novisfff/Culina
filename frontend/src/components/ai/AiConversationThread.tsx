@@ -15,6 +15,7 @@ import type {
 } from '../../api/types';
 import { resolveAssetUrl } from '../../lib/assets';
 import { avatarColor, initials } from '../../lib/ui';
+import { MediaWithPlaceholder } from '../MediaPlaceholder';
 import { ApprovalPanel } from './AiApprovalPanel';
 import type { AiApprovalDecisionSubmit, AiResourceOptionLoader } from './AiApprovalPanel';
 import { AiMessageImageGrid } from './AiMessageImageGrid';
@@ -697,14 +698,24 @@ export function MessageBubble({
       <div className={isUser ? 'ai-message-avatar ai-message-avatar-user' : 'ai-message-avatar ai-message-avatar-assistant'} aria-hidden="true">
         {isUser ? (
           userAvatarUrl ? (
-            <img className="ai-user-avatar-image" src={userAvatarUrl} alt="" />
+            <MediaWithPlaceholder
+              className="ai-user-avatar-image"
+              src={userAvatarUrl}
+              alt=""
+              showLabel={false}
+              ariaHidden
+            />
           ) : (
             <span className="ai-user-avatar-fallback" style={{ backgroundColor: avatarColor(user?.avatar_seed || userName) }}>
               {initials(userName)}
             </span>
           )
         ) : (
-          <img className="ai-bot-avatar-image" src="/assets/chatbot.webp" alt="" />
+          <img
+            className="ai-bot-avatar-image"
+            src="/assets/chatbot.webp"
+            alt=""
+          />
         )}
       </div>
       <div className="ai-message-content">

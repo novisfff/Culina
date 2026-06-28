@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import type { AiRenderResponse } from '../api/types';
 import { Avatar } from '../components/ui-kit';
 import { DashboardIcon, ShellIcon, type ShellIconName } from './shellIcons';
 
@@ -26,43 +25,19 @@ const MOBILE_NAV_ITEMS: Array<{ key: TabKey; label: string; icon: ShellIconName 
 
 const MOBILE_VIEWPORT_HEIGHT_VAR = '--app-visual-viewport-height';
 const MOBILE_VIEWPORT_BOTTOM_INSET_VAR = '--app-visual-viewport-bottom-inset';
+const MOBILE_KEYBOARD_OPEN_CLASS = 'app-mobile-keyboard-open';
 
-const IMAGE_JOB_TARGET_LABELS: Record<string, string> = {
-  food: '食物',
-  ingredient: '食材',
-  recipe: '菜谱',
-  food_scene: '食物场景',
-  meal_log: '餐食记录',
-  user: '头像',
-  family: '家庭图',
+export type AppNotificationJob = {
+  notification_id: string;
+  task_id: string;
+  kind: 'image' | 'search_index';
+  status: 'queued' | 'running' | 'succeeded' | 'failed';
+  title: string;
+  status_label: string;
+  description: string;
+  can_retry: boolean;
+  can_dismiss: boolean;
 };
-
-function imageJobTargetLabel(job: AiRenderResponse) {
-  return job.target_entity_type ? IMAGE_JOB_TARGET_LABELS[job.target_entity_type] ?? '图片' : 'AI';
-}
-
-function imageJobTitle(job: AiRenderResponse) {
-  const targetLabel = imageJobTargetLabel(job);
-  const targetName = job.target_entity_name?.trim();
-  return targetName ? `${targetName}的${targetLabel}图片生成` : `${targetLabel}图片生成`;
-}
-
-function imageJobStatusLabel(job: AiRenderResponse) {
-  if (job.status === 'queued' || job.status === 'running') return '正在处理';
-  if (job.status === 'failed') return '失败';
-  if (job.bind_status === 'skipped') return '已生成，未替换';
-  if (job.bind_status === 'bound') return '已更新';
-  return '已生成';
-}
-
-function imageJobStatusDescription(job: AiRenderResponse) {
-  if (job.status === 'queued') return '已加入队列，稍后开始生成';
-  if (job.status === 'running') return '正在生成图片，可以先处理其他内容';
-  if (job.status === 'failed') return job.error?.trim() || '生成失败，可以直接重试';
-  if (job.bind_status === 'skipped') return '已有用户图片，生成图已保留';
-  if (job.bind_status === 'bound') return '主图已自动更新';
-  return '生成图已保留在图片资产中';
-}
 
 function notificationSummary(activeCount: number, failedCount: number, totalCount: number) {
   if (failedCount > 0) return `${failedCount} 条失败待处理`;
@@ -81,15 +56,23 @@ function viewportPixelValue(value: number) {
   return `${Math.max(0, Math.round(value))}px`;
 }
 
+function isTextEntryElement(element: Element | null) {
+  if (!(element instanceof HTMLElement)) return false;
+  if (element.isContentEditable) return true;
+  return element.matches('input, textarea, select');
+}
+
 function syncMobileVisualViewportMetrics() {
   const root = document.documentElement;
   const visualViewport = window.visualViewport ?? null;
   const viewportHeight = visualViewport?.height ?? window.innerHeight;
   const viewportOffsetTop = visualViewport?.offsetTop ?? 0;
   const coveredBottom = Math.max(0, window.innerHeight - viewportHeight - viewportOffsetTop);
+  const isKeyboardOpen = coveredBottom > 80 && isTextEntryElement(document.activeElement);
 
   root.style.setProperty(MOBILE_VIEWPORT_HEIGHT_VAR, viewportPixelValue(viewportHeight));
   root.style.setProperty(MOBILE_VIEWPORT_BOTTOM_INSET_VAR, viewportPixelValue(coveredBottom));
+  root.classList.toggle(MOBILE_KEYBOARD_OPEN_CLASS, isKeyboardOpen);
 }
 
 function useMobileVisualViewportMetrics(activeTab: TabKey) {
@@ -112,6 +95,8 @@ function useMobileVisualViewportMetrics(activeTab: TabKey) {
     window.addEventListener('orientationchange', scheduleSync);
     window.addEventListener('pageshow', scheduleSync);
     document.addEventListener('visibilitychange', scheduleSync);
+    document.addEventListener('focusin', scheduleSync);
+    document.addEventListener('focusout', scheduleSync);
     visualViewport?.addEventListener('resize', scheduleSync);
     visualViewport?.addEventListener('scroll', scheduleSync);
 
@@ -123,14 +108,17 @@ function useMobileVisualViewportMetrics(activeTab: TabKey) {
       window.removeEventListener('orientationchange', scheduleSync);
       window.removeEventListener('pageshow', scheduleSync);
       document.removeEventListener('visibilitychange', scheduleSync);
+      document.removeEventListener('focusin', scheduleSync);
+      document.removeEventListener('focusout', scheduleSync);
       visualViewport?.removeEventListener('resize', scheduleSync);
       visualViewport?.removeEventListener('scroll', scheduleSync);
+      document.documentElement.classList.remove(MOBILE_KEYBOARD_OPEN_CLASS);
     };
   }, [activeTab]);
 }
 
 export function AppNotificationCenter(props: {
-  jobs: AiRenderResponse[];
+  jobs: AppNotificationJob[];
   isLoading?: boolean;
   variant?: 'desktop' | 'sidebar' | 'mobileIcon';
   onDismissJob?: (jobId: string) => void;
@@ -193,7 +181,7 @@ export function AppNotificationCenter(props: {
       <div className="app-notification-popover-head">
         <span className="app-notification-head-copy">
           <span>通知</span>
-          <strong>图片生成任务</strong>
+          <strong>后台任务</strong>
         </span>
         <span className={`app-notification-summary tone-${summaryTone}`}>
           {notificationSummary(activeCount, failedCount, totalCount)}
@@ -204,22 +192,22 @@ export function AppNotificationCenter(props: {
       ) : hasJobs ? (
         <div className="app-notification-list">
           {props.jobs.map((job) => {
-            const jobId = job.job_id ?? null;
+            const jobId = job.notification_id;
             const isRetrying = Boolean(jobId && props.retryingJobId === jobId);
-            const canRetry = Boolean(jobId && job.status === 'failed' && props.onRetryJob);
+            const canRetry = Boolean(jobId && job.can_retry && props.onRetryJob);
             return (
-              <div key={jobId ?? `${job.target_entity_type}-${job.target_entity_id}`} className={`app-notification-row status-${job.status}`}>
+              <div key={jobId} className={`app-notification-row status-${job.status}`}>
                 <span className="app-notification-row-icon" aria-hidden="true">
                   <DashboardIcon name={job.status === 'failed' ? 'bell' : job.status === 'succeeded' ? 'check' : 'circle'} />
                 </span>
                 <span className="app-notification-row-copy">
                   <span className="app-notification-row-title">
-                    <strong title={imageJobTitle(job)}>{imageJobTitle(job)}</strong>
-                    <em>{imageJobStatusLabel(job)}</em>
+                    <strong title={job.title}>{job.title}</strong>
+                    <em>{job.status_label}</em>
                   </span>
-                  <small title={imageJobStatusDescription(job)}>{imageJobStatusDescription(job)}</small>
+                  <small title={job.description}>{job.description}</small>
                 </span>
-                {jobId && (job.status === 'succeeded' || job.status === 'failed') && (
+                {jobId && job.can_dismiss && (
                   <span className="app-notification-row-actions">
                     {canRetry && (
                       <button
@@ -227,7 +215,7 @@ export function AppNotificationCenter(props: {
                         type="button"
                         onClick={() => props.onRetryJob?.(jobId)}
                         disabled={isRetrying}
-                        aria-label={`重试${imageJobTitle(job)}`}
+                        aria-label={`重试${job.title}`}
                       >
                         <span aria-hidden="true">
                           <DashboardIcon name="refresh" />
@@ -239,7 +227,7 @@ export function AppNotificationCenter(props: {
                       className="app-notification-clear"
                       type="button"
                       onClick={() => props.onDismissJob?.(jobId)}
-                      aria-label={`清除${imageJobTitle(job)}通知`}
+                      aria-label={`清除${job.title}通知`}
                       title="清除"
                     >
                       <DashboardIcon name="x" />
@@ -299,7 +287,7 @@ type AppShellProps = {
   userMeta: string;
   userNote: string;
   notice?: ReactNode;
-  imageJobs?: AiRenderResponse[];
+  imageJobs?: AppNotificationJob[];
   imageJobsLoading?: boolean;
   onDismissImageJob?: (jobId: string) => void;
   onRetryImageJob?: (jobId: string) => void;

@@ -1,4 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
+import { keepPreviousData, useQuery } from '@tanstack/react-query';
+import { api } from '../../api/client';
+import { queryKeys } from '../../api/queryKeys';
 import type {
   AiGeneratedRecipeDraft,
   CookRecipePreviewResponse,
@@ -30,10 +33,12 @@ import { readJsonStorage, removeStorage, writeJsonStorage } from '../../lib/stor
 import { getPendingImageJobId, type AiRenderPayload } from '../../lib/aiImages';
 import { emptyImages, formatDate, formatDateTime, getImagePreview, splitTags, todayKey } from '../../lib/ui';
 import { IDLE_IMAGE_GENERATION_STATE, useImageComposer, type ImageGenerationUiState } from '../../hooks/useImageComposer';
+import { useDebouncedSearchValue, useSearchCompositionState } from '../../hooks/useDebouncedValue';
 import {
   ActionButton,
   Badge,
   EmptyState,
+  SearchLoadingIndicator,
   WorkspaceSubpageHeader,
   WorkspaceSubpageShell,
 } from '../ui-kit';
@@ -72,6 +77,7 @@ import { RecipeCookFinishDialog } from './RecipeCookFinishDialog';
 import { RecipeCookView } from './RecipeCookView';
 import { RecipeDetailView } from './RecipeDetailView';
 import { RecipeEditorView } from './RecipeEditorView';
+import { RecipeIngredientResolutionDialog } from './RecipeIngredientResolutionDialog';
 import { RecipeLibraryView } from './RecipeLibraryView';
 import { RecipePlanDetailDialog, RecipePlanDialog } from './RecipePlanDialogs';
 import { RecipeSceneManagerDialog } from './RecipeSceneManagerDialog';
@@ -87,8 +93,10 @@ import {
   buildFormFromRecipe,
   buildRecipeFormFromGeneratedDraft,
   buildRecipeImagePayload,
+  buildRecipeIngredientCreatePayload,
   buildRecipePayload,
   buildRecipeShortageShoppingPayloads,
+  buildRecipeUnresolvedIngredientTargets,
   buildSceneImagePayload,
   buildShoppingDraftFromRecipeIngredient,
   buildShoppingDraftsFromShortages,
@@ -121,6 +129,7 @@ import {
   loadCookSession,
   recipeCookSessionKey,
   applyRecipeIngredientRequirement,
+  parseRecipeUnresolvedIngredientError,
   resolveErrorMessage,
   resolveIngredientImageUrl,
   resolveRecipeDifficulty,
@@ -139,6 +148,7 @@ import {
   type RecipeShoppingIngredientOption,
   type RecipeShoppingRequirement,
   type RecipeStepDraft,
+  type RecipeUnresolvedIngredientTarget,
 } from './RecipeWorkspaceModel';
 
 export {
@@ -160,6 +170,9 @@ export {
   getRecipeShoppingRequirement,
   hasRecipeDraftMinimumInput,
   isAiGeneratedRecipeDraft,
+  parseRecipeUnresolvedIngredientError,
+  buildRecipeUnresolvedIngredientTargets,
+  buildRecipeIngredientCreatePayload,
   loadCookSession,
   recipeCookSessionKey,
   sanitizeCookSession,
@@ -182,11 +195,17 @@ type RecipeWorkspaceProps = {
   recipePlanWeekRange: { start: string; end: string };
   startRecipeId?: string | null;
   startFoodPlanItemId?: string | null;
+  navigationRequest?: {
+    recipeId: string;
+    requestId: number;
+  } | null;
   notificationCenter?: ReactNode;
+  onMobileLibraryRedirect?: () => void;
   onStartRecipeHandled?: () => void;
   onRecipePlanPreviousWeek: () => void;
   onRecipePlanCurrentWeek: () => void;
   onRecipePlanNextWeek: () => void;
+  createIngredient: (payload: ReturnType<typeof buildRecipeIngredientCreatePayload>) => Promise<Ingredient>;
   createRecipe: (payload: CreateRecipePayload) => Promise<Recipe>;
   updateRecipe: (recipeId: string, payload: RecipePayload) => Promise<Recipe>;
   deleteRecipe: (recipeId: string) => Promise<void>;
@@ -234,12 +253,83 @@ type RecipeWorkspaceProps = {
   isCreatingRecipe?: boolean;
   isUpdatingRecipe?: boolean;
   isDeletingRecipe?: boolean;
+  isCreatingIngredient?: boolean;
   isCookingRecipe?: boolean;
   isCreatingShopping?: boolean;
   isUpdatingFavorite?: boolean;
   isUpdatingPlan?: boolean;
   isUpdatingScene?: boolean;
 };
+
+function RecipeToolbarDropdown({
+  value,
+  options,
+  icon,
+  title,
+  onChange,
+}: {
+  value: string;
+  options: { value: string; label: string }[];
+  icon: string;
+  title: string;
+  onChange: (value: any) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  const selectedOption = options.find((opt) => opt.value === value);
+
+  useEffect(() => {
+    if (!open) return;
+    const handlePointerDown = (event: MouseEvent) => {
+      if (!rootRef.current?.contains(event.target as Node)) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handlePointerDown);
+    return () => document.removeEventListener('mousedown', handlePointerDown);
+  }, [open]);
+
+  return (
+    <div className={open ? 'recipe-toolbar-dropdown is-open' : 'recipe-toolbar-dropdown'} ref={rootRef}>
+      <button
+        className="recipe-toolbar-dropdown-trigger"
+        type="button"
+        onClick={() => setOpen(!open)}
+        aria-expanded={open}
+      >
+        <span className="recipe-toolbar-dropdown-trigger-icon">
+          <RecipeUiIcon name={icon as any} />
+        </span>
+        <span className="recipe-toolbar-dropdown-trigger-text">
+          <span className="recipe-toolbar-dropdown-title">{title}</span>
+          <span className="recipe-toolbar-dropdown-value">{selectedOption?.label ?? value}</span>
+        </span>
+        <span className="recipe-toolbar-dropdown-trigger-chevron">
+          <RecipeUiIcon name="chevronDown" />
+        </span>
+      </button>
+      
+      {open && (
+        <div className="recipe-toolbar-dropdown-panel">
+          {options.map((opt) => (
+            <button
+              key={opt.value}
+              className={opt.value === value ? 'recipe-toolbar-dropdown-option is-selected' : 'recipe-toolbar-dropdown-option'}
+              type="button"
+              onClick={() => {
+                onChange(opt.value);
+                setOpen(false);
+              }}
+            >
+              <span>{opt.label}</span>
+              {opt.value === value && <RecipeUiIcon name="check" />}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 export function RecipeWorkspace(props: RecipeWorkspaceProps) {
   const categoryScrollRef = useRef<HTMLDivElement | null>(null);
@@ -253,6 +343,8 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
   const [categoryScrollState, setCategoryScrollState] = useState({ canLeft: false, canRight: false });
   const [discoveryScrollState, setDiscoveryScrollState] = useState({ canLeft: false, canRight: false });
   const [recipeNotice, setRecipeNotice] = useState<RecipeNotice | null>(null);
+  const [isIngredientResolutionOpen, setIsIngredientResolutionOpen] = useState(false);
+  const [ingredientResolutionTargets, setIngredientResolutionTargets] = useState<RecipeUnresolvedIngredientTarget[]>([]);
   const {
     view,
     setView,
@@ -295,6 +387,7 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
     openDetail,
     openEdit,
     updateIngredientRow,
+    selectIngredientRow,
     updateIngredientNote,
     updateIngredientRequirement,
     updateStepDraft,
@@ -346,6 +439,45 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
     createShoppingItem: props.createShoppingItem,
     showRecipeNotice,
   });
+  const normalizedRecipeSearch = search.trim();
+  const recipeSearchComposition = useSearchCompositionState();
+  const recipeSearchValue = useDebouncedSearchValue(search, { isComposing: recipeSearchComposition.isComposing });
+  const recipeSearchQuery = useQuery({
+    queryKey: queryKeys.recipeSearch(recipeSearchValue),
+    queryFn: () => api.getRecipes({ q: recipeSearchValue, limit: 100 }),
+    enabled: Boolean(recipeSearchValue),
+    placeholderData: keepPreviousData,
+  });
+  const [appliedRecipeSearch, setAppliedRecipeSearch] = useState('');
+  const [appliedRecipeResults, setAppliedRecipeResults] = useState<Recipe[]>([]);
+  useEffect(() => {
+    if (!normalizedRecipeSearch) {
+      setAppliedRecipeSearch('');
+      setAppliedRecipeResults([]);
+      return;
+    }
+    if (recipeSearchValue && !recipeSearchQuery.isPlaceholderData && recipeSearchQuery.data) {
+      setAppliedRecipeSearch(recipeSearchValue);
+      setAppliedRecipeResults(recipeSearchQuery.data);
+    }
+  }, [normalizedRecipeSearch, recipeSearchQuery.data, recipeSearchQuery.isPlaceholderData, recipeSearchValue]);
+  useEffect(() => {
+    if (!props.navigationRequest) return;
+    setSearch('');
+    setAppliedRecipeSearch('');
+    setAppliedRecipeResults([]);
+    setSelectedRecipeId(props.navigationRequest.recipeId);
+    setView('detail');
+  }, [props.navigationRequest?.requestId, setSelectedRecipeId, setSearch, setView]);
+  const matchedRecipeIds = useMemo(
+    () => (appliedRecipeSearch ? Array.from(new Set(appliedRecipeResults.map((recipe) => recipe.id))) : []),
+    [appliedRecipeResults, appliedRecipeSearch]
+  );
+  const searchAwareRecipes = appliedRecipeSearch ? appliedRecipeResults : props.recipes;
+  const isRecipeSearchFetching =
+    Boolean(normalizedRecipeSearch) &&
+    !recipeSearchComposition.isComposing &&
+    (appliedRecipeSearch !== normalizedRecipeSearch || recipeSearchQuery.isFetching);
 
   const {
     cards,
@@ -383,7 +515,7 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
     selectedCard,
     selectedReadyCount,
   } = useRecipeWorkspaceData({
-    recipes: props.recipes,
+    recipes: searchAwareRecipes,
     ingredients: props.ingredients,
     inventoryItems: props.inventoryItems,
     mealLogs: props.mealLogs,
@@ -398,7 +530,8 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
     sceneFilter,
     difficultyFilter,
     sortMode,
-    search,
+    search: appliedRecipeSearch,
+    matchedRecipeIds,
     recommendationPage,
     shoppingCustomForm,
     selectedRecipeId,
@@ -495,6 +628,16 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
           emptyTitle: `暂无${sceneFilter}菜谱`,
           emptyDescription: '换个场景或清除筛选条件试试。',
         };
+  const shouldRedirectMobileLibrary = Boolean(props.onMobileLibraryRedirect && !props.startRecipeId && view === 'library');
+  const libraryBackLabel = props.onMobileLibraryRedirect ? '返回食物' : '返回菜谱';
+
+  useEffect(() => {
+    if (!shouldRedirectMobileLibrary) {
+      return;
+    }
+    props.onMobileLibraryRedirect?.();
+  }, [props.onMobileLibraryRedirect, shouldRedirectMobileLibrary]);
+
   const {
     planForm,
     setPlanForm,
@@ -803,12 +946,69 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
     }
   }
 
-  async function submitRecipe(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const payload = buildRecipePayload(form, ingredientRows, props.ingredients, getPendingImageJobId(form.images));
+  function closeIngredientResolutionDialog() {
+    setIsIngredientResolutionOpen(false);
+    setIngredientResolutionTargets([]);
+  }
+
+  function removeIngredientResolutionTarget(target: RecipeUnresolvedIngredientTarget) {
+    setIngredientResolutionTargets((current) =>
+      current.filter((item) => item.rowId !== target.rowId || item.index !== target.index || item.reason !== target.reason)
+    );
+  }
+
+  function resolveIngredientRow(target: RecipeUnresolvedIngredientTarget, ingredient: Ingredient) {
+    if (target.rowId) {
+      setIngredientRows((current) =>
+        current.map((item) =>
+          item.id === target.rowId
+            ? {
+                ...item,
+                ingredient_id: ingredient.id,
+                ingredient_name: ingredient.name,
+                unit: ingredient.default_unit || item.unit,
+              }
+            : item
+        )
+      );
+    }
+    removeIngredientResolutionTarget(target);
+  }
+
+  function removeUnresolvedIngredientRow(target: RecipeUnresolvedIngredientTarget) {
+    if (target.rowId) {
+      setIngredientRows((current) => {
+        if (current.length <= 1) {
+          return defaultIngredientRows();
+        }
+        return current.filter((item) => item.id !== target.rowId);
+      });
+    }
+    removeIngredientResolutionTarget(target);
+  }
+
+  async function createIngredientForResolution(target: RecipeUnresolvedIngredientTarget) {
+    try {
+      const ingredient = await props.createIngredient(buildRecipeIngredientCreatePayload(target));
+      resolveIngredientRow(target, ingredient);
+      showRecipeNotice({
+        tone: 'success',
+        title: '食材已创建',
+        message: `已将「${ingredient.name}」绑定到菜谱原料。`,
+      });
+    } catch (reason) {
+      showRecipeNotice({
+        tone: 'danger',
+        title: '创建食材失败',
+        message: resolveErrorMessage(reason, '创建食材失败'),
+      });
+    }
+  }
+
+  async function saveRecipePayload(payload: RecipePayload) {
     if (!payload.title || payload.ingredient_items.length === 0) {
       showRecipeNotice({ tone: 'warning', title: '还不能保存菜谱', message: '菜谱至少要有标题和一个食材。' });
-      return;
+      return false;
     }
     try {
       if (isEditing && selectedRecipeId) {
@@ -821,13 +1021,38 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
         recipeImageComposer.setState(IDLE_IMAGE_GENERATION_STATE);
         setView('detail');
       }
+      closeIngredientResolutionDialog();
+      return true;
     } catch (reason) {
+      const unresolvedItems = parseRecipeUnresolvedIngredientError(reason);
+      if (unresolvedItems) {
+        setIngredientResolutionTargets(buildRecipeUnresolvedIngredientTargets(unresolvedItems, ingredientRows));
+        setIsIngredientResolutionOpen(true);
+        showRecipeNotice({
+          tone: 'warning',
+          title: '先处理缺失食材',
+          message: '菜谱里还有未绑定到食材库的配料，确认后再保存。',
+        });
+        return false;
+      }
       showRecipeNotice({
         tone: 'danger',
         title: isEditing ? '更新菜谱失败' : '新增菜谱失败',
         message: resolveErrorMessage(reason, isEditing ? '更新菜谱失败' : '新增菜谱失败'),
       });
+      return false;
     }
+  }
+
+  async function retrySaveAfterIngredientResolution() {
+    const payload = buildRecipePayload(form, ingredientRows, props.ingredients, getPendingImageJobId(form.images));
+    await saveRecipePayload(payload);
+  }
+
+  async function submitRecipe(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const payload = buildRecipePayload(form, ingredientRows, props.ingredients, getPendingImageJobId(form.images));
+    await saveRecipePayload(payload);
   }
 
   async function deleteRecipeCard(card: RecipeCardViewModel) {
@@ -885,29 +1110,30 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
               placeholder="搜索菜谱、食材或技巧"
               value={search}
               onChange={(event) => setSearch(event.target.value)}
+              onCompositionStart={recipeSearchComposition.onCompositionStart}
+              onCompositionEnd={recipeSearchComposition.onCompositionEnd}
             />
+            <SearchLoadingIndicator active={isRecipeSearchFetching} />
           </label>
-          <select
-            className="text-input recipe-filter-select"
+          <RecipeToolbarDropdown
             value={difficultyFilter}
-            onChange={(event) => setDifficultyFilter(event.target.value as 'all' | Difficulty)}
-          >
-            <option value="all">全部难度</option>
-            <option value="easy">简单</option>
-            <option value="medium">中等</option>
-            <option value="hard">复杂</option>
-          </select>
-          <select className="text-input recipe-filter-select" value={sortMode} onChange={(event) => setSortMode(event.target.value as RecipeSortMode)}>
-            {SORT_OPTIONS.map((item) => (
-              <option key={item.value} value={item.value}>
-                {item.label}
-              </option>
-            ))}
-          </select>
-          <button className="recipe-filter-action" type="button">
-            <RecipeUiIcon name="filter" />
-            筛选
-          </button>
+            options={[
+              { value: 'all', label: '全部' },
+              { value: 'easy', label: '简单' },
+              { value: 'medium', label: '中等' },
+              { value: 'hard', label: '复杂' },
+            ]}
+            icon="signal"
+            title="难度"
+            onChange={(val) => setDifficultyFilter(val as 'all' | Difficulty)}
+          />
+          <RecipeToolbarDropdown
+            value={sortMode}
+            options={SORT_OPTIONS}
+            icon="clock"
+            title="排序"
+            onChange={(val) => setSortMode(val as RecipeSortMode)}
+          />
         </div>
         <div className="recipe-filter-row">
           {QUICK_FILTERS.map((item) => (
@@ -1028,6 +1254,18 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
           </button>
         </div>
       )}
+      {isIngredientResolutionOpen && (
+        <RecipeIngredientResolutionDialog
+          targets={ingredientResolutionTargets}
+          ingredients={props.ingredients}
+          isCreatingIngredient={props.isCreatingIngredient}
+          onClose={closeIngredientResolutionDialog}
+          onRetrySave={retrySaveAfterIngredientResolution}
+          onResolveWithIngredient={resolveIngredientRow}
+          onCreateIngredient={createIngredientForResolution}
+          onRemoveIngredientRow={removeUnresolvedIngredientRow}
+        />
+      )}
       {view === 'create' || view === 'edit' ? (
         <RecipeEditorView
           isEditing={isEditing}
@@ -1061,11 +1299,13 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
           isCreatingRecipe={props.isCreatingRecipe}
           isUpdatingRecipe={props.isUpdatingRecipe}
           isDeletingRecipe={props.isDeletingRecipe}
+          backLabel={isEditing ? undefined : libraryBackLabel}
           onBack={() => setView(isEditing ? 'detail' : 'library')}
           onSubmit={submitRecipe}
           onDelete={deleteSelectedRecipe}
           onOpenDraftDialog={() => setIsRecipeDraftDialogOpen(true)}
           updateIngredientRow={updateIngredientRow}
+          selectIngredientRow={selectIngredientRow}
           updateIngredientNote={updateIngredientNote}
           updateIngredientRequirement={updateIngredientRequirement}
           addIngredientRow={addIngredientRow}
@@ -1135,6 +1375,7 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
           isUpdatingFavorite={props.isUpdatingFavorite}
           isCreatingShopping={props.isCreatingShopping}
           isDeletingRecipe={props.isDeletingRecipe}
+          backLabel={libraryBackLabel}
           onBack={() => setView('library')}
           onCook={openCook}
           onPlan={openPlanDialog}
@@ -1143,7 +1384,7 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
           onEdit={handleOpenEdit}
           onDelete={deleteSelectedRecipe}
         />
-      ) : (
+      ) : shouldRedirectMobileLibrary ? null : (
         <RecipeLibraryView
           recipes={props.recipes}
           search={search}
@@ -1189,6 +1430,9 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
           onToggleRecipeFavorite={toggleRecipeFavorite}
           onOpenSceneManager={() => setIsSceneManagerOpen(true)}
           onSearchChange={setSearch}
+          onSearchCompositionStart={recipeSearchComposition.onCompositionStart}
+          onSearchCompositionEnd={recipeSearchComposition.onCompositionEnd}
+          isSearchFetching={isRecipeSearchFetching}
           onShowMobileRecipeFilter={showMobileRecipeFilter}
           onShowMobileRecipeScene={showMobileRecipeScene}
           onShowDiscoveryFilter={showDiscoveryFilter}

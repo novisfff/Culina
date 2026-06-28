@@ -2,6 +2,56 @@ from ._support import *
 
 
 class RecipeRecipeCrudTestCase(RecipeApiTestCase):
+        def test_recipe_create_rejects_unresolved_ingredient_references(self) -> None:
+            response = self.client.post(
+                "/api/recipes",
+                json={
+                    "title": "番茄鸡蛋面",
+                    "servings": 2,
+                    "prep_minutes": 20,
+                    "difficulty": "easy",
+                    "ingredient_items": [
+                        {"ingredient_id": self.tomato.id, "ingredient_name": "番茄", "quantity": 2, "unit": "个", "note": "切块"},
+                        {"ingredient_id": None, "ingredient_name": "面条", "quantity": 200, "unit": "克", "note": "提前备好"},
+                    ],
+                    "steps": [{"text": "番茄炒出汁后加水煮面。"}],
+                    "tips": "",
+                    "scene_tags": [],
+                    "media_ids": [],
+                },
+            )
+
+            self.assertEqual(response.status_code, 422, response.text)
+            detail = response.json()["detail"]
+            self.assertEqual(detail["code"], "recipe_unresolved_ingredients")
+            self.assertEqual(detail["items"][0]["ingredient_name"], "面条")
+            self.assertEqual(detail["items"][0]["reason"], "missing_ingredient_id")
+
+        def test_recipe_create_rejects_ingredient_from_outside_family(self) -> None:
+            response = self.client.post(
+                "/api/recipes",
+                json={
+                    "title": "番茄牛排",
+                    "servings": 2,
+                    "prep_minutes": 20,
+                    "difficulty": "easy",
+                    "ingredient_items": [
+                        {"ingredient_id": self.tomato.id, "ingredient_name": "番茄", "quantity": 2, "unit": "个", "note": "切块"},
+                        {"ingredient_id": "ingredient-secret", "ingredient_name": "牛排", "quantity": 1, "unit": "块", "note": ""},
+                    ],
+                    "steps": [{"text": "番茄和牛排分别处理后装盘。"}],
+                    "tips": "",
+                    "scene_tags": [],
+                    "media_ids": [],
+                },
+            )
+
+            self.assertEqual(response.status_code, 422, response.text)
+            detail = response.json()["detail"]
+            self.assertEqual(detail["code"], "recipe_unresolved_ingredients")
+            self.assertEqual(detail["items"][0]["ingredient_id"], "ingredient-secret")
+            self.assertEqual(detail["items"][0]["reason"], "ingredient_not_found")
+
         def test_recipe_crud_favorite_plan_and_scene_flow(self) -> None:
             recipe = self.create_recipe(auto_create_food=True)
             recipe_id = recipe["id"]

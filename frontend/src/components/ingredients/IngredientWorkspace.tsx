@@ -1,12 +1,16 @@
 import {
   useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
   type CSSProperties,
   type KeyboardEvent,
   type ReactNode,
 } from 'react';
+import { keepPreviousData, useQuery } from '@tanstack/react-query';
+import { api } from '../../api/client';
+import { queryKeys } from '../../api/queryKeys';
 import type {
   ConsumeInventoryResponse,
   DisposeExpiredInventoryResponse,
@@ -36,6 +40,7 @@ import {
   IDLE_IMAGE_GENERATION_STATE,
   useImageComposer,
 } from '../../hooks/useImageComposer';
+import { useDebouncedSearchValue, useSearchCompositionState } from '../../hooks/useDebouncedValue';
 import { useNotice } from '../../hooks/useNotice';
 import {
   ActionButton,
@@ -874,7 +879,13 @@ function resolveInventoryStorageAsset(storage: string) {
 }
 
 function InventoryStorageIllustration(props: { storage: string }) {
-  return <img src={resolveInventoryStorageAsset(props.storage)} alt="" aria-hidden="true" />;
+  return (
+    <img
+      src={resolveInventoryStorageAsset(props.storage)}
+      alt=""
+      className="ingredients-inventory-storage-illustration"
+    />
+  );
 }
 
 function InventoryStorageOverviewCard(props: InventoryStorageOverviewCardProps) {
@@ -1650,6 +1661,72 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
     editingIngredientId,
     ingredientForm,
   });
+  const normalizedInventorySearch = inventorySearch.trim();
+  const normalizedCatalogSearch = catalogSearch.trim();
+  const inventorySearchComposition = useSearchCompositionState();
+  const catalogSearchComposition = useSearchCompositionState();
+  const inventorySearchValue = useDebouncedSearchValue(inventorySearch, { isComposing: inventorySearchComposition.isComposing });
+  const catalogSearchValue = useDebouncedSearchValue(catalogSearch, { isComposing: catalogSearchComposition.isComposing });
+  const catalogSearchQuery = useQuery({
+    queryKey: queryKeys.ingredientSearch(catalogSearchValue),
+    queryFn: () => api.getIngredients({ q: catalogSearchValue, limit: 100 }),
+    enabled: Boolean(catalogSearchValue),
+    placeholderData: keepPreviousData,
+  });
+  const inventorySearchQuery = useQuery({
+    queryKey: queryKeys.inventorySearch(inventorySearchValue),
+    queryFn: () => api.getInventory({ q: inventorySearchValue }),
+    enabled: Boolean(inventorySearchValue),
+    placeholderData: keepPreviousData,
+  });
+  const [appliedCatalogSearch, setAppliedCatalogSearch] = useState('');
+  const [appliedCatalogResults, setAppliedCatalogResults] = useState<Ingredient[]>([]);
+  const [appliedInventorySearch, setAppliedInventorySearch] = useState('');
+  const [appliedInventoryResults, setAppliedInventoryResults] = useState<InventoryItem[]>([]);
+  useEffect(() => {
+    if (!normalizedCatalogSearch) {
+      setAppliedCatalogSearch('');
+      setAppliedCatalogResults([]);
+      return;
+    }
+    if (catalogSearchValue && !catalogSearchQuery.isPlaceholderData && catalogSearchQuery.data) {
+      setAppliedCatalogSearch(catalogSearchValue);
+      setAppliedCatalogResults(catalogSearchQuery.data);
+    }
+  }, [catalogSearchQuery.data, catalogSearchQuery.isPlaceholderData, catalogSearchValue, normalizedCatalogSearch]);
+  useEffect(() => {
+    if (!normalizedInventorySearch) {
+      setAppliedInventorySearch('');
+      setAppliedInventoryResults([]);
+      return;
+    }
+    if (inventorySearchValue && !inventorySearchQuery.isPlaceholderData && inventorySearchQuery.data) {
+      setAppliedInventorySearch(inventorySearchValue);
+      setAppliedInventoryResults(inventorySearchQuery.data);
+    }
+  }, [inventorySearchQuery.data, inventorySearchQuery.isPlaceholderData, inventorySearchValue, normalizedInventorySearch]);
+  const inventorySearchMatchedIngredientIds = useMemo(
+    () =>
+      appliedInventorySearch
+        ? Array.from(new Set(appliedInventoryResults.map((item) => item.ingredient_id)))
+        : [],
+    [appliedInventoryResults, appliedInventorySearch]
+  );
+  const catalogSearchMatchedIngredientIds = useMemo(
+    () => (appliedCatalogSearch ? Array.from(new Set(appliedCatalogResults.map((item) => item.id))) : []),
+    [appliedCatalogResults, appliedCatalogSearch]
+  );
+  const searchAwareIngredients = appliedCatalogSearch ? appliedCatalogResults : props.ingredients;
+  const searchAwareInventoryItems =
+    appliedInventorySearch ? appliedInventoryResults : props.inventoryItems;
+  const isCatalogSearchFetching =
+    Boolean(normalizedCatalogSearch) &&
+    !catalogSearchComposition.isComposing &&
+    (appliedCatalogSearch !== normalizedCatalogSearch || catalogSearchQuery.isFetching);
+  const isInventorySearchFetching =
+    Boolean(normalizedInventorySearch) &&
+    !inventorySearchComposition.isComposing &&
+    (appliedInventorySearch !== normalizedInventorySearch || inventorySearchQuery.isFetching);
 
   const {
     summaries,
@@ -1680,17 +1757,19 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
     mobileHasCatalogFilters,
     quickRestockIngredients,
   } = useIngredientWorkspaceData({
-    ingredients: props.ingredients,
-    inventoryItems: props.inventoryItems,
+    ingredients: searchAwareIngredients,
+    inventoryItems: searchAwareInventoryItems,
     recipes: props.recipes,
     shoppingItems: props.shoppingItems,
     ingredientOptions,
     selectedIngredientId,
-    catalogSearch,
+    catalogSearch: appliedCatalogSearch,
+    catalogSearchMatchedIngredientIds,
     catalogCategoryFilter,
     catalogStatusFilter,
     inventoryQuickFilter,
-    inventorySearch,
+    inventorySearch: appliedInventorySearch,
+    inventorySearchMatchedIngredientIds,
     inventoryStorageFocus,
     inventorySortMode,
     shoppingSearch,
@@ -1700,7 +1779,9 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
     filterIngredientSummariesByCatalogStatus,
     isPendingShopping,
   });
-  const mobileCatalogResetKey = [catalogSearch, mobileIngredientFilter, mobileStorageFocus].join('|');
+  const mobileCatalogResetKey = [appliedCatalogSearch, mobileIngredientFilter, mobileStorageFocus].join('|');
+  const mobileHasCatalogFiltersForUi =
+    Boolean(catalogSearch.trim()) || mobileHasCatalogFilters;
   const maxCatalogItems = Math.max(STORAGE_SHELF_MAX_DISPLAY_COLUMNS, filteredSummaries.length);
 
   const editorState = useIngredientEditorState({
@@ -1979,7 +2060,7 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
         mobileCatalogResetKey={mobileCatalogResetKey}
         mobileShoppingCards={mobileShoppingCards}
         mobileShoppingGroups={mobileShoppingGroups}
-        mobileHasCatalogFilters={mobileHasCatalogFilters}
+        mobileHasCatalogFilters={mobileHasCatalogFiltersForUi}
         notificationCenter={props.notificationCenter}
         openDetailView={openDetailView}
         openInventoryOverlay={openInventoryOverlay}
@@ -1997,6 +2078,9 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
         renderIcon={(name) => <IngredientWorkspaceIcon name={name as IngredientWorkspaceIconName} />}
         isUpdatingShopping={props.isUpdatingShopping}
         isCreatingInventory={props.isCreatingInventory}
+        isCatalogSearchFetching={isCatalogSearchFetching}
+        onCatalogSearchCompositionStart={catalogSearchComposition.onCompositionStart}
+        onCatalogSearchCompositionEnd={catalogSearchComposition.onCompositionEnd}
         catalogCountLabel={catalogCountLabel}
         catalogCategoryFilter={catalogCategoryFilter}
         catalogStatusFilter={catalogStatusFilter}
@@ -2014,6 +2098,9 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
         ScrollableChipRail={ScrollableChipRail}
         IngredientCatalogCard={IngredientCatalogCard}
         inventorySearch={inventorySearch}
+        isInventorySearchFetching={isInventorySearchFetching}
+        onInventorySearchCompositionStart={inventorySearchComposition.onCompositionStart}
+        onInventorySearchCompositionEnd={inventorySearchComposition.onCompositionEnd}
         setInventorySearch={setInventorySearch}
         inventoryQuickFilter={inventoryQuickFilter}
         setInventoryQuickFilter={setInventoryQuickFilter}

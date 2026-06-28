@@ -208,14 +208,14 @@ export const INGREDIENT_CATEGORY_PRESETS: IngredientCategoryPreset[] = [
 
 const INGREDIENT_EDITOR_CATEGORY_PRESET_LABELS = [
   '蔬菜',
-  '水果',
   '肉类',
   '水产',
   '蛋奶',
-  '豆制品',
-  '主食',
-  '干货',
   '调料',
+  '水果',
+  '主食',
+  '豆制品',
+  '干货',
   '其他',
 ];
 
@@ -823,23 +823,27 @@ export function getIngredientEditorCategoryPresets() {
 
 export function buildIngredientCategoryFilters(ingredients: Ingredient[]) {
   const existingCategories = uniqueLabels(ingredients.map((item) => normalizeCategoryLabel(item.category)));
-  const presetLabels = INGREDIENT_CATEGORY_PRESETS.map((item) => item.label).filter((label) =>
-    existingCategories.includes(label)
-  );
+  const presetLabels = INGREDIENT_EDITOR_CATEGORY_PRESET_LABELS;
+  const secondaryPresetLabels = INGREDIENT_CATEGORY_PRESETS
+    .map((item) => item.label)
+    .filter((label) => !presetLabels.includes(label) && existingCategories.includes(label));
   const customLabels = existingCategories
     .filter((label) => !INGREDIENT_CATEGORY_PRESET_MAP.has(label))
     .sort((left, right) => left.localeCompare(right, 'zh-CN'));
 
-  return [...presetLabels, ...customLabels];
+  return [...presetLabels, ...secondaryPresetLabels, ...customLabels];
 }
 
 export function filterIngredientSummaries(
   summaries: IngredientSummaryViewModel[],
   term: string,
-  categoryFilter = ALL_CATEGORY_FILTER
+  categoryFilter = ALL_CATEGORY_FILTER,
+  matchedIngredientIds: readonly string[] = []
 ) {
   const normalized = term.trim();
-  return summaries.filter((summary) => {
+  const matchedIdSet = new Set(matchedIngredientIds);
+  const matchedOrder = new Map(matchedIngredientIds.map((id, index) => [id, index]));
+  const filtered = summaries.filter((summary) => {
     const matchesCategory =
       categoryFilter === ALL_CATEGORY_FILTER || normalizeCategoryLabel(summary.ingredient.category) === categoryFilter;
     if (!matchesCategory) {
@@ -849,11 +853,29 @@ export function filterIngredientSummaries(
       return true;
     }
     return (
+      matchedIdSet.has(summary.ingredient.id) ||
       summary.ingredient.name.includes(normalized) ||
       summary.ingredient.category.includes(normalized) ||
       summary.ingredient.notes.includes(normalized) ||
       summary.recipeReferences.some((item) => item.title.includes(normalized))
     );
+  });
+  if (!normalized || matchedIngredientIds.length === 0) {
+    return filtered;
+  }
+  return [...filtered].sort((left, right) => {
+    const leftOrder = matchedOrder.get(left.ingredient.id);
+    const rightOrder = matchedOrder.get(right.ingredient.id);
+    if (leftOrder !== undefined && rightOrder !== undefined) {
+      return leftOrder - rightOrder;
+    }
+    if (leftOrder !== undefined) {
+      return -1;
+    }
+    if (rightOrder !== undefined) {
+      return 1;
+    }
+    return 0;
   });
 }
 
@@ -876,15 +898,18 @@ export function filterInventoryBatchGroups(groups: InventoryBatchGroupViewModel[
 
 export function filterIngredientSummariesForInventory(
   summaries: IngredientSummaryViewModel[],
-  term: string
+  term: string,
+  matchedIngredientIds: readonly string[] = []
 ) {
   const normalized = term.trim();
+  const matchedIdSet = new Set(matchedIngredientIds);
   if (!normalized) {
     return summaries;
   }
 
   return summaries.filter((summary) => {
     return (
+      matchedIdSet.has(summary.ingredient.id) ||
       summary.ingredient.name.includes(normalized) ||
       summary.ingredient.category.includes(normalized) ||
       summary.ingredient.notes.includes(normalized) ||

@@ -10,8 +10,9 @@ import logging
 import re
 from typing import Any
 
-from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
+from langchain_core.messages import AIMessageChunk, HumanMessage, SystemMessage, ToolMessage
 from langchain_openai import ChatOpenAI
+from openai import OpenAI
 
 from app.ai.tools.base import ToolDefinition
 from app.ai.errors import AIExecutionCancelled, ApprovalRequired, HumanInputRequired
@@ -150,6 +151,13 @@ class OpenAICompatibleChatProvider(BaseChatProvider):
             timeout=timeout_seconds,
             temperature=0.5,
             stream_usage=True,
+            max_retries=1,
+        )
+        self._langchain_client = self.client
+        self.openai_client = OpenAI(
+            api_key=api_key,
+            base_url=api_base.rstrip("/"),
+            timeout=timeout_seconds,
             max_retries=1,
         )
 
@@ -293,7 +301,7 @@ class OpenAICompatibleChatProvider(BaseChatProvider):
                     else None
                 )
                 try:
-                    for chunk in self._stream_with_usage(client, messages):
+                    for chunk in self._stream_with_usage(client, messages, tools=model_tools, temperature=0):
                         message = chunk if message is None else message + chunk
                         stream_token_usage = self._latest_token_usage(
                             trace_recorder,
@@ -867,7 +875,18 @@ class OpenAICompatibleChatProvider(BaseChatProvider):
         usage = trace_recorder.extract_token_usage(chunk)
         return usage if usage else previous
 
-    def _stream_with_usage(self, client: Any, messages: list[Any]) -> Iterator[Any]:
+    def _stream_with_usage(
+        self,
+        client: Any,
+        messages: list[Any],
+        *,
+        tools: list[dict[str, Any]] | None = None,
+        temperature: float | None = None,
+    ) -> Iterator[Any]:
+        langchain_client = getattr(self, "_langchain_client", None)
+        if langchain_client is not None and self.client is langchain_client and hasattr(self, "openai_client"):
+            yield from self._stream_openai_with_usage(messages, tools=tools or [], temperature=temperature)
+            return
         try:
             yield from client.stream(
                 messages,
@@ -878,6 +897,102 @@ class OpenAICompatibleChatProvider(BaseChatProvider):
             if "stream_usage" not in str(exc) and "stream_options" not in str(exc):
                 raise
             yield from client.stream(messages)
+
+    def _stream_openai_with_usage(
+        self,
+        messages: list[Any],
+        *,
+        tools: list[dict[str, Any]],
+        temperature: float | None,
+    ) -> Iterator[AIMessageChunk]:
+        request: dict[str, Any] = {
+            "model": self.model_name,
+            "messages": [self._message_to_openai(message) for message in messages],
+            "stream": True,
+            "stream_options": {"include_usage": True},
+        }
+        if temperature is not None:
+            request["temperature"] = temperature
+        if tools:
+            request["tools"] = tools
+        try:
+            stream = self.openai_client.chat.completions.create(**request)
+        except TypeError as exc:
+            if "stream_options" not in str(exc):
+                raise
+            request.pop("stream_options", None)
+            stream = self.openai_client.chat.completions.create(**request)
+
+        for raw_chunk in stream:
+            chunk = raw_chunk.model_dump() if hasattr(raw_chunk, "model_dump") else raw_chunk
+            if not isinstance(chunk, dict):
+                continue
+            usage = chunk.get("usage")
+            choices = chunk.get("choices") if isinstance(chunk.get("choices"), list) else []
+            for choice in choices:
+                if not isinstance(choice, dict):
+                    continue
+                delta = choice.get("delta")
+                if not isinstance(delta, dict):
+                    continue
+                content = delta.get("content")
+                text = content if isinstance(content, str) else ""
+                tool_call_chunks = self._openai_delta_tool_call_chunks(delta)
+                if text or tool_call_chunks:
+                    yield AIMessageChunk(content=text, tool_call_chunks=tool_call_chunks)
+            if isinstance(usage, dict):
+                yield AIMessageChunk(content="", response_metadata={"token_usage": usage})
+
+    def _openai_delta_tool_call_chunks(self, delta: dict[str, Any]) -> list[dict[str, Any]]:
+        raw_tool_calls = delta.get("tool_calls")
+        if not isinstance(raw_tool_calls, list):
+            return []
+        chunks: list[dict[str, Any]] = []
+        for index, item in enumerate(raw_tool_calls):
+            if not isinstance(item, dict):
+                continue
+            function = item.get("function") if isinstance(item.get("function"), dict) else {}
+            chunks.append(
+                {
+                    "name": str(function.get("name") or ""),
+                    "args": str(function.get("arguments") or ""),
+                    "id": str(item.get("id") or ""),
+                    "index": item.get("index") if item.get("index") is not None else index,
+                }
+            )
+        return chunks
+
+    def _message_to_openai(self, message: Any) -> dict[str, Any]:
+        if isinstance(message, dict):
+            return message
+        if isinstance(message, SystemMessage):
+            return {"role": "system", "content": getattr(message, "content", "")}
+        if isinstance(message, HumanMessage):
+            return {"role": "user", "content": getattr(message, "content", "")}
+        if isinstance(message, ToolMessage):
+            return {
+                "role": "tool",
+                "content": getattr(message, "content", ""),
+                "tool_call_id": getattr(message, "tool_call_id", None),
+            }
+        tool_calls = self._message_tool_calls(message)
+        payload: dict[str, Any] = {
+            "role": "assistant",
+            "content": self._content_to_text(getattr(message, "content", "")),
+        }
+        if tool_calls:
+            payload["tool_calls"] = [
+                {
+                    "id": str(call.get("id") or f"tool_call_{index + 1}"),
+                    "type": "function",
+                    "function": {
+                        "name": str(call.get("name") or ""),
+                        "arguments": json.dumps(call.get("args") or {}, ensure_ascii=False, default=str),
+                    },
+                }
+                for index, call in enumerate(tool_calls)
+            ]
+        return payload
 
     def _tool_error_message(self, name: str, exc: Exception) -> dict[str, Any]:
         return {
@@ -987,7 +1102,7 @@ class OpenAICompatibleChatProvider(BaseChatProvider):
         chunks: list[str] = []
         stream_token_usage: dict[str, Any] | None = None
         try:
-            for chunk in self._stream_with_usage(self.client, messages):
+            for chunk in self._stream_with_usage(self.client, messages, tools=[], temperature=0.5):
                 message = chunk if message is None else message + chunk
                 stream_token_usage = self._latest_token_usage(trace_recorder, chunk, stream_token_usage)
                 text = self._content_to_text(chunk.content)

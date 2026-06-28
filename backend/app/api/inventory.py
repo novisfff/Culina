@@ -4,7 +4,7 @@ from decimal import Decimal
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from app.core.deps import get_current_auth
 from app.db.session import get_db
@@ -28,14 +28,47 @@ from app.services.inventory_operations import (
     require_inventory_item,
 )
 from app.services.inventory_usage import remaining_quantity
+from app.services.search.hybrid import hybrid_search
 from app.services.serializers import serialize_inventory_item
 
 router = APIRouter(tags=["inventory"])
 
 
 @router.get("/api/inventory", response_model=list[InventoryItemOut])
-def list_inventory(auth: tuple = Depends(get_current_auth), db: Session = Depends(get_db)) -> list[dict]:
+def list_inventory(
+    q: str = Query(default="", max_length=100),
+    auth: tuple = Depends(get_current_auth),
+    db: Session = Depends(get_db),
+) -> list[dict]:
     _, membership = auth
+    query = q.strip()
+    if query:
+        search_result = hybrid_search(
+            db,
+            family_id=membership.family_id,
+            query=query,
+            scopes=["ingredient"],
+            limit=100,
+            offset=0,
+        )
+        ingredient_ids = [item.entity_id for item in search_result.items if item.entity_type == "ingredient"]
+        if not ingredient_ids:
+            return []
+        items = list(
+            db.scalars(
+                select(InventoryItem)
+                .where(
+                    InventoryItem.family_id == membership.family_id,
+                    InventoryItem.ingredient_id.in_(ingredient_ids),
+                )
+                .options(selectinload(InventoryItem.ingredient))
+            )
+        )
+        rank_by_ingredient_id = {ingredient_id: index for index, ingredient_id in enumerate(ingredient_ids)}
+        items.sort(key=lambda item: (item.updated_at, item.id), reverse=True)
+        items.sort(key=lambda item: rank_by_ingredient_id.get(item.ingredient_id, len(rank_by_ingredient_id)))
+        return [serialize_inventory_item(item) for item in items]
+
     items = list(
         db.scalars(
             select(InventoryItem)

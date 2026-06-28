@@ -35,7 +35,7 @@ npm run backend:test
 - `backend/app/services/`：业务规则、跨模型编排、序列化、媒体绑定、库存扣减等应用逻辑。
 - `backend/app/repos/`：可复用数据访问逻辑，避免路由中重复复杂查询。
 - `backend/app/core/`：配置、枚举、权限依赖、安全、日志和通用工具。
-- `backend/app/ai/`：AI workspace、skills、tools、runtime、planner、审批和图执行。
+- `backend/app/ai/`：AI workspace、skills、tools、runtime、Orchestrator、审批和图执行。
 
 路由函数可以组织请求流程，但不应承载大段业务规则。复杂规则优先下沉到 service 或 repo，并补测试。
 
@@ -104,7 +104,7 @@ AI 相关后端逻辑必须遵循 `docs/ai-assistant-standards.md`：
 - 用户确认后由 service 执行正式写入，模型不参与 commit 决策。
 - `backend/app/ai/workspace_service.py` 保持应用门面和兼容调度层，领域写入、审批执行、恢复信息和结果卡片逻辑优先放在 `backend/app/services/ai_operations/`。
 
-AI tool、skill、planner、runtime、approval 的变更优先补 `backend/tests/ai_infra/` 下的相关测试，必要时运行 `npm run backend:test`。
+AI tool、skill、Orchestrator、agent loop、runtime、approval 的变更优先补 `backend/tests/ai_infra/` 下的相关测试，必要时运行 `npm run backend:test`。
 
 ## 8. 根因修复与兜底策略
 

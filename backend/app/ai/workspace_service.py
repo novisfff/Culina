@@ -207,25 +207,27 @@ class AIApplicationService:
                 conversation_id="recipe-draft",
                 run_id=run.id,
             ),
-            allowed_tools={"recipe.create_draft"},
-            allowed_side_effects={"draft"},
+            allowed_tools={"ingredient.search", "recipe.create_draft"},
+            allowed_side_effects={"read", "draft"},
         )
         recipe_tool = tool_executor.registry.get("recipe.create_draft")
+        ingredient_search_tool = tool_executor.registry.get("ingredient.search")
         draft_output: dict[str, Any] | None = None
 
         def call_recipe_tool(name: str, payload: dict[str, Any]) -> dict[str, Any]:
             nonlocal draft_output
-            if name != "recipe.create_draft":
-                return {"error": f"独立菜谱生成只允许调用 recipe.create_draft，收到 {name}", "code": "unavailable_tool"}
+            if name not in {"ingredient.search", "recipe.create_draft"}:
+                return {"error": f"独立菜谱生成不允许调用 {name}", "code": "unavailable_tool"}
             output = tool_executor.call(name, payload)
-            draft_output = output.get("draft") if isinstance(output.get("draft"), dict) else None
+            if name == "recipe.create_draft":
+                draft_output = output.get("draft") if isinstance(output.get("draft"), dict) else None
             return output
 
         try:
             provider_kwargs: dict[str, Any] = {
                 "system": system,
                 "user": user_prompt,
-                "tools": lambda: [recipe_tool],
+                "tools": lambda: [ingredient_search_tool, recipe_tool],
                 "tool_handler": call_recipe_tool,
                 "max_rounds": 4,
             }

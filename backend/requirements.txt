@@ -12,3 +12,4 @@ langgraph==1.2.0
 langchain-openai==1.2.1
 minio==7.2.10
 Pillow==11.2.1
+pytest-cov==6.0.0

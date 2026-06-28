@@ -1,5 +1,5 @@
-import type { Dispatch, ReactNode, SetStateAction } from 'react';
-import { EmptyState } from '../ui-kit';
+import type { CompositionEventHandler, Dispatch, ReactNode, SetStateAction } from 'react';
+import { EmptyState, SearchLoadingIndicator } from '../ui-kit';
 import {
   MobileRecipeCard,
   MobileRecipeSceneCard,
@@ -28,6 +28,7 @@ export function RecipeMobileLibraryView(props: {
   notificationCenter?: ReactNode;
   favoriteRecipeIds: Set<string>;
   isUpdatingFavorite?: boolean;
+  isSearchFetching?: boolean;
   activeDiscoveryCopy: DiscoveryCopy;
   visibleCards: RecipeCardViewModel[];
   onOpenCreate: () => void;
@@ -37,6 +38,8 @@ export function RecipeMobileLibraryView(props: {
   onToggleRecipeFavorite: (card: RecipeCardViewModel) => Promise<void> | void;
   onOpenSceneManager: () => void;
   onSearchChange: (value: string) => void;
+  onSearchCompositionStart?: CompositionEventHandler<HTMLInputElement>;
+  onSearchCompositionEnd?: CompositionEventHandler<HTMLInputElement>;
   onShowMobileRecipeFilter: (filter: RecipeQuickFilter) => void;
   onShowMobileRecipeScene: (sceneName: string) => void;
   onSetRecommendationPage: Dispatch<SetStateAction<number>>;
@@ -141,7 +144,10 @@ export function RecipeMobileLibraryView(props: {
               value={props.search}
               placeholder="搜索菜谱、食材或技巧"
               onChange={(event) => props.onSearchChange(event.target.value)}
+              onCompositionStart={props.onSearchCompositionStart}
+              onCompositionEnd={props.onSearchCompositionEnd}
             />
+            <SearchLoadingIndicator active={Boolean(props.search.trim()) && Boolean(props.isSearchFetching)} />
           </label>
           <div className="mobile-recipe-tabs" aria-label="菜谱分类">
             {[

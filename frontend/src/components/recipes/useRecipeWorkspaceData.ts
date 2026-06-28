@@ -53,6 +53,7 @@ type UseRecipeWorkspaceDataArgs = {
   difficultyFilter: 'all' | Difficulty;
   sortMode: RecipeSortMode;
   search: string;
+  matchedRecipeIds?: readonly string[];
   recommendationPage: number;
   shoppingCustomForm: RecipeShoppingCustomForm;
   selectedRecipeId: string | null;
@@ -126,13 +127,15 @@ export function useRecipeWorkspaceData(args: UseRecipeWorkspaceDataArgs) {
   const sceneSelectOptions = [...new Set([...sceneFilters, ...categoryCards.map((category) => category.name)])].sort((left, right) =>
     left.localeCompare(right, 'zh-CN')
   );
+  const hasSearch = Boolean(args.search.trim());
   const discoveryBaseCards = useMemo(() => {
+    if (hasSearch) return cards;
     if (args.quickFilter === 'ready' && serverReadyCards.length > 0) return serverReadyCards;
     if (args.quickFilter === 'missing' && serverMissingCards.length > 0) return serverMissingCards;
     if (args.quickFilter === 'quick' && serverQuickCards.length > 0) return serverQuickCards;
     if (args.quickFilter === 'recommend' && serverRecommendedCards.length > 0) return serverRecommendedCards;
     return homeViewModel.recommendedCards;
-  }, [args.quickFilter, serverReadyCards, serverMissingCards, serverQuickCards, serverRecommendedCards, homeViewModel.recommendedCards]);
+  }, [hasSearch, cards, args.quickFilter, serverReadyCards, serverMissingCards, serverQuickCards, serverRecommendedCards, homeViewModel.recommendedCards]);
   const visibleCards = useMemo(
     () =>
       filterRecipeCards(discoveryBaseCards, {
@@ -142,8 +145,9 @@ export function useRecipeWorkspaceData(args: UseRecipeWorkspaceDataArgs) {
         difficultyFilter: args.difficultyFilter,
         sortMode: args.quickFilter === 'recommend' ? 'recommend' : args.sortMode,
         favoriteRecipeIds: homeViewModel.favoriteRecipeIds,
+        matchedRecipeIds: args.matchedRecipeIds,
       }),
-    [discoveryBaseCards, args.search, args.quickFilter, args.sceneFilter, args.difficultyFilter, args.sortMode, homeViewModel.favoriteRecipeIds]
+    [discoveryBaseCards, args.search, args.quickFilter, args.sceneFilter, args.difficultyFilter, args.sortMode, args.matchedRecipeIds, homeViewModel.favoriteRecipeIds]
   );
   const cookableCards = useMemo(
     () =>
@@ -153,8 +157,9 @@ export function useRecipeWorkspaceData(args: UseRecipeWorkspaceDataArgs) {
         sceneFilter: args.sceneFilter,
         difficultyFilter: args.difficultyFilter,
         sortMode: 'availability',
+        matchedRecipeIds: args.matchedRecipeIds,
       }),
-    [serverReadyCards, cards, args.search, args.sceneFilter, args.difficultyFilter]
+    [serverReadyCards, cards, args.search, args.sceneFilter, args.difficultyFilter, args.matchedRecipeIds]
   );
   const recommendedWindow = useMemo(() => {
     if (visibleCards.length === 0) return [];

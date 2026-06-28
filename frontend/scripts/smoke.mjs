@@ -209,6 +209,7 @@ const fixtures = {
   '/api/activity-logs': [],
   '/api/ai/conversations': [],
   '/api/media/ai-render/active': [],
+  '/api/search/index-jobs/active': [],
 };
 
 function assertDistExists() {
@@ -541,7 +542,7 @@ async function runTabletAirWorkspaceSmoke(browser, baseUrl) {
   if (
     homeCompactLayout.lowerColumns !== 2 ||
     homeCompactLayout.expiryColumns !== 1 ||
-    homeCompactLayout.todoColumns !== 2 ||
+    homeCompactLayout.todoColumns !== 1 ||
     homeCompactLayout.activityColumns !== 1 ||
     homeCompactLayout.weekOrder !== '1' ||
     homeCompactLayout.expiryOrder !== '2' ||
@@ -618,7 +619,7 @@ async function runTabletAirWorkspaceSmoke(browser, baseUrl) {
     recipeLayout.favoriteColumns !== 2 ||
     recipeLayout.favoriteDisplay === 'none' ||
     recipeLayout.sideFavoriteDisplay !== 'none' ||
-    recipeLayout.searchColumns !== 4 ||
+    recipeLayout.searchColumns !== 3 ||
     recipeSearchTopSpread > 2
   ) {
     throw new Error(
@@ -644,7 +645,7 @@ async function runTabletAirWorkspaceSmoke(browser, baseUrl) {
       tops: sections.map((element) => Math.round(element.getBoundingClientRect().top)),
     };
   });
-  if (ingredientCatalogLayout.columns !== 3) {
+  if (ingredientCatalogLayout.columns !== 1) {
     throw new Error(
       `1180x820 食材档案筛选布局异常：${ingredientCatalogLayout.columns} 列/${ingredientCatalogLayout.tops.join(',')}`
     );

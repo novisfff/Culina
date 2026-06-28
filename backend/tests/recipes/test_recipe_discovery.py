@@ -28,15 +28,60 @@ class RecipeRecipeDiscoveryTestCase(RecipeApiTestCase):
                 },
             )
             self.assertEqual(pancake_response.status_code, 201, pancake_response.text)
+            with self.SessionLocal() as db:
+                db.add(
+                    Ingredient(
+                        id="ingredient-banana",
+                        family_id=self.family.id,
+                        name="香蕉",
+                        category="水果",
+                        default_unit="根",
+                        unit_conversions=[],
+                        default_storage="常温",
+                        default_expiry_mode=IngredientExpiryMode.NONE,
+                        notes="",
+                        created_by=self.user.id,
+                        updated_by=self.user.id,
+                    )
+                )
+                db.commit()
+            banana_pancake_response = self.client.post(
+                "/api/recipes",
+                json={
+                    "title": "香蕉松饼",
+                    "servings": 2,
+                    "prep_minutes": 10,
+                    "difficulty": "medium",
+                    "ingredient_items": [
+                        {
+                            "ingredient_id": "ingredient-banana",
+                            "ingredient_name": "香蕉",
+                            "quantity": 1,
+                            "unit": "根",
+                            "note": "压成泥",
+                        }
+                    ],
+                    "steps": [{"text": "混合香蕉和蛋液"}, {"text": "小火煎"}],
+                    "tips": "早餐甜口",
+                    "scene_tags": ["早餐"],
+                    "media_ids": [],
+                    "auto_create_food": False,
+                },
+            )
+            self.assertEqual(banana_pancake_response.status_code, 201, banana_pancake_response.text)
 
             search_response = self.client.get("/api/recipes?q=松饼&scene=早餐&difficulty=medium")
             self.assertEqual(search_response.status_code, 200, search_response.text)
-            self.assertEqual([item["title"] for item in search_response.json()], ["鸡蛋松饼"])
+            self.assertEqual({item["title"] for item in search_response.json()}, {"鸡蛋松饼", "香蕉松饼"})
+            second_search_page = self.client.get("/api/recipes?q=松饼&scene=早餐&difficulty=medium&limit=1&offset=1")
+            self.assertEqual(second_search_page.status_code, 200, second_search_page.text)
+            self.assertEqual(len(second_search_page.json()), 1)
+            self.assertIn(second_search_page.json()[0]["title"], {"鸡蛋松饼", "香蕉松饼"})
 
             time_sorted = self.client.get("/api/recipes?sort=time").json()
-            self.assertEqual([item["title"] for item in time_sorted], ["鸡蛋松饼", tomato_recipe["title"]])
+            self.assertEqual([item["title"] for item in time_sorted], ["鸡蛋松饼", "香蕉松饼", tomato_recipe["title"]])
             paged = self.client.get("/api/recipes?sort=time&limit=1&offset=1").json()
-            self.assertEqual([item["title"] for item in paged], [tomato_recipe["title"]])
+            self.assertEqual([item["title"] for item in paged], ["香蕉松饼"])
 
             with self.SessionLocal() as db:
                 db.add(

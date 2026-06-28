@@ -250,8 +250,7 @@ class BlockingProgressiveRecipeDraftProvider(BaseChatProvider):
                         "prep_minutes": 20,
                         "difficulty": "easy",
                         "ingredient_items": [
-                            {"ingredient_id": None, "ingredient_name": "番茄", "quantity": 2, "unit": "个", "note": ""},
-                            {"ingredient_id": None, "ingredient_name": "鸡蛋", "quantity": 2, "unit": "个", "note": ""},
+                            {"ingredient_id": "ingredient-tomato", "ingredient_name": "番茄", "quantity": 2, "unit": "个", "note": ""},
                         ],
                         "steps": [
                             {
@@ -333,8 +332,7 @@ class PreviewedRecipeDraftProvider(BaseChatProvider):
                     "prep_minutes": 20,
                     "difficulty": "easy",
                     "ingredient_items": [
-                        {"ingredient_id": None, "ingredient_name": "番茄", "quantity": 2, "unit": "个", "note": ""},
-                        {"ingredient_id": None, "ingredient_name": "鸡蛋", "quantity": 2, "unit": "个", "note": ""},
+                        {"ingredient_id": "ingredient-tomato", "ingredient_name": "番茄", "quantity": 2, "unit": "个", "note": ""},
                     ],
                     "steps": [
                         {"title": "备菜", "text": "番茄切块，鸡蛋打散。", "icon": "bowl", "summary": "备菜", "estimated_minutes": 5, "tip": "", "key_points": []},
@@ -421,7 +419,7 @@ class CommitGatedRecipeProvider(BaseChatProvider):
             "servings": 2,
             "prep_minutes": 45,
             "difficulty": "medium",
-            "ingredient_items": [{"ingredient_id": None, "ingredient_name": "牛肉", "quantity": 500, "unit": "克", "note": ""}],
+            "ingredient_items": [{"ingredient_id": "ingredient-tomato", "ingredient_name": "番茄", "quantity": 2, "unit": "个", "note": ""}],
             "steps": [
                 {
                     "title": "焯水",

@@ -59,7 +59,12 @@ def build_ai_quality_metrics(
     query = select(AIAgentRun).where(AIAgentRun.family_id == family_id)
     if days is not None and days > 0:
         query = query.where(AIAgentRun.created_at >= utcnow() - timedelta(days=days))
-    runs = list(db.scalars(query.order_by(AIAgentRun.created_at.desc(), AIAgentRun.id.desc()).limit(normalized_limit)))
+    run_ids = list(db.scalars(query.with_only_columns(AIAgentRun.id).order_by(AIAgentRun.created_at.desc(), AIAgentRun.id.desc()).limit(normalized_limit)))
+    runs_by_id = {
+        run.id: run
+        for run in db.scalars(select(AIAgentRun).where(AIAgentRun.family_id == family_id, AIAgentRun.id.in_(run_ids)))
+    } if run_ids else {}
+    runs = [runs_by_id[run_id] for run_id in run_ids if run_id in runs_by_id]
 
     status_counts: Counter[str] = Counter()
     intent_counts: Counter[str] = Counter()

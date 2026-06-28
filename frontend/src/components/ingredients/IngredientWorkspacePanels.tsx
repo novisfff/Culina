@@ -1,10 +1,12 @@
-import type { ComponentType, CSSProperties, ReactNode, RefObject } from 'react';
+import type { ComponentType, CompositionEventHandler, CSSProperties, ReactNode, RefObject } from 'react';
 import type { ShoppingListItem } from '../../api/types';
 import {
   ActionButton,
   Badge,
   EmptyState,
+  SearchLoadingIndicator,
 } from '../ui-kit';
+import { IngredientCategoryIcon } from './IngredientEditorView';
 import type {
   IngredientSummaryViewModel,
   InventoryStorageOverviewViewModel,
@@ -13,6 +15,7 @@ import type {
   ShoppingCardViewModel,
   StorageGroupViewModel,
 } from './workspaceModel';
+import { getIngredientCategoryPreset } from './workspaceModel';
 import type { InventoryStorageFocus, InventorySortMode } from './ingredientWorkspaceForms';
 import type { CatalogStatusFilter } from './useIngredientWorkspaceState';
 
@@ -23,6 +26,7 @@ type IngredientWorkspaceIconName =
   | 'bell'
   | 'alert'
   | 'sort'
+  | 'inventory'
   | 'shopping'
   | 'plus'
   | 'metricList'
@@ -83,6 +87,9 @@ type CatalogPanelProps = {
   stockedIngredientCount: number;
   catalogCountLabel: string;
   catalogSearch: string;
+  isCatalogSearchFetching?: boolean;
+  onCatalogSearchCompositionStart?: CompositionEventHandler<HTMLInputElement>;
+  onCatalogSearchCompositionEnd?: CompositionEventHandler<HTMLInputElement>;
   catalogCategoryFilter: string;
   catalogStatusFilter: CatalogStatusFilter;
   catalogCategories: string[];
@@ -134,7 +141,10 @@ export function IngredientCatalogPanel(props: CatalogPanelProps) {
                 placeholder="搜索食材、分类、备注或关联菜谱"
                 value={props.catalogSearch}
                 onChange={(event) => props.onCatalogSearchChange(event.target.value)}
+                onCompositionStart={props.onCatalogSearchCompositionStart}
+                onCompositionEnd={props.onCatalogSearchCompositionEnd}
               />
+              <SearchLoadingIndicator active={Boolean(props.catalogSearch.trim()) && Boolean(props.isCatalogSearchFetching)} />
             </span>
           </label>
           <span className="ingredients-catalog-search-count">
@@ -147,53 +157,64 @@ export function IngredientCatalogPanel(props: CatalogPanelProps) {
               <props.IngredientWorkspaceIcon name="filter" />
               分类筛选
             </span>
-            <props.ScrollableChipRail ariaLabel="按分类筛选食材档案" railClassName="ingredients-category-rail">
+            <div className="ingredients-catalog-category-row" role="group" aria-label="按分类筛选食材档案">
               <button
                 className={props.catalogCategoryFilter === 'all' ? 'chip ingredients-category-chip active' : 'chip ingredients-category-chip'}
                 type="button"
                 onClick={() => props.onCatalogCategoryFilterChange('all')}
               >
+                <span className="ingredients-category-chip-icon" aria-hidden="true">
+                  <props.IngredientWorkspaceIcon name="total" />
+                </span>
                 全部
               </button>
-              {props.catalogCategories.map((category) => (
-                <button
-                  key={category}
-                  className={props.catalogCategoryFilter === category ? 'chip ingredients-category-chip active' : 'chip ingredients-category-chip'}
-                  type="button"
-                  onClick={() => props.onCatalogCategoryFilterChange(category)}
-                >
-                  {category}
-                </button>
-              ))}
-            </props.ScrollableChipRail>
-          </div>
-          <div className="ingredients-catalog-filter-section ingredients-catalog-filter-section-status" aria-label="按库存状态筛选食材档案">
-            <span className="ingredients-catalog-label-with-icon">
-              <props.IngredientWorkspaceIcon name="status" />
-              状态筛选
-            </span>
-            <div className="ingredients-catalog-status-filter-row">
-              {props.catalogStatusItems.map((item) => {
+              {props.catalogCategories.map((category) => {
+                const categoryPreset = getIngredientCategoryPreset(category);
                 return (
                   <button
-                    key={item.value}
-                    className={props.catalogStatusFilter === item.value ? `chip ingredients-status-chip tone-${item.value} active` : `chip ingredients-status-chip tone-${item.value}`}
+                    key={category}
+                    className={props.catalogCategoryFilter === category ? 'chip ingredients-category-chip active' : 'chip ingredients-category-chip'}
                     type="button"
-                    onClick={() => props.onCatalogStatusFilterChange(item.value)}
+                    onClick={() => props.onCatalogCategoryFilterChange(category)}
                   >
-                    {item.label}
-                    <small>{props.catalogStatusCounts[item.value]}</small>
+                    <span className="ingredients-category-chip-icon" aria-hidden="true">
+                      <IngredientCategoryIcon name={categoryPreset?.icon ?? 'more'} />
+                    </span>
+                    {category}
                   </button>
                 );
               })}
             </div>
           </div>
-          <button className="ingredients-catalog-clear-filter" type="button" onClick={props.onResetCatalogFilters}>
-            <span className="ingredients-catalog-clear-filter-icon" aria-hidden="true">
-              <props.IngredientWorkspaceIcon name="reset" />
-            </span>
-            清空筛选
-          </button>
+          <div className="ingredients-catalog-filter-row-secondary">
+            <div className="ingredients-catalog-filter-section ingredients-catalog-filter-section-status" aria-label="按库存状态筛选食材档案">
+              <span className="ingredients-catalog-label-with-icon">
+                <props.IngredientWorkspaceIcon name="status" />
+                状态筛选
+              </span>
+              <div className="ingredients-catalog-status-filter-row">
+                {props.catalogStatusItems.map((item) => {
+                  return (
+                    <button
+                      key={item.value}
+                      className={props.catalogStatusFilter === item.value ? `chip ingredients-status-chip tone-${item.value} active` : `chip ingredients-status-chip tone-${item.value}`}
+                      type="button"
+                      onClick={() => props.onCatalogStatusFilterChange(item.value)}
+                    >
+                      {item.label}
+                      <small>{props.catalogStatusCounts[item.value]}</small>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+            <button className="ingredients-catalog-clear-filter" type="button" onClick={props.onResetCatalogFilters}>
+              <span className="ingredients-catalog-clear-filter-icon" aria-hidden="true">
+                <props.IngredientWorkspaceIcon name="reset" />
+              </span>
+              清空筛选
+            </button>
+          </div>
         </div>
       </section>
       <div ref={props.catalogMeasureRef} className="ingredient-grid ingredient-grid-catalog ingredients-catalog-grid" style={props.catalogGridStyle}>
@@ -234,6 +255,9 @@ export function IngredientCatalogPanel(props: CatalogPanelProps) {
 type InventoryPanelProps = {
   summariesCount: number;
   inventorySearch: string;
+  isInventorySearchFetching?: boolean;
+  onInventorySearchCompositionStart?: CompositionEventHandler<HTMLInputElement>;
+  onInventorySearchCompositionEnd?: CompositionEventHandler<HTMLInputElement>;
   inventoryQuickFilter: 'all' | 'alerted';
   inventoryStorageFocus: InventoryStorageFocus;
   inventorySortMode: InventorySortMode;
@@ -263,10 +287,11 @@ export function IngredientInventoryPanel(props: InventoryPanelProps) {
         <div className="ingredients-inventory-toolbar-main">
           <label className="ingredients-search-field ingredients-inventory-search-field">
             <span className="ingredients-toolbar-label ingredients-catalog-label-with-icon">
+              <props.IngredientWorkspaceIcon name="inventory" />
               库存检索
             </span>
-            <span className="ingredients-catalog-search-input-shell">
-              <span className="ingredients-catalog-search-input-icon" aria-hidden="true">
+            <span className="ingredients-inventory-search-input-shell">
+              <span className="ingredients-inventory-search-input-icon" aria-hidden="true">
                 <props.IngredientWorkspaceIcon name="search" />
               </span>
               <input
@@ -274,7 +299,10 @@ export function IngredientInventoryPanel(props: InventoryPanelProps) {
                 placeholder="搜索食材名称、分类、位置或提醒"
                 value={props.inventorySearch}
                 onChange={(event) => props.onInventorySearchChange(event.target.value)}
+                onCompositionStart={props.onInventorySearchCompositionStart}
+                onCompositionEnd={props.onInventorySearchCompositionEnd}
               />
+              <SearchLoadingIndicator active={Boolean(props.inventorySearch.trim()) && Boolean(props.isInventorySearchFetching)} />
             </span>
           </label>
           <div className="ingredients-inventory-filter-row">
@@ -473,6 +501,10 @@ export function IngredientShoppingPanel(props: ShoppingPanelProps) {
       <section className="ingredients-shopping-filter-shell" aria-label="采购筛选">
         <div className="ingredients-shopping-toolbar-tools">
           <label className="ingredients-search-field ingredients-shopping-search-field">
+            <span className="ingredients-toolbar-label ingredients-catalog-label-with-icon">
+              <props.IngredientWorkspaceIcon name="shopping" />
+              采购检索
+            </span>
             <span className="ingredients-shopping-search-input-shell">
               <span className="ingredients-shopping-search-input-icon" aria-hidden="true">
                 <props.IngredientWorkspaceIcon name="search" />

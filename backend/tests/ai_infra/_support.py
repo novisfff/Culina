@@ -61,6 +61,7 @@ from app.models.domain import (
     RecipeCookLog,
     RecipeFavorite,
     RecipeIngredient,
+    SearchIndexJob,
     ShoppingListItem,
     User,
 )

@@ -5,7 +5,11 @@ export function AiWelcomePrompt(props: { onPickSuggestion: (value: string) => vo
     <div className="ai-empty-prompt">
       <section className="ai-welcome-card">
         <div className="ai-welcome-visual" aria-hidden="true">
-          <img src="/assets/bot_area.webp" alt="" className="ai-bot-visual-img" />
+          <img
+            src="/assets/bot_area.webp"
+            alt=""
+            className="ai-bot-visual-img"
+          />
         </div>
         <div className="ai-welcome-copy">
           <strong>你好，我是你的 AI 厨房助手 👋</strong>

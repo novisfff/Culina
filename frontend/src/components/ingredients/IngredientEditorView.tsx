@@ -20,7 +20,7 @@ import {
 
 const EXPIRY_DAY_MARKS = [1, 3, 7, 14, 30];
 
-function IngredientCategoryIcon(props: { name: string }) {
+export function IngredientCategoryIcon(props: { name: string }) {
   switch (props.name) {
     case 'vegetable':
       return (

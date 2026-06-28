@@ -1,8 +1,13 @@
-import type { Dispatch, FormEvent, SetStateAction } from 'react';
+import { useEffect, useMemo, useRef, useState, type Dispatch, type FormEvent, type SetStateAction } from 'react';
+import { keepPreviousData, useQuery } from '@tanstack/react-query';
+import { api } from '../../api/client';
+import { queryKeys } from '../../api/queryKeys';
 import type { Difficulty, Ingredient, MediaAsset } from '../../api/types';
 import type { AiRenderPayload } from '../../lib/aiImages';
+import { resolveAssetUrl } from '../../lib/assets';
 import { MediaWithPlaceholder } from '../MediaPlaceholder';
-import { ActionButton, WorkspaceSubpageShell } from '../ui-kit';
+import { useDebouncedSearchValue, useSearchCompositionState } from '../../hooks/useDebouncedValue';
+import { ActionButton, SearchLoadingIndicator, WorkspaceSubpageShell } from '../ui-kit';
 import {
   MAX_STEP_KEY_POINTS,
   RECIPE_STEP_ICON_OPTIONS,
@@ -72,11 +77,13 @@ type RecipeEditorViewProps = {
   showAiDraftAction?: boolean;
   showDeleteAction?: boolean;
   compactHeader?: boolean;
+  backLabel?: string;
   onBack: () => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
   onDelete: () => Promise<void> | void;
   onOpenDraftDialog: () => void;
   updateIngredientRow: (id: string, key: 'ingredient_id' | 'quantity' | 'unit' | 'note', value: string) => void;
+  selectIngredientRow: (id: string, ingredient: Ingredient | null) => void;
   updateIngredientNote: (id: string, value: string) => void;
   updateIngredientRequirement: (id: string, requirement: RecipeShoppingRequirement) => void;
   addIngredientRow: () => void;
@@ -93,6 +100,179 @@ type RecipeEditorViewProps = {
   handleRecipeImageGenerate: (mode: 'reference' | 'text') => Promise<void>;
   resetRecipeImageInput: () => void;
 };
+
+type RecipeIngredientPickerProps = {
+  row: RecipeDraftIngredient;
+  rowIndex: number;
+  ingredients: Ingredient[];
+  onSelect: (ingredient: Ingredient | null) => void;
+};
+
+function RecipeIngredientPicker({ row, rowIndex, ingredients, onSelect }: RecipeIngredientPickerProps) {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState('');
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  const inputRef = useRef<HTMLInputElement | null>(null);
+  const normalizedSearch = search.trim();
+  const searchComposition = useSearchCompositionState();
+  const searchValue = useDebouncedSearchValue(search, { isComposing: searchComposition.isComposing });
+  const selectedIngredient = ingredients.find((ingredient) => ingredient.id === row.ingredient_id) ?? null;
+  const selectedLabel = selectedIngredient?.name ?? row.ingredient_name.trim();
+  const ingredientSearchQuery = useQuery({
+    queryKey: queryKeys.ingredientPickerSearch(searchValue),
+    queryFn: () => api.getIngredients({ q: searchValue, limit: 20 }),
+    enabled: open && Boolean(searchValue),
+    placeholderData: keepPreviousData,
+  });
+  const [appliedSearch, setAppliedSearch] = useState('');
+  const [appliedSearchResults, setAppliedSearchResults] = useState<Ingredient[]>([]);
+  useEffect(() => {
+    if (!normalizedSearch) {
+      setAppliedSearch('');
+      setAppliedSearchResults([]);
+      return;
+    }
+    if (searchValue && !ingredientSearchQuery.isPlaceholderData && ingredientSearchQuery.data) {
+      setAppliedSearch(searchValue);
+      setAppliedSearchResults(ingredientSearchQuery.data);
+    }
+  }, [ingredientSearchQuery.data, ingredientSearchQuery.isPlaceholderData, normalizedSearch, searchValue]);
+  const optionSource = normalizedSearch ? appliedSearchResults : ingredients;
+  const isIngredientSearchFetching =
+    Boolean(normalizedSearch) &&
+    !searchComposition.isComposing &&
+    (appliedSearch !== normalizedSearch || ingredientSearchQuery.isFetching);
+  const options = useMemo(() => {
+    const seen = new Set<string>();
+    return [
+      selectedIngredient,
+      ...optionSource,
+    ]
+      .filter((ingredient): ingredient is Ingredient => Boolean(ingredient))
+      .filter((ingredient) => {
+        if (seen.has(ingredient.id)) return false;
+        seen.add(ingredient.id);
+        return true;
+      })
+      .slice(0, 20);
+  }, [optionSource, selectedIngredient]);
+
+  useEffect(() => {
+    if (!open) return;
+    const handlePointerDown = (event: MouseEvent) => {
+      if (!rootRef.current?.contains(event.target as Node)) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handlePointerDown);
+    return () => document.removeEventListener('mousedown', handlePointerDown);
+  }, [open]);
+
+  useEffect(() => {
+    if (open) {
+      window.setTimeout(() => inputRef.current?.focus(), 0);
+    }
+  }, [open]);
+
+  function openPicker() {
+    setSearch(selectedLabel || '');
+    setOpen(true);
+  }
+
+  function selectOption(ingredient: Ingredient | null) {
+    onSelect(ingredient);
+    setSearch(ingredient?.name ?? '');
+    setOpen(false);
+  }
+
+  return (
+    <div className={open ? 'recipe-ingredient-picker is-open' : 'recipe-ingredient-picker'} ref={rootRef}>
+      <button
+        className={selectedLabel ? 'recipe-ingredient-picker-trigger has-value' : 'recipe-ingredient-picker-trigger'}
+        type="button"
+        onClick={openPicker}
+        aria-expanded={open}
+        aria-haspopup="listbox"
+      >
+        {selectedIngredient && (
+          selectedIngredient.image?.url ? (
+            <MediaWithPlaceholder
+              src={resolveAssetUrl(selectedIngredient.image.url)}
+              alt={selectedLabel}
+              className="recipe-ingredient-picker-trigger-thumb"
+              showLabel={false}
+            />
+          ) : (
+            <span className="recipe-ingredient-picker-trigger-thumb-placeholder">
+              <RecipeUiIcon name="basket" />
+            </span>
+          )
+        )}
+        <span>{selectedLabel || `选择原料 ${rowIndex + 1}`}</span>
+        <RecipeUiIcon name="chevronDown" />
+      </button>
+      {open && (
+        <div className="recipe-ingredient-picker-panel">
+          <div className="recipe-ingredient-picker-search">
+            <input
+              ref={inputRef}
+              value={search}
+              placeholder="搜索或选择食材"
+              onChange={(event) => setSearch(event.target.value)}
+              onCompositionStart={searchComposition.onCompositionStart}
+              onCompositionEnd={searchComposition.onCompositionEnd}
+              onKeyDown={(event) => {
+                if (event.key === 'Escape') {
+                  setOpen(false);
+                }
+                if (event.key === 'Enter' && options[0]) {
+                  event.preventDefault();
+                  selectOption(options[0]);
+                }
+              }}
+            />
+            <SearchLoadingIndicator active={isIngredientSearchFetching} />
+            <RecipeUiIcon name="chevronDown" />
+          </div>
+          <div className="recipe-ingredient-picker-list" role="listbox">
+            {(row.ingredient_id || selectedLabel) && (
+              <button className="recipe-ingredient-picker-clear" type="button" onClick={() => selectOption(null)}>
+                清空选择
+              </button>
+            )}
+            {isIngredientSearchFetching && (
+              <div className="recipe-ingredient-picker-status">正在搜索...</div>
+            )}
+            {!isIngredientSearchFetching && appliedSearch === normalizedSearch && options.length === 0 && (
+              <div className="recipe-ingredient-picker-status">没有找到匹配食材</div>
+            )}
+            {options.map((ingredient) => (
+              <button
+                key={ingredient.id}
+                className={ingredient.id === row.ingredient_id ? 'recipe-ingredient-picker-option is-selected' : 'recipe-ingredient-picker-option'}
+                type="button"
+                role="option"
+                aria-selected={ingredient.id === row.ingredient_id}
+                onClick={() => selectOption(ingredient)}
+              >
+                <MediaWithPlaceholder
+                  src={resolveAssetUrl(ingredient.image?.url)}
+                  alt={ingredient.name}
+                  className="recipe-ingredient-picker-thumb"
+                  emptyLabel="暂无图"
+                />
+                <span>
+                  <strong>{ingredient.name}</strong>
+                  <small>{[ingredient.category, `默认 ${ingredient.default_unit}`, ingredient.default_storage].filter(Boolean).join(' · ')}</small>
+                </span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
 export function RecipeEditorView({
   isEditing,
@@ -129,11 +309,13 @@ export function RecipeEditorView({
   showAiDraftAction = true,
   showDeleteAction = true,
   compactHeader = false,
+  backLabel,
   onBack,
   onSubmit,
   onDelete,
   onOpenDraftDialog,
   updateIngredientRow,
+  selectIngredientRow,
   updateIngredientNote,
   updateIngredientRequirement,
   addIngredientRow,
@@ -157,7 +339,7 @@ export function RecipeEditorView({
               <div className="recipe-editor-topbar">
                 <button className="workspace-back-link recipe-detail-back-link" type="button" onClick={() => onBack()}>
                   <RecipeUiIcon name="chevronLeft" />
-                  {isEditing ? '返回详情' : '返回菜谱'}
+                  {backLabel ?? (isEditing ? '返回详情' : '返回菜谱')}
                 </button>
               </div>
               <div className="recipe-editor-title-block">
@@ -218,46 +400,60 @@ export function RecipeEditorView({
                   </ActionButton>
                 </div>
                 <div className="recipe-editor-ingredient-table">
-                  <div className="recipe-editor-ingredient-head">
-                    <span />
-                    <span>原料</span>
-                    <span>数量</span>
-                    <span>单位</span>
-                    <span>类型</span>
-                    <span>备注（选填）</span>
-                    <span>操作</span>
-                  </div>
                   {ingredientRows.map((item, index) => (
                     <div key={item.id} className="recipe-editor-ingredient-row">
                       <span className="recipe-editor-drag-handle">::</span>
-                      <select className="text-input" value={item.ingredient_id ?? ''} onChange={(event) => updateIngredientRow(item.id, 'ingredient_id', event.target.value)}>
-                        <option value="">{item.ingredient_name || `选择原料 ${index + 1}`}</option>
-                        {ingredients.map((ingredient) => (
-                          <option key={ingredient.id} value={ingredient.id}>
-                            {ingredient.name}
-                          </option>
-                        ))}
-                      </select>
-                      <input className="text-input" type="number" min="0.1" step="0.1" value={item.quantity} onChange={(event) => updateIngredientRow(item.id, 'quantity', event.target.value)} />
-                      <select className="text-input" value={item.unit} onChange={(event) => updateIngredientRow(item.id, 'unit', event.target.value)}>
-                        {[...new Set([item.unit, ...SHOPPING_UNIT_OPTIONS])].filter(Boolean).map((unit) => (
-                          <option key={unit} value={unit}>{unit}</option>
-                        ))}
-                      </select>
-                      <select
-                        className="text-input"
-                        value={getRecipeShoppingRequirement(item)}
-                        onChange={(event) => updateIngredientRequirement(item.id, event.target.value as RecipeShoppingRequirement)}
-                      >
-                        <option value="required">必须</option>
-                        <option value="optional">可选</option>
-                      </select>
-                      <input
-                        className="text-input"
-                        value={stripRecipeIngredientRequirementNote(item.note)}
-                        placeholder="处理备注"
-                        onChange={(event) => updateIngredientNote(item.id, event.target.value)}
-                      />
+                      
+                      <div className="recipe-editor-ingredient-main">
+                        <div className="recipe-editor-ingredient-col-left">
+                          <RecipeIngredientPicker
+                            row={item}
+                            rowIndex={index}
+                            ingredients={ingredients}
+                            onSelect={(ingredient) => selectIngredientRow(item.id, ingredient)}
+                          />
+                          <input
+                            className="text-input recipe-editor-ingredient-note"
+                            value={stripRecipeIngredientRequirementNote(item.note)}
+                            placeholder="备注 (选填)"
+                            onChange={(event) => updateIngredientNote(item.id, event.target.value)}
+                          />
+                        </div>
+                        
+                        <div className="recipe-editor-ingredient-col-right">
+                          <div className="recipe-editor-ingredient-qty-group">
+                            <input
+                              className="text-input"
+                              type="number"
+                              min="0.1"
+                              step="0.1"
+                              placeholder="数量"
+                              value={item.quantity}
+                              onChange={(event) => updateIngredientRow(item.id, 'quantity', event.target.value)}
+                            />
+                            <select
+                              className="text-input"
+                              value={item.unit}
+                              onChange={(event) => updateIngredientRow(item.id, 'unit', event.target.value)}
+                            >
+                              {[...new Set([item.unit, ...SHOPPING_UNIT_OPTIONS])].filter(Boolean).map((unit) => (
+                                <option key={unit} value={unit}>{unit}</option>
+                              ))}
+                            </select>
+                          </div>
+                          
+                          <label className="recipe-editor-ingredient-must-toggle">
+                            <input
+                              type="checkbox"
+                              checked={getRecipeShoppingRequirement(item) === 'required'}
+                              onChange={(event) => updateIngredientRequirement(item.id, event.target.checked ? 'required' : 'optional')}
+                            />
+                            <span className="toggle-slider" />
+                            <span className="toggle-label">必须</span>
+                          </label>
+                        </div>
+                      </div>
+
                       <button className="recipe-editor-icon-button" type="button" onClick={() => removeIngredientRow(item.id)} aria-label={`删除原料 ${index + 1}`}>
                         <RecipeUiIcon name="minus" />
                       </button>
@@ -284,52 +480,56 @@ export function RecipeEditorView({
                       <div key={step.id} className="recipe-editor-step-card">
                         <span className="recipe-editor-step-index">{index + 1}</span>
                         <div className="recipe-editor-step-fields">
-                          <label>
-                            <span>图标</span>
-                            <span className="recipe-editor-icon-select">
-                              <RecipeUiIcon name={getRecipeStepIconName(step.icon)} />
-                              <select
+                          <div className="recipe-editor-step-fields-row-1">
+                            <label className="recipe-editor-step-field-icon">
+                              <span>图标</span>
+                              <span className="recipe-editor-icon-select">
+                                <RecipeUiIcon name={getRecipeStepIconName(step.icon)} />
+                                <select
+                                  className="text-input"
+                                  value={step.icon}
+                                  onChange={(event) => updateStepDraft(step.id, { icon: event.target.value })}
+                                >
+                                  {RECIPE_STEP_ICON_OPTIONS.map((option) => (
+                                    <option key={option.value} value={option.value}>
+                                      {option.label}
+                                    </option>
+                                  ))}
+                                </select>
+                              </span>
+                            </label>
+                            <label className="recipe-editor-step-field-time">
+                              <span>预计用时（分钟）</span>
+                              <input
                                 className="text-input"
-                                value={step.icon}
-                                onChange={(event) => updateStepDraft(step.id, { icon: event.target.value })}
-                              >
-                                {RECIPE_STEP_ICON_OPTIONS.map((option) => (
-                                  <option key={option.value} value={option.value}>
-                                    {option.label}
-                                  </option>
-                                ))}
-                              </select>
-                            </span>
-                          </label>
-                          <label>
-                            <span>预计用时（分钟）</span>
-                            <input
-                              className="text-input"
-                              type="number"
-                              min="0"
-                              step="1"
-                              value={step.estimatedMinutes}
-                              onChange={(event) => updateStepDraft(step.id, { estimatedMinutes: event.target.value })}
-                            />
-                          </label>
-                          <label>
-                            <span>步骤名称</span>
-                            <input
-                              className="text-input"
-                              value={step.title}
-                              placeholder="例如：冷蒸三文鱼"
-                              onChange={(event) => updateStepDraft(step.id, { title: event.target.value })}
-                            />
-                          </label>
-                          <label>
-                            <span>一句话说明</span>
-                            <input
-                              className="text-input"
-                              value={step.summary}
-                              placeholder="例如：蒸出嫩滑口感"
-                              onChange={(event) => updateStepDraft(step.id, { summary: event.target.value })}
-                            />
-                          </label>
+                                type="number"
+                                min="0"
+                                step="1"
+                                value={step.estimatedMinutes}
+                                onChange={(event) => updateStepDraft(step.id, { estimatedMinutes: event.target.value })}
+                              />
+                            </label>
+                            <label className="recipe-editor-step-field-title">
+                              <span>步骤名称</span>
+                              <input
+                                className="text-input"
+                                value={step.title}
+                                placeholder="例如：冷蒸三文鱼"
+                                onChange={(event) => updateStepDraft(step.id, { title: event.target.value })}
+                              />
+                            </label>
+                          </div>
+                          <div className="recipe-editor-step-fields-row-2">
+                            <label className="recipe-editor-step-field-summary">
+                              <span>一句话说明</span>
+                              <input
+                                className="text-input"
+                                value={step.summary}
+                                placeholder="例如：蒸出嫩滑口感"
+                                onChange={(event) => updateStepDraft(step.id, { summary: event.target.value })}
+                              />
+                            </label>
+                          </div>
 
                           <section className="recipe-editor-step-detail recipe-editor-step-wide">
                             <span className="recipe-editor-step-detail-icon"><RecipeUiIcon name="clipboard" /></span>

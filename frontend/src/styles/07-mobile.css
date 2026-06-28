@@ -12,12 +12,18 @@
     max-width: 100%;
     min-height: var(--app-visual-viewport-height, 100vh);
     overflow-x: hidden;
-    padding: 0 12px calc(104px + env(safe-area-inset-bottom, 0px) + var(--app-visual-viewport-bottom-inset, 0px));
+    padding: 0 12px calc(104px + env(safe-area-inset-bottom, 0px));
     background:
       radial-gradient(circle at 8% 2%, rgba(212, 112, 51, 0.11), transparent 24%),
       radial-gradient(circle at 92% 8%, rgba(128, 151, 115, 0.1), transparent 24%),
       linear-gradient(180deg, #fffdf9 0%, #faf4ed 52%, #f6efe7 100%);
     overscroll-behavior-x: none;
+  }
+
+  .app-shell.app-shell-ai {
+    min-height: 100%;
+    padding: 0;
+    background: linear-gradient(180deg, #fffaf5 0%, #fffdfb 42%, #fff 100%);
   }
 
   .app-frame,
@@ -37,6 +43,10 @@
   @supports (height: 100dvh) {
     .app-shell {
       min-height: var(--app-visual-viewport-height, 100dvh);
+    }
+
+    .app-shell.app-shell-ai {
+      min-height: 100%;
     }
   }
 
@@ -1157,7 +1167,7 @@
   .mobile-recipe-search input {
     width: 100%;
     min-height: 58px;
-    padding: 0 20px 0 52px;
+    padding: 0 44px 0 52px;
     border: 1px solid rgba(224, 197, 180, 0.96);
     border-radius: 999px;
     background: rgba(255, 255, 255, 0.68);
@@ -1166,6 +1176,15 @@
     font-size: 0.98rem;
     font-weight: 760;
     box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.55);
+  }
+
+  .mobile-recipe-search .search-loading-indicator,
+  .mobile-ingredient-search .search-loading-indicator,
+  .mobile-food-search .search-loading-indicator {
+    position: absolute;
+    top: calc(50% - 7px);
+    right: 20px;
+    z-index: 3;
   }
 
   .mobile-recipe-search input::placeholder {
@@ -1920,7 +1939,7 @@
   .mobile-ingredient-search input {
     width: 100%;
     min-height: 58px;
-    padding: 0 20px 0 52px;
+    padding: 0 44px 0 52px;
     border: 1px solid rgba(224, 197, 180, 0.96);
     border-radius: 999px;
     background: rgba(255, 255, 255, 0.68);
@@ -3023,7 +3042,7 @@
   .mobile-food-search input {
     width: 100%;
     min-height: 58px;
-    padding: 0 20px 0 52px;
+    padding: 0 44px 0 52px;
     border: 1px solid rgba(224, 197, 180, 0.96);
     border-radius: 999px;
     background: rgba(255, 255, 255, 0.68);
@@ -5021,7 +5040,6 @@
 
   .mobile-dashboard-food-cover {
     --media-placeholder-gap: 6px;
-    --media-placeholder-icon-size: clamp(76px, 62%, 94px);
     --media-placeholder-label-font-size: 0.72rem;
     --media-placeholder-label-padding: 3px 10px;
     --media-placeholder-glow-size: 58%;
@@ -5411,7 +5429,6 @@
   }
 
   .mobile-dashboard-plan-dish > .media-with-placeholder {
-    --media-placeholder-icon-size: 18px;
     width: 36px;
     height: 34px;
   }
@@ -5495,7 +5512,6 @@
   }
 
   .mobile-dashboard-shopping-pill .media-with-placeholder {
-    --media-placeholder-icon-size: 28px;
     width: 100%;
     height: 100%;
     display: block;
@@ -5524,7 +5540,7 @@
     position: fixed;
     left: 50%;
     right: auto;
-    bottom: calc(var(--mobile-nav-bottom-gap) + var(--app-visual-viewport-bottom-inset, 0px));
+    bottom: var(--mobile-nav-bottom-gap);
     z-index: 60;
     width: min(calc(100% - 24px), 456px);
     max-width: calc(100% - 24px);
@@ -5653,6 +5669,12 @@
   .mobile-bottom-nav-item.active:not(.mobile-bottom-nav-ai-item) svg {
     width: 17px;
     height: 17px;
+  }
+
+  .app-mobile-keyboard-open .mobile-bottom-nav {
+    opacity: 0;
+    pointer-events: none;
+    transform: translate3d(-50%, 14px, 0);
   }
 
 }

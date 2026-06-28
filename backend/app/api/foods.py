@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import date, datetime, time, timedelta
 
-from sqlalchemy import or_, select
+from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
@@ -20,6 +20,8 @@ from app.services.ingredient_units import UnitConversionError
 from app.services.inventory_usage import load_available_inventory_by_ingredient, recipe_availability_summary
 from app.services.media import bind_media_assets, replace_media_assets
 from app.ai.images.jobs import attach_image_generation_job_to_entity
+from app.services.search.hybrid import hybrid_search
+from app.services.search.jobs import enqueue_search_index_job
 from app.services.serializers import serialize_food
 
 router = APIRouter(tags=["foods"])
@@ -389,11 +391,37 @@ def list_foods(
     db: Session = Depends(get_db),
 ) -> list[dict]:
     _, membership = auth
-    statement = select(Food).where(Food.family_id == membership.family_id)
     query = q.strip()
     if query:
-        pattern = f"%{query}%"
-        statement = statement.where(or_(Food.name.ilike(pattern), Food.category.ilike(pattern)))
+        search_limit = limit or 100
+        search_offset = offset if limit is not None else 0
+        search_result = hybrid_search(
+            db,
+            family_id=membership.family_id,
+            query=query,
+            scopes=["food"],
+            limit=search_limit,
+            offset=search_offset,
+        )
+        ids = [item.entity_id for item in search_result.items if item.entity_type == "food"]
+        if not ids:
+            return []
+        foods_by_id = {
+            item.id: item
+            for item in db.scalars(select(Food).where(Food.family_id == membership.family_id, Food.id.in_(ids)))
+        }
+        foods = [foods_by_id[item_id] for item_id in ids if item_id in foods_by_id]
+        media_map = build_media_map(
+            get_media_assets_for_entities(
+                db,
+                family_id=membership.family_id,
+                entity_type="food",
+                entity_ids=[food.id for food in foods],
+            )
+        )
+        return [serialize_food(food, media_map) for food in foods]
+
+    statement = select(Food).where(Food.family_id == membership.family_id)
     statement = statement.order_by(Food.updated_at.desc(), Food.id)
     if limit is not None:
         statement = statement.offset(offset).limit(limit)
@@ -440,6 +468,7 @@ def create_food(
         entity_id=food.id,
         summary=f"新增{'家常菜' if food.type == FoodType.SELF_MADE.value else '食物'} {food.name}",
     )
+    enqueue_search_index_job(db, family_id=membership.family_id, user_id=user.id, entity_type="food", entity_id=food.id, target_name=food.name)
     commit_session(db)
     media_map = build_media_map(get_media_assets_for_entities(db, family_id=membership.family_id, entity_type="food", entity_ids=[food.id]))
     return serialize_food(food, media_map)
@@ -486,6 +515,7 @@ def update_food(
         entity_id=food.id,
         summary=f"更新食物 {food.name}",
     )
+    enqueue_search_index_job(db, family_id=membership.family_id, user_id=user.id, entity_type="food", entity_id=food.id, target_name=food.name)
     commit_session(db)
     media_map = build_media_map(get_media_assets_for_entities(db, family_id=membership.family_id, entity_type="food", entity_ids=[food.id]))
     return serialize_food(food, media_map)
@@ -513,6 +543,7 @@ def update_food_favorite(
         entity_id=food.id,
         summary=f"{food.name}已{'加入' if food.favorite else '移出'}收藏",
     )
+    enqueue_search_index_job(db, family_id=membership.family_id, user_id=user.id, entity_type="food", entity_id=food.id, target_name=food.name)
     commit_session(db)
     media_map = build_media_map(get_media_assets_for_entities(db, family_id=membership.family_id, entity_type="food", entity_ids=[food.id]))
     return serialize_food(food, media_map)

@@ -12,6 +12,8 @@ from app.core.enums import ActivityAction, MealType
 from app.core.utils import create_id, utcnow
 from app.models.domain import Food, FoodPlanItem
 from app.services.activity import log_activity
+from app.services.search.indexing import delete_search_document
+from app.services.search.jobs import enqueue_search_index_job
 from app.services.serializers import serialize_food_plan_item
 
 
@@ -80,6 +82,13 @@ def _apply_meal_plan_operations(
         )
         if action == "delete":
             snapshot = serialize_food_plan_item(item)
+            delete_search_document(
+                db,
+                family_id=family_id,
+                entity_type="meal_plan",
+                entity_id=item.id,
+                delete_vector=True,
+            )
             db.delete(item)
             log_activity(
                 db,
@@ -103,6 +112,14 @@ def _apply_meal_plan_operations(
                 item.meal_log_id = None
             item.updated_by = user_id
             db.flush()
+            enqueue_search_index_job(
+                db,
+                family_id=family_id,
+                user_id=user_id,
+                entity_type="meal_plan",
+                entity_id=item.id,
+                target_name=label,
+            )
             log_activity(
                 db,
                 family_id=family_id,
@@ -126,6 +143,14 @@ def _apply_meal_plan_operations(
         item.note = str(item_payload.get("reason") or "")
         item.updated_by = user_id
         db.flush()
+        enqueue_search_index_job(
+            db,
+            family_id=family_id,
+            user_id=user_id,
+            entity_type="meal_plan",
+            entity_id=item.id,
+            target_name=food.name,
+        )
         log_activity(
             db,
             family_id=family_id,
@@ -171,6 +196,14 @@ def _create_meal_plan_items_from_payload(
         created.append(item)
     db.flush()
     for item in created:
+        enqueue_search_index_job(
+            db,
+            family_id=family_id,
+            user_id=user_id,
+            entity_type="meal_plan",
+            entity_id=item.id,
+            target_name=item.food.name if item.food else "餐食计划",
+        )
         log_activity(
             db,
             family_id=family_id,

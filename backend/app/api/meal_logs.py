@@ -18,6 +18,7 @@ from app.schemas.meal_logs import CreateMealLogRequest, MealLogOut, QuickAddMeal
 from app.services.activity import log_activity
 from app.services.clock import today_for_family
 from app.services.media import bind_media_assets, replace_media_assets
+from app.services.search.jobs import enqueue_search_index_job
 from app.services.serializers import serialize_meal_log
 
 router = APIRouter(tags=["meal-logs"])
@@ -303,6 +304,14 @@ def quick_add_meal_log(
         plan_item.completed_at = utcnow()
         plan_item.meal_log_id = meal_log.id
         plan_item.updated_by = user.id
+        enqueue_search_index_job(
+            db,
+            family_id=membership.family_id,
+            user_id=user.id,
+            entity_type="meal_plan",
+            entity_id=plan_item.id,
+            target_name=food.name,
+        )
 
     log_activity(
         db,

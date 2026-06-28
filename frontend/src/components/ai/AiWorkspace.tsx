@@ -8,7 +8,6 @@ import type {
   AiChatAttachment,
   AiChatResponse,
   AiConversation,
-  AiHumanInputRequest,
   AiInventoryOperationAction,
   AiInventoryResultItem,
   AiMessage,
@@ -53,6 +52,7 @@ import {
 import { useAiConversationLiveSync } from './useAiConversationLiveSync';
 import { useAiAttachmentState } from './useAiAttachmentState';
 import { useAiInventoryDraftAction } from './useAiInventoryDraftAction';
+import { useAiStreamMutations } from './useAiStreamMutations';
 import { useAiThinkingState } from './useAiThinkingState';
 import { aiThreadAutoScrollKey, latestUserMessageScrollKey, useAiThreadAutoScroll } from './useAiThreadAutoScroll';
 type AiWorkspaceProps = {
@@ -809,218 +809,29 @@ export function AiWorkspace({
       runIds.forEach(startThinking);
     }
   }
-  const chatMutation = useMutation({
-    mutationFn: (payload: { message: string; conversationKey: string; conversation_id?: string; client_message_id?: string; client_run_id: string; quick_task?: string; subject?: Record<string, unknown>; attachments?: AiChatAttachment[] }) => {
-      setStreamError('');
-      const controller = new AbortController();
-      chatAbortByRunIdRef.current = { ...chatAbortByRunIdRef.current, [payload.client_run_id]: controller };
-      startThinking(payload.client_run_id);
-      const { conversationKey, ...requestPayload } = payload;
-      return api.streamChatAi(requestPayload, {
-        signal: controller.signal,
-        onProgress: (event) => {
-          const eventRunId = 'run_id' in event && typeof event.run_id === 'string' && event.run_id !== 'pending' ? event.run_id : payload.client_run_id ?? 'pending';
-          const nextEvent: AiRunEvent = {
-            id: 'id' in event && typeof event.id === 'string' ? event.id : `stream-${event.internal_code}-${Date.now()}`,
-            run_id: eventRunId,
-            type: event.type,
-            internal_code: event.internal_code,
-            user_message: event.user_message,
-            status: event.status,
-            created_at: 'created_at' in event && typeof event.created_at === 'string' ? event.created_at : new Date().toISOString(),
-          };
-          ensureStreamingAssistantMessage(eventRunId, conversationKey);
-          updateThinkingForProgressEvent(nextEvent, payload.client_run_id);
-          upsertStreamProgressEvent(nextEvent);
-        },
-        onMessagePart: (event) => applyStreamPart(event, conversationKey),
-        onMessageDelta: (event) => applyStreamDelta(event, conversationKey),
-      }).then((response) => {
-        applyChatResponse(response, conversationKey, payload.client_run_id);
-        return response;
-      });
-    },
-    onSettled: (_data, _error, variables) => {
-      if (!variables) return;
-      stopThinking(variables.client_run_id);
-      const { [variables.client_run_id]: _removed, ...remainingControllers } = chatAbortByRunIdRef.current;
-      chatAbortByRunIdRef.current = remainingControllers;
-      setActiveStreamRunIdsByConversationKey((current) => {
-        const next = { ...current };
-        let changed = false;
-        for (const [conversationKey, runId] of Object.entries(current)) {
-          if (conversationKey === variables.conversationKey || runId === variables.client_run_id) {
-            delete next[conversationKey];
-            changed = true;
-          }
-        }
-        return changed ? next : current;
-      });
-      delete streamConversationTargetRef.current[variables.conversationKey];
-      delete streamConversationTargetRef.current[variables.client_run_id];
-    },
-  });
-  const approvalStreamMutation = useMutation({
-    mutationFn: async (payload: { approval: Parameters<AiApprovalDecisionSubmit>[0]; decision: 'approved' | 'rejected'; values: Record<string, unknown>; comment?: string }) => {
-      setStreamError('');
-      const controller = new AbortController();
-      const conversationKey = payload.approval.conversation_id;
-      const runId = payload.approval.run_id;
-      const isRunAlreadyStreaming = Boolean(runId && activeStreamRunIdsByConversationKey[conversationKey] === runId);
-      const decisionPayload = {
-        decision: payload.decision,
-        draft_version: payload.approval.draft_version,
-        values: payload.values,
-        comment: payload.comment,
-      };
-      if (isRunAlreadyStreaming) {
-        throw new Error('当前确认结果已经在处理中，请稍后查看结果。');
-      }
-      if (payload.approval.run_id) {
-        chatAbortByRunIdRef.current = { ...chatAbortByRunIdRef.current, [payload.approval.run_id]: controller };
-        setActiveStreamRunIdsByConversationKey((current) => ({ ...current, [conversationKey]: payload.approval.run_id as string }));
-        startThinking(payload.approval.run_id);
-        if (payload.approval.message_id) {
-          streamMessageTargetRef.current = { ...streamMessageTargetRef.current, [payload.approval.run_id]: payload.approval.message_id };
-        } else {
-          ensureStreamingAssistantMessage(payload.approval.run_id, conversationKey);
-        }
-      }
-      let settleDecisionResult: (() => void) | null = null;
-      let rejectDecisionResult: ((error: unknown) => void) | null = null;
-      let isDecisionResultSettled = false;
-      const decisionResultVisible = new Promise<void>((resolve, reject) => {
-        settleDecisionResult = resolve;
-        rejectDecisionResult = reject;
-      });
-      const settleDecisionVisible = () => {
-        if (isDecisionResultSettled) return;
-        isDecisionResultSettled = true;
-        settleDecisionResult?.();
-      };
-      const rejectDecisionVisible = (error: unknown) => {
-        if (isDecisionResultSettled) return;
-        isDecisionResultSettled = true;
-        rejectDecisionResult?.(error);
-      };
-      void api.streamAiApprovalDecision(
-        payload.approval.conversation_id,
-        payload.approval.id,
-        decisionPayload,
-        {
-          signal: controller.signal,
-          onProgress: (event) => {
-            const eventRunId = 'run_id' in event && typeof event.run_id === 'string' && event.run_id !== 'pending' ? event.run_id : payload.approval.run_id ?? 'pending';
-            const nextEvent: AiRunEvent = {
-              id: 'id' in event && typeof event.id === 'string' ? event.id : `approval-stream-${event.internal_code}-${Date.now()}`,
-              run_id: eventRunId,
-              type: event.type,
-              internal_code: event.internal_code,
-              user_message: event.user_message,
-              status: event.status,
-              created_at: 'created_at' in event && typeof event.created_at === 'string' ? event.created_at : new Date().toISOString(),
-            };
-            if (!streamMessageTargetRef.current[eventRunId]) {
-              ensureStreamingAssistantMessage(eventRunId, conversationKey);
-            }
-            updateThinkingForProgressEvent(nextEvent, payload.approval.run_id);
-            upsertStreamProgressEvent(nextEvent);
-          },
-          onMessagePart: (event) => {
-            applyStreamPart(event, conversationKey);
-            if (isApprovalDecisionSettledPart(event.part, payload.approval.id)) {
-              settleDecisionVisible();
-            }
-          },
-          onMessageDelta: (event) => applyStreamDelta(event, conversationKey),
-        },
-      ).then((response) => {
-        applyChatResponse(response, payload.approval.conversation_id, payload.approval.run_id ?? response.run.id);
-        settleDecisionVisible();
-      }).catch((error) => {
-        const message = streamFailureMessage(error);
-        setStreamError(message);
-        stopThinking(payload.approval.run_id);
-        markStreamingAssistantStopped(payload.approval.run_id ?? null, `AI 后续处理失败：${message}`);
-        void refreshAfterApprovalSettled();
-        rejectDecisionVisible(error);
-      }).finally(() => {
-        const activeRunId = payload.approval.run_id;
-        if (!activeRunId) return;
-        stopThinking(activeRunId);
-        const { [activeRunId]: _removed, ...remainingControllers } = chatAbortByRunIdRef.current;
-        chatAbortByRunIdRef.current = remainingControllers;
-        setActiveStreamRunIdsByConversationKey((current) => {
-          if (current[payload.approval.conversation_id] !== activeRunId) return current;
-          const next = { ...current };
-          delete next[payload.approval.conversation_id];
-          return next;
-        });
-        void refreshAfterApprovalSettled();
-      });
-      return decisionResultVisible;
-    },
-    onSettled: () => {
-      void refreshAfterApprovalSettled();
-    },
-  });
-  const humanInputMutation = useMutation({
-    mutationFn: (payload: { message: AiMessage; request: AiHumanInputRequest; response: { selected_option_ids?: string[]; text?: string } }) => {
-      setStreamError('');
-      const controller = new AbortController();
-      const conversationKey = payload.message.conversation_id;
-      const runId = payload.message.run_id;
-      if (runId) {
-        chatAbortByRunIdRef.current = { ...chatAbortByRunIdRef.current, [runId]: controller };
-        streamMessageTargetRef.current = { ...streamMessageTargetRef.current, [runId]: payload.message.id };
-        setActiveStreamRunIdsByConversationKey((current) => ({ ...current, [conversationKey]: runId }));
-        startThinking(runId);
-      }
-      return api.streamAiHumanInputResponse(payload.message.conversation_id, payload.request.id, payload.response, {
-        signal: controller.signal,
-        onProgress: (event) => {
-          const eventRunId = 'run_id' in event && typeof event.run_id === 'string' && event.run_id !== 'pending' ? event.run_id : runId ?? 'pending';
-          const nextEvent: AiRunEvent = {
-            id: 'id' in event && typeof event.id === 'string' ? event.id : `human-input-stream-${event.internal_code}-${Date.now()}`,
-            run_id: eventRunId,
-            type: event.type,
-            internal_code: event.internal_code,
-            user_message: event.user_message,
-            status: event.status,
-            created_at: 'created_at' in event && typeof event.created_at === 'string' ? event.created_at : new Date().toISOString(),
-          };
-          if (!streamMessageTargetRef.current[eventRunId]) {
-            ensureStreamingAssistantMessage(eventRunId, conversationKey);
-          }
-          updateThinkingForProgressEvent(nextEvent, runId);
-          upsertStreamProgressEvent(nextEvent);
-        },
-        onMessagePart: (event) => applyStreamPart(event, conversationKey),
-        onMessageDelta: (event) => applyStreamDelta(event, conversationKey),
-      }).then((response) => {
-        applyChatResponse(response, payload.message.conversation_id, runId ?? response.run.id);
-        return response;
-      });
-    },
-    onSettled: (_data, _error, variables) => {
-      const runId = variables?.message.run_id;
-      if (!runId || !variables) return;
-      stopThinking(runId);
-      const { [runId]: _removed, ...remainingControllers } = chatAbortByRunIdRef.current;
-      chatAbortByRunIdRef.current = remainingControllers;
-      setActiveStreamRunIdsByConversationKey((current) => {
-        if (current[variables.message.conversation_id] !== runId) return current;
-        const next = { ...current };
-        delete next[variables.message.conversation_id];
-        return next;
-      });
-    },
-    onError: (error, variables) => {
-      const message = streamFailureMessage(error);
-      setStreamError(message);
-      stopThinking(variables?.message.run_id);
-      markStreamingAssistantStopped(variables?.message.run_id ?? null, `AI 后续处理失败：${message}`);
-    },
+  const {
+    chatMutation,
+    approvalStreamMutation,
+    humanInputMutation,
+  } = useAiStreamMutations({
+    activeStreamRunIdsByConversationKey,
+    chatAbortByRunIdRef,
+    streamMessageTargetRef,
+    streamConversationTargetRef,
+    setActiveStreamRunIdsByConversationKey,
+    setStreamError,
+    startThinking,
+    stopThinking,
+    ensureStreamingAssistantMessage,
+    updateThinkingForProgressEvent,
+    upsertStreamProgressEvent,
+    applyStreamPart,
+    applyStreamDelta,
+    applyChatResponse,
+    streamFailureMessage,
+    markStreamingAssistantStopped,
+    refreshAfterApprovalSettled,
+    isApprovalDecisionSettledPart,
   });
   const deleteConversationMutation = useMutation({
     mutationFn: api.deleteAiConversation,

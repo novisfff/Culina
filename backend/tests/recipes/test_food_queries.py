@@ -1,5 +1,8 @@
 from ._support import *
 
+from app.services.search.documents import build_food_search_document, build_ingredient_search_document
+from app.services.search.indexing import upsert_search_document
+
 
 class RecipeFoodQueriesTestCase(RecipeApiTestCase):
         def test_food_and_ingredient_lists_support_search_and_pagination(self) -> None:
@@ -18,6 +21,19 @@ class RecipeFoodQueriesTestCase(RecipeApiTestCase):
                             default_storage="阴凉",
                             default_expiry_mode=IngredientExpiryMode.NONE,
                             notes="",
+                            created_by=self.user.id,
+                            updated_by=self.user.id,
+                        ),
+                        Ingredient(
+                            id="ingredient-potato-starch",
+                            family_id=self.family.id,
+                            name="土豆淀粉",
+                            category="调料",
+                            default_unit="袋",
+                            unit_conversions=[],
+                            default_storage="阴凉",
+                            default_expiry_mode=IngredientExpiryMode.NONE,
+                            notes="勾芡备用",
                             created_by=self.user.id,
                             updated_by=self.user.id,
                         ),
@@ -45,6 +61,23 @@ class RecipeFoodQueriesTestCase(RecipeApiTestCase):
                             source_name="",
                             purchase_source="",
                             scene="午餐",
+                            notes="",
+                            routine_note="",
+                            favorite=False,
+                            created_by=self.user.id,
+                            updated_by=self.user.id,
+                        ),
+                        Food(
+                            id="food-tomato-soup",
+                            family_id=self.family.id,
+                            name="番茄汤",
+                            type=FoodType.READY_MADE.value,
+                            category="汤",
+                            flavor_tags=[],
+                            suitable_meal_types=["dinner"],
+                            source_name="",
+                            purchase_source="",
+                            scene="晚餐",
                             notes="",
                             routine_note="",
                             favorite=False,
@@ -87,6 +120,11 @@ class RecipeFoodQueriesTestCase(RecipeApiTestCase):
                         ),
                     ]
                 )
+                db.flush()
+                for ingredient in db.scalars(select(Ingredient)):
+                    upsert_search_document(db, build_ingredient_search_document(ingredient))
+                for food in db.scalars(select(Food)):
+                    upsert_search_document(db, build_food_search_document(food))
                 db.commit()
 
             first_ingredient_page = self.client.get("/api/ingredients?limit=1&offset=0")
@@ -102,7 +140,10 @@ class RecipeFoodQueriesTestCase(RecipeApiTestCase):
 
             ingredient_search = self.client.get("/api/ingredients?q=%E5%9C%9F%E8%B1%86&limit=6&offset=0")
             self.assertEqual(ingredient_search.status_code, 200, ingredient_search.text)
-            self.assertEqual([item["id"] for item in ingredient_search.json()], ["ingredient-potato"])
+            self.assertEqual([item["id"] for item in ingredient_search.json()], ["ingredient-potato", "ingredient-potato-starch"])
+            second_ingredient_search_page = self.client.get("/api/ingredients?q=%E5%9C%9F%E8%B1%86&limit=1&offset=1")
+            self.assertEqual(second_ingredient_search_page.status_code, 200, second_ingredient_search_page.text)
+            self.assertEqual([item["id"] for item in second_ingredient_search_page.json()], ["ingredient-potato-starch"])
 
             first_food_page = self.client.get("/api/foods?limit=1&offset=0")
             second_food_page = self.client.get("/api/foods?limit=1&offset=1")
@@ -117,7 +158,10 @@ class RecipeFoodQueriesTestCase(RecipeApiTestCase):
 
             food_search = self.client.get("/api/foods?q=%E7%95%AA%E8%8C%84&limit=6&offset=0")
             self.assertEqual(food_search.status_code, 200, food_search.text)
-            self.assertEqual([item["id"] for item in food_search.json()], ["food-tomato-rice"])
+            self.assertEqual([item["id"] for item in food_search.json()], ["food-tomato-rice", "food-tomato-soup"])
+            second_food_search_page = self.client.get("/api/foods?q=%E7%95%AA%E8%8C%84&limit=1&offset=1")
+            self.assertEqual(second_food_search_page.status_code, 200, second_food_search_page.text)
+            self.assertEqual([item["id"] for item in second_food_search_page.json()], ["food-tomato-soup"])
 
         def test_food_recommendations_infer_next_meal_and_return_actions(self) -> None:
             dinner_recipe = self.create_recipe(auto_create_food=True, title="可做晚餐")

@@ -34,6 +34,9 @@ describe('MediaWithPlaceholder', () => {
 
     expect(container.querySelector('.media-with-placeholder')?.getAttribute('data-state')).toBe('empty');
     expect(container.querySelector('.media-placeholder.state-empty')).not.toBeNull();
+    expect(container.querySelector('.media-placeholder-empty-icon')).not.toBeNull();
+    expect(container.querySelector('.media-placeholder-glow')).toBeNull();
+    expect(container.querySelector('.media-placeholder-spark')).toBeNull();
     expect(container.querySelector('.media-placeholder-label')?.textContent).toBe('暂无图片');
     expect(container.querySelector('img')).toBeNull();
 
@@ -51,7 +54,9 @@ describe('MediaWithPlaceholder', () => {
 
     expect(container.querySelector('.media-with-placeholder')?.getAttribute('data-state')).toBe('loading');
     expect(container.querySelector('.media-placeholder.state-loading')).not.toBeNull();
-    expect(container.querySelector('.media-placeholder-loader')).not.toBeNull();
+    expect(container.querySelector('.media-placeholder-loading-icon')).not.toBeNull();
+    expect(container.querySelector('.media-placeholder-glow')).not.toBeNull();
+    expect(container.querySelector('.media-placeholder-loader')).toBeNull();
     expect(container.querySelector('.media-placeholder-label')?.textContent).toBe('图片加载中');
     expect(container.querySelector('img')).not.toBeNull();
 
@@ -76,7 +81,9 @@ describe('MediaWithPlaceholder', () => {
 
     expect(container.querySelector('img')).toBeNull();
     expect(container.querySelector('.media-with-placeholder')?.getAttribute('data-state')).toBe('error');
-    expect(container.querySelector('.media-placeholder.state-error svg')).not.toBeNull();
+    expect(container.querySelector('.media-placeholder-error-icon')).not.toBeNull();
+    expect(container.querySelector('.media-placeholder-glow')).toBeNull();
+    expect(container.querySelector('.media-placeholder-spark')).toBeNull();
     expect(container.querySelector('.media-placeholder-label')?.textContent).toBe('加载失败');
 
     act(() => root.unmount());
