@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useMemo, useRef, useState, type UIEvent } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type UIEvent } from 'react';
 import { api } from './api/client';
 import { queryKeys } from './api/queryKeys';
 import { AppNotificationCenter, AppShell, type TabKey } from './app/AppShell';
@@ -39,6 +39,7 @@ import { useAiImageJobMonitor } from './hooks/useAiImageJobMonitor';
 import { resolveAssetUrl } from './lib/assets';
 import { readStringStorage, writeStringStorage } from './lib/storage';
 import { HomeDashboard } from './features/home/HomeDashboard';
+import { GlobalSearchOverlay, type GlobalSearchSelection } from './features/search/GlobalSearchOverlay';
 
 const AiWorkspace = lazy(() =>
   import('./components/ai/AiWorkspace').then((module) => ({ default: module.AiWorkspace }))
@@ -65,7 +66,18 @@ type IngredientNavigationRequest = {
   requestId: number;
 };
 
+type FoodNavigationRequest = {
+  foodId: string;
+  requestId: number;
+};
+
+type RecipeNavigationRequest = {
+  recipeId: string;
+  requestId: number;
+};
+
 const SIDEBAR_COLLAPSED_KEY = 'culina-large-shell-sidebar-collapsed-v3';
+const PHONE_VIEWPORT_QUERY = '(max-width: 767px)';
 
 function defaultSidebarCollapsed() {
   return readStringStorage(SIDEBAR_COLLAPSED_KEY, '') === '1';
@@ -76,6 +88,30 @@ function resetPageScroll() {
     window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
     document.scrollingElement?.scrollTo({ top: 0, left: 0, behavior: 'auto' });
   });
+}
+
+function getIsPhoneViewport() {
+  if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
+    return false;
+  }
+  return window.matchMedia(PHONE_VIEWPORT_QUERY).matches;
+}
+
+function useIsPhoneViewport() {
+  const [isPhoneViewport, setIsPhoneViewport] = useState(getIsPhoneViewport);
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
+      return undefined;
+    }
+    const mediaQuery = window.matchMedia(PHONE_VIEWPORT_QUERY);
+    const handleChange = () => setIsPhoneViewport(mediaQuery.matches);
+    handleChange();
+    mediaQuery.addEventListener('change', handleChange);
+    return () => mediaQuery.removeEventListener('change', handleChange);
+  }, []);
+
+  return isPhoneViewport;
 }
 
 function WorkspaceLoadingFallback() {
@@ -90,6 +126,7 @@ function WorkspaceLoadingFallback() {
 
 function App() {
   const { isAuthenticated, isLoading: authLoading, user, membership, logout } = useAuth();
+  const isPhoneViewport = useIsPhoneViewport();
   const [selectedRecipePlanDate, setSelectedRecipePlanDate] = useState(todayKey());
   const foodPlanWeekRange = useMemo(() => getRecipeWeekRange(selectedRecipePlanDate), [selectedRecipePlanDate]);
   const [activeTab, setActiveTab] = useState<TabKey>(() => {
@@ -141,7 +178,12 @@ function App() {
     closeHomePlanAddDialog,
   } = useHomeDashboardState({ foodPlanWeekRange });
   const [ingredientNavigationRequest, setIngredientNavigationRequest] = useState<IngredientNavigationRequest | null>(null);
+  const [foodNavigationRequest, setFoodNavigationRequest] = useState<FoodNavigationRequest | null>(null);
+  const [recipeNavigationRequest, setRecipeNavigationRequest] = useState<RecipeNavigationRequest | null>(null);
+  const [globalSearchOpen, setGlobalSearchOpen] = useState(false);
   const ingredientNavigationRequestIdRef = useRef(0);
+  const foodNavigationRequestIdRef = useRef(0);
+  const recipeNavigationRequestIdRef = useRef(0);
   const { notice, showNotice, clearNotice } = useNotice();
   const aiImageJobMonitor = useAiImageJobMonitor(isAuthenticated, { onNotice: showNotice });
 
@@ -193,6 +235,46 @@ function App() {
     isAuthenticated,
     foodPlanWeekRange,
   });
+
+  const handleTabChange = useCallback((tab: TabKey) => {
+    setActiveTab(isPhoneViewport && tab === 'recipes' ? 'foods' : tab);
+  }, [isPhoneViewport]);
+
+  const openRecipesTab = useCallback(() => {
+    setActiveTab(isPhoneViewport ? 'foods' : 'recipes');
+  }, [isPhoneViewport]);
+
+  const handleMobileRecipeLibraryRedirect = useCallback(() => {
+    setActiveTab('foods');
+  }, []);
+
+  const startRecipeCook = useCallback((recipeId: string, foodPlanItemId?: string) => {
+    setPendingRecipeCookId(recipeId);
+    setPendingFoodPlanCookItemId(foodPlanItemId ?? null);
+    setActiveTab('recipes');
+  }, []);
+
+  const openRecipeTarget = useCallback((recipeId: string) => {
+    if (isPhoneViewport) {
+      const linkedFood = foods.find((food) => food.recipe_id === recipeId);
+      if (linkedFood) {
+        foodNavigationRequestIdRef.current += 1;
+        setFoodNavigationRequest({
+          foodId: linkedFood.id,
+          requestId: foodNavigationRequestIdRef.current,
+        });
+      }
+      setActiveTab('foods');
+      return;
+    }
+
+    recipeNavigationRequestIdRef.current += 1;
+    setRecipeNavigationRequest({
+      recipeId,
+      requestId: recipeNavigationRequestIdRef.current,
+    });
+    setActiveTab('recipes');
+  }, [foods, isPhoneViewport]);
 
   useEffect(() => {
     if (!authLoading && !isWorkspaceBootLoading) {
@@ -439,11 +521,7 @@ function App() {
     closeHomePlanDetail,
     closeHomePlanAddDialog,
     setIsHomePlanDetailEditing,
-    startRecipeCook: (recipeId, foodPlanItemId) => {
-      setPendingRecipeCookId(recipeId);
-      setPendingFoodPlanCookItemId(foodPlanItemId);
-      setActiveTab('recipes');
-    },
+    startRecipeCook,
     openMealLogEnrichment: setHomeMealEnrichmentRequest,
   });
 
@@ -459,6 +537,30 @@ function App() {
       ? { label: '来自菜单计划', status: 'planned' as const, planItem: homeMealEnrichmentRequest.planItem }
       : resolveMealSource(homeMealEnrichmentMeal, homeMealEnrichmentPlanItems)
     : null;
+
+  function handleGlobalSearchSelect(selection: GlobalSearchSelection) {
+    setGlobalSearchOpen(false);
+    if (selection.entityType === 'ingredient') {
+      ingredientNavigationRequestIdRef.current += 1;
+      setIngredientNavigationRequest({
+        view: 'detail',
+        ingredientId: selection.entityId,
+        requestId: ingredientNavigationRequestIdRef.current,
+      });
+      setActiveTab('ingredients');
+      return;
+    }
+    if (selection.entityType === 'food') {
+      foodNavigationRequestIdRef.current += 1;
+      setFoodNavigationRequest({
+        foodId: selection.entityId,
+        requestId: foodNavigationRequestIdRef.current,
+      });
+      setActiveTab('foods');
+      return;
+    }
+    openRecipeTarget(selection.entityId);
+  }
 
   async function saveHomeMealEnrichment(meal: MealLog, payload: UpdateMealLogPayload) {
     const planItem = homeMealEnrichmentRequest?.planItem;
@@ -537,7 +639,7 @@ function App() {
       onDismissImageJob={aiImageJobMonitor.dismissJob}
       onRetryImageJob={aiImageJobMonitor.retryJob}
       retryingImageJobId={aiImageJobMonitor.retryingJobId}
-      onTabChange={setActiveTab}
+      onTabChange={handleTabChange}
       onToggleSidebar={() => setSidebarCollapsed((current) => !current)}
       onOpenProfile={() => setFamilyOverlayMode('profile')}
       onLogout={() => void logout()}
@@ -585,13 +687,10 @@ function App() {
             resolveAssetUrl={resolveDashboardAssetUrl}
             quickAddMeal={(payload) => quickAddMealMutation.mutateAsync(payload)}
             createFoodPlanItem={(payload) => createFoodPlanItemMutation.mutateAsync(payload)}
-            onNavigate={setActiveTab}
+            onNavigate={handleTabChange}
+            onOpenGlobalSearch={() => setGlobalSearchOpen(true)}
             onRecommendationPageChange={setDashboardRecommendationPage}
-            onStartRecipe={(recipeId, foodPlanItemId) => {
-              setPendingRecipeCookId(recipeId);
-              setPendingFoodPlanCookItemId(foodPlanItemId ?? null);
-              setActiveTab('recipes');
-            }}
+            onStartRecipe={startRecipeCook}
             onSelectedPlanDateChange={setSelectedDashboardPlanDate}
             onHomePlanAddDialogOpen={openHomePlanAddDialog}
             onHomePlanAddEmptyDialogOpen={openHomePlanAddEmptyDialog}
@@ -622,6 +721,7 @@ function App() {
               foodPlanItems={foodPlanItems}
               foodPlanWeekRange={foodPlanWeekRange}
               notificationCenter={mobileNotificationCenter}
+              navigationRequest={foodNavigationRequest}
               createFood={(payload) => createFoodMutation.mutateAsync(payload)}
               updateFood={(foodId, payload) => updateFoodMutation.mutateAsync({ foodId, payload })}
               updateFoodFavorite={(foodId, favorite) => toggleFavoriteMutation.mutateAsync({ foodId, favorite })}
@@ -633,12 +733,8 @@ function App() {
               createFoodScene={(payload) => createFoodSceneMutation.mutateAsync(payload)}
               updateFoodScene={(sceneId, payload) => updateFoodSceneMutation.mutateAsync({ sceneId, payload })}
               deleteFoodScene={(sceneId) => deleteFoodSceneMutation.mutateAsync(sceneId)}
-              onOpenRecipes={() => setActiveTab('recipes')}
-              onStartRecipe={(recipeId, foodPlanItemId) => {
-                setPendingRecipeCookId(recipeId);
-                setPendingFoodPlanCookItemId(foodPlanItemId ?? null);
-                setActiveTab('recipes');
-              }}
+              onOpenRecipes={openRecipesTab}
+              onStartRecipe={startRecipeCook}
               onOpenLogs={() => setActiveTab('logs')}
               onFoodPlanPreviousWeek={() => setSelectedRecipePlanDate(addDateKeyDays(foodPlanWeekRange.start, -7))}
               onFoodPlanCurrentWeek={() => setSelectedRecipePlanDate(todayKey())}
@@ -671,7 +767,9 @@ function App() {
                 recipePlanWeekRange={foodPlanWeekRange}
                 startRecipeId={pendingRecipeCookId}
                 startFoodPlanItemId={pendingFoodPlanCookItemId}
+                navigationRequest={recipeNavigationRequest}
                 notificationCenter={mobileNotificationCenter}
+                onMobileLibraryRedirect={isPhoneViewport ? handleMobileRecipeLibraryRedirect : undefined}
                 onStartRecipeHandled={() => {
                   setPendingRecipeCookId(null);
                   setPendingFoodPlanCookItemId(null);
@@ -820,7 +918,7 @@ function App() {
               familyImageControls={familyImageControls}
               resolveAssetUrl={resolveDashboardAssetUrl}
               onOverlayChange={setFamilyOverlayMode}
-              onNavigate={setActiveTab}
+              onNavigate={handleTabChange}
               onMemberEdit={openMemberEdit}
               onInviteFormChange={setInviteForm}
               onProfileFormChange={setProfileForm}
@@ -835,6 +933,12 @@ function App() {
             />
           </Suspense>
         )}
+
+        <GlobalSearchOverlay
+          open={globalSearchOpen}
+          onClose={() => setGlobalSearchOpen(false)}
+          onSelect={handleGlobalSearchSelect}
+        />
 
         <Suspense fallback={null}>
           <HomeDashboardDialogs

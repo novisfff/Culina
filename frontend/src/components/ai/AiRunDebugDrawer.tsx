@@ -12,7 +12,7 @@ type AiRunDebugDrawerProps = {
   onClose: () => void;
 };
 
-type DebugTab = 'timeline' | 'llm' | 'errors';
+type DebugTab = 'timeline' | 'errors';
 
 type ExchangeDisplayInfo = {
   title: string;
@@ -33,7 +33,6 @@ type TokenUsageSummary = {
 
 const DEBUG_TABS: Array<{ key: DebugTab; label: string }> = [
   { key: 'timeline', label: '流程' },
-  { key: 'llm', label: '模型' },
   { key: 'errors', label: '异常' },
 ];
 
@@ -92,6 +91,10 @@ const SUMMARY_KEY_LABELS: Record<string, string> = {
   draftType: '草稿类型',
   schemaVersion: 'Schema',
   tool: '工具',
+  alreadyInjected: '已注入',
+  availableTools: '可用工具',
+  requested: '请求',
+  added: '新增',
   messageId: '消息',
   inputKeys: '输入字段',
   outputKeys: '输出字段',
@@ -102,6 +105,8 @@ const SUMMARY_KEY_LABELS: Record<string, string> = {
   scriptPath: '脚本',
   timeoutSeconds: '超时',
 };
+
+const TOOL_SPAN_TYPES = new Set(['tool_call', 'script_call', 'skill_execution', 'skill_injection']);
 
 function formatDuration(durationMs: number) {
   if (!Number.isFinite(durationMs) || durationMs <= 0) return '0ms';
@@ -120,6 +125,40 @@ function formatTokenCount(value: number | null | undefined) {
 function formatCost(value: number | null | undefined) {
   if (value === null || value === undefined || !Number.isFinite(value)) return '未配置';
   return `$${value.toFixed(value < 0.01 ? 6 : 4)}`;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
+}
+
+function stringField(value: unknown, key: string): string | null {
+  if (!isRecord(value)) return null;
+  const field = value[key];
+  return typeof field === 'string' && field.trim() ? field.trim() : null;
+}
+
+function uniqueStrings(values: Array<string | null | undefined>) {
+  return Array.from(new Set(values.filter((value): value is string => Boolean(value))));
+}
+
+function toolNameFromItem(item: unknown): string | null {
+  if (!isRecord(item)) return null;
+  const direct = stringField(item, 'name')
+    ?? stringField(item, 'tool')
+    ?? stringField(item, 'functionName')
+    ?? stringField(item, 'internal_code');
+  if (direct) return direct;
+  const fn = item.function;
+  if (isRecord(fn)) return stringField(fn, 'name');
+  return null;
+}
+
+function toolNamesFromItems(items: unknown[]) {
+  return uniqueStrings(items.map(toolNameFromItem));
+}
+
+function isToolSpan(span: AiRunTraceTreeNode) {
+  return TOOL_SPAN_TYPES.has(span.spanType);
 }
 
 function emptyTokenSummary(): TokenUsageSummary {
@@ -285,7 +324,7 @@ function TraceSummary({ inputSummary, outputSummary }: { inputSummary: Record<st
     <div className="ai-debug-step-summary">
       {inputItems.length > 0 ? (
         <div>
-          <strong>输入</strong>
+          <strong>触发条件</strong>
           <div className="ai-debug-summary-chips">
             {inputItems.map((item) => (
               <span key={`input-${item.key}`}>{item.label}: {item.value}</span>
@@ -295,7 +334,7 @@ function TraceSummary({ inputSummary, outputSummary }: { inputSummary: Record<st
       ) : null}
       {outputItems.length > 0 ? (
         <div>
-          <strong>结果</strong>
+          <strong>执行结果</strong>
           <div className="ai-debug-summary-chips">
             {outputItems.map((item) => (
               <span key={`output-${item.key}`}>{item.label}: {item.value}</span>
@@ -303,6 +342,25 @@ function TraceSummary({ inputSummary, outputSummary }: { inputSummary: Record<st
           </div>
         </div>
       ) : null}
+    </div>
+  );
+}
+
+function ToolSpanSummary({ node }: { node: AiRunTraceTreeNode }) {
+  const inputKeys = Array.isArray(node.inputSummary['inputKeys']) ? node.inputSummary['inputKeys'].map(String) : [];
+  const outputKeys = Array.isArray(node.outputSummary['outputKeys']) ? node.outputSummary['outputKeys'].map(String) : [];
+  const sideEffect = formatSummaryValue(node.inputSummary['sideEffect']);
+  const permission = formatSummaryValue(node.inputSummary['permission']);
+  const status = formatSummaryValue(node.outputSummary['status'] ?? node.status, 'status');
+  return (
+    <div className="ai-debug-tool-run" aria-label={`${traceStepTitle(node)} 工具信息`}>
+      <span>{node.spanType === 'script_call' ? '脚本' : node.spanType === 'skill_injection' ? 'Skill' : '工具'}: {node.name}</span>
+      {inputKeys.length > 0 ? <span>输入字段: {inputKeys.slice(0, 6).join('、')}{inputKeys.length > 6 ? ` +${inputKeys.length - 6}` : ''}</span> : null}
+      {outputKeys.length > 0 ? <span>输出字段: {outputKeys.slice(0, 6).join('、')}{outputKeys.length > 6 ? ` +${outputKeys.length - 6}` : ''}</span> : null}
+      <span>状态: {status}</span>
+      {node.inputSummary['sideEffect'] ? <span>副作用: {sideEffect}</span> : null}
+      {node.inputSummary['permission'] ? <span>权限: {permission}</span> : null}
+      {node.inputSummary['requiresConfirmation'] !== undefined ? <span>需确认: {formatSummaryValue(node.inputSummary['requiresConfirmation'])}</span> : null}
     </div>
   );
 }
@@ -328,12 +386,30 @@ function TraceOverview({ spans, exchanges }: { spans: AiRunTraceTreeNode[]; exch
   );
 }
 
+function ModelTraceSummaryState({ loading, error }: { loading: boolean; error: unknown }) {
+  if (loading) {
+    return <div className="ai-debug-lazy-panel">正在加载模型调用摘要...</div>;
+  }
+  if (!error) return null;
+  const isPermissionDenied = isApiError(error) && error.status === 403;
+  return (
+    <div className="ai-debug-lazy-panel is-error">
+      <div>
+        <strong>{isPermissionDenied ? '当前账号无权查看模型调用摘要' : '模型调用摘要加载失败'}</strong>
+        <span>{isPermissionDenied ? '模型调用 trace 仅限 Owner 查看。' : error instanceof Error ? error.message : '请稍后重试。'}</span>
+      </div>
+    </div>
+  );
+}
+
 function TraceNode({
+  runId,
   node,
   exchangesBySpanId,
   exchangeDisplayById,
   depth = 0,
 }: {
+  runId: string;
   node: AiRunTraceTreeNode;
   exchangesBySpanId: Map<string, AiRunLLMExchange[]>;
   exchangeDisplayById: Map<string, ExchangeDisplayInfo>;
@@ -371,26 +447,35 @@ function TraceNode({
       ) : null}
       {(Object.keys(node.inputSummary ?? {}).length > 0 || Object.keys(node.outputSummary ?? {}).length > 0) ? (
         <div className="ai-debug-span-details">
+          {isToolSpan(node) ? <ToolSpanSummary node={node} /> : null}
           <TraceSummary inputSummary={node.inputSummary} outputSummary={node.outputSummary} />
           <div className="ai-debug-span-json">
-            <JsonBlock title="调试输入" value={node.inputSummary} />
-            <JsonBlock title="调试输出" value={node.outputSummary} />
+            <JsonBlock title="原始触发摘要" value={node.inputSummary} />
+            <JsonBlock title="原始结果摘要" value={node.outputSummary} />
           </div>
         </div>
       ) : null}
       {linkedExchanges.length > 0 ? (
-        <div className="ai-debug-linked-exchanges" aria-label="关联 LLM 调用">
-          <strong>模型调用 x {linkedExchanges.length}</strong>
-          {linkedExchanges.slice(0, 4).map((exchange) => (
-            <span key={exchange.id}>{exchangeDisplayById.get(exchange.id)?.compactLabel ?? `模型 · ${statusLabel(exchange.status)}`}</span>
+        <div className="ai-debug-inline-exchanges" aria-label="流程内模型调用">
+          {linkedExchanges.map((exchange) => (
+            <details key={exchange.id} className={`ai-debug-inline-exchange is-${exchange.status}`}>
+              <summary>
+                <span>{exchangeDisplayById.get(exchange.id)?.compactLabel ?? `模型调用 · ${statusLabel(exchange.status)}`}</span>
+                <em>展开明细</em>
+              </summary>
+              <ExchangeCard
+                runId={runId}
+                exchange={exchange}
+                display={exchangeDisplayById.get(exchange.id) ?? buildExchangeDisplayInfo(exchange, 0)}
+              />
+            </details>
           ))}
-          {linkedExchanges.length > 4 ? <em>还有 {linkedExchanges.length - 4} 条</em> : null}
         </div>
       ) : null}
       {node.children.length > 0 ? (
         <ol className="ai-debug-tree">
           {node.children.map((child) => (
-            <TraceNode key={child.id} node={child} exchangesBySpanId={exchangesBySpanId} exchangeDisplayById={exchangeDisplayById} depth={depth + 1} />
+            <TraceNode key={child.id} runId={runId} node={child} exchangesBySpanId={exchangesBySpanId} exchangeDisplayById={exchangeDisplayById} depth={depth + 1} />
           ))}
         </ol>
       ) : null}
@@ -398,8 +483,65 @@ function TraceNode({
   );
 }
 
-function ExchangeCard({ exchange, display }: { exchange: AiRunLLMExchange; display: ExchangeDisplayInfo }) {
+function ToolSummaryList({ title, names, count, emptyLabel }: { title: string; names: string[]; count: number; emptyLabel: string }) {
+  return (
+    <div className="ai-debug-tool-list">
+      <strong>{title}</strong>
+      {count > 0 ? (
+        <div className="ai-debug-tool-pills">
+          {names.slice(0, 10).map((name) => <span key={name}>{name}</span>)}
+          {names.length === 0 ? <span>{count} 项</span> : null}
+          {count > Math.max(names.length, 10) ? <em>还有 {count - Math.max(names.length, 10)} 个</em> : null}
+        </div>
+      ) : (
+        <p>{emptyLabel}</p>
+      )}
+    </div>
+  );
+}
+
+function LazyExchangeJsonBlock({
+  runId,
+  exchangeId,
+  title,
+  selectValue,
+}: {
+  runId: string;
+  exchangeId: string;
+  title: string;
+  selectValue: (exchange: AiRunLLMExchange) => unknown;
+}) {
+  const [open, setOpen] = useState(false);
+  const detailQuery = useQuery({
+    queryKey: queryKeys.aiRunLlmExchange(runId, exchangeId),
+    queryFn: () => api.getAiRunLlmExchange(runId, exchangeId),
+    enabled: open,
+    staleTime: 5 * 60 * 1000,
+  });
+  let content: string;
+  if (!open) {
+    content = '展开后加载。';
+  } else if (detailQuery.isLoading) {
+    content = '正在加载...';
+  } else if (detailQuery.error) {
+    content = detailQuery.error instanceof Error ? detailQuery.error.message : '加载失败，请稍后重试。';
+  } else {
+    content = formatJson(detailQuery.data ? selectValue(detailQuery.data) : null);
+  }
+  return (
+    <details className="ai-debug-json-block" onToggle={(event) => setOpen(event.currentTarget.open)}>
+      <summary>{title}</summary>
+      <pre>{content}</pre>
+    </details>
+  );
+}
+
+function ExchangeCard({ runId, exchange, display }: { runId: string; exchange: AiRunLLMExchange; display: ExchangeDisplayInfo }) {
   const tokenSummary = summarizeUsage([exchange]);
+  const requestToolNames = exchange.requestToolNames.length > 0 ? exchange.requestToolNames : toolNamesFromItems(exchange.requestTools);
+  const responseToolNames = exchange.responseToolCallNames.length > 0 ? exchange.responseToolCallNames : toolNamesFromItems(exchange.responseToolCalls);
+  const requestToolCount = exchange.requestToolCount ?? requestToolNames.length;
+  const responseToolCallCount = exchange.responseToolCallCount ?? responseToolNames.length;
   return (
     <article className={`ai-debug-exchange is-${exchange.status}`}>
       <header>
@@ -423,29 +565,38 @@ function ExchangeCard({ exchange, display }: { exchange: AiRunLLMExchange; displ
           {exchange.errorMessage ? <span>{exchange.errorMessage}</span> : null}
         </p>
       ) : null}
-      {exchange.responseText ? <p className="ai-debug-response-text">{exchange.responseText}</p> : null}
+      <div className="ai-debug-exchange-tool-summary">
+        <span>请求可用工具 {requestToolCount}</span>
+        <span>模型返回调用 {responseToolCallCount}</span>
+        {responseToolNames.length > 0 ? <strong>{responseToolNames.slice(0, 4).join('、')}{responseToolNames.length > 4 ? ` +${responseToolNames.length - 4}` : ''}</strong> : null}
+      </div>
+      <div className="ai-debug-tool-grid">
+        <ToolSummaryList title="请求暴露工具" names={requestToolNames} count={requestToolCount} emptyLabel="本轮没有暴露工具定义。" />
+        <ToolSummaryList title="模型返回 tool calls" names={responseToolNames} count={responseToolCallCount} emptyLabel="模型本轮没有返回 tool call。" />
+      </div>
       <div className="ai-debug-json-grid">
-        <JsonBlock title="Request messages" value={exchange.requestMessages} />
-        <JsonBlock title="Request tools" value={exchange.requestTools} />
-        <JsonBlock title="Request options" value={exchange.requestOptions} />
-        <JsonBlock title="Request digest" value={{
+        <LazyExchangeJsonBlock runId={runId} exchangeId={exchange.id} title="请求消息原文" selectValue={(detail) => detail.requestMessages} />
+        <LazyExchangeJsonBlock runId={runId} exchangeId={exchange.id} title="请求工具原文" selectValue={(detail) => detail.requestTools} />
+        <LazyExchangeJsonBlock runId={runId} exchangeId={exchange.id} title="请求参数原文" selectValue={(detail) => detail.requestOptions} />
+        <JsonBlock title="请求存储摘要" value={{
           originalDigest: exchange.requestOriginalDigest,
           originalBytes: exchange.requestOriginalBytes,
           storedDigest: exchange.requestDigest,
           storedBytes: exchange.requestBytes,
           truncated: exchange.requestTruncated,
         }} />
-        <JsonBlock title="Response message" value={exchange.responseMessage} />
-        <JsonBlock title="Response tool calls" value={exchange.responseToolCalls} />
-        <JsonBlock title="Token usage" value={exchange.tokenUsage} />
-        <JsonBlock title="Response digest" value={{
+        <LazyExchangeJsonBlock runId={runId} exchangeId={exchange.id} title="响应消息原文" selectValue={(detail) => detail.responseMessage} />
+        <LazyExchangeJsonBlock runId={runId} exchangeId={exchange.id} title="响应文本原文" selectValue={(detail) => detail.responseText} />
+        <LazyExchangeJsonBlock runId={runId} exchangeId={exchange.id} title="响应工具调用原文" selectValue={(detail) => detail.responseToolCalls} />
+        <LazyExchangeJsonBlock runId={runId} exchangeId={exchange.id} title="Token 原始数据" selectValue={(detail) => detail.tokenUsage} />
+        <JsonBlock title="响应存储摘要" value={{
           originalDigest: exchange.responseOriginalDigest,
           originalBytes: exchange.responseOriginalBytes,
           storedDigest: exchange.responseDigest,
           storedBytes: exchange.responseBytes,
           truncated: exchange.responseTruncated,
         }} />
-        {exchange.streamChunks.length > 0 ? <JsonBlock title="Stream chunks" value={exchange.streamChunks} /> : null}
+        <LazyExchangeJsonBlock runId={runId} exchangeId={exchange.id} title="流式片段原文" selectValue={(detail) => detail.streamChunks} />
       </div>
     </article>
   );
@@ -460,8 +611,8 @@ export function AiRunDebugDrawer({ runId, open, onClose }: AiRunDebugDrawerProps
     enabled,
   });
   const exchangesQuery = useQuery({
-    queryKey: queryKeys.aiRunLlmExchanges(runId),
-    queryFn: () => api.getAiRunLlmExchanges(runId as string),
+    queryKey: queryKeys.aiRunLlmExchanges(runId, false),
+    queryFn: () => api.getAiRunLlmExchanges(runId as string, { includePayload: false }),
     enabled,
   });
   const spans = useMemo(() => flattenTraceTree(traceQuery.data?.tree ?? []), [traceQuery.data?.tree]);
@@ -492,9 +643,10 @@ export function AiRunDebugDrawer({ runId, open, onClose }: AiRunDebugDrawerProps
     () => (exchangesQuery.data?.exchanges ?? []).filter((exchange) => exchange.status === 'failed' || exchange.errorCode || exchange.errorMessage),
     [exchangesQuery.data?.exchanges],
   );
-  const isLoading = traceQuery.isLoading || exchangesQuery.isLoading;
-  const error = traceQuery.error ?? exchangesQuery.error ?? null;
+  const isLoading = traceQuery.isLoading;
+  const error = traceQuery.error ?? null;
   const isPermissionDenied = isApiError(error) && error.status === 403;
+  const exchangeError = exchangesQuery.error ?? null;
   const tracePayload = {
     runId,
     exportedAt: new Date().toISOString(),
@@ -504,6 +656,7 @@ export function AiRunDebugDrawer({ runId, open, onClose }: AiRunDebugDrawerProps
     traceConfig: {
       traceId: traceQuery.data?.traceId || exchangesQuery.data?.traceId || '',
       spanCount: spans.length,
+      toolSpanCount: spans.filter(isToolSpan).length,
       llmExchangeCount: exchanges.length,
       tokenUsage: summarizeUsage(exchanges),
     },
@@ -553,28 +706,15 @@ export function AiRunDebugDrawer({ runId, open, onClose }: AiRunDebugDrawerProps
           traceQuery.data?.tree.length ? (
             <div className="ai-debug-timeline">
               <TraceOverview spans={spans} exchanges={exchanges} />
+              <ModelTraceSummaryState loading={exchangesQuery.isLoading} error={exchangeError} />
               <ol className="ai-debug-tree">
                 {traceQuery.data.tree.map((node) => (
-                  <TraceNode key={node.id} node={node} exchangesBySpanId={exchangesBySpanId} exchangeDisplayById={exchangeDisplayById} />
+                  <TraceNode key={node.id} runId={runId} node={node} exchangesBySpanId={exchangesBySpanId} exchangeDisplayById={exchangeDisplayById} />
                 ))}
               </ol>
             </div>
           ) : (
             <div className="ai-debug-state">暂无 trace span。</div>
-          )
-        ) : activeTab === 'llm' ? (
-          exchangesQuery.data?.exchanges.length ? (
-            <div className="ai-debug-exchanges">
-              {exchangesQuery.data.exchanges.map((exchange) => (
-                <ExchangeCard
-                  key={exchange.id}
-                  exchange={exchange}
-                  display={exchangeDisplayById.get(exchange.id) ?? buildExchangeDisplayInfo(exchange, 0)}
-                />
-              ))}
-            </div>
-          ) : (
-            <div className="ai-debug-state">暂无 LLM exchange。</div>
           )
         ) : (
           <div className="ai-debug-errors">

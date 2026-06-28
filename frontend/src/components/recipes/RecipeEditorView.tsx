@@ -6,7 +6,8 @@ import type { Difficulty, Ingredient, MediaAsset } from '../../api/types';
 import type { AiRenderPayload } from '../../lib/aiImages';
 import { resolveAssetUrl } from '../../lib/assets';
 import { MediaWithPlaceholder } from '../MediaPlaceholder';
-import { ActionButton, WorkspaceSubpageShell } from '../ui-kit';
+import { useDebouncedSearchValue, useSearchCompositionState } from '../../hooks/useDebouncedValue';
+import { ActionButton, SearchLoadingIndicator, WorkspaceSubpageShell } from '../ui-kit';
 import {
   MAX_STEP_KEY_POINTS,
   RECIPE_STEP_ICON_OPTIONS,
@@ -76,6 +77,7 @@ type RecipeEditorViewProps = {
   showAiDraftAction?: boolean;
   showDeleteAction?: boolean;
   compactHeader?: boolean;
+  backLabel?: string;
   onBack: () => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
   onDelete: () => Promise<void> | void;
@@ -112,15 +114,34 @@ function RecipeIngredientPicker({ row, rowIndex, ingredients, onSelect }: Recipe
   const rootRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const normalizedSearch = search.trim();
+  const searchComposition = useSearchCompositionState();
+  const searchValue = useDebouncedSearchValue(search, { isComposing: searchComposition.isComposing });
   const selectedIngredient = ingredients.find((ingredient) => ingredient.id === row.ingredient_id) ?? null;
   const selectedLabel = selectedIngredient?.name ?? row.ingredient_name.trim();
   const ingredientSearchQuery = useQuery({
-    queryKey: queryKeys.ingredientPickerSearch(normalizedSearch),
-    queryFn: () => api.getIngredients({ q: normalizedSearch, limit: 20 }),
-    enabled: open && Boolean(normalizedSearch),
+    queryKey: queryKeys.ingredientPickerSearch(searchValue),
+    queryFn: () => api.getIngredients({ q: searchValue, limit: 20 }),
+    enabled: open && Boolean(searchValue),
     placeholderData: keepPreviousData,
   });
-  const optionSource = normalizedSearch ? ingredientSearchQuery.data ?? [] : ingredients;
+  const [appliedSearch, setAppliedSearch] = useState('');
+  const [appliedSearchResults, setAppliedSearchResults] = useState<Ingredient[]>([]);
+  useEffect(() => {
+    if (!normalizedSearch) {
+      setAppliedSearch('');
+      setAppliedSearchResults([]);
+      return;
+    }
+    if (searchValue && !ingredientSearchQuery.isPlaceholderData && ingredientSearchQuery.data) {
+      setAppliedSearch(searchValue);
+      setAppliedSearchResults(ingredientSearchQuery.data);
+    }
+  }, [ingredientSearchQuery.data, ingredientSearchQuery.isPlaceholderData, normalizedSearch, searchValue]);
+  const optionSource = normalizedSearch ? appliedSearchResults : ingredients;
+  const isIngredientSearchFetching =
+    Boolean(normalizedSearch) &&
+    !searchComposition.isComposing &&
+    (appliedSearch !== normalizedSearch || ingredientSearchQuery.isFetching);
   const options = useMemo(() => {
     const seen = new Set<string>();
     return [
@@ -198,6 +219,8 @@ function RecipeIngredientPicker({ row, rowIndex, ingredients, onSelect }: Recipe
               value={search}
               placeholder="搜索或选择食材"
               onChange={(event) => setSearch(event.target.value)}
+              onCompositionStart={searchComposition.onCompositionStart}
+              onCompositionEnd={searchComposition.onCompositionEnd}
               onKeyDown={(event) => {
                 if (event.key === 'Escape') {
                   setOpen(false);
@@ -208,6 +231,7 @@ function RecipeIngredientPicker({ row, rowIndex, ingredients, onSelect }: Recipe
                 }
               }}
             />
+            <SearchLoadingIndicator active={isIngredientSearchFetching} />
             <RecipeUiIcon name="chevronDown" />
           </div>
           <div className="recipe-ingredient-picker-list" role="listbox">
@@ -216,10 +240,10 @@ function RecipeIngredientPicker({ row, rowIndex, ingredients, onSelect }: Recipe
                 清空选择
               </button>
             )}
-            {ingredientSearchQuery.isFetching && normalizedSearch && (
+            {isIngredientSearchFetching && (
               <div className="recipe-ingredient-picker-status">正在搜索...</div>
             )}
-            {!ingredientSearchQuery.isFetching && normalizedSearch && options.length === 0 && (
+            {!isIngredientSearchFetching && appliedSearch === normalizedSearch && options.length === 0 && (
               <div className="recipe-ingredient-picker-status">没有找到匹配食材</div>
             )}
             {options.map((ingredient) => (
@@ -285,6 +309,7 @@ export function RecipeEditorView({
   showAiDraftAction = true,
   showDeleteAction = true,
   compactHeader = false,
+  backLabel,
   onBack,
   onSubmit,
   onDelete,
@@ -314,7 +339,7 @@ export function RecipeEditorView({
               <div className="recipe-editor-topbar">
                 <button className="workspace-back-link recipe-detail-back-link" type="button" onClick={() => onBack()}>
                   <RecipeUiIcon name="chevronLeft" />
-                  {isEditing ? '返回详情' : '返回菜谱'}
+                  {backLabel ?? (isEditing ? '返回详情' : '返回菜谱')}
                 </button>
               </div>
               <div className="recipe-editor-title-block">

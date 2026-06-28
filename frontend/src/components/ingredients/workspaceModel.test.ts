@@ -977,6 +977,54 @@ describe('ingredient workspace model', () => {
     expect(filterIngredientSummaries(summaries, '西红柿', 'all', ['ingredient-tomato']).map((item) => item.ingredient.name)).toEqual(['番茄']);
   });
 
+  it('uses backend catalog search order before default alert ordering', () => {
+    const searchIngredients: Ingredient[] = [
+      {
+        ...ingredients[0]!,
+        id: 'ingredient-alert',
+        name: '番茄',
+        notes: '',
+      },
+      {
+        ...ingredients[1]!,
+        id: 'ingredient-oil',
+        name: '食用油',
+        category: '调料',
+        notes: '',
+      },
+      {
+        ...ingredients[1]!,
+        id: 'ingredient-soy-sauce',
+        name: '酱油',
+        category: '调料',
+        notes: '',
+      },
+    ];
+    const searchInventoryItems: InventoryItem[] = [
+      {
+        ...inventoryItems[0]!,
+        id: 'inventory-alert',
+        ingredient_id: 'ingredient-alert',
+        ingredient_name: '番茄',
+      },
+    ];
+    const summaries = buildIngredientSummaries({
+      ingredients: searchIngredients,
+      inventoryItems: searchInventoryItems,
+      recipes: [],
+      today: '2026-03-20',
+    });
+
+    expect(summaries.map((item) => item.ingredient.name)[0]).toBe('番茄');
+    expect(
+      filterIngredientSummaries(summaries, '油', 'all', [
+        'ingredient-oil',
+        'ingredient-soy-sauce',
+        'ingredient-alert',
+      ]).map((item) => item.ingredient.name)
+    ).toEqual(['食用油', '酱油', '番茄']);
+  });
+
   it('keeps semantic inventory matches that do not match local text', () => {
     const summaries = buildIngredientSummaries({
       ingredients,

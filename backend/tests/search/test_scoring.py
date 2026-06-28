@@ -33,6 +33,28 @@ def test_score_search_candidate_applies_title_bonus_and_keyword_reasons() -> Non
     assert score.reasons == ["名称匹配", "关键词匹配", "详情提到"]
 
 
+def test_score_search_candidate_prioritizes_exact_name_match() -> None:
+    exact_score = score_search_candidate(
+        entity_type="ingredient",
+        query="番茄",
+        keyword_score=1.0,
+        semantic_score=0.0,
+        keyword_hit=None,
+        exact_name_match=True,
+    )
+    semantic_score = score_search_candidate(
+        entity_type="ingredient",
+        query="番茄",
+        keyword_score=0.0,
+        semantic_score=1.0,
+        keyword_hit=None,
+        business_signals=SearchBusinessSignals(inventory_available=True, days_until_expiry=0, low_stock=True),
+    )
+
+    assert exact_score.final_score > semantic_score.final_score
+    assert exact_score.reasons == ["名称匹配"]
+
+
 def test_semantic_reason_candidates_follow_thresholds() -> None:
     assert semantic_reason_candidates(query="清淡晚饭", semantic_score=0.83)[0].label == "语意接近：清淡晚饭"
     assert semantic_reason_candidates(query="清淡晚饭", semantic_score=0.74)[0].label == "适合这个搜索意图"

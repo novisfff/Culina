@@ -21,7 +21,7 @@ from app.services.inventory_usage import load_available_inventory_by_ingredient,
 from app.services.media import bind_media_assets, replace_media_assets
 from app.ai.images.jobs import attach_image_generation_job_to_entity
 from app.services.search.hybrid import hybrid_search
-from app.services.search.indexing import upsert_food_search_document
+from app.services.search.jobs import enqueue_search_index_job
 from app.services.serializers import serialize_food
 
 router = APIRouter(tags=["foods"])
@@ -468,7 +468,7 @@ def create_food(
         entity_id=food.id,
         summary=f"新增{'家常菜' if food.type == FoodType.SELF_MADE.value else '食物'} {food.name}",
     )
-    upsert_food_search_document(db, food)
+    enqueue_search_index_job(db, family_id=membership.family_id, user_id=user.id, entity_type="food", entity_id=food.id, target_name=food.name)
     commit_session(db)
     media_map = build_media_map(get_media_assets_for_entities(db, family_id=membership.family_id, entity_type="food", entity_ids=[food.id]))
     return serialize_food(food, media_map)
@@ -515,7 +515,7 @@ def update_food(
         entity_id=food.id,
         summary=f"更新食物 {food.name}",
     )
-    upsert_food_search_document(db, food)
+    enqueue_search_index_job(db, family_id=membership.family_id, user_id=user.id, entity_type="food", entity_id=food.id, target_name=food.name)
     commit_session(db)
     media_map = build_media_map(get_media_assets_for_entities(db, family_id=membership.family_id, entity_type="food", entity_ids=[food.id]))
     return serialize_food(food, media_map)
@@ -543,7 +543,7 @@ def update_food_favorite(
         entity_id=food.id,
         summary=f"{food.name}已{'加入' if food.favorite else '移出'}收藏",
     )
-    upsert_food_search_document(db, food)
+    enqueue_search_index_job(db, family_id=membership.family_id, user_id=user.id, entity_type="food", entity_id=food.id, target_name=food.name)
     commit_session(db)
     media_map = build_media_map(get_media_assets_for_entities(db, family_id=membership.family_id, entity_type="food", entity_ids=[food.id]))
     return serialize_food(food, media_map)

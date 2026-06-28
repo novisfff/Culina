@@ -136,7 +136,8 @@ async function waitForAssertion(assertion: () => void) {
     } catch (error) {
       lastError = error;
       await act(async () => {
-        await new Promise((resolve) => window.setTimeout(resolve, 10));
+        await vi.advanceTimersByTimeAsync(10);
+        await Promise.resolve();
       });
     }
   }
@@ -148,11 +149,13 @@ afterEach(() => {
   root = null;
   container?.remove();
   container = null;
+  vi.useRealTimers();
   vi.restoreAllMocks();
 });
 
 describe('RecipeEditorView ingredient picker', () => {
   it('searches ingredients through the API and selects the returned option', async () => {
+    vi.useFakeTimers();
     const getIngredients = vi.spyOn(api, 'getIngredients').mockResolvedValue([okra]);
     const selectIngredientRow = vi.fn();
 
@@ -167,10 +170,22 @@ describe('RecipeEditorView ingredient picker', () => {
     const input = container?.querySelector<HTMLInputElement>('.recipe-ingredient-picker-search input');
     expect(input).toBeTruthy();
 
+    changeInput(input!, '西');
     changeInput(input!, '西红柿');
+    expect(getIngredients).not.toHaveBeenCalled();
 
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(299);
+    });
+    expect(getIngredients).not.toHaveBeenCalled();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1);
+    });
+
+    expect(getIngredients).toHaveBeenCalledWith({ q: '西红柿', limit: 20 });
+    expect(getIngredients).toHaveBeenCalledTimes(1);
     await waitForAssertion(() => {
-      expect(getIngredients).toHaveBeenCalledWith({ q: '西红柿', limit: 20 });
       expect(container?.textContent).toContain('秋葵');
     });
 

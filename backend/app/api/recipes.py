@@ -34,7 +34,8 @@ from app.services.media import bind_media_assets, replace_media_assets
 from app.services.recipe_ingredient_refs import RecipeIngredientReferenceError, normalize_recipe_ingredient_items, recipe_ingredient_reference_error_detail
 from app.services.recipe_food_sync import ensure_food_for_recipe
 from app.services.search.hybrid import hybrid_search
-from app.services.search.indexing import delete_search_document, upsert_food_search_document, upsert_recipe_search_document
+from app.services.search.indexing import delete_search_document
+from app.services.search.jobs import enqueue_search_index_job
 from app.services.recipe_recommendations import build_availability_map, build_recipe_discovery, build_recipe_stats, load_recipes_for_family
 from app.services.serializers import serialize_recipe
 
@@ -325,8 +326,8 @@ def create_recipe(
         entity_id=food.id,
         summary=f"自动创建家常菜 {food.name}",
     )
-    upsert_recipe_search_document(db, recipe)
-    upsert_food_search_document(db, food)
+    enqueue_search_index_job(db, family_id=membership.family_id, user_id=user.id, entity_type="recipe", entity_id=recipe.id, target_name=recipe.title)
+    enqueue_search_index_job(db, family_id=membership.family_id, user_id=user.id, entity_type="food", entity_id=food.id, target_name=food.name)
 
     commit_session(db)
     db.refresh(recipe)
@@ -398,8 +399,8 @@ def update_recipe(
         entity_id=synced_food.id,
         summary=f"{'补建' if synced_food_created else '同步更新'}家常菜 {synced_food.name}",
     )
-    upsert_recipe_search_document(db, recipe)
-    upsert_food_search_document(db, synced_food)
+    enqueue_search_index_job(db, family_id=membership.family_id, user_id=user.id, entity_type="recipe", entity_id=recipe.id, target_name=recipe.title)
+    enqueue_search_index_job(db, family_id=membership.family_id, user_id=user.id, entity_type="food", entity_id=synced_food.id, target_name=synced_food.name)
     commit_session(db)
     db.refresh(recipe)
     media_map = build_media_map(get_media_assets_for_entities(db, family_id=membership.family_id, entity_type="recipe", entity_ids=[recipe.id]))
@@ -442,9 +443,9 @@ def delete_recipe(
         entity_id=recipe_id,
         summary=f"删除菜谱 {title}",
     )
-    delete_search_document(db, family_id=membership.family_id, entity_type="recipe", entity_id=recipe_id)
+    delete_search_document(db, family_id=membership.family_id, entity_type="recipe", entity_id=recipe_id, delete_vector=True)
     for food_id in synced_food_ids:
-        delete_search_document(db, family_id=membership.family_id, entity_type="food", entity_id=food_id)
+        delete_search_document(db, family_id=membership.family_id, entity_type="food", entity_id=food_id, delete_vector=True)
     commit_session(db)
     return None
 

@@ -1,9 +1,10 @@
-import type { ComponentType, CSSProperties, ReactNode, RefObject } from 'react';
+import type { ComponentType, CompositionEventHandler, CSSProperties, ReactNode, RefObject } from 'react';
 import type { ShoppingListItem } from '../../api/types';
 import {
   ActionButton,
   Badge,
   EmptyState,
+  SearchLoadingIndicator,
 } from '../ui-kit';
 import { IngredientCategoryIcon } from './IngredientEditorView';
 import type {
@@ -86,6 +87,9 @@ type CatalogPanelProps = {
   stockedIngredientCount: number;
   catalogCountLabel: string;
   catalogSearch: string;
+  isCatalogSearchFetching?: boolean;
+  onCatalogSearchCompositionStart?: CompositionEventHandler<HTMLInputElement>;
+  onCatalogSearchCompositionEnd?: CompositionEventHandler<HTMLInputElement>;
   catalogCategoryFilter: string;
   catalogStatusFilter: CatalogStatusFilter;
   catalogCategories: string[];
@@ -137,7 +141,10 @@ export function IngredientCatalogPanel(props: CatalogPanelProps) {
                 placeholder="搜索食材、分类、备注或关联菜谱"
                 value={props.catalogSearch}
                 onChange={(event) => props.onCatalogSearchChange(event.target.value)}
+                onCompositionStart={props.onCatalogSearchCompositionStart}
+                onCompositionEnd={props.onCatalogSearchCompositionEnd}
               />
+              <SearchLoadingIndicator active={Boolean(props.catalogSearch.trim()) && Boolean(props.isCatalogSearchFetching)} />
             </span>
           </label>
           <span className="ingredients-catalog-search-count">
@@ -248,6 +255,9 @@ export function IngredientCatalogPanel(props: CatalogPanelProps) {
 type InventoryPanelProps = {
   summariesCount: number;
   inventorySearch: string;
+  isInventorySearchFetching?: boolean;
+  onInventorySearchCompositionStart?: CompositionEventHandler<HTMLInputElement>;
+  onInventorySearchCompositionEnd?: CompositionEventHandler<HTMLInputElement>;
   inventoryQuickFilter: 'all' | 'alerted';
   inventoryStorageFocus: InventoryStorageFocus;
   inventorySortMode: InventorySortMode;
@@ -289,7 +299,10 @@ export function IngredientInventoryPanel(props: InventoryPanelProps) {
                 placeholder="搜索食材名称、分类、位置或提醒"
                 value={props.inventorySearch}
                 onChange={(event) => props.onInventorySearchChange(event.target.value)}
+                onCompositionStart={props.onInventorySearchCompositionStart}
+                onCompositionEnd={props.onInventorySearchCompositionEnd}
               />
+              <SearchLoadingIndicator active={Boolean(props.inventorySearch.trim()) && Boolean(props.isInventorySearchFetching)} />
             </span>
           </label>
           <div className="ingredients-inventory-filter-row">

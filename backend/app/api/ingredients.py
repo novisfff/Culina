@@ -17,7 +17,7 @@ from app.ai.images.jobs import attach_image_generation_job_to_entity
 from app.services.ingredient_units import UnitConversionError, validate_unit_conversions
 from app.services.media import bind_media_assets, replace_media_assets
 from app.services.search.hybrid import hybrid_search
-from app.services.search.indexing import upsert_ingredient_search_document
+from app.services.search.jobs import enqueue_search_index_job
 from app.services.serializers import serialize_ingredient
 
 router = APIRouter(tags=["ingredients"])
@@ -126,7 +126,7 @@ def create_ingredient(
         entity_id=ingredient.id,
         summary=f"新增食材 {ingredient.name}",
     )
-    upsert_ingredient_search_document(db, ingredient)
+    enqueue_search_index_job(db, family_id=membership.family_id, user_id=user.id, entity_type="ingredient", entity_id=ingredient.id, target_name=ingredient.name)
     commit_session(db)
     media_map = build_media_map(get_media_assets_for_entities(db, family_id=membership.family_id, entity_type="ingredient", entity_ids=[ingredient.id]))
     return serialize_ingredient(ingredient, media_map)
@@ -198,7 +198,7 @@ def update_ingredient(
         entity_id=ingredient.id,
         summary=f"更新食材 {ingredient.name}",
     )
-    upsert_ingredient_search_document(db, ingredient)
+    enqueue_search_index_job(db, family_id=membership.family_id, user_id=user.id, entity_type="ingredient", entity_id=ingredient.id, target_name=ingredient.name)
     commit_session(db)
     media_map = build_media_map(get_media_assets_for_entities(db, family_id=membership.family_id, entity_type="ingredient", entity_ids=[ingredient.id]))
     return serialize_ingredient(ingredient, media_map)

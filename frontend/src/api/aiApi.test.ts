@@ -115,16 +115,67 @@ describe('aiApi', () => {
           headers: { 'Content-Type': 'application/json' },
         });
       }
+      if (url.endsWith('/api/ai/runs/run-1/llm-exchanges?includePayload=false')) {
+        return new Response(JSON.stringify({ runId: 'run-1', traceId: 'trace-1', exchanges: [] }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      if (url.endsWith('/api/ai/runs/run-1/llm-exchanges/exchange-1')) {
+        return new Response(JSON.stringify({
+          id: 'exchange-1',
+          runId: 'run-1',
+          traceId: 'trace-1',
+          spanId: 'span-1',
+          providerRound: 1,
+          attemptIndex: 1,
+          mode: 'tools',
+          model: 'fake',
+          requestToolCount: 0,
+          requestToolNames: [],
+          responseToolCallCount: 0,
+          responseToolCallNames: [],
+          payloadIncluded: true,
+          requestMessages: [],
+          requestTools: [],
+          requestOptions: {},
+          requestOriginalDigest: '',
+          requestOriginalBytes: 0,
+          requestDigest: '',
+          requestBytes: 0,
+          requestTruncated: false,
+          responseMessage: {},
+          responseText: null,
+          responseToolCalls: [],
+          streamChunks: [],
+          responseOriginalDigest: '',
+          responseOriginalBytes: 0,
+          responseDigest: '',
+          responseBytes: 0,
+          responseTruncated: false,
+          tokenUsage: {},
+          status: 'completed',
+          startedAt: '2026-05-30T00:00:00Z',
+          durationMs: 0,
+        }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
       return new Response('not found', { status: 404 });
     });
 
     await expect(aiApi.getAiRunTrace('run-1')).resolves.toEqual({ runId: 'run-1', traceId: 'trace-1', status: 'completed', spans: [] });
     await expect(aiApi.getAiRunTraceTree('run-1')).resolves.toEqual({ runId: 'run-1', traceId: 'trace-1', status: 'completed', tree: [] });
     await expect(aiApi.getAiRunLlmExchanges('run-1')).resolves.toEqual({ runId: 'run-1', traceId: 'trace-1', exchanges: [] });
+    await expect(aiApi.getAiRunLlmExchanges('run-1', { includePayload: false })).resolves.toEqual({ runId: 'run-1', traceId: 'trace-1', exchanges: [] });
+    await expect(aiApi.getAiRunLlmExchange('run-1', 'exchange-1')).resolves.toMatchObject({ id: 'exchange-1', payloadIncluded: true });
     expect(fetchSpy.mock.calls.map((call) => String(call[0]))).toEqual([
       expect.stringContaining('/api/ai/runs/run-1/trace'),
       expect.stringContaining('/api/ai/runs/run-1/trace/tree'),
       expect.stringContaining('/api/ai/runs/run-1/llm-exchanges'),
+      expect.stringContaining('/api/ai/runs/run-1/llm-exchanges?includePayload=false'),
+      expect.stringContaining('/api/ai/runs/run-1/llm-exchanges/exchange-1'),
     ]);
   });
 

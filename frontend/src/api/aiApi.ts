@@ -9,6 +9,7 @@ import type {
   AiMessage,
   AiMessagePart,
   AiQualityMetrics,
+  AiRunLLMExchange,
   AiRunLLMExchangeResponse,
   AiStatus,
   AiRunTraceResponse,
@@ -152,8 +153,13 @@ export const aiApi = {
     request<AiRunTraceResponse>(`/api/ai/runs/${runId}/trace`),
   getAiRunTraceTree: (runId: string) =>
     request<AiRunTraceTreeResponse>(`/api/ai/runs/${runId}/trace/tree`),
-  getAiRunLlmExchanges: (runId: string) =>
-    request<AiRunLLMExchangeResponse>(`/api/ai/runs/${runId}/llm-exchanges`),
+  getAiRunLlmExchanges: (runId: string, options: { includePayload?: boolean } = {}) => {
+    const includePayload = options.includePayload ?? true;
+    const query = includePayload ? '' : '?includePayload=false';
+    return request<AiRunLLMExchangeResponse>(`/api/ai/runs/${runId}/llm-exchanges${query}`);
+  },
+  getAiRunLlmExchange: (runId: string, exchangeId: string) =>
+    request<AiRunLLMExchange>(`/api/ai/runs/${runId}/llm-exchanges/${exchangeId}`),
   getPendingAiApprovals: (conversationId: string) =>
     request<AiApprovalRequest[]>(`/api/ai/conversations/${conversationId}/approvals/pending`),
   decideAiApproval: (

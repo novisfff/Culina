@@ -209,6 +209,7 @@ const fixtures = {
   '/api/activity-logs': [],
   '/api/ai/conversations': [],
   '/api/media/ai-render/active': [],
+  '/api/search/index-jobs/active': [],
 };
 
 function assertDistExists() {

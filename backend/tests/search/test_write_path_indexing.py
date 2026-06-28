@@ -2,11 +2,28 @@ from __future__ import annotations
 
 from sqlalchemy import select
 
-from app.models.domain import Food, SearchDocument
+from app.models.domain import Food, SearchDocument, SearchIndexJob
+from app.services.search.jobs import _index_vector_if_enabled, process_search_index_job
 from tests.recipes._support import RecipeApiTestCase
 
 
 class SearchWritePathIndexingTestCase(RecipeApiTestCase):
+    def _process_index_job(self, entity_type: str, entity_id: str) -> None:
+        with self.SessionLocal() as db:
+            job = db.scalar(
+                select(SearchIndexJob)
+                .where(
+                    SearchIndexJob.family_id == self.family.id,
+                    SearchIndexJob.entity_type == entity_type,
+                    SearchIndexJob.entity_id == entity_id,
+                )
+                .order_by(SearchIndexJob.created_at.desc(), SearchIndexJob.id.desc())
+            )
+            self.assertIsNotNone(job)
+            assert job is not None
+            job_id = job.id
+        process_search_index_job(job_id, session_factory=self.SessionLocal)
+
     def test_ingredient_create_and_update_refresh_search_document(self) -> None:
         response = self.client.post(
             "/api/ingredients",
@@ -26,6 +43,7 @@ class SearchWritePathIndexingTestCase(RecipeApiTestCase):
         )
         self.assertEqual(response.status_code, 201, response.text)
         ingredient = response.json()
+        self._process_index_job("ingredient", ingredient["id"])
         with self.SessionLocal() as db:
             document = db.scalar(
                 select(SearchDocument).where(
@@ -45,6 +63,7 @@ class SearchWritePathIndexingTestCase(RecipeApiTestCase):
             json={**ingredient, "name": "紫皮洋葱头", "notes": "适合快手炒菜", "media_ids": []},
         )
         self.assertEqual(update_response.status_code, 200, update_response.text)
+        self._process_index_job("ingredient", ingredient["id"])
         with self.SessionLocal() as db:
             document = db.scalar(
                 select(SearchDocument).where(
@@ -57,7 +76,40 @@ class SearchWritePathIndexingTestCase(RecipeApiTestCase):
             self.assertEqual(document.title_text, "紫皮洋葱头")
             self.assertIn("适合快手炒菜", document.semantic_text)
             self.assertNotEqual(document.content_hash, old_hash)
-            self.assertEqual(document.vector_status, "pending")
+            self.assertEqual(document.vector_status, "disabled")
+
+    def test_search_index_vector_step_treats_null_attempt_count_as_zero(self) -> None:
+        response = self.client.post(
+            "/api/ingredients",
+            json={
+                "name": "梅干菜",
+                "category": "干货",
+                "default_unit": "克",
+                "unit_conversions": [],
+                "quantity_tracking_mode": "track_quantity",
+                "default_storage": "阴凉",
+                "default_expiry_mode": "none",
+                "notes": "适合扣肉",
+                "media_ids": [],
+            },
+        )
+        self.assertEqual(response.status_code, 201, response.text)
+        ingredient = response.json()
+        self._process_index_job("ingredient", ingredient["id"])
+        with self.SessionLocal() as db:
+            document = db.scalar(
+                select(SearchDocument).where(
+                    SearchDocument.entity_type == "ingredient",
+                    SearchDocument.entity_id == ingredient["id"],
+                )
+            )
+            self.assertIsNotNone(document)
+            assert document is not None
+            document.vector_status = "pending"
+            document.vector_attempt_count = None  # type: ignore[assignment]
+            vector_status = _index_vector_if_enabled(document)
+            self.assertEqual(vector_status, "skipped")
+            self.assertEqual(document.vector_attempt_count, 0)
 
     def test_food_create_and_update_refresh_search_document(self) -> None:
         response = self.client.post(
@@ -85,6 +137,7 @@ class SearchWritePathIndexingTestCase(RecipeApiTestCase):
         )
         self.assertEqual(response.status_code, 201, response.text)
         food = response.json()
+        self._process_index_job("food", food["id"])
         with self.SessionLocal() as db:
             document = db.scalar(select(SearchDocument).where(SearchDocument.entity_type == "food", SearchDocument.entity_id == food["id"]))
             self.assertIsNotNone(document)
@@ -99,17 +152,25 @@ class SearchWritePathIndexingTestCase(RecipeApiTestCase):
             json={**food, "name": "冷冻牛肉饭 Pro", "media_ids": []},
         )
         self.assertEqual(update_response.status_code, 200, update_response.text)
+        self._process_index_job("food", food["id"])
         with self.SessionLocal() as db:
             document = db.scalar(select(SearchDocument).where(SearchDocument.entity_type == "food", SearchDocument.entity_id == food["id"]))
             self.assertIsNotNone(document)
             assert document is not None
             self.assertEqual(document.title_text, "冷冻牛肉饭 Pro")
             self.assertNotEqual(document.content_hash, old_hash)
-            self.assertEqual(document.vector_status, "pending")
+            self.assertEqual(document.vector_status, "disabled")
 
     def test_recipe_create_update_and_delete_syncs_recipe_and_food_documents(self) -> None:
         recipe = self.create_recipe(title="番茄炒蛋")
         recipe_id = recipe["id"]
+        with self.SessionLocal() as db:
+            food = db.scalar(select(Food).where(Food.recipe_id == recipe_id))
+            self.assertIsNotNone(food)
+            assert food is not None
+            food_id = food.id
+        self._process_index_job("recipe", recipe_id)
+        self._process_index_job("food", food_id)
         with self.SessionLocal() as db:
             food = db.scalar(select(Food).where(Food.recipe_id == recipe_id))
             self.assertIsNotNone(food)
@@ -136,6 +197,13 @@ class SearchWritePathIndexingTestCase(RecipeApiTestCase):
             },
         )
         self.assertEqual(update_response.status_code, 200, update_response.text)
+        self._process_index_job("recipe", recipe_id)
+        with self.SessionLocal() as db:
+            food = db.scalar(select(Food).where(Food.recipe_id == recipe_id))
+            self.assertIsNotNone(food)
+            assert food is not None
+            food_id = food.id
+        self._process_index_job("food", food_id)
         with self.SessionLocal() as db:
             food = db.scalar(select(Food).where(Food.recipe_id == recipe_id))
             self.assertIsNotNone(food)

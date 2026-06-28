@@ -842,7 +842,8 @@ export function filterIngredientSummaries(
 ) {
   const normalized = term.trim();
   const matchedIdSet = new Set(matchedIngredientIds);
-  return summaries.filter((summary) => {
+  const matchedOrder = new Map(matchedIngredientIds.map((id, index) => [id, index]));
+  const filtered = summaries.filter((summary) => {
     const matchesCategory =
       categoryFilter === ALL_CATEGORY_FILTER || normalizeCategoryLabel(summary.ingredient.category) === categoryFilter;
     if (!matchesCategory) {
@@ -858,6 +859,23 @@ export function filterIngredientSummaries(
       summary.ingredient.notes.includes(normalized) ||
       summary.recipeReferences.some((item) => item.title.includes(normalized))
     );
+  });
+  if (!normalized || matchedIngredientIds.length === 0) {
+    return filtered;
+  }
+  return [...filtered].sort((left, right) => {
+    const leftOrder = matchedOrder.get(left.ingredient.id);
+    const rightOrder = matchedOrder.get(right.ingredient.id);
+    if (leftOrder !== undefined && rightOrder !== undefined) {
+      return leftOrder - rightOrder;
+    }
+    if (leftOrder !== undefined) {
+      return -1;
+    }
+    if (rightOrder !== undefined) {
+      return 1;
+    }
+    return 0;
   });
 }
 

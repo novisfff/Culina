@@ -3259,6 +3259,40 @@ textarea:focus-visible {
   height: 100%;
 }
 
+.search-loading-indicator {
+  display: inline-flex;
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
+  border: 2px solid rgba(210, 107, 51, 0.22);
+  border-top-color: var(--accent, #d26b33);
+  border-radius: 999px;
+  pointer-events: none;
+  animation: searchLoadingSpin 720ms linear infinite;
+}
+
+.food-search-field .search-loading-indicator,
+.recipe-search-input-shell .search-loading-indicator,
+.ingredients-catalog-search-input-shell .search-loading-indicator,
+.ingredients-inventory-search-input-shell .search-loading-indicator {
+  position: absolute;
+  top: calc(50% - 7px);
+  right: 43px;
+  z-index: 3;
+}
+
+@keyframes searchLoadingSpin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .search-loading-indicator {
+    animation: none;
+  }
+}
+
 .recipe-filter-select {
   appearance: none !important;
   -webkit-appearance: none !important;

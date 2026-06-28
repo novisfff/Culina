@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import hashlib
 import json
+from collections.abc import Mapping
 from time import perf_counter
 from typing import Any
 
@@ -16,6 +17,31 @@ from app.core.utils import create_id, utcnow
 from app.models.domain import AIRunLLMExchange
 
 logger = logging.getLogger(__name__)
+
+USAGE_FIELD_KEYS = (
+    "input_tokens",
+    "output_tokens",
+    "prompt_tokens",
+    "completion_tokens",
+    "total_tokens",
+    "inputTokens",
+    "outputTokens",
+    "promptTokens",
+    "completionTokens",
+    "totalTokens",
+    "cached_tokens",
+    "cachedTokens",
+    "input_token_details",
+    "output_token_details",
+    "prompt_tokens_details",
+    "completion_tokens_details",
+    "inputTokenDetails",
+    "outputTokenDetails",
+    "promptTokenDetails",
+    "completionTokenDetails",
+    "estimated_cost_usd",
+    "estimatedCostUsd",
+)
 
 
 class LLMExchangeHandle:
@@ -264,22 +290,23 @@ class LLMExchangeRecorder:
             return []
 
     def extract_token_usage(self, response_message: Any) -> dict[str, Any]:
-        usage_metadata = getattr(response_message, "usage_metadata", None)
-        response_metadata = getattr(response_message, "response_metadata", None)
-        additional_kwargs = getattr(response_message, "additional_kwargs", None)
-        token_usage = response_metadata.get("token_usage") if isinstance(response_metadata, dict) else None
-        response_usage = response_metadata.get("usage") if isinstance(response_metadata, dict) else None
-        additional_usage = additional_kwargs.get("usage") if isinstance(additional_kwargs, dict) else None
+        usage_metadata = self._field_value(response_message, "usage_metadata", "usageMetadata")
+        response_metadata = self._usage_mapping(
+            self._field_value(response_message, "response_metadata", "responseMetadata")
+        )
+        additional_kwargs = self._usage_mapping(
+            self._field_value(response_message, "additional_kwargs", "additionalKwargs")
+        )
+        token_usage = self._field_value(response_metadata, "token_usage", "tokenUsage")
+        response_usage = self._field_value(response_metadata, "usage")
+        additional_usage = self._field_value(additional_kwargs, "usage")
+        message_usage = self._field_value(response_message, "usage", "token_usage", "tokenUsage")
 
         raw_usage: dict[str, Any] = {}
-        if isinstance(token_usage, dict):
-            raw_usage.update(token_usage)
-        if isinstance(response_usage, dict):
-            raw_usage.update(response_usage)
-        if isinstance(additional_usage, dict):
-            raw_usage.update(additional_usage)
-        if isinstance(usage_metadata, dict):
-            raw_usage.update(usage_metadata)
+        for usage in (token_usage, response_usage, additional_usage, message_usage, usage_metadata):
+            normalized = self._usage_mapping(usage)
+            if normalized:
+                raw_usage.update(normalized)
 
         input_tokens = self._int_usage_value(raw_usage, "input_tokens", "prompt_tokens", "inputTokens", "promptTokens")
         output_tokens = self._int_usage_value(raw_usage, "output_tokens", "completion_tokens", "outputTokens", "completionTokens")
@@ -309,6 +336,10 @@ class LLMExchangeRecorder:
                 return value
             if isinstance(value, float) and value.is_integer():
                 return int(value)
+            if isinstance(value, str):
+                normalized = value.strip()
+                if normalized.isdigit():
+                    return int(normalized)
         return None
 
     def _float_usage_value(self, data: dict[str, Any], *keys: str) -> float | None:
@@ -332,6 +363,57 @@ class LLMExchangeRecorder:
             if cached is not None:
                 return cached
         return None
+
+    def _field_value(self, value: Any, *keys: str) -> Any:
+        if value is None:
+            return None
+        if isinstance(value, Mapping):
+            for key in keys:
+                if key in value:
+                    return value[key]
+            return None
+        for key in keys:
+            if hasattr(value, key):
+                return getattr(value, key)
+        return None
+
+    def _usage_mapping(self, value: Any) -> dict[str, Any]:
+        normalized = self._normalize_usage_value(value)
+        return normalized if isinstance(normalized, dict) else {}
+
+    def _normalize_usage_value(self, value: Any) -> Any:
+        if value is None:
+            return None
+        if isinstance(value, Mapping):
+            return {str(key): self._normalize_usage_value(item) for key, item in value.items()}
+        if isinstance(value, (list, tuple)):
+            return [self._normalize_usage_value(item) for item in value]
+        if hasattr(value, "model_dump"):
+            try:
+                return self._normalize_usage_value(value.model_dump())
+            except Exception:
+                pass
+        if hasattr(value, "dict"):
+            try:
+                return self._normalize_usage_value(value.dict())
+            except Exception:
+                pass
+        if hasattr(value, "__dict__") and not isinstance(value, (str, bytes, bytearray)):
+            public_values = {
+                key: item
+                for key, item in vars(value).items()
+                if not key.startswith("_") and not callable(item)
+            }
+            if public_values:
+                return self._normalize_usage_value(public_values)
+        object_values = {
+            key: getattr(value, key)
+            for key in USAGE_FIELD_KEYS
+            if hasattr(value, key) and not callable(getattr(value, key))
+        }
+        if object_values:
+            return self._normalize_usage_value(object_values)
+        return value
 
     def provider_error_code(self, *, mode: str, empty: bool = False, max_rounds: bool = False) -> str:
         if empty:

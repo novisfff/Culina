@@ -6918,10 +6918,27 @@
   gap: 6px;
 }
 
-.recipe-ingredient-resolution-search span {
+.recipe-ingredient-resolution-search > span:first-child {
   color: var(--text-soft);
   font-size: 0.78rem;
   font-weight: 700;
+}
+
+.recipe-ingredient-resolution-search-input {
+  position: relative;
+  display: block;
+}
+
+.recipe-ingredient-resolution-search-input .text-input {
+  width: 100%;
+  padding-right: 42px;
+}
+
+.recipe-ingredient-resolution-search-input .search-loading-indicator {
+  position: absolute;
+  top: calc(50% - 7px);
+  right: 14px;
+  z-index: 2;
 }
 
 .recipe-ingredient-resolution-candidates {

@@ -2,14 +2,16 @@ from __future__ import annotations
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from app.core.deps import get_current_auth
 from app.db.session import get_db
+from app.db.transactions import commit_session
 from app.models.domain import Food, Ingredient, Recipe
 from app.repos.media import build_media_map, get_media_assets_for_entities
-from app.schemas.search import SearchResponseOut
+from app.schemas.search import SearchIndexJobResponse, SearchResponseOut
 from app.services.search.hybrid import HybridSearchResult, hybrid_search
+from app.services.search.jobs import get_search_index_job, list_active_search_index_jobs, retry_failed_search_index_job
 from app.services.serializers import serialize_food, serialize_ingredient, serialize_recipe
 
 router = APIRouter(tags=["search"])
@@ -127,3 +129,54 @@ def _load_entities(db: Session, *, family_id: str, hits: list[HybridSearchResult
         media_map = build_media_map(get_media_assets_for_entities(db, family_id=family_id, entity_type="recipe", entity_ids=[item.id for item in recipes]))
         payloads.update({("recipe", item.id): serialize_recipe(item, media_map) for item in recipes})
     return payloads
+
+
+def _render_search_index_job_response(job) -> dict:
+    return {
+        "job_id": job.id,
+        "status": job.status,
+        "error": job.error,
+        "entity_type": job.entity_type,
+        "entity_id": job.entity_id,
+        "target_name": job.target_name,
+        "vector_status": job.vector_status,
+    }
+
+
+@router.get("/api/search/index-jobs/active", response_model=list[SearchIndexJobResponse])
+def list_active_search_index_job_notifications(
+    auth: tuple = Depends(get_current_auth),
+    db: Session = Depends(get_db),
+) -> list[dict]:
+    _, membership = auth
+    return [_render_search_index_job_response(job) for job in list_active_search_index_jobs(db, family_id=membership.family_id)]
+
+
+@router.get("/api/search/index-jobs/{job_id}", response_model=SearchIndexJobResponse)
+def get_search_index_job_notification(
+    job_id: str,
+    auth: tuple = Depends(get_current_auth),
+    db: Session = Depends(get_db),
+) -> dict:
+    _, membership = auth
+    job = get_search_index_job(db, family_id=membership.family_id, job_id=job_id)
+    if job is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Search index job not found")
+    return _render_search_index_job_response(job)
+
+
+@router.post("/api/search/index-jobs/{job_id}/retry", response_model=SearchIndexJobResponse)
+def retry_search_index_job_notification(
+    job_id: str,
+    auth: tuple = Depends(get_current_auth),
+    db: Session = Depends(get_db),
+) -> dict:
+    _, membership = auth
+    try:
+        job = retry_failed_search_index_job(db, family_id=membership.family_id, job_id=job_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    if job is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Search index job not found")
+    commit_session(db)
+    return _render_search_index_job_response(job)

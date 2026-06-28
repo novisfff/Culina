@@ -1,8 +1,9 @@
 import { useState } from 'react';
 import type { AiInventoryBatchOption, MediaAsset } from '../../api/types';
 import { resolveMediaUrl } from '../../lib/assets';
+import { INVENTORY_STORAGE_PRESETS, buildUnitPresetOptions } from '../ingredients/ingredientWorkspaceForms';
 import { MediaWithPlaceholder } from '../MediaPlaceholder';
-import { ApprovalSelectField } from './AiApprovalFields';
+import { ApprovalComboboxField, ApprovalSelectField } from './AiApprovalFields';
 
 const ACTION_LABELS: Record<string, string> = {
   restock: '补货',
@@ -35,6 +36,75 @@ function asDraftArray(value: unknown): Record<string, unknown>[] {
     : [];
 }
 
+function formatInventoryQuantity(quantity: unknown, unit: unknown) {
+  const numeric = asNumber(quantity, 0);
+  const display = Number.isInteger(numeric) ? String(numeric) : String(Number(numeric.toFixed(2)));
+  const unitText = asText(unit);
+  return `${display}${unitText ? ` ${unitText}` : ''}`;
+}
+
+function optionListFromText(value: unknown) {
+  if (!Array.isArray(value)) return [];
+  return value.map((item) => asText(item).trim()).filter(Boolean);
+}
+
+function inventorySummaryItems(operations: Record<string, unknown>[]) {
+  const counts = operations.reduce<Record<string, number>>((acc, item) => {
+    const action = asText(item.action, 'consume');
+    acc[action] = (acc[action] ?? 0) + 1;
+    return acc;
+  }, {});
+  const ingredientIds = new Set(operations.map((item) => asText(item.ingredientId) || asText(item.ingredient_id) || asText(item.ingredientName)).filter(Boolean));
+  return [
+    { label: '补货', value: `${counts.restock ?? 0} 项` },
+    { label: '消耗', value: `${counts.consume ?? 0} 项` },
+    { label: '销毁', value: `${counts.dispose ?? 0} 项` },
+    { label: '涉及食材', value: `${ingredientIds.size} 种` },
+  ];
+}
+
+function unitOptionsForItem(item: Record<string, unknown>) {
+  const preferred = asText(item.defaultUnit) || asText(item.default_unit) || asText(item.unit);
+  return buildUnitPresetOptions(preferred).map((unit) => ({ value: unit, label: unit }));
+}
+
+function storageOptionsForItem(item: Record<string, unknown>) {
+  const values = [
+    ...optionListFromText(item.storageLocationOptions),
+    ...optionListFromText(item.storage_locations),
+    ...optionListFromText(item.ingredientStorageLocations),
+    asText(item.defaultStorage),
+    asText(item.default_storage),
+    asText(item.storageLocation),
+    ...INVENTORY_STORAGE_PRESETS,
+  ].map((value) => value.trim()).filter(Boolean);
+  return Array.from(new Set(values)).map((value) => ({ value, label: value }));
+}
+
+function batchLabel(batchOptions: AiInventoryBatchOption[], inventoryItemId: string) {
+  if (!inventoryItemId) return '自动选择批次';
+  return batchOptions.find((option) => option.id === inventoryItemId)?.label ?? '当前所选批次';
+}
+
+function operationDescription(action: string, item: Record<string, unknown>, batchOptions: AiInventoryBatchOption[], inventoryItemId: string) {
+  if (action === 'restock') {
+    return [
+      asText(item.storageLocation) || '未设置存放位置',
+      asText(item.expiryDate) ? `到期 ${asText(item.expiryDate)}` : '未设置到期日',
+    ].join(' · ');
+  }
+  if (action === 'dispose') {
+    return [
+      batchLabel(batchOptions, inventoryItemId),
+      `剩余 ${formatInventoryQuantity(item.remainingQuantity, item.unit)}`,
+      asText(item.reason) || '待填写原因',
+    ].join(' · ');
+  }
+  return inventoryItemId
+    ? `指定批次：${batchLabel(batchOptions, inventoryItemId)}`
+    : '自动临期优先扣减';
+}
+
 export function AiInventoryOperationEditor({
   draft,
   readonly,
@@ -51,14 +121,83 @@ export function AiInventoryOperationEditor({
   const toggleDetails = (key: string) => {
     setExpandedDetails((current) => ({ ...current, [key]: !current[key] }));
   };
+  const summaryItems = inventorySummaryItems(operations);
+
+  if (readonly) {
+    return (
+      <div className="ai-recipe-editor ai-confirmation-editor ai-inventory-operation-editor">
+        <section className="ai-inventory-operation-summary-card" aria-label="库存处理摘要">
+          <div className="ai-recipe-summary-head">
+            <div>
+              <strong>库存处理结果</strong>
+              <span>已按下列草稿状态处理；这里只保留结果核对摘要。</span>
+            </div>
+            <em>库存</em>
+          </div>
+          <dl className="ai-recipe-summary-grid ai-inventory-operation-summary-grid">
+            {summaryItems.map((item) => (
+              <div key={item.label}>
+                <dt>{item.label}</dt>
+                <dd>{item.value}</dd>
+              </div>
+            ))}
+          </dl>
+        </section>
+        <div className="ai-inventory-section-heading">
+          <strong>处理结果</strong>
+          <span>每项动作的数量、批次和备注摘要</span>
+        </div>
+        <div className="ai-inventory-resolved-list">
+          {operations.map((item, index) => {
+            const action = asText(item.action, 'consume');
+            const ingredientId = asText(item.ingredientId) || asText(item.ingredient_id);
+            const inventoryItemId = asText(item.inventoryItemId) || asText(item.inventory_item_id);
+            const batchOptions = Array.isArray(item.batchOptions)
+              ? item.batchOptions.filter(
+                  (option): option is AiInventoryBatchOption => (
+                    typeof option === 'object'
+                    && option !== null
+                    && typeof (option as AiInventoryBatchOption).id === 'string'
+                  ),
+                )
+              : [];
+            return (
+              <article className={`ai-inventory-resolved-card action-${action}`} key={`${action}-${inventoryItemId || ingredientId}-${index}`}>
+                <div>
+                  <strong>{asText(item.ingredientName, '食材')}</strong>
+                  <span>{operationDescription(action, item, batchOptions, inventoryItemId)}</span>
+                </div>
+                <em>{ACTION_LABELS[action] ?? '处理'} · {formatInventoryQuantity(item.quantity, item.unit)}</em>
+              </article>
+            );
+          })}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="ai-recipe-editor ai-confirmation-editor ai-inventory-operation-editor">
-      <div className="ai-draft-editor-head">
-        <div>
-          <strong>库存处理项</strong>
-          <span>{operations.length} 项 · 确认后统一执行</span>
+      <section className="ai-inventory-operation-summary-card" aria-label="库存处理摘要">
+        <div className="ai-recipe-summary-head">
+          <div>
+            <strong>待确认库存处理</strong>
+            <span>{operations.length} 项 · 确认后会正式修改家庭库存</span>
+          </div>
+          <em>库存</em>
         </div>
+        <dl className="ai-recipe-summary-grid ai-inventory-operation-summary-grid">
+          {summaryItems.map((item) => (
+            <div key={item.label}>
+              <dt>{item.label}</dt>
+              <dd>{item.value}</dd>
+            </div>
+          ))}
+        </dl>
+      </section>
+      <div className="ai-inventory-section-heading">
+        <strong>主要处理项</strong>
+        <span>核对食材、动作、数量和单位</span>
       </div>
       {operations.map((item, index) => {
         const action = asText(item.action, 'consume');
@@ -135,12 +274,15 @@ export function AiInventoryOperationEditor({
                       quantity: Number(event.target.value) || 0.01,
                     })}
                   />
-                  <input
-                    className="text-input compact-input unit-input"
+                  <ApprovalComboboxField
+                    label="单位"
                     value={asText(item.unit)}
                     disabled={readonly}
                     placeholder="单位"
-                    onChange={(event) => onUpdateItem(index, { unit: event.target.value })}
+                    options={unitOptionsForItem(item)}
+                    icon="type"
+                    className="ai-inventory-unit-field"
+                    onChange={(value) => onUpdateItem(index, { unit: value })}
                   />
                 </div>
                 {conversionSummary && (
@@ -164,31 +306,46 @@ export function AiInventoryOperationEditor({
             {(action === 'dispose' || (action === 'consume' && batchOptions.length > 0) || action === 'restock') && (
               <div className="ai-inventory-operation-details">
                 {action === 'dispose' && (
-                  <div className="ai-inventory-dispose-fields">
-                    <div className="ai-inventory-batch-summary compact-batch">
-                      <span>销毁批次</span>
-                      <strong>
-                        {batchOptions.find((option) => option.id === inventoryItemId)?.label
-                          ?? '当前所选批次'}
-                      </strong>
+                  <div className="ai-inventory-danger-card">
+                    <div className="ai-inventory-section-heading compact">
+                      <strong>原因和备注</strong>
+                      <span>销毁库存必须填写原因，确认后会减少该批次数量</span>
                     </div>
-                    <label className="ai-resource-field ai-confirmation-copy-field ai-inventory-dispose-reason">
-                      <span className="sr-only">销毁原因</span>
-                      <textarea
-                        className="text-input compact-reason-textarea"
-                        rows={1}
-                        required
-                        value={asText(item.reason)}
-                        disabled={readonly}
-                        placeholder="请填写销毁原因，例如已过期、变质、包装破损"
-                        onChange={(event) => onUpdateItem(index, { reason: event.target.value })}
-                      />
-                    </label>
+                    <div className="ai-inventory-dispose-fields">
+                      <div className="ai-inventory-batch-summary compact-batch">
+                        <span>销毁批次</span>
+                        <strong>{batchLabel(batchOptions, inventoryItemId)}</strong>
+                      </div>
+                      <div className="ai-inventory-batch-summary compact-batch">
+                        <span>剩余数量</span>
+                        <strong>{formatInventoryQuantity(item.remainingQuantity, item.unit)}</strong>
+                      </div>
+                      <label className="ai-resource-field ai-confirmation-copy-field ai-inventory-dispose-reason">
+                        <span>销毁原因</span>
+                        <textarea
+                          className="text-input compact-reason-textarea"
+                          rows={2}
+                          required
+                          value={asText(item.reason)}
+                          disabled={readonly}
+                          placeholder="请填写销毁原因，例如已过期、变质、包装破损"
+                          onChange={(event) => onUpdateItem(index, { reason: event.target.value })}
+                        />
+                      </label>
+                    </div>
                   </div>
                 )}
 
                 {action === 'consume' && batchOptions.length > 0 && (
                   <div className="ai-inventory-progressive-section">
+                    <div className="ai-inventory-section-heading compact">
+                      <strong>批次与位置</strong>
+                      <span>
+                        {inventoryItemId
+                          ? '当前指定了库存批次；只会扣减所选批次。'
+                          : '自动临期优先：确认时会优先扣减更早到期的库存。'}
+                      </span>
+                    </div>
                     <button
                       className="tertiary-button ai-inventory-detail-toggle"
                       type="button"
@@ -198,30 +355,30 @@ export function AiInventoryOperationEditor({
                       {expandedDetails[detailKey] ? '收起批次选择' : '指定库存批次'}
                     </button>
                     {expandedDetails[detailKey] && (
-                      <label className="ai-resource-field">
-                        <span>库存批次</span>
-                        <select
-                          className="text-input"
-                          value={inventoryItemId}
-                          disabled={readonly}
-                          onChange={(event) => onUpdateItem(index, {
-                            inventoryItemId: event.target.value || null,
-                          })}
-                        >
-                          <option value="">自动按临期优先</option>
-                          {batchOptions.map((option) => (
-                            <option value={option.id} key={option.id}>
-                              {option.label} · 剩余 {option.remainingQuantity}{option.unit}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
+                      <ApprovalSelectField
+                        label="库存批次"
+                        value={inventoryItemId}
+                        disabled={readonly}
+                        options={[
+                          { value: '', label: '自动按临期优先' },
+                          ...batchOptions.map((option) => ({
+                            value: option.id,
+                            label: `${option.label} · 剩余 ${option.remainingQuantity}${option.unit}`,
+                          })),
+                        ]}
+                        icon="type"
+                        onChange={(value) => onUpdateItem(index, { inventoryItemId: value || null })}
+                      />
                     )}
                   </div>
                 )}
 
                 {action === 'restock' && (
                   <div className="ai-inventory-progressive-section">
+                    <div className="ai-inventory-section-heading compact">
+                      <strong>批次与位置</strong>
+                      <span>可补充采购日期、到期日期、存放位置和库存状态</span>
+                    </div>
                     <button
                       className="tertiary-button ai-inventory-detail-toggle"
                       type="button"
@@ -257,17 +414,15 @@ export function AiInventoryOperationEditor({
                           </label>
                         </div>
                         <div className="ai-confirmation-grid">
-                          <label className="ai-resource-field">
-                            <span>存放位置</span>
-                            <input
-                              className="text-input"
-                              value={asText(item.storageLocation)}
-                              disabled={readonly}
-                              onChange={(event) => onUpdateItem(index, {
-                                storageLocation: event.target.value,
-                              })}
-                            />
-                          </label>
+                          <ApprovalComboboxField
+                            label="存放位置"
+                            value={asText(item.storageLocation)}
+                            disabled={readonly}
+                            placeholder="选择或输入位置"
+                            options={storageOptionsForItem(item)}
+                            icon="type"
+                            onChange={(value) => onUpdateItem(index, { storageLocation: value })}
+                          />
                           <ApprovalSelectField
                             label="库存状态"
                             value={asText(item.status, 'fresh')}
@@ -276,6 +431,10 @@ export function AiInventoryOperationEditor({
                             icon="type"
                             onChange={(value) => onUpdateItem(index, { status: value })}
                           />
+                        </div>
+                        <div className="ai-inventory-section-heading compact">
+                          <strong>原因和备注</strong>
+                          <span>补充本次补货的来源、包装或特殊保存提醒</span>
                         </div>
                         <label className="ai-resource-field ai-confirmation-copy-field">
                           <span>备注</span>

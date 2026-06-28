@@ -20,7 +20,7 @@ function recipeDraft(title = '番茄鸡蛋面'): AiGeneratedRecipeDraft {
     servings: 2,
     prep_minutes: 20,
     difficulty: 'easy',
-    ingredient_items: [{ ingredient_id: null, ingredient_name: '番茄', quantity: 2, unit: '个', note: '切块' }],
+    ingredient_items: [{ ingredient_id: 'ingredient-tomato', ingredient_name: '番茄', quantity: 2, unit: '个', note: '切块' }],
     steps: [
       { title: '备菜', text: '番茄切块。', icon: 'bowl', summary: '备菜', estimated_minutes: 5, tip: '', key_points: [] },
       { title: '烹调', text: '中火煮熟。', icon: 'pan', summary: '烹调', estimated_minutes: 10, tip: '', key_points: [] },
@@ -64,7 +64,7 @@ function shoppingApproval(overrides: Partial<AiApprovalRequest> = {}): AiApprova
   const draft = {
     draftType: 'shopping_list',
     schemaVersion: 'shopping_list.v1',
-    items: [{ title: '鸡蛋', quantity: 1, unit: '盒', reason: '补充常用食材' }],
+    items: [{ title: '鸡蛋', ingredient_id: 'ingredient-egg', quantityMode: 'track_quantity', quantity: 1, unit: '盒', reason: '补充常用食材' }],
   };
   return approval({
     approval_type: 'shopping_list.create',
@@ -79,7 +79,117 @@ function shoppingApproval(overrides: Partial<AiApprovalRequest> = {}): AiApprova
   });
 }
 
-function mealPlanApproval(): AiApprovalRequest {
+function recipeOperationApproval(action: 'update' | 'delete' | 'set_favorite', overrides: Partial<AiApprovalRequest> = {}): AiApprovalRequest {
+  const beforeRecipe = recipeDraft('番茄鸡蛋面');
+  const draft = {
+    draftType: 'recipe',
+    schemaVersion: 'recipe_operation.v1',
+    action,
+    targetId: 'recipe-tomato-noodle',
+    before: {
+      ...beforeRecipe,
+      favorite: false,
+      media_ids: ['media-recipe-1'],
+      deleteImpact: {
+        linkedFoodCount: 1,
+        planItemCount: 2,
+        cookLogCount: 3,
+        mediaCount: 1,
+      },
+    },
+    payload: action === 'set_favorite'
+      ? { favorite: true }
+      : action === 'delete'
+        ? { reason: '重复菜谱' }
+        : {
+            ...recipeDraft('番茄鸡蛋面升级版'),
+            ingredient_items: [
+              { ingredient_id: 'ingredient-tomato', ingredient_name: '番茄', quantity: 2, unit: '个', note: '切块' },
+            ],
+            steps: [
+              { title: '备菜', text: '番茄切块。', icon: 'bowl', summary: '备菜', estimated_minutes: 5, tip: '', key_points: ['切块'] },
+              { title: '烹调', text: '中火煮熟。', icon: 'pan', summary: '烹调', estimated_minutes: 10, tip: '', key_points: ['中火'] },
+            ],
+          },
+  };
+  return approval({
+    approval_type: action === 'set_favorite' ? 'recipe.favorite' : `recipe.${action}`,
+    title: action === 'delete' ? '确认删除菜谱' : action === 'set_favorite' ? '确认收藏菜谱' : '确认修改菜谱',
+    approve_label: action === 'delete' ? '删除菜谱' : action === 'set_favorite' ? '更新收藏' : '修改菜谱',
+    reject_label: '暂不处理',
+    draft_schema_version: 'recipe_operation.v1',
+    field_schema: [{ name: 'draft', label: '草稿内容', type: 'object', widget: 'textarea', required: true }],
+    initial_values: { draft },
+    submitted_values: {},
+    ...overrides,
+  });
+}
+
+function recipeCookApproval(draftOverrides: Record<string, unknown> = {}, overrides: Partial<AiApprovalRequest> = {}): AiApprovalRequest {
+  const draft = {
+    draftType: 'recipe_cook',
+    schemaVersion: 'recipe_cook_operation.v1',
+    recipeId: 'recipe-tomato-egg',
+    title: '番茄炒蛋',
+    baseUpdatedAt: '2026-06-10T00:00:00Z',
+    before: {
+      recipeId: 'recipe-tomato-egg',
+      title: '番茄炒蛋',
+      defaultServings: 2,
+      updatedAt: '2026-06-10T00:00:00Z',
+      linkedPlanItem: {
+        plan_date: '2026-06-12',
+        meal_type: 'dinner',
+        food_name: '番茄炒蛋',
+        status: 'planned',
+      },
+    },
+    servings: 2,
+    date: '2026-06-12',
+    mealType: 'dinner',
+    participantUserIds: ['user-1'],
+    notes: '少油',
+    createMealLog: true,
+    planItemId: 'plan-item-1',
+    planItemBaseUpdatedAt: '2026-06-10T01:00:00Z',
+    resultNote: '口味刚好',
+    adjustments: '鸡蛋多加一个',
+    rating: 5,
+    previewItems: [
+      {
+        ingredient_id: 'ingredient-tomato',
+        ingredient_name: '番茄',
+        requested_quantity: 2,
+        unit: '个',
+        batches: [
+          {
+            inventory_item_id: 'inventory-tomato-1',
+            quantity: 2,
+            unit: '个',
+            purchase_date: '2026-06-08',
+            expiry_date: '2026-06-15',
+            storage_location: '冷藏',
+          },
+        ],
+      },
+    ],
+    shortages: [],
+    ...draftOverrides,
+  };
+  return approval({
+    approval_type: 'recipe.cook',
+    title: '确认做菜执行',
+    approve_label: '确认执行',
+    reject_label: '暂不执行',
+    draft_schema_version: 'recipe_cook_operation.v1',
+    field_schema: [{ name: 'draft', label: '草稿内容', type: 'object', widget: 'textarea', required: true }],
+    initial_values: { draft },
+    submitted_values: {},
+    ...overrides,
+  });
+}
+
+function mealPlanApproval(overrides: Partial<AiApprovalRequest> = {}, draftOverrides: Record<string, unknown> = {}): AiApprovalRequest {
   const draft = {
     draftType: 'meal_plan',
     schemaVersion: 'meal_plan.v1',
@@ -93,6 +203,7 @@ function mealPlanApproval(): AiApprovalRequest {
         missingIngredients: [{ name: '牛肉' }, { ingredient_name: '土豆' }],
       },
     ],
+    ...draftOverrides,
   };
   return approval({
     approval_type: 'meal_plan.create',
@@ -103,17 +214,102 @@ function mealPlanApproval(): AiApprovalRequest {
     field_schema: [{ name: 'draft', label: '草稿内容', type: 'object', widget: 'textarea', required: true }],
     initial_values: { draft },
     submitted_values: {},
+    ...overrides,
   });
 }
 
-function mealLogApproval(): AiApprovalRequest {
+function mealPlanOperationApproval(overrides: Partial<AiApprovalRequest> = {}): AiApprovalRequest {
+  const draft = {
+    draftType: 'meal_plan',
+    schemaVersion: 'meal_plan_operation.v1',
+    operations: [
+      {
+        operationId: 'ai-op-create',
+        action: 'create',
+        payload: {
+          date: '2026-06-11',
+          mealType: 'breakfast',
+          title: '蓝莓酸奶',
+          foodId: 'food-yogurt',
+          reason: '快手早餐',
+          missingIngredients: [],
+        },
+      },
+      {
+        operationId: 'ai-op-update',
+        action: 'update',
+        targetId: 'plan-item-1',
+        baseUpdatedAt: '2026-06-10T00:00:00Z',
+        before: {
+          date: '2026-06-12',
+          mealType: 'dinner',
+          title: '番茄炒蛋',
+          foodId: 'food-tomato-egg',
+          status: 'planned',
+        },
+        payload: {
+          date: '2026-06-12',
+          mealType: 'lunch',
+          title: '牛肉面',
+          foodId: 'food-noodle',
+          reason: '中午更合适',
+          missingIngredientItems: [{ ingredientId: 'ingredient-beef', name: '牛肉', quantity: 200, unit: 'g' }],
+        },
+      },
+      {
+        operationId: 'ai-op-status',
+        action: 'set_status',
+        targetId: 'plan-item-2',
+        baseUpdatedAt: '2026-06-10T00:00:00Z',
+        before: {
+          date: '2026-06-13',
+          mealType: 'dinner',
+          title: '白粥',
+          status: 'planned',
+        },
+        payload: { status: 'cooked', reason: '已经做完' },
+      },
+      {
+        operationId: 'ai-op-delete',
+        action: 'delete',
+        targetId: 'plan-item-3',
+        baseUpdatedAt: '2026-06-10T00:00:00Z',
+        before: {
+          date: '2026-06-14',
+          mealType: 'lunch',
+          title: '蔬菜沙拉',
+          foodId: 'food-salad',
+          status: 'planned',
+        },
+        payload: { reason: '当天外出' },
+      },
+    ],
+  };
+  return approval({
+    approval_type: 'meal_plan.apply',
+    title: '确认修改餐食计划',
+    approve_label: '修改计划',
+    reject_label: '暂不修改',
+    draft_schema_version: 'meal_plan_operation.v1',
+    field_schema: [{ name: 'draft', label: '草稿内容', type: 'object', widget: 'textarea', required: true }],
+    initial_values: { draft },
+    submitted_values: {},
+    ...overrides,
+  });
+}
+
+function mealLogApproval(draftOverrides: Record<string, unknown> = {}, overrides: Partial<AiApprovalRequest> = {}): AiApprovalRequest {
   const draft = {
     draftType: 'meal_log',
     schemaVersion: 'meal_log.v1',
     date: '2026-06-10',
     mealType: 'dinner',
     foods: [{ foodId: 'food-tomato-egg', name: '番茄炒蛋', servings: 1, note: '少油' }],
+    participantUserIds: ['user-1'],
+    mediaIds: ['media-1'],
+    mood: '满足',
     notes: '晚餐记录',
+    ...draftOverrides,
   };
   return approval({
     approval_type: 'meal_log.create',
@@ -121,6 +317,80 @@ function mealLogApproval(): AiApprovalRequest {
     approve_label: '写入餐食记录',
     reject_label: '暂不写入',
     draft_schema_version: 'meal_log.v1',
+    field_schema: [{ name: 'draft', label: '草稿内容', type: 'object', widget: 'textarea', required: true }],
+    initial_values: { draft },
+    submitted_values: {},
+    ...overrides,
+  });
+}
+
+function mealLogOperationCreateApproval(): AiApprovalRequest {
+  return mealLogApproval(
+    {
+      schemaVersion: 'meal_log_operation.v1',
+      action: 'create',
+      payload: {
+        date: '2026-06-11',
+        mealType: 'breakfast',
+        foods: [{ foodId: 'food-yogurt', name: '蓝莓酸奶', servings: 1, note: '加坚果' }],
+        participantUserIds: ['user-1'],
+        mediaIds: [],
+        mood: '清淡',
+        notes: '早餐记录',
+      },
+    },
+    {
+      approval_type: 'meal_log.create',
+      draft_schema_version: 'meal_log_operation.v1',
+      initial_values: {
+        draft: {
+          draftType: 'meal_log',
+          schemaVersion: 'meal_log_operation.v1',
+          action: 'create',
+          payload: {
+            date: '2026-06-11',
+            mealType: 'breakfast',
+            foods: [{ foodId: 'food-yogurt', name: '蓝莓酸奶', servings: 1, note: '加坚果' }],
+            participantUserIds: ['user-1'],
+            mediaIds: [],
+            mood: '清淡',
+            notes: '早餐记录',
+          },
+        },
+      },
+    },
+  );
+}
+
+function mealLogUpdateDetailsApproval(): AiApprovalRequest {
+  const draft = {
+    draftType: 'meal_log',
+    schemaVersion: 'meal_log_operation.v1',
+    action: 'update_details',
+    targetId: 'meal-log-1',
+    before: {
+      id: 'meal-log-1',
+      date: '2026-06-10',
+      mealType: 'dinner',
+      foods: [{ id: 'entry-tomato-egg', foodName: '番茄炒蛋', servings: 1 }],
+      participantUserIds: ['user-1'],
+      mediaIds: [],
+      mood: '',
+      notes: '原备注',
+    },
+    payload: {
+      participantUserIds: ['user-1', 'user-friend'],
+      notes: '补充后的备注',
+      mood: '聚餐',
+      mediaIds: ['media-dinner-1'],
+    },
+  };
+  return approval({
+    approval_type: 'meal_log.update',
+    title: '确认补充餐食记录',
+    approve_label: '更新餐食记录',
+    reject_label: '暂不更新',
+    draft_schema_version: 'meal_log_operation.v1',
     field_schema: [{ name: 'draft', label: '草稿内容', type: 'object', widget: 'textarea', required: true }],
     initial_values: { draft },
     submitted_values: {},
@@ -215,7 +485,67 @@ function foodProfileUpdateApproval(): AiApprovalRequest {
   });
 }
 
-function compositeOperationApproval(): AiApprovalRequest {
+function foodProfileFavoriteApproval(): AiApprovalRequest {
+  const draft = {
+    draftType: 'food_profile',
+    schemaVersion: 'food_profile_operation.v1',
+    action: 'set_favorite',
+    targetId: 'food-yogurt',
+    before: {
+      id: 'food-yogurt',
+      name: '蓝莓酸奶',
+      type: 'readyMade',
+      category: '饮品',
+      favorite: false,
+    },
+    payload: {
+      favorite: true,
+    },
+  };
+  return approval({
+    approval_type: 'food.favorite',
+    title: '确认收藏食物',
+    approve_label: '更新收藏',
+    reject_label: '暂不更新',
+    draft_schema_version: 'food_profile_operation.v1',
+    field_schema: [{ name: 'draft', label: '草稿内容', type: 'object', widget: 'textarea', required: true }],
+    initial_values: { draft },
+    submitted_values: {},
+  });
+}
+
+function ingredientProfileApproval(overrides: Partial<AiApprovalRequest> = {}): AiApprovalRequest {
+  const draft = {
+    draftType: 'ingredient_profile',
+    schemaVersion: 'ingredient_profile.v1',
+    action: 'create',
+    payload: {
+      name: '梅干菜',
+      category: '干货/腌制菜',
+      default_unit: '克',
+      unit_conversions: [{ unit: '斤', ratio_to_default: 500 }],
+      default_storage: '常温',
+      default_expiry_mode: 'days',
+      default_expiry_days: 180,
+      default_low_stock_threshold: 50,
+      notes: '用于榨菜咸肉炒丝瓜等菜谱，使用前可简单冲洗。',
+    },
+  };
+  return approval({
+    approval_type: 'ingredient.create',
+    title: '确认创建食材档案',
+    instruction: '确认后会创建当前家庭的食材档案。',
+    approve_label: '创建食材',
+    reject_label: '暂不创建',
+    draft_schema_version: 'ingredient_profile.v1',
+    field_schema: [{ name: 'draft', label: '草稿内容', type: 'object', widget: 'textarea', required: true }],
+    initial_values: { draft },
+    submitted_values: {},
+    ...overrides,
+  });
+}
+
+function compositeOperationApproval(draftOverrides: Record<string, unknown> = {}, overrides: Partial<AiApprovalRequest> = {}): AiApprovalRequest {
   const draft = {
     draftType: 'composite_operation',
     schemaVersion: 'composite_operation.v1',
@@ -249,6 +579,7 @@ function compositeOperationApproval(): AiApprovalRequest {
         impact: { writesBusinessData: true, requiresApproval: true, usesDependencyResult: true, operationCount: 1 },
       },
     ],
+    ...draftOverrides,
   };
   return approval({
     approval_type: 'composite_operation.preview',
@@ -260,6 +591,7 @@ function compositeOperationApproval(): AiApprovalRequest {
     field_schema: [{ name: 'draft', label: '草稿内容', type: 'object', widget: 'textarea', required: true }],
     initial_values: { draft },
     submitted_values: {},
+    ...overrides,
   });
 }
 
@@ -415,6 +747,19 @@ function changeSelect(select: HTMLSelectElement, value: string) {
     const valueSetter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')?.set;
     valueSetter?.call(select, value);
     select.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+}
+
+async function chooseSingleSelectOption(field: HTMLElement | undefined | null, optionText: string) {
+  const trigger = field?.querySelector<HTMLButtonElement>('.ai-single-select-trigger');
+  await act(async () => {
+    trigger?.click();
+  });
+  const option = Array.from(field?.querySelectorAll<HTMLButtonElement>('.ai-single-select-menu button') ?? [])
+    .find((button) => button.textContent?.includes(optionText));
+  expect(option).toBeTruthy();
+  await act(async () => {
+    option?.click();
   });
 }
 
@@ -1906,9 +2251,9 @@ describe('ApprovalPanel', () => {
       decision: 'approved',
     });
     const rendered = await renderWithQuery(<ApprovalPanel approval={resolvedApproval} onDecision={() => undefined} />);
-    const titleInput = rendered.container.querySelector<HTMLInputElement>('input.text-input');
-    expect(titleInput?.value).toBe('最终提交菜谱');
-    expect(titleInput?.disabled).toBe(true);
+    expect(rendered.container.querySelector('.ai-recipe-summary-card')?.textContent).toContain('最终提交菜谱');
+    expect(rendered.container.querySelector('.ai-recipe-summary-card')?.textContent).toContain('2 人份');
+    expect(rendered.container.querySelector('.ai-recipe-summary-card input')).toBeNull();
     expect(rendered.container.textContent).toContain('已确认');
     rendered.unmount();
   });
@@ -2007,7 +2352,8 @@ describe('ApprovalPanel', () => {
     );
 
     expect(rendered.container.textContent).toContain('删除采购项');
-    expect(rendered.container.textContent).toContain('当前：三文鱼 · 1块');
+    expect(rendered.container.textContent).toContain('删除采购项：三文鱼 · 1 块 · 待买');
+    expect(rendered.container.textContent).toContain('不会删除食材档案，也不会调整库存数量');
     expect(rendered.container.textContent).not.toContain('删除原因');
     expect(rendered.container.textContent).not.toContain('为什么需要采购');
     expect(rendered.container.querySelector('textarea.text-input')).toBeNull();
@@ -2019,13 +2365,54 @@ describe('ApprovalPanel', () => {
       <ApprovalPanel approval={compositeOperationApproval()} onDecision={() => undefined} />,
     );
 
-    expect(rendered.container.textContent).toContain('复合步骤预览');
-    expect(rendered.container.textContent).toContain('确认后会按顺序执行已接入的基础业务步骤');
+    expect(rendered.container.textContent).toContain('待确认复合操作');
+    expect(rendered.container.textContent).toContain('第一阶段只支持整体确认或拒绝');
+    expect(rendered.container.textContent).toContain('执行顺序');
+    expect(rendered.container.textContent).toContain('步骤2 步');
+    expect(rendered.container.textContent).toContain('涉及领域食材档案、库存');
+    expect(rendered.container.textContent).toContain('写入影响新增 1 · 更新 0 · 删除 0 · 库存 1');
     expect(rendered.container.textContent).toContain('新增食材档案 · 鸡胸肉');
     expect(rendered.container.textContent).toContain('入库库存 · 鸡胸肉 500 克');
-    expect(rendered.container.textContent).toContain('依赖 · create-ingredient');
-    expect(rendered.container.textContent).toContain('create-ingredient · entityId');
-    expect(rendered.container.textContent).toContain('引用前置步骤结果');
+    expect(rendered.container.textContent).toContain('使用前面步骤创建或更新的结果');
+    expect(rendered.container.textContent).toContain('使用前置结果');
+    expect(rendered.container.textContent).toContain('风险与回滚');
+    expect(rendered.container.textContent).toContain('风险较低');
+    expect(rendered.container.textContent).not.toContain('依赖 · create-ingredient');
+
+    const details = rendered.container.querySelector('details.ai-composite-operation-technical-details') as HTMLDetailsElement | null;
+    expect(details).not.toBeNull();
+    expect(details?.open).toBe(false);
+    rendered.unmount();
+  });
+
+  it('blocks composite approvals without executable steps', async () => {
+    const onDecision = vi.fn();
+    const rendered = await renderWithQuery(
+      <ApprovalPanel
+        approval={compositeOperationApproval({ stepPreviews: [] })}
+        onDecision={onDecision}
+      />,
+    );
+
+    const approve = Array.from(rendered.container.querySelectorAll('button')).find((button) => button.textContent === '确认');
+    await act(async () => approve?.click());
+    expect(rendered.container.querySelector('[role="alert"]')?.textContent).toContain('复合操作至少需要 1 个步骤');
+    expect(onDecision).not.toHaveBeenCalled();
+    rendered.unmount();
+  });
+
+  it('compresses resolved composite operations into an execution summary', async () => {
+    const rendered = await renderWithQuery(
+      <ApprovalPanel
+        approval={compositeOperationApproval({}, { status: 'approved' })}
+        onDecision={() => undefined}
+      />,
+    );
+
+    expect(rendered.container.textContent).toContain('复合操作已执行');
+    expect(rendered.container.textContent).toContain('保留执行结果摘要');
+    expect(rendered.container.textContent).toContain('执行结果');
+    expect(rendered.container.querySelector('.ai-approval-actions')).toBeNull();
     rendered.unmount();
   });
 
@@ -2034,10 +2421,13 @@ describe('ApprovalPanel', () => {
       <ApprovalPanel approval={unitMismatchInventoryApproval()} onDecision={() => undefined} />,
     );
 
-    expect(rendered.container.textContent).toContain('库存处理项');
+    expect(rendered.container.textContent).toContain('主要处理项');
     expect(rendered.container.textContent).toContain('鸡蛋');
     expect((rendered.container.querySelector('.quantity-input') as HTMLInputElement | null)?.value).toBe('20');
-    expect((rendered.container.querySelector('.unit-input') as HTMLInputElement | null)?.value).toBe('个');
+    expect(
+      Array.from(rendered.container.querySelectorAll<HTMLInputElement>('input[role="combobox"]'))
+        .some((input) => input.value === '个'),
+    ).toBe(true);
     expect(rendered.container.textContent).toContain('来自 2 盒，按 1 盒 = 10 个换算。');
     rendered.unmount();
   });
@@ -2134,6 +2524,80 @@ describe('ApprovalPanel', () => {
     rendered.unmount();
   });
 
+  it('renders shopping list drafts with summary, quantity mode dropdown, and unit combobox', async () => {
+    const pending = shoppingApproval({
+      initial_values: {
+        draft: {
+          draftType: 'shopping_list',
+          schemaVersion: 'shopping_list.v1',
+          items: [
+            { title: '鸡蛋', ingredient_id: 'ingredient-egg', quantityMode: 'track_quantity', quantity: 1, unit: '盒', reason: '补充早餐' },
+            { title: '盐', ingredient_id: 'ingredient-salt', quantity_mode: 'not_track_quantity', display_label: '家里快没了', reason: '调味常用' },
+          ],
+        },
+      },
+    });
+    const ingredients = [
+      { id: 'ingredient-egg', name: '鸡蛋', category: '蛋奶', default_unit: '盒' },
+      { id: 'ingredient-salt', name: '盐', category: '调味', default_unit: '袋' },
+    ] as Ingredient[];
+    const rendered = await renderWithQuery(<ApprovalPanel approval={pending} ingredients={ingredients} onDecision={() => undefined} />);
+
+    expect(rendered.container.querySelector('.ai-shopping-list-summary-card')?.textContent).toContain('待确认购物清单');
+    expect(rendered.container.querySelector('.ai-shopping-list-summary-card')?.textContent).toContain('已绑定食材2 项');
+    expect(rendered.container.querySelector('.ai-shopping-list-summary-card')?.textContent).toContain('只提醒补充1 项');
+    const quantityModeField = Array.from(rendered.container.querySelectorAll<HTMLElement>('.ai-shopping-list-draft-editor .ai-resource-field-choice'))
+      .find((field) => field.textContent?.includes('数量模式'));
+    expect(quantityModeField?.textContent).toContain('记录数量');
+    expect(rendered.container.querySelector<HTMLInputElement>('.ai-shopping-list-draft-editor .ai-resource-field-combobox input')?.value).toBe('盒');
+    await chooseSingleSelectOption(quantityModeField, '只提醒需要补充');
+    expect(quantityModeField?.textContent).toContain('只提醒需要补充');
+    rendered.unmount();
+  });
+
+  it('blocks shopping list approval when an item is not bound to the ingredient library', async () => {
+    const pending = shoppingApproval({
+      initial_values: {
+        draft: {
+          draftType: 'shopping_list',
+          schemaVersion: 'shopping_list.v1',
+          items: [{ title: '鸡蛋', quantityMode: 'track_quantity', quantity: 1, unit: '盒', reason: '补充常用食材' }],
+        },
+      },
+    });
+    const decideSpy = vi.fn().mockResolvedValue(undefined);
+    const rendered = await renderWithQuery(<ApprovalPanel approval={pending} onDecision={decideSpy} />);
+
+    await act(async () => {
+      rendered.container.querySelector<HTMLButtonElement>('.ai-approval-actions .solid-button')?.click();
+    });
+    await flush();
+
+    expect(rendered.container.querySelector('[role="alert"]')?.textContent).toContain('采购项食材必须从食材库选择');
+    expect(decideSpy).not.toHaveBeenCalled();
+    rendered.unmount();
+  });
+
+  it('shows resolved shopping list approvals as compact summaries without disabled forms', async () => {
+    const resolved = shoppingApproval({
+      status: 'approved',
+      decision: 'approved',
+      submitted_values: {
+        draft: {
+          draftType: 'shopping_list',
+          schemaVersion: 'shopping_list.v1',
+          items: [{ title: '鸡蛋', ingredient_id: 'ingredient-egg', quantityMode: 'track_quantity', quantity: 1, unit: '盒', reason: '补充常用食材' }],
+        },
+      },
+    });
+    const rendered = await renderWithQuery(<ApprovalPanel approval={resolved} onDecision={() => undefined} />);
+
+    expect(rendered.container.querySelector('.ai-shopping-list-summary-card')?.textContent).toContain('购物清单已确认');
+    expect(rendered.container.textContent).toContain('采购项预览');
+    expect(rendered.container.querySelector('.ai-shopping-list-draft-editor input')).toBeNull();
+    rendered.unmount();
+  });
+
   it('uses the shared card layout and dropdowns for recipe confirmations', async () => {
     const pending = approval();
     const decideSpy = vi.fn().mockResolvedValue(undefined);
@@ -2143,12 +2607,14 @@ describe('ApprovalPanel', () => {
     const rendered = await renderWithQuery(<ApprovalPanel approval={pending} ingredients={ingredients} onDecision={decideSpy} />);
     expect(rendered.container.querySelectorAll('.ai-recipe-draft-editor .ai-confirmation-item').length).toBeGreaterThan(2);
 
-    const difficultySelect = Array.from(rendered.container.querySelectorAll<HTMLSelectElement>('select')).find((select) => Array.from(select.options).some((option) => option.value === 'medium'));
-    const stepIconSelect = Array.from(rendered.container.querySelectorAll<HTMLSelectElement>('select')).find((select) => Array.from(select.options).some((option) => option.value === 'timer'));
-    expect(difficultySelect?.textContent).toContain('适中');
-    expect(stepIconSelect?.textContent).toContain('计时');
-    changeSelect(difficultySelect as HTMLSelectElement, 'medium');
-    changeSelect(stepIconSelect as HTMLSelectElement, 'timer');
+    const difficultyField = Array.from(rendered.container.querySelectorAll<HTMLElement>('.ai-recipe-draft-editor .ai-resource-field-choice'))
+      .find((field) => field.textContent?.includes('难度'));
+    const stepIconField = Array.from(rendered.container.querySelectorAll<HTMLElement>('.ai-recipe-draft-editor .ai-resource-field-choice'))
+      .find((field) => field.textContent?.includes('步骤图标'));
+    expect(difficultyField?.textContent).toContain('简单');
+    expect(stepIconField?.textContent).toContain('调味');
+    await chooseSingleSelectOption(difficultyField, '适中');
+    await chooseSingleSelectOption(stepIconField, '计时');
 
     const ingredientInput = rendered.container.querySelector<HTMLInputElement>('.ai-recipe-draft-editor .ai-resource-field-ingredient input');
     await act(async () => {
@@ -2177,6 +2643,192 @@ describe('ApprovalPanel', () => {
       },
       '',
     );
+    rendered.unmount();
+  });
+
+  it('blocks recipe approval when an ingredient is not bound to the ingredient library', async () => {
+    const pending = approval({
+      initial_values: {
+        recipe: {
+          ...recipeDraft('未绑定食材菜谱'),
+          ingredient_items: [{ ingredient_id: null, ingredient_name: '番茄', quantity: 2, unit: '个', note: '切块' }],
+        },
+      },
+    });
+    const decideSpy = vi.fn().mockResolvedValue(undefined);
+    const rendered = await renderWithQuery(<ApprovalPanel approval={pending} onDecision={decideSpy} />);
+
+    expect(rendered.container.textContent).toContain('未绑定到食材库');
+    await act(async () => {
+      rendered.container.querySelector<HTMLButtonElement>('.ai-approval-actions .solid-button')?.click();
+    });
+    await flush();
+
+    expect(rendered.container.querySelector('[role="alert"]')?.textContent).toContain('菜谱食材必须从食材库选择');
+    expect(decideSpy).not.toHaveBeenCalled();
+    rendered.unmount();
+  });
+
+  it('renders recipe update operations with full ingredient and step editors', async () => {
+    const pending = recipeOperationApproval('update');
+    const decideSpy = vi.fn().mockResolvedValue(undefined);
+    const rendered = await renderWithQuery(<ApprovalPanel approval={pending} onDecision={decideSpy} />);
+
+    expect(rendered.container.textContent).toContain('修改菜谱');
+    expect(rendered.container.textContent).toContain('食材匹配');
+    expect(rendered.container.textContent).toContain('烹饪步骤');
+    expect(rendered.container.textContent).toContain('关键点');
+    expect(rendered.container.textContent).not.toContain('食材和步骤变更会在摘要里计数');
+    expect(rendered.container.querySelector<HTMLInputElement>('input[role="combobox"]')?.value).toBe('个');
+
+    const stepIconField = Array.from(rendered.container.querySelectorAll<HTMLElement>('.ai-recipe-draft-editor .ai-resource-field-choice'))
+      .find((field) => field.textContent?.includes('步骤图标'));
+    await chooseSingleSelectOption(stepIconField, '计时');
+    await act(async () => {
+      rendered.container.querySelector<HTMLButtonElement>('.ai-approval-actions .solid-button')?.click();
+    });
+    await flush();
+
+    expect(decideSpy).toHaveBeenCalledWith(
+      pending,
+      'approved',
+      {
+        draft: expect.objectContaining({
+          action: 'update',
+          payload: expect.objectContaining({
+            ingredient_items: [expect.objectContaining({ ingredient_id: 'ingredient-tomato', unit: '个' })],
+            steps: expect.arrayContaining([expect.objectContaining({ icon: 'timer' })]),
+          }),
+        }),
+      },
+      '',
+    );
+    rendered.unmount();
+  });
+
+  it('blocks recipe update operations when an ingredient is not bound', async () => {
+    const invalid = recipeOperationApproval('update');
+    const draft = invalid.initial_values.draft as Record<string, unknown>;
+    const payload = draft.payload as Record<string, unknown>;
+    const pending = {
+      ...invalid,
+      initial_values: {
+        draft: {
+          ...draft,
+          payload: {
+            ...payload,
+            ingredient_items: [{ ingredient_id: null, ingredient_name: '番茄', quantity: 2, unit: '个', note: '' }],
+          },
+        },
+      },
+    };
+    const decideSpy = vi.fn().mockResolvedValue(undefined);
+    const rendered = await renderWithQuery(<ApprovalPanel approval={pending} onDecision={decideSpy} />);
+
+    expect(rendered.container.textContent).toContain('未绑定到食材库');
+    await act(async () => {
+      rendered.container.querySelector<HTMLButtonElement>('.ai-approval-actions .solid-button')?.click();
+    });
+    await flush();
+
+    expect(rendered.container.querySelector('[role="alert"]')?.textContent).toContain('菜谱食材必须从食材库选择');
+    expect(decideSpy).not.toHaveBeenCalled();
+    rendered.unmount();
+  });
+
+  it('renders recipe favorite operations as compact status cards', async () => {
+    const pending = recipeOperationApproval('set_favorite');
+    const rendered = await renderWithQuery(<ApprovalPanel approval={pending} onDecision={() => undefined} />);
+
+    expect(rendered.container.querySelector('.ai-recipe-favorite-card')?.textContent).toContain('当前：未收藏');
+    expect(rendered.container.querySelector('.ai-recipe-favorite-card')?.textContent).toContain('调整后：已收藏');
+    expect(rendered.container.querySelector('.ai-recipe-favorite-card')?.textContent).toContain('番茄鸡蛋面');
+    expect(rendered.container.textContent).not.toContain('食材匹配');
+    rendered.unmount();
+  });
+
+  it('renders recipe delete operations as danger impact cards', async () => {
+    const pending = recipeOperationApproval('delete');
+    const rendered = await renderWithQuery(<ApprovalPanel approval={pending} onDecision={() => undefined} />);
+
+    expect(rendered.container.querySelector('.ai-recipe-danger-impact')?.textContent).toContain('被删菜谱：番茄鸡蛋面');
+    expect(rendered.container.querySelector('.ai-recipe-danger-impact')?.textContent).toContain('同步食物：1 个');
+    expect(rendered.container.querySelector('.ai-recipe-danger-impact')?.textContent).toContain('关联计划：2 条');
+    expect(rendered.container.querySelector('.ai-recipe-danger-impact')?.textContent).toContain('历史烹饪：3 条');
+    expect(rendered.container.querySelector('.ai-recipe-danger-impact')?.textContent).toContain('媒体绑定：1 个');
+    rendered.unmount();
+  });
+
+  it('renders recipe cook approvals as summary sections with readable inventory preview', async () => {
+    const rendered = await renderWithQuery(<ApprovalPanel approval={recipeCookApproval()} onDecision={() => undefined} />);
+
+    expect(rendered.container.querySelector('.ai-recipe-cook-summary-card')?.textContent).toContain('番茄炒蛋');
+    expect(rendered.container.textContent).toContain('执行设置');
+    expect(rendered.container.textContent).toContain('库存扣减预览');
+    expect(rendered.container.textContent).toContain('缺料与阻断');
+    expect(rendered.container.textContent).toContain('餐食记录补充');
+    expect(rendered.container.textContent).toContain('同时记录餐食');
+    expect(rendered.container.textContent).toContain('关联计划：2026-06-12 · 晚餐 · 番茄炒蛋 · 计划中');
+    expect(rendered.container.textContent).toContain('需要 2 个');
+    expect(rendered.container.textContent).toContain('批次 1：扣 2 个 · 冷藏 · 购于 2026-06-08 · 到期 2026-06-15');
+    rendered.unmount();
+  });
+
+  it('submits recipe cook approvals with the meal log dropdown value', async () => {
+    const pending = recipeCookApproval();
+    const decideSpy = vi.fn().mockResolvedValue(undefined);
+    const rendered = await renderWithQuery(<ApprovalPanel approval={pending} onDecision={decideSpy} />);
+    const mealLogField = Array.from(rendered.container.querySelectorAll<HTMLElement>('.ai-recipe-cook-draft-editor .ai-resource-field-choice'))
+      .find((field) => field.textContent?.includes('餐食记录'));
+    expect(mealLogField?.textContent).toContain('同时记录餐食');
+    await chooseSingleSelectOption(mealLogField, '只扣库存不记录');
+
+    await act(async () => {
+      rendered.container.querySelector<HTMLButtonElement>('.ai-approval-actions .solid-button')?.click();
+    });
+    await flush();
+
+    expect(decideSpy).toHaveBeenCalledWith(
+      pending,
+      'approved',
+      {
+        draft: expect.objectContaining({
+          draftType: 'recipe_cook',
+          createMealLog: false,
+          mealType: 'dinner',
+          previewItems: [expect.objectContaining({ ingredient_name: '番茄' })],
+        }),
+      },
+      '',
+    );
+    rendered.unmount();
+  });
+
+  it('blocks recipe cook approval when shortages are present', async () => {
+    const pending = recipeCookApproval({
+      shortages: [
+        {
+          ingredient_id: 'ingredient-egg',
+          ingredient_name: '鸡蛋',
+          required_quantity: 3,
+          available_quantity: 1,
+          missing_quantity: 2,
+          unit: '个',
+        },
+      ],
+    });
+    const decideSpy = vi.fn().mockResolvedValue(undefined);
+    const rendered = await renderWithQuery(<ApprovalPanel approval={pending} onDecision={decideSpy} />);
+
+    expect(rendered.container.textContent).toContain('当前草稿不能确认执行');
+    expect(rendered.container.textContent).toContain('鸡蛋');
+    await act(async () => {
+      rendered.container.querySelector<HTMLButtonElement>('.ai-approval-actions .solid-button')?.click();
+    });
+    await flush();
+
+    expect(rendered.container.querySelector('[role="alert"]')?.textContent).toContain('当前做菜草稿包含缺料项');
+    expect(decideSpy).not.toHaveBeenCalled();
     rendered.unmount();
   });
 
@@ -2249,6 +2901,105 @@ describe('ApprovalPanel', () => {
     rendered.unmount();
   });
 
+  it('renders meal plan operation drafts with summary, before-after, status, and delete impact', async () => {
+    const pending = mealPlanOperationApproval();
+    const decideSpy = vi.fn().mockResolvedValue(undefined);
+    const foods = [
+      { id: 'food-yogurt', name: '蓝莓酸奶', category: '早餐', type: 'readyMade', images: [{ url: '/food-yogurt.jpg' }] },
+      { id: 'food-noodle', name: '牛肉面', category: '主食', type: 'selfMade', images: [{ url: '/food-noodle.jpg' }] },
+    ] as Food[];
+    const ingredients = [
+      { id: 'ingredient-beef', name: '牛肉', category: '肉类', default_unit: 'g', image: { url: '/ingredient-beef.jpg' } },
+    ] as Ingredient[];
+    const rendered = await renderWithQuery(<ApprovalPanel approval={pending} foods={foods} ingredients={ingredients} onDecision={decideSpy} />);
+
+    expect(rendered.container.querySelector('.ai-meal-plan-summary-card')?.textContent).toContain('待确认计划变更');
+    expect(rendered.container.textContent).toContain('变更新增1、修改1、状态变更1、删除1');
+    expect(rendered.container.textContent).toContain('当前：2026-06-12 · 晚餐 · 番茄炒蛋');
+    expect(rendered.container.textContent).toContain('调整后：2026-06-12 · 午餐 · 牛肉面');
+    expect(rendered.container.textContent).toContain('状态：计划中 → 已完成');
+    expect(rendered.container.textContent).toContain('删除影响');
+    expect(rendered.container.textContent).toContain('不会删除食物资料');
+
+    const statusField = Array.from(rendered.container.querySelectorAll<HTMLElement>('.ai-meal-plan-draft-editor .ai-resource-field-choice'))
+      .find((field) => field.textContent?.includes('计划状态'));
+    await chooseSingleSelectOption(statusField, '已跳过');
+    await act(async () => {
+      rendered.container.querySelector<HTMLButtonElement>('.ai-approval-actions .solid-button')?.click();
+    });
+    await flush();
+    expect(decideSpy).toHaveBeenCalledWith(
+      pending,
+      'approved',
+      {
+        draft: expect.objectContaining({
+          operations: expect.arrayContaining([
+            expect.objectContaining({
+              action: 'set_status',
+              payload: expect.objectContaining({ status: 'skipped' }),
+            }),
+          ]),
+        }),
+      },
+      '',
+    );
+    rendered.unmount();
+  });
+
+  it('blocks meal plan approval when a plan item is not bound to the food library', async () => {
+    const pending = mealPlanApproval({}, {
+      items: [
+        {
+          date: '2026-06-10',
+          mealType: 'dinner',
+          title: '新菜',
+          foodId: '',
+          reason: 'AI 推荐',
+          missingIngredients: [],
+        },
+      ],
+    });
+    const decideSpy = vi.fn().mockResolvedValue(undefined);
+    const rendered = await renderWithQuery(<ApprovalPanel approval={pending} onDecision={decideSpy} />);
+
+    await act(async () => {
+      rendered.container.querySelector<HTMLButtonElement>('.ai-approval-actions .solid-button')?.click();
+    });
+    await flush();
+    expect(rendered.container.querySelector('[role="alert"]')?.textContent).toContain('计划项食物必须从食物库选择');
+    expect(decideSpy).not.toHaveBeenCalled();
+    rendered.unmount();
+  });
+
+  it('shows resolved meal plan approvals as compact summaries without disabled forms', async () => {
+    const resolved = mealPlanApproval({
+      status: 'approved',
+      decision: 'approved',
+      submitted_values: {
+        draft: {
+          draftType: 'meal_plan',
+          schemaVersion: 'meal_plan.v1',
+          items: [
+            {
+              date: '2026-06-10',
+              mealType: 'dinner',
+              title: '番茄炒蛋',
+              foodId: 'food-tomato-egg',
+              reason: '已确认',
+              missingIngredients: [],
+            },
+          ],
+        },
+      },
+    });
+    const rendered = await renderWithQuery(<ApprovalPanel approval={resolved} onDecision={() => undefined} />);
+
+    expect(rendered.container.querySelector('.ai-meal-plan-summary-card')?.textContent).toContain('餐食计划已确认');
+    expect(rendered.container.textContent).toContain('计划项预览');
+    expect(rendered.container.querySelector('.ai-meal-plan-draft-editor input')).toBeNull();
+    rendered.unmount();
+  });
+
   it('loads resource options in pages and resets pagination for search', async () => {
     const pending = mealPlanApproval();
     const foodOptions = Array.from({ length: 14 }, (_, index) => ({
@@ -2306,20 +3057,24 @@ describe('ApprovalPanel', () => {
       { id: 'food-noodle', name: '牛肉面', category: '主食', type: 'selfMade', images: [{ url: '/food-noodle.jpg' }] },
     ] as Food[];
     const rendered = await renderWithQuery(<ApprovalPanel approval={pending} foods={foods} onDecision={decideSpy} />);
-    expect(rendered.container.querySelectorAll('.ai-meal-log-draft-editor .ai-confirmation-item')).toHaveLength(2);
+    expect(rendered.container.querySelectorAll('.ai-meal-log-draft-editor .ai-confirmation-item').length).toBeGreaterThan(3);
     expect(rendered.container.textContent).toContain('2026-06-10');
     expect(rendered.container.textContent).toContain('晚餐');
     expect(rendered.container.textContent).toContain('食物1 项');
     expect(rendered.container.textContent).toContain('总份数1 份');
-    expect(rendered.container.textContent).toContain('参与人无');
-    expect(rendered.container.textContent).toContain('照片无');
+    expect(rendered.container.textContent).toContain('参与人1 人');
+    expect(rendered.container.textContent).toContain('照片1 张');
     expect(rendered.container.textContent).toContain('关联计划未关联');
+    expect(rendered.container.textContent).toContain('心情满足');
     expect(rendered.container.textContent).toContain('晚餐记录');
     expect(rendered.container.textContent).toContain('食物 1');
     expect(rendered.container.textContent).toContain('家常菜 · 自制食物');
     expect(rendered.container.textContent).toContain('1 份');
-    const mealSelect = rendered.container.querySelector<HTMLSelectElement>('.ai-meal-log-draft-editor .ai-resource-field-choice select');
-    changeSelect(mealSelect as HTMLSelectElement, 'lunch');
+    expect(rendered.container.textContent).toContain('参与人和照片');
+    expect(rendered.container.textContent).toContain('media-1');
+    const mealField = Array.from(rendered.container.querySelectorAll<HTMLElement>('.ai-meal-log-draft-editor .ai-resource-field-choice'))
+      .find((field) => field.textContent?.includes('餐别'));
+    await chooseSingleSelectOption(mealField, '午餐');
     const foodInput = rendered.container.querySelector<HTMLInputElement>('.ai-meal-log-draft-editor .ai-resource-field-food input');
     await act(async () => {
       foodInput?.focus();
@@ -2342,6 +3097,93 @@ describe('ApprovalPanel', () => {
         draft: expect.objectContaining({
           mealType: 'lunch',
           foods: [expect.objectContaining({ foodId: 'food-noodle', name: '牛肉面' })],
+        }),
+      },
+      '',
+    );
+    rendered.unmount();
+  });
+
+  it('edits operation-create meal log drafts with the same structured sections', async () => {
+    const pending = mealLogOperationCreateApproval();
+    const decideSpy = vi.fn().mockResolvedValue(undefined);
+    const foods = [
+      { id: 'food-yogurt', name: '蓝莓酸奶', category: '早餐', type: 'readyMade', images: [{ url: '/food-yogurt.jpg' }] },
+      { id: 'food-noodle', name: '牛肉面', category: '主食', type: 'selfMade', images: [{ url: '/food-noodle.jpg' }] },
+    ] as Food[];
+    const rendered = await renderWithQuery(<ApprovalPanel approval={pending} foods={foods} onDecision={decideSpy} />);
+
+    expect(rendered.container.textContent).toContain('餐食信息');
+    expect(rendered.container.textContent).toContain('食物项');
+    expect(rendered.container.textContent).toContain('参与人和照片');
+    expect(rendered.container.textContent).toContain('备注与心情');
+    expect(rendered.container.textContent).toContain('蓝莓酸奶');
+    const foodInput = rendered.container.querySelector<HTMLInputElement>('.ai-meal-log-draft-editor .ai-resource-field-food input');
+    await act(async () => {
+      foodInput?.focus();
+    });
+    await waitForResourceLoad();
+    const noodleOption = Array.from(rendered.container.querySelectorAll<HTMLButtonElement>('.ai-resource-menu button')).find((button) => button.textContent?.includes('牛肉面'));
+    expect(noodleOption).toBeTruthy();
+    await act(async () => {
+      noodleOption?.click();
+    });
+    await flush();
+    await act(async () => {
+      rendered.container.querySelector<HTMLButtonElement>('.ai-approval-actions .solid-button')?.click();
+    });
+    await flush();
+    expect(decideSpy).toHaveBeenCalledWith(
+      pending,
+      'approved',
+      {
+        draft: expect.objectContaining({
+          action: 'create',
+          payload: expect.objectContaining({
+            foods: [expect.objectContaining({ foodId: 'food-noodle', name: '牛肉面' })],
+          }),
+        }),
+      },
+      '',
+    );
+    rendered.unmount();
+  });
+
+  it('shows meal log update references as read-only chips and edits mood through a combobox', async () => {
+    const pending = mealLogUpdateDetailsApproval();
+    const decideSpy = vi.fn().mockResolvedValue(undefined);
+    const rendered = await renderWithQuery(<ApprovalPanel approval={pending} onDecision={decideSpy} />);
+
+    expect(rendered.container.textContent).toContain('补充餐食记录');
+    expect(rendered.container.textContent).toContain('参与人和照片');
+    expect(rendered.container.textContent).toContain('user-friend');
+    expect(rendered.container.textContent).toContain('media-dinner-1');
+    expect(rendered.container.textContent).not.toContain('参与人 ID');
+    expect(rendered.container.textContent).not.toContain('媒体 ID');
+    const moodField = Array.from(rendered.container.querySelectorAll<HTMLElement>('.ai-meal-log-draft-editor .ai-resource-field-combobox'))
+      .find((field) => field.textContent?.includes('心情'));
+    const moodInput = moodField?.querySelector<HTMLInputElement>('input');
+    expect(moodInput?.value).toBe('聚餐');
+    await act(async () => {
+      moodInput?.focus();
+    });
+    changeInput(moodInput as HTMLInputElement, '孩子喜欢');
+    await flush();
+    await act(async () => {
+      rendered.container.querySelector<HTMLButtonElement>('.ai-approval-actions .solid-button')?.click();
+    });
+    await flush();
+    expect(decideSpy).toHaveBeenCalledWith(
+      pending,
+      'approved',
+      {
+        draft: expect.objectContaining({
+          action: 'update_details',
+          payload: expect.objectContaining({
+            mood: '孩子喜欢',
+            participantUserIds: ['user-1', 'user-friend'],
+            mediaIds: ['media-dinner-1'],
+          }),
         }),
       },
       '',
@@ -2390,9 +3232,10 @@ describe('ApprovalPanel', () => {
     const pending = foodProfileApproval();
     const decideSpy = vi.fn().mockResolvedValue(undefined);
     const rendered = await renderWithQuery(<ApprovalPanel approval={pending} onDecision={decideSpy} />);
-    const typeSelect = rendered.container.querySelector<HTMLSelectElement>('.ai-food-profile-draft-editor .ai-resource-field-choice select');
-    expect(typeSelect?.textContent).toContain('外卖');
-    changeSelect(typeSelect as HTMLSelectElement, 'takeout');
+    const typeField = Array.from(rendered.container.querySelectorAll<HTMLElement>('.ai-food-profile-draft-editor .ai-resource-field-choice'))
+      .find((field) => field.textContent?.includes('类型'));
+    expect(typeField?.textContent).toContain('成品');
+    await chooseSingleSelectOption(typeField, '外卖');
     const mealTrigger = rendered.container.querySelector<HTMLButtonElement>('.ai-food-profile-draft-editor .ai-multi-select-trigger');
     await act(async () => {
       mealTrigger?.click();
@@ -2414,6 +3257,48 @@ describe('ApprovalPanel', () => {
         draft: expect.objectContaining({
           type: 'takeout',
           suitable_meal_types: ['breakfast', 'dinner'],
+        }),
+      },
+      '',
+    );
+    rendered.unmount();
+  });
+
+  it('renders food profile drafts with summary sections, category combobox, and tag chips', async () => {
+    const pending = foodProfileApproval();
+    const decideSpy = vi.fn().mockResolvedValue(undefined);
+    const foods = [
+      { id: 'food-dessert', name: '布丁', category: '甜品', type: 'readyMade' },
+    ] as Food[];
+    const rendered = await renderWithQuery(<ApprovalPanel approval={pending} foods={foods} onDecision={decideSpy} />);
+
+    expect(rendered.container.querySelector('.ai-food-profile-summary-card')?.textContent).toContain('蓝莓酸奶');
+    expect(rendered.container.textContent).toContain('核心信息');
+    expect(rendered.container.textContent).toContain('适用场景');
+    expect(rendered.container.textContent).toContain('来源与备注');
+    const categoryField = Array.from(rendered.container.querySelectorAll<HTMLElement>('.ai-food-profile-draft-editor .ai-resource-field-combobox'))
+      .find((field) => field.textContent?.includes('分类'));
+    const categoryInput = categoryField?.querySelector<HTMLInputElement>('input');
+    expect(categoryInput?.value).toBe('饮品');
+    await act(async () => {
+      categoryInput?.focus();
+    });
+    expect(categoryField?.textContent).toContain('甜品');
+    changeInput(categoryInput as HTMLInputElement, '甜品');
+    const tagInput = rendered.container.querySelector<HTMLInputElement>('.ai-food-profile-draft-editor .ai-tag-input-field input');
+    changeInput(tagInput as HTMLInputElement, '酸甜、酸甜、奶香');
+    await act(async () => {
+      rendered.container.querySelector<HTMLButtonElement>('.ai-approval-actions .solid-button')?.click();
+    });
+    await flush();
+
+    expect(decideSpy).toHaveBeenCalledWith(
+      pending,
+      'approved',
+      {
+        draft: expect.objectContaining({
+          category: '甜品',
+          flavor_tags: ['酸甜', '奶香'],
         }),
       },
       '',
@@ -2449,6 +3334,86 @@ describe('ApprovalPanel', () => {
       },
       '',
     );
+    rendered.unmount();
+  });
+
+  it('renders food favorite operations as compact status cards', async () => {
+    const pending = foodProfileFavoriteApproval();
+    const decideSpy = vi.fn().mockResolvedValue(undefined);
+    const rendered = await renderWithQuery(<ApprovalPanel approval={pending} onDecision={decideSpy} />);
+
+    expect(rendered.container.querySelector('.ai-food-profile-summary-card')?.textContent).toContain('蓝莓酸奶');
+    expect(rendered.container.textContent).toContain('当前：未收藏');
+    expect(rendered.container.textContent).toContain('调整后：已收藏');
+    expect(rendered.container.textContent).not.toContain('核心信息');
+    const favoriteField = Array.from(rendered.container.querySelectorAll<HTMLElement>('.ai-food-profile-draft-editor .ai-resource-field-choice'))
+      .find((field) => field.textContent?.includes('收藏状态'));
+    expect(favoriteField?.textContent).toContain('加入收藏');
+    await chooseSingleSelectOption(favoriteField, '移出收藏');
+    await act(async () => {
+      rendered.container.querySelector<HTMLButtonElement>('.ai-approval-actions .solid-button')?.click();
+    });
+    await flush();
+    expect(decideSpy).toHaveBeenCalledWith(
+      pending,
+      'approved',
+      {
+        draft: expect.objectContaining({
+          action: 'set_favorite',
+          payload: expect.objectContaining({ favorite: false }),
+        }),
+      },
+      '',
+    );
+    rendered.unmount();
+  });
+
+  it('blocks food profile approval when meal types are outside fixed options', async () => {
+    const pending = foodProfileApproval();
+    pending.initial_values = {
+      draft: {
+        draftType: 'food_profile',
+        schemaVersion: 'food_profile.v1',
+        name: '蓝莓酸奶',
+        type: 'readyMade',
+        category: '饮品',
+        flavor_tags: ['酸甜'],
+        suitable_meal_types: ['brunch'],
+      },
+    };
+    const decideSpy = vi.fn().mockResolvedValue(undefined);
+    const rendered = await renderWithQuery(<ApprovalPanel approval={pending} onDecision={decideSpy} />);
+
+    await act(async () => {
+      rendered.container.querySelector<HTMLButtonElement>('.ai-approval-actions .solid-button')?.click();
+    });
+    await flush();
+    expect(rendered.container.querySelector('[role="alert"]')?.textContent).toContain('适合餐别必须从固定选项中选择');
+    expect(decideSpy).not.toHaveBeenCalled();
+    rendered.unmount();
+  });
+
+  it('shows resolved food profile approvals as compact summaries without disabled forms', async () => {
+    const resolved = foodProfileApproval();
+    resolved.status = 'approved';
+    resolved.decision = 'approved';
+    resolved.submitted_values = {
+      draft: {
+        draftType: 'food_profile',
+        schemaVersion: 'food_profile.v1',
+        name: '蓝莓酸奶',
+        type: 'readyMade',
+        category: '饮品',
+        flavor_tags: ['酸甜'],
+        suitable_meal_types: ['breakfast'],
+        source_name: '常买品牌',
+      },
+    };
+    const rendered = await renderWithQuery(<ApprovalPanel approval={resolved} onDecision={() => undefined} />);
+
+    expect(rendered.container.querySelector('.ai-food-profile-summary-card')?.textContent).toContain('新增食物资料已确认');
+    expect(rendered.container.querySelector('.ai-food-profile-draft-editor input')).toBeNull();
+    expect(rendered.container.textContent).not.toContain('核心信息');
     rendered.unmount();
   });
 
@@ -2494,11 +3459,209 @@ describe('ApprovalPanel', () => {
 
     expect(rendered.container.textContent).toContain('修改食材档案');
     expect(rendered.container.textContent).toContain('当前：鸡蛋 · 蛋奶 · 盒 · 冷藏');
+    expect(rendered.container.textContent).toContain('调整后：鸡蛋 · 蛋奶 · 盒 · 冷藏');
+    expect(rendered.container.textContent).toContain('只更新食材档案默认值，不直接修改已有库存批次。');
+    expect(rendered.container.textContent).toContain('核心信息');
+    expect(rendered.container.textContent).toContain('保存与提醒');
+    expect(rendered.container.textContent).toContain('高级设置');
     expect(rendered.container.textContent).toContain('默认单位');
     expect(rendered.container.textContent).toContain('默认保存');
     expect(rendered.container.textContent).toContain('保质期模式');
-    expect(rendered.container.textContent).toContain('单位换算');
+    expect(rendered.container.textContent).toContain('副单位');
+    expect(rendered.container.textContent).toContain('等于多少默认单位');
     expect(rendered.container.querySelector<HTMLTextAreaElement>('.ai-ingredient-profile-draft-editor textarea.text-input')?.value).toContain('优先买土鸡蛋');
+    rendered.unmount();
+  });
+
+  it('submits ingredient profile drafts from grouped fields with unit conversion rows', async () => {
+    const pending = ingredientProfileApproval();
+    const decideSpy = vi.fn().mockResolvedValue(undefined);
+    const rendered = await renderWithQuery(<ApprovalPanel approval={pending} onDecision={decideSpy} />);
+
+    expect(rendered.container.textContent).toContain('确认后会创建新的家庭食材档案，不会登记库存数量。');
+    expect(rendered.container.textContent).toContain('核心信息');
+    expect(rendered.container.textContent).toContain('保存与提醒');
+    expect(rendered.container.textContent).toContain('高级设置');
+    expect(rendered.container.textContent).toContain('低库存阈值');
+    expect(rendered.container.textContent).toContain('当可用库存低于这个数量时提醒');
+    expect(rendered.container.querySelectorAll('.ai-ingredient-profile-draft-editor .ai-resource-field-combobox').length).toBeGreaterThanOrEqual(4);
+
+    const conversionRows = rendered.container.querySelectorAll('.ai-ingredient-profile-conversion-row');
+    expect(conversionRows).toHaveLength(1);
+    const conversionUnitInput = conversionRows[0]?.querySelector<HTMLInputElement>('.ai-resource-field-combobox input[role="combobox"]');
+    const conversionRatioInput = conversionRows[0]?.querySelector<HTMLInputElement>('input.text-input');
+    changeInput(conversionUnitInput as HTMLInputElement, '袋');
+    changeInput(conversionRatioInput as HTMLInputElement, '250');
+
+    await act(async () => {
+      rendered.container.querySelector<HTMLButtonElement>('.ai-approval-actions .solid-button')?.click();
+    });
+    await flush();
+
+    expect(decideSpy).toHaveBeenCalledWith(
+      pending,
+      'approved',
+      {
+        draft: expect.objectContaining({
+          action: 'create',
+          payload: expect.objectContaining({
+            name: '梅干菜',
+            default_unit: '克',
+            default_low_stock_threshold: 50,
+            unit_conversions: [{ unit: '袋', ratio_to_default: 250 }],
+          }),
+        }),
+      },
+      '',
+    );
+    rendered.unmount();
+  });
+
+  it('selects ingredient storage from the approval combobox while keeping custom choices available', async () => {
+    const pending = ingredientProfileApproval();
+    const decideSpy = vi.fn().mockResolvedValue(undefined);
+    const rendered = await renderWithQuery(<ApprovalPanel approval={pending} onDecision={decideSpy} />);
+    const storageField = Array.from(rendered.container.querySelectorAll<HTMLElement>('.ai-resource-field-combobox'))
+      .find((field) => field.textContent?.includes('默认保存'));
+    const storageInput = storageField?.querySelector<HTMLInputElement>('input[role="combobox"]');
+    expect(storageInput?.value).toBe('常温');
+
+    changeInput(storageInput as HTMLInputElement, '冷');
+    const chilledOption = Array.from(storageField?.querySelectorAll<HTMLButtonElement>('.ai-combobox-menu button') ?? [])
+      .find((button) => button.textContent?.includes('冷藏'));
+    expect(chilledOption).toBeTruthy();
+    await act(async () => {
+      chilledOption?.click();
+    });
+    expect(storageInput?.value).toBe('冷藏');
+
+    changeInput(storageInput as HTMLInputElement, '阳台储物柜');
+    expect(storageField?.textContent).toContain('使用自定义：阳台储物柜');
+
+    await act(async () => {
+      rendered.container.querySelector<HTMLButtonElement>('.ai-approval-actions .solid-button')?.click();
+    });
+    await flush();
+    expect(decideSpy).toHaveBeenCalledWith(
+      pending,
+      'approved',
+      {
+        draft: expect.objectContaining({
+          payload: expect.objectContaining({
+            default_storage: '阳台储物柜',
+          }),
+        }),
+      },
+      '',
+    );
+    rendered.unmount();
+  });
+
+  it('validates ingredient low stock and unit conversion values before submit', async () => {
+    const pending = ingredientProfileApproval();
+    const decideSpy = vi.fn().mockResolvedValue(undefined);
+    const rendered = await renderWithQuery(<ApprovalPanel approval={pending} onDecision={decideSpy} />);
+    const lowStockInput = rendered.container.querySelector<HTMLInputElement>('.ai-ingredient-profile-low-stock input.text-input');
+    changeInput(lowStockInput as HTMLInputElement, '0');
+
+    await act(async () => {
+      rendered.container.querySelector<HTMLButtonElement>('.ai-approval-actions .solid-button')?.click();
+    });
+    await flush();
+
+    expect(rendered.container.textContent).toContain('低库存阈值需要大于 0');
+    expect(decideSpy).not.toHaveBeenCalled();
+    rendered.unmount();
+  });
+
+  it('requires ingredient profile name, default unit and default storage before submit', async () => {
+    const pending = ingredientProfileApproval({
+      initial_values: {
+        draft: {
+          draftType: 'ingredient_profile',
+          schemaVersion: 'ingredient_profile.v1',
+          action: 'create',
+          payload: {
+            name: '',
+            category: '干货',
+            default_unit: '',
+            unit_conversions: [],
+            default_storage: '',
+            default_expiry_mode: 'none',
+            default_expiry_days: null,
+            default_low_stock_threshold: null,
+            notes: '',
+          },
+        },
+      },
+    });
+    const decideSpy = vi.fn().mockResolvedValue(undefined);
+    const rendered = await renderWithQuery(<ApprovalPanel approval={pending} onDecision={decideSpy} />);
+
+    await act(async () => {
+      rendered.container.querySelector<HTMLButtonElement>('.ai-approval-actions .solid-button')?.click();
+    });
+    await flush();
+    expect(rendered.container.querySelector('[role="alert"]')?.textContent).toContain('食材名称不能为空');
+
+    const nameInput = Array.from(rendered.container.querySelectorAll<HTMLInputElement>('.ai-ingredient-profile-draft-editor input.text-input'))
+      .find((input) => input.closest('label')?.textContent?.includes('食材名称'));
+    changeInput(nameInput as HTMLInputElement, '梅干菜');
+    await act(async () => {
+      rendered.container.querySelector<HTMLButtonElement>('.ai-approval-actions .solid-button')?.click();
+    });
+    await flush();
+    expect(rendered.container.querySelector('[role="alert"]')?.textContent).toContain('默认单位不能为空');
+
+    const unitInput = Array.from(rendered.container.querySelectorAll<HTMLInputElement>('.ai-ingredient-profile-draft-editor input[role="combobox"]'))
+      .find((input) => input.closest('label')?.textContent?.includes('默认单位'));
+    changeInput(unitInput as HTMLInputElement, '克');
+    await act(async () => {
+      rendered.container.querySelector<HTMLButtonElement>('.ai-approval-actions .solid-button')?.click();
+    });
+    await flush();
+    expect(rendered.container.querySelector('[role="alert"]')?.textContent).toContain('默认保存位置不能为空');
+    expect(decideSpy).not.toHaveBeenCalled();
+    rendered.unmount();
+  });
+
+  it('shows approved ingredient profile drafts as a compact summary', async () => {
+    const resolved = ingredientProfileApproval({
+      status: 'approved',
+      decision: 'approved',
+      submitted_values: {
+        draft: {
+          draftType: 'ingredient_profile',
+          schemaVersion: 'ingredient_profile.v1',
+          action: 'create',
+          payload: {
+            name: '梅干菜',
+            category: '干货/腌制菜',
+            default_unit: '克',
+            unit_conversions: [{ unit: '斤', ratio_to_default: 500 }],
+            default_storage: '常温',
+            default_expiry_mode: 'days',
+            default_expiry_days: 180,
+            default_low_stock_threshold: 50,
+            notes: '用于榨菜咸肉炒丝瓜等菜谱，使用前可简单冲洗。',
+          },
+        },
+      },
+      resolved_at: '2026-06-14T12:00:00Z',
+    });
+
+    const rendered = await renderWithQuery(<ApprovalPanel approval={resolved} onDecision={() => undefined} isLatest />);
+    await act(async () => {
+      rendered.container.querySelector<HTMLElement>('.ai-approval-head')?.click();
+    });
+
+    expect(rendered.container.textContent).toContain('已创建食材档案');
+    expect(rendered.container.textContent).toContain('梅干菜');
+    expect(rendered.container.textContent).toContain('180 天');
+    expect(rendered.container.textContent).toContain('50 克');
+    expect(rendered.container.textContent).toContain('斤 = 500 克');
+    expect(rendered.container.querySelector('.ai-ingredient-profile-summary-card')).not.toBeNull();
+    expect(rendered.container.querySelector('.ai-ingredient-profile-summary-card input')).toBeNull();
     rendered.unmount();
   });
 });

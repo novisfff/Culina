@@ -6,9 +6,9 @@ from sqlalchemy.pool import StaticPool
 
 from app.models.domain import Base, Family
 from app.services.search.documents import SearchDocumentPayload
-from app.services.search.indexing import upsert_search_document
+from app.services.search.indexing import delete_search_document, upsert_search_document
 from app.services.search.vector_cleanup import cleanup_stale_vector_points
-from app.services.search.vector_store import VectorPoint, VectorPointPage, VectorSearchHit
+from app.services.search.vector_store import VectorPoint, VectorPointPage, VectorSearchHit, VectorStoreUnavailableError
 
 
 class FakeVectorStore:
@@ -76,6 +76,12 @@ class FakeVectorStore:
         return []
 
 
+class FailingDeleteVectorStore(FakeVectorStore):
+    def delete_point(self, *, point_id: str) -> None:
+        del point_id
+        raise VectorStoreUnavailableError("qdrant unavailable")
+
+
 def test_cleanup_stale_vector_points_deletes_missing_or_changed_documents() -> None:
     engine = create_engine(
         "sqlite:///:memory:",
@@ -127,3 +133,82 @@ def test_cleanup_stale_vector_points_deletes_missing_or_changed_documents() -> N
 
     assert stats == {"scanned": 3, "deleted": 2, "failed": 0}
     assert vector_store.deleted == ["ingredient:missing", "ingredient:stale"]
+
+
+def test_delete_search_document_can_delete_matching_vector_point() -> None:
+    engine = create_engine(
+        "sqlite:///:memory:",
+        future=True,
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    Base.metadata.create_all(engine)
+    SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True, class_=Session)
+    vector_store = FakeVectorStore()
+    with SessionLocal() as db:
+        db.add(Family(id="family-1", name="一号家庭"))
+        upsert_search_document(
+            db,
+            SearchDocumentPayload(
+                family_id="family-1",
+                entity_type="recipe",
+                entity_id="recipe-1",
+                title_text="番茄炒蛋",
+                keyword_text="番茄 鸡蛋",
+                detail_text="",
+                semantic_text="菜谱：番茄炒蛋",
+                metadata_json={},
+                content_hash="hash-recipe",
+            ),
+        )
+        db.commit()
+
+        delete_search_document(
+            db,
+            family_id="family-1",
+            entity_type="recipe",
+            entity_id="recipe-1",
+            delete_vector=True,
+            vector_store=vector_store,
+        )
+        db.commit()
+
+    assert vector_store.deleted == ["recipe:recipe-1"]
+
+
+def test_delete_search_document_ignores_vector_store_failures() -> None:
+    engine = create_engine(
+        "sqlite:///:memory:",
+        future=True,
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    Base.metadata.create_all(engine)
+    SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True, class_=Session)
+    with SessionLocal() as db:
+        db.add(Family(id="family-1", name="一号家庭"))
+        upsert_search_document(
+            db,
+            SearchDocumentPayload(
+                family_id="family-1",
+                entity_type="recipe",
+                entity_id="recipe-1",
+                title_text="番茄炒蛋",
+                keyword_text="番茄 鸡蛋",
+                detail_text="",
+                semantic_text="菜谱：番茄炒蛋",
+                metadata_json={},
+                content_hash="hash-recipe",
+            ),
+        )
+        db.commit()
+
+        delete_search_document(
+            db,
+            family_id="family-1",
+            entity_type="recipe",
+            entity_id="recipe-1",
+            delete_vector=True,
+            vector_store=FailingDeleteVectorStore(),
+        )
+        db.commit()

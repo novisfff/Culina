@@ -84,7 +84,7 @@ def index_pending_search_documents(
         document.embedding_dimensions = embedding_client.dimensions
         document.vector_status = "indexed"
         document.vector_error = None
-        document.vector_attempt_count += 1
+        document.vector_attempt_count = (document.vector_attempt_count or 0) + 1
         document.last_vector_attempt_at = now
         document.indexed_at = now
         stats["indexed"] += 1
@@ -128,7 +128,7 @@ def _failed_document_ready(document: SearchDocument, *, now: datetime) -> bool:
     last_attempt_at = document.last_vector_attempt_at
     if last_attempt_at.tzinfo is None:
         last_attempt_at = last_attempt_at.replace(tzinfo=timezone.utc)
-    return last_attempt_at <= now - timedelta(seconds=_retry_delay_seconds(document.vector_attempt_count))
+    return last_attempt_at <= now - timedelta(seconds=_retry_delay_seconds(document.vector_attempt_count or 0))
 
 
 def _retry_delay_seconds(attempt_count: int) -> int:
@@ -183,5 +183,5 @@ def _compatible_documents(
 def _mark_failed(document: SearchDocument, message: str, *, now: datetime) -> None:
     document.vector_status = "failed"
     document.vector_error = message[:2000]
-    document.vector_attempt_count += 1
+    document.vector_attempt_count = (document.vector_attempt_count or 0) + 1
     document.last_vector_attempt_at = now

@@ -44,6 +44,7 @@ export function HomeMobileDashboard(props: {
   isCreatingFoodPlanItem: boolean;
   resolveAssetUrl: (url?: string) => string | undefined;
   onNavigate: (tab: TabKey) => void;
+  onOpenGlobalSearch: () => void;
   onRecommendationPageChange: Dispatch<SetStateAction<number>>;
   onSelectedPlanDateChange: (date: string) => void;
   onFoodPlanPreviousWeek: () => void;
@@ -76,7 +77,7 @@ export function HomeMobileDashboard(props: {
             </span>
           </div>
           <div className="mobile-dashboard-icon-actions">
-            <button type="button" onClick={() => props.onNavigate('foods')} aria-label="搜索食物">
+            <button type="button" onClick={props.onOpenGlobalSearch} aria-label="全局搜索">
               <DashboardIcon name="search" />
             </button>
             {props.notificationCenter ?? (

@@ -1,4 +1,4 @@
-import type { Dispatch, ReactNode, Ref, SetStateAction } from 'react';
+import type { CompositionEventHandler, Dispatch, ReactNode, Ref, SetStateAction } from 'react';
 import type { RecipePlanItem } from '../../api/types';
 import { formatDate, MEAL_TYPE_LABELS } from '../../lib/ui';
 import { ActionButton, EmptyState, PageHeader } from '../ui-kit';
@@ -37,6 +37,7 @@ type RecipeLibraryViewProps = {
   notificationCenter?: ReactNode;
   favoriteRecipeIds: Set<string>;
   isUpdatingFavorite?: boolean;
+  isSearchFetching?: boolean;
   activeDiscoveryCopy: DiscoveryCopy;
   renderFilters: () => ReactNode;
   displayCards: RecipeCardViewModel[];
@@ -69,6 +70,8 @@ type RecipeLibraryViewProps = {
   onToggleRecipeFavorite: (card: RecipeCardViewModel) => Promise<void> | void;
   onOpenSceneManager: () => void;
   onSearchChange: (value: string) => void;
+  onSearchCompositionStart?: CompositionEventHandler<HTMLInputElement>;
+  onSearchCompositionEnd?: CompositionEventHandler<HTMLInputElement>;
   onShowMobileRecipeFilter: (filter: RecipeQuickFilter) => void;
   onShowMobileRecipeScene: (sceneName: string) => void;
   onShowDiscoveryFilter: (filter: RecipeQuickFilter, options?: { sort?: RecipeSortMode }) => void;
@@ -97,6 +100,7 @@ export function RecipeLibraryView({
   notificationCenter,
   favoriteRecipeIds,
   isUpdatingFavorite,
+  isSearchFetching,
   activeDiscoveryCopy,
   renderFilters,
   displayCards,
@@ -129,6 +133,8 @@ export function RecipeLibraryView({
   onToggleRecipeFavorite,
   onOpenSceneManager,
   onSearchChange,
+  onSearchCompositionStart,
+  onSearchCompositionEnd,
   onShowMobileRecipeFilter,
   onShowMobileRecipeScene,
   onShowDiscoveryFilter,
@@ -159,6 +165,7 @@ export function RecipeLibraryView({
           notificationCenter={notificationCenter}
           favoriteRecipeIds={favoriteRecipeIds}
           isUpdatingFavorite={isUpdatingFavorite}
+          isSearchFetching={isSearchFetching}
           activeDiscoveryCopy={activeDiscoveryCopy}
           visibleCards={visibleCards}
           onOpenCreate={onOpenCreate}
@@ -168,6 +175,8 @@ export function RecipeLibraryView({
           onToggleRecipeFavorite={onToggleRecipeFavorite}
           onOpenSceneManager={onOpenSceneManager}
           onSearchChange={onSearchChange}
+          onSearchCompositionStart={onSearchCompositionStart}
+          onSearchCompositionEnd={onSearchCompositionEnd}
           onShowMobileRecipeFilter={onShowMobileRecipeFilter}
           onShowMobileRecipeScene={onShowMobileRecipeScene}
           onSetRecommendationPage={onSetRecommendationPage}

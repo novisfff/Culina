@@ -68,6 +68,7 @@ class Family(AuditMixin, Base):
     ai_operations: Mapped[list["AIOperation"]] = relationship(back_populates="family", cascade="all, delete-orphan")
     ai_image_generation_jobs: Mapped[list["AIImageGenerationJob"]] = relationship(back_populates="family", cascade="all, delete-orphan")
     search_documents: Mapped[list["SearchDocument"]] = relationship(back_populates="family", cascade="all, delete-orphan")
+    search_index_jobs: Mapped[list["SearchIndexJob"]] = relationship(back_populates="family", cascade="all, delete-orphan")
 
 
 class User(AuditMixin, Base):
@@ -501,6 +502,28 @@ class AIImageGenerationJob(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False)
 
     family: Mapped["Family"] = relationship(back_populates="ai_image_generation_jobs")
+
+
+class SearchIndexJob(Base):
+    __tablename__ = "search_index_jobs"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True, default=lambda: create_id("search-index-job"))
+    family_id: Mapped[str] = mapped_column(ForeignKey("families.id", ondelete="CASCADE"), nullable=False, index=True)
+    user_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    status: Mapped[str] = mapped_column(String(32), default="queued", nullable=False, index=True)
+    entity_type: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    entity_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    target_name: Mapped[str] = mapped_column(String(255), default="", nullable=False)
+    vector_status: Mapped[str] = mapped_column(String(32), default="pending", nullable=False, index=True)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    attempt_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    locked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False, index=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False)
+
+    family: Mapped["Family"] = relationship(back_populates="search_index_jobs")
 
 
 class AIConversation(Base):

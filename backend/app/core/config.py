@@ -7,6 +7,7 @@ from pydantic import computed_field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 LOCAL_ENVIRONMENTS = {"local", "development", "dev", "test", "testing"}
+DISABLED_SEARCH_PROVIDERS = {"", "disabled", "mock"}
 
 
 class Settings(BaseSettings):
@@ -49,17 +50,30 @@ class Settings(BaseSettings):
     ai_image_text_api_base: str = ""
     ai_image_text_api_key: str = ""
     ai_image_text_model: str = "wan2.6-t2i"
-    search_enabled: bool = True
-    search_default_mode: str = "hybrid"
+    search_hybrid_enabled: bool = True
     search_keyword_backend: str = "mysql"
     search_vector_backend: str = "qdrant"
-    search_vector_degraded_to_keyword: bool = True
     search_embedding_provider: str = "disabled"
     search_embedding_api_base: str = ""
     search_embedding_api_key: str = ""
     search_embedding_model: str = ""
     search_embedding_dimensions: int = 0
     search_embedding_timeout_seconds: float = 30.0
+    search_rerank_provider: str = "disabled"
+    search_rerank_api_base: str = ""
+    search_rerank_api_key: str = ""
+    search_rerank_model: str = ""
+    search_rerank_timeout_seconds: float = 10.0
+    search_rerank_instruct: str = (
+        "你是中文厨房搜索结果重排器。目标是找出与查询词最直接匹配的食材、食物或菜谱。"
+        "短查询优先按字面匹配排序：名称完全相同 > 名称、别名或关键词包含查询词 > "
+        "语义相关但未字面命中 > 无关、测试或占位数据。不要因为分类、详情或语义描述泛泛相关，"
+        "就把未字面命中的记录排到字面命中记录前面。"
+    )
+    search_rerank_semantic_min_score: float = 0.48
+    search_rerank_min_score: float = 0.58
+    search_literal_fallback_min_score: float = 0.70
+    search_rerank_candidate_limit: int = 50
     qdrant_url: str = "http://qdrant:6333"
     qdrant_api_key: str = ""
     qdrant_collection: str = "culina_search"
@@ -93,7 +107,7 @@ class Settings(BaseSettings):
     def validate_safe_runtime_settings(self) -> "Settings":
         search_vector_backend = self.search_vector_backend.strip().lower()
         search_embedding_provider = self.search_embedding_provider.strip().lower()
-        if self.search_enabled and search_vector_backend == "qdrant" and search_embedding_provider != "disabled":
+        if self.search_hybrid_enabled and search_vector_backend == "qdrant" and search_embedding_provider not in DISABLED_SEARCH_PROVIDERS:
             missing_search: list[str] = []
             if not self.search_embedding_model.strip():
                 missing_search.append("SEARCH_EMBEDDING_MODEL")
@@ -106,6 +120,19 @@ class Settings(BaseSettings):
             if missing_search:
                 unique_missing = ", ".join(dict.fromkeys(missing_search))
                 raise ValueError(f"Invalid search vector settings: set {unique_missing}")
+
+        search_rerank_provider = self.search_rerank_provider.strip().lower()
+        if self.search_hybrid_enabled and search_rerank_provider not in DISABLED_SEARCH_PROVIDERS:
+            missing_rerank: list[str] = []
+            if not self.search_rerank_api_base.strip():
+                missing_rerank.append("SEARCH_RERANK_API_BASE")
+            if not self.search_rerank_api_key.strip():
+                missing_rerank.append("SEARCH_RERANK_API_KEY")
+            if not self.search_rerank_model.strip():
+                missing_rerank.append("SEARCH_RERANK_MODEL")
+            if missing_rerank:
+                unique_missing = ", ".join(dict.fromkeys(missing_rerank))
+                raise ValueError(f"Invalid search rerank settings: set {unique_missing}")
 
         environment = self.environment.strip().lower()
         if self.ai_trace_payload_mode.strip().lower() == "full" and environment not in LOCAL_ENVIRONMENTS:

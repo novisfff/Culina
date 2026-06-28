@@ -4,8 +4,9 @@ import { api } from '../../api/client';
 import { queryKeys } from '../../api/queryKeys';
 import type { Ingredient } from '../../api/types';
 import { resolveAssetUrl } from '../../lib/assets';
+import { useDebouncedSearchValue, useSearchCompositionState } from '../../hooks/useDebouncedValue';
 import { MediaWithPlaceholder } from '../MediaPlaceholder';
-import { ActionButton, Badge, EmptyState, WorkspaceModal } from '../ui-kit';
+import { ActionButton, Badge, EmptyState, SearchLoadingIndicator, WorkspaceModal } from '../ui-kit';
 import { RecipeUiIcon } from './RecipeWorkspaceCards';
 import type { RecipeUnresolvedIngredientTarget } from './RecipeWorkspaceModel';
 
@@ -48,12 +49,27 @@ function RecipeIngredientCandidateSearch({
 }) {
   const [search, setSearch] = useState(target.ingredient_name);
   const normalizedSearch = search.trim();
+  const searchComposition = useSearchCompositionState();
+  const searchValue = useDebouncedSearchValue(search, { isComposing: searchComposition.isComposing });
   const candidateQuery = useQuery({
-    queryKey: queryKeys.ingredientPickerSearch(normalizedSearch),
-    queryFn: () => api.getIngredients({ q: normalizedSearch, limit: 8 }),
-    enabled: Boolean(normalizedSearch),
+    queryKey: queryKeys.ingredientPickerSearch(searchValue),
+    queryFn: () => api.getIngredients({ q: searchValue, limit: 8 }),
+    enabled: Boolean(searchValue),
     placeholderData: keepPreviousData,
   });
+  const [appliedSearch, setAppliedSearch] = useState('');
+  const [appliedCandidates, setAppliedCandidates] = useState<Ingredient[]>([]);
+  useEffect(() => {
+    if (!normalizedSearch) {
+      setAppliedSearch('');
+      setAppliedCandidates([]);
+      return;
+    }
+    if (searchValue && !candidateQuery.isPlaceholderData && candidateQuery.data) {
+      setAppliedSearch(searchValue);
+      setAppliedCandidates(candidateQuery.data);
+    }
+  }, [candidateQuery.data, candidateQuery.isPlaceholderData, normalizedSearch, searchValue]);
   const fallbackCandidates = useMemo(() => {
     const keyword = normalizedSearch.toLocaleLowerCase();
     if (!keyword) return ingredients.slice(0, 8);
@@ -61,7 +77,11 @@ function RecipeIngredientCandidateSearch({
       .filter((ingredient) => ingredient.name.toLocaleLowerCase().includes(keyword) || ingredient.category.toLocaleLowerCase().includes(keyword))
       .slice(0, 8);
   }, [ingredients, normalizedSearch]);
-  const candidates = normalizedSearch ? candidateQuery.data ?? fallbackCandidates : fallbackCandidates;
+  const candidates = normalizedSearch ? appliedCandidates : fallbackCandidates;
+  const isCandidateSearchFetching =
+    Boolean(normalizedSearch) &&
+    !searchComposition.isComposing &&
+    (appliedSearch !== normalizedSearch || candidateQuery.isFetching);
 
   useEffect(() => {
     setSearch(target.ingredient_name);
@@ -81,17 +101,22 @@ function RecipeIngredientCandidateSearch({
 
       <label className="recipe-ingredient-resolution-search">
         <span>检索已有食材</span>
-        <input
-          className="text-input"
-          value={search}
-          placeholder="输入食材名或别名"
-          onChange={(event) => setSearch(event.target.value)}
-        />
+        <span className="recipe-ingredient-resolution-search-input">
+          <input
+            className="text-input"
+            value={search}
+            placeholder="输入食材名或别名"
+            onChange={(event) => setSearch(event.target.value)}
+            onCompositionStart={searchComposition.onCompositionStart}
+            onCompositionEnd={searchComposition.onCompositionEnd}
+          />
+          <SearchLoadingIndicator active={isCandidateSearchFetching} />
+        </span>
       </label>
 
       <div className="recipe-ingredient-resolution-candidates">
-        {candidateQuery.isFetching && normalizedSearch ? <p className="recipe-ingredient-resolution-status">正在检索相似食材...</p> : null}
-        {!candidateQuery.isFetching && candidates.length === 0 ? (
+        {isCandidateSearchFetching ? <p className="recipe-ingredient-resolution-status">正在检索相似食材...</p> : null}
+        {!isCandidateSearchFetching && candidates.length === 0 ? (
           <p className="recipe-ingredient-resolution-status">没有找到合适候选，可以先新建食材。</p>
         ) : null}
         {candidates.map((ingredient) => (

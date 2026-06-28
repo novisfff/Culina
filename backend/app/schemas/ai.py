@@ -460,6 +460,11 @@ class AIRunLLMExchangeDTO(BaseModel):
     attemptIndex: int
     mode: str
     model: str
+    requestToolCount: int = 0
+    requestToolNames: list[str] = Field(default_factory=list)
+    responseToolCallCount: int = 0
+    responseToolCallNames: list[str] = Field(default_factory=list)
+    payloadIncluded: bool = True
     requestMessages: list = Field(default_factory=list)
     requestTools: list = Field(default_factory=list)
     requestOptions: dict = Field(default_factory=dict)

@@ -119,6 +119,27 @@ def test_index_pending_search_documents_upserts_vector_and_marks_indexed() -> No
         assert document.embedding_dimensions == 2
 
 
+def test_index_pending_search_documents_treats_null_attempt_count_as_zero() -> None:
+    SessionLocal = _session_factory()
+    vector_store = RecordingVectorStore()
+    with SessionLocal() as db:
+        document = _seed_document(db)
+        document.vector_attempt_count = None  # type: ignore[assignment]
+        stats = index_pending_search_documents(
+            db,
+            embedding_client=FakeEmbeddingClient(),
+            vector_store=vector_store,
+        )
+        db.commit()
+
+    assert stats == {"indexed": 1, "failed": 0, "skipped": 0}
+    with SessionLocal() as db:
+        document = db.scalar(select(SearchDocument))
+        assert document is not None
+        assert document.vector_status == "indexed"
+        assert document.vector_attempt_count == 1
+
+
 def test_index_pending_search_documents_records_failure() -> None:
     SessionLocal = _session_factory()
     with SessionLocal() as db:

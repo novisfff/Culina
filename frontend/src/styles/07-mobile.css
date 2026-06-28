@@ -1157,7 +1157,7 @@
   .mobile-recipe-search input {
     width: 100%;
     min-height: 58px;
-    padding: 0 20px 0 52px;
+    padding: 0 44px 0 52px;
     border: 1px solid rgba(224, 197, 180, 0.96);
     border-radius: 999px;
     background: rgba(255, 255, 255, 0.68);
@@ -1166,6 +1166,15 @@
     font-size: 0.98rem;
     font-weight: 760;
     box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.55);
+  }
+
+  .mobile-recipe-search .search-loading-indicator,
+  .mobile-ingredient-search .search-loading-indicator,
+  .mobile-food-search .search-loading-indicator {
+    position: absolute;
+    top: calc(50% - 7px);
+    right: 20px;
+    z-index: 3;
   }
 
   .mobile-recipe-search input::placeholder {
@@ -1920,7 +1929,7 @@
   .mobile-ingredient-search input {
     width: 100%;
     min-height: 58px;
-    padding: 0 20px 0 52px;
+    padding: 0 44px 0 52px;
     border: 1px solid rgba(224, 197, 180, 0.96);
     border-radius: 999px;
     background: rgba(255, 255, 255, 0.68);
@@ -3023,7 +3032,7 @@
   .mobile-food-search input {
     width: 100%;
     min-height: 58px;
-    padding: 0 20px 0 52px;
+    padding: 0 44px 0 52px;
     border: 1px solid rgba(224, 197, 180, 0.96);
     border-radius: 999px;
     background: rgba(255, 255, 255, 0.68);

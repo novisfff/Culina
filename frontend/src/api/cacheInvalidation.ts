@@ -1,11 +1,31 @@
 import type { QueryClient, QueryKey } from '@tanstack/react-query';
 import { queryKeys } from './queryKeys';
-import type { AiImageTargetEntityType } from './types';
+import type { AiImageTargetEntityType, SearchEntityType } from './types';
 
 function invalidateMany(queryClient: QueryClient, keys: QueryKey[]) {
   keys.forEach((queryKey) => {
     void queryClient.invalidateQueries({ queryKey });
   });
+}
+
+export function invalidateAfterSearchIndexJobChanged(
+  queryClient: QueryClient,
+  target?: { entity_type?: SearchEntityType | null; entity_id?: string | null }
+) {
+  invalidateMany(queryClient, [queryKeys.searchIndexJobs, queryKeys.searchRoot]);
+  switch (target?.entity_type) {
+    case 'food':
+      invalidateAfterFoodChanged(queryClient);
+      break;
+    case 'ingredient':
+      invalidateAfterIngredientChanged(queryClient);
+      break;
+    case 'recipe':
+      invalidateAfterRecipeChanged(queryClient);
+      break;
+    default:
+      break;
+  }
 }
 
 export function invalidateAfterMemberChanged(queryClient: QueryClient) {

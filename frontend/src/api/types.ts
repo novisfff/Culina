@@ -352,6 +352,8 @@ export interface RecipeStats {
 
 export type SearchEntityType = 'ingredient' | 'food' | 'recipe';
 export type SearchMode = 'keyword' | 'semantic' | 'hybrid' | string;
+export type SearchIndexJobStatus = 'queued' | 'running' | 'succeeded' | 'failed';
+export type SearchIndexVectorStatus = 'pending' | 'indexed' | 'skipped' | 'failed';
 export type SearchResultEntity = Ingredient | Food | Recipe;
 
 export interface SearchResultItem {
@@ -371,6 +373,16 @@ export interface SearchResponse {
   query: string;
   search_mode: SearchMode;
   degraded: boolean;
+}
+
+export interface SearchIndexJobResponse {
+  job_id: string;
+  status: SearchIndexJobStatus;
+  error?: string | null;
+  entity_type: SearchEntityType;
+  entity_id: string;
+  target_name: string;
+  vector_status: SearchIndexVectorStatus;
 }
 
 export interface RecipeFavorite {
@@ -985,6 +997,11 @@ export interface AiRunLLMExchange {
   attemptIndex: number;
   mode: string;
   model: string;
+  requestToolCount: number;
+  requestToolNames: string[];
+  responseToolCallCount: number;
+  responseToolCallNames: string[];
+  payloadIncluded: boolean;
   requestMessages: unknown[];
   requestTools: unknown[];
   requestOptions: Record<string, unknown>;

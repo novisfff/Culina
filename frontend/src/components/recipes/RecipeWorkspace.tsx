@@ -33,10 +33,12 @@ import { readJsonStorage, removeStorage, writeJsonStorage } from '../../lib/stor
 import { getPendingImageJobId, type AiRenderPayload } from '../../lib/aiImages';
 import { emptyImages, formatDate, formatDateTime, getImagePreview, splitTags, todayKey } from '../../lib/ui';
 import { IDLE_IMAGE_GENERATION_STATE, useImageComposer, type ImageGenerationUiState } from '../../hooks/useImageComposer';
+import { useDebouncedSearchValue, useSearchCompositionState } from '../../hooks/useDebouncedValue';
 import {
   ActionButton,
   Badge,
   EmptyState,
+  SearchLoadingIndicator,
   WorkspaceSubpageHeader,
   WorkspaceSubpageShell,
 } from '../ui-kit';
@@ -193,7 +195,12 @@ type RecipeWorkspaceProps = {
   recipePlanWeekRange: { start: string; end: string };
   startRecipeId?: string | null;
   startFoodPlanItemId?: string | null;
+  navigationRequest?: {
+    recipeId: string;
+    requestId: number;
+  } | null;
   notificationCenter?: ReactNode;
+  onMobileLibraryRedirect?: () => void;
   onStartRecipeHandled?: () => void;
   onRecipePlanPreviousWeek: () => void;
   onRecipePlanCurrentWeek: () => void;
@@ -433,17 +440,44 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
     showRecipeNotice,
   });
   const normalizedRecipeSearch = search.trim();
+  const recipeSearchComposition = useSearchCompositionState();
+  const recipeSearchValue = useDebouncedSearchValue(search, { isComposing: recipeSearchComposition.isComposing });
   const recipeSearchQuery = useQuery({
-    queryKey: queryKeys.recipeSearch(normalizedRecipeSearch),
-    queryFn: () => api.getRecipes({ q: normalizedRecipeSearch, limit: 100 }),
-    enabled: Boolean(normalizedRecipeSearch),
+    queryKey: queryKeys.recipeSearch(recipeSearchValue),
+    queryFn: () => api.getRecipes({ q: recipeSearchValue, limit: 100 }),
+    enabled: Boolean(recipeSearchValue),
     placeholderData: keepPreviousData,
   });
+  const [appliedRecipeSearch, setAppliedRecipeSearch] = useState('');
+  const [appliedRecipeResults, setAppliedRecipeResults] = useState<Recipe[]>([]);
+  useEffect(() => {
+    if (!normalizedRecipeSearch) {
+      setAppliedRecipeSearch('');
+      setAppliedRecipeResults([]);
+      return;
+    }
+    if (recipeSearchValue && !recipeSearchQuery.isPlaceholderData && recipeSearchQuery.data) {
+      setAppliedRecipeSearch(recipeSearchValue);
+      setAppliedRecipeResults(recipeSearchQuery.data);
+    }
+  }, [normalizedRecipeSearch, recipeSearchQuery.data, recipeSearchQuery.isPlaceholderData, recipeSearchValue]);
+  useEffect(() => {
+    if (!props.navigationRequest) return;
+    setSearch('');
+    setAppliedRecipeSearch('');
+    setAppliedRecipeResults([]);
+    setSelectedRecipeId(props.navigationRequest.recipeId);
+    setView('detail');
+  }, [props.navigationRequest?.requestId, setSelectedRecipeId, setSearch, setView]);
   const matchedRecipeIds = useMemo(
-    () => (normalizedRecipeSearch ? Array.from(new Set((recipeSearchQuery.data ?? []).map((recipe) => recipe.id))) : []),
-    [normalizedRecipeSearch, recipeSearchQuery.data]
+    () => (appliedRecipeSearch ? Array.from(new Set(appliedRecipeResults.map((recipe) => recipe.id))) : []),
+    [appliedRecipeResults, appliedRecipeSearch]
   );
-  const searchAwareRecipes = normalizedRecipeSearch && recipeSearchQuery.data ? recipeSearchQuery.data : props.recipes;
+  const searchAwareRecipes = appliedRecipeSearch ? appliedRecipeResults : props.recipes;
+  const isRecipeSearchFetching =
+    Boolean(normalizedRecipeSearch) &&
+    !recipeSearchComposition.isComposing &&
+    (appliedRecipeSearch !== normalizedRecipeSearch || recipeSearchQuery.isFetching);
 
   const {
     cards,
@@ -496,7 +530,7 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
     sceneFilter,
     difficultyFilter,
     sortMode,
-    search,
+    search: appliedRecipeSearch,
     matchedRecipeIds,
     recommendationPage,
     shoppingCustomForm,
@@ -594,6 +628,16 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
           emptyTitle: `暂无${sceneFilter}菜谱`,
           emptyDescription: '换个场景或清除筛选条件试试。',
         };
+  const shouldRedirectMobileLibrary = Boolean(props.onMobileLibraryRedirect && !props.startRecipeId && view === 'library');
+  const libraryBackLabel = props.onMobileLibraryRedirect ? '返回食物' : '返回菜谱';
+
+  useEffect(() => {
+    if (!shouldRedirectMobileLibrary) {
+      return;
+    }
+    props.onMobileLibraryRedirect?.();
+  }, [props.onMobileLibraryRedirect, shouldRedirectMobileLibrary]);
+
   const {
     planForm,
     setPlanForm,
@@ -1066,7 +1110,10 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
               placeholder="搜索菜谱、食材或技巧"
               value={search}
               onChange={(event) => setSearch(event.target.value)}
+              onCompositionStart={recipeSearchComposition.onCompositionStart}
+              onCompositionEnd={recipeSearchComposition.onCompositionEnd}
             />
+            <SearchLoadingIndicator active={isRecipeSearchFetching} />
           </label>
           <RecipeToolbarDropdown
             value={difficultyFilter}
@@ -1252,6 +1299,7 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
           isCreatingRecipe={props.isCreatingRecipe}
           isUpdatingRecipe={props.isUpdatingRecipe}
           isDeletingRecipe={props.isDeletingRecipe}
+          backLabel={isEditing ? undefined : libraryBackLabel}
           onBack={() => setView(isEditing ? 'detail' : 'library')}
           onSubmit={submitRecipe}
           onDelete={deleteSelectedRecipe}
@@ -1327,6 +1375,7 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
           isUpdatingFavorite={props.isUpdatingFavorite}
           isCreatingShopping={props.isCreatingShopping}
           isDeletingRecipe={props.isDeletingRecipe}
+          backLabel={libraryBackLabel}
           onBack={() => setView('library')}
           onCook={openCook}
           onPlan={openPlanDialog}
@@ -1335,7 +1384,7 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
           onEdit={handleOpenEdit}
           onDelete={deleteSelectedRecipe}
         />
-      ) : (
+      ) : shouldRedirectMobileLibrary ? null : (
         <RecipeLibraryView
           recipes={props.recipes}
           search={search}
@@ -1381,6 +1430,9 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
           onToggleRecipeFavorite={toggleRecipeFavorite}
           onOpenSceneManager={() => setIsSceneManagerOpen(true)}
           onSearchChange={setSearch}
+          onSearchCompositionStart={recipeSearchComposition.onCompositionStart}
+          onSearchCompositionEnd={recipeSearchComposition.onCompositionEnd}
+          isSearchFetching={isRecipeSearchFetching}
           onShowMobileRecipeFilter={showMobileRecipeFilter}
           onShowMobileRecipeScene={showMobileRecipeScene}
           onShowDiscoveryFilter={showDiscoveryFilter}

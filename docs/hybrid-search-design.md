@@ -844,11 +844,9 @@ PYTHONPATH=backend backend/.venv/bin/python backend/scripts/qdrant_search_smoke.
 新增后端配置：
 
 ```text
-SEARCH_ENABLED=true
-SEARCH_DEFAULT_MODE=hybrid
+SEARCH_HYBRID_ENABLED=true
 SEARCH_KEYWORD_BACKEND=mysql
 SEARCH_VECTOR_BACKEND=qdrant
-SEARCH_VECTOR_DEGRADED_TO_KEYWORD=true
 
 SEARCH_EMBEDDING_PROVIDER=
 SEARCH_EMBEDDING_API_BASE=
@@ -867,13 +865,14 @@ QDRANT_TIMEOUT_SECONDS=10
 
 - 搜索 embedding 配置独立于聊天 `AI_PROVIDER`。
 - 本地未配置 embedding 或 Qdrant 时，API 自动降级关键词检索。
+- `SEARCH_HYBRID_ENABLED=false` 时只执行关键词检索，不调用 embedding、Qdrant 或 rerank。
 - 生产环境如果 `SEARCH_VECTOR_BACKEND=qdrant`，启动时应检查 collection 和 vector size 是否匹配。
 - `SEARCH_EMBEDDING_DIMENSIONS` 为空时视为 `0`，只有启用向量索引时才要求大于 0。
 
 配置校验要求：
 
-- `SEARCH_DEFAULT_MODE=hybrid` 且向量后端不可用时，必须允许降级关键词检索，不能阻断 API 启动。
-- `SEARCH_VECTOR_BACKEND=qdrant` 且 `SEARCH_EMBEDDING_PROVIDER != disabled` 时，`SEARCH_EMBEDDING_MODEL` 和 `SEARCH_EMBEDDING_DIMENSIONS` 必须非空。
+- `SEARCH_HYBRID_ENABLED=true` 且向量后端不可用时，必须允许降级关键词检索，不能阻断 API 启动。
+- `SEARCH_HYBRID_ENABLED=true`、`SEARCH_VECTOR_BACKEND=qdrant` 且 `SEARCH_EMBEDDING_PROVIDER` 不是 `disabled/mock` 时，`SEARCH_EMBEDDING_MODEL` 和 `SEARCH_EMBEDDING_DIMENSIONS` 必须非空。
 - Qdrant collection 已存在但 vector size 与配置不一致时，不能继续写入；应要求新建 collection 或切换 alias。
 - 本地开发默认可以 `SEARCH_EMBEDDING_PROVIDER=disabled`，保证没有 embedding key 时仍能跑通关键词检索和后端测试。
 
@@ -894,8 +893,7 @@ qdrant:
 后端服务增加环境变量：
 
 ```yaml
-SEARCH_ENABLED: ${SEARCH_ENABLED:-true}
-SEARCH_DEFAULT_MODE: ${SEARCH_DEFAULT_MODE:-hybrid}
+SEARCH_HYBRID_ENABLED: ${SEARCH_HYBRID_ENABLED:-true}
 SEARCH_VECTOR_BACKEND: ${SEARCH_VECTOR_BACKEND:-qdrant}
 QDRANT_URL: ${QDRANT_URL:-http://qdrant:6333}
 QDRANT_COLLECTION: ${QDRANT_COLLECTION:-culina_search}

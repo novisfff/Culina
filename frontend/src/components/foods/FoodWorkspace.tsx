@@ -1,4 +1,4 @@
-import { useMemo, useState, type FormEvent, type ReactNode } from 'react';
+import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { api } from '../../api/client';
 import { queryKeys } from '../../api/queryKeys';
@@ -27,6 +27,7 @@ import {
   Badge,
   EmptyState,
   ImageComposer,
+  SearchLoadingIndicator,
   SegmentedTabs,
   WorkspaceModal,
 } from '../ui-kit';
@@ -39,6 +40,7 @@ import {
   IDLE_IMAGE_GENERATION_STATE,
   useImageComposer,
 } from '../../hooks/useImageComposer';
+import { useDebouncedSearchValue, useSearchCompositionState } from '../../hooks/useDebouncedValue';
 import { useNotice } from '../../hooks/useNotice';
 import { DIFFICULTY_LABELS, buildRecipeCards, type RecipeCardViewModel } from '../recipes/workspaceModel';
 import { RecipeEditorView } from '../recipes/RecipeEditorView';
@@ -139,6 +141,10 @@ type Props = {
   foodPlanItems: FoodPlanItem[];
   foodPlanWeekRange: { start: string; end: string };
   notificationCenter?: ReactNode;
+  navigationRequest?: {
+    foodId: string;
+    requestId: number;
+  } | null;
   createFood: (payload: FoodPayload) => Promise<Food>;
   updateFood: (foodId: string, payload: FoodPayload) => Promise<Food>;
   updateFoodFavorite: (foodId: string, favorite: boolean) => Promise<Food>;
@@ -540,6 +546,7 @@ export function FoodWorkspace(props: Props) {
     foods: props.foods,
     foodScenes: props.foodScenes,
     recipes: props.recipes,
+    navigationRequest: props.navigationRequest,
     createFood: props.createFood,
     updateFood: props.updateFood,
     createFoodScene: props.createFoodScene,
@@ -609,17 +616,36 @@ export function FoodWorkspace(props: Props) {
   });
   const recipeEditor = useRecipeEditorState({ ingredients: props.ingredients });
   const normalizedFoodSearch = search.trim();
+  const foodSearchComposition = useSearchCompositionState();
+  const foodSearchValue = useDebouncedSearchValue(search, { isComposing: foodSearchComposition.isComposing });
   const foodSearchQuery = useQuery({
-    queryKey: queryKeys.foodSearch(normalizedFoodSearch),
-    queryFn: () => api.getFoods({ q: normalizedFoodSearch, limit: 100 }),
-    enabled: Boolean(normalizedFoodSearch),
+    queryKey: queryKeys.foodSearch(foodSearchValue),
+    queryFn: () => api.getFoods({ q: foodSearchValue, limit: 100 }),
+    enabled: Boolean(foodSearchValue),
     placeholderData: keepPreviousData,
   });
+  const [appliedFoodSearch, setAppliedFoodSearch] = useState('');
+  const [appliedFoodResults, setAppliedFoodResults] = useState<Food[]>([]);
+  useEffect(() => {
+    if (!normalizedFoodSearch) {
+      setAppliedFoodSearch('');
+      setAppliedFoodResults([]);
+      return;
+    }
+    if (foodSearchValue && !foodSearchQuery.isPlaceholderData && foodSearchQuery.data) {
+      setAppliedFoodSearch(foodSearchValue);
+      setAppliedFoodResults(foodSearchQuery.data);
+    }
+  }, [foodSearchQuery.data, foodSearchQuery.isPlaceholderData, foodSearchValue, normalizedFoodSearch]);
   const matchedFoodIds = useMemo(
-    () => (normalizedFoodSearch ? Array.from(new Set((foodSearchQuery.data ?? []).map((food) => food.id))) : []),
-    [normalizedFoodSearch, foodSearchQuery.data]
+    () => (appliedFoodSearch ? Array.from(new Set(appliedFoodResults.map((food) => food.id))) : []),
+    [appliedFoodResults, appliedFoodSearch]
   );
-  const searchAwareFoods = normalizedFoodSearch && foodSearchQuery.data ? foodSearchQuery.data : props.foods;
+  const searchAwareFoods = appliedFoodSearch ? appliedFoodResults : props.foods;
+  const isFoodSearchFetching =
+    Boolean(normalizedFoodSearch) &&
+    !foodSearchComposition.isComposing &&
+    (appliedFoodSearch !== normalizedFoodSearch || foodSearchQuery.isFetching);
 
   const foodUsageCards = useMemo(
     () => props.foods.map((food) => ({ food, usage: getMealUsage(food, props.mealLogs) })),
@@ -683,16 +709,16 @@ export function FoodWorkspace(props: Props) {
     [foodUsageCards]
   );
   const filteredFoods = useMemo(() => {
-    const items = filterFoodWorkspaceItems(searchAwareFoods, search, typeFilter, mealFilter, lensFilter, props.recipes, matchedFoodIds)
+    const items = filterFoodWorkspaceItems(searchAwareFoods, appliedFoodSearch, typeFilter, mealFilter, lensFilter, props.recipes, matchedFoodIds)
       .filter((food) => sceneFilter === 'all' || getFoodSceneTags(food).includes(sceneFilter))
       .filter((food) => lensFilter !== 'needsInfo' || governanceIssueFilter === 'all' || getFoodGovernanceIssues(food, props.recipes).includes(governanceIssueFilter));
-    if (normalizedFoodSearch) {
+    if (appliedFoodSearch) {
       return items;
     }
     return items
       .slice()
       .sort((a, b) => getFoodPriority(b, props.mealLogs, lensFilter, props.recipes) - getFoodPriority(a, props.mealLogs, lensFilter, props.recipes));
-  }, [governanceIssueFilter, lensFilter, matchedFoodIds, mealFilter, normalizedFoodSearch, props.mealLogs, props.recipes, search, searchAwareFoods, sceneFilter, typeFilter]);
+  }, [appliedFoodSearch, governanceIssueFilter, lensFilter, matchedFoodIds, mealFilter, props.mealLogs, props.recipes, searchAwareFoods, sceneFilter, typeFilter]);
   const currentLensCopy = FOOD_LENS_COPY[lensFilter];
   const detailFood = detailFoodId ? props.foods.find((food) => food.id === detailFoodId) ?? null : null;
   const repeatFoodCount = foodUsageCards.filter(({ food, usage }) => food.favorite || usage.count >= 2).length;
@@ -742,7 +768,7 @@ export function FoodWorkspace(props: Props) {
     mobileSceneExploreCards.slice(index * 4, index * 4 + 4)
   );
   const mobileLibraryFoods = filteredFoods;
-  const mobileLibraryResetKey = [search, typeFilter, mealFilter, lensFilter, sceneFilter, governanceIssueFilter].join('|');
+  const mobileLibraryResetKey = [appliedFoodSearch, typeFilter, mealFilter, lensFilter, sceneFilter, governanceIssueFilter].join('|');
   const mobileFilterTabs = [
     {
       label: '全部',
@@ -1015,6 +1041,7 @@ export function FoodWorkspace(props: Props) {
             mobileLibraryResetKey={mobileLibraryResetKey}
             hasFoodFilters={hasFoodFilters}
             search={search}
+            isSearchFetching={isFoodSearchFetching}
             emptyTitle={currentLensCopy.emptyTitle}
             isQuickAdding={props.isQuickAdding}
             isUpdatingFavorite={props.isUpdatingFavorite}
@@ -1025,6 +1052,8 @@ export function FoodWorkspace(props: Props) {
             getDefaultMealType={getDefaultMealType}
             getFoodSceneTags={getFoodSceneTags}
             onSearchChange={setSearch}
+            onSearchCompositionStart={foodSearchComposition.onCompositionStart}
+            onSearchCompositionEnd={foodSearchComposition.onCompositionEnd}
             onRotateRecommendation={() => setRecommendationPage((current) => (current + 1) % recommendationPageCount)}
             onOpenGovernanceIssue={() => openGovernanceIssue('all')}
             onOpenSceneManager={() => setIsSceneManagerOpen(true)}
@@ -1130,7 +1159,15 @@ export function FoodWorkspace(props: Props) {
               </div>
               <label className="food-search-field">
                 <FoodUiIcon name="search" />
-                <input className="text-input" placeholder="搜索食物、来源、口味或备注..." value={search} onChange={(event) => setSearch(event.target.value)} />
+                <input
+                  className="text-input"
+                  placeholder="搜索食物、来源、口味或备注..."
+                  value={search}
+                  onChange={(event) => setSearch(event.target.value)}
+                  onCompositionStart={foodSearchComposition.onCompositionStart}
+                  onCompositionEnd={foodSearchComposition.onCompositionEnd}
+                />
+                <SearchLoadingIndicator active={isFoodSearchFetching} />
               </label>
               <div className="food-library-head-actions">
                 <p className="workspace-toolbar-summary">显示 {filteredFoods.length} / {props.foods.length} 份食物</p>

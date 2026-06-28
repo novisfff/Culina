@@ -1,4 +1,4 @@
-import { useMemo, useState, type FormEvent } from 'react';
+import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import type { Food, FoodPayload, FoodScene, FoodType, MealType, Recipe } from '../../api/types';
 import { getMediaIds, getPendingImageJobId } from '../../lib/aiImages';
 import { MEAL_TYPE_LABELS, formatDate, splitTags, todayKey } from '../../lib/ui';
@@ -9,6 +9,10 @@ type UseFoodWorkspaceStateArgs = {
   foods: Food[];
   foodScenes: FoodScene[];
   recipes: Recipe[];
+  navigationRequest?: {
+    foodId: string;
+    requestId: number;
+  } | null;
   createFood: (payload: FoodPayload) => Promise<Food>;
   updateFood: (foodId: string, payload: FoodPayload) => Promise<Food>;
   createFoodScene: (payload: {
@@ -42,6 +46,13 @@ export function useFoodWorkspaceState(args: UseFoodWorkspaceStateArgs) {
   const [feedback, setFeedback] = useState('');
 
   const editorSceneTags = useMemo(() => splitTags(form.sceneTags), [form.sceneTags]);
+
+  useEffect(() => {
+    if (!args.navigationRequest) return;
+    setEditingFood(null);
+    setDetailFoodId(args.navigationRequest.foodId);
+    setView('list');
+  }, [args.navigationRequest?.requestId]);
 
   function resetEditorState() {
     setFeedback('');

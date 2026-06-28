@@ -8,6 +8,7 @@ KEYWORD_WEIGHT = 0.45
 SEMANTIC_WEIGHT = 0.50
 BUSINESS_WEIGHT = 0.05
 TITLE_MATCH_BONUS = 0.05
+EXACT_NAME_BONUS = 1.0
 
 
 @dataclass(frozen=True)
@@ -44,6 +45,7 @@ def score_search_candidate(
     keyword_score: float,
     semantic_score: float,
     keyword_hit: KeywordSearchHit | None,
+    exact_name_match: bool = False,
     metadata: dict[str, object] | None = None,
     business_signals: SearchBusinessSignals | None = None,
 ) -> SearchScore:
@@ -62,6 +64,16 @@ def score_search_candidate(
         reason_candidates.extend(keyword_reason_candidates(keyword_hit))
         if "title_text" in keyword_hit.matched_fields:
             final_score += TITLE_MATCH_BONUS
+    if exact_name_match:
+        final_score += EXACT_NAME_BONUS
+        reason_candidates.append(
+            SearchReason(
+                key="title_match",
+                label="名称匹配" if entity_type in {"ingredient", "food"} else "标题匹配",
+                weight=1.2,
+                source="exact_name",
+            )
+        )
     reason_candidates.extend(semantic_reason_candidates(query=query, semantic_score=semantic_score))
     if business_contribution > 0 and (keyword_hit is not None or semantic_score >= 0.74):
         reason_candidates.extend(business)

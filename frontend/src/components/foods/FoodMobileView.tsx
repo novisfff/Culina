@@ -1,10 +1,10 @@
-import type { ReactNode } from 'react';
+import type { CompositionEventHandler, ReactNode } from 'react';
 import type { Food, FoodRecommendationItem, MealLog, MealType, MediaAsset, Recipe } from '../../api/types';
 import { buildMediaSizes, buildMediaSrcSet, resolveMediaUrl } from '../../lib/assets';
 import { FOOD_TYPE_LABELS, MEAL_TYPE_LABELS, getFoodCoverAsset } from '../../lib/ui';
 import { chunkMobilePagedItems, useMobilePagedScroller } from '../../hooks/useMobilePagedScroller';
 import { MediaWithPlaceholder } from '../MediaPlaceholder';
-import { Badge, EmptyState } from '../ui-kit';
+import { Badge, EmptyState, SearchLoadingIndicator } from '../ui-kit';
 import { resolveMobileSceneCoverSource } from './FoodMobileSceneModel';
 import { FoodUiIcon } from './FoodWorkspacePrimitives';
 
@@ -48,6 +48,7 @@ export function FoodMobileView(props: {
   mobileLibraryResetKey: string;
   hasFoodFilters: boolean;
   search: string;
+  isSearchFetching?: boolean;
   emptyTitle: string;
   isQuickAdding?: boolean;
   isUpdatingFavorite?: boolean;
@@ -58,6 +59,8 @@ export function FoodMobileView(props: {
   getDefaultMealType: (food: Food) => MealType;
   getFoodSceneTags: (food: Food) => string[];
   onSearchChange: (value: string) => void;
+  onSearchCompositionStart?: CompositionEventHandler<HTMLInputElement>;
+  onSearchCompositionEnd?: CompositionEventHandler<HTMLInputElement>;
   onRotateRecommendation: () => void;
   onOpenGovernanceIssue: () => void;
   onOpenSceneManager: () => void;
@@ -226,7 +229,10 @@ export function FoodMobileView(props: {
               value={props.search}
               placeholder="搜索食物、食材或菜谱"
               onChange={(event) => props.onSearchChange(event.target.value)}
+              onCompositionStart={props.onSearchCompositionStart}
+              onCompositionEnd={props.onSearchCompositionEnd}
             />
+            <SearchLoadingIndicator active={Boolean(props.search.trim()) && Boolean(props.isSearchFetching)} />
           </label>
           <div className="mobile-food-tabs" aria-label="食物分类">
             {props.filterTabs.map((item) => (

@@ -1,5 +1,5 @@
 import { request } from './request';
-import type { SearchEntityType, SearchResponse } from './types';
+import type { SearchEntityType, SearchIndexJobResponse, SearchResponse } from './types';
 
 export interface SearchParams {
   q: string;
@@ -19,4 +19,9 @@ export const searchApi = {
     if (params.offset !== undefined) search.set('offset', String(params.offset));
     return request<SearchResponse>(`/api/search?${search.toString()}`);
   },
+  getActiveSearchIndexJobs: () => request<SearchIndexJobResponse[]>('/api/search/index-jobs/active'),
+  retrySearchIndexJob: (jobId: string) =>
+    request<SearchIndexJobResponse>(`/api/search/index-jobs/${jobId}/retry`, {
+      method: 'POST',
+    }),
 };

@@ -17,6 +17,7 @@ from app.schemas.foods import CreateFoodRequest, UpdateFoodRequest
 from app.services.activity import log_activity
 from app.services.ai_operations.image_jobs import build_food_image_request, enqueue_ai_entity_image_generation
 from app.services.media import bind_media_assets, replace_media_assets
+from app.services.search.jobs import enqueue_search_index_job
 
 
 UpdatedAtValidator = Callable[[datetime | None, str, str], None]
@@ -54,6 +55,7 @@ def execute_food_profile_draft(
             summary=f"{food.name}已{'加入' if food.favorite else '移出'}收藏",
         )
         db.flush()
+        enqueue_search_index_job(db, family_id=family_id, user_id=user_id, entity_type="food", entity_id=food.id, target_name=food.name)
         return food
 
     food_in = UpdateFoodRequest.model_validate(payload.get("payload") or {})
@@ -98,6 +100,7 @@ def execute_food_profile_draft(
         summary=f"AI 更新食物资料 {food.name}",
     )
     db.flush()
+    enqueue_search_index_job(db, family_id=family_id, user_id=user_id, entity_type="food", entity_id=food.id, target_name=food.name)
     return food
 
 
@@ -158,4 +161,5 @@ def _create_food_from_profile(db: Session, *, family_id: str, user_id: str, payl
         entity_id=food.id,
         summary=f"AI 创建食物资料 {food.name}",
     )
+    enqueue_search_index_job(db, family_id=family_id, user_id=user_id, entity_type="food", entity_id=food.id, target_name=food.name)
     return food

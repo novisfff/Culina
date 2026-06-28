@@ -1081,6 +1081,16 @@ class AIWorkspaceApprovalsTestCase(AIAgentInfraTestCase):
                     self.assertIsNotNone(
                         db.scalar(select(ActivityLog).where(ActivityLog.entity_type == "Ingredient", ActivityLog.entity_id == ingredient.id))
                     )
+                    index_job = db.scalar(
+                        select(SearchIndexJob).where(
+                            SearchIndexJob.family_id == self.family.id,
+                            SearchIndexJob.entity_type == "ingredient",
+                            SearchIndexJob.entity_id == ingredient.id,
+                        )
+                    )
+                    self.assertIsNotNone(index_job)
+                    assert index_job is not None
+                    self.assertEqual(index_job.status, "queued")
 
                 with self.subTest("food_profile.create"):
                     result = approve_case(
@@ -1115,6 +1125,16 @@ class AIWorkspaceApprovalsTestCase(AIAgentInfraTestCase):
                     self.assertIsNotNone(
                         db.scalar(select(ActivityLog).where(ActivityLog.entity_type == "Food", ActivityLog.entity_id == created_food.id))
                     )
+                    index_job = db.scalar(
+                        select(SearchIndexJob).where(
+                            SearchIndexJob.family_id == self.family.id,
+                            SearchIndexJob.entity_type == "food",
+                            SearchIndexJob.entity_id == created_food.id,
+                        )
+                    )
+                    self.assertIsNotNone(index_job)
+                    assert index_job is not None
+                    self.assertEqual(index_job.status, "queued")
 
                 with self.subTest("recipe.create"):
                     result = approve_case(

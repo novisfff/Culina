@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import logging
+
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.core.config import get_settings
+from app.core.config import DISABLED_SEARCH_PROVIDERS, get_settings
 from app.core.utils import create_id
 from app.models.domain import Food, Ingredient, Recipe, SearchDocument
 from app.services.search.documents import (
@@ -12,6 +14,10 @@ from app.services.search.documents import (
     build_ingredient_search_document,
     build_recipe_search_document,
 )
+from app.services.search.vector_indexing import search_point_id
+from app.services.search.vector_store import VectorStore, build_vector_store
+
+logger = logging.getLogger(__name__)
 
 
 def upsert_search_document(db: Session, payload: SearchDocumentPayload) -> SearchDocument:
@@ -64,7 +70,15 @@ def upsert_recipe_search_document(db: Session, recipe: Recipe) -> SearchDocument
     return upsert_search_document(db, build_recipe_search_document(recipe, **_embedding_document_config()))
 
 
-def delete_search_document(db: Session, *, family_id: str, entity_type: str, entity_id: str) -> None:
+def delete_search_document(
+    db: Session,
+    *,
+    family_id: str,
+    entity_type: str,
+    entity_id: str,
+    delete_vector: bool = False,
+    vector_store: VectorStore | None = None,
+) -> None:
     document = db.scalar(
         select(SearchDocument).where(
             SearchDocument.family_id == family_id,
@@ -74,14 +88,43 @@ def delete_search_document(db: Session, *, family_id: str, entity_type: str, ent
     )
     if document is not None:
         db.delete(document)
+    if delete_vector:
+        delete_search_vector_point(entity_type=entity_type, entity_id=entity_id, vector_store=vector_store)
 
 
 def _embedding_document_config() -> dict[str, object]:
     settings = get_settings()
     provider = settings.search_embedding_provider.strip().lower()
-    if provider == "disabled":
+    if provider in DISABLED_SEARCH_PROVIDERS:
         return {"embedding_model": "", "embedding_dimensions": 0}
     return {
         "embedding_model": settings.search_embedding_model.strip(),
         "embedding_dimensions": settings.search_embedding_dimensions,
     }
+
+
+def delete_search_vector_point(*, entity_type: str, entity_id: str, vector_store: VectorStore | None = None) -> None:
+    if not entity_type or not entity_id:
+        return
+    if vector_store is None and not _should_delete_vector_point():
+        return
+    try:
+        store = vector_store or build_vector_store()
+        store.delete_point(point_id=search_point_id(entity_type, entity_id))
+    except Exception as exc:
+        logger.warning(
+            "Failed to delete search vector point entity_type=%s entity_id=%s error=%s",
+            entity_type,
+            entity_id,
+            exc,
+        )
+
+
+def _should_delete_vector_point() -> bool:
+    settings = get_settings()
+    return (
+        settings.search_vector_backend.strip().lower() == "qdrant"
+        and settings.search_embedding_provider.strip().lower() not in DISABLED_SEARCH_PROVIDERS
+        and bool(settings.qdrant_url.strip())
+        and bool(settings.qdrant_collection.strip())
+    )

@@ -3,8 +3,7 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
-import type { AiRenderResponse } from '../api/types';
-import { AppNotificationCenter } from './AppShell';
+import { AppNotificationCenter, type AppNotificationJob } from './AppShell';
 
 const actEnvironment = globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean };
 const previousActEnvironment = actEnvironment.IS_REACT_ACT_ENVIRONMENT;
@@ -12,20 +11,17 @@ const previousActEnvironment = actEnvironment.IS_REACT_ACT_ENVIRONMENT;
 let root: Root | null = null;
 let container: HTMLDivElement | null = null;
 
-function failedImageJob(overrides: Partial<AiRenderResponse> = {}): AiRenderResponse {
+function failedImageJob(overrides: Partial<AppNotificationJob> = {}): AppNotificationJob {
   return {
-    job_id: 'image-job-failed',
+    notification_id: 'image:image-job-failed',
+    task_id: 'image-job-failed',
+    kind: 'image',
     status: 'failed',
-    error: null,
-    generated_asset: null,
-    reference_asset: null,
-    style_key: null,
-    prompt_version: null,
-    generation_mode: 'text',
-    target_entity_type: 'recipe',
-    target_entity_id: 'recipe-1',
-    target_entity_name: '板栗烧鸡',
-    bind_status: 'pending',
+    title: '板栗烧鸡的菜谱图片生成',
+    status_label: '失败',
+    description: '生成失败，可以直接重试',
+    can_retry: true,
+    can_dismiss: true,
     ...overrides,
   };
 }
@@ -78,7 +74,32 @@ describe('AppNotificationCenter', () => {
     const retryButton = Array.from(view.querySelectorAll('button')).find((button) => button.textContent?.includes('重试'));
     click(retryButton ?? null);
 
-    expect(onRetryJob).toHaveBeenCalledWith('image-job-failed');
+    expect(onRetryJob).toHaveBeenCalledWith('image:image-job-failed');
+  });
+
+  it('shows search index jobs in the same notification list', () => {
+    const onRetryJob = vi.fn();
+    const view = renderNotificationCenter({
+      jobs: [
+        failedImageJob({
+          notification_id: 'search-index:job-1',
+          task_id: 'job-1',
+          kind: 'search_index',
+          title: '酱油的食材索引更新',
+          description: '索引更新失败，可以直接重试',
+        }),
+      ],
+      onRetryJob,
+    });
+
+    click(view.querySelector('.app-notification-trigger'));
+
+    expect(view.textContent).toContain('后台任务');
+    expect(view.textContent).toContain('酱油的食材索引更新');
+    const retryButton = Array.from(view.querySelectorAll('button')).find((button) => button.textContent?.includes('重试'));
+    click(retryButton ?? null);
+
+    expect(onRetryJob).toHaveBeenCalledWith('search-index:job-1');
   });
 
   it('closes the popover when clicking outside', () => {
@@ -103,9 +124,9 @@ describe('AppNotificationCenter', () => {
   it('keeps every image job in the scrollable notification list', () => {
     const jobs = Array.from({ length: 8 }, (_, index) =>
       failedImageJob({
-        job_id: `image-job-${index + 1}`,
-        target_entity_id: `recipe-${index + 1}`,
-        target_entity_name: `菜谱 ${index + 1}`,
+        notification_id: `image:image-job-${index + 1}`,
+        task_id: `image-job-${index + 1}`,
+        title: `菜谱 ${index + 1}的菜谱图片生成`,
       }),
     );
     const view = renderNotificationCenter({ jobs });
