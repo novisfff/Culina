@@ -42,26 +42,73 @@ type IngredientDetailViewProps = {
 
 export function IngredientDetailView(props: IngredientDetailViewProps) {
   const { selectedIngredient } = props;
+  const needsProfileCare =
+    !selectedIngredient.ingredient.notes ||
+    !selectedIngredient.ingredient.image ||
+    selectedIngredient.ingredient.default_expiry_mode === 'none' ||
+    selectedIngredient.ingredient.default_low_stock_threshold === null ||
+    selectedIngredient.ingredient.default_low_stock_threshold === undefined;
+  const mobileProfileStatusLabel = needsProfileCare ? '待完善' : '资料完整';
+  const mobileProfileStatusDetail = needsProfileCare ? '补资料' : '可直接使用';
 
   return (
     <WorkspaceSubpageShell className="ingredients-workspace-subpage ingredients-detail-page">
       <header className="ingredient-detail-header">
         <div className="ingredient-detail-titleblock">
-          <button className="workspace-back-link ingredient-detail-back" type="button" onClick={props.goBackToWorkspace}>
-            ← {props.activePanelBackLabel}
+          <button
+            className="workspace-back-link ingredient-detail-back"
+            type="button"
+            onClick={props.goBackToWorkspace}
+            aria-label="关闭食材详情"
+          >
+            <span className="ingredient-detail-back-arrow" aria-hidden="true">←</span>
+            <span className="ingredient-detail-back-label">{props.activePanelBackLabel}</span>
           </button>
-          <p className="eyebrow">食材详情</p>
+          <p className="eyebrow">
+            <span className="ingredient-detail-desktop-eyebrow">食材详情</span>
+            <span className="ingredient-detail-mobile-eyebrow">
+              {selectedIngredient.ingredient.category || '食材'}
+            </span>
+          </p>
           <h2>{selectedIngredient.ingredient.name}</h2>
-          <p className="subtle">
+          <p className="subtle ingredient-detail-desktop-summary">
             {selectedIngredient.ingredient.category || '未分类'} · 默认 {selectedIngredient.ingredient.default_unit || '个'} · 默认放在{' '}
             {selectedIngredient.ingredient.default_storage || '常温'}
           </p>
+          <p className="subtle ingredient-detail-mobile-summary">
+            {selectedIngredient.ingredient.notes || '这份食材还没有补充决策备注。'}
+          </p>
         </div>
         <div className="ingredient-detail-header-side">
-          <Badge className="ingredient-detail-storage-badge">{props.detailStorageLabel}</Badge>
+          <Badge className="ingredient-detail-storage-badge ingredient-detail-desktop-storage-badge">
+            {props.detailStorageLabel}
+          </Badge>
+          <div className="ingredient-detail-mobile-status-row" aria-label="食材状态">
+            <button
+              className="ingredient-detail-mobile-status-pill tone-action"
+              type="button"
+              onClick={() => props.openEditView(selectedIngredient.ingredient)}
+            >
+              <strong>{mobileProfileStatusLabel}</strong>
+              <span>{mobileProfileStatusDetail}</span>
+            </button>
+            <span className="ingredient-detail-mobile-status-pill tone-muted">
+              {props.detailStorageLabel}
+            </span>
+          </div>
           <div className="ingredient-detail-primary-actions">
             <button
-              className="solid-button"
+              className="ghost-button ingredient-detail-edit-action"
+              type="button"
+              onClick={() => props.openEditView(selectedIngredient.ingredient)}
+            >
+              <span className="ingredient-detail-button-icon" aria-hidden="true">
+                {props.renderIcon('edit')}
+              </span>
+              编辑资料卡
+            </button>
+            <button
+              className="solid-button ingredient-detail-restock-action"
               type="button"
               onClick={() => props.openInventoryOverlay(selectedIngredient.ingredient.id)}
             >
@@ -71,7 +118,7 @@ export function IngredientDetailView(props: IngredientDetailViewProps) {
               补货
             </button>
             <button
-              className="ghost-button"
+              className="ghost-button ingredient-detail-consume-action"
               type="button"
               onClick={() => props.openConsumeOverlay(selectedIngredient.ingredient.id)}
               disabled={selectedIngredient.availableInventoryItems.length === 0}
@@ -82,7 +129,7 @@ export function IngredientDetailView(props: IngredientDetailViewProps) {
               快速消费
             </button>
             <button
-              className="tertiary-button"
+              className="tertiary-button ingredient-detail-shopping-action"
               type="button"
               onClick={() =>
                 props.openShoppingOverlay({
@@ -120,18 +167,20 @@ export function IngredientDetailView(props: IngredientDetailViewProps) {
               </div>
             ))}
           </div>
-          <div className="inline-actions">
-            <button
-              className="ghost-button"
-              type="button"
-              onClick={() => props.openEditView(selectedIngredient.ingredient)}
-            >
-              <span className="ingredient-detail-button-icon" aria-hidden="true">
-                {props.renderIcon('edit')}
-              </span>
-              编辑资料卡
-            </button>
-          </div>
+          <section className="ingredient-detail-mobile-decision-card" aria-labelledby="ingredient-mobile-decision-title">
+            <div className="ingredient-detail-mobile-decision-head">
+              <h3 id="ingredient-mobile-decision-title">决策信息</h3>
+              <span>库存、单位和提醒一起看</span>
+            </div>
+            <div className="ingredient-detail-mobile-facts" aria-label="食材决策信息">
+              {props.detailMetricItems.map((item) => (
+                <div key={item.label}>
+                  <span>{item.label}</span>
+                  <strong>{item.value}</strong>
+                </div>
+              ))}
+            </div>
+          </section>
         </div>
       </article>
 

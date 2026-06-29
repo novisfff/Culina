@@ -30,65 +30,21 @@ def execute_ingredient_profile_draft(
     user_id: str,
     payload: dict[str, Any],
     assert_updated_at_matches: UpdatedAtValidator,
-) -> Ingredient:
+) -> Ingredient | list[Ingredient]:
+    operations = payload.get("operations")
+    if isinstance(operations, list):
+        created: list[Ingredient] = []
+        for operation in operations:
+            if not isinstance(operation, dict) or str(operation.get("action") or "") != "create":
+                raise ValueError("食材档案批量草稿只支持新增食材")
+            ingredient_in = CreateIngredientRequest.model_validate(operation.get("payload") or {})
+            created.append(_create_ingredient_from_request(db, family_id=family_id, user_id=user_id, ingredient_in=ingredient_in))
+        return created
+
     action = str(payload.get("action") or "create")
     if action == "create":
         ingredient_in = CreateIngredientRequest.model_validate(payload.get("payload") or {})
-        try:
-            unit_conversions = validate_unit_conversions(
-                ingredient_in.default_unit,
-                [item.model_dump() for item in ingredient_in.unit_conversions],
-            )
-        except UnitConversionError as exc:
-            raise ValueError(str(exc)) from exc
-        ingredient = Ingredient(
-            id=create_id("ingredient"),
-            family_id=family_id,
-            name=ingredient_in.name,
-            category=ingredient_in.category,
-            default_unit=ingredient_in.default_unit,
-            unit_conversions=unit_conversions,
-            quantity_tracking_mode=ingredient_in.quantity_tracking_mode,
-            default_storage=ingredient_in.default_storage,
-            default_expiry_mode=ingredient_in.default_expiry_mode,
-            default_expiry_days=ingredient_in.default_expiry_days,
-            default_low_stock_threshold=ingredient_in.default_low_stock_threshold,
-            notes=ingredient_in.notes,
-            created_by=user_id,
-            updated_by=user_id,
-        )
-        db.add(ingredient)
-        db.flush()
-        bind_media_assets(db, family_id=family_id, media_ids=ingredient_in.media_ids, entity_type="ingredient", entity_id=ingredient.id)
-        if ingredient_in.pending_image_job_id:
-            attach_image_generation_job_to_entity(
-                db,
-                family_id=family_id,
-                job_id=ingredient_in.pending_image_job_id,
-                entity_type="ingredient",
-                entity_id=ingredient.id,
-            )
-        else:
-            enqueue_ai_entity_image_generation(
-                db,
-                family_id=family_id,
-                user_id=user_id,
-                request=build_ingredient_image_request(ingredient_in.model_dump(mode="json")),
-                media_ids=ingredient_in.media_ids,
-                target_entity_type="ingredient",
-                target_entity_id=ingredient.id,
-            )
-        log_activity(
-            db,
-            family_id=family_id,
-            actor_id=user_id,
-            action=ActivityAction.CREATE,
-            entity_type="Ingredient",
-            entity_id=ingredient.id,
-            summary=f"AI 创建食材 {ingredient.name}",
-        )
-        enqueue_search_index_job(db, family_id=family_id, user_id=user_id, entity_type="ingredient", entity_id=ingredient.id, target_name=ingredient.name)
-        return ingredient
+        return _create_ingredient_from_request(db, family_id=family_id, user_id=user_id, ingredient_in=ingredient_in)
 
     ingredient = db.scalar(
         select(Ingredient)
@@ -131,5 +87,69 @@ def execute_ingredient_profile_draft(
         summary=f"AI 更新食材 {ingredient.name}",
     )
     db.flush()
+    enqueue_search_index_job(db, family_id=family_id, user_id=user_id, entity_type="ingredient", entity_id=ingredient.id, target_name=ingredient.name)
+    return ingredient
+
+
+def _create_ingredient_from_request(
+    db: Session,
+    *,
+    family_id: str,
+    user_id: str,
+    ingredient_in: CreateIngredientRequest,
+) -> Ingredient:
+    try:
+        unit_conversions = validate_unit_conversions(
+            ingredient_in.default_unit,
+            [item.model_dump() for item in ingredient_in.unit_conversions],
+        )
+    except UnitConversionError as exc:
+        raise ValueError(str(exc)) from exc
+    ingredient = Ingredient(
+        id=create_id("ingredient"),
+        family_id=family_id,
+        name=ingredient_in.name,
+        category=ingredient_in.category,
+        default_unit=ingredient_in.default_unit,
+        unit_conversions=unit_conversions,
+        quantity_tracking_mode=ingredient_in.quantity_tracking_mode,
+        default_storage=ingredient_in.default_storage,
+        default_expiry_mode=ingredient_in.default_expiry_mode,
+        default_expiry_days=ingredient_in.default_expiry_days,
+        default_low_stock_threshold=ingredient_in.default_low_stock_threshold,
+        notes=ingredient_in.notes,
+        created_by=user_id,
+        updated_by=user_id,
+    )
+    db.add(ingredient)
+    db.flush()
+    bind_media_assets(db, family_id=family_id, media_ids=ingredient_in.media_ids, entity_type="ingredient", entity_id=ingredient.id)
+    if ingredient_in.pending_image_job_id:
+        attach_image_generation_job_to_entity(
+            db,
+            family_id=family_id,
+            job_id=ingredient_in.pending_image_job_id,
+            entity_type="ingredient",
+            entity_id=ingredient.id,
+        )
+    else:
+        enqueue_ai_entity_image_generation(
+            db,
+            family_id=family_id,
+            user_id=user_id,
+            request=build_ingredient_image_request(ingredient_in.model_dump(mode="json")),
+            media_ids=ingredient_in.media_ids,
+            target_entity_type="ingredient",
+            target_entity_id=ingredient.id,
+        )
+    log_activity(
+        db,
+        family_id=family_id,
+        actor_id=user_id,
+        action=ActivityAction.CREATE,
+        entity_type="Ingredient",
+        entity_id=ingredient.id,
+        summary=f"AI 创建食材 {ingredient.name}",
+    )
     enqueue_search_index_job(db, family_id=family_id, user_id=user_id, entity_type="ingredient", entity_id=ingredient.id, target_name=ingredient.name)
     return ingredient

@@ -166,6 +166,137 @@ class RecipeRecipeCookingTestCase(RecipeApiTestCase):
             self.assertEqual(payload["consumed_items"], [])
             self.assertEqual({item["ingredient_name"] for item in payload["shortages"]}, {"番茄", "鸡蛋"})
 
+        def test_cook_preview_partial_deduction_returns_batches_and_shortages(self) -> None:
+            recipe = self.create_recipe(auto_create_food=False)
+            today = date.today()
+            with self.SessionLocal() as db:
+                db.add_all(
+                    [
+                        InventoryItem(
+                            id="inventory-tomato-partial-preview",
+                            family_id=self.family.id,
+                            ingredient_id=self.tomato.id,
+                            quantity=Decimal("1"),
+                            consumed_quantity=Decimal("0"),
+                            unit="个",
+                            status=InventoryStatus.FRESH,
+                            purchase_date=today,
+                            storage_location="冷藏",
+                            notes="",
+                            low_stock_threshold=Decimal("0"),
+                            created_by=self.user.id,
+                            updated_by=self.user.id,
+                        ),
+                        InventoryItem(
+                            id="inventory-egg-partial-preview",
+                            family_id=self.family.id,
+                            ingredient_id=self.egg.id,
+                            quantity=Decimal("1"),
+                            consumed_quantity=Decimal("0"),
+                            unit="个",
+                            status=InventoryStatus.FRESH,
+                            purchase_date=today,
+                            storage_location="冷藏",
+                            notes="",
+                            low_stock_threshold=Decimal("0"),
+                            created_by=self.user.id,
+                            updated_by=self.user.id,
+                        ),
+                    ]
+                )
+                db.commit()
+
+            response = self.client.post(
+                f"/api/recipes/{recipe['id']}/cook-preview",
+                json={"servings": 2, "create_meal_log": True, "allow_partial_inventory_deduction": True},
+            )
+            self.assertEqual(response.status_code, 200, response.text)
+            payload = response.json()
+            self.assertEqual({item["ingredient_name"] for item in payload["shortages"]}, {"番茄", "鸡蛋"})
+            tomato_preview = next(item for item in payload["preview_items"] if item["ingredient_id"] == self.tomato.id)
+            egg_preview = next(item for item in payload["preview_items"] if item["ingredient_id"] == self.egg.id)
+            self.assertEqual(tomato_preview["deduction_note"], "库存不足，已扣减现有库存，缺少部分仅记录提醒")
+            self.assertEqual(tomato_preview["batches"][0]["quantity"], 1.0)
+            self.assertEqual(egg_preview["batches"][0]["quantity"], 1.0)
+
+            with self.SessionLocal() as db:
+                tomato_item = db.scalar(select(InventoryItem).where(InventoryItem.id == "inventory-tomato-partial-preview"))
+                egg_item = db.scalar(select(InventoryItem).where(InventoryItem.id == "inventory-egg-partial-preview"))
+                self.assertEqual(tomato_item.consumed_quantity, Decimal("0.00"))
+                self.assertEqual(egg_item.consumed_quantity, Decimal("0.00"))
+
+        def test_cook_recipe_partial_deduction_completes_and_deducts_available_inventory(self) -> None:
+            recipe = self.create_recipe(auto_create_food=False)
+            recipe_id = recipe["id"]
+            today = date.today()
+            with self.SessionLocal() as db:
+                db.add_all(
+                    [
+                        InventoryItem(
+                            id="inventory-tomato-partial-cook",
+                            family_id=self.family.id,
+                            ingredient_id=self.tomato.id,
+                            quantity=Decimal("1"),
+                            consumed_quantity=Decimal("0"),
+                            unit="个",
+                            status=InventoryStatus.FRESH,
+                            purchase_date=today,
+                            storage_location="冷藏",
+                            notes="",
+                            low_stock_threshold=Decimal("0"),
+                            created_by=self.user.id,
+                            updated_by=self.user.id,
+                        ),
+                        InventoryItem(
+                            id="inventory-egg-partial-cook",
+                            family_id=self.family.id,
+                            ingredient_id=self.egg.id,
+                            quantity=Decimal("1"),
+                            consumed_quantity=Decimal("0"),
+                            unit="个",
+                            status=InventoryStatus.FRESH,
+                            purchase_date=today,
+                            storage_location="冷藏",
+                            notes="",
+                            low_stock_threshold=Decimal("0"),
+                            created_by=self.user.id,
+                            updated_by=self.user.id,
+                        ),
+                    ]
+                )
+                db.commit()
+
+            response = self.client.post(
+                f"/api/recipes/{recipe_id}/cook",
+                json={
+                    "servings": 2,
+                    "date": "2026-05-14",
+                    "meal_type": "dinner",
+                    "create_meal_log": True,
+                    "allow_partial_inventory_deduction": True,
+                },
+            )
+            self.assertEqual(response.status_code, 200, response.text)
+            payload = response.json()
+            self.assertIsNotNone(payload["meal_log_id"])
+            self.assertIsNotNone(payload["cook_log_id"])
+            self.assertEqual({item["ingredient_name"] for item in payload["shortages"]}, {"番茄", "鸡蛋"})
+            self.assertEqual(len(payload["consumed_items"]), 2)
+            tomato_consumed = next(item for item in payload["consumed_items"] if item["ingredient_id"] == self.tomato.id)
+            egg_consumed = next(item for item in payload["consumed_items"] if item["ingredient_id"] == self.egg.id)
+            self.assertEqual(tomato_consumed["affected_item_ids"], ["inventory-tomato-partial-cook"])
+            self.assertEqual(egg_consumed["affected_item_ids"], ["inventory-egg-partial-cook"])
+
+            with self.SessionLocal() as db:
+                tomato_item = db.scalar(select(InventoryItem).where(InventoryItem.id == "inventory-tomato-partial-cook"))
+                egg_item = db.scalar(select(InventoryItem).where(InventoryItem.id == "inventory-egg-partial-cook"))
+                cook_log = db.scalar(select(RecipeCookLog).where(RecipeCookLog.id == payload["cook_log_id"]))
+                meal_log = db.scalar(select(MealLog).where(MealLog.id == payload["meal_log_id"]))
+                self.assertEqual(tomato_item.consumed_quantity, Decimal("1.00"))
+                self.assertEqual(egg_item.consumed_quantity, Decimal("1.00"))
+                self.assertIsNotNone(cook_log)
+                self.assertIsNotNone(meal_log)
+
         def test_not_tracked_ingredient_only_requires_presence_and_is_not_deducted(self) -> None:
             recipe = self.create_recipe(
                 auto_create_food=False,

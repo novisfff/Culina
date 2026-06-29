@@ -1,6 +1,7 @@
 import { useEffect, useState, type Dispatch, type Ref, type SetStateAction } from 'react';
 import type { CookRecipePreviewResponse, RecipeStep } from '../../api/types';
 import { ActionButton, WorkspaceModal } from '../ui-kit';
+import { CookingAssistantPanel } from './CookingAssistantPanel';
 import { COOK_TIMER_PRESETS } from './RecipeWorkspaceOptions';
 import { RecipeUiIcon } from './RecipeWorkspaceCards';
 import {
@@ -11,6 +12,7 @@ import {
   getRecipeStepIconName,
   getRecipeStepSummary,
   getRecipeStepTitle,
+  type RecipeCookAssistantMessage,
   type RecipeCookSessionState,
   type CookTimerState,
 } from './RecipeWorkspaceModel';
@@ -46,6 +48,7 @@ type RecipeCookViewProps = {
   moveCookStep: (delta: number) => void;
   completeCurrentCookStepAndContinue: () => void;
   resetActiveCookSession: () => void;
+  openCookFinishDialog: () => void;
   openShoppingDialog: (card: RecipeCardViewModel) => void;
   confirmCustomCookTimer: () => void;
   openCustomCookTimer: () => void;
@@ -60,6 +63,12 @@ type RecipeCookViewProps = {
   deleteTimer: (id: string) => void;
   selectTimer: (id: string) => void;
   toggleTimerById: (id: string) => void;
+  startTimerById: (id?: string) => void;
+  pauseTimerById: (id?: string) => void;
+  resetTimerById: (id?: string) => void;
+  addTimerSecondsById: (id: string | undefined, seconds: number) => void;
+  setTimerById: (id: string | undefined, seconds: number, name?: string) => void;
+  setCookAssistantMessages: (messages: RecipeCookAssistantMessage[]) => void;
 };
 
 export function RecipeCookView({
@@ -87,6 +96,7 @@ export function RecipeCookView({
   moveCookStep,
   completeCurrentCookStepAndContinue,
   resetActiveCookSession,
+  openCookFinishDialog,
   openShoppingDialog,
   confirmCustomCookTimer,
   openCustomCookTimer,
@@ -100,6 +110,12 @@ export function RecipeCookView({
   addTimer,
   deleteTimer,
   selectTimer,
+  startTimerById,
+  pauseTimerById,
+  resetTimerById,
+  addTimerSecondsById,
+  setTimerById,
+  setCookAssistantMessages,
 }: RecipeCookViewProps) {
   const [activeSidebarTab, setActiveSidebarTab] = useState<'ingredients' | 'steps'>('ingredients');
   const [deletingTimerId, setDeletingTimerId] = useState<string | null>(null);
@@ -542,6 +558,38 @@ export function RecipeCookView({
               </div>
             </section>
           ) : null}
+
+          <CookingAssistantPanel
+            activeCookCard={activeCookCard}
+            cookSession={cookSession}
+            cookSteps={cookSteps}
+            currentCookStep={currentCookStep}
+            cookPreview={cookPreview}
+            timers={timers}
+            activeTimerId={activeTimerId}
+            activeMobileTab={activeMobileTab}
+            onMessagesChange={setCookAssistantMessages}
+            actions={{
+              goNextStep: completeCurrentCookStepAndContinue,
+              goPreviousStep: () => moveCookStep(-1),
+              jumpToStep: jumpToCookStep,
+              switchTab: (tab) => {
+                if (tab === 'ingredients') {
+                  setActiveSidebarTab('ingredients');
+                }
+                setActiveMobileTab(tab);
+              },
+              startTimer: startTimerById,
+              pauseTimer: pauseTimerById,
+              resetTimer: resetTimerById,
+              addTimerSeconds: addTimerSecondsById,
+              setTimer: setTimerById,
+              resetCookSession: resetActiveCookSession,
+              deleteTimer,
+              finishCooking: openCookFinishDialog,
+              openShoppingDialog: () => openShoppingDialog(activeCookCard),
+            }}
+          />
         </aside>
       </div>
 

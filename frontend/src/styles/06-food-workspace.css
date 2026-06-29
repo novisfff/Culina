@@ -3591,14 +3591,20 @@
 
 .food-detail-actions {
   display: grid;
-  grid-template-columns: minmax(0, 1fr);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px;
+  align-items: stretch;
+  margin-top: -2px;
 }
 
 .food-detail-actions .solid-button,
 .food-detail-actions .ghost-button {
   min-height: 44px;
   border-radius: 12px;
+}
+
+.food-detail-actions .solid-button {
+  grid-column: 1 / -1;
 }
 
 .food-quick-meal-modal.workspace-modal {
@@ -3724,14 +3730,23 @@
   }
 
   .food-recipe-editor-modal.workspace-modal {
-    width: calc(100vw - 16px);
-    max-height: calc(100vh - 16px);
-    padding: 14px;
+    width: calc(100vw - 8px);
+    max-width: calc(100vw - 8px);
+    max-height: calc(100vh - 10px);
+    padding: 12px 10px;
   }
 
   .food-recipe-editor-modal .workspace-overlay-head {
-    margin-bottom: 10px;
-    padding-bottom: 10px;
+    margin-bottom: 8px;
+    padding: 0 2px 8px;
+  }
+
+  .food-recipe-editor-modal .workspace-overlay-body {
+    padding-inline: 0;
+  }
+
+  .food-recipe-editor-modal .recipe-editor-workbench {
+    gap: 12px;
   }
 
   .food-recipe-detail-modal.workspace-modal {
@@ -9938,15 +9953,36 @@ button.ai-clarification-option:hover:not(:disabled) .ai-clarification-option-ind
 }
 
 .ai-resource-select > svg,
-.ai-resource-thumbnail-frame,
-.ai-resource-thumbnail {
+.ai-resource-thumbnail-frame {
   width: 28px;
   height: 28px;
   border-radius: 10px;
 }
 
 .ai-resource-thumbnail-frame {
+  display: inline-grid;
   flex: 0 0 28px;
+  aspect-ratio: 1 / 1;
+  min-width: 28px;
+  max-width: 28px;
+  overflow: hidden;
+  place-items: center;
+  background: #f6eee7;
+}
+
+.ai-resource-thumbnail-frame.media-with-placeholder,
+.ai-resource-thumbnail-frame > .media-placeholder,
+.ai-resource-thumbnail-frame > .ai-resource-thumbnail,
+.ai-resource-thumbnail {
+  width: 100%;
+  height: 100%;
+  aspect-ratio: 1 / 1;
+  border-radius: inherit;
+}
+
+.ai-resource-thumbnail-frame.media-with-placeholder {
+  flex: 0 0 28px;
+  min-height: 28px;
 }
 
 .ai-resource-thumbnail {
@@ -10201,14 +10237,17 @@ button.ai-clarification-option:hover:not(:disabled) .ai-clarification-option-ind
 }
 
 .ai-resource-menu svg,
-.ai-resource-menu .ai-resource-thumbnail {
+.ai-resource-menu .ai-resource-thumbnail-frame {
   width: 28px;
   height: 28px;
+  min-width: 28px;
+  max-width: 28px;
   border-radius: 10px;
 }
 
-.ai-resource-menu .ai-resource-thumbnail {
-  object-fit: cover;
+.ai-resource-menu .ai-resource-thumbnail-frame {
+  flex: 0 0 28px;
+  aspect-ratio: 1 / 1;
 }
 
 .ai-resource-menu svg {
@@ -10761,6 +10800,7 @@ button.ai-clarification-option:hover:not(:disabled) .ai-clarification-option-ind
     --ai-mobile-header-height: calc(100vw * 0.1622);
     --ai-mobile-composer-height: 88px;
     --ai-mobile-composer-safe-bottom: env(safe-area-inset-bottom, 0px);
+    --ai-mobile-keyboard-inset: 0px;
     --ai-mobile-viewport-height: 100dvh;
     --ai-mobile-viewport-top: 0px;
     position: fixed;
@@ -10796,10 +10836,8 @@ button.ai-clarification-option:hover:not(:disabled) .ai-clarification-option-ind
   .ai-mobile-page {
     display: block;
     position: fixed;
-    top: var(--ai-mobile-viewport-top, 0px);
-    left: 0;
-    right: 0;
-    height: var(--ai-mobile-viewport-height, 100dvh);
+    inset: 0;
+    height: auto;
     min-height: 0;
     overflow: hidden;
     background: linear-gradient(180deg, #fffaf5 0%, #fffdfb 42%, #fff 100%);
@@ -11021,7 +11059,7 @@ button.ai-clarification-option:hover:not(:disabled) .ai-clarification-option-ind
   }
 
   .ai-thread-scroll {
-    position: absolute;
+    position: fixed;
     top: var(--ai-mobile-header-height);
     left: 0;
     right: 0;
@@ -11036,6 +11074,7 @@ button.ai-clarification-option:hover:not(:disabled) .ai-clarification-option-ind
   }
 
   .ai-mobile-page .ai-thread-follow-button {
+    position: fixed;
     z-index: 64;
     bottom: calc(var(--ai-mobile-composer-height, 88px) + 12px);
     min-height: 38px;
@@ -11353,7 +11392,7 @@ button.ai-clarification-option:hover:not(:disabled) .ai-clarification-option-ind
   }
 
   .ai-composer-dock {
-    position: absolute;
+    position: fixed;
     left: 0;
     right: 0;
     bottom: 0;
@@ -12521,11 +12560,12 @@ button.ai-clarification-option:hover:not(:disabled) .ai-clarification-option-ind
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 10px;
-    margin-top: 18px;
-    padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+    margin: 2px 0 16px;
+    padding-bottom: 0;
   }
 
   .food-detail-actions button {
+    min-width: 0;
     transition: all 0.12s ease;
   }
 

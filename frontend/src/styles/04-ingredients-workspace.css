@@ -9,6 +9,17 @@
   gap: 16px;
 }
 
+.ingredients-detail-mobile-only {
+  display: none;
+}
+
+.ingredient-detail-mobile-eyebrow,
+.ingredient-detail-mobile-summary,
+.ingredient-detail-mobile-status-row,
+.ingredient-detail-mobile-decision-card {
+  display: none;
+}
+
 .ingredients-workspace .page-header {
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: start;
@@ -5126,6 +5137,9 @@
 }
 
 .ingredient-detail-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   justify-self: start;
   min-height: 34px;
   color: #3f342d;
@@ -7824,6 +7838,50 @@
     padding-bottom: 10px;
   }
 
+  .destroy-expired-modal .workspace-overlay-body {
+    overflow: auto;
+  }
+
+  .destroy-expired-modal .workspace-overlay-close {
+    width: 64px;
+    min-width: 64px;
+    max-width: 64px;
+    height: 44px;
+    min-height: 44px;
+    max-height: 44px;
+    padding: 0;
+    border: 0;
+    border-radius: 15px;
+    background: #f7f3f0;
+    color: #74655b;
+    font-size: 0.875rem;
+    font-weight: 900;
+    line-height: 1;
+    box-shadow: 0 6px 16px rgba(74, 54, 40, 0.05);
+  }
+
+  .destroy-expired-modal .destroy-expired-form {
+    flex: 0 0 auto;
+    min-height: auto;
+    width: 100%;
+    max-width: 100%;
+    overflow: visible;
+  }
+
+  .destroy-expired-modal .destroy-expired-form,
+  .destroy-expired-modal .destroy-expired-form *,
+  .destroy-expired-modal .destroy-expired-footer-bar,
+  .destroy-expired-modal .workspace-overlay-actions {
+    box-sizing: border-box;
+  }
+
+  .destroy-expired-scroll {
+    flex: 0 0 auto;
+    min-height: auto;
+    overflow: visible;
+    overscroll-behavior: auto;
+  }
+
   .destroy-expired-modal .ingredients-restock-field-group {
     padding: 12px;
     border-radius: 18px;
@@ -7862,6 +7920,7 @@
     flex-direction: column;
     align-items: flex-start;
     gap: 4px;
+    min-width: 0;
   }
 
   .destroy-expired-summary-card .ingredients-restock-identity-head h4 {
@@ -7873,6 +7932,7 @@
     margin-top: 0;
     font-size: 0.82rem;
     line-height: 1.35;
+    overflow-wrap: anywhere;
   }
 
   .destroy-expired-summary-badges {
@@ -7918,15 +7978,14 @@
 
   .destroy-expired-list {
     gap: 8px;
-    max-height: 220px;
-    overflow: auto;
-    padding-right: 2px;
+    padding-right: 0;
   }
 
   .destroy-expired-item {
     gap: 8px;
     padding: 12px 14px;
     border-radius: 16px;
+    min-width: 0;
   }
 
   .destroy-expired-item-head {
@@ -7941,6 +8000,7 @@
     display: flex;
     align-items: baseline;
     gap: 8px;
+    min-width: 0;
   }
 
   .destroy-expired-item-title strong {
@@ -7962,11 +8022,13 @@
     gap: 4px 10px;
     font-size: 0.78rem;
     width: 100%;
+    flex-wrap: wrap;
   }
 
   .destroy-expired-item-note {
     font-size: 0.78rem;
     width: 100%;
+    overflow-wrap: anywhere;
   }
 
   .ingredients-restock-identity-card,
@@ -8298,7 +8360,15 @@
   }
 
   .destroy-expired-footer-bar {
+    position: static;
+    z-index: auto;
     gap: 10px;
+    width: 100%;
+    margin: 0;
+    padding: 12px 0 0;
+    border-top: 1px solid rgba(147, 96, 63, 0.1);
+    background: transparent;
+    backdrop-filter: none;
   }
 
   .destroy-expired-footer-summary {
@@ -8317,6 +8387,7 @@
     flex-basis: 100%;
     font-size: 0.78rem;
     line-height: 1.35;
+    overflow-wrap: anywhere;
   }
 
   .ingredients-restock-footer-bar .workspace-overlay-actions,
@@ -8534,11 +8605,15 @@
 
 @media (max-width: 767px) {
   .recipe-notice-toast {
-    right: 14px;
-    top: 14px;
+    top: calc(env(safe-area-inset-top, 0px) + 86px);
+    right: max(14px, calc((100vw - 480px) / 2 + 14px));
+    z-index: calc(var(--z-mobile-notification, 1500) - 10);
     grid-template-columns: 40px minmax(0, 1fr) 32px;
     gap: 10px;
+    width: min(360px, calc(100vw - 28px));
+    max-height: calc(100dvh - 118px - env(safe-area-inset-bottom, 0px));
     padding: 12px;
+    overflow: hidden;
     border-radius: 16px;
   }
 

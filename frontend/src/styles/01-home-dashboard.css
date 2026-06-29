@@ -1279,21 +1279,7 @@
   stroke-width: 2;
 }
 
-.dashboard-plan-meal-label.meal-breakfast .dashboard-plan-meal-label-icon {
-  box-shadow: 0 0 0 3px rgba(229, 132, 22, 0.12);
-}
 
-.dashboard-plan-meal-label.meal-lunch .dashboard-plan-meal-label-icon {
-  box-shadow: 0 0 0 3px rgba(80, 152, 72, 0.12);
-}
-
-.dashboard-plan-meal-label.meal-dinner .dashboard-plan-meal-label-icon {
-  box-shadow: 0 0 0 3px rgba(98, 93, 175, 0.12);
-}
-
-.dashboard-plan-meal-label.meal-snack .dashboard-plan-meal-label-icon {
-  box-shadow: 0 0 0 3px rgba(210, 107, 51, 0.12);
-}
 
 .dashboard-plan-meal-copy {
   min-width: 0;
@@ -1384,15 +1370,33 @@
 }
 
 .dashboard-plan-dish.is-more {
-  color: #8a776a;
-  background: #efe7df;
-  cursor: default;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 48px;
+  width: auto;
+  padding: 0 10px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  border-color: rgba(210, 107, 51, 0.22);
+  cursor: pointer;
+  transition: transform 0.16s ease, border-color 0.16s ease, background 0.16s ease, box-shadow 0.16s ease;
 }
 
 .dashboard-plan-dish.is-more:hover {
-  transform: none;
-  border-color: rgba(231, 213, 199, 0.9);
-  box-shadow: none;
+  transform: translateY(-1px);
+  border-color: var(--accent);
+  background: #fff0e7;
+  box-shadow: 0 4px 10px rgba(210, 107, 51, 0.12);
+}
+
+.home-more-plans-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+  gap: 12px;
+  padding: 16px 0;
+  max-height: 380px;
+  overflow-y: auto;
 }
 
 .dashboard-plan-meal-action {

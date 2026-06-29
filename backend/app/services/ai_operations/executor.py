@@ -93,15 +93,19 @@ def execute_ai_operation_draft(
         media_map = build_media_map(get_media_assets_for_entities(db, family_id=family_id, entity_type="food", entity_ids=[food.id]))
         return serialize_food(food, media_map), [food.id]
     if draft_type == "ingredient_profile":
-        ingredient = execute_ingredient_profile_draft(
+        ingredient_result = execute_ingredient_profile_draft(
             db,
             family_id=family_id,
             user_id=user_id,
             payload=payload,
             assert_updated_at_matches=assert_updated_at_matches,
         )
-        media_map = build_media_map(get_media_assets_for_entities(db, family_id=family_id, entity_type="ingredient", entity_ids=[ingredient.id]))
-        return serialize_ingredient(ingredient, media_map), [ingredient.id]
+        if isinstance(ingredient_result, list):
+            ingredient_ids = [ingredient.id for ingredient in ingredient_result]
+            media_map = build_media_map(get_media_assets_for_entities(db, family_id=family_id, entity_type="ingredient", entity_ids=ingredient_ids))
+            return {"items": [serialize_ingredient(ingredient, media_map) for ingredient in ingredient_result]}, ingredient_ids
+        media_map = build_media_map(get_media_assets_for_entities(db, family_id=family_id, entity_type="ingredient", entity_ids=[ingredient_result.id]))
+        return serialize_ingredient(ingredient_result, media_map), [ingredient_result.id]
     if draft_type == "inventory_operation":
         return execute_inventory_operation_draft(
             db,

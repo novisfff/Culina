@@ -71,6 +71,22 @@ export function FoodDetailDrawer(props: Props) {
   const linkedRecipeCard = props.relation.linkedRecipeCard;
   const coverUrl = resolveMediaUrl(props.coverAsset, 'large') ?? (props.cover ? props.resolveAssetUrl(props.cover) : undefined);
   const showRelationPanel = !props.isOutsideFood && !props.isReadyLikeFood && !props.recipe;
+  const detailActions = (
+    <div className="workspace-overlay-actions food-detail-actions">
+      <ActionButton tone="primary" type="button" onClick={() => props.onQuickAdd(props.food, props.getDefaultMealType(props.food))}>
+        {props.getPrimaryFoodActionLabel(props.food)}
+      </ActionButton>
+      <ActionButton tone="secondary" type="button" onClick={() => props.onEdit(props.food)}>
+        {props.getSecondaryFoodActionLabel(props.food)}
+      </ActionButton>
+      <ActionButton tone="secondary" type="button" onClick={() => props.onOpenPlanDialog(props.food)}>
+        加入菜单
+      </ActionButton>
+      <ActionButton tone="secondary" type="button" onClick={props.onOpenLogs}>
+        完整记一餐
+      </ActionButton>
+    </div>
+  );
 
   return (
     <div className={props.overlayRootClassName ? `workspace-overlay-root ${props.overlayRootClassName}` : 'workspace-overlay-root'}>
@@ -99,6 +115,8 @@ export function FoodDetailDrawer(props: Props) {
             <Badge>{props.food.favorite ? '已收藏' : props.getRepurchaseLabel(props.food)}</Badge>
           </div>
         </div>
+
+        {detailActions}
 
         <section className="food-detail-section">
           <div className="food-detail-section-head">
@@ -259,20 +277,6 @@ export function FoodDetailDrawer(props: Props) {
           )}
         </section>
 
-        <div className="workspace-overlay-actions food-detail-actions">
-          <ActionButton tone="primary" type="button" onClick={() => props.onQuickAdd(props.food, props.getDefaultMealType(props.food))}>
-            {props.getPrimaryFoodActionLabel(props.food)}
-          </ActionButton>
-          <ActionButton tone="secondary" type="button" onClick={() => props.onEdit(props.food)}>
-            {props.getSecondaryFoodActionLabel(props.food)}
-          </ActionButton>
-          <ActionButton tone="secondary" type="button" onClick={() => props.onOpenPlanDialog(props.food)}>
-            加入菜单
-          </ActionButton>
-          <ActionButton tone="secondary" type="button" onClick={props.onOpenLogs}>
-            完整记一餐
-          </ActionButton>
-        </div>
       </WorkspaceDrawer>
     </div>
   );

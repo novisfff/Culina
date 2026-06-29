@@ -216,6 +216,7 @@ export function AppNotificationCenter(props: {
                         onClick={() => props.onRetryJob?.(jobId)}
                         disabled={isRetrying}
                         aria-label={`重试${job.title}`}
+                        title={isRetrying ? '提交中' : '重试'}
                       >
                         <span aria-hidden="true">
                           <DashboardIcon name="refresh" />

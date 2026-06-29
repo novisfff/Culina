@@ -31,7 +31,7 @@ afterEach(() => {
 });
 
 describe('AiMobilePage viewport', () => {
-  it('uses the visual viewport height while the Safari keyboard is open', async () => {
+  it('keeps the AI page full height while tracking the Safari keyboard inset', async () => {
     const restoreVisualViewport = mockVisualViewport({ height: 520, offsetTop: 0 });
     vi.spyOn(window, 'innerHeight', 'get').mockReturnValue(900);
     let rendered: Awaited<ReturnType<typeof renderWithQuery>> | null = null;
@@ -84,8 +84,9 @@ describe('AiMobilePage viewport', () => {
       await waitForAsync(30);
 
       const page = rendered.container.querySelector<HTMLElement>('.ai-mobile-page');
-      expect(page?.style.getPropertyValue('--ai-mobile-viewport-height')).toBe('520px');
+      expect(page?.style.getPropertyValue('--ai-mobile-viewport-height')).toBe('900px');
       expect(page?.style.getPropertyValue('--ai-mobile-viewport-top')).toBe('0px');
+      expect(page?.style.getPropertyValue('--ai-mobile-keyboard-inset')).toBe('380px');
       expect(page?.style.getPropertyValue('--ai-mobile-composer-height')).toBe('88px');
       expect(page?.style.getPropertyValue('--ai-mobile-composer-safe-bottom')).toBe('0px');
     } finally {

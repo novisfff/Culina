@@ -10,10 +10,14 @@ class AIRegistryAndMetricsTestCase(AIAgentInfraTestCase):
             skills = {item["key"]: item for item in data["skills"]}
             tools = {item["name"]: item for item in data["tools"]}
 
-            self.assertEqual(len(skills), 8)
+            self.assertEqual(len(skills), 9)
             self.assertNotIn("today_recommendation", skills)
             self.assertIn("today_recommendation", skills["meal_plan"]["output_types"])
             self.assertNotIn("clarification_request", skills["meal_plan"]["output_types"])
+            self.assertIn("cooking_assistant", skills)
+            self.assertEqual(skills["cooking_assistant"]["approval_policy"], "none")
+            self.assertIn("ui.propose_actions", skills["cooking_assistant"]["tools"])
+            self.assertIn("ui_actions", skills["cooking_assistant"]["output_types"])
             self.assertIn("ingredient_profile", skills)
             self.assertIn("meal_log", skills)
             self.assertIn("recipe_cook", skills)
@@ -41,6 +45,7 @@ class AIRegistryAndMetricsTestCase(AIAgentInfraTestCase):
             self.assertEqual(
                 skill_inject_skills_schema["items"]["enum"],
                 [
+                    "cooking_assistant",
                     "food_profile",
                     "ingredient_profile",
                     "inventory_analysis",
@@ -52,6 +57,8 @@ class AIRegistryAndMetricsTestCase(AIAgentInfraTestCase):
                 ],
             )
             self.assertNotIn("inventory-analysis", skill_inject_skills_schema["items"]["enum"])
+            self.assertEqual(tools["ui.propose_actions"]["side_effect"], "control")
+            self.assertEqual(tools["ui.propose_actions"]["permission"], "family:read")
             self.assertEqual(tools["human.request_input"]["side_effect"], "control")
             self.assertEqual(tools["meal_log.create_draft"]["display_name"], "餐食记录确认表单")
             self.assertEqual(tools["meal_log.create_draft"]["permission"], "family:draft")

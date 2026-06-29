@@ -192,7 +192,8 @@ def ingredient_read_by_id(context: ToolContext, payload: dict[str, Any]) -> dict
 def ingredient_profile_create_draft(context: ToolContext, payload: dict[str, Any]) -> dict[str, Any]:
     draft = payload.get("draft") if isinstance(payload.get("draft"), dict) else {}
     normalized = normalize_ingredient_profile_draft(context.db, family_id=context.family_id, payload=draft)
-    return {"draft": normalized, "itemCount": 1}
+    item_count = len(normalized.get("operations") or []) or 1
+    return {"draft": normalized, "itemCount": item_count}
 
 
 def register_ingredient_tools(registry: ToolRegistry) -> None:

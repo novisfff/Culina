@@ -19,7 +19,7 @@ import type {
   FoodPlanItem,
   UserSummary,
 } from '../../api/types';
-import { resolveAssetUrl } from '../../lib/assets';
+import { resolveMediaUrl } from '../../lib/assets';
 import { FOOD_TYPE_LABELS } from '../../lib/ui';
 import {
   AiDesktopConversationHistory,
@@ -444,7 +444,7 @@ export function AiWorkspace({
         id: food.id,
         label: food.name,
         description: [food.category, FOOD_TYPE_LABELS[food.type] ?? food.type].filter(Boolean).join(' · '),
-        imageUrl: resolveAssetUrl(food.images?.[0]?.url) ?? '/assets/ai-food-ingredient-placeholder.png',
+        imageUrl: resolveMediaUrl(food.images?.[0], 'thumb') ?? '/assets/ai-food-ingredient-placeholder.png',
       }));
     }
     const items = await api.getIngredients({ q: params.query, limit: params.limit, offset: params.offset });
@@ -452,7 +452,7 @@ export function AiWorkspace({
       id: ingredient.id,
       label: ingredient.name,
       description: [ingredient.category, ingredient.default_unit].filter(Boolean).join(' · '),
-      imageUrl: resolveAssetUrl(ingredient.image?.url) ?? '/assets/ai-food-ingredient-placeholder.png',
+      imageUrl: resolveMediaUrl(ingredient.image, 'thumb') ?? '/assets/ai-food-ingredient-placeholder.png',
       unit: ingredient.default_unit,
     }));
   }, []);

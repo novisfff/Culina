@@ -13,6 +13,7 @@ import {
   resolveErrorMessage,
   saveCookSession,
   transitionCookTimerForStep,
+  type RecipeCookAssistantMessage,
   type RecipeCookSessionState,
   type RecipeNotice,
 } from './RecipeWorkspaceModel';
@@ -66,7 +67,7 @@ export function useRecipeCookState(args: {
     : 0;
   const cookProgressPercent = cookSteps.length > 0 ? Math.round((((cookSession?.currentStepIndex ?? 0) + 1) / cookSteps.length) * 100) : 0;
   const cookSubmitDisabled =
-    args.isCookingRecipe || isCookPreviewLoading || Boolean(cookPreviewError) || Boolean(cookPreview?.shortages.length) || !cookPreview || !cookSession;
+    args.isCookingRecipe || isCookPreviewLoading || Boolean(cookPreviewError) || !cookPreview || !cookSession;
 
   useEffect(() => {
     previewCookRecipeRef.current = args.previewCookRecipe;
@@ -98,6 +99,7 @@ export function useRecipeCookState(args: {
       resultNote: '',
       adjustments: cookSession.adjustments,
       rating: '',
+      allowPartialInventoryDeduction: true,
     });
     const timer = window.setTimeout(() => {
       previewCookRecipeRef.current(activeCookCard.recipe.id, payload)
@@ -300,18 +302,7 @@ export function useRecipeCookState(args: {
   }
 
   function addCookTimerSeconds(seconds: number) {
-    setCookSession((current) => {
-      if (!current) return current;
-      const nextTimers = current.timers.map((t) => {
-        if (t.id !== current.activeTimerId || t.mode !== 'countdown') return t;
-        const duration = t.durationSeconds ?? 0;
-        return {
-          ...t,
-          durationSeconds: Math.max(duration + seconds, seconds),
-        };
-      });
-      return { ...current, timers: nextTimers };
-    });
+    addTimerSecondsById(undefined, seconds);
   }
 
   function addTimer(mode: 'countup' | 'countdown', durationSeconds: number | null, name?: string) {
@@ -337,6 +328,79 @@ export function useRecipeCookState(args: {
     });
   }
 
+  function startTimerById(id?: string) {
+    setCookSession((current) => {
+      if (!current) return current;
+      const targetId = id && current.timers.some((timer) => timer.id === id) ? id : current.activeTimerId;
+      const nextTimers = current.timers.map((t) => {
+        if (t.id !== targetId) return t;
+        const duration = t.durationSeconds ?? (t.id === current.activeTimerId ? currentStepSuggestedSeconds : null);
+        return {
+          ...t,
+          mode: duration ? ('countdown' as const) : ('countup' as const),
+          durationSeconds: duration,
+          running: true,
+        };
+      });
+      return { ...current, timers: nextTimers, activeTimerId: targetId };
+    });
+    setCookTimerJustStarted(true);
+  }
+
+  function pauseTimerById(id?: string) {
+    setCookSession((current) => {
+      if (!current) return current;
+      const targetId = id && current.timers.some((timer) => timer.id === id) ? id : current.activeTimerId;
+      const nextTimers = current.timers.map((t) => (t.id === targetId ? { ...t, running: false } : t));
+      return { ...current, timers: nextTimers, activeTimerId: targetId };
+    });
+  }
+
+  function resetTimerById(id?: string) {
+    setCookSession((current) => {
+      if (!current) return current;
+      const targetId = id && current.timers.some((timer) => timer.id === id) ? id : current.activeTimerId;
+      const nextTimers = current.timers.map((t) => (t.id === targetId ? { ...t, seconds: 0, running: false } : t));
+      return { ...current, timers: nextTimers, activeTimerId: targetId };
+    });
+  }
+
+  function addTimerSecondsById(id: string | undefined, seconds: number) {
+    setCookSession((current) => {
+      if (!current || seconds === 0) return current;
+      const targetId = id && current.timers.some((timer) => timer.id === id) ? id : current.activeTimerId;
+      const nextTimers = current.timers.map((t) => {
+        if (t.id !== targetId || t.mode !== 'countdown') return t;
+        const duration = t.durationSeconds ?? 0;
+        return {
+          ...t,
+          durationSeconds: Math.max(duration + seconds, seconds),
+        };
+      });
+      return { ...current, timers: nextTimers, activeTimerId: targetId };
+    });
+  }
+
+  function setTimerById(id: string | undefined, seconds: number, name?: string) {
+    setCookSession((current) => {
+      if (!current || seconds <= 0) return current;
+      const targetId = id && current.timers.some((timer) => timer.id === id) ? id : current.activeTimerId;
+      const nextTimers = current.timers.map((t) => {
+        if (t.id !== targetId) return t;
+        return {
+          ...t,
+          name: name?.trim() || t.name,
+          mode: 'countdown' as const,
+          durationSeconds: seconds,
+          seconds: 0,
+          running: true,
+        };
+      });
+      return { ...current, timers: nextTimers, activeTimerId: targetId };
+    });
+    setCookTimerJustStarted(true);
+  }
+
   function deleteTimer(id: string) {
     setCookSession((current) => {
       if (!current) return current;
@@ -346,6 +410,13 @@ export function useRecipeCookState(args: {
         timers: next.timers,
         activeTimerId: next.activeTimerId,
       };
+    });
+  }
+
+  function setCookAssistantMessages(messages: RecipeCookAssistantMessage[]) {
+    setCookSession((current) => {
+      if (!current) return current;
+      return { ...current, aiAssistantMessages: messages.slice(-40) };
     });
   }
 
@@ -475,12 +546,9 @@ export function useRecipeCookState(args: {
           resultNote: cookSession.resultNote,
           adjustments: cookSession.adjustments,
           rating: cookSession.rating,
+          allowPartialInventoryDeduction: true,
         })
       );
-      if (response.shortages.length > 0) {
-        args.showRecipeNotice({ tone: 'warning', title: '库存不足', message: response.shortages.map((item) => item.ingredient_name).join('、') });
-        return;
-      }
       clearCookSession(activeCookCard.recipe.id, cookSession.planItemId);
       args.setSelectedRecipeId(activeCookCard.recipe.id);
       closeCookDialog();
@@ -539,6 +607,12 @@ export function useRecipeCookState(args: {
     timers: cookSession?.timers ?? [],
     activeTimerId: cookSession?.activeTimerId ?? '',
     addTimer,
+    startTimerById,
+    pauseTimerById,
+    resetTimerById,
+    addTimerSecondsById,
+    setTimerById,
+    setCookAssistantMessages,
     deleteTimer,
     selectTimer,
     toggleTimerById,

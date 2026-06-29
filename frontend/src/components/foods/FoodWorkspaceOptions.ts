@@ -12,9 +12,13 @@ export const FOOD_TYPE_OPTIONS: Array<{ value: FoodType; label: string }> = [
   { value: 'instant', label: '速食' },
 ];
 
-export const FOOD_CREATE_TYPE_OPTIONS = FOOD_TYPE_OPTIONS.filter((item) => item.value !== 'selfMade');
+export const FOOD_CREATE_TYPE_OPTIONS: Array<{ value: FoodType; label: string }> = [
+  { value: 'selfMade', label: '自做' },
+  ...FOOD_TYPE_OPTIONS.filter((item) => item.value !== 'selfMade'),
+];
 
 export const FOOD_CREATE_TYPE_DETAILS: Partial<Record<FoodType, { icon: FoodIconName; description: string }>> = {
+  selfMade: { icon: 'home', description: '家里现做' },
   takeout: { icon: 'receipt', description: '常点店铺' },
   diningOut: { icon: 'tag', description: '餐厅记录' },
   readyMade: { icon: 'bowl', description: '即开即吃' },

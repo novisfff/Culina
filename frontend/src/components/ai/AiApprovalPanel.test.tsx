@@ -1351,6 +1351,31 @@ describe('ApprovalPanel', () => {
     rendered.unmount();
   });
 
+  it('uses the local resource thumbnail fallback when selected food and ingredients have no media', async () => {
+    const pending = mealPlanApproval();
+    const foods = [
+      { id: 'food-tomato-egg', name: '番茄炒蛋', category: '家常菜', type: 'selfMade', images: [] },
+      { id: 'food-noodle', name: '牛肉面', category: '主食', type: 'selfMade', images: [] },
+    ] as unknown as Food[];
+    const ingredients = [
+      { id: 'ingredient-beef', name: '牛肉', category: '肉类', default_unit: 'g', image: null },
+      { id: 'ingredient-potato', name: '土豆', category: '蔬菜', default_unit: '个', image: null },
+    ] as Ingredient[];
+
+    const rendered = await renderWithQuery(<ApprovalPanel approval={pending} foods={foods} ingredients={ingredients} onDecision={() => undefined} />);
+    const thumbnails = Array.from(rendered.container.querySelectorAll<HTMLImageElement>('.ai-resource-thumbnail'));
+
+    expect(thumbnails.length).toBeGreaterThanOrEqual(3);
+    expect(thumbnails.map((image) => image.getAttribute('src'))).toEqual(
+      expect.arrayContaining([
+        '/assets/ai-food-ingredient-placeholder.png',
+        '/assets/ai-food-ingredient-placeholder.png',
+        '/assets/ai-food-ingredient-placeholder.png',
+      ]),
+    );
+    rendered.unmount();
+  });
+
   it('renders meal plan operation drafts with summary, before-after, status, and delete impact', async () => {
     const pending = mealPlanOperationApproval();
     const decideSpy = vi.fn().mockResolvedValue(undefined);

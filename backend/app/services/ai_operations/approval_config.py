@@ -215,6 +215,20 @@ def approval_config_for_payload(draft_type: str, payload: dict[str, Any]) -> dic
             }
         )
     elif draft_type == "ingredient_profile":
+        operations = payload.get("operations")
+        if isinstance(operations, list):
+            total = len(operations)
+            config.update(
+                {
+                    "approval_type": "ingredient.create",
+                    "operation_type": "ingredient.create",
+                    "title": f"确认创建 {total} 个食材档案",
+                    "instruction": "确认后会批量创建当前家庭的食材档案，不会登记库存数量。",
+                    "approve_label": "创建食材",
+                    "reject_label": "暂不创建",
+                }
+            )
+            return config
         action = str(payload.get("action") or "create")
         if action == "update":
             config.update(

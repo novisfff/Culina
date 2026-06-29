@@ -61,10 +61,6 @@ export function useFoodWorkspaceState(args: UseFoodWorkspaceStateArgs) {
   }
 
   function openCreate(type: FoodType = 'takeout') {
-    if (type === 'selfMade') {
-      args.onOpenRecipes();
-      return;
-    }
     setEditingFood(null);
     setForm(makeBlankFoodForm(type));
     resetEditorState();

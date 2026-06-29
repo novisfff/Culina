@@ -480,7 +480,7 @@ export function HomeDashboardDialogs(props: Props) {
           <WorkspaceModal
             title="登记这批库存"
             description="从首页采购提醒快速入库，保存后会把这条采购项标记完成。"
-            closeLabel="×"
+            closeLabel="关闭"
             closeAriaLabel="关闭"
             className="workspace-modal-wide inventory-restock-modal"
             onClose={props.closeHomeRestock}
@@ -873,7 +873,7 @@ export function HomeDashboardDialogs(props: Props) {
           <WorkspaceModal
             title="销毁已过期批次"
             description="会将这些过期批次的剩余量清零，但保留批次历史记录和活动日志。"
-            closeLabel="×"
+            closeLabel="关闭"
             closeAriaLabel="关闭"
             className="workspace-modal-wide destroy-expired-modal"
             onClose={() => props.setHomeExpiredDisposalIngredientId(null)}

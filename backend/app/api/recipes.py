@@ -495,12 +495,15 @@ def preview_cook_recipe(
             recipe=recipe,
             servings=payload.servings,
             today=today_for_family(membership.family_id),
+            allow_partial_deduction=payload.allow_partial_inventory_deduction,
         )
     except UnitConversionError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     return {
         "recipe_id": recipe.id,
-        "preview_items": [] if shortages else [serialize_cook_preview_item(plan) for plan in consumption_plan],
+        "preview_items": [serialize_cook_preview_item(plan) for plan in consumption_plan]
+        if payload.allow_partial_inventory_deduction or not shortages
+        else [],
         "shortages": shortages,
     }
 
@@ -521,11 +524,12 @@ def cook_recipe(
             recipe=recipe,
             servings=payload.servings,
             today=today_for_family(membership.family_id),
+            allow_partial_deduction=payload.allow_partial_inventory_deduction,
         )
     except UnitConversionError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
-    if shortages:
+    if shortages and not payload.allow_partial_inventory_deduction:
         return {
             "recipe_id": recipe.id,
             "consumed_items": [],
@@ -637,7 +641,7 @@ def cook_recipe(
     return {
         "recipe_id": recipe.id,
         "consumed_items": consumed_items,
-        "shortages": [],
+        "shortages": shortages,
         "meal_log_id": meal_log_id,
         "cook_log_id": cook_log.id,
     }

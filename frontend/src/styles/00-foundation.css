@@ -55,6 +55,7 @@
   --z-mobile-topbar: 180;
   --z-notification: 300;
   --z-overlay: 1000;
+  --z-mobile-notification: 1500;
   --app-visual-viewport-height: 100vh;
   --app-visual-viewport-bottom-inset: 0px;
 }
@@ -108,6 +109,32 @@ select:focus-visible,
 textarea:focus-visible {
   outline: 2px solid rgba(184, 107, 65, 0.36);
   outline-offset: 2px;
+}
+
+.paged-list-status {
+  grid-column: 1 / -1;
+  min-height: 44px;
+  display: grid;
+  place-items: center;
+  color: var(--text-faint);
+  font-size: 0.86rem;
+  font-weight: 800;
+}
+
+.paged-list-load-more {
+  min-height: 38px;
+  border: 1px solid var(--line-soft);
+  border-radius: 999px;
+  padding: 0 16px;
+  background: rgba(255, 255, 255, 0.82);
+  color: var(--accent-strong);
+  font-weight: 900;
+  box-shadow: var(--shadow-sm);
+}
+
+.paged-list-load-more:hover {
+  border-color: rgba(210, 107, 51, 0.28);
+  background: #fff8f2;
 }
 
 #root {
@@ -3025,6 +3052,8 @@ textarea:focus-visible {
 }
 
 .image-composer-actions .ghost-button svg {
+  display: block;
+  flex: 0 0 15px;
   width: 15px;
   height: 15px;
   margin-right: 6px;

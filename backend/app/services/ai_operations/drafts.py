@@ -169,6 +169,8 @@ def draft_preview_summary(draft_type: str, payload: dict[str, Any]) -> str:
             return f"{action_label}食物 · {label}"
         return f"{payload.get('name')} · {payload.get('category')}"
     if draft_type == "ingredient_profile":
+        if isinstance(payload.get("operations"), list):
+            return f"创建 {len(payload.get('operations') or [])} 个食材"
         action = "更新" if payload.get("action") == "update" else "创建"
         item_payload = payload.get("payload") if isinstance(payload.get("payload"), dict) else {}
         return f"{action}食材 · {item_payload.get('name') or '未命名食材'}"

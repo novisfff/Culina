@@ -17,7 +17,7 @@ draft_types:
 - food_profile
 approval_policy: draft_then_confirm
 examples:
-- 新增食物资料：盒装牛奶，类型即食，适合早餐。
+- 新增食物资料：盒装牛奶，类型成品，适合早餐。
 - 整理蓝莓酸奶的食物资料。
 - 把盒装牛奶改成适合早餐并收藏。
 - 取消收藏这个食物。

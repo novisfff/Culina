@@ -23,8 +23,8 @@
    - 数量追踪：`track_quantity`、`not_track_quantity`。
    - 保质期模式：`days`、`manual_date`、`none`。
 2. 前端已有预设优先，自定义只作为兜底。
-   - 食材分类、默认保存位置、常用单位按 `ingredient_profile` 当前说明里的前端预设使用。
-   - 食物类型、餐别来自 `frontend/src/components/foods/FoodWorkspaceOptions.ts`。
+   - 食材分类按前端编辑/审批表单当前可见选项使用：`蔬菜`、`肉类`、`水产`、`蛋奶`、`调料`、`水果`、`主食`、`豆制品`、`干货`、`其他`；保存位置和常用单位按 `ingredient_profile` 当前说明里的前端预设使用。
+   - 食物类型、餐别来自 `frontend/src/components/foods/FoodWorkspaceOptions.ts` 和 AI 审批面板；展示标签保持 `家常菜`、`外卖`、`外食`、`成品`、`速食`、`包装食品`。
    - 菜谱餐别、购物常用单位、步骤图标来自 `frontend/src/components/recipes/RecipeWorkspaceOptions.ts`。
    - 库存 draft 的操作和状态来自 `frontend/src/components/ai/aiInventoryOperationDraftModel.ts`。
    - 这只是把前端已有固定选项写进 Skill 说明，不做真实食材分类聚合或动态选项聚合。
@@ -52,13 +52,13 @@
 当前状态：
 
 - 已经明确 `action`、`quantity_tracking_mode`、`default_expiry_mode` 只能用固定值。
-- 已经写入前端食材分类、保存位置和常用单位预设，并要求系统固定选项优先、前端预设优先、确实不合适才自定义。
+- 已经写入前端食材编辑/审批表单当前可见分类、保存位置和常用单位预设，并要求系统固定选项优先、前端预设优先、确实不合适才自定义。
 - 已经要求创建前先搜索已有食材，更新前读取真实详情，并处理多食材创建的逐项确认节奏。
 
 建议补强：
 
 - 保留现有说明作为其他 Skill 的基准，不要改成真实食材聚合或后端动态分类聚合。
-- 在 Skill 顶部补一句“本 Skill 的分类和单位预设来自前端固定选项，不代表真实库存聚合结果”，避免模型把预设理解成数据库事实。
+- 在 Skill 顶部保留“本 Skill 的分类和单位预设来自前端编辑/审批表单当前可见选项，不代表真实库存聚合结果”，避免模型把预设理解成数据库事实。
 - 对 `default_expiry_days` 再补一句：只有 `default_expiry_mode=days` 时填写；`manual_date` 和 `none` 不要同时填写天数。
 - 对图片字段补充更硬的规则：更新时没有明确换图就不要传 `media_ids`，避免空数组被误解为清空媒体。
 
@@ -79,7 +79,7 @@
 - 把前端食物类型固定选项写得更明确：手动创建优先使用 `takeout`、`diningOut`、`readyMade`、`instant`；`selfMade` 通常来自菜谱同步，不应为了创建普通食物资料随意使用。
 - `suitable_meal_types` 只能从 `breakfast`、`lunch`、`dinner`、`snack` 中多选；用户只说“正餐”时优先映射到 `lunch` / `dinner`，不创建“正餐”自定义值。
 - `rating` 只能是 1 到 5 的整数；`price`、`stock_quantity` 不能为负；没有证据时留空。
-- `category` 可以自定义，但应优先使用前端常见类别文案，例如饮品、主食、蛋白质、零食、速食、外卖、餐厅菜、甜品；不要为了细分随意创造很长类别。
+- `category` 可以自定义，但应优先使用前端 AI 审批表单的常见类别文案：主食、饮品、早餐、便当、零食、甜品、汤粥、小吃、外卖、速食；不要为了细分随意创造很长类别。
 - 如果用户要把一个食物关联菜谱，`recipe_id` 必须来自真实菜谱，并且食物名称跟菜谱标题保持一致；菜谱不存在时转入 `recipe_draft`。
 
 建议落点：

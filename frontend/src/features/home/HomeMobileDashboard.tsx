@@ -56,6 +56,7 @@ export function HomeMobileDashboard(props: {
   onHomeRestockOpen: (item: ShoppingListItem) => void;
   onDashboardTodoClick: (item: DashboardTodoItem) => void;
   onOpenDetail: (food: Food) => void;
+  onShowMorePlans?: (date: string, mealType: MealType, items: FoodPlanItem[]) => void;
 }) {
   return (
     <main className="mobile-dashboard-page" aria-label="手机首页">
@@ -315,7 +316,16 @@ export function HomeMobileDashboard(props: {
                     ) : (
                       <span className="mobile-dashboard-plan-empty">未安排</span>
                     )}
-                    {meal.items.length > 3 && <span className="mobile-dashboard-plan-more">+{meal.items.length - 3}</span>}
+                    {meal.items.length > 3 && (
+                      <button
+                        className="mobile-dashboard-plan-more"
+                        type="button"
+                        onClick={() => props.onShowMorePlans?.(props.selectedDashboardPlanDay!.date, meal.mealType, meal.items)}
+                        title="查看更多计划"
+                      >
+                        +{meal.items.length - 3}
+                      </button>
+                    )}
                   </div>
                   <button
                     className="mobile-dashboard-plan-add"

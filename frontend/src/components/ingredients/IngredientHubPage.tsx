@@ -150,6 +150,10 @@ type IngredientHubPageProps = {
   catalogStatusItems: Array<{ value: CatalogStatusFilter; label: string }>;
   catalogStatusCounts: Record<CatalogStatusFilter, number>;
   filteredSummaries: IngredientSummaryViewModel[];
+  visibleFilteredSummaries: IngredientSummaryViewModel[];
+  hasMoreCatalogSummaries: boolean;
+  onLoadMoreCatalogSummaries: () => void;
+  catalogLoadMoreRef: RefObject<HTMLDivElement>;
   expandedCatalogIngredientId: string | null;
   catalogGridStyle: CSSProperties | undefined;
   setCatalogCategoryFilter: (value: string) => void;
@@ -195,6 +199,7 @@ type IngredientHubPageProps = {
   onUpdateShoppingItem: (payload: { itemId: string; done: boolean }) => Promise<unknown>;
   ShoppingWorkRow: ShoppingWorkRowComponent;
   ShoppingHistoryRow: ShoppingHistoryRowComponent;
+  mobileDetailPopover?: ReactNode;
 };
 
 export function IngredientHubPage(props: IngredientHubPageProps) {
@@ -216,6 +221,10 @@ export function IngredientHubPage(props: IngredientHubPageProps) {
         catalogStatusItems={props.catalogStatusItems}
         catalogStatusCounts={props.catalogStatusCounts}
         filteredSummaries={props.filteredSummaries}
+        visibleFilteredSummaries={props.visibleFilteredSummaries}
+        hasMoreCatalogSummaries={props.hasMoreCatalogSummaries}
+        onLoadMoreCatalogSummaries={props.onLoadMoreCatalogSummaries}
+        catalogLoadMoreRef={props.catalogLoadMoreRef}
         expandedCatalogIngredientId={props.expandedCatalogIngredientId}
         catalogGridStyle={props.catalogGridStyle}
         onCatalogSearchChange={props.setCatalogSearch}
@@ -332,45 +341,48 @@ export function IngredientHubPage(props: IngredientHubPageProps) {
     >
       <IngredientHubView
         mobileView={
-          <IngredientMobileView
-            allAlertsCount={props.allAlertsCount}
-            stockedIngredientCount={props.stockedIngredientCount}
-            pendingShoppingCount={props.pendingShoppingCount}
-            summariesCount={props.summariesCount}
-            catalogSearch={props.catalogSearch}
-            setCatalogSearch={props.setCatalogSearch}
-            mobileIngredientFilter={props.mobileIngredientFilter}
-            setMobileIngredientFilter={props.setMobileIngredientFilter}
-            mobileStorageFocus={props.mobileStorageFocus}
-            setMobileStorageFocus={props.setMobileStorageFocus}
-            mobilePrioritySummaries={props.mobilePrioritySummaries}
-            mobileStorageCards={props.mobileStorageCards}
-            mobileCatalogSummaries={props.mobileCatalogSummaries}
-            mobileCatalogResetKey={props.mobileCatalogResetKey}
-            mobileShoppingCards={props.mobileShoppingCards}
-            mobileShoppingGroups={props.mobileShoppingGroups}
-            mobileHasCatalogFilters={props.mobileHasCatalogFilters}
-            notificationCenter={props.notificationCenter}
-            openDetailView={props.openDetailView}
-            openInventoryOverlay={props.openInventoryOverlay}
-            openConsumeOverlay={props.openConsumeOverlay}
-            openShoppingOverlay={props.openShoppingOverlay}
-            openDestroyExpiredOverlay={props.openDestroyExpiredOverlay}
-            openCreateView={props.openCreateView}
-            openInventoryFromShopping={props.openInventoryFromShopping}
-            buildPriorityStatus={props.buildPriorityStatus}
-            buildCatalogStatus={props.buildCatalogStatus}
-            buildInventorySummaryLine={props.buildInventorySummaryLine}
-            buildShoppingReason={props.buildShoppingReason}
-            countDisposableExpiredItems={props.countDisposableExpiredItems}
-            renderStorageIllustration={(storage) => <props.renderStorageIllustration storage={storage} />}
-            renderIcon={(name) => props.renderIcon(name as IngredientWorkspaceIconName)}
-            isUpdatingShopping={props.isUpdatingShopping}
-            isCreatingInventory={props.isCreatingInventory}
-            isCatalogSearchFetching={props.isCatalogSearchFetching}
-            onCatalogSearchCompositionStart={props.onCatalogSearchCompositionStart}
-            onCatalogSearchCompositionEnd={props.onCatalogSearchCompositionEnd}
-          />
+          <>
+            <IngredientMobileView
+              allAlertsCount={props.allAlertsCount}
+              stockedIngredientCount={props.stockedIngredientCount}
+              pendingShoppingCount={props.pendingShoppingCount}
+              summariesCount={props.summariesCount}
+              catalogSearch={props.catalogSearch}
+              setCatalogSearch={props.setCatalogSearch}
+              mobileIngredientFilter={props.mobileIngredientFilter}
+              setMobileIngredientFilter={props.setMobileIngredientFilter}
+              mobileStorageFocus={props.mobileStorageFocus}
+              setMobileStorageFocus={props.setMobileStorageFocus}
+              mobilePrioritySummaries={props.mobilePrioritySummaries}
+              mobileStorageCards={props.mobileStorageCards}
+              mobileCatalogSummaries={props.mobileCatalogSummaries}
+              mobileCatalogResetKey={props.mobileCatalogResetKey}
+              mobileShoppingCards={props.mobileShoppingCards}
+              mobileShoppingGroups={props.mobileShoppingGroups}
+              mobileHasCatalogFilters={props.mobileHasCatalogFilters}
+              notificationCenter={props.notificationCenter}
+              openDetailView={props.openDetailView}
+              openInventoryOverlay={props.openInventoryOverlay}
+              openConsumeOverlay={props.openConsumeOverlay}
+              openShoppingOverlay={props.openShoppingOverlay}
+              openDestroyExpiredOverlay={props.openDestroyExpiredOverlay}
+              openCreateView={props.openCreateView}
+              openInventoryFromShopping={props.openInventoryFromShopping}
+              buildPriorityStatus={props.buildPriorityStatus}
+              buildCatalogStatus={props.buildCatalogStatus}
+              buildInventorySummaryLine={props.buildInventorySummaryLine}
+              buildShoppingReason={props.buildShoppingReason}
+              countDisposableExpiredItems={props.countDisposableExpiredItems}
+              renderStorageIllustration={(storage) => <props.renderStorageIllustration storage={storage} />}
+              renderIcon={(name) => props.renderIcon(name as IngredientWorkspaceIconName)}
+              isUpdatingShopping={props.isUpdatingShopping}
+              isCreatingInventory={props.isCreatingInventory}
+              isCatalogSearchFetching={props.isCatalogSearchFetching}
+              onCatalogSearchCompositionStart={props.onCatalogSearchCompositionStart}
+              onCatalogSearchCompositionEnd={props.onCatalogSearchCompositionEnd}
+            />
+            {props.mobileDetailPopover}
+          </>
         }
         workspaceMetrics={props.workspaceMetrics}
         desktopActions={props.desktopActions}
