@@ -1245,7 +1245,7 @@ class AIFoundationTestCase(AIAgentInfraTestCase):
             self.assertEqual(result.tool_calls, [{"id": "call-read-items", "name": "inventory.read_available_items", "args": {"limit": 50}}])
             self.assertEqual(stream_client.stream.call_count, 5)
 
-        def test_openai_compatible_provider_completes_after_terminal_card_tool_output(self) -> None:
+        def test_openai_compatible_provider_continues_after_card_tool_output_for_summary(self) -> None:
             class ToolCallChunk:
                 content = ""
                 tool_calls = [
@@ -1266,6 +1266,14 @@ class AIFoundationTestCase(AIAgentInfraTestCase):
                 def __add__(self, other):
                     return other
 
+            class TextChunk:
+                content = "好了，3 分钟倒计时开始了。"
+                tool_calls: list[dict[str, Any]] = []
+                tool_call_chunks: list[dict[str, Any]] = []
+
+                def __add__(self, other):
+                    return other
+
             provider = OpenAICompatibleChatProvider.__new__(OpenAICompatibleChatProvider)
             provider.model_name = "compatible-model"
             stream_client = MagicMock()
@@ -1273,7 +1281,7 @@ class AIFoundationTestCase(AIAgentInfraTestCase):
             tool_client.bind.return_value = stream_client
             provider.client = MagicMock()
             provider.client.bind_tools.return_value = tool_client
-            stream_client.stream.side_effect = [[ToolCallChunk()]]
+            stream_client.stream.side_effect = [[ToolCallChunk()], [TextChunk()]]
             tool = build_workspace_tool_registry().get("ui.propose_actions")
 
             def tool_handler(name: str, payload: dict[str, Any]) -> dict[str, Any]:
@@ -1304,9 +1312,9 @@ class AIFoundationTestCase(AIAgentInfraTestCase):
 
             self.assertEqual(result.status, "completed")
             self.assertIsNone(result.error)
-            self.assertEqual(result.text, None)
+            self.assertEqual(result.text, "好了，3 分钟倒计时开始了。")
             self.assertEqual(result.tool_calls, [{"id": "call-ui-actions", "name": "ui.propose_actions", "args": ToolCallChunk.tool_calls[0]["args"]}])
-            self.assertEqual(stream_client.stream.call_count, 1)
+            self.assertEqual(stream_client.stream.call_count, 2)
 
         def test_orchestrator_injects_multiple_skills_and_exposes_union_tools(self) -> None:
             class InjectingProvider(BaseChatProvider):

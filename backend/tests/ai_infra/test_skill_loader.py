@@ -772,7 +772,11 @@ class AISkillLoaderTestCase(AIAgentInfraTestCase):
             )
             self.assertEqual(
                 skill_registry.get("cooking_assistant").manifest.completion_policy.terminal_tools,
-                {"ui.propose_actions": "页面操作建议卡可作为小灶页面动作的终态输出。"},
+                {},
+            )
+            self.assertEqual(
+                skill_registry.get("cooking_assistant").manifest.completion_policy.followup_required_tools["ui.propose_actions"],
+                "页面动作返回后必须用一句很短的自然话说明操作结果，方便语音对话播报。",
             )
             self.assertEqual(
                 skill_registry.get("food_profile").manifest.tool_budget,

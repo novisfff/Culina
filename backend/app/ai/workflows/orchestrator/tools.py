@@ -106,7 +106,8 @@ class OrchestratorToolGateway:
             raise RuntimeError("orchestrator tool gateway has not been initialized")
         execution_definition = self.state.current_scoped_executor.registry.get(name)
         runtime_definition = self.state.current_tool_definitions.get(name, execution_definition)
-        prepared_payload = prepare_tool_payload(payload=payload, execution_definition=execution_definition)
+        runtime_payload = self._with_contextual_tool_payload(name, payload)
+        prepared_payload = prepare_tool_payload(payload=runtime_payload, execution_definition=execution_definition)
         budget_decision = evaluate_tool_budget(
             state=self.state,
             historical_record_count=len(self.context.tool_executor.records()),
@@ -155,6 +156,45 @@ class OrchestratorToolGateway:
             definition=runtime_definition,
         )
         return output
+
+    def _with_contextual_tool_payload(self, name: str, payload: dict[str, Any]) -> dict[str, Any]:
+        if name != "ui.propose_actions":
+            return payload
+        subject = self.context.subject if isinstance(self.context.subject, dict) else {}
+        extra = subject.get("extra") if isinstance(subject.get("extra"), dict) else {}
+        surface = str(payload.get("surface") or extra.get("surface") or "").strip()
+        source = str(subject.get("source") or "").strip()
+        if surface != "recipe_cook_page" and source != "recipe_cook_page":
+            return payload
+        next_payload = dict(payload)
+        self._set_default(next_payload, "surface", surface or "recipe_cook_page")
+        self._set_default(
+            next_payload,
+            "recipeId",
+            subject.get("recipe_id")
+            or subject.get("recipeId")
+            or extra.get("recipeId")
+            or extra.get("recipe_id"),
+        )
+        self._set_default(
+            next_payload,
+            "cookSessionId",
+            extra.get("cookSessionId") or extra.get("cook_session_id"),
+        )
+        self._set_default(
+            next_payload,
+            "sessionRevision",
+            extra.get("sessionRevision") if "sessionRevision" in extra else extra.get("session_revision"),
+        )
+        return next_payload
+
+    @staticmethod
+    def _set_default(payload: dict[str, Any], key: str, value: Any) -> None:
+        if value is None:
+            return
+        existing = payload.get(key)
+        if existing is None or existing == "":
+            payload[key] = value
 
     def _capture_tool_output(
         self,
