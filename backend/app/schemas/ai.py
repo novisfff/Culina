@@ -615,6 +615,11 @@ class AIToolRegistryItemDTO(BaseModel):
     permission: str
     side_effect: Literal["read", "draft", "write", "control"]
     requires_confirmation: bool
+    requires_followup: bool = False
+    terminal_output: bool = False
+    followup_hint: str = ""
+    output_types: list[str] = Field(default_factory=list)
+    draft_types: list[str] = Field(default_factory=list)
     input_schema: dict = Field(default_factory=dict)
     output_schema: dict = Field(default_factory=dict)
 
@@ -630,14 +635,32 @@ class AISkillRegistryItemDTO(BaseModel):
     scripts: list[str] = Field(default_factory=list)
     output_types: list[str] = Field(default_factory=list)
     draft_types: list[str] = Field(default_factory=list)
+    draft_contract: dict = Field(default_factory=dict)
+    route_hints: list[str] = Field(default_factory=list)
+    tool_budget: dict = Field(default_factory=dict)
+    completion_policy: dict = Field(default_factory=dict)
     approval_policy: str
     intent: str
     agent_key: str
 
 
+class AIProfileRegistryItemDTO(BaseModel):
+    key: str
+    initial_skill_keys: list[str] = Field(default_factory=list)
+    response_style: str = ""
+    allowed_surface: str | None = None
+    matcher: dict = Field(default_factory=dict)
+    capability_policy: dict = Field(default_factory=dict)
+    budget_config: dict = Field(default_factory=dict)
+    route_hints: list[dict] = Field(default_factory=list)
+    system_prompt_addon_present: bool = False
+    default: bool = False
+
+
 class AIRegistryResponse(BaseModel):
     skills: list[AISkillRegistryItemDTO] = Field(default_factory=list)
     tools: list[AIToolRegistryItemDTO] = Field(default_factory=list)
+    profiles: list[AIProfileRegistryItemDTO] = Field(default_factory=list)
 
 
 class AIApprovalDecisionRequest(BaseModel):

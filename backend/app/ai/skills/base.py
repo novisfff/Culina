@@ -13,6 +13,22 @@ from app.core.utils import create_id, utcnow
 
 
 @dataclass(slots=True)
+class SkillCompletionPolicy:
+    requires_terminal_output: bool = False
+    terminal_text_allowed: bool = True
+    terminal_tools: dict[str, str] = field(default_factory=dict)
+    followup_required_tools: dict[str, str] = field(default_factory=dict)
+
+    def to_catalog_record(self) -> dict[str, Any]:
+        return {
+            "requiresTerminalOutput": self.requires_terminal_output,
+            "terminalTextAllowed": self.terminal_text_allowed,
+            "terminalTools": self.terminal_tools,
+            "followupRequiredTools": self.followup_required_tools,
+        }
+
+
+@dataclass(slots=True)
 class SkillManifest:
     key: str
     name: str
@@ -25,6 +41,10 @@ class SkillManifest:
     script_files: list[str] = field(default_factory=list)
     output_types: list[str] = field(default_factory=list)
     draft_types: list[str] = field(default_factory=list)
+    route_hints: list[str] = field(default_factory=list)
+    tool_budget: dict[str, int] = field(default_factory=dict)
+    completion_policy: SkillCompletionPolicy = field(default_factory=SkillCompletionPolicy)
+    draft_contract: dict[str, dict[str, str]] = field(default_factory=dict)
     approval_policy: str = "none"
     intent: str = ""
     agent_key: str = ""
@@ -38,6 +58,10 @@ class SkillManifest:
             "contextPolicy": self.context_policy,
             "outputs": self.output_types,
             "draftTypes": self.draft_types,
+            "routeHints": self.route_hints,
+            "toolBudget": self.tool_budget,
+            "completionPolicy": self.completion_policy.to_catalog_record(),
+            "draftContract": self.draft_contract,
             "approvalPolicy": self.approval_policy,
         }
 

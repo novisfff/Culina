@@ -20,7 +20,19 @@ from sqlalchemy import create_engine
 
 from app.ai.kitchen.recipe_drafts import _extract_json, build_recipe_image_render_payload
 from app.ai.runtime.provider import BaseChatProvider, ChatProviderResult, DisabledChatProvider, OpenAICompatibleChatProvider
-from app.ai.skills import BaseSkill, CatalogSkill, SkillContext, SkillDirectoryLoader, SkillManifest, SkillRegistry, SkillResult, SkillScriptCatalog, SkillScriptExecutor, build_workspace_skill_registry
+from app.ai.skills import (
+    BaseSkill,
+    CatalogSkill,
+    SkillCompletionPolicy,
+    SkillContext,
+    SkillDirectoryLoader,
+    SkillManifest,
+    SkillRegistry,
+    SkillResult,
+    SkillScriptCatalog,
+    SkillScriptExecutor,
+    build_workspace_skill_registry,
+)
 from app.ai.skills.shared import json_object
 from app.ai.tools import ToolContext, ToolExecutor, build_workspace_tool_registry
 from app.ai.tools.draft_validation import normalize_inventory_operation_draft
@@ -69,7 +81,6 @@ from app.ai.images.generation import ImageGenerationRequest, ImageProviderConfig
 from app.services.inventory_operations import dispose_inventory_quantity
 from app.services.inventory_usage import remaining_quantity
 from app.services.clock import today_for_family
-from app.services.ai_operations.approval_config import DRAFT_APPROVAL_CONFIG, approval_config_for_payload
 from app.services.ai_operations.composite import (
     build_composite_operation_step_previews,
     composite_execution_order,
@@ -77,7 +88,18 @@ from app.services.ai_operations.composite import (
     resolve_composite_step_operation,
     validate_composite_operation_plan,
 )
-from app.services.ai_operations.drafts import validate_inventory_operation_shape
+from app.services.ai_operations.registry import draft_operation_registry
+
+
+def prompt_contract_metadata(system_prompt: str) -> dict[str, Any]:
+    marker = "Prompt contract metadata:\n"
+    if marker not in system_prompt:
+        raise AssertionError("system prompt missing contract metadata")
+    raw = system_prompt.split(marker, 1)[1].split("\n\n", 1)[0]
+    value = json.loads(raw)
+    if not isinstance(value, dict):
+        raise AssertionError("system prompt contract metadata must be an object")
+    return value
 
 
 class FakeChatProvider(BaseChatProvider):

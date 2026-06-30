@@ -1,10 +1,9 @@
 from __future__ import annotations
 
-from unittest.mock import patch
-
 from sqlalchemy import select
 
 from app.ai.workspace_service import AIApplicationService
+from app.ai.workflows.runner_support.attachments import provider_images_for_attachments
 from app.ai.workflows.runner import WorkspaceGraphRunner
 from app.core.enums import MediaSource
 from app.models.domain import AIMessage, MediaAsset
@@ -73,21 +72,24 @@ class AIWorkspaceMultimodalAttachmentTestCase(AIAgentInfraTestCase):
             db.add(asset)
             db.commit()
 
-            runner = WorkspaceGraphRunner(AIApplicationService(db, provider=VisionFakeChatProvider()))
-            with patch("app.ai.workflows.runner.read_media_object_for_ai", return_value=(b"jpeg-bytes", "image/jpeg")):
-                images = runner._provider_images_for_attachments(
-                    family_id=self.family.id,
-                    attachments=[{"type": "image", "mediaId": "media-ai-upload-2"}],
-                )
+            images = provider_images_for_attachments(
+                db=db,
+                family_id=self.family.id,
+                attachments=[{"type": "image", "mediaId": "media-ai-upload-2"}],
+                provider_supports_vision=True,
+                read_media_object=lambda _asset: (b"jpeg-bytes", "image/jpeg"),
+            )
 
             self.assertEqual(len(images), 1)
             self.assertEqual(images[0].media_id, "media-ai-upload-2")
             self.assertEqual(images[0].content_type, "image/jpeg")
             self.assertEqual(images[0].payload, b"jpeg-bytes")
 
-            runner_without_vision = WorkspaceGraphRunner(AIApplicationService(db, provider=FakeChatProvider()))
             with self.assertRaisesRegex(ValueError, "暂不支持图片识别"):
-                runner_without_vision._provider_images_for_attachments(
+                provider_images_for_attachments(
+                    db=db,
                     family_id=self.family.id,
                     attachments=[{"type": "image", "mediaId": "media-ai-upload-2"}],
+                    provider_supports_vision=False,
+                    read_media_object=lambda _asset: (b"jpeg-bytes", "image/jpeg"),
                 )

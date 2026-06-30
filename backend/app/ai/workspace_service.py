@@ -42,18 +42,13 @@ from app.models.domain import (
     AIMessage,
     AITaskDraft,
 )
-from app.services.ai_operations import (
-    apply_ai_approval_decision,
-    DRAFT_APPROVAL_CONFIG,
-    append_message_result_card,
-    approval_decision_artifacts_for_decision,
-    create_ai_draft_approval,
-    create_inventory_quick_draft_from_card,
-    load_operation_current_value,
-    draft_preview_summary,
-    normalize_ai_draft_payload,
-    record_recommendation_selection_for_card,
-)
+from app.services.ai_operations.approval_decisions import apply_ai_approval_decision
+from app.services.ai_operations.approval_requests import create_ai_draft_approval
+from app.services.ai_operations.drafts import draft_preview_summary, normalize_ai_draft_payload
+from app.services.ai_operations.experience import create_inventory_quick_draft_from_card, record_recommendation_selection_for_card
+from app.services.ai_operations.messages import append_message_result_card, approval_decision_artifacts_for_decision
+from app.services.ai_operations.recovery import load_operation_current_value
+from app.services.ai_operations.registry import draft_operation_registry
 from app.services.serializers import (
     serialize_ai_approval_request,
     serialize_ai_message,
@@ -519,7 +514,7 @@ class AIApplicationService:
         draft_payload: dict[str, Any],
     ) -> tuple[AITaskDraft, AIApprovalRequest]:
         draft_type = str(draft_payload.get("draft_type") or "")
-        if draft_type not in DRAFT_APPROVAL_CONFIG:
+        if not draft_operation_registry.supports(draft_type):
             raise ValueError("暂不支持的草稿类型")
         payload = self._validate_draft_payload(
             draft_type=draft_type,

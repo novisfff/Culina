@@ -6,14 +6,8 @@ from typing import Any
 from sqlalchemy.orm import Session
 
 from app.models.domain import AIApprovalRequest, AITaskDraft
-from app.services.ai_operations.approval_config import DRAFT_APPROVAL_CONFIG, approval_config_for_payload
-from app.services.ai_operations.composite import validate_composite_operation_shape
-from app.services.ai_operations.drafts import (
-    normalize_ai_draft_payload,
-    validate_inventory_operation_shape,
-    validate_operation_draft_shape,
-    validate_single_target_operation_shape,
-)
+from app.services.ai_operations.registry import draft_operation_registry
+from app.services.ai_operations.drafts import normalize_ai_draft_payload
 
 
 ResolveUserId = Callable[[str], str | None]
@@ -43,21 +37,12 @@ def validate_approval_values(
         raise ValueError(f"确认表单包含未知字段：{', '.join(sorted(unknown))}")
     for field in fields:
         _validate_approval_field(field, values, enforce_required=enforce_required)
-    if draft.draft_type not in DRAFT_APPROVAL_CONFIG:
+    if not draft_operation_registry.supports(draft.draft_type):
         raise ValueError("暂不支持的草稿类型")
-    config = approval_config_for_payload(draft.draft_type, draft.payload)
+    config = draft_operation_registry.approval_config_for_payload(draft.draft_type, draft.payload)
     value_key = config["value_key"]
     draft_value = values.get(value_key, draft.payload)
-    if draft.draft_type == "inventory_operation":
-        validate_inventory_operation_shape(draft.payload, draft_value)
-    elif draft.draft_type in {"meal_plan", "shopping_list"}:
-        validate_operation_draft_shape(draft.payload, draft_value)
-    elif draft.draft_type == "ingredient_profile" and isinstance(draft.payload.get("operations"), list):
-        validate_operation_draft_shape(draft.payload, draft_value)
-    elif draft.draft_type == "ingredient_profile":
-        validate_single_target_operation_shape(draft.payload, draft_value)
-    elif draft.draft_type == "composite_operation":
-        validate_composite_operation_shape(draft.payload, draft_value)
+    draft_operation_registry.validate_approval_value(draft.draft_type, draft.payload, draft_value)
     return {
         value_key: normalize_ai_draft_payload(
             db,

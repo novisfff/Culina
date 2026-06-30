@@ -52,7 +52,6 @@ type StreamMutationContext = {
   streamMessageTargetRef: MutableRefObject<Record<string, string>>;
   streamConversationTargetRef: MutableRefObject<Record<string, string>>;
   setActiveStreamRunIdsByConversationKey: Dispatch<SetStateAction<Record<string, string>>>;
-  setStreamError: Dispatch<SetStateAction<string>>;
   startThinking: (runId: string | null | undefined) => void;
   stopThinking: (runId: string | null | undefined) => void;
   ensureStreamingAssistantMessage: (runId: string, conversationKey: string) => void;
@@ -103,7 +102,6 @@ function clearActiveStreamRun(
 function useChatStreamMutation(context: StreamMutationContext): UseMutationResult<AiChatResponse, Error, ChatStreamPayload> {
   return useMutation({
     mutationFn: (payload: ChatStreamPayload) => {
-      context.setStreamError('');
       const controller = new AbortController();
       context.chatAbortByRunIdRef.current = { ...context.chatAbortByRunIdRef.current, [payload.client_run_id]: controller };
       context.startThinking(payload.client_run_id);
@@ -147,7 +145,6 @@ function useChatStreamMutation(context: StreamMutationContext): UseMutationResul
 function useApprovalStreamMutation(context: StreamMutationContext): UseMutationResult<void, Error, ApprovalStreamPayload> {
   return useMutation({
     mutationFn: async (payload: ApprovalStreamPayload) => {
-      context.setStreamError('');
       const controller = new AbortController();
       const conversationKey = payload.approval.conversation_id;
       const runId = payload.approval.run_id;
@@ -215,7 +212,6 @@ function useApprovalStreamMutation(context: StreamMutationContext): UseMutationR
         settleDecisionVisible();
       }).catch((error) => {
         const message = context.streamFailureMessage(error);
-        context.setStreamError(message);
         context.stopThinking(runId);
         context.markStreamingAssistantStopped(runId ?? null, `AI 后续处理失败：${message}`);
         void context.refreshAfterApprovalSettled();
@@ -238,7 +234,6 @@ function useApprovalStreamMutation(context: StreamMutationContext): UseMutationR
 function useHumanInputStreamMutation(context: StreamMutationContext): UseMutationResult<AiChatResponse, Error, HumanInputStreamPayload> {
   return useMutation({
     mutationFn: (payload: HumanInputStreamPayload) => {
-      context.setStreamError('');
       const controller = new AbortController();
       const conversationKey = payload.message.conversation_id;
       const runId = payload.message.run_id;
@@ -274,7 +269,6 @@ function useHumanInputStreamMutation(context: StreamMutationContext): UseMutatio
     },
     onError: (error, variables) => {
       const message = context.streamFailureMessage(error);
-      context.setStreamError(message);
       context.stopThinking(variables?.message.run_id);
       context.markStreamingAssistantStopped(variables?.message.run_id ?? null, `AI 后续处理失败：${message}`);
     },

@@ -394,6 +394,8 @@ def register_recipe_tools(registry: ToolRegistry) -> None:
         handler=recipe_search,
         input_schema=SEARCH_INPUT,
         output_schema=RECIPE_SEARCH_OUTPUT,
+        requires_followup=True,
+        followup_hint="菜谱检索后必须说明候选、请求用户选择，或继续读取详情/生成草稿。",
     )
     register_tool(
         registry,
@@ -404,6 +406,8 @@ def register_recipe_tools(registry: ToolRegistry) -> None:
         handler=recipe_read_by_id,
         input_schema=READ_BY_ID_INPUT,
         output_schema=RECIPE_READ_OUTPUT,
+        requires_followup=True,
+        followup_hint="读取菜谱详情后必须说明可用信息、请求补充信息，或继续预览/生成草稿。",
     )
     register_tool(
         registry,
@@ -414,6 +418,7 @@ def register_recipe_tools(registry: ToolRegistry) -> None:
         handler=recipe_create_draft,
         input_schema=draft_input_schema(RECIPE_TOOL_DRAFT_SCHEMA),
         output_schema=draft_output_schema(RECIPE_TOOL_DRAFT_SCHEMA),
+        draft_types=["recipe"],
     )
     register_tool(
         registry,
@@ -441,6 +446,8 @@ def register_recipe_tools(registry: ToolRegistry) -> None:
                 "planItem": {"type": ["object", "null"]},
             },
         },
+        requires_followup=True,
+        followup_hint="做菜预览后必须说明库存扣减和缺料情况、请求补充信息，或生成 recipe_cook 草稿。",
     )
     register_tool(
         registry,
@@ -451,4 +458,5 @@ def register_recipe_tools(registry: ToolRegistry) -> None:
         handler=recipe_create_cook_draft,
         input_schema=draft_input_schema(RECIPE_COOK_DRAFT_INPUT_SCHEMA),
         output_schema=draft_output_schema(RECIPE_COOK_DRAFT_SCHEMA),
+        draft_types=["recipe_cook"],
     )

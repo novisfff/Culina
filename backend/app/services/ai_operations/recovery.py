@@ -4,19 +4,9 @@ import re
 from typing import Any
 
 from fastapi.encoders import jsonable_encoder
-from sqlalchemy import select
-from sqlalchemy.orm import Session, selectinload
+from sqlalchemy.orm import Session
 
-from app.models.domain import Food, FoodPlanItem, Ingredient, MealLog, MealLogFood, Recipe, ShoppingListItem
-from app.repos.media import build_media_map, get_media_assets_for_entities
-from app.services.serializers import (
-    serialize_food,
-    serialize_food_plan_item,
-    serialize_ingredient,
-    serialize_meal_log,
-    serialize_recipe,
-    serialize_shopping_item,
-)
+from app.services.ai_operations.registry import draft_operation_registry
 
 
 def build_failure_summary(
@@ -119,9 +109,7 @@ def operation_recovery_hint(*, draft_type: str, action: str, has_conflict: bool,
         return "当前业务值已经变化，建议先核对下面的最新内容；如果只是时间或状态被别人改过，请按最新值调整草稿后重试。"
     if action == "delete":
         return "如果目标已经不存在，无需再次删除；可以直接放弃这条草稿，或重新整理剩余操作。"
-    if draft_type in {"meal_plan", "shopping_list"}:
-        return "可以直接修改下面的草稿后重试；如果当前对象已不符合预期，也可以重新生成一版操作草稿。"
-    return "可以根据当前业务值调整草稿后重试；如果变更范围已经不适合当前草稿，建议重新生成。"
+    return draft_operation_registry.recovery_hint(draft_type)
 
 
 def load_operation_current_value(
@@ -131,95 +119,9 @@ def load_operation_current_value(
     draft_type: str,
     target_id: str,
 ) -> dict[str, Any] | None:
-    if not target_id:
-        return None
-    if draft_type == "meal_plan":
-        item = db.scalar(
-            select(FoodPlanItem)
-            .options(selectinload(FoodPlanItem.food).selectinload(Food.recipe))
-            .where(FoodPlanItem.family_id == family_id, FoodPlanItem.id == target_id)
-        )
-        if item is None:
-            return {"id": target_id, "label": "当前计划已不存在", "summary": "该计划可能已被删除或移出当前范围", "payload": None}
-        payload = serialize_food_plan_item(item)
-        return {
-            "id": item.id,
-            "label": payload.get("food_name") or "当前计划",
-            "summary": " · ".join(
-                [
-                    str(payload.get("plan_date") or ""),
-                    str(payload.get("meal_type") or ""),
-                    str(payload.get("status") or ""),
-                ]
-            ).strip(" · "),
-            "payload": payload,
-        }
-    if draft_type == "shopping_list":
-        item = db.scalar(select(ShoppingListItem).where(ShoppingListItem.family_id == family_id, ShoppingListItem.id == target_id))
-        if item is None:
-            return {"id": target_id, "label": "当前购物项已不存在", "summary": "该购物项可能已被删除", "payload": None}
-        payload = serialize_shopping_item(item)
-        status = "已完成" if payload.get("done") else "待购买"
-        return {
-            "id": item.id,
-            "label": str(payload.get("title") or "当前购物项"),
-            "summary": f"{payload.get('quantity')} {payload.get('unit')} · {status}",
-            "payload": payload,
-        }
-    if draft_type == "meal_log":
-        item = db.scalar(
-            select(MealLog)
-            .where(MealLog.family_id == family_id, MealLog.id == target_id)
-            .options(selectinload(MealLog.food_entries).selectinload(MealLogFood.food), selectinload(MealLog.deduction_suggestions))
-        )
-        if item is None:
-            return {"id": target_id, "label": "当前餐食记录已不存在", "summary": "该记录可能已被删除", "payload": None}
-        media_map = build_media_map(get_media_assets_for_entities(db, family_id=family_id, entity_type="meal_log", entity_ids=[item.id]))
-        payload = serialize_meal_log(item, media_map)
-        return {
-            "id": item.id,
-            "label": "当前餐食记录",
-            "summary": " · ".join([str(payload.get("date") or ""), str(payload.get("meal_type") or ""), str(len(payload.get("foods") or [])) + " 项食物"]),
-            "payload": payload,
-        }
-    if draft_type == "food_profile":
-        item = db.scalar(select(Food).where(Food.family_id == family_id, Food.id == target_id))
-        if item is None:
-            return {"id": target_id, "label": "当前食物资料已不存在", "summary": "该食物可能已被删除", "payload": None}
-        media_map = build_media_map(get_media_assets_for_entities(db, family_id=family_id, entity_type="food", entity_ids=[item.id]))
-        payload = serialize_food(item, media_map)
-        return {
-            "id": item.id,
-            "label": str(payload.get("name") or "当前食物"),
-            "summary": " · ".join([str(payload.get("type") or ""), str(payload.get("category") or "")]).strip(" · "),
-            "payload": payload,
-        }
-    if draft_type == "ingredient_profile":
-        item = db.scalar(select(Ingredient).where(Ingredient.family_id == family_id, Ingredient.id == target_id))
-        if item is None:
-            return {"id": target_id, "label": "当前食材档案已不存在", "summary": "该食材可能已被删除", "payload": None}
-        media_map = build_media_map(get_media_assets_for_entities(db, family_id=family_id, entity_type="ingredient", entity_ids=[item.id]))
-        payload = serialize_ingredient(item, media_map)
-        return {
-            "id": item.id,
-            "label": str(payload.get("name") or "当前食材"),
-            "summary": " · ".join([str(payload.get("category") or ""), str(payload.get("default_unit") or "")]).strip(" · "),
-            "payload": payload,
-        }
-    if draft_type == "recipe":
-        item = db.scalar(
-            select(Recipe)
-            .where(Recipe.family_id == family_id, Recipe.id == target_id)
-            .options(selectinload(Recipe.ingredient_items), selectinload(Recipe.steps), selectinload(Recipe.cook_logs))
-        )
-        if item is None:
-            return {"id": target_id, "label": "当前菜谱已不存在", "summary": "该菜谱可能已被删除", "payload": None}
-        media_map = build_media_map(get_media_assets_for_entities(db, family_id=family_id, entity_type="recipe", entity_ids=[item.id]))
-        payload = serialize_recipe(item, media_map)
-        return {
-            "id": item.id,
-            "label": str(payload.get("title") or "当前菜谱"),
-            "summary": " · ".join([f"{payload.get('servings')} 人份", f"{payload.get('prep_minutes')} 分钟"]),
-            "payload": payload,
-        }
-    return None
+    return draft_operation_registry.load_current_value(
+        db,
+        family_id=family_id,
+        draft_type=draft_type,
+        target_id=target_id,
+    )

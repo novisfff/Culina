@@ -10,6 +10,7 @@ frontend/vite.config.js
 frontend/vite.config.d.ts
 backend/.venv/
 backend/.env
+backend/.coverage
 backend/__pycache__/
 backend/.pytest_cache/
 backend/storage/uploads/

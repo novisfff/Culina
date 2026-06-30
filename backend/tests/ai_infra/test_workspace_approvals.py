@@ -1,6 +1,7 @@
 from ._support import *
 from app.services.ai_operations.approval_requests import create_ai_draft_approval
 from app.services.ai_operations.messages import approval_result_card
+from app.ai.workflows.runner_support.run_summary import record_approval_outcome_summary
 
 
 class AIWorkspaceApprovalsTestCase(AIAgentInfraTestCase):
@@ -1936,7 +1937,6 @@ class AIWorkspaceApprovalsTestCase(AIAgentInfraTestCase):
 
         def test_workspace_runner_records_approval_outcome_metrics(self) -> None:
             with self.SessionLocal() as db:
-                service = AIApplicationService(db, provider=FakeChatProvider())
                 run = AIAgentRun(
                     id="agent-run-approval-metrics",
                     family_id=self.family.id,
@@ -1959,9 +1959,16 @@ class AIWorkspaceApprovalsTestCase(AIAgentInfraTestCase):
                 db.add(run)
                 db.flush()
 
-                runner = WorkspaceGraphRunner(service)
-                runner._record_approval_outcome(run, approval_status="approved", draft_type="meal_plan")
-                runner._record_approval_outcome(run, approval_status="rejected", draft_type="meal_plan")
+                run.context_summary = record_approval_outcome_summary(
+                    dict(run.context_summary or {}),
+                    approval_status="approved",
+                    draft_type="meal_plan",
+                )
+                run.context_summary = record_approval_outcome_summary(
+                    dict(run.context_summary or {}),
+                    approval_status="rejected",
+                    draft_type="meal_plan",
+                )
                 db.flush()
 
                 metrics = run.context_summary["runMetrics"]

@@ -137,6 +137,8 @@ def register_shopping_tools(registry: ToolRegistry) -> None:
             },
         },
         output_schema=SHOPPING_LIST_OUTPUT,
+        requires_followup=True,
+        followup_hint="读取待采购清单后必须总结待处理项目、请求补充信息，或继续生成/调整购物清单草稿。",
     )
     register_tool(
         registry,
@@ -147,6 +149,8 @@ def register_shopping_tools(registry: ToolRegistry) -> None:
         handler=shopping_read_by_id,
         input_schema=READ_BY_ID_INPUT,
         output_schema=SHOPPING_ITEM_READ_OUTPUT,
+        requires_followup=True,
+        followup_hint="读取购物项详情后必须说明可调整项、请求补充信息，或继续生成/调整购物清单草稿。",
     )
     register_tool(
         registry,
@@ -157,4 +161,5 @@ def register_shopping_tools(registry: ToolRegistry) -> None:
         handler=shopping_list_create_draft,
         input_schema=draft_input_schema(SHOPPING_LIST_DRAFT_SCHEMA),
         output_schema=draft_output_schema(SHOPPING_LIST_DRAFT_SCHEMA),
+        draft_types=["shopping_list"],
     )

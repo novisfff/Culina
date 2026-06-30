@@ -5,6 +5,32 @@ from typing import Any
 from langchain_core.messages import ToolMessage
 
 from app.ai.errors import ApprovalRequired, HumanInputRequired
+from app.ai.tools import ToolRegistry
+from app.ai.tools.base import ToolDefinition
+from app.ai.workflows.runner_support.graph_state_builder import GraphStateBuilder
+from app.ai.workflows.runner_support.approval_resume import (
+    approval_failed_state_patch,
+    approval_resolved_state_patch,
+    approval_resume_artifact,
+    approval_resume_payload_from_metadata,
+    approval_waiting_state_patch,
+)
+from app.ai.workflows.runner_support.message_parts import (
+    aggregate_text_from_parts,
+    append_progressive_draft_metadata,
+    human_input_request_message_part,
+    result_card_message_part,
+    result_cards_from_parts,
+    terminal_message_text,
+    text_message_part,
+)
+from app.ai.workflows.runner_support.run_summary import (
+    record_approval_outcome_summary,
+    result_context_summary,
+)
+from app.ai.workflows.runner import MAX_AGENT_ROUNDS
+from app.ai.workflows.orchestrator.tool_contracts import tool_completion_metadata
+from app.ai.workflows.orchestrator.profiles import MAIN_WORKSPACE_PROFILE, OrchestratorBudgetConfig
 from app.schemas.ai import AIResultCardDTO
 
 
@@ -13,7 +39,507 @@ def _tool_names(tools) -> list[str]:
     return sorted(tool.name for tool in current_tools)
 
 
+def _contract_tool_registries(
+    tool_output: dict[str, Any],
+    *,
+    tool_budget: dict[str, int] | None = None,
+    completion_policy: SkillCompletionPolicy | None = None,
+    requires_followup: bool = False,
+    terminal_output: bool = False,
+    followup_hint: str = "",
+) -> tuple[Any, Any]:
+    tool_registry = build_workspace_tool_registry()
+
+    def handler(context: ToolContext, payload: dict[str, Any]) -> dict[str, Any]:
+        del context, payload
+        return dict(tool_output)
+
+    tool_registry.register(
+        ToolDefinition(
+            name="test.contract_read",
+            display_name="测试契约读取",
+            description="用于测试 Orchestrator terminal output guard 的读取工具。",
+            input_schema={"type": "object", "properties": {}, "additionalProperties": False},
+            output_schema={"type": "object"},
+            permission="ai:test",
+            side_effect="read",
+            handler=handler,
+            requires_followup=requires_followup,
+            terminal_output=terminal_output,
+            followup_hint=followup_hint,
+        )
+    )
+    skill_registry = build_workspace_skill_registry()
+    skill_registry.register(
+        CatalogSkill(
+            SkillManifest(
+                key="contract_test",
+                name="契约测试",
+                description="测试 Orchestrator completion contract。",
+                tools=["test.contract_read"],
+                tool_budget=tool_budget or {},
+                completion_policy=completion_policy or SkillCompletionPolicy(),
+            ),
+            instructions="调用 test.contract_read 获取测试数据，然后给出最终回复。",
+        )
+    )
+    return tool_registry, skill_registry
+
+
+def _recipe_cook_policy_tool_registry() -> ToolRegistry:
+    registry = ToolRegistry()
+
+    def read_handler(context: ToolContext, payload: dict[str, Any]) -> dict[str, Any]:
+        del context, payload
+        return {"items": []}
+
+    def preview_handler(context: ToolContext, payload: dict[str, Any]) -> dict[str, Any]:
+        del context, payload
+        return {
+            "recipe": {
+                "id": "recipe-test",
+                "title": "番茄炒蛋",
+                "servings": 2,
+                "updatedAt": "2026-06-30T00:00:00+00:00",
+            },
+            "preview": {
+                "recipe_id": "recipe-test",
+                "preview_items": [],
+                "shortages": [],
+            },
+            "planItem": None,
+        }
+
+    def draft_handler(context: ToolContext, payload: dict[str, Any]) -> dict[str, Any]:
+        del context, payload
+        return {"draft": {"draftType": "recipe_cook", "schemaVersion": "recipe_cook_operation.v1"}}
+
+    def register_fake_tool(
+        name: str,
+        *,
+        side_effect: str,
+        handler,
+        requires_confirmation: bool = False,
+        draft_types: list[str] | None = None,
+    ) -> None:
+        registry.register(
+            ToolDefinition(
+                name=name,
+                display_name=name,
+                description=f"测试工具 {name}",
+                input_schema={"type": "object", "properties": {}, "additionalProperties": True},
+                output_schema={"type": "object"},
+                permission="family:draft" if side_effect == "draft" else "family:read",
+                side_effect=side_effect,  # type: ignore[arg-type]
+                handler=handler,
+                requires_confirmation=requires_confirmation,
+                draft_types=draft_types or [],
+            )
+        )
+
+    register_fake_tool("skill.inject", side_effect="control", handler=read_handler)
+    register_fake_tool("human.request_input", side_effect="control", handler=read_handler)
+    register_fake_tool("workspace.read_artifact", side_effect="read", handler=read_handler)
+    register_fake_tool("recipe.search", side_effect="read", handler=read_handler)
+    register_fake_tool("recipe.read_by_id", side_effect="read", handler=read_handler)
+    register_fake_tool("recipe.preview_cook", side_effect="read", handler=preview_handler)
+    register_fake_tool(
+        "recipe.create_cook_draft",
+        side_effect="draft",
+        handler=draft_handler,
+        requires_confirmation=True,
+        draft_types=["recipe_cook"],
+    )
+    register_fake_tool("inventory.read_available_items", side_effect="read", handler=read_handler)
+    register_fake_tool("meal_plan.read_existing", side_effect="read", handler=read_handler)
+    return registry
+
+
 class AIFoundationTestCase(AIAgentInfraTestCase):
+        def test_graph_state_builder_keeps_initial_state_contract(self) -> None:
+            class FakeProfile:
+                def to_state(self) -> dict[str, Any]:
+                    return {"key": "main", "toolBudget": {"total": 3}}
+
+            builder = GraphStateBuilder()
+            state = builder.build_initial_state(
+                family_id="family-1",
+                user_id="user-1",
+                conversation_id="conversation-1",
+                prompt="今晚吃什么？",
+                attachments=[{"type": "image", "mediaId": "media-1"}],
+                client_message_id="client-message-1",
+                client_run_id="client-run-1",
+                quick_task="today_recommendation",
+                subject={"type": "meal"},
+                orchestrator_profile=FakeProfile(),
+                initial_skill_keys=["meal_plan"],
+                run_id="run-1",
+                user_message_id="message-1",
+            )
+
+            self.assertEqual(
+                state,
+                {
+                    "family_id": "family-1",
+                    "user_id": "user-1",
+                    "conversation_id": "conversation-1",
+                    "message": "今晚吃什么？",
+                    "current_message_attachments": [{"type": "image", "mediaId": "media-1"}],
+                    "client_message_id": "client-message-1",
+                    "client_run_id": "client-run-1",
+                    "quick_task": "today_recommendation",
+                    "subject": {"type": "meal"},
+                    "orchestrator_profile": {"key": "main", "toolBudget": {"total": 3}},
+                    "run_artifacts": [],
+                    "injected_skill_keys": ["meal_plan"],
+                    "injection_history": [],
+                    "agent_rounds": 0,
+                    "pending_human_input": {},
+                    "pending_approval_id": "",
+                    "last_human_input_result": {},
+                    "status": "running",
+                    "error": None,
+                    "run_id": "run-1",
+                    "user_message_id": "message-1",
+                },
+            )
+            self.assertEqual(
+                builder.build_human_input_resume_payload(
+                    request_id="request-1",
+                    selected_option_ids=["option-1"],
+                    text=None,
+                    user_id="user-1",
+                    family_id="family-1",
+                ),
+                {
+                    "requestId": "request-1",
+                    "selectedOptionIds": ["option-1"],
+                    "text": "",
+                    "userId": "user-1",
+                    "familyId": "family-1",
+                },
+            )
+            self.assertEqual(
+                builder.build_approval_resume_payload(
+                    approval_id="approval-1",
+                    decision="approved",
+                    draft_version=2,
+                    values={"title": "番茄炒蛋"},
+                    comment=None,
+                    user_id="user-1",
+                    family_id="family-1",
+                ),
+                {
+                    "approvalId": "approval-1",
+                    "decision": "approved",
+                    "draftVersion": 2,
+                    "values": {"title": "番茄炒蛋"},
+                    "comment": None,
+                    "userId": "user-1",
+                    "familyId": "family-1",
+                },
+            )
+
+        def test_orchestrator_run_summary_helpers_update_metrics_and_routing(self) -> None:
+            result = SkillResult(
+                text="需要你确认一下",
+                status="completed",
+                operation="plan",
+                source_artifact_id="artifact-1",
+                diagnostic="ok",
+                requires_clarification=True,
+                tool_calls=[{"name": "meal_plan.read_existing"}, {"name": "human.request_input"}],
+                context_summary={
+                    "orchestrator": {"injectedSkills": ["meal_plan"]},
+                    "pendingHumanInput": {
+                        "id": "human-1",
+                        "questionType": "meal_scope",
+                        "resumeHint": {"questionType": "meal_scope"},
+                    },
+                },
+            )
+
+            context_summary, injected_skill_keys = result_context_summary(
+                existing_context_summary={"runMetrics": {"toolCallCount": 1}},
+                result=result,
+                skill_key=None,
+                draft_count=1,
+                approval_count=1,
+                conversation_context={"taskState": {"lastHumanInputResult": {"summary": "三天"}}},
+            )
+
+            self.assertEqual(injected_skill_keys, ["meal_plan"])
+            self.assertEqual(context_summary["routing"], {"skills": ["meal_plan"]})
+            self.assertEqual(context_summary["runMetrics"]["skillExecutionCount"], 1)
+            self.assertEqual(context_summary["runMetrics"]["completedSkillExecutionCount"], 1)
+            self.assertEqual(context_summary["runMetrics"]["toolCallCount"], 3)
+            self.assertEqual(context_summary["runMetrics"]["draftCount"], 1)
+            self.assertEqual(context_summary["runMetrics"]["approvalRequestCount"], 1)
+            self.assertEqual(context_summary["runMetrics"]["clarificationCount"], 1)
+            self.assertEqual(context_summary["clarificationStats"]["reasons"], {"meal_scope": 1})
+            self.assertEqual(context_summary["clarificationStats"]["bySkill"], {"meal_plan": 1})
+            self.assertEqual(context_summary["lastHumanInputResult"], {"summary": "三天"})
+            self.assertEqual(
+                context_summary["skillExecutions"],
+                [
+                    {
+                        "skillKey": "meal_plan",
+                        "operation": "plan",
+                        "sourceArtifactId": "artifact-1",
+                        "status": "completed",
+                        "diagnostic": "ok",
+                        "requiresClarification": True,
+                        "clarificationQuestionTypes": ["meal_scope"],
+                        "draftCount": 1,
+                    }
+                ],
+            )
+
+            explicit_summary, explicit_skills = result_context_summary(
+                existing_context_summary={},
+                result=result,
+                skill_key="shopping_list",
+                draft_count=0,
+                approval_count=0,
+                conversation_context=None,
+            )
+            self.assertEqual(explicit_skills, ["meal_plan"])
+            self.assertEqual(explicit_summary["skillExecutions"][0]["skillKey"], "shopping_list")
+            self.assertEqual(explicit_summary["clarificationStats"]["bySkill"], {"shopping_list": 1})
+
+        def test_approval_outcome_summary_helper_records_counts_by_draft_type(self) -> None:
+            summary = record_approval_outcome_summary(
+                {},
+                approval_status="approved",
+                draft_type="meal_plan",
+            )
+            summary = record_approval_outcome_summary(
+                summary,
+                approval_status="rejected",
+                draft_type="meal_plan",
+            )
+            summary = record_approval_outcome_summary(
+                summary,
+                approval_status="approved",
+                draft_type="recipe",
+            )
+
+            self.assertEqual(summary["runMetrics"]["approvalApprovedCount"], 2)
+            self.assertEqual(summary["runMetrics"]["approvalRejectedCount"], 1)
+            self.assertEqual(summary["approvalStats"]["byDraftType"]["meal_plan"], {"approved": 1, "rejected": 1})
+            self.assertEqual(summary["approvalStats"]["byDraftType"]["recipe"], {"approved": 1})
+            self.assertEqual(summary["approvalStats"]["lastDecision"], {"status": "approved", "draftType": "recipe"})
+
+        def test_orchestrator_message_part_helpers_build_stable_payloads(self) -> None:
+            self.assertEqual(
+                result_card_message_part(
+                    part_id="part-card",
+                    card={"id": "card-1", "type": "inventory_summary", "data": {"availableCount": 1}},
+                ),
+                {
+                    "id": "part-card",
+                    "type": "result_card",
+                    "card": {"id": "card-1", "type": "inventory_summary", "data": {"availableCount": 1}},
+                },
+            )
+            self.assertEqual(
+                human_input_request_message_part(
+                    part_id="part-human",
+                    request={"id": "human-1", "question": "要处理哪个？"},
+                ),
+                {
+                    "id": "part-human",
+                    "type": "human_input_request",
+                    "request": {"id": "human-1", "question": "要处理哪个？"},
+                },
+            )
+            self.assertEqual(
+                text_message_part(part_id="part-text", text="已完成。"),
+                {"id": "part-text", "type": "text", "text": "已完成。"},
+            )
+            self.assertEqual(
+                append_progressive_draft_metadata(
+                    {
+                        "progressiveDraftIds": ["draft-old", ""],
+                        "progressiveApprovalIds": ["approval-old"],
+                        "intent": "workspace_orchestrator",
+                    },
+                    draft_id="draft-new",
+                    approval_id="approval-new",
+                ),
+                {
+                    "progressiveDraftIds": ["draft-old", "draft-new"],
+                    "progressiveApprovalIds": ["approval-old", "approval-new"],
+                    "intent": "workspace_orchestrator",
+                },
+            )
+            parts = [
+                {"id": "text-1", "type": "text", "text": " 第一段 "},
+                {"id": "ignored-empty", "type": "text", "text": " "},
+                {"id": "card-part", "type": "result_card", "card": {"id": "card-1", "type": "today_recommendation"}},
+                {"id": "text-2", "type": "text", "text": "第二段"},
+                {"id": "ignored-card", "type": "result_card", "card": None},
+            ]
+            self.assertEqual(aggregate_text_from_parts(parts), "第一段\n\n第二段")
+            self.assertEqual(result_cards_from_parts(parts), [{"id": "card-1", "type": "today_recommendation"}])
+            self.assertEqual(
+                terminal_message_text(content="", parts=parts, status="completed"),
+                "第一段\n\n第二段",
+            )
+            self.assertEqual(
+                terminal_message_text(content="", parts=[], status="failed"),
+                "AI 工作台暂时失败，请重试。",
+            )
+            self.assertEqual(
+                terminal_message_text(content="", parts=[], status="cancelled"),
+                "已中止这次处理。",
+            )
+
+        def test_approval_resume_helpers_build_stable_state_patches(self) -> None:
+            self.assertEqual(
+                approval_resume_payload_from_metadata(
+                    {
+                        "afterApproval": {
+                            "continue": True,
+                            "instruction": "继续生成购物清单。",
+                            "source": {"draftType": "meal_plan"},
+                        }
+                    }
+                ),
+                {
+                    "instruction": "继续生成购物清单。",
+                    "source": {"draftType": "meal_plan"},
+                },
+            )
+            self.assertEqual(
+                approval_resume_payload_from_metadata({"afterApproval": {"continue": True}}),
+                {"instruction": "根据这次确认结果继续对话；如果当前任务已经完成，给出简短总结。"},
+            )
+            self.assertEqual(
+                approval_resume_payload_from_metadata({}),
+                {"instruction": "根据这次确认结果继续对话；如果当前任务已经完成，给出简短总结。"},
+            )
+
+            artifact = approval_resume_artifact(
+                run_id="run-1",
+                approval_id="approval-1",
+                fallback_resume_id="resume-fallback",
+                resume_payload={"instruction": "继续"},
+            )
+            self.assertEqual(artifact["id"], "draft_after_approval:run-1:approval-1")
+            self.assertEqual(artifact["type"], "draft_after_approval")
+            self.assertEqual(artifact["kind"], "task_resume")
+            self.assertEqual(artifact["payload"], {"instruction": "继续"})
+            self.assertEqual(
+                approval_resume_artifact(
+                    run_id="run-1",
+                    approval_id="",
+                    fallback_resume_id="resume-fallback",
+                    resume_payload={"instruction": "继续"},
+                )["id"],
+                "draft_after_approval:run-1:resume-fallback",
+            )
+
+            state = {
+                "injected_skill_keys": ["meal_plan"],
+                "injection_history": [{"skillKey": "meal_plan", "source": "initial"}],
+            }
+            serialized = {"approval": {"id": "approval-1"}}
+            run_artifacts = [{"id": "existing"}]
+            approval_artifacts = [{"id": "approval-artifact"}]
+            self.assertEqual(
+                approval_waiting_state_patch(
+                    approval_id="approval-retry",
+                    serialized=serialized,
+                    run_artifacts=run_artifacts,
+                    approval_artifacts=approval_artifacts,
+                ),
+                {
+                    "status": "waiting_approval",
+                    "pending_approval_id": "approval-retry",
+                    "last_decision": serialized,
+                    "run_artifacts": [*run_artifacts, *approval_artifacts],
+                },
+            )
+            self.assertEqual(
+                approval_failed_state_patch(
+                    serialized=serialized,
+                    run_artifacts=run_artifacts,
+                    approval_artifacts=approval_artifacts,
+                ),
+                {
+                    "status": "failed",
+                    "last_decision": serialized,
+                    "error": "草稿写入失败",
+                    "run_artifacts": [*run_artifacts, *approval_artifacts],
+                },
+            )
+            resolved = approval_resolved_state_patch(
+                state=state,
+                serialized=serialized,
+                status="running",
+                run_artifacts=run_artifacts,
+                approval_artifacts=approval_artifacts,
+                resume_artifact=artifact,
+            )
+            self.assertEqual(resolved["status"], "running")
+            self.assertEqual(resolved["pending_approval_id"], "")
+            self.assertEqual(resolved["pending_human_input"], {})
+            self.assertEqual(resolved["last_decision"], serialized)
+            self.assertEqual(resolved["run_artifacts"], [*run_artifacts, *approval_artifacts, artifact])
+            self.assertEqual(resolved["injected_skill_keys"], ["meal_plan"])
+            self.assertEqual(resolved["injection_history"], [{"skillKey": "meal_plan", "source": "initial"}])
+
+        def test_tool_completion_metadata_merges_definition_and_output_contracts(self) -> None:
+            definition = ToolDefinition(
+                name="test.read",
+                display_name="测试读取",
+                description="测试 completion metadata。",
+                input_schema={"type": "object"},
+                output_schema={"type": "object"},
+                permission="ai:test",
+                side_effect="read",
+                handler=lambda context, payload: {},
+                requires_followup=True,
+                terminal_output=False,
+                followup_hint="默认需要继续。",
+            )
+
+            metadata = tool_completion_metadata(output={}, definition=definition)
+
+            self.assertTrue(metadata.requires_followup)
+            self.assertFalse(metadata.terminal_output)
+            self.assertEqual(metadata.followup_hint, "默认需要继续。")
+
+            metadata = tool_completion_metadata(
+                output={
+                    "requiresFollowup": False,
+                    "terminalOutput": True,
+                    "followupHint": "顶层声明为终态。",
+                },
+                definition=definition,
+            )
+
+            self.assertFalse(metadata.requires_followup)
+            self.assertTrue(metadata.terminal_output)
+            self.assertEqual(metadata.followup_hint, "顶层声明为终态。")
+
+            metadata = tool_completion_metadata(
+                output={
+                    "metadata": {
+                        "requires_followup": True,
+                        "terminal_output": False,
+                        "followup_hint": "嵌套声明需要继续。",
+                    }
+                },
+                definition=None,
+            )
+
+            self.assertTrue(metadata.requires_followup)
+            self.assertFalse(metadata.terminal_output)
+            self.assertEqual(metadata.followup_hint, "嵌套声明需要继续。")
+
         def test_result_card_dto_rejects_removed_clarification_card_type(self) -> None:
             with self.assertRaises(ValueError):
                 AIResultCardDTO.model_validate(
@@ -775,6 +1301,8 @@ class AIFoundationTestCase(AIAgentInfraTestCase):
 
                 def __init__(self) -> None:
                     self.tool_names_by_call: list[list[str]] = []
+                    self.skill_inject_enums_by_call: list[list[str]] = []
+                    self.skill_inject_max_items_by_call: list[int] = []
                     self.systems: list[str] = []
                     self.inject_result: dict = {}
 
@@ -793,9 +1321,25 @@ class AIFoundationTestCase(AIAgentInfraTestCase):
                 ) -> ChatProviderResult:
                     del user, max_rounds
                     self.systems.append(system)
-                    self.tool_names_by_call.append(_tool_names(tools))
+                    initial_tools = tools()
+                    self.tool_names_by_call.append(sorted(tool.name for tool in initial_tools))
+                    skill_inject_tool = next(tool for tool in initial_tools if tool.name == "skill.inject")
+                    self.skill_inject_enums_by_call.append(
+                        skill_inject_tool.input_schema["properties"]["skills"]["items"]["enum"]
+                    )
+                    self.skill_inject_max_items_by_call.append(
+                        skill_inject_tool.input_schema["properties"]["skills"]["maxItems"]
+                    )
                     self.inject_result = tool_handler("skill.inject", {"skills": ["meal_plan", "shopping_list"], "reason": "需要同时安排餐食和购物清单"})
-                    self.tool_names_by_call.append(_tool_names(tools))
+                    next_tools = tools()
+                    self.tool_names_by_call.append(sorted(tool.name for tool in next_tools))
+                    skill_inject_tool = next(tool for tool in next_tools if tool.name == "skill.inject")
+                    self.skill_inject_enums_by_call.append(
+                        skill_inject_tool.input_schema["properties"]["skills"]["items"]["enum"]
+                    )
+                    self.skill_inject_max_items_by_call.append(
+                        skill_inject_tool.input_schema["properties"]["skills"]["maxItems"]
+                    )
                     text = "已准备好餐食计划和购物清单能力。"
                     if message_handler is not None:
                         message_handler(text)
@@ -833,10 +1377,24 @@ class AIFoundationTestCase(AIAgentInfraTestCase):
 
             self.assertEqual(result.status, "completed")
             self.assertEqual(provider.tool_names_by_call[0], ["human.request_input", "skill.inject"])
+            self.assertEqual(provider.skill_inject_enums_by_call[0], sorted(build_workspace_skill_registry().keys()))
+            self.assertIn("inventory_analysis", provider.skill_inject_enums_by_call[0])
+            self.assertNotIn("inventory-analysis", provider.skill_inject_enums_by_call[0])
+            self.assertEqual(provider.skill_inject_max_items_by_call, [4, 2])
             self.assertIn("meal_plan.create_draft", provider.tool_names_by_call[1])
             self.assertIn("shopping.create_draft", provider.tool_names_by_call[1])
             self.assertIn("script.validate_meal_plan", provider.tool_names_by_call[1])
             self.assertNotIn("script.suggest_items_from_sources", provider.tool_names_by_call[1])
+            self.assertEqual(result.context_summary["orchestrator"]["profileKey"], "main_workspace")
+            self.assertEqual(result.context_summary["orchestrator"]["responseStyle"], "markdown_friendly")
+            self.assertEqual(
+                result.context_summary["orchestrator"]["capabilityPolicy"]["skillInjection"],
+                "dynamic",
+            )
+            self.assertEqual(
+                result.context_summary["orchestrator"]["capabilityPolicy"]["artifactContext"],
+                "all",
+            )
             self.assertEqual(result.context_summary["orchestrator"]["injectedSkills"], ["meal_plan", "shopping_list"])
             injected_instructions = "\n".join(
                 str(item.get("instructions") or "")
@@ -845,6 +1403,523 @@ class AIFoundationTestCase(AIAgentInfraTestCase):
             )
             self.assertIn("餐食", injected_instructions)
             self.assertIn("购物", injected_instructions)
+
+        def test_orchestrator_returns_structured_error_for_unknown_skill_injection(self) -> None:
+            class UnknownSkillProvider(BaseChatProvider):
+                model_name = "orchestrator-unknown-skill-model"
+
+                def __init__(self) -> None:
+                    self.inject_result: dict = {}
+
+                def generate(self, *, system: str, user: str) -> ChatProviderResult:
+                    raise AssertionError("orchestrator should use generate_with_tools")
+
+                def generate_with_tools(
+                    self,
+                    *,
+                    system: str,
+                    user: str,
+                    tools,
+                    tool_handler,
+                    message_handler=None,
+                    max_rounds: int = 8,
+                ) -> ChatProviderResult:
+                    del system, user, tools, max_rounds
+                    self.inject_result = tool_handler("skill.inject", {"skills": ["inventory-analysis"], "reason": "错误使用 slug"})
+                    text = "我会改用正确的技能 key。"
+                    if message_handler is not None:
+                        message_handler(text)
+                    return ChatProviderResult(text=text, status="completed", model=self.model_name)
+
+            provider = UnknownSkillProvider()
+            context = SkillContext(
+                db=MagicMock(),
+                family_id=self.family.id,
+                user_id=self.user.id,
+                conversation_id="conversation-orchestrator-unknown-skill",
+                run_id="run-orchestrator-unknown-skill",
+                conversation=[{"id": "message-1", "role": "user", "content": "看一下库存", "artifacts": []}],
+                current_message="看一下库存",
+                tool_executor=ToolExecutor(
+                    build_workspace_tool_registry(),
+                    ToolContext(
+                        db=MagicMock(),
+                        family_id=self.family.id,
+                        user_id=self.user.id,
+                        conversation_id="conversation-orchestrator-unknown-skill",
+                        run_id="run-orchestrator-unknown-skill",
+                    ),
+                ),
+            )
+
+            result = WorkspaceOrchestratorAgent(
+                provider=provider,
+                skill_registry=build_workspace_skill_registry(),
+            ).run(context)
+
+            self.assertEqual(result.status, "completed")
+            self.assertEqual(provider.inject_result["code"], "unknown_skill")
+            self.assertEqual(provider.inject_result["unknownSkills"], ["inventory-analysis"])
+            self.assertEqual(result.context_summary["orchestrator"]["injectedSkills"], [])
+
+        def test_orchestrator_returns_structured_error_for_malformed_skill_injection_payload(self) -> None:
+            class MalformedSkillPayloadProvider(BaseChatProvider):
+                model_name = "orchestrator-malformed-skill-payload-model"
+
+                def __init__(self) -> None:
+                    self.inject_results: list[dict[str, Any]] = []
+
+                def generate(self, *, system: str, user: str) -> ChatProviderResult:
+                    raise AssertionError("orchestrator should use generate_with_tools")
+
+                def generate_with_tools(
+                    self,
+                    *,
+                    system: str,
+                    user: str,
+                    tools,
+                    tool_handler,
+                    message_handler=None,
+                    max_rounds: int = 8,
+                ) -> ChatProviderResult:
+                    del system, user, tools, max_rounds
+                    self.inject_results.append(tool_handler("skill.inject", {"skills": "meal_plan"}))
+                    self.inject_results.append(tool_handler("skill.inject", {"skills": []}))
+                    self.inject_results.append(tool_handler("skill.inject", {"skills": ["meal_plan", 123]}))
+                    self.inject_results.append(tool_handler("skill.inject", {"skills": ["   "]}))
+                    text = "我会重新按正确格式调用技能。"
+                    if message_handler is not None:
+                        message_handler(text)
+                    return ChatProviderResult(text=text, status="completed", model=self.model_name)
+
+            provider = MalformedSkillPayloadProvider()
+
+            result = WorkspaceOrchestratorAgent(
+                provider=provider,
+                skill_registry=build_workspace_skill_registry(),
+            ).run(
+                SkillContext(
+                    db=MagicMock(),
+                    family_id=self.family.id,
+                    user_id=self.user.id,
+                    conversation_id="conversation-malformed-skill-payload",
+                    run_id="run-malformed-skill-payload",
+                    conversation=[{"id": "message-1", "role": "user", "content": "安排晚餐", "artifacts": []}],
+                    current_message="安排晚餐",
+                    tool_executor=ToolExecutor(
+                        build_workspace_tool_registry(),
+                        ToolContext(
+                            db=MagicMock(),
+                            family_id=self.family.id,
+                            user_id=self.user.id,
+                            conversation_id="conversation-malformed-skill-payload",
+                            run_id="run-malformed-skill-payload",
+                        ),
+                    ),
+                )
+            )
+
+            self.assertEqual(result.status, "completed")
+            self.assertEqual(
+                [item["code"] for item in provider.inject_results],
+                ["invalid_skill_inject_payload"] * 4,
+            )
+            self.assertTrue(all(item["injectedSkills"] == [] for item in provider.inject_results))
+            self.assertEqual(result.context_summary["orchestrator"]["injectedSkills"], [])
+
+        def test_orchestrator_uses_profile_skill_budget_for_dynamic_injection(self) -> None:
+            class SkillBudgetProvider(BaseChatProvider):
+                model_name = "orchestrator-skill-budget-model"
+
+                def __init__(self) -> None:
+                    self.inject_result: dict[str, Any] = {}
+                    self.tool_names: list[str] = []
+
+                def generate(self, *, system: str, user: str) -> ChatProviderResult:
+                    raise AssertionError("orchestrator should use generate_with_tools")
+
+                def generate_with_tools(
+                    self,
+                    *,
+                    system: str,
+                    user: str,
+                    tools,
+                    tool_handler,
+                    message_handler=None,
+                    max_rounds: int = 8,
+                ) -> ChatProviderResult:
+                    del system, user, max_rounds
+                    self.tool_names = _tool_names(tools)
+                    self.inject_result = tool_handler("skill.inject", {"skills": ["shopping_list"], "reason": "尝试超过预算继续注入"})
+                    text = "当前能力预算已经用完。"
+                    if message_handler is not None:
+                        message_handler(text)
+                    return ChatProviderResult(text=text, status="completed", model=self.model_name)
+
+            profile_state = MAIN_WORKSPACE_PROFILE.to_state()
+            profile_state["budgetConfig"] = OrchestratorBudgetConfig(max_business_skills_per_run=1).to_state()
+            provider = SkillBudgetProvider()
+            result = WorkspaceOrchestratorAgent(
+                provider=provider,
+                skill_registry=build_workspace_skill_registry(),
+            ).run(
+                SkillContext(
+                    db=MagicMock(),
+                    family_id=self.family.id,
+                    user_id=self.user.id,
+                    conversation_id="conversation-skill-budget",
+                    run_id="run-skill-budget",
+                    conversation=[{"id": "message-1", "role": "user", "content": "安排晚餐后生成购物清单", "artifacts": []}],
+                    current_message="安排晚餐后生成购物清单",
+                    orchestrator_profile=profile_state,
+                    tool_executor=ToolExecutor(
+                        build_workspace_tool_registry(),
+                        ToolContext(
+                            db=MagicMock(),
+                            family_id=self.family.id,
+                            user_id=self.user.id,
+                            conversation_id="conversation-skill-budget",
+                            run_id="run-skill-budget",
+                        ),
+                    ),
+                ),
+                injected_skill_keys=["meal_plan"],
+            )
+
+            self.assertEqual(result.status, "completed")
+            self.assertNotIn("skill.inject", provider.tool_names)
+            self.assertIn("human.request_input", provider.tool_names)
+            self.assertEqual(provider.inject_result["code"], "skill_budget_exhausted")
+            self.assertEqual(provider.inject_result["alreadyInjected"], [])
+            self.assertEqual(result.context_summary["orchestrator"]["budget"]["maxBusinessSkillsPerRun"], 1)
+            self.assertEqual(result.context_summary["orchestrator"]["injectedSkills"], ["meal_plan"])
+
+        def test_skill_inject_result_hides_skill_inject_when_budget_is_filled(self) -> None:
+            class FilledBudgetProvider(BaseChatProvider):
+                model_name = "orchestrator-filled-skill-budget-model"
+
+                def __init__(self) -> None:
+                    self.inject_result: dict[str, Any] = {}
+                    self.tool_names_by_call: list[list[str]] = []
+
+                def generate(self, *, system: str, user: str) -> ChatProviderResult:
+                    raise AssertionError("orchestrator should use generate_with_tools")
+
+                def generate_with_tools(
+                    self,
+                    *,
+                    system: str,
+                    user: str,
+                    tools,
+                    tool_handler,
+                    message_handler=None,
+                    max_rounds: int = 8,
+                ) -> ChatProviderResult:
+                    del system, user, max_rounds
+                    self.tool_names_by_call.append(_tool_names(tools))
+                    self.inject_result = tool_handler("skill.inject", {"skills": ["meal_plan"], "reason": "安排晚餐"})
+                    self.tool_names_by_call.append(_tool_names(tools))
+                    text = "已准备好餐食安排能力。"
+                    if message_handler is not None:
+                        message_handler(text)
+                    return ChatProviderResult(text=text, status="completed", model=self.model_name)
+
+            profile_state = MAIN_WORKSPACE_PROFILE.to_state()
+            profile_state["budgetConfig"] = OrchestratorBudgetConfig(max_business_skills_per_run=1).to_state()
+            provider = FilledBudgetProvider()
+
+            result = WorkspaceOrchestratorAgent(
+                provider=provider,
+                skill_registry=build_workspace_skill_registry(),
+            ).run(
+                SkillContext(
+                    db=MagicMock(),
+                    family_id=self.family.id,
+                    user_id=self.user.id,
+                    conversation_id="conversation-filled-skill-budget",
+                    run_id="run-filled-skill-budget",
+                    conversation=[{"id": "message-1", "role": "user", "content": "安排晚餐", "artifacts": []}],
+                    current_message="安排晚餐",
+                    orchestrator_profile=profile_state,
+                    tool_executor=ToolExecutor(
+                        build_workspace_tool_registry(),
+                        ToolContext(
+                            db=MagicMock(),
+                            family_id=self.family.id,
+                            user_id=self.user.id,
+                            conversation_id="conversation-filled-skill-budget",
+                            run_id="run-filled-skill-budget",
+                        ),
+                    ),
+                )
+            )
+
+            self.assertEqual(result.status, "completed")
+            self.assertIn("skill.inject", provider.tool_names_by_call[0])
+            self.assertNotIn("skill.inject", provider.inject_result["availableTools"])
+            self.assertNotIn("skill.inject", provider.tool_names_by_call[1])
+            self.assertIn("meal_plan.create_draft", provider.inject_result["availableTools"])
+
+        def test_orchestrator_uses_profile_total_tool_budget(self) -> None:
+            class TotalToolBudgetProvider(BaseChatProvider):
+                model_name = "orchestrator-total-tool-budget-model"
+
+                def __init__(self) -> None:
+                    self.tool_result: dict[str, Any] = {}
+
+                def generate(self, *, system: str, user: str) -> ChatProviderResult:
+                    raise AssertionError("orchestrator should use generate_with_tools")
+
+                def generate_with_tools(
+                    self,
+                    *,
+                    system: str,
+                    user: str,
+                    tools,
+                    tool_handler,
+                    message_handler=None,
+                    max_rounds: int = 8,
+                ) -> ChatProviderResult:
+                    del system, user, tools, max_rounds
+                    self.tool_result = tool_handler("test.contract_read", {})
+                    text = "工具预算不足，先停在这里。"
+                    if message_handler is not None:
+                        message_handler(text)
+                    return ChatProviderResult(text=text, status="completed", model=self.model_name)
+
+            tool_registry, skill_registry = _contract_tool_registries({"items": [{"name": "番茄"}]})
+            profile_state = MAIN_WORKSPACE_PROFILE.to_state()
+            profile_state["budgetConfig"] = OrchestratorBudgetConfig(max_total_tool_calls_per_run=0).to_state()
+            provider = TotalToolBudgetProvider()
+            result = WorkspaceOrchestratorAgent(
+                provider=provider,
+                skill_registry=skill_registry,
+            ).run(
+                SkillContext(
+                    db=MagicMock(),
+                    family_id=self.family.id,
+                    user_id=self.user.id,
+                    conversation_id="conversation-total-tool-budget",
+                    run_id="run-total-tool-budget",
+                    conversation=[{"id": "message-1", "role": "user", "content": "读取测试数据", "artifacts": []}],
+                    current_message="读取测试数据",
+                    orchestrator_profile=profile_state,
+                    tool_executor=ToolExecutor(
+                        tool_registry,
+                        ToolContext(
+                            db=MagicMock(),
+                            family_id=self.family.id,
+                            user_id=self.user.id,
+                            conversation_id="conversation-total-tool-budget",
+                            run_id="run-total-tool-budget",
+                        ),
+                    ),
+                ),
+                injected_skill_keys=["contract_test"],
+            )
+
+            self.assertEqual(result.status, "completed")
+            self.assertEqual(provider.tool_result["code"], "tool_budget_exhausted")
+            self.assertEqual(result.context_summary["orchestrator"]["budget"]["maxTotalToolCallsPerRun"], 0)
+            self.assertEqual(result.tool_calls, [])
+
+        def test_orchestrator_applies_initial_skill_tool_budget(self) -> None:
+            class SkillToolBudgetProvider(BaseChatProvider):
+                model_name = "orchestrator-skill-tool-budget-model"
+
+                def __init__(self) -> None:
+                    self.tool_result: dict[str, Any] = {}
+
+                def generate(self, *, system: str, user: str) -> ChatProviderResult:
+                    raise AssertionError("orchestrator should use generate_with_tools")
+
+                def generate_with_tools(
+                    self,
+                    *,
+                    system: str,
+                    user: str,
+                    tools,
+                    tool_handler,
+                    message_handler=None,
+                    max_rounds: int = 8,
+                ) -> ChatProviderResult:
+                    del system, user, tools, max_rounds
+                    self.tool_result = tool_handler("test.contract_read", {})
+                    text = "Skill 工具预算不足。"
+                    if message_handler is not None:
+                        message_handler(text)
+                    return ChatProviderResult(text=text, status="completed", model=self.model_name)
+
+            tool_registry, skill_registry = _contract_tool_registries(
+                {"items": [{"name": "番茄"}]},
+                tool_budget={"max_tool_calls": 0},
+            )
+            provider = SkillToolBudgetProvider()
+            result = WorkspaceOrchestratorAgent(
+                provider=provider,
+                skill_registry=skill_registry,
+            ).run(
+                SkillContext(
+                    db=MagicMock(),
+                    family_id=self.family.id,
+                    user_id=self.user.id,
+                    conversation_id="conversation-initial-skill-tool-budget",
+                    run_id="run-initial-skill-tool-budget",
+                    conversation=[{"id": "message-1", "role": "user", "content": "读取测试数据", "artifacts": []}],
+                    current_message="读取测试数据",
+                    orchestrator_profile=MAIN_WORKSPACE_PROFILE.to_state(),
+                    tool_executor=ToolExecutor(
+                        tool_registry,
+                        ToolContext(
+                            db=MagicMock(),
+                            family_id=self.family.id,
+                            user_id=self.user.id,
+                            conversation_id="conversation-initial-skill-tool-budget",
+                            run_id="run-initial-skill-tool-budget",
+                        ),
+                    ),
+                ),
+                injected_skill_keys=["contract_test"],
+            )
+
+            self.assertEqual(result.status, "completed")
+            self.assertEqual(provider.tool_result["code"], "tool_budget_exhausted")
+            self.assertEqual(result.context_summary["orchestrator"]["budget"]["maxTotalToolCallsPerRun"], 0)
+            self.assertEqual(result.tool_calls, [])
+
+        def test_orchestrator_applies_dynamic_skill_same_read_budget_after_injection(self) -> None:
+            class DynamicSkillToolBudgetProvider(BaseChatProvider):
+                model_name = "orchestrator-dynamic-skill-tool-budget-model"
+
+                def __init__(self) -> None:
+                    self.first_result: dict[str, Any] = {}
+                    self.second_result: dict[str, Any] = {}
+
+                def generate(self, *, system: str, user: str) -> ChatProviderResult:
+                    raise AssertionError("orchestrator should use generate_with_tools")
+
+                def generate_with_tools(
+                    self,
+                    *,
+                    system: str,
+                    user: str,
+                    tools,
+                    tool_handler,
+                    message_handler=None,
+                    max_rounds: int = 8,
+                ) -> ChatProviderResult:
+                    del system, user, max_rounds
+                    tool_handler("skill.inject", {"skills": ["contract_test"], "reason": "需要读取测试数据"})
+                    tools()
+                    self.first_result = tool_handler("test.contract_read", {})
+                    self.second_result = tool_handler("test.contract_read", {})
+                    text = "动态 Skill 的重复读取预算已经生效。"
+                    if message_handler is not None:
+                        message_handler(text)
+                    return ChatProviderResult(text=text, status="completed", model=self.model_name)
+
+            tool_registry, skill_registry = _contract_tool_registries(
+                {"items": [{"name": "番茄"}]},
+                tool_budget={"max_same_read_calls": 1},
+            )
+            provider = DynamicSkillToolBudgetProvider()
+            result = WorkspaceOrchestratorAgent(
+                provider=provider,
+                skill_registry=skill_registry,
+            ).run(
+                SkillContext(
+                    db=MagicMock(),
+                    family_id=self.family.id,
+                    user_id=self.user.id,
+                    conversation_id="conversation-dynamic-skill-tool-budget",
+                    run_id="run-dynamic-skill-tool-budget",
+                    conversation=[{"id": "message-1", "role": "user", "content": "重复读取测试数据", "artifacts": []}],
+                    current_message="重复读取测试数据",
+                    orchestrator_profile=MAIN_WORKSPACE_PROFILE.to_state(),
+                    tool_executor=ToolExecutor(
+                        tool_registry,
+                        ToolContext(
+                            db=MagicMock(),
+                            family_id=self.family.id,
+                            user_id=self.user.id,
+                            conversation_id="conversation-dynamic-skill-tool-budget",
+                            run_id="run-dynamic-skill-tool-budget",
+                        ),
+                    ),
+                ),
+            )
+
+            self.assertEqual(result.status, "completed")
+            self.assertEqual(provider.first_result["items"], [{"name": "番茄"}])
+            self.assertEqual(provider.second_result["code"], "tool_loop_detected")
+            self.assertEqual(result.context_summary["orchestrator"]["budget"]["maxSameReadToolCallsPerRun"], 1)
+            self.assertEqual(len(result.tool_calls), 1)
+
+        def test_orchestrator_uses_profile_same_read_budget(self) -> None:
+            class SameReadBudgetProvider(BaseChatProvider):
+                model_name = "orchestrator-same-read-budget-model"
+
+                def __init__(self) -> None:
+                    self.first_result: dict[str, Any] = {}
+                    self.second_result: dict[str, Any] = {}
+
+                def generate(self, *, system: str, user: str) -> ChatProviderResult:
+                    raise AssertionError("orchestrator should use generate_with_tools")
+
+                def generate_with_tools(
+                    self,
+                    *,
+                    system: str,
+                    user: str,
+                    tools,
+                    tool_handler,
+                    message_handler=None,
+                    max_rounds: int = 8,
+                ) -> ChatProviderResult:
+                    del system, user, tools, max_rounds
+                    self.first_result = tool_handler("test.contract_read", {})
+                    self.second_result = tool_handler("test.contract_read", {})
+                    text = "重复读取已经被预算拦住。"
+                    if message_handler is not None:
+                        message_handler(text)
+                    return ChatProviderResult(text=text, status="completed", model=self.model_name)
+
+            tool_registry, skill_registry = _contract_tool_registries({"items": [{"name": "番茄"}]})
+            profile_state = MAIN_WORKSPACE_PROFILE.to_state()
+            profile_state["budgetConfig"] = OrchestratorBudgetConfig(max_same_read_tool_calls_per_run=1).to_state()
+            provider = SameReadBudgetProvider()
+            result = WorkspaceOrchestratorAgent(
+                provider=provider,
+                skill_registry=skill_registry,
+            ).run(
+                SkillContext(
+                    db=MagicMock(),
+                    family_id=self.family.id,
+                    user_id=self.user.id,
+                    conversation_id="conversation-same-read-budget",
+                    run_id="run-same-read-budget",
+                    conversation=[{"id": "message-1", "role": "user", "content": "重复读取测试数据", "artifacts": []}],
+                    current_message="重复读取测试数据",
+                    orchestrator_profile=profile_state,
+                    tool_executor=ToolExecutor(
+                        tool_registry,
+                        ToolContext(
+                            db=MagicMock(),
+                            family_id=self.family.id,
+                            user_id=self.user.id,
+                            conversation_id="conversation-same-read-budget",
+                            run_id="run-same-read-budget",
+                        ),
+                    ),
+                ),
+                injected_skill_keys=["contract_test"],
+            )
+
+            self.assertEqual(result.status, "completed")
+            self.assertEqual(provider.first_result["items"], [{"name": "番茄"}])
+            self.assertEqual(provider.second_result["code"], "tool_loop_detected")
+            self.assertEqual(result.context_summary["orchestrator"]["budget"]["maxSameReadToolCallsPerRun"], 1)
+            self.assertEqual(len(result.tool_calls), 1)
 
         def test_orchestrator_tool_preview_skips_skill_inject_and_does_not_reuse_next_call_id(self) -> None:
             outer = self
@@ -922,6 +1997,22 @@ class AIFoundationTestCase(AIAgentInfraTestCase):
             self.assertEqual(keys, ["meal_plan", "shopping_list"])
             self.assertEqual(added, [])
 
+        def test_skill_injection_manager_resolves_draft_type_from_tool_scope(self) -> None:
+            manager = SkillInjectionManager(build_workspace_skill_registry())
+
+            self.assertEqual(
+                manager.draft_type_from_tool_output("recipe.create_draft", {}, ["recipe_draft"]),
+                "recipe",
+            )
+            self.assertEqual(
+                manager.draft_type_from_tool_output(
+                    "recipe.create_draft",
+                    {"draftType": "recipe"},
+                    ["recipe_draft"],
+                ),
+                "recipe",
+            )
+
         def test_orchestrator_catalog_prompt_uses_skill_keys_not_slugs(self) -> None:
             agent = WorkspaceOrchestratorAgent(
                 provider=DisabledChatProvider(model_name="unused"),
@@ -947,7 +2038,7 @@ class AIFoundationTestCase(AIAgentInfraTestCase):
                 ),
             )
 
-            prompt = agent._system_prompt(context, [])
+            prompt = agent.prompt_payload_builder.system_prompt(context, [])
 
             self.assertIn("skill.yaml:key", prompt)
             self.assertIn("必须写 inventory_analysis", prompt)
@@ -981,7 +2072,7 @@ class AIFoundationTestCase(AIAgentInfraTestCase):
                 ),
             )
 
-            prompt = agent._system_prompt(context, [])
+            prompt = agent.prompt_payload_builder.system_prompt(context, [])
 
             self.assertIn("适合 Markdown 渲染的轻量结构", prompt)
             self.assertIn("短段落、空行、- 列表、编号步骤和 **关键词**", prompt)
@@ -1100,7 +2191,7 @@ class AIFoundationTestCase(AIAgentInfraTestCase):
                 skill_registry=build_workspace_skill_registry(),
             )
 
-            payload = agent._user_payload(context, ["recipe_draft"], [])
+            payload = agent.prompt_payload_builder.user_payload(context, ["recipe_draft"], [])
             serialized = json.dumps(payload, ensure_ascii=False, sort_keys=True)
 
             self.assertIn("draft-compact", serialized)
@@ -1123,7 +2214,11 @@ class AIFoundationTestCase(AIAgentInfraTestCase):
             )
 
             with self.assertRaisesRegex(ValueError, "Draft tool custom.create_draft did not identify draft type"):
-                agent._draft_type_from_tool_output("custom.create_draft", {}, ["meal_plan", "shopping_list"])
+                agent.injection_manager.draft_type_from_tool_output(
+                    "custom.create_draft",
+                    {},
+                    ["meal_plan", "shopping_list"],
+                )
 
         def test_orchestrator_treats_model_card_json_as_plain_text(self) -> None:
             class MissingCardFieldsProvider(BaseChatProvider):
@@ -1239,7 +2334,7 @@ class AIFoundationTestCase(AIAgentInfraTestCase):
             self.assertEqual(result.cards, [])
             self.assertEqual(result.error, None)
 
-        def test_orchestrator_payload_exposes_allowed_draft_types_as_prompt_context(self) -> None:
+        def test_orchestrator_payload_exposes_draft_contract_only_after_draft_skill_is_active(self) -> None:
             class SchemaCapturingProvider(BaseChatProvider):
                 model_name = "orchestrator-schema-model"
 
@@ -1298,18 +2393,61 @@ class AIFoundationTestCase(AIAgentInfraTestCase):
                 ),
             )
 
-            result = WorkspaceOrchestratorAgent(
+            agent = WorkspaceOrchestratorAgent(
                 provider=provider,
                 skill_registry=build_workspace_skill_registry(),
-            ).run(context)
+            )
+            result = agent.run(context)
 
             self.assertEqual(result.status, "completed")
-            self.assertEqual(provider.payloads[0]["allowedDraftTypes"], [])
+            self.assertNotIn("allowedDraftTypes", provider.payloads[0])
             self.assertNotIn("allowedCardTypes", provider.payloads[0])
             self.assertIn("recipe.create_draft", provider.tool_names_by_round[1])
             self.assertIn("instructions", provider.inject_result["injectedSkills"][0])
             self.assertIn("菜谱", provider.inject_result["injectedSkills"][0]["instructions"])
-            self.assertIn("这些是当前已注入 Skill 允许的 draft_types", provider.systems[0])
+            self.assertEqual(provider.inject_result["injectedSkills"][0]["approvalPolicy"], "draft_then_confirm")
+            self.assertEqual(
+                provider.inject_result["injectedSkills"][0]["toolBudget"],
+                {"max_tool_calls": 16, "max_same_read_calls": 2},
+            )
+            self.assertEqual(
+                provider.inject_result["injectedSkills"][0]["draftContract"],
+                {
+                    "recipe": {
+                        "schemaVersion": "recipe.v1",
+                        "approvalConfigKey": "recipe",
+                        "commitHandlerKey": "recipe",
+                    }
+                },
+            )
+            injected_completion_policy = provider.inject_result["injectedSkills"][0]["completionPolicy"]
+            self.assertFalse(injected_completion_policy["requiresTerminalOutput"])
+            self.assertTrue(injected_completion_policy["terminalTextAllowed"])
+            self.assertEqual(injected_completion_policy["terminalTools"], {})
+            self.assertEqual(
+                injected_completion_policy["followupRequiredTools"]["script.lint_recipe_draft"],
+                "菜谱草稿 lint 后必须继续修正草稿、请求补充信息，或调用 recipe.create_draft。",
+            )
+            self.assertIn("ingredient.search", injected_completion_policy["followupRequiredTools"])
+            initial_metadata = prompt_contract_metadata(provider.systems[0])
+            self.assertEqual(initial_metadata["profileKey"], "main_workspace")
+            self.assertTrue(initial_metadata["includeCatalogRecords"])
+            self.assertTrue(initial_metadata["includeDynamicInjectionContract"])
+            self.assertFalse(initial_metadata["includeDraftContract"])
+            self.assertFalse(initial_metadata["includeAllowedDraftTypes"])
+            self.assertEqual(initial_metadata["artifactContextPolicy"], "all")
+            self.assertTrue(initial_metadata["includeArtifactContextContract"])
+            self.assertIn("workspace.read_artifact", provider.systems[0])
+            self.assertEqual(initial_metadata["allowedDraftTypes"], [])
+
+            active_payload = agent.prompt_payload_builder.user_payload(context, ["recipe_draft"], [])
+            active_prompt = agent.prompt_payload_builder.system_prompt(context, ["recipe_draft"])
+            self.assertEqual(active_payload["allowedDraftTypes"], ["recipe"])
+            active_metadata = prompt_contract_metadata(active_prompt)
+            self.assertTrue(active_metadata["includeDraftContract"])
+            self.assertTrue(active_metadata["includeAllowedDraftTypes"])
+            self.assertEqual(active_metadata["artifactContextPolicy"], "all")
+            self.assertEqual(active_metadata["allowedDraftTypes"], ["recipe"])
 
         def test_orchestrator_creates_draft_only_from_draft_tool(self) -> None:
             class DraftCardProvider(BaseChatProvider):
@@ -1545,6 +2683,926 @@ class AIFoundationTestCase(AIAgentInfraTestCase):
             self.assertEqual(result.error, None)
             self.assertEqual(result.context_summary["orchestrator"]["injectedSkills"], ["recipe_cook"])
 
+        def test_recipe_cook_preview_requires_followup_from_skill_yaml_policy(self) -> None:
+            outer = self
+
+            class RecipeCookPreviewOnlyProvider(BaseChatProvider):
+                model_name = "recipe-cook-preview-policy-model"
+
+                def generate(self, *, system: str, user: str) -> ChatProviderResult:
+                    raise AssertionError("orchestrator should use generate_with_tools")
+
+                def generate_with_tools(
+                    self,
+                    *,
+                    system: str,
+                    user: str,
+                    tools,
+                    tool_handler,
+                    message_handler=None,
+                    max_rounds: int = 8,
+                ) -> ChatProviderResult:
+                    del system, user, message_handler, max_rounds
+                    outer.assertIn("recipe.preview_cook", _tool_names(tools))
+                    tool_handler("recipe.preview_cook", {"recipeId": "recipe-test", "servings": 2})
+                    return ChatProviderResult(text=None, status="completed", model=self.model_name)
+
+            result = WorkspaceOrchestratorAgent(
+                provider=RecipeCookPreviewOnlyProvider(),
+                skill_registry=build_workspace_skill_registry(),
+            ).run(
+                SkillContext(
+                    db=MagicMock(),
+                    family_id=self.family.id,
+                    user_id=self.user.id,
+                    conversation_id="conversation-recipe-cook-preview-policy",
+                    run_id="run-recipe-cook-preview-policy",
+                    conversation=[{"id": "message-1", "role": "user", "content": "预览一下番茄炒蛋够不够", "artifacts": []}],
+                    current_message="预览一下番茄炒蛋够不够",
+                    tool_executor=ToolExecutor(
+                        _recipe_cook_policy_tool_registry(),
+                        ToolContext(
+                            db=MagicMock(),
+                            family_id=self.family.id,
+                            user_id=self.user.id,
+                            conversation_id="conversation-recipe-cook-preview-policy",
+                            run_id="run-recipe-cook-preview-policy",
+                        ),
+                    ),
+                ),
+                injected_skill_keys=["recipe_cook"],
+            )
+
+            self.assertEqual(result.status, "failed")
+            self.assertEqual(result.error, "orchestrator_followup_required")
+            self.assertEqual(
+                result.context_summary["orchestrator"]["pendingFollowups"],
+                [
+                    {
+                        "tool": "recipe.preview_cook",
+                        "sideEffect": "read",
+                        "hint": "预览后必须继续说明缺料、请求补充信息，或在库存充足时生成 recipe_cook 草稿。",
+                    }
+                ],
+            )
+
+        def test_orchestrator_fails_when_followup_tool_has_no_terminal_output(self) -> None:
+            class FollowupWithoutTerminalProvider(BaseChatProvider):
+                model_name = "followup-without-terminal-model"
+
+                def generate(self, *, system: str, user: str) -> ChatProviderResult:
+                    raise AssertionError("orchestrator should use generate_with_tools")
+
+                def generate_with_tools(
+                    self,
+                    *,
+                    system: str,
+                    user: str,
+                    tools,
+                    tool_handler,
+                    message_handler=None,
+                    max_rounds: int = 8,
+                ) -> ChatProviderResult:
+                    del system, user, message_handler, max_rounds
+                    assert "test.contract_read" in _tool_names(tools)
+                    tool_handler("test.contract_read", {})
+                    return ChatProviderResult(text=None, status="completed", model=self.model_name)
+
+            tool_registry, skill_registry = _contract_tool_registries(
+                {
+                    "items": [{"name": "番茄"}],
+                    "requires_followup": True,
+                    "followup_hint": "需要基于读取结果输出总结、追问、卡片或草稿。",
+                }
+            )
+            result = WorkspaceOrchestratorAgent(
+                provider=FollowupWithoutTerminalProvider(),
+                skill_registry=skill_registry,
+            ).run(
+                SkillContext(
+                    db=MagicMock(),
+                    family_id=self.family.id,
+                    user_id=self.user.id,
+                    conversation_id="conversation-followup-without-terminal",
+                    run_id="run-followup-without-terminal",
+                    conversation=[{"id": "message-1", "role": "user", "content": "读取后继续", "artifacts": []}],
+                    current_message="读取后继续",
+                    tool_executor=ToolExecutor(
+                        tool_registry,
+                        ToolContext(
+                            db=MagicMock(),
+                            family_id=self.family.id,
+                            user_id=self.user.id,
+                            conversation_id="conversation-followup-without-terminal",
+                            run_id="run-followup-without-terminal",
+                        ),
+                    ),
+                ),
+                injected_skill_keys=["contract_test"],
+            )
+
+            self.assertEqual(result.status, "failed")
+            self.assertEqual(result.error, "orchestrator_followup_required")
+            self.assertEqual(result.context_summary["orchestrator"]["pendingFollowups"][0]["tool"], "test.contract_read")
+
+        def test_orchestrator_allows_terminal_text_after_followup_tool(self) -> None:
+            class FollowupWithTextProvider(BaseChatProvider):
+                model_name = "followup-with-text-model"
+
+                def generate(self, *, system: str, user: str) -> ChatProviderResult:
+                    raise AssertionError("orchestrator should use generate_with_tools")
+
+                def generate_with_tools(
+                    self,
+                    *,
+                    system: str,
+                    user: str,
+                    tools,
+                    tool_handler,
+                    message_handler=None,
+                    max_rounds: int = 8,
+                ) -> ChatProviderResult:
+                    del system, user, tools, max_rounds
+                    tool_handler("test.contract_read", {})
+                    text = "已根据读取结果整理：目前有 1 个候选项。"
+                    if message_handler is not None:
+                        message_handler(text)
+                    return ChatProviderResult(text=text, status="completed", model=self.model_name)
+
+            tool_registry, skill_registry = _contract_tool_registries(
+                {
+                    "items": [{"name": "番茄"}],
+                    "metadata": {
+                        "requiresFollowup": True,
+                        "followupHint": "需要输出总结。",
+                    },
+                }
+            )
+            result = WorkspaceOrchestratorAgent(
+                provider=FollowupWithTextProvider(),
+                skill_registry=skill_registry,
+            ).run(
+                SkillContext(
+                    db=MagicMock(),
+                    family_id=self.family.id,
+                    user_id=self.user.id,
+                    conversation_id="conversation-followup-with-text",
+                    run_id="run-followup-with-text",
+                    conversation=[{"id": "message-1", "role": "user", "content": "读取后总结", "artifacts": []}],
+                    current_message="读取后总结",
+                    tool_executor=ToolExecutor(
+                        tool_registry,
+                        ToolContext(
+                            db=MagicMock(),
+                            family_id=self.family.id,
+                            user_id=self.user.id,
+                            conversation_id="conversation-followup-with-text",
+                            run_id="run-followup-with-text",
+                        ),
+                    ),
+                ),
+                injected_skill_keys=["contract_test"],
+            )
+
+            self.assertEqual(result.status, "completed")
+            self.assertEqual(result.error, None)
+            self.assertIn("1 个候选项", result.text)
+
+        def test_orchestrator_allows_tool_terminal_output_without_text(self) -> None:
+            class TerminalToolOutputProvider(BaseChatProvider):
+                model_name = "terminal-tool-output-model"
+
+                def generate(self, *, system: str, user: str) -> ChatProviderResult:
+                    raise AssertionError("orchestrator should use generate_with_tools")
+
+                def generate_with_tools(
+                    self,
+                    *,
+                    system: str,
+                    user: str,
+                    tools,
+                    tool_handler,
+                    message_handler=None,
+                    max_rounds: int = 8,
+                ) -> ChatProviderResult:
+                    del system, user, tools, message_handler, max_rounds
+                    tool_handler("test.contract_read", {})
+                    return ChatProviderResult(text=None, status="completed", model=self.model_name)
+
+            tool_registry, skill_registry = _contract_tool_registries(
+                {
+                    "status": "ok",
+                    "orchestrator": {
+                        "terminal_output": True,
+                        "followup_hint": "工具输出已经是终态。",
+                    },
+                }
+            )
+            result = WorkspaceOrchestratorAgent(
+                provider=TerminalToolOutputProvider(),
+                skill_registry=skill_registry,
+            ).run(
+                SkillContext(
+                    db=MagicMock(),
+                    family_id=self.family.id,
+                    user_id=self.user.id,
+                    conversation_id="conversation-terminal-tool-output",
+                    run_id="run-terminal-tool-output",
+                    conversation=[{"id": "message-1", "role": "user", "content": "直接返回工具终态", "artifacts": []}],
+                    current_message="直接返回工具终态",
+                    tool_executor=ToolExecutor(
+                        tool_registry,
+                        ToolContext(
+                            db=MagicMock(),
+                            family_id=self.family.id,
+                            user_id=self.user.id,
+                            conversation_id="conversation-terminal-tool-output",
+                            run_id="run-terminal-tool-output",
+                        ),
+                    ),
+                ),
+                injected_skill_keys=["contract_test"],
+            )
+
+            self.assertEqual(result.status, "completed")
+            self.assertEqual(result.error, None)
+            self.assertEqual(result.text, "")
+            self.assertEqual(result.context_summary["orchestrator"]["terminalToolOutputs"][0]["tool"], "test.contract_read")
+
+        def test_orchestrator_uses_tool_definition_followup_metadata(self) -> None:
+            class DefinitionFollowupProvider(BaseChatProvider):
+                model_name = "definition-followup-model"
+
+                def generate(self, *, system: str, user: str) -> ChatProviderResult:
+                    raise AssertionError("orchestrator should use generate_with_tools")
+
+                def generate_with_tools(
+                    self,
+                    *,
+                    system: str,
+                    user: str,
+                    tools,
+                    tool_handler,
+                    message_handler=None,
+                    max_rounds: int = 8,
+                ) -> ChatProviderResult:
+                    del system, user, tools, message_handler, max_rounds
+                    tool_handler("test.contract_read", {})
+                    return ChatProviderResult(text=None, status="completed", model=self.model_name)
+
+            tool_registry, skill_registry = _contract_tool_registries(
+                {"items": [{"name": "番茄"}]},
+                requires_followup=True,
+                followup_hint="ToolDefinition 要求模型继续输出总结。",
+            )
+            result = WorkspaceOrchestratorAgent(
+                provider=DefinitionFollowupProvider(),
+                skill_registry=skill_registry,
+            ).run(
+                SkillContext(
+                    db=MagicMock(),
+                    family_id=self.family.id,
+                    user_id=self.user.id,
+                    conversation_id="conversation-definition-followup",
+                    run_id="run-definition-followup",
+                    conversation=[{"id": "message-1", "role": "user", "content": "读取后继续", "artifacts": []}],
+                    current_message="读取后继续",
+                    tool_executor=ToolExecutor(
+                        tool_registry,
+                        ToolContext(
+                            db=MagicMock(),
+                            family_id=self.family.id,
+                            user_id=self.user.id,
+                            conversation_id="conversation-definition-followup",
+                            run_id="run-definition-followup",
+                        ),
+                    ),
+                ),
+                injected_skill_keys=["contract_test"],
+            )
+
+            self.assertEqual(result.status, "failed")
+            self.assertEqual(result.error, "orchestrator_followup_required")
+            self.assertEqual(
+                result.context_summary["orchestrator"]["pendingFollowups"],
+                [
+                    {
+                        "tool": "test.contract_read",
+                        "sideEffect": "read",
+                        "hint": "ToolDefinition 要求模型继续输出总结。",
+                    }
+                ],
+            )
+
+        def test_orchestrator_uses_tool_definition_terminal_output_metadata(self) -> None:
+            class DefinitionTerminalProvider(BaseChatProvider):
+                model_name = "definition-terminal-model"
+
+                def generate(self, *, system: str, user: str) -> ChatProviderResult:
+                    raise AssertionError("orchestrator should use generate_with_tools")
+
+                def generate_with_tools(
+                    self,
+                    *,
+                    system: str,
+                    user: str,
+                    tools,
+                    tool_handler,
+                    message_handler=None,
+                    max_rounds: int = 8,
+                ) -> ChatProviderResult:
+                    del system, user, tools, message_handler, max_rounds
+                    tool_handler("test.contract_read", {})
+                    return ChatProviderResult(text=None, status="completed", model=self.model_name)
+
+            tool_registry, skill_registry = _contract_tool_registries(
+                {"status": "ok"},
+                terminal_output=True,
+                followup_hint="ToolDefinition 声明工具输出可作为终态。",
+            )
+            result = WorkspaceOrchestratorAgent(
+                provider=DefinitionTerminalProvider(),
+                skill_registry=skill_registry,
+            ).run(
+                SkillContext(
+                    db=MagicMock(),
+                    family_id=self.family.id,
+                    user_id=self.user.id,
+                    conversation_id="conversation-definition-terminal",
+                    run_id="run-definition-terminal",
+                    conversation=[{"id": "message-1", "role": "user", "content": "直接返回工具终态", "artifacts": []}],
+                    current_message="直接返回工具终态",
+                    tool_executor=ToolExecutor(
+                        tool_registry,
+                        ToolContext(
+                            db=MagicMock(),
+                            family_id=self.family.id,
+                            user_id=self.user.id,
+                            conversation_id="conversation-definition-terminal",
+                            run_id="run-definition-terminal",
+                        ),
+                    ),
+                ),
+                injected_skill_keys=["contract_test"],
+            )
+
+            self.assertEqual(result.status, "completed")
+            self.assertEqual(result.error, None)
+            self.assertEqual(
+                result.context_summary["orchestrator"]["terminalToolOutputs"],
+                [
+                    {
+                        "tool": "test.contract_read",
+                        "sideEffect": "read",
+                        "hint": "ToolDefinition 声明工具输出可作为终态。",
+                    }
+                ],
+            )
+
+        def test_tool_output_metadata_overrides_tool_definition_defaults(self) -> None:
+            class OutputOverrideProvider(BaseChatProvider):
+                model_name = "output-override-model"
+
+                def generate(self, *, system: str, user: str) -> ChatProviderResult:
+                    raise AssertionError("orchestrator should use generate_with_tools")
+
+                def generate_with_tools(
+                    self,
+                    *,
+                    system: str,
+                    user: str,
+                    tools,
+                    tool_handler,
+                    message_handler=None,
+                    max_rounds: int = 8,
+                ) -> ChatProviderResult:
+                    del system, user, tools, message_handler, max_rounds
+                    tool_handler("test.contract_read", {})
+                    return ChatProviderResult(text=None, status="completed", model=self.model_name)
+
+            tool_registry, skill_registry = _contract_tool_registries(
+                {
+                    "status": "ok",
+                    "metadata": {
+                        "requires_followup": False,
+                    },
+                },
+                requires_followup=True,
+                followup_hint="默认需要继续处理。",
+            )
+            result = WorkspaceOrchestratorAgent(
+                provider=OutputOverrideProvider(),
+                skill_registry=skill_registry,
+            ).run(
+                SkillContext(
+                    db=MagicMock(),
+                    family_id=self.family.id,
+                    user_id=self.user.id,
+                    conversation_id="conversation-output-override",
+                    run_id="run-output-override",
+                    conversation=[{"id": "message-1", "role": "user", "content": "读取后输出覆盖默认值", "artifacts": []}],
+                    current_message="读取后输出覆盖默认值",
+                    tool_executor=ToolExecutor(
+                        tool_registry,
+                        ToolContext(
+                            db=MagicMock(),
+                            family_id=self.family.id,
+                            user_id=self.user.id,
+                            conversation_id="conversation-output-override",
+                            run_id="run-output-override",
+                        ),
+                    ),
+                ),
+                injected_skill_keys=["contract_test"],
+            )
+
+            self.assertEqual(result.status, "failed")
+            self.assertEqual(result.error, "orchestrator_terminal_output_missing")
+            self.assertEqual(result.context_summary["orchestrator"]["pendingFollowups"], [])
+
+        def test_skill_completion_policy_can_require_tool_followup(self) -> None:
+            class SkillPolicyFollowupProvider(BaseChatProvider):
+                model_name = "skill-policy-followup-model"
+
+                def generate(self, *, system: str, user: str) -> ChatProviderResult:
+                    raise AssertionError("orchestrator should use generate_with_tools")
+
+                def generate_with_tools(
+                    self,
+                    *,
+                    system: str,
+                    user: str,
+                    tools,
+                    tool_handler,
+                    message_handler=None,
+                    max_rounds: int = 8,
+                ) -> ChatProviderResult:
+                    del system, user, tools, message_handler, max_rounds
+                    tool_handler("test.contract_read", {})
+                    return ChatProviderResult(text=None, status="completed", model=self.model_name)
+
+            tool_registry, skill_registry = _contract_tool_registries(
+                {"items": [{"name": "番茄"}]},
+                completion_policy=SkillCompletionPolicy(
+                    followup_required_tools={
+                        "test.contract_read": "skill.yaml 要求基于读取结果继续输出。",
+                    }
+                ),
+            )
+            result = WorkspaceOrchestratorAgent(
+                provider=SkillPolicyFollowupProvider(),
+                skill_registry=skill_registry,
+            ).run(
+                SkillContext(
+                    db=MagicMock(),
+                    family_id=self.family.id,
+                    user_id=self.user.id,
+                    conversation_id="conversation-skill-policy-followup",
+                    run_id="run-skill-policy-followup",
+                    conversation=[{"id": "message-1", "role": "user", "content": "读取后继续", "artifacts": []}],
+                    current_message="读取后继续",
+                    tool_executor=ToolExecutor(
+                        tool_registry,
+                        ToolContext(
+                            db=MagicMock(),
+                            family_id=self.family.id,
+                            user_id=self.user.id,
+                            conversation_id="conversation-skill-policy-followup",
+                            run_id="run-skill-policy-followup",
+                        ),
+                    ),
+                ),
+                injected_skill_keys=["contract_test"],
+            )
+
+            self.assertEqual(result.status, "failed")
+            self.assertEqual(result.error, "orchestrator_followup_required")
+            self.assertEqual(
+                result.context_summary["orchestrator"]["pendingFollowups"],
+                [
+                    {
+                        "tool": "test.contract_read",
+                        "sideEffect": "read",
+                        "hint": "skill.yaml 要求基于读取结果继续输出。",
+                    }
+                ],
+            )
+
+        def test_skill_completion_policy_applies_to_script_tools(self) -> None:
+            class ScriptPolicyProvider(BaseChatProvider):
+                model_name = "skill-script-policy-model"
+
+                def __init__(self) -> None:
+                    self.script_definition: ToolDefinition | None = None
+
+                def generate(self, *, system: str, user: str) -> ChatProviderResult:
+                    raise AssertionError("orchestrator should use generate_with_tools")
+
+                def generate_with_tools(
+                    self,
+                    *,
+                    system: str,
+                    user: str,
+                    tools,
+                    tool_handler,
+                    message_handler=None,
+                    max_rounds: int = 8,
+                ) -> ChatProviderResult:
+                    del system, user, max_rounds
+                    tool_handler("skill.inject", {"skills": ["recipe_draft"], "reason": "需要整理菜谱草稿"})
+                    current_tools = {definition.name: definition for definition in tools()}
+                    self.script_definition = current_tools["script.lint_recipe_draft"]
+                    text = "已准备好检查菜谱草稿。"
+                    if message_handler is not None:
+                        message_handler(text)
+                    return ChatProviderResult(text=text, status="completed", model=self.model_name)
+
+            provider = ScriptPolicyProvider()
+            result = WorkspaceOrchestratorAgent(
+                provider=provider,
+                skill_registry=build_workspace_skill_registry(),
+            ).run(
+                SkillContext(
+                    db=MagicMock(),
+                    family_id=self.family.id,
+                    user_id=self.user.id,
+                    conversation_id="conversation-script-policy",
+                    run_id="run-script-policy",
+                    conversation=[{"id": "message-1", "role": "user", "content": "整理菜谱草稿", "artifacts": []}],
+                    current_message="整理菜谱草稿",
+                    tool_executor=ToolExecutor(
+                        build_workspace_tool_registry(),
+                        ToolContext(
+                            db=MagicMock(),
+                            family_id=self.family.id,
+                            user_id=self.user.id,
+                            conversation_id="conversation-script-policy",
+                            run_id="run-script-policy",
+                        ),
+                    ),
+                ),
+            )
+
+            self.assertEqual(result.status, "completed")
+            self.assertIsNotNone(provider.script_definition)
+            assert provider.script_definition is not None
+            self.assertTrue(provider.script_definition.requires_followup)
+            self.assertFalse(provider.script_definition.terminal_output)
+            self.assertEqual(
+                provider.script_definition.followup_hint,
+                "菜谱草稿 lint 后必须继续修正草稿、请求补充信息，或调用 recipe.create_draft。",
+            )
+
+        def test_catalog_completion_policy_applies_to_real_tool_definitions(self) -> None:
+            class CatalogPolicyProvider(BaseChatProvider):
+                model_name = "catalog-policy-model"
+
+                def __init__(self) -> None:
+                    self.summary_definition: ToolDefinition | None = None
+                    self.available_definition: ToolDefinition | None = None
+                    self.ingredient_search_definition: ToolDefinition | None = None
+                    self.artifact_definition: ToolDefinition | None = None
+
+                def generate(self, *, system: str, user: str) -> ChatProviderResult:
+                    raise AssertionError("orchestrator should use generate_with_tools")
+
+                def generate_with_tools(
+                    self,
+                    *,
+                    system: str,
+                    user: str,
+                    tools,
+                    tool_handler,
+                    message_handler=None,
+                    max_rounds: int = 8,
+                ) -> ChatProviderResult:
+                    del system, user, max_rounds
+                    tool_handler("skill.inject", {"skills": ["inventory_analysis"], "reason": "需要查看库存"})
+                    current_tools = {definition.name: definition for definition in tools()}
+                    self.summary_definition = current_tools["inventory.read_summary"]
+                    self.available_definition = current_tools["inventory.read_available_items"]
+                    self.ingredient_search_definition = current_tools["ingredient.search"]
+                    self.artifact_definition = current_tools["workspace.read_artifact"]
+                    text = "已准备好库存能力。"
+                    if message_handler is not None:
+                        message_handler(text)
+                    return ChatProviderResult(text=text, status="completed", model=self.model_name)
+
+            provider = CatalogPolicyProvider()
+            result = WorkspaceOrchestratorAgent(
+                provider=provider,
+                skill_registry=build_workspace_skill_registry(),
+            ).run(
+                SkillContext(
+                    db=MagicMock(),
+                    family_id=self.family.id,
+                    user_id=self.user.id,
+                    conversation_id="conversation-catalog-policy",
+                    run_id="run-catalog-policy",
+                    conversation=[{"id": "message-1", "role": "user", "content": "库存怎么样", "artifacts": []}],
+                    current_message="库存怎么样",
+                    tool_executor=ToolExecutor(
+                        build_workspace_tool_registry(),
+                        ToolContext(
+                            db=MagicMock(),
+                            family_id=self.family.id,
+                            user_id=self.user.id,
+                            conversation_id="conversation-catalog-policy",
+                            run_id="run-catalog-policy",
+                        ),
+                    ),
+                ),
+            )
+
+            self.assertEqual(result.status, "completed")
+            self.assertIsNotNone(provider.summary_definition)
+            self.assertIsNotNone(provider.available_definition)
+            self.assertIsNotNone(provider.ingredient_search_definition)
+            self.assertIsNotNone(provider.artifact_definition)
+            assert provider.summary_definition is not None
+            assert provider.available_definition is not None
+            assert provider.ingredient_search_definition is not None
+            assert provider.artifact_definition is not None
+            self.assertTrue(provider.summary_definition.terminal_output)
+            self.assertEqual(provider.summary_definition.followup_hint, "库存概览卡可作为库存查询的终态输出。")
+            self.assertTrue(provider.available_definition.requires_followup)
+            self.assertFalse(provider.available_definition.terminal_output)
+            self.assertEqual(
+                provider.available_definition.followup_hint,
+                "可用库存读取后必须总结可用食材、请求补充信息，或生成库存处理草稿。",
+            )
+            self.assertTrue(provider.ingredient_search_definition.requires_followup)
+            self.assertFalse(provider.ingredient_search_definition.terminal_output)
+            self.assertEqual(
+                provider.ingredient_search_definition.followup_hint,
+                "食材检索后必须说明候选库存处理对象、请求用户选择，或继续读取食材/库存并生成库存处理草稿。",
+            )
+            self.assertTrue(provider.artifact_definition.requires_followup)
+            self.assertEqual(
+                provider.artifact_definition.followup_hint,
+                "读取历史 artifact 后必须说明可复用内容、请求补充信息，或继续生成/调整库存处理草稿。",
+            )
+
+        def test_catalog_completion_policy_applies_to_business_read_tools(self) -> None:
+            class BusinessReadPolicyProvider(BaseChatProvider):
+                model_name = "business-read-policy-model"
+
+                def __init__(self) -> None:
+                    self.recipe_definition: ToolDefinition | None = None
+                    self.plan_definition: ToolDefinition | None = None
+
+                def generate(self, *, system: str, user: str) -> ChatProviderResult:
+                    raise AssertionError("orchestrator should use generate_with_tools")
+
+                def generate_with_tools(
+                    self,
+                    *,
+                    system: str,
+                    user: str,
+                    tools,
+                    tool_handler,
+                    message_handler=None,
+                    max_rounds: int = 8,
+                ) -> ChatProviderResult:
+                    del system, user, max_rounds
+                    tool_handler("skill.inject", {"skills": ["recipe_cook"], "reason": "需要按菜谱做菜"})
+                    current_tools = {definition.name: definition for definition in tools()}
+                    self.recipe_definition = current_tools["recipe.read_by_id"]
+                    self.plan_definition = current_tools["meal_plan.read_existing"]
+                    text = "已准备好做菜能力。"
+                    if message_handler is not None:
+                        message_handler(text)
+                    return ChatProviderResult(text=text, status="completed", model=self.model_name)
+
+            provider = BusinessReadPolicyProvider()
+            result = WorkspaceOrchestratorAgent(
+                provider=provider,
+                skill_registry=build_workspace_skill_registry(),
+            ).run(
+                SkillContext(
+                    db=MagicMock(),
+                    family_id=self.family.id,
+                    user_id=self.user.id,
+                    conversation_id="conversation-business-read-policy",
+                    run_id="run-business-read-policy",
+                    conversation=[{"id": "message-1", "role": "user", "content": "按菜谱做菜", "artifacts": []}],
+                    current_message="按菜谱做菜",
+                    tool_executor=ToolExecutor(
+                        build_workspace_tool_registry(),
+                        ToolContext(
+                            db=MagicMock(),
+                            family_id=self.family.id,
+                            user_id=self.user.id,
+                            conversation_id="conversation-business-read-policy",
+                            run_id="run-business-read-policy",
+                        ),
+                    ),
+                ),
+            )
+
+            self.assertEqual(result.status, "completed")
+            self.assertIsNotNone(provider.recipe_definition)
+            self.assertIsNotNone(provider.plan_definition)
+            assert provider.recipe_definition is not None
+            assert provider.plan_definition is not None
+            self.assertTrue(provider.recipe_definition.requires_followup)
+            self.assertFalse(provider.recipe_definition.terminal_output)
+            self.assertEqual(
+                provider.recipe_definition.followup_hint,
+                "读取菜谱后必须说明可做性、请求补充信息，或调用 recipe.preview_cook。",
+            )
+            self.assertTrue(provider.plan_definition.requires_followup)
+            self.assertEqual(
+                provider.plan_definition.followup_hint,
+                "读取已有计划后必须说明匹配的计划项、请求补充信息，或继续预览/生成 recipe_cook 草稿。",
+            )
+
+        def test_skill_completion_policy_can_require_terminal_output_without_tool_calls(self) -> None:
+            class EmptySkillProvider(BaseChatProvider):
+                model_name = "empty-skill-model"
+
+                def generate(self, *, system: str, user: str) -> ChatProviderResult:
+                    raise AssertionError("orchestrator should use generate_with_tools")
+
+                def generate_with_tools(
+                    self,
+                    *,
+                    system: str,
+                    user: str,
+                    tools,
+                    tool_handler,
+                    message_handler=None,
+                    max_rounds: int = 8,
+                ) -> ChatProviderResult:
+                    del system, user, tools, tool_handler, message_handler, max_rounds
+                    return ChatProviderResult(text="", status="completed", model=self.model_name)
+
+            tool_registry, skill_registry = _contract_tool_registries(
+                {"items": [{"name": "番茄"}]},
+                completion_policy=SkillCompletionPolicy(requires_terminal_output=True),
+            )
+            result = WorkspaceOrchestratorAgent(
+                provider=EmptySkillProvider(),
+                skill_registry=skill_registry,
+            ).run(
+                SkillContext(
+                    db=MagicMock(),
+                    family_id=self.family.id,
+                    user_id=self.user.id,
+                    conversation_id="conversation-skill-policy-requires-terminal",
+                    run_id="run-skill-policy-requires-terminal",
+                    conversation=[{"id": "message-1", "role": "user", "content": "必须有终态输出", "artifacts": []}],
+                    current_message="必须有终态输出",
+                    tool_executor=ToolExecutor(
+                        tool_registry,
+                        ToolContext(
+                            db=MagicMock(),
+                            family_id=self.family.id,
+                            user_id=self.user.id,
+                            conversation_id="conversation-skill-policy-requires-terminal",
+                            run_id="run-skill-policy-requires-terminal",
+                        ),
+                    ),
+                ),
+                injected_skill_keys=["contract_test"],
+            )
+
+            self.assertEqual(result.status, "failed")
+            self.assertEqual(result.error, "orchestrator_terminal_output_missing")
+            diagnostic = json.loads(result.diagnostic or "{}")
+            self.assertTrue(diagnostic["requiresTerminalOutput"])
+            self.assertTrue(diagnostic["terminalTextAllowed"])
+
+        def test_dynamic_skill_completion_policy_can_disallow_text_only_terminal_output(self) -> None:
+            class DynamicTextOnlyProvider(BaseChatProvider):
+                model_name = "dynamic-text-only-model"
+
+                def generate(self, *, system: str, user: str) -> ChatProviderResult:
+                    raise AssertionError("orchestrator should use generate_with_tools")
+
+                def generate_with_tools(
+                    self,
+                    *,
+                    system: str,
+                    user: str,
+                    tools,
+                    tool_handler,
+                    message_handler=None,
+                    max_rounds: int = 8,
+                ) -> ChatProviderResult:
+                    del system, user, tools, max_rounds
+                    tool_handler("skill.inject", {"skills": ["contract_test"]})
+                    text = "我用文字结束。"
+                    if message_handler is not None:
+                        message_handler(text)
+                    return ChatProviderResult(text=text, status="completed", model=self.model_name)
+
+            tool_registry, skill_registry = _contract_tool_registries(
+                {"items": [{"name": "番茄"}]},
+                completion_policy=SkillCompletionPolicy(
+                    requires_terminal_output=True,
+                    terminal_text_allowed=False,
+                ),
+            )
+            result = WorkspaceOrchestratorAgent(
+                provider=DynamicTextOnlyProvider(),
+                skill_registry=skill_registry,
+            ).run(
+                SkillContext(
+                    db=MagicMock(),
+                    family_id=self.family.id,
+                    user_id=self.user.id,
+                    conversation_id="conversation-dynamic-text-disallowed",
+                    run_id="run-dynamic-text-disallowed",
+                    conversation=[{"id": "message-1", "role": "user", "content": "动态注入后不能只用文本结束", "artifacts": []}],
+                    current_message="动态注入后不能只用文本结束",
+                    tool_executor=ToolExecutor(
+                        tool_registry,
+                        ToolContext(
+                            db=MagicMock(),
+                            family_id=self.family.id,
+                            user_id=self.user.id,
+                            conversation_id="conversation-dynamic-text-disallowed",
+                            run_id="run-dynamic-text-disallowed",
+                        ),
+                    ),
+                ),
+            )
+
+            self.assertEqual(result.status, "failed")
+            self.assertEqual(result.error, "orchestrator_terminal_output_missing")
+            diagnostic = json.loads(result.diagnostic or "{}")
+            self.assertTrue(diagnostic["requiresTerminalOutput"])
+            self.assertFalse(diagnostic["terminalTextAllowed"])
+
+        def test_skill_completion_policy_can_mark_tool_as_terminal_output(self) -> None:
+            class SkillPolicyTerminalProvider(BaseChatProvider):
+                model_name = "skill-policy-terminal-model"
+
+                def generate(self, *, system: str, user: str) -> ChatProviderResult:
+                    raise AssertionError("orchestrator should use generate_with_tools")
+
+                def generate_with_tools(
+                    self,
+                    *,
+                    system: str,
+                    user: str,
+                    tools,
+                    tool_handler,
+                    message_handler=None,
+                    max_rounds: int = 8,
+                ) -> ChatProviderResult:
+                    del system, user, tools, message_handler, max_rounds
+                    tool_handler("test.contract_read", {})
+                    return ChatProviderResult(text=None, status="completed", model=self.model_name)
+
+            tool_registry, skill_registry = _contract_tool_registries(
+                {"status": "ok"},
+                completion_policy=SkillCompletionPolicy(
+                    terminal_tools={
+                        "test.contract_read": "skill.yaml 声明读取结果可作为终态。",
+                    }
+                ),
+            )
+            result = WorkspaceOrchestratorAgent(
+                provider=SkillPolicyTerminalProvider(),
+                skill_registry=skill_registry,
+            ).run(
+                SkillContext(
+                    db=MagicMock(),
+                    family_id=self.family.id,
+                    user_id=self.user.id,
+                    conversation_id="conversation-skill-policy-terminal",
+                    run_id="run-skill-policy-terminal",
+                    conversation=[{"id": "message-1", "role": "user", "content": "直接返回工具终态", "artifacts": []}],
+                    current_message="直接返回工具终态",
+                    tool_executor=ToolExecutor(
+                        tool_registry,
+                        ToolContext(
+                            db=MagicMock(),
+                            family_id=self.family.id,
+                            user_id=self.user.id,
+                            conversation_id="conversation-skill-policy-terminal",
+                            run_id="run-skill-policy-terminal",
+                        ),
+                    ),
+                ),
+                injected_skill_keys=["contract_test"],
+            )
+
+            self.assertEqual(result.status, "completed")
+            self.assertEqual(result.error, None)
+            self.assertEqual(
+                result.context_summary["orchestrator"]["terminalToolOutputs"],
+                [
+                    {
+                        "tool": "test.contract_read",
+                        "sideEffect": "read",
+                        "hint": "skill.yaml 声明读取结果可作为终态。",
+                    }
+                ],
+            )
+
         def test_orchestrator_rejects_tool_call_before_skill_injection(self) -> None:
             class PrematureToolProvider(BaseChatProvider):
                 model_name = "premature-tool-model"
@@ -1644,6 +3702,115 @@ class AIFoundationTestCase(AIAgentInfraTestCase):
             assert run is not None
             self.assertIn("orchestrator", run.context_summary)
             self.assertEqual(run.agent_key, "workspace_orchestrator")
+
+        def test_sync_invoke_runtime_exception_marks_run_failed(self) -> None:
+            with self.SessionLocal() as db:
+                runner = WorkspaceGraphRunner(AIApplicationService(db, provider=FakeChatProvider()))
+                with patch.object(runner.graph, "invoke", side_effect=RuntimeError("graph exploded")):
+                    response = runner.invoke_user_message(
+                        family_id=self.family.id,
+                        user_id=self.user.id,
+                        message="今天吃什么？",
+                        client_run_id="agent_run-sync-runtime-failure",
+                    )
+                run = db.get(AIAgentRun, "agent_run-sync-runtime-failure")
+                assert run is not None
+                conversation = db.get(AIConversation, run.conversation_id)
+                message = db.get(AIMessage, response["message"]["id"])
+                event = db.scalar(select(AIRunEvent).where(AIRunEvent.run_id == "agent_run-sync-runtime-failure"))
+
+            self.assertEqual(response["run"]["status"], "failed")
+            self.assertIsNotNone(run)
+            assert run is not None
+            self.assertEqual(run.status, "failed")
+            self.assertIn("graph exploded", run.error or "")
+            self.assertIsNotNone(message)
+            assert message is not None
+            self.assertEqual(message.status, "failed")
+            self.assertIsNotNone(conversation)
+            assert conversation is not None
+            self.assertEqual(conversation.last_run_status, "failed")
+            self.assertNotIn("activeRunId", conversation.context or {})
+            self.assertIsNotNone(event)
+            assert event is not None
+            self.assertEqual(event.type, "error")
+            self.assertEqual(event.payload.get("error"), "graph exploded")
+
+        def test_agent_round_limit_finalizes_running_state_as_failed(self) -> None:
+            with self.SessionLocal() as db:
+                conversation = AIConversation(
+                    id="conversation-round-limit",
+                    family_id=self.family.id,
+                    mode=AiMode.RECOMMENDATION,
+                    prompt="继续运行",
+                    response="",
+                    title="轮次上限",
+                    status="running",
+                    context={"activeRunId": "agent_run-round-limit"},
+                    created_by=self.user.id,
+                )
+                user_message = AIMessage(
+                    id="ai_message-round-limit-user",
+                    family_id=self.family.id,
+                    conversation_id=conversation.id,
+                    role="user",
+                    content="继续运行",
+                    content_type="text",
+                    status="completed",
+                    created_by=self.user.id,
+                )
+                run = AIAgentRun(
+                    id="agent_run-round-limit",
+                    family_id=self.family.id,
+                    conversation_id=conversation.id,
+                    message_id=user_message.id,
+                    agent_key="workspace_orchestrator",
+                    feature_key="ai_workspace_chat",
+                    intent="",
+                    input_summary="继续运行",
+                    context_summary={},
+                    output_summary="",
+                    status="running",
+                    model="round-limit-model",
+                    created_by=self.user.id,
+                )
+                db.add_all([conversation, user_message, run])
+                db.commit()
+
+                runner = WorkspaceGraphRunner(AIApplicationService(db, provider=FakeChatProvider()))
+                next_node = runner._route_after_orchestrator(
+                    {
+                        "status": "running",
+                        "agent_rounds": MAX_AGENT_ROUNDS,
+                    }
+                )
+                result = runner._finalize(
+                    {
+                        "family_id": self.family.id,
+                        "user_id": self.user.id,
+                        "conversation_id": conversation.id,
+                        "run_id": run.id,
+                        "status": "running",
+                        "agent_rounds": MAX_AGENT_ROUNDS,
+                        "error": None,
+                    }
+                )
+                db.commit()
+                db.refresh(run)
+                db.refresh(conversation)
+                assistant_message = db.scalar(
+                    select(AIMessage).where(AIMessage.run_id == run.id, AIMessage.role == "assistant")
+                )
+
+            self.assertEqual(next_node, "finalize")
+            self.assertEqual(result["status"], "failed")
+            self.assertEqual(run.status, "failed")
+            self.assertEqual(run.error, "agent round limit exceeded")
+            self.assertEqual(conversation.last_run_status, "failed")
+            self.assertNotIn("activeRunId", conversation.context or {})
+            self.assertIsNotNone(assistant_message)
+            assert assistant_message is not None
+            self.assertEqual(assistant_message.status, "failed")
 
         def test_workspace_orchestrator_human_input_interrupt_resumes_same_run(self) -> None:
             class HumanInputProvider(BaseChatProvider):

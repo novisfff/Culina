@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import type { CookRecipePreviewResponse, CookRecipeRequest, CookRecipeResponse } from '../../api/types';
 import {
+  advanceCookTimers,
   buildCookPayload,
   buildDefaultCookSession,
   clampStepIndex,
@@ -146,26 +147,12 @@ export function useRecipeCookState(args: {
     const timer = window.setInterval(() => {
       setCookSession((current) => {
         if (!current) return current;
-        let newlyFinishedTimerId: string | null = null;
-        const nextTimers = current.timers.map((t) => {
-          if (!t.running) return t;
-          const duration = t.durationSeconds;
-          if (t.mode === 'countdown' && duration) {
-            const nextSeconds = t.seconds + 1;
-            if (nextSeconds >= duration) {
-              newlyFinishedTimerId = t.id;
-              return { ...t, running: false, seconds: duration };
-            }
-            return { ...t, seconds: nextSeconds };
-          }
-          return { ...t, seconds: t.seconds + 1 };
-        });
-        const activeTimerId = newlyFinishedTimerId ? newlyFinishedTimerId : current.activeTimerId;
-        return { ...current, timers: nextTimers, activeTimerId };
+        const { timers, newlyFinishedTimerId } = advanceCookTimers(current.timers);
+        return { ...current, timers, activeTimerId: newlyFinishedTimerId ?? current.activeTimerId };
       });
     }, 1000);
     return () => window.clearInterval(timer);
-  }, [args.view, cookSession?.timers]);
+  }, [args.view, cookSession?.timers.some((t) => t.running)]);
 
   useEffect(() => {
     if (!cookTimerJustStarted) return;
@@ -228,6 +215,7 @@ export function useRecipeCookState(args: {
           durationSeconds: seconds,
           seconds: 0,
           running: false,
+          lastTickedAt: null,
         };
       });
       return { ...current, timers: nextTimers };
@@ -256,6 +244,7 @@ export function useRecipeCookState(args: {
           durationSeconds: duration,
           seconds: 0,
           running: true,
+          lastTickedAt: Date.now(),
         };
       });
       return { ...current, timers: nextTimers };
@@ -270,7 +259,8 @@ export function useRecipeCookState(args: {
       const nextTimers = current.timers.map((t) => {
         if (t.id !== current.activeTimerId) return t;
         if (t.running) {
-          return { ...t, running: false };
+          const advanced = advanceCookTimers([t]).timers[0] ?? t;
+          return { ...advanced, running: false, lastTickedAt: null };
         } else {
           const duration = t.durationSeconds ?? (t.id === 'default-timer' ? currentStepSuggestedSeconds : null);
           return {
@@ -278,6 +268,7 @@ export function useRecipeCookState(args: {
             mode: duration ? ('countdown' as const) : ('countup' as const),
             durationSeconds: duration,
             running: true,
+            lastTickedAt: Date.now(),
           };
         }
       });
@@ -295,6 +286,7 @@ export function useRecipeCookState(args: {
           ...t,
           seconds: 0,
           running: false,
+          lastTickedAt: null,
         };
       });
       return { ...current, timers: nextTimers };
@@ -315,6 +307,7 @@ export function useRecipeCookState(args: {
         name: timerName,
         seconds: 0,
         running: false,
+        lastTickedAt: null,
         mode,
         durationSeconds,
         source: 'manual' as const,
@@ -340,6 +333,7 @@ export function useRecipeCookState(args: {
           mode: duration ? ('countdown' as const) : ('countup' as const),
           durationSeconds: duration,
           running: true,
+          lastTickedAt: Date.now(),
         };
       });
       return { ...current, timers: nextTimers, activeTimerId: targetId };
@@ -351,7 +345,11 @@ export function useRecipeCookState(args: {
     setCookSession((current) => {
       if (!current) return current;
       const targetId = id && current.timers.some((timer) => timer.id === id) ? id : current.activeTimerId;
-      const nextTimers = current.timers.map((t) => (t.id === targetId ? { ...t, running: false } : t));
+      const nextTimers = current.timers.map((t) => {
+        if (t.id !== targetId) return t;
+        const advanced = advanceCookTimers([t]).timers[0] ?? t;
+        return { ...advanced, running: false, lastTickedAt: null };
+      });
       return { ...current, timers: nextTimers, activeTimerId: targetId };
     });
   }
@@ -360,7 +358,7 @@ export function useRecipeCookState(args: {
     setCookSession((current) => {
       if (!current) return current;
       const targetId = id && current.timers.some((timer) => timer.id === id) ? id : current.activeTimerId;
-      const nextTimers = current.timers.map((t) => (t.id === targetId ? { ...t, seconds: 0, running: false } : t));
+      const nextTimers = current.timers.map((t) => (t.id === targetId ? { ...t, seconds: 0, running: false, lastTickedAt: null } : t));
       return { ...current, timers: nextTimers, activeTimerId: targetId };
     });
   }
@@ -394,6 +392,7 @@ export function useRecipeCookState(args: {
           durationSeconds: seconds,
           seconds: 0,
           running: true,
+          lastTickedAt: Date.now(),
         };
       });
       return { ...current, timers: nextTimers, activeTimerId: targetId };
@@ -429,7 +428,11 @@ export function useRecipeCookState(args: {
       if (!current) return current;
       const nextTimers = current.timers.map((t) => {
         if (t.id !== id) return t;
-        return { ...t, running: !t.running };
+        if (t.running) {
+          const advanced = advanceCookTimers([t]).timers[0] ?? t;
+          return { ...advanced, running: false, lastTickedAt: null };
+        }
+        return { ...t, running: true, lastTickedAt: Date.now() };
       });
       return { ...current, timers: nextTimers };
     });
@@ -473,8 +476,15 @@ export function useRecipeCookState(args: {
     setIsCookFinishOpen(false);
     setCookSession((current) => {
       if (!current) return current;
-      const nextTimers = current.timers.map((t) => ({ ...t, running: false }));
-      return { ...current, timers: nextTimers };
+      const nextTimers = current.timers.map((t) => {
+        const advanced = advanceCookTimers([t]).timers[0] ?? t;
+        return { ...advanced, running: false, lastTickedAt: null };
+      });
+      const nextSession = { ...current, timers: nextTimers };
+      if (activeCookCard) {
+        saveCookSession(activeCookCard.recipe.id, nextSession);
+      }
+      return nextSession;
     });
     setCookCard(null);
     args.setView(target);

@@ -190,8 +190,8 @@ class AICompositeOperationsTestCase(AIAgentInfraTestCase):
 
         def test_composite_operation_is_registered_as_approval_contract_but_not_skill_generated(self) -> None:
             skill_registry = build_workspace_skill_registry()
-            self.assertIn("composite_operation", DRAFT_APPROVAL_CONFIG)
-            config = approval_config_for_payload(
+            self.assertIn("composite_operation", draft_operation_registry.keys())
+            config = draft_operation_registry.approval_config_for_payload(
                 "composite_operation",
                 {
                     "draftType": "composite_operation",

@@ -43,6 +43,7 @@ const cookSession: RecipeCookSessionState = {
       name: '炒蛋',
       seconds: 30,
       running: false,
+      lastTickedAt: null,
       mode: 'countdown',
       durationSeconds: 180,
       source: 'step',

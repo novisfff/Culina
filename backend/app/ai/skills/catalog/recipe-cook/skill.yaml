@@ -20,7 +20,26 @@ script_files: []
 output_types: []
 draft_types:
 - recipe_cook
+draft_contract:
+  recipe_cook:
+    schema_version: recipe_cook_operation.v1
+    approval_config_key: recipe_cook
+    commit_handler_key: recipe_cook
+route_hints:
+- recipe_cook
+- cook_recipe
 approval_policy: draft_then_confirm
+tool_budget:
+  max_tool_calls: 12
+  max_same_read_calls: 2
+completion_policy:
+  followup_required_tools:
+    recipe.search: 菜谱检索后必须说明候选、请求用户选择，或继续读取/预览做菜。
+    recipe.read_by_id: 读取菜谱后必须说明可做性、请求补充信息，或调用 recipe.preview_cook。
+    recipe.preview_cook: 预览后必须继续说明缺料、请求补充信息，或在库存充足时生成 recipe_cook 草稿。
+    inventory.read_available_items: 可用库存读取后必须说明库存是否足够、请求补充信息，或继续预览/生成 recipe_cook 草稿。
+    meal_plan.read_existing: 读取已有计划后必须说明匹配的计划项、请求补充信息，或继续预览/生成 recipe_cook 草稿。
+    workspace.read_artifact: 读取历史 artifact 后必须说明可复用内容、请求补充信息，或继续做菜确认流程。
 examples:
 - 做一份番茄炒蛋，顺便扣减库存。
 - 今晚按这个菜谱做 3 份。

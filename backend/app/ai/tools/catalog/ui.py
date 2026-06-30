@@ -131,4 +131,5 @@ def register_ui_tools(registry: ToolRegistry) -> None:
         handler=ui_propose_actions,
         input_schema=UI_ACTIONS_INPUT_SCHEMA,
         output_schema=UI_ACTIONS_OUTPUT_SCHEMA,
+        output_types=["ui_actions"],
     )

@@ -21,7 +21,26 @@ script_files: []
 output_types: []
 draft_types:
 - shopping_list
+draft_contract:
+  shopping_list:
+    schema_version: shopping_list.v1
+    approval_config_key: shopping_list
+    commit_handler_key: shopping_list
+route_hints:
+- shopping
+- shopping_list
 approval_policy: draft_then_confirm
+tool_budget:
+  max_tool_calls: 14
+  max_same_read_calls: 2
+completion_policy:
+  followup_required_tools:
+    ingredient.search: 食材检索后必须说明候选、请求用户选择，或生成 shopping_list 草稿。
+    ingredient.read_by_id: 读取食材档案后必须说明如何加入清单、请求补充信息，或生成 shopping_list 草稿。
+    shopping.read_pending: 待读购物清单读取后必须总结待购重点、请求补充信息，或生成 shopping_list 草稿。
+    shopping.read_by_id: 读取购物清单详情后必须说明可调整项、请求补充信息，或生成 shopping_list 草稿。
+    inventory.read_available_items: 可用库存读取后必须说明缺口/不必购买项、请求补充信息，或生成 shopping_list 草稿。
+    workspace.read_artifact: 读取历史 artifact 后必须说明可复用内容、请求补充信息，或生成/调整 shopping_list 草稿。
 examples:
 - 生成购物清单。
 - 基于这个计划生成采购清单。

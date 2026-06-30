@@ -262,6 +262,7 @@ async function startPreview() {
       cwd: frontendRoot,
       stdio: ['ignore', 'pipe', 'pipe'],
       env: { ...process.env, BROWSER: 'none' },
+      detached: process.platform !== 'win32',
     }
   );
 
@@ -277,19 +278,52 @@ async function startPreview() {
   try {
     await waitForPreview(url, child);
   } catch (error) {
-    child.kill('SIGTERM');
+    await stopPreviewProcess(child);
     throw new Error(`${error instanceof Error ? error.message : String(error)}\n${output}`);
   }
 
   return {
     url,
     stop: async () => {
-      if (child.exitCode === null) {
-        child.kill('SIGTERM');
-      }
-      await new Promise((resolveStop) => setTimeout(resolveStop, 250));
+      await stopPreviewProcess(child);
     },
   };
+}
+
+function signalPreviewProcess(child, signal) {
+  if (child.exitCode !== null || child.signalCode !== null) return;
+  try {
+    if (process.platform !== 'win32' && child.pid) {
+      process.kill(-child.pid, signal);
+      return;
+    }
+  } catch {
+    // Fall through to direct child signaling. Some environments disallow process-group signals.
+  }
+  child.kill(signal);
+}
+
+function waitForPreviewExit(child, timeoutMs) {
+  if (child.exitCode !== null || child.signalCode !== null) return Promise.resolve(true);
+  return new Promise((resolveWait) => {
+    const timeout = setTimeout(() => {
+      child.off('exit', onExit);
+      resolveWait(false);
+    }, timeoutMs);
+    const onExit = () => {
+      clearTimeout(timeout);
+      resolveWait(true);
+    };
+    child.once('exit', onExit);
+  });
+}
+
+async function stopPreviewProcess(child) {
+  signalPreviewProcess(child, 'SIGTERM');
+  const stopped = await waitForPreviewExit(child, 2_500);
+  if (stopped) return;
+  signalPreviewProcess(child, 'SIGKILL');
+  await waitForPreviewExit(child, 2_500);
 }
 
 async function installApiMocks(context, unexpectedRequests) {
@@ -679,8 +713,11 @@ async function main() {
     await runTabletAirWorkspaceSmoke(browser, preview.url);
     console.log('Smoke passed: login, desktop workspace tabs, 390x844, 768x1024, 1112x834 and 1180x820 responsive checks.');
   } finally {
-    await browser.close();
-    await preview.stop();
+    try {
+      await browser.close();
+    } finally {
+      await preview.stop();
+    }
   }
 }
 

@@ -149,6 +149,8 @@ def register_food_tools(registry: ToolRegistry) -> None:
         handler=food_search,
         input_schema=SEARCH_INPUT,
         output_schema=FOOD_SEARCH_OUTPUT,
+        requires_followup=True,
+        followup_hint="食物检索后必须说明候选、请求用户选择，或继续读取详情/生成草稿。",
     )
     register_tool(
         registry,
@@ -159,6 +161,8 @@ def register_food_tools(registry: ToolRegistry) -> None:
         handler=food_read_by_id,
         input_schema=READ_BY_ID_INPUT,
         output_schema=FOOD_READ_OUTPUT,
+        requires_followup=True,
+        followup_hint="读取食物详情后必须说明如何使用、请求补充信息，或继续生成/调整草稿。",
     )
     register_tool(
         registry,
@@ -173,4 +177,5 @@ def register_food_tools(registry: ToolRegistry) -> None:
         handler=food_profile_create_draft,
         input_schema=draft_input_schema(FOOD_PROFILE_DRAFT_SCHEMA),
         output_schema=draft_output_schema(FOOD_PROFILE_DRAFT_SCHEMA),
+        draft_types=["food_profile"],
     )

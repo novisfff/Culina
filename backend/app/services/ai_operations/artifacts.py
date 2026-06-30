@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from app.core.utils import create_id
+from app.services.ai_operations.registry import draft_operation_registry
 
 
 def build_approval_result_card(
@@ -18,10 +19,10 @@ def build_approval_result_card(
     draft_type = str(draft.get("draft_type") or "")
     draft_payload = draft.get("payload") if isinstance(draft.get("payload"), dict) else {}
     title = approval_result_title(draft_config.get("title"), fallback=draft_type)
-    default_action = approval_result_default_action(
+    default_action = draft_operation_registry.result_default_action(
+        draft_type,
         approval_type=str(approval.get("approval_type") or ""),
         draft_payload=draft_payload,
-        draft_type=draft_type,
     )
     entities = []
     for artifact in business_artifacts:
@@ -32,7 +33,7 @@ def build_approval_result_card(
                 "id": str(artifact.get("entityId") or artifact.get("id") or create_id("result_entity")),
                 "label": str(artifact.get("summary") or artifact_summary(payload, fallback_type=draft_type)),
                 "operation": action or None,
-                "operationLabel": approval_result_operation_label(action) if action else None,
+                "operationLabel": draft_operation_registry.operation_label(draft_type, action) if action else None,
                 "updatedAt": artifact.get("updatedAt"),
             }
         )
@@ -104,7 +105,7 @@ def business_entity_artifacts(
     draft_type = str(draft.get("draft_type") or "")
     operation_id = str(operation.get("id") or "")
     entity_type = str(operation.get("business_entity_type") or "")
-    records = business_entity_records(business_entity, entity_type=entity_type)
+    records = draft_operation_registry.business_entity_records(draft_type, business_entity, entity_type=entity_type)
     artifacts: list[dict[str, Any]] = []
     for index, record in enumerate(records, start=1):
         entity_id = str(record.get("id") or record.get("entity_id") or "")
@@ -129,44 +130,6 @@ def business_entity_artifacts(
     return artifacts
 
 
-def business_entity_records(entity_payload: Any, *, entity_type: str) -> list[dict[str, Any]]:
-    if not isinstance(entity_payload, dict):
-        return []
-    if entity_type == "Recipe":
-        return [entity_payload]
-    if entity_type == "RecipeCookLog" and isinstance(entity_payload.get("cook_log"), dict):
-        return [entity_payload["cook_log"]]
-    if isinstance(entity_payload.get("operations"), list):
-        records: list[dict[str, Any]] = []
-        for item in entity_payload.get("operations") or []:
-            if not isinstance(item, dict):
-                continue
-            if isinstance(item.get("item"), dict):
-                records.append({**item["item"], "_operation": item.get("action"), "_operationId": item.get("operationId")})
-                continue
-            if isinstance(item.get("inventory_item"), dict):
-                records.append({**item["inventory_item"], "_operation": item.get("operation"), "_operationId": item.get("operationId")})
-                continue
-            records.append(item)
-        return records
-    if isinstance(entity_payload.get("steps"), list):
-        records = []
-        for step in entity_payload.get("steps") or []:
-            if not isinstance(step, dict):
-                continue
-            payload = step.get("payload") if isinstance(step.get("payload"), dict) else {}
-            if isinstance(payload.get("operations"), list):
-                for item in payload.get("operations") or []:
-                    if isinstance(item, dict):
-                        records.append({**item, "_operation": step.get("domain"), "_stepId": step.get("stepId")})
-                continue
-            records.append(step)
-        return records
-    if isinstance(entity_payload.get("items"), list):
-        return [item for item in entity_payload.get("items") or [] if isinstance(item, dict)]
-    return [entity_payload]
-
-
 def approval_result_title(title: str | None, *, fallback: str) -> str:
     if isinstance(title, str) and title.startswith("确认") and len(title) > 2:
         return f"已{title[2:]}"
@@ -176,73 +139,23 @@ def approval_result_title(title: str | None, *, fallback: str) -> str:
 
 
 def approval_result_default_action(*, approval_type: str, draft_payload: dict[str, Any], draft_type: str) -> str:
-    action = str(draft_payload.get("action") or "")
-    if action:
-        return action
-    if approval_type.endswith(".create"):
-        return "create"
-    if approval_type.endswith(".update"):
-        return "update"
-    if approval_type.endswith(".delete"):
-        return "delete"
-    if approval_type.endswith(".favorite"):
-        return "set_favorite"
-    if approval_type.endswith(".rate_food"):
-        return "rate_food"
-    if approval_type.endswith(".cook"):
-        return "cook"
-    if draft_type == "inventory_operation":
-        return "inventory_operation"
-    if draft_type == "composite_operation":
-        return "composite_operation"
-    return ""
+    return draft_operation_registry.result_default_action(
+        draft_type,
+        approval_type=approval_type,
+        draft_payload=draft_payload,
+    )
 
 
 def approval_result_operation_label(action: str) -> str:
-    return {
-        "create": "新增",
-        "update": "更新",
-        "delete": "删除",
-        "set_status": "状态变更",
-        "set_done": "状态变更",
-        "set_favorite": "收藏",
-        "update_details": "补充详情",
-        "rate_food": "评分",
-        "cook": "做菜",
-        "restock": "补货",
-        "consume": "消耗",
-        "dispose": "销毁",
-        "inventory_operation": "库存处理",
-    }.get(action, action or "已处理")
+    return draft_operation_registry.operation_label("", action)
 
 
 def approval_result_workspace_label(draft_type: str) -> str:
-    return {
-        "recipe": "菜谱库",
-        "recipe_cook": "做菜记录",
-        "shopping_list": "购物清单",
-        "meal_plan": "菜单计划",
-        "meal_log": "餐食记录",
-        "food_profile": "食物库",
-        "ingredient_profile": "食材库",
-        "inventory_operation": "库存页",
-        "composite_operation": "相关工作区",
-    }.get(draft_type, "对应页面")
+    return draft_operation_registry.workspace_label(draft_type)
 
 
 def approval_result_count_label(draft_type: str, count: int) -> str:
-    nouns = {
-        "recipe": "个菜谱",
-        "recipe_cook": "条做菜记录",
-        "shopping_list": "项采购",
-        "meal_plan": "条计划",
-        "meal_log": "条餐食记录",
-        "food_profile": "个食物",
-        "ingredient_profile": "个食材",
-        "inventory_operation": "项库存变更",
-        "composite_operation": "个复合步骤结果",
-    }
-    return f"{count} {nouns.get(draft_type, '个实体')}"
+    return draft_operation_registry.count_label(draft_type, count)
 
 
 def artifact_updated_at(record: dict[str, Any]) -> str | None:
@@ -268,14 +181,4 @@ def artifact_summary(record: dict[str, Any], *, fallback_type: str) -> str:
 
 
 def fallback_type_label(value: str) -> str:
-    return {
-        "recipe": "菜谱",
-        "recipe_cook": "做菜记录",
-        "shopping_list": "采购项",
-        "meal_plan": "菜单计划",
-        "meal_log": "餐食记录",
-        "food_profile": "食物",
-        "ingredient_profile": "食材",
-        "inventory_operation": "库存处理",
-        "composite_operation": "复合操作",
-    }.get(value, value or "业务记录")
+    return draft_operation_registry.fallback_label(value)

@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.core.utils import create_id, utcnow
 from app.models.domain import AIAgentRun, AIApprovalRequest, AIConversation, AIMessage, AIRunEvent, AITaskDraft
-from app.services.ai_operations import sync_message_approval_parts
+from app.services.ai_operations.messages import sync_message_approval_parts
 
 
 def add_run_event(
