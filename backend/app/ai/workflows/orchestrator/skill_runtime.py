@@ -131,7 +131,7 @@ def _record_skill_injection_trace(
     context: SkillContext,
     state: OrchestratorRunState,
     payload: dict[str, Any],
-    status: str | None = None,
+    status: str = "completed",
     error_code: str | None = None,
     error_message: str | None = None,
 ) -> None:

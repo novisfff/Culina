@@ -45,7 +45,7 @@ class TraceSpanContext:
     def finish(
         self,
         *,
-        status: str = "completed",
+        status: str | None = "completed",
         output_summary: dict[str, Any] | None = None,
         error_code: str | None = None,
         error_message: str | None = None,
@@ -58,7 +58,7 @@ class TraceSpanContext:
         self._finished = True
         ended_at = utcnow()
         update: dict[str, Any] = {
-            "status": status,
+            "status": self.tracer._terminal_status(status),
             "ended_at": ended_at,
             "duration_ms": int((perf_counter() - self.started_perf) * 1000),
             "error_code": error_code,
@@ -165,7 +165,7 @@ class AIRunTracer:
         span_type: str,
         name: str,
         *,
-        status: str = "completed",
+        status: str | None = "completed",
         parent_span_id: str | None = None,
         round_index: int | None = None,
         attempt_index: int | None = None,
@@ -206,6 +206,10 @@ class AIRunTracer:
             max_bytes=max_bytes,
             capture_image_bytes=self.capture_image_bytes,
         )
+
+    def _terminal_status(self, status: str | None) -> str:
+        normalized = str(status or "").strip()
+        return normalized or "completed"
 
     def _safe_update(self, span: AIRunTraceSpan, **values: Any) -> None:
         try:
