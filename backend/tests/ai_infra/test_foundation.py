@@ -2090,7 +2090,7 @@ class AIFoundationTestCase(AIAgentInfraTestCase):
 
             self.assertIn("适合 Markdown 渲染的轻量结构", prompt)
             self.assertIn("短段落、空行、- 列表、编号步骤和 **关键词**", prompt)
-            self.assertIn("简单确认或追问可以只用自然短句", prompt)
+            self.assertIn("简单确认、简短追问或一句话回答时，可以只用自然短句", prompt)
             self.assertIn("不要硬凑 Markdown", prompt)
 
         def test_orchestrator_provider_payload_compacts_historical_drafts_and_approvals(self) -> None:

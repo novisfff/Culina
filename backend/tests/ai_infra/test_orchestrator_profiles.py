@@ -48,7 +48,7 @@ class OrchestratorProfileTestCase(AIAgentInfraTestCase):
             self.assertEqual(profile.key, MAIN_WORKSPACE_PROFILE.key)
             self.assertIs(DEFAULT_ORCHESTRATOR_PROFILE, MAIN_WORKSPACE_PROFILE)
             self.assertIs(ORCHESTRATOR_PROFILE_REGISTRY.get("main_workspace"), MAIN_WORKSPACE_PROFILE)
-            self.assertIn("Culina 主 AI 助手", profile.system_prompt_addon)
+            self.assertIn("Culina 的主 AI 助手", profile.system_prompt_addon)
             self.assertIn("Markdown", profile.system_prompt_addon)
             self.assertEqual(profile.capability_policy.skill_injection, "dynamic")
             self.assertEqual(profile.capability_policy.allowed_skill_keys, MAIN_WORKSPACE_ALLOWED_SKILL_KEYS)
