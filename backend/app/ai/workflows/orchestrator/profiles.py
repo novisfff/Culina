@@ -11,6 +11,16 @@ ArtifactContextPolicy = Literal["all", "without_drafts", "hidden"]
 DEFAULT_MAX_BUSINESS_SKILLS_PER_RUN = 4
 DEFAULT_MAX_TOTAL_TOOL_CALLS_PER_RUN = 32
 DEFAULT_MAX_SAME_READ_TOOL_CALLS_PER_RUN = 3
+MAIN_WORKSPACE_ALLOWED_SKILL_KEYS = (
+    "food_profile",
+    "ingredient_profile",
+    "inventory_analysis",
+    "meal_log",
+    "meal_plan",
+    "recipe_cook",
+    "recipe_draft",
+    "shopping_list",
+)
 
 
 def _non_negative_int(value: Any, fallback: int) -> int:
@@ -411,6 +421,10 @@ class OrchestratorProfileRegistry:
 MAIN_WORKSPACE_PROFILE = OrchestratorProfile(
     key="main_workspace",
     response_style="markdown_friendly",
+    capability_policy=OrchestratorCapabilityPolicy(
+        skill_injection="dynamic",
+        allowed_skill_keys=MAIN_WORKSPACE_ALLOWED_SKILL_KEYS,
+    ),
     system_prompt_addon="""
 你是 Culina 主 AI 助手，服务家庭日常饮食管理工作台。
 

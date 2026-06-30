@@ -30,7 +30,11 @@ from app.ai.workflows.runner_support.run_summary import (
 )
 from app.ai.workflows.runner import MAX_AGENT_ROUNDS
 from app.ai.workflows.orchestrator.tool_contracts import tool_completion_metadata
-from app.ai.workflows.orchestrator.profiles import MAIN_WORKSPACE_PROFILE, OrchestratorBudgetConfig
+from app.ai.workflows.orchestrator.profiles import (
+    MAIN_WORKSPACE_ALLOWED_SKILL_KEYS,
+    MAIN_WORKSPACE_PROFILE,
+    OrchestratorBudgetConfig,
+)
 from app.schemas.ai import AIResultCardDTO
 
 
@@ -84,6 +88,15 @@ def _contract_tool_registries(
         )
     )
     return tool_registry, skill_registry
+
+
+def _contract_test_profile_state() -> dict[str, Any]:
+    profile_state = MAIN_WORKSPACE_PROFILE.to_state()
+    profile_state["capabilityPolicy"] = {
+        **profile_state["capabilityPolicy"],
+        "allowedSkillKeys": ["contract_test"],
+    }
+    return profile_state
 
 
 def _recipe_cook_policy_tool_registry() -> ToolRegistry:
@@ -1377,8 +1390,9 @@ class AIFoundationTestCase(AIAgentInfraTestCase):
 
             self.assertEqual(result.status, "completed")
             self.assertEqual(provider.tool_names_by_call[0], ["human.request_input", "skill.inject"])
-            self.assertEqual(provider.skill_inject_enums_by_call[0], sorted(build_workspace_skill_registry().keys()))
+            self.assertEqual(provider.skill_inject_enums_by_call[0], sorted(MAIN_WORKSPACE_ALLOWED_SKILL_KEYS))
             self.assertIn("inventory_analysis", provider.skill_inject_enums_by_call[0])
+            self.assertNotIn("cooking_assistant", provider.skill_inject_enums_by_call[0])
             self.assertNotIn("inventory-analysis", provider.skill_inject_enums_by_call[0])
             self.assertEqual(provider.skill_inject_max_items_by_call, [4, 2])
             self.assertIn("meal_plan.create_draft", provider.tool_names_by_call[1])
@@ -1688,7 +1702,7 @@ class AIFoundationTestCase(AIAgentInfraTestCase):
                     return ChatProviderResult(text=text, status="completed", model=self.model_name)
 
             tool_registry, skill_registry = _contract_tool_registries({"items": [{"name": "番茄"}]})
-            profile_state = MAIN_WORKSPACE_PROFILE.to_state()
+            profile_state = _contract_test_profile_state()
             profile_state["budgetConfig"] = OrchestratorBudgetConfig(max_total_tool_calls_per_run=0).to_state()
             provider = TotalToolBudgetProvider()
             result = WorkspaceOrchestratorAgent(
@@ -1767,7 +1781,7 @@ class AIFoundationTestCase(AIAgentInfraTestCase):
                     run_id="run-initial-skill-tool-budget",
                     conversation=[{"id": "message-1", "role": "user", "content": "读取测试数据", "artifacts": []}],
                     current_message="读取测试数据",
-                    orchestrator_profile=MAIN_WORKSPACE_PROFILE.to_state(),
+                    orchestrator_profile=_contract_test_profile_state(),
                     tool_executor=ToolExecutor(
                         tool_registry,
                         ToolContext(
@@ -1835,7 +1849,7 @@ class AIFoundationTestCase(AIAgentInfraTestCase):
                     run_id="run-dynamic-skill-tool-budget",
                     conversation=[{"id": "message-1", "role": "user", "content": "重复读取测试数据", "artifacts": []}],
                     current_message="重复读取测试数据",
-                    orchestrator_profile=MAIN_WORKSPACE_PROFILE.to_state(),
+                    orchestrator_profile=_contract_test_profile_state(),
                     tool_executor=ToolExecutor(
                         tool_registry,
                         ToolContext(
@@ -1885,7 +1899,7 @@ class AIFoundationTestCase(AIAgentInfraTestCase):
                     return ChatProviderResult(text=text, status="completed", model=self.model_name)
 
             tool_registry, skill_registry = _contract_tool_registries({"items": [{"name": "番茄"}]})
-            profile_state = MAIN_WORKSPACE_PROFILE.to_state()
+            profile_state = _contract_test_profile_state()
             profile_state["budgetConfig"] = OrchestratorBudgetConfig(max_same_read_tool_calls_per_run=1).to_state()
             provider = SameReadBudgetProvider()
             result = WorkspaceOrchestratorAgent(
@@ -2787,6 +2801,7 @@ class AIFoundationTestCase(AIAgentInfraTestCase):
                     run_id="run-followup-without-terminal",
                     conversation=[{"id": "message-1", "role": "user", "content": "读取后继续", "artifacts": []}],
                     current_message="读取后继续",
+                    orchestrator_profile=_contract_test_profile_state(),
                     tool_executor=ToolExecutor(
                         tool_registry,
                         ToolContext(
@@ -2850,6 +2865,7 @@ class AIFoundationTestCase(AIAgentInfraTestCase):
                     run_id="run-followup-with-text",
                     conversation=[{"id": "message-1", "role": "user", "content": "读取后总结", "artifacts": []}],
                     current_message="读取后总结",
+                    orchestrator_profile=_contract_test_profile_state(),
                     tool_executor=ToolExecutor(
                         tool_registry,
                         ToolContext(
@@ -2910,6 +2926,7 @@ class AIFoundationTestCase(AIAgentInfraTestCase):
                     run_id="run-terminal-tool-output",
                     conversation=[{"id": "message-1", "role": "user", "content": "直接返回工具终态", "artifacts": []}],
                     current_message="直接返回工具终态",
+                    orchestrator_profile=_contract_test_profile_state(),
                     tool_executor=ToolExecutor(
                         tool_registry,
                         ToolContext(
@@ -2967,6 +2984,7 @@ class AIFoundationTestCase(AIAgentInfraTestCase):
                     run_id="run-definition-followup",
                     conversation=[{"id": "message-1", "role": "user", "content": "读取后继续", "artifacts": []}],
                     current_message="读取后继续",
+                    orchestrator_profile=_contract_test_profile_state(),
                     tool_executor=ToolExecutor(
                         tool_registry,
                         ToolContext(
@@ -3032,6 +3050,7 @@ class AIFoundationTestCase(AIAgentInfraTestCase):
                     run_id="run-definition-terminal",
                     conversation=[{"id": "message-1", "role": "user", "content": "直接返回工具终态", "artifacts": []}],
                     current_message="直接返回工具终态",
+                    orchestrator_profile=_contract_test_profile_state(),
                     tool_executor=ToolExecutor(
                         tool_registry,
                         ToolContext(
@@ -3102,6 +3121,7 @@ class AIFoundationTestCase(AIAgentInfraTestCase):
                     run_id="run-output-override",
                     conversation=[{"id": "message-1", "role": "user", "content": "读取后输出覆盖默认值", "artifacts": []}],
                     current_message="读取后输出覆盖默认值",
+                    orchestrator_profile=_contract_test_profile_state(),
                     tool_executor=ToolExecutor(
                         tool_registry,
                         ToolContext(
@@ -3161,6 +3181,7 @@ class AIFoundationTestCase(AIAgentInfraTestCase):
                     run_id="run-skill-policy-followup",
                     conversation=[{"id": "message-1", "role": "user", "content": "读取后继续", "artifacts": []}],
                     current_message="读取后继续",
+                    orchestrator_profile=_contract_test_profile_state(),
                     tool_executor=ToolExecutor(
                         tool_registry,
                         ToolContext(
@@ -3453,6 +3474,7 @@ class AIFoundationTestCase(AIAgentInfraTestCase):
                     run_id="run-skill-policy-requires-terminal",
                     conversation=[{"id": "message-1", "role": "user", "content": "必须有终态输出", "artifacts": []}],
                     current_message="必须有终态输出",
+                    orchestrator_profile=_contract_test_profile_state(),
                     tool_executor=ToolExecutor(
                         tool_registry,
                         ToolContext(
@@ -3516,6 +3538,7 @@ class AIFoundationTestCase(AIAgentInfraTestCase):
                     run_id="run-dynamic-text-disallowed",
                     conversation=[{"id": "message-1", "role": "user", "content": "动态注入后不能只用文本结束", "artifacts": []}],
                     current_message="动态注入后不能只用文本结束",
+                    orchestrator_profile=_contract_test_profile_state(),
                     tool_executor=ToolExecutor(
                         tool_registry,
                         ToolContext(
@@ -3576,6 +3599,7 @@ class AIFoundationTestCase(AIAgentInfraTestCase):
                     run_id="run-skill-policy-terminal",
                     conversation=[{"id": "message-1", "role": "user", "content": "直接返回工具终态", "artifacts": []}],
                     current_message="直接返回工具终态",
+                    orchestrator_profile=_contract_test_profile_state(),
                     tool_executor=ToolExecutor(
                         tool_registry,
                         ToolContext(

@@ -340,6 +340,23 @@ class AIRegistryAndMetricsTestCase(AIAgentInfraTestCase):
             self.assertFalse(profiles["recipe_cook_page"]["default"])
             self.assertEqual(profiles["main_workspace"]["capability_policy"]["skillInjection"], "dynamic")
             self.assertEqual(profiles["main_workspace"]["capability_policy"]["catalogScope"], "all")
+            self.assertEqual(
+                profiles["main_workspace"]["capability_policy"]["allowedSkillKeys"],
+                [
+                    "food_profile",
+                    "ingredient_profile",
+                    "inventory_analysis",
+                    "meal_log",
+                    "meal_plan",
+                    "recipe_cook",
+                    "recipe_draft",
+                    "shopping_list",
+                ],
+            )
+            self.assertNotIn(
+                "cooking_assistant",
+                profiles["main_workspace"]["capability_policy"]["allowedSkillKeys"],
+            )
             self.assertIn("skill.inject", profiles["main_workspace"]["capability_policy"]["baseTools"])
             main_route_hints = {
                 route_hint

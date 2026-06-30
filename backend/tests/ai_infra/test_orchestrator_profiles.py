@@ -5,6 +5,7 @@ from app.ai.workflows.orchestrator.profiles import (
     DEFAULT_MAX_BUSINESS_SKILLS_PER_RUN,
     DEFAULT_MAX_SAME_READ_TOOL_CALLS_PER_RUN,
     DEFAULT_MAX_TOTAL_TOOL_CALLS_PER_RUN,
+    MAIN_WORKSPACE_ALLOWED_SKILL_KEYS,
     MAIN_WORKSPACE_PROFILE,
     ORCHESTRATOR_PROFILE_REGISTRY,
     OrchestratorBudgetConfig,
@@ -50,6 +51,9 @@ class OrchestratorProfileTestCase(AIAgentInfraTestCase):
             self.assertIn("Culina 主 AI 助手", profile.system_prompt_addon)
             self.assertIn("Markdown", profile.system_prompt_addon)
             self.assertEqual(profile.capability_policy.skill_injection, "dynamic")
+            self.assertEqual(profile.capability_policy.allowed_skill_keys, MAIN_WORKSPACE_ALLOWED_SKILL_KEYS)
+            self.assertFalse(profile.capability_policy.allows_skill("cooking_assistant"))
+            self.assertTrue(profile.capability_policy.allows_skill("recipe_cook"))
             self.assertIn("skill.inject", profile.capability_policy.base_tools)
             self.assertEqual(profile.budget_config.max_business_skills_per_run, DEFAULT_MAX_BUSINESS_SKILLS_PER_RUN)
             self.assertEqual(profile.budget_config.max_total_tool_calls_per_run, DEFAULT_MAX_TOTAL_TOOL_CALLS_PER_RUN)
@@ -112,7 +116,14 @@ class OrchestratorProfileTestCase(AIAgentInfraTestCase):
                 )
             )
 
-            profile = profile_with_skill_route_hints(MAIN_WORKSPACE_PROFILE, registry)
+            profile = OrchestratorProfile(
+                key="custom_workspace",
+                capability_policy=OrchestratorCapabilityPolicy(
+                    skill_injection="dynamic",
+                    allowed_skill_keys=("custom_skill",),
+                ),
+            )
+            profile = profile_with_skill_route_hints(profile, registry)
 
             self.assertEqual(
                 profile.initial_skill_keys_for(quick_task="custom_quick_task", subject={}),
@@ -149,13 +160,13 @@ class OrchestratorProfileTestCase(AIAgentInfraTestCase):
             with self.assertRaisesRegex(ValueError, "ambiguous skill route hint shared_hint"):
                 validate_orchestrator_profile_registry(
                     OrchestratorProfileRegistry(
-                        profiles=(MAIN_WORKSPACE_PROFILE,),
-                        default_profile=MAIN_WORKSPACE_PROFILE,
+                        profiles=(OrchestratorProfile(key="unrestricted_dynamic"),),
+                        default_profile=OrchestratorProfile(key="unrestricted_dynamic"),
                     ),
                     registry,
                 )
             with self.assertRaisesRegex(ValueError, "ambiguous skill route hints"):
-                profile_with_skill_route_hints(MAIN_WORKSPACE_PROFILE, registry)
+                profile_with_skill_route_hints(OrchestratorProfile(key="unrestricted_dynamic"), registry)
 
         def test_dynamic_profile_route_hint_conflicts_respect_allowed_skill_keys(self) -> None:
             registry = SkillRegistry()
