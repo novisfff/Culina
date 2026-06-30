@@ -15,7 +15,23 @@ script_files: []
 output_types: []
 draft_types:
 - ingredient_profile
+draft_contract:
+  ingredient_profile:
+    schema_version: ingredient_profile.v1
+    approval_config_key: ingredient_profile
+    commit_handler_key: ingredient_profile
+route_hints:
+- ingredient
+- ingredient_profile
 approval_policy: draft_then_confirm
+tool_budget:
+  max_tool_calls: 10
+  max_same_read_calls: 2
+completion_policy:
+  followup_required_tools:
+    ingredient.search: 食材检索后必须说明候选、请求用户选择，或生成 ingredient_profile 草稿。
+    ingredient.read_by_id: 读取食材档案后必须总结现有资料、请求补充信息，或生成更新草稿。
+    workspace.read_artifact: 读取历史 artifact 后必须说明可复用内容、请求补充信息，或生成/调整 ingredient_profile 草稿。
 examples:
 - 新增鸡胸肉食材，默认单位克，冷冻保存。
 - 把番茄默认保质期改成 7 天。

@@ -22,6 +22,11 @@ def register_tool(
     input_schema: dict[str, Any],
     output_schema: dict[str, Any],
     permission: str | None = None,
+    requires_followup: bool = False,
+    terminal_output: bool = False,
+    followup_hint: str = "",
+    output_types: list[str] | None = None,
+    draft_types: list[str] | None = None,
 ) -> None:
     resolved_permission = permission or ("family:draft" if side_effect == "draft" else "family:read")
     registry.register(
@@ -34,6 +39,11 @@ def register_tool(
             permission=resolved_permission,
             side_effect=side_effect,  # type: ignore[arg-type]
             requires_confirmation=side_effect == "draft",
+            requires_followup=requires_followup,
+            terminal_output=terminal_output,
+            followup_hint=followup_hint,
+            output_types=output_types or [],
+            draft_types=draft_types or [],
             handler=handler,
         )
     )

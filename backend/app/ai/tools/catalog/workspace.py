@@ -121,4 +121,6 @@ def register_workspace_tools(registry: ToolRegistry) -> None:
         handler=workspace_read_artifact,
         input_schema=WORKSPACE_READ_ARTIFACT_INPUT,
         output_schema=WORKSPACE_READ_ARTIFACT_OUTPUT,
+        requires_followup=True,
+        followup_hint="读取历史 artifact 后必须说明可复用内容、请求补充信息，或继续生成/调整草稿。",
     )

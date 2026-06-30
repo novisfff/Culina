@@ -793,9 +793,10 @@ class AIInventoryOperationsTestCase(AIAgentInfraTestCase):
                     }
                 ]
             }
-            validate_inventory_operation_shape(original, original)
+            draft_operation_registry.validate_approval_value("inventory_operation", original, original)
             with self.assertRaisesRegex(ValueError, "处理方式不能"):
-                validate_inventory_operation_shape(
+                draft_operation_registry.validate_approval_value(
+                    "inventory_operation",
                     original,
                     {
                         "operations": [

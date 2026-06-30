@@ -4754,13 +4754,13 @@
     padding: 10px !important;
     border: 1px solid rgba(147, 96, 63, 0.2) !important;
     border-radius: 22px;
-    background: rgba(255, 255, 255, 0.98) !important;
-    backdrop-filter: blur(16px);
+    background: rgba(255, 255, 255, 0.85) !important;
+    backdrop-filter: blur(20px) !important;
     box-shadow: 0 20px 48px -12px rgba(74, 54, 40, 0.24) !important;
   }
 
   .recipe-workspace-cook-mode .recipe-cook-ai-panel {
-    max-height: min(58vh, 430px);
+    max-height: min(75vh, 520px);
   }
 
   .recipe-workspace-cook-mode .recipe-cook-ai-head {
@@ -4772,7 +4772,7 @@
   }
 
   .recipe-workspace-cook-mode .recipe-cook-ai-messages {
-    max-height: min(28vh, 220px);
+    max-height: min(45vh, 340px);
   }
 
   .recipe-workspace-cook-mode .recipe-cook-ai-message {

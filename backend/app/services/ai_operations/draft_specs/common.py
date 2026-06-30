@@ -1,0 +1,261 @@
+from __future__ import annotations
+
+from collections import Counter
+from typing import Any
+
+from app.services.ai_operations.registry_types import (
+    DEFAULT_DRAFT_RESULT_METADATA,
+    ApprovalConfigBuilder,
+    ApprovalValueValidator,
+    BusinessEntityRecordsExtractor,
+    DraftOperationSpec,
+    DraftResultMetadata,
+    ExecuteDraft,
+    NormalizeDraft,
+    PostExecuteHook,
+    PreviewSummaryBuilder,
+    RecoveryCurrentValueLoader,
+    _allow_any_approval_value,
+)
+
+
+DRAFT_APPROVAL_BASE_CONFIGS: dict[str, dict[str, str]] = {
+    "recipe": {
+        "value_key": "recipe",
+        "widget": "recipe_draft_editor",
+        "approval_type": "recipe.create",
+        "operation_type": "recipe.create",
+        "business_entity_type": "Recipe",
+        "title": "确认创建菜谱",
+        "instruction": "确认后会创建菜谱，并自动同步一个家常菜食物资料。",
+        "approve_label": "创建菜谱",
+        "reject_label": "暂不创建",
+    },
+    "recipe_cook": {
+        "value_key": "draft",
+        "widget": "textarea",
+        "approval_type": "recipe.cook",
+        "operation_type": "recipe.cook",
+        "business_entity_type": "RecipeCookLog",
+        "title": "确认完成做菜",
+        "instruction": "确认后会按当前预览扣减库存，并按选择创建餐食记录或完成关联计划。",
+        "approve_label": "确认做菜",
+        "reject_label": "暂不执行",
+    },
+    "shopping_list": {
+        "value_key": "draft",
+        "widget": "textarea",
+        "approval_type": "shopping_list.create",
+        "operation_type": "shopping_list.create",
+        "business_entity_type": "ShoppingListItem",
+        "title": "确认创建购物清单",
+        "instruction": "确认后会把这些项目加入购物清单。",
+        "approve_label": "加入购物清单",
+        "reject_label": "暂不加入",
+    },
+    "meal_plan": {
+        "value_key": "draft",
+        "widget": "textarea",
+        "approval_type": "meal_plan.create",
+        "operation_type": "meal_plan.create",
+        "business_entity_type": "FoodPlanItem",
+        "title": "确认创建餐食计划",
+        "instruction": "确认后会把计划项写入菜单计划。未关联食物的条目会先创建可编辑的食物资料。",
+        "approve_label": "写入菜单计划",
+        "reject_label": "暂不写入",
+    },
+    "meal_log": {
+        "value_key": "draft",
+        "widget": "textarea",
+        "approval_type": "meal_log.create",
+        "operation_type": "meal_log.create",
+        "business_entity_type": "MealLog",
+        "title": "确认创建餐食记录",
+        "instruction": "确认后会创建餐食记录。未关联食物的条目会先创建可编辑的食物资料。",
+        "approve_label": "记录餐食",
+        "reject_label": "暂不记录",
+    },
+    "food_profile": {
+        "value_key": "draft",
+        "widget": "textarea",
+        "approval_type": "food_profile.create",
+        "operation_type": "food_profile.create",
+        "business_entity_type": "Food",
+        "title": "确认创建食物资料",
+        "instruction": "确认后会把这份资料写入食物库。",
+        "approve_label": "创建食物",
+        "reject_label": "暂不创建",
+    },
+    "ingredient_profile": {
+        "value_key": "draft",
+        "widget": "textarea",
+        "approval_type": "ingredient_profile.create",
+        "operation_type": "ingredient_profile.create",
+        "business_entity_type": "Ingredient",
+        "title": "确认整理食材档案",
+        "instruction": "确认后会创建或更新当前家庭的食材档案。",
+        "approve_label": "确认写入食材",
+        "reject_label": "暂不写入",
+    },
+    "inventory_operation": {
+        "value_key": "draft",
+        "widget": "textarea",
+        "approval_type": "inventory.operation",
+        "operation_type": "inventory.operation",
+        "business_entity_type": "InventoryItem",
+        "title": "确认处理库存",
+        "instruction": "请核对食材、批次和数量。确认后会正式修改家庭库存。",
+        "approve_label": "确认处理库存",
+        "reject_label": "暂不处理",
+    },
+    "composite_operation": {
+        "value_key": "draft",
+        "widget": "textarea",
+        "approval_type": "composite_operation.apply",
+        "operation_type": "composite_operation.apply",
+        "business_entity_type": "CompositeOperation",
+        "title": "确认执行复合操作",
+        "instruction": "请核对每一步影响。确认后会按顺序执行，并在任一步失败时回滚已完成步骤。",
+        "approve_label": "执行复合操作",
+        "reject_label": "暂不执行",
+    },
+}
+
+
+def _base_config(draft_type: str) -> dict[str, str]:
+    return dict(DRAFT_APPROVAL_BASE_CONFIGS[draft_type])
+
+
+def _operation_action_counter(payload: dict[str, Any]) -> Counter[str]:
+    return Counter(
+        str(operation.get("action") or "")
+        for operation in payload.get("operations") or []
+        if isinstance(operation, dict) and str(operation.get("action") or "")
+    )
+
+
+def _validate_operation_list_value(original: Any, submitted: Any) -> None:
+    if not isinstance(original, dict) or not isinstance(submitted, dict):
+        raise ValueError("操作草稿格式不正确")
+    if not isinstance(original.get("operations"), list) or not isinstance(submitted.get("operations"), list):
+        return
+
+    def operation_key(operation: Any) -> tuple[str, str, str]:
+        if not isinstance(operation, dict):
+            return ("", "", "")
+        return (
+            str(operation.get("action") or ""),
+            str(operation.get("targetId") or ""),
+            str(operation.get("baseUpdatedAt") or ""),
+        )
+
+    allowed = Counter(operation_key(operation) for operation in original["operations"])
+    requested = Counter(operation_key(operation) for operation in submitted["operations"])
+    if any(not action for action, _, _ in requested):
+        raise ValueError("操作草稿项格式不正确")
+    if any(count > allowed.get(key, 0) for key, count in requested.items()):
+        raise ValueError("确认阶段不能修改操作类型、目标或版本基线")
+
+
+def _validate_single_target_operation_value(original: Any, submitted: Any) -> None:
+    if not isinstance(original, dict) or not isinstance(submitted, dict):
+        raise ValueError("操作草稿格式不正确")
+    for key in ("action", "targetId", "baseUpdatedAt"):
+        if str(original.get(key) or "") != str(submitted.get(key) or ""):
+            raise ValueError("确认阶段不能修改操作类型、目标或版本基线")
+
+
+def _validate_ingredient_profile_value(original: Any, submitted: Any) -> None:
+    if isinstance(original, dict) and isinstance(original.get("operations"), list):
+        _validate_operation_list_value(original, submitted)
+        return
+    _validate_single_target_operation_value(original, submitted)
+
+
+def _is_update_like_action(action: str) -> bool:
+    return action in {"update", "set_status", "set_done"}
+
+
+def _build_operation_copy(
+    *,
+    create_title: str,
+    update_title: str,
+    apply_title: str,
+    mixed_noun: str,
+    create_instruction: str,
+    update_instruction: str,
+    apply_instruction: str,
+    create_approve_label: str,
+    update_approve_label: str,
+    apply_approve_label: str,
+    payload: dict[str, Any],
+) -> dict[str, str]:
+    counts = _operation_action_counter(payload)
+    total = sum(counts.values())
+    if total <= 0:
+        return {
+            "title": apply_title,
+            "instruction": apply_instruction,
+            "approve_label": apply_approve_label,
+            "reject_label": "暂不应用",
+        }
+    action_keys = set(counts)
+    if action_keys == {"create"}:
+        return {
+            "title": create_title,
+            "instruction": create_instruction,
+            "approve_label": create_approve_label,
+            "reject_label": "暂不添加",
+        }
+    if action_keys and all(_is_update_like_action(action) for action in action_keys):
+        return {
+            "title": update_title,
+            "instruction": update_instruction,
+            "approve_label": update_approve_label,
+            "reject_label": "暂不修改",
+        }
+    if total > 1:
+        return {
+            "title": f"确认应用 {total} 项{mixed_noun}",
+            "instruction": apply_instruction,
+            "approve_label": apply_approve_label,
+            "reject_label": "暂不应用",
+        }
+    return {
+        "title": apply_title,
+        "instruction": apply_instruction,
+        "approve_label": apply_approve_label,
+        "reject_label": "暂不应用",
+    }
+
+
+def _default_preview_summary(payload: dict[str, Any]) -> str:
+    del payload
+    return "AI 草稿"
+
+
+def _spec(
+    draft_type: str,
+    *,
+    normalize: NormalizeDraft,
+    execute: ExecuteDraft,
+    preview_summary: PreviewSummaryBuilder,
+    after_success: PostExecuteHook | None = None,
+    approval_config: ApprovalConfigBuilder | None = None,
+    validate_approval_value: ApprovalValueValidator = _allow_any_approval_value,
+    result_metadata: DraftResultMetadata = DEFAULT_DRAFT_RESULT_METADATA,
+    business_entity_records: BusinessEntityRecordsExtractor | None = None,
+    load_current_value: RecoveryCurrentValueLoader | None = None,
+) -> DraftOperationSpec:
+    return DraftOperationSpec(
+        draft_type=draft_type,
+        normalize=normalize,
+        execute=execute,
+        after_success=after_success,
+        preview_summary=preview_summary or _default_preview_summary,
+        approval_config=approval_config or (lambda payload, key=draft_type: _base_config(key)),
+        validate_approval_value=validate_approval_value,
+        result_metadata=result_metadata,
+        business_entity_records=business_entity_records,
+        load_current_value=load_current_value,
+    )

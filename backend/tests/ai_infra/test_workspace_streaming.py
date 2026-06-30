@@ -1,4 +1,5 @@
 import threading
+from typing import Any
 
 from app.ai.errors import ApprovalRequired
 from app.ai.workflows.live_stream_cache import live_ai_stream_cache
@@ -991,6 +992,41 @@ class AIWorkspaceStreamingTestCase(AIAgentInfraTestCase):
             self.assertEqual([part["id"] for part in assistant_message["parts"]], ["text-completed"])
             self.assertEqual(live_ai_stream_cache.parts_for_run(run_id), [])
 
+        def test_graph_stream_worker_receives_bind_not_main_session(self) -> None:
+            runner = WorkspaceGraphRunner.__new__(WorkspaceGraphRunner)
+            runner._direct_stream_sink = None
+            runner.provider = object()
+            main_thread_id = threading.get_ident()
+            db_bind = object()
+
+            class FakeSession:
+                called_thread_id: int | None = None
+
+                def get_bind(self):
+                    self.called_thread_id = threading.get_ident()
+                    return db_bind
+
+            fake_db = FakeSession()
+            runner.db = fake_db
+            captured: dict[str, Any] = {}
+
+            def fake_worker(**kwargs):
+                captured.update(kwargs)
+                kwargs["event_queue"].put(kwargs["stream_done_marker"])
+
+            with patch("app.ai.workflows.runner.consume_stream_graph_worker", side_effect=fake_worker):
+                stream = runner._stream_graph_events(
+                    lambda _runner: iter(()),
+                    handle_update=lambda _runner, _update: iter(()),
+                    seen_event_ids=set(),
+                    on_disconnect=lambda: None,
+                )
+                self.assertEqual(list(stream), [])
+
+            self.assertEqual(fake_db.called_thread_id, main_thread_id)
+            self.assertIs(captured["db_bind"], db_bind)
+            self.assertNotIn("db", captured)
+
         def test_graph_stream_disconnect_continues_worker_without_blocking_close(self) -> None:
             runner = WorkspaceGraphRunner.__new__(WorkspaceGraphRunner)
             runner._direct_stream_sink = None
@@ -1519,7 +1555,7 @@ class AIWorkspaceStreamingTestCase(AIAgentInfraTestCase):
                 run = db.get(AIAgentRun, "agent_run-repeated-read")
                 self.assertIsNotNone(run)
                 tool_calls = [record for record in (run.tool_calls or []) if record.get("name") == "inventory.read_available_items"]
-                self.assertEqual(len(tool_calls), 3)
+                self.assertEqual(len(tool_calls), 2)
 
         def test_ai_workspace_non_stream_chat_returns_progressive_drafts_without_duplicates(self) -> None:
             provider = ProgressiveMultiDraftProvider()
@@ -1723,7 +1759,7 @@ class AIWorkspaceStreamingTestCase(AIAgentInfraTestCase):
                 db.commit()
 
                 runner = WorkspaceGraphRunner(AIApplicationService(db, provider=EmptyApprovalFollowupProvider()))
-                runner._stream_approval_followup(
+                runner.approval_followup_streamer.stream_followup(
                     {
                         "family_id": self.family.id,
                         "user_id": self.user.id,
@@ -1816,6 +1852,14 @@ class AIWorkspaceStreamingTestCase(AIAgentInfraTestCase):
                 )
                 db.add_all([conversation, run, message])
                 db.flush()
+                live_ai_stream_cache.append_activity(
+                    family_id=self.family.id,
+                    conversation_id=conversation.id,
+                    run_id=run.id,
+                    message_id=message.id,
+                    part={"id": "live-result-finalize-stale-active", "type": "activity", "text": "处理中"},
+                    created_by=self.user.id,
+                )
 
                 WorkspaceGraphRunner(AIApplicationService(db, provider=FakeChatProvider()))._finalize(
                     {
@@ -1836,6 +1880,7 @@ class AIWorkspaceStreamingTestCase(AIAgentInfraTestCase):
                 self.assertEqual(message.content, "任务已完成。")
                 self.assertEqual(message.status, "completed")
                 self.assertNotIn("liveStreaming", message.message_metadata or {})
+                self.assertEqual(live_ai_stream_cache.parts_for_run(run.id), [])
 
         def test_ai_workspace_finalize_does_not_overwrite_cancelled_run(self) -> None:
             from app.ai.workflows.runner import WorkspaceGraphRunner

@@ -9,6 +9,7 @@ from langchain_core.messages import AIMessage, AIMessageChunk, HumanMessage, Sys
 from app.ai.observability.llm_exchange import LLMExchangeRecorder
 from app.ai.observability.tracer import AIRunTracer
 from app.ai.runtime.provider import BaseChatProvider, ChatProviderResult, OpenAICompatibleChatProvider
+from app.ai.workflows.orchestrator.skill_runtime import _record_skill_injection_trace
 from app.core.config import Settings
 from app.core.utils import create_id, utcnow
 from app.models.domain import AIRunLLMExchange, AIRunTraceSpan
@@ -370,6 +371,65 @@ class AIObservabilityTestCase(AIAgentInfraTestCase):
             with patch.object(recorder, "_clean_response", side_effect=RuntimeError("response redaction failed")):
                 handle.finish(response_message=AIMessage(content="response"), response_text="response")
             self.assertEqual(list(db.new), [])
+
+    def test_trace_event_empty_status_defaults_to_completed(self) -> None:
+        response = self.client.post(
+            "/api/ai/chat",
+            json={"message": "随便聊聊", "client_run_id": "agent_run-observability-empty-status"},
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        data = response.json()
+        run_id = data["run"]["id"]
+        conversation_id = data["conversation_id"]
+
+        with self.SessionLocal() as db:
+            tracer = AIRunTracer(
+                db=db,
+                family_id=self.family.id,
+                run_id=run_id,
+                conversation_id=conversation_id,
+                trace_id="ai_trace-empty-status",
+                user_id=self.user.id,
+            )
+            tracer.record_event("test", "empty status event", status=None)
+
+        with self.SessionLocal() as db:
+            span = db.query(AIRunTraceSpan).filter(AIRunTraceSpan.trace_id == "ai_trace-empty-status").one()
+            self.assertEqual(span.status, "completed")
+
+    def test_skill_injection_trace_defaults_to_completed(self) -> None:
+        response = self.client.post(
+            "/api/ai/chat",
+            json={"message": "随便聊聊", "client_run_id": "agent_run-observability-skill-injection-status"},
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        data = response.json()
+        run_id = data["run"]["id"]
+        conversation_id = data["conversation_id"]
+
+        with self.SessionLocal() as db:
+            tracer = AIRunTracer(
+                db=db,
+                family_id=self.family.id,
+                run_id=run_id,
+                conversation_id=conversation_id,
+                trace_id="ai_trace-skill-injection-status",
+                user_id=self.user.id,
+            )
+            _record_skill_injection_trace(
+                context=SimpleNamespace(
+                    tracer=tracer,
+                    trace_parent_span_id=None,
+                ),
+                state=SimpleNamespace(trace_round_index=1),
+                payload={"requested": ["ingredient_profile"], "added": ["ingredient_profile"]},
+            )
+
+        with self.SessionLocal() as db:
+            span = db.query(AIRunTraceSpan).filter(AIRunTraceSpan.trace_id == "ai_trace-skill-injection-status").one()
+            self.assertEqual(span.span_type, "skill_injection")
+            self.assertEqual(span.name, "skill.inject")
+            self.assertEqual(span.status, "completed")
 
     def test_orchestrator_llm_exchanges_are_linked_to_trace_span(self) -> None:
         class TraceableProvider(BaseChatProvider):

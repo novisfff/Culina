@@ -22,7 +22,31 @@ output_types:
 - inventory_summary
 draft_types:
 - inventory_operation
+draft_contract:
+  inventory_operation:
+    schema_version: inventory_operation.v1
+    approval_config_key: inventory_operation
+    commit_handler_key: inventory_operation
+route_hints:
+- inventory
+- inventory_analysis
+- inventory_summary
+- inventory_operation
 approval_policy: draft_then_confirm
+tool_budget:
+  max_tool_calls: 14
+  max_same_read_calls: 2
+completion_policy:
+  terminal_tools:
+    inventory.read_summary: 库存概览卡可作为库存查询的终态输出。
+  followup_required_tools:
+    ingredient.search: 食材检索后必须说明候选库存处理对象、请求用户选择，或继续读取食材/库存并生成库存处理草稿。
+    ingredient.read_by_id: 读取食材档案后必须说明当前库存处理依据、请求补充信息，或生成库存处理草稿。
+    inventory.read_expiring_items: 临期列表读取后必须总结重点、请求补充信息，或生成库存处理草稿。
+    inventory.read_expired_items: 过期列表读取后必须总结风险、请求补充信息，或生成库存处理草稿。
+    inventory.read_low_stock_items: 低库存列表读取后必须总结补货重点、请求补充信息，或生成库存处理草稿。
+    inventory.read_available_items: 可用库存读取后必须总结可用食材、请求补充信息，或生成库存处理草稿。
+    workspace.read_artifact: 读取历史 artifact 后必须说明可复用内容、请求补充信息，或继续生成/调整库存处理草稿。
 examples:
 - 快过期食材有哪些？
 - 库存怎么样？

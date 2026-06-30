@@ -7,7 +7,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
-from app.ai.tools.base import ToolContext
+from app.ai.tools.base import ToolContext, ToolDefinition
 from app.ai.tools.catalog.common import decimal_text, entity_media_map, first_entity_media, register_tool
 from app.ai.tools.draft_validation import normalize_inventory_operation_draft
 from app.ai.tools.registry import ToolRegistry
@@ -31,16 +31,24 @@ from app.services.inventory_usage import remaining_quantity, tracks_quantity
 
 INVENTORY_SUMMARY_OUTPUT = {
     "type": "object",
-    "required": ["queryFocus", "availableCount", "expiringCount", "lowStockCount", "items"],
+    "required": ["queryFocus", "availableCount", "expiringCount", "lowStockCount", "items", "card"],
+    "additionalProperties": False,
     "properties": {
-        "queryFocus": {
-            "type": "string",
-            "enum": ["overview", "available", "expiring", "expired", "low_stock"],
-        },
+        "queryFocus": {"type": "string", "enum": ["overview"]},
         "availableCount": {"type": "integer", "minimum": 0},
         "expiringCount": {"type": "integer", "minimum": 0},
         "lowStockCount": {"type": "integer", "minimum": 0},
         "items": {"type": "array", "items": {"type": "object"}},
+        "card": {
+            "type": "object",
+            "required": ["id", "type", "title", "data"],
+            "properties": {
+                "id": {"type": "string"},
+                "type": {"type": "string", "enum": ["inventory_summary"]},
+                "title": {"type": "string"},
+                "data": {"type": "object"},
+            },
+        },
     },
 }
 
@@ -371,45 +379,62 @@ def inventory_create_unit_conversion_operation_draft(context: ToolContext, paylo
 
 
 def register_inventory_tools(registry: ToolRegistry) -> None:
-    register_tool(
-        registry,
-        name="inventory.read_summary",
-        display_name="库存概览",
-        description="读取当前家庭库存摘要。",
-        side_effect="read",
-        handler=inventory_read_summary,
-        input_schema=DAYS_INPUT,
-        output_schema=INVENTORY_SUMMARY_OUTPUT,
+    registry.register(
+        ToolDefinition(
+            name="inventory.read_summary",
+            display_name="库存概览",
+            description="读取当前家庭库存摘要。",
+            input_schema=DAYS_INPUT,
+            output_schema=INVENTORY_SUMMARY_OUTPUT,
+            permission="family:read",
+            side_effect="read",
+            handler=inventory_read_summary,
+            terminal_output=True,
+            followup_hint="库存概览卡可作为库存查询的终态输出。",
+            output_types=["inventory_summary"],
+        )
     )
-    register_tool(
-        registry,
-        name="inventory.read_expiring_items",
-        display_name="临期食材",
-        description="读取当前家庭临期食材。",
-        side_effect="read",
-        handler=inventory_read_expiring_items,
-        input_schema=DAYS_INPUT,
-        output_schema=inventory_items_output_schema("expiring"),
+    registry.register(
+        ToolDefinition(
+            name="inventory.read_expiring_items",
+            display_name="临期食材",
+            description="读取当前家庭临期食材。",
+            input_schema=DAYS_INPUT,
+            output_schema=inventory_items_output_schema("expiring"),
+            permission="family:read",
+            side_effect="read",
+            handler=inventory_read_expiring_items,
+            requires_followup=True,
+            followup_hint="临期列表读取后必须总结重点、请求补充信息，或生成库存处理草稿。",
+        )
     )
-    register_tool(
-        registry,
-        name="inventory.read_expired_items",
-        display_name="过期食材",
-        description="读取当前家庭已经过期但仍有剩余量的库存批次。",
-        side_effect="read",
-        handler=inventory_read_expired_items,
-        input_schema=LIMIT_INPUT,
-        output_schema=inventory_items_output_schema("expired"),
+    registry.register(
+        ToolDefinition(
+            name="inventory.read_expired_items",
+            display_name="过期食材",
+            description="读取当前家庭已经过期但仍有剩余量的库存批次。",
+            input_schema=LIMIT_INPUT,
+            output_schema=inventory_items_output_schema("expired"),
+            permission="family:read",
+            side_effect="read",
+            handler=inventory_read_expired_items,
+            requires_followup=True,
+            followup_hint="过期列表读取后必须总结风险、请求补充信息，或生成库存处理草稿。",
+        )
     )
-    register_tool(
-        registry,
-        name="inventory.read_low_stock_items",
-        display_name="低库存食材",
-        description="读取当前家庭低于补货阈值的库存批次。",
-        side_effect="read",
-        handler=inventory_read_low_stock_items,
-        input_schema=LIMIT_INPUT,
-        output_schema=inventory_items_output_schema("low_stock"),
+    registry.register(
+        ToolDefinition(
+            name="inventory.read_low_stock_items",
+            display_name="低库存食材",
+            description="读取当前家庭低于补货阈值的库存批次。",
+            input_schema=LIMIT_INPUT,
+            output_schema=inventory_items_output_schema("low_stock"),
+            permission="family:read",
+            side_effect="read",
+            handler=inventory_read_low_stock_items,
+            requires_followup=True,
+            followup_hint="低库存列表读取后必须总结补货重点、请求补充信息，或生成库存处理草稿。",
+        )
     )
     register_tool(
         registry,
@@ -420,6 +445,7 @@ def register_inventory_tools(registry: ToolRegistry) -> None:
         handler=inventory_create_operation_draft,
         input_schema=draft_input_schema(INVENTORY_OPERATION_DRAFT_SCHEMA),
         output_schema=draft_output_schema(INVENTORY_OPERATION_DRAFT_SCHEMA),
+        draft_types=["inventory_operation"],
     )
     register_tool(
         registry,
@@ -433,14 +459,19 @@ def register_inventory_tools(registry: ToolRegistry) -> None:
         handler=inventory_create_unit_conversion_operation_draft,
         input_schema=UNIT_CONVERSION_OPERATION_INPUT,
         output_schema=UNIT_CONVERSION_OPERATION_OUTPUT,
+        draft_types=["inventory_operation"],
     )
-    register_tool(
-        registry,
-        name="inventory.read_available_items",
-        display_name="可用库存",
-        description="读取当前家庭可用库存。",
-        side_effect="read",
-        handler=inventory_read_available_items,
-        input_schema=LIMIT_INPUT,
-        output_schema=inventory_items_output_schema("available"),
+    registry.register(
+        ToolDefinition(
+            name="inventory.read_available_items",
+            display_name="可用库存",
+            description="读取当前家庭可用库存。",
+            input_schema=LIMIT_INPUT,
+            output_schema=inventory_items_output_schema("available"),
+            permission="family:read",
+            side_effect="read",
+            handler=inventory_read_available_items,
+            requires_followup=True,
+            followup_hint="可用库存读取后必须总结可用食材、请求补充信息，或生成库存处理草稿。",
+        )
     )

@@ -15,6 +15,14 @@ output_types:
 - ui_actions
 draft_types: []
 approval_policy: none
+tool_budget:
+  max_tool_calls: 8
+  max_same_read_calls: 2
+completion_policy:
+  followup_required_tools:
+    ui.propose_actions: 页面动作返回后必须用一句很短的自然话说明操作结果，方便语音对话播报。
+    recipe.read_by_id: 读取当前菜谱后必须结合做菜现场回答、请求补充信息，或调用 ui.propose_actions。
+    inventory.read_available_items: 读取可用库存后必须说明替代/缺料建议、请求补充信息，或调用 ui.propose_actions。
 examples:
 - 这一步做到什么程度？
 - 帮我进入下一步。

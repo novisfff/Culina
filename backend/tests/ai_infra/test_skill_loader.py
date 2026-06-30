@@ -1,4 +1,5 @@
 from ._support import *
+from app.services.ai_operations.registry import draft_operation_registry
 
 BACKEND_DIR = Path(__file__).resolve().parents[2]
 
@@ -21,6 +22,8 @@ class AISkillLoaderTestCase(AIAgentInfraTestCase):
                 "agent_key",
                 "allowed_tools",
                 "approval_policy",
+                "completion_policy",
+                "completionPolicy",
                 "context_policy",
                 "contextPolicy",
                 "display_name",
@@ -63,7 +66,10 @@ class AISkillLoaderTestCase(AIAgentInfraTestCase):
                 else:
                     self.assertTrue(runtime.get("draft_types", []), f"{key} requires approval but declares no draft type")
                     self.assertTrue(any(tool.side_effect == "draft" for tool in declared_tools), f"{key} requires approval but exposes no draft tool")
-                    self.assertTrue(set(runtime["draft_types"]).issubset(DRAFT_APPROVAL_CONFIG), f"{key} declares unsupported draft types")
+                    self.assertTrue(
+                        all(draft_operation_registry.supports(draft_type) for draft_type in runtime["draft_types"]),
+                        f"{key} declares unsupported draft types",
+                    )
                 self.assertFalse(any(tool.side_effect == "write" for tool in declared_tools), f"{key} must not expose write tools")
 
             keys = [key for key, _runtime in records]
@@ -156,8 +162,22 @@ class AISkillLoaderTestCase(AIAgentInfraTestCase):
                     "key: simple_skill\n"
                     "display_name: 简单 Skill\n"
                     "approval_policy: none\n"
-                    "allowed_tools: []\n"
+                    "allowed_tools:\n"
+                    "  - inventory.read_summary\n"
+                    "  - inventory.read_available_items\n"
                     "draft_types: []\n"
+                    "route_hints:\n"
+                    "  - simple_quick_task\n"
+                    "tool_budget:\n"
+                    "  max_tool_calls: 5\n"
+                    "  max_same_read_calls: 1\n"
+                    "completion_policy:\n"
+                    "  requires_terminal_output: true\n"
+                    "  terminal_text_allowed: false\n"
+                    "  followup_required_tools:\n"
+                    "    inventory.read_summary: 需要输出库存摘要。\n"
+                    "  terminal_tools:\n"
+                    "    inventory.read_available_items: 工具输出就是终态。\n"
                     "examples:\n"
                     "  - 简单查询。\n",
                     encoding="utf-8",
@@ -167,9 +187,525 @@ class AISkillLoaderTestCase(AIAgentInfraTestCase):
                 self.assertEqual(skills[0].manifest.key, "simple_skill")
                 self.assertEqual(skills[0].manifest.name, "简单 Skill")
                 self.assertEqual(skills[0].manifest.examples, ["简单查询。"])
+                self.assertEqual(skills[0].manifest.route_hints, ["simple_quick_task"])
+                self.assertEqual(skills[0].manifest.tool_budget, {"max_tool_calls": 5, "max_same_read_calls": 1})
+                self.assertEqual(
+                    skills[0].manifest.completion_policy.followup_required_tools,
+                    {"inventory.read_summary": "需要输出库存摘要。"},
+                )
+                self.assertEqual(
+                    skills[0].manifest.completion_policy.terminal_tools,
+                    {"inventory.read_available_items": "工具输出就是终态。"},
+                )
+                self.assertTrue(skills[0].manifest.completion_policy.requires_terminal_output)
+                self.assertFalse(skills[0].manifest.completion_policy.terminal_text_allowed)
+                self.assertEqual(skills[0].manifest.to_catalog_record()["routeHints"], ["simple_quick_task"])
+                self.assertEqual(
+                    skills[0].manifest.to_catalog_record()["toolBudget"],
+                    {"max_tool_calls": 5, "max_same_read_calls": 1},
+                )
+                self.assertEqual(
+                    skills[0].manifest.to_catalog_record()["completionPolicy"],
+                    {
+                        "requiresTerminalOutput": True,
+                        "terminalTextAllowed": False,
+                        "terminalTools": {"inventory.read_available_items": "工具输出就是终态。"},
+                        "followupRequiredTools": {"inventory.read_summary": "需要输出库存摘要。"},
+                    },
+                )
                 self.assertIn("Body instructions.", skills[0].instructions)
                 self.assertIn("workflow content", skills[0].instructions)
                 self.assertNotIn("display_name: 简单 Skill", skills[0].instructions)
+
+        def test_skill_loader_rejects_malformed_runtime_contract_sections(self) -> None:
+            cases = [
+                (
+                    "tool-budget-type",
+                    "tool_budget: invalid\n",
+                    "tool_budget must be a mapping",
+                ),
+                (
+                    "tool-budget-negative",
+                    "tool_budget:\n"
+                    "  max_tool_calls: -1\n",
+                    "tool_budget.max_tool_calls must be a non-negative integer",
+                ),
+                (
+                    "tool-budget-bool",
+                    "tool_budget:\n"
+                    "  max_same_read_calls: true\n",
+                    "tool_budget.max_same_read_calls must be a non-negative integer",
+                ),
+                (
+                    "completion-policy-type",
+                    "completion_policy: invalid\n",
+                    "completion_policy must be a mapping",
+                ),
+                (
+                    "completion-terminal-tools-type",
+                    "completion_policy:\n"
+                    "  terminal_tools: inventory.read_summary\n",
+                    "completion_policy.terminal_tools must be a mapping",
+                ),
+                (
+                    "completion-requires-terminal-output-type",
+                    "completion_policy:\n"
+                    "  requires_terminal_output: 'yes'\n",
+                    "completion_policy.requires_terminal_output must be a boolean",
+                ),
+                (
+                    "completion-terminal-text-allowed-type",
+                    "completion_policy:\n"
+                    "  terminal_text_allowed: 1\n",
+                    "completion_policy.terminal_text_allowed must be a boolean",
+                ),
+                (
+                    "completion-followup-hint-empty",
+                    "completion_policy:\n"
+                    "  followup_required_tools:\n"
+                    "    inventory.read_summary: ''\n",
+                    "completion_policy.followup_required_tools.inventory.read_summary must include a hint",
+                ),
+                (
+                    "completion-followup-hint-type",
+                    "completion_policy:\n"
+                    "  followup_required_tools:\n"
+                    "    inventory.read_summary: true\n",
+                    "completion_policy.followup_required_tools.inventory.read_summary must be a string",
+                ),
+                (
+                    "allowed-tools-type",
+                    "allowed_tools: inventory.read_summary\n",
+                    "allowed_tools must be a list",
+                ),
+                (
+                    "allowed-tools-duplicate",
+                    "allowed_tools:\n"
+                    "  - inventory.read_summary\n"
+                    "  - inventory.read_summary\n",
+                    "allowed_tools contains duplicate values: inventory.read_summary",
+                ),
+                (
+                    "route-hints-type",
+                    "route_hints:\n"
+                    "  quick_task: invalid\n",
+                    "route_hints must be a list",
+                ),
+                (
+                    "examples-type",
+                    "examples: invalid\n",
+                    "examples must be a list",
+                ),
+                (
+                    "draft-contract-type",
+                    "draft_contract: invalid\n",
+                    "draft_contract must be a mapping",
+                ),
+                (
+                    "draft-contract-entry-type",
+                    "draft_types:\n"
+                    "  - meal_plan\n"
+                    "draft_contract:\n"
+                    "  meal_plan: invalid\n",
+                    "draft_contract.meal_plan must be a mapping",
+                ),
+            ]
+            for slug, runtime_extra, expected_error in cases:
+                with self.subTest(slug=slug):
+                    with tempfile.TemporaryDirectory() as tmp_dir:
+                        catalog_dir = Path(tmp_dir)
+                        skill_dir = catalog_dir / slug
+                        skill_dir.mkdir()
+                        (skill_dir / "SKILL.md").write_text(
+                            "---\n"
+                            f"name: {slug}\n"
+                            "description: Malformed runtime config.\n"
+                            "---\n"
+                            "# Root\n\nBody instructions.\n",
+                            encoding="utf-8",
+                        )
+                        approval_policy = (
+                            "draft_then_confirm"
+                            if "draft_contract" in runtime_extra or "draft_types:" in runtime_extra
+                            else "none"
+                        )
+                        allowed_tool = (
+                            "meal_plan.create_draft"
+                            if approval_policy == "draft_then_confirm"
+                            else "inventory.read_summary"
+                        )
+                        base_runtime = (
+                            "version: 2\n"
+                            f"key: {slug.replace('-', '_')}\n"
+                            "display_name: Malformed Skill\n"
+                            f"approval_policy: {approval_policy}\n"
+                            "allowed_tools:\n"
+                            f"  - {allowed_tool}\n"
+                            "draft_types: []\n"
+                        )
+                        if approval_policy == "draft_then_confirm":
+                            base_runtime = (
+                                "version: 2\n"
+                                f"key: {slug.replace('-', '_')}\n"
+                                "display_name: Malformed Skill\n"
+                                "approval_policy: draft_then_confirm\n"
+                                "allowed_tools:\n"
+                                "  - meal_plan.create_draft\n"
+                            )
+                        (skill_dir / "skill.yaml").write_text(base_runtime + runtime_extra, encoding="utf-8")
+
+                        with self.assertRaisesRegex(ValueError, expected_error):
+                            SkillDirectoryLoader(catalog_dir, tool_registry=build_workspace_tool_registry()).load()
+
+        def test_skill_loader_accepts_draft_contract_for_declared_draft_type(self) -> None:
+            with tempfile.TemporaryDirectory() as tmp_dir:
+                catalog_dir = Path(tmp_dir)
+                skill_dir = catalog_dir / "simple-skill"
+                skill_dir.mkdir()
+                (skill_dir / "SKILL.md").write_text(
+                    "---\n"
+                    "name: simple-skill\n"
+                    "description: Markdown only.\n"
+                    "---\n"
+                    "# Root\n\nBody instructions.\n",
+                    encoding="utf-8",
+                )
+                (skill_dir / "skill.yaml").write_text(
+                    "version: 2\n"
+                    "key: simple_skill\n"
+                    "display_name: 简单 Skill\n"
+                    "approval_policy: draft_then_confirm\n"
+                    "allowed_tools:\n"
+                    "  - meal_plan.create_draft\n"
+                    "draft_types:\n"
+                    "  - meal_plan\n"
+                    "draft_contract:\n"
+                    "  meal_plan:\n"
+                    "    schema_version: meal_plan.v1\n"
+                    "    approval_config_key: meal_plan\n"
+                    "    commit_handler_key: meal_plan\n",
+                    encoding="utf-8",
+                )
+
+                skills = SkillDirectoryLoader(catalog_dir, tool_registry=build_workspace_tool_registry()).load()
+
+                self.assertEqual(
+                    skills[0].manifest.draft_contract,
+                    {
+                        "meal_plan": {
+                            "schemaVersion": "meal_plan.v1",
+                            "approvalConfigKey": "meal_plan",
+                            "commitHandlerKey": "meal_plan",
+                        }
+                    },
+                )
+                self.assertEqual(skills[0].manifest.to_catalog_record()["draftContract"], skills[0].manifest.draft_contract)
+
+        def test_skill_loader_rejects_draft_contract_for_undeclared_draft_type(self) -> None:
+            with tempfile.TemporaryDirectory() as tmp_dir:
+                catalog_dir = Path(tmp_dir)
+                skill_dir = catalog_dir / "simple-skill"
+                skill_dir.mkdir()
+                (skill_dir / "SKILL.md").write_text(
+                    "---\n"
+                    "name: simple-skill\n"
+                    "description: Markdown only.\n"
+                    "---\n"
+                    "# Root\n\nBody instructions.\n",
+                    encoding="utf-8",
+                )
+                (skill_dir / "skill.yaml").write_text(
+                    "version: 2\n"
+                    "key: simple_skill\n"
+                    "display_name: 简单 Skill\n"
+                    "approval_policy: draft_then_confirm\n"
+                    "allowed_tools:\n"
+                    "  - meal_plan.create_draft\n"
+                    "draft_types:\n"
+                    "  - meal_plan\n"
+                    "draft_contract:\n"
+                    "  shopping_list:\n"
+                    "    schema_version: shopping_list.v1\n"
+                    "    approval_config_key: shopping_list\n"
+                    "    commit_handler_key: shopping_list\n",
+                    encoding="utf-8",
+                )
+
+                with self.assertRaisesRegex(
+                    ValueError,
+                    "draft_contract references undeclared draft types: shopping_list",
+                ):
+                    SkillDirectoryLoader(catalog_dir, tool_registry=build_workspace_tool_registry()).load()
+
+        def test_skill_loader_rejects_missing_draft_contract_for_declared_draft_type(self) -> None:
+            with tempfile.TemporaryDirectory() as tmp_dir:
+                catalog_dir = Path(tmp_dir)
+                skill_dir = catalog_dir / "simple-skill"
+                skill_dir.mkdir()
+                (skill_dir / "SKILL.md").write_text(
+                    "---\n"
+                    "name: simple-skill\n"
+                    "description: Markdown only.\n"
+                    "---\n"
+                    "# Root\n\nBody instructions.\n",
+                    encoding="utf-8",
+                )
+                (skill_dir / "skill.yaml").write_text(
+                    "version: 2\n"
+                    "key: simple_skill\n"
+                    "display_name: 简单 Skill\n"
+                    "approval_policy: draft_then_confirm\n"
+                    "allowed_tools:\n"
+                    "  - meal_plan.create_draft\n"
+                    "draft_types:\n"
+                    "  - meal_plan\n",
+                    encoding="utf-8",
+                )
+
+                with self.assertRaisesRegex(
+                    ValueError,
+                    "draft_contract must cover declared draft types: meal_plan",
+                ):
+                    SkillDirectoryLoader(catalog_dir, tool_registry=build_workspace_tool_registry()).load()
+
+        def test_skill_loader_rejects_incomplete_draft_contract_entry(self) -> None:
+            with tempfile.TemporaryDirectory() as tmp_dir:
+                catalog_dir = Path(tmp_dir)
+                skill_dir = catalog_dir / "simple-skill"
+                skill_dir.mkdir()
+                (skill_dir / "SKILL.md").write_text(
+                    "---\n"
+                    "name: simple-skill\n"
+                    "description: Markdown only.\n"
+                    "---\n"
+                    "# Root\n\nBody instructions.\n",
+                    encoding="utf-8",
+                )
+                (skill_dir / "skill.yaml").write_text(
+                    "version: 2\n"
+                    "key: simple_skill\n"
+                    "display_name: 简单 Skill\n"
+                    "approval_policy: draft_then_confirm\n"
+                    "allowed_tools:\n"
+                    "  - meal_plan.create_draft\n"
+                    "draft_types:\n"
+                    "  - meal_plan\n"
+                    "draft_contract:\n"
+                    "  meal_plan:\n"
+                    "    schema_version: meal_plan.v1\n",
+                    encoding="utf-8",
+                )
+
+                with self.assertRaisesRegex(
+                    ValueError,
+                    "draft_contract entries must include schemaVersion, approvalConfigKey, and commitHandlerKey: meal_plan",
+                ):
+                    SkillDirectoryLoader(catalog_dir, tool_registry=build_workspace_tool_registry()).load()
+
+        def test_skill_loader_rejects_completion_policy_for_undeclared_tool(self) -> None:
+            with tempfile.TemporaryDirectory() as tmp_dir:
+                catalog_dir = Path(tmp_dir)
+                skill_dir = catalog_dir / "simple-skill"
+                skill_dir.mkdir()
+                (skill_dir / "SKILL.md").write_text(
+                    "---\n"
+                    "name: simple-skill\n"
+                    "description: Markdown only.\n"
+                    "---\n"
+                    "# Root\n\nBody instructions.\n",
+                    encoding="utf-8",
+                )
+                (skill_dir / "skill.yaml").write_text(
+                    "version: 2\n"
+                    "key: simple_skill\n"
+                    "display_name: 简单 Skill\n"
+                    "approval_policy: none\n"
+                    "allowed_tools:\n"
+                    "  - inventory.read_summary\n"
+                    "draft_types: []\n"
+                    "completion_policy:\n"
+                    "  followup_required_tools:\n"
+                    "    inventory.read_sumary: 拼写错误，不应静默通过。\n",
+                    encoding="utf-8",
+                )
+
+                with self.assertRaisesRegex(
+                    ValueError,
+                    "completion_policy references undeclared tools: inventory.read_sumary",
+                ):
+                    SkillDirectoryLoader(catalog_dir).load()
+
+        def test_skill_loader_rejects_business_tool_without_completion_policy(self) -> None:
+            with tempfile.TemporaryDirectory() as tmp_dir:
+                catalog_dir = Path(tmp_dir)
+                skill_dir = catalog_dir / "simple-skill"
+                skill_dir.mkdir()
+                (skill_dir / "SKILL.md").write_text(
+                    "---\n"
+                    "name: simple-skill\n"
+                    "description: Markdown only.\n"
+                    "---\n"
+                    "# Root\n\nBody instructions.\n",
+                    encoding="utf-8",
+                )
+                (skill_dir / "skill.yaml").write_text(
+                    "version: 2\n"
+                    "key: simple_skill\n"
+                    "display_name: 简单 Skill\n"
+                    "approval_policy: none\n"
+                    "allowed_tools:\n"
+                    "  - inventory.read_summary\n"
+                    "output_types:\n"
+                    "  - inventory_summary\n"
+                    "draft_types: []\n",
+                    encoding="utf-8",
+                )
+
+                with self.assertRaisesRegex(
+                    ValueError,
+                    "completion_policy must cover non-draft tools: inventory.read_summary",
+                ):
+                    SkillDirectoryLoader(catalog_dir, tool_registry=build_workspace_tool_registry()).load()
+
+        def test_skill_loader_rejects_tool_output_type_not_declared_by_skill(self) -> None:
+            with tempfile.TemporaryDirectory() as tmp_dir:
+                catalog_dir = Path(tmp_dir)
+                skill_dir = catalog_dir / "simple-skill"
+                skill_dir.mkdir()
+                (skill_dir / "SKILL.md").write_text(
+                    "---\n"
+                    "name: simple-skill\n"
+                    "description: Markdown only.\n"
+                    "---\n"
+                    "# Root\n\nBody instructions.\n",
+                    encoding="utf-8",
+                )
+                (skill_dir / "skill.yaml").write_text(
+                    "version: 2\n"
+                    "key: simple_skill\n"
+                    "display_name: 简单 Skill\n"
+                    "approval_policy: none\n"
+                    "allowed_tools:\n"
+                    "  - meal_plan.recommend_today\n"
+                    "output_types: []\n"
+                    "draft_types: []\n"
+                    "completion_policy:\n"
+                    "  terminal_tools:\n"
+                    "    meal_plan.recommend_today: 即时推荐卡可作为终态输出。\n",
+                    encoding="utf-8",
+                )
+
+                with self.assertRaisesRegex(
+                    ValueError,
+                    "allowed tools produce undeclared output types: today_recommendation",
+                ):
+                    SkillDirectoryLoader(catalog_dir, tool_registry=build_workspace_tool_registry()).load()
+
+        def test_skill_loader_rejects_tool_draft_type_not_declared_by_skill(self) -> None:
+            with tempfile.TemporaryDirectory() as tmp_dir:
+                catalog_dir = Path(tmp_dir)
+                skill_dir = catalog_dir / "simple-skill"
+                skill_dir.mkdir()
+                (skill_dir / "SKILL.md").write_text(
+                    "---\n"
+                    "name: simple-skill\n"
+                    "description: Markdown only.\n"
+                    "---\n"
+                    "# Root\n\nBody instructions.\n",
+                    encoding="utf-8",
+                )
+                (skill_dir / "skill.yaml").write_text(
+                    "version: 2\n"
+                    "key: simple_skill\n"
+                    "display_name: 简单 Skill\n"
+                    "approval_policy: draft_then_confirm\n"
+                    "allowed_tools:\n"
+                    "  - recipe.create_draft\n"
+                    "draft_types:\n"
+                    "  - meal_plan\n"
+                    "draft_contract:\n"
+                    "  meal_plan:\n"
+                    "    schema_version: meal_plan.v1\n"
+                    "    approval_config_key: meal_plan\n"
+                    "    commit_handler_key: meal_plan\n",
+                    encoding="utf-8",
+                )
+
+                with self.assertRaisesRegex(
+                    ValueError,
+                    "allowed tools produce undeclared draft types: recipe",
+                ):
+                    SkillDirectoryLoader(catalog_dir, tool_registry=build_workspace_tool_registry()).load()
+
+        def test_skill_loader_allows_draft_tool_without_completion_policy(self) -> None:
+            with tempfile.TemporaryDirectory() as tmp_dir:
+                catalog_dir = Path(tmp_dir)
+                skill_dir = catalog_dir / "simple-skill"
+                skill_dir.mkdir()
+                (skill_dir / "SKILL.md").write_text(
+                    "---\n"
+                    "name: simple-skill\n"
+                    "description: Markdown only.\n"
+                    "---\n"
+                    "# Root\n\nBody instructions.\n",
+                    encoding="utf-8",
+                )
+                (skill_dir / "skill.yaml").write_text(
+                    "version: 2\n"
+                    "key: simple_skill\n"
+                    "display_name: 简单 Skill\n"
+                    "approval_policy: draft_then_confirm\n"
+                    "allowed_tools:\n"
+                    "  - meal_plan.create_draft\n"
+                    "draft_types:\n"
+                    "  - meal_plan\n"
+                    "draft_contract:\n"
+                    "  meal_plan:\n"
+                    "    schema_version: meal_plan.v1\n"
+                    "    approval_config_key: meal_plan\n"
+                    "    commit_handler_key: meal_plan\n",
+                    encoding="utf-8",
+                )
+
+                skills = SkillDirectoryLoader(catalog_dir, tool_registry=build_workspace_tool_registry()).load()
+                self.assertEqual(skills[0].manifest.key, "simple_skill")
+
+        def test_skill_loader_rejects_script_tool_without_completion_policy(self) -> None:
+            with tempfile.TemporaryDirectory() as tmp_dir:
+                catalog_dir = Path(tmp_dir)
+                skill_dir = catalog_dir / "simple-skill"
+                scripts_dir = skill_dir / "scripts"
+                scripts_dir.mkdir(parents=True)
+                (skill_dir / "SKILL.md").write_text(
+                    "---\n"
+                    "name: simple-skill\n"
+                    "description: Markdown only.\n"
+                    "---\n"
+                    "# Root\n\nBody instructions.\n",
+                    encoding="utf-8",
+                )
+                (skill_dir / "skill.yaml").write_text(
+                    "version: 2\n"
+                    "key: simple_skill\n"
+                    "display_name: 简单 Skill\n"
+                    "approval_policy: none\n"
+                    "allowed_tools: []\n"
+                    "draft_types: []\n"
+                    "script_files:\n"
+                    "  - scripts/preview.py\n",
+                    encoding="utf-8",
+                )
+                (scripts_dir / "preview.py").write_text(
+                    "def preview() -> dict:\n"
+                    "    return {'ok': True}\n",
+                    encoding="utf-8",
+                )
+
+                with self.assertRaisesRegex(
+                    ValueError,
+                    "completion_policy must cover non-draft tools: script.preview",
+                ):
+                    SkillDirectoryLoader(catalog_dir, tool_registry=build_workspace_tool_registry()).load()
 
         def test_skill_catalog_instructions_include_operational_guardrails(self) -> None:
             skill_registry = build_workspace_skill_registry()
@@ -222,6 +758,124 @@ class AISkillLoaderTestCase(AIAgentInfraTestCase):
                 "同一会话中真实存在的持久草稿 ID",
                 skill_registry.get("shopping_list").instructions,
             )
+            self.assertEqual(
+                skill_registry.get("recipe_cook").manifest.completion_policy.followup_required_tools["recipe.preview_cook"],
+                "预览后必须继续说明缺料、请求补充信息，或在库存充足时生成 recipe_cook 草稿。",
+            )
+            self.assertIn(
+                "recipe.read_by_id",
+                skill_registry.get("recipe_cook").manifest.completion_policy.followup_required_tools,
+            )
+            self.assertEqual(
+                skill_registry.get("cooking_assistant").manifest.tool_budget,
+                {"max_tool_calls": 8, "max_same_read_calls": 2},
+            )
+            self.assertEqual(
+                skill_registry.get("cooking_assistant").manifest.completion_policy.terminal_tools,
+                {},
+            )
+            self.assertEqual(
+                skill_registry.get("cooking_assistant").manifest.completion_policy.followup_required_tools["ui.propose_actions"],
+                "页面动作返回后必须用一句很短的自然话说明操作结果，方便语音对话播报。",
+            )
+            self.assertEqual(
+                skill_registry.get("food_profile").manifest.tool_budget,
+                {"max_tool_calls": 10, "max_same_read_calls": 2},
+            )
+            self.assertEqual(
+                skill_registry.get("ingredient_profile").manifest.tool_budget,
+                {"max_tool_calls": 10, "max_same_read_calls": 2},
+            )
+            self.assertEqual(
+                skill_registry.get("inventory_analysis").manifest.tool_budget,
+                {"max_tool_calls": 14, "max_same_read_calls": 2},
+            )
+            self.assertEqual(
+                skill_registry.get("inventory_analysis").manifest.completion_policy.terminal_tools,
+                {"inventory.read_summary": "库存概览卡可作为库存查询的终态输出。"},
+            )
+            self.assertEqual(
+                skill_registry.get("meal_log").manifest.tool_budget,
+                {"max_tool_calls": 10, "max_same_read_calls": 2},
+            )
+            self.assertEqual(
+                skill_registry.get("meal_plan").manifest.tool_budget,
+                {"max_tool_calls": 18, "max_same_read_calls": 2},
+            )
+            self.assertEqual(
+                skill_registry.get("meal_plan").manifest.completion_policy.terminal_tools,
+                {"meal_plan.recommend_today": "即时餐食推荐卡可作为今日推荐模式的终态输出。"},
+            )
+            self.assertIn(
+                "meal_plan.read_existing",
+                skill_registry.get("meal_plan").manifest.completion_policy.followup_required_tools,
+            )
+            self.assertIn(
+                "script.expand_meal_slots",
+                skill_registry.get("meal_plan").manifest.completion_policy.followup_required_tools,
+            )
+            self.assertIn(
+                "script.validate_meal_plan",
+                skill_registry.get("meal_plan").manifest.completion_policy.followup_required_tools,
+            )
+            self.assertIn(
+                "script.render_plan_preview",
+                skill_registry.get("meal_plan").manifest.completion_policy.followup_required_tools,
+            )
+            self.assertEqual(
+                skill_registry.get("recipe_draft").manifest.tool_budget,
+                {"max_tool_calls": 16, "max_same_read_calls": 2},
+            )
+            self.assertEqual(
+                skill_registry.get("recipe_draft").manifest.completion_policy.followup_required_tools[
+                    "script.lint_recipe_draft"
+                ],
+                "菜谱草稿 lint 后必须继续修正草稿、请求补充信息，或调用 recipe.create_draft。",
+            )
+            self.assertIn(
+                "ingredient.search",
+                skill_registry.get("recipe_draft").manifest.completion_policy.followup_required_tools,
+            )
+            self.assertEqual(
+                skill_registry.get("recipe_cook").manifest.tool_budget,
+                {"max_tool_calls": 12, "max_same_read_calls": 2},
+            )
+            self.assertEqual(
+                skill_registry.get("shopping_list").manifest.tool_budget,
+                {"max_tool_calls": 14, "max_same_read_calls": 2},
+            )
+            self.assertIn(
+                "shopping.read_pending",
+                skill_registry.get("shopping_list").manifest.completion_policy.followup_required_tools,
+            )
+            for manifest in skill_registry.list_manifests():
+                for draft_type in manifest.draft_types:
+                    with self.subTest(skill=manifest.key, draft_type=draft_type):
+                        self.assertIn(draft_type, manifest.draft_contract)
+                        self.assertIn(draft_type, draft_operation_registry.keys())
+                        self.assertEqual(manifest.draft_contract[draft_type]["approvalConfigKey"], draft_type)
+                        self.assertEqual(manifest.draft_contract[draft_type]["commitHandlerKey"], draft_type)
+
+        def test_catalog_business_tools_declare_completion_policy(self) -> None:
+            skill_registry = build_workspace_skill_registry()
+            tool_registry = build_workspace_tool_registry()
+            for skill in skill_registry.list():
+                manifest = skill.manifest
+                declared_tools = set(manifest.completion_policy.terminal_tools) | set(
+                    manifest.completion_policy.followup_required_tools
+                )
+                for tool_name in manifest.tools:
+                    definition = tool_registry.get(tool_name)
+                    if definition.side_effect == "draft" or tool_name == "human.request_input":
+                        continue
+                    with self.subTest(skill=manifest.key, tool=tool_name):
+                        self.assertIn(tool_name, declared_tools)
+                script_catalog = getattr(skill, "script_catalog", None)
+                if script_catalog is None:
+                    continue
+                for function in script_catalog.functions():
+                    with self.subTest(skill=manifest.key, tool=function.tool_name):
+                        self.assertIn(function.tool_name, declared_tools)
 
         def test_skill_loader_exposes_declared_scripts_as_model_tools(self) -> None:
             skill = build_workspace_skill_registry().get("meal_plan")

@@ -5,7 +5,7 @@ from typing import Any
 
 import yaml
 
-from app.ai.skills.base import BaseSkill, CatalogSkill, SkillManifest
+from app.ai.skills.base import BaseSkill, CatalogSkill, SkillCompletionPolicy, SkillManifest
 from app.ai.tools.registry import ToolRegistry
 
 
@@ -13,18 +13,26 @@ SKILL_RUNTIME_FRONTMATTER_KEYS = {
     "agent_key",
     "allowed_tools",
     "approval_policy",
+    "completion_policy",
+    "completionPolicy",
     "context_policy",
     "contextPolicy",
     "display_name",
     "displayName",
+    "draft_contract",
+    "draftContract",
     "draft_types",
     "examples",
     "instruction_files",
     "intent",
     "key",
     "output_types",
+    "route_hints",
+    "routeHints",
     "runner",
     "script_files",
+    "tool_budget",
+    "toolBudget",
     "tools",
 }
 
@@ -52,11 +60,14 @@ class SkillDirectoryLoader:
             raise FileNotFoundError(f"Skill directory {skill_dir.name} missing required file: skill.yaml")
         runtime = self._read_yaml_file(runtime_path)
         manifest = self._manifest_from_metadata(skill_dir, frontmatter, runtime)
-        return CatalogSkill(
+        skill = CatalogSkill(
             manifest,
             skill_dir,
             instructions=self._join_instructions(body, self._instruction_sections(skill_dir, runtime)),
         )
+        self._validate_completion_policy_references(skill)
+        self._validate_completion_policy_coverage(skill)
+        return skill
 
     def _read_frontmatter(self, path: Path) -> tuple[dict[str, Any], str]:
         text = path.read_text(encoding="utf-8")
@@ -90,19 +101,25 @@ class SkillDirectoryLoader:
         if skill_dir.name not in {slug, key}:
             raise ValueError(f"Skill directory {skill_dir.name} does not match SKILL.md name {slug}")
         approval_policy = self._text(runtime.get("approval_policy")) or (
-            "draft_then_confirm" if self._list(runtime.get("draft_types")) else "none"
+            "draft_then_confirm" if self._runtime_list(runtime, "draft_types") else "none"
         )
         manifest = SkillManifest(
             key=key,
             slug=slug,
             name=self._text(runtime.get("display_name")) or self._text(runtime.get("displayName")) or key,
             description=description,
-            examples=self._list(runtime.get("examples")),
-            context_policy=self._list(runtime.get("context_policy") or runtime.get("contextPolicy")),
-            tools=self._list(runtime.get("allowed_tools") or runtime.get("tools")),
-            script_files=self._list(runtime.get("script_files")),
-            output_types=self._list(runtime.get("output_types")),
-            draft_types=self._list(runtime.get("draft_types")),
+            examples=self._runtime_list(runtime, "examples"),
+            context_policy=self._runtime_list(runtime, "context_policy", "contextPolicy"),
+            tools=self._runtime_list(runtime, "allowed_tools", "tools"),
+            script_files=self._runtime_list(runtime, "script_files"),
+            output_types=self._runtime_list(runtime, "output_types"),
+            draft_types=self._runtime_list(runtime, "draft_types"),
+            route_hints=self._runtime_list(runtime, "route_hints", "routeHints"),
+            tool_budget=self._tool_budget(self._first_present(runtime, "tool_budget", "toolBudget")),
+            completion_policy=self._completion_policy(
+                self._first_present(runtime, "completion_policy", "completionPolicy")
+            ),
+            draft_contract=self._draft_contract(self._first_present(runtime, "draft_contract", "draftContract")),
             approval_policy=approval_policy,
             intent=self._text(runtime.get("intent")) or key,
             agent_key=self._text(runtime.get("agent_key")) or f"{key}_agent",
@@ -127,9 +144,34 @@ class SkillDirectoryLoader:
             raise ValueError(f"Skill {manifest.key} has invalid approval_policy: {manifest.approval_policy}")
         if manifest.approval_policy == "none" and manifest.draft_types:
             raise ValueError(f"Skill {manifest.key} declares draft types without approval")
+        if manifest.approval_policy == "none" and manifest.draft_contract:
+            raise ValueError(f"Skill {manifest.key} declares draft_contract without approval")
         if manifest.approval_policy == "draft_then_confirm":
             if not manifest.draft_types:
                 raise ValueError(f"Skill {manifest.key} requires approval but declares no draft types")
+        unknown_contract_types = sorted(set(manifest.draft_contract) - set(manifest.draft_types))
+        if unknown_contract_types:
+            raise ValueError(
+                f"Skill {manifest.key} draft_contract references undeclared draft types: "
+                f"{', '.join(unknown_contract_types)}"
+            )
+        if manifest.approval_policy == "draft_then_confirm":
+            missing_contract_types = sorted(set(manifest.draft_types) - set(manifest.draft_contract))
+            if missing_contract_types:
+                raise ValueError(
+                    f"Skill {manifest.key} draft_contract must cover declared draft types: "
+                    f"{', '.join(missing_contract_types)}"
+                )
+        incomplete_contract_types = sorted(
+            draft_type
+            for draft_type, contract in manifest.draft_contract.items()
+            if not {"schemaVersion", "approvalConfigKey", "commitHandlerKey"}.issubset(contract)
+        )
+        if incomplete_contract_types:
+            raise ValueError(
+                f"Skill {manifest.key} draft_contract entries must include schemaVersion, "
+                f"approvalConfigKey, and commitHandlerKey: {', '.join(incomplete_contract_types)}"
+            )
 
     def _validate_manifest_tools(self, manifest: SkillManifest) -> None:
         if self.tool_registry is None:
@@ -140,6 +182,19 @@ class SkillDirectoryLoader:
                 definitions.append(self.tool_registry.get(tool_name))
             except KeyError as exc:
                 raise ValueError(f"Skill {manifest.key} declares unknown allowed tool: {tool_name}") from exc
+        undeclared_output_types = sorted(
+            {
+                output_type
+                for definition in definitions
+                for output_type in definition.output_types
+                if output_type not in manifest.output_types
+            }
+        )
+        if undeclared_output_types:
+            raise ValueError(
+                f"Skill {manifest.key} allowed tools produce undeclared output types: "
+                f"{', '.join(undeclared_output_types)}"
+            )
         if any(definition.side_effect == "write" for definition in definitions):
             raise ValueError(f"Skill {manifest.key} must not expose write tools")
         if manifest.approval_policy == "none":
@@ -147,6 +202,19 @@ class SkillDirectoryLoader:
             if unsupported:
                 raise ValueError(f"Skill {manifest.key} exposes non-read/control tools without approval: {', '.join(unsupported)}")
             return
+        undeclared_draft_types = sorted(
+            {
+                draft_type
+                for definition in definitions
+                for draft_type in definition.draft_types
+                if draft_type not in manifest.draft_types
+            }
+        )
+        if undeclared_draft_types:
+            raise ValueError(
+                f"Skill {manifest.key} allowed tools produce undeclared draft types: "
+                f"{', '.join(undeclared_draft_types)}"
+            )
         draft_tools = [definition for definition in definitions if definition.side_effect == "draft"]
         if not draft_tools:
             raise ValueError(f"Skill {manifest.key} requires approval but exposes no draft tools")
@@ -154,8 +222,50 @@ class SkillDirectoryLoader:
         if unconfirmed:
             raise ValueError(f"Skill {manifest.key} exposes draft tools that do not require confirmation: {', '.join(unconfirmed)}")
 
+    def _validate_completion_policy_references(self, skill: CatalogSkill) -> None:
+        manifest = skill.manifest
+        policy_tool_names = set(manifest.completion_policy.terminal_tools) | set(
+            manifest.completion_policy.followup_required_tools
+        )
+        if not policy_tool_names:
+            return
+        declared_tool_names = set(manifest.tools)
+        script_catalog = getattr(skill, "script_catalog", None)
+        if script_catalog is not None:
+            declared_tool_names.update(function.tool_name for function in script_catalog.functions())
+        unknown = sorted(policy_tool_names - declared_tool_names)
+        if unknown:
+            raise ValueError(
+                f"Skill {manifest.key} completion_policy references undeclared tools: {', '.join(unknown)}"
+            )
+
+    def _validate_completion_policy_coverage(self, skill: CatalogSkill) -> None:
+        if self.tool_registry is None:
+            return
+        manifest = skill.manifest
+        declared_policy_tools = set(manifest.completion_policy.terminal_tools) | set(
+            manifest.completion_policy.followup_required_tools
+        )
+        missing = []
+        for tool_name in manifest.tools:
+            definition = self.tool_registry.get(tool_name)
+            if definition.side_effect == "draft" or tool_name == "human.request_input":
+                continue
+            if tool_name not in declared_policy_tools:
+                missing.append(tool_name)
+        script_catalog = getattr(skill, "script_catalog", None)
+        if script_catalog is not None:
+            for function in script_catalog.functions():
+                if function.tool_name not in declared_policy_tools:
+                    missing.append(function.tool_name)
+        if missing:
+            raise ValueError(
+                f"Skill {manifest.key} completion_policy must cover non-draft tools: "
+                f"{', '.join(sorted(missing))}"
+            )
+
     def _instruction_sections(self, skill_dir: Path, runtime: dict[str, Any]) -> list[str]:
-        declared_files = self._list(runtime.get("instruction_files"))
+        declared_files = self._runtime_list(runtime, "instruction_files")
         paths = [skill_dir / item for item in declared_files]
         if not paths:
             paths = [skill_dir / "references" / "workflows.md"]
@@ -186,12 +296,154 @@ class SkillDirectoryLoader:
     def _text(self, value: Any) -> str:
         return str(value).strip() if value is not None else ""
 
-    def _list(self, value: Any) -> list[str]:
+    def _runtime_list(self, data: dict[str, Any], *keys: str) -> list[str]:
+        value = self._first_present(data, *keys)
+        return self._list(value, field_name=f"skill.yaml {keys[0]}")
+
+    def _list(self, value: Any, *, field_name: str = "value") -> list[str]:
         if value is None:
             return []
         if isinstance(value, list):
-            return [str(item).strip() for item in value if str(item).strip()]
-        return [str(value).strip()] if str(value).strip() else []
+            items = [str(item).strip() for item in value if str(item).strip()]
+            duplicates = sorted({item for item in items if items.count(item) > 1})
+            if duplicates:
+                raise ValueError(f"{field_name} contains duplicate values: {', '.join(duplicates)}")
+            return items
+        raise ValueError(f"{field_name} must be a list")
+
+    def _tool_budget(self, value: Any) -> dict[str, int]:
+        if value is None:
+            return {}
+        if not isinstance(value, dict):
+            raise ValueError("skill.yaml tool_budget must be a mapping")
+        budget: dict[str, int] = {}
+        max_tool_calls = self._required_non_negative_int(
+            value,
+            "max_tool_calls",
+            "maxToolCalls",
+            field_name="tool_budget.max_tool_calls",
+        )
+        max_same_read_calls = self._required_non_negative_int(
+            value,
+            "max_same_read_calls",
+            "maxSameReadCalls",
+            field_name="tool_budget.max_same_read_calls",
+        )
+        if max_tool_calls is not None:
+            budget["max_tool_calls"] = max_tool_calls
+        if max_same_read_calls is not None:
+            budget["max_same_read_calls"] = max_same_read_calls
+        return budget
+
+    def _completion_policy(self, value: Any) -> SkillCompletionPolicy:
+        if value is None:
+            return SkillCompletionPolicy()
+        if not isinstance(value, dict):
+            raise ValueError("skill.yaml completion_policy must be a mapping")
+        return SkillCompletionPolicy(
+            requires_terminal_output=self._required_bool(
+                self._first_present(value, "requires_terminal_output", "requiresTerminalOutput"),
+                fallback=False,
+                field_name="completion_policy.requires_terminal_output",
+            ),
+            terminal_text_allowed=self._required_bool(
+                self._first_present(value, "terminal_text_allowed", "terminalTextAllowed"),
+                fallback=True,
+                field_name="completion_policy.terminal_text_allowed",
+            ),
+            terminal_tools=self._tool_hint_map(
+                self._first_present(value, "terminal_tools", "terminalTools"),
+                field_name="completion_policy.terminal_tools",
+            ),
+            followup_required_tools=self._tool_hint_map(
+                self._first_present(value, "followup_required_tools", "followupRequiredTools"),
+                field_name="completion_policy.followup_required_tools",
+            ),
+        )
+
+    def _draft_contract(self, value: Any) -> dict[str, dict[str, str]]:
+        if value is None:
+            return {}
+        if not isinstance(value, dict):
+            raise ValueError("skill.yaml draft_contract must be a mapping")
+        contracts: dict[str, dict[str, str]] = {}
+        for raw_draft_type, raw_contract in value.items():
+            draft_type = str(raw_draft_type).strip()
+            if not draft_type:
+                raise ValueError("skill.yaml draft_contract contains an empty draft type")
+            if not isinstance(raw_contract, dict):
+                raise ValueError(f"skill.yaml draft_contract.{draft_type} must be a mapping")
+            contract: dict[str, str] = {}
+            for source_key, target_key in (
+                ("schema_version", "schemaVersion"),
+                ("schemaVersion", "schemaVersion"),
+                ("approval_config_key", "approvalConfigKey"),
+                ("approvalConfigKey", "approvalConfigKey"),
+                ("commit_handler_key", "commitHandlerKey"),
+                ("commitHandlerKey", "commitHandlerKey"),
+            ):
+                if source_key not in raw_contract:
+                    continue
+                text = self._text(raw_contract.get(source_key))
+                if text:
+                    contract[target_key] = text
+            if contract:
+                contracts[draft_type] = contract
+        return contracts
+
+    def _tool_hint_map(self, value: Any, *, field_name: str) -> dict[str, str]:
+        if value is None:
+            return {}
+        if not isinstance(value, dict):
+            raise ValueError(f"skill.yaml {field_name} must be a mapping")
+        hints: dict[str, str] = {}
+        for raw_tool_name, raw_hint in value.items():
+            tool_name = str(raw_tool_name).strip()
+            if not tool_name:
+                raise ValueError(f"skill.yaml {field_name} contains an empty tool name")
+            if not isinstance(raw_hint, str):
+                raise ValueError(f"skill.yaml {field_name}.{tool_name} must be a string")
+            hint = self._text(raw_hint)
+            if not hint:
+                raise ValueError(f"skill.yaml {field_name}.{tool_name} must include a hint")
+            hints[tool_name] = hint
+        return hints
+
+    def _non_negative_int(self, value: Any) -> int | None:
+        if value is None or isinstance(value, bool):
+            return None
+        try:
+            parsed = int(value)
+        except (TypeError, ValueError):
+            return None
+        return parsed if parsed >= 0 else None
+
+    def _required_non_negative_int(self, data: dict[str, Any], *keys: str, field_name: str) -> int | None:
+        value = self._first_present(data, *keys)
+        if value is None:
+            return None
+        if isinstance(value, bool):
+            raise ValueError(f"skill.yaml {field_name} must be a non-negative integer")
+        try:
+            parsed = int(value)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"skill.yaml {field_name} must be a non-negative integer") from exc
+        if parsed < 0:
+            raise ValueError(f"skill.yaml {field_name} must be a non-negative integer")
+        return parsed
+
+    def _required_bool(self, value: Any, *, fallback: bool, field_name: str) -> bool:
+        if value is None:
+            return fallback
+        if isinstance(value, bool):
+            return value
+        raise ValueError(f"skill.yaml {field_name} must be a boolean")
+
+    def _first_present(self, data: dict[str, Any], *keys: str) -> Any:
+        for key in keys:
+            if key in data:
+                return data[key]
+        return None
 
 
 def load_skill_catalog(skills_dir: Path | None = None, *, tool_registry: ToolRegistry | None = None) -> list[BaseSkill]:

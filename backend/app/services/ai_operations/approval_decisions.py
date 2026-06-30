@@ -11,13 +11,11 @@ from sqlalchemy.orm import Session
 from app.ai.errors import AIConflictError
 from app.core.utils import create_id, utcnow
 from app.models.domain import AIApprovalRequest, AIConversation, AIOperation, AITaskDraft, AIUserApproval
-from app.services.ai_operations.approval_config import DRAFT_APPROVAL_CONFIG, approval_config_for_payload
 from app.services.ai_operations.approval_requests import create_retry_ai_approval
 from app.services.ai_operations.approval_values import validate_approval_values, validate_rejection_values
 from app.services.ai_operations.artifacts import approval_decision_artifacts
 from app.services.ai_operations.common import assert_updated_at_matches, is_database_lock_conflict
 from app.services.ai_operations.executor import execute_ai_operation_draft
-from app.services.ai_operations.inventory import refresh_inventory_result_card
 from app.services.ai_operations.messages import (
     append_message_approval_part,
     append_message_result_card,
@@ -25,6 +23,8 @@ from app.services.ai_operations.messages import (
     sync_message_approval_parts,
 )
 from app.services.ai_operations.recovery import build_failure_summary
+from app.services.ai_operations.registry import draft_operation_registry
+from app.services.ai_operations.registry_types import DraftPostExecuteContext
 from app.services.serializers import (
     serialize_ai_approval_request,
     serialize_ai_operation,
@@ -141,11 +141,11 @@ def apply_ai_approval_decision(
             "business_entity": None,
         }
 
-    if draft.draft_type not in DRAFT_APPROVAL_CONFIG:
+    if not draft_operation_registry.supports(draft.draft_type):
         raise ValueError("暂不支持的草稿类型")
-    config = approval_config_for_payload(draft.draft_type, draft.payload)
+    config = draft_operation_registry.approval_config_for_payload(draft.draft_type, draft.payload)
     submitted_payload = submitted_values[config["value_key"]]
-    config = approval_config_for_payload(draft.draft_type, submitted_payload)
+    config = draft_operation_registry.approval_config_for_payload(draft.draft_type, submitted_payload)
     try:
         existing_operation = db.scalar(
             select(AIOperation)
@@ -196,14 +196,16 @@ def apply_ai_approval_decision(
         draft.payload = submitted_payload
         draft.updated_by = user_id
         operation_summary = {"operationId": operation.id, "entityIds": entity_ids}
-        if draft.draft_type == "inventory_operation":
-            refresh_inventory_result_card(
-                db,
+        draft_operation_registry.after_success(
+            DraftPostExecuteContext(
+                db=db,
+                draft_type=draft.draft_type,
                 family_id=family_id,
-                message_id=draft.message_id,
-                result=business_entity,
                 user_id=user_id,
+                message_id=draft.message_id,
+                business_entity=business_entity,
             )
+        )
         logger.info(
             "AI approval operation succeeded family_id=%s user_id=%s conversation_id=%s approval_id=%s draft_id=%s draft_type=%s operation_id=%s entity_ids=%s",
             family_id,

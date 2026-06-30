@@ -446,6 +446,7 @@ describe('recipe workspace payload helpers', () => {
           name: '炒制',
           seconds: 0,
           running: true,
+          lastTickedAt: expect.any(Number),
           mode: 'countdown',
           durationSeconds: 120,
           source: 'step',

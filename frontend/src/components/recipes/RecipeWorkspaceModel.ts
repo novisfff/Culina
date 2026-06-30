@@ -108,6 +108,7 @@ export type CookTimerState = {
   name: string;
   seconds: number;
   running: boolean;
+  lastTickedAt: number | null;
   mode: 'countup' | 'countdown';
   durationSeconds: number | null;
   source: 'step' | 'manual';
@@ -663,6 +664,7 @@ export function buildDefaultCookSession(recipe: Pick<Recipe, 'servings' | 'steps
         name: isStepTimer ? getRecipeStepTitle(firstStep, 0) : '自定义 1',
         seconds: 0,
         running: false,
+        lastTickedAt: null,
         mode: firstStepSuggestedSeconds ? 'countdown' : 'countup',
         durationSeconds: firstStepSuggestedSeconds,
         source: isStepTimer ? 'step' : 'manual',
@@ -718,6 +720,7 @@ export function sanitizeCookSession(
             : typeof t.name === 'string' && t.name ? t.name : `自定义 ${index + 1}`,
           seconds: Math.max(0, Number(t.seconds) || 0),
           running: Boolean(t.running),
+          lastTickedAt: Number.isFinite(Number(t.lastTickedAt)) ? Number(t.lastTickedAt) : null,
           mode: t.mode === 'countdown' ? 'countdown' : 'countup',
           durationSeconds: Number(t.durationSeconds) > 0 ? Number(t.durationSeconds) : null,
           source,
@@ -737,6 +740,7 @@ export function sanitizeCookSession(
         name: isStepTimer ? getRecipeStepTitle(currentStep, currentStepIndex) : '自定义 1',
         seconds: Math.max(0, Number(parsed.timerSeconds) || 0),
         running: Boolean(parsed.timerRunning),
+        lastTickedAt: null,
         mode: parsed.timerMode === 'countdown' ? 'countdown' : 'countup',
         durationSeconds: legacyDuration,
         source: isStepTimer ? 'step' : 'manual',
@@ -748,13 +752,14 @@ export function sanitizeCookSession(
   const activeTimerId = typeof parsed.activeTimerId === 'string' && timers.some((timer) => timer.id === parsed.activeTimerId)
     ? parsed.activeTimerId
     : timers[0].id;
+  const advancedTimers = advanceCookTimers(timers);
 
   return {
     currentStepIndex: clampStepIndex(Number(parsed.currentStepIndex) || 0, Math.max(recipe.steps.length, 1)),
     checkedIngredientIds: Array.isArray(parsed.checkedIngredientIds) ? parsed.checkedIngredientIds.filter((item): item is string => typeof item === 'string') : [],
     completedStepIds: Array.isArray(parsed.completedStepIds) ? parsed.completedStepIds.filter((item): item is string => typeof item === 'string') : [],
-    timers,
-    activeTimerId,
+    timers: advancedTimers.timers,
+    activeTimerId: advancedTimers.newlyFinishedTimerId ?? activeTimerId,
     servings: typeof parsed.servings === 'string' && parsed.servings.trim() ? parsed.servings : fallback.servings,
     date: typeof parsed.date === 'string' && parsed.date ? parsed.date : fallback.date,
     mealType: MEAL_TYPE_OPTIONS.some((item) => item.value === parsed.mealType) ? parsed.mealType as MealType : fallback.mealType,
@@ -818,10 +823,51 @@ export function saveCookSession(recipeId: string, session: RecipeCookSessionStat
     planItemId: session.planItemId,
     session: {
       ...session,
-      timers: session.timers.map((timer) => ({ ...timer, running: false })),
+      timers: session.timers,
     },
   };
   writeJsonStorage(recipeCookSessionKey(recipeId, session.planItemId), persisted);
+}
+
+export function advanceCookTimers(timers: CookTimerState[], now: number = Date.now()) {
+  let newlyFinishedTimerId: string | null = null;
+  const nextTimers = timers.map((timer) => {
+    if (!timer.running) return timer.lastTickedAt === null ? timer : { ...timer, lastTickedAt: null };
+
+    const lastTickedAt =
+      typeof timer.lastTickedAt === 'number' && Number.isFinite(timer.lastTickedAt) ? timer.lastTickedAt : now;
+    const elapsedSeconds = Math.max(0, Math.floor((now - lastTickedAt) / 1000));
+    if (elapsedSeconds <= 0) {
+      return timer.lastTickedAt === lastTickedAt ? timer : { ...timer, lastTickedAt };
+    }
+
+    const nextLastTickedAt = lastTickedAt + elapsedSeconds * 1000;
+    if (timer.mode === 'countdown' && timer.durationSeconds) {
+      const nextSeconds = timer.seconds + elapsedSeconds;
+      if (nextSeconds >= timer.durationSeconds) {
+        newlyFinishedTimerId = timer.id;
+        return {
+          ...timer,
+          running: false,
+          seconds: timer.durationSeconds,
+          lastTickedAt: null,
+        };
+      }
+      return {
+        ...timer,
+        seconds: nextSeconds,
+        lastTickedAt: nextLastTickedAt,
+      };
+    }
+
+    return {
+      ...timer,
+      seconds: timer.seconds + elapsedSeconds,
+      lastTickedAt: nextLastTickedAt,
+    };
+  });
+
+  return { timers: nextTimers, newlyFinishedTimerId };
 }
 
 export function getNextManualTimerName(timers: Pick<CookTimerState, 'name'>[]) {
@@ -868,6 +914,7 @@ export function transitionCookTimerForStep(args: {
             name: stepName,
             mode: 'countdown',
             durationSeconds: suggestedSeconds,
+            lastTickedAt: null,
             source: 'step',
             stepId: args.nextStep?.id ?? null,
           }
@@ -881,6 +928,7 @@ export function transitionCookTimerForStep(args: {
     name: stepName,
     seconds: 0,
     running: false,
+    lastTickedAt: null,
     mode: 'countdown',
     durationSeconds: suggestedSeconds,
     source: 'step',

@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.core.utils import create_id
 from app.models.domain import AIApprovalRequest, AIMessage, AITaskDraft
-from app.services.ai_operations.approval_config import DRAFT_APPROVAL_CONFIG, approval_config_for_payload
+from app.services.ai_operations.registry import draft_operation_registry
 from app.services.ai_operations.artifacts import (
     approval_decision_artifacts,
     build_approval_result_card,
@@ -126,9 +126,9 @@ def approval_result_card(decision_result: dict[str, Any]) -> dict[str, Any] | No
     operation = decision_result.get("operation") if isinstance(decision_result.get("operation"), dict) else {}
     draft_type = str(draft.get("draft_type") or "")
     draft_payload = draft.get("payload") if isinstance(draft.get("payload"), dict) else {}
-    if draft_type not in DRAFT_APPROVAL_CONFIG:
+    if not draft_operation_registry.supports(draft_type):
         return None
-    config = approval_config_for_payload(draft_type, draft_payload)
+    config = draft_operation_registry.approval_config_for_payload(draft_type, draft_payload)
     return build_approval_result_card(
         approval=approval,
         draft=draft,

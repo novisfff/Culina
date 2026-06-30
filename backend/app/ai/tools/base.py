@@ -39,6 +39,11 @@ class ToolDefinition:
     side_effect: ToolSideEffect
     handler: ToolHandler
     requires_confirmation: bool = False
+    requires_followup: bool = False
+    terminal_output: bool = False
+    followup_hint: str = ""
+    output_types: list[str] = field(default_factory=list)
+    draft_types: list[str] = field(default_factory=list)
 
 
 @dataclass(slots=True)

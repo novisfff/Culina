@@ -17,7 +17,24 @@ script_files: []
 output_types: []
 draft_types:
 - meal_log
+draft_contract:
+  meal_log:
+    schema_version: meal_log.v1
+    approval_config_key: meal_log
+    commit_handler_key: meal_log
+route_hints:
+- meal_log
+- meal_record
 approval_policy: draft_then_confirm
+tool_budget:
+  max_tool_calls: 10
+  max_same_read_calls: 2
+completion_policy:
+  followup_required_tools:
+    food.search: 食物检索后必须说明候选、请求用户选择，或生成 meal_log 草稿。
+    meal_log.read_recent: 近期用餐读取后必须说明可参考记录、请求补充信息，或生成 meal_log 草稿。
+    meal_log.read_by_id: 读取用餐记录后必须总结现有内容、请求补充信息，或生成更新草稿。
+    workspace.read_artifact: 读取历史 artifact 后必须说明可复用内容、请求补充信息，或生成/调整 meal_log 草稿。
 examples:
 - 今晚吃了番茄小炒。
 - 记录一餐。

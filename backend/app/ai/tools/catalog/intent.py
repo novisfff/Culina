@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import Any
 
 from app.ai.tools.base import ToolContext
@@ -7,37 +8,36 @@ from app.ai.tools.catalog.common import register_tool
 from app.ai.tools.registry import ToolRegistry
 
 
-SKILL_INJECT_SKILL_KEYS = [
-    "cooking_assistant",
-    "food_profile",
-    "ingredient_profile",
-    "inventory_analysis",
-    "meal_plan",
-    "meal_log",
-    "recipe_cook",
-    "recipe_draft",
-    "shopping_list",
-]
-
-SKILL_INJECT_REQUEST_SCHEMA = {
-    "type": "object",
-    "additionalProperties": False,
-    "properties": {
-        "skills": {
-            "type": "array",
-            "description": "要注入的 Skill 稳定 key 列表。必须使用 skill.yaml:key，例如 inventory_analysis；不要使用 SKILL.md:name 或目录 slug，例如 inventory-analysis。",
-            "items": {
-                "type": "string",
-                "enum": SKILL_INJECT_SKILL_KEYS,
-                "description": "只能填写 skill.yaml:key。",
+def skill_inject_request_schema(
+    skill_keys: Sequence[str] | None = None,
+    *,
+    max_items: int = 4,
+) -> dict[str, Any]:
+    item_schema: dict[str, Any] = {
+        "type": "string",
+        "description": "只能填写 skill.yaml:key。",
+    }
+    if skill_keys is not None:
+        item_schema["enum"] = list(skill_keys)
+    max_items = max(1, int(max_items))
+    return {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": {
+            "skills": {
+                "type": "array",
+                "description": "要注入的 Skill 稳定 key 列表。必须使用 skill.yaml:key，例如 inventory_analysis；不要使用 SKILL.md:name 或目录 slug，例如 inventory-analysis。",
+                "items": item_schema,
+                "minItems": 1,
+                "maxItems": max_items,
             },
-            "minItems": 1,
-            "maxItems": 4,
+            "reason": {"type": ["string", "null"], "maxLength": 360},
         },
-        "reason": {"type": ["string", "null"], "maxLength": 360},
-    },
-    "required": ["skills"],
-}
+        "required": ["skills"],
+    }
+
+
+SKILL_INJECT_REQUEST_SCHEMA = skill_inject_request_schema()
 SKILL_INJECT_RESULT_SCHEMA = {
     "type": "object",
     "additionalProperties": False,

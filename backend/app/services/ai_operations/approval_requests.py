@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.core.utils import create_id
 from app.models.domain import AIApprovalRequest, AITaskDraft
-from app.services.ai_operations.approval_config import approval_config_for_payload
+from app.services.ai_operations.registry import draft_operation_registry
 
 
 def create_ai_draft_approval(
@@ -23,7 +23,7 @@ def create_ai_draft_approval(
     preview_summary: str,
     ai_metadata: dict[str, Any] | None = None,
 ) -> tuple[AITaskDraft, AIApprovalRequest]:
-    config = approval_config_for_payload(draft_type, payload)
+    config = draft_operation_registry.approval_config_for_payload(draft_type, payload)
     draft = AITaskDraft(
         id=create_id("ai_draft"),
         family_id=family_id,
@@ -96,7 +96,7 @@ def create_retry_ai_approval(
             f"失败项：{first.get('summary') or first.get('operationId') or '未识别操作'}。"
             "你可以调整草稿后重试。"
         )
-    config = approval_config_for_payload(draft.draft_type, draft.payload)
+    config = draft_operation_registry.approval_config_for_payload(draft.draft_type, draft.payload)
     approval = AIApprovalRequest(
         id=create_id("ai_approval"),
         family_id=family_id,

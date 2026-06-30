@@ -403,6 +403,8 @@ def register_meal_plan_tools(registry: ToolRegistry) -> None:
             },
         },
         output_schema=MEAL_PLAN_LIST_OUTPUT,
+        requires_followup=True,
+        followup_hint="读取已有餐食计划后必须总结冲突/空档、请求补充信息，或继续生成推荐/计划草稿。",
     )
     register_tool(
         registry,
@@ -413,6 +415,8 @@ def register_meal_plan_tools(registry: ToolRegistry) -> None:
         handler=meal_plan_read_by_id,
         input_schema=READ_BY_ID_INPUT,
         output_schema=MEAL_PLAN_READ_OUTPUT,
+        requires_followup=True,
+        followup_hint="读取餐食计划详情后必须说明可调整项、请求补充信息，或继续生成计划草稿。",
     )
     register_tool(
         registry,
@@ -423,6 +427,7 @@ def register_meal_plan_tools(registry: ToolRegistry) -> None:
         handler=meal_plan_create_draft,
         input_schema=draft_input_schema(MEAL_PLAN_DRAFT_SCHEMA),
         output_schema=draft_output_schema(MEAL_PLAN_DRAFT_SCHEMA),
+        draft_types=["meal_plan"],
     )
     register_tool(
         registry,
@@ -433,4 +438,7 @@ def register_meal_plan_tools(registry: ToolRegistry) -> None:
         handler=meal_plan_recommend_today,
         input_schema=TODAY_RECOMMENDATION_INPUT,
         output_schema=TODAY_RECOMMENDATION_OUTPUT,
+        terminal_output=True,
+        followup_hint="即时餐食推荐卡可作为今日推荐模式的终态输出。",
+        output_types=["today_recommendation"],
     )

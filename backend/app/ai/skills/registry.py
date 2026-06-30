@@ -10,6 +10,8 @@ class SkillRegistry:
         self._skills: dict[str, BaseSkill] = {}
 
     def register(self, skill: BaseSkill) -> None:
+        if skill.manifest.key in self._skills:
+            raise ValueError(f"Duplicate skill key registered: {skill.manifest.key}")
         self._skills[skill.manifest.key] = skill
 
     def get(self, key: str) -> BaseSkill:

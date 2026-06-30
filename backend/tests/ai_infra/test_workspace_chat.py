@@ -82,7 +82,8 @@ class AIWorkspaceChatTestCase(AIAgentInfraTestCase):
                     ],
                     "sourceDraftId": None,
                 }
-                message = WorkspaceGraphRunner(service)._persist_assistant_result(
+                runner = WorkspaceGraphRunner(service)
+                message = runner.assistant_result_persister.persist(
                     {
                         "family_id": self.family.id,
                         "user_id": self.user.id,
@@ -99,8 +100,8 @@ class AIWorkspaceChatTestCase(AIAgentInfraTestCase):
                         model="fake-model",
                     ),
                     skill_key="meal_plan",
-                )
-                response = WorkspaceGraphRunner(service)._chat_response(conversation.id, run.id)
+                ).message
+                response = runner._chat_response(conversation.id, run.id)
 
                 draft_parts = [part for part in message.parts if part.get("type") == "draft"]
                 approval_parts = [part for part in message.parts if part.get("type") == "approval_request"]
@@ -142,7 +143,7 @@ class AIWorkspaceChatTestCase(AIAgentInfraTestCase):
                 db.flush()
                 observed_at = datetime(2026, 6, 16, 1, 46, 15)
 
-                WorkspaceGraphRunner(service)._persist_assistant_result(
+                WorkspaceGraphRunner(service).assistant_result_persister.persist(
                     {
                         "family_id": self.family.id,
                         "user_id": self.user.id,

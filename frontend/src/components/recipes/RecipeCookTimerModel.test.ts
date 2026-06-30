@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { RecipeStep } from '../../api/types';
 import {
+  advanceCookTimers,
   getNextManualTimerName,
   removeCookTimer,
   transitionCookTimerForStep,
@@ -13,6 +14,7 @@ function timer(overrides: Partial<CookTimerState> = {}): CookTimerState {
     name: '自定义 1',
     seconds: 0,
     running: false,
+    lastTickedAt: null,
     mode: 'countup',
     durationSeconds: null,
     source: 'manual',
@@ -118,6 +120,40 @@ describe('cook timer step transitions', () => {
 });
 
 describe('cook timer helpers', () => {
+  it('advances running timers by elapsed wall-clock time', () => {
+    const result = advanceCookTimers([
+      timer({ running: true, seconds: 3, lastTickedAt: 1_000 }),
+    ], 6_250);
+
+    expect(result.newlyFinishedTimerId).toBeNull();
+    expect(result.timers[0]).toEqual(timer({
+      running: true,
+      seconds: 8,
+      lastTickedAt: 6_000,
+    }));
+  });
+
+  it('finishes countdown timers after background elapsed time', () => {
+    const result = advanceCookTimers([
+      timer({
+        mode: 'countdown',
+        durationSeconds: 10,
+        seconds: 4,
+        running: true,
+        lastTickedAt: 1_000,
+      }),
+    ], 8_500);
+
+    expect(result.newlyFinishedTimerId).toBe('timer-1');
+    expect(result.timers[0]).toEqual(timer({
+      mode: 'countdown',
+      durationSeconds: 10,
+      seconds: 10,
+      running: false,
+      lastTickedAt: null,
+    }));
+  });
+
   it('uses the first available custom timer number', () => {
     expect(getNextManualTimerName([
       timer({ name: '自定义 1' }),

@@ -18,7 +18,25 @@ script_files:
 output_types: []
 draft_types:
 - recipe
+draft_contract:
+  recipe:
+    schema_version: recipe.v1
+    approval_config_key: recipe
+    commit_handler_key: recipe
+route_hints:
+- recipe
+- recipe_draft
 approval_policy: draft_then_confirm
+tool_budget:
+  max_tool_calls: 16
+  max_same_read_calls: 2
+completion_policy:
+  followup_required_tools:
+    ingredient.search: 食材检索后必须说明候选绑定结果、请求补充信息，或继续生成 recipe 草稿。
+    recipe.search: 菜谱检索后必须说明候选、请求用户选择，或继续生成/更新 recipe 草稿。
+    recipe.read_by_id: 读取菜谱后必须说明可复用内容、请求补充信息，或继续生成/更新 recipe 草稿。
+    workspace.read_artifact: 读取历史 artifact 后必须说明可复用内容、请求补充信息，或继续生成/更新 recipe 草稿。
+    script.lint_recipe_draft: 菜谱草稿 lint 后必须继续修正草稿、请求补充信息，或调用 recipe.create_draft。
 examples:
 - 帮我生成一份番茄鸡蛋面的菜谱。
 - 把这个菜谱补全步骤和用量。

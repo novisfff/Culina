@@ -53,6 +53,7 @@ from app.ai.tools import build_workspace_tool_registry
 from app.ai.workspace_service import AIApplicationService
 from app.ai.workflows.checkpoint import SQLAlchemyCheckpointSaver
 from app.ai.workflows.live_stream_cache import live_ai_stream_cache
+from app.ai.workflows.orchestrator.profiles import ORCHESTRATOR_PROFILE_REGISTRY, OrchestratorProfile, profile_with_skill_route_hints
 from app.ai.observability.serializers import serialize_ai_run_llm_exchange, serialize_ai_run_trace_span
 from app.services.serializers import serialize_ai_conversation, serialize_ai_message, serialize_ai_run_event
 from app.services.ai_quality import build_ai_quality_metrics
@@ -125,6 +126,26 @@ def _discard_transient_chat_history(db: Session, *, family_id: str, response: di
     )
     db.execute(delete(AIConversation).where(AIConversation.id == conversation_id, AIConversation.family_id == family_id))
     SQLAlchemyCheckpointSaver(db).delete_thread(conversation_id)
+
+
+def _serialize_orchestrator_profile(profile: OrchestratorProfile, *, default_key: str) -> dict:
+    return {
+        "key": profile.key,
+        "initial_skill_keys": list(profile.initial_skill_keys),
+        "response_style": profile.response_style,
+        "allowed_surface": profile.allowed_surface,
+        "matcher": {
+            "quickTasks": list(profile.matcher.quick_tasks),
+            "subjectSources": list(profile.matcher.subject_sources),
+            "surfaces": list(profile.matcher.surfaces),
+            "routeHints": list(profile.matcher.route_hints),
+        },
+        "capability_policy": profile.capability_policy.to_state(),
+        "budget_config": profile.budget_config.to_state(),
+        "route_hints": [hint.to_state() for hint in profile.route_hints],
+        "system_prompt_addon_present": bool(profile.system_prompt_addon.strip()),
+        "default": profile.key == default_key,
+    }
 
 
 @router.get("/api/ai/status", response_model=AIStatusResponse)
@@ -208,6 +229,10 @@ def get_ai_registry(auth: tuple = Depends(get_current_auth)) -> dict:
                 ],
                 "output_types": manifest.output_types,
                 "draft_types": manifest.draft_types,
+                "draft_contract": manifest.draft_contract,
+                "route_hints": manifest.route_hints,
+                "tool_budget": manifest.tool_budget,
+                "completion_policy": manifest.completion_policy.to_catalog_record(),
                 "approval_policy": manifest.approval_policy,
                 "intent": manifest.intent,
                 "agent_key": manifest.agent_key,
@@ -222,10 +247,22 @@ def get_ai_registry(auth: tuple = Depends(get_current_auth)) -> dict:
                 "permission": tool.permission,
                 "side_effect": tool.side_effect,
                 "requires_confirmation": tool.requires_confirmation,
+                "requires_followup": tool.requires_followup,
+                "terminal_output": tool.terminal_output,
+                "followup_hint": tool.followup_hint,
+                "output_types": tool.output_types,
+                "draft_types": tool.draft_types,
                 "input_schema": tool.input_schema,
                 "output_schema": tool.output_schema,
             }
             for tool in tool_registry.list()
+        ],
+        "profiles": [
+            _serialize_orchestrator_profile(
+                profile_with_skill_route_hints(profile, skill_registry),
+                default_key=ORCHESTRATOR_PROFILE_REGISTRY.default_profile.key,
+            )
+            for profile in ORCHESTRATOR_PROFILE_REGISTRY.profiles
         ],
     }
 

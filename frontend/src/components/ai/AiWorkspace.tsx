@@ -143,7 +143,6 @@ export function AiWorkspace({
   const [runEventsById, setRunEventsById] = useState<Record<string, AiRunEvent[]>>({});
   const [recommendationPlanRequest, setRecommendationPlanRequest] = useState<AiRecommendationPlanRequest | null>(null);
   const [planFeedback, setPlanFeedback] = useState('');
-  const [streamError, setStreamError] = useState('');
   const [isQualityModalOpen, setIsQualityModalOpen] = useState(false);
   const [debugRunId, setDebugRunId] = useState<string | null>(null);
   const inventoryDraftAction = useAiInventoryDraftAction({
@@ -819,7 +818,6 @@ export function AiWorkspace({
     streamMessageTargetRef,
     streamConversationTargetRef,
     setActiveStreamRunIdsByConversationKey,
-    setStreamError,
     startThinking,
     stopThinking,
     ensureStreamingAssistantMessage,
@@ -1045,7 +1043,7 @@ export function AiWorkspace({
       attachmentState.discardHiddenAttachments(sendableAttachments);
     } catch {
       attachmentState.restoreHiddenAttachments(sendableAttachments);
-      // The mutation state renders the request error; keep it out of the form event promise.
+      // Keep request failures out of the form event promise; message-level state already carries visible run feedback.
     }
   }
   const submitApprovalDecision: AiApprovalDecisionSubmit = async (approval, decision, values, comment) => {
@@ -1228,7 +1226,6 @@ export function AiWorkspace({
         isSending={isAssistantBusy}
         isComposerPaused={effectiveComposerPaused}
         composerPauseMessage={effectiveComposerPauseMessage}
-        sendError={chatMutation.isError ? chatMutation.error.message : undefined}
         messagesLoading={isMessageHistoryLoading}
         messagesError={
           messagesQuery.isError
@@ -1362,8 +1359,6 @@ export function AiWorkspace({
             </button>
           ) : null}
           <div className="ai-composer-dock">
-            {chatMutation.isError && <p className="form-error">{chatMutation.error.message}</p>}
-            {streamError && <p className="form-error">{streamError}</p>}
             {effectiveComposerPaused && <p className="ai-composer-pause-note">{effectiveComposerPauseMessage}</p>}
             {isVisionUnavailableForAttachments && <p className="ai-composer-pause-note">当前 AI 模型暂不支持图片识别，请移除图片或切换支持视觉输入的模型。</p>}
             <AiComposerAttachments

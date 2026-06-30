@@ -206,6 +206,8 @@ def register_meal_log_tools(registry: ToolRegistry) -> None:
             },
         },
         output_schema=MEAL_LOG_LIST_OUTPUT,
+        requires_followup=True,
+        followup_hint="读取近期餐食记录后必须总结相关记录、请求补充信息，或继续生成/调整用餐记录草稿。",
     )
     register_tool(
         registry,
@@ -216,6 +218,8 @@ def register_meal_log_tools(registry: ToolRegistry) -> None:
         handler=meal_log_read_by_id,
         input_schema=READ_BY_ID_INPUT,
         output_schema=MEAL_LOG_READ_OUTPUT,
+        requires_followup=True,
+        followup_hint="读取餐食记录详情后必须说明可复用内容、请求补充信息，或继续生成/调整用餐记录草稿。",
     )
     register_tool(
         registry,
@@ -226,4 +230,5 @@ def register_meal_log_tools(registry: ToolRegistry) -> None:
         handler=meal_log_create_draft,
         input_schema=draft_input_schema(MEAL_LOG_DRAFT_SCHEMA),
         output_schema=draft_output_schema(MEAL_LOG_DRAFT_SCHEMA),
+        draft_types=["meal_log"],
     )

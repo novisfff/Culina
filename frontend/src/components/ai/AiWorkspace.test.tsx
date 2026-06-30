@@ -1416,7 +1416,7 @@ describe('AiWorkspace pending approval restore', () => {
       await new Promise<void>((_resolve, reject) => {
         handlers?.signal?.addEventListener('abort', () => {
           streamAborted = true;
-          reject(new Error('aborted'));
+          reject(new Error('BodyStreamBuffer was aborted'));
         });
       });
       throw new Error('stream unexpectedly resolved');
@@ -1455,6 +1455,7 @@ describe('AiWorkspace pending approval restore', () => {
     expect(cancelSpy.mock.calls[0]?.[0]).toMatch(/^agent_run-/);
     expect(streamAborted).toBe(true);
     expect(rendered.container.textContent).toContain('已取消这次任务');
+    expect(rendered.container.textContent).not.toContain('BodyStreamBuffer was aborted');
     rendered.unmount();
   });
 

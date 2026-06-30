@@ -206,6 +206,8 @@ def register_ingredient_tools(registry: ToolRegistry) -> None:
         handler=ingredient_search,
         input_schema=SEARCH_INPUT,
         output_schema=INGREDIENT_SEARCH_OUTPUT,
+        requires_followup=True,
+        followup_hint="食材检索后必须说明候选、请求用户选择，或继续读取详情/生成草稿。",
     )
     register_tool(
         registry,
@@ -216,6 +218,8 @@ def register_ingredient_tools(registry: ToolRegistry) -> None:
         handler=ingredient_read_by_id,
         input_schema=READ_BY_ID_INPUT,
         output_schema=INGREDIENT_READ_OUTPUT,
+        requires_followup=True,
+        followup_hint="读取食材详情后必须说明如何使用、请求补充信息，或继续生成/调整草稿。",
     )
     register_tool(
         registry,
@@ -226,4 +230,5 @@ def register_ingredient_tools(registry: ToolRegistry) -> None:
         handler=ingredient_profile_create_draft,
         input_schema=draft_input_schema(INGREDIENT_PROFILE_DRAFT_SCHEMA),
         output_schema=draft_output_schema(INGREDIENT_PROFILE_DRAFT_SCHEMA),
+        draft_types=["ingredient_profile"],
     )

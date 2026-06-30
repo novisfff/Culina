@@ -474,7 +474,6 @@ class OpenAICompatibleChatProvider(BaseChatProvider):
                     error=None,
                     tool_calls=requested_calls,
                 )
-            terminal_card_output_ready = False
             for call in tool_calls:
                 model_name = str(call.get("name") or "")
                 name = name_map.get(model_name, model_name)
@@ -511,16 +510,6 @@ class OpenAICompatibleChatProvider(BaseChatProvider):
                         content=json.dumps(output, ensure_ascii=False, default=str),
                         tool_call_id=call_id,
                     )
-                )
-                if self._is_terminal_card_output(output):
-                    terminal_card_output_ready = True
-            if terminal_card_output_ready:
-                return ChatProviderResult(
-                    text="".join(text_parts).strip() or None,
-                    status="completed",
-                    model=self.model_name,
-                    error=None,
-                    tool_calls=requested_calls,
                 )
 
         logger.warning(
@@ -680,7 +669,6 @@ class OpenAICompatibleChatProvider(BaseChatProvider):
                     error=None,
                     tool_calls=requested_calls,
                 )
-            terminal_card_output_ready = False
             for call in tool_calls:
                 model_name = str(call.get("name") or "")
                 name = name_map.get(model_name, model_name)
@@ -709,16 +697,6 @@ class OpenAICompatibleChatProvider(BaseChatProvider):
                     )
                     output = self._tool_error_message(name, exc)
                 messages.append(ToolMessage(content=json.dumps(output, ensure_ascii=False, default=str), tool_call_id=call_id))
-                if self._is_terminal_card_output(output):
-                    terminal_card_output_ready = True
-            if terminal_card_output_ready:
-                return ChatProviderResult(
-                    text="".join(text_parts).strip() or None,
-                    status="completed",
-                    model=self.model_name,
-                    error=None,
-                    tool_calls=requested_calls,
-                )
 
         logger.warning(
             "AI provider tool-call exceeded max rounds model=%s max_rounds=%s requested_calls=%s",
@@ -796,9 +774,6 @@ class OpenAICompatibleChatProvider(BaseChatProvider):
                 }
             )
         return normalized
-
-    def _is_terminal_card_output(self, output: Any) -> bool:
-        return isinstance(output, dict) and isinstance(output.get("card"), dict)
 
     def _emit_unstreamed_message_text(
         self,

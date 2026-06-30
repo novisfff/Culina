@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Iterator
-import inspect
-import json
 import logging
 from queue import Queue
 from threading import Thread
@@ -14,31 +12,61 @@ from langgraph.config import get_stream_writer
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import Command, interrupt
 from sqlalchemy import select
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.ai.errors import AIConflictError, AIExecutionCancelled
-from app.ai.observability.llm_exchange import LLMExchangeRecorder
 from app.ai.observability.tracer import AIRunTracer
-from app.ai.runtime.provider import ProviderImageInput
-from app.ai.skills import SkillContext, SkillResult, build_workspace_skill_registry
-from app.ai.skills.shared import result_artifacts
-from app.ai.tools import ToolContext, ToolExecutor, build_workspace_tool_registry
+from app.ai.skills import SkillResult, build_workspace_skill_registry
 from app.ai.workflows.checkpoint import SQLAlchemyCheckpointSaver
 from app.ai.workflows.conversations import (
-    find_active_conversation_run,
-    find_idempotent_run,
-    get_or_create_conversation,
-    normalize_workspace_subject,
     require_conversation,
 )
 from app.ai.workflows.live_stream_cache import live_ai_stream_cache
-from app.ai.workflows.result_cards import validate_result_cards
-from app.ai.workflows.orchestrator import WorkspaceOrchestratorAgent
-from app.ai.workflows.orchestrator_profiles import resolve_orchestrator_profile
+from app.ai.workflows.runner_support.assistant_result_persister import AssistantResultPersister
+from app.ai.workflows.runner_support.approval_resume_handler import ApprovalResumeHandler
+from app.ai.workflows.runner_support.approval_resume_preparer import ApprovalResumePreparer
+from app.ai.workflows.runner_support.approval_resume import (
+    approval_resume_draft_id,
+    approval_resume_artifact,
+    approval_resume_payload_from_metadata,
+)
+from app.ai.workflows.runner_support.approval_followup_streamer import ApprovalFollowupStreamer
+from app.ai.workflows.runner_support.human_input_resume_handler import HumanInputResumeHandler
+from app.ai.workflows.runner_support.human_input_resume_preparer import HumanInputResumePreparer
+from app.ai.workflows.runner_support.graph_state_builder import GraphStateBuilder
+from app.ai.workflows.runner_support.graph_run_initializer import GraphRunInitializer
+from app.ai.workflows.runner_support.attachments import (
+    normalize_chat_attachments,
+)
+from app.ai.workflows.runner_support.message_persistence import sync_message_parts_with_current_approval_state
+from app.ai.workflows.runner_support.message_preparation import message_summary
+from app.ai.workflows.runner_support.orchestrator_node import OrchestratorNode
+from app.ai.workflows.runner_support.progressive_draft_publisher import ProgressiveDraftPublisher
+from app.ai.workflows.runner_support.runtime_failure_persister import RuntimeFailurePersister
+from app.ai.workflows.runner_support.runner_runtime_context import RunnerRuntimeContext
+from app.ai.workflows.runner_support.stream_bridge import consume_stream_graph_worker, enqueue_stream_event
+from app.ai.workflows.runner_support.user_message_preparer import UserMessagePreparer
+from app.ai.workflows.orchestrator.profiles import (
+    ORCHESTRATOR_PROFILE_REGISTRY,
+    OrchestratorProfile,
+    profile_with_skill_route_hints,
+    validate_orchestrator_profile_registry,
+)
+from app.ai.workflows.runner_support.run_summary import (
+    record_approval_outcome_summary,
+)
+from app.ai.workflows.runner_support.run_finalizer import RunFinalizer
+from app.ai.workflows.runner_support.run_status import (
+    CANCELLED,
+    COMPLETED,
+    FAILED,
+    PENDING,
+    RUNNING,
+    WAITING_APPROVAL,
+    WAITING_INPUT,
+)
+from app.ai.workflows.orchestrator.signatures import tool_signature
 from app.ai.workflows.state import WorkspaceGraphState
-from app.ai.workflows.timeline import build_planner_conversation
-from app.core.utils import create_id, utcnow
+from app.core.utils import create_id
 from app.models.domain import (
     AIAgentRun,
     AIApprovalRequest,
@@ -47,23 +75,31 @@ from app.models.domain import (
     AIRunEvent,
     AIRunTraceSpan,
     AITaskDraft,
-    MediaAsset,
 )
-from app.services.media import read_media_object_for_ai
 from app.services.serializers import (
     serialize_ai_approval_request,
     serialize_ai_message,
     serialize_ai_run,
     serialize_ai_run_event,
     serialize_ai_task_draft,
-    serialize_media,
 )
 
 if TYPE_CHECKING:
     from app.ai.workspace_service import AIApplicationService
 
 logger = logging.getLogger(__name__)
+MAX_AGENT_ROUNDS = 30
 _STREAM_DONE = object()
+
+# Transaction boundary:
+# - Request-owned synchronous graph work keeps node helpers at flush-only; the
+#   graph.invoke call returns after LangGraph/checkpointer and the request
+#   session can commit together.
+# - Stream graph work runs in a background worker with its own Session, so the
+#   worker commits after graph completion and after final response assembly.
+# - Preparation and runtime-exception recovery are durable boundary operations:
+#   the prepared running run must exist before graph execution, and a failed
+#   recovery must clear activeRunId even when the graph raised.
 
 
 def _elapsed_ms(started_at: float) -> int:
@@ -75,9 +111,84 @@ class WorkspaceGraphRunner:
         self.db = service.db
         self.provider = service.provider
         self.skill_registry = build_workspace_skill_registry()
+        validate_orchestrator_profile_registry(ORCHESTRATOR_PROFILE_REGISTRY, self.skill_registry)
         self.checkpointer = SQLAlchemyCheckpointSaver(self.db)
         self.graph = self._build_graph()
+        self.graph_state_builder = GraphStateBuilder()
+        self.runtime_context = RunnerRuntimeContext(
+            db=self.db,
+            provider=self.provider,
+            service=self.service,
+            skill_registry=self.skill_registry,
+            checkpointer=self.checkpointer,
+            json_record=self._json_record,
+            cancel_requested=self._cancel_requested,
+            commit_stream_checkpoint=self._commit_stream_checkpoint,
+            optional_stream_writer=self._optional_stream_writer,
+            persistent_progress_writer=self._persistent_progress_writer,
+            tracer_for_state=self._tracer_for_state,
+        )
+        self.graph_run_initializer = GraphRunInitializer(db=self.db)
+        self.user_message_preparer = UserMessagePreparer(
+            db=self.db,
+            provider=self.provider,
+            json_record=self._json_record,
+        )
+        self.runtime_failure_persister = RuntimeFailurePersister(
+            db=self.db,
+            json_record=self._json_record,
+        )
+        self.approval_resume_preparer = ApprovalResumePreparer(
+            db=self.db,
+            graph=self.graph,
+            config_for_conversation=self._config,
+            build_resume_payload=self.graph_state_builder.build_approval_resume_payload,
+        )
+        self.human_input_resume_preparer = HumanInputResumePreparer(
+            db=self.db,
+            graph=self.graph,
+            config_for_conversation=self._config,
+            build_resume_payload=self.graph_state_builder.build_human_input_resume_payload,
+        )
+        self.progressive_draft_publisher = ProgressiveDraftPublisher(
+            db=self.db,
+            service=self.service,
+            cancel_requested=self._cancel_requested,
+            commit_stream_checkpoint=self._commit_stream_checkpoint,
+            optional_stream_writer=self._optional_stream_writer,
+            persistent_progress_writer=self._persistent_progress_writer,
+        )
+        self.approval_followup_streamer = ApprovalFollowupStreamer(
+            db=self.db,
+            provider=self.provider,
+            json_record=self._json_record,
+            cancel_requested=self._cancel_requested,
+            tracer_for_state=self._tracer_for_state,
+            optional_stream_writer=self._optional_stream_writer,
+            persistent_progress_writer=self._persistent_progress_writer,
+        )
+        self.assistant_result_persister = AssistantResultPersister(self)
+        self.approval_resume_handler = ApprovalResumeHandler(self)
+        self.human_input_resume_handler = HumanInputResumeHandler(self)
+        self.orchestrator_node = OrchestratorNode(self)
+        self.run_finalizer = RunFinalizer(self, max_agent_rounds=MAX_AGENT_ROUNDS)
         self._direct_stream_sink: Any = None
+
+    def _orchestrator_profile_for_run(
+        self,
+        *,
+        quick_task: str | None,
+        subject: dict[str, Any],
+    ) -> tuple[OrchestratorProfile, list[str]]:
+        profile = ORCHESTRATOR_PROFILE_REGISTRY.resolve(
+            quick_task=quick_task,
+            subject=subject,
+        )
+        profile = profile_with_skill_route_hints(profile, self.skill_registry)
+        return profile, profile.initial_skill_keys_for(
+            quick_task=quick_task,
+            subject=subject,
+        )
 
     def invoke_user_message(
         self,
@@ -93,17 +204,17 @@ class WorkspaceGraphRunner:
         attachments: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         prompt = message.strip()
-        normalized_attachments = self._normalize_chat_attachments(attachments)
+        normalized_attachments = normalize_chat_attachments(attachments)
         if not prompt and not normalized_attachments:
             raise ValueError("消息不能为空")
-        message_summary = self._message_summary(prompt, len(normalized_attachments))
+        message_summary_text = message_summary(prompt, len(normalized_attachments))
         prepare_started_at = perf_counter()
         prepared = self._prepare_user_message(
             family_id=family_id,
             user_id=user_id,
             conversation_id=conversation_id,
             prompt=prompt,
-            message_summary=message_summary,
+            message_summary=message_summary_text,
             client_message_id=client_message_id,
             client_run_id=client_run_id,
             quick_task=quick_task,
@@ -124,7 +235,7 @@ class WorkspaceGraphRunner:
             return self._chat_response(prepared["conversation_id"], prepared["run_id"])
         conversation_id = prepared["conversation_id"]
         config = self._config(conversation_id)
-        orchestrator_profile = resolve_orchestrator_profile(
+        orchestrator_profile, initial_skill_keys = self._orchestrator_profile_for_run(
             quick_task=quick_task,
             subject=prepared["subject"],
         )
@@ -137,33 +248,42 @@ class WorkspaceGraphRunner:
             quick_task,
             len(prompt),
         )
-        output = self.graph.invoke(
-            {
-                "family_id": family_id,
-                "user_id": user_id,
-                "conversation_id": conversation_id,
-                "message": prompt,
-                "current_message_attachments": prepared["attachments"],
-                "client_message_id": client_message_id,
-                "client_run_id": client_run_id,
-                "quick_task": quick_task,
-                "subject": prepared["subject"],
-                "orchestrator_profile": orchestrator_profile.to_state(),
-                "run_artifacts": [],
-                "injected_skill_keys": list(orchestrator_profile.initial_skill_keys),
-                "injection_history": [],
-                "agent_rounds": 0,
-                "pending_human_input": {},
-                "pending_approval_id": "",
-                "last_human_input_result": {},
-                "status": "running",
-                "error": None,
-                "run_id": prepared["run_id"],
-                "user_message_id": prepared["user_message_id"],
-            },
-            config=config,
-            durability="sync",
-        )
+        try:
+            output = self.graph.invoke(
+                self.graph_state_builder.build_initial_state(
+                    family_id=family_id,
+                    user_id=user_id,
+                    conversation_id=conversation_id,
+                    prompt=prompt,
+                    attachments=prepared["attachments"],
+                    client_message_id=client_message_id,
+                    client_run_id=client_run_id,
+                    quick_task=quick_task,
+                    subject=prepared["subject"],
+                    orchestrator_profile=orchestrator_profile,
+                    initial_skill_keys=initial_skill_keys,
+                    run_id=prepared["run_id"],
+                    user_message_id=prepared["user_message_id"],
+                ),
+                config=config,
+                durability="sync",
+            )
+        except Exception as exc:
+            logger.exception(
+                "AI graph invoke failed family_id=%s user_id=%s conversation_id=%s run_id=%s",
+                family_id,
+                user_id,
+                conversation_id,
+                prepared["run_id"],
+            )
+            self.runtime_failure_persister.mark_failed(
+                run_id=prepared["run_id"],
+                conversation_id=conversation_id,
+                family_id=family_id,
+                user_id=user_id,
+                error=str(exc),
+            )
+            return self._chat_response(conversation_id, prepared["run_id"])
         run_id = str(output.get("run_id") or "")
         if not run_id:
             state = self.graph.get_state(config)
@@ -191,17 +311,17 @@ class WorkspaceGraphRunner:
         attachments: list[dict[str, Any]] | None = None,
     ) -> Iterator[tuple[str, dict[str, Any]]]:
         prompt = message.strip()
-        normalized_attachments = self._normalize_chat_attachments(attachments)
+        normalized_attachments = normalize_chat_attachments(attachments)
         if not prompt and not normalized_attachments:
             raise ValueError("消息不能为空")
-        message_summary = self._message_summary(prompt, len(normalized_attachments))
+        message_summary_text = message_summary(prompt, len(normalized_attachments))
         prepare_started_at = perf_counter()
         prepared = self._prepare_user_message(
             family_id=family_id,
             user_id=user_id,
             conversation_id=conversation_id,
             prompt=prompt,
-            message_summary=message_summary,
+            message_summary=message_summary_text,
             client_message_id=client_message_id,
             client_run_id=client_run_id,
             quick_task=quick_task,
@@ -253,7 +373,7 @@ class WorkspaceGraphRunner:
         conversation_id = str(prepared["conversation_id"])
         config = self._config(conversation_id)
         run_id = str(prepared["run_id"])
-        orchestrator_profile = resolve_orchestrator_profile(
+        orchestrator_profile, initial_skill_keys = self._orchestrator_profile_for_run(
             quick_task=quick_task,
             subject=prepared["subject"],
         )
@@ -270,78 +390,156 @@ class WorkspaceGraphRunner:
         try:
             def graph_stream(runner: WorkspaceGraphRunner) -> Iterator[Any]:
                 return runner.graph.stream(
-                    {
-                        "family_id": family_id,
-                        "user_id": user_id,
-                        "conversation_id": conversation_id,
-                        "message": prompt,
-                        "current_message_attachments": attachments,
-                        "client_message_id": client_message_id,
-                        "client_run_id": client_run_id,
-                        "quick_task": quick_task,
-                        "subject": prepared["subject"],
-                        "orchestrator_profile": orchestrator_profile.to_state(),
-                        "run_artifacts": [],
-                        "injected_skill_keys": list(orchestrator_profile.initial_skill_keys),
-                        "injection_history": [],
-                        "agent_rounds": 0,
-                        "pending_human_input": {},
-                        "pending_approval_id": "",
-                        "last_human_input_result": {},
-                        "status": "running",
-                        "error": None,
-                        "run_id": run_id,
-                        "user_message_id": prepared["user_message_id"],
-                    },
+                    runner.graph_state_builder.build_initial_state(
+                        family_id=family_id,
+                        user_id=user_id,
+                        conversation_id=conversation_id,
+                        prompt=prompt,
+                        attachments=attachments,
+                        client_message_id=client_message_id,
+                        client_run_id=client_run_id,
+                        quick_task=quick_task,
+                        subject=prepared["subject"],
+                        orchestrator_profile=orchestrator_profile,
+                        initial_skill_keys=initial_skill_keys,
+                        run_id=run_id,
+                        user_message_id=prepared["user_message_id"],
+                    ),
                     config=config,
                     stream_mode=["updates", "custom"],
                     durability="sync",
                 )
 
-            def handle_update(runner: WorkspaceGraphRunner, _update: Any) -> Iterator[tuple[str, dict[str, Any]]]:
-                if run_id:
-                    yield from runner._new_progress_events(run_id, seen_event_ids)
-
-            def after_graph(runner: WorkspaceGraphRunner) -> Iterator[tuple[str, dict[str, Any]]]:
-                if run_id:
-                    yield from runner._new_progress_events(run_id, seen_event_ids)
+            def log_completed(final_run_id: str) -> None:
                 logger.info(
                     "AI graph stream completed family_id=%s user_id=%s conversation_id=%s run_id=%s",
                     family_id,
                     user_id,
                     conversation_id,
-                    run_id,
+                    final_run_id,
                 )
-                yield ("response", runner._chat_response(conversation_id, run_id))
 
-            def on_worker_exception(runner: WorkspaceGraphRunner, exc: BaseException) -> None:
-                runner._mark_stream_run_failed(
-                    run_id=run_id,
+            yield from self._stream_graph_with_response(
+                graph_stream,
+                family_id=family_id,
+                user_id=user_id,
+                conversation_id=conversation_id,
+                config=config,
+                run_id=run_id,
+                flow="user_message",
+                seen_event_ids=seen_event_ids,
+                on_completed=log_completed,
+            )
+        except GeneratorExit:
+            raise
+        except Exception:
+            raise
+
+    def _stream_graph_with_response(
+        self,
+        graph_stream: Callable[["WorkspaceGraphRunner"], Iterator[Any]],
+        *,
+        family_id: str,
+        user_id: str,
+        conversation_id: str,
+        config: dict[str, Any],
+        run_id: str,
+        flow: str,
+        seen_event_ids: set[str],
+        before_graph: Callable[["WorkspaceGraphRunner"], Iterator[tuple[str, dict[str, Any]]]] | None = None,
+        handle_update_extra: Callable[["WorkspaceGraphRunner"], Iterator[tuple[str, dict[str, Any]]]] | None = None,
+        require_run_id: bool = False,
+        on_completed: Callable[[str], None] | None = None,
+    ) -> Iterator[tuple[str, dict[str, Any]]]:
+        current_run_id = run_id
+
+        def handle_update(runner: WorkspaceGraphRunner, update: Any) -> Iterator[tuple[str, dict[str, Any]]]:
+            nonlocal current_run_id
+            if not current_run_id:
+                current_run_id = runner._run_id_from_update(update) or current_run_id
+            if handle_update_extra is not None:
+                yield from handle_update_extra(runner)
+            if current_run_id:
+                yield from runner._new_progress_events(current_run_id, seen_event_ids)
+
+        def after_graph(runner: WorkspaceGraphRunner) -> Iterator[tuple[str, dict[str, Any]]]:
+            nonlocal current_run_id
+            if not current_run_id:
+                state = runner.graph.get_state(config)
+                current_run_id = str(state.values.get("run_id") or "")
+            if not current_run_id and require_run_id:
+                raise RuntimeError("LangGraph 恢复后没有运行记录")
+            if current_run_id:
+                yield from runner._new_progress_events(current_run_id, seen_event_ids)
+            if on_completed is not None:
+                on_completed(current_run_id)
+            yield ("response", runner._chat_response(conversation_id, current_run_id))
+
+        def on_worker_exception(runner: WorkspaceGraphRunner, exc: BaseException) -> None:
+            if current_run_id:
+                runner.runtime_failure_persister.mark_failed(
+                    run_id=current_run_id,
                     conversation_id=conversation_id,
                     family_id=family_id,
                     user_id=user_id,
                     error=str(exc),
                 )
 
-            yield from self._stream_graph_events(
-                graph_stream,
-                handle_update=handle_update,
-                seen_event_ids=seen_event_ids,
-                on_disconnect=lambda: self._keep_running_after_disconnect(run_id),
-                after_graph=after_graph,
-                on_worker_exception=on_worker_exception,
-                perf_context={
-                    "flow": "user_message",
-                    "family_id": family_id,
-                    "user_id": user_id,
-                    "conversation_id": conversation_id,
-                    "run_id": run_id,
-                },
+        yield from self._stream_graph_events(
+            graph_stream,
+            handle_update=handle_update,
+            seen_event_ids=seen_event_ids,
+            on_disconnect=lambda: self._keep_running_after_disconnect(current_run_id),
+            before_graph=before_graph,
+            after_graph=after_graph,
+            on_worker_exception=on_worker_exception,
+            perf_context={
+                "flow": flow,
+                "family_id": family_id,
+                "user_id": user_id,
+                "conversation_id": conversation_id,
+                "run_id": current_run_id,
+            },
+        )
+
+    def _resume_graph_stream(
+        self,
+        *,
+        family_id: str,
+        user_id: str,
+        conversation_id: str,
+        config: dict[str, Any],
+        resume_payload: dict[str, Any],
+        run_id: str,
+        flow: str,
+        seen_event_ids: set[str],
+        before_graph: Callable[["WorkspaceGraphRunner"], Iterator[tuple[str, dict[str, Any]]]] | None = None,
+        handle_update_extra: Callable[["WorkspaceGraphRunner"], Iterator[tuple[str, dict[str, Any]]]] | None = None,
+        require_run_id: bool = False,
+        on_completed: Callable[[str], None] | None = None,
+    ) -> Iterator[tuple[str, dict[str, Any]]]:
+        def graph_stream(runner: WorkspaceGraphRunner) -> Iterator[Any]:
+            return runner.graph.stream(
+                Command(resume=resume_payload),
+                config=config,
+                stream_mode=["updates", "custom"],
+                durability="sync",
             )
-        except GeneratorExit:
-            raise
-        except Exception:
-            raise
+
+        yield from self._stream_graph_with_response(
+            graph_stream,
+            family_id=family_id,
+            user_id=user_id,
+            conversation_id=conversation_id,
+            config=config,
+            run_id=run_id,
+            flow=flow,
+            seen_event_ids=seen_event_ids,
+            before_graph=before_graph,
+            handle_update_extra=handle_update_extra,
+            require_run_id=require_run_id,
+            on_completed=on_completed,
+        )
 
     def _prepare_user_message(
         self,
@@ -357,274 +555,18 @@ class WorkspaceGraphRunner:
         subject: dict[str, Any] | None,
         attachments: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
-        normalized_subject = normalize_workspace_subject(self.db, family_id=family_id, subject=subject)
-        existing = find_idempotent_run(
-            self.db,
-            family_id=family_id,
-            client_message_id=client_message_id,
-            client_run_id=client_run_id,
-        )
-        if existing is not None:
-            return self._prepared_existing_run(existing, normalized_subject)
-
-        conversation = get_or_create_conversation(
-            self.db,
+        return self.user_message_preparer.prepare(
             family_id=family_id,
             user_id=user_id,
             conversation_id=conversation_id,
-            prompt=message_summary,
-            quick_task=quick_task,
-        )
-        active_run = find_active_conversation_run(
-            self.db,
-            family_id=family_id,
-            conversation_id=conversation.id,
-        )
-        if active_run is not None:
-            raise AIConflictError("当前会话已有 AI 任务正在处理中，请稍后再发送。")
-        attachment_assets = self._load_ai_message_attachment_assets(family_id=family_id, attachments=attachments or [])
-        attachment_summaries = self._attachment_summaries(attachment_assets)
-        user_message_parts = self._build_user_message_parts(prompt, attachment_assets)
-        user_message = AIMessage(
-            id=create_id("ai_message"),
-            family_id=family_id,
-            conversation_id=conversation.id,
-            role="user",
-            content=message_summary,
-            content_type="parts" if attachment_assets else "text",
-            parts=self._json_record(user_message_parts),
-            status="completed",
+            prompt=prompt,
+            message_summary=message_summary,
             client_message_id=client_message_id,
-            created_by=user_id,
-        )
-        self.db.add(user_message)
-        self.db.flush()
-        for asset in attachment_assets:
-            asset.entity_type = "ai_message"
-            asset.entity_id = user_message.id
-        if attachment_assets:
-            self.db.flush()
-        timeline = build_planner_conversation(
-            self.db,
-            family_id=family_id,
-            conversation_id=conversation.id,
+            client_run_id=client_run_id,
             quick_task=quick_task,
-        )
-        run = AIAgentRun(
-            id=client_run_id or create_id("agent_run"),
-            family_id=family_id,
-            conversation_id=conversation.id,
-            message_id=user_message.id,
-            agent_key="workspace_orchestrator",
-            feature_key="ai_workspace_chat",
-            intent="",
-            input_summary=message_summary[:255],
-            context_summary={"graph": {"runtime": "langgraph", "threadId": conversation.id}},
-            output_summary="",
-            status="running",
-            model=getattr(self.provider, "model_name", ""),
-            input={
-                "prompt": prompt,
-                "attachments": attachment_summaries,
-                "quickTask": quick_task,
-                "subject": normalized_subject,
-                "conversation": timeline,
-            },
-            output={},
-            tool_calls=[],
-            duration_ms=0,
-            created_by=user_id,
-        )
-        self.db.add(run)
-        conversation.prompt = message_summary
-        conversation.last_message_at = utcnow()
-        conversation.last_run_status = "running"
-        conversation.context = self._json_record({
-            **(conversation.context or {}),
-            "activeRunId": run.id,
-        })
-        try:
-            self.db.commit()
-        except IntegrityError:
-            self.db.rollback()
-            existing = find_idempotent_run(
-                self.db,
-                family_id=family_id,
-                client_message_id=client_message_id,
-                client_run_id=client_run_id,
-            )
-            if existing is None:
-                raise
-            return self._prepared_existing_run(existing, normalized_subject)
-        logger.info(
-            "AI run prepared run_id=%s conversation_id=%s family_id=%s user_id=%s client_message_id=%s",
-            run.id,
-            conversation.id,
-            family_id,
-            user_id,
-            client_message_id,
-        )
-        return {
-            "existing": False,
-            "conversation_id": conversation.id,
-            "run_id": run.id,
-            "user_message_id": user_message.id,
-            "subject": normalized_subject,
-            "attachments": attachment_summaries,
-        }
-
-    def _prepared_existing_run(self, run: AIAgentRun, subject: dict[str, Any]) -> dict[str, Any]:
-        if run.status in {"pending", "running"}:
-            raise AIConflictError("该消息正在处理中")
-        if not run.conversation_id:
-            raise AIConflictError("已有运行缺少会话，不能重复执行")
-        assistant_message = self.db.scalar(
-            select(AIMessage.id).where(
-                AIMessage.family_id == run.family_id,
-                AIMessage.run_id == run.id,
-                AIMessage.role == "assistant",
-            )
-        )
-        if assistant_message is None:
-            raise AIConflictError("该消息已处理，但没有可复用的回复")
-        return {
-            "existing": True,
-            "conversation_id": run.conversation_id,
-            "run_id": run.id,
-            "user_message_id": run.message_id,
-            "subject": subject,
-        }
-
-    @staticmethod
-    def _normalize_chat_attachments(attachments: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
-        normalized: list[dict[str, Any]] = []
-        seen_media_ids: set[str] = set()
-        for attachment in attachments or []:
-            if not isinstance(attachment, dict):
-                raise ValueError("附件格式不正确")
-            attachment_type = str(attachment.get("type") or "image")
-            if attachment_type != "image":
-                raise ValueError("当前仅支持图片附件")
-            media_id = str(attachment.get("media_id") or attachment.get("mediaId") or "").strip()
-            if not media_id:
-                raise ValueError("图片附件缺少 media_id")
-            if media_id in seen_media_ids:
-                continue
-            seen_media_ids.add(media_id)
-            normalized.append(
-                {
-                    "type": "image",
-                    "media_id": media_id,
-                    "client_attachment_id": str(
-                        attachment.get("client_attachment_id") or attachment.get("clientAttachmentId") or ""
-                    ).strip()
-                    or None,
-                }
-            )
-        if len(normalized) > 6:
-            raise ValueError("单次最多上传 6 张图片")
-        return normalized
-
-    @staticmethod
-    def _message_summary(prompt: str, attachment_count: int) -> str:
-        if prompt.strip():
-            return prompt.strip()
-        return f"上传了 {attachment_count} 张图片"
-
-    def _load_ai_message_attachment_assets(
-        self,
-        *,
-        family_id: str,
-        attachments: list[dict[str, Any]],
-    ) -> list[MediaAsset]:
-        if not attachments:
-            return []
-        media_ids = [str(item["media_id"]) for item in attachments]
-        assets = list(
-            self.db.scalars(
-                select(MediaAsset).where(
-                    MediaAsset.family_id == family_id,
-                    MediaAsset.id.in_(media_ids),
-                )
-            )
-        )
-        assets_by_id = {asset.id: asset for asset in assets}
-        missing_ids = [media_id for media_id in media_ids if media_id not in assets_by_id]
-        if missing_ids:
-            raise LookupError("图片附件不存在或不属于当前家庭")
-
-        ordered_assets = [assets_by_id[media_id] for media_id in media_ids]
-        already_bound = [asset for asset in ordered_assets if asset.entity_type or asset.entity_id]
-        if already_bound:
-            raise ValueError("已绑定到业务对象的图片暂不能作为 AI 附件发送")
-        return ordered_assets
-
-    def _attachment_summaries(self, assets: list[MediaAsset]) -> list[dict[str, Any]]:
-        return [
-            {
-                "type": "image",
-                "mediaId": asset.id,
-                "name": asset.name,
-                "alt": asset.alt,
-                "source": "current_message",
-            }
-            for asset in assets
-        ]
-
-    def _build_user_message_parts(self, prompt: str, attachment_assets: list[MediaAsset]) -> list[dict[str, Any]]:
-        parts: list[dict[str, Any]] = []
-        if prompt.strip():
-            parts.append({"id": create_id("ai_part"), "type": "text", "text": prompt.strip()})
-        for asset in attachment_assets:
-            parts.append(
-                {
-                    "id": create_id("ai_part"),
-                    "type": "image",
-                    "image": {
-                        "media_id": asset.id,
-                        "asset": serialize_media(asset),
-                        "alt": asset.alt or asset.name,
-                    },
-                }
-            )
-        return parts
-
-    def _provider_images_for_attachments(
-        self,
-        *,
-        family_id: str,
-        attachments: list[dict[str, Any]],
-    ) -> list[ProviderImageInput]:
-        if not attachments:
-            return []
-        if not getattr(self.provider, "supports_vision", False):
-            raise ValueError("当前 AI 模型暂不支持图片识别，请切换支持视觉输入的模型后再试。")
-
-        media_ids = [str(item.get("mediaId") or item.get("media_id") or "").strip() for item in attachments]
-        assets = list(
-            self.db.scalars(
-                select(MediaAsset).where(
-                    MediaAsset.family_id == family_id,
-                    MediaAsset.id.in_(media_ids),
-                )
-            )
-        )
-        assets_by_id = {asset.id: asset for asset in assets}
-        images: list[ProviderImageInput] = []
-        for media_id in media_ids:
-            asset = assets_by_id.get(media_id)
-            if asset is None:
-                raise LookupError("图片附件不存在或不属于当前家庭")
-            payload, content_type = read_media_object_for_ai(asset)
-            images.append(
-                ProviderImageInput(
-                    media_id=asset.id,
-                    content_type=content_type,
-                    payload=payload,
-                    filename=asset.name,
-                )
-            )
-        return images
+            subject=subject,
+            attachments=attachments,
+        ).to_dict()
 
     def _cancel_requested(self, run_id: str) -> bool:
         bind = self.db.get_bind()
@@ -635,100 +577,15 @@ class WorkspaceGraphRunner:
                 .where(AIAgentRun.id == run_id)
                 .execution_options(populate_existing=True)
             )
-            return status == "cancelled"
+            return status == CANCELLED
         with Session(bind=bind) as db:
             status = db.scalar(select(AIAgentRun.status).where(AIAgentRun.id == run_id))
-            return status == "cancelled"
+            return status == CANCELLED
 
     def _keep_running_after_disconnect(self, run_id: str | None) -> None:
         if not run_id:
             return
         logger.info("AI graph stream subscriber disconnected; keeping run active run_id=%s", run_id)
-
-    def _mark_stream_run_failed(
-        self,
-        *,
-        run_id: str,
-        conversation_id: str,
-        family_id: str,
-        user_id: str,
-        error: str,
-    ) -> None:
-        try:
-            self.db.rollback()
-            run = self.db.get(AIAgentRun, run_id)
-            if run is None or run.status in {"completed", "failed", "cancelled", "waiting_approval"}:
-                live_ai_stream_cache.clear_run(run_id)
-                return
-            text = "AI 服务暂时不可用，请稍后重试。"
-            message = self.db.scalar(
-                select(AIMessage)
-                .where(AIMessage.run_id == run_id, AIMessage.role == "assistant")
-                .order_by(AIMessage.created_at.desc())
-            )
-            if message is None:
-                message = AIMessage(
-                    id=create_id("ai_message"),
-                    family_id=family_id,
-                    conversation_id=conversation_id,
-                    role="assistant",
-                    content=text,
-                    content_type="parts",
-                    parts=[{"id": create_id("ai_part"), "type": "text", "text": text}],
-                    run_id=run_id,
-                    status="failed",
-                    message_metadata={"intent": run.intent or "runtime_failed", "agentKey": run.agent_key or "workspace_orchestrator"},
-                    created_by=user_id,
-                )
-                self.db.add(message)
-            else:
-                message.status = "failed"
-                if not message.content:
-                    message.content = text
-                if not message.parts:
-                    message.parts = [{"id": create_id("ai_part"), "type": "text", "text": message.content or text}]
-                metadata = dict(message.message_metadata or {})
-                metadata.pop("liveStreaming", None)
-                metadata.pop("liveTextPartIds", None)
-                metadata.pop("livePartIds", None)
-                message.message_metadata = metadata
-
-            event = AIRunEvent(
-                id=create_id("ai_run_event"),
-                family_id=family_id,
-                conversation_id=conversation_id,
-                run_id=run_id,
-                type="error",
-                internal_code="runtime_exception",
-                user_message=text,
-                status="failed",
-                payload={"error": error[:1000]},
-            )
-            self.db.add(event)
-            run.status = "failed"
-            run.error = error or text
-            run.output_summary = text
-            run.output = self._json_record({"text": text, "cards": [], "routing": (run.context_summary or {}).get("routing", {})})
-            conversation = self.db.get(AIConversation, conversation_id)
-            if conversation is not None:
-                conversation.last_run_status = "failed"
-                conversation.last_message_at = utcnow()
-                context = dict(conversation.context or {})
-                context.pop("activeRunId", None)
-                conversation.context = self._json_record(context)
-                if not conversation.response:
-                    conversation.response = text
-                    conversation.summary = text[:255]
-            self.db.commit()
-            live_ai_stream_cache.clear_run(run_id)
-        except Exception:
-            self.db.rollback()
-            logger.exception(
-                "AI graph failed to persist stream error run_id=%s conversation_id=%s family_id=%s",
-                run_id,
-                conversation_id,
-                family_id,
-            )
 
     def resume_approval(
         self,
@@ -742,9 +599,17 @@ class WorkspaceGraphRunner:
         values: dict[str, Any],
         comment: str | None = None,
     ) -> dict[str, Any]:
-        require_conversation(self.db, family_id=family_id, conversation_id=conversation_id)
-        config = self._config(conversation_id)
-        snapshot = self.graph.get_state(config)
+        prepared = self.approval_resume_preparer.prepare(
+            family_id=family_id,
+            user_id=user_id,
+            conversation_id=conversation_id,
+            approval_id=approval_id,
+            decision=decision,
+            draft_version=draft_version,
+            values=values,
+            comment=comment,
+            stream=False,
+        )
         logger.info(
             "AI graph approval resume started family_id=%s user_id=%s conversation_id=%s approval_id=%s decision=%s draft_version=%s has_snapshot=%s next=%s",
             family_id,
@@ -753,54 +618,18 @@ class WorkspaceGraphRunner:
             approval_id,
             decision,
             draft_version,
-            bool(snapshot.values),
-            list(snapshot.next or []),
+            bool(prepared.snapshot.values),
+            list(prepared.snapshot.next or []),
         )
-        pending = self.db.scalar(
-            select(AIApprovalRequest).where(
-                AIApprovalRequest.id == approval_id,
-                AIApprovalRequest.family_id == family_id,
-                AIApprovalRequest.conversation_id == conversation_id,
-            )
-        )
-        if pending is None:
-            logger.warning(
-                "AI graph approval resume missing approval family_id=%s user_id=%s conversation_id=%s approval_id=%s",
-                family_id,
-                user_id,
-                conversation_id,
-                approval_id,
-            )
-            raise LookupError("确认请求不存在")
-
-        if not snapshot.values or not snapshot.next:
-            logger.warning(
-                "AI graph approval resume missing checkpoint family_id=%s user_id=%s conversation_id=%s approval_id=%s",
-                family_id,
-                user_id,
-                conversation_id,
-                approval_id,
-            )
-            raise AIConflictError("确认请求缺少可恢复的运行状态，请重新生成草稿")
 
         output = self.graph.invoke(
-            Command(
-                resume={
-                    "approvalId": approval_id,
-                    "decision": decision,
-                    "draftVersion": draft_version,
-                    "values": values,
-                    "comment": comment,
-                    "userId": user_id,
-                    "familyId": family_id,
-                }
-            ),
-            config=config,
+            Command(resume=prepared.resume_payload),
+            config=prepared.config,
             durability="sync",
         )
         result = output.get("last_decision")
         if not isinstance(result, dict):
-            state = self.graph.get_state(config)
+            state = self.graph.get_state(prepared.config)
             result = state.values.get("last_decision")
         if not isinstance(result, dict):
             logger.error(
@@ -849,20 +678,20 @@ class WorkspaceGraphRunner:
         approval = serialized.get("approval") if isinstance(serialized.get("approval"), dict) else {}
         draft = serialized.get("draft") if isinstance(serialized.get("draft"), dict) else {}
         operation = serialized.get("operation") if isinstance(serialized.get("operation"), dict) else None
-        next_status = "completed"
-        if approval.get("status") == "pending":
-            next_status = "waiting_approval"
+        next_status = COMPLETED
+        if approval.get("status") == PENDING:
+            next_status = WAITING_APPROVAL
         elif operation is not None and operation.get("status") != "succeeded":
-            next_status = "failed"
-        elif decision == "rejected" or self._approval_resume_payload(serialized) is not None:
-            next_status = "running"
+            next_status = FAILED
+        elif decision == "rejected" or self._approval_resume_payload_from_decision(serialized) is not None:
+            next_status = RUNNING
         run_id = str(approval.get("run_id") or "")
         if run_id:
             run = self.db.get(AIAgentRun, run_id)
             if run is not None:
                 run.status = next_status
-                self._record_approval_outcome(
-                    run,
+                run.context_summary = record_approval_outcome_summary(
+                    dict(run.context_summary or {}),
                     approval_status=str(approval.get("status") or decision),
                     draft_type=str(draft.get("draft_type") or ""),
                 )
@@ -890,27 +719,23 @@ class WorkspaceGraphRunner:
         selected_option_ids: list[str],
         text: str | None,
     ) -> dict[str, Any]:
-        require_conversation(self.db, family_id=family_id, conversation_id=conversation_id)
-        config = self._config(conversation_id)
-        snapshot = self.graph.get_state(config)
-        if not snapshot.values or not snapshot.next:
-            raise LookupError("用户补充信息请求不存在或已结束")
+        prepared = self.human_input_resume_preparer.prepare(
+            family_id=family_id,
+            user_id=user_id,
+            conversation_id=conversation_id,
+            request_id=request_id,
+            selected_option_ids=selected_option_ids,
+            text=text,
+            stream=False,
+        )
         output = self.graph.invoke(
-            Command(
-                resume={
-                    "requestId": request_id,
-                    "selectedOptionIds": selected_option_ids,
-                    "text": text or "",
-                    "userId": user_id,
-                    "familyId": family_id,
-                }
-            ),
-            config=config,
+            Command(resume=prepared.resume_payload),
+            config=prepared.config,
             durability="sync",
         )
         run_id = str(output.get("run_id") or "")
         if not run_id:
-            state = self.graph.get_state(config)
+            state = self.graph.get_state(prepared.config)
             run_id = str(state.values.get("run_id") or "")
         if not run_id:
             raise RuntimeError("LangGraph 恢复后没有运行记录")
@@ -927,12 +752,16 @@ class WorkspaceGraphRunner:
         selected_option_ids: list[str],
         text: str | None,
     ) -> Iterator[tuple[str, dict[str, Any]]]:
-        require_conversation(self.db, family_id=family_id, conversation_id=conversation_id)
-        config = self._config(conversation_id)
-        snapshot = self.graph.get_state(config)
-        if not snapshot.values or not snapshot.next:
-            raise LookupError("用户补充信息请求不存在或已结束")
-        run_id = str((snapshot.values or {}).get("run_id") or "")
+        prepared = self.human_input_resume_preparer.prepare(
+            family_id=family_id,
+            user_id=user_id,
+            conversation_id=conversation_id,
+            request_id=request_id,
+            selected_option_ids=selected_option_ids,
+            text=text,
+            stream=True,
+        )
+        run_id = prepared.run_id
         logger.info(
             "AI graph human input stream resume started family_id=%s user_id=%s conversation_id=%s request_id=%s run_id=%s has_snapshot=%s next=%s",
             family_id,
@@ -940,77 +769,33 @@ class WorkspaceGraphRunner:
             conversation_id,
             request_id,
             run_id,
-            bool(snapshot.values),
-            list(snapshot.next or []),
+            bool(prepared.snapshot.values),
+            list(prepared.snapshot.next or []),
         )
 
         seen_event_ids: set[str] = set()
         try:
-            def graph_stream(runner: WorkspaceGraphRunner) -> Iterator[Any]:
-                return runner.graph.stream(
-                    Command(
-                        resume={
-                            "requestId": request_id,
-                            "selectedOptionIds": selected_option_ids,
-                            "text": text or "",
-                            "userId": user_id,
-                            "familyId": family_id,
-                        }
-                    ),
-                    config=config,
-                    stream_mode=["updates", "custom"],
-                    durability="sync",
-                )
-
-            def handle_update(runner: WorkspaceGraphRunner, update: Any) -> Iterator[tuple[str, dict[str, Any]]]:
-                nonlocal run_id
-                if not run_id:
-                    run_id = runner._run_id_from_update(update) or run_id
-                if run_id:
-                    yield from runner._new_progress_events(run_id, seen_event_ids)
-
-            def after_graph(runner: WorkspaceGraphRunner) -> Iterator[tuple[str, dict[str, Any]]]:
-                nonlocal run_id
-                if not run_id:
-                    state = runner.graph.get_state(config)
-                    run_id = str(state.values.get("run_id") or "")
-                if not run_id:
-                    raise RuntimeError("LangGraph 恢复后没有运行记录")
-                yield from runner._new_progress_events(run_id, seen_event_ids)
+            def log_completed(final_run_id: str) -> None:
                 logger.info(
                     "AI graph human input stream resume completed family_id=%s user_id=%s conversation_id=%s request_id=%s run_id=%s",
                     family_id,
                     user_id,
                     conversation_id,
                     request_id,
-                    run_id,
+                    final_run_id,
                 )
-                yield ("response", runner._chat_response(conversation_id, run_id))
 
-            def on_worker_exception(runner: WorkspaceGraphRunner, exc: BaseException) -> None:
-                if run_id:
-                    runner._mark_stream_run_failed(
-                        run_id=run_id,
-                        conversation_id=conversation_id,
-                        family_id=family_id,
-                        user_id=user_id,
-                        error=str(exc),
-                    )
-
-            yield from self._stream_graph_events(
-                graph_stream,
-                handle_update=handle_update,
+            yield from self._resume_graph_stream(
+                family_id=family_id,
+                user_id=user_id,
+                conversation_id=conversation_id,
+                config=prepared.config,
+                resume_payload=prepared.resume_payload,
+                run_id=run_id,
+                flow="human_input_resume",
                 seen_event_ids=seen_event_ids,
-                on_disconnect=lambda: self._keep_running_after_disconnect(run_id),
-                after_graph=after_graph,
-                on_worker_exception=on_worker_exception,
-                perf_context={
-                    "flow": "human_input_resume",
-                    "family_id": family_id,
-                    "user_id": user_id,
-                    "conversation_id": conversation_id,
-                    "run_id": run_id,
-                },
+                require_run_id=True,
+                on_completed=log_completed,
             )
         except GeneratorExit:
             raise
@@ -1030,19 +815,18 @@ class WorkspaceGraphRunner:
         values: dict[str, Any],
         comment: str | None = None,
     ) -> Iterator[tuple[str, dict[str, Any]]]:
-        require_conversation(self.db, family_id=family_id, conversation_id=conversation_id)
-        config = self._config(conversation_id)
-        snapshot = self.graph.get_state(config)
-        pending = self.db.scalar(
-            select(AIApprovalRequest).where(
-                AIApprovalRequest.id == approval_id,
-                AIApprovalRequest.family_id == family_id,
-                AIApprovalRequest.conversation_id == conversation_id,
-            )
+        prepared = self.approval_resume_preparer.prepare(
+            family_id=family_id,
+            user_id=user_id,
+            conversation_id=conversation_id,
+            approval_id=approval_id,
+            decision=decision,
+            draft_version=draft_version,
+            values=values,
+            comment=comment,
+            stream=True,
         )
-        if pending is None:
-            raise LookupError("确认请求不存在")
-        run_id = pending.run_id or str((snapshot.values or {}).get("run_id") or "")
+        run_id = prepared.run_id
         logger.info(
             "AI graph approval stream resume started family_id=%s user_id=%s conversation_id=%s approval_id=%s decision=%s draft_version=%s run_id=%s has_snapshot=%s next=%s",
             family_id,
@@ -1052,19 +836,9 @@ class WorkspaceGraphRunner:
             decision,
             draft_version,
             run_id,
-            bool(snapshot.values),
-            list(snapshot.next or []),
+            bool(prepared.snapshot.values),
+            list(prepared.snapshot.next or []),
         )
-
-        if not snapshot.values or not snapshot.next:
-            logger.warning(
-                "AI graph approval stream resume missing checkpoint family_id=%s user_id=%s conversation_id=%s approval_id=%s",
-                family_id,
-                user_id,
-                conversation_id,
-                approval_id,
-            )
-            raise AIConflictError("确认请求缺少可恢复的运行状态，请重新生成草稿")
 
         seen_event_ids: set[str] = set()
         emitted_result_part_ids: set[str] = set()
@@ -1086,74 +860,31 @@ class WorkspaceGraphRunner:
             def before_graph(runner: WorkspaceGraphRunner) -> Iterator[tuple[str, dict[str, Any]]]:
                 yield from emit_approval_result_parts(runner)
 
-            def graph_stream(runner: WorkspaceGraphRunner) -> Iterator[Any]:
-                return runner.graph.stream(
-                    Command(
-                        resume={
-                            "approvalId": approval_id,
-                            "decision": decision,
-                            "draftVersion": draft_version,
-                            "values": values,
-                            "comment": comment,
-                            "userId": user_id,
-                            "familyId": family_id,
-                        }
-                    ),
-                    config=config,
-                    stream_mode=["updates", "custom"],
-                    durability="sync",
-                )
-
-            def handle_update(runner: WorkspaceGraphRunner, update: Any) -> Iterator[tuple[str, dict[str, Any]]]:
-                nonlocal run_id
-                if not run_id:
-                    run_id = runner._run_id_from_update(update) or run_id
+            def handle_update_extra(runner: WorkspaceGraphRunner) -> Iterator[tuple[str, dict[str, Any]]]:
                 yield from emit_approval_result_parts(runner)
-                if run_id:
-                    yield from runner._new_progress_events(run_id, seen_event_ids)
 
-            def after_graph(runner: WorkspaceGraphRunner) -> Iterator[tuple[str, dict[str, Any]]]:
-                nonlocal run_id
-                if not run_id:
-                    state = runner.graph.get_state(config)
-                    run_id = str(state.values.get("run_id") or "")
-                if run_id:
-                    yield from runner._new_progress_events(run_id, seen_event_ids)
+            def log_completed(final_run_id: str) -> None:
                 logger.info(
                     "AI graph approval stream resume completed family_id=%s user_id=%s conversation_id=%s approval_id=%s run_id=%s",
                     family_id,
                     user_id,
                     conversation_id,
                     approval_id,
-                    run_id,
+                    final_run_id,
                 )
-                yield ("response", runner._chat_response(conversation_id, run_id))
 
-            def on_worker_exception(runner: WorkspaceGraphRunner, exc: BaseException) -> None:
-                if run_id:
-                    runner._mark_stream_run_failed(
-                        run_id=run_id,
-                        conversation_id=conversation_id,
-                        family_id=family_id,
-                        user_id=user_id,
-                        error=str(exc),
-                    )
-
-            yield from self._stream_graph_events(
-                graph_stream,
-                handle_update=handle_update,
+            yield from self._resume_graph_stream(
+                family_id=family_id,
+                user_id=user_id,
+                conversation_id=conversation_id,
+                config=prepared.config,
+                resume_payload=prepared.resume_payload,
+                run_id=run_id,
+                flow="approval_resume",
                 seen_event_ids=seen_event_ids,
-                on_disconnect=lambda: self._keep_running_after_disconnect(run_id),
                 before_graph=before_graph,
-                after_graph=after_graph,
-                on_worker_exception=on_worker_exception,
-                perf_context={
-                    "flow": "approval_resume",
-                    "family_id": family_id,
-                    "user_id": user_id,
-                    "conversation_id": conversation_id,
-                    "run_id": run_id,
-                },
+                handle_update_extra=handle_update_extra,
+                on_completed=log_completed,
             )
         except GeneratorExit:
             raise
@@ -1258,413 +989,10 @@ class WorkspaceGraphRunner:
         return graph.compile(checkpointer=self.checkpointer)
 
     def _initialize(self, state: WorkspaceGraphState) -> dict[str, Any]:
-        if state.get("run_id") and state.get("user_message_id"):
-            run = self.db.get(AIAgentRun, state["run_id"])
-            user_message = self.db.get(AIMessage, state["user_message_id"])
-            if run is None or user_message is None:
-                raise RuntimeError("预创建的 AI 运行状态不存在")
-            existing_trace_id = self.db.scalar(
-                select(AIRunTraceSpan.trace_id)
-                .where(AIRunTraceSpan.run_id == run.id, AIRunTraceSpan.family_id == state["family_id"])
-                .order_by(AIRunTraceSpan.started_at.asc(), AIRunTraceSpan.id.asc())
-                .limit(1)
-            )
-            if existing_trace_id is None:
-                AIRunTracer(
-                    db=self.db,
-                    family_id=state["family_id"],
-                    run_id=run.id,
-                    conversation_id=run.conversation_id,
-                    user_id=state["user_id"],
-                ).record_event(
-                    "run",
-                    "initialize",
-                    payload={
-                        "clientRunId": state.get("client_run_id"),
-                        "quickTask": state.get("quick_task"),
-                        "hasSubject": bool(state.get("subject")),
-                        "attachmentCount": len(state.get("current_message_attachments") or []),
-                        "precreated": True,
-                    },
-                )
-            return {
-                "run_id": run.id,
-                "user_message_id": user_message.id,
-                "status": "cancelled" if run.status == "cancelled" else "running",
-            }
-        conversation = require_conversation(
-            self.db,
-            family_id=state["family_id"],
-            conversation_id=state["conversation_id"],
-        )
-        user_message = AIMessage(
-            id=create_id("ai_message"),
-            family_id=state["family_id"],
-            conversation_id=conversation.id,
-            role="user",
-            content=state["message"],
-            content_type="text",
-            parts=[{"id": create_id("ai_part"), "type": "text", "text": state["message"]}],
-            status="completed",
-            client_message_id=state.get("client_message_id"),
-            created_by=state["user_id"],
-        )
-        self.db.add(user_message)
-        self.db.flush()
-        timeline = build_planner_conversation(
-            self.db,
-            family_id=state["family_id"],
-            conversation_id=conversation.id,
-            quick_task=state.get("quick_task"),
-        )
-        run = AIAgentRun(
-            id=state.get("client_run_id") or create_id("agent_run"),
-            family_id=state["family_id"],
-            conversation_id=conversation.id,
-            message_id=user_message.id,
-            agent_key="workspace_orchestrator",
-            feature_key="ai_workspace_chat",
-            intent="",
-            input_summary=state["message"][:255],
-            context_summary={"graph": {"runtime": "langgraph", "threadId": conversation.id}},
-            output_summary="",
-            status="running",
-            model=getattr(self.provider, "model_name", ""),
-            input={
-                "prompt": state["message"],
-                "quickTask": state.get("quick_task"),
-                "subject": state.get("subject") or {},
-                "conversation": timeline,
-            },
-            output={},
-            tool_calls=[],
-            duration_ms=0,
-            created_by=state["user_id"],
-        )
-        self.db.add(run)
-        self.db.flush()
-        tracer = AIRunTracer(
-            db=self.db,
-            family_id=state["family_id"],
-            run_id=run.id,
-            conversation_id=conversation.id,
-            user_id=state["user_id"],
-        )
-        tracer.record_event(
-            "run",
-            "initialize",
-            payload={
-                "clientRunId": state.get("client_run_id"),
-                "quickTask": state.get("quick_task"),
-                "hasSubject": bool(state.get("subject")),
-                "attachmentCount": len(state.get("current_message_attachments") or []),
-            },
-        )
-        self.db.flush()
-        logger.info(
-            "AI graph initialized run_id=%s conversation_id=%s family_id=%s user_id=%s client_run_id=%s",
-            run.id,
-            conversation.id,
-            state["family_id"],
-            state["user_id"],
-            state.get("client_run_id"),
-        )
-        return {"run_id": run.id, "user_message_id": user_message.id, "status": "running"}
+        return self.graph_run_initializer.initialize(state)
 
     def _orchestrator_step(self, state: WorkspaceGraphState) -> dict[str, Any]:
-        if self._cancel_requested(state["run_id"]):
-            return {"status": "cancelled"}
-        trace_id = self.db.scalar(
-            select(AIRunTraceSpan.trace_id)
-            .where(AIRunTraceSpan.run_id == state["run_id"], AIRunTraceSpan.family_id == state["family_id"])
-            .order_by(AIRunTraceSpan.started_at.asc(), AIRunTraceSpan.id.asc())
-            .limit(1)
-        )
-        tracer = AIRunTracer(
-            db=self.db,
-            family_id=state["family_id"],
-            run_id=state["run_id"],
-            conversation_id=state["conversation_id"],
-            user_id=state["user_id"],
-            trace_id=trace_id,
-        )
-        current_round_index = int(state.get("agent_rounds") or 0) + 1
-        graph_span = tracer.start_span(
-            "graph_node",
-            "orchestrator",
-            round_index=current_round_index,
-            input_summary={
-                "status": state.get("status"),
-                "agentRounds": state.get("agent_rounds") or 0,
-                "injectedSkills": list(state.get("injected_skill_keys") or []),
-                "runArtifactCount": len(state.get("run_artifacts") or []),
-            },
-        )
-
-        def finish_graph_span(status_value: str, output_summary: dict[str, Any] | None = None) -> None:
-            graph_span.finish(
-                status="waiting" if status_value in {"waiting_approval", "waiting_input"} else status_value,
-                output_summary={"status": status_value, **(output_summary or {})},
-            )
-
-        pending = self.db.scalar(
-            select(AIApprovalRequest)
-            .where(
-                AIApprovalRequest.family_id == state["family_id"],
-                AIApprovalRequest.conversation_id == state["conversation_id"],
-                AIApprovalRequest.run_id == state["run_id"],
-                AIApprovalRequest.status == "pending",
-            )
-            .order_by(AIApprovalRequest.created_at.asc(), AIApprovalRequest.id.asc())
-        )
-        if pending is not None:
-            self._mark_waiting_approval_state(state)
-            finish_graph_span("waiting_approval", {"pendingApprovalId": pending.id})
-            return {
-                "status": "waiting_approval",
-                "pending_approval_id": pending.id,
-                "injected_skill_keys": list(state.get("injected_skill_keys") or []),
-                "injection_history": list(state.get("injection_history") or []),
-                "run_artifacts": list(state.get("run_artifacts") or []),
-            }
-
-        conversation = self.db.get(AIConversation, state["conversation_id"])
-        conversation_context = dict(conversation.context or {}) if conversation is not None else {}
-        task_state = conversation_context.get("taskState") if isinstance(conversation_context.get("taskState"), dict) else {}
-        pending_human_input = task_state.get("pendingHumanInput") if isinstance(task_state, dict) else None
-        if isinstance(pending_human_input, dict) and pending_human_input.get("id"):
-            finish_graph_span("waiting_input", {"pendingHumanInputId": pending_human_input.get("id")})
-            return {
-                "status": "waiting_input",
-                "pending_human_input": pending_human_input,
-                "injected_skill_keys": list(state.get("injected_skill_keys") or []),
-                "injection_history": list(state.get("injection_history") or []),
-                "run_artifacts": list(state.get("run_artifacts") or []),
-            }
-
-        stream_writer = self._persistent_progress_writer(get_stream_writer(), state)
-        root_tools = ToolExecutor(
-            build_workspace_tool_registry(),
-            ToolContext(
-                db=self.db,
-                family_id=state["family_id"],
-                user_id=state["user_id"],
-                conversation_id=state["conversation_id"],
-                run_id=state["run_id"],
-                stream_writer=stream_writer,
-                cancel_check=lambda: self._cancel_requested(state["run_id"]),
-                tracer=tracer,
-                trace_parent_span_id=graph_span.span_id,
-                trace_round_index=current_round_index,
-            ),
-        )
-        timeline = build_planner_conversation(
-            self.db,
-            family_id=state["family_id"],
-            conversation_id=state["conversation_id"],
-            quick_task=state.get("quick_task"),
-        )
-        current_run_artifacts = list(state.get("run_artifacts") or [])
-        last_human_input_result = (
-            state.get("last_human_input_result")
-            if isinstance(state.get("last_human_input_result"), dict) and state.get("last_human_input_result")
-            else None
-        )
-        if last_human_input_result is None:
-            last_human_input_result = next(
-                (
-                    item
-                    for item in reversed(current_run_artifacts)
-                    if isinstance(item, dict) and item.get("type") == "human.input_result"
-                ),
-                None,
-            )
-        if last_human_input_result is None and isinstance(task_state, dict) and isinstance(task_state.get("lastHumanInputResult"), dict):
-            last_human_input_result = {
-                "id": f"human_input:{task_state['lastHumanInputResult'].get('request', {}).get('id') or create_id('human_input')}",
-                "type": "human.input_result",
-                "kind": "human_input",
-                "version": 1,
-                "status": "completed",
-                "payload": task_state["lastHumanInputResult"],
-            }
-        if last_human_input_result is not None and not any(
-            item.get("id") == last_human_input_result.get("id")
-            for item in current_run_artifacts
-            if isinstance(item, dict)
-        ):
-            current_run_artifacts.append(last_human_input_result)
-        current_message_attachments = list(state.get("current_message_attachments") or [])
-        current_message_images = self._provider_images_for_attachments(
-            family_id=state["family_id"],
-            attachments=current_message_attachments,
-        )
-        started_at = perf_counter()
-        try:
-            result = WorkspaceOrchestratorAgent(
-                provider=self.provider,
-                skill_registry=self.skill_registry,
-            ).run(
-                SkillContext(
-                    db=self.db,
-                    family_id=state["family_id"],
-                    user_id=state["user_id"],
-                    conversation_id=state["conversation_id"],
-                    run_id=state["run_id"],
-                    conversation=timeline,
-                    current_message=state["message"],
-                    subject=state.get("subject") or {},
-                    orchestrator_profile=state.get("orchestrator_profile") or {},
-                    current_message_attachments=current_message_attachments,
-                    current_message_images=current_message_images,
-                    quick_task=state.get("quick_task"),
-                    tool_executor=root_tools,
-                    provider=self.provider,
-                    current_run_artifacts=current_run_artifacts,
-                    stream_writer=stream_writer,
-                    progressive_draft_publisher=self._progressive_draft_publisher(
-                        state,
-                        tracer=tracer,
-                        parent_span_id=graph_span.span_id,
-                        round_index=current_round_index,
-                    ),
-                    cancel_check=lambda: self._cancel_requested(state["run_id"]),
-                    tracer=tracer,
-                    trace_parent_span_id=graph_span.span_id,
-                    trace_round_index=current_round_index,
-                ),
-                injected_skill_keys=list(state.get("injected_skill_keys") or []),
-            )
-        except AIExecutionCancelled:
-            result = SkillResult(
-                text="已取消这次任务。",
-                status="cancelled",
-                model=getattr(self.provider, "model_name", ""),
-            )
-        if last_human_input_result is not None:
-            result.context_summary = {
-                **(result.context_summary or {}),
-                "lastHumanInputResult": last_human_input_result.get("payload", last_human_input_result),
-            }
-        self._persist_assistant_result(state, result, skill_key=None, duration_ms=int((perf_counter() - started_at) * 1000))
-        orchestrator_summary = result.context_summary.get("orchestrator") if isinstance(result.context_summary, dict) else {}
-        injected_skill_keys = (
-            list(orchestrator_summary.get("injectedSkills") or [])
-            if isinstance(orchestrator_summary, dict)
-            else list(state.get("injected_skill_keys") or [])
-        )
-        injection_history = (
-            list(orchestrator_summary.get("injectionHistory") or [])
-            if isinstance(orchestrator_summary, dict)
-            else list(state.get("injection_history") or [])
-        )
-        run_artifacts = [
-            *(state.get("run_artifacts") or []),
-            *result_artifacts("orchestrator", result),
-            *self._tool_call_artifacts(result),
-        ]
-        if result.status == "waiting_input":
-            pending_human_input = (
-                result.context_summary.get("pendingHumanInput")
-                if isinstance(result.context_summary, dict) and isinstance(result.context_summary.get("pendingHumanInput"), dict)
-                else {}
-            )
-            finish_graph_span(
-                "waiting_input",
-                {
-                    "draftCount": len(result.drafts),
-                    "cardCount": len(result.cards),
-                    "toolCallCount": len(result.tool_calls),
-                    "pendingHumanInputId": pending_human_input.get("id"),
-                },
-            )
-            return {
-                "run_artifacts": run_artifacts,
-                "injected_skill_keys": injected_skill_keys,
-                "injection_history": injection_history,
-                "pending_approval_id": "",
-                "pending_human_input": pending_human_input,
-                "status": "waiting_input",
-            }
-        pending_after_result = self.db.scalar(
-            select(AIApprovalRequest)
-            .where(
-                AIApprovalRequest.run_id == state["run_id"],
-                AIApprovalRequest.status == "pending",
-            )
-            .order_by(AIApprovalRequest.created_at.asc(), AIApprovalRequest.id.asc())
-        )
-        next_agent_rounds = int(state.get("agent_rounds") or 0) + 1
-        if result.drafts and pending_after_result is None:
-            fast_approval_id = str(result.drafts[0].get("approval_id") or "") if result.drafts else ""
-            if fast_approval_id and self._has_fast_approval_decision(state, fast_approval_id):
-                finish_graph_span(
-                    "waiting_approval",
-                    {
-                        "draftCount": len(result.drafts),
-                        "cardCount": len(result.cards),
-                        "toolCallCount": len(result.tool_calls),
-                        "pendingApprovalId": fast_approval_id,
-                    },
-                )
-                return {
-                    "run_artifacts": run_artifacts,
-                    "injected_skill_keys": injected_skill_keys,
-                    "injection_history": injection_history,
-                    "pending_approval_id": fast_approval_id,
-                    "pending_human_input": {},
-                    "agent_rounds": next_agent_rounds,
-                    "status": "waiting_approval",
-                }
-            finish_graph_span(
-                "failed",
-                {
-                    "draftCount": len(result.drafts),
-                    "cardCount": len(result.cards),
-                    "toolCallCount": len(result.tool_calls),
-                    "error": "draft_without_approval",
-                },
-            )
-            raise RuntimeError("草稿已生成，但没有创建确认请求")
-        if pending_after_result is not None:
-            self._mark_waiting_approval_state(state)
-            finish_graph_span(
-                "waiting_approval",
-                {
-                    "draftCount": len(result.drafts),
-                    "cardCount": len(result.cards),
-                    "toolCallCount": len(result.tool_calls),
-                    "pendingApprovalId": pending_after_result.id,
-                },
-            )
-            return {
-                "run_artifacts": run_artifacts,
-                "injected_skill_keys": injected_skill_keys,
-                "injection_history": injection_history,
-                "pending_approval_id": pending_after_result.id,
-                "pending_human_input": {},
-                "agent_rounds": next_agent_rounds,
-                "status": "waiting_approval",
-            }
-        finish_graph_span(
-            result.status,
-            {
-                "draftCount": len(result.drafts),
-                "cardCount": len(result.cards),
-                "toolCallCount": len(result.tool_calls),
-                "error": result.error,
-            },
-        )
-        return {
-            "run_artifacts": run_artifacts,
-            "injected_skill_keys": injected_skill_keys,
-            "injection_history": injection_history,
-            "pending_approval_id": "",
-            "pending_human_input": {},
-            "agent_rounds": next_agent_rounds,
-            "status": result.status,
-            "error": result.error,
-        }
+        return self.orchestrator_node.run(state)
 
     def _approval_interrupt_step(self, state: WorkspaceGraphState) -> dict[str, Any]:
         tracer = self._tracer_for_state(state)
@@ -1677,7 +1005,7 @@ class WorkspaceGraphRunner:
                     AIApprovalRequest.family_id == state["family_id"],
                     AIApprovalRequest.conversation_id == state["conversation_id"],
                     AIApprovalRequest.run_id == state["run_id"],
-                    AIApprovalRequest.status == "pending",
+                    AIApprovalRequest.status == PENDING,
                 )
             )
         if pending is None:
@@ -1687,7 +1015,7 @@ class WorkspaceGraphRunner:
                     AIApprovalRequest.family_id == state["family_id"],
                     AIApprovalRequest.conversation_id == state["conversation_id"],
                     AIApprovalRequest.run_id == state["run_id"],
-                    AIApprovalRequest.status == "pending",
+                    AIApprovalRequest.status == PENDING,
                 )
                 .order_by(AIApprovalRequest.created_at.asc(), AIApprovalRequest.id.asc())
             )
@@ -1761,112 +1089,12 @@ class WorkspaceGraphRunner:
         resume: Any,
         run_artifacts: list[dict[str, Any]],
     ) -> dict[str, Any]:
-        if not isinstance(pending, dict) or not pending.get("id"):
-            raise ValueError("没有可恢复的用户补充信息请求")
-        if not isinstance(resume, dict):
-            raise ValueError("用户补充信息恢复参数格式不正确")
-        if str(resume.get("requestId") or "") != str(pending.get("id") or ""):
-            raise ValueError("用户补充信息请求与当前暂停任务不匹配")
-        if str(resume.get("familyId") or "") != state["family_id"]:
-            raise LookupError("用户补充信息请求不存在")
-
-        selected_option_ids = [
-            str(item)
-            for item in (resume.get("selectedOptionIds") if isinstance(resume.get("selectedOptionIds"), list) else [])
-            if str(item).strip()
-        ]
-        text = str(resume.get("text") or "").strip()
-        answer_summary = self._human_input_answer_summary(pending, selected_option_ids, text)
-        response_payload = {
-            "selectedOptionIds": selected_option_ids,
-            "text": text,
-            "summary": answer_summary,
-        }
-        result_artifact = {
-            "id": f"human_input:{pending['id']}",
-            "type": "human.input_result",
-            "kind": "human_input",
-            "version": 1,
-            "status": "completed",
-            "payload": {
-                "request": pending,
-                **response_payload,
-            },
-        }
-        run = self.db.get(AIAgentRun, state["run_id"])
-        conversation = self.db.get(AIConversation, state["conversation_id"])
-        message = self.db.scalar(
-            select(AIMessage)
-            .where(AIMessage.run_id == state["run_id"], AIMessage.role == "assistant")
-            .order_by(AIMessage.created_at.asc(), AIMessage.id.asc())
+        return self.human_input_resume_handler.resume(
+            state=state,
+            pending=pending,
+            resume=resume,
+            run_artifacts=run_artifacts,
         )
-        if message is not None:
-            metadata = dict(message.message_metadata or {})
-            artifacts = [item for item in metadata.get("artifacts") or [] if isinstance(item, dict)]
-            if not any(item.get("id") == result_artifact["id"] for item in artifacts):
-                artifacts.append(result_artifact)
-            responded_at = utcnow().isoformat()
-            next_parts: list[dict[str, Any]] = []
-            for part in message.parts or []:
-                if not isinstance(part, dict):
-                    continue
-                request = part.get("request") if isinstance(part.get("request"), dict) else {}
-                if part.get("type") == "human_input_request" and str(request.get("id") or "") == str(pending["id"]):
-                    next_parts.append(
-                        {
-                            **part,
-                            "status": "completed",
-                            "responded_at": responded_at,
-                            "response": response_payload,
-                        }
-                    )
-                else:
-                    next_parts.append(part)
-            message.parts = next_parts
-            message.message_metadata = {**metadata, "artifacts": artifacts}
-        if run is not None:
-            run.status = "running"
-            context_summary = dict(run.context_summary or {})
-            context_summary["lastHumanInputResult"] = result_artifact["payload"]
-            run.context_summary = self._json_record(context_summary)
-        if conversation is not None:
-            conversation.last_run_status = "running"
-            context = dict(conversation.context or {})
-            task_state = dict(context.get("taskState") or {})
-            task_state.pop("pendingHumanInput", None)
-            task_state["lastHumanInputResult"] = result_artifact["payload"]
-            context["taskState"] = task_state
-            conversation.context = self._json_record(context)
-        self.db.flush()
-        return {
-            "status": "running",
-            "run_artifacts": [*run_artifacts, result_artifact],
-            "pending_human_input": {},
-            "pending_approval_id": "",
-            "last_human_input_result": result_artifact,
-            "injected_skill_keys": list(state.get("injected_skill_keys") or []),
-            "injection_history": list(state.get("injection_history") or []),
-        }
-
-    @staticmethod
-    def _human_input_answer_summary(
-        pending: dict[str, Any],
-        selected_option_ids: list[str],
-        text: str,
-    ) -> str:
-        options = pending.get("options") if isinstance(pending.get("options"), list) else []
-        labels_by_id = {
-            str(option.get("id")): str(option.get("label") or "").strip()
-            for option in options
-            if isinstance(option, dict) and str(option.get("id") or "").strip()
-        }
-        selected_labels = [
-            labels_by_id.get(option_id, option_id)
-            for option_id in selected_option_ids
-            if option_id
-        ]
-        values = list(dict.fromkeys(value for value in [*selected_labels, text.strip()] if value))
-        return "；".join(values) or "已提交回答"
 
     def _resume_pending_approval(
         self,
@@ -1875,163 +1103,12 @@ class WorkspaceGraphRunner:
         resume: Any,
         run_artifacts: list[dict[str, Any]],
     ) -> dict[str, Any]:
-        recorded_decision = self._pop_fast_approval_decision(state, pending.id)
-        if recorded_decision is not None:
-            return self._resume_recorded_approval_decision(
-                state,
-                recorded_decision,
-                run_artifacts,
-            )
-        if not isinstance(resume, dict):
-            logger.warning(
-                "AI graph approval resume invalid payload run_id=%s conversation_id=%s family_id=%s approval_id=%s payload_type=%s",
-                state["run_id"],
-                state["conversation_id"],
-                state["family_id"],
-                pending.id,
-                type(resume).__name__,
-            )
-            raise ValueError("确认恢复参数格式不正确")
-        if str(resume.get("approvalId") or "") != pending.id:
-            logger.warning(
-                "AI graph approval resume mismatched approval run_id=%s conversation_id=%s family_id=%s pending_approval_id=%s resume_approval_id=%s",
-                state["run_id"],
-                state["conversation_id"],
-                state["family_id"],
-                pending.id,
-                resume.get("approvalId"),
-            )
-            raise ValueError("确认请求与当前暂停任务不匹配")
-        if str(resume.get("familyId") or "") != state["family_id"]:
-            logger.warning(
-                "AI graph approval resume mismatched family run_id=%s conversation_id=%s family_id=%s resume_family_id=%s approval_id=%s",
-                state["run_id"],
-                state["conversation_id"],
-                state["family_id"],
-                resume.get("familyId"),
-                pending.id,
-            )
-            raise LookupError("确认请求不存在")
-        result = self.service._apply_approval_decision(
-            family_id=state["family_id"],
-            user_id=str(resume.get("userId") or state["user_id"]),
-            conversation_id=state["conversation_id"],
-            approval_id=pending.id,
-            decision=str(resume.get("decision") or ""),
-            draft_version=int(resume.get("draftVersion") or 0),
-            values=resume.get("values") if isinstance(resume.get("values"), dict) else {},
-            comment=str(resume.get("comment") or "") or None,
+        return self.approval_resume_handler.resume(
+            state=state,
+            pending=pending,
+            resume=resume,
+            run_artifacts=run_artifacts,
         )
-        serialized = jsonable_encoder(result)
-        approval_artifacts = self.service._approval_decision_artifacts(serialized)
-        operation = result.get("operation")
-        next_approval = result.get("approval")
-        decision_draft = result.get("draft") if isinstance(result.get("draft"), dict) else {}
-        decision_draft_type = str(decision_draft.get("draft_type") or "")
-        run = self.db.get(AIAgentRun, state["run_id"])
-        conversation = self.db.get(AIConversation, state["conversation_id"])
-        if isinstance(next_approval, dict) and next_approval.get("status") == "pending":
-            logger.warning(
-                "AI graph approval operation requires retry run_id=%s conversation_id=%s family_id=%s approval_id=%s next_approval_id=%s",
-                state["run_id"],
-                state["conversation_id"],
-                state["family_id"],
-                pending.id,
-                next_approval.get("id"),
-            )
-            if run is not None:
-                run.status = "waiting_approval"
-            if conversation is not None:
-                conversation.last_run_status = "waiting_approval"
-            self.db.flush()
-            return {
-                "status": "waiting_approval",
-                "pending_approval_id": str(next_approval.get("id") or ""),
-                "last_decision": serialized,
-                "run_artifacts": [*run_artifacts, *approval_artifacts],
-            }
-        if str(resume.get("decision")) == "rejected":
-            logger.info(
-                "AI graph approval rejected run_id=%s conversation_id=%s family_id=%s approval_id=%s",
-                state["run_id"],
-                state["conversation_id"],
-                state["family_id"],
-                pending.id,
-            )
-            if run is not None:
-                run.status = "running"
-                self._record_approval_outcome(run, approval_status="rejected", draft_type=decision_draft_type)
-            if conversation is not None:
-                conversation.last_run_status = "running"
-            self.db.flush()
-            next_run_artifacts = [*run_artifacts, *approval_artifacts]
-            resume_artifact = self._consume_resume_after_approval(state, serialized)
-            if resume_artifact is not None:
-                next_run_artifacts.append(resume_artifact)
-            return {
-                "run_artifacts": next_run_artifacts,
-                "status": "running",
-                "last_decision": serialized,
-                "pending_approval_id": "",
-                "pending_human_input": {},
-                "injected_skill_keys": list(state.get("injected_skill_keys") or []),
-                "injection_history": list(state.get("injection_history") or []),
-            }
-        if not isinstance(operation, dict) or operation.get("status") != "succeeded":
-            logger.warning(
-                "AI graph approval operation failed run_id=%s conversation_id=%s family_id=%s approval_id=%s operation=%s",
-                state["run_id"],
-                state["conversation_id"],
-                state["family_id"],
-                pending.id,
-                operation,
-            )
-            if run is not None:
-                run.status = "failed"
-            if conversation is not None:
-                conversation.last_run_status = "failed"
-            self.db.flush()
-            return {"status": "failed", "last_decision": serialized, "error": "草稿写入失败", "run_artifacts": [*run_artifacts, *approval_artifacts]}
-        if run is not None:
-            run.status = "running"
-            self._record_approval_outcome(
-                run,
-                approval_status="approved",
-                draft_type=decision_draft_type,
-            )
-        if conversation is not None:
-            conversation.last_run_status = "running"
-        self.db.flush()
-        if not self._commit_stream_checkpoint(state, run_status="running"):
-            raise RuntimeError("确认结果持久化失败，请稍后重试")
-        next_run_artifacts = [*run_artifacts, *approval_artifacts]
-        resume_artifact = self._consume_resume_after_approval(state, serialized)
-        if resume_artifact is None:
-            self._stream_approval_followup(state, serialized, terminal_status="completed")
-            if run is not None:
-                run.status = "completed"
-            if conversation is not None:
-                conversation.last_run_status = "completed"
-            self.db.flush()
-            return {
-                "run_artifacts": next_run_artifacts,
-                "status": "completed",
-                "last_decision": serialized,
-                "pending_approval_id": "",
-                "pending_human_input": {},
-                "injected_skill_keys": list(state.get("injected_skill_keys") or []),
-                "injection_history": list(state.get("injection_history") or []),
-            }
-        next_run_artifacts.append(resume_artifact)
-        return {
-            "run_artifacts": next_run_artifacts,
-            "status": "running",
-            "last_decision": serialized,
-            "pending_approval_id": "",
-            "pending_human_input": {},
-            "injected_skill_keys": list(state.get("injected_skill_keys") or []),
-            "injection_history": list(state.get("injection_history") or []),
-        }
 
     def _resume_recorded_approval_decision(
         self,
@@ -2039,100 +1116,21 @@ class WorkspaceGraphRunner:
         serialized: dict[str, Any],
         run_artifacts: list[dict[str, Any]],
     ) -> dict[str, Any]:
-        approval_artifacts = self.service._approval_decision_artifacts(serialized)
-        approval = serialized.get("approval") if isinstance(serialized.get("approval"), dict) else {}
-        operation = serialized.get("operation") if isinstance(serialized.get("operation"), dict) else None
-        run = self.db.get(AIAgentRun, state["run_id"])
-        conversation = self.db.get(AIConversation, state["conversation_id"])
-        if approval.get("status") == "pending":
-            if run is not None:
-                run.status = "waiting_approval"
-            if conversation is not None:
-                conversation.last_run_status = "waiting_approval"
-            self.db.flush()
-            return {
-                "status": "waiting_approval",
-                "pending_approval_id": str(approval.get("id") or ""),
-                "last_decision": serialized,
-                "run_artifacts": [*run_artifacts, *approval_artifacts],
-            }
-        if approval.get("decision") == "rejected":
-            if run is not None:
-                run.status = "running"
-            if conversation is not None:
-                conversation.last_run_status = "running"
-            self.db.flush()
-            next_run_artifacts = [*run_artifacts, *approval_artifacts]
-            resume_artifact = self._consume_resume_after_approval(state, serialized)
-            if resume_artifact is not None:
-                next_run_artifacts.append(resume_artifact)
-            return {
-                "run_artifacts": next_run_artifacts,
-                "status": "running",
-                "last_decision": serialized,
-                "pending_approval_id": "",
-                "pending_human_input": {},
-                "injected_skill_keys": list(state.get("injected_skill_keys") or []),
-                "injection_history": list(state.get("injection_history") or []),
-            }
-        if operation is not None and operation.get("status") != "succeeded":
-            if run is not None:
-                run.status = "failed"
-            if conversation is not None:
-                conversation.last_run_status = "failed"
-            self.db.flush()
-            return {"status": "failed", "last_decision": serialized, "error": "草稿写入失败", "run_artifacts": [*run_artifacts, *approval_artifacts]}
-        next_run_artifacts = [*run_artifacts, *approval_artifacts]
-        resume_artifact = self._consume_resume_after_approval(state, serialized)
-        if resume_artifact is None:
-            self._stream_approval_followup(state, serialized, terminal_status="completed")
-            if run is not None:
-                run.status = "completed"
-            if conversation is not None:
-                conversation.last_run_status = "completed"
-            self.db.flush()
-            return {
-                "run_artifacts": next_run_artifacts,
-                "status": "completed",
-                "last_decision": serialized,
-                "pending_approval_id": "",
-                "pending_human_input": {},
-                "injected_skill_keys": list(state.get("injected_skill_keys") or []),
-                "injection_history": list(state.get("injection_history") or []),
-            }
-        next_run_artifacts.append(resume_artifact)
-        if run is not None:
-            run.status = "running"
-        if conversation is not None:
-            conversation.last_run_status = "running"
-        self.db.flush()
-        return {
-            "run_artifacts": next_run_artifacts,
-            "status": "running",
-            "last_decision": serialized,
-            "pending_approval_id": "",
-            "pending_human_input": {},
-            "injected_skill_keys": list(state.get("injected_skill_keys") or []),
-            "injection_history": list(state.get("injection_history") or []),
-        }
+        return self.approval_resume_handler.resume_recorded_decision(
+            state=state,
+            serialized=serialized,
+            run_artifacts=run_artifacts,
+        )
 
-    def _approval_resume_payload(self, decision_result: dict[str, Any]) -> dict[str, Any] | None:
-        draft_record = decision_result.get("draft") if isinstance(decision_result.get("draft"), dict) else {}
-        draft_id = str(draft_record.get("id") or "")
+    def _approval_resume_payload_from_decision(self, decision_result: dict[str, Any]) -> dict[str, Any] | None:
+        draft_id = approval_resume_draft_id(decision_result)
         if not draft_id:
             return None
         draft = self.db.get(AITaskDraft, draft_id)
         if draft is None:
             return None
         metadata = draft.ai_metadata if isinstance(draft.ai_metadata, dict) else {}
-        after_approval = metadata.get("afterApproval") if isinstance(metadata.get("afterApproval"), dict) else {}
-        resume_payload = dict(after_approval)
-        resume_payload.pop("continue", None)
-        resume_payload.setdefault(
-            "instruction",
-            "根据这次确认结果继续对话；如果当前任务已经完成，给出简短总结。",
-        )
-        return resume_payload
+        return approval_resume_payload_from_metadata(metadata)
 
     def _pop_fast_approval_decision(self, state: WorkspaceGraphState, approval_id: str) -> dict[str, Any] | None:
         if not approval_id:
@@ -2170,18 +1168,16 @@ class WorkspaceGraphRunner:
         state: WorkspaceGraphState,
         decision_result: dict[str, Any],
     ) -> dict[str, Any] | None:
-        resume_payload = self._approval_resume_payload(decision_result)
+        resume_payload = self._approval_resume_payload_from_decision(decision_result)
         if resume_payload is None:
             return None
         approval = decision_result.get("approval") if isinstance(decision_result.get("approval"), dict) else {}
-        return {
-            "id": f"draft_after_approval:{state['run_id']}:{approval.get('id') or create_id('resume')}",
-            "type": "draft_after_approval",
-            "kind": "task_resume",
-            "version": 1,
-            "status": "pending",
-            "payload": resume_payload,
-        }
+        return approval_resume_artifact(
+            run_id=state["run_id"],
+            approval_id=str(approval.get("id") or ""),
+            fallback_resume_id=create_id("resume"),
+            resume_payload=resume_payload,
+        )
 
     def _tool_call_artifacts(self, result: SkillResult) -> list[dict[str, Any]]:
         artifacts: list[dict[str, Any]] = []
@@ -2201,671 +1197,15 @@ class WorkspaceGraphRunner:
                     "status": str(record.get("status") or ""),
                     "name": name,
                     "sideEffect": str(record.get("side_effect") or ""),
-                    "signature": f"{name}:{json.dumps(tool_input, sort_keys=True, ensure_ascii=False, default=str)}",
+                    "signature": tool_signature(name, tool_input),
                     "payload": {"input": tool_input},
                 }
             )
         return artifacts
 
-    def _mark_waiting_approval_state(self, state: WorkspaceGraphState) -> None:
-        run = self.db.get(AIAgentRun, state["run_id"])
-        if run is not None:
-            run.status = "waiting_approval"
-        conversation = self.db.get(AIConversation, state["conversation_id"])
-        if conversation is not None:
-            conversation.last_run_status = "waiting_approval"
-        message = self.db.scalar(
-            select(AIMessage)
-            .where(AIMessage.run_id == state["run_id"], AIMessage.role == "assistant")
-            .order_by(AIMessage.created_at.asc(), AIMessage.id.asc())
-        )
-        if message is not None:
-            message.status = "waiting_approval"
-        self.db.flush()
-
-    def _progressive_draft_publisher(
-        self,
-        state: WorkspaceGraphState,
-        *,
-        tracer: AIRunTracer | None = None,
-        parent_span_id: str | None = None,
-        round_index: int | None = None,
-    ):
-        def publish(draft_payload: dict[str, Any]) -> dict[str, Any]:
-            if self._cancel_requested(state["run_id"]):
-                raise AIExecutionCancelled("AI run was cancelled")
-            span = (
-                tracer.start_span(
-                    "draft_publish",
-                    str(draft_payload.get("draft_type") or draft_payload.get("tool") or "draft"),
-                    parent_span_id=parent_span_id,
-                    round_index=round_index,
-                    input_summary={
-                        "draftType": draft_payload.get("draft_type"),
-                        "schemaVersion": draft_payload.get("schema_version"),
-                        "tool": draft_payload.get("tool"),
-                    },
-                )
-                if tracer is not None
-                else None
-            )
-            message = self._ensure_progressive_assistant_message(state)
-            draft, approval = self.service._create_draft_approval(
-                family_id=state["family_id"],
-                user_id=state["user_id"],
-                conversation_id=state["conversation_id"],
-                message_id=message.id,
-                run_id=state["run_id"],
-                draft_payload=draft_payload,
-            )
-            self._mark_waiting_approval_state(state)
-            draft_part = {
-                "id": f"draft-part-{draft.id}",
-                "type": "draft",
-                "draft": jsonable_encoder(serialize_ai_task_draft(draft)),
-            }
-            approval_part = {
-                "id": f"approval-part-{approval.id}",
-                "type": "approval_request",
-                "approval": jsonable_encoder(serialize_ai_approval_request(approval)),
-            }
-            metadata = dict(message.message_metadata or {})
-            draft_id = draft.id
-            approval_id = approval.id
-            message_id = message.id
-            message.message_metadata = {
-                **metadata,
-                "progressiveDraftIds": [
-                    *[str(item) for item in metadata.get("progressiveDraftIds") or [] if str(item)],
-                    draft_id,
-                ],
-                "progressiveApprovalIds": [
-                    *[str(item) for item in metadata.get("progressiveApprovalIds") or [] if str(item)],
-                    approval_id,
-                ],
-            }
-            self.db.flush()
-            if not self._commit_stream_checkpoint(state, run_status="waiting_approval"):
-                if span is not None:
-                    span.finish(
-                        status="failed",
-                        error_code="stream_checkpoint_failed",
-                        error_message="draft approval checkpoint failed",
-                    )
-                raise RuntimeError("确认请求持久化失败，请稍后重试")
-            for part in (draft_part, approval_part):
-                writer = self._persistent_progress_writer(self._optional_stream_writer(), state)
-                if writer is not None:
-                    writer(
-                        {
-                            "event": "message_part",
-                            "data": {
-                                "message_id": message_id,
-                                "conversation_id": state["conversation_id"],
-                                "run_id": state["run_id"],
-                                "part": part,
-                            },
-                        }
-                    )
-            result = {
-                "draft_id": draft_id,
-                "approval_id": approval_id,
-                "published_part_ids": [draft_part["id"], approval_part["id"]],
-            }
-            if span is not None:
-                span.finish(
-                    status="waiting",
-                    output_summary={
-                        "draftId": draft_id,
-                        "approvalId": approval_id,
-                        "messageId": message_id,
-                        "publishedPartIds": result["published_part_ids"],
-                    },
-                )
-            return result
-
-        return publish
-
-    def _ensure_progressive_assistant_message(self, state: WorkspaceGraphState) -> AIMessage:
-        message = self.db.scalar(
-            select(AIMessage)
-            .where(AIMessage.run_id == state["run_id"], AIMessage.role == "assistant")
-            .order_by(AIMessage.created_at.asc(), AIMessage.id.asc())
-        )
-        if message is not None:
-            return message
-        message = AIMessage(
-            id=create_id("ai_message"),
-            family_id=state["family_id"],
-            conversation_id=state["conversation_id"],
-            role="assistant",
-            content="",
-            content_type="parts",
-            parts=[],
-            run_id=state["run_id"],
-            status="running",
-            message_metadata={
-                "intent": "workspace_orchestrator",
-                "agentKey": "workspace_orchestrator",
-                "skillKey": None,
-            },
-            created_by=state["user_id"],
-        )
-        self.db.add(message)
-        self.db.flush()
-        return message
-
-    def _persist_assistant_result(
-        self,
-        state: WorkspaceGraphState,
-        result: SkillResult,
-        *,
-        skill_key: str | None,
-        duration_ms: int = 0,
-    ) -> AIMessage:
-        if self._cancel_requested(state["run_id"]):
-            result.status = "cancelled"
-            result.cards = []
-            result.drafts = []
-            result.error = result.error or "用户取消了这次任务"
-            if not result.text.strip():
-                result.text = "已取消这次任务。"
-        assistant_status = "waiting_approval" if result.drafts else result.status
-        cards = [] if result.drafts else validate_result_cards(result.cards)
-        next_parts = self._base_assistant_parts_from_live_stream(state, result.text, stop_after_first_draft=bool(result.drafts))
-        for card in cards:
-            next_parts.append({"id": create_id("ai_part"), "type": "result_card", "card": card})
-        pending_human_input = (
-            result.context_summary.get("pendingHumanInput")
-            if isinstance(result.context_summary, dict) and isinstance(result.context_summary.get("pendingHumanInput"), dict)
-            else None
-        )
-        if pending_human_input is not None:
-            next_parts.append(
-                {
-                    "id": create_id("ai_part"),
-                    "type": "human_input_request",
-                    "request": pending_human_input,
-                }
-            )
-        message = self.db.scalar(
-            select(AIMessage)
-            .where(AIMessage.run_id == state["run_id"], AIMessage.role == "assistant")
-            .order_by(AIMessage.created_at.asc(), AIMessage.id.asc())
-        )
-        metadata = dict(message.message_metadata or {}) if message is not None else {}
-        if message is None:
-            metadata_intent = "general_chat"
-            metadata_agent_key = "general_chat_agent"
-            if skill_key is None:
-                metadata_intent = "workspace_orchestrator"
-                metadata_agent_key = "workspace_orchestrator"
-            elif skill_key:
-                metadata_intent = self.skill_registry.get(skill_key).manifest.intent
-                metadata_agent_key = self.skill_registry.get(skill_key).manifest.agent_key
-            metadata = {
-                "intent": metadata_intent,
-                "agentKey": metadata_agent_key,
-                "skillKey": skill_key,
-            }
-            message = AIMessage(
-                id=create_id("ai_message"),
-                family_id=state["family_id"],
-                conversation_id=state["conversation_id"],
-                role="assistant",
-                content=result.text,
-                content_type="parts",
-                parts=next_parts,
-                run_id=state["run_id"],
-                status=assistant_status,
-                message_metadata=metadata,
-                created_by=state["user_id"],
-            )
-            self.db.add(message)
-        else:
-            live_text_part_ids = {
-                str(part_id)
-                for part_id in metadata.get("liveTextPartIds", [])
-                if isinstance(part_id, str) and part_id
-            }
-            existing_parts = [part for part in (message.parts or []) if isinstance(part, dict)]
-            if live_text_part_ids:
-                existing_parts = [part for part in existing_parts if str(part.get("id") or "") not in live_text_part_ids]
-                metadata.pop("liveStreaming", None)
-                metadata.pop("liveTextPartIds", None)
-                metadata.pop("livePartIds", None)
-            message.parts = self._dedupe_message_parts([*existing_parts, *next_parts])
-            if skill_key:
-                skill_keys = list(metadata.get("skillKeys") or [])
-                if not skill_keys and metadata.get("skillKey"):
-                    skill_keys.append(str(metadata["skillKey"]))
-                skill_keys.append(skill_key)
-                metadata["skillKeys"] = list(dict.fromkeys(item for item in skill_keys if item))
-                metadata["skillKey"] = skill_key
-            message.message_metadata = metadata
-        self.db.flush()
-        drafts: list[AITaskDraft] = []
-        approvals: list[AIApprovalRequest] = []
-        for draft_payload in result.drafts:
-            draft_id = str(draft_payload.get("draft_id") or "")
-            approval_id = str(draft_payload.get("approval_id") or "")
-            draft = self.db.get(AITaskDraft, draft_id) if draft_id else None
-            approval = self.db.get(AIApprovalRequest, approval_id) if approval_id else None
-            if draft is None or approval is None:
-                draft, approval = self.service._create_draft_approval(
-                    family_id=state["family_id"],
-                    user_id=state["user_id"],
-                    conversation_id=state["conversation_id"],
-                    message_id=message.id,
-                    run_id=state["run_id"],
-                    draft_payload=draft_payload,
-                )
-            else:
-                draft.message_id = message.id
-                draft.source_run_id = state["run_id"]
-                approval.message_id = message.id
-                approval.run_id = state["run_id"]
-                self.db.flush()
-                self.db.refresh(draft)
-                self.db.refresh(approval)
-            drafts.append(draft)
-            approvals.append(approval)
-            existing_part_ids = {
-                str(part.get("id") or "")
-                for part in (message.parts or [])
-                if isinstance(part, dict)
-            }
-            draft_part_id = f"draft-part-{draft.id}"
-            approval_part_id = f"approval-part-{approval.id}"
-            next_draft_parts: list[dict[str, Any]] = []
-            if draft_part_id not in existing_part_ids:
-                next_draft_parts.append(
-                    {
-                        "id": draft_part_id,
-                        "type": "draft",
-                        "draft": jsonable_encoder(serialize_ai_task_draft(draft)),
-                    }
-                )
-            if approval_part_id not in existing_part_ids:
-                next_draft_parts.append(
-                    {
-                        "id": approval_part_id,
-                        "type": "approval_request",
-                        "approval": jsonable_encoder(serialize_ai_approval_request(approval)),
-                    }
-                )
-            if next_draft_parts:
-                message.parts = self._dedupe_message_parts([*(message.parts or []), *next_draft_parts])
-        if drafts:
-            existing_draft_ids = list(metadata.get("draftIds") or [])
-            existing_approval_ids = list(metadata.get("approvalIds") or [])
-            message.message_metadata = {
-                **metadata,
-                "draftIds": [*existing_draft_ids, *[item.id for item in drafts]],
-                "approvalIds": [*existing_approval_ids, *[item.id for item in approvals]],
-            }
-        self._sync_message_parts_with_current_approval_state(message, drafts=drafts, approvals=approvals)
-        text_parts = [
-            str(part.get("text") or "").strip()
-            for part in (message.parts or [])
-            if isinstance(part, dict) and part.get("type") == "text" and str(part.get("text") or "").strip()
-        ]
-        aggregate_text = "\n\n".join(text_parts)
-        message.content = aggregate_text
-        message.status = assistant_status
-        run = self.db.get(AIAgentRun, state["run_id"])
-        conversation = self.db.get(AIConversation, state["conversation_id"])
-        all_cards = [
-            part["card"]
-            for part in (message.parts or [])
-            if isinstance(part, dict) and part.get("type") == "result_card" and isinstance(part.get("card"), dict)
-        ]
-        if run is not None:
-            context_summary = dict(run.context_summary or {})
-            context_summary.update(result.context_summary)
-            skill_executions = list(context_summary.get("skillExecutions") or [])
-            if skill_key:
-                skill_executions.append(
-                    {
-                        "skillKey": skill_key,
-                        "operation": result.operation,
-                        "sourceArtifactId": result.source_artifact_id,
-                        "status": result.status,
-                        "diagnostic": result.diagnostic,
-                        "requiresClarification": result.requires_clarification,
-                        "clarificationQuestionTypes": self._skill_result_clarification_question_types(result, cards),
-                        "draftCount": len(drafts),
-                    }
-                )
-            orchestrator_summary = context_summary.get("orchestrator") if isinstance(context_summary.get("orchestrator"), dict) else {}
-            raw_injected_skill_keys = (
-                orchestrator_summary.get("injectedSkills")
-                if isinstance(orchestrator_summary, dict) and isinstance(orchestrator_summary.get("injectedSkills"), list)
-                else []
-            )
-            injected_skill_keys = [
-                str(item)
-                for item in raw_injected_skill_keys
-                if str(item)
-            ]
-            observation_skill_key = skill_key
-            if observation_skill_key is None and len(injected_skill_keys) == 1:
-                observation_skill_key = injected_skill_keys[0]
-            self._record_skill_observation(
-                context_summary,
-                skill_key=observation_skill_key,
-                result=result,
-                cards=cards,
-                draft_count=len(drafts),
-                approval_count=len(approvals),
-            )
-            if injected_skill_keys:
-                routing = dict(context_summary.get("routing") or {})
-                routing["skills"] = injected_skill_keys
-                context_summary["routing"] = routing
-                if not skill_executions:
-                    skill_executions.extend(
-                        {
-                            "skillKey": key,
-                            "operation": result.operation,
-                            "sourceArtifactId": result.source_artifact_id,
-                            "status": result.status,
-                            "diagnostic": result.diagnostic,
-                            "requiresClarification": result.requires_clarification,
-                            "clarificationQuestionTypes": self._skill_result_clarification_question_types(result, cards),
-                            "draftCount": len(drafts),
-                        }
-                        for key in injected_skill_keys
-                    )
-            if "lastHumanInputResult" not in context_summary and conversation is not None:
-                conversation_context = dict(conversation.context or {})
-                task_state = conversation_context.get("taskState") if isinstance(conversation_context.get("taskState"), dict) else {}
-                last_human_input_result = task_state.get("lastHumanInputResult") if isinstance(task_state, dict) else None
-                if isinstance(last_human_input_result, dict):
-                    context_summary["lastHumanInputResult"] = last_human_input_result
-            if skill_executions:
-                context_summary["skillExecutions"] = skill_executions
-            run.status = assistant_status
-            if skill_key is None and injected_skill_keys:
-                run.intent = (
-                    "multi_skill"
-                    if len(injected_skill_keys) > 1
-                    else self.skill_registry.get(injected_skill_keys[0]).manifest.intent
-                )
-            elif skill_key is None:
-                run.intent = "general_chat"
-            run.model = result.model or run.model
-            run.output_summary = aggregate_text[:255]
-            run.output = self._json_record(
-                {"text": aggregate_text, "cards": all_cards, "routing": (run.context_summary or {}).get("routing", {})}
-            )
-            run.tool_calls = self._json_record([*(run.tool_calls or []), *result.tool_calls])
-            run.error = result.error
-            run.duration_ms = int(run.duration_ms or 0) + duration_ms
-            run.context_summary = self._json_record(context_summary)
-        if conversation is not None:
-            conversation.prompt = state["message"]
-            conversation.response = aggregate_text
-            conversation.summary = aggregate_text[:255]
-            conversation.last_message_at = utcnow()
-            conversation.last_run_status = assistant_status
-            context = dict(conversation.context or {})
-            context.pop("activeRunId", None)
-            if result.state_patch:
-                task_state = dict(context.get("taskState") or {})
-                for key, value in result.state_patch.items():
-                    if value is None:
-                        task_state.pop(key, None)
-                    else:
-                        task_state[key] = value
-                context["taskState"] = task_state
-            conversation.context = self._json_record(context)
-        self.db.flush()
-        return message
-
     @staticmethod
     def _json_record(value: Any) -> Any:
         return jsonable_encoder(value)
-
-    @staticmethod
-    def _human_input_question_types(result: SkillResult) -> list[str]:
-        if not isinstance(result.context_summary, dict):
-            return []
-        pending = result.context_summary.get("pendingHumanInput")
-        if not isinstance(pending, dict):
-            return []
-        resume_hint = pending.get("resumeHint") if isinstance(pending.get("resumeHint"), dict) else {}
-        question_type = str(resume_hint.get("questionType") or pending.get("questionType") or "").strip()
-        return [question_type or "human_input"]
-
-    def _skill_result_clarification_question_types(
-        self,
-        result: SkillResult,
-        cards: list[dict[str, Any]],
-    ) -> list[str]:
-        del cards
-        return self._human_input_question_types(result)
-
-    def _record_skill_observation(
-        self,
-        context_summary: dict[str, Any],
-        *,
-        skill_key: str | None,
-        result: SkillResult,
-        cards: list[dict[str, Any]],
-        draft_count: int,
-        approval_count: int,
-    ) -> None:
-        metrics = dict(context_summary.get("runMetrics") or {})
-        if skill_key:
-            metrics["skillExecutionCount"] = int(metrics.get("skillExecutionCount") or 0) + 1
-        if result.status == "completed":
-            metrics["completedSkillExecutionCount"] = int(metrics.get("completedSkillExecutionCount") or 0) + (1 if skill_key else 0)
-        metrics["toolCallCount"] = int(metrics.get("toolCallCount") or 0) + len(result.tool_calls)
-        metrics["draftCount"] = int(metrics.get("draftCount") or 0) + draft_count
-        metrics["approvalRequestCount"] = int(metrics.get("approvalRequestCount") or 0) + approval_count
-
-        clarification_types = self._skill_result_clarification_question_types(result, cards)
-        if clarification_types:
-            metrics["clarificationCount"] = int(metrics.get("clarificationCount") or 0) + len(clarification_types)
-            clarification = dict(context_summary.get("clarificationStats") or {})
-            reasons = dict(clarification.get("reasons") or {})
-            for question_type in clarification_types:
-                reasons[question_type] = int(reasons.get(question_type) or 0) + 1
-            clarification["count"] = int(clarification.get("count") or 0) + len(clarification_types)
-            clarification["reasons"] = reasons
-            clarification["lastQuestionTypes"] = clarification_types
-            if skill_key:
-                by_skill = dict(clarification.get("bySkill") or {})
-                by_skill[skill_key] = int(by_skill.get(skill_key) or 0) + len(clarification_types)
-                clarification["bySkill"] = by_skill
-            context_summary["clarificationStats"] = clarification
-
-        context_summary["runMetrics"] = metrics
-
-    @staticmethod
-    def _record_approval_outcome(run: AIAgentRun, *, approval_status: str, draft_type: str) -> None:
-        context_summary = dict(run.context_summary or {})
-        metrics = dict(context_summary.get("runMetrics") or {})
-        if approval_status == "approved":
-            metrics["approvalApprovedCount"] = int(metrics.get("approvalApprovedCount") or 0) + 1
-        elif approval_status == "rejected":
-            metrics["approvalRejectedCount"] = int(metrics.get("approvalRejectedCount") or 0) + 1
-        context_summary["runMetrics"] = metrics
-
-        approvals = dict(context_summary.get("approvalStats") or {})
-        by_draft_type = dict(approvals.get("byDraftType") or {})
-        if draft_type:
-            bucket = dict(by_draft_type.get(draft_type) or {})
-            bucket[approval_status] = int(bucket.get(approval_status) or 0) + 1
-            by_draft_type[draft_type] = bucket
-        approvals["byDraftType"] = by_draft_type
-        approvals["lastDecision"] = {"status": approval_status, "draftType": draft_type or None}
-        context_summary["approvalStats"] = approvals
-        run.context_summary = context_summary
-
-    def _make_stream_worker_runner(
-        self,
-        runner_factory: Callable[[], "WorkspaceGraphRunner"] | None,
-    ) -> tuple["WorkspaceGraphRunner", Callable[[], None]]:
-        if runner_factory is not None:
-            return runner_factory(), lambda: None
-
-        from app.ai.workspace_service import AIApplicationService
-
-        db = Session(bind=self.db.get_bind(), autoflush=False, autocommit=False, future=True)
-        service = AIApplicationService(db, provider=self.provider)
-        return WorkspaceGraphRunner(service), db.close
-
-    def _enqueue_stream_event(
-        self,
-        event_queue: Queue[Any],
-        *,
-        seen_event_ids: set[str],
-        is_disconnected: Callable[[], bool],
-        event: str,
-        data: dict[str, Any],
-    ) -> None:
-        if event == "progress" and isinstance(data.get("id"), str):
-            seen_event_ids.add(data["id"])
-        if is_disconnected():
-            return
-        event_queue.put((event, data))
-
-    def _drain_stream_graph(
-        self,
-        worker_runner: "WorkspaceGraphRunner",
-        *,
-        graph_stream: Callable[["WorkspaceGraphRunner"], Iterator[Any]],
-        handle_update: Callable[["WorkspaceGraphRunner", Any], Iterator[tuple[str, dict[str, Any]]]],
-        enqueue: Callable[[str, dict[str, Any]], None],
-        before_graph: Callable[["WorkspaceGraphRunner"], Iterator[tuple[str, dict[str, Any]]]] | None,
-        after_graph: Callable[["WorkspaceGraphRunner"], Iterator[tuple[str, dict[str, Any]]]] | None,
-        perf_context: dict[str, Any] | None,
-    ) -> None:
-        total_started_at = perf_counter()
-        before_graph_ms = 0
-        graph_stream_ms = 0
-        after_graph_ms = 0
-        chunk_count = 0
-        custom_event_count = 0
-        emitted_event_count = 0
-        status = "completed"
-        try:
-            if before_graph is not None:
-                before_started_at = perf_counter()
-                for event, data in before_graph(worker_runner):
-                    enqueue(event, data)
-                    emitted_event_count += 1
-                before_graph_ms = _elapsed_ms(before_started_at)
-            graph_started_at = perf_counter()
-            for chunk in graph_stream(worker_runner):
-                chunk_count += 1
-                mode, update = chunk if isinstance(chunk, tuple) else ("updates", chunk)
-                if mode == "custom":
-                    event, data = worker_runner._custom_stream_event(update)
-                    if event:
-                        enqueue(event, data)
-                        custom_event_count += 1
-                        emitted_event_count += 1
-                    continue
-                if mode != "updates":
-                    continue
-                for event, data in handle_update(worker_runner, update):
-                    enqueue(event, data)
-                    emitted_event_count += 1
-            graph_stream_ms = _elapsed_ms(graph_started_at)
-            worker_runner.db.commit()
-            if after_graph is not None:
-                after_started_at = perf_counter()
-                final_events = list(after_graph(worker_runner))
-                worker_runner.db.commit()
-                for event, data in final_events:
-                    enqueue(event, data)
-                    emitted_event_count += 1
-                after_graph_ms = _elapsed_ms(after_started_at)
-        except BaseException:
-            status = "failed"
-            raise
-        finally:
-            context = perf_context or {}
-            logger.info(
-                "AI graph stream perf summary flow=%s family_id=%s user_id=%s conversation_id=%s run_id=%s status=%s before_graph_ms=%s graph_stream_ms=%s after_graph_ms=%s total_ms=%s chunk_count=%s custom_event_count=%s emitted_event_count=%s",
-                context.get("flow") or "unknown",
-                context.get("family_id"),
-                context.get("user_id"),
-                context.get("conversation_id"),
-                context.get("run_id"),
-                status,
-                before_graph_ms,
-                graph_stream_ms,
-                after_graph_ms,
-                _elapsed_ms(total_started_at),
-                chunk_count,
-                custom_event_count,
-                emitted_event_count,
-            )
-
-    def _handle_stream_worker_exception(
-        self,
-        worker_runner: "WorkspaceGraphRunner",
-        exc: BaseException,
-        *,
-        event_queue: Queue[Any],
-        is_disconnected: Callable[[], bool],
-        on_worker_exception: Callable[["WorkspaceGraphRunner", BaseException], None] | None,
-    ) -> None:
-        try:
-            worker_runner.db.rollback()
-            if on_worker_exception is not None:
-                on_worker_exception(worker_runner, exc)
-        except Exception:
-            logger.exception("AI graph background worker failed while recording stream error")
-        if is_disconnected():
-            logger.warning("AI graph background worker failed after subscriber disconnect: %s", exc, exc_info=True)
-        else:
-            event_queue.put(exc)
-
-    def _consume_stream_graph_worker(
-        self,
-        *,
-        event_queue: Queue[Any],
-        graph_stream: Callable[["WorkspaceGraphRunner"], Iterator[Any]],
-        handle_update: Callable[["WorkspaceGraphRunner", Any], Iterator[tuple[str, dict[str, Any]]]],
-        enqueue: Callable[[str, dict[str, Any]], None],
-        is_disconnected: Callable[[], bool],
-        before_graph: Callable[["WorkspaceGraphRunner"], Iterator[tuple[str, dict[str, Any]]]] | None,
-        after_graph: Callable[["WorkspaceGraphRunner"], Iterator[tuple[str, dict[str, Any]]]] | None,
-        on_worker_exception: Callable[["WorkspaceGraphRunner", BaseException], None] | None,
-        runner_factory: Callable[[], "WorkspaceGraphRunner"] | None,
-        perf_context: dict[str, Any] | None,
-    ) -> None:
-        worker_runner, close_worker_runner = self._make_stream_worker_runner(runner_factory)
-        previous_sink = worker_runner._direct_stream_sink
-        worker_runner._direct_stream_sink = enqueue
-        try:
-            self._drain_stream_graph(
-                worker_runner,
-                graph_stream=graph_stream,
-                handle_update=handle_update,
-                enqueue=enqueue,
-                before_graph=before_graph,
-                after_graph=after_graph,
-                perf_context=perf_context,
-            )
-        except BaseException as exc:
-            self._handle_stream_worker_exception(
-                worker_runner,
-                exc,
-                event_queue=event_queue,
-                is_disconnected=is_disconnected,
-                on_worker_exception=on_worker_exception,
-            )
-        finally:
-            worker_runner._direct_stream_sink = previous_sink
-            close_worker_runner()
-            if not is_disconnected():
-                event_queue.put(_STREAM_DONE)
 
     def _stream_graph_events(
         self,
@@ -2882,12 +1222,13 @@ class WorkspaceGraphRunner:
     ) -> Iterator[tuple[str, dict[str, Any]]]:
         event_queue: Queue[Any] = Queue()
         disconnected = False
+        db_bind = None if runner_factory is not None else self.db.get_bind()
 
         def is_disconnected() -> bool:
             return disconnected
 
         def enqueue(event: str, data: dict[str, Any]) -> None:
-            self._enqueue_stream_event(
+            enqueue_stream_event(
                 event_queue,
                 seen_event_ids=seen_event_ids,
                 is_disconnected=is_disconnected,
@@ -2896,10 +1237,12 @@ class WorkspaceGraphRunner:
             )
 
         worker = Thread(
-            target=self._consume_stream_graph_worker,
+            target=consume_stream_graph_worker,
             name="ai-workspace-stream",
             daemon=True,
             kwargs={
+                "db_bind": db_bind,
+                "provider": getattr(self, "provider", None),
                 "event_queue": event_queue,
                 "graph_stream": graph_stream,
                 "handle_update": handle_update,
@@ -2910,6 +1253,7 @@ class WorkspaceGraphRunner:
                 "on_worker_exception": on_worker_exception,
                 "runner_factory": runner_factory,
                 "perf_context": perf_context,
+                "stream_done_marker": _STREAM_DONE,
             },
         )
         worker.start()
@@ -2931,443 +1275,23 @@ class WorkspaceGraphRunner:
             if not disconnected:
                 worker.join(timeout=1)
 
-    def _stream_approval_followup(
-        self,
-        state: WorkspaceGraphState,
-        decision_result: dict[str, Any],
-        *,
-        terminal_status: str,
-    ) -> None:
-        followup_started_at = perf_counter()
-        approval = decision_result.get("approval") if isinstance(decision_result.get("approval"), dict) else {}
-        message_id = str(approval.get("message_id") or "")
-        message = self.db.get(AIMessage, message_id) if message_id else None
-        if message is None:
-            message = self.db.scalar(
-                select(AIMessage)
-                .where(AIMessage.run_id == state["run_id"], AIMessage.role == "assistant")
-                .order_by(AIMessage.created_at.desc(), AIMessage.id.desc())
-            )
-        if message is None:
-            logger.warning(
-                "AI graph approval follow-up skipped because assistant message is missing run_id=%s conversation_id=%s family_id=%s",
-                state["run_id"],
-                state["conversation_id"],
-                state["family_id"],
-            )
-            return
-
-        part_id = create_id("ai_part")
-        chunks: list[str] = []
-        writer = self._persistent_progress_writer(self._optional_stream_writer(), state)
-        system = """
-        你是 Culina 的厨房助手。你刚收到一个 HumanInLoop 工具的返回结果，这个工具表示用户对你前面生成的确认表单做出了批准或拒绝。
-
-        请把这个工具结果当成普通工具调用结果继续对话：
-        1. 用自然、简短、可执行的话接着前文回复。
-        2. 如果用户批准并且操作成功，说明结果已按用户确认处理。
-        3. 如果用户拒绝，尊重这个决定，说明不会按这个草稿写入，并提示可以继续调整或重新整理。
-        4. 不要编造没有发生的写入、删除、修改；只依据输入里的 approval、draft、operation、business_entity。
-        5. 不要输出 JSON，不要重复表单内容。
-        """.strip()
-        timeline = build_planner_conversation(
-            self.db,
-            family_id=state["family_id"],
-            conversation_id=state["conversation_id"],
-            quick_task=state.get("quick_task"),
-        )
-        payload = {
-            "currentMessage": state.get("message") or "",
-            "terminalStatus": terminal_status,
-            "humanInLoopTool": {
-                "name": "approval.decision",
-                "result": decision_result,
-            },
-            "conversation": timeline,
-            "subject": state.get("subject") or {},
-        }
-        tracer = self._tracer_for_state(state)
-        followup_span = tracer.start_span(
-            "approval_followup",
-            "approval.decision.followup",
-            input_summary={
-                "terminalStatus": terminal_status,
-                "approvalId": approval.get("id"),
-                "decision": approval.get("decision") or approval.get("status"),
-            },
-        )
-        provider_kwargs: dict[str, Any] = {
-            "system": system,
-            "user": json.dumps(payload, ensure_ascii=False, default=str),
-        }
-        if "trace_recorder" in inspect.signature(self.provider.stream_generate).parameters:
-            provider_kwargs["trace_recorder"] = LLMExchangeRecorder(
-                db=self.db,
-                family_id=state["family_id"],
-                run_id=state["run_id"],
-                conversation_id=state["conversation_id"],
-                trace_id=tracer.trace_id,
-                user_id=state.get("user_id"),
-                span_id=followup_span.span_id,
-            )
-        try:
-            for chunk in self.provider.stream_generate(**provider_kwargs):
-                if self._cancel_requested(state["run_id"]):
-                    raise AIExecutionCancelled("AI run was cancelled")
-                if not chunk:
-                    continue
-                chunks.append(chunk)
-                if writer is not None:
-                    writer(
-                        {
-                            "event": "message_delta",
-                            "data": {
-                                "message_id": message.id,
-                                "conversation_id": state["conversation_id"],
-                                "run_id": state["run_id"],
-                                "part_id": part_id,
-                                "delta": chunk,
-                            },
-                        }
-                    )
-        except AIExecutionCancelled:
-            followup_span.finish(
-                status="failed",
-                error_code="cancelled",
-                error_message="AI run was cancelled",
-                exception_type="AIExecutionCancelled",
-            )
-            raise
-        except Exception as exc:
-            logger.warning(
-                "AI graph approval follow-up model failed run_id=%s conversation_id=%s family_id=%s duration_ms=%s error=%s",
-                state["run_id"],
-                state["conversation_id"],
-                state["family_id"],
-                _elapsed_ms(followup_started_at),
-                exc,
-            )
-            followup_span.finish(
-                status="failed",
-                error_code="provider_stream_failed",
-                error_message=str(exc),
-                exception_type=type(exc).__name__,
-                output_summary={"fallbackAppended": True},
-            )
-            self._append_approval_followup_fallback(
-                state,
-                message,
-                part_id=part_id,
-                decision_result=decision_result,
-                status=terminal_status,
-                writer=writer,
-                reason="provider_stream_failed",
-            )
-            return
-
-        text = "".join(chunks).strip()
-        if not text:
-            logger.warning(
-                "AI graph approval follow-up returned empty response run_id=%s conversation_id=%s family_id=%s duration_ms=%s",
-                state["run_id"],
-                state["conversation_id"],
-                state["family_id"],
-                _elapsed_ms(followup_started_at),
-            )
-            followup_span.finish(
-                status="failed",
-                output_summary={"textLength": 0, "fallbackAppended": True},
-                error_code="provider_empty_response",
-                error_message="empty model response",
-            )
-            self._append_approval_followup_fallback(
-                state,
-                message,
-                part_id=part_id,
-                decision_result=decision_result,
-                status=terminal_status,
-                writer=writer,
-                reason="provider_empty_response",
-            )
-            return
-        followup_span.finish(status="completed", output_summary={"textLength": len(text)})
-        logger.info(
-            "AI graph approval follow-up perf summary run_id=%s conversation_id=%s family_id=%s status=completed provider_stream_ms=%s text_length=%s",
-            state["run_id"],
-            state["conversation_id"],
-            state["family_id"],
-            _elapsed_ms(followup_started_at),
-            len(text),
-        )
-        self._append_text_to_assistant_message(
-            state,
-            message,
-            part_id=part_id,
-            text=text,
-            status=terminal_status,
-        )
-
-    def _append_approval_followup_fallback(
-        self,
-        state: WorkspaceGraphState,
-        message: AIMessage,
-        *,
-        part_id: str,
-        decision_result: dict[str, Any],
-        status: str,
-        writer: Any,
-        reason: str,
-    ) -> None:
-        text = self._approval_followup_fallback_text(decision_result, terminal_status=status)
-        logger.warning(
-            "AI graph approval follow-up fallback appended run_id=%s conversation_id=%s family_id=%s reason=%s text_length=%s",
-            state["run_id"],
-            state["conversation_id"],
-            state["family_id"],
-            reason,
-            len(text),
-        )
-        if writer is not None:
-            writer(
-                {
-                    "event": "message_delta",
-                    "data": {
-                        "message_id": message.id,
-                        "conversation_id": state["conversation_id"],
-                        "run_id": state["run_id"],
-                        "part_id": part_id,
-                        "delta": text,
-                    },
-                }
-            )
-        self._append_text_to_assistant_message(
-            state,
-            message,
-            part_id=part_id,
-            text=text,
-            status=status,
-        )
-
-    @staticmethod
-    def _approval_followup_fallback_text(decision_result: dict[str, Any], *, terminal_status: str) -> str:
-        approval = decision_result.get("approval") if isinstance(decision_result.get("approval"), dict) else {}
-        operation = decision_result.get("operation") if isinstance(decision_result.get("operation"), dict) else {}
-        decision = str(approval.get("decision") or approval.get("status") or "").lower()
-        operation_status = str(operation.get("status") or "").lower()
-        if terminal_status == "failed" or operation_status == "failed":
-            return "这次确认后的处理没有完成，请稍后重试。"
-        if decision == "rejected":
-            return "已取消这次草稿，不会写入正式数据。你可以继续调整后再让我整理。"
-        if operation_status == "succeeded":
-            action_summary = str(operation.get("action_summary") or operation.get("summary") or "").strip()
-            if action_summary:
-                return f"{action_summary} 你可以继续告诉我需要调整的内容。"
-            return "已按你的确认完成处理。你可以继续告诉我需要调整的内容。"
-        return "这次处理已结束。你可以继续告诉我需要调整的内容。"
-
     def _optional_stream_writer(self):
         try:
             return get_stream_writer()
         except Exception:
             return None
 
-    def _append_text_to_assistant_message(
-        self,
-        state: WorkspaceGraphState,
-        message: AIMessage,
-        *,
-        part_id: str,
-        text: str,
-        status: str,
-    ) -> None:
-        existing_parts = [part for part in (message.parts or []) if isinstance(part, dict)]
-        existing_parts = [part for part in existing_parts if str(part.get("id") or "") != part_id]
-        message.parts = [*existing_parts, {"id": part_id, "type": "text", "text": text}]
-        metadata = dict(message.message_metadata or {})
-        live_text_part_ids = [
-            str(item)
-            for item in metadata.get("liveTextPartIds", [])
-            if isinstance(item, str) and item != part_id
-        ]
-        if live_text_part_ids:
-            metadata["liveTextPartIds"] = live_text_part_ids
-        else:
-            metadata.pop("liveTextPartIds", None)
-            metadata.pop("livePartIds", None)
-            metadata.pop("liveStreaming", None)
-        message.message_metadata = metadata
-        text_parts = [
-            str(part.get("text") or "").strip()
-            for part in message.parts
-            if isinstance(part, dict) and part.get("type") == "text" and str(part.get("text") or "").strip()
-        ]
-        aggregate_text = "\n\n".join(text_parts)
-        message.content = aggregate_text
-        message.content_type = "parts"
-        message.status = status
-
-        run = self.db.get(AIAgentRun, state["run_id"])
-        conversation = self.db.get(AIConversation, state["conversation_id"])
-        all_cards = [
-            part["card"]
-            for part in message.parts
-            if isinstance(part, dict) and part.get("type") == "result_card" and isinstance(part.get("card"), dict)
-        ]
-        if run is not None:
-            run.status = status
-            run.model = getattr(self.provider, "model_name", "") or run.model
-            run.output_summary = aggregate_text[:255]
-            run.output = self._json_record(
-                {"text": aggregate_text, "cards": all_cards, "routing": (run.context_summary or {}).get("routing", {})}
-            )
-            run.error = state.get("error")
-        if conversation is not None:
-            conversation.response = aggregate_text
-            conversation.summary = aggregate_text[:255]
-            conversation.last_message_at = utcnow()
-            conversation.last_run_status = status
-            context = dict(conversation.context or {})
-            context.pop("activeRunId", None)
-            conversation.context = self._json_record(context)
-        self.db.flush()
-
-    @staticmethod
-    def _is_terminal_run_status(status: str | None) -> bool:
-        return str(status or "").lower() in {"completed", "failed", "cancelled"}
-
-    @staticmethod
-    def _clear_message_live_metadata(message: AIMessage) -> None:
-        metadata = dict(message.message_metadata or {})
-        metadata.pop("liveStreaming", None)
-        metadata.pop("livePartIds", None)
-        metadata.pop("liveTextPartIds", None)
-        message.message_metadata = metadata
-
-    def _terminal_message_text(self, message: AIMessage, *, status: str) -> str:
-        text = str(message.content or "").strip()
-        if text:
-            return text
-        text_parts = [
-            str(part.get("text") or "").strip()
-            for part in (message.parts or [])
-            if isinstance(part, dict) and part.get("type") == "text" and str(part.get("text") or "").strip()
-        ]
-        if text_parts:
-            return "\n\n".join(text_parts)
-        if status == "failed":
-            return "AI 工作台暂时失败，请重试。"
-        if status == "cancelled":
-            return "已中止这次处理。"
-        return "任务已完成。"
-
     def _finalize(self, state: WorkspaceGraphState) -> dict[str, Any]:
-        finalize_started_at = perf_counter()
-        run = self.db.get(AIAgentRun, state["run_id"])
-        conversation = self.db.get(AIConversation, state["conversation_id"])
-        status = str(state.get("status") or "completed")
-        if self._cancel_requested(state["run_id"]):
-            status = "cancelled"
-        if status == "running":
-            status = "completed"
-        logger.info(
-            "AI graph finalizing run_id=%s conversation_id=%s family_id=%s status=%s error=%s",
-            state["run_id"],
-            state["conversation_id"],
-            state["family_id"],
-            status,
-            state.get("error"),
-        )
-        message = self.db.scalar(
-            select(AIMessage)
-            .where(AIMessage.run_id == state["run_id"], AIMessage.role == "assistant")
-            .order_by(AIMessage.created_at.desc())
-        )
-        if message is None:
-            text = "AI 工作台暂时失败，请重试。" if status == "failed" else "任务已结束。"
-            message = AIMessage(
-                id=create_id("ai_message"),
-                family_id=state["family_id"],
-                conversation_id=state["conversation_id"],
-                role="assistant",
-                content=text,
-                content_type="parts",
-                parts=[{"id": create_id("ai_part"), "type": "text", "text": text}],
-                run_id=state["run_id"],
-                status=status,
-                message_metadata={"intent": run.intent if run is not None else "workspace_orchestrator", "agentKey": "workspace_orchestrator"},
-                created_by=state["user_id"],
-            )
-            self.db.add(message)
-        terminal_text = self._terminal_message_text(message, status=status)
-        if self._is_terminal_run_status(status):
-            self._clear_message_live_metadata(message)
-            if not str(message.content or "").strip():
-                logger.warning(
-                    "AI graph finalizing terminal run with empty assistant text run_id=%s conversation_id=%s family_id=%s status=%s fallback_text=%s",
-                    state["run_id"],
-                    state["conversation_id"],
-                    state["family_id"],
-                    status,
-                    terminal_text,
-                )
-                message.content = terminal_text
-                message.content_type = "parts"
-                parts = [part for part in (message.parts or []) if isinstance(part, dict)]
-                if not any(part.get("type") == "text" and str(part.get("text") or "").strip() for part in parts):
-                    message.parts = [*parts, {"id": create_id("ai_part"), "type": "text", "text": terminal_text}]
-                terminal_text = self._terminal_message_text(message, status=status)
-            message.status = status
-        if run is not None and run.status != "waiting_approval":
-            run.status = status
-            run.error = state.get("error")
-            if not run.output_summary:
-                run.output_summary = terminal_text[:255]
-                run.output = self._json_record({"text": terminal_text, "cards": [], "routing": (run.context_summary or {}).get("routing", {})})
-        if conversation is not None and conversation.last_run_status != "waiting_approval":
-            conversation.last_run_status = status
-            conversation.last_message_at = utcnow()
-            if self._is_terminal_run_status(status):
-                context = dict(conversation.context or {})
-                if context.pop("activeRunId", None) is not None:
-                    logger.warning(
-                        "AI graph finalized terminal run and cleared stale activeRunId run_id=%s conversation_id=%s family_id=%s status=%s",
-                        state["run_id"],
-                        state["conversation_id"],
-                        state["family_id"],
-                        status,
-                    )
-                conversation.context = self._json_record(context)
-            if not conversation.response:
-                conversation.response = terminal_text
-                conversation.summary = terminal_text[:255]
-        self.db.flush()
-        logger.info(
-            "AI graph finalized run_id=%s conversation_id=%s family_id=%s status=%s run_status=%s conversation_status=%s message_id=%s finalize_ms=%s",
-            state["run_id"],
-            state["conversation_id"],
-            state["family_id"],
-            status,
-            run.status if run is not None else None,
-            conversation.last_run_status if conversation is not None else None,
-            message.id,
-            _elapsed_ms(finalize_started_at),
-        )
-        logger.info(
-            "AI graph finalize perf summary run_id=%s conversation_id=%s family_id=%s status=%s finalize_ms=%s",
-            state["run_id"],
-            state["conversation_id"],
-            state["family_id"],
-            status,
-            _elapsed_ms(finalize_started_at),
-        )
-        return {"status": status}
+        return self.run_finalizer.finalize(state)
 
     def _route_after_orchestrator(self, state: WorkspaceGraphState) -> str:
-        if state.get("status") == "running":
+        if state.get("status") == RUNNING:
+            if int(state.get("agent_rounds") or 0) >= MAX_AGENT_ROUNDS:
+                return "finalize"
             return "orchestrator"
-        if state.get("status") == "waiting_approval":
+        if state.get("status") == WAITING_APPROVAL:
             return "approval_interrupt"
-        if state.get("status") == "waiting_input":
+        if state.get("status") == WAITING_INPUT:
             return "human_input_interrupt"
         return "finalize"
 
@@ -3427,7 +1351,7 @@ class WorkspaceGraphRunner:
                 .execution_options(populate_existing=True)
             )
         )
-        self._sync_message_parts_with_current_approval_state(message, drafts=drafts, approvals=approvals)
+        message.parts = sync_message_parts_with_current_approval_state(message.parts, drafts=drafts, approvals=approvals)
         self.db.flush()
         cards = [
             part["card"]
@@ -3592,56 +1516,6 @@ class WorkspaceGraphRunner:
 
     def _live_message_id(self, state: WorkspaceGraphState, data: dict[str, Any]) -> str:
         return str(data.get("message_id") or "").strip() or f"{state['run_id']}:assistant"
-
-    @staticmethod
-    def _dedupe_message_parts(parts: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        deduped: list[dict[str, Any]] = []
-        seen_ids: set[str] = set()
-        for part in parts:
-            if not isinstance(part, dict):
-                continue
-            part_id = str(part.get("id") or "").strip()
-            if part_id:
-                if part_id in seen_ids:
-                    continue
-                seen_ids.add(part_id)
-            deduped.append(part)
-        return deduped
-
-    @staticmethod
-    def _sync_message_parts_with_current_approval_state(
-        message: AIMessage,
-        *,
-        drafts: list[AITaskDraft],
-        approvals: list[AIApprovalRequest],
-    ) -> None:
-        if not message.parts:
-            return
-        drafts_by_id = {draft.id: jsonable_encoder(serialize_ai_task_draft(draft)) for draft in drafts}
-        approvals_by_id = {approval.id: jsonable_encoder(serialize_ai_approval_request(approval)) for approval in approvals}
-        next_parts: list[dict[str, Any]] = []
-        changed = False
-        for part in message.parts:
-            if not isinstance(part, dict):
-                next_parts.append(part)
-                continue
-            if part.get("type") == "draft":
-                draft_id = str((part.get("draft") or {}).get("id") or "")
-                current = drafts_by_id.get(draft_id)
-                if current is not None and part.get("draft") != current:
-                    next_parts.append({**part, "draft": current})
-                    changed = True
-                    continue
-            if part.get("type") == "approval_request":
-                approval_id = str((part.get("approval") or {}).get("id") or "")
-                current = approvals_by_id.get(approval_id)
-                if current is not None and part.get("approval") != current:
-                    next_parts.append({**part, "approval": current})
-                    changed = True
-                    continue
-            next_parts.append(part)
-        if changed:
-            message.parts = next_parts
 
     def _base_assistant_parts_from_live_stream(
         self,

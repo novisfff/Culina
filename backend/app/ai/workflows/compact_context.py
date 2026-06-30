@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from app.ai.skills.base import SkillResult
+from app.services.ai_operations.registry import draft_operation_registry
 
 MAX_PREVIEW_ITEMS = 5
 MAX_TEXT_LENGTH = 180
@@ -14,28 +15,39 @@ COMPACT_METADATA_EXCLUDE_KEYS = {
     "progressiveDraftIds",
     "progressiveApprovalIds",
 }
-DRAFT_TYPES = {
-    "recipe",
-    "ingredient_profile",
-    "shopping_list",
-    "meal_plan",
-    "meal_log",
-    "food_profile",
-    "recipe_cook",
-    "inventory_operation",
-    "composite_operation",
-}
+DRAFT_TYPES = set(draft_operation_registry.keys())
+DRAFT_CONTEXT_ARTIFACT_TYPES = {"approval_decision", "draft_after_approval", "resume_after_approval"}
 
 
-def compact_conversation(conversation: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    return [_compact_message(item) for item in conversation if isinstance(item, dict)]
+def compact_conversation(
+    conversation: list[dict[str, Any]],
+    *,
+    include_draft_artifacts: bool = True,
+) -> list[dict[str, Any]]:
+    return [
+        _compact_message(item, include_draft_artifacts=include_draft_artifacts)
+        for item in conversation
+        if isinstance(item, dict)
+    ]
 
 
-def compact_artifacts(artifacts: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    return [_compact_artifact(item) for item in artifacts if isinstance(item, dict)]
+def compact_artifacts(
+    artifacts: list[dict[str, Any]],
+    *,
+    include_draft_artifacts: bool = True,
+) -> list[dict[str, Any]]:
+    return [
+        _compact_artifact(item)
+        for item in artifacts
+        if isinstance(item, dict) and (include_draft_artifacts or not is_draft_context_artifact(item))
+    ]
 
 
-def compact_previous_results(results: list[SkillResult]) -> list[dict[str, Any]]:
+def compact_previous_results(
+    results: list[SkillResult],
+    *,
+    include_draft_artifacts: bool = True,
+) -> list[dict[str, Any]]:
     compacted: list[dict[str, Any]] = []
     for result in results:
         draft_artifacts = [
@@ -54,7 +66,7 @@ def compact_previous_results(results: list[SkillResult]) -> list[dict[str, Any]]
             )
             for index, draft in enumerate(result.drafts, start=1)
             if isinstance(draft, dict)
-        ]
+        ] if include_draft_artifacts else []
         card_artifacts = [
             _compact_artifact(
                 {
@@ -83,7 +95,19 @@ def compact_previous_results(results: list[SkillResult]) -> list[dict[str, Any]]
     return compacted
 
 
-def _compact_message(message: dict[str, Any]) -> dict[str, Any]:
+def is_draft_context_artifact(artifact: dict[str, Any]) -> bool:
+    artifact_type = str(artifact.get("type") or "")
+    kind = str(artifact.get("kind") or "")
+    payload = artifact.get("payload") if isinstance(artifact.get("payload"), dict) else {}
+    return bool(
+        kind == "draft"
+        or artifact_type in DRAFT_TYPES
+        or artifact_type in DRAFT_CONTEXT_ARTIFACT_TYPES
+        or payload.get("draftType")
+    )
+
+
+def _compact_message(message: dict[str, Any], *, include_draft_artifacts: bool = True) -> dict[str, Any]:
     compact: dict[str, Any] = {
         "id": message.get("id"),
         "role": message.get("role"),
@@ -105,7 +129,7 @@ def _compact_message(message: dict[str, Any]) -> dict[str, Any]:
         compact["metadata"] = metadata
     artifacts = message.get("artifacts")
     if isinstance(artifacts, list):
-        compact["artifacts"] = compact_artifacts(artifacts)
+        compact["artifacts"] = compact_artifacts(artifacts, include_draft_artifacts=include_draft_artifacts)
     return compact
 
 
@@ -279,53 +303,16 @@ def _compact_human_input_payload(payload: dict[str, Any]) -> dict[str, Any]:
 
 def _payload_summary(artifact_type: str, payload: dict[str, Any]) -> str:
     draft_type = str(payload.get("draftType") or payload.get("draft_type") or artifact_type or "")
+    if draft_type:
+        try:
+            return draft_operation_registry.preview_summary(draft_type, payload)
+        except (KeyError, TypeError, ValueError):
+            pass
     if payload.get("action"):
         action = str(payload.get("action") or "")
         target = _payload_label(_as_dict(payload.get("payload"))) or _payload_label(_as_dict(payload.get("before"))) or str(payload.get("targetId") or "")
         return " · ".join(item for item in [action, target] if item)
-    if draft_type == "recipe":
-        return _recipe_summary(payload)
-    if draft_type == "recipe_cook":
-        suffix = " · 库存不足" if isinstance(payload.get("shortages"), list) and payload["shortages"] else ""
-        return f"做菜 · {_payload_label(payload) or '菜谱'}{suffix}"
-    if draft_type == "meal_plan":
-        return _count_summary(payload, item_key="items", operation_key="operations", noun="餐食计划")
-    if draft_type == "shopping_list":
-        return _count_summary(payload, item_key="items", operation_key="operations", noun="购物项")
-    if draft_type == "meal_log":
-        return _payload_label(payload) or _count_summary(payload, item_key="foods", operation_key="operations", noun="餐食记录")
-    if draft_type in {"food_profile", "ingredient_profile"}:
-        return _payload_label(payload) or _payload_label(_as_dict(payload.get("payload"))) or draft_type
-    if draft_type == "inventory_operation":
-        return _count_summary(payload, item_key="operations", operation_key="operations", noun="库存处理")
-    if draft_type == "composite_operation":
-        return _count_summary(payload, item_key="steps", operation_key="steps", noun="复合步骤")
     return _payload_label(payload) or artifact_type
-
-
-def _recipe_summary(payload: dict[str, Any]) -> str:
-    recipe_payload = _as_dict(payload.get("payload")) if payload.get("action") else payload
-    title = _payload_label(recipe_payload) or "未命名菜谱"
-    ingredient_count = len(recipe_payload.get("ingredient_items") or recipe_payload.get("ingredients") or [])
-    step_count = len(recipe_payload.get("steps") or [])
-    parts = [title]
-    if recipe_payload.get("servings"):
-        parts.append(f"{recipe_payload.get('servings')} 份")
-    if ingredient_count:
-        parts.append(f"{ingredient_count} 个食材")
-    if step_count:
-        parts.append(f"{step_count} 个步骤")
-    return " · ".join(parts)
-
-
-def _count_summary(payload: dict[str, Any], *, item_key: str, operation_key: str, noun: str) -> str:
-    operations = payload.get(operation_key)
-    if isinstance(operations, list) and operations:
-        return f"{len(operations)} 个{noun}操作"
-    items = payload.get(item_key)
-    if isinstance(items, list):
-        return f"{len(items)} 个{noun}"
-    return noun
 
 
 def _payload_counts(payload: dict[str, Any]) -> dict[str, int]:
