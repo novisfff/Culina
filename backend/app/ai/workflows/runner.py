@@ -35,6 +35,7 @@ from app.ai.workflows.conversations import (
 from app.ai.workflows.live_stream_cache import live_ai_stream_cache
 from app.ai.workflows.result_cards import validate_result_cards
 from app.ai.workflows.orchestrator import WorkspaceOrchestratorAgent
+from app.ai.workflows.orchestrator_profiles import resolve_orchestrator_profile
 from app.ai.workflows.state import WorkspaceGraphState
 from app.ai.workflows.timeline import build_planner_conversation
 from app.core.utils import create_id, utcnow
@@ -123,6 +124,10 @@ class WorkspaceGraphRunner:
             return self._chat_response(prepared["conversation_id"], prepared["run_id"])
         conversation_id = prepared["conversation_id"]
         config = self._config(conversation_id)
+        orchestrator_profile = resolve_orchestrator_profile(
+            quick_task=quick_task,
+            subject=prepared["subject"],
+        )
         logger.info(
             "AI graph invoke started family_id=%s user_id=%s conversation_id=%s client_run_id=%s quick_task=%s message_length=%s",
             family_id,
@@ -143,8 +148,9 @@ class WorkspaceGraphRunner:
                 "client_run_id": client_run_id,
                 "quick_task": quick_task,
                 "subject": prepared["subject"],
+                "orchestrator_profile": orchestrator_profile.to_state(),
                 "run_artifacts": [],
-                "injected_skill_keys": [],
+                "injected_skill_keys": list(orchestrator_profile.initial_skill_keys),
                 "injection_history": [],
                 "agent_rounds": 0,
                 "pending_human_input": {},
@@ -247,6 +253,10 @@ class WorkspaceGraphRunner:
         conversation_id = str(prepared["conversation_id"])
         config = self._config(conversation_id)
         run_id = str(prepared["run_id"])
+        orchestrator_profile = resolve_orchestrator_profile(
+            quick_task=quick_task,
+            subject=prepared["subject"],
+        )
         seen_event_ids: set[str] = set()
         logger.info(
             "AI graph stream started family_id=%s user_id=%s conversation_id=%s client_run_id=%s quick_task=%s message_length=%s",
@@ -270,8 +280,9 @@ class WorkspaceGraphRunner:
                         "client_run_id": client_run_id,
                         "quick_task": quick_task,
                         "subject": prepared["subject"],
+                        "orchestrator_profile": orchestrator_profile.to_state(),
                         "run_artifacts": [],
-                        "injected_skill_keys": [],
+                        "injected_skill_keys": list(orchestrator_profile.initial_skill_keys),
                         "injection_history": [],
                         "agent_rounds": 0,
                         "pending_human_input": {},
@@ -1503,6 +1514,7 @@ class WorkspaceGraphRunner:
                     conversation=timeline,
                     current_message=state["message"],
                     subject=state.get("subject") or {},
+                    orchestrator_profile=state.get("orchestrator_profile") or {},
                     current_message_attachments=current_message_attachments,
                     current_message_images=current_message_images,
                     quick_task=state.get("quick_task"),

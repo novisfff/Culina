@@ -13,6 +13,7 @@ class WorkspaceGraphState(TypedDict, total=False):
     client_run_id: str | None
     quick_task: str | None
     subject: dict[str, Any]
+    orchestrator_profile: dict[str, Any]
     run_id: str
     user_message_id: str
     run_artifacts: list[dict[str, Any]]

@@ -26,6 +26,7 @@ type AiChatPayload = {
   quick_task?: string;
   subject?: Record<string, unknown>;
   attachments?: AiChatAttachment[];
+  persist_history?: boolean;
 };
 type AiChatStreamHandlers = {
   signal?: AbortSignal;

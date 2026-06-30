@@ -4,6 +4,7 @@ import type {
   AiInventoryResultItem,
   AiResultCard,
   AiTodayRecommendationItem,
+  AiUiActionsCardData,
   MediaAsset,
 } from '../../api/types';
 import { buildMediaSizes, buildMediaSrcSet, resolveMediaUrl } from '../../lib/assets';
@@ -298,6 +299,28 @@ function OperationResultCard({ card }: { card: AiResultCard }) {
   );
 }
 
+function UiActionsCard({ card }: { card: AiResultCard }) {
+  const data = card.data as Partial<AiUiActionsCardData>;
+  const actions = Array.isArray(data.actions) ? data.actions : [];
+  return (
+    <article className="ai-result-card ai-query-result-card ai-ui-actions-card">
+      <header className="ai-query-card-head">
+        <div className="ai-query-card-head-main">
+          <span className="ai-query-card-eyebrow">页面助手</span>
+          <h3>{card.title}</h3>
+        </div>
+        <div className="ai-query-card-context-badges">
+          <span className="ai-query-context-badge">
+            动作 <strong>{actions.length}</strong>
+          </span>
+        </div>
+      </header>
+      <p className="ai-query-reason">页面动作需要在对应页面中执行。</p>
+      <p className="subtle">请回到对应做菜页面执行这些操作。</p>
+    </article>
+  );
+}
+
 export function ResultCard({
   card,
   onAddToPlan,
@@ -321,6 +344,7 @@ export function ResultCard({
   if (card.type === 'today_recommendation') return <RecommendationCard card={card} onAddToPlan={onAddToPlan} />;
   if ((card.type as string) === 'clarification_request') return <ClarificationCard card={card} />;
   if (card.type === 'operation_result') return <OperationResultCard card={card} />;
+  if (card.type === 'ui_actions') return <UiActionsCard card={card} />;
 
   if (card.type === 'recipe_draft') {
     const draft = card.data.draft as AiGeneratedRecipeDraft | undefined;

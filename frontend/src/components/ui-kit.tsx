@@ -305,7 +305,7 @@ function WorkspaceOverlayShell(props: {
   function handleDragStart(event: ReactPointerEvent<HTMLDivElement>) {
     const panel = panelRef.current;
     const root = panel?.closest(
-      '.home-dashboard-overlay-root, .food-workspace-overlay-root, .ingredient-workspace-overlay-root, .family-settings-overlay-root, .meal-log-overlay-root'
+      '.home-dashboard-overlay-root, .food-workspace-overlay-root, .recipe-workspace-overlay-root, .ingredient-workspace-overlay-root, .family-settings-overlay-root, .meal-log-overlay-root'
     );
     if (!panel || !root || !window.matchMedia('(max-width: 767px)').matches) {
       return;
@@ -835,14 +835,14 @@ export function ImageComposer(props: {
           onClick={() => props.onGenerate(hasReference ? 'reference' : 'text')}
           disabled={props.isGenerating}
         >
-          <svg viewBox="0 0 24 24" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
             <path d="M12 3.8 14 9l5.2 2-5.2 2-2 5.2-2-5.2-5.2-2 5.2-2L12 3.8Z" />
           </svg>
           {props.isGenerating ? '正在生成...' : generateLabel}
         </button>
         {(hasReference || hasGenerated) && (
           <button className="ghost-button" type="button" onClick={props.onReset} disabled={props.isGenerating}>
-            <svg viewBox="0 0 24 24" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
               <path d="M5.1 8.5A7.2 7.2 0 1 1 4.8 16" />
               <path d="M5 4.8v3.7h3.7" />
             </svg>

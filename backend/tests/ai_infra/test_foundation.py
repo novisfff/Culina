@@ -706,6 +706,69 @@ class AIFoundationTestCase(AIAgentInfraTestCase):
             self.assertEqual(result.tool_calls, [{"id": "call-read-items", "name": "inventory.read_available_items", "args": {"limit": 50}}])
             self.assertEqual(stream_client.stream.call_count, 5)
 
+        def test_openai_compatible_provider_completes_after_terminal_card_tool_output(self) -> None:
+            class ToolCallChunk:
+                content = ""
+                tool_calls = [
+                    {
+                        "id": "call-ui-actions",
+                        "name": "ui_propose_actions",
+                        "args": {
+                            "surface": "recipe_cook_page",
+                            "recipeId": "recipe-1",
+                            "cookSessionId": "cook-session-1",
+                            "sessionRevision": 1,
+                            "actions": [{"type": "set_timer", "seconds": 180, "name": "倒计时"}],
+                        },
+                    }
+                ]
+                tool_call_chunks: list[dict[str, Any]] = []
+
+                def __add__(self, other):
+                    return other
+
+            provider = OpenAICompatibleChatProvider.__new__(OpenAICompatibleChatProvider)
+            provider.model_name = "compatible-model"
+            stream_client = MagicMock()
+            tool_client = MagicMock()
+            tool_client.bind.return_value = stream_client
+            provider.client = MagicMock()
+            provider.client.bind_tools.return_value = tool_client
+            stream_client.stream.side_effect = [[ToolCallChunk()]]
+            tool = build_workspace_tool_registry().get("ui.propose_actions")
+
+            def tool_handler(name: str, payload: dict[str, Any]) -> dict[str, Any]:
+                self.assertEqual(name, "ui.propose_actions")
+                self.assertEqual(payload["actions"][0]["seconds"], 180)
+                return {
+                    "card": {
+                        "id": "ai-card-ui-actions",
+                        "type": "ui_actions",
+                        "title": "页面操作建议",
+                        "data": {
+                            "surface": "recipe_cook_page",
+                            "recipeId": "recipe-1",
+                            "cookSessionId": "cook-session-1",
+                            "sessionRevision": 1,
+                            "actions": payload["actions"],
+                            "requiresConfirmation": False,
+                        },
+                    }
+                }
+
+            result = provider.generate_with_tools(
+                system="s",
+                user="u",
+                tools=lambda: [tool],
+                tool_handler=tool_handler,
+            )
+
+            self.assertEqual(result.status, "completed")
+            self.assertIsNone(result.error)
+            self.assertEqual(result.text, None)
+            self.assertEqual(result.tool_calls, [{"id": "call-ui-actions", "name": "ui.propose_actions", "args": ToolCallChunk.tool_calls[0]["args"]}])
+            self.assertEqual(stream_client.stream.call_count, 1)
+
         def test_orchestrator_injects_multiple_skills_and_exposes_union_tools(self) -> None:
             class InjectingProvider(BaseChatProvider):
                 model_name = "orchestrator-test-model"
@@ -864,8 +927,27 @@ class AIFoundationTestCase(AIAgentInfraTestCase):
                 provider=DisabledChatProvider(model_name="unused"),
                 skill_registry=build_workspace_skill_registry(),
             )
+            context = SkillContext(
+                db=MagicMock(),
+                family_id=self.family.id,
+                user_id=self.user.id,
+                conversation_id="conversation-prompt",
+                run_id="run-prompt",
+                conversation=[],
+                current_message="",
+                tool_executor=ToolExecutor(
+                    build_workspace_tool_registry(),
+                    ToolContext(
+                        db=MagicMock(),
+                        family_id=self.family.id,
+                        user_id=self.user.id,
+                        conversation_id="conversation-prompt",
+                        run_id="run-prompt",
+                    ),
+                ),
+            )
 
-            prompt = agent._system_prompt([])
+            prompt = agent._system_prompt(context, [])
 
             self.assertIn("skill.yaml:key", prompt)
             self.assertIn("必须写 inventory_analysis", prompt)
@@ -879,8 +961,27 @@ class AIFoundationTestCase(AIAgentInfraTestCase):
                 provider=DisabledChatProvider(model_name="unused"),
                 skill_registry=build_workspace_skill_registry(),
             )
+            context = SkillContext(
+                db=MagicMock(),
+                family_id=self.family.id,
+                user_id=self.user.id,
+                conversation_id="conversation-markdown-prompt",
+                run_id="run-markdown-prompt",
+                conversation=[],
+                current_message="",
+                tool_executor=ToolExecutor(
+                    build_workspace_tool_registry(),
+                    ToolContext(
+                        db=MagicMock(),
+                        family_id=self.family.id,
+                        user_id=self.user.id,
+                        conversation_id="conversation-markdown-prompt",
+                        run_id="run-markdown-prompt",
+                    ),
+                ),
+            )
 
-            prompt = agent._system_prompt([])
+            prompt = agent._system_prompt(context, [])
 
             self.assertIn("适合 Markdown 渲染的轻量结构", prompt)
             self.assertIn("短段落、空行、- 列表、编号步骤和 **关键词**", prompt)

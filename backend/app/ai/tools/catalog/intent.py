@@ -8,6 +8,7 @@ from app.ai.tools.registry import ToolRegistry
 
 
 SKILL_INJECT_SKILL_KEYS = [
+    "cooking_assistant",
     "food_profile",
     "ingredient_profile",
     "inventory_analysis",

@@ -192,6 +192,11 @@ export function HomeDashboard(props: HomeDashboardProps) {
   } = props;
   const [quickMealDialog, setQuickMealDialog] = useState<HomeQuickMealDialogState | null>(null);
   const [detailFood, setDetailFood] = useState<Food | null>(null);
+  const [morePlansPopover, setMorePlansPopover] = useState<{
+    date: string;
+    mealType: MealType;
+    items: FoodPlanItem[];
+  } | null>(null);
 
   function openDetail(food: Food) {
     setDetailFood(food);
@@ -281,6 +286,9 @@ export function HomeDashboard(props: HomeDashboardProps) {
             onHomeRestockOpen={openHomeRestock}
             onDashboardTodoClick={handleDashboardTodoClick}
             onOpenDetail={openDetail}
+            onShowMorePlans={(date, mealType, items) => {
+              setMorePlansPopover({ date, mealType, items });
+            }}
           />
 
           {quickMealDialog && (() => {
@@ -428,6 +436,42 @@ export function HomeDashboard(props: HomeDashboardProps) {
               />
             );
           })()}
+
+          {morePlansPopover && (
+            <div className="workspace-overlay-root home-dashboard-overlay-root">
+              <div className="workspace-overlay-backdrop" onClick={() => setMorePlansPopover(null)} />
+              <WorkspaceModal
+                title={`${formatDate(morePlansPopover.date)} · ${MEAL_TYPE_LABELS[morePlansPopover.mealType]}计划`}
+                description={`共 ${morePlansPopover.items.length} 项计划`}
+                eyebrow="餐食清单"
+                className="home-more-plans-modal"
+                onClose={() => setMorePlansPopover(null)}
+              >
+                <div className="home-more-plans-grid">
+                  {morePlansPopover.items.map((item) => {
+                    const planFood = foods.find((food) => food.id === item.food_id);
+                    const planCoverUrl = resolveAssetUrl(planFood ? getFoodCover(planFood, recipes) : undefined);
+                    const planTitle = item.recipe_title || item.food_name || planFood?.name || '未命名食物';
+                    return (
+                      <button
+                        key={item.id}
+                        className={item.status === 'cooked' ? 'dashboard-plan-dish is-cooked' : 'dashboard-plan-dish'}
+                        type="button"
+                        onClick={() => {
+                          openHomePlanDetail(item);
+                          setMorePlansPopover(null);
+                        }}
+                        title={planTitle}
+                      >
+                        <MediaWithPlaceholder src={planCoverUrl} alt="" />
+                        <span>{planTitle}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </WorkspaceModal>
+            </div>
+          )}
 
           <main className="dashboard-page">
             <PageHeader
@@ -788,7 +832,20 @@ export function HomeDashboard(props: HomeDashboardProps) {
                                           );
                                         })()
                                       ))}
-                                      {meal.items.length > 4 && <span className="dashboard-plan-dish is-more">+{meal.items.length - 4}</span>}
+                                      {meal.items.length > 4 && (
+                                        <button
+                                          className="dashboard-plan-dish is-more"
+                                          type="button"
+                                          onClick={() => setMorePlansPopover({
+                                            date: selectedDashboardPlanDay.date,
+                                            mealType: meal.mealType,
+                                            items: meal.items
+                                          })}
+                                          title="查看更多计划"
+                                        >
+                                          +{meal.items.length - 4}
+                                        </button>
+                                      )}
                                     </span>
                                   ) : (
                                     <>

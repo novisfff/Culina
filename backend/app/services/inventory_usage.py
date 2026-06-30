@@ -151,6 +151,7 @@ def build_cook_inventory_plan(
     servings: float,
     today: date,
     inventory_by_ingredient: dict[str, list[InventoryItem]] | None = None,
+    allow_partial_deduction: bool = False,
 ) -> tuple[list[CookInventoryPlanItem], list[dict]]:
     scale = Decimal(str(servings)) / Decimal(str(recipe.servings or 1))
     consumption_plan: list[CookInventoryPlanItem] = []
@@ -262,9 +263,14 @@ def build_cook_inventory_plan(
                     unit=ingredient_item.unit,
                 ).as_dict()
             )
-            continue
+            if not allow_partial_deduction or available_in_default <= 0:
+                continue
+            remaining_to_consume = available_in_default
+            deduction_note = "库存不足，已扣减现有库存，缺少部分仅记录提醒"
+        else:
+            remaining_to_consume = requested_in_default
+            deduction_note = None
 
-        remaining_to_consume = requested_in_default
         deductions: list[InventoryDeduction] = []
         for item in available_items:
             if remaining_to_consume <= 0:
@@ -288,6 +294,7 @@ def build_cook_inventory_plan(
                 requested_quantity=requested_quantity,
                 requested_in_default=requested_in_default,
                 quantity_tracking_mode=IngredientQuantityTrackingMode.TRACK_QUANTITY.value,
+                deduction_note=deduction_note,
                 deductions=deductions,
             )
         )

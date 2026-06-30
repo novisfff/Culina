@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { AiApprovalRequest, AiGeneratedRecipeDraft, Difficulty, Food, Ingredient } from '../../api/types';
 import { FoodRatingInput } from '../foods/FoodWorkspacePrimitives';
-import { resolveAssetUrl } from '../../lib/assets';
+import { resolveMediaUrl } from '../../lib/assets';
 import { RECIPE_STEP_ICON_OPTIONS } from '../recipes/RecipeWorkspaceOptions';
 import { INVENTORY_STORAGE_PRESETS, buildUnitPresetOptions } from '../ingredients/ingredientWorkspaceForms';
 import { getIngredientEditorCategoryPresets } from '../ingredients/workspaceModel';
@@ -76,6 +76,7 @@ const SHOPPING_DONE_OPTIONS = [
 ];
 const FOOD_CATEGORY_PRESETS = ['主食', '饮品', '早餐', '便当', '零食', '甜品', '汤粥', '小吃', '外卖', '速食'];
 const FOOD_FLAVOR_PRESETS = ['清淡', '酸甜', '香辣', '咸鲜', '奶香', '酥脆', '软糯', '孩子喜欢'];
+const AI_RESOURCE_IMAGE_FALLBACK = '/assets/ai-food-ingredient-placeholder.png';
 
 function cloneRecipeDraft(value: AiGeneratedRecipeDraft): AiGeneratedRecipeDraft {
   return JSON.parse(JSON.stringify(value)) as AiGeneratedRecipeDraft;
@@ -318,9 +319,29 @@ function validateRecipeOperationDraftForSubmit(draft: Record<string, unknown>) {
 }
 
 function validateIngredientProfileDraftForSubmit(draft: Record<string, unknown>) {
+  const operations = asDraftArray(draft.operations);
+  if (operations.length > 0) {
+    if (operations.length < 2) return '批量创建食材至少需要 2 项';
+    if (operations.length > 5) return '批量创建食材一次不能超过 5 项';
+    for (const [index, operation] of operations.entries()) {
+      if (asText(operation.action) !== 'create') {
+        return `第 ${index + 1} 个食材只能使用新增操作`;
+      }
+      const payload = typeof operation.payload === 'object' && operation.payload !== null && !Array.isArray(operation.payload)
+        ? operation.payload as Record<string, unknown>
+        : {};
+      const error = validateIngredientProfilePayloadForSubmit(payload);
+      if (error) return `第 ${index + 1} 个食材：${error}`;
+    }
+    return '';
+  }
   const payload = typeof draft.payload === 'object' && draft.payload !== null && !Array.isArray(draft.payload)
     ? draft.payload as Record<string, unknown>
     : draft;
+  return validateIngredientProfilePayloadForSubmit(payload);
+}
+
+function validateIngredientProfilePayloadForSubmit(payload: Record<string, unknown>) {
   if (!asText(payload.name).trim()) {
     return '食材名称不能为空';
   }
@@ -1030,13 +1051,13 @@ export function ApprovalPanel({
     id: food.id,
     label: food.name,
     description: [food.category, foodTypeText(food.type)].filter(Boolean).join(' · '),
-    imageUrl: resolveAssetUrl(food.images?.[0]?.url),
+    imageUrl: resolveMediaUrl(food.images?.[0], 'thumb') ?? AI_RESOURCE_IMAGE_FALLBACK,
   })), [foods]);
   const staticIngredientOptions = useMemo<AiResourceOption[]>(() => ingredients.map((ingredient) => ({
     id: ingredient.id,
     label: ingredient.name,
     description: [ingredient.category, ingredient.default_unit].filter(Boolean).join(' · '),
-    imageUrl: resolveAssetUrl(ingredient.image?.url),
+    imageUrl: resolveMediaUrl(ingredient.image, 'thumb') ?? AI_RESOURCE_IMAGE_FALLBACK,
     unit: ingredient.default_unit,
   })), [ingredients]);
   const foodOptions = useMemo(
@@ -2759,6 +2780,271 @@ export function ApprovalPanel({
     }
     if (draftType === 'ingredient_profile') {
       const action = asText(structuredDraft.action, 'create');
+      const operations = asDraftArray(structuredDraft.operations);
+      if (operations.length > 0) {
+        const updateBatchPayload = (index: number, patch: Record<string, unknown>) => {
+          setStructuredDraft((current) => ({
+            ...current,
+            operations: asDraftArray(current.operations).map((item, itemIndex) => {
+              if (itemIndex !== index) return item;
+              const itemPayload = typeof item.payload === 'object' && item.payload !== null && !Array.isArray(item.payload)
+                ? item.payload as Record<string, unknown>
+                : {};
+              return { ...item, payload: { ...itemPayload, ...patch } };
+            }),
+          }));
+        };
+        const updateBatchUnitConversion = (operationIndex: number, conversionIndex: number, patch: Record<string, unknown>) => {
+          setStructuredDraft((current) => ({
+            ...current,
+            operations: asDraftArray(current.operations).map((item, itemIndex) => {
+              if (itemIndex !== operationIndex) return item;
+              const itemPayload = typeof item.payload === 'object' && item.payload !== null && !Array.isArray(item.payload)
+                ? item.payload as Record<string, unknown>
+                : {};
+              const conversions = asDraftArray(itemPayload.unit_conversions);
+              return {
+                ...item,
+                payload: {
+                  ...itemPayload,
+                  unit_conversions: conversions.map((conversion, index) => (index === conversionIndex ? { ...conversion, ...patch } : conversion)),
+                },
+              };
+            }),
+          }));
+        };
+        const addBatchUnitConversion = (operationIndex: number) => {
+          setStructuredDraft((current) => ({
+            ...current,
+            operations: asDraftArray(current.operations).map((item, itemIndex) => {
+              if (itemIndex !== operationIndex) return item;
+              const itemPayload = typeof item.payload === 'object' && item.payload !== null && !Array.isArray(item.payload)
+                ? item.payload as Record<string, unknown>
+                : {};
+              return {
+                ...item,
+                payload: {
+                  ...itemPayload,
+                  unit_conversions: [...asDraftArray(itemPayload.unit_conversions), { unit: '', ratio_to_default: 1 }],
+                },
+              };
+            }),
+          }));
+        };
+        const removeBatchUnitConversion = (operationIndex: number, conversionIndex: number) => {
+          setStructuredDraft((current) => ({
+            ...current,
+            operations: asDraftArray(current.operations).map((item, itemIndex) => {
+              if (itemIndex !== operationIndex) return item;
+              const itemPayload = typeof item.payload === 'object' && item.payload !== null && !Array.isArray(item.payload)
+                ? item.payload as Record<string, unknown>
+                : {};
+              return {
+                ...item,
+                payload: {
+                  ...itemPayload,
+                  unit_conversions: asDraftArray(itemPayload.unit_conversions).filter((_, index) => index !== conversionIndex),
+                },
+              };
+            }),
+          }));
+        };
+        if (currentApproval.status !== 'pending') {
+          const resolvedTitle = currentApproval.status === 'approved'
+            ? `已创建 ${operations.length} 个食材档案`
+            : currentApproval.status === 'rejected'
+              ? '未写入的批量食材草稿'
+              : '已过期的批量食材草稿';
+          return (
+            <div className="ai-recipe-editor ai-confirmation-editor ai-ingredient-profile-draft-editor">
+              <section className="ai-confirmation-item ai-ingredient-profile-summary-card" aria-label="批量食材档案摘要">
+                <div className="ai-ingredient-profile-summary-head">
+                  <div>
+                    <strong>{resolvedTitle}</strong>
+                    <span>{operations.map((item) => {
+                      const itemPayload = typeof item.payload === 'object' && item.payload !== null && !Array.isArray(item.payload)
+                        ? item.payload as Record<string, unknown>
+                        : {};
+                      return asText(itemPayload.name);
+                    }).filter(Boolean).join('、') || '食材档案'}</span>
+                  </div>
+                  <em>批量新增</em>
+                </div>
+              </section>
+            </div>
+          );
+        }
+        return (
+          <div className="ai-recipe-editor ai-confirmation-editor ai-ingredient-profile-draft-editor">
+            <div className="ai-draft-editor-head">
+              <div>
+                <strong>批量创建食材档案</strong>
+                <span>一次确认创建 {operations.length} 个食材，不会登记库存数量。</span>
+              </div>
+            </div>
+            {operations.map((operation, operationIndex) => {
+              const itemPayload = typeof operation.payload === 'object' && operation.payload !== null && !Array.isArray(operation.payload)
+                ? operation.payload as Record<string, unknown>
+                : {};
+              const itemDefaultUnit = asText(itemPayload.default_unit);
+              const itemExpiryMode = asText(itemPayload.default_expiry_mode, 'none');
+              const itemUnitConversions = asDraftArray(itemPayload.unit_conversions);
+              const itemUnitOptions = buildUnitPresetOptions(itemDefaultUnit).map((unit) => ({ value: unit, label: unit }));
+              return (
+                <div className="ai-confirmation-item" key={asText(operation.operationId) || operationIndex}>
+                  <section className="ai-ingredient-profile-section">
+                    <div className="ai-ingredient-profile-section-head">
+                      <strong>食材 {operationIndex + 1}</strong>
+                      <span>{asText(itemPayload.name) || '待填写名称'}</span>
+                    </div>
+                    <div className="ai-confirmation-grid">
+                      <label className="ai-resource-field">
+                        <span>食材名称</span>
+                        <input className="text-input" value={asText(itemPayload.name)} disabled={readonly} onChange={(event) => updateBatchPayload(operationIndex, { name: event.target.value })} />
+                      </label>
+                      <ApprovalComboboxField
+                        label="分类"
+                        value={asText(itemPayload.category)}
+                        disabled={readonly}
+                        options={INGREDIENT_CATEGORY_OPTIONS}
+                        placeholder="选择分类或自定义"
+                        icon="type"
+                        onChange={(category) => updateBatchPayload(operationIndex, { category })}
+                      />
+                      <ApprovalComboboxField
+                        label="默认单位"
+                        value={itemDefaultUnit}
+                        disabled={readonly}
+                        options={itemUnitOptions}
+                        placeholder="选择单位或自定义"
+                        icon="step"
+                        onChange={(defaultUnit) => updateBatchPayload(operationIndex, { default_unit: defaultUnit })}
+                      />
+                    </div>
+                  </section>
+                  <section className="ai-ingredient-profile-section">
+                    <div className="ai-confirmation-grid ai-confirmation-grid-three">
+                      <ApprovalComboboxField
+                        label="默认保存"
+                        value={asText(itemPayload.default_storage)}
+                        disabled={readonly}
+                        options={INGREDIENT_STORAGE_OPTIONS}
+                        placeholder="选择保存位置"
+                        icon="type"
+                        onChange={(defaultStorage) => updateBatchPayload(operationIndex, { default_storage: defaultStorage })}
+                      />
+                      <ApprovalSelectField
+                        label="保质期模式"
+                        value={itemExpiryMode}
+                        disabled={readonly}
+                        options={[
+                          { value: 'days', label: '按天数' },
+                          { value: 'manual_date', label: '手动日期' },
+                          { value: 'none', label: '不设置' },
+                        ]}
+                        icon="calendar"
+                        onChange={(defaultExpiryMode) => updateBatchPayload(operationIndex, {
+                          default_expiry_mode: defaultExpiryMode,
+                          default_expiry_days: defaultExpiryMode === 'days' ? itemPayload.default_expiry_days ?? 1 : null,
+                        })}
+                      />
+                      {itemExpiryMode === 'days' ? (
+                        <label className="ai-resource-field">
+                          <span>默认保质期天数</span>
+                          <input
+                            className="text-input"
+                            type="number"
+                            min={1}
+                            step={1}
+                            value={itemPayload.default_expiry_days == null ? '' : String(itemPayload.default_expiry_days)}
+                            disabled={readonly}
+                            placeholder="例如 7"
+                            onChange={(event) => updateBatchPayload(operationIndex, { default_expiry_days: event.target.value ? Number(event.target.value) : null })}
+                          />
+                        </label>
+                      ) : (
+                        <div className="ai-resource-field ai-ingredient-profile-field-note">
+                          <span>默认保质期天数</span>
+                          <strong>{itemExpiryMode === 'manual_date' ? '入库时手动选择日期' : '不设置默认保质期'}</strong>
+                        </div>
+                      )}
+                    </div>
+                    <label className="ai-resource-field ai-ingredient-profile-low-stock">
+                      <span>低库存阈值</span>
+                      <div className="ai-inline-unit-input">
+                        <input
+                          className="text-input"
+                          type="number"
+                          min={0.1}
+                          step="0.1"
+                          value={itemPayload.default_low_stock_threshold == null ? '' : String(itemPayload.default_low_stock_threshold)}
+                          disabled={readonly}
+                          placeholder="留空则不提醒"
+                          onChange={(event) => updateBatchPayload(operationIndex, { default_low_stock_threshold: event.target.value ? Number(event.target.value) : null })}
+                        />
+                        {itemDefaultUnit && <span>{itemDefaultUnit}</span>}
+                      </div>
+                    </label>
+                  </section>
+                  <section className="ai-ingredient-profile-section">
+                    <div className="ai-ingredient-profile-section-head">
+                      <strong>副单位与备注</strong>
+                      <span>含义不确定时可以先留空。</span>
+                    </div>
+                    <div className="ai-ingredient-profile-conversion-list">
+                      {itemUnitConversions.length > 0 ? itemUnitConversions.map((item, index) => (
+                        <div className="ai-ingredient-profile-conversion-row" key={index}>
+                          <ApprovalComboboxField
+                            label="副单位"
+                            value={asText(item.unit)}
+                            disabled={readonly}
+                            options={buildUnitPresetOptions(asText(item.unit)).map((unit) => ({ value: unit, label: unit }))}
+                            placeholder="选择副单位"
+                            icon="step"
+                            onChange={(unit) => updateBatchUnitConversion(operationIndex, index, { unit })}
+                          />
+                          <label className="ai-resource-field">
+                            <span>等于多少默认单位</span>
+                            <div className="ai-inline-unit-input">
+                              <input
+                                className="text-input"
+                                type="number"
+                                min={0.1}
+                                step="0.1"
+                                value={item.ratio_to_default == null ? '' : String(item.ratio_to_default)}
+                                disabled={readonly}
+                                placeholder="例如 500"
+                                onChange={(event) => updateBatchUnitConversion(operationIndex, index, { ratio_to_default: event.target.value ? Number(event.target.value) : null })}
+                              />
+                              {itemDefaultUnit && <span>{itemDefaultUnit}</span>}
+                            </div>
+                          </label>
+                          {!readonly && (
+                            <button className="ghost-button ai-ingredient-profile-remove-conversion" type="button" onClick={() => removeBatchUnitConversion(operationIndex, index)}>
+                              删除
+                            </button>
+                          )}
+                        </div>
+                      )) : (
+                        <p className="ai-ingredient-profile-empty-conversion">暂不设置副单位。</p>
+                      )}
+                      {!readonly && (
+                        <button className="ghost-button ai-ingredient-profile-add-conversion" type="button" onClick={() => addBatchUnitConversion(operationIndex)}>
+                          添加副单位
+                        </button>
+                      )}
+                    </div>
+                    <label className="ai-resource-field ai-confirmation-copy-field">
+                      <span>备注</span>
+                      <textarea className="text-input" rows={2} value={asText(itemPayload.notes)} disabled={readonly} placeholder="补充采购、保存或使用习惯" onChange={(event) => updateBatchPayload(operationIndex, { notes: event.target.value })} />
+                    </label>
+                  </section>
+                </div>
+              );
+            })}
+          </div>
+        );
+      }
       const payload = typeof structuredDraft.payload === 'object' && structuredDraft.payload !== null && !Array.isArray(structuredDraft.payload)
         ? structuredDraft.payload as Record<string, unknown>
         : structuredDraft;

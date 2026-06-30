@@ -58,7 +58,7 @@ class AISkillLoaderTestCase(AIAgentInfraTestCase):
                 approval_policy = runtime.get("approval_policy")
                 self.assertIn(approval_policy, {"none", "draft_then_confirm"})
                 if approval_policy == "none":
-                    self.assertTrue(all(tool.side_effect == "read" for tool in declared_tools), f"{key} exposes non-read tools without approval")
+                    self.assertTrue(all(tool.side_effect in {"read", "control"} for tool in declared_tools), f"{key} exposes unsupported tools without approval")
                     self.assertEqual(runtime.get("draft_types", []), [])
                 else:
                     self.assertTrue(runtime.get("draft_types", []), f"{key} requires approval but declares no draft type")
@@ -69,7 +69,7 @@ class AISkillLoaderTestCase(AIAgentInfraTestCase):
             keys = [key for key, _runtime in records]
             self.assertEqual(
                 keys,
-                ["food_profile", "ingredient_profile", "inventory_analysis", "meal_plan", "meal_log", "recipe_cook", "recipe_draft", "shopping_list"],
+                ["cooking_assistant", "food_profile", "ingredient_profile", "inventory_analysis", "meal_plan", "meal_log", "recipe_cook", "recipe_draft", "shopping_list"],
             )
             self.assertEqual(skill_registry.keys(), set(keys))
             self.assertEqual([manifest.key for manifest in skill_registry.list_manifests()], keys)
@@ -468,7 +468,7 @@ class AISkillLoaderTestCase(AIAgentInfraTestCase):
                     "draft_types: []\n",
                     encoding="utf-8",
                 )
-                with self.assertRaisesRegex(ValueError, "exposes non-read tools without approval"):
+                with self.assertRaisesRegex(ValueError, "exposes non-read/control tools without approval"):
                     SkillDirectoryLoader(catalog_dir, tool_registry=build_workspace_tool_registry()).load()
 
         def test_skill_loader_rejects_directory_missing_required_markdown(self) -> None:

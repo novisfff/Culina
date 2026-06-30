@@ -15,6 +15,8 @@ import {
   formatCookShortageDetail,
   formatCookShortageSummary,
   getCookCompletionMessage,
+  getCookFinishStepStatus,
+  getCookFinishStepStatusLabel,
   getCookPreviewActionLabel,
   getRecipeDraftGenerationButtonLabel,
   getRecipeDraftGenerationStepState,
@@ -25,6 +27,7 @@ import {
   parseRecipeUnresolvedIngredientError,
   recipeCookSessionKey,
   sanitizeCookSession,
+  saveCookSession,
   type RecipeDraftIngredient,
   type RecipeFormState,
 } from './RecipeWorkspace';
@@ -383,6 +386,23 @@ describe('recipe workspace payload helpers', () => {
       recipe_plan_item_id: undefined,
       rating: null,
     });
+
+    expect(
+      buildCookPayload({
+        servings: '2',
+        date: '2026-05-16',
+        mealType: 'dinner',
+        createMealLog: true,
+        planItemId: null,
+        resultNote: '',
+        adjustments: '',
+        rating: '',
+        allowPartialInventoryDeduction: true,
+      })
+    ).toMatchObject({
+      servings: 2,
+      allow_partial_inventory_deduction: true,
+    });
   });
 
   it('sanitizes persisted cook sessions with safe defaults and clamped step index', () => {
@@ -441,6 +461,7 @@ describe('recipe workspace payload helpers', () => {
       adjustments: '少油',
       resultNote: '成功',
       rating: '5',
+      aiAssistantMessages: [],
     });
   });
 
@@ -483,6 +504,28 @@ describe('recipe workspace payload helpers', () => {
     expect(loaded.restored).toBe(true);
     expect(loaded.session.checkedIngredientIds).toEqual(['ri-1']);
     expect(loaded.session.adjustments).toBe('少油');
+  });
+
+  it('saves and restores cooking assistant messages with the cook session', () => {
+    const recipe = {
+      id: 'recipe-ai-assistant',
+      servings: 2,
+      steps: [{ id: 'step-1', title: '备菜', text: '备菜', icon: 'pan', summary: '', estimated_minutes: null, tip: '', key_points: [] }],
+    };
+    const session = {
+      ...sanitizeCookSession({}, recipe),
+      aiAssistantMessages: [
+        { id: 'assistant-welcome', role: 'assistant' as const, text: '我在这儿。' },
+        { id: 'cook-user-1', role: 'user' as const, text: '帮我计时三分钟' },
+        { id: 'cook-assistant-1', role: 'assistant' as const, text: '我帮你设一个三分钟倒计时。' },
+      ],
+    };
+
+    saveCookSession(recipe.id, session);
+    const loaded = loadCookSession(recipe, null, Date.now());
+
+    expect(loaded.restored).toBe(true);
+    expect(loaded.session.aiAssistantMessages).toEqual(session.aiAssistantMessages);
   });
 
   it('migrates legacy timer metadata and repairs an invalid active timer id', () => {
@@ -823,9 +866,9 @@ describe('recipe workspace payload helpers', () => {
     };
 
     expect(formatCookShortageSummary(presenceShortage)).toBe('盐 需补充');
-    expect(formatCookShortageDetail(presenceShortage)).toBe('还没有可用库存记录，先登记已有或加入采购后再确认。');
+    expect(formatCookShortageDetail(presenceShortage)).toBe('还没有可用库存记录，本次会先记录缺料提醒，不会扣减这项库存。');
     expect(formatCookShortageSummary(quantityShortage)).toBe('番茄 1.5个');
-    expect(formatCookShortageDetail(quantityShortage)).toBe('还缺 1.5个，暂不能确认扣库存。');
+    expect(formatCookShortageDetail(quantityShortage)).toBe('还缺 1.5个，本次会先扣减现有库存，缺少部分仅记录提醒。');
     expect(
       formatCookPreviewRequestLabel({
         requested_quantity: 5,
@@ -849,6 +892,7 @@ describe('recipe workspace payload helpers', () => {
               affected_item_ids: [],
             },
           ],
+          shortages: [],
         },
         true
       )
@@ -874,10 +918,62 @@ describe('recipe workspace payload helpers', () => {
               affected_item_ids: [],
             },
           ],
+          shortages: [],
         },
         false
       )
     ).toBe('已扣减数量库存；只记录有无的食材未扣减数量。');
+    expect(
+      getCookCompletionMessage(
+        {
+          consumed_items: [
+            {
+              ingredient_id: 'ingredient-tomato',
+              ingredient_name: '番茄',
+              requested_quantity: 2,
+              unit: '个',
+              quantity_tracking_mode: 'track_quantity',
+              affected_item_ids: ['inventory-1'],
+            },
+          ],
+          shortages: [quantityShortage],
+        },
+        true
+      )
+    ).toBe('已扣减库存并生成餐食记录，还有 1 项缺料已保留提醒。');
+  });
+
+  it('tracks finish cooking step statuses', () => {
+    expect(
+      getCookFinishStepStatus({
+        stepId: 'inventory',
+        completedStepIds: [],
+        skippedStepIds: [],
+      })
+    ).toBe('pending');
+    expect(
+      getCookFinishStepStatus({
+        stepId: 'meal',
+        completedStepIds: ['meal'],
+        skippedStepIds: [],
+      })
+    ).toBe('completed');
+    expect(
+      getCookFinishStepStatus({
+        stepId: 'feedback',
+        completedStepIds: [],
+        skippedStepIds: ['feedback'],
+      })
+    ).toBe('skipped');
+    expect(
+      getCookFinishStepStatus({
+        stepId: 'inventory',
+        completedStepIds: ['inventory'],
+        skippedStepIds: [],
+        hasInventoryAttention: true,
+      })
+    ).toBe('attention');
+    expect(getCookFinishStepStatusLabel('attention')).toBe('需留意');
   });
 
   it('detects optional recipe ingredients from notes and builds existing ingredient drafts', () => {

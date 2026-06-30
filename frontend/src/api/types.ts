@@ -261,6 +261,7 @@ export interface CookRecipeRequest {
   result_note?: string;
   adjustments?: string;
   rating?: number | null;
+  allow_partial_inventory_deduction?: boolean;
 }
 
 export interface CookRecipeConsumedItem {
@@ -638,7 +639,8 @@ export type AiResultCardType =
   | 'meal_plan_draft'
   | 'shopping_list_draft'
   | 'meal_log_draft'
-  | 'food_profile_draft';
+  | 'food_profile_draft'
+  | 'ui_actions';
 export type AiTaskDraftType = 'recipe' | 'recipe_cook' | 'ingredient_profile' | 'shopping_list' | 'meal_plan' | 'meal_log' | 'food_profile' | 'inventory_operation' | 'composite_operation';
 export type AiApprovalDecision = 'approved' | 'rejected';
 
@@ -653,6 +655,30 @@ export interface AiEvidenceItem {
 export type AiInventoryDisplayStatus = 'available' | 'low_stock' | 'expiring' | 'expired';
 export type AiInventoryOperationAction = 'restock' | 'consume' | 'dispose';
 export type AiInventoryQueryFocus = 'overview' | 'available' | 'expiring' | 'expired' | 'low_stock';
+
+export type AiCookPageAction =
+  | { type: 'go_next_step' }
+  | { type: 'go_previous_step' }
+  | { type: 'jump_to_step'; stepIndex: number }
+  | { type: 'switch_tab'; tab: 'step' | 'ingredients' }
+  | { type: 'start_timer'; timerId?: string }
+  | { type: 'pause_timer'; timerId?: string }
+  | { type: 'reset_timer'; timerId?: string }
+  | { type: 'add_timer_seconds'; timerId?: string; seconds: number }
+  | { type: 'set_timer'; timerId?: string; seconds: number; name?: string }
+  | { type: 'reset_cook_session' }
+  | { type: 'delete_timer'; timerId: string }
+  | { type: 'finish_cooking' }
+  | { type: 'open_shopping_dialog' };
+
+export interface AiUiActionsCardData {
+  surface: 'recipe_cook_page';
+  recipeId: string;
+  cookSessionId: string;
+  sessionRevision: number;
+  actions: AiCookPageAction[];
+  requiresConfirmation: boolean;
+}
 
 export interface AiInventoryOperationResult {
   action: AiInventoryOperationAction;

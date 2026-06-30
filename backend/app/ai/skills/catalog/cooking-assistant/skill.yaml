@@ -1,0 +1,23 @@
+version: 2
+key: cooking_assistant
+display_name: 做菜助手
+intent: cooking_assistant
+agent_key: cooking_assistant_agent
+context_policy:
+- recipes
+- inventory
+allowed_tools:
+- recipe.read_by_id
+- inventory.read_available_items
+- ui.propose_actions
+script_files: []
+output_types:
+- ui_actions
+draft_types: []
+approval_policy: none
+examples:
+- 这一步做到什么程度？
+- 帮我进入下一步。
+- 这个计时器暂停一下。
+- 没有葱可以不放吗？
+- 焖煮帮我计时 3 分钟。

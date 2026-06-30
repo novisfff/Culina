@@ -41,6 +41,7 @@ import {
   useImageComposer,
 } from '../../hooks/useImageComposer';
 import { useDebouncedSearchValue, useSearchCompositionState } from '../../hooks/useDebouncedValue';
+import { usePagedList } from '../../hooks/usePagedList';
 import { useNotice } from '../../hooks/useNotice';
 import { DIFFICULTY_LABELS, buildRecipeCards, type RecipeCardViewModel } from '../recipes/workspaceModel';
 import { RecipeEditorView } from '../recipes/RecipeEditorView';
@@ -725,6 +726,18 @@ export function FoodWorkspace(props: Props) {
       .slice()
       .sort((a, b) => getFoodPriority(b, props.mealLogs, lensFilter, props.recipes) - getFoodPriority(a, props.mealLogs, lensFilter, props.recipes));
   }, [appliedFoodSearch, governanceIssueFilter, lensFilter, matchedFoodIds, mealFilter, props.mealLogs, props.recipes, searchAwareFoods, sceneFilter, typeFilter]);
+  const foodCardPager = usePagedList({
+    itemCount: filteredFoods.length,
+    resetKey: [
+      appliedFoodSearch,
+      typeFilter,
+      mealFilter,
+      lensFilter,
+      sceneFilter,
+      governanceIssueFilter,
+    ].join('|'),
+  });
+  const visibleFoods = filteredFoods.slice(0, foodCardPager.visibleCount);
   const currentLensCopy = FOOD_LENS_COPY[lensFilter];
   const detailFood = detailFoodId ? props.foods.find((food) => food.id === detailFoodId) ?? null : null;
   const repeatFoodCount = foodUsageCards.filter(({ food, usage }) => food.favorite || usage.count >= 2).length;
@@ -770,8 +783,8 @@ export function FoodWorkspace(props: Props) {
         onClick: () => selectMobileFoodScene(scene.name),
       })),
   ];
-  const mobileScenePages = Array.from({ length: Math.ceil(mobileSceneExploreCards.length / 4) || 1 }, (_, index) =>
-    mobileSceneExploreCards.slice(index * 4, index * 4 + 4)
+  const mobileScenePages = Array.from({ length: Math.ceil(mobileSceneExploreCards.length / 2) || 1 }, (_, index) =>
+    mobileSceneExploreCards.slice(index * 2, index * 2 + 2)
   );
   const mobileLibraryFoods = filteredFoods;
   const mobileLibraryResetKey = [appliedFoodSearch, typeFilter, mealFilter, lensFilter, sceneFilter, governanceIssueFilter].join('|');
@@ -842,7 +855,7 @@ export function FoodWorkspace(props: Props) {
   const editorCompletionItems = getFoodFormCompletionItems(form, editingFood, props.recipes);
   const editorCompletedCount = editorCompletionItems.filter((item) => item.done).length;
   const editorCompletionPercent = Math.round((editorCompletedCount / editorCompletionItems.length) * 100);
-  const canSubmit = !props.isSavingFood;
+  const canSubmit = !props.isSavingFood && (!isSelfMade || Boolean(form.recipeId));
   const sceneTagOptions = useMemo(() => {
     const names = new Set<string>();
     props.foodScenes.filter((scene) => !scene.hidden).forEach((scene) => names.add(scene.name));
@@ -904,6 +917,11 @@ export function FoodWorkspace(props: Props) {
 
   function handleOpenRecipeEditor() {
     if (!currentRecipeCard) {
+      if (view === 'create' && isSelfMade) {
+        setView('list');
+        props.onOpenRecipes();
+        return;
+      }
       showNotice({ tone: 'warning', title: '还没有关联菜谱', message: '请先在菜谱页创建并关联菜谱。' });
       return;
     }
@@ -1253,7 +1271,7 @@ export function FoodWorkspace(props: Props) {
         ) : null}
         gridSection={filteredFoods.length > 0 ? (
           <section className="food-card-grid">
-          {filteredFoods.map((food) => {
+          {visibleFoods.map((food) => {
             const usage = getMealUsage(food, props.mealLogs);
             const coverAsset = getFoodCoverAsset(food, props.recipes);
             const cover = resolveMediaUrl(coverAsset, 'card');
@@ -1327,7 +1345,16 @@ export function FoodWorkspace(props: Props) {
               </article>
             );
           })}
-          </section>
+          <div className="paged-list-status" ref={foodCardPager.sentinelRef}>
+            {foodCardPager.hasMore ? (
+              <button className="paged-list-load-more" type="button" onClick={foodCardPager.loadMore}>
+                继续加载食物
+              </button>
+            ) : (
+              <span>已加载全部食物</span>
+            )}
+          </div>
+        </section>
         ) : (
           <EmptyState
             title={currentLensCopy.emptyTitle}

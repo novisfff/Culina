@@ -45,6 +45,9 @@ type RecipeLibraryViewProps = {
   shouldScrollDiscoveryCards: boolean;
   discoveryScrollState: { canLeft: boolean; canRight: boolean };
   recommendationSlots: RecipeCardViewModel[];
+  hasMoreRecommendationSlots: boolean;
+  onLoadMoreRecommendationSlots: () => void;
+  recommendationLoadMoreRef: Ref<HTMLDivElement>;
   discoverySectionRef: Ref<HTMLElement>;
   discoveryScrollRef: Ref<HTMLDivElement>;
   recentPreviewSlots: Array<RecipeCardViewModel | null>;
@@ -108,6 +111,9 @@ export function RecipeLibraryView({
   shouldScrollDiscoveryCards,
   discoveryScrollState,
   recommendationSlots,
+  hasMoreRecommendationSlots,
+  onLoadMoreRecommendationSlots,
+  recommendationLoadMoreRef,
   discoverySectionRef,
   discoveryScrollRef,
   recentPreviewSlots,
@@ -315,6 +321,15 @@ export function RecipeLibraryView({
                           onPlan={() => onOpenPlanDialog(card)}
                         />
                       ))}
+                      <div className="paged-list-status recipe-paged-list-status" ref={recommendationLoadMoreRef}>
+                        {hasMoreRecommendationSlots ? (
+                          <button className="paged-list-load-more" type="button" onClick={onLoadMoreRecommendationSlots}>
+                            继续加载菜谱
+                          </button>
+                        ) : (
+                          <span>已加载全部菜谱</span>
+                        )}
+                      </div>
                     </div>
                     {shouldScrollDiscoveryCards && discoveryScrollState.canRight && (
                       <button className="recipe-discovery-scroll-cue right" type="button" aria-label="向右滑动菜谱" onClick={() => onScrollDiscoveryCards('right')}>

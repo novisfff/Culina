@@ -52,6 +52,8 @@ def validate_approval_values(
         validate_inventory_operation_shape(draft.payload, draft_value)
     elif draft.draft_type in {"meal_plan", "shopping_list"}:
         validate_operation_draft_shape(draft.payload, draft_value)
+    elif draft.draft_type == "ingredient_profile" and isinstance(draft.payload.get("operations"), list):
+        validate_operation_draft_shape(draft.payload, draft_value)
     elif draft.draft_type == "ingredient_profile":
         validate_single_target_operation_shape(draft.payload, draft_value)
     elif draft.draft_type == "composite_operation":

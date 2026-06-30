@@ -462,7 +462,7 @@ class WorkspaceOrchestratorAgent:
                 emit_visible_delta(message_id, part_id, delta)
 
             provider_kwargs = {
-                "system": self._system_prompt(active_skill_keys),
+                "system": self._system_prompt(context, active_skill_keys),
                 "user": self._provider_user_input(context, active_skill_keys, injection_history),
                 "tools": refresh_tools,
                 "tool_handler": call_tool,
@@ -581,9 +581,11 @@ class WorkspaceOrchestratorAgent:
             error="orchestrator max rounds exceeded",
         )
 
-    def _system_prompt(self, active_skill_keys: list[str]) -> str:
+    def _system_prompt(self, context: SkillContext, active_skill_keys: list[str]) -> str:
         bundles = self.injection_manager.bundles_for(active_skill_keys)
         allowed_draft_types = sorted(self.injection_manager.allowed_draft_types(active_skill_keys))
+        profile_addon = str((context.orchestrator_profile or {}).get("systemPromptAddon") or "").strip()
+        profile_section = f"\n\nSurface profile instructions:\n{profile_addon}" if profile_addon else ""
         return (
             "你是 Culina AI 工作台的主 Orchestrator。"
             "你可以输出普通 assistant 文本，也可以调用工具；普通文本会直接展示给用户。"
@@ -624,6 +626,7 @@ class WorkspaceOrchestratorAgent:
                 for bundle in bundles
                 if bundle.instructions
             )
+            + profile_section
         )
 
     def _user_payload(

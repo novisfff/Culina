@@ -34,6 +34,7 @@ import { getPendingImageJobId, type AiRenderPayload } from '../../lib/aiImages';
 import { emptyImages, formatDate, formatDateTime, getImagePreview, splitTags, todayKey } from '../../lib/ui';
 import { IDLE_IMAGE_GENERATION_STATE, useImageComposer, type ImageGenerationUiState } from '../../hooks/useImageComposer';
 import { useDebouncedSearchValue, useSearchCompositionState } from '../../hooks/useDebouncedValue';
+import { usePagedList } from '../../hooks/usePagedList';
 import {
   ActionButton,
   Badge,
@@ -112,6 +113,8 @@ import {
   formatCookShortageSummary,
   formatShoppingQuantity,
   getCookCompletionMessage,
+  getCookFinishStepStatus,
+  getCookFinishStepStatusLabel,
   getCookPreviewActionLabel,
   getRecipeDraftGenerationActionLabel,
   getRecipeDraftGenerationButtonLabel,
@@ -134,6 +137,7 @@ import {
   resolveIngredientImageUrl,
   resolveRecipeDifficulty,
   sanitizeCookSession,
+  saveCookSession,
   stripRecipeIngredientRequirementNote,
   type ManagedRecipeScene,
   type RecipeDraftAiFormState,
@@ -164,6 +168,8 @@ export {
   formatCookShortageDetail,
   formatCookShortageSummary,
   getCookCompletionMessage,
+  getCookFinishStepStatus,
+  getCookFinishStepStatusLabel,
   getCookPreviewActionLabel,
   getRecipeDraftGenerationButtonLabel,
   getRecipeDraftGenerationStepState,
@@ -176,6 +182,7 @@ export {
   loadCookSession,
   recipeCookSessionKey,
   sanitizeCookSession,
+  saveCookSession,
   type RecipeDraftIngredient,
   type RecipeFormState,
 };
@@ -536,6 +543,18 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
     shoppingCustomForm,
     selectedRecipeId,
   });
+  const recommendationPager = usePagedList({
+    itemCount: recommendationSlots.length,
+    resetKey: [
+      appliedRecipeSearch,
+      quickFilter,
+      sceneFilter,
+      difficultyFilter,
+      sortMode,
+      recommendationPage,
+    ].join('|'),
+  });
+  const visibleRecommendationSlots = recommendationSlots.slice(0, recommendationPager.visibleCount);
   const {
     isSceneManagerOpen,
     setIsSceneManagerOpen,
@@ -722,7 +741,13 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
     timers,
     activeTimerId,
     addTimer,
-    deleteTimer,
+    startTimerById,
+    pauseTimerById,
+    resetTimerById,
+	    addTimerSecondsById,
+	    setTimerById,
+	    setCookAssistantMessages,
+	    deleteTimer,
     selectTimer,
     toggleTimerById,
   } = useRecipeCookState({
@@ -1348,6 +1373,7 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
           moveCookStep={moveCookStep}
           completeCurrentCookStepAndContinue={completeCurrentCookStepAndContinue}
           resetActiveCookSession={resetActiveCookSession}
+          openCookFinishDialog={() => setIsCookFinishOpen(true)}
           openShoppingDialog={(card) => openShoppingDialog(card, closeCookDialog)}
           confirmCustomCookTimer={confirmCustomCookTimer}
           openCustomCookTimer={openCustomCookTimer}
@@ -1359,7 +1385,13 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
           timers={timers}
           activeTimerId={activeTimerId}
           addTimer={addTimer}
-          deleteTimer={deleteTimer}
+          startTimerById={startTimerById}
+          pauseTimerById={pauseTimerById}
+          resetTimerById={resetTimerById}
+	          addTimerSecondsById={addTimerSecondsById}
+	          setTimerById={setTimerById}
+	          setCookAssistantMessages={setCookAssistantMessages}
+	          deleteTimer={deleteTimer}
           selectTimer={selectTimer}
           toggleTimerById={toggleTimerById}
         />
@@ -1404,7 +1436,10 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
           shouldPageRecommendations={shouldPageRecommendations}
           shouldScrollDiscoveryCards={shouldScrollDiscoveryCards}
           discoveryScrollState={discoveryScrollState}
-          recommendationSlots={recommendationSlots}
+          recommendationSlots={visibleRecommendationSlots}
+          hasMoreRecommendationSlots={recommendationPager.hasMore}
+          onLoadMoreRecommendationSlots={recommendationPager.loadMore}
+          recommendationLoadMoreRef={recommendationPager.sentinelRef}
           discoverySectionRef={discoverySectionRef}
           discoveryScrollRef={discoveryScrollRef}
           recentPreviewSlots={recentPreviewSlots}

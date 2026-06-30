@@ -114,6 +114,18 @@ export type CookTimerState = {
   stepId: string | null;
 };
 
+export type RecipeCookAssistantMessagePart =
+  | { id: string; type: 'text'; text: string }
+  | { id: string; type: 'tool_card'; label: string; detail: string; status: string; tone?: 'normal' | 'success' | 'warning' | 'danger' };
+
+export type RecipeCookAssistantMessage = {
+  id: string;
+  role: 'user' | 'assistant' | 'system';
+  text: string;
+  tone?: 'normal' | 'success' | 'warning' | 'danger';
+  parts?: RecipeCookAssistantMessagePart[];
+};
+
 export type RecipeCookSessionState = {
   currentStepIndex: number;
   checkedIngredientIds: string[];
@@ -128,6 +140,7 @@ export type RecipeCookSessionState = {
   adjustments: string;
   resultNote: string;
   rating: string;
+  aiAssistantMessages: RecipeCookAssistantMessage[];
 };
 
 export type RecipeShoppingIngredientOption = {
@@ -495,9 +508,9 @@ export function formatCookShortageSummary(item: CookShortageDisplayInput) {
 
 export function formatCookShortageDetail(item: CookShortageDisplayInput) {
   if (isPresenceShortage(item)) {
-    return '还没有可用库存记录，先登记已有或加入采购后再确认。';
+    return '还没有可用库存记录，本次会先记录缺料提醒，不会扣减这项库存。';
   }
-  return `还缺 ${formatCookQuantity(item.missing_quantity)}${item.unit}，暂不能确认扣库存。`;
+  return `还缺 ${formatCookQuantity(item.missing_quantity)}${item.unit}，本次会先扣减现有库存，缺少部分仅记录提醒。`;
 }
 
 export function formatCookPreviewRequestLabel(item: Pick<CookRecipePreviewItem, 'requested_quantity' | 'unit' | 'quantity_tracking_mode'>) {
@@ -511,18 +524,50 @@ export function getCookPreviewActionLabel(preview: Array<{ batches: readonly unk
   return preview?.some((item) => item.batches.length > 0) ? '确认扣库存' : '确认完成';
 }
 
-export function getCookCompletionMessage(response: Pick<CookRecipeResponse, 'consumed_items'>, createMealLog: boolean) {
+export function getCookCompletionMessage(response: Pick<CookRecipeResponse, 'consumed_items' | 'shortages'>, createMealLog: boolean) {
   const deductedCount = response.consumed_items.filter((item) => item.affected_item_ids.length > 0).length;
   const hasPresenceOnlyItems = response.consumed_items.some((item) => item.quantity_tracking_mode === 'not_track_quantity');
+  const shortageCount = response.shortages.length;
   const mealLogSuffix = createMealLog ? '并生成餐食记录' : '';
+  const shortageSuffix = shortageCount > 0 ? `，还有 ${shortageCount} 项缺料已保留提醒` : '';
 
   if (deductedCount > 0 && hasPresenceOnlyItems) {
-    return `已扣减数量库存${mealLogSuffix}；只记录有无的食材未扣减数量。`;
+    return `已扣减数量库存${mealLogSuffix}${shortageSuffix}；只记录有无的食材未扣减数量。`;
   }
   if (deductedCount > 0) {
-    return createMealLog ? '已扣减库存并生成餐食记录。' : '已扣减库存。';
+    return createMealLog ? `已扣减库存并生成餐食记录${shortageSuffix}。` : `已扣减库存${shortageSuffix}。`;
   }
-  return createMealLog ? '已记录完成并生成餐食记录，本次没有需要扣减的数量库存。' : '已记录完成，本次没有需要扣减的数量库存。';
+  return createMealLog
+    ? `已记录完成并生成餐食记录，本次没有需要扣减的数量库存${shortageSuffix}。`
+    : `已记录完成，本次没有需要扣减的数量库存${shortageSuffix}。`;
+}
+
+export type CookFinishStepId = 'inventory' | 'meal' | 'feedback' | 'summary';
+export type CookFinishStepStatus = 'completed' | 'skipped' | 'attention' | 'pending';
+
+export function getCookFinishStepStatus(args: {
+  stepId: CookFinishStepId;
+  completedStepIds: readonly CookFinishStepId[];
+  skippedStepIds: readonly CookFinishStepId[];
+  hasInventoryAttention?: boolean;
+}): CookFinishStepStatus {
+  if (args.skippedStepIds.includes(args.stepId)) {
+    return 'skipped';
+  }
+  if (args.stepId === 'inventory' && args.hasInventoryAttention) {
+    return 'attention';
+  }
+  if (args.completedStepIds.includes(args.stepId)) {
+    return 'completed';
+  }
+  return 'pending';
+}
+
+export function getCookFinishStepStatusLabel(status: CookFinishStepStatus) {
+  if (status === 'completed') return '已完成';
+  if (status === 'skipped') return '已跳过';
+  if (status === 'attention') return '需留意';
+  return '未处理';
 }
 
 export function formatShoppingQuantity(value: number) {
@@ -633,6 +678,7 @@ export function buildDefaultCookSession(recipe: Pick<Recipe, 'servings' | 'steps
     adjustments: '',
     resultNote: '',
     rating: '',
+    aiAssistantMessages: [],
   };
 }
 
@@ -717,6 +763,11 @@ export function sanitizeCookSession(
     adjustments: typeof parsed.adjustments === 'string' ? parsed.adjustments : '',
     resultNote: typeof parsed.resultNote === 'string' ? parsed.resultNote : '',
     rating: typeof parsed.rating === 'string' ? parsed.rating : '',
+    aiAssistantMessages: Array.isArray(parsed.aiAssistantMessages)
+      ? parsed.aiAssistantMessages
+          .filter((item): item is RecipeCookAssistantMessage => Boolean(item && typeof item === 'object' && typeof item.id === 'string' && typeof item.role === 'string' && typeof item.text === 'string'))
+          .slice(-40)
+      : [],
   };
 }
 
@@ -868,6 +919,7 @@ export function buildCookPayload(args: {
   resultNote: string;
   adjustments: string;
   rating: string;
+  allowPartialInventoryDeduction?: boolean;
 }): CookRecipeRequest {
   return {
     servings: Number(args.servings),
@@ -879,6 +931,7 @@ export function buildCookPayload(args: {
     result_note: args.resultNote.trim(),
     adjustments: args.adjustments.trim(),
     rating: args.rating ? Number(args.rating) : null,
+    ...(args.allowPartialInventoryDeduction ? { allow_partial_inventory_deduction: true } : {}),
   };
 }
 

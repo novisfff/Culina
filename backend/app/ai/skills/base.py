@@ -53,6 +53,7 @@ class SkillContext:
     current_message: str
     tool_executor: ToolExecutor
     subject: dict[str, Any] = field(default_factory=dict)
+    orchestrator_profile: dict[str, Any] = field(default_factory=dict)
     current_message_attachments: list[dict[str, Any]] = field(default_factory=list)
     current_message_images: list[ProviderImageInput] = field(default_factory=list)
     quick_task: str | None = None

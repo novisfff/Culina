@@ -73,6 +73,15 @@ function isReadyLikeType(foodType: FoodType) {
 }
 
 export function FoodEditorForm(props: Props) {
+  const showTypeGrid = props.view === 'create' || !props.isSelfMade;
+  const typeOptions = props.view === 'create'
+    ? FOOD_CREATE_TYPE_OPTIONS
+    : FOOD_CREATE_TYPE_OPTIONS.filter((item) => item.value !== 'selfMade');
+  const identityTitle = props.isSelfMade
+    ? props.view === 'create'
+      ? '先选类型，再关联菜谱'
+      : '关联菜谱'
+    : '先选类型，再填名称';
   const editorContent = (
     <WorkspaceSubpageShell className="food-editor-shell">
       {!props.embedded && (
@@ -89,10 +98,10 @@ export function FoodEditorForm(props: Props) {
         <form className="food-editor-layout" onSubmit={props.onSubmit}>
           <section className="food-editor-main">
             <div className="food-form-panel food-editor-identity-panel">
-              <div className="section-mini-title">{props.isSelfMade ? '关联菜谱' : '先选类型，再填名称'}</div>
-              {!props.isSelfMade && (
+              <div className="section-mini-title">{identityTitle}</div>
+              {showTypeGrid && (
                 <div className="food-type-grid">
-                  {FOOD_CREATE_TYPE_OPTIONS.map((item) => {
+                  {typeOptions.map((item) => {
                     const detail = FOOD_CREATE_TYPE_DETAILS[item.value];
                     return (
                       <button
@@ -121,10 +130,10 @@ export function FoodEditorForm(props: Props) {
                   </div>
                   <div className="food-editor-recipe-copy">
                     <strong>{props.currentRecipe?.title || props.form.name || '还没有关联菜谱'}</strong>
-                    <span>名称、主图、食材和做法来自菜谱；这里维护餐别、场景和备注。</span>
+                    <span>{props.currentRecipe ? '名称、主图、食材和做法来自菜谱；这里维护餐别、场景和备注。' : '自做食物需要先建一份菜谱，保存后会自动沉淀为家常菜。'}</span>
                   </div>
                   <ActionButton tone="secondary" size="compact" type="button" onClick={props.onEditRecipe}>
-                    <span>编辑菜谱</span>
+                    <span>{props.currentRecipe ? '编辑菜谱' : '去新增菜谱'}</span>
                     <FoodUiIcon name="arrowRight" />
                   </ActionButton>
                 </div>

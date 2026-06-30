@@ -145,6 +145,7 @@ class CookRecipeRequest(BaseModel):
     result_note: str = ""
     adjustments: str = ""
     rating: int | None = Field(default=None, ge=1, le=5)
+    allow_partial_inventory_deduction: bool = False
 
 
 class CookRecipeConsumedItemOut(BaseModel):

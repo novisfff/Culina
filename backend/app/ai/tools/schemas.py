@@ -244,8 +244,9 @@ MEAL_PLAN_DRAFT_SCHEMA: dict[str, Any] = {
 
 INGREDIENT_PROFILE_DRAFT_SCHEMA: dict[str, Any] = {
     "type": "object",
+    "description": "食材档案草稿。单个创建/更新使用 action 和 payload；更新时还必须提供 targetId；一次创建 2-5 个食材时使用 operations，每项 action=create。",
     "additionalProperties": False,
-    "required": ["draftType", "schemaVersion", "action", "payload"],
+    "required": ["draftType", "schemaVersion"],
     "properties": {
         "draftType": {"type": "string", "enum": ["ingredient_profile"]},
         "schemaVersion": {"type": "string", "enum": ["ingredient_profile.v1", "ingredient_profile_operation.v1"]},
@@ -281,6 +282,51 @@ INGREDIENT_PROFILE_DRAFT_SCHEMA: dict[str, Any] = {
                 "default_low_stock_threshold": {"type": ["number", "null"], "exclusiveMinimum": 0},
                 "notes": {"type": "string", "maxLength": 5000},
                 "media_ids": {"type": "array", "maxItems": 20, "items": {"type": "string", "minLength": 1}},
+            },
+        },
+        "operations": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 5,
+            "items": {
+                "type": "object",
+                "additionalProperties": False,
+                "required": ["action", "payload"],
+                "properties": {
+                    "operationId": {"type": ["string", "null"], "minLength": 1, "maxLength": 64},
+                    "operation_id": {"type": ["string", "null"], "minLength": 1, "maxLength": 64},
+                    "action": {"type": "string", "enum": ["create"]},
+                    "payload": {
+                        "type": "object",
+                        "additionalProperties": False,
+                        "required": ["name", "category", "default_unit", "default_storage", "default_expiry_mode"],
+                        "properties": {
+                            "name": {"type": "string", "minLength": 1, "maxLength": 120},
+                            "category": {"type": "string", "minLength": 1, "maxLength": 120},
+                            "default_unit": {"type": "string", "minLength": 1, "maxLength": 32},
+                            "quantity_tracking_mode": {"type": "string", "enum": ["track_quantity", "not_track_quantity"]},
+                            "unit_conversions": {
+                                "type": "array",
+                                "maxItems": 20,
+                                "items": {
+                                    "type": "object",
+                                    "additionalProperties": False,
+                                    "required": ["unit", "ratio_to_default"],
+                                    "properties": {
+                                        "unit": {"type": "string", "minLength": 1, "maxLength": 32},
+                                        "ratio_to_default": {"type": "number", "exclusiveMinimum": 0},
+                                    },
+                                },
+                            },
+                            "default_storage": {"type": "string", "minLength": 1, "maxLength": 120},
+                            "default_expiry_mode": {"type": "string", "enum": ["days", "manual_date", "none"]},
+                            "default_expiry_days": {"type": ["integer", "null"], "minimum": 1, "maximum": 3650},
+                            "default_low_stock_threshold": {"type": ["number", "null"], "exclusiveMinimum": 0},
+                            "notes": {"type": "string", "maxLength": 5000},
+                            "media_ids": {"type": "array", "maxItems": 20, "items": {"type": "string", "minLength": 1}},
+                        },
+                    },
+                },
             },
         },
     },
@@ -448,7 +494,7 @@ MEAL_PLAN_OPERATION_ITEM_SCHEMA["anyOf"] = [
 
 INGREDIENT_PROFILE_DRAFT_SCHEMA.update(
     {
-        "description": "食材档案草稿。创建时提供 action=create 和完整 payload；更新时还必须提供 targetId 与 baseUpdatedAt。",
+        "description": "食材档案草稿。单个创建/更新使用 action 和 payload；更新时还必须提供 targetId；一次创建 2-5 个食材时使用 operations，每项 action=create。",
         "anyOf": [
             {
                 "description": "新增食材档案。",
@@ -463,6 +509,13 @@ INGREDIENT_PROFILE_DRAFT_SCHEMA.update(
                     "targetId": {"type": "string", "minLength": 1},
                     "baseUpdatedAt": {"type": "string", "minLength": 1},
                     "payload": INGREDIENT_PROFILE_DRAFT_SCHEMA["properties"]["payload"],
+                },
+            },
+            {
+                "description": "批量新增 2-5 个食材档案。",
+                "required": ["draftType", "schemaVersion", "operations"],
+                "properties": {
+                    "operations": INGREDIENT_PROFILE_DRAFT_SCHEMA["properties"]["operations"],
                 },
             },
         ],

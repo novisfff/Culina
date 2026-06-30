@@ -185,8 +185,9 @@ describe('food workspace helpers', () => {
     });
   });
 
-  it('does not offer home-cooked food as a manually created type', () => {
-    expect(FOOD_CREATE_TYPE_OPTIONS.map((item) => item.value)).toEqual(['takeout', 'diningOut', 'readyMade', 'instant']);
+  it('offers home-cooked food as a guided create type', () => {
+    expect(FOOD_CREATE_TYPE_OPTIONS.map((item) => item.value)).toEqual(['selfMade', 'takeout', 'diningOut', 'readyMade', 'instant']);
+    expect(FOOD_CREATE_TYPE_OPTIONS[0].label).toBe('自做');
   });
 
   it('filters by normalized type, meal type, and text fields', () => {

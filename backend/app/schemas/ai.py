@@ -97,6 +97,7 @@ AIResultCardType = Literal[
     "shopping_list_draft",
     "meal_log_draft",
     "food_profile_draft",
+    "ui_actions",
 ]
 AIRunEventStatus = Literal["pending", "running", "waiting", "completed", "failed"]
 AITaskDraftType = Literal[
@@ -169,11 +170,16 @@ class AIChatRequest(BaseModel):
     quick_task: str | None = Field(default=None, max_length=80)
     subject: AISubjectIn | None = None
     attachments: list[AIChatAttachmentIn] = Field(default_factory=list, max_length=6)
+    persist_history: bool = True
 
     @model_validator(mode="after")
     def validate_message_text(self) -> "AIChatRequest":
         if not self.message.strip() and not self.attachments:
             raise ValueError("消息不能为空")
+        if not self.persist_history and self.quick_task != "cooking_assistant":
+            raise ValueError("只有做菜页面助手支持不保存系统 AI 历史")
+        if not self.persist_history and self.conversation_id:
+            raise ValueError("不保存系统 AI 历史时不能续接系统 AI 会话")
         return self
 
 
@@ -246,6 +252,24 @@ class AIOperationResultCardDataDTO(BaseModel):
     entities: list[AIOperationResultEntityDTO] = Field(default_factory=list)
 
 
+class AIUiActionDTO(BaseModel):
+    type: str = Field(min_length=1)
+    stepIndex: int | None = Field(default=None, ge=0, le=200)
+    tab: Literal["step", "ingredients"] | None = None
+    timerId: str | None = Field(default=None, min_length=1, max_length=120)
+    seconds: int | None = Field(default=None, ge=1, le=21600)
+    name: str | None = Field(default=None, min_length=1, max_length=40)
+
+
+class AIUiActionsCardDataDTO(BaseModel):
+    surface: Literal["recipe_cook_page"]
+    recipeId: str = Field(min_length=1, max_length=64)
+    cookSessionId: str = Field(min_length=1, max_length=160)
+    sessionRevision: int = Field(ge=0)
+    actions: list[AIUiActionDTO] = Field(min_length=1, max_length=4)
+    requiresConfirmation: bool = False
+
+
 class AIResultCardDTO(BaseModel):
     id: str
     type: AIResultCardType
@@ -260,6 +284,8 @@ class AIResultCardDTO(BaseModel):
             AITodayRecommendationCardDataDTO.model_validate(self.data)
         elif self.type == "operation_result":
             AIOperationResultCardDataDTO.model_validate(self.data)
+        elif self.type == "ui_actions":
+            AIUiActionsCardDataDTO.model_validate(self.data)
         return self
 
 

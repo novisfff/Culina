@@ -672,6 +672,39 @@ def _normalize_food_profile_operation_draft(db: Session, *, family_id: str, payl
 def normalize_ingredient_profile_draft(db: Session, *, family_id: str, payload: Any) -> dict[str, Any]:
     if not isinstance(payload, dict):
         raise ValueError("食材档案草稿格式不正确")
+    operations = payload.get("operations")
+    if isinstance(operations, list):
+        if len(operations) < 2:
+            raise ValueError("批量创建食材至少需要 2 项")
+        if len(operations) > 5:
+            raise ValueError("批量创建食材一次不能超过 5 项")
+        normalized_operations: list[dict[str, Any]] = []
+        seen_names: set[str] = set()
+        for operation in operations:
+            if not isinstance(operation, dict):
+                raise ValueError("食材档案批量操作项格式不正确")
+            action = str(operation.get("action") or "")
+            if action != "create":
+                raise ValueError("食材档案批量草稿只支持新增食材")
+            ingredient_payload = _strip_transport_fields(
+                CreateIngredientRequest.model_validate(operation.get("payload") or {}).model_dump(mode="json")
+            )
+            normalized_name = str(ingredient_payload.get("name") or "").strip().casefold()
+            if normalized_name in seen_names:
+                raise ValueError("批量创建食材中存在重复名称")
+            seen_names.add(normalized_name)
+            normalized_operations.append(
+                {
+                    "operationId": _normalize_operation_id(operation.get("operationId") or operation.get("operation_id")),
+                    "action": "create",
+                    "payload": ingredient_payload,
+                }
+            )
+        return {
+            "draftType": "ingredient_profile",
+            "schemaVersion": "ingredient_profile_operation.v1",
+            "operations": normalized_operations,
+        }
     action = str(payload.get("action") or "")
     if action not in {"create", "update"}:
         raise ValueError("食材档案操作类型不正确")

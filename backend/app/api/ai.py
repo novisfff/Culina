@@ -68,6 +68,65 @@ def _model_supports_vision(model: str, configured: bool | None) -> bool:
     return any(marker in normalized_model for marker in ("gpt-4o", "gpt-4.1", "gpt-5", "o3", "o4", "vision", "qwen-vl", "vl"))
 
 
+def _discard_transient_chat_history(db: Session, *, family_id: str, response: dict) -> None:
+    conversation_id = str(response.get("conversation_id") or "")
+    run = response.get("run") if isinstance(response.get("run"), dict) else {}
+    run_id = str(run.get("id") or "")
+    if not conversation_id or not run_id:
+        return
+    approval_ids = list(
+        db.scalars(
+            select(AIApprovalRequest.id).where(
+                AIApprovalRequest.conversation_id == conversation_id,
+                AIApprovalRequest.family_id == family_id,
+            )
+        )
+    )
+    draft_ids = list(
+        db.scalars(
+            select(AITaskDraft.id).where(
+                AITaskDraft.conversation_id == conversation_id,
+                AITaskDraft.family_id == family_id,
+            )
+        )
+    )
+    if approval_ids:
+        db.execute(
+            delete(AIOperation).where(
+                AIOperation.approval_request_id.in_(approval_ids),
+                AIOperation.family_id == family_id,
+            )
+        )
+        db.execute(
+            delete(AIUserApproval).where(
+                AIUserApproval.approval_request_id.in_(approval_ids),
+                AIUserApproval.family_id == family_id,
+            )
+        )
+        db.execute(
+            delete(AIApprovalRequest).where(
+                AIApprovalRequest.id.in_(approval_ids),
+                AIApprovalRequest.family_id == family_id,
+            )
+        )
+    if draft_ids:
+        db.execute(delete(AITaskDraft).where(AITaskDraft.id.in_(draft_ids), AITaskDraft.family_id == family_id))
+    db.execute(delete(AIRunEvent).where(AIRunEvent.run_id == run_id, AIRunEvent.family_id == family_id))
+    db.execute(delete(AIMessage).where(AIMessage.conversation_id == conversation_id, AIMessage.family_id == family_id))
+    db.execute(
+        update(AIAgentRun)
+        .where(AIAgentRun.id == run_id, AIAgentRun.family_id == family_id)
+        .values(conversation_id=None, message_id=None)
+    )
+    db.execute(
+        update(AIRunLLMExchange)
+        .where(AIRunLLMExchange.run_id == run_id, AIRunLLMExchange.family_id == family_id)
+        .values(conversation_id=None)
+    )
+    db.execute(delete(AIConversation).where(AIConversation.id == conversation_id, AIConversation.family_id == family_id))
+    SQLAlchemyCheckpointSaver(db).delete_thread(conversation_id)
+
+
 @router.get("/api/ai/status", response_model=AIStatusResponse)
 def get_ai_status(auth: tuple = Depends(get_current_auth)) -> dict:
     _, _membership = auth
@@ -321,6 +380,8 @@ def chat_ai(
             len(payload.message or ""),
         )
         raise
+    if not payload.persist_history:
+        _discard_transient_chat_history(db, family_id=membership.family_id, response=response)
     commit_session(db)
     return response
 
@@ -351,6 +412,8 @@ def stream_chat_ai(
                 attachments=[attachment.model_dump() for attachment in payload.attachments],
             ):
                 if event == "response":
+                    if not payload.persist_history:
+                        _discard_transient_chat_history(db, family_id=membership.family_id, response=data)
                     commit_session(db)
                     run_id = data.get("run", {}).get("id") if isinstance(data.get("run"), dict) else None
                     live_ai_stream_cache.clear_run(run_id)

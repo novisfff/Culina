@@ -30,7 +30,7 @@ export function IngredientDestroyExpiredOverlay(props: IngredientDestroyExpiredO
     <WorkspaceModal
       title="销毁已过期批次"
       description="清零过期批次剩余量，历史记录会保留。"
-      closeLabel="×"
+      closeLabel="关闭"
       closeAriaLabel="关闭"
       className="workspace-modal-wide destroy-expired-modal"
       onClose={props.closeOverlay}

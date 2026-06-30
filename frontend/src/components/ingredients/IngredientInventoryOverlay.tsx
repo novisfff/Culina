@@ -64,7 +64,7 @@ export function IngredientInventoryOverlay(props: IngredientInventoryOverlayProp
     <WorkspaceModal
       title="登记这批库存"
       description="把这次买回来的这一批快速记下来。"
-      closeLabel="×"
+      closeLabel="关闭"
       closeAriaLabel="关闭"
       className="workspace-modal-wide inventory-restock-modal"
       onClose={props.closeOverlay}

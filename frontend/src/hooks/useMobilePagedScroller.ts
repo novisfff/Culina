@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState, type UIEvent } from 'react';
 
-export const MOBILE_PAGED_SCROLLER_PAGE_SIZE = 4;
-export const MOBILE_PAGED_SCROLLER_INITIAL_PAGE_COUNT = 2;
+export const MOBILE_PAGED_SCROLLER_PAGE_SIZE = 2;
+export const MOBILE_PAGED_SCROLLER_INITIAL_PAGE_COUNT = 3;
 
 export function getMobilePagedVisibleCount(
   itemCount: number,

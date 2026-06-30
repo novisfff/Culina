@@ -96,6 +96,10 @@ type CatalogPanelProps = {
   catalogStatusItems: CatalogStatusItem[];
   catalogStatusCounts: Record<CatalogStatusFilter, number>;
   filteredSummaries: IngredientSummaryViewModel[];
+  visibleFilteredSummaries: IngredientSummaryViewModel[];
+  hasMoreCatalogSummaries: boolean;
+  onLoadMoreCatalogSummaries: () => void;
+  catalogLoadMoreRef: RefObject<HTMLDivElement>;
   expandedCatalogIngredientId: string | null;
   catalogGridStyle: CSSProperties | undefined;
   onCatalogSearchChange: (value: string) => void;
@@ -219,7 +223,8 @@ export function IngredientCatalogPanel(props: CatalogPanelProps) {
       </section>
       <div ref={props.catalogMeasureRef} className="ingredient-grid ingredient-grid-catalog ingredients-catalog-grid" style={props.catalogGridStyle}>
         {props.filteredSummaries.length > 0 ? (
-          props.filteredSummaries.map((summary) => (
+          <>
+          {props.visibleFilteredSummaries.map((summary) => (
             <props.IngredientCatalogCard
               key={summary.ingredient.id}
               summary={summary}
@@ -231,7 +236,17 @@ export function IngredientCatalogPanel(props: CatalogPanelProps) {
               onHandleAlert={() => props.onOpenHandleAlert(summary)}
               onDetail={() => props.onOpenDetailView(summary.ingredient.id)}
             />
-          ))
+          ))}
+          <div className="paged-list-status" ref={props.catalogLoadMoreRef}>
+            {props.hasMoreCatalogSummaries ? (
+              <button className="paged-list-load-more" type="button" onClick={props.onLoadMoreCatalogSummaries}>
+                继续加载食材
+              </button>
+            ) : (
+              <span>已加载全部食材</span>
+            )}
+          </div>
+          </>
         ) : (
           <EmptyState
             title={props.summariesCount === 0 ? '还没有食材档案' : '没找到匹配的食材'}

@@ -143,9 +143,9 @@ class SkillDirectoryLoader:
         if any(definition.side_effect == "write" for definition in definitions):
             raise ValueError(f"Skill {manifest.key} must not expose write tools")
         if manifest.approval_policy == "none":
-            non_read = [definition.name for definition in definitions if definition.side_effect != "read"]
-            if non_read:
-                raise ValueError(f"Skill {manifest.key} exposes non-read tools without approval: {', '.join(non_read)}")
+            unsupported = [definition.name for definition in definitions if definition.side_effect not in {"read", "control"}]
+            if unsupported:
+                raise ValueError(f"Skill {manifest.key} exposes non-read/control tools without approval: {', '.join(unsupported)}")
             return
         draft_tools = [definition for definition in definitions if definition.side_effect == "draft"]
         if not draft_tools:
