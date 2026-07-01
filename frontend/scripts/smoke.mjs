@@ -208,6 +208,14 @@ const fixtures = {
   '/api/meal-logs': [],
   '/api/activity-logs': [],
   '/api/ai/conversations': [],
+  '/api/ai/status': {
+    enabled: true,
+    provider: 'openai-compatible',
+    model: 'smoke-model',
+    supports_vision: true,
+    status: 'ready',
+    detail: 'AI 已就绪。',
+  },
   '/api/media/ai-render/active': [],
   '/api/search/index-jobs/active': [],
 };
@@ -526,6 +534,51 @@ async function runResponsiveSmoke(browser, baseUrl, viewport, label) {
   await context.close();
 }
 
+async function runMobileAiSmoke(browser, baseUrl) {
+  const label = '668x844 AI 移动页';
+  const { context, page, assertClean } = await createPage(browser, { width: 668, height: 844 });
+  await page.goto(baseUrl, { waitUntil: 'domcontentloaded' });
+  await page.getByRole('button', { name: 'AI' }).first().click();
+  await expectVisibleText(page, 'AI 厨房助手', label);
+  await expectNoHorizontalOverflow(page, label);
+
+  const layout = await page.evaluate(() => {
+    const aiPage = document.querySelector('.ai-mobile-page');
+    const workspace = document.querySelector('.ai-workspace-shell');
+    const composerDock = document.querySelector('.ai-composer-dock');
+    const thread = document.querySelector('.ai-thread-scroll');
+    const aiPageRect = aiPage?.getBoundingClientRect();
+    const composerRect = composerDock?.getBoundingClientRect();
+    return {
+      viewportWidth: window.innerWidth,
+      clientWidth: document.documentElement.clientWidth,
+      aiPageWidth: aiPageRect?.width ?? 0,
+      aiPageLeft: aiPageRect?.left ?? 0,
+      workspaceDisplay: workspace ? window.getComputedStyle(workspace).display : '',
+      workspaceColumns: workspace ? window.getComputedStyle(workspace).gridTemplateColumns : '',
+      composerPosition: composerDock ? window.getComputedStyle(composerDock).position : '',
+      composerBottomGap: composerRect ? Math.round(window.innerHeight - composerRect.bottom) : null,
+      threadPaddingBottom: thread ? window.getComputedStyle(thread).paddingBottom : '',
+    };
+  });
+
+  if (Math.abs(layout.aiPageLeft) > 1 || layout.aiPageWidth < layout.clientWidth - 2) {
+    throw new Error(`${label} 未占满视口：${JSON.stringify(layout)}`);
+  }
+  if (layout.workspaceDisplay !== 'block') {
+    throw new Error(`${label} workspace 未切为单列：${JSON.stringify(layout)}`);
+  }
+  if (layout.composerPosition !== 'absolute' || layout.composerBottomGap !== 0) {
+    throw new Error(`${label} composer 不再是底部浮动层：${JSON.stringify(layout)}`);
+  }
+  if (!layout.threadPaddingBottom || Number.parseFloat(layout.threadPaddingBottom) < 64) {
+    throw new Error(`${label} 消息流未给浮动输入框留出滚动余量：${JSON.stringify(layout)}`);
+  }
+
+  assertClean();
+  await context.close();
+}
+
 async function runTabletLandscapeSmoke(browser, baseUrl) {
   const { context, page, assertClean } = await createPage(browser, { width: 1112, height: 834 });
   await page.goto(baseUrl, { waitUntil: 'domcontentloaded' });
@@ -708,10 +761,11 @@ async function main() {
     await runLoginSmoke(browser, preview.url);
     await runDesktopSmoke(browser, preview.url);
     await runResponsiveSmoke(browser, preview.url, { width: 390, height: 844 }, '390x844');
+    await runMobileAiSmoke(browser, preview.url);
     await runResponsiveSmoke(browser, preview.url, { width: 768, height: 1024 }, '768x1024');
     await runTabletLandscapeSmoke(browser, preview.url);
     await runTabletAirWorkspaceSmoke(browser, preview.url);
-    console.log('Smoke passed: login, desktop workspace tabs, 390x844, 768x1024, 1112x834 and 1180x820 responsive checks.');
+    console.log('Smoke passed: login, desktop workspace tabs, 390x844, 668x844 AI, 768x1024, 1112x834 and 1180x820 responsive checks.');
   } finally {
     try {
       await browser.close();
