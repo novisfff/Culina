@@ -12236,44 +12236,6 @@ button.ai-clarification-option:hover:not(:disabled) .ai-clarification-option-ind
   border-radius: 50%;
 }
 
-@media (max-width: 767px) {
-  .app-shell-ai .ai-composer-dock {
-    padding: 4px 10px calc(8px + var(--ai-mobile-composer-safe-bottom, env(safe-area-inset-bottom, 0px))) !important;
-  }
-
-  .app-shell-ai .ai-composer {
-    align-items: center;
-    gap: 6px;
-    min-height: 44px;
-    padding: 3px 4px 3px 10px;
-  }
-
-  .app-shell-ai .ai-composer textarea.text-input,
-  .app-shell-ai .ai-composer textarea {
-    height: 24px;
-    min-height: 24px;
-    max-height: 104px;
-    padding: 2px 2px;
-    font-size: 16px;
-  }
-
-  .app-shell-ai .ai-attachment-button,
-  .app-shell-ai .ai-send-button {
-    flex-basis: 34px;
-    width: 34px;
-    height: 34px;
-    min-width: 34px;
-    min-height: 34px;
-    max-width: 34px;
-    max-height: 34px;
-  }
-
-  .app-shell-ai .ai-attachment-button svg {
-    width: 18px;
-    height: 18px;
-  }
-}
-
 .ai-message-image-part {
   width: 100%;
 }

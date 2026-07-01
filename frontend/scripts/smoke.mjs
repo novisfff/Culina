@@ -547,8 +547,10 @@ async function runMobileAiSmoke(browser, baseUrl) {
     const workspace = document.querySelector('.ai-workspace-shell');
     const composerDock = document.querySelector('.ai-composer-dock');
     const thread = document.querySelector('.ai-thread-scroll');
+    const composer = document.querySelector('.ai-composer');
     const aiPageRect = aiPage?.getBoundingClientRect();
     const composerRect = composerDock?.getBoundingClientRect();
+    const composerInnerRect = composer?.getBoundingClientRect();
     return {
       viewportWidth: window.innerWidth,
       clientWidth: document.documentElement.clientWidth,
@@ -558,6 +560,8 @@ async function runMobileAiSmoke(browser, baseUrl) {
       workspaceColumns: workspace ? window.getComputedStyle(workspace).gridTemplateColumns : '',
       composerPosition: composerDock ? window.getComputedStyle(composerDock).position : '',
       composerBottomGap: composerRect ? Math.round(window.innerHeight - composerRect.bottom) : null,
+      composerWidth: composerInnerRect ? Math.round(composerInnerRect.width) : 0,
+      composerHeight: composerInnerRect ? Math.round(composerInnerRect.height) : 0,
       threadPaddingBottom: thread ? window.getComputedStyle(thread).paddingBottom : '',
     };
   });
@@ -570,6 +574,9 @@ async function runMobileAiSmoke(browser, baseUrl) {
   }
   if (layout.composerPosition !== 'absolute' || layout.composerBottomGap !== 0) {
     throw new Error(`${label} composer 不再是底部浮动层：${JSON.stringify(layout)}`);
+  }
+  if (layout.composerWidth < 430 || layout.composerHeight < 52 || layout.composerHeight > 72) {
+    throw new Error(`${label} composer 尺寸异常：${JSON.stringify(layout)}`);
   }
   if (!layout.threadPaddingBottom || Number.parseFloat(layout.threadPaddingBottom) < 64) {
     throw new Error(`${label} 消息流未给浮动输入框留出滚动余量：${JSON.stringify(layout)}`);
