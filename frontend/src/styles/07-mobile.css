@@ -4418,10 +4418,24 @@
   }
 
   .app-shell:has(.recipe-workspace-cook-mode) {
+    height: var(--app-visual-viewport-height, 100dvh);
+    min-height: 0;
+    max-height: var(--app-visual-viewport-height, 100dvh);
     padding: 0;
     overflow-x: hidden;
-    overflow-y: auto;
+    overflow-y: hidden;
     overscroll-behavior-x: none;
+  }
+
+  @supports selector(:has(*)) {
+    html:has(.recipe-workspace-cook-mode),
+    body:has(.recipe-workspace-cook-mode),
+    #root:has(.recipe-workspace-cook-mode) {
+      height: var(--app-visual-viewport-height, 100dvh);
+      min-height: 0;
+      overflow: hidden;
+      overscroll-behavior: none;
+    }
   }
 
   @supports (overflow: clip) {
@@ -4498,8 +4512,9 @@
 
   .app-frame:has(.recipe-workspace-cook-mode) {
     display: block;
-    min-height: auto;
-    overflow: visible;
+    height: 100%;
+    min-height: 0;
+    overflow: hidden;
   }
 
   .app-frame:has(.recipe-workspace-cook-mode) .sidebar-shell,
@@ -4512,10 +4527,10 @@
   .recipe-workspace.recipe-workspace-cook-mode {
     width: min(100%, 480px);
     margin: 0 auto;
-    min-height: auto;
-    height: auto;
-    max-height: none;
-    overflow: visible;
+    min-height: 0;
+    height: 100%;
+    max-height: 100%;
+    overflow: hidden;
   }
 
   .recipe-workspace.recipe-workspace-cook-mode {
@@ -4530,9 +4545,9 @@
     grid-template-rows: auto auto minmax(0, 1fr);
     gap: 0;
     width: 100%;
-    height: 100dvh;
-    max-height: 100dvh;
-    min-height: 100dvh;
+    height: var(--app-visual-viewport-height, 100dvh);
+    max-height: var(--app-visual-viewport-height, 100dvh);
+    min-height: 0;
     margin: 0 auto;
     padding: 0;
     overflow: hidden;
@@ -5071,7 +5086,7 @@
   .recipe-workspace-cook-mode .recipe-cook-ai-assistant {
     position: fixed;
     right: 16px;
-    bottom: calc(16px + env(safe-area-inset-bottom));
+    bottom: calc(16px + env(safe-area-inset-bottom) + var(--app-visual-viewport-bottom-inset, 0px));
     left: auto;
     z-index: 220;
     width: auto;
@@ -5085,7 +5100,7 @@
 
   .recipe-workspace-cook-mode .recipe-cook-ai-assistant.open {
     right: 10px;
-    bottom: calc(10px + env(safe-area-inset-bottom));
+    bottom: calc(10px + env(safe-area-inset-bottom) + var(--app-visual-viewport-bottom-inset, 0px));
     left: 10px;
     width: auto;
     max-width: 460px;

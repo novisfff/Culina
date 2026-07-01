@@ -95,6 +95,20 @@ describe('AiMobilePage viewport', () => {
       expect(page?.style.getPropertyValue('--ai-mobile-keyboard-inset')).toBe('380px');
       expect(page?.style.getPropertyValue('--ai-mobile-composer-height')).toBe('88px');
       expect(page?.style.getPropertyValue('--ai-mobile-composer-safe-bottom')).toBe('0px');
+      expect(page?.classList.contains('ai-mobile-keyboard-open')).toBe(true);
+
+      visualViewport.viewport.dispatchEvent(new Event('resize'));
+      rendered.container.querySelector<HTMLTextAreaElement>('.ai-composer textarea')?.blur();
+      Object.defineProperties(window.visualViewport as VisualViewport, {
+        height: { value: 900, writable: true, configurable: true },
+        offsetTop: { value: 0, writable: true, configurable: true },
+      });
+      visualViewport.viewport.dispatchEvent(new Event('resize'));
+      await waitForAsync(300);
+
+      expect(page?.style.getPropertyValue('--ai-mobile-keyboard-inset')).toBe('0px');
+      expect(page?.style.getPropertyValue('--ai-mobile-composer-safe-bottom')).toBe('env(safe-area-inset-bottom, 0px)');
+      expect(page?.classList.contains('ai-mobile-keyboard-open')).toBe(false);
     } finally {
       rendered?.unmount();
       visualViewport.restore();

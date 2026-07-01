@@ -108,6 +108,7 @@ function useAiMobileViewport(composerDockRef: RefObject<HTMLDivElement>) {
         const measuredComposerHeight = composerDockRef.current?.getBoundingClientRect().height ?? 0;
         const composerHeight = measuredComposerHeight > 0 ? measuredComposerHeight : 88;
 
+        page.classList.toggle('ai-mobile-keyboard-open', isKeyboardOpen);
         setPixelVariable(page, '--ai-mobile-viewport-height', viewportHeight || layoutHeight);
         setPixelVariable(page, '--ai-mobile-viewport-top', currentViewport?.offsetTop ?? 0);
         setPixelVariable(page, '--ai-mobile-keyboard-inset', keyboardInset);
@@ -156,6 +157,7 @@ function useAiMobileViewport(composerDockRef: RefObject<HTMLDivElement>) {
       page.style.removeProperty('--ai-mobile-keyboard-inset');
       page.style.removeProperty('--ai-mobile-composer-height');
       page.style.removeProperty('--ai-mobile-composer-safe-bottom');
+      page.classList.remove('ai-mobile-keyboard-open');
     };
   }, [composerDockRef]);
 

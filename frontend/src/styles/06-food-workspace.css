@@ -10866,14 +10866,29 @@ button.ai-clarification-option:hover:not(:disabled) .ai-clarification-option-ind
     --ai-mobile-viewport-height: 100dvh;
     --ai-mobile-viewport-top: 0px;
     position: fixed;
-    inset: 0;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: auto;
     width: 100%;
-    height: 100%;
-    min-height: 100%;
+    height: var(--app-visual-viewport-height, 100dvh);
+    min-height: 0;
+    max-height: var(--app-visual-viewport-height, 100dvh);
     overflow: hidden;
     overscroll-behavior: none;
     padding: 0;
     background: linear-gradient(180deg, #fffaf5 0%, #fffdfb 42%, #fff 100%);
+  }
+
+  @supports selector(:has(*)) {
+    html:has(.app-shell-ai),
+    body:has(.app-shell-ai),
+    #root:has(.app-shell-ai) {
+      height: var(--app-visual-viewport-height, 100dvh);
+      min-height: 0;
+      overflow: hidden;
+      overscroll-behavior: none;
+    }
   }
 
   .app-shell-ai .app-frame,
@@ -10896,15 +10911,14 @@ button.ai-clarification-option:hover:not(:disabled) .ai-clarification-option-ind
   }
 
   .ai-mobile-page {
-    display: block;
-    position: fixed;
-    top: var(--ai-mobile-viewport-top, 0px);
-    left: 0;
-    right: 0;
-    bottom: auto;
-    height: var(--ai-mobile-viewport-height, 100dvh);
+    display: flex;
+    flex-direction: column;
+    position: relative;
+    width: 100%;
+    height: 100%;
     min-height: 0;
     overflow: hidden;
+    overscroll-behavior: none;
     background: linear-gradient(180deg, #fffaf5 0%, #fffdfb 42%, #fff 100%);
   }
 
@@ -10923,10 +10937,8 @@ button.ai-clarification-option:hover:not(:disabled) .ai-clarification-option-ind
   }
 
   .ai-mobile-topbar {
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
+    position: relative;
+    flex: 0 0 var(--ai-mobile-header-height);
     z-index: 70;
     display: grid;
     grid-template-columns: 42px minmax(0, 1fr) auto;
@@ -11122,24 +11134,22 @@ button.ai-clarification-option:hover:not(:disabled) .ai-clarification-option-ind
   }
 
   .ai-thread-scroll {
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
+    position: relative;
+    flex: 1 1 auto;
+    width: 100%;
     min-height: 0;
     overflow-y: auto;
     overscroll-behavior: contain;
     -webkit-overflow-scrolling: touch;
     gap: 18px;
-    padding: calc(var(--ai-mobile-header-height) + 14px) 16px calc(var(--ai-mobile-composer-height, 88px) + 20px) !important;
+    padding: 14px 16px 20px !important;
     background: transparent;
   }
 
   .ai-mobile-page .ai-thread-follow-button {
-    position: absolute;
+    position: fixed;
     z-index: 64;
-    bottom: calc(var(--ai-mobile-composer-height, 88px) + 12px);
+    bottom: calc(var(--ai-mobile-composer-height, 88px) + var(--ai-mobile-composer-safe-bottom, env(safe-area-inset-bottom, 0px)) + 12px);
     min-height: 38px;
     padding-inline: 12px 14px;
   }
@@ -11455,10 +11465,11 @@ button.ai-clarification-option:hover:not(:disabled) .ai-clarification-option-ind
   }
 
   .ai-composer-dock {
-    position: absolute;
+    position: relative;
+    flex: 0 0 auto;
     left: 0;
     right: 0;
-    bottom: 0;
+    bottom: auto;
     z-index: 70;
     gap: 6px;
     border-top: none !important;
@@ -11534,7 +11545,11 @@ button.ai-clarification-option:hover:not(:disabled) .ai-clarification-option-ind
 
   .ai-mobile-history-root {
     position: fixed;
-    inset: 0;
+    top: 0;
+    right: 0;
+    bottom: auto;
+    left: 0;
+    height: var(--app-visual-viewport-height, 100dvh);
     z-index: 80;
     display: block;
   }
