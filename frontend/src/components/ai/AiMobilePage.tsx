@@ -109,20 +109,14 @@ function useAiMobileViewport(composerDockRef: RefObject<HTMLDivElement>) {
         const measuredComposerHeight = composerDockRef.current?.getBoundingClientRect().height ?? 0;
         const composerHeight = measuredComposerHeight > 0 ? measuredComposerHeight : 88;
 
-        if (isKeyboardOpen) {
-          setPixelVariable(page, '--ai-mobile-viewport-height', viewportHeight);
-          setPixelVariable(page, '--ai-mobile-viewport-top', currentViewport?.offsetTop ?? 0);
-        } else {
-          page.style.removeProperty('--ai-mobile-viewport-height');
-          page.style.removeProperty('--ai-mobile-viewport-top');
-        }
+        setPixelVariable(page, '--ai-mobile-viewport-height', isKeyboardOpen ? viewportHeight : Math.max(viewportHeight, layoutHeight));
+        setPixelVariable(page, '--ai-mobile-viewport-top', isKeyboardOpen ? currentViewport?.offsetTop ?? 0 : 0);
         setPixelVariable(page, '--ai-mobile-keyboard-inset', keyboardInset);
         setPixelVariable(page, '--ai-mobile-composer-height', composerHeight);
         page.style.setProperty(
           '--ai-mobile-composer-safe-bottom',
           isKeyboardOpen ? '0px' : 'env(safe-area-inset-bottom, 0px)',
         );
-        page.classList.toggle('ai-mobile-keyboard-open', isKeyboardOpen);
       });
     };
 
@@ -175,7 +169,6 @@ function useAiMobileViewport(composerDockRef: RefObject<HTMLDivElement>) {
       page.style.removeProperty('--ai-mobile-keyboard-inset');
       page.style.removeProperty('--ai-mobile-composer-height');
       page.style.removeProperty('--ai-mobile-composer-safe-bottom');
-      page.classList.remove('ai-mobile-keyboard-open');
     };
   }, [composerDockRef]);
 

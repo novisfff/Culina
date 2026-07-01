@@ -241,8 +241,6 @@ describe('AppShell mobile keyboard layout', () => {
       });
 
       expect(document.documentElement.classList.contains('app-mobile-keyboard-open')).toBe(false);
-      expect(document.documentElement.style.getPropertyValue('--app-visual-viewport-height')).toBe('');
-      expect(document.documentElement.style.getPropertyValue('--app-visual-viewport-top')).toBe('');
       expect(document.documentElement.style.getPropertyValue('--app-visual-viewport-bottom-inset')).toBe('0px');
     } finally {
       visualViewport.restore();
@@ -279,8 +277,6 @@ describe('AppShell mobile keyboard layout', () => {
       });
 
       expect(document.documentElement.classList.contains('app-mobile-keyboard-open')).toBe(false);
-      expect(document.documentElement.style.getPropertyValue('--app-visual-viewport-height')).toBe('');
-      expect(document.documentElement.style.getPropertyValue('--app-visual-viewport-top')).toBe('');
       expect(document.documentElement.style.getPropertyValue('--app-visual-viewport-bottom-inset')).toBe('0px');
     } finally {
       visualViewport.restore();
@@ -317,8 +313,7 @@ describe('AppShell mobile keyboard layout', () => {
       });
 
       expect(document.documentElement.classList.contains('app-mobile-keyboard-open')).toBe(false);
-      expect(document.documentElement.style.getPropertyValue('--app-visual-viewport-height')).toBe('');
-      expect(document.documentElement.style.getPropertyValue('--app-visual-viewport-top')).toBe('');
+      expect(document.documentElement.style.getPropertyValue('--app-visual-viewport-height')).toBe('900px');
       expect(document.documentElement.style.getPropertyValue('--app-visual-viewport-bottom-inset')).toBe('0px');
     } finally {
       visualViewport.restore();

@@ -71,16 +71,13 @@ function syncMobileVisualViewportMetrics() {
   const viewportOffsetTop = visualViewport?.offsetTop ?? 0;
   const coveredBottom = Math.max(0, layoutHeight - visualHeight - viewportOffsetTop);
   const isKeyboardOpen = coveredBottom > 80 && isTextEntryElement(document.activeElement);
+  const keyboardInset = isKeyboardOpen ? coveredBottom : 0;
+  const viewportHeight = isKeyboardOpen ? visualHeight : Math.max(layoutHeight, visualHeight);
+  const viewportTop = isKeyboardOpen ? viewportOffsetTop : 0;
 
-  if (isKeyboardOpen) {
-    root.style.setProperty(MOBILE_VIEWPORT_HEIGHT_VAR, viewportPixelValue(visualHeight));
-    root.style.setProperty(MOBILE_VIEWPORT_TOP_VAR, viewportPixelValue(viewportOffsetTop));
-    root.style.setProperty(MOBILE_VIEWPORT_BOTTOM_INSET_VAR, viewportPixelValue(coveredBottom));
-  } else {
-    root.style.removeProperty(MOBILE_VIEWPORT_HEIGHT_VAR);
-    root.style.removeProperty(MOBILE_VIEWPORT_TOP_VAR);
-    root.style.setProperty(MOBILE_VIEWPORT_BOTTOM_INSET_VAR, '0px');
-  }
+  root.style.setProperty(MOBILE_VIEWPORT_HEIGHT_VAR, viewportPixelValue(viewportHeight));
+  root.style.setProperty(MOBILE_VIEWPORT_TOP_VAR, viewportPixelValue(viewportTop));
+  root.style.setProperty(MOBILE_VIEWPORT_BOTTOM_INSET_VAR, viewportPixelValue(keyboardInset));
   root.classList.toggle(MOBILE_KEYBOARD_OPEN_CLASS, isKeyboardOpen);
 }
 
@@ -140,9 +137,6 @@ function useMobileVisualViewportMetrics(activeTab: TabKey) {
       document.removeEventListener('focusout', scheduleSettledSync);
       visualViewport?.removeEventListener('resize', scheduleSync);
       visualViewport?.removeEventListener('scroll', scheduleSync);
-      document.documentElement.style.removeProperty(MOBILE_VIEWPORT_HEIGHT_VAR);
-      document.documentElement.style.removeProperty(MOBILE_VIEWPORT_TOP_VAR);
-      document.documentElement.style.removeProperty(MOBILE_VIEWPORT_BOTTOM_INSET_VAR);
       document.documentElement.classList.remove(MOBILE_KEYBOARD_OPEN_CLASS);
     };
   }, [activeTab]);

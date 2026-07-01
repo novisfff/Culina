@@ -4530,19 +4530,12 @@
     grid-template-rows: auto auto minmax(0, 1fr);
     gap: 0;
     width: 100%;
-    height: auto;
-    max-height: none;
-    min-height: 100vh;
-    min-height: 100svh;
+    height: var(--app-visual-viewport-height, 100dvh);
+    max-height: var(--app-visual-viewport-height, 100dvh);
+    min-height: var(--app-visual-viewport-height, 100dvh);
     margin: 0 auto;
     padding: 0;
-    overflow: visible;
-  }
-
-  @supports (height: 100dvh) {
-    .recipe-workspace-cook-mode .recipe-cook-page {
-      min-height: max(100svh, 100dvh);
-    }
+    overflow: hidden;
   }
 
   .recipe-workspace-cook-mode .recipe-cook-header {
@@ -4732,7 +4725,7 @@
     display: block;
     flex: 1 1 auto;
     min-height: 0;
-    overflow: visible;
+    overflow-y: auto;
     -webkit-overflow-scrolling: touch;
   }
 
@@ -5107,16 +5100,6 @@
 
   .recipe-workspace-cook-mode .recipe-cook-ai-panel {
     height: 560px;
-    max-height: calc(100svh - 24px);
-  }
-
-  @supports (height: 100dvh) {
-    .recipe-workspace-cook-mode .recipe-cook-ai-panel {
-      max-height: max(calc(100svh - 24px), calc(100dvh - 24px));
-    }
-  }
-
-  .app-mobile-keyboard-open .recipe-workspace-cook-mode .recipe-cook-ai-panel {
     max-height: calc(var(--app-visual-viewport-height, 100dvh) - 24px);
   }
 
