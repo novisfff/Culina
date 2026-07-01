@@ -74,6 +74,11 @@ function syncMobileVisualViewportMetrics() {
   root.style.setProperty(MOBILE_VIEWPORT_HEIGHT_VAR, viewportPixelValue(viewportHeight));
   root.style.setProperty(MOBILE_VIEWPORT_BOTTOM_INSET_VAR, viewportPixelValue(keyboardInset));
   root.classList.toggle(MOBILE_KEYBOARD_OPEN_CLASS, isKeyboardOpen);
+
+  // Force document window scroll back to (0,0) to prevent iOS Safari keyboard layout offsets/blank gap
+  if (window.scrollY !== 0 || window.scrollX !== 0) {
+    window.scrollTo(0, 0);
+  }
 }
 
 function useMobileVisualViewportMetrics(activeTab: TabKey) {

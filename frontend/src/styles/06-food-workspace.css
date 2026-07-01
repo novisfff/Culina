@@ -10898,7 +10898,7 @@ button.ai-clarification-option:hover:not(:disabled) .ai-clarification-option-ind
   .ai-mobile-page {
     display: block;
     position: fixed;
-    top: var(--ai-mobile-viewport-top, 0px);
+    top: 0 !important;
     left: 0;
     right: 0;
     bottom: auto;

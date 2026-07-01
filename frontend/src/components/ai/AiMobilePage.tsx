@@ -116,6 +116,11 @@ function useAiMobileViewport(composerDockRef: RefObject<HTMLDivElement>) {
           '--ai-mobile-composer-safe-bottom',
           isKeyboardOpen ? '0px' : 'env(safe-area-inset-bottom, 0px)',
         );
+
+        // Force document window scroll back to (0,0) to prevent iOS Safari keyboard layout offsets/blank gap
+        if (window.scrollY !== 0 || window.scrollX !== 0) {
+          window.scrollTo(0, 0);
+        }
       });
     };
 
