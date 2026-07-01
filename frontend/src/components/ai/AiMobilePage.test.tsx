@@ -95,6 +95,15 @@ describe('AiMobilePage viewport', () => {
       expect(page?.style.getPropertyValue('--ai-mobile-keyboard-inset')).toBe('380px');
       expect(page?.style.getPropertyValue('--ai-mobile-composer-height')).toBe('88px');
       expect(page?.style.getPropertyValue('--ai-mobile-composer-safe-bottom')).toBe('0px');
+
+      rendered.container.querySelector<HTMLTextAreaElement>('.ai-composer textarea')?.blur();
+      visualViewport.viewport.dispatchEvent(new Event('resize'));
+      await waitForAsync(800);
+
+      expect(page?.style.getPropertyValue('--ai-mobile-viewport-height')).toBe('900px');
+      expect(page?.style.getPropertyValue('--ai-mobile-viewport-top')).toBe('0px');
+      expect(page?.style.getPropertyValue('--ai-mobile-keyboard-inset')).toBe('0px');
+      expect(page?.style.getPropertyValue('--ai-mobile-composer-safe-bottom')).toBe('env(safe-area-inset-bottom, 0px)');
     } finally {
       rendered?.unmount();
       visualViewport.restore();
