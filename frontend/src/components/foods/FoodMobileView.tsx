@@ -1,12 +1,17 @@
-import type { CompositionEventHandler, ReactNode } from 'react';
+import type { CompositionEventHandler, KeyboardEvent, ReactNode } from 'react';
 import type { Food, FoodRecommendationItem, MealLog, MealType, MediaAsset, Recipe } from '../../api/types';
 import { buildMediaSizes, buildMediaSrcSet, resolveMediaUrl } from '../../lib/assets';
 import { FOOD_TYPE_LABELS, MEAL_TYPE_LABELS, getFoodCoverAsset } from '../../lib/ui';
 import { chunkMobilePagedItems, useMobilePagedScroller } from '../../hooks/useMobilePagedScroller';
 import { MediaWithPlaceholder } from '../MediaPlaceholder';
 import { Badge, EmptyState, SearchLoadingIndicator } from '../ui-kit';
+import { focusMobileInput } from '../../lib/mobileFocus';
 import { resolveMobileSceneCoverSource } from './FoodMobileSceneModel';
 import { FoodUiIcon } from './FoodWorkspacePrimitives';
+
+function focusMobileFoodSearch() {
+  focusMobileInput('mobile-food-search', { containerSelector: '.mobile-food-library-filters' });
+}
 
 type MobileRecommendationItem = {
   food: Food;
@@ -79,6 +84,14 @@ export function FoodMobileView(props: {
   });
   const mobileLibraryFoodPages = chunkMobilePagedItems(props.mobileLibraryFoods, libraryPager.visiblePageCount);
 
+  function handleRecommendationCardKeyDown(event: KeyboardEvent<HTMLElement>, food: Food) {
+    if (event.key !== 'Enter' && event.key !== ' ') {
+      return;
+    }
+    event.preventDefault();
+    props.onOpenDetail(food);
+  }
+
   return (
     <section className="mobile-food-page" aria-label="手机食物页">
       <div className="mobile-food-topbar">
@@ -92,7 +105,7 @@ export function FoodMobileView(props: {
           </span>
         </div>
         <div className="mobile-food-top-actions">
-          <button type="button" aria-label="聚焦搜索" onClick={() => document.getElementById('mobile-food-search')?.focus()}>
+          <button type="button" aria-label="聚焦搜索" onClick={focusMobileFoodSearch}>
             <FoodUiIcon name="search" />
           </button>
           {props.notificationCenter ?? (
@@ -122,7 +135,15 @@ export function FoodMobileView(props: {
               const foodCoverAsset = getFoodCoverAsset(item.food, props.recipes);
               const foodCoverUrl = resolveMediaUrl(foodCoverAsset, 'card');
               return (
-                <article key={item.food.id} className="mobile-dashboard-food-card">
+                <article
+                  key={item.food.id}
+                  className="mobile-dashboard-food-card"
+                  role="button"
+                  tabIndex={0}
+                  aria-label={`查看食物详情：${item.food.name}`}
+                  onClick={() => props.onOpenDetail(item.food)}
+                  onKeyDown={(event) => handleRecommendationCardKeyDown(event, item.food)}
+                >
                   <div className="mobile-dashboard-food-cover">
                     <MediaWithPlaceholder src={foodCoverUrl} alt="" />
                   </div>
@@ -138,16 +159,19 @@ export function FoodMobileView(props: {
                         className="mobile-dashboard-primary compact"
                         type="button"
                         disabled={props.isQuickAdding}
-                        onClick={() => props.onHandleRecommendationPrimaryAction(item)}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          props.onHandleRecommendationPrimaryAction(item);
+                        }}
                       >
                         {props.getRecommendationPrimaryActionLabel(item)}
                       </button>
-                      <button type="button" onClick={() => props.onOpenDetail(item.food)} aria-label={`查看食物：${item.food.name}`}>
-                        <FoodUiIcon name="list" />
-                      </button>
                       <button
                         type="button"
-                        onClick={() => props.onOpenPlanDialog(item.food)}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          props.onOpenPlanDialog(item.food);
+                        }}
                         aria-label={`加入菜单：${item.food.name}`}
                       >
                         <FoodUiIcon name="calendar" />

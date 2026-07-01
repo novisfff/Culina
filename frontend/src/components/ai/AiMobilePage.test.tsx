@@ -17,12 +17,15 @@ function mockVisualViewport({ height, offsetTop }: { height: number; offsetTop: 
   });
   Object.defineProperty(window, 'visualViewport', { value: viewport, configurable: true });
 
-  return () => {
-    if (originalDescriptor) {
-      Object.defineProperty(window, 'visualViewport', originalDescriptor);
-    } else {
-      delete (window as unknown as Record<string, unknown>).visualViewport;
-    }
+  return {
+    viewport,
+    restore() {
+      if (originalDescriptor) {
+        Object.defineProperty(window, 'visualViewport', originalDescriptor);
+      } else {
+        delete (window as unknown as Record<string, unknown>).visualViewport;
+      }
+    },
   };
 }
 
@@ -31,8 +34,8 @@ afterEach(() => {
 });
 
 describe('AiMobilePage viewport', () => {
-  it('keeps the AI page full height while tracking the Safari keyboard inset', async () => {
-    const restoreVisualViewport = mockVisualViewport({ height: 520, offsetTop: 0 });
+  it('anchors the AI page to the Safari visual viewport while tracking the keyboard inset', async () => {
+    const visualViewport = mockVisualViewport({ height: 520, offsetTop: 0 });
     vi.spyOn(window, 'innerHeight', 'get').mockReturnValue(900);
     let rendered: Awaited<ReturnType<typeof renderWithQuery>> | null = null;
     try {
@@ -82,16 +85,19 @@ describe('AiMobilePage viewport', () => {
       );
 
       await waitForAsync(30);
+      rendered.container.querySelector<HTMLTextAreaElement>('.ai-composer textarea')?.focus();
+      visualViewport.viewport.dispatchEvent(new Event('resize'));
+      await waitForAsync(300);
 
       const page = rendered.container.querySelector<HTMLElement>('.ai-mobile-page');
-      expect(page?.style.getPropertyValue('--ai-mobile-viewport-height')).toBe('900px');
+      expect(page?.style.getPropertyValue('--ai-mobile-viewport-height')).toBe('520px');
       expect(page?.style.getPropertyValue('--ai-mobile-viewport-top')).toBe('0px');
       expect(page?.style.getPropertyValue('--ai-mobile-keyboard-inset')).toBe('380px');
       expect(page?.style.getPropertyValue('--ai-mobile-composer-height')).toBe('88px');
       expect(page?.style.getPropertyValue('--ai-mobile-composer-safe-bottom')).toBe('0px');
     } finally {
       rendered?.unmount();
-      restoreVisualViewport();
+      visualViewport.restore();
     }
   });
 });

@@ -10,6 +10,16 @@ describe('queryKeys', () => {
       '2026-06-07',
       '晚餐',
     ]);
+    expect(queryKeys.activityLogList({ actor_id: 'user-1', limit: 50, offset: 0 })).toEqual([
+      'activity-logs',
+      '',
+      '',
+      'user-1',
+      '',
+      '',
+      50,
+      0,
+    ]);
   });
 
   it('sorts global search scopes without mutating the input', () => {

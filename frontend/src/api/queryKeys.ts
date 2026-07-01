@@ -24,6 +24,25 @@ export const queryKeys = {
     ['search', query.trim(), [...scopes].sort().join(','), limit, offset] as const,
   mealLogs: ['meal-logs'] as const,
   activityLogs: ['activity-logs'] as const,
+  activityLogList: (params: {
+    start_date?: string;
+    end_date?: string;
+    actor_id?: string;
+    action?: string;
+    entity_type?: string;
+    limit?: number;
+    offset?: number;
+  } = {}) =>
+    [
+      'activity-logs',
+      params.start_date ?? '',
+      params.end_date ?? '',
+      params.actor_id ?? '',
+      params.action ?? '',
+      params.entity_type ?? '',
+      params.limit ?? '',
+      params.offset ?? 0,
+    ] as const,
   aiStatus: ['ai-status'] as const,
   aiImageJobs: ['ai-image-jobs'] as const,
   searchIndexJobs: ['search-index-jobs'] as const,

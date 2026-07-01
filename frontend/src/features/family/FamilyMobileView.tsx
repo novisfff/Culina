@@ -22,6 +22,7 @@ export function FamilyMobileView(props: {
   resolveAssetUrl: (url?: string) => string | undefined;
   onOverlayChange: (mode: FamilyOverlayMode) => void;
   onNavigate: (tab: 'ingredients' | 'logs') => void;
+  onActivityViewerOpen: () => void;
   onMemberEdit: (member: Member) => void;
 }) {
   return (
@@ -162,7 +163,7 @@ export function FamilyMobileView(props: {
               <Avatar label={member.display_name} seed={member.avatar_seed} imageUrl={member.avatar_image?.url} large />
               <div>
                 <strong>{member.display_name}</strong>
-                <span>{member.role === 'Owner' ? 'Owner' : member.id === props.currentUser?.id ? '这是你' : '成员'} · {member.username}</span>
+                <span>{member.role === 'Owner' ? '主理人' : member.id === props.currentUser?.id ? '这是你' : '成员'} · {member.username}</span>
                 <small>{member.email ?? member.phone ?? '等待补充联系信息'}</small>
               </div>
               {props.isOwner ? (
@@ -182,7 +183,7 @@ export function FamilyMobileView(props: {
       <section id="mobile-family-activity" className="mobile-family-panel">
         <div className="mobile-family-section-head">
           <h2>家庭活动</h2>
-          <button type="button" onClick={() => props.onNavigate('logs')}>
+          <button type="button" onClick={props.onActivityViewerOpen}>
             全部
             <DashboardIcon name="list" />
           </button>
@@ -236,7 +237,7 @@ export function FamilyMobileView(props: {
             {props.familyOwnerMember && (
               <button type="button" onClick={() => props.onOverlayChange('profile')}>
                 <span><DashboardIcon name="shield" /></span>
-                <strong>Owner 管理家庭资料</strong>
+                <strong>主理人管理家庭资料</strong>
                 <small>{props.familyOwnerMember.display_name} · {props.familyOwnerMember.username}</small>
               </button>
             )}

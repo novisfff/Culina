@@ -259,6 +259,7 @@
   box-shadow: none;
   color: #35261f;
   font: inherit;
+  font-size: 1rem;
   font-weight: 750;
   appearance: none;
 }
@@ -1616,7 +1617,7 @@
     min-height: 48px;
     padding-left: 42px;
     border-radius: 18px;
-    font-size: 0.94rem;
+    font-size: 1rem;
   }
 
   .ingredients-catalog-search-field {
@@ -4103,6 +4104,7 @@
   height: 46px !important;
   border-radius: 18px !important;
   border-color: rgba(92, 67, 48, 0.11);
+  font-size: 1rem;
   box-shadow: none;
 }
 
@@ -6828,9 +6830,30 @@
     grid-template-columns: 1fr;
   }
 
-  .recipe-plan-detail-card,
+  .recipe-plan-detail-card {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    min-height: 240px;
+    padding: 0;
+    overflow: hidden;
+    border-radius: 20px;
+    border: 1px solid rgba(228, 172, 133, 0.42);
+    box-shadow: 0 12px 28px rgba(74, 54, 40, 0.08);
+  }
+
   .recipe-plan-detail-actions {
     grid-template-columns: 1fr;
+  }
+
+  .recipe-plan-detail-cover {
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    margin: 0;
+    width: 100%;
+    height: 100%;
   }
 
   .recipe-plan-detail-cover,
@@ -6838,7 +6861,40 @@
   .recipe-plan-detail-cover img,
   .recipe-plan-detail-cover .recipe-cover-empty,
   .recipe-plan-detail-cover .recipe-plan-cover-empty {
-    height: 150px;
+    width: 100%;
+    height: 100% !important;
+    border-radius: 0 !important;
+    object-fit: cover;
+  }
+
+  .recipe-plan-detail-summary {
+    position: relative;
+    z-index: 2;
+    padding: 16px;
+    background: linear-gradient(to bottom, rgba(32, 23, 19, 0) 0%, rgba(32, 23, 19, 0.08) 25%, rgba(32, 23, 19, 0.28) 50%, rgba(32, 23, 19, 0.58) 75%, rgba(32, 23, 19, 0.82) 90%, rgba(32, 23, 19, 0.9) 100%);
+    box-sizing: border-box;
+    width: 100%;
+    gap: 8px;
+  }
+
+  .recipe-plan-detail-summary strong {
+    color: #ffffff !important;
+    text-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
+  }
+
+  .recipe-plan-detail-summary p {
+    color: rgba(255, 255, 255, 0.82) !important;
+  }
+
+  .recipe-plan-detail-meta span {
+    background: rgba(255, 255, 255, 0.92) !important;
+    color: #2f251e !important;
+    border: 0 !important;
+    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1) !important;
+  }
+
+  .recipe-plan-detail-meta svg {
+    color: #5c4738 !important;
   }
 }
 
@@ -6932,6 +6988,7 @@
 .recipe-ingredient-resolution-search-input .text-input {
   width: 100%;
   padding-right: 42px;
+  font-size: 1rem;
 }
 
 .recipe-ingredient-resolution-search-input .search-loading-indicator {

@@ -6,6 +6,7 @@ import type {
   IngredientUnitConversion,
   InventoryItem,
   InventoryStatus,
+  ShoppingListItem,
 } from '../../api/types';
 import { addDateKeyDays } from '../../lib/date';
 import { emptyImages, todayKey } from '../../lib/ui';
@@ -176,6 +177,15 @@ export function buildShoppingForm(ingredient?: Ingredient, reason = ''): Shoppin
     quantity: '1',
     unit: resolvePreferredIngredientUnit(ingredient, ingredient?.default_unit) || '个',
     reason,
+  };
+}
+
+export function buildShoppingFormFromItem(item: ShoppingListItem, ingredient?: Ingredient | null): ShoppingDialogFormState {
+  return {
+    title: item.title,
+    quantity: formatNumericString(item.quantity),
+    unit: resolvePreferredIngredientUnit(ingredient ?? undefined, item.unit) || item.unit || ingredient?.default_unit || '个',
+    reason: item.reason,
   };
 }
 

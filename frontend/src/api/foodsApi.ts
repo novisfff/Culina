@@ -1,6 +1,7 @@
 import { request } from './request';
 import type {
   ActivityLog,
+  ActivityLogQuery,
   CreateFoodPlanItemPayload,
   Food,
   FoodPlanItem,
@@ -118,5 +119,16 @@ export const foodsApi = {
       method: 'POST',
       body: JSON.stringify(payload),
     }),
-  getActivityLogs: () => request<ActivityLog[]>('/api/activity-logs'),
+  getActivityLogs: (params: ActivityLogQuery = {}) => {
+    const search = new URLSearchParams();
+    if (params.start_date) search.set('start_date', params.start_date);
+    if (params.end_date) search.set('end_date', params.end_date);
+    if (params.actor_id) search.set('actor_id', params.actor_id);
+    if (params.action) search.set('action', params.action);
+    if (params.entity_type) search.set('entity_type', params.entity_type);
+    if (params.limit !== undefined) search.set('limit', String(params.limit));
+    if (params.offset !== undefined) search.set('offset', String(params.offset));
+    const suffix = search.size > 0 ? `?${search.toString()}` : '';
+    return request<ActivityLog[]>(`/api/activity-logs${suffix}`);
+  },
 };

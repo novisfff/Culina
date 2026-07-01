@@ -50,7 +50,7 @@ export function RecipeShoppingDialog(props: RecipeShoppingDialogProps) {
         title="加入采购清单"
         description={props.card.recipe.title}
         eyebrow="采购确认"
-        closeLabel="×"
+        closeLabel="关闭"
         closeAriaLabel="关闭采购确认"
         onClose={props.onClose}
         className="recipe-shopping-modal"

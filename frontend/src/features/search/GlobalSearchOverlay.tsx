@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import { createPortal } from 'react-dom';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { api } from '../../api/client';
@@ -82,10 +82,9 @@ export function GlobalSearchOverlay(props: Props) {
   const searchValue = useDebouncedSearchValue(query, { isComposing: searchComposition.isComposing });
   const trimmedQuery = query.trim();
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!props.open) return;
-    const timer = window.setTimeout(() => inputRef.current?.focus(), 0);
-    return () => window.clearTimeout(timer);
+    inputRef.current?.focus({ preventScroll: true });
   }, [props.open]);
 
   useEffect(() => {
@@ -134,6 +133,7 @@ export function GlobalSearchOverlay(props: Props) {
           </span>
           <input
             ref={inputRef}
+            autoFocus
             value={query}
             placeholder="搜索食材、食物、菜谱、餐食计划"
             aria-label="搜索食材、食物、菜谱、餐食计划"

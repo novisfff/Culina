@@ -304,9 +304,7 @@ function WorkspaceOverlayShell(props: {
 
   function handleDragStart(event: ReactPointerEvent<HTMLDivElement>) {
     const panel = panelRef.current;
-    const root = panel?.closest(
-      '.home-dashboard-overlay-root, .food-workspace-overlay-root, .recipe-workspace-overlay-root, .ingredient-workspace-overlay-root, .family-settings-overlay-root, .meal-log-overlay-root'
-    );
+    const root = panel?.closest('.workspace-overlay-root');
     if (!panel || !root || !window.matchMedia('(max-width: 767px)').matches) {
       return;
     }
@@ -336,7 +334,7 @@ function WorkspaceOverlayShell(props: {
   return (
     <section
       ref={panelRef}
-      className={props.className ? `${shellClassName} workspace-overlay-panel ${props.className}` : `${shellClassName} workspace-overlay-panel`}
+      className={props.className ? `${shellClassName} workspace-overlay-panel workspace-mobile-sheet ${props.className}` : `${shellClassName} workspace-overlay-panel workspace-mobile-sheet`}
       onClick={(event) => event.stopPropagation()}
     >
       <div

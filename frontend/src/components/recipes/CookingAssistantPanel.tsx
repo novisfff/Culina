@@ -163,11 +163,14 @@ export function CookingAssistantPanel({
       <div className="recipe-cook-ai-panel" aria-hidden={!assistantState.isOpen || assistantState.isClosing}>
         <div
           className="recipe-cook-ai-drag-bar"
-          onPointerDown={assistantState.startFloatingDrag}
+          onPointerDown={(event) => {
+            assistantState.startMobileSheetDrag(event);
+            assistantState.startFloatingDrag(event);
+          }}
           onPointerMove={assistantState.moveFloatingDrag}
           onPointerUp={assistantState.endFloatingDrag}
           onPointerCancel={assistantState.endFloatingDrag}
-          aria-label="拖动小灶窗口"
+          aria-label="拖动小灶窗口，向下拖动可收起"
         />
         <div className="recipe-cook-ai-head">
           <div className="recipe-cook-ai-head-logo">

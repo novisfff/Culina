@@ -6,6 +6,7 @@ import {
   buildConsumeUnitOptions,
   buildInventoryForm,
   buildShoppingForm,
+  buildShoppingFormFromItem,
   defaultConsumeForm,
   formatNumericString,
   parsePositiveNumber,
@@ -32,6 +33,7 @@ export function useIngredientOverlayState(args: UseIngredientOverlayStateArgs) {
   );
   const [consumeForm, setConsumeForm] = useState<ConsumeDialogFormState>(defaultConsumeForm());
   const [shoppingForm, setShoppingForm] = useState<ShoppingDialogFormState>(buildShoppingForm());
+  const [editingShoppingItemId, setEditingShoppingItemId] = useState<string | null>(null);
   const [pendingShoppingToComplete, setPendingShoppingToComplete] = useState<PendingShoppingCompletion | null>(null);
   const [destroyExpiredIngredientId, setDestroyExpiredIngredientId] = useState<string | null>(null);
   const [inventoryAdvancedOpen, setInventoryAdvancedOpen] = useState(false);
@@ -85,6 +87,7 @@ export function useIngredientOverlayState(args: UseIngredientOverlayStateArgs) {
       return;
     }
     setPendingShoppingToComplete(null);
+    setEditingShoppingItemId(null);
     setDestroyExpiredIngredientId(null);
     setInventoryForm(
       buildInventoryForm(args.ingredientOptions, ingredientId, {
@@ -119,6 +122,7 @@ export function useIngredientOverlayState(args: UseIngredientOverlayStateArgs) {
       return;
     }
     setPendingShoppingToComplete(null);
+    setEditingShoppingItemId(null);
     setDestroyExpiredIngredientId(null);
     setConsumeForm(buildConsumeFormForIngredient(ingredientId));
     setOverlayMode('consume');
@@ -157,10 +161,22 @@ export function useIngredientOverlayState(args: UseIngredientOverlayStateArgs) {
     setOverlayMode('inventory');
   }
 
-  function openShoppingOverlay(options?: { ingredient?: Ingredient; reason?: string }) {
+  function openShoppingOverlay(options?: { ingredient?: Ingredient; reason?: string; shoppingItem?: ShoppingListItem }) {
     setPendingShoppingToComplete(null);
     setDestroyExpiredIngredientId(null);
-    setShoppingForm(buildShoppingForm(options?.ingredient, options?.reason));
+    if (options?.shoppingItem) {
+      const matchedIngredient =
+        (options.shoppingItem.ingredient_id
+          ? args.ingredientOptions.find((ingredient) => ingredient.id === options.shoppingItem?.ingredient_id) ?? null
+          : null) ??
+        args.ingredientOptions.find((ingredient) => ingredient.name === options.shoppingItem?.title.trim()) ??
+        null;
+      setEditingShoppingItemId(options.shoppingItem.id);
+      setShoppingForm(buildShoppingFormFromItem(options.shoppingItem, matchedIngredient));
+    } else {
+      setEditingShoppingItemId(null);
+      setShoppingForm(buildShoppingForm(options?.ingredient, options?.reason));
+    }
     setOverlayMode('shopping');
   }
 
@@ -170,6 +186,7 @@ export function useIngredientOverlayState(args: UseIngredientOverlayStateArgs) {
       return;
     }
     setPendingShoppingToComplete(null);
+    setEditingShoppingItemId(null);
     setDestroyExpiredIngredientId(ingredientId);
     setOverlayMode('destroyExpired');
   }
@@ -177,6 +194,7 @@ export function useIngredientOverlayState(args: UseIngredientOverlayStateArgs) {
   function closeOverlay() {
     setOverlayMode(null);
     setPendingShoppingToComplete(null);
+    setEditingShoppingItemId(null);
     setDestroyExpiredIngredientId(null);
     setInventoryAdvancedOpen(false);
     setConsumeForm(defaultConsumeForm());
@@ -191,6 +209,7 @@ export function useIngredientOverlayState(args: UseIngredientOverlayStateArgs) {
     setConsumeForm,
     shoppingForm,
     setShoppingForm,
+    editingShoppingItemId,
     pendingShoppingToComplete,
     destroyExpiredIngredientId,
     inventoryAdvancedOpen,

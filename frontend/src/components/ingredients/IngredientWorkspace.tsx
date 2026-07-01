@@ -47,6 +47,7 @@ import {
   ActionButton,
   Badge,
   SectionHeading,
+  WorkspaceDrawer,
   WorkspaceModal,
 } from '../ui-kit';
 import {
@@ -207,7 +208,20 @@ type IngredientWorkspaceProps = {
     display_label?: string | null;
     reason: string;
   }) => Promise<ShoppingListItem>;
-  updateShoppingItem: (payload: { itemId: string; done: boolean }) => Promise<ShoppingListItem>;
+  updateShoppingItem: (payload: {
+    itemId: string;
+    payload: {
+      title?: string;
+      quantity?: number | null;
+      unit?: string | null;
+      ingredient_id?: string | null;
+      quantity_mode?: ShoppingListItem['quantity_mode'];
+      display_label?: string | null;
+      reason?: string;
+      done?: boolean;
+    };
+  }) => Promise<ShoppingListItem>;
+  deleteShoppingItem: (itemId: string) => Promise<void>;
   isCreatingIngredient?: boolean;
   isUpdatingIngredient?: boolean;
   isCreatingInventory?: boolean;
@@ -1825,6 +1839,7 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
     setConsumeForm,
     shoppingForm,
     setShoppingForm,
+    editingShoppingItemId,
     pendingShoppingToComplete,
     destroyExpiredIngredientId,
     inventoryAdvancedOpen,
@@ -1885,6 +1900,7 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
     consumeForm,
     shoppingForm,
     setShoppingForm,
+    editingShoppingItemId,
     pendingShoppingToComplete,
     destroyExpiredIngredientId,
     selectedInventoryIngredient,
@@ -2090,6 +2106,7 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
       showCompletedShopping={showCompletedShopping}
       setShowCompletedShopping={setShowCompletedShopping}
       onUpdateShoppingItem={props.updateShoppingItem}
+      onDeleteShoppingItem={props.deleteShoppingItem}
       ShoppingWorkRow={ShoppingWorkRow}
       ShoppingHistoryRow={ShoppingHistoryRow}
       mobileDetailPopover={mobileDetailPopover}
@@ -2155,20 +2172,25 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
         <div className="ingredients-detail-mobile-only">
           {renderIngredientHubPage(
             <div
-              className="mobile-ingredient-detail-popover-root"
-              role="dialog"
-              aria-modal="true"
-              aria-label={`${selectedIngredient.ingredient.name}食材详情`}
+              className="workspace-overlay-root ingredient-workspace-overlay-root mobile-ingredient-detail-popover-root"
             >
               <button
-                className="mobile-ingredient-detail-popover-backdrop"
+                className="workspace-overlay-backdrop mobile-ingredient-detail-popover-backdrop"
                 type="button"
                 onClick={goBackToWorkspace}
                 aria-label="关闭食材详情"
               />
-              <div className="mobile-ingredient-detail-popover-panel">
+              <WorkspaceDrawer
+                eyebrow={selectedIngredient.ingredient.category || '食材'}
+                title={selectedIngredient.ingredient.name}
+                description={selectedIngredient.ingredient.notes || `适合做${selectedIngredient.recipeReferences.slice(0, 2).map((recipe) => recipe.title).join('、') || '日常菜'}`}
+                closeLabel="关闭"
+                closeAriaLabel="关闭食材详情"
+                className="mobile-ingredient-detail-popover-panel ingredient-detail-drawer"
+                onClose={goBackToWorkspace}
+              >
                 <IngredientDetailView {...detailViewProps} />
-              </div>
+              </WorkspaceDrawer>
             </div>
           )}
         </div>

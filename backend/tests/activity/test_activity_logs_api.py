@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 from dataclasses import dataclass
+from datetime import datetime, timezone
 
 import pytest
 from fastapi.testclient import TestClient
@@ -48,6 +49,9 @@ def activity_api_context() -> Iterator[ActivityApiContext]:
     )
 
     with SessionLocal() as db:
+        older_time = datetime(2026, 6, 28, 9, 0, tzinfo=timezone.utc)
+        recent_time = datetime(2026, 7, 1, 10, 30, tzinfo=timezone.utc)
+        other_time = datetime(2026, 7, 2, 8, 0, tzinfo=timezone.utc)
         family = Family(id="family-activity", name="活动家庭", motto="", location="")
         other_family = Family(id="family-other", name="其他家庭", motto="", location="")
         user = User(id="user-activity", username="activity-user", display_name="活动用户", avatar_seed="", is_active=True)
@@ -74,6 +78,7 @@ def activity_api_context() -> Iterator[ActivityApiContext]:
             entity_type="Family",
             entity_id=family.id,
             summary="更新家庭信息 活动家庭",
+            created_at=recent_time,
         )
         external_actor_log = ActivityLog(
             id="activity-external-actor",
@@ -83,6 +88,7 @@ def activity_api_context() -> Iterator[ActivityApiContext]:
             entity_type="InventoryItem",
             entity_id="inventory-external",
             summary="历史导入库存",
+            created_at=older_time,
         )
         other_log = ActivityLog(
             id="activity-other",
@@ -92,6 +98,7 @@ def activity_api_context() -> Iterator[ActivityApiContext]:
             entity_type="Family",
             entity_id=other_family.id,
             summary="其他家庭动态",
+            created_at=other_time,
         )
         db.add_all([family, other_family, user, other_user, membership, other_membership, own_log, external_actor_log, other_log])
         db.commit()
@@ -152,6 +159,31 @@ def test_activity_logs_resolve_actor_name_only_from_current_family_members(
     payload_by_id = {item["id"]: item for item in response.json()}
     assert payload_by_id[activity_api_context.own_log_id]["actor_name"] == "活动用户"
     assert payload_by_id[activity_api_context.external_actor_log_id]["actor_name"] is None
+
+
+def test_activity_logs_filter_by_date_actor_action_and_entity(activity_api_context: ActivityApiContext) -> None:
+    response = activity_api_context.client.get(
+        "/api/activity-logs",
+        params={
+            "start_date": "2026-07-01",
+            "end_date": "2026-07-01",
+            "actor_id": activity_api_context.user_id,
+            "action": "update",
+            "entity_type": "Family",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert [item["id"] for item in payload] == [activity_api_context.own_log_id]
+
+
+def test_activity_logs_support_limit_and_offset_in_descending_order(activity_api_context: ActivityApiContext) -> None:
+    response = activity_api_context.client.get("/api/activity-logs", params={"limit": 1, "offset": 1})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert [item["id"] for item in payload] == [activity_api_context.external_actor_log_id]
 
 
 def test_activity_logs_require_authentication(activity_api_context: ActivityApiContext) -> None:

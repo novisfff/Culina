@@ -223,6 +223,30 @@ describe('AppNotificationCenter', () => {
 });
 
 describe('AppShell mobile keyboard layout', () => {
+  it('does not keep a keyboard bottom inset when the viewport changes without text focus', () => {
+    const rafSpy = vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback: FrameRequestCallback) => {
+      callback(0);
+      return 1;
+    });
+    vi.spyOn(window, 'cancelAnimationFrame').mockImplementation(() => undefined);
+    vi.spyOn(window, 'innerHeight', 'get').mockReturnValue(900);
+    const visualViewport = mockVisualViewport({ height: 520, offsetTop: 0 });
+
+    try {
+      renderAppShell(<button type="button">普通按钮</button>);
+
+      act(() => {
+        visualViewport.viewport.dispatchEvent(new Event('resize'));
+      });
+
+      expect(document.documentElement.classList.contains('app-mobile-keyboard-open')).toBe(false);
+      expect(document.documentElement.style.getPropertyValue('--app-visual-viewport-bottom-inset')).toBe('0px');
+    } finally {
+      visualViewport.restore();
+      rafSpy.mockRestore();
+    }
+  });
+
   it('marks the mobile keyboard as open only while a text field owns focus', () => {
     const rafSpy = vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback: FrameRequestCallback) => {
       callback(0);

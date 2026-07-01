@@ -74,6 +74,12 @@ function setPixelVariable(element: HTMLElement, name: string, value: number) {
   element.style.setProperty(name, `${Math.max(0, Math.round(value))}px`);
 }
 
+function isTextEntryElement(element: Element | null) {
+  if (!(element instanceof HTMLElement)) return false;
+  if (element.isContentEditable) return true;
+  return element.matches('input, textarea, select');
+}
+
 function useAiMobileViewport(composerDockRef: RefObject<HTMLDivElement>) {
   const pageRef = useRef<HTMLElement | null>(null);
 
@@ -94,15 +100,16 @@ function useAiMobileViewport(composerDockRef: RefObject<HTMLDivElement>) {
         const currentViewport = window.visualViewport;
         const layoutHeight = window.innerHeight || document.documentElement.clientHeight || 0;
         const viewportHeight = currentViewport?.height ?? layoutHeight;
-        const keyboardInset = currentViewport
+        const rawKeyboardInset = currentViewport
           ? Math.max(0, layoutHeight - currentViewport.height - currentViewport.offsetTop)
           : 0;
+        const isKeyboardOpen = rawKeyboardInset > 80 && page.contains(document.activeElement) && isTextEntryElement(document.activeElement);
+        const keyboardInset = isKeyboardOpen ? rawKeyboardInset : 0;
         const measuredComposerHeight = composerDockRef.current?.getBoundingClientRect().height ?? 0;
         const composerHeight = measuredComposerHeight > 0 ? measuredComposerHeight : 88;
-        const isKeyboardOpen = keyboardInset > 80;
 
-        setPixelVariable(page, '--ai-mobile-viewport-height', Math.max(layoutHeight, viewportHeight));
-        setPixelVariable(page, '--ai-mobile-viewport-top', 0);
+        setPixelVariable(page, '--ai-mobile-viewport-height', viewportHeight || layoutHeight);
+        setPixelVariable(page, '--ai-mobile-viewport-top', currentViewport?.offsetTop ?? 0);
         setPixelVariable(page, '--ai-mobile-keyboard-inset', keyboardInset);
         setPixelVariable(page, '--ai-mobile-composer-height', composerHeight);
         page.style.setProperty(
