@@ -3,7 +3,7 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
-import { AppNotificationCenter, AppShell, type AppNotificationJob, type TabKey } from './AppShell';
+import { AppNotificationCenter, AppShell, type AppNotificationJob } from './AppShell';
 
 const actEnvironment = globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean };
 const previousActEnvironment = actEnvironment.IS_REACT_ACT_ENVIRONMENT;
@@ -36,14 +36,14 @@ function renderNotificationCenter(props: Parameters<typeof AppNotificationCenter
   return container;
 }
 
-function renderAppShell(children: React.ReactNode, activeTab: TabKey = 'foods') {
+function renderAppShell(children: React.ReactNode) {
   container = document.createElement('div');
   document.body.append(container);
   root = createRoot(container);
   act(() => {
     root?.render(
       <AppShell
-        activeTab={activeTab}
+        activeTab="foods"
         sidebarCollapsed={false}
         familyName="今天家"
         familyMotto="好好吃饭"
@@ -118,7 +118,6 @@ afterEach(() => {
   container?.remove();
   document.body.replaceChildren();
   document.documentElement.classList.remove('app-mobile-keyboard-open');
-  document.documentElement.classList.remove('app-mobile-keyboard-page-lock');
   document.documentElement.style.removeProperty('--app-visual-viewport-height');
   document.documentElement.style.removeProperty('--app-visual-viewport-top');
   document.documentElement.style.removeProperty('--app-visual-viewport-bottom-inset');
@@ -242,7 +241,6 @@ describe('AppShell mobile keyboard layout', () => {
       });
 
       expect(document.documentElement.classList.contains('app-mobile-keyboard-open')).toBe(false);
-      expect(document.documentElement.classList.contains('app-mobile-keyboard-page-lock')).toBe(false);
       expect(document.documentElement.style.getPropertyValue('--app-visual-viewport-height')).toBe('');
       expect(document.documentElement.style.getPropertyValue('--app-visual-viewport-top')).toBe('');
       expect(document.documentElement.style.getPropertyValue('--app-visual-viewport-bottom-inset')).toBe('0px');
@@ -272,7 +270,6 @@ describe('AppShell mobile keyboard layout', () => {
       });
 
       expect(document.documentElement.classList.contains('app-mobile-keyboard-open')).toBe(true);
-      expect(document.documentElement.classList.contains('app-mobile-keyboard-page-lock')).toBe(false);
       expect(document.documentElement.style.getPropertyValue('--app-visual-viewport-bottom-inset')).toBe('380px');
 
       visualViewport.setMetrics({ height: 900, offsetTop: 0 });
@@ -282,7 +279,6 @@ describe('AppShell mobile keyboard layout', () => {
       });
 
       expect(document.documentElement.classList.contains('app-mobile-keyboard-open')).toBe(false);
-      expect(document.documentElement.classList.contains('app-mobile-keyboard-page-lock')).toBe(false);
       expect(document.documentElement.style.getPropertyValue('--app-visual-viewport-height')).toBe('');
       expect(document.documentElement.style.getPropertyValue('--app-visual-viewport-top')).toBe('');
       expect(document.documentElement.style.getPropertyValue('--app-visual-viewport-bottom-inset')).toBe('0px');
@@ -312,7 +308,6 @@ describe('AppShell mobile keyboard layout', () => {
       });
 
       expect(document.documentElement.classList.contains('app-mobile-keyboard-open')).toBe(true);
-      expect(document.documentElement.classList.contains('app-mobile-keyboard-page-lock')).toBe(false);
       expect(document.documentElement.style.getPropertyValue('--app-visual-viewport-height')).toBe('520px');
       expect(document.documentElement.style.getPropertyValue('--app-visual-viewport-bottom-inset')).toBe('380px');
 
@@ -322,88 +317,12 @@ describe('AppShell mobile keyboard layout', () => {
       });
 
       expect(document.documentElement.classList.contains('app-mobile-keyboard-open')).toBe(false);
-      expect(document.documentElement.classList.contains('app-mobile-keyboard-page-lock')).toBe(false);
       expect(document.documentElement.style.getPropertyValue('--app-visual-viewport-height')).toBe('');
       expect(document.documentElement.style.getPropertyValue('--app-visual-viewport-top')).toBe('');
       expect(document.documentElement.style.getPropertyValue('--app-visual-viewport-bottom-inset')).toBe('0px');
     } finally {
       visualViewport.restore();
       rafSpy.mockRestore();
-    }
-  });
-
-  it('locks document scrolling for AI keyboard focus and releases it on blur', () => {
-    const rafSpy = vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback: FrameRequestCallback) => {
-      callback(0);
-      return 1;
-    });
-    vi.spyOn(window, 'cancelAnimationFrame').mockImplementation(() => undefined);
-    const scrollToSpy = vi.spyOn(window, 'scrollTo').mockImplementation(() => undefined);
-    vi.spyOn(window, 'innerHeight', 'get').mockReturnValue(900);
-    const visualViewport = mockVisualViewport({ height: 520, offsetTop: 0 });
-
-    try {
-      const view = renderAppShell(<input aria-label="AI 输入" />, 'ai');
-      const input = view.querySelector('input');
-      expect(input).not.toBeNull();
-
-      act(() => {
-        input?.focus();
-        visualViewport.viewport.dispatchEvent(new Event('resize'));
-      });
-
-      expect(document.documentElement.classList.contains('app-mobile-keyboard-open')).toBe(true);
-      expect(document.documentElement.classList.contains('app-mobile-keyboard-page-lock')).toBe(true);
-      expect(scrollToSpy).toHaveBeenCalledWith(0, 0);
-
-      act(() => {
-        input?.blur();
-        visualViewport.viewport.dispatchEvent(new Event('resize'));
-      });
-
-      expect(document.documentElement.classList.contains('app-mobile-keyboard-open')).toBe(false);
-      expect(document.documentElement.classList.contains('app-mobile-keyboard-page-lock')).toBe(false);
-      expect(document.documentElement.style.getPropertyValue('--app-visual-viewport-height')).toBe('');
-    } finally {
-      visualViewport.restore();
-      rafSpy.mockRestore();
-      scrollToSpy.mockRestore();
-    }
-  });
-
-  it('locks document scrolling for cooking assistant keyboard focus', () => {
-    const rafSpy = vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback: FrameRequestCallback) => {
-      callback(0);
-      return 1;
-    });
-    vi.spyOn(window, 'cancelAnimationFrame').mockImplementation(() => undefined);
-    const scrollToSpy = vi.spyOn(window, 'scrollTo').mockImplementation(() => undefined);
-    vi.spyOn(window, 'innerHeight', 'get').mockReturnValue(900);
-    const visualViewport = mockVisualViewport({ height: 520, offsetTop: 0 });
-
-    try {
-      const view = renderAppShell(
-        <div className="recipe-workspace-cook-mode">
-          <section className="recipe-cook-ai-assistant">
-            <input aria-label="小灶输入" />
-          </section>
-        </div>,
-      );
-      const input = view.querySelector('input');
-      expect(input).not.toBeNull();
-
-      act(() => {
-        input?.focus();
-        visualViewport.viewport.dispatchEvent(new Event('resize'));
-      });
-
-      expect(document.documentElement.classList.contains('app-mobile-keyboard-open')).toBe(true);
-      expect(document.documentElement.classList.contains('app-mobile-keyboard-page-lock')).toBe(true);
-      expect(scrollToSpy).toHaveBeenCalledWith(0, 0);
-    } finally {
-      visualViewport.restore();
-      rafSpy.mockRestore();
-      scrollToSpy.mockRestore();
     }
   });
 });

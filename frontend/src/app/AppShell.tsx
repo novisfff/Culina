@@ -27,7 +27,6 @@ const MOBILE_VIEWPORT_HEIGHT_VAR = '--app-visual-viewport-height';
 const MOBILE_VIEWPORT_TOP_VAR = '--app-visual-viewport-top';
 const MOBILE_VIEWPORT_BOTTOM_INSET_VAR = '--app-visual-viewport-bottom-inset';
 const MOBILE_KEYBOARD_OPEN_CLASS = 'app-mobile-keyboard-open';
-const MOBILE_KEYBOARD_PAGE_LOCK_CLASS = 'app-mobile-keyboard-page-lock';
 
 export type AppNotificationJob = {
   notification_id: string;
@@ -64,24 +63,7 @@ function isTextEntryElement(element: Element | null) {
   return element.matches('input, textarea, select');
 }
 
-function shouldLockMobileKeyboardPage(activeTab: TabKey) {
-  if (activeTab === 'ai') return true;
-  const activeElement = document.activeElement;
-  if (!(activeElement instanceof HTMLElement)) return false;
-  return Boolean(activeElement.closest('.recipe-workspace-cook-mode, .recipe-cook-ai-assistant'));
-}
-
-function resetDocumentScroll() {
-  try {
-    window.scrollTo(0, 0);
-  } catch {
-    // Some test environments expose scrollTo without implementing it.
-  }
-  document.documentElement.scrollTop = 0;
-  document.body.scrollTop = 0;
-}
-
-function syncMobileVisualViewportMetrics(activeTab: TabKey) {
+function syncMobileVisualViewportMetrics() {
   const root = document.documentElement;
   const visualViewport = window.visualViewport ?? null;
   const layoutHeight = window.innerHeight || document.documentElement.clientHeight || 0;
@@ -89,8 +71,6 @@ function syncMobileVisualViewportMetrics(activeTab: TabKey) {
   const viewportOffsetTop = visualViewport?.offsetTop ?? 0;
   const coveredBottom = Math.max(0, layoutHeight - visualHeight - viewportOffsetTop);
   const isKeyboardOpen = coveredBottom > 80 && isTextEntryElement(document.activeElement);
-  const shouldLockPage = isKeyboardOpen && shouldLockMobileKeyboardPage(activeTab);
-  const hadLockedPage = root.classList.contains(MOBILE_KEYBOARD_PAGE_LOCK_CLASS);
 
   if (isKeyboardOpen) {
     root.style.setProperty(MOBILE_VIEWPORT_HEIGHT_VAR, viewportPixelValue(visualHeight));
@@ -102,10 +82,6 @@ function syncMobileVisualViewportMetrics(activeTab: TabKey) {
     root.style.setProperty(MOBILE_VIEWPORT_BOTTOM_INSET_VAR, '0px');
   }
   root.classList.toggle(MOBILE_KEYBOARD_OPEN_CLASS, isKeyboardOpen);
-  root.classList.toggle(MOBILE_KEYBOARD_PAGE_LOCK_CLASS, shouldLockPage);
-  if (shouldLockPage || hadLockedPage) {
-    resetDocumentScroll();
-  }
 }
 
 function useMobileVisualViewportMetrics(activeTab: TabKey) {
@@ -120,7 +96,7 @@ function useMobileVisualViewportMetrics(activeTab: TabKey) {
       }
       frameId = window.requestAnimationFrame(() => {
         frameId = null;
-        syncMobileVisualViewportMetrics(activeTab);
+        syncMobileVisualViewportMetrics();
       });
     };
 
@@ -168,7 +144,6 @@ function useMobileVisualViewportMetrics(activeTab: TabKey) {
       document.documentElement.style.removeProperty(MOBILE_VIEWPORT_TOP_VAR);
       document.documentElement.style.removeProperty(MOBILE_VIEWPORT_BOTTOM_INSET_VAR);
       document.documentElement.classList.remove(MOBILE_KEYBOARD_OPEN_CLASS);
-      document.documentElement.classList.remove(MOBILE_KEYBOARD_PAGE_LOCK_CLASS);
     };
   }, [activeTab]);
 }
