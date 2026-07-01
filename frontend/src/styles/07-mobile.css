@@ -7,6 +7,21 @@
     overscroll-behavior-x: none;
   }
 
+  html.app-mobile-keyboard-page-lock,
+  html.app-mobile-keyboard-page-lock body,
+  html.app-mobile-keyboard-page-lock #root {
+    height: var(--app-visual-viewport-height, 100dvh);
+    max-height: var(--app-visual-viewport-height, 100dvh);
+    overflow: hidden;
+    overscroll-behavior: none;
+  }
+
+  html.app-mobile-keyboard-page-lock body {
+    position: fixed;
+    inset: 0;
+    width: 100%;
+  }
+
   .app-shell {
     width: 100%;
     max-width: 100%;
