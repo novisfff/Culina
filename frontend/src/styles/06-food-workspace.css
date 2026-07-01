@@ -10863,27 +10863,67 @@ button.ai-clarification-option:hover:not(:disabled) .ai-clarification-option-ind
     --ai-mobile-composer-height: 88px;
     --ai-mobile-composer-safe-bottom: env(safe-area-inset-bottom, 0px);
     --ai-mobile-keyboard-inset: 0px;
-    --ai-mobile-viewport-height: 100dvh;
+    --ai-mobile-viewport-height: 100svh;
     --ai-mobile-viewport-top: 0px;
-    position: fixed;
-    top: var(--app-visual-viewport-top, 0px);
-    right: 0;
+    position: relative;
+    top: auto;
+    right: auto;
     bottom: auto;
-    left: 0;
+    left: auto;
     width: 100%;
-    height: var(--app-visual-viewport-height, 100dvh);
-    min-height: 0;
+    height: auto;
+    min-height: 100vh;
+    min-height: 100svh;
     overflow: hidden;
     overscroll-behavior: none;
     padding: 0;
     background: linear-gradient(180deg, #fffaf5 0%, #fffdfb 42%, #fff 100%);
   }
 
+  @supports (height: 100dvh) {
+    .app-shell-ai {
+      min-height: max(100svh, 100dvh);
+    }
+  }
+
+  .app-mobile-keyboard-open .app-shell-ai {
+    min-height: var(--app-visual-viewport-height, 100dvh);
+  }
+
   .app-shell-ai .app-frame,
   .app-content-ai {
-    height: 100%;
-    min-height: 0;
+    height: auto;
+    min-height: inherit;
+    align-content: stretch;
+    align-items: stretch;
     gap: 0;
+    overflow: hidden;
+  }
+
+  .app-content-ai {
+    display: block;
+  }
+
+  .app-shell-ai .app-frame {
+    display: block;
+  }
+
+  .app-shell-ai .sidebar-shell {
+    display: none;
+  }
+
+  .app-shell-ai .tabbar {
+    display: none;
+  }
+
+  .app-mobile-keyboard-open .app-shell-ai .app-frame,
+  .app-mobile-keyboard-open .app-content-ai {
+    min-height: var(--app-visual-viewport-height, 100dvh);
+  }
+
+  .app-shell-ai .app-frame,
+  .app-content-ai,
+  .ai-workspace-shell {
     overflow: hidden;
   }
 
@@ -10891,8 +10931,8 @@ button.ai-clarification-option:hover:not(:disabled) .ai-clarification-option-ind
     display: block;
     grid-template-columns: none;
     width: 100%;
-    height: 100%;
-    min-height: 0;
+    height: auto;
+    min-height: inherit;
     overflow: hidden;
   }
 
@@ -10905,10 +10945,22 @@ button.ai-clarification-option:hover:not(:disabled) .ai-clarification-option-ind
     display: grid;
     grid-template-rows: var(--ai-mobile-header-height) minmax(0, 1fr) auto;
     width: 100%;
-    height: 100%;
+    height: 100vh;
+    height: 100svh;
     min-height: 0;
     overflow: hidden;
     background: linear-gradient(180deg, #fffaf5 0%, #fffdfb 42%, #fff 100%);
+  }
+
+  @supports (height: 100dvh) {
+    .ai-mobile-page {
+      height: max(100svh, 100dvh);
+    }
+  }
+
+  .app-mobile-keyboard-open .ai-mobile-page,
+  .ai-mobile-page.ai-mobile-keyboard-open {
+    height: var(--ai-mobile-viewport-height, var(--app-visual-viewport-height, 100dvh));
   }
 
   .ai-main-panel {
