@@ -24,7 +24,9 @@ const MOBILE_NAV_ITEMS: Array<{ key: TabKey; label: string; icon: ShellIconName 
 ];
 
 const MOBILE_VIEWPORT_HEIGHT_VAR = '--app-visual-viewport-height';
+const MOBILE_VIEWPORT_TOP_VAR = '--app-visual-viewport-top';
 const MOBILE_VIEWPORT_BOTTOM_INSET_VAR = '--app-visual-viewport-bottom-inset';
+const MOBILE_VIEWPORT_LAYOUT_HEIGHT_VAR = '--app-visual-viewport-layout-height';
 const MOBILE_KEYBOARD_OPEN_CLASS = 'app-mobile-keyboard-open';
 
 export type AppNotificationJob = {
@@ -72,7 +74,9 @@ function syncMobileVisualViewportMetrics() {
   const keyboardInset = isKeyboardOpen ? coveredBottom : 0;
 
   root.style.setProperty(MOBILE_VIEWPORT_HEIGHT_VAR, viewportPixelValue(viewportHeight));
+  root.style.setProperty(MOBILE_VIEWPORT_TOP_VAR, viewportPixelValue(viewportOffsetTop));
   root.style.setProperty(MOBILE_VIEWPORT_BOTTOM_INSET_VAR, viewportPixelValue(keyboardInset));
+  root.style.setProperty(MOBILE_VIEWPORT_LAYOUT_HEIGHT_VAR, viewportPixelValue(viewportHeight + keyboardInset));
   root.classList.toggle(MOBILE_KEYBOARD_OPEN_CLASS, isKeyboardOpen);
 }
 

@@ -10,7 +10,7 @@
   .app-shell {
     width: 100%;
     max-width: 100%;
-    min-height: var(--app-visual-viewport-height, 100vh);
+    min-height: var(--app-visual-viewport-layout-height, var(--app-visual-viewport-height, 100vh));
     overflow-x: hidden;
     padding: 0 12px calc(104px + env(safe-area-inset-bottom, 0px));
     background:
@@ -42,7 +42,7 @@
 
   @supports (height: 100dvh) {
     .app-shell {
-      min-height: var(--app-visual-viewport-height, 100dvh);
+      min-height: var(--app-visual-viewport-layout-height, var(--app-visual-viewport-height, 100dvh));
     }
 
     .app-shell.app-shell-ai {
@@ -53,6 +53,14 @@
   .tabbar,
   .dashboard-page {
     display: none;
+  }
+
+  html.app-mobile-keyboard-open:has(.app-shell-ai),
+  html.app-mobile-keyboard-open:has(.recipe-workspace-cook-mode),
+  html.app-mobile-keyboard-open:has(.app-shell-ai) body,
+  html.app-mobile-keyboard-open:has(.recipe-workspace-cook-mode) body {
+    overflow: hidden;
+    overscroll-behavior: none;
   }
 
   .food-workspace {
@@ -4526,13 +4534,14 @@
 
   .recipe-workspace-cook-mode .recipe-cook-page {
     --recipe-cook-mobile-inset: clamp(14px, 4.2vw, 18px);
+    --recipe-cook-keyboard-inset: var(--app-visual-viewport-bottom-inset, 0px);
     display: grid;
     grid-template-rows: auto auto minmax(0, 1fr);
     gap: 0;
     width: 100%;
-    height: 100dvh;
-    max-height: 100dvh;
-    min-height: 100dvh;
+    height: var(--app-visual-viewport-layout-height, 100dvh);
+    max-height: var(--app-visual-viewport-layout-height, 100dvh);
+    min-height: var(--app-visual-viewport-layout-height, 100dvh);
     margin: 0 auto;
     padding: 0;
     overflow: hidden;
@@ -5071,7 +5080,7 @@
   .recipe-workspace-cook-mode .recipe-cook-ai-assistant {
     position: fixed;
     right: 16px;
-    bottom: calc(16px + env(safe-area-inset-bottom));
+    bottom: calc(16px + env(safe-area-inset-bottom) + var(--recipe-cook-keyboard-inset, 0px));
     left: auto;
     z-index: 220;
     width: auto;
@@ -5085,7 +5094,7 @@
 
   .recipe-workspace-cook-mode .recipe-cook-ai-assistant.open {
     right: 10px;
-    bottom: calc(10px + env(safe-area-inset-bottom));
+    bottom: calc(10px + env(safe-area-inset-bottom) + var(--recipe-cook-keyboard-inset, 0px));
     left: 10px;
     width: auto;
     max-width: 460px;
@@ -5101,6 +5110,14 @@
   .recipe-workspace-cook-mode .recipe-cook-ai-panel {
     height: 560px;
     max-height: calc(var(--app-visual-viewport-height, 100dvh) - 24px);
+  }
+
+  .app-mobile-keyboard-open .recipe-workspace-cook-mode .recipe-cook-ai-assistant {
+    bottom: calc(16px + var(--recipe-cook-keyboard-inset, 0px));
+  }
+
+  .app-mobile-keyboard-open .recipe-workspace-cook-mode .recipe-cook-ai-assistant.open {
+    bottom: calc(10px + var(--recipe-cook-keyboard-inset, 0px));
   }
 
   .recipe-workspace-cook-mode .recipe-cook-ai-head {
