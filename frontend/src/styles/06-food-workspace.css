@@ -10990,12 +10990,12 @@ button.ai-clarification-option:hover:not(:disabled) .ai-clarification-option-ind
     margin: 0 auto;
     border: 0;
     border-radius: 0;
-    background: rgba(255, 255, 255, 0.82) !important;
+    background: rgba(255, 255, 255, 0.68) !important;
     border-bottom: 1px solid rgba(226, 203, 184, 0.25) !important;
     padding: 0 14px;
-    box-shadow: 0 1px 10px rgba(91, 62, 42, 0.03) !important;
-    backdrop-filter: blur(20px) !important;
-    -webkit-backdrop-filter: blur(20px) !important;
+    box-shadow: 0 8px 26px rgba(91, 62, 42, 0.06), inset 0 -1px 0 rgba(255, 255, 255, 0.46) !important;
+    backdrop-filter: saturate(1.2) blur(22px) !important;
+    -webkit-backdrop-filter: saturate(1.2) blur(22px) !important;
   }
 
   .ai-mobile-title {
@@ -11510,12 +11510,13 @@ button.ai-clarification-option:hover:not(:disabled) .ai-clarification-option-ind
     z-index: 70;
     gap: 6px;
     border-top: none !important;
-    background: transparent !important;
+    background:
+      linear-gradient(180deg, rgba(255, 252, 248, 0), rgba(255, 250, 245, 0.74) 28%, rgba(255, 255, 255, 0.7)) !important;
     padding: 8px 12px calc(12px + var(--ai-mobile-composer-safe-bottom, env(safe-area-inset-bottom, 0px))) !important;
-    backdrop-filter: none !important;
-    -webkit-backdrop-filter: none !important;
+    backdrop-filter: saturate(1.18) blur(18px) !important;
+    -webkit-backdrop-filter: saturate(1.18) blur(18px) !important;
     pointer-events: none;
-    box-shadow: none !important;
+    box-shadow: 0 -14px 34px rgba(91, 62, 42, 0.06) !important;
   }
 
   .ai-composer {
