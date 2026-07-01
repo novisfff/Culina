@@ -91,7 +91,6 @@ function useAiMobileViewport(composerDockRef: RefObject<HTMLDivElement>) {
     const raf = window.requestAnimationFrame ?? ((callback: FrameRequestCallback) => window.setTimeout(callback, 16));
     const cancelRaf = window.cancelAnimationFrame ?? window.clearTimeout;
     let frameId: number | undefined;
-    const settleTimeoutIds: number[] = [];
 
     const updateViewportVars = () => {
       if (frameId !== undefined) {
@@ -109,8 +108,8 @@ function useAiMobileViewport(composerDockRef: RefObject<HTMLDivElement>) {
         const measuredComposerHeight = composerDockRef.current?.getBoundingClientRect().height ?? 0;
         const composerHeight = measuredComposerHeight > 0 ? measuredComposerHeight : 88;
 
-        setPixelVariable(page, '--ai-mobile-viewport-height', isKeyboardOpen ? viewportHeight : Math.max(viewportHeight, layoutHeight));
-        setPixelVariable(page, '--ai-mobile-viewport-top', isKeyboardOpen ? currentViewport?.offsetTop ?? 0 : 0);
+        setPixelVariable(page, '--ai-mobile-viewport-height', viewportHeight || layoutHeight);
+        setPixelVariable(page, '--ai-mobile-viewport-top', currentViewport?.offsetTop ?? 0);
         setPixelVariable(page, '--ai-mobile-keyboard-inset', keyboardInset);
         setPixelVariable(page, '--ai-mobile-composer-height', composerHeight);
         page.style.setProperty(
@@ -120,21 +119,10 @@ function useAiMobileViewport(composerDockRef: RefObject<HTMLDivElement>) {
       });
     };
 
-    const clearSettledUpdates = () => {
-      while (settleTimeoutIds.length > 0) {
-        const timeoutId = settleTimeoutIds.pop();
-        if (timeoutId !== undefined) {
-          window.clearTimeout(timeoutId);
-        }
-      }
-    };
-
     const updateAfterKeyboardTransition = () => {
-      clearSettledUpdates();
       updateViewportVars();
-      for (const delay of [80, 180, 260, 700]) {
-        settleTimeoutIds.push(window.setTimeout(updateViewportVars, delay));
-      }
+      window.setTimeout(updateViewportVars, 80);
+      window.setTimeout(updateViewportVars, 260);
     };
 
     updateViewportVars();
@@ -156,7 +144,6 @@ function useAiMobileViewport(composerDockRef: RefObject<HTMLDivElement>) {
       if (frameId !== undefined) {
         cancelRaf(frameId);
       }
-      clearSettledUpdates();
       resizeObserver?.disconnect();
       window.removeEventListener('resize', updateViewportVars);
       window.removeEventListener('orientationchange', updateAfterKeyboardTransition);

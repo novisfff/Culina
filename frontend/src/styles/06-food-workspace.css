@@ -10866,13 +10866,10 @@ button.ai-clarification-option:hover:not(:disabled) .ai-clarification-option-ind
     --ai-mobile-viewport-height: 100dvh;
     --ai-mobile-viewport-top: 0px;
     position: fixed;
-    top: var(--app-visual-viewport-top, 0px);
-    right: 0;
-    bottom: auto;
-    left: 0;
+    inset: 0;
     width: 100%;
-    height: var(--app-visual-viewport-height, 100dvh);
-    min-height: 0;
+    height: 100%;
+    min-height: 100%;
     overflow: hidden;
     overscroll-behavior: none;
     padding: 0;
@@ -10888,8 +10885,6 @@ button.ai-clarification-option:hover:not(:disabled) .ai-clarification-option-ind
   }
 
   .ai-workspace-shell {
-    display: block;
-    grid-template-columns: none;
     width: 100%;
     height: 100%;
     min-height: 0;
@@ -10901,11 +10896,13 @@ button.ai-clarification-option:hover:not(:disabled) .ai-clarification-option-ind
   }
 
   .ai-mobile-page {
-    position: relative;
-    display: grid;
-    grid-template-rows: var(--ai-mobile-header-height) minmax(0, 1fr) auto;
-    width: 100%;
-    height: 100%;
+    display: block;
+    position: fixed;
+    top: var(--ai-mobile-viewport-top, 0px);
+    left: 0;
+    right: 0;
+    bottom: auto;
+    height: var(--ai-mobile-viewport-height, 100dvh);
     min-height: 0;
     overflow: hidden;
     background: linear-gradient(180deg, #fffaf5 0%, #fffdfb 42%, #fff 100%);
@@ -10926,7 +10923,10 @@ button.ai-clarification-option:hover:not(:disabled) .ai-clarification-option-ind
   }
 
   .ai-mobile-topbar {
-    position: relative;
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
     z-index: 70;
     display: grid;
     grid-template-columns: 42px minmax(0, 1fr) auto;
@@ -11122,13 +11122,17 @@ button.ai-clarification-option:hover:not(:disabled) .ai-clarification-option-ind
   }
 
   .ai-thread-scroll {
-    position: relative;
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
     min-height: 0;
     overflow-y: auto;
     overscroll-behavior: contain;
     -webkit-overflow-scrolling: touch;
     gap: 18px;
-    padding: 14px 16px 20px !important;
+    padding: calc(var(--ai-mobile-header-height) + 14px) 16px calc(var(--ai-mobile-composer-height, 88px) + 20px) !important;
     background: transparent;
   }
 
@@ -11451,10 +11455,10 @@ button.ai-clarification-option:hover:not(:disabled) .ai-clarification-option-ind
   }
 
   .ai-composer-dock {
-    position: relative;
-    left: auto;
-    right: auto;
-    bottom: auto;
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
     z-index: 70;
     gap: 6px;
     border-top: none !important;

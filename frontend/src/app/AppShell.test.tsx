@@ -119,7 +119,6 @@ afterEach(() => {
   document.body.replaceChildren();
   document.documentElement.classList.remove('app-mobile-keyboard-open');
   document.documentElement.style.removeProperty('--app-visual-viewport-height');
-  document.documentElement.style.removeProperty('--app-visual-viewport-top');
   document.documentElement.style.removeProperty('--app-visual-viewport-bottom-inset');
   root = null;
   container = null;
@@ -277,43 +276,6 @@ describe('AppShell mobile keyboard layout', () => {
       });
 
       expect(document.documentElement.classList.contains('app-mobile-keyboard-open')).toBe(false);
-      expect(document.documentElement.style.getPropertyValue('--app-visual-viewport-bottom-inset')).toBe('0px');
-    } finally {
-      visualViewport.restore();
-      rafSpy.mockRestore();
-    }
-  });
-
-  it('clears stale keyboard height as soon as text focus leaves even before Safari reports the restored viewport', () => {
-    const rafSpy = vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback: FrameRequestCallback) => {
-      callback(0);
-      return 1;
-    });
-    vi.spyOn(window, 'cancelAnimationFrame').mockImplementation(() => undefined);
-    vi.spyOn(window, 'innerHeight', 'get').mockReturnValue(900);
-    const visualViewport = mockVisualViewport({ height: 520, offsetTop: 0 });
-
-    try {
-      const view = renderAppShell(<input aria-label="搜索食材" />);
-      const input = view.querySelector('input');
-      expect(input).not.toBeNull();
-
-      act(() => {
-        input?.focus();
-        visualViewport.viewport.dispatchEvent(new Event('resize'));
-      });
-
-      expect(document.documentElement.classList.contains('app-mobile-keyboard-open')).toBe(true);
-      expect(document.documentElement.style.getPropertyValue('--app-visual-viewport-height')).toBe('520px');
-      expect(document.documentElement.style.getPropertyValue('--app-visual-viewport-bottom-inset')).toBe('380px');
-
-      act(() => {
-        input?.blur();
-        visualViewport.viewport.dispatchEvent(new Event('resize'));
-      });
-
-      expect(document.documentElement.classList.contains('app-mobile-keyboard-open')).toBe(false);
-      expect(document.documentElement.style.getPropertyValue('--app-visual-viewport-height')).toBe('900px');
       expect(document.documentElement.style.getPropertyValue('--app-visual-viewport-bottom-inset')).toBe('0px');
     } finally {
       visualViewport.restore();

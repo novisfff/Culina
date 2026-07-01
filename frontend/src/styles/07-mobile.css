@@ -4530,9 +4530,9 @@
     grid-template-rows: auto auto minmax(0, 1fr);
     gap: 0;
     width: 100%;
-    height: var(--app-visual-viewport-height, 100dvh);
-    max-height: var(--app-visual-viewport-height, 100dvh);
-    min-height: var(--app-visual-viewport-height, 100dvh);
+    height: 100dvh;
+    max-height: 100dvh;
+    min-height: 100dvh;
     margin: 0 auto;
     padding: 0;
     overflow: hidden;
@@ -5071,7 +5071,7 @@
   .recipe-workspace-cook-mode .recipe-cook-ai-assistant {
     position: fixed;
     right: 16px;
-    bottom: calc(16px + env(safe-area-inset-bottom) + var(--app-visual-viewport-bottom-inset, 0px));
+    bottom: calc(16px + env(safe-area-inset-bottom));
     left: auto;
     z-index: 220;
     width: auto;
@@ -5085,7 +5085,7 @@
 
   .recipe-workspace-cook-mode .recipe-cook-ai-assistant.open {
     right: 10px;
-    bottom: calc(10px + env(safe-area-inset-bottom) + var(--app-visual-viewport-bottom-inset, 0px));
+    bottom: calc(10px + env(safe-area-inset-bottom));
     left: 10px;
     width: auto;
     max-width: 460px;

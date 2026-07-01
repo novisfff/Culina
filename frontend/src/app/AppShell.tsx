@@ -24,7 +24,6 @@ const MOBILE_NAV_ITEMS: Array<{ key: TabKey; label: string; icon: ShellIconName 
 ];
 
 const MOBILE_VIEWPORT_HEIGHT_VAR = '--app-visual-viewport-height';
-const MOBILE_VIEWPORT_TOP_VAR = '--app-visual-viewport-top';
 const MOBILE_VIEWPORT_BOTTOM_INSET_VAR = '--app-visual-viewport-bottom-inset';
 const MOBILE_KEYBOARD_OPEN_CLASS = 'app-mobile-keyboard-open';
 
@@ -66,17 +65,13 @@ function isTextEntryElement(element: Element | null) {
 function syncMobileVisualViewportMetrics() {
   const root = document.documentElement;
   const visualViewport = window.visualViewport ?? null;
-  const layoutHeight = window.innerHeight || document.documentElement.clientHeight || 0;
-  const visualHeight = visualViewport?.height ?? layoutHeight;
+  const viewportHeight = visualViewport?.height ?? window.innerHeight;
   const viewportOffsetTop = visualViewport?.offsetTop ?? 0;
-  const coveredBottom = Math.max(0, layoutHeight - visualHeight - viewportOffsetTop);
+  const coveredBottom = Math.max(0, window.innerHeight - viewportHeight - viewportOffsetTop);
   const isKeyboardOpen = coveredBottom > 80 && isTextEntryElement(document.activeElement);
   const keyboardInset = isKeyboardOpen ? coveredBottom : 0;
-  const viewportHeight = isKeyboardOpen ? visualHeight : Math.max(layoutHeight, visualHeight);
-  const viewportTop = isKeyboardOpen ? viewportOffsetTop : 0;
 
   root.style.setProperty(MOBILE_VIEWPORT_HEIGHT_VAR, viewportPixelValue(viewportHeight));
-  root.style.setProperty(MOBILE_VIEWPORT_TOP_VAR, viewportPixelValue(viewportTop));
   root.style.setProperty(MOBILE_VIEWPORT_BOTTOM_INSET_VAR, viewportPixelValue(keyboardInset));
   root.classList.toggle(MOBILE_KEYBOARD_OPEN_CLASS, isKeyboardOpen);
 }
@@ -84,7 +79,6 @@ function syncMobileVisualViewportMetrics() {
 function useMobileVisualViewportMetrics(activeTab: TabKey) {
   useEffect(() => {
     let frameId: number | null = null;
-    const settleTimeoutIds: number[] = [];
     const visualViewport = window.visualViewport ?? null;
 
     const scheduleSync = () => {
@@ -97,30 +91,13 @@ function useMobileVisualViewportMetrics(activeTab: TabKey) {
       });
     };
 
-    const clearSettledSyncs = () => {
-      while (settleTimeoutIds.length > 0) {
-        const timeoutId = settleTimeoutIds.pop();
-        if (timeoutId !== undefined) {
-          window.clearTimeout(timeoutId);
-        }
-      }
-    };
-
-    const scheduleSettledSync = () => {
-      clearSettledSyncs();
-      scheduleSync();
-      for (const delay of [80, 180, 360, 700]) {
-        settleTimeoutIds.push(window.setTimeout(scheduleSync, delay));
-      }
-    };
-
     scheduleSync();
     window.addEventListener('resize', scheduleSync);
-    window.addEventListener('orientationchange', scheduleSettledSync);
-    window.addEventListener('pageshow', scheduleSettledSync);
-    document.addEventListener('visibilitychange', scheduleSettledSync);
-    document.addEventListener('focusin', scheduleSettledSync);
-    document.addEventListener('focusout', scheduleSettledSync);
+    window.addEventListener('orientationchange', scheduleSync);
+    window.addEventListener('pageshow', scheduleSync);
+    document.addEventListener('visibilitychange', scheduleSync);
+    document.addEventListener('focusin', scheduleSync);
+    document.addEventListener('focusout', scheduleSync);
     visualViewport?.addEventListener('resize', scheduleSync);
     visualViewport?.addEventListener('scroll', scheduleSync);
 
@@ -128,13 +105,12 @@ function useMobileVisualViewportMetrics(activeTab: TabKey) {
       if (frameId !== null) {
         window.cancelAnimationFrame(frameId);
       }
-      clearSettledSyncs();
       window.removeEventListener('resize', scheduleSync);
-      window.removeEventListener('orientationchange', scheduleSettledSync);
-      window.removeEventListener('pageshow', scheduleSettledSync);
-      document.removeEventListener('visibilitychange', scheduleSettledSync);
-      document.removeEventListener('focusin', scheduleSettledSync);
-      document.removeEventListener('focusout', scheduleSettledSync);
+      window.removeEventListener('orientationchange', scheduleSync);
+      window.removeEventListener('pageshow', scheduleSync);
+      document.removeEventListener('visibilitychange', scheduleSync);
+      document.removeEventListener('focusin', scheduleSync);
+      document.removeEventListener('focusout', scheduleSync);
       visualViewport?.removeEventListener('resize', scheduleSync);
       visualViewport?.removeEventListener('scroll', scheduleSync);
       document.documentElement.classList.remove(MOBILE_KEYBOARD_OPEN_CLASS);
