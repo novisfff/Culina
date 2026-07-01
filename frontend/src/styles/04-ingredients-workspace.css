@@ -488,7 +488,7 @@
   width: 100%;
   min-height: 46px;
   border-radius: 18px;
-  font-size: 0.9375rem;
+  font-size: 1rem;
   background: rgba(255, 255, 255, 0.96);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9);
 }
@@ -4008,7 +4008,7 @@
   min-height: 46px;
   border: 0;
   border-radius: 0;
-  font-size: 0.9375rem;
+  font-size: 1rem;
   background: transparent;
 }
 
@@ -4147,7 +4147,7 @@
   border-radius: 18px !important;
   background: #ffffff !important;
   color: var(--text);
-  font-size: 0.9375rem;
+  font-size: 1rem;
   font-weight: 650;
   line-height: 46px;
   box-shadow:
@@ -5880,6 +5880,8 @@
 }
 
 .ingredients-modal-advanced-fields {
+  display: grid !important;
+  grid-template-columns: 1fr !important;
   gap: 12px;
   padding: 14px;
   border-radius: 16px;
@@ -5911,9 +5913,13 @@
   min-height: 0;
   display: grid;
   gap: 14px;
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: hidden;
   overflow-y: auto;
   padding: 0 2px 18px;
   overscroll-behavior: contain;
+  overscroll-behavior-x: none;
 }
 
 .ingredients-restock-scroll::-webkit-scrollbar,
@@ -6034,8 +6040,23 @@
   border-radius: 12px;
   background: transparent;
   color: #4f372b;
-  font-size: 0.9rem;
   transform: translateY(-50%);
+  cursor: pointer;
+}
+
+.ingredients-picker-chevron {
+  width: 12px;
+  height: 12px;
+  background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%236A5B51' stroke-width='2.35' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: contain;
+  opacity: 0.7;
+  transition: transform 0.2s ease;
+}
+
+.ingredients-restock-picker-shell[aria-expanded="true"] .ingredients-picker-chevron {
+  transform: rotate(180deg);
 }
 
 .ingredients-restock-picker-menu {
@@ -6043,16 +6064,16 @@
   top: calc(100% + 8px);
   left: 0;
   right: 0;
-  z-index: 20;
+  z-index: 1000;
   display: grid;
   gap: 6px;
   max-height: min(330px, 44vh);
   overflow: auto;
   padding: 8px;
-  border: 1px solid rgba(92, 67, 48, 0.1);
+  border: 1px solid rgba(122, 85, 62, 0.14);
   border-radius: 18px;
-  background: rgba(255, 255, 255, 0.98);
-  box-shadow: 0 18px 42px rgba(74, 54, 40, 0.16);
+  background: #ffffff;
+  box-shadow: 0 12px 40px rgba(74, 54, 40, 0.16);
 }
 
 .ingredients-restock-picker-menu::before {
@@ -6062,9 +6083,9 @@
   left: 50%;
   width: 18px;
   height: 18px;
-  border-top: 1px solid rgba(92, 67, 48, 0.1);
-  border-left: 1px solid rgba(92, 67, 48, 0.1);
-  background: rgba(255, 255, 255, 0.98);
+  border-top: 1px solid rgba(122, 85, 62, 0.14);
+  border-left: 1px solid rgba(122, 85, 62, 0.14);
+  background: #ffffff;
   transform: translateX(-50%) rotate(45deg);
 }
 
@@ -6177,6 +6198,8 @@
   grid-template-columns: 112px minmax(0, 1fr);
   gap: 14px;
   align-items: center;
+  min-width: 0;
+  max-width: 100%;
   padding: 14px;
   border-radius: 24px;
   border: 1px solid rgba(147, 96, 63, 0.14);
@@ -6218,21 +6241,31 @@
   min-width: 0;
 }
 
+.ingredients-restock-identity-head > div {
+  min-width: 0;
+}
+
 .ingredients-restock-identity-head h4,
 .ingredients-restock-identity-head p {
   margin: 0;
 }
 
 .ingredients-restock-identity-head h4 {
+  min-width: 0;
+  max-width: 100%;
   font-size: 1.08rem;
   line-height: 1.2;
+  overflow-wrap: anywhere;
 }
 
 .ingredients-restock-identity-head p {
+  min-width: 0;
+  max-width: 100%;
   margin-top: 4px;
   color: var(--text-soft);
   font-size: 0.9rem;
   line-height: 1.4;
+  overflow-wrap: anywhere;
 }
 
 .ingredients-restock-identity-head .badge {
@@ -8326,8 +8359,12 @@
   .shopping-quick-footer-bar,
   .consume-quick-footer-bar,
   .destroy-expired-footer-bar {
-    margin: 0 -16px;
+    box-sizing: border-box;
+    width: 100%;
+    max-width: 100%;
+    margin: 0;
     padding: 12px 16px 16px;
+    overflow-x: hidden;
   }
 
   .consume-quick-footer-bar,
@@ -9064,7 +9101,9 @@
 /* Premium mobile styling overrides for the Inventory Restock modal */
 @media (max-width: 767px) {
   .inventory-restock-modal.workspace-modal {
-    width: 100vw;
+    box-sizing: border-box;
+    width: 100%;
+    max-width: 100%;
     max-height: 88vh;
     border-radius: 32px 32px 0 0;
     background: #fffdfc;
@@ -9072,6 +9111,7 @@
     position: relative;
     padding: 20px 16px 0;
     padding-top: 28px; /* Leave space for drag handle */
+    overflow-x: hidden;
   }
 
   .inventory-restock-modal.workspace-modal::before {
@@ -9118,6 +9158,9 @@
 
   .inventory-restock-modal .ingredients-restock-scroll {
     gap: 12px;
+    min-width: 0;
+    max-width: 100%;
+    overflow-x: hidden;
     padding-bottom: 24px;
   }
 
@@ -9144,6 +9187,8 @@
   }
 
   .inventory-restock-modal .ingredients-restock-field-group {
+    min-width: 0;
+    max-width: 100%;
     border-radius: 16px;
     background: #ffffff;
     border: 1px solid rgba(92, 67, 48, 0.06);
@@ -9206,22 +9251,45 @@
     margin-top: 10px;
   }
 
+  .inventory-restock-modal .ingredients-restock-choice-row {
+    display: flex !important;
+    flex-wrap: wrap !important;
+    overflow-x: visible !important;
+    padding-bottom: 0 !important;
+    gap: 8px !important;
+  }
+
   .inventory-restock-modal .ingredients-choice-chip {
-    padding: 6px 12px;
-    font-size: 0.8rem;
-    min-height: 32px;
-    border-radius: 999px;
-    background: #fffdfb;
-    border: 1px solid rgba(92, 67, 48, 0.1);
-    color: #7a6d64;
-    font-weight: 850;
+    padding: 8px 12px !important;
+    font-size: 0.85rem !important;
+    min-height: 36px !important;
+    border-radius: 12px !important;
+    background: #ffffff !important;
+    border: 1px solid rgba(122, 85, 62, 0.12) !important;
+    color: #4f372b !important;
+    font-weight: 700 !important;
+    box-shadow: 0 2px 6px rgba(74, 54, 40, 0.03) !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    gap: 8px !important;
+    flex: 0 1 auto !important;
+    cursor: pointer;
+    transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1) !important;
+  }
+
+  .inventory-restock-modal .ingredients-choice-chip:hover {
+    border-color: rgba(210, 107, 51, 0.28) !important;
+    background: #fffdfb !important;
+    color: #b35122 !important;
+    transform: translateY(-1px);
   }
 
   .inventory-restock-modal .ingredients-choice-chip.active {
-    background: #fff4ec;
-    border-color: var(--accent);
-    color: #b35122;
-    box-shadow: 0 4px 10px rgba(210, 107, 51, 0.06);
+    background: #fff0e7 !important;
+    border-color: #d26b33 !important;
+    color: #b35122 !important;
+    box-shadow: 0 4px 12px rgba(210, 107, 51, 0.08) !important;
+    transform: none !important;
   }
 
   .inventory-restock-modal .ingredients-modal-advanced-fields {
@@ -9245,11 +9313,15 @@
     position: sticky;
     bottom: 0;
     z-index: 10;
-    margin: 0 -16px;
+    box-sizing: border-box;
+    width: 100%;
+    max-width: 100%;
+    margin: 0;
     padding: 12px 16px calc(12px + env(safe-area-inset-bottom, 0px));
     border-top: 1px solid rgba(92, 67, 48, 0.06);
     background: #fffdfc;
     backdrop-filter: blur(12px);
+    overflow-x: hidden;
   }
 
   .inventory-restock-modal .ingredients-restock-footer-bar .workspace-overlay-actions {
@@ -9430,7 +9502,7 @@
   background: transparent !important;
   outline: none !important;
   width: 100% !important;
-  font-size: 0.92rem !important;
+  font-size: 1rem !important;
   color: var(--text) !important;
   padding: 0 !important;
   box-shadow: none !important;
@@ -9568,4 +9640,233 @@
   .ingredients-status-metrics {
     flex-wrap: wrap;
   }
+}
+
+/* Custom combobox and select for shopping quick modal */
+.custom-combobox-container {
+  position: relative;
+  width: 100%;
+}
+
+.custom-combobox-container .text-input {
+  padding-right: 36px !important;
+}
+
+.custom-combobox-arrow {
+  position: absolute;
+  top: 50%;
+  right: 14px;
+  width: 14px;
+  height: 14px;
+  transform: translateY(-50%);
+  background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%236A5B51' stroke-width='2.35' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: contain;
+  pointer-events: none;
+  opacity: 0.7;
+  transition: transform 0.2s ease;
+}
+
+.custom-combobox-container:focus-within .custom-combobox-arrow {
+  transform: translateY(-50%) rotate(180deg);
+}
+
+.custom-combobox-dropdown {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  background: #ffffff;
+  border: 1px solid rgba(122, 85, 62, 0.14);
+  border-radius: 14px;
+  box-shadow: 0 8px 32px rgba(75, 52, 34, 0.16);
+  z-index: 1000;
+  max-height: 200px;
+  overflow-y: auto;
+  padding: 6px;
+  display: grid;
+  gap: 4px;
+}
+
+.custom-combobox-option {
+  width: 100%;
+  min-height: 38px;
+  padding: 0 12px;
+  border: none;
+  border-radius: 10px;
+  background: transparent;
+  color: #5f4c40;
+  font-size: 0.86rem;
+  font-weight: 650;
+  text-align: left;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  display: flex;
+  align-items: center;
+}
+
+.custom-combobox-option:hover {
+  background: rgba(122, 85, 62, 0.05);
+  color: #2f251e;
+}
+
+.custom-combobox-option.selected {
+  background: #fff0e7;
+  color: #b35122;
+  font-weight: 780;
+}
+
+.custom-combobox-option-avatar {
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  overflow: hidden;
+  margin-right: 10px;
+  flex-shrink: 0;
+  border: 1px solid rgba(122, 85, 62, 0.08);
+  background: #fbf9f7;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.custom-combobox-option-avatar img,
+.custom-combobox-option-avatar .media-placeholder {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* Custom unit select overrides for shopping quick modal */
+.ingredients-restock-unit-editor-custom {
+  position: relative;
+  width: 100%;
+  margin-top: 6px;
+}
+
+.ingredients-restock-unit-editor-custom .custom-select-trigger {
+  min-height: 40px !important;
+  border-radius: 12px !important;
+  font-size: 0.88rem !important;
+  background: rgba(255, 255, 255, 0.8) !important;
+  border: 1px solid rgba(122, 85, 62, 0.12) !important;
+}
+
+.ingredients-restock-unit-editor-custom .custom-select-dropdown {
+  z-index: 1000 !important;
+}
+
+/* Custom restock status select overrides */
+.ingredients-restock-status-custom-field {
+  display: grid;
+  gap: 8px;
+}
+
+.ingredients-restock-status-custom-field > span {
+  font-size: 0.88rem;
+  color: var(--text-soft);
+  font-weight: 700;
+}
+
+.ingredients-restock-status-custom-field .custom-select-trigger {
+  min-height: 40px !important;
+  border-radius: 12px !important;
+  font-size: 0.88rem !important;
+  background: #ffffff !important;
+  border: 1px solid rgba(122, 85, 62, 0.12) !important;
+}
+
+.ingredients-restock-status-custom-field .custom-select-dropdown {
+  z-index: 1000 !important;
+  top: auto !important;
+  bottom: calc(100% + 4px) !important;
+  box-shadow: 0 -8px 24px rgba(74, 54, 40, 0.12) !important;
+}
+
+/* Choice chip avatar style */
+.ingredients-choice-chip-avatar {
+  width: 20px;
+  height: 20px;
+  border-radius: 4px;
+  overflow: hidden;
+  margin-right: 6px;
+  flex-shrink: 0;
+  border: 1px solid rgba(122, 85, 62, 0.08);
+  background: #fbf9f7;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.ingredients-choice-chip-avatar img,
+.ingredients-choice-chip-avatar .media-placeholder {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.ingredients-choice-chip:has(.ingredients-choice-chip-avatar) {
+  padding-left: 6px !important;
+}
+
+/* Compact 2-column suggestions grid styling */
+.inventory-restock-modal .ingredients-restock-choice-row {
+  display: grid !important;
+  grid-template-columns: repeat(2, 1fr) !important;
+  gap: 8px !important;
+  width: 100% !important;
+  overflow-x: visible !important;
+  padding-bottom: 0 !important;
+}
+
+.inventory-restock-modal .ingredients-choice-chip {
+  display: flex !important;
+  align-items: center !important;
+  width: 100% !important;
+  min-width: 0 !important;
+  padding: 6px 10px !important;
+  font-size: 0.82rem !important;
+  min-height: 34px !important;
+  border-radius: 12px !important;
+  background: #ffffff !important;
+  border: 1px solid rgba(122, 85, 62, 0.12) !important;
+  color: #4f372b !important;
+  font-weight: 700 !important;
+  box-shadow: 0 2px 6px rgba(74, 54, 40, 0.03) !important;
+  cursor: pointer;
+  box-sizing: border-box !important;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1) !important;
+}
+
+.inventory-restock-modal .ingredients-choice-chip:hover {
+  border-color: rgba(210, 107, 51, 0.28) !important;
+  background: #fffdfb !important;
+  color: #b35122 !important;
+  transform: translateY(-1px);
+}
+
+.inventory-restock-modal .ingredients-choice-chip.active {
+  background: #fff0e7 !important;
+  border-color: #d26b33 !important;
+  color: #b35122 !important;
+  box-shadow: 0 4px 12px rgba(210, 107, 51, 0.08) !important;
+  transform: none !important;
+}
+
+.inventory-restock-modal .ingredients-choice-chip > span {
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+  text-align: left !important;
+  flex: 1 !important;
+  min-width: 0 !important;
+}
+
+.inventory-restock-modal .ingredients-choice-chip-avatar {
+  width: 20px !important;
+  height: 20px !important;
+  border-radius: 4px !important;
+  margin-right: 6px !important;
+  flex-shrink: 0 !important;
 }

@@ -55,4 +55,27 @@ class CreateShoppingListItemRequest(BaseModel):
 
 
 class UpdateShoppingListItemRequest(BaseModel):
-    done: bool
+    title: str | None = None
+    quantity: float | None = None
+    unit: str | None = None
+    ingredient_id: str | None = None
+    quantity_mode: IngredientQuantityTrackingMode | None = None
+    display_label: str | None = None
+    reason: str | None = None
+    done: bool | None = None
+
+    @model_validator(mode="after")
+    def normalize_update_fields(self) -> "UpdateShoppingListItemRequest":
+        if "title" in self.model_fields_set and self.title is not None:
+            self.title = self.title.strip()
+            if not self.title:
+                raise ValueError("购物项名称不能为空")
+        if "unit" in self.model_fields_set and self.unit is not None:
+            self.unit = self.unit.strip() or None
+        if "display_label" in self.model_fields_set and self.display_label is not None:
+            self.display_label = self.display_label.strip() or None
+        if "reason" in self.model_fields_set and self.reason is not None:
+            self.reason = self.reason.strip()
+        if "quantity" in self.model_fields_set and self.quantity is not None and self.quantity <= 0:
+            raise ValueError("采购数量必须大于 0")
+        return self

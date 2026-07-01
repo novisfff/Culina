@@ -589,6 +589,16 @@ export interface ActivityLog {
   created_at: string;
 }
 
+export interface ActivityLogQuery {
+  start_date?: string;
+  end_date?: string;
+  actor_id?: string;
+  action?: string;
+  entity_type?: string;
+  limit?: number;
+  offset?: number;
+}
+
 export interface AiConversation {
   id: string;
   family_id: string;

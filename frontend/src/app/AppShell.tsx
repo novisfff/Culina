@@ -69,9 +69,10 @@ function syncMobileVisualViewportMetrics() {
   const viewportOffsetTop = visualViewport?.offsetTop ?? 0;
   const coveredBottom = Math.max(0, window.innerHeight - viewportHeight - viewportOffsetTop);
   const isKeyboardOpen = coveredBottom > 80 && isTextEntryElement(document.activeElement);
+  const keyboardInset = isKeyboardOpen ? coveredBottom : 0;
 
   root.style.setProperty(MOBILE_VIEWPORT_HEIGHT_VAR, viewportPixelValue(viewportHeight));
-  root.style.setProperty(MOBILE_VIEWPORT_BOTTOM_INSET_VAR, viewportPixelValue(coveredBottom));
+  root.style.setProperty(MOBILE_VIEWPORT_BOTTOM_INSET_VAR, viewportPixelValue(keyboardInset));
   root.classList.toggle(MOBILE_KEYBOARD_OPEN_CLASS, isKeyboardOpen);
 }
 

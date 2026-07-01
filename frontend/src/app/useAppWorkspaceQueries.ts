@@ -116,7 +116,7 @@ export function useAppWorkspaceQueries(args: {
   });
   const activityLogsQuery = useQuery({
     queryKey: queryKeys.activityLogs,
-    queryFn: api.getActivityLogs,
+    queryFn: () => api.getActivityLogs(),
     enabled: args.isAuthenticated && needsActivityLogs,
   });
   const aiConversationsQuery = useQuery({

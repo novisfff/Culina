@@ -8,6 +8,17 @@ import type {
   ShoppingListItem,
 } from './types';
 
+export type UpdateShoppingItemPayload = {
+  title?: string;
+  quantity?: number | null;
+  unit?: string | null;
+  ingredient_id?: string | null;
+  quantity_mode?: ShoppingListItem['quantity_mode'];
+  display_label?: string | null;
+  reason?: string;
+  done?: boolean;
+};
+
 export const ingredientsApi = {
   getIngredients: (params: { q?: string; limit?: number; offset?: number } = {}) => {
     const search = new URLSearchParams();
@@ -106,9 +117,13 @@ export const ingredientsApi = {
       method: 'POST',
       body: JSON.stringify(payload),
     }),
-  updateShoppingItem: (itemId: string, done: boolean) =>
+  updateShoppingItem: (itemId: string, payload: UpdateShoppingItemPayload) =>
     request<ShoppingListItem>(`/api/shopping-list/${itemId}`, {
       method: 'PATCH',
-      body: JSON.stringify({ done }),
+      body: JSON.stringify(payload),
+    }),
+  deleteShoppingItem: (itemId: string) =>
+    request<void>(`/api/shopping-list/${itemId}`, {
+      method: 'DELETE',
     }),
 };

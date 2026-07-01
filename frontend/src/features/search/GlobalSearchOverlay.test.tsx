@@ -164,6 +164,19 @@ afterEach(() => {
 });
 
 describe('GlobalSearchOverlay', () => {
+  it('focuses the search input when opened', async () => {
+    await renderOverlay({
+      items: [],
+      total: 0,
+      query: '',
+      search_mode: 'keyword',
+      degraded: false,
+    });
+
+    const input = document.querySelector<HTMLInputElement>('input[aria-label="搜索食材、食物、菜谱、餐食计划"]');
+    expect(document.activeElement).toBe(input);
+  });
+
   it('searches supported global scopes and renders type labels', async () => {
     await renderOverlay({
       items: [

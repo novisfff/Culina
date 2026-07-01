@@ -261,6 +261,7 @@ function App() {
     disposeExpiredInventoryMutation,
     createShoppingMutation,
     updateShoppingMutation,
+    deleteShoppingMutation,
     createRecipeMutation,
     updateRecipeMutation,
     deleteRecipeMutation,
@@ -481,7 +482,7 @@ function App() {
     homePlanAddFood,
     homePlanAddForm,
     createInventory: (payload) => createInventoryMutation.mutateAsync(payload),
-    updateShoppingDone: (itemId, done) => updateShoppingMutation.mutateAsync({ itemId, done }),
+    updateShoppingDone: (itemId, done) => updateShoppingMutation.mutateAsync({ itemId, payload: { done } }),
     disposeExpiredInventory: (payload) => disposeExpiredInventoryMutation.mutateAsync(payload),
     updateFoodPlanItem: (itemId, payload) => updateFoodPlanItemMutation.mutateAsync({ itemId, payload }),
     deleteFoodPlanItem: (itemId) => deleteFoodPlanItemMutation.mutateAsync(itemId),
@@ -625,6 +626,7 @@ function App() {
             foods={foods}
             recipes={recipes}
             ingredients={ingredients}
+            members={members}
             mealLogs={mealLogs}
             inventoryItems={inventoryItems}
             activityLogs={activityLogs}
@@ -785,13 +787,14 @@ function App() {
               disposeExpiredInventory={(payload) => disposeExpiredInventoryMutation.mutateAsync(payload)}
               createShoppingItem={(payload) => createShoppingMutation.mutateAsync(payload)}
               updateShoppingItem={(payload) => updateShoppingMutation.mutateAsync(payload)}
+              deleteShoppingItem={(itemId) => deleteShoppingMutation.mutateAsync(itemId)}
               isCreatingIngredient={createIngredientMutation.isPending}
               isUpdatingIngredient={updateIngredientMutation.isPending}
               isCreatingInventory={createInventoryMutation.isPending}
               isConsumingInventory={consumeInventoryMutation.isPending}
               isDisposingExpiredInventory={disposeExpiredInventoryMutation.isPending}
               isCreatingShopping={createShoppingMutation.isPending}
-              isUpdatingShopping={updateShoppingMutation.isPending}
+              isUpdatingShopping={updateShoppingMutation.isPending || deleteShoppingMutation.isPending}
             />
           </Suspense>
         )}
@@ -849,6 +852,7 @@ function App() {
               currentUserRecentLogs={currentUserRecentLogs}
               familyOwnerMember={familyOwnerMember}
               activityLogs={activityLogs}
+              isPhoneViewport={isPhoneViewport}
               notificationCenter={mobileNotificationCenter}
               overlayMode={familyOverlayMode}
               editingMember={editingMember}

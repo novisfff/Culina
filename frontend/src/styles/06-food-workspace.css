@@ -1465,7 +1465,7 @@
   padding: 0 48px 0 18px;
   border-color: rgba(92, 67, 48, 0.11);
   border-radius: 18px;
-  font-size: 0.9375rem;
+  font-size: 1rem;
   line-height: 46px;
 }
 
@@ -2240,12 +2240,14 @@
   display: grid;
   gap: 18px;
   align-content: start;
+  min-width: 0;
 }
 
 .food-form-panel,
 .food-editor-summary {
   display: grid;
   gap: 16px;
+  min-width: 0;
   padding: 22px;
   border: 1px solid rgba(92, 67, 48, 0.09);
   border-radius: 18px;
@@ -2283,6 +2285,11 @@
   align-items: flex-start;
   justify-content: space-between;
   gap: 16px;
+  min-width: 0;
+}
+
+.food-editor-focus-head > div {
+  min-width: 0;
 }
 
 .food-editor-repurchase-panel .food-editor-focus-head {
@@ -2411,6 +2418,7 @@
   font-size: 1.48rem;
   letter-spacing: 0;
   line-height: 1;
+  overflow: hidden;
   touch-action: none;
 }
 
@@ -2426,9 +2434,10 @@
 }
 
 .food-rating-star-layer {
-  grid-area: 1 / 1;
+  position: absolute;
+  inset: 0;
   display: grid;
-  grid-template-columns: repeat(5, 1fr);
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   align-items: center;
   width: 100%;
   height: 100%;
@@ -2439,6 +2448,8 @@
 .food-rating-star-layer span {
   display: grid;
   place-items: center;
+  width: 100%;
+  height: 100%;
   line-height: 1;
 }
 
@@ -2502,6 +2513,7 @@
   grid-template-columns: 76px minmax(0, 1fr) auto;
   gap: 16px;
   align-items: center;
+  min-width: 0;
 }
 
 .food-editor-recipe-cover {
@@ -2542,6 +2554,7 @@
 
 .food-editor-recipe-card strong,
 .food-editor-map-summary strong {
+  display: block;
   overflow: hidden;
   color: #231812;
   font-weight: 930;
@@ -2555,6 +2568,7 @@
 }
 
 .food-editor-recipe-card span {
+  display: block;
   overflow: hidden;
   color: #84776e;
   font-size: 0.86rem;
@@ -2565,12 +2579,20 @@
 
 .food-editor-recipe-card .ghost-button {
   min-height: 42px;
+  min-width: 0;
+  max-width: 100%;
   gap: 8px;
   padding: 0 15px;
   border-color: rgba(92, 67, 48, 0.1);
   border-radius: 12px;
   color: #6f5d50;
   box-shadow: none;
+}
+
+.food-editor-recipe-card .ghost-button span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .food-editor-recipe-card .ghost-button svg {
@@ -2583,6 +2605,11 @@
   grid-template-columns: 56px minmax(0, 1fr);
   gap: 16px;
   align-items: center;
+  min-width: 0;
+}
+
+.food-editor-map-summary > div {
+  min-width: 0;
 }
 
 .food-editor-map-icon {
@@ -2606,9 +2633,13 @@
 }
 
 .food-editor-map-summary p {
+  display: block;
+  max-width: 100%;
   margin: 4px 0 0;
   color: #8d8178;
   font-size: 0.86rem;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
 }
 
 .food-type-grid {
@@ -2946,11 +2977,13 @@
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 20px 28px;
   align-items: start;
+  min-width: 0;
 }
 
 .food-editor-meta-card {
   display: grid;
   gap: 8px;
+  min-width: 0;
   padding: 0;
 }
 
@@ -3627,7 +3660,10 @@
 
 .food-editor-modal .workspace-overlay-body {
   min-height: 0;
-  overflow: auto;
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: hidden;
+  overflow-y: auto;
 }
 
 .food-editor-embedded .food-editor-shell {
@@ -3710,9 +3746,12 @@
 
 @media (max-width: 767px) {
   .food-editor-modal.workspace-modal {
-    width: calc(100vw - 16px);
+    box-sizing: border-box;
+    width: 100%;
+    max-width: 100%;
     max-height: calc(100vh - 16px);
     padding: 14px;
+    overflow-x: hidden;
   }
 
   .food-editor-embedded .food-editor-main,
@@ -3722,6 +3761,9 @@
 
   .food-editor-embedded .food-form-panel,
   .food-editor-embedded .food-editor-summary {
+    min-width: 0;
+    max-width: 100%;
+    overflow-x: hidden;
     padding: 16px;
   }
 
@@ -10033,7 +10075,7 @@ button.ai-clarification-option:hover:not(:disabled) .ai-clarification-option-ind
   background: transparent;
   color: #2f251e;
   font: inherit;
-  font-size: 0.84rem;
+  font-size: 1rem;
   font-weight: 780;
   outline: none;
 }
@@ -10058,7 +10100,7 @@ button.ai-clarification-option:hover:not(:disabled) .ai-clarification-option-ind
   color: #2f251e;
   padding: 0;
   font: inherit;
-  font-size: 0.84rem;
+  font-size: 1rem;
   font-weight: 780;
   text-align: left;
   text-overflow: ellipsis;
@@ -10856,8 +10898,11 @@ button.ai-clarification-option:hover:not(:disabled) .ai-clarification-option-ind
   .ai-mobile-page {
     display: block;
     position: fixed;
-    inset: 0;
-    height: auto;
+    top: var(--ai-mobile-viewport-top, 0px);
+    left: 0;
+    right: 0;
+    bottom: auto;
+    height: var(--ai-mobile-viewport-height, 100dvh);
     min-height: 0;
     overflow: hidden;
     background: linear-gradient(180deg, #fffaf5 0%, #fffdfb 42%, #fff 100%);
@@ -10878,7 +10923,7 @@ button.ai-clarification-option:hover:not(:disabled) .ai-clarification-option-ind
   }
 
   .ai-mobile-topbar {
-    position: fixed;
+    position: absolute;
     top: 0;
     left: 0;
     right: 0;
@@ -11077,7 +11122,7 @@ button.ai-clarification-option:hover:not(:disabled) .ai-clarification-option-ind
   }
 
   .ai-thread-scroll {
-    position: fixed;
+    position: absolute;
     top: 0;
     left: 0;
     right: 0;
@@ -11092,7 +11137,7 @@ button.ai-clarification-option:hover:not(:disabled) .ai-clarification-option-ind
   }
 
   .ai-mobile-page .ai-thread-follow-button {
-    position: fixed;
+    position: absolute;
     z-index: 64;
     bottom: calc(var(--ai-mobile-composer-height, 88px) + 12px);
     min-height: 38px;
@@ -11410,7 +11455,7 @@ button.ai-clarification-option:hover:not(:disabled) .ai-clarification-option-ind
   }
 
   .ai-composer-dock {
-    position: fixed;
+    position: absolute;
     left: 0;
     right: 0;
     bottom: 0;
@@ -11462,6 +11507,7 @@ button.ai-clarification-option:hover:not(:disabled) .ai-clarification-option-ind
     min-height: 24px;
     max-height: 118px;
     padding: 4px 0;
+    font-size: 16px;
     line-height: 1.35;
   }
 
@@ -13195,6 +13241,10 @@ button.ai-clarification-option:hover:not(:disabled) .ai-clarification-option-ind
 .ai-multi-select-trigger {
   font-size: 0.875rem;
   font-weight: 720;
+}
+
+.ai-resource-select input {
+  font-size: 1rem;
 }
 
 .ai-confirmation-item .text-input,

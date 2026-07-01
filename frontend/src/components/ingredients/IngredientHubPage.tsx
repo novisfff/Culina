@@ -122,7 +122,7 @@ type IngredientHubPageProps = {
   openDetailView: (ingredientId: string) => void;
   openInventoryOverlay: (ingredientId?: string) => void;
   openConsumeOverlay: (ingredientId: string) => void;
-  openShoppingOverlay: (options?: { ingredient?: IngredientSummaryViewModel['ingredient']; reason?: string }) => void;
+  openShoppingOverlay: (options?: { ingredient?: IngredientSummaryViewModel['ingredient']; reason?: string; shoppingItem?: ShoppingListItem }) => void;
   openDestroyExpiredOverlay: (ingredientId: string) => void;
   openCreateView: () => void;
   openInventoryFromShopping: (item: ShoppingListItem) => void;
@@ -196,7 +196,20 @@ type IngredientHubPageProps = {
   activeShoppingOverview: ShoppingOverviewViewModel | null;
   showCompletedShopping: boolean;
   setShowCompletedShopping: Dispatch<SetStateAction<boolean>>;
-  onUpdateShoppingItem: (payload: { itemId: string; done: boolean }) => Promise<unknown>;
+  onUpdateShoppingItem: (payload: {
+    itemId: string;
+    payload: {
+      title?: string;
+      quantity?: number | null;
+      unit?: string | null;
+      ingredient_id?: string | null;
+      quantity_mode?: ShoppingListItem['quantity_mode'];
+      display_label?: string | null;
+      reason?: string;
+      done?: boolean;
+    };
+  }) => Promise<unknown>;
+  onDeleteShoppingItem: (itemId: string) => Promise<unknown>;
   ShoppingWorkRow: ShoppingWorkRowComponent;
   ShoppingHistoryRow: ShoppingHistoryRowComponent;
   mobileDetailPopover?: ReactNode;
@@ -320,7 +333,7 @@ export function IngredientHubPage(props: IngredientHubPageProps) {
         onRestoreShopping={(itemId) =>
           void props.onUpdateShoppingItem({
             itemId,
-            done: false,
+            payload: { done: false },
           })
         }
         IngredientWorkspaceIcon={({ name }) => props.renderIcon(name as IngredientWorkspaceIconName)}
@@ -368,6 +381,7 @@ export function IngredientHubPage(props: IngredientHubPageProps) {
               openDestroyExpiredOverlay={props.openDestroyExpiredOverlay}
               openCreateView={props.openCreateView}
               openInventoryFromShopping={props.openInventoryFromShopping}
+              onDeleteShoppingItem={props.onDeleteShoppingItem}
               buildPriorityStatus={props.buildPriorityStatus}
               buildCatalogStatus={props.buildCatalogStatus}
               buildInventorySummaryLine={props.buildInventorySummaryLine}

@@ -2418,6 +2418,33 @@ textarea:focus-visible {
   padding: 11px 13px;
   background: rgba(255, 255, 255, 0.86);
   color: inherit;
+  transition: border-color 140ms ease, box-shadow 140ms ease;
+}
+
+.text-input:focus {
+  outline: none;
+  border-color: var(--accent, #D26B33);
+  box-shadow: 0 0 0 3px rgba(210, 107, 51, 0.12);
+}
+
+.text-input:-webkit-autofill,
+.text-input:-webkit-autofill:hover,
+.text-input:-webkit-autofill:focus {
+  -webkit-text-fill-color: var(--text, #2f251e) !important;
+  -webkit-box-shadow: 0 0 0px 1000px #ffffff inset !important;
+  box-shadow: 0 0 0px 1000px #ffffff inset !important;
+  transition: background-color 5000s ease-in-out 0s;
+}
+
+select.text-input {
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%236A5B51' stroke-width='2.35' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E") !important;
+  background-repeat: no-repeat !important;
+  background-position: right 14px center !important;
+  background-size: 14px !important;
+  padding-right: 38px !important;
+  cursor: pointer;
 }
 
 .form-grid {
@@ -3238,7 +3265,7 @@ textarea:focus-visible {
   background: linear-gradient(180deg, #ffffff 0%, #fffcf8 100%) !important;
   padding: 0 48px 0 18px !important;
   color: var(--text) !important;
-  font-size: 0.9375rem !important;
+  font-size: 1rem !important;
   font-weight: 600 !important;
   line-height: calc(var(--main-search-height) - 2px) !important;
   box-shadow:

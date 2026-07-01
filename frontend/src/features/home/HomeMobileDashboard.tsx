@@ -1,4 +1,4 @@
-import type { Dispatch, SetStateAction } from 'react';
+import type { Dispatch, KeyboardEvent, SetStateAction } from 'react';
 import type { ReactNode } from 'react';
 import type { Food, FoodPlanItem, FoodRecommendations, Ingredient, MealType, Recipe, ShoppingListItem } from '../../api/types';
 import type { TabKey } from '../../app/AppShell';
@@ -58,6 +58,14 @@ export function HomeMobileDashboard(props: {
   onOpenDetail: (food: Food) => void;
   onShowMorePlans?: (date: string, mealType: MealType, items: FoodPlanItem[]) => void;
 }) {
+  function handleRecommendationCardKeyDown(event: KeyboardEvent<HTMLElement>, food: Food) {
+    if (event.key !== 'Enter' && event.key !== ' ') {
+      return;
+    }
+    event.preventDefault();
+    props.onOpenDetail(food);
+  }
+
   return (
     <main className="mobile-dashboard-page" aria-label="手机首页">
       <section className="mobile-dashboard-hero">
@@ -156,7 +164,15 @@ export function HomeMobileDashboard(props: {
               const food = recommendation.food;
               const foodCoverUrl = props.resolveAssetUrl(coverUrl);
               return (
-                <article key={food.id} className="mobile-dashboard-food-card">
+                <article
+                  key={food.id}
+                  className="mobile-dashboard-food-card"
+                  role="button"
+                  tabIndex={0}
+                  aria-label={`查看食物详情：${food.name}`}
+                  onClick={() => props.onOpenDetail(food)}
+                  onKeyDown={(event) => handleRecommendationCardKeyDown(event, food)}
+                >
                   <div className="mobile-dashboard-food-cover">
                     <MediaWithPlaceholder src={foodCoverUrl} alt="" />
                   </div>
@@ -171,22 +187,20 @@ export function HomeMobileDashboard(props: {
                       <button
                         className="mobile-dashboard-primary compact"
                         type="button"
-                        onClick={() => props.onQuickStartFood(food, props.foodRecommendations?.target_meal_type)}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          props.onQuickStartFood(food, props.foodRecommendations?.target_meal_type);
+                        }}
                         disabled={props.isQuickAdding || props.isCreatingFoodPlanItem}
                       >
                         开始做
                       </button>
                       <button
                         type="button"
-                        onClick={() => props.onOpenDetail(food)}
-                        aria-label="查看食物详情"
-                        title="查看详情"
-                      >
-                        <DashboardIcon name="list" />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => props.onHomePlanAddDialogOpen(food, props.foodRecommendations?.target_meal_type ?? 'dinner')}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          props.onHomePlanAddDialogOpen(food, props.foodRecommendations?.target_meal_type ?? 'dinner');
+                        }}
                         disabled={props.isCreatingFoodPlanItem}
                         aria-label={`加入菜单：${food.name}`}
                       >

@@ -56,7 +56,14 @@ export function useAppMutations() {
     },
   });
   const updateShoppingMutation = useMutation({
-    mutationFn: ({ itemId, done }: { itemId: string; done: boolean }) => api.updateShoppingItem(itemId, done),
+    mutationFn: ({ itemId, payload }: { itemId: string; payload: Parameters<typeof api.updateShoppingItem>[1] }) =>
+      api.updateShoppingItem(itemId, payload),
+    onSuccess: () => {
+      invalidateAfterShoppingChanged(queryClient);
+    },
+  });
+  const deleteShoppingMutation = useMutation({
+    mutationFn: api.deleteShoppingItem,
     onSuccess: () => {
       invalidateAfterShoppingChanged(queryClient);
     },
@@ -189,6 +196,7 @@ export function useAppMutations() {
     disposeExpiredInventoryMutation,
     createShoppingMutation,
     updateShoppingMutation,
+    deleteShoppingMutation,
     createRecipeMutation,
     updateRecipeMutation,
     deleteRecipeMutation,

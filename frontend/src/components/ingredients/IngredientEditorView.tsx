@@ -240,7 +240,6 @@ export function IngredientEditorView(props: IngredientEditorViewProps) {
                         placeholder="自定义分类"
                         value={props.ingredientCategoryIsVisiblePreset ? '' : props.ingredientForm.category}
                         onChange={(event) => props.setIngredientForm({ ...props.ingredientForm, category: event.target.value })}
-                        autoFocus
                       />
                     ) : (
                       <button

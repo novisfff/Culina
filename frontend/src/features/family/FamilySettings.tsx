@@ -1,4 +1,4 @@
-import type { FormEventHandler, ReactNode } from 'react';
+import { useState, type FormEventHandler, type ReactNode } from 'react';
 import type { ActivityLog, FamilyDetail, Member, MembershipSummary, UserSummary } from '../../api/types';
 import { DashboardIcon, ShellIcon, type DashboardIconName } from '../../app/shellIcons';
 import { MediaWithPlaceholder } from '../../components/MediaPlaceholder';
@@ -18,6 +18,7 @@ import {
   type ProfileFormState,
 } from './FamilySettingsModals';
 import { FamilyMobileView } from './FamilyMobileView';
+import { FamilyActivityMobilePage, FamilyActivityModal } from './FamilyActivityViewer';
 
 export type FamilyOverlayMode = 'invite' | 'profile' | 'password' | 'family' | 'member' | null;
 
@@ -41,6 +42,7 @@ export type FamilySettingsProps = {
   currentUserRecentLogs: number;
   familyOwnerMember?: Member;
   activityLogs: ActivityLog[];
+  isPhoneViewport: boolean;
   notificationCenter?: ReactNode;
   overlayMode: FamilyOverlayMode;
   editingMember?: Member;
@@ -74,6 +76,28 @@ export type FamilySettingsProps = {
 
 export function FamilySettings(props: FamilySettingsProps) {
   const closeOverlay = () => props.onOverlayChange(null);
+  const [isActivityModalOpen, setIsActivityModalOpen] = useState(false);
+  const [isMobileActivityPageOpen, setIsMobileActivityPageOpen] = useState(false);
+
+  const openActivityViewer = () => {
+    if (props.isPhoneViewport) {
+      setIsMobileActivityPageOpen(true);
+      return;
+    }
+    setIsActivityModalOpen(true);
+  };
+
+  if (isMobileActivityPageOpen) {
+    return (
+      <main className="family-workspace">
+        <FamilyActivityMobilePage
+          members={props.members}
+          previewLogs={props.activityLogs}
+          onBack={() => setIsMobileActivityPageOpen(false)}
+        />
+      </main>
+    );
+  }
 
   return (
     <main className="family-workspace">
@@ -93,6 +117,7 @@ export function FamilySettings(props: FamilySettingsProps) {
         resolveAssetUrl={props.resolveAssetUrl}
         onOverlayChange={props.onOverlayChange}
         onNavigate={props.onNavigate}
+        onActivityViewerOpen={openActivityViewer}
         onMemberEdit={props.onMemberEdit}
       />
 
@@ -243,7 +268,7 @@ export function FamilySettings(props: FamilySettingsProps) {
                     <div className="family-member-title">
                       <h3>{member.display_name}</h3>
                       <Badge className={member.role === 'Owner' ? 'family-role-owner' : 'family-role-member'}>
-                        {member.role === 'Owner' ? 'Owner' : '成员'}
+                        {member.role === 'Owner' ? '主理人' : '成员'}
                       </Badge>
                     </div>
                     <p>{member.username}</p>
@@ -281,7 +306,7 @@ export function FamilySettings(props: FamilySettingsProps) {
           <section className="card family-activity-panel">
             <div className="family-section-head">
               <h2>家庭活动</h2>
-              <button className="tertiary-button button-compact" type="button" onClick={() => props.onNavigate('logs')}>
+              <button className="tertiary-button button-compact" type="button" onClick={openActivityViewer}>
                 查看全部
               </button>
             </div>
@@ -348,7 +373,7 @@ export function FamilySettings(props: FamilySettingsProps) {
                     <DashboardIcon name="lock" />
                   </span>
                   <div>
-                    <strong>家庭资料由 Owner 管理</strong>
+                    <strong>家庭资料由主理人管理</strong>
                     <p>成员邀请、家庭名称、位置和权限调整需要管理员处理。</p>
                   </div>
                 </article>
@@ -361,7 +386,7 @@ export function FamilySettings(props: FamilySettingsProps) {
                     />
                     <div>
                       <strong>{props.familyOwnerMember.display_name}</strong>
-                      <p>Owner · {props.familyOwnerMember.username}</p>
+                      <p>主理人 · {props.familyOwnerMember.username}</p>
                     </div>
                     <Badge>管理员</Badge>
                   </article>
@@ -374,7 +399,7 @@ export function FamilySettings(props: FamilySettingsProps) {
               </span>
               <div>
                 <strong>权限说明</strong>
-                <p>Owner 可管理家庭资料与成员权限；普通成员可参与食材、菜谱与记录协作。</p>
+                <p>主理人可管理家庭资料与成员权限；普通成员可参与食材、菜谱与记录协作。</p>
               </div>
             </div>
           </section>
@@ -398,6 +423,7 @@ export function FamilySettings(props: FamilySettingsProps) {
           roleLabel={props.membership?.role ?? 'Member'}
           isSubmitting={props.isUpdatingProfile}
           imageControls={props.profileImageControls}
+          resolveAssetUrl={props.resolveAssetUrl}
           onChange={props.onProfileFormChange}
           onSubmit={props.onProfileSubmit}
           onClose={closeOverlay}
@@ -435,6 +461,14 @@ export function FamilySettings(props: FamilySettingsProps) {
           onChange={props.onFamilyFormChange}
           onSubmit={props.onFamilySubmit}
           onClose={closeOverlay}
+        />
+      )}
+
+      {isActivityModalOpen && (
+        <FamilyActivityModal
+          members={props.members}
+          previewLogs={props.activityLogs}
+          onClose={() => setIsActivityModalOpen(false)}
         />
       )}
     </main>

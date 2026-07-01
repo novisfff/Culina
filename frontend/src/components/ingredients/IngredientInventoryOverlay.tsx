@@ -1,6 +1,6 @@
-import { useMemo, useState, type FormEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import type { Ingredient, IngredientExpiryMode, IngredientUnitConversion, InventoryStatus } from '../../api/types';
-import { resolveAssetUrl } from '../../lib/assets';
+import { resolveAssetUrl, resolveMediaUrl } from '../../lib/assets';
 import { addDateKeyDays } from '../../lib/date';
 import { tracksIngredientQuantity } from '../../lib/ingredientTracking';
 import { formatDate, INVENTORY_STATUS_LABELS, todayKey } from '../../lib/ui';
@@ -46,9 +46,89 @@ type IngredientInventoryOverlayProps = {
   isCreatingInventory?: boolean;
 };
 
+type CustomSelectOption = {
+  value: string;
+  label: string;
+};
+
+function CustomSelect(props: {
+  placeholder: string;
+  value: string;
+  options: CustomSelectOption[];
+  onChange: (value: string) => void;
+}) {
+  const [isOpen, setIsOpen] = useState(false);
+  const containerRef = useRef<HTMLDivElement | null>(null);
+
+  const selectedOption = props.options.find((opt) => opt.value === props.value);
+  const triggerLabel = selectedOption ? selectedOption.label : props.placeholder;
+
+  useEffect(() => {
+    if (!isOpen) return;
+
+    function handlePointerDown(event: PointerEvent) {
+      if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
+        setIsOpen(false);
+      }
+    }
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === 'Escape') {
+        setIsOpen(false);
+      }
+    }
+
+    document.addEventListener('pointerdown', handlePointerDown);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('pointerdown', handlePointerDown);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isOpen]);
+
+  return (
+    <div className="custom-select-container" ref={containerRef} aria-expanded={isOpen}>
+      <button
+        type="button"
+        className="custom-select-trigger"
+        onClick={() => setIsOpen((prev) => !prev)}
+      >
+        <span>{triggerLabel}</span>
+        <span className="custom-select-arrow" />
+      </button>
+      {isOpen && (
+        <div className="custom-select-dropdown">
+          {props.options.map((option) => (
+            <button
+              key={option.value}
+              type="button"
+              className={`custom-select-option ${props.value === option.value ? 'selected' : ''}`}
+              onClick={() => {
+                props.onChange(option.value);
+                setIsOpen(false);
+              }}
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function IngredientInventoryOverlay(props: IngredientInventoryOverlayProps) {
   const tracksQuantity = tracksIngredientQuantity(props.selectedInventoryIngredient);
   const [ingredientPickerOpen, setIngredientPickerOpen] = useState(false);
+  const pickerRef = useRef<HTMLDivElement | null>(null);
+
+  const statusOptions = useMemo(() => {
+    return Object.entries(INVENTORY_STATUS_LABELS).map(([key, label]) => ({
+      value: key,
+      label: label,
+    }));
+  }, []);
+
   const visibleIngredientOptions = useMemo(() => {
     const query = props.inventoryForm.ingredientQuery.trim().toLowerCase();
     const matched = props.ingredients.filter((ingredient) => {
@@ -59,6 +139,19 @@ export function IngredientInventoryOverlay(props: IngredientInventoryOverlayProp
     });
     return matched.slice(0, 8);
   }, [props.ingredients, props.inventoryForm.ingredientQuery]);
+
+  useEffect(() => {
+    if (!ingredientPickerOpen) return;
+
+    function handlePointerDown(event: PointerEvent) {
+      if (pickerRef.current && !pickerRef.current.contains(event.target as Node)) {
+        setIngredientPickerOpen(false);
+      }
+    }
+
+    document.addEventListener('pointerdown', handlePointerDown);
+    return () => document.removeEventListener('pointerdown', handlePointerDown);
+  }, [ingredientPickerOpen]);
 
   return (
     <WorkspaceModal
@@ -86,20 +179,26 @@ export function IngredientInventoryOverlay(props: IngredientInventoryOverlayProp
                   <p className="subtle">常用食材点一下就行。</p>
                 </div>
                 <div className="ingredients-restock-choice-row">
-                  {props.quickRestockIngredients.map((ingredient) => (
-                    <button
-                      key={ingredient.id}
-                      type="button"
-                      className={
-                        props.inventoryForm.ingredientId === ingredient.id
-                          ? 'ingredients-choice-chip active'
-                          : 'ingredients-choice-chip'
-                      }
-                      onClick={() => props.syncInventoryIngredient(ingredient, ingredient.name)}
-                    >
-                      {ingredient.name}
-                    </button>
-                  ))}
+                  {props.quickRestockIngredients.map((ingredient) => {
+                    const imageUrl = resolveMediaUrl(ingredient.image, 'thumb');
+                    return (
+                      <button
+                        key={ingredient.id}
+                        type="button"
+                        className={
+                          props.inventoryForm.ingredientId === ingredient.id
+                            ? 'ingredients-choice-chip active'
+                            : 'ingredients-choice-chip'
+                        }
+                        onClick={() => props.syncInventoryIngredient(ingredient, ingredient.name)}
+                      >
+                        <div className="ingredients-choice-chip-avatar">
+                          <MediaWithPlaceholder src={imageUrl} alt="" />
+                        </div>
+                        <span>{ingredient.name}</span>
+                      </button>
+                    );
+                  })}
                 </div>
               </section>
             )}
@@ -107,13 +206,12 @@ export function IngredientInventoryOverlay(props: IngredientInventoryOverlayProp
           {!props.inventoryForm.ingredientLocked && !props.selectedInventoryIngredient && (
             <div className="ingredients-restock-search-field ingredients-restock-picker-field">
               <span>食材</span>
-              <div className="ingredients-restock-picker-shell">
+              <div className="custom-combobox-container" ref={pickerRef}>
                 <input
                   className="text-input"
                   placeholder="搜索或选择食材"
                   value={props.inventoryForm.ingredientQuery}
                   onFocus={() => setIngredientPickerOpen(true)}
-                  onBlur={() => window.setTimeout(() => setIngredientPickerOpen(false), 120)}
                   onChange={(event) => {
                     const nextQuery = event.target.value;
                     const ingredient = props.ingredients.find((item) => item.name === nextQuery) ?? null;
@@ -121,38 +219,26 @@ export function IngredientInventoryOverlay(props: IngredientInventoryOverlayProp
                     setIngredientPickerOpen(true);
                   }}
                 />
-                <button
-                  className="ingredients-restock-picker-toggle"
-                  type="button"
-                  aria-label="展开食材选择"
-                  onMouseDown={(event) => event.preventDefault()}
-                  onClick={() => setIngredientPickerOpen((current) => !current)}
-                >
-                  ▼
-                </button>
+                <span className="custom-combobox-arrow" />
                 {ingredientPickerOpen && (
-                  <div className="ingredients-restock-picker-menu" role="listbox" aria-label="选择食材">
+                  <div className="custom-combobox-dropdown">
                     {visibleIngredientOptions.length > 0 ? (
                       visibleIngredientOptions.map((ingredient) => {
-                        const imageUrl = resolveAssetUrl(ingredient.image?.url);
+                        const imageUrl = resolveMediaUrl(ingredient.image, 'thumb');
                         return (
                           <button
                             key={ingredient.id}
                             type="button"
-                            role="option"
-                            onMouseDown={(event) => event.preventDefault()}
+                            className={`custom-combobox-option ${props.inventoryForm.ingredientId === ingredient.id ? 'selected' : ''}`}
                             onClick={() => {
                               props.syncInventoryIngredient(ingredient, ingredient.name);
                               setIngredientPickerOpen(false);
                             }}
                           >
-                            <MediaWithPlaceholder src={imageUrl} alt="" />
-                            <span>
-                              <strong>{ingredient.name}</strong>
-                              <small>
-                                {ingredient.category || '未分类'} · 默认 {ingredient.default_unit || '个'} · {ingredient.default_storage || '常温'}
-                              </small>
-                            </span>
+                            <div className="custom-combobox-option-avatar">
+                              <MediaWithPlaceholder src={imageUrl} alt="" />
+                            </div>
+                            <span>{ingredient.name}</span>
                           </button>
                         );
                       })
@@ -484,27 +570,22 @@ export function IngredientInventoryOverlay(props: IngredientInventoryOverlayProp
               {props.inventoryAdvancedOpen ? '收起更多选项' : '更多选项'}
             </button>
             {props.inventoryAdvancedOpen && (
-              <div className="form-grid compact-grid ingredients-modal-advanced-fields">
-                <label>
+              <div className="ingredients-modal-advanced-fields">
+                <div className="ingredients-restock-status-custom-field">
                   <span>状态</span>
-                  <select
-                    className="text-input"
+                  <CustomSelect
+                    placeholder="选择状态"
                     value={props.inventoryForm.status}
-                    onChange={(event) =>
+                    options={statusOptions}
+                    onChange={(val) =>
                       props.setInventoryForm({
                         ...props.inventoryForm,
-                        status: event.target.value as InventoryStatus,
+                        status: val as InventoryStatus,
                         statusDirty: true,
                       })
                     }
-                  >
-                    {Object.entries(INVENTORY_STATUS_LABELS).map(([key, label]) => (
-                      <option key={key} value={key}>
-                        {label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
+                  />
+                </div>
                 <label className="span-two">
                   <span>备注</span>
                   <textarea

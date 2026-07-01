@@ -285,6 +285,67 @@ def test_patch_shopping_item_updates_current_family_item_and_activity_log(
         assert log.summary == "番茄已标记为完成"
 
 
+def test_patch_shopping_item_updates_fields_and_relinks_ingredient(shopping_api_context: ShoppingApiContext) -> None:
+    response = shopping_api_context.client.patch(
+        f"/api/shopping-list/{shopping_api_context.item_id}",
+        json={
+            "title": "番茄罐头",
+            "quantity": 3,
+            "unit": "罐",
+            "ingredient_id": shopping_api_context.ingredient_id,
+            "reason": "补做意面",
+            "done": False,
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["title"] == "番茄罐头"
+    assert payload["quantity"] == 3
+    assert payload["unit"] == "罐"
+    assert payload["ingredient_id"] == shopping_api_context.ingredient_id
+    assert payload["reason"] == "补做意面"
+    assert payload["done"] is False
+
+    with shopping_api_context.SessionLocal() as db:
+        item = db.get(ShoppingListItem, shopping_api_context.item_id)
+        assert item is not None
+        assert item.title == "番茄罐头"
+        assert item.quantity == Decimal("3")
+        assert item.unit == "罐"
+        assert item.reason == "补做意面"
+
+        log = db.scalar(
+            select(ActivityLog).where(
+                ActivityLog.family_id == shopping_api_context.family_id,
+                ActivityLog.entity_id == shopping_api_context.item_id,
+                ActivityLog.summary == "更新购物清单 番茄罐头",
+            )
+        )
+        assert log is not None
+
+
+def test_patch_shopping_item_rejects_other_family_ingredient(shopping_api_context: ShoppingApiContext) -> None:
+    response = shopping_api_context.client.patch(
+        f"/api/shopping-list/{shopping_api_context.item_id}",
+        json={
+            "title": "跨家庭鸡蛋",
+            "quantity": 2,
+            "unit": "个",
+            "ingredient_id": shopping_api_context.other_ingredient_id,
+        },
+    )
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Ingredient not found"
+
+    with shopping_api_context.SessionLocal() as db:
+        item = db.get(ShoppingListItem, shopping_api_context.item_id)
+        assert item is not None
+        assert item.title == "番茄"
+        assert item.ingredient_id == shopping_api_context.ingredient_id
+
+
 def test_patch_shopping_item_rolls_back_when_commit_fails(shopping_api_context: ShoppingApiContext) -> None:
     with fail_next_commit("shopping commit failed"):
         with pytest.raises(RuntimeError, match="shopping commit failed"):
@@ -320,6 +381,38 @@ def test_patch_shopping_item_rejects_other_family_item_without_modifying_it(
             )
             is None
         )
+
+
+def test_delete_shopping_item_removes_current_family_item_and_logs_activity(
+    shopping_api_context: ShoppingApiContext,
+) -> None:
+    response = shopping_api_context.client.delete(f"/api/shopping-list/{shopping_api_context.item_id}")
+
+    assert response.status_code == 204, response.text
+
+    with shopping_api_context.SessionLocal() as db:
+        assert db.get(ShoppingListItem, shopping_api_context.item_id) is None
+        log = db.scalar(
+            select(ActivityLog).where(
+                ActivityLog.family_id == shopping_api_context.family_id,
+                ActivityLog.actor_id == shopping_api_context.user_id,
+                ActivityLog.action == ActivityAction.UPDATE,
+                ActivityLog.entity_type == "ShoppingListItem",
+                ActivityLog.entity_id == shopping_api_context.item_id,
+            )
+        )
+        assert log is not None
+        assert log.summary == "删除购物清单 番茄"
+
+
+def test_delete_shopping_item_rejects_other_family_item(shopping_api_context: ShoppingApiContext) -> None:
+    response = shopping_api_context.client.delete(f"/api/shopping-list/{shopping_api_context.other_item_id}")
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Shopping item not found"
+
+    with shopping_api_context.SessionLocal() as db:
+        assert db.get(ShoppingListItem, shopping_api_context.other_item_id) is not None
 
 
 def test_shopping_list_requires_authentication(shopping_api_context: ShoppingApiContext) -> None:

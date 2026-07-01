@@ -101,8 +101,8 @@ export function InviteMemberModal(props: {
               value={props.form.role}
               onChange={(event) => props.onChange({ ...props.form, role: event.target.value as 'Owner' | 'Member' })}
             >
-              <option value="Member">Member</option>
-              <option value="Owner">Owner</option>
+              <option value="Member">家庭成员</option>
+              <option value="Owner">主理人</option>
             </select>
           </label>
           <label className="span-two">
@@ -156,7 +156,7 @@ export function MemberEditModal(props: {
               />
               <div>
                 <strong>{props.form.displayName || props.member.display_name}</strong>
-                <p>{props.member.role === 'Owner' ? 'Owner' : '成员'} · {props.member.username}</p>
+                <p>{props.member.role === 'Owner' ? '主理人' : '成员'} · {props.member.username}</p>
               </div>
             </div>
             <div className="member-edit-basic-grid">
@@ -265,6 +265,7 @@ export function ProfileEditModal(props: {
   roleLabel: string;
   isSubmitting: boolean;
   imageControls: ImageComposerControls;
+  resolveAssetUrl: (url?: string) => string | undefined;
   onChange: (form: ProfileFormState) => void;
   onSubmit: FormEventHandler<HTMLFormElement>;
   onClose: () => void;
@@ -273,6 +274,11 @@ export function ProfileEditModal(props: {
   const previewSeed = props.form.displayName || props.currentUser?.avatar_seed || '成员';
   const imageUrl = props.form.avatarImages.generatedAsset?.url ?? props.currentUser?.avatar_image?.url;
   const isBusy = props.isSubmitting;
+  const showBottomPreview = !!(
+    (props.form.avatarImages.generatedAsset && props.form.avatarImages.generatedAsset.id !== props.currentUser?.avatar_image?.id) ||
+    props.imageControls.isGenerating
+  );
+  const bottomPreviewUrl = props.resolveAssetUrl(props.form.avatarImages.generatedAsset?.url);
 
   return (
     <div className="workspace-overlay-root family-settings-overlay-root">
@@ -358,10 +364,26 @@ export function ProfileEditModal(props: {
               </div>
             </div>
             <div className="profile-avatar-body">
-              <div className="profile-avatar-large-preview">
-                <Avatar label={previewLabel} seed={previewSeed} imageUrl={imageUrl} large />
-                <span>{props.imageControls.isGenerating ? '后台生成中' : props.form.avatarImages.generatedAsset ? '已设置头像' : '当前预览'}</span>
-              </div>
+              {showBottomPreview && (
+                <div
+                  className={`profile-avatar-large-preview ${props.form.avatarImages.generatedAsset ? 'has-image' : ''} ${props.imageControls.isGenerating ? 'is-loading' : ''}`}
+                >
+                  {props.imageControls.isGenerating ? (
+                    <div className="profile-avatar-generating-overlay">
+                      <div className="profile-avatar-generating-sparkles">
+                        <span className="sparkle sparkle-1" />
+                        <span className="sparkle sparkle-2" />
+                        <span className="sparkle sparkle-3" />
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="profile-avatar-preview-mask">
+                      <Avatar label={previewLabel} seed={previewSeed} imageUrl={bottomPreviewUrl} large />
+                    </div>
+                  )}
+                  <span>{props.imageControls.isGenerating ? 'AI 后台智能头像生成中...' : props.form.avatarImages.generatedAsset ? '已设置头像' : '当前预览'}</span>
+                </div>
+              )}
               {props.imageControls.isPromptOpen && (
                 <div className="profile-avatar-prompt-panel">
                   <label>
@@ -422,6 +444,11 @@ export function FamilyEditModal(props: {
   const imageUrl = props.form.images.generatedAsset?.url ?? props.family?.image?.url;
   const resolvedImageUrl = props.resolveAssetUrl(imageUrl);
   const isBusy = props.isSubmitting;
+  const showBottomPreview = !!(
+    (props.form.images.generatedAsset && props.form.images.generatedAsset.id !== props.family?.image?.id) ||
+    props.imageControls.isGenerating
+  );
+  const bottomPreviewUrl = props.resolveAssetUrl(props.form.images.generatedAsset?.url);
 
   return (
     <div className="workspace-overlay-root family-settings-overlay-root">
@@ -434,7 +461,10 @@ export function FamilyEditModal(props: {
       >
         <form className="family-edit-form" onSubmit={props.onSubmit}>
           <section className="family-edit-card">
-            <div className="family-edit-preview">
+            <div
+              className={`family-edit-preview ${imageUrl ? 'has-image' : ''}`}
+              style={resolvedImageUrl ? { backgroundImage: `url(${resolvedImageUrl})` } : undefined}
+            >
               <MediaWithPlaceholder src={resolvedImageUrl} alt={props.form.name || '家庭头像'} />
               <div>
                 <strong>{props.form.name || props.family?.name || '家庭厨房'}</strong>
@@ -506,17 +536,6 @@ export function FamilyEditModal(props: {
               </div>
             </div>
             <div className="family-image-body">
-              <div className="family-image-large-preview">
-                <div className="family-image-preview-mask">
-                  <MediaWithPlaceholder
-                    src={resolvedImageUrl}
-                    alt={props.form.name || '家庭头像'}
-                    className="family-image-preview-media"
-                    imageClassName="family-image-preview-media-image"
-                  />
-                </div>
-                <span>{props.imageControls.isGenerating ? '后台生成中' : props.form.images.generatedAsset ? '已设置家庭图' : '当前预览'}</span>
-              </div>
               {props.imageControls.isPromptOpen && (
                 <div className="family-image-prompt-panel">
                   <label>
@@ -545,6 +564,31 @@ export function FamilyEditModal(props: {
                       {props.imageControls.isGenerating ? '后台生成中' : '生成家庭图'}
                     </ActionButton>
                   </div>
+                </div>
+              )}
+              {showBottomPreview && (
+                <div
+                  className={`family-image-large-preview ${props.form.images.generatedAsset ? 'has-image' : ''} ${props.imageControls.isGenerating ? 'is-loading' : ''}`}
+                >
+                  {props.imageControls.isGenerating ? (
+                    <div className="family-image-generating-overlay">
+                      <div className="family-image-generating-sparkles">
+                        <span className="sparkle sparkle-1" />
+                        <span className="sparkle sparkle-2" />
+                        <span className="sparkle sparkle-3" />
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="family-image-preview-mask">
+                      <MediaWithPlaceholder
+                        src={bottomPreviewUrl}
+                        alt={props.form.name || '家庭头像'}
+                        className="family-image-preview-media"
+                        imageClassName="family-image-preview-media-image"
+                      />
+                    </div>
+                  )}
+                  <span>{props.imageControls.isGenerating ? 'AI 后台智能画卷生成中...' : props.form.images.generatedAsset ? '已设置家庭图' : '当前预览'}</span>
                 </div>
               )}
             </div>

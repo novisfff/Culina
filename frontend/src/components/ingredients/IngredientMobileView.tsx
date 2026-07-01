@@ -1,10 +1,11 @@
-import type { CompositionEventHandler, ReactNode } from 'react';
+import { useState, type CompositionEventHandler, type KeyboardEvent, type ReactNode } from 'react';
 import { buildMediaSizes, buildMediaSrcSet, resolveMediaUrl } from '../../lib/assets';
 import type { ShoppingListItem } from '../../api/types';
 import { chunkMobilePagedItems, useMobilePagedScroller } from '../../hooks/useMobilePagedScroller';
 import { MediaWithPlaceholder } from '../MediaPlaceholder';
-import { SearchLoadingIndicator } from '../ui-kit';
+import { SearchLoadingIndicator, WorkspaceDrawer } from '../ui-kit';
 import { tracksIngredientQuantity } from '../../lib/ingredientTracking';
+import { focusMobileInput } from '../../lib/mobileFocus';
 import type {
   IngredientSummaryViewModel,
   InventoryCardStatusViewModel,
@@ -21,6 +22,10 @@ type CatalogCardStatus = {
   stockLine: string;
   hint: string;
 };
+
+function focusMobileIngredientSearch() {
+  focusMobileInput('mobile-ingredient-search', { containerSelector: '.mobile-ingredient-library-filters' });
+}
 
 type IngredientMobileViewProps = {
   allAlertsCount: number;
@@ -47,7 +52,8 @@ type IngredientMobileViewProps = {
   openDetailView: (ingredientId: string) => void;
   openInventoryOverlay: (ingredientId?: string) => void;
   openConsumeOverlay: (ingredientId: string) => void;
-  openShoppingOverlay: (options?: { ingredient?: IngredientSummaryViewModel['ingredient']; reason?: string }) => void;
+  openShoppingOverlay: (options?: { ingredient?: IngredientSummaryViewModel['ingredient']; reason?: string; shoppingItem?: ShoppingListItem }) => void;
+  onDeleteShoppingItem: (itemId: string) => Promise<unknown>;
   openDestroyExpiredOverlay: (ingredientId: string) => void;
   openCreateView: () => void;
   openInventoryFromShopping: (item: ShoppingListItem) => void;
@@ -63,11 +69,46 @@ type IngredientMobileViewProps = {
 };
 
 export function IngredientMobileView(props: IngredientMobileViewProps) {
+  const [selectedShoppingCardId, setSelectedShoppingCardId] = useState<string | null>(null);
   const catalogPager = useMobilePagedScroller({
     itemCount: props.mobileCatalogSummaries.length,
     resetKey: props.mobileCatalogResetKey,
   });
   const mobileCatalogPages = chunkMobilePagedItems(props.mobileCatalogSummaries, catalogPager.visiblePageCount);
+  const selectedShoppingCard =
+    selectedShoppingCardId
+      ? props.mobileShoppingCards.find((card) => card.shoppingItem.id === selectedShoppingCardId) ?? null
+      : null;
+
+  function openShoppingCard(card: ShoppingCardViewModel) {
+    setSelectedShoppingCardId(card.shoppingItem.id);
+  }
+
+  function closeShoppingCard() {
+    setSelectedShoppingCardId(null);
+  }
+
+  function handleShoppingCardKeyDown(event: KeyboardEvent<HTMLElement>, card: ShoppingCardViewModel) {
+    if (event.key !== 'Enter' && event.key !== ' ') return;
+    event.preventDefault();
+    openShoppingCard(card);
+  }
+
+  function editShoppingCard(card: ShoppingCardViewModel) {
+    closeShoppingCard();
+    props.openShoppingOverlay({ shoppingItem: card.shoppingItem });
+  }
+
+  function restockShoppingCard(card: ShoppingCardViewModel) {
+    closeShoppingCard();
+    props.openInventoryFromShopping(card.shoppingItem);
+  }
+
+  function deleteShoppingCard(card: ShoppingCardViewModel) {
+    void props.onDeleteShoppingItem(card.shoppingItem.id)
+      .then(closeShoppingCard)
+      .catch(() => undefined);
+  }
 
   return (
     <section className="mobile-ingredient-page" aria-label="手机食材页">
@@ -80,7 +121,7 @@ export function IngredientMobileView(props: IngredientMobileViewProps) {
           </span>
         </div>
         <div className="mobile-ingredient-top-actions">
-          <button type="button" aria-label="聚焦搜索" onClick={() => document.getElementById('mobile-ingredient-search')?.focus()}>
+          <button type="button" aria-label="聚焦搜索" onClick={focusMobileIngredientSearch}>
             {props.renderIcon('search')}
           </button>
           {props.notificationCenter ?? (
@@ -460,7 +501,15 @@ export function IngredientMobileView(props: IngredientMobileViewProps) {
                 {group.cards.map((card) => {
                   const imageUrl = resolveMediaUrl(card.linkedSummary?.ingredient.image, 'thumb');
                   return (
-                    <article key={card.shoppingItem.id} className={`mobile-ingredient-shopping-card tone-${card.statusTone}`}>
+                    <article
+                      key={card.shoppingItem.id}
+                      className={`mobile-ingredient-shopping-card tone-${card.statusTone}`}
+                      role="button"
+                      tabIndex={0}
+                      aria-label={`查看采购待办：${card.title}`}
+                      onClick={() => openShoppingCard(card)}
+                      onKeyDown={(event) => handleShoppingCardKeyDown(event, card)}
+                    >
                       <span className="mobile-ingredient-shopping-cover">
                         <MediaWithPlaceholder
                           src={imageUrl}
@@ -476,7 +525,10 @@ export function IngredientMobileView(props: IngredientMobileViewProps) {
                       <button
                         type="button"
                         disabled={props.isUpdatingShopping || props.isCreatingInventory}
-                        onClick={() => props.openInventoryFromShopping(card.shoppingItem)}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          props.openInventoryFromShopping(card.shoppingItem);
+                        }}
                       >
                         入库
                       </button>
@@ -493,6 +545,97 @@ export function IngredientMobileView(props: IngredientMobileViewProps) {
           </div>
         )}
       </section>
+
+      {selectedShoppingCard && (
+        <div className="workspace-overlay-root ingredient-workspace-overlay-root mobile-ingredient-shopping-drawer-root">
+          <button
+            className="workspace-overlay-backdrop mobile-ingredient-shopping-drawer-backdrop"
+            type="button"
+            aria-label="关闭采购待办详情"
+            onClick={closeShoppingCard}
+          />
+          <WorkspaceDrawer
+            eyebrow={selectedShoppingCard.sourceLabel}
+            title={selectedShoppingCard.title}
+            description={`${selectedShoppingCard.quantityLabel} · ${selectedShoppingCard.reasonLabel}`}
+            closeLabel="关闭"
+            closeAriaLabel="关闭采购待办详情"
+            className={`mobile-ingredient-shopping-drawer tone-${selectedShoppingCard.statusTone}`}
+            onClose={closeShoppingCard}
+          >
+            <div className="mobile-ingredient-shopping-drawer-summary">
+              <span className="mobile-ingredient-shopping-drawer-cover">
+                <MediaWithPlaceholder
+                  src={resolveMediaUrl(selectedShoppingCard.linkedSummary?.ingredient.image, 'thumb')}
+                  srcSet={buildMediaSrcSet(selectedShoppingCard.linkedSummary?.ingredient.image)}
+                  sizes={buildMediaSizes('thumb')}
+                  alt={selectedShoppingCard.title}
+                />
+              </span>
+              <div>
+                <strong>{selectedShoppingCard.title}</strong>
+                <p>{selectedShoppingCard.quantityLabel} · {selectedShoppingCard.reasonLabel}</p>
+              </div>
+            </div>
+
+            <div className="mobile-ingredient-shopping-drawer-facts">
+              <div>
+                <span>库存状态</span>
+                <strong>{selectedShoppingCard.statusLabel}</strong>
+              </div>
+              <div>
+                <span>当前库存</span>
+                <strong>{selectedShoppingCard.inventoryLabel}</strong>
+              </div>
+              <div>
+                <span>存放信息</span>
+                <strong>{selectedShoppingCard.contextLine}</strong>
+              </div>
+            </div>
+
+            <p className="mobile-ingredient-shopping-drawer-note">{selectedShoppingCard.footerNote}</p>
+
+            <div className="mobile-ingredient-shopping-drawer-tags">
+              {selectedShoppingCard.contextTags.map((tag) => (
+                <span key={`${selectedShoppingCard.shoppingItem.id}-${tag}`}>{tag}</span>
+              ))}
+            </div>
+
+            <div className="mobile-ingredient-shopping-drawer-actions">
+              <button type="button" onClick={() => editShoppingCard(selectedShoppingCard)}>
+                修改
+              </button>
+              {selectedShoppingCard.linkedSummary && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    closeShoppingCard();
+                    props.openDetailView(selectedShoppingCard.linkedSummary!.ingredient.id);
+                  }}
+                >
+                  看档案
+                </button>
+              )}
+              <button
+                className="primary"
+                type="button"
+                disabled={props.isUpdatingShopping || props.isCreatingInventory}
+                onClick={() => restockShoppingCard(selectedShoppingCard)}
+              >
+                入库
+              </button>
+              <button
+                className="danger"
+                type="button"
+                disabled={props.isUpdatingShopping}
+                onClick={() => deleteShoppingCard(selectedShoppingCard)}
+              >
+                删除
+              </button>
+            </div>
+          </WorkspaceDrawer>
+        </div>
+      )}
     </section>
   );
 }

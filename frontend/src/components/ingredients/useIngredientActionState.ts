@@ -31,6 +31,7 @@ type UseIngredientActionStateArgs = {
   consumeForm: ConsumeDialogFormState;
   shoppingForm: ShoppingDialogFormState;
   setShoppingForm: Dispatch<SetStateAction<ShoppingDialogFormState>>;
+  editingShoppingItemId: string | null;
   pendingShoppingToComplete: PendingShoppingCompletion | null;
   destroyExpiredIngredientId: string | null;
   selectedInventoryIngredient: Ingredient | null;
@@ -65,7 +66,19 @@ type UseIngredientActionStateArgs = {
     display_label?: string | null;
     reason: string;
   }) => Promise<ShoppingListItem>;
-  updateShoppingItem: (payload: { itemId: string; done: boolean }) => Promise<ShoppingListItem>;
+  updateShoppingItem: (payload: {
+    itemId: string;
+    payload: {
+      title?: string;
+      quantity?: number | null;
+      unit?: string | null;
+      ingredient_id?: string | null;
+      quantity_mode?: ShoppingListItem['quantity_mode'];
+      display_label?: string | null;
+      reason?: string;
+      done?: boolean;
+    };
+  }) => Promise<ShoppingListItem>;
   showNotice: (notice: { tone: NoticeTone; title: string; message: string }) => void;
   resolveErrorMessage: (reason: unknown, fallback: string) => string;
 };
@@ -116,7 +129,7 @@ export function useIngredientActionState(args: UseIngredientActionStateArgs) {
         try {
           await args.updateShoppingItem({
             itemId: args.pendingShoppingToComplete.itemId,
-            done: true,
+            payload: { done: true },
           });
         } catch (reason) {
           args.showNotice({
@@ -154,7 +167,7 @@ export function useIngredientActionState(args: UseIngredientActionStateArgs) {
     }
     const shoppingQuantity = quantity ?? 1;
     try {
-      await args.createShoppingItem({
+      const payload = {
         title: args.shoppingForm.title.trim(),
         quantity: tracksQuantity ? shoppingQuantity : null,
         unit: tracksQuantity ? args.shoppingForm.unit.trim() || '个' : null,
@@ -162,11 +175,23 @@ export function useIngredientActionState(args: UseIngredientActionStateArgs) {
         quantity_mode: tracksQuantity ? 'track_quantity' : 'not_track_quantity',
         display_label: tracksQuantity ? null : '需要补充',
         reason: args.shoppingForm.reason.trim() || (!tracksQuantity ? '需要补充' : ''),
-      });
+      } satisfies Parameters<typeof args.createShoppingItem>[0];
+      if (args.editingShoppingItemId) {
+        await args.updateShoppingItem({
+          itemId: args.editingShoppingItemId,
+          payload,
+        });
+      } else {
+        await args.createShoppingItem(payload);
+      }
       args.setShoppingForm(buildShoppingForm());
       args.closeOverlay();
     } catch (reason) {
-      args.showNotice({ tone: 'danger', title: '加入购物清单失败', message: args.resolveErrorMessage(reason, '加入购物清单失败') });
+      args.showNotice({
+        tone: 'danger',
+        title: args.editingShoppingItemId ? '修改采购项失败' : '加入购物清单失败',
+        message: args.resolveErrorMessage(reason, args.editingShoppingItemId ? '修改采购项失败' : '加入购物清单失败'),
+      });
     }
   }
 

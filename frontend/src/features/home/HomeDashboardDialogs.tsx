@@ -1,4 +1,4 @@
-import { useEffect, useState, type Dispatch, type FormEvent, type SetStateAction } from 'react';
+import { useEffect, useMemo, useRef, useState, type Dispatch, type FormEvent, type SetStateAction } from 'react';
 import type {
   Food,
   FoodPlanItem,
@@ -102,12 +102,90 @@ type Props = {
   resolveAssetUrl: (url?: string) => string | undefined;
 };
 
+type CustomSelectOption = {
+  value: string;
+  label: string;
+};
+
+function CustomSelect(props: {
+  placeholder: string;
+  value: string;
+  options: CustomSelectOption[];
+  onChange: (value: string) => void;
+}) {
+  const [isOpen, setIsOpen] = useState(false);
+  const containerRef = useRef<HTMLDivElement | null>(null);
+
+  const selectedOption = props.options.find((opt) => opt.value === props.value);
+  const triggerLabel = selectedOption ? selectedOption.label : props.placeholder;
+
+  useEffect(() => {
+    if (!isOpen) return;
+
+    function handlePointerDown(event: PointerEvent) {
+      if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
+        setIsOpen(false);
+      }
+    }
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === 'Escape') {
+        setIsOpen(false);
+      }
+    }
+
+    document.addEventListener('pointerdown', handlePointerDown);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('pointerdown', handlePointerDown);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isOpen]);
+
+  return (
+    <div className="custom-select-container" ref={containerRef} aria-expanded={isOpen}>
+      <button
+        type="button"
+        className="custom-select-trigger"
+        onClick={() => setIsOpen((prev) => !prev)}
+      >
+        <span>{triggerLabel}</span>
+        <span className="custom-select-arrow" />
+      </button>
+      {isOpen && (
+        <div className="custom-select-dropdown">
+          {props.options.map((option) => (
+            <button
+              key={option.value}
+              type="button"
+              className={`custom-select-option ${props.value === option.value ? 'selected' : ''}`}
+              onClick={() => {
+                props.onChange(option.value);
+                setIsOpen(false);
+              }}
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function HomeDashboardDialogs(props: Props) {
   const today = todayKey();
   const homePlanDetailItem = props.homePlanDetailItem;
   const homeExpiryReviewItem = props.homeExpiryReviewItem;
   const homeRestockShoppingItem = props.homeRestockShoppingItem;
   const homeRestockForm = props.homeRestockForm;
+
+  const statusOptions = useMemo(() => {
+    return Object.entries(INVENTORY_STATUS_LABELS).map(([key, label]) => ({
+      value: key,
+      label: label,
+    }));
+  }, []);
 
   const [showIngredientSelector, setShowIngredientSelector] = useState(false);
 
@@ -818,23 +896,18 @@ export function HomeDashboardDialogs(props: Props) {
                 </section>
 
                 <section className="ingredients-modal-advanced">
-                  <div className="form-grid compact-grid ingredients-modal-advanced-fields">
-                    <label>
+                  <div className="ingredients-modal-advanced-fields">
+                    <div className="ingredients-restock-status-custom-field">
                       <span>状态</span>
-                      <select
-                        className="text-input"
+                      <CustomSelect
+                        placeholder="选择状态"
                         value={homeRestockForm.status}
-                        onChange={(event) =>
-                          props.updateHomeRestockForm({ ...homeRestockForm, status: event.target.value as InventoryStatus })
+                        options={statusOptions}
+                        onChange={(val) =>
+                          props.updateHomeRestockForm({ ...homeRestockForm, status: val as InventoryStatus })
                         }
-                      >
-                        {Object.entries(INVENTORY_STATUS_LABELS).map(([key, label]) => (
-                          <option key={key} value={key}>
-                            {label}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
+                      />
+                    </div>
                     <label className="span-two">
                       <span>备注</span>
                       <textarea

@@ -1,5 +1,5 @@
 import { useMemo, useState, type Dispatch, type FormEvent, type ReactNode, type SetStateAction, type UIEvent } from 'react';
-import type { ActivityLog, Food, FoodPlanItem, FoodRecommendations, Ingredient, InventoryItem, MealLog, MealType, Recipe, ShoppingListItem } from '../../api/types';
+import type { ActivityLog, Food, FoodPlanItem, FoodRecommendations, Ingredient, InventoryItem, MealLog, MealType, Member, Recipe, ShoppingListItem } from '../../api/types';
 import type { TabKey } from '../../app/AppShell';
 import { DashboardIcon, DashboardMealIcon, ShellIcon } from '../../app/shellIcons';
 import { MediaWithPlaceholder } from '../../components/MediaPlaceholder';
@@ -38,6 +38,7 @@ import {
   type DashboardTodoItem,
 } from './homeDashboardModel';
 import { HomeMobileDashboard } from './HomeMobileDashboard';
+import { FamilyActivityModal } from '../family/FamilyActivityViewer';
 
 export type HomeDashboardProps = {
   sidebarFamilyName: string;
@@ -71,6 +72,7 @@ export type HomeDashboardProps = {
   foods: Food[];
   recipes: Recipe[];
   ingredients: Ingredient[];
+  members: Member[];
   mealLogs: MealLog[];
   inventoryItems: InventoryItem[];
   activityLogs: ActivityLog[];
@@ -162,6 +164,7 @@ export function HomeDashboard(props: HomeDashboardProps) {
     foods,
     recipes,
     ingredients,
+    members,
     mealLogs,
     inventoryItems,
     activityLogs,
@@ -192,6 +195,7 @@ export function HomeDashboard(props: HomeDashboardProps) {
   } = props;
   const [quickMealDialog, setQuickMealDialog] = useState<HomeQuickMealDialogState | null>(null);
   const [detailFood, setDetailFood] = useState<Food | null>(null);
+  const [isActivityViewerOpen, setIsActivityViewerOpen] = useState(false);
   const [morePlansPopover, setMorePlansPopover] = useState<{
     date: string;
     mealType: MealType;
@@ -370,6 +374,14 @@ export function HomeDashboard(props: HomeDashboardProps) {
               </div>
             );
           })()}
+
+          {isActivityViewerOpen && (
+            <FamilyActivityModal
+              members={members}
+              previewLogs={activityLogs}
+              onClose={() => setIsActivityViewerOpen(false)}
+            />
+          )}
 
           {detailFood && (() => {
             const usage = getMealUsage(detailFood, mealLogs);
@@ -674,7 +686,7 @@ export function HomeDashboard(props: HomeDashboardProps) {
                     <section className="card dashboard-panel dashboard-activity-panel">
                       <div className="dashboard-panel-head">
                         <h2>最近记录</h2>
-                        <button className="tertiary-button button-compact" type="button" onClick={() => onNavigate('logs')}>
+                        <button className="tertiary-button button-compact" type="button" onClick={() => setIsActivityViewerOpen(true)}>
                           查看全部
                         </button>
                       </div>
