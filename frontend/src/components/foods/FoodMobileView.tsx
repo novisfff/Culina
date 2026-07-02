@@ -281,7 +281,7 @@ export function FoodMobileView(props: {
                     const tagLabels = props.getFoodSceneTags(food).slice(0, 2);
                     const cookingSummary = props.getFoodCookingSummary(food);
                     const labels = cookingSummary
-                      ? [cookingSummary.availabilityLabel, cookingSummary.metaLabel]
+                      ? [cookingSummary.availabilityLabel, `${cookingSummary.linkedRecipeCard?.recipe.ingredient_items.length ?? 0}原料`]
                       : tagLabels.length > 0 ? tagLabels : food.suitable_meal_types.slice(0, 2).map((meal) => MEAL_TYPE_LABELS[meal]);
                     return (
                       <article key={food.id} className="mobile-food-library-card">

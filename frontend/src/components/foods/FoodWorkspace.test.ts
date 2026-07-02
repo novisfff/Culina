@@ -379,7 +379,7 @@ describe('food workspace helpers', () => {
     expect(buildFoodCookingSummaryFromRecipeCards(food, cards)).toMatchObject({
       title: '家常番茄炒蛋',
       availabilityLabel: '缺 1 项',
-      metaLabel: '2 原料 · 2 步',
+      metaLabel: '2原料 · 2步',
       shortagePreview: ['鸡蛋 2个'],
       isReady: false,
     });

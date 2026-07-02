@@ -406,6 +406,12 @@
   height: 14px;
 }
 
+.family-chip-row .badge .shell-logo-image {
+  width: 14px;
+  height: 14px;
+  border-radius: 4px;
+}
+
 .family-owner-panel {
   min-width: 0;
   display: grid;

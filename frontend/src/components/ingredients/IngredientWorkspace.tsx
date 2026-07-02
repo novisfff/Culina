@@ -9,6 +9,7 @@ import {
   type ReactNode,
 } from 'react';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
+import { AppLogoIcon } from '../../app/shellIcons';
 import { api } from '../../api/client';
 import { queryKeys } from '../../api/queryKeys';
 import type {
@@ -274,16 +275,7 @@ type IngredientWorkspaceIconName =
 function IngredientWorkspaceIcon(props: { name: IngredientWorkspaceIconName }) {
   switch (props.name) {
     case 'logo':
-      return (
-        <svg viewBox="0 0 24 24" aria-hidden="true">
-          <path d="M6 10h12" />
-          <path d="M7 10v3a5 5 0 0 0 10 0v-3" />
-          <path d="M17 11h1a2 2 0 0 1 0 4h-1" />
-          <path d="M9 7V5" />
-          <path d="M12 7V4" />
-          <path d="M15 7V5" />
-        </svg>
-      );
+      return <AppLogoIcon />;
     case 'archive':
       return (
         <svg viewBox="0 0 24 24" aria-hidden="true">
