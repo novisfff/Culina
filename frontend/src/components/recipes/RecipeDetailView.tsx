@@ -23,6 +23,7 @@ type RecipeDetailViewProps = {
   showFavoriteAction?: boolean;
   showEditAction?: boolean;
   showDeleteAction?: boolean;
+  showHeroTitle?: boolean;
   backLabel?: string;
   onBack: () => void;
   onCook: (card: RecipeCardViewModel) => void;
@@ -50,6 +51,7 @@ export function RecipeDetailView({
   showFavoriteAction = true,
   showEditAction = true,
   showDeleteAction = true,
+  showHeroTitle = true,
   backLabel = '返回菜谱',
   onBack,
   onCook,
@@ -74,13 +76,15 @@ export function RecipeDetailView({
           )}
 
           <section className="recipe-detail-hero-panel">
-            <div className="recipe-detail-title-block">
-              <p className="eyebrow">菜谱资料</p>
-              <h2>{selectedCard.recipe.title}</h2>
-              <p className="recipe-detail-meta-line">
-                {selectedCard.recipe.prep_minutes} 分钟 · {selectedCard.recipe.servings} 人份 · {selectedCard.availabilityLabel}
-              </p>
-            </div>
+            {showHeroTitle && (
+              <div className="recipe-detail-title-block">
+                <p className="eyebrow">菜谱资料</p>
+                <h2>{selectedCard.recipe.title}</h2>
+                <p className="recipe-detail-meta-line">
+                  {selectedCard.recipe.prep_minutes} 分钟 · {selectedCard.recipe.servings} 人份 · {selectedCard.availabilityLabel}
+                </p>
+              </div>
+            )}
 
             <div className="recipe-detail-hero-grid">
               <RecipeCover card={selectedCard} className="recipe-detail-cover" />

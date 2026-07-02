@@ -251,7 +251,7 @@ export function HomeDashboardDialogs(props: Props) {
                       </span>
                       <span>
                         <DashboardIcon name={props.homePlanAddFood.recipe_id ? 'pot' : 'receipt'} />
-                        {props.homePlanAddFood.recipe_id ? '关联菜谱' : '可直接记录'}
+                        {props.homePlanAddFood.recipe_id ? '有菜谱' : '可直接记录'}
                       </span>
                     </div>
                   </div>

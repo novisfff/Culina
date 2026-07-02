@@ -2952,6 +2952,33 @@
   }
 }
 
+.recipe-detail-drawer.workspace-drawer {
+  width: min(920px, 100vw);
+  background: linear-gradient(180deg, rgba(255, 254, 252, 0.99), rgba(255, 250, 244, 0.98));
+}
+
+.recipe-detail-drawer .workspace-overlay-body {
+  gap: 16px;
+}
+
+.recipe-detail-drawer .recipe-detail-subpage {
+  margin: 0;
+  padding: 0;
+}
+
+.recipe-detail-drawer .recipe-detail-content-grid {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.recipe-detail-drawer .recipe-detail-side-column {
+  position: static;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.recipe-detail-drawer .recipe-detail-info-list dd {
+  text-align: left;
+}
+
 .recipe-cook-page {
   position: relative;
   display: grid;

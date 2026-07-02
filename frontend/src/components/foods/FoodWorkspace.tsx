@@ -19,7 +19,7 @@ import type {
   RecipePayload,
 } from '../../api/types';
 import { buildMediaSizes, buildMediaSrcSet, resolveAssetUrl, resolveMediaUrl } from '../../lib/assets';
-import { getPendingImageJobId } from '../../lib/aiImages';
+import { getMediaIds, getPendingImageJobId } from '../../lib/aiImages';
 import { addDateKeyDays } from '../../lib/date';
 import { MediaWithPlaceholder } from '../MediaPlaceholder';
 import {
@@ -45,7 +45,6 @@ import { usePagedList } from '../../hooks/usePagedList';
 import { useNotice } from '../../hooks/useNotice';
 import { DIFFICULTY_LABELS, buildRecipeCards, type RecipeCardViewModel } from '../recipes/workspaceModel';
 import { RecipeEditorView } from '../recipes/RecipeEditorView';
-import { RecipeDetailView } from '../recipes/RecipeDetailView';
 import { useRecipeEditorState } from '../recipes/useRecipeEditorState';
 import {
   buildRecipeImagePayload,
@@ -68,6 +67,7 @@ import {
 import {
   getFoodFormCompletionItems,
   getFoodImagePayload,
+  buildFoodPayloadFromForm,
   type FoodFormState,
 } from './FoodWorkspaceModel';
 import { useFoodPlanState } from './useFoodPlanState';
@@ -101,6 +101,8 @@ import {
   isFoodMissingDecisionInfo,
   getLastMealLogForFood,
   buildFoodRelationViewModelFromRecipeCards,
+  buildFoodCookingSummaryFromRecipeCards,
+  type FoodCookingSummary,
 } from './FoodWorkspaceHelpers';
 
 export { FOOD_CREATE_TYPE_OPTIONS, type FoodGovernanceIssue } from './FoodWorkspaceOptions';
@@ -154,6 +156,7 @@ type Props = {
   createFood: (payload: FoodPayload) => Promise<Food>;
   updateFood: (foodId: string, payload: FoodPayload) => Promise<Food>;
   updateFoodFavorite: (foodId: string, favorite: boolean) => Promise<Food>;
+  createRecipe: (payload: RecipePayload) => Promise<Recipe>;
   updateRecipe: (recipeId: string, payload: RecipePayload) => Promise<Recipe>;
   quickAddMeal: (payload: { food_id: string; date: string; meal_type: MealType; servings: number; note: string; food_plan_item_id?: string }) => Promise<MealLog>;
   createFoodPlanItem: (payload: { food_id: string; plan_date: string; meal_type: MealType; note: string }) => Promise<FoodPlanItem>;
@@ -181,13 +184,13 @@ type Props = {
     }
   ) => Promise<FoodScene>;
   deleteFoodScene: (sceneId: string) => Promise<void>;
-  onOpenRecipes: () => void;
   onStartRecipe: (recipeId: string, foodPlanItemId?: string) => void;
   onOpenLogs: () => void;
   onFoodPlanPreviousWeek: () => void;
   onFoodPlanCurrentWeek: () => void;
   onFoodPlanNextWeek: () => void;
   isSavingFood?: boolean;
+  isCreatingRecipe?: boolean;
   isUpdatingRecipe?: boolean;
   isUpdatingFavorite?: boolean;
   isQuickAdding?: boolean;
@@ -203,6 +206,8 @@ type RecommendationCardViewModel = {
   primaryAction: 'cook_recipe' | 'quick_add_meal' | 'review_food';
   recipeAvailability?: FoodRecommendationItem['recipe_availability'];
 };
+
+type MobileCookingFilter = 'all' | 'ready' | 'shortage';
 
 type QuickMealDialogState = {
   action: 'cook' | 'eat';
@@ -431,7 +436,7 @@ function getFoodEditorProfile(foodType: FoodType) {
   if (normalizedType === 'selfMade') {
     return {
       title: '家常菜核心资料',
-      description: '重点确认关联菜谱、适合餐别和家庭备注，做法本身在菜谱页维护。',
+      description: '重点确认菜谱与用料、适合餐别和家庭备注。',
     };
   }
   if (normalizedType === 'takeout' || normalizedType === 'diningOut') {
@@ -557,7 +562,6 @@ export function FoodWorkspace(props: Props) {
     updateFood: props.updateFood,
     createFoodScene: props.createFoodScene,
     quickAddMeal: props.quickAddMeal,
-    onOpenRecipes: props.onOpenRecipes,
   });
   const { notice, showNotice, clearNotice } = useNotice();
   const {
@@ -662,6 +666,7 @@ export function FoodWorkspace(props: Props) {
     () => buildRecipeCards(props.recipes, props.ingredients, props.inventoryItems, props.mealLogs, props.foods),
     [props.foods, props.ingredients, props.inventoryItems, props.mealLogs, props.recipes]
   );
+  const getFoodCookingSummary = (food: Food): FoodCookingSummary | null => buildFoodCookingSummaryFromRecipeCards(food, recipeCards);
   const expiringFoods = useMemo(() => props.foods.filter(isFoodExpiring), [props.foods]);
   const needsInfoFoods = useMemo(() => props.foods.filter((food) => isFoodMissingDecisionInfo(food, props.recipes)), [props.foods, props.recipes]);
   const governanceIssueSummaries = useMemo(
@@ -748,7 +753,7 @@ export function FoodWorkspace(props: Props) {
   const todayDate = todayKey();
   const [quickMealDialog, setQuickMealDialog] = useState<QuickMealDialogState | null>(null);
   const [isFoodRecipeEditorOpen, setIsFoodRecipeEditorOpen] = useState(false);
-  const [activeFoodRecipeDetailCard, setActiveFoodRecipeDetailCard] = useState<RecipeCardViewModel | null>(null);
+  const [mobileCookingFilter, setMobileCookingFilter] = useState<MobileCookingFilter>('all');
   const quickMealDateOptions = useMemo(
     () => Array.from({ length: 7 }, (_, index) => addDateKeyDays(todayDate, index)),
     [todayDate]
@@ -786,18 +791,27 @@ export function FoodWorkspace(props: Props) {
   const mobileScenePages = Array.from({ length: Math.ceil(mobileSceneExploreCards.length / 2) || 1 }, (_, index) =>
     mobileSceneExploreCards.slice(index * 2, index * 2 + 2)
   );
-  const mobileLibraryFoods = filteredFoods;
-  const mobileLibraryResetKey = [appliedFoodSearch, typeFilter, mealFilter, lensFilter, sceneFilter, governanceIssueFilter].join('|');
+  const mobileLibraryFoods = filteredFoods.filter((food) => {
+    if (mobileCookingFilter === 'all') return true;
+    const summary = getFoodCookingSummary(food);
+    if (!summary) return false;
+    return mobileCookingFilter === 'ready' ? summary.isReady : summary.shortagePreview.length > 0;
+  });
+  const mobileLibraryResetKey = [appliedFoodSearch, typeFilter, mealFilter, lensFilter, sceneFilter, governanceIssueFilter, mobileCookingFilter].join('|');
   const mobileFilterTabs = [
     {
       label: '全部',
-      active: lensFilter === 'all' && typeFilter === 'all' && mealFilter === 'all' && sceneFilter === 'all' && governanceIssueFilter === 'all',
-      onClick: clearFoodFilters,
+      active: lensFilter === 'all' && typeFilter === 'all' && mealFilter === 'all' && sceneFilter === 'all' && governanceIssueFilter === 'all' && mobileCookingFilter === 'all',
+      onClick: () => {
+        clearFoodFilters();
+        setMobileCookingFilter('all');
+      },
     },
     {
-      label: '家常菜',
+      label: '家常',
       active: typeFilter === 'selfMade',
       onClick: () => {
+        setMobileCookingFilter('all');
         setLensFilter('all');
         setTypeFilter('selfMade');
         setMealFilter('all');
@@ -809,19 +823,9 @@ export function FoodWorkspace(props: Props) {
       label: '外卖',
       active: typeFilter === 'takeout',
       onClick: () => {
+        setMobileCookingFilter('all');
         setLensFilter('all');
         setTypeFilter('takeout');
-        setMealFilter('all');
-        setSceneFilter('all');
-        setGovernanceIssueFilter('all');
-      },
-    },
-    {
-      label: '临期待补',
-      active: lensFilter === 'expiring' || lensFilter === 'needsInfo',
-      onClick: () => {
-        setLensFilter(expiringFoods.length > 0 ? 'expiring' : 'needsInfo');
-        setTypeFilter('all');
         setMealFilter('all');
         setSceneFilter('all');
         setGovernanceIssueFilter('all');
@@ -831,7 +835,32 @@ export function FoodWorkspace(props: Props) {
       label: '收藏',
       active: lensFilter === 'favorite',
       onClick: () => {
+        setMobileCookingFilter('all');
         setLensFilter('favorite');
+        setTypeFilter('all');
+        setMealFilter('all');
+        setSceneFilter('all');
+        setGovernanceIssueFilter('all');
+      },
+    },
+    {
+      label: '可做',
+      active: mobileCookingFilter === 'ready',
+      onClick: () => {
+        setMobileCookingFilter('ready');
+        setLensFilter('all');
+        setTypeFilter('all');
+        setMealFilter('all');
+        setSceneFilter('all');
+        setGovernanceIssueFilter('all');
+      },
+    },
+    {
+      label: '缺料',
+      active: mobileCookingFilter === 'shortage',
+      onClick: () => {
+        setMobileCookingFilter('shortage');
+        setLensFilter('all');
         setTypeFilter('all');
         setMealFilter('all');
         setSceneFilter('all');
@@ -855,7 +884,6 @@ export function FoodWorkspace(props: Props) {
   const editorCompletionItems = getFoodFormCompletionItems(form, editingFood, props.recipes);
   const editorCompletedCount = editorCompletionItems.filter((item) => item.done).length;
   const editorCompletionPercent = Math.round((editorCompletedCount / editorCompletionItems.length) * 100);
-  const canSubmit = !props.isSavingFood && (!isSelfMade || Boolean(form.recipeId));
   const sceneTagOptions = useMemo(() => {
     const names = new Set<string>();
     props.foodScenes.filter((scene) => !scene.hidden).forEach((scene) => names.add(scene.name));
@@ -864,11 +892,13 @@ export function FoodWorkspace(props: Props) {
     return Array.from(names).sort((left, right) => left.localeCompare(right, 'zh-CN'));
   }, [editorSceneTags, props.foodScenes, props.foods]);
   const availableSceneTagOptions = sceneTagOptions.filter((tag) => !editorSceneTags.includes(tag));
-  const editorFoodTitle = isSelfMade ? currentRecipe?.title || form.name || '选择一个菜谱' : form.name || '新的食物';
+  const editorFoodTitle = isSelfMade ? currentRecipe?.title || recipeEditor.form.title || form.name || '新的家常菜谱' : form.name || '新的食物';
   const editorRecipeCover = currentRecipe?.images[0]?.url ?? (editingFood ? getFoodCover(editingFood, props.recipes) : undefined);
-  const editorRecipeMeta = currentRecipe ? `${currentRecipe.ingredient_items.length} 个原料 · ${currentRecipe.steps.length} 个步骤` : '还没有关联菜谱';
+  const editorRecipeMeta = currentRecipe ? `${currentRecipe.ingredient_items.length} 个原料 · ${currentRecipe.steps.length} 个步骤` : '还没有菜谱';
   const recipeEditorIngredientCount = recipeEditor.ingredientRows.filter((item) => item.ingredient_id || item.ingredient_name.trim()).length;
   const recipeEditorStepCount = recipeEditor.form.steps.filter((step) => step.text.trim()).length;
+  const canSaveRecipeEditorDraft = Boolean(recipeEditor.form.title.trim() && recipeEditorIngredientCount > 0);
+  const canSubmit = !props.isSavingFood && !props.isCreatingRecipe && !props.isUpdatingRecipe && (!isSelfMade || Boolean(form.recipeId) || canSaveRecipeEditorDraft);
   const recipeEditorSceneTags = splitTags(recipeEditor.form.sceneTags);
   const recipeEditorCoverAsset = getImagePreview(recipeEditor.form.images);
   const recipeEditorCoverUrl = resolveAssetUrl(recipeEditorCoverAsset?.url);
@@ -903,26 +933,37 @@ export function FoodWorkspace(props: Props) {
     uploadErrorMessage: '参考图上传或 AI 主图生成失败',
     generateErrorMessage: 'AI 主图生成失败',
   });
-  const recipeEditorSubmitDisabled = Boolean(props.isUpdatingRecipe);
+  const recipeEditorSubmitDisabled = Boolean(props.isCreatingRecipe || props.isUpdatingRecipe);
 
   function handleOpenCreate(type: FoodType = 'takeout') {
     imageComposer.setState(IDLE_IMAGE_GENERATION_STATE);
+    recipeEditorImageComposer.setState(IDLE_IMAGE_GENERATION_STATE);
+    if (type === 'selfMade') {
+      recipeEditor.openCreate();
+    }
     openCreate(type);
   }
 
   function handleOpenEdit(food: Food) {
     imageComposer.setState(IDLE_IMAGE_GENERATION_STATE);
+    recipeEditorImageComposer.setState(IDLE_IMAGE_GENERATION_STATE);
+    if (normalizeFoodType(food) === 'selfMade' && food.recipe_id) {
+      const card = recipeCards.find((item) => item.recipe.id === food.recipe_id);
+      if (card) {
+        recipeEditor.openEdit(card);
+      }
+    }
     openEdit(food);
   }
 
   function handleOpenRecipeEditor() {
     if (!currentRecipeCard) {
       if (view === 'create' && isSelfMade) {
-        setView('list');
-        props.onOpenRecipes();
+        recipeEditor.openCreate();
+        setIsFoodRecipeEditorOpen(true);
         return;
       }
-      showNotice({ tone: 'warning', title: '还没有关联菜谱', message: '请先在菜谱页创建并关联菜谱。' });
+      showNotice({ tone: 'warning', title: '还没有菜谱', message: '请先补一份菜谱与用料。' });
       return;
     }
     recipeEditorImageComposer.setState(IDLE_IMAGE_GENERATION_STATE);
@@ -930,31 +971,71 @@ export function FoodWorkspace(props: Props) {
     setIsFoodRecipeEditorOpen(true);
   }
 
+  function handleOpenRecipeEditorDirectly(food: Food) {
+    if (food.recipe_id) {
+      const card = recipeCards.find((item) => item.recipe.id === food.recipe_id);
+      if (card) {
+        recipeEditorImageComposer.setState(IDLE_IMAGE_GENERATION_STATE);
+        recipeEditor.openEdit(card);
+        setIsFoodRecipeEditorOpen(true);
+        closeDetail();
+      } else {
+        showNotice({ tone: 'warning', title: '没有找到对应菜谱', message: '请确认该菜谱是否存在。' });
+      }
+    } else {
+      showNotice({ tone: 'warning', title: '没有绑定菜谱', message: '这份食物目前没有关联的菜谱。' });
+    }
+  }
+
   function closeFoodRecipeEditor() {
     setIsFoodRecipeEditorOpen(false);
     recipeEditorImageComposer.setState(IDLE_IMAGE_GENERATION_STATE);
   }
 
-  function openFoodRecipeDetail(card: RecipeCardViewModel | null) {
-    if (!card) {
-      showNotice({ tone: 'warning', title: '还没有关联菜谱', message: '这份食物还没有可查看的菜谱详情。' });
+  async function handleSubmitFood(event: Parameters<typeof submitFood>[0]) {
+    event.preventDefault();
+    if (!canSubmit) return;
+    if (isSelfMade) {
+      const recipePayload = buildRecipePayload(
+        recipeEditor.form,
+        recipeEditor.ingredientRows,
+        props.ingredients,
+        getPendingImageJobId(recipeEditor.form.images)
+      );
+      if (!recipePayload.title || recipePayload.ingredient_items.length === 0) {
+        showNotice({ tone: 'warning', title: '还不能保存菜谱', message: '家常菜谱至少要有名称和一个食材。' });
+        return;
+      }
+      try {
+        let recipeId = form.recipeId || recipeEditor.selectedRecipeId;
+        if (recipeId) {
+          await props.updateRecipe(recipeId, recipePayload);
+          const payload = buildFoodPayloadFromForm(
+            { ...form, recipeId, name: recipePayload.title },
+            props.recipes,
+            getMediaIds(form.images),
+            getPendingImageJobId(form.images)
+          );
+          await submitFood(event, true, payload);
+          showNotice({ tone: 'success', title: '家常菜谱已更新', message: `${recipePayload.title} 的菜谱和食物资料已保存。` });
+        } else {
+          await props.createRecipe(recipePayload);
+          setView('list');
+          showNotice({ tone: 'success', title: '家常菜谱已保存', message: `${recipePayload.title} 已出现在食物库。` });
+        }
+        imageComposer.setState(IDLE_IMAGE_GENERATION_STATE);
+        recipeEditorImageComposer.setState(IDLE_IMAGE_GENERATION_STATE);
+      } catch (reason) {
+        showNotice({ tone: 'danger', title: '保存菜谱失败', message: resolveErrorMessage(reason, '保存菜谱失败') });
+      }
       return;
     }
-    setActiveFoodRecipeDetailCard(card);
-  }
-
-  function closeFoodRecipeDetail() {
-    setActiveFoodRecipeDetailCard(null);
-  }
-
-  async function handleSubmitFood(event: Parameters<typeof submitFood>[0]) {
-    await submitFood(event, canSubmit);
+    await submitFood(event, true);
     imageComposer.setState(IDLE_IMAGE_GENERATION_STATE);
   }
 
   async function submitFoodRecipeEditor(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!recipeEditor.selectedRecipeId) return;
     const payload = buildRecipePayload(
       recipeEditor.form,
       recipeEditor.ingredientRows,
@@ -962,16 +1043,26 @@ export function FoodWorkspace(props: Props) {
       getPendingImageJobId(recipeEditor.form.images)
     );
     if (!payload.title || payload.ingredient_items.length === 0) {
-      showNotice({ tone: 'warning', title: '还不能保存菜谱', message: '菜谱至少要有标题和一个食材。' });
+      showNotice({ tone: 'warning', title: '还不能保存菜谱', message: '家常菜谱至少要有名称和一个食材。' });
       return;
     }
     try {
-      await props.updateRecipe(recipeEditor.selectedRecipeId, payload);
+      const recipeId = recipeEditor.selectedRecipeId || form.recipeId;
+      if (recipeId) {
+        await props.updateRecipe(recipeId, payload);
+        setForm((current) => ({ ...current, recipeId, name: current.name || payload.title }));
+      } else {
+        const created = await props.createRecipe(payload);
+        setForm((current) => ({ ...current, recipeId: created.id, name: current.name || created.title }));
+        if (view === 'create' && isSelfMade) {
+          setView('list');
+        }
+      }
       setIsFoodRecipeEditorOpen(false);
       recipeEditorImageComposer.setState(IDLE_IMAGE_GENERATION_STATE);
-      showNotice({ tone: 'success', title: '菜谱已更新', message: `${payload.title} 的菜谱信息已保存。` });
+      showNotice({ tone: 'success', title: '菜谱已保存', message: `${payload.title} 的用料和步骤已保存。` });
     } catch (reason) {
-      showNotice({ tone: 'danger', title: '更新菜谱失败', message: resolveErrorMessage(reason, '更新菜谱失败') });
+      showNotice({ tone: 'danger', title: '保存菜谱失败', message: resolveErrorMessage(reason, '保存菜谱失败') });
     }
   }
 
@@ -1075,6 +1166,7 @@ export function FoodWorkspace(props: Props) {
             getRecommendationPrimaryActionLabel={getRecommendationPrimaryActionLabel}
             getDefaultMealType={getDefaultMealType}
             getFoodSceneTags={getFoodSceneTags}
+            getFoodCookingSummary={getFoodCookingSummary}
             onSearchChange={setSearch}
             onSearchCompositionStart={foodSearchComposition.onCompositionStart}
             onSearchCompositionEnd={foodSearchComposition.onCompositionEnd}
@@ -1087,7 +1179,10 @@ export function FoodWorkspace(props: Props) {
             onHandleFoodCardPrimaryAction={handleFoodCardPrimaryAction}
             onToggleFavorite={(food) => void props.updateFoodFavorite(food.id, !food.favorite)}
             onOpenCreate={() => handleOpenCreate('takeout')}
-            onClearFoodFilters={clearFoodFilters}
+            onClearFoodFilters={() => {
+              clearFoodFilters();
+              setMobileCookingFilter('all');
+            }}
             filterTabs={mobileFilterTabs}
           />
         }
@@ -1170,7 +1265,7 @@ export function FoodWorkspace(props: Props) {
         ) : (
           <div className="food-recommendation-empty">
             <strong>还没有可推荐食物</strong>
-            <span>先新增外卖、成品或去菜谱页沉淀家常菜。</span>
+            <span>先新增外卖、成品，或补一份家常菜谱。</span>
             <button type="button" onClick={() => handleOpenCreate('takeout')}>新增可吃项</button>
           </div>
         )}
@@ -1363,7 +1458,7 @@ export function FoodWorkspace(props: Props) {
               search || typeFilter !== 'all' || mealFilter !== 'all' || sceneFilter !== 'all' ? (
                 <ActionButton tone="secondary" type="button" onClick={clearFoodFilters}>清空筛选</ActionButton>
               ) : lensFilter === 'selfMade' ? (
-                <ActionButton tone="primary" type="button" onClick={props.onOpenRecipes}>去新增菜谱</ActionButton>
+                <ActionButton tone="primary" type="button" onClick={() => handleOpenCreate('selfMade')}>添加家常菜谱</ActionButton>
               ) : (
                 <ActionButton tone="primary" type="button" onClick={() => handleOpenCreate('takeout')}>新增食物</ActionButton>
               )
@@ -1513,7 +1608,7 @@ export function FoodWorkspace(props: Props) {
           <div className="workspace-overlay-backdrop" onClick={() => setView('list')} />
           <WorkspaceModal
             title={view === 'create' ? '新增食物' : '编辑食物'}
-            description={isSelfMade ? '家常菜由菜谱提供核心信息，这里维护映射和常用记录。' : '补充来源、价格、复购和保质信息，让常吃食物更容易再次安排。'}
+            description={isSelfMade ? '家常菜的菜谱、用料和日常记录都放在食物里维护。' : '补充来源、价格、复购和保质信息，让常吃食物更容易再次安排。'}
             eyebrow="食物资料"
             className="food-editor-modal"
             closeLabel="关闭"
@@ -1538,6 +1633,7 @@ export function FoodWorkspace(props: Props) {
               isUpdatingScene={props.isUpdatingScene}
               newSceneTagName={newSceneTagName}
               sceneTags={editorSceneTags}
+              submitLabel={isSelfMade ? (view === 'create' ? '保存家常菜谱' : '保存菜谱和资料') : undefined}
               view={view}
               onAddSceneTag={addSceneTag}
               onBack={() => setView('list')}
@@ -1562,15 +1658,20 @@ export function FoodWorkspace(props: Props) {
         <div className="workspace-overlay-root food-workspace-overlay-root">
           <div className="workspace-overlay-backdrop" onClick={closeFoodRecipeEditor} />
           <WorkspaceModal
-            title="编辑菜谱"
-            description={currentRecipe ? `正在编辑「${currentRecipe.title}」` : undefined}
-            eyebrow="食物关联菜谱"
+            title={recipeEditor.selectedRecipeId || form.recipeId ? '编辑菜谱和用料' : '添加菜谱和用料'}
+            description={currentRecipe ? `正在编辑「${currentRecipe.title}」` : '保存后会自动同步为一份家常食物。'}
+            eyebrow="食物里的家常菜谱"
             className="food-recipe-editor-modal"
             closeLabel="关闭"
             onClose={closeFoodRecipeEditor}
           >
             <RecipeEditorView
-              isEditing
+              isEditing={Boolean(recipeEditor.selectedRecipeId || form.recipeId)}
+              entityLabel="菜谱"
+              submitLabel="保存菜谱"
+              previewLabel="回到食物"
+              summaryCreateHint="保存后回到食物库"
+              backLabel="回到食物"
               isRecipeAiApplied={false}
               selectedRecipeId={recipeEditor.selectedRecipeId}
               form={recipeEditor.form}
@@ -1598,6 +1699,7 @@ export function FoodWorkspace(props: Props) {
               recipeDraftButtonLabel={getRecipeDraftGenerationButtonLabel(recipeEditor.recipeDraftGenerationStage)}
               recipeImagePayload={recipeEditorImagePayload}
               submitDisabled={recipeEditorSubmitDisabled}
+              isCreatingRecipe={props.isCreatingRecipe}
               isUpdatingRecipe={props.isUpdatingRecipe}
               showAiDraftAction={false}
               showDeleteAction={false}
@@ -1756,64 +1858,19 @@ export function FoodWorkspace(props: Props) {
             getSecondaryFoodActionLabel={getSecondaryFoodActionLabel}
             onClose={closeDetail}
             onEdit={handleOpenEdit}
+            onEditRecipe={handleOpenRecipeEditorDirectly}
             onOpenLogs={props.onOpenLogs}
             onOpenPlanDialog={openPlanDialog}
-            onOpenRecipeDetail={openFoodRecipeDetail}
+            onStartCook={(recipeId) => {
+              closeDetail();
+              props.onStartRecipe(recipeId);
+            }}
             onQuickAdd={(food, mealType) => openQuickMealDialog(food, mealType, 'eat')}
             resolveAssetUrl={resolveFoodAssetUrl}
             overlayRootClassName="food-workspace-overlay-root"
           />
         );
       })()}
-
-      {activeFoodRecipeDetailCard && (
-        <div className="workspace-overlay-root food-workspace-overlay-root">
-          <div className="workspace-overlay-backdrop" onClick={closeFoodRecipeDetail} />
-          <WorkspaceModal
-            title={activeFoodRecipeDetailCard.recipe.title}
-            description={`${activeFoodRecipeDetailCard.recipe.prep_minutes} 分钟 · ${activeFoodRecipeDetailCard.recipe.servings} 人份`}
-            eyebrow="关联菜谱"
-            className="food-recipe-detail-modal"
-            closeLabel="关闭"
-            onClose={closeFoodRecipeDetail}
-          >
-            <RecipeDetailView
-              selectedCard={activeFoodRecipeDetailCard}
-              selectedReadyCount={activeFoodRecipeDetailCard.ingredientAvailability.filter((item) => item.ready).length}
-              selectedIngredientCount={activeFoodRecipeDetailCard.ingredientAvailability.length}
-              selectedShortageCount={activeFoodRecipeDetailCard.shortages.length}
-              isSelectedFavorite={false}
-              selectedRecentCookLog={
-                activeFoodRecipeDetailCard.recipe.cook_logs
-                  .slice()
-                  .sort((left, right) => right.cook_date.localeCompare(left.cook_date))[0] ?? null
-              }
-              selectedRecipePlanItems={[]}
-              compactHeader
-              showPlanAction={false}
-              showShoppingAction={false}
-              showFavoriteAction={false}
-              showDeleteAction={false}
-              onBack={closeFoodRecipeDetail}
-              onCook={(card) => {
-                closeFoodRecipeDetail();
-                closeDetail();
-                props.onStartRecipe(card.recipe.id);
-              }}
-              onPlan={() => undefined}
-              onShopping={() => undefined}
-              onToggleFavorite={() => undefined}
-              onEdit={(card) => {
-                closeFoodRecipeDetail();
-                recipeEditorImageComposer.setState(IDLE_IMAGE_GENERATION_STATE);
-                recipeEditor.openEdit(card);
-                setIsFoodRecipeEditorOpen(true);
-              }}
-              onDelete={() => undefined}
-            />
-          </WorkspaceModal>
-        </div>
-      )}
 
       <FoodPlanDialog
         isOpen={isPlanDialogOpen}

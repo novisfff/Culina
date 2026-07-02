@@ -117,7 +117,7 @@ export function buildFoodSceneImagePayload(scene: { name: string; description: s
 export function getFoodFormCompletionItems(form: FoodFormState, editingFood: Food | null, recipes: Recipe[] = []) {
   const hasImage = Boolean(form.images.generatedAsset || form.images.referenceAsset || (editingFood && getFoodCover(editingFood, recipes)));
   const items = [
-    { label: form.type === 'selfMade' ? '关联菜谱' : '食物名称', done: form.type === 'selfMade' ? Boolean(form.recipeId) : Boolean(form.name.trim()) },
+    { label: form.type === 'selfMade' ? '菜谱与用料' : '食物名称', done: form.type === 'selfMade' ? Boolean(form.recipeId) : Boolean(form.name.trim()) },
     { label: '适合餐别', done: form.suitableMealTypes.length > 0 },
     { label: '食物图片', done: hasImage },
     { label: '场景/备注', done: Boolean(form.routineNote.trim() || form.notes.trim() || splitTags(form.sceneTags).length > 0 || form.scene.trim()) },

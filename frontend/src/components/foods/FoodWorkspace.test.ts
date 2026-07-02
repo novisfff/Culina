@@ -12,9 +12,11 @@ import {
   type FoodFormState,
 } from './FoodWorkspace';
 import {
+  buildFoodCookingSummaryFromRecipeCards,
   buildFoodRelationViewModel,
   getFoodGovernanceIssues,
 } from './FoodWorkspaceHelpers';
+import { buildRecipeCards } from '../recipes/workspaceModel';
 
 const recipe: Recipe = {
   id: 'recipe-1',
@@ -355,6 +357,33 @@ describe('food workspace helpers', () => {
     expect(relation.linkedRecipeCard?.availabilityLabel).toBe('缺 1 项');
     expect(relation.relationFacts).toContainEqual({ label: '可做程度', value: '缺 1 项' });
     expect(relation.shortagePreview).toEqual(['鸡蛋 2个']);
+  });
+
+  it('summarizes home-cooked food cooking state for mobile food cards', () => {
+    const linkedRecipe: Recipe = {
+      ...recipe,
+      id: 'recipe-mobile-linked',
+      title: '家常番茄炒蛋',
+      ingredient_items: [
+        { id: 'recipe-ingredient-tomato', ingredient_id: tomato.id, ingredient_name: tomato.name, quantity: 1, unit: '个', note: '' },
+        { id: 'recipe-ingredient-egg', ingredient_id: egg.id, ingredient_name: egg.name, quantity: 2, unit: '个', note: '' },
+      ],
+      steps: [
+        { id: 'step-1', title: '炒蛋', text: '先炒鸡蛋', icon: 'pan', summary: '鸡蛋炒散', estimated_minutes: 3, tip: '', key_points: [] },
+        { id: 'step-2', title: '合炒', text: '番茄和鸡蛋合炒', icon: 'pan', summary: '合炒入味', estimated_minutes: 5, tip: '', key_points: [] },
+      ],
+    };
+    const food: Food = { ...baseFood, id: 'food-mobile-home', name: '家常番茄炒蛋', type: 'selfMade', recipe_id: linkedRecipe.id, stock_quantity: null, stock_unit: '' };
+    const cards = buildRecipeCards([linkedRecipe], [tomato, egg], [tomatoInventory], [], [food]);
+
+    expect(buildFoodCookingSummaryFromRecipeCards(food, cards)).toMatchObject({
+      title: '家常番茄炒蛋',
+      availabilityLabel: '缺 1 项',
+      metaLabel: '2 原料 · 2 步',
+      shortagePreview: ['鸡蛋 2个'],
+      isReady: false,
+    });
+    expect(buildFoodCookingSummaryFromRecipeCards(baseFood, cards)).toBeNull();
   });
 
   it('builds meal record relation with count and latest meal', () => {

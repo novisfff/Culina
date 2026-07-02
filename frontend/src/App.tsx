@@ -121,6 +121,7 @@ function App() {
   const [hasBooted, setHasBooted] = useState(false);
   const [pendingRecipeCookId, setPendingRecipeCookId] = useState<string | null>(null);
   const [pendingFoodPlanCookItemId, setPendingFoodPlanCookItemId] = useState<string | null>(null);
+  const [pendingRecipeCookReturnTarget, setPendingRecipeCookReturnTarget] = useState<TabKey | null>(null);
   const [homeMealEnrichmentRequest, setHomeMealEnrichmentRequest] = useState<HomeMealEnrichmentOpenRequest | null>(null);
   const {
     dashboardRecommendationPage,
@@ -233,10 +234,6 @@ function App() {
     setActiveTab(isPhoneViewport && tab === 'recipes' ? 'foods' : tab);
   }, [isPhoneViewport]);
 
-  const openRecipesTab = useCallback(() => {
-    setActiveTab(isPhoneViewport ? 'foods' : 'recipes');
-  }, [isPhoneViewport]);
-
   const handleMobileRecipeLibraryRedirect = useCallback(() => {
     setActiveTab('foods');
   }, []);
@@ -244,8 +241,9 @@ function App() {
   const startRecipeCook = useCallback((recipeId: string, foodPlanItemId?: string) => {
     setPendingRecipeCookId(recipeId);
     setPendingFoodPlanCookItemId(foodPlanItemId ?? null);
+    setPendingRecipeCookReturnTarget(activeTab);
     setActiveTab('recipes');
-  }, []);
+  }, [activeTab]);
 
   useEffect(() => {
     if (!authLoading && !isWorkspaceBootLoading) {
@@ -675,6 +673,7 @@ function App() {
               createFood={(payload) => createFoodMutation.mutateAsync(payload)}
               updateFood={(foodId, payload) => updateFoodMutation.mutateAsync({ foodId, payload })}
               updateFoodFavorite={(foodId, favorite) => toggleFavoriteMutation.mutateAsync({ foodId, favorite })}
+              createRecipe={(payload) => createRecipeMutation.mutateAsync(payload)}
               updateRecipe={(recipeId, payload) => updateRecipeMutation.mutateAsync({ recipeId, payload })}
               quickAddMeal={(payload) => quickAddMealMutation.mutateAsync(payload)}
               createFoodPlanItem={(payload) => createFoodPlanItemMutation.mutateAsync(payload)}
@@ -683,13 +682,13 @@ function App() {
               createFoodScene={(payload) => createFoodSceneMutation.mutateAsync(payload)}
               updateFoodScene={(sceneId, payload) => updateFoodSceneMutation.mutateAsync({ sceneId, payload })}
               deleteFoodScene={(sceneId) => deleteFoodSceneMutation.mutateAsync(sceneId)}
-              onOpenRecipes={openRecipesTab}
               onStartRecipe={startRecipeCook}
               onOpenLogs={() => setActiveTab('logs')}
               onFoodPlanPreviousWeek={() => setSelectedRecipePlanDate(addDateKeyDays(foodPlanWeekRange.start, -7))}
               onFoodPlanCurrentWeek={() => setSelectedRecipePlanDate(todayKey())}
               onFoodPlanNextWeek={() => setSelectedRecipePlanDate(addDateKeyDays(foodPlanWeekRange.end, 1))}
               isSavingFood={createFoodMutation.isPending || updateFoodMutation.isPending}
+              isCreatingRecipe={createRecipeMutation.isPending}
               isUpdatingRecipe={updateRecipeMutation.isPending}
               isUpdatingFavorite={toggleFavoriteMutation.isPending}
               isQuickAdding={quickAddMealMutation.isPending}
@@ -717,12 +716,26 @@ function App() {
                 recipePlanWeekRange={foodPlanWeekRange}
                 startRecipeId={pendingRecipeCookId}
                 startFoodPlanItemId={pendingFoodPlanCookItemId}
+                startRecipeReturnTarget={
+                  pendingRecipeCookReturnTarget === 'home' ||
+                  pendingRecipeCookReturnTarget === 'foods' ||
+                  pendingRecipeCookReturnTarget === 'recipes'
+                    ? pendingRecipeCookReturnTarget
+                    : null
+                }
                 navigationRequest={recipeNavigationRequest}
                 notificationCenter={mobileNotificationCenter}
                 onMobileLibraryRedirect={isPhoneViewport ? handleMobileRecipeLibraryRedirect : undefined}
                 onStartRecipeHandled={() => {
                   setPendingRecipeCookId(null);
                   setPendingFoodPlanCookItemId(null);
+                  setPendingRecipeCookReturnTarget(null);
+                }}
+                onCookReturnToSource={(target) => {
+                  setPendingRecipeCookId(null);
+                  setPendingFoodPlanCookItemId(null);
+                  setPendingRecipeCookReturnTarget(null);
+                  setActiveTab(target);
                 }}
                 onRecipePlanPreviousWeek={() => setSelectedRecipePlanDate(addDateKeyDays(foodPlanWeekRange.start, -7))}
                 onRecipePlanCurrentWeek={() => setSelectedRecipePlanDate(todayKey())}

@@ -427,6 +427,10 @@ export function HomeDashboard(props: HomeDashboardProps) {
                   onNavigate('foods');
                   setDetailFood(null);
                 }}
+                onEditRecipe={(food) => {
+                  onNavigate('foods');
+                  setDetailFood(null);
+                }}
                 onOpenLogs={() => {
                   onNavigate('logs');
                   setDetailFood(null);
@@ -435,8 +439,8 @@ export function HomeDashboard(props: HomeDashboardProps) {
                   openHomePlanAddDialog(food, foodRecommendations?.target_meal_type ?? 'dinner');
                   setDetailFood(null);
                 }}
-                onOpenRecipeDetail={(card) => {
-                  onNavigate('recipes');
+                onStartCook={(recipeId) => {
+                  onStartRecipe(recipeId);
                   setDetailFood(null);
                 }}
                 onQuickAdd={(food, mealType) => {

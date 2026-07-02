@@ -26,7 +26,6 @@ type UseFoodWorkspaceStateArgs = {
     sort_order: number;
   }) => Promise<FoodScene>;
   quickAddMeal: (payload: { food_id: string; date: string; meal_type: MealType; servings: number; note: string }) => Promise<unknown>;
-  onOpenRecipes: () => void;
 };
 
 export function useFoodWorkspaceState(args: UseFoodWorkspaceStateArgs) {
@@ -83,10 +82,10 @@ export function useFoodWorkspaceState(args: UseFoodWorkspaceStateArgs) {
     setDetailFoodId(null);
   }
 
-  async function submitFood(event: FormEvent<HTMLFormElement>, canSubmit: boolean) {
+  async function submitFood(event: FormEvent<HTMLFormElement>, canSubmit: boolean, payloadOverride?: FoodPayload) {
     event.preventDefault();
     if (!canSubmit) return;
-    const payload = buildFoodPayloadFromForm(form, args.recipes, getMediaIds(form.images), getPendingImageJobId(form.images));
+    const payload = payloadOverride ?? buildFoodPayloadFromForm(form, args.recipes, getMediaIds(form.images), getPendingImageJobId(form.images));
     if (editingFood) {
       await args.updateFood(editingFood.id, payload);
     } else {

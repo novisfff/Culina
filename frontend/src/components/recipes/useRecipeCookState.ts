@@ -20,6 +20,9 @@ import {
 } from './RecipeWorkspaceModel';
 import type { RecipeCardViewModel, RecipeWorkspaceView } from './workspaceModel';
 
+export type RecipeCookReturnTarget = 'home' | 'foods' | 'recipes';
+export type RecipeCookExitTarget = 'detail' | 'library' | 'source';
+
 export function useRecipeCookState(args: {
   cards: RecipeCardViewModel[];
   selectedCard: RecipeCardViewModel | null;
@@ -28,7 +31,9 @@ export function useRecipeCookState(args: {
   setSelectedRecipeId: (recipeId: string | null) => void;
   startRecipeId?: string | null;
   startFoodPlanItemId?: string | null;
+  startRecipeReturnTarget?: RecipeCookReturnTarget | null;
   onStartRecipeHandled?: () => void;
+  onCookReturnToSource?: (target: RecipeCookReturnTarget) => void;
   previewCookRecipe: (recipeId: string, payload: CookRecipeRequest) => Promise<CookRecipePreviewResponse>;
   cookRecipe: (recipeId: string, payload: CookRecipeRequest) => Promise<CookRecipeResponse>;
   isCookingRecipe?: boolean;
@@ -47,6 +52,7 @@ export function useRecipeCookState(args: {
   const [isCookTimerCustomOpen, setIsCookTimerCustomOpen] = useState(false);
   const [cookTimerPicker, setCookTimerPicker] = useState({ minutes: 2, seconds: 0 });
   const [cookTimerJustStarted, setCookTimerJustStarted] = useState(false);
+  const [cookReturnTarget, setCookReturnTarget] = useState<RecipeCookReturnTarget | null>(null);
 
   const activeCookCard = cookCard ?? (args.view === 'cook' ? args.selectedCard : null);
   const cookSteps = activeCookCard?.recipe.steps.length
@@ -168,10 +174,11 @@ export function useRecipeCookState(args: {
     });
   }, [isCookTimerCustomOpen, cookTimerPicker.minutes, cookTimerPicker.seconds]);
 
-  function openCook(card: RecipeCardViewModel, planItemId?: string) {
+  function openCook(card: RecipeCardViewModel, planItemId?: string, returnTarget?: RecipeCookReturnTarget | null) {
     const loaded = loadCookSession(card.recipe, planItemId ?? null);
     args.setSelectedRecipeId(card.recipe.id);
     setCookCard(card);
+    setCookReturnTarget(returnTarget ?? null);
     setCookSession(loaded.session);
     setWasCookSessionRestored(loaded.restored);
     setIsCookFinishOpen(false);
@@ -187,12 +194,13 @@ export function useRecipeCookState(args: {
     if (!args.startRecipeId) return;
     const targetCard = args.cards.find((card) => card.recipe.id === args.startRecipeId);
     if (!targetCard) return;
-    openCook(targetCard, args.startFoodPlanItemId ?? undefined);
+    openCook(targetCard, args.startFoodPlanItemId ?? undefined, args.startRecipeReturnTarget ?? null);
     args.onStartRecipeHandled?.();
-  }, [args.cards, args.startFoodPlanItemId, args.startRecipeId]);
+  }, [args.cards, args.startFoodPlanItemId, args.startRecipeId, args.startRecipeReturnTarget]);
 
   function closeCookDialog() {
     setCookCard(null);
+    setCookReturnTarget(null);
     setCookSession(null);
     setWasCookSessionRestored(false);
     setIsCookFinishOpen(false);
@@ -472,7 +480,7 @@ export function useRecipeCookState(args: {
     clearCookSession(activeCookCard.recipe.id, cookSession?.planItemId ?? null);
   }
 
-  function exitCookMode(target: 'detail' | 'library' = 'detail') {
+  function exitCookMode(target: RecipeCookExitTarget = 'detail') {
     setIsCookFinishOpen(false);
     setCookSession((current) => {
       if (!current) return current;
@@ -487,7 +495,14 @@ export function useRecipeCookState(args: {
       return nextSession;
     });
     setCookCard(null);
-    args.setView(target);
+    if (target === 'source' && cookReturnTarget) {
+      args.setView('library');
+      args.onCookReturnToSource?.(cookReturnTarget);
+      setCookReturnTarget(null);
+      return;
+    }
+    setCookReturnTarget(null);
+    args.setView(target === 'source' ? 'library' : target);
   }
 
   function toggleCookIngredient(itemId: string) {
@@ -577,6 +592,7 @@ export function useRecipeCookState(args: {
     cookTimerMinuteWheelRef,
     cookTimerSecondWheelRef,
     activeCookCard,
+    cookReturnTarget,
     cookPreview,
     cookPreviewError,
     isCookPreviewLoading,
