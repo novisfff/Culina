@@ -77,6 +77,11 @@ type RecipeEditorViewProps = {
   showAiDraftAction?: boolean;
   showDeleteAction?: boolean;
   compactHeader?: boolean;
+  entityLabel?: string;
+  submitLabel?: string;
+  previewLabel?: string;
+  deleteLabel?: string;
+  summaryCreateHint?: string;
   backLabel?: string;
   onBack: () => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
@@ -309,6 +314,11 @@ export function RecipeEditorView({
   showAiDraftAction = true,
   showDeleteAction = true,
   compactHeader = false,
+  entityLabel = '菜谱',
+  submitLabel,
+  previewLabel,
+  deleteLabel,
+  summaryCreateHint,
   backLabel,
   onBack,
   onSubmit,
@@ -339,12 +349,12 @@ export function RecipeEditorView({
               <div className="recipe-editor-topbar">
                 <button className="workspace-back-link recipe-detail-back-link" type="button" onClick={() => onBack()}>
                   <RecipeUiIcon name="chevronLeft" />
-                  {backLabel ?? (isEditing ? '返回详情' : '返回菜谱')}
+                  {backLabel ?? (isEditing ? '返回详情' : `返回${entityLabel}`)}
                 </button>
               </div>
               <div className="recipe-editor-title-block">
-                <p className="eyebrow">菜谱</p>
-                <h2>{isEditing ? '编辑菜谱' : '新增菜谱'}</h2>
+                <p className="eyebrow">{entityLabel}</p>
+                <h2>{isEditing ? `编辑${entityLabel}` : `新增${entityLabel}`}</h2>
                 <p>把标题、用料、步骤和图片放在同一个录入工作台里。</p>
               </div>
             </>
@@ -359,7 +369,7 @@ export function RecipeEditorView({
                 </div>
                 <div className="recipe-editor-basic-grid">
                   <label>
-                    <span>菜谱标题</span>
+                    <span>{entityLabel}名称</span>
                     <input className="text-input" value={form.title} onChange={(event) => setForm({ ...form, title: event.target.value })} />
                   </label>
                   <label>
@@ -629,17 +639,17 @@ export function RecipeEditorView({
               <section className="recipe-editor-card recipe-editor-cover-card">
                 <div className="recipe-editor-card-head">
                   <span className="recipe-editor-section-index">4</span>
-                  <h3>菜谱封面</h3>
+                  <h3>{entityLabel}封面</h3>
                 </div>
                 <div className="recipe-editor-cover-grid">
                   <div className="recipe-editor-cover-preview">
-                    <MediaWithPlaceholder src={editorCoverUrl} alt={form.title || '菜谱封面'} />
+                    <MediaWithPlaceholder src={editorCoverUrl} alt={form.title || `${entityLabel}封面`} />
                   </div>
                   <div className="recipe-editor-cover-workspace">
                     <div className="recipe-editor-cover-toolbar">
                       <div>
-                        <h4>菜谱封面</h4>
-                        <p>可直接基于菜谱信息生成，也可以上传参考图后生成统一风格主图。</p>
+                        <h4>{entityLabel}封面</h4>
+                        <p>可直接基于{entityLabel}信息生成，也可以上传参考图后生成统一风格主图。</p>
                       </div>
                       <div className="recipe-editor-cover-actions">
                         <button
@@ -691,7 +701,7 @@ export function RecipeEditorView({
                     {recipeImageState.errorMessage && <span className="image-composer-error">{recipeImageState.errorMessage}</span>}
                     <p className="recipe-editor-cover-hint">
                       {recipeImageState.isGenerating
-                        ? '封面后台生成中，可以先保存菜谱。'
+                        ? `封面后台生成中，可以先保存${entityLabel}。`
                         : editorReferenceUrl && !form.images.generatedAsset
                           ? '已上传参考图，可继续生成统一风格主图。'
                           : '推荐尺寸：4:3，JPG/PNG，30 MB 以内。'}
@@ -706,8 +716,8 @@ export function RecipeEditorView({
                 <section className="recipe-editor-side-card recipe-ai-draft-panel">
                   <div className="workspace-action-rail-copy">
                     <p className="eyebrow">AI 生成</p>
-                    <h3>自动补全菜谱</h3>
-                    <p className="subtle">基于左侧已填写内容生成完整菜谱，保存前仍可继续编辑。</p>
+                    <h3>自动补全{entityLabel}</h3>
+                    <p className="subtle">基于左侧已填写内容生成完整{entityLabel}，保存前仍可继续编辑。</p>
                   </div>
                   {recipeDraftError ? <p className="form-error">{recipeDraftError}</p> : null}
                   <ActionButton
@@ -724,14 +734,14 @@ export function RecipeEditorView({
                 <div className="recipe-editor-summary-head">
                   <div>
                     <h3>实时摘要</h3>
-                    <p className="subtle">{isEditing ? '根据当前表单内容预览' : '保存后进入菜谱工作台'}</p>
+                    <p className="subtle">{isEditing ? '根据当前表单内容预览' : (summaryCreateHint ?? `保存后进入${entityLabel}工作台`)}</p>
                   </div>
                   <span><RecipeUiIcon name="check" /> 表单实时更新</span>
                 </div>
                 <div className="recipe-editor-live-preview">
-                  <MediaWithPlaceholder src={editorCoverUrl} alt={form.title || '菜谱封面'} />
+                  <MediaWithPlaceholder src={editorCoverUrl} alt={form.title || `${entityLabel}封面`} />
                   <div>
-                    <strong>{form.title.trim() || '未命名菜谱'}</strong>
+                    <strong>{form.title.trim() || `未命名${entityLabel}`}</strong>
                     <p>{form.tips.trim() || '填写技巧说明后，会在这里看到摘要。'}</p>
                   </div>
                 </div>
@@ -743,16 +753,16 @@ export function RecipeEditorView({
                 </div>
                 <div className="recipe-editor-submit-stack">
                   <ActionButton tone="primary" type="submit" disabled={submitDisabled}>
-                    {isCreatingRecipe || isUpdatingRecipe ? '保存中...' : '保存菜谱'}
+                    {isCreatingRecipe || isUpdatingRecipe ? '保存中...' : (submitLabel ?? `保存${entityLabel}`)}
                   </ActionButton>
                   {isEditing && (
                     <ActionButton tone="secondary" type="button" onClick={onBack}>
-                      预览菜谱
+                      {previewLabel ?? `预览${entityLabel}`}
                     </ActionButton>
                   )}
                   {showDeleteAction && isEditing && selectedRecipeId && (
                     <ActionButton tone="tertiary" type="button" onClick={() => void onDelete()} disabled={isDeletingRecipe}>
-                      {isDeletingRecipe ? '删除中...' : '删除菜谱'}
+                      {isDeletingRecipe ? '删除中...' : (deleteLabel ?? `删除${entityLabel}`)}
                     </ActionButton>
                   )}
                   <ActionButton tone="secondary" type="button" onClick={() => onBack()}>

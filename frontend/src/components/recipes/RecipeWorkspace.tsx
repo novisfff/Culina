@@ -76,13 +76,14 @@ import { RecipeDraftDialog } from './RecipeDraftDialog';
 import { RecipeShoppingDialog } from './RecipeShoppingDialog';
 import { RecipeCookFinishDialog } from './RecipeCookFinishDialog';
 import { RecipeCookView } from './RecipeCookView';
+import { RecipeDetailDrawer } from './RecipeDetailDrawer';
 import { RecipeDetailView } from './RecipeDetailView';
 import { RecipeEditorView } from './RecipeEditorView';
 import { RecipeIngredientResolutionDialog } from './RecipeIngredientResolutionDialog';
 import { RecipeLibraryView } from './RecipeLibraryView';
 import { RecipePlanDetailDialog, RecipePlanDialog } from './RecipePlanDialogs';
 import { RecipeSceneManagerDialog } from './RecipeSceneManagerDialog';
-import { useRecipeCookState } from './useRecipeCookState';
+import { useRecipeCookState, type RecipeCookReturnTarget } from './useRecipeCookState';
 import { useRecipeEditorState } from './useRecipeEditorState';
 import { useRecipePlanState } from './useRecipePlanState';
 import { useRecipeSceneState } from './useRecipeSceneState';
@@ -187,6 +188,19 @@ export {
   type RecipeFormState,
 };
 
+const MOBILE_RECIPE_DETAIL_DRAWER_QUERY = '(max-width: 767px)';
+const RECIPE_COOK_RETURN_LABELS: Record<RecipeCookReturnTarget, string> = {
+  home: '返回首页',
+  foods: '返回食物',
+  recipes: '返回菜谱',
+};
+
+function isRecipeDetailDrawerViewport() {
+  return typeof window !== 'undefined' &&
+    typeof window.matchMedia === 'function' &&
+    window.matchMedia(MOBILE_RECIPE_DETAIL_DRAWER_QUERY).matches;
+}
+
 type RecipeWorkspaceProps = {
   recipes: Recipe[];
   ingredients: Ingredient[];
@@ -202,6 +216,7 @@ type RecipeWorkspaceProps = {
   recipePlanWeekRange: { start: string; end: string };
   startRecipeId?: string | null;
   startFoodPlanItemId?: string | null;
+  startRecipeReturnTarget?: RecipeCookReturnTarget | null;
   navigationRequest?: {
     recipeId: string;
     requestId: number;
@@ -209,6 +224,7 @@ type RecipeWorkspaceProps = {
   notificationCenter?: ReactNode;
   onMobileLibraryRedirect?: () => void;
   onStartRecipeHandled?: () => void;
+  onCookReturnToSource?: (target: RecipeCookReturnTarget) => void;
   onRecipePlanPreviousWeek: () => void;
   onRecipePlanCurrentWeek: () => void;
   onRecipePlanNextWeek: () => void;
@@ -352,6 +368,8 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
   const [recipeNotice, setRecipeNotice] = useState<RecipeNotice | null>(null);
   const [isIngredientResolutionOpen, setIsIngredientResolutionOpen] = useState(false);
   const [ingredientResolutionTargets, setIngredientResolutionTargets] = useState<RecipeUnresolvedIngredientTarget[]>([]);
+  const [isRecipeDetailDrawerMode, setIsRecipeDetailDrawerMode] = useState(isRecipeDetailDrawerViewport);
+  const [mobileDetailRecipeId, setMobileDetailRecipeId] = useState<string | null>(null);
   const {
     view,
     setView,
@@ -391,7 +409,6 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
     setIsRecipeAiApplied,
     resetForm,
     openCreate,
-    openDetail,
     openEdit,
     updateIngredientRow,
     selectIngredientRow,
@@ -449,6 +466,16 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
   const normalizedRecipeSearch = search.trim();
   const recipeSearchComposition = useSearchCompositionState();
   const recipeSearchValue = useDebouncedSearchValue(search, { isComposing: recipeSearchComposition.isComposing });
+  useEffect(() => {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
+      return undefined;
+    }
+    const mediaQuery = window.matchMedia(MOBILE_RECIPE_DETAIL_DRAWER_QUERY);
+    const handleChange = () => setIsRecipeDetailDrawerMode(mediaQuery.matches);
+    handleChange();
+    mediaQuery.addEventListener?.('change', handleChange);
+    return () => mediaQuery.removeEventListener?.('change', handleChange);
+  }, []);
   const recipeSearchQuery = useQuery({
     queryKey: queryKeys.recipeSearch(recipeSearchValue),
     queryFn: () => api.getRecipes({ q: recipeSearchValue, limit: 100 }),
@@ -474,6 +501,12 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
     setAppliedRecipeSearch('');
     setAppliedRecipeResults([]);
     setSelectedRecipeId(props.navigationRequest.recipeId);
+    if (isRecipeDetailDrawerViewport()) {
+      setMobileDetailRecipeId(props.navigationRequest.recipeId);
+      setView('library');
+      return;
+    }
+    setMobileDetailRecipeId(null);
     setView('detail');
   }, [props.navigationRequest?.requestId, setSelectedRecipeId, setSearch, setView]);
   const matchedRecipeIds = useMemo(
@@ -588,6 +621,16 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
       .slice()
       .sort((left, right) => right.cook_date.localeCompare(left.cook_date))[0] ?? null;
   const isSelectedFavorite = selectedCard ? homeViewModel.favoriteRecipeIds.has(selectedCard.recipe.id) : false;
+  const mobileDetailCard = mobileDetailRecipeId ? cardByRecipeId.get(mobileDetailRecipeId) ?? null : null;
+  const mobileDetailReadyCount = mobileDetailCard?.ingredientAvailability.filter((item) => item.ready).length ?? 0;
+  const mobileDetailIngredientCount = mobileDetailCard?.ingredientAvailability.length ?? 0;
+  const mobileDetailShortageCount = mobileDetailCard?.shortages.length ?? 0;
+  const mobileDetailPlanItems = mobileDetailCard ? props.recipePlanItems.filter((item) => item.recipe_id === mobileDetailCard.recipe.id) : [];
+  const mobileDetailRecentCookLog =
+    mobileDetailCard?.recipe.cook_logs
+      .slice()
+      .sort((left, right) => right.cook_date.localeCompare(left.cook_date))[0] ?? null;
+  const isMobileDetailFavorite = mobileDetailCard ? homeViewModel.favoriteRecipeIds.has(mobileDetailCard.recipe.id) : false;
   const editorIngredientCount = ingredientRows.filter((item) => item.ingredient_id || item.ingredient_name.trim()).length;
   const editorStepCount = form.steps.filter((step) => step.text.trim()).length;
   const editorSceneTags = splitTags(form.sceneTags);
@@ -647,7 +690,7 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
           emptyTitle: `暂无${sceneFilter}菜谱`,
           emptyDescription: '换个场景或清除筛选条件试试。',
         };
-  const shouldRedirectMobileLibrary = Boolean(props.onMobileLibraryRedirect && !props.startRecipeId && view === 'library');
+  const shouldRedirectMobileLibrary = Boolean(props.onMobileLibraryRedirect && !props.startRecipeId && view === 'library' && !mobileDetailRecipeId);
   const libraryBackLabel = props.onMobileLibraryRedirect ? '返回食物' : '返回菜谱';
 
   useEffect(() => {
@@ -702,6 +745,7 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
     cookTimerMinuteWheelRef,
     cookTimerSecondWheelRef,
     activeCookCard,
+    cookReturnTarget,
     cookPreview,
     cookPreviewError,
     isCookPreviewLoading,
@@ -758,7 +802,9 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
     setSelectedRecipeId,
     startRecipeId: props.startRecipeId,
     startFoodPlanItemId: props.startFoodPlanItemId,
+    startRecipeReturnTarget: props.startRecipeReturnTarget,
     onStartRecipeHandled: props.onStartRecipeHandled,
+    onCookReturnToSource: props.onCookReturnToSource,
     previewCookRecipe: props.previewCookRecipe,
     cookRecipe: props.cookRecipe,
     isCookingRecipe: props.isCookingRecipe,
@@ -816,6 +862,21 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
   }, []);
 
   useEffect(() => {
+    if (isRecipeDetailDrawerMode && view === 'detail' && selectedRecipeId) {
+      setMobileDetailRecipeId(selectedRecipeId);
+      setView('library');
+    }
+  }, [isRecipeDetailDrawerMode, selectedRecipeId, setView, view]);
+
+  useEffect(() => {
+    if (!isRecipeDetailDrawerMode && mobileDetailRecipeId) {
+      setSelectedRecipeId(mobileDetailRecipeId);
+      setMobileDetailRecipeId(null);
+      setView('detail');
+    }
+  }, [isRecipeDetailDrawerMode, mobileDetailRecipeId, setSelectedRecipeId, setView]);
+
+  useEffect(() => {
     const node = discoveryScrollRef.current;
     if (!node) return;
     node.scrollLeft = 0;
@@ -829,7 +890,37 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
 
   function handleOpenEdit(card: RecipeCardViewModel) {
     recipeImageComposer.setState(IDLE_IMAGE_GENERATION_STATE);
+    setMobileDetailRecipeId(null);
     openEdit(card);
+  }
+
+  function openRecipeDetail(card: RecipeCardViewModel) {
+    setSelectedRecipeId(card.recipe.id);
+    if (isRecipeDetailDrawerViewport()) {
+      setMobileDetailRecipeId(card.recipe.id);
+      setView('library');
+      return;
+    }
+    setMobileDetailRecipeId(null);
+    setView('detail');
+  }
+
+  function showSavedRecipeDetail(recipeId: string) {
+    setSelectedRecipeId(recipeId);
+    if (isRecipeDetailDrawerViewport()) {
+      setMobileDetailRecipeId(recipeId);
+      setView('library');
+      return;
+    }
+    setMobileDetailRecipeId(null);
+    setView('detail');
+  }
+
+  function closeMobileRecipeDetail() {
+    setMobileDetailRecipeId(null);
+    if (view === 'detail') {
+      setView('library');
+    }
   }
 
   function clearRecipeDraftStageTimer() {
@@ -1038,13 +1129,12 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
     try {
       if (isEditing && selectedRecipeId) {
         await props.updateRecipe(selectedRecipeId, payload);
-        setView('detail');
+        showSavedRecipeDetail(selectedRecipeId);
       } else {
         const created = await props.createRecipe(payload);
-        setSelectedRecipeId(created.id);
         resetForm();
         recipeImageComposer.setState(IDLE_IMAGE_GENERATION_STATE);
-        setView('detail');
+        showSavedRecipeDetail(created.id);
       }
       closeIngredientResolutionDialog();
       return true;
@@ -1086,6 +1176,9 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
       await props.deleteRecipe(card.recipe.id);
       if (selectedRecipeId === card.recipe.id) {
         setSelectedRecipeId(null);
+      }
+      if (mobileDetailRecipeId === card.recipe.id) {
+        setMobileDetailRecipeId(null);
       }
       setView('library');
     } catch (reason) {
@@ -1187,7 +1280,7 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
           <RecipeCard
             key={card.recipe.id}
             card={card}
-            onDetail={() => openDetail(card)}
+            onDetail={() => openRecipeDetail(card)}
             onEdit={() => handleOpenEdit(card)}
             onCook={() => openCook(card)}
             onShopping={() => openShoppingDialog(card, closeCookDialog)}
@@ -1369,6 +1462,9 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
           setCookTimerPicker={setCookTimerPicker}
           setIsCookTimerCustomOpen={setIsCookTimerCustomOpen}
           exitCookMode={exitCookMode}
+          cookBackLabel={cookReturnTarget ? RECIPE_COOK_RETURN_LABELS[cookReturnTarget] : undefined}
+          cookBackTarget={cookReturnTarget ? 'source' : undefined}
+          cookExitTarget={cookReturnTarget ? 'source' : undefined}
           jumpToCookStep={jumpToCookStep}
           moveCookStep={moveCookStep}
           completeCurrentCookStepAndContinue={completeCurrentCookStepAndContinue}
@@ -1395,7 +1491,7 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
           selectTimer={selectTimer}
           toggleTimerById={toggleTimerById}
         />
-      ) : view === 'detail' && selectedCard ? (
+      ) : view === 'detail' && selectedCard && !isRecipeDetailDrawerMode ? (
         <RecipeDetailView
           selectedCard={selectedCard}
           selectedReadyCount={selectedReadyCount}
@@ -1458,7 +1554,7 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
           isCookingRecipe={props.isCookingRecipe}
           cardsLength={cards.length}
           onOpenCreate={handleOpenCreate}
-          onOpenDetail={openDetail}
+          onOpenDetail={openRecipeDetail}
           onOpenCook={openCook}
           onOpenShopping={(card) => openShoppingDialog(card, closeCookDialog)}
           onOpenPlanDialog={openPlanDialog}
@@ -1481,6 +1577,31 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
           onTogglePlanDay={togglePlanDay}
           onOpenPlanDetail={openPlanDetail}
           onStartPlanDetailCook={startPlanDetailCook}
+        />
+      )}
+
+      {isRecipeDetailDrawerMode && mobileDetailCard && (
+        <RecipeDetailDrawer
+          selectedCard={mobileDetailCard}
+          selectedReadyCount={mobileDetailReadyCount}
+          selectedIngredientCount={mobileDetailIngredientCount}
+          selectedShortageCount={mobileDetailShortageCount}
+          isSelectedFavorite={isMobileDetailFavorite}
+          selectedRecentCookLog={mobileDetailRecentCookLog}
+          selectedRecipePlanItems={mobileDetailPlanItems}
+          isUpdatingFavorite={props.isUpdatingFavorite}
+          isCreatingShopping={props.isCreatingShopping}
+          isDeletingRecipe={props.isDeletingRecipe}
+          onClose={closeMobileRecipeDetail}
+          onCook={(card) => {
+            setMobileDetailRecipeId(null);
+            openCook(card);
+          }}
+          onPlan={openPlanDialog}
+          onShopping={(card) => openShoppingDialog(card, closeCookDialog)}
+          onToggleFavorite={toggleRecipeFavorite}
+          onEdit={handleOpenEdit}
+          onDelete={() => void deleteRecipeCard(mobileDetailCard)}
         />
       )}
 

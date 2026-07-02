@@ -17,6 +17,7 @@ import {
   type CookTimerState,
 } from './RecipeWorkspaceModel';
 import { DIFFICULTY_LABELS, type RecipeCardViewModel } from './workspaceModel';
+import type { RecipeCookExitTarget } from './useRecipeCookState';
 
 type CookTimerPickerState = {
   minutes: number;
@@ -43,7 +44,10 @@ type RecipeCookViewProps = {
   cookTimerSecondWheelRef: Ref<HTMLDivElement>;
   setCookTimerPicker: Dispatch<SetStateAction<CookTimerPickerState>>;
   setIsCookTimerCustomOpen: Dispatch<SetStateAction<boolean>>;
-  exitCookMode: (target?: 'detail' | 'library') => void;
+  exitCookMode: (target?: RecipeCookExitTarget) => void;
+  cookBackLabel?: string;
+  cookBackTarget?: RecipeCookExitTarget;
+  cookExitTarget?: RecipeCookExitTarget;
   jumpToCookStep: (index: number) => void;
   moveCookStep: (delta: number) => void;
   completeCurrentCookStepAndContinue: () => void;
@@ -92,6 +96,9 @@ export function RecipeCookView({
   setCookTimerPicker,
   setIsCookTimerCustomOpen,
   exitCookMode,
+  cookBackLabel = '返回详情',
+  cookBackTarget = 'detail',
+  cookExitTarget = 'library',
   jumpToCookStep,
   moveCookStep,
   completeCurrentCookStepAndContinue,
@@ -121,7 +128,7 @@ export function RecipeCookView({
   const [activeSidebarTab, setActiveSidebarTab] = useState<'ingredients' | 'steps'>('ingredients');
   const [deletingTimerId, setDeletingTimerId] = useState<string | null>(null);
   const [activeMobileTab, setActiveMobileTab] = useState<'step' | 'ingredients'>('step');
-  const [pendingExitTarget, setPendingExitTarget] = useState<'detail' | 'library' | null>(null);
+  const [pendingExitTarget, setPendingExitTarget] = useState<RecipeCookExitTarget | null>(null);
 
   useLayoutEffect(() => {
     const page = cookPageRef.current;
@@ -205,7 +212,7 @@ export function RecipeCookView({
     stepTabSuffix = ` (${formatCookTimer(remaining)})`;
   }
 
-  function requestCookExit(target: 'detail' | 'library') {
+  function requestCookExit(target: RecipeCookExitTarget) {
     if (runningTimers.length > 0) {
       setPendingExitTarget(target);
       return;
@@ -213,12 +220,18 @@ export function RecipeCookView({
     exitCookMode(target);
   }
 
+  function getExitConfirmTitle(target: RecipeCookExitTarget) {
+    if (target === 'detail') return '暂停计时并返回详情？';
+    if (target === 'source') return `暂停计时并${cookBackLabel}？`;
+    return '暂停计时并退出烹饪？';
+  }
+
   return (
     <main ref={cookPageRef} className={`recipe-cook-page mobile-tab-${activeMobileTab}`}>
       <header className="recipe-cook-header">
-        <button className="workspace-back-link" type="button" onClick={() => requestCookExit('detail')}>
+        <button className="workspace-back-link" type="button" onClick={() => requestCookExit(cookBackTarget)}>
           <span aria-hidden="true">‹</span>
-          返回详情
+          {cookBackLabel}
         </button>
         <div className="recipe-cook-header-title">
           <h2>{activeCookCard.recipe.title}</h2>
@@ -230,7 +243,7 @@ export function RecipeCookView({
           </div>
           <span>步骤 {cookSession.currentStepIndex + 1} / {cookSteps.length} ({cookProgressPercent}%)</span>
         </div>
-        <ActionButton tone="secondary" type="button" onClick={() => requestCookExit('library')}>
+        <ActionButton tone="secondary" type="button" onClick={() => requestCookExit(cookExitTarget)}>
           退出烹饪
         </ActionButton>
       </header>
@@ -662,7 +675,7 @@ export function RecipeCookView({
         <div className="workspace-overlay-root">
           <div className="workspace-overlay-backdrop" onClick={() => setPendingExitTarget(null)} />
           <WorkspaceModal
-            title={pendingExitTarget === 'detail' ? '暂停计时并返回详情？' : '暂停计时并退出烹饪？'}
+            title={getExitConfirmTitle(pendingExitTarget)}
             description={`当前有 ${runningTimers.length} 个计时器正在工作。退出后会暂停计时，烹饪步骤和已用时间仍会保留。`}
             eyebrow="计时提醒"
             onClose={() => setPendingExitTarget(null)}

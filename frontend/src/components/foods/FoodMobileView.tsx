@@ -8,6 +8,7 @@ import { Badge, EmptyState, SearchLoadingIndicator } from '../ui-kit';
 import { focusMobileInput } from '../../lib/mobileFocus';
 import { resolveMobileSceneCoverSource } from './FoodMobileSceneModel';
 import { FoodUiIcon } from './FoodWorkspacePrimitives';
+import type { FoodCookingSummary } from './FoodWorkspaceHelpers';
 
 function focusMobileFoodSearch() {
   focusMobileInput('mobile-food-search', { containerSelector: '.mobile-food-library-filters' });
@@ -63,6 +64,7 @@ export function FoodMobileView(props: {
   getRecommendationPrimaryActionLabel: (item: MobileRecommendationItem) => string;
   getDefaultMealType: (food: Food) => MealType;
   getFoodSceneTags: (food: Food) => string[];
+  getFoodCookingSummary: (food: Food) => FoodCookingSummary | null;
   onSearchChange: (value: string) => void;
   onSearchCompositionStart?: CompositionEventHandler<HTMLInputElement>;
   onSearchCompositionEnd?: CompositionEventHandler<HTMLInputElement>;
@@ -134,6 +136,7 @@ export function FoodMobileView(props: {
             {props.visibleRecommendations.map((item) => {
               const foodCoverAsset = getFoodCoverAsset(item.food, props.recipes);
               const foodCoverUrl = resolveMediaUrl(foodCoverAsset, 'card');
+              const cookingSummary = props.getFoodCookingSummary(item.food);
               return (
                 <article
                   key={item.food.id}
@@ -151,9 +154,9 @@ export function FoodMobileView(props: {
                     <h3>{item.food.name}</h3>
                     <div className="mobile-dashboard-chip-row">
                       <Badge>{FOOD_TYPE_LABELS[item.food.type === 'packaged' ? 'readyMade' : item.food.type]}</Badge>
-                      <Badge>{item.food.routine_note || `${item.food.suitable_meal_types.length || 1} 餐适合`}</Badge>
+                      <Badge>{cookingSummary?.availabilityLabel || item.food.routine_note || `${item.food.suitable_meal_types.length || 1} 餐适合`}</Badge>
                     </div>
-                    <p>{item.reasons[0] ?? item.food.notes ?? '适合今天安排'}</p>
+                    <p>{cookingSummary?.shortagePreview.length ? `缺 ${cookingSummary.shortagePreview.join('、')}` : cookingSummary?.metaLabel || item.reasons[0] || item.food.notes || '适合今天安排'}</p>
                     <div className="mobile-dashboard-food-actions">
                       <button
                         className="mobile-dashboard-primary compact"
@@ -183,7 +186,7 @@ export function FoodMobileView(props: {
             })}
           </div>
         ) : (
-          <EmptyState title="暂无推荐" description="补充食物或菜谱后，这里会出现今日建议。" />
+          <EmptyState title="暂无推荐" description="补充食物或家常菜谱后，这里会出现今日建议。" />
         )}
       </section>
 
@@ -276,7 +279,10 @@ export function FoodMobileView(props: {
                     const cover = resolveMediaUrl(coverAsset, 'card');
                     const usageCount = countMealUsage(food, props.mealLogs);
                     const tagLabels = props.getFoodSceneTags(food).slice(0, 2);
-                    const labels = tagLabels.length > 0 ? tagLabels : food.suitable_meal_types.slice(0, 2).map((meal) => MEAL_TYPE_LABELS[meal]);
+                    const cookingSummary = props.getFoodCookingSummary(food);
+                    const labels = cookingSummary
+                      ? [cookingSummary.availabilityLabel, cookingSummary.metaLabel]
+                      : tagLabels.length > 0 ? tagLabels : food.suitable_meal_types.slice(0, 2).map((meal) => MEAL_TYPE_LABELS[meal]);
                     return (
                       <article key={food.id} className="mobile-food-library-card">
                         <button className="mobile-food-library-cover" type="button" onClick={() => props.onOpenDetail(food)}>
@@ -289,7 +295,7 @@ export function FoodMobileView(props: {
                         </button>
                         <div className="mobile-food-library-body">
                           <h3>{food.name}</h3>
-                          <p>{[FOOD_TYPE_LABELS[food.type === 'packaged' ? 'readyMade' : food.type], usageCount > 0 ? '最近做过' : '未记录'].join(' · ')}</p>
+                          <p>{cookingSummary ? ['家常菜谱', usageCount > 0 ? '最近做过' : cookingSummary.availabilityDetail].join(' · ') : [FOOD_TYPE_LABELS[food.type === 'packaged' ? 'readyMade' : food.type], usageCount > 0 ? '最近吃过' : '未记录'].join(' · ')}</p>
                           <div className="mobile-food-chip-row">
                             {labels.map((label) => (
                               <span key={label}>{label}</span>

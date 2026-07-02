@@ -55,9 +55,9 @@ export const FOOD_LENS_COPY: Record<FoodWorkspaceLens, { title: string; descript
   },
   selfMade: {
     title: '家常菜',
-    description: '关注关联菜谱、复做次数和适合餐别，适合决定要不要自己做。',
+    description: '关注菜谱与用料、复做次数和适合餐别，适合决定要不要自己做。',
     emptyTitle: '还没有家常菜',
-    emptyDescription: '家常菜从菜谱同步而来，可以先去新增一份菜谱。',
+    emptyDescription: '先补一份家常菜谱，保存后会自动出现在食物库。',
   },
   outside: {
     title: '外卖外食',

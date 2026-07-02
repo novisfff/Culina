@@ -88,7 +88,7 @@ export function FoodPlanDialog(props: FoodPlanDialogProps) {
                   </span>
                   <span>
                     <FoodUiIcon name={props.selectedPlanFood.recipe_id ? 'bookOpen' : 'clipboard'} />
-                    {props.selectedPlanFood.recipe_id ? '关联菜谱' : '可直接记录'}
+                    {props.selectedPlanFood.recipe_id ? '有菜谱' : '可直接记录'}
                   </span>
                 </div>
               </div>

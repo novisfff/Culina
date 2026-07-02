@@ -3903,12 +3903,21 @@
   }
 
   .mobile-food-tabs {
-    display: grid;
-    grid-template-columns: repeat(5, minmax(0, 1fr));
-    gap: 7px;
-    overflow: visible;
-    padding: 0 18px 4px;
+    display: flex;
+    gap: 10px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding: 0 18px 6px;
+    scroll-padding-inline: 18px;
     scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+    white-space: nowrap;
+  }
+
+  .mobile-food-tabs::after {
+    content: "";
+    flex: 0 0 1px;
+    width: 1px;
   }
 
   .mobile-food-tabs::-webkit-scrollbar {
@@ -3916,9 +3925,10 @@
   }
 
   .mobile-food-tabs button {
+    flex: 0 0 auto;
     min-height: 50px;
-    min-width: 0;
-    padding: 0 4px;
+    min-width: 88px;
+    padding: 0 18px;
     border: 1px solid rgba(226, 205, 189, 0.82);
     border-radius: 999px;
     background: rgba(255, 255, 255, 0.62);
@@ -3938,7 +3948,9 @@
   }
 
   .mobile-food-library-filters .mobile-food-tabs {
-    padding: 0;
+    margin-inline: -2px;
+    padding: 0 2px 6px;
+    scroll-padding-inline: 2px;
   }
 
   .mobile-food-tabs button.active {
@@ -7820,6 +7832,99 @@
   .workspace-overlay-root .ingredient-detail-drawer .ingredient-detail-titleblock,
   .workspace-overlay-root .ingredient-detail-drawer .ingredient-detail-back {
     display: none;
+  }
+
+  .workspace-overlay-root .recipe-detail-drawer.workspace-drawer {
+    width: 100%;
+    max-height: 88vh;
+    border-radius: 32px 32px 0 0;
+    background: #fffdfc;
+    box-shadow: 0 -12px 36px rgba(74, 54, 40, 0.1);
+  }
+
+  .workspace-overlay-root .recipe-detail-drawer .workspace-overlay-body {
+    padding-bottom: max(20px, env(safe-area-inset-bottom, 0px));
+  }
+
+  .workspace-overlay-root .recipe-detail-drawer .recipe-detail-subpage {
+    gap: 12px;
+    padding: 0;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+  }
+
+  .workspace-overlay-root .recipe-detail-drawer .recipe-detail-hero-panel,
+  .workspace-overlay-root .recipe-detail-drawer .recipe-detail-hero-copy {
+    gap: 14px;
+  }
+
+  .workspace-overlay-root .recipe-detail-drawer .recipe-detail-cover {
+    min-height: 0;
+    aspect-ratio: 4 / 3;
+    border-radius: 18px;
+  }
+
+  .workspace-overlay-root .recipe-detail-drawer .recipe-detail-hero-copy > p {
+    font-size: 0.94rem;
+    line-height: 1.58;
+  }
+
+  .workspace-overlay-root .recipe-detail-drawer .recipe-detail-metric-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+  }
+
+  .workspace-overlay-root .recipe-detail-drawer .recipe-detail-metric-row span {
+    min-height: 74px;
+    padding: 13px 14px;
+    border-radius: 14px;
+  }
+
+  .workspace-overlay-root .recipe-detail-drawer .recipe-detail-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+  }
+
+  .workspace-overlay-root .recipe-detail-drawer .recipe-detail-actions .solid-button {
+    grid-column: 1 / -1;
+  }
+
+  .workspace-overlay-root .recipe-detail-drawer .recipe-detail-actions .solid-button,
+  .workspace-overlay-root .recipe-detail-drawer .recipe-detail-actions .ghost-button,
+  .workspace-overlay-root .recipe-detail-drawer .recipe-detail-plan-card .ghost-button {
+    min-height: 48px;
+    border-radius: 14px;
+  }
+
+  .workspace-overlay-root .recipe-detail-drawer .recipe-detail-content-grid,
+  .workspace-overlay-root .recipe-detail-drawer .recipe-detail-main-column,
+  .workspace-overlay-root .recipe-detail-drawer .recipe-detail-side-column {
+    gap: 12px;
+  }
+
+  .workspace-overlay-root .recipe-detail-drawer .recipe-detail-section,
+  .workspace-overlay-root .recipe-detail-drawer .recipe-detail-side-card {
+    padding: 16px;
+    border-radius: 16px;
+  }
+
+  .workspace-overlay-root .recipe-detail-drawer .recipe-detail-side-column,
+  .workspace-overlay-root .recipe-detail-drawer .recipe-detail-note-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .workspace-overlay-root .recipe-detail-drawer .recipe-detail-section-head h3 {
+    font-size: 1rem;
+  }
+
+  .workspace-overlay-root .recipe-detail-drawer .recipe-detail-ingredient-row {
+    padding: 12px 0;
+  }
+
+  .workspace-overlay-root .recipe-detail-drawer .recipe-detail-step-timeline li {
+    grid-template-columns: 32px minmax(0, 1fr);
   }
 
   .app-shell:has(.family-activity-mobile-page) .mobile-bottom-nav {

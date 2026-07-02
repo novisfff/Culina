@@ -42,6 +42,7 @@ type Props = {
   view: 'create' | 'edit';
   imageState: ImageGenerationUiState;
   embedded?: boolean;
+  submitLabel?: string;
   onAddSceneTag: (tag: string) => void;
   onBack: () => void;
   onCreateAndAddSceneTag: () => void;
@@ -79,8 +80,8 @@ export function FoodEditorForm(props: Props) {
     : FOOD_CREATE_TYPE_OPTIONS.filter((item) => item.value !== 'selfMade');
   const identityTitle = props.isSelfMade
     ? props.view === 'create'
-      ? '先选类型，再关联菜谱'
-      : '关联菜谱'
+      ? '先选类型，再补菜谱'
+      : '菜谱与用料'
     : '先选类型，再填名称';
   const editorContent = (
     <WorkspaceSubpageShell className="food-editor-shell">
@@ -88,7 +89,7 @@ export function FoodEditorForm(props: Props) {
         <WorkspaceSubpageHeader
           eyebrow="食物"
           title={props.view === 'create' ? '新增食物' : '编辑食物'}
-          description={props.isSelfMade ? '家常菜由菜谱提供核心信息，这里只做映射和常用记录。' : '补充来源、价格、复购和保质信息，让常吃食物更容易再次安排。'}
+          description={props.isSelfMade ? '家常菜的名称、主图、用料和步骤放在食物里维护。' : '补充来源、价格、复购和保质信息，让常吃食物更容易再次安排。'}
           backLabel="返回食物库"
           onBack={props.onBack}
           meta={<Badge>{FOOD_TYPE_LABELS[props.form.type]}</Badge>}
@@ -129,11 +130,11 @@ export function FoodEditorForm(props: Props) {
                     />
                   </div>
                   <div className="food-editor-recipe-copy">
-                    <strong>{props.currentRecipe?.title || props.form.name || '还没有关联菜谱'}</strong>
-                    <span>{props.currentRecipe ? '名称、主图、食材和做法来自菜谱；这里维护餐别、场景和备注。' : '自做食物需要先建一份菜谱，保存后会自动沉淀为家常菜。'}</span>
+                    <strong>{props.currentRecipe?.title || props.form.name || '还没有菜谱'}</strong>
+                    <span>{props.currentRecipe ? '名称、主图、用料和步骤都归在这份食物下；这里维护餐别、场景和备注。' : '先补一份家常菜谱，保存后会自动出现在食物库。'}</span>
                   </div>
                   <ActionButton tone="secondary" size="compact" type="button" onClick={props.onEditRecipe}>
-                    <span>{props.currentRecipe ? '编辑菜谱' : '去新增菜谱'}</span>
+                    <span>{props.currentRecipe ? '编辑菜谱' : '添加菜谱'}</span>
                     <FoodUiIcon name="arrowRight" />
                   </ActionButton>
                 </div>
@@ -168,9 +169,9 @@ export function FoodEditorForm(props: Props) {
                     <FoodUiIcon name="clipboard" />
                   </div>
                   <div>
-                    <div className="section-mini-title">食物映射摘要</div>
+                    <div className="section-mini-title">家常菜谱摘要</div>
                     <strong>{props.editorFoodTitle} · {props.editorRecipeMeta}</strong>
-                    <p className="subtle">做法与步骤以菜谱页为准，这里仅维护映射信息与常用记录。</p>
+                    <p className="subtle">用料和步骤在食物里维护，这里补充家庭常用记录。</p>
                   </div>
                 </div>
               ) : (
@@ -353,8 +354,8 @@ export function FoodEditorForm(props: Props) {
             <div className="food-editor-summary sticky-panel">
               <p className="eyebrow">即将保存</p>
               <h3>{props.editorFoodTitle}</h3>
-              <p className="subtle">{props.isSelfMade ? '家常菜的名称、主图和做法以菜谱为准。' : '保存后可从卡片直接加入今天餐食。'}</p>
-              {props.isSelfMade && !props.form.recipeId && <div className="workspace-inline-note">家常菜需要先关联一个菜谱。</div>}
+              <p className="subtle">{props.isSelfMade ? '家常菜会从菜谱同步名称、主图和用料。' : '保存后可从卡片直接加入今天餐食。'}</p>
+              {props.isSelfMade && !props.form.recipeId && <div className="workspace-inline-note">先补一份菜谱与用料，保存后会自动出现在食物库。</div>}
               <div className="food-editor-completion">
                 <div className="food-editor-completion-head">
                   <span>资料完整度</span>
@@ -374,7 +375,7 @@ export function FoodEditorForm(props: Props) {
               <div className="workspace-rail-actions">
                 <ActionButton tone="primary" type="submit" disabled={!props.canSubmit}>
                   <FoodUiIcon name="save" />
-                  <span>{props.isSavingFood ? '保存中...' : props.view === 'create' ? '保存食物' : '保存修改'}</span>
+                  <span>{props.isSavingFood ? '保存中...' : props.submitLabel ?? (props.view === 'create' ? '保存食物' : '保存修改')}</span>
                 </ActionButton>
                 <ActionButton tone="secondary" type="button" onClick={props.onBack}>
                   <FoodUiIcon name="arrowLeft" />

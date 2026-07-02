@@ -16,6 +16,16 @@ export type FoodRelationViewModel = {
   detail: string;
 };
 
+export type FoodCookingSummary = {
+  linkedRecipeCard: RecipeCardViewModel | null;
+  title: string;
+  availabilityLabel: string;
+  availabilityDetail: string;
+  metaLabel: string;
+  shortagePreview: string[];
+  isReady: boolean;
+};
+
 export function getDaysUntil(dateValue?: string | null) {
   if (!dateValue) return null;
   const target = new Date(`${dateValue}T00:00:00`).getTime();
@@ -134,7 +144,7 @@ export function getFoodFactRows(food: Food, usage: ReturnType<typeof getMealUsag
   const mealText = food.suitable_meal_types.map((meal) => MEAL_TYPE_LABELS[meal]).join('、') || '未设置';
   if (normalizedType === 'selfMade') {
     return [
-      { label: '菜谱', value: food.recipe_id ? '已关联' : '待关联' },
+      { label: '菜谱', value: food.recipe_id ? '已完善' : '待完善' },
       { label: '复吃', value: usage.count > 0 ? `${usage.count} 次` : '还未记录' },
       { label: '餐别', value: mealText },
     ];
@@ -193,18 +203,18 @@ export function buildFoodRelationViewModelFromRecipeCards(
       usage,
       lastMealLog,
       relationFacts: [
-        { label: '关联菜谱', value: linkedRecipeCard?.recipe.title ?? '未关联' },
+        { label: '菜谱', value: linkedRecipeCard?.recipe.title ?? '待完善' },
         { label: '可做程度', value: linkedRecipeCard?.availabilityLabel ?? '无法判断' },
         { label: '餐食记录', value: recordValue },
         { label: '最近一次', value: lastValue },
       ],
       shortagePreview,
-      summary: linkedRecipeCard ? `${linkedRecipeCard.recipe.title} · ${linkedRecipeCard.availabilityLabel}` : '未关联菜谱',
+      summary: linkedRecipeCard ? `${linkedRecipeCard.recipe.title} · ${linkedRecipeCard.availabilityLabel}` : '待完善菜谱',
       detail: linkedRecipeCard
         ? shortagePreview.length > 0
           ? `缺 ${shortagePreview.join('、')}`
           : linkedRecipeCard.availabilityDetail
-        : '关联菜谱后可以判断缺哪些食材。',
+        : '补充菜谱与用料后可以判断缺哪些食材。',
     };
   }
   if (isOutsideFood(food)) {
@@ -239,6 +249,29 @@ export function buildFoodRelationViewModelFromRecipeCards(
     detail: food.stock_quantity == null
       ? '库存未记录，补齐后会更适合做备用餐判断。'
       : `${food.purchase_source || food.source_name || '未记录来源'} · ${describeExpiry(food) ?? '未记录到期'}`,
+  };
+}
+
+export function buildFoodCookingSummaryFromRecipeCards(
+  food: Food,
+  recipeCards: RecipeCardViewModel[]
+): FoodCookingSummary | null {
+  if (normalizeFoodType(food) !== 'selfMade' || !food.recipe_id) return null;
+  const linkedRecipeCard = recipeCards.find((card) => card.recipe.id === food.recipe_id) ?? null;
+  const recipe = linkedRecipeCard?.recipe ?? null;
+  if (!recipe) return null;
+  const shortagePreview = linkedRecipeCard?.shortages
+    .slice(0, 3)
+    .map((item) => `${item.ingredientName} ${item.missingQuantity}${item.unit}`) ?? [];
+  const metaLabel = `${recipe.ingredient_items.length} 原料 · ${recipe.steps.length} 步`;
+  return {
+    linkedRecipeCard,
+    title: recipe.title,
+    availabilityLabel: linkedRecipeCard?.availabilityLabel ?? metaLabel,
+    availabilityDetail: linkedRecipeCard?.availabilityDetail || recipe.tips || '这份家常菜谱已经保存到食物里。',
+    metaLabel,
+    shortagePreview,
+    isReady: Boolean(linkedRecipeCard && linkedRecipeCard.shortages.length === 0),
   };
 }
 
