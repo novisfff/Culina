@@ -1,5 +1,7 @@
 import type { ReactNode } from 'react';
 
+const APP_LOGO_SRC = '/icon-192.png';
+
 export type ShellIconName =
   | 'logo'
   | 'home'
@@ -59,19 +61,22 @@ function IconBase(props: { children: ReactNode }) {
   );
 }
 
+export function AppLogoIcon(props: { className?: string }) {
+  return (
+    <img
+      className={props.className ? `shell-logo-image ${props.className}` : 'shell-logo-image'}
+      src={APP_LOGO_SRC}
+      alt=""
+      aria-hidden="true"
+      draggable={false}
+    />
+  );
+}
+
 export function ShellIcon(props: { name: ShellIconName }) {
   switch (props.name) {
     case 'logo':
-      return (
-        <IconBase>
-          <path d="M6 10h12" />
-          <path d="M7 10v3a5 5 0 0 0 10 0v-3" />
-          <path d="M17 11h1a2 2 0 0 1 0 4h-1" />
-          <path d="M9 7V5" />
-          <path d="M12 7V4" />
-          <path d="M15 7V5" />
-        </IconBase>
-      );
+      return <AppLogoIcon />;
     case 'home':
       return (
         <IconBase>

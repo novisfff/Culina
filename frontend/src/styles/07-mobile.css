@@ -4411,6 +4411,13 @@
     max-width: calc((100% - 6px) / 2);
     flex: 1 1 0;
     font-size: 0.74rem;
+    display: block;
+    text-align: center;
+    line-height: 25px;
+    padding: 0 4px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    overflow: hidden;
   }
 
   .mobile-food-library-card .mobile-food-chip-row span:nth-child(n + 3) {
@@ -5547,7 +5554,8 @@
     box-shadow: 0 14px 28px rgba(203, 96, 42, 0.22);
   }
 
-  .mobile-dashboard-logo svg {
+  .mobile-dashboard-logo svg,
+  .mobile-dashboard-logo .shell-logo-image {
     width: 24px;
     height: 24px;
   }
@@ -7028,6 +7036,12 @@
     background: linear-gradient(180deg, #df7a39, #d66d2f);
     color: #fff;
     box-shadow: 0 14px 28px rgba(203, 96, 42, 0.22);
+  }
+
+  :is(.mobile-food-logo, .mobile-recipe-logo, .mobile-ingredient-logo, .mobile-log-logo, .mobile-dashboard-logo, .mobile-family-logo) .shell-logo-image {
+    width: 100%;
+    height: 100%;
+    border-radius: inherit;
   }
 
   :is(.mobile-food-logo, .mobile-recipe-logo, .mobile-ingredient-logo, .mobile-log-logo, .mobile-dashboard-logo, .mobile-family-logo) svg {

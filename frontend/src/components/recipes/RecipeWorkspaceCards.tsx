@@ -1,3 +1,4 @@
+import { AppLogoIcon } from '../../app/shellIcons';
 import { buildMediaSizes, buildMediaSrcSet, resolveAssetUrl, resolveMediaUrl } from '../../lib/assets';
 import { ActionButton, Badge } from '../ui-kit';
 import { DIFFICULTY_LABELS, type RecipeCardViewModel } from './workspaceModel';
@@ -123,16 +124,7 @@ export function RecipeUiIcon(props: { name: RecipeUiIconName; className?: string
         </svg>
       );
     case 'logo':
-      return (
-        <svg {...common}>
-          <path d="M6 10h12" />
-          <path d="M7 10v3a5 5 0 0 0 10 0v-3" />
-          <path d="M17 11h1a2 2 0 0 1 0 4h-1" />
-          <path d="M9 7V5" />
-          <path d="M12 7V4" />
-          <path d="M15 7V5" />
-        </svg>
-      );
+      return <AppLogoIcon className={common.className} />;
     case 'plus':
       return (
         <svg {...common}>

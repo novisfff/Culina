@@ -1,4 +1,5 @@
 import type { PointerEvent } from 'react';
+import { AppLogoIcon } from '../../app/shellIcons';
 
 export type FoodIconName =
   | 'bell'
@@ -123,6 +124,10 @@ export function FoodRatingInput(props: { value: string; onChange: (value: string
 }
 
 export function FoodUiIcon(props: { name: FoodIconName; className?: string }) {
+  if (props.name === 'logo') {
+    return <AppLogoIcon className={props.className} />;
+  }
+
   const common = {
     width: 20,
     height: 20,
@@ -133,7 +138,7 @@ export function FoodUiIcon(props: { name: FoodIconName; className?: string }) {
   };
   const strokeProps = {
     stroke: 'currentColor',
-    strokeWidth: props.name === 'logo' ? 1.8 : 2,
+    strokeWidth: 2,
     strokeLinecap: 'round' as const,
     strokeLinejoin: 'round' as const,
   };
@@ -147,16 +152,6 @@ export function FoodUiIcon(props: { name: FoodIconName; className?: string }) {
           <path {...strokeProps} d="M8 8c-.7-.8-.7-1.6 0-2.4" />
           <path {...strokeProps} d="M12 8c-.7-.8-.7-1.6 0-2.4" />
           <path {...strokeProps} d="M16 8c-.7-.8-.7-1.6 0-2.4" />
-        </>
-      )}
-      {props.name === 'logo' && (
-        <>
-          <path {...strokeProps} d="M6 10h12" />
-          <path {...strokeProps} d="M7 10v3a5 5 0 0 0 10 0v-3" />
-          <path {...strokeProps} d="M17 11h1a2 2 0 0 1 0 4h-1" />
-          <path {...strokeProps} d="M9 7V5" />
-          <path {...strokeProps} d="M12 7V4" />
-          <path {...strokeProps} d="M15 7V5" />
         </>
       )}
       {props.name === 'bookOpen' && (

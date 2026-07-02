@@ -263,7 +263,7 @@ export function buildFoodCookingSummaryFromRecipeCards(
   const shortagePreview = linkedRecipeCard?.shortages
     .slice(0, 3)
     .map((item) => `${item.ingredientName} ${item.missingQuantity}${item.unit}`) ?? [];
-  const metaLabel = `${recipe.ingredient_items.length} 原料 · ${recipe.steps.length} 步`;
+  const metaLabel = `${recipe.ingredient_items.length}原料 · ${recipe.steps.length}步`;
   return {
     linkedRecipeCard,
     title: recipe.title,
