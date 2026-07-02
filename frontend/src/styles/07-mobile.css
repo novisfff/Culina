@@ -4554,6 +4554,10 @@
     --recipe-cook-viewport-height: var(--app-visual-viewport-height, 100dvh);
     --recipe-cook-page-height: var(--app-visual-viewport-layout-height, var(--recipe-cook-viewport-height));
     --recipe-cook-keyboard-inset: var(--app-visual-viewport-bottom-inset, 0px);
+    --recipe-cook-ai-safe-top: 132px;
+    --recipe-cook-ai-bottom-gap: calc(10px + env(safe-area-inset-bottom, 0px));
+    --recipe-cook-ai-max-height: calc(var(--recipe-cook-viewport-height, 100dvh) - var(--recipe-cook-ai-safe-top, 132px) - var(--recipe-cook-ai-bottom-gap, 10px));
+    --recipe-cook-ai-panel-height: min(420px, var(--recipe-cook-ai-max-height));
     display: grid;
     grid-template-rows: auto auto minmax(0, 1fr);
     gap: 0;
@@ -5125,12 +5129,13 @@
 
   .recipe-workspace-cook-mode .recipe-cook-ai-assistant.open {
     right: 10px;
-    bottom: calc(10px + env(safe-area-inset-bottom) + var(--recipe-cook-keyboard-inset, 0px));
+    bottom: calc(var(--recipe-cook-ai-bottom-gap, 10px) + var(--recipe-cook-keyboard-inset, 0px));
     left: 10px;
-    top: calc(var(--recipe-cook-viewport-top, 0px) + 10px);
+    top: auto;
     width: auto;
     height: auto;
     max-width: 460px;
+    max-height: var(--recipe-cook-ai-max-height);
     margin: 0 auto;
     padding: 10px !important;
     border: 1px solid rgba(147, 96, 63, 0.2) !important;
@@ -5142,9 +5147,14 @@
 
   .recipe-workspace-cook-mode .recipe-cook-ai-panel {
     flex: 1 1 auto;
-    height: auto;
+    height: var(--recipe-cook-ai-panel-height);
     min-height: 0;
-    max-height: none;
+    max-height: var(--recipe-cook-ai-max-height);
+  }
+
+  .app-mobile-keyboard-open .recipe-workspace-cook-mode .recipe-cook-page {
+    --recipe-cook-ai-bottom-gap: 10px;
+    --recipe-cook-ai-panel-height: min(320px, var(--recipe-cook-ai-max-height));
   }
 
   .app-mobile-keyboard-open .recipe-workspace-cook-mode .recipe-cook-ai-assistant {
@@ -5152,8 +5162,8 @@
   }
 
   .app-mobile-keyboard-open .recipe-workspace-cook-mode .recipe-cook-ai-assistant.open {
-    bottom: calc(10px + var(--recipe-cook-keyboard-inset, 0px));
-    top: calc(var(--recipe-cook-viewport-top, 0px) + 10px);
+    bottom: calc(var(--recipe-cook-ai-bottom-gap, 10px) + var(--recipe-cook-keyboard-inset, 0px));
+    top: auto;
   }
 
   .recipe-workspace-cook-mode .recipe-cook-ai-head {

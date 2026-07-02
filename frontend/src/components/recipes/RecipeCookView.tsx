@@ -1,4 +1,4 @@
-import { useEffect, useState, type Dispatch, type Ref, type SetStateAction } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type Dispatch, type Ref, type SetStateAction } from 'react';
 import type { CookRecipePreviewResponse, RecipeStep } from '../../api/types';
 import { ActionButton, WorkspaceModal } from '../ui-kit';
 import { CookingAssistantPanel } from './CookingAssistantPanel';
@@ -117,10 +117,75 @@ export function RecipeCookView({
   setTimerById,
   setCookAssistantMessages,
 }: RecipeCookViewProps) {
+  const cookPageRef = useRef<HTMLElement | null>(null);
   const [activeSidebarTab, setActiveSidebarTab] = useState<'ingredients' | 'steps'>('ingredients');
   const [deletingTimerId, setDeletingTimerId] = useState<string | null>(null);
   const [activeMobileTab, setActiveMobileTab] = useState<'step' | 'ingredients'>('step');
   const [pendingExitTarget, setPendingExitTarget] = useState<'detail' | 'library' | null>(null);
+
+  useLayoutEffect(() => {
+    const page = cookPageRef.current;
+    if (!page) return undefined;
+
+    let frameId: number | null = null;
+    const timeoutIds: number[] = [];
+    const visualViewport = window.visualViewport ?? null;
+
+    const syncAssistantTopClearance = () => {
+      if (frameId !== null) {
+        window.cancelAnimationFrame(frameId);
+      }
+      frameId = window.requestAnimationFrame(() => {
+        frameId = null;
+        const header = page.querySelector<HTMLElement>('.recipe-cook-header');
+        const mobileNav = page.querySelector<HTMLElement>('.recipe-cook-mobile-nav');
+        const chromeBottom = Math.max(
+          header?.getBoundingClientRect().bottom ?? 0,
+          mobileNav?.getBoundingClientRect().bottom ?? 0,
+        );
+        const safeTop = Math.max(118, Math.ceil(chromeBottom + 8));
+        page.style.setProperty('--recipe-cook-ai-safe-top', `${safeTop}px`);
+      });
+    };
+
+    const syncAfterViewportTransition = () => {
+      syncAssistantTopClearance();
+      timeoutIds.push(window.setTimeout(syncAssistantTopClearance, 80));
+      timeoutIds.push(window.setTimeout(syncAssistantTopClearance, 260));
+    };
+
+    syncAfterViewportTransition();
+    window.addEventListener('resize', syncAssistantTopClearance);
+    window.addEventListener('orientationchange', syncAfterViewportTransition);
+    document.addEventListener('focusin', syncAfterViewportTransition, true);
+    document.addEventListener('focusout', syncAfterViewportTransition, true);
+    visualViewport?.addEventListener('resize', syncAssistantTopClearance);
+    visualViewport?.addEventListener('scroll', syncAssistantTopClearance);
+
+    const resizeObserver = typeof ResizeObserver === 'undefined'
+      ? null
+      : new ResizeObserver(syncAssistantTopClearance);
+    resizeObserver?.observe(page);
+    const header = page.querySelector<HTMLElement>('.recipe-cook-header');
+    const mobileNav = page.querySelector<HTMLElement>('.recipe-cook-mobile-nav');
+    if (header) resizeObserver?.observe(header);
+    if (mobileNav) resizeObserver?.observe(mobileNav);
+
+    return () => {
+      if (frameId !== null) {
+        window.cancelAnimationFrame(frameId);
+      }
+      timeoutIds.forEach((timeoutId) => window.clearTimeout(timeoutId));
+      resizeObserver?.disconnect();
+      window.removeEventListener('resize', syncAssistantTopClearance);
+      window.removeEventListener('orientationchange', syncAfterViewportTransition);
+      document.removeEventListener('focusin', syncAfterViewportTransition, true);
+      document.removeEventListener('focusout', syncAfterViewportTransition, true);
+      visualViewport?.removeEventListener('resize', syncAssistantTopClearance);
+      visualViewport?.removeEventListener('scroll', syncAssistantTopClearance);
+      page.style.removeProperty('--recipe-cook-ai-safe-top');
+    };
+  }, []);
 
   useEffect(() => {
     setActiveMobileTab('step');
@@ -149,7 +214,7 @@ export function RecipeCookView({
   }
 
   return (
-    <main className={`recipe-cook-page mobile-tab-${activeMobileTab}`}>
+    <main ref={cookPageRef} className={`recipe-cook-page mobile-tab-${activeMobileTab}`}>
       <header className="recipe-cook-header">
         <button className="workspace-back-link" type="button" onClick={() => requestCookExit('detail')}>
           <span aria-hidden="true">‹</span>
