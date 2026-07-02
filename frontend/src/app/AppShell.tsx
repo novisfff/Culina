@@ -83,6 +83,7 @@ function syncMobileVisualViewportMetrics() {
 function useMobileVisualViewportMetrics(activeTab: TabKey) {
   useEffect(() => {
     let frameId: number | null = null;
+    const timeoutIds: number[] = [];
     const visualViewport = window.visualViewport ?? null;
 
     const scheduleSync = () => {
@@ -95,13 +96,19 @@ function useMobileVisualViewportMetrics(activeTab: TabKey) {
       });
     };
 
+    const scheduleKeyboardTransitionSync = () => {
+      scheduleSync();
+      timeoutIds.push(window.setTimeout(scheduleSync, 80));
+      timeoutIds.push(window.setTimeout(scheduleSync, 260));
+    };
+
     scheduleSync();
     window.addEventListener('resize', scheduleSync);
     window.addEventListener('orientationchange', scheduleSync);
     window.addEventListener('pageshow', scheduleSync);
     document.addEventListener('visibilitychange', scheduleSync);
-    document.addEventListener('focusin', scheduleSync);
-    document.addEventListener('focusout', scheduleSync);
+    document.addEventListener('focusin', scheduleKeyboardTransitionSync);
+    document.addEventListener('focusout', scheduleKeyboardTransitionSync);
     visualViewport?.addEventListener('resize', scheduleSync);
     visualViewport?.addEventListener('scroll', scheduleSync);
 
@@ -109,12 +116,13 @@ function useMobileVisualViewportMetrics(activeTab: TabKey) {
       if (frameId !== null) {
         window.cancelAnimationFrame(frameId);
       }
+      timeoutIds.forEach((timeoutId) => window.clearTimeout(timeoutId));
       window.removeEventListener('resize', scheduleSync);
       window.removeEventListener('orientationchange', scheduleSync);
       window.removeEventListener('pageshow', scheduleSync);
       document.removeEventListener('visibilitychange', scheduleSync);
-      document.removeEventListener('focusin', scheduleSync);
-      document.removeEventListener('focusout', scheduleSync);
+      document.removeEventListener('focusin', scheduleKeyboardTransitionSync);
+      document.removeEventListener('focusout', scheduleKeyboardTransitionSync);
       visualViewport?.removeEventListener('resize', scheduleSync);
       visualViewport?.removeEventListener('scroll', scheduleSync);
       document.documentElement.classList.remove(MOBILE_KEYBOARD_OPEN_CLASS);
