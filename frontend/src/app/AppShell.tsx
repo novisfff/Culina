@@ -24,7 +24,9 @@ const MOBILE_NAV_ITEMS: Array<{ key: TabKey; label: string; icon: ShellIconName 
 ];
 
 const MOBILE_VIEWPORT_HEIGHT_VAR = '--app-visual-viewport-height';
+const MOBILE_VIEWPORT_TOP_VAR = '--app-visual-viewport-top';
 const MOBILE_VIEWPORT_BOTTOM_INSET_VAR = '--app-visual-viewport-bottom-inset';
+const MOBILE_VIEWPORT_LAYOUT_HEIGHT_VAR = '--app-visual-viewport-layout-height';
 const MOBILE_KEYBOARD_OPEN_CLASS = 'app-mobile-keyboard-open';
 
 export type AppNotificationJob = {
@@ -72,13 +74,16 @@ function syncMobileVisualViewportMetrics() {
   const keyboardInset = isKeyboardOpen ? coveredBottom : 0;
 
   root.style.setProperty(MOBILE_VIEWPORT_HEIGHT_VAR, viewportPixelValue(viewportHeight));
+  root.style.setProperty(MOBILE_VIEWPORT_TOP_VAR, viewportPixelValue(viewportOffsetTop));
   root.style.setProperty(MOBILE_VIEWPORT_BOTTOM_INSET_VAR, viewportPixelValue(keyboardInset));
+  root.style.setProperty(MOBILE_VIEWPORT_LAYOUT_HEIGHT_VAR, viewportPixelValue(viewportHeight + keyboardInset));
   root.classList.toggle(MOBILE_KEYBOARD_OPEN_CLASS, isKeyboardOpen);
 }
 
 function useMobileVisualViewportMetrics(activeTab: TabKey) {
   useEffect(() => {
     let frameId: number | null = null;
+    const timeoutIds: number[] = [];
     const visualViewport = window.visualViewport ?? null;
 
     const scheduleSync = () => {
@@ -91,13 +96,19 @@ function useMobileVisualViewportMetrics(activeTab: TabKey) {
       });
     };
 
+    const scheduleKeyboardTransitionSync = () => {
+      scheduleSync();
+      timeoutIds.push(window.setTimeout(scheduleSync, 80));
+      timeoutIds.push(window.setTimeout(scheduleSync, 260));
+    };
+
     scheduleSync();
     window.addEventListener('resize', scheduleSync);
     window.addEventListener('orientationchange', scheduleSync);
     window.addEventListener('pageshow', scheduleSync);
     document.addEventListener('visibilitychange', scheduleSync);
-    document.addEventListener('focusin', scheduleSync);
-    document.addEventListener('focusout', scheduleSync);
+    document.addEventListener('focusin', scheduleKeyboardTransitionSync);
+    document.addEventListener('focusout', scheduleKeyboardTransitionSync);
     visualViewport?.addEventListener('resize', scheduleSync);
     visualViewport?.addEventListener('scroll', scheduleSync);
 
@@ -105,12 +116,13 @@ function useMobileVisualViewportMetrics(activeTab: TabKey) {
       if (frameId !== null) {
         window.cancelAnimationFrame(frameId);
       }
+      timeoutIds.forEach((timeoutId) => window.clearTimeout(timeoutId));
       window.removeEventListener('resize', scheduleSync);
       window.removeEventListener('orientationchange', scheduleSync);
       window.removeEventListener('pageshow', scheduleSync);
       document.removeEventListener('visibilitychange', scheduleSync);
-      document.removeEventListener('focusin', scheduleSync);
-      document.removeEventListener('focusout', scheduleSync);
+      document.removeEventListener('focusin', scheduleKeyboardTransitionSync);
+      document.removeEventListener('focusout', scheduleKeyboardTransitionSync);
       visualViewport?.removeEventListener('resize', scheduleSync);
       visualViewport?.removeEventListener('scroll', scheduleSync);
       document.documentElement.classList.remove(MOBILE_KEYBOARD_OPEN_CLASS);

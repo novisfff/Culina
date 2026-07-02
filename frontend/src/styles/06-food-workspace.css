@@ -10862,9 +10862,10 @@ button.ai-clarification-option:hover:not(:disabled) .ai-clarification-option-ind
     --ai-mobile-header-height: calc(100vw * 0.1622);
     --ai-mobile-composer-height: 88px;
     --ai-mobile-composer-safe-bottom: env(safe-area-inset-bottom, 0px);
-    --ai-mobile-keyboard-inset: 0px;
+    --ai-mobile-keyboard-inset: var(--app-visual-viewport-bottom-inset, 0px);
     --ai-mobile-viewport-height: 100dvh;
     --ai-mobile-viewport-top: 0px;
+    --ai-mobile-page-height: var(--app-visual-viewport-layout-height, 100dvh);
     position: fixed;
     inset: 0;
     width: 100%;
@@ -10902,7 +10903,7 @@ button.ai-clarification-option:hover:not(:disabled) .ai-clarification-option-ind
     left: 0;
     right: 0;
     bottom: auto;
-    height: var(--ai-mobile-viewport-height, 100dvh);
+    height: var(--ai-mobile-page-height, var(--ai-mobile-viewport-height, 100dvh));
     min-height: 0;
     overflow: hidden;
     background: linear-gradient(180deg, #fffaf5 0%, #fffdfb 42%, #fff 100%);
@@ -11126,7 +11127,7 @@ button.ai-clarification-option:hover:not(:disabled) .ai-clarification-option-ind
     top: 0;
     left: 0;
     right: 0;
-    bottom: 0;
+    bottom: var(--ai-mobile-keyboard-inset, 0px);
     min-height: 0;
     overflow-y: auto;
     overscroll-behavior: contain;
@@ -11139,7 +11140,7 @@ button.ai-clarification-option:hover:not(:disabled) .ai-clarification-option-ind
   .ai-mobile-page .ai-thread-follow-button {
     position: absolute;
     z-index: 64;
-    bottom: calc(var(--ai-mobile-composer-height, 88px) + 12px);
+    bottom: calc(var(--ai-mobile-keyboard-inset, 0px) + var(--ai-mobile-composer-height, 88px) + 12px);
     min-height: 38px;
     padding-inline: 12px 14px;
   }
@@ -11458,7 +11459,7 @@ button.ai-clarification-option:hover:not(:disabled) .ai-clarification-option-ind
     position: absolute;
     left: 0;
     right: 0;
-    bottom: 0;
+    bottom: var(--ai-mobile-keyboard-inset, 0px);
     z-index: 70;
     gap: 6px;
     border-top: none !important;

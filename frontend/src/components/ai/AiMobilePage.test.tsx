@@ -93,6 +93,7 @@ describe('AiMobilePage viewport', () => {
       expect(page?.style.getPropertyValue('--ai-mobile-viewport-height')).toBe('520px');
       expect(page?.style.getPropertyValue('--ai-mobile-viewport-top')).toBe('0px');
       expect(page?.style.getPropertyValue('--ai-mobile-keyboard-inset')).toBe('380px');
+      expect(page?.style.getPropertyValue('--ai-mobile-page-height')).toBe('900px');
       expect(page?.style.getPropertyValue('--ai-mobile-composer-height')).toBe('88px');
       expect(page?.style.getPropertyValue('--ai-mobile-composer-safe-bottom')).toBe('0px');
     } finally {

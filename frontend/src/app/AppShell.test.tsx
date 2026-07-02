@@ -119,7 +119,9 @@ afterEach(() => {
   document.body.replaceChildren();
   document.documentElement.classList.remove('app-mobile-keyboard-open');
   document.documentElement.style.removeProperty('--app-visual-viewport-height');
+  document.documentElement.style.removeProperty('--app-visual-viewport-top');
   document.documentElement.style.removeProperty('--app-visual-viewport-bottom-inset');
+  document.documentElement.style.removeProperty('--app-visual-viewport-layout-height');
   root = null;
   container = null;
 });
@@ -241,6 +243,7 @@ describe('AppShell mobile keyboard layout', () => {
 
       expect(document.documentElement.classList.contains('app-mobile-keyboard-open')).toBe(false);
       expect(document.documentElement.style.getPropertyValue('--app-visual-viewport-bottom-inset')).toBe('0px');
+      expect(document.documentElement.style.getPropertyValue('--app-visual-viewport-layout-height')).toBe('520px');
     } finally {
       visualViewport.restore();
       rafSpy.mockRestore();
@@ -268,6 +271,7 @@ describe('AppShell mobile keyboard layout', () => {
 
       expect(document.documentElement.classList.contains('app-mobile-keyboard-open')).toBe(true);
       expect(document.documentElement.style.getPropertyValue('--app-visual-viewport-bottom-inset')).toBe('380px');
+      expect(document.documentElement.style.getPropertyValue('--app-visual-viewport-layout-height')).toBe('900px');
 
       visualViewport.setMetrics({ height: 900, offsetTop: 0 });
       act(() => {
@@ -277,6 +281,7 @@ describe('AppShell mobile keyboard layout', () => {
 
       expect(document.documentElement.classList.contains('app-mobile-keyboard-open')).toBe(false);
       expect(document.documentElement.style.getPropertyValue('--app-visual-viewport-bottom-inset')).toBe('0px');
+      expect(document.documentElement.style.getPropertyValue('--app-visual-viewport-layout-height')).toBe('900px');
     } finally {
       visualViewport.restore();
       rafSpy.mockRestore();
