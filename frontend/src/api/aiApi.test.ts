@@ -238,6 +238,61 @@ describe('aiApi', () => {
     expect(deltaSpy).toHaveBeenCalledWith(delta);
   });
 
+  it('parses streamed cooking assistant audio events', async () => {
+    const response: AiChatResponse = {
+      conversation_id: 'conversation-1',
+      message: {
+        id: 'message-1',
+        conversation_id: 'conversation-1',
+        role: 'assistant',
+        content: '收到。',
+        content_type: 'parts',
+        parts: [{ id: 'part-1', type: 'text', text: '收到。' }],
+        run_id: 'run-1',
+        status: 'completed',
+        metadata: {},
+        created_at: '2026-05-30T00:00:00Z',
+      },
+      run: {
+        id: 'run-1',
+        agent_key: 'workspace_orchestrator',
+        intent: 'recipe_cook',
+        status: 'completed',
+        model: 'fake',
+        created_at: '2026-05-30T00:00:00Z',
+      },
+      events: [],
+      included: { result_cards: [], drafts: [], approvals: [] },
+    };
+    const audioStart = { content_type: 'audio/pcm', format: 'pcm16', sample_rate: 24000, channels: 1 };
+    const audioDelta = { audio: 'ZmFrZS1hdWRpbw==', sequence: 1 };
+    const audioDone = { sequence: 1 };
+    const audioTrace = { stage: 'tts_segment_commit', elapsed_ms: 120, segment_sequence: 1 };
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(streamFrom(
+      `${sseBlock('assistant_audio_start', audioStart)}${sseBlock('assistant_audio_trace', audioTrace)}${sseBlock('assistant_audio_delta', audioDelta)}${sseBlock('assistant_audio_done', audioDone)}${sseBlock('response', response)}`,
+    ), { status: 200 }));
+    const startSpy = vi.fn();
+    const deltaSpy = vi.fn();
+    const doneSpy = vi.fn();
+    const traceSpy = vi.fn();
+
+    await expect(
+      aiApi.streamCookingAssistantVoiceAi(
+        { message: '下一步', subject: { source: 'recipe_cook_page' } },
+        {
+          onAssistantAudioStart: startSpy,
+          onAssistantAudioDelta: deltaSpy,
+          onAssistantAudioDone: doneSpy,
+          onAssistantAudioTrace: traceSpy,
+        },
+      ),
+    ).resolves.toEqual(response);
+    expect(startSpy).toHaveBeenCalledWith(audioStart);
+    expect(traceSpy).toHaveBeenCalledWith(audioTrace);
+    expect(deltaSpy).toHaveBeenCalledWith(audioDelta);
+    expect(doneSpy).toHaveBeenCalledWith(audioDone);
+  });
+
   it('streams human input responses through the shared SSE parser', async () => {
     const response: AiChatResponse = {
       conversation_id: 'conversation-1',

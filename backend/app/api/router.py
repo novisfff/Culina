@@ -2,6 +2,7 @@ from fastapi import APIRouter
 
 from app.api.activity_logs import router as activity_logs_router
 from app.api.ai import router as ai_router
+from app.api.ai_audio import router as ai_audio_router
 from app.api.auth import router as auth_router
 from app.api.family import router as family_router
 from app.api.foods import router as foods_router
@@ -28,3 +29,4 @@ api_router.include_router(activity_logs_router)
 api_router.include_router(media_router)
 api_router.include_router(search_router)
 api_router.include_router(ai_router)
+api_router.include_router(ai_audio_router)

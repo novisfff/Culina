@@ -62,6 +62,7 @@ describe('AiMobilePage viewport', () => {
           hasUploadingAttachment={false}
           hasFailedAttachment={false}
           isSending={false}
+          voiceInputStatus="idle"
           isComposerPaused={false}
           messagesLoading={false}
           onRetryMessages={() => undefined}

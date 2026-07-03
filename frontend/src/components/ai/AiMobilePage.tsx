@@ -12,6 +12,7 @@ import type {
 import { MessageBubble, type AiApprovalDecisionSubmit, type AiHumanInputResponseSubmit, type AiResourceOptionLoader } from './AiConversationThread';
 import { AiComposerAttachments } from './AiComposerAttachments';
 import { AiMobileChrome } from './AiMobileChrome';
+import { AiVoiceInputButton } from './AiVoiceInputButton';
 import { AiWelcomePrompt } from './AiWelcomePrompt';
 import type { AiComposerAttachment } from './useAiAttachmentState';
 import { aiThreadAutoScrollKey, latestUserMessageScrollKey, useAiThreadAutoScroll } from './useAiThreadAutoScroll';
@@ -38,6 +39,7 @@ type Props = {
   hasUploadingAttachment: boolean;
   hasFailedAttachment: boolean;
   isSending: boolean;
+  voiceInputStatus: 'idle' | 'recording' | 'recognizing';
   isComposerPaused: boolean;
   composerPauseMessage?: string;
   messagesLoading: boolean;
@@ -51,6 +53,9 @@ type Props = {
   onDraftChange: (value: string) => void;
   onAttachmentFiles: (files: File[]) => void;
   onRemoveAttachment: (clientAttachmentId: string) => void;
+  voiceButtonRef?: RefObject<HTMLButtonElement>;
+  onVoiceTranscript?: (text: string, context?: { interaction: 'tap' | 'hold' }) => void;
+  onVoiceStateChange?: (state: { status: 'idle' | 'recording' | 'recognizing'; interaction: 'tap' | 'hold' | null }) => void;
   onPasteFiles: ClipboardEventHandler<HTMLTextAreaElement>;
   onDropFiles: DragEventHandler<HTMLFormElement>;
   onPickSuggestion: (value: string) => void;
@@ -296,6 +301,18 @@ export function AiMobilePage(props: Props) {
             onPaste={props.onPasteFiles}
           />
           <div className="ai-composer-actions">
+            <AiVoiceInputButton
+              surface="main_ai"
+              className="ai-composer-voice-button ai-mobile-voice-button"
+              disabled={props.isComposerPaused || props.isSending}
+              buttonRef={props.voiceButtonRef}
+              enableHoldToSend
+              onStateChange={props.onVoiceStateChange}
+              onTranscript={(text, context) => {
+                props.onVoiceTranscript?.(text, context);
+                window.requestAnimationFrame(() => textareaRef.current?.focus());
+              }}
+            />
             <button
               className={`ai-send-button ${props.isSending ? 'is-sending' : ''}`}
               type={props.isSending ? 'button' : 'submit'}
@@ -305,7 +322,7 @@ export function AiMobilePage(props: Props) {
                   props.isComposerPaused
                   || props.hasUploadingAttachment
                   || props.hasFailedAttachment
-                  || (!props.draft.trim() && props.attachments.every((item) => item.status !== 'ready'))
+                  || (props.voiceInputStatus !== 'recording' && props.voiceInputStatus !== 'recognizing' && !props.draft.trim() && props.attachments.every((item) => item.status !== 'ready'))
                 )
               }
               aria-label={props.isSending ? '中止生成' : '发送消息'}

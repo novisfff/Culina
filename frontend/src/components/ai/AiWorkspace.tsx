@@ -35,6 +35,7 @@ import { AiQualityDiagnosticsModal } from './AiQualityDiagnosticsModal';
 import { AiRecommendationPlanDialog, type AiRecommendationPlanRequest } from './AiRecommendationPlanDialog';
 import { AiRunDebugDrawer } from './AiRunDebugDrawer';
 import { AiWelcomePrompt } from './AiWelcomePrompt';
+import { AiVoiceInputButton } from './AiVoiceInputButton';
 import {
   mergePendingApprovalsIntoMessages,
   normalizeStreamEventForFinalRun,
@@ -138,6 +139,13 @@ export function AiWorkspace({
   const [activeConversationKey, setActiveConversationKey] = useState<string | null>(conversations[0]?.id ?? null);
   const [isStartingNewConversation, setIsStartingNewConversation] = useState(false);
   const [draft, setDraft] = useState('');
+  const draftRef = useRef('');
+  const submitAfterVoiceRecognitionRef = useRef(false);
+  const [voiceInputStatusByComposer, setVoiceInputStatusByComposer] = useState<{
+    desktop: 'idle' | 'recording' | 'recognizing';
+    mobile: 'idle' | 'recording' | 'recognizing';
+  }>({ desktop: 'idle', mobile: 'idle' });
+  const voiceInputStatus = voiceInputStatusByComposer.desktop !== 'idle' ? voiceInputStatusByComposer.desktop : voiceInputStatusByComposer.mobile;
   const attachmentState = useAiAttachmentState();
   const [localMessagesByConversationKey, setLocalMessagesByConversationKey] = useState<Record<string, AiMessage[]>>({});
   const [runEventsById, setRunEventsById] = useState<Record<string, AiRunEvent[]>>({});
@@ -178,6 +186,8 @@ export function AiWorkspace({
   };
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const desktopVoiceButtonRef = useRef<HTMLButtonElement>(null);
+  const mobileVoiceButtonRef = useRef<HTMLButtonElement>(null);
   const activeConversationId = isPendingConversationKey(activeConversationKey) ? null : activeConversationKey;
   const activeLocalMessages = activeConversationKey ? localMessagesByConversationKey[activeConversationKey] ?? [] : [];
   const localPendingConversations = useMemo<AiConversation[]>(() => {
@@ -204,6 +214,9 @@ export function AiWorkspace({
     [conversations, localPendingConversations],
   );
   useEffect(() => {
+    draftRef.current = draft;
+  }, [draft]);
+  useEffect(() => {
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto';
       textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 180)}px`;
@@ -218,6 +231,23 @@ export function AiWorkspace({
       }
     }
   };
+  function mergeVoiceTranscript(current: string, text: string) {
+    const transcript = text.trim();
+    if (!transcript) return current;
+    return current.trim() ? `${current.trimEnd()} ${transcript}` : transcript;
+  }
+
+  function handleMainVoiceTranscript(text: string, context?: { interaction: 'tap' | 'hold' }) {
+    const nextDraft = mergeVoiceTranscript(draftRef.current, text);
+    const shouldSubmit = context?.interaction === 'hold' || submitAfterVoiceRecognitionRef.current;
+    submitAfterVoiceRecognitionRef.current = false;
+    if (shouldSubmit) {
+      void submitComposerMessage(nextDraft);
+      return;
+    }
+    setDraft(nextDraft);
+    window.requestAnimationFrame(() => textareaRef.current?.focus());
+  }
   const [streamProgressByRunId, setStreamProgressByRunId] = useState<Record<string, AiRunEvent[]>>({});
   const streamProgressRef = useRef<Record<string, AiRunEvent[]>>({});
   const streamMessageTargetRef = useRef<Record<string, string>>({});
@@ -976,10 +1006,9 @@ export function AiWorkspace({
     setIsStartingNewConversation(false);
     setIsMobileHistoryOpen(false);
   }
-  async function sendMessage(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
+  async function submitComposerMessage(textOverride?: string) {
     if (effectiveComposerPaused || isAssistantBusy || isLocalAssistantBusy) return;
-    const text = draft.trim();
+    const text = (textOverride ?? draft).trim();
     const sendableAttachments = readyAttachments.filter((item) => item.asset);
     if ((!text && sendableAttachments.length === 0) || isAttachmentSendBlocked) return;
     const clientMessageId = `client-${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -1045,6 +1074,23 @@ export function AiWorkspace({
       attachmentState.restoreHiddenAttachments(sendableAttachments);
       // Keep request failures out of the form event promise; message-level state already carries visible run feedback.
     }
+  }
+  async function sendMessage(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (voiceInputStatus === 'recording') {
+      submitAfterVoiceRecognitionRef.current = true;
+      if (voiceInputStatusByComposer.desktop === 'recording') {
+        desktopVoiceButtonRef.current?.click();
+      } else {
+        mobileVoiceButtonRef.current?.click();
+      }
+      return;
+    }
+    if (voiceInputStatus === 'recognizing') {
+      submitAfterVoiceRecognitionRef.current = true;
+      return;
+    }
+    await submitComposerMessage();
   }
   const submitApprovalDecision: AiApprovalDecisionSubmit = async (approval, decision, values, comment) => {
     if (approvalStreamMutation.isPending) return;
@@ -1224,6 +1270,7 @@ export function AiWorkspace({
         hasUploadingAttachment={attachmentState.hasUploadingAttachment}
         hasFailedAttachment={attachmentState.hasFailedAttachment || isVisionUnavailableForAttachments}
         isSending={isAssistantBusy}
+        voiceInputStatus={voiceInputStatus}
         isComposerPaused={effectiveComposerPaused}
         composerPauseMessage={effectiveComposerPauseMessage}
         messagesLoading={isMessageHistoryLoading}
@@ -1243,6 +1290,11 @@ export function AiWorkspace({
         onDraftChange={setDraft}
         onAttachmentFiles={addAttachmentFiles}
         onRemoveAttachment={attachmentState.removeAttachment}
+        voiceButtonRef={mobileVoiceButtonRef}
+        onVoiceTranscript={handleMainVoiceTranscript}
+        onVoiceStateChange={(state) => setVoiceInputStatusByComposer((current) => (
+          current.mobile === state.status ? current : { ...current, mobile: state.status }
+        ))}
         onPasteFiles={handleComposerPaste}
         onDropFiles={handleComposerDrop}
         onPickSuggestion={setDraft}
@@ -1400,10 +1452,21 @@ export function AiWorkspace({
                 onPaste={handleComposerPaste}
               />
               <div className="ai-composer-actions">
+                <AiVoiceInputButton
+                  surface="main_ai"
+                  className="ai-composer-voice-button"
+                  disabled={effectiveComposerPaused || isAssistantBusy || isLocalAssistantBusy}
+                  buttonRef={desktopVoiceButtonRef}
+                  enableHoldToSend
+                  onStateChange={(state) => setVoiceInputStatusByComposer((current) => (
+                    current.desktop === state.status ? current : { ...current, desktop: state.status }
+                  ))}
+                  onTranscript={handleMainVoiceTranscript}
+                />
                 <button
                   className={`ai-send-button ${isAssistantBusy ? 'is-sending' : ''}`}
                   type={isAssistantBusy ? 'button' : 'submit'}
-                  disabled={!isAssistantBusy && (isAiUnavailable || !canSubmitMessage || isAttachmentSendBlocked || effectiveComposerPaused || isLocalAssistantBusy)}
+                  disabled={!isAssistantBusy && (isAiUnavailable || (voiceInputStatus !== 'recording' && voiceInputStatus !== 'recognizing' && !canSubmitMessage) || isAttachmentSendBlocked || effectiveComposerPaused || isLocalAssistantBusy)}
                   aria-label={isAssistantBusy ? '中止生成' : '发送消息'}
                   onClick={isAssistantBusy ? cancelStreamingChat : undefined}
                 >

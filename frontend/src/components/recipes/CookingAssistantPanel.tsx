@@ -1,8 +1,12 @@
-import { useCallback, useMemo, useRef, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import type { AiResultCard, CookRecipePreviewResponse, RecipeStep } from '../../api/types';
 import { ActionButton } from '../ui-kit';
 import { RecipeUiIcon } from './RecipeWorkspaceCards';
 import { DashboardIcon } from '../../app/shellIcons';
+import { AiVoiceInputButton } from '../ai/AiVoiceInputButton';
+import { useAiThreadAutoScroll } from '../ai/useAiThreadAutoScroll';
+import { useVoicePlayback } from '../../hooks/useVoicePlayback';
+import { CookingVoiceControls } from './CookingVoiceControls';
 import {
   buildCookingAssistantRuntimeState,
   buildCookingAssistantSubject,
@@ -12,10 +16,11 @@ import {
   type CookingAssistantActionHandlers,
   type CookingAssistantMobileTab,
 } from './cookingAssistantModel';
-import type { CookTimerState, RecipeCookAssistantMessage, RecipeCookSessionState } from './RecipeWorkspaceModel';
+import type { CookTimerState, RecipeCookAssistantMessage, RecipeCookAssistantMessagePart, RecipeCookSessionState } from './RecipeWorkspaceModel';
 import type { RecipeCardViewModel } from './workspaceModel';
 import { useCookingAssistantState } from './useCookingAssistantState';
 import { useCookingAssistantStream } from './useCookingAssistantStream';
+import { useCookingRealtimeVoiceSession } from './useCookingRealtimeVoiceSession';
 
 type CookingAssistantPanelProps = {
   activeCookCard: RecipeCardViewModel;
@@ -43,6 +48,26 @@ function CookingAssistantTypingCue() {
   );
 }
 
+function isFixedCookingSkillToolCard(part: RecipeCookAssistantMessagePart) {
+  return part.type === 'tool_card' && part.label === '技能调用';
+}
+
+function cookingAssistantPartScrollKey(part: RecipeCookAssistantMessagePart) {
+  if (part.type === 'text') return `${part.id}:text:${part.text.length}`;
+  return `${part.id}:tool:${part.label}:${part.detail.length}:${part.status}`;
+}
+
+function cookingAssistantAutoScrollKey(messages: RecipeCookAssistantMessage[], isSending: boolean) {
+  return messages
+    .map((message) => `${message.id}:${message.role}:${message.text.length}:${message.tone ?? ''}:${message.parts?.map(cookingAssistantPartScrollKey).join(',') ?? ''}`)
+    .join('|')
+    + `::sending:${isSending ? '1' : '0'}`;
+}
+
+function latestCookingUserMessageKey(messages: RecipeCookAssistantMessage[]) {
+  return [...messages].reverse().find((message) => message.role === 'user')?.id ?? null;
+}
+
 export function CookingAssistantPanel({
   activeCookCard,
   cookSession,
@@ -57,6 +82,21 @@ export function CookingAssistantPanel({
 }: CookingAssistantPanelProps) {
   const assistantState = useCookingAssistantState();
   const [clearConfirmOpen, setClearConfirmOpen] = useState(false);
+  const [pendingVoiceSend, setPendingVoiceSend] = useState('');
+  const playback = useVoicePlayback();
+  const playbackStreamOptionsRef = useRef({ sampleRate: 24000, channels: 1, contentType: 'audio/pcm' });
+  const phoneAssistantMessageIdRef = useRef('');
+  const recordBackendAudioTrace = useCallback((event: { stage: string; elapsed_ms?: number; [key: string]: unknown }) => {
+    const { stage, ...details } = event;
+    playback.recordTrace(`backend_${stage}`, details);
+  }, [playback]);
+  const pendingVoiceSendTimerRef = useRef<number | null>(null);
+
+  const [voiceInputStatus, setVoiceInputStatus] = useState<'idle' | 'recording' | 'recognizing'>('idle');
+  const shouldSendImmediatelyRef = useRef(false);
+  const voiceButtonRef = useRef<HTMLButtonElement>(null);
+  const isVoiceRecording = voiceInputStatus === 'recording';
+  const isVoiceRecognizing = voiceInputStatus === 'recognizing';
 
   const subjectArgs = useMemo(() => ({
     activeCookCard,
@@ -88,10 +128,112 @@ export function CookingAssistantPanel({
     initialMessagesKey: runtimeState.cookSessionId,
     initialMessages: cookSession.aiAssistantMessages,
     onMessagesChange,
+    voicePlaybackEnabled: playback.isEnabled,
+    onAssistantAudioStart: (event) => {
+      playbackStreamOptionsRef.current = {
+        sampleRate: event.sample_rate,
+        channels: event.channels,
+        contentType: event.content_type,
+      };
+      playback.startPcmStream({
+        sampleRate: event.sample_rate,
+        channels: event.channels,
+        contentType: event.content_type,
+      });
+    },
+    onAssistantAudioDelta: (event) => {
+      playback.appendPcmChunk(event.audio, playbackStreamOptionsRef.current);
+    },
+    onAssistantAudioDone: () => {
+      playback.finishStream();
+    },
+    onAssistantAudioError: (event) => {
+      playback.failStream(event.message);
+    },
+    onAssistantAudioTrace: recordBackendAudioTrace,
   });
+  const phoneSession = useCookingRealtimeVoiceSession({
+    onUserTranscriptDone: (transcript) => {
+      const assistantMessageId = assistant.beginExternalMessage(transcript);
+      if (assistantMessageId) phoneAssistantMessageIdRef.current = assistantMessageId;
+    },
+    onAssistantDelta: (delta) => {
+      const assistantMessageId = phoneAssistantMessageIdRef.current;
+      if (assistantMessageId) assistant.appendExternalAssistantDelta(assistantMessageId, delta);
+    },
+    onAssistantDone: (text) => {
+      const assistantMessageId = phoneAssistantMessageIdRef.current;
+      if (assistantMessageId) {
+        assistant.completeExternalMessage(assistantMessageId, text);
+      }
+      phoneAssistantMessageIdRef.current = '';
+    },
+    onAssistantAudio: (audio) => {
+      void playback.playBlob(audio);
+    },
+    onAssistantAudioStart: (event) => {
+      playbackStreamOptionsRef.current = {
+        sampleRate: event.sample_rate,
+        channels: event.channels,
+        contentType: event.content_type,
+      };
+      playback.startPcmStream({
+        sampleRate: event.sample_rate,
+        channels: event.channels,
+        contentType: event.content_type,
+      });
+    },
+    onAssistantAudioDelta: (event) => {
+      playback.appendPcmChunk(event.audio, playbackStreamOptionsRef.current);
+    },
+    onAssistantAudioDone: () => {
+      playback.finishStream();
+    },
+    onAssistantAudioError: (message) => {
+      playback.failStream(message);
+    },
+    onAssistantAudioTrace: recordBackendAudioTrace,
+    onUiActions: (card) => {
+      const assistantMessageId = phoneAssistantMessageIdRef.current;
+      if (assistantMessageId) assistant.handleExternalActionCard(card as AiResultCard, assistantMessageId);
+    },
+    onError: (message) => {
+      const assistantMessageId = phoneAssistantMessageIdRef.current;
+      if (assistantMessageId) assistant.failExternalMessage(assistantMessageId, new Error(message));
+      phoneAssistantMessageIdRef.current = '';
+    },
+  });
+
+  function mergeVoiceTranscript(current: string, text: string) {
+    const transcript = text.trim();
+    if (!transcript) return current;
+    return current.trim() ? `${current.trimEnd()} ${transcript}` : transcript;
+  }
+
+  function handleVoiceTranscript(text: string, context?: { interaction: 'tap' | 'hold' }) {
+    const nextDraft = mergeVoiceTranscript(assistantState.draftMessage, text);
+    if (!nextDraft.trim()) return;
+    const shouldSubmit = context?.interaction === 'hold' || shouldSendImmediatelyRef.current;
+    shouldSendImmediatelyRef.current = false;
+    if (shouldSubmit) {
+      handleUserMessage(nextDraft);
+    } else {
+      assistantState.setDraftMessage(nextDraft);
+    }
+  }
 
   function submitMessage(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    cancelPendingVoiceSend();
+    if (isVoiceRecording) {
+      shouldSendImmediatelyRef.current = true;
+      voiceButtonRef.current?.click();
+      return;
+    }
+    if (isVoiceRecognizing) {
+      shouldSendImmediatelyRef.current = true;
+      return;
+    }
     const message = assistantState.draftMessage.trim();
     if (!message) return;
     assistantState.setDraftMessage('');
@@ -99,10 +241,68 @@ export function CookingAssistantPanel({
   }
 
   function handleUserMessage(message: string) {
+    cancelPendingVoiceSend();
     assistantState.clearTransientNotice();
     assistantState.openPanel();
+    playback.stop();
     void assistant.sendMessage(message);
   }
+
+  function cancelPendingVoiceSend() {
+    if (pendingVoiceSendTimerRef.current !== null) {
+      window.clearTimeout(pendingVoiceSendTimerRef.current);
+      pendingVoiceSendTimerRef.current = null;
+    }
+    setPendingVoiceSend('');
+  }
+
+  function queueVoiceSend(text: string) {
+    const transcript = text.trim();
+    if (!transcript) return;
+    cancelPendingVoiceSend();
+    assistantState.clearTransientNotice();
+    assistantState.openPanel();
+    playback.stop();
+    setPendingVoiceSend(transcript);
+    pendingVoiceSendTimerRef.current = window.setTimeout(() => {
+      pendingVoiceSendTimerRef.current = null;
+      setPendingVoiceSend('');
+      void assistant.sendMessage(transcript);
+    }, 1000);
+  }
+
+  async function startPhoneSession() {
+    assistantState.openPanel();
+    const subject = buildCookingAssistantSubject(subjectArgs);
+    const session = await phoneSession.start({
+      recipeId: activeCookCard.recipe.id,
+      cookSessionId: runtimeState.cookSessionId,
+      sessionRevision: runtimeState.sessionRevision,
+      subject,
+    });
+  }
+
+  function handlePhoneTranscript(text: string) {
+    const transcript = text.trim();
+    if (!transcript) return;
+    phoneSession.sendTranscript(transcript);
+  }
+
+  function hangupPhoneSession() {
+    const assistantMessageId = phoneAssistantMessageIdRef.current;
+    if (assistantMessageId) {
+      assistant.failExternalMessage(assistantMessageId, new Error('已挂断小灶通话。'));
+      phoneAssistantMessageIdRef.current = '';
+    }
+    phoneSession.hangup();
+  }
+
+  useEffect(() => () => {
+    if (pendingVoiceSendTimerRef.current !== null) {
+      window.clearTimeout(pendingVoiceSendTimerRef.current);
+      pendingVoiceSendTimerRef.current = null;
+    }
+  }, []);
 
 
   function confirmPendingAction() {
@@ -129,6 +329,12 @@ export function CookingAssistantPanel({
   }
 
   const lastAssistantMessageId = [...assistant.messages].reverse().find((message) => message.role === 'assistant')?.id ?? '';
+  const messagesAutoScroll = useAiThreadAutoScroll({
+    contentKey: cookingAssistantAutoScrollKey(assistant.messages, assistant.isSending),
+    resetKey: runtimeState.cookSessionId,
+    activeOutputKey: assistant.isSending ? lastAssistantMessageId : null,
+    forceScrollKey: latestCookingUserMessageKey(assistant.messages),
+  });
   const assistantClassName = [
     'recipe-cook-ai-assistant',
     assistantState.isOpen ? 'open' : 'collapsed',
@@ -181,6 +387,34 @@ export function CookingAssistantPanel({
             <strong>{assistant.progressText || '可以问步骤、食材和计时'}</strong>
           </div>
           <div className="recipe-cook-ai-head-actions">
+            {!phoneSession.isActive ? (
+              <CookingVoiceControls
+                active={false}
+                status={phoneSession.status}
+                elapsed={phoneSession.formattedElapsed}
+                lastTranscript={phoneSession.lastTranscript}
+                error={phoneSession.error}
+                disabled={assistant.isSending}
+                onStart={() => void startPhoneSession()}
+                onHangup={hangupPhoneSession}
+                onToggleMute={phoneSession.toggleMute}
+                onStartRecording={playback.stop}
+                onTranscript={handlePhoneTranscript}
+                onRecording={phoneSession.sendRecording}
+              />
+            ) : null}
+            <button
+              className={`recipe-cook-ai-icon-btn voice ${playback.isEnabled ? 'active' : ''}`}
+              type="button"
+              onClick={() => {
+                if (playback.isEnabled) playback.stop();
+                playback.setIsEnabled(!playback.isEnabled);
+              }}
+              aria-label={playback.isEnabled ? '关闭小灶播报' : '打开小灶播报'}
+              title={playback.isEnabled ? '关闭播报' : '打开播报'}
+            >
+              <DashboardIcon name={playback.isEnabled ? 'check' : 'circle'} />
+            </button>
             <button
               className="recipe-cook-ai-icon-btn clear"
               type="button"
@@ -196,6 +430,25 @@ export function CookingAssistantPanel({
             </button>
           </div>
         </div>
+
+        {phoneSession.isActive ? (
+          <CookingVoiceControls
+            active
+            status={phoneSession.status}
+            elapsed={phoneSession.formattedElapsed}
+            lastTranscript={phoneSession.lastTranscript}
+            error={phoneSession.error}
+            disabled={assistant.isSending}
+            autoStartToken={phoneSession.status === 'listening' && !playback.isSpeaking ? phoneSession.listenCycle : 0}
+            silenceStopMs={900}
+            onStart={() => void startPhoneSession()}
+            onHangup={hangupPhoneSession}
+            onToggleMute={phoneSession.toggleMute}
+            onStartRecording={playback.stop}
+            onTranscript={handlePhoneTranscript}
+            onRecording={phoneSession.sendRecording}
+          />
+        ) : null}
 
         {clearConfirmOpen ? (
           <div className="recipe-cook-ai-clear-confirm" role="dialog" aria-modal="true" aria-labelledby="recipe-cook-ai-clear-title">
@@ -219,7 +472,7 @@ export function CookingAssistantPanel({
           </div>
         ) : null}
 
-        <div className="recipe-cook-ai-messages" aria-live="polite">
+        <div className="recipe-cook-ai-messages" ref={messagesAutoScroll.threadScrollRef} aria-live="polite">
           {assistant.messages.map((message) => {
             if (message.role === 'system') {
               const [label = '页面操作', detail = message.text, status = '已处理'] = message.text.split('\n');
@@ -231,7 +484,9 @@ export function CookingAssistantPanel({
                 </div>
               );
             }
-            const parts = message.parts?.length ? message.parts : null;
+            const visibleParts = message.parts?.filter((part) => !isFixedCookingSkillToolCard(part)) ?? [];
+            if (message.parts?.length && visibleParts.length === 0) return null;
+            const parts = visibleParts.length ? visibleParts : null;
             return (
               <div key={message.id} className={`recipe-cook-ai-message ${message.role} ${message.tone ?? 'normal'} ${parts ? 'has-parts' : ''}`}>
                 {parts ? (
@@ -264,44 +519,77 @@ export function CookingAssistantPanel({
             );
           })}
         </div>
+        {messagesAutoScroll.isAutoScrollPaused ? (
+          <button className="recipe-cook-ai-follow-button" type="button" onClick={messagesAutoScroll.resumeAutoScroll}>
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M12 5v14" />
+              <path d="m6 13 6 6 6-6" />
+            </svg>
+            <span>最新回复</span>
+          </button>
+        ) : null}
 
-        {pendingActionCard ? (
-          <div className="recipe-cook-ai-confirm">
-            <span>需要确认</span>
-            <strong>{pendingActionCard.actions.map(describeCookingAction).join('、')}</strong>
-            <div>
-              <ActionButton tone="secondary" type="button" onClick={() => assistantState.setPendingActionCard(null)}>
-                先不做
-              </ActionButton>
-              <ActionButton tone="primary" type="button" onClick={confirmPendingAction}>
-                确认执行
-              </ActionButton>
+        <div className="recipe-cook-ai-footer">
+          {pendingActionCard ? (
+            <div className="recipe-cook-ai-confirm">
+              <span>需要确认</span>
+              <strong>{pendingActionCard.actions.map(describeCookingAction).join('、')}</strong>
+              <div>
+                <ActionButton tone="secondary" type="button" onClick={() => assistantState.setPendingActionCard(null)}>
+                  先不做
+                </ActionButton>
+                <ActionButton tone="primary" type="button" onClick={confirmPendingAction}>
+                  确认执行
+                </ActionButton>
+              </div>
             </div>
-          </div>
-        ) : null}
+          ) : null}
 
-        {assistantState.confirmationNotice ? (
-          <div className="recipe-cook-ai-confirm-note">{assistantState.confirmationNotice}</div>
-        ) : null}
+          {assistantState.confirmationNotice ? (
+            <div className="recipe-cook-ai-confirm-note">{assistantState.confirmationNotice}</div>
+          ) : null}
 
+          {pendingVoiceSend ? (
+            <div className="recipe-cook-ai-voice-pending" role="status" aria-live="polite">
+              <span>识别到：{pendingVoiceSend}</span>
+              <button type="button" onClick={cancelPendingVoiceSend}>取消</button>
+            </div>
+          ) : null}
 
-        <form className="recipe-cook-ai-composer" onSubmit={submitMessage}>
-          <input
-            value={assistantState.draftMessage}
-            onChange={(event) => assistantState.setDraftMessage(event.target.value)}
-            placeholder="问这一步、食材或计时..."
-            disabled={assistant.isSending}
-          />
-          {assistant.isSending ? (
-            <button className="recipe-cook-ai-send-btn stop-mode" type="button" onClick={assistant.stop} title="停止">
-              <DashboardIcon name="x" />
-            </button>
-          ) : (
-            <button className="recipe-cook-ai-send-btn" type="submit" disabled={!assistantState.draftMessage.trim()} title="发送">
-              <DashboardIcon name="chevron" />
-            </button>
-          )}
-        </form>
+          {playback.error ? (
+            <div className="recipe-cook-ai-confirm-note">{playback.error}</div>
+          ) : null}
+
+          <form className="recipe-cook-ai-composer" onSubmit={submitMessage}>
+            <input
+              value={assistantState.draftMessage}
+              onChange={(event) => assistantState.setDraftMessage(event.target.value)}
+              placeholder="问这一步、食材或计时..."
+              disabled={assistant.isSending}
+            />
+            <AiVoiceInputButton
+              surface="recipe_cook_page"
+              className="recipe-cook-ai-voice-btn"
+              disabled={assistant.isSending}
+              buttonRef={voiceButtonRef}
+              enableHoldToSend
+              onStateChange={(state) => setVoiceInputStatus(state.status)}
+              onStartRecording={() => {
+                playback.stop();
+              }}
+              onTranscript={handleVoiceTranscript}
+            />
+            {assistant.isSending ? (
+              <button className="recipe-cook-ai-send-btn stop-mode" type="button" onClick={assistant.stop} title="停止">
+                <DashboardIcon name="x" />
+              </button>
+            ) : (
+              <button className="recipe-cook-ai-send-btn" type="submit" disabled={!isVoiceRecording && !isVoiceRecognizing && !assistantState.draftMessage.trim()} title="发送">
+                <DashboardIcon name="chevron" />
+              </button>
+            )}
+          </form>
+        </div>
       </div>
     </section>
   );

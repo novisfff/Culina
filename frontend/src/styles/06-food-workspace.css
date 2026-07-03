@@ -12305,8 +12305,8 @@ button.ai-clarification-option:hover:not(:disabled) .ai-clarification-option-ind
   padding: 0;
   border: 0;
   border-radius: 50%;
-  background: rgba(92, 67, 48, 0.06);
-  color: #6a5b51;
+  background: transparent;
+  color: #8b837b;
   cursor: pointer;
   transition: all 0.15s ease;
 }
@@ -12320,13 +12320,69 @@ button.ai-clarification-option:hover:not(:disabled) .ai-clarification-option-ind
 }
 
 .ai-attachment-button:hover {
-  background: rgba(210, 107, 51, 0.12);
-  color: var(--accent);
+  background: rgba(92, 67, 48, 0.08);
+  color: #3d3732;
 }
 
 .ai-attachment-button:disabled {
   color: #c4bbb4;
   background: rgba(92, 67, 48, 0.05);
+  cursor: not-allowed;
+}
+
+.ai-voice-input-button {
+  -webkit-appearance: none;
+  appearance: none;
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  align-self: center;
+  flex: 0 0 38px;
+  width: 38px;
+  height: 38px;
+  min-width: 38px;
+  min-height: 38px;
+  max-width: 38px;
+  max-height: 38px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: #8b837b;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.ai-voice-input-button:hover:not(:disabled) {
+  background: rgba(92, 67, 48, 0.08);
+  color: #3d3732;
+}
+
+.ai-voice-input-button.hold-arming,
+.ai-voice-input-button.starting {
+  background: rgba(210, 107, 51, 0.1);
+  color: #b45325;
+  transform: translateY(1px) scale(0.96);
+}
+
+.ai-voice-input-button.hold-arming .ai-voice-icon,
+.ai-voice-input-button.starting .ai-voice-icon {
+  transform: scale(0.9);
+}
+
+.ai-voice-input-button.recording {
+  background: rgba(92, 67, 48, 0.06);
+  color: #1f1f22;
+  box-shadow: none;
+}
+
+.ai-voice-input-button.busy {
+  cursor: default;
+}
+
+.ai-voice-input-button:disabled:not(.busy) {
+  opacity: 0.45;
   cursor: not-allowed;
 }
 
@@ -12420,6 +12476,7 @@ button.ai-clarification-option:hover:not(:disabled) .ai-clarification-option-ind
   display: flex;
   align-items: center;
   align-self: center;
+  gap: 4px;
 }
 
 .ai-send-button {
@@ -12435,8 +12492,9 @@ button.ai-clarification-option:hover:not(:disabled) .ai-clarification-option-ind
   max-height: 38px;
   padding: 0;
   border-radius: 50%;
-  background: var(--brand-button-bg);
-  box-shadow: 0 4px 10px rgba(225, 82, 27, 0.2);
+  background: #17191d;
+  color: #fff;
+  box-shadow: 0 5px 14px rgba(23, 25, 29, 0.18);
   transition: all 0.15s ease;
 }
 
@@ -12460,6 +12518,280 @@ button.ai-clarification-option:hover:not(:disabled) .ai-clarification-option-ind
   inset: 5px;
   box-sizing: border-box;
   border-radius: 50%;
+}
+
+.ai-voice-icon {
+  display: inline-grid;
+  place-items: center;
+}
+
+.ai-voice-recording-ui,
+.ai-voice-processing-ui,
+.ai-voice-press-label {
+  display: none;
+}
+
+.ai-composer:has(.ai-composer-voice-button:is(.recording, .recognizing)) {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.ai-composer:has(.ai-composer-voice-button:is(.recording, .recognizing)) .ai-attachment-button,
+.ai-composer:has(.ai-composer-voice-button:is(.recording, .recognizing)) textarea.text-input {
+  display: none;
+}
+
+.ai-composer:has(.ai-composer-voice-button:is(.recording, .recognizing)) .ai-composer-actions {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+}
+
+
+.ai-composer-voice-button.recording {
+  justify-content: flex-start;
+  width: 100%;
+  max-width: none;
+  padding: 0 16px;
+  border-radius: 999px;
+  background: #fff8f5;
+  border: 1px solid rgba(210, 107, 51, 0.16);
+  box-sizing: border-box;
+}
+
+.ai-composer-voice-button.recording .ai-voice-stop-mark {
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+  background: #e05e3e;
+  box-shadow: 0 0 8px rgba(224, 94, 62, 0.4);
+  animation: ai-voice-pulse 1.8s infinite ease-in-out;
+}
+
+@keyframes ai-voice-pulse {
+  0% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(0.85); opacity: 0.75; }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+.ai-composer-voice-button.recording .ai-voice-waveform i {
+  background: #d26b33;
+}
+
+.ai-composer-voice-button.recording .ai-voice-timer {
+  color: #b45325;
+  font-weight: 800;
+}
+
+.ai-composer-voice-button.recognizing {
+  justify-content: flex-start;
+  width: 100%;
+  max-width: none;
+  padding: 0 14px;
+  border-radius: 999px;
+  background: rgba(92, 67, 48, 0.06);
+  color: #1f1f22;
+  box-shadow: none;
+}
+
+.ai-composer-voice-button.recording .ai-voice-icon,
+.ai-composer-voice-button.recognizing .ai-voice-icon {
+  display: none;
+}
+
+.ai-composer-voice-button.recording .ai-voice-recording-ui {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  min-width: 0;
+}
+
+.ai-composer-voice-button.recording.hold-recording .ai-voice-recording-ui {
+  grid-template-columns: minmax(0, 1fr) auto auto;
+}
+
+.ai-composer-voice-button.recording.hold-recording .ai-voice-stop-mark {
+  order: 3;
+}
+
+.ai-composer-voice-button.recording.hold-recording .ai-voice-waveform {
+  order: 1;
+}
+
+.ai-composer-voice-button.recording.hold-recording .ai-voice-timer {
+  order: 2;
+}
+
+.ai-composer-voice-button.recognizing .ai-voice-processing-ui {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  width: 100%;
+  min-width: 0;
+  color: #5f5b56;
+  font-size: 0.9rem;
+  font-weight: 750;
+}
+
+.ai-voice-spinner {
+  box-sizing: border-box;
+  width: 17px;
+  height: 17px;
+  border: 2px solid rgba(95, 91, 86, 0.2);
+  border-top-color: #1f1f22;
+  border-radius: 999px;
+  animation: ai-voice-spin 780ms linear infinite;
+}
+
+@keyframes ai-voice-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.ai-voice-stop-mark {
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+  background: currentColor;
+}
+
+.ai-voice-waveform {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 2px;
+  min-width: 0;
+  width: 100%;
+  height: 34px;
+  overflow: hidden;
+}
+
+.ai-voice-waveform i {
+  flex: 1 1 0;
+  min-width: 2px;
+  max-width: 3.5px;
+  height: 5px;
+  border-radius: 999px;
+  background: currentColor;
+  transition: height 70ms linear, opacity 70ms linear;
+}
+
+.ai-voice-timer {
+  color: #5f5b56;
+  font-size: 0.92rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ai-voice-spinner {
+    animation-duration: 1500ms;
+  }
+
+  .ai-voice-waveform i {
+    transition: none;
+  }
+}
+
+@media (max-width: 767px) {
+  .ai-voice-waveform i:nth-child(even) {
+    display: none;
+  }
+
+  .ai-mobile-page .ai-composer {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    align-items: center;
+    padding: 5px 6px 5px 12px;
+  }
+
+  .ai-mobile-page .ai-composer-actions {
+    gap: 6px;
+  }
+
+  .ai-mobile-page .ai-mobile-voice-button:not(.recording) {
+    color: #191b1f;
+  }
+
+  .ai-mobile-page .ai-mobile-voice-button:not(.recording):hover:not(:disabled) {
+    background: rgba(92, 67, 48, 0.08);
+    color: #191b1f;
+  }
+
+  .ai-mobile-page .ai-composer:has(.ai-mobile-voice-button:is(.recording, .recognizing)) {
+    grid-template-columns: minmax(0, 1fr);
+    min-height: 58px;
+    padding: 7px;
+  }
+
+  .ai-mobile-page .ai-composer:has(.ai-mobile-voice-button:is(.recording, .recognizing)) .ai-attachment-button,
+  .ai-mobile-page .ai-composer:has(.ai-mobile-voice-button:is(.recording, .recognizing)) textarea.text-input {
+    display: none;
+  }
+
+  .ai-mobile-page .ai-composer:has(.ai-mobile-voice-button:is(.recording, .recognizing)) .ai-composer-actions {
+    grid-column: 1 / -1;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    min-width: 0;
+  }
+
+  .ai-mobile-page .ai-mobile-voice-button.recording,
+  .ai-mobile-page .ai-mobile-voice-button.recognizing {
+    grid-column: 1;
+    justify-content: flex-start;
+    width: 100%;
+    min-width: 0;
+    max-width: none;
+    height: 44px;
+    min-height: 44px;
+    max-height: 44px;
+    padding: 0 12px;
+    border: 1px solid rgba(255, 255, 255, 0.72);
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.88);
+    color: #191b1f;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7);
+  }
+
+  .ai-mobile-page .ai-mobile-voice-button.recording .ai-voice-icon,
+  .ai-mobile-page .ai-mobile-voice-button.recognizing .ai-voice-icon {
+    display: none;
+  }
+
+  .ai-mobile-page .ai-mobile-voice-button.recording .ai-voice-recording-ui {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    min-width: 0;
+  }
+
+  .ai-mobile-page .ai-mobile-voice-button.recognizing .ai-voice-processing-ui {
+    display: inline-flex;
+    justify-content: center;
+  }
+
+  .ai-mobile-page .ai-mobile-voice-button.recording .ai-voice-waveform {
+    height: 30px;
+  }
+
+  .ai-mobile-page .ai-mobile-voice-button.recording .ai-voice-timer {
+    font-size: 0.82rem;
+  }
+
+  .ai-mobile-page .ai-composer:has(.ai-mobile-voice-button:is(.recording, .recognizing)) .ai-send-button {
+    grid-column: 2;
+  }
 }
 
 .ai-message-image-part {

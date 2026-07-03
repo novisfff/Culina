@@ -1,5 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from '../../api/client';
+import type {
+  AssistantAudioDeltaEvent,
+  AssistantAudioDoneEvent,
+  AssistantAudioErrorEvent,
+  AssistantAudioStartEvent,
+  AssistantAudioTraceEvent,
+} from '../../api/aiApi';
 import type { AiChatResponse, AiMessagePart, AiResultCard, AiRunEvent } from '../../api/types';
 import type { CookingAssistantActionResult } from './cookingAssistantModel';
 import type { RecipeCookAssistantMessage, RecipeCookAssistantMessagePart } from './RecipeWorkspaceModel';
@@ -12,6 +19,12 @@ type CookingAssistantStreamArgs = {
   initialMessagesKey: string;
   initialMessages: CookingAssistantMessage[];
   onMessagesChange: (messages: CookingAssistantMessage[]) => void;
+  voicePlaybackEnabled?: boolean;
+  onAssistantAudioStart?: (event: AssistantAudioStartEvent) => void;
+  onAssistantAudioDelta?: (event: AssistantAudioDeltaEvent) => void;
+  onAssistantAudioDone?: (event: AssistantAudioDoneEvent) => void;
+  onAssistantAudioError?: (event: AssistantAudioErrorEvent) => void;
+  onAssistantAudioTrace?: (event: AssistantAudioTraceEvent) => void;
 };
 
 function newClientId(prefix: string) {
@@ -96,6 +109,12 @@ export function useCookingAssistantStream({
   initialMessagesKey,
   initialMessages,
   onMessagesChange,
+  voicePlaybackEnabled = false,
+  onAssistantAudioStart,
+  onAssistantAudioDelta,
+  onAssistantAudioDone,
+  onAssistantAudioError,
+  onAssistantAudioTrace,
 }: CookingAssistantStreamArgs) {
   const [messages, setMessages] = useState<CookingAssistantMessage[]>(() => initialMessages.length ? initialMessages : [WELCOME_MESSAGE]);
   const [isSending, setIsSending] = useState(false);
@@ -150,10 +169,11 @@ export function useCookingAssistantStream({
   }, []);
 
   const handleProgressEvent = useCallback((event: AiRunEvent | { user_message?: string }, assistantMessageId: string) => {
-    if (event.user_message) {
+    const isFixedCookingSkillProgress = isAiRunEvent(event) && event.type === 'skill';
+    if (event.user_message && !isFixedCookingSkillProgress) {
       setProgressText(event.user_message);
     }
-    if (!isAiRunEvent(event) || !event.user_message) return;
+    if (!isAiRunEvent(event) || !event.user_message || isFixedCookingSkillProgress) return;
     const tone = progressTone(event.status);
     upsertAssistantPart(assistantMessageId, {
       id: `assistant-progress-${event.id}`,
@@ -213,7 +233,8 @@ export function useCookingAssistantStream({
     appendMessage({ id: clientMessageId, role: 'user', text: message });
     appendMessage({ id: assistantMessageId, role: 'assistant', text: '' });
     try {
-      const response = await api.streamChatAi({
+      const stream = voicePlaybackEnabled ? api.streamCookingAssistantVoiceAi : api.streamChatAi;
+      const response = await stream({
         message,
         client_message_id: clientMessageId,
         client_run_id: clientRunId,
@@ -225,6 +246,11 @@ export function useCookingAssistantStream({
         onProgress: (event: AiRunEvent | { user_message?: string }) => handleProgressEvent(event, assistantMessageId),
         onMessageDelta: (event) => appendAssistantDelta(assistantMessageId, event.delta),
         onMessagePart: (event) => handleMessagePart(event.part, assistantMessageId),
+        onAssistantAudioStart,
+        onAssistantAudioDelta,
+        onAssistantAudioDone,
+        onAssistantAudioError,
+        onAssistantAudioTrace,
       });
       handleResponse(response, assistantMessageId);
     } catch (error) {
@@ -246,7 +272,59 @@ export function useCookingAssistantStream({
       setProgressText('');
       setIsSending(false);
     }
-  }, [appendAssistantDelta, appendMessage, buildSubject, handleMessagePart, handleProgressEvent, handleResponse, isSending]);
+  }, [
+    appendAssistantDelta,
+    appendMessage,
+    buildSubject,
+    handleMessagePart,
+    handleProgressEvent,
+    handleResponse,
+    isSending,
+    onAssistantAudioDelta,
+    onAssistantAudioDone,
+    onAssistantAudioError,
+    onAssistantAudioStart,
+    voicePlaybackEnabled,
+  ]);
+
+  const beginExternalMessage = useCallback((rawMessage: string) => {
+    const message = rawMessage.trim();
+    if (!message || isSending) return '';
+    const clientMessageId = newClientId('cook-user');
+    const assistantMessageId = newClientId('cook-assistant');
+    setIsSending(true);
+    setProgressText('小助手在听这句');
+    appendMessage({ id: clientMessageId, role: 'user', text: message });
+    appendMessage({ id: assistantMessageId, role: 'assistant', text: '' });
+    return assistantMessageId;
+  }, [appendMessage, isSending]);
+
+  const completeExternalMessage = useCallback((assistantMessageId: string, fallbackText = '') => {
+    setMessages((current) => current.map((message) => {
+      if (message.id !== assistantMessageId || !isGenericTaskFallback(message.text)) return message;
+      const text = fallbackText.trim();
+      if (!text) return message;
+      return { ...message, text, parts: [{ id: newClientId('assistant-text-part'), type: 'text', text }] };
+    }));
+    setProgressText('');
+    setIsSending(false);
+  }, []);
+
+  const failExternalMessage = useCallback((assistantMessageId: string, error: unknown) => {
+    const messageText = streamFailureMessage(error);
+    setMessages((current) => current.map((message) => (
+      message.id === assistantMessageId
+        ? {
+            ...message,
+            text: messageText,
+            tone: messageText.includes('停止') ? 'warning' : 'danger',
+            parts: [{ id: newClientId('assistant-text-part'), type: 'text', text: messageText }],
+          }
+        : message
+    )));
+    setProgressText('');
+    setIsSending(false);
+  }, []);
 
   const stop = useCallback(() => {
     abortRef.current?.abort();
@@ -262,6 +340,11 @@ export function useCookingAssistantStream({
     isSending,
     progressText,
     sendMessage,
+    beginExternalMessage,
+    appendExternalAssistantDelta: appendAssistantDelta,
+    handleExternalActionCard: handleActionCard,
+    completeExternalMessage,
+    failExternalMessage,
     stop,
     clearMessages,
   };

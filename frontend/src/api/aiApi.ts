@@ -28,12 +28,40 @@ type AiChatPayload = {
   attachments?: AiChatAttachment[];
   persist_history?: boolean;
 };
+export type AssistantAudioStartEvent = {
+  content_type: string;
+  format: 'pcm16' | string;
+  sample_rate: number;
+  channels: number;
+  provider?: string;
+  model?: string;
+};
+export type AssistantAudioDeltaEvent = {
+  audio: string;
+  sequence: number;
+};
+export type AssistantAudioDoneEvent = {
+  sequence: number;
+};
+export type AssistantAudioErrorEvent = {
+  message: string;
+};
+export type AssistantAudioTraceEvent = {
+  stage: string;
+  elapsed_ms?: number;
+  [key: string]: unknown;
+};
 type AiChatStreamHandlers = {
   signal?: AbortSignal;
   onProgress?: (event: AiRunEvent | { type: string; internal_code: string; user_message: string; status: AiRunEvent['status'] }) => void;
   onMessageDelta?: (event: { message_id?: string; conversation_id?: string; run_id?: string; part_id?: string; delta: string }) => void;
   onMessagePart?: (event: { message_id?: string; conversation_id?: string; run_id?: string; part: AiMessagePart }) => void;
   onResponse?: (response: AiChatResponse) => void;
+  onAssistantAudioStart?: (event: AssistantAudioStartEvent) => void;
+  onAssistantAudioDelta?: (event: AssistantAudioDeltaEvent) => void;
+  onAssistantAudioDone?: (event: AssistantAudioDoneEvent) => void;
+  onAssistantAudioError?: (event: AssistantAudioErrorEvent) => void;
+  onAssistantAudioTrace?: (event: AssistantAudioTraceEvent) => void;
 };
 type AiApprovalDecisionPayload = {
   decision: 'approved' | 'rejected';
@@ -82,6 +110,16 @@ async function streamAiResponse(url: string, payload: unknown, handlers: AiChatS
     } else if (event === 'response') {
       finalResponse = data as AiChatResponse;
       handlers.onResponse?.(finalResponse);
+    } else if (event === 'assistant_audio_start') {
+      handlers.onAssistantAudioStart?.(data as AssistantAudioStartEvent);
+    } else if (event === 'assistant_audio_delta') {
+      handlers.onAssistantAudioDelta?.(data as AssistantAudioDeltaEvent);
+    } else if (event === 'assistant_audio_done') {
+      handlers.onAssistantAudioDone?.(data as AssistantAudioDoneEvent);
+    } else if (event === 'assistant_audio_error') {
+      handlers.onAssistantAudioError?.(data as AssistantAudioErrorEvent);
+    } else if (event === 'assistant_audio_trace') {
+      handlers.onAssistantAudioTrace?.(data as AssistantAudioTraceEvent);
     } else if (event === 'error') {
       const detail = typeof data === 'object' && data && 'detail' in data ? String((data as { detail: unknown }).detail) : '流式请求失败';
       throw new Error(detail);
@@ -108,6 +146,10 @@ async function streamChatAi(payload: AiChatPayload, handlers: AiChatStreamHandle
   return streamAiResponse(`${API_BASE_URL}/api/ai/chat/stream`, payload, handlers);
 }
 
+async function streamCookingAssistantVoiceAi(payload: AiChatPayload, handlers: AiChatStreamHandlers = {}): Promise<AiChatResponse> {
+  return streamAiResponse(`${API_BASE_URL}/api/ai/audio/cooking/assistant/stream`, payload, handlers);
+}
+
 export const aiApi = {
   getAiStatus: () => request<AiStatus>('/api/ai/status'),
   getAiQualityMetrics: () => request<AiQualityMetrics>('/api/ai/quality-metrics?limit=50'),
@@ -122,6 +164,7 @@ export const aiApi = {
       body: JSON.stringify(payload),
     }),
   streamChatAi,
+  streamCookingAssistantVoiceAi,
   cancelAiRun: (runId: string) =>
     request<{ run: Record<string, unknown>; events: AiRunEvent[] }>(`/api/ai/runs/${runId}/cancel`, {
       method: 'POST',
