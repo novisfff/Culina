@@ -1502,6 +1502,7 @@
   grid-template-columns: 134px minmax(0, 1fr);
   gap: 14px;
   align-items: stretch;
+  min-width: 0;
 }
 
 .family-image-body {
@@ -1570,6 +1571,13 @@
   padding: 0 !important;
   border: 1px dashed rgba(210, 107, 51, 0.28) !important;
   box-shadow: 0 8px 24px rgba(210, 107, 51, 0.05) !important;
+}
+
+.profile-avatar-body > .profile-avatar-large-preview.is-loading:only-child {
+  grid-column: 1 / -1;
+  width: 100%;
+  min-height: 156px;
+  border-color: rgba(210, 107, 51, 0.24) !important;
 }
 
 .profile-avatar-large-preview.is-loading span {
@@ -1888,20 +1896,31 @@
 .family-image-prompt-panel {
   display: grid;
   gap: 10px;
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
   padding: 12px;
   border-radius: 16px;
   background: rgba(250, 245, 239, 0.94);
   border: 1px solid rgba(122, 85, 62, 0.08);
 }
 
+.profile-avatar-body > .profile-avatar-prompt-panel:only-child {
+  grid-column: 1 / -1;
+}
+
 .profile-avatar-prompt-panel label,
 .family-image-prompt-panel label {
   display: grid;
   gap: 8px;
+  min-width: 0;
 }
 
 .profile-avatar-prompt-panel textarea,
 .family-image-prompt-panel textarea {
+  box-sizing: border-box;
+  min-width: 0;
+  max-width: 100%;
   min-height: 92px;
   resize: vertical;
 }
@@ -1909,8 +1928,17 @@
 .profile-avatar-prompt-actions,
 .family-image-prompt-actions {
   display: flex;
+  flex-wrap: wrap;
   justify-content: flex-end;
   gap: 10px;
+  min-width: 0;
+}
+
+.profile-avatar-prompt-actions .ghost-button,
+.profile-avatar-prompt-actions .solid-button,
+.family-image-prompt-actions .ghost-button,
+.family-image-prompt-actions .solid-button {
+  min-width: 0;
 }
 
 .profile-edit-actions,
