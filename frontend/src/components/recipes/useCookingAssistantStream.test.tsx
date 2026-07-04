@@ -9,6 +9,7 @@ import { useCookingAssistantStream, type CookingAssistantMessage } from './useCo
 
 type ProbeValue = {
   messages: CookingAssistantMessage[];
+  isSending: boolean;
   sendMessage: (message: string) => Promise<void>;
 };
 
@@ -69,9 +70,10 @@ function Probe() {
   useEffect(() => {
     latest = {
       messages: assistant.messages,
+      isSending: assistant.isSending,
       sendMessage: assistant.sendMessage,
     };
-  }, [assistant.messages, assistant.sendMessage]);
+  }, [assistant.isSending, assistant.messages, assistant.sendMessage]);
 
   return null;
 }
@@ -125,5 +127,33 @@ describe('useCookingAssistantStream', () => {
     expect(messageText).not.toContain('做菜助手');
     expect(messageText).toContain('工具调用');
     expect(messageText).toContain('调用「当前步骤」');
+  });
+
+  it('marks the reply complete when the final response arrives before the stream closes', async () => {
+    let releaseStream = () => {};
+    vi.spyOn(api, 'streamChatAi').mockImplementation(async (_payload, handlers) => {
+      handlers?.onMessageDelta?.({ delta: '在呢。' });
+      handlers?.onResponse?.(chatResponse('在呢。'));
+      await new Promise<void>((resolve) => {
+        releaseStream = resolve;
+      });
+      return chatResponse('在呢。');
+    });
+
+    renderProbe();
+
+    let sendPromise: Promise<void> | undefined;
+    await act(async () => {
+      sendPromise = latest?.sendMessage('你好');
+      await Promise.resolve();
+    });
+
+    expect(latest?.isSending).toBe(false);
+    expect(latest?.messages.at(-1)?.text).toBe('在呢。');
+
+    releaseStream?.();
+    await act(async () => {
+      await sendPromise;
+    });
   });
 });

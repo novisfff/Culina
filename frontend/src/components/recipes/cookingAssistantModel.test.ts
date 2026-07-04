@@ -111,6 +111,29 @@ describe('cookingAssistantModel', () => {
 
     expect(subject.source).toBe('recipe_cook_page');
     expect(subject.recipe_id).toBe('recipe-1');
+    expect(subject.extra.stableContext).toMatchObject({
+      recipeId: 'recipe-1',
+      recipeTitle: '番茄炒蛋',
+      servings: 2,
+      totalSteps: 2,
+    });
+    expect(subject.extra.stableContext.steps).toHaveLength(2);
+    expect(subject.extra.stableContext.steps[1]).toMatchObject({ id: 'step-2', title: '炒蛋', text: '蛋液下锅，刚凝固就盛出。' });
+    expect(subject.extra.stableContext.ingredients[0]).toMatchObject({ id: 'ri-egg', ingredientId: 'ingredient-egg', name: '鸡蛋' });
+    expect(subject.extra.stableContext).not.toHaveProperty('timers');
+    expect(subject.extra.stableContext).not.toHaveProperty('sessionRevision');
+    expect(subject.extra.stableContext).not.toHaveProperty('assistantConversation');
+    expect(subject.extra.runtimeContext).toMatchObject({
+      currentStepIndex: 1,
+      activeTimerId: 'timer-main',
+      sessionRevision: expect.any(Number),
+    });
+    expect(subject.extra.runtimeContext.timers[0]).toMatchObject({ id: 'timer-main', remainingSeconds: 150 });
+    expect(subject.extra.runtimeContext.checkedIngredientIds).toEqual(['ri-egg']);
+    expect(subject.extra.runtimeContext.assistantConversation).toEqual([
+      { role: 'user', text: '我刚才已经切好番茄了' },
+      { role: 'assistant', text: '好，下一步先把鸡蛋打散。' },
+    ]);
     expect(subject.extra.currentStep).toMatchObject({ id: 'step-2', title: '炒蛋' });
     expect(subject.extra.previousStep).toMatchObject({ id: 'step-1', title: '备菜' });
     expect(subject.extra.ingredients[0]).toMatchObject({ id: 'ri-egg', checked: true, ready: true });

@@ -33,6 +33,7 @@ class Settings(BaseSettings):
     ai_model: str = ""
     ai_supports_vision: bool | None = True
     ai_timeout_seconds: float = 180.0
+    ai_prompt_cache_enabled: bool = True
     ai_trace_enabled: bool = True
     ai_trace_capture_llm_exchanges: bool = False
     ai_trace_capture_message_content: bool = False

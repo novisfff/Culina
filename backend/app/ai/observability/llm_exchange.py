@@ -32,7 +32,9 @@ USAGE_FIELD_KEYS = (
     "cached_tokens",
     "cachedTokens",
     "input_token_details",
+    "input_tokens_details",
     "output_token_details",
+    "output_tokens_details",
     "prompt_tokens_details",
     "completion_tokens_details",
     "inputTokenDetails",
@@ -355,7 +357,13 @@ class LLMExchangeRecorder:
         direct = self._int_usage_value(data, "cached_tokens", "cachedTokens")
         if direct is not None:
             return direct
-        for detail_key in ("input_token_details", "prompt_tokens_details", "inputTokenDetails", "promptTokenDetails"):
+        for detail_key in (
+            "input_token_details",
+            "input_tokens_details",
+            "prompt_tokens_details",
+            "inputTokenDetails",
+            "promptTokenDetails",
+        ):
             details = data.get(detail_key)
             if not isinstance(details, dict):
                 continue

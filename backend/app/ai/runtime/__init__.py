@@ -3,6 +3,7 @@ from app.ai.runtime.provider import (
     ChatProviderResult,
     DisabledChatProvider,
     OpenAICompatibleChatProvider,
+    OpenAIResponsesChatProvider,
     get_chat_provider,
 )
 
@@ -11,5 +12,6 @@ __all__ = [
     "ChatProviderResult",
     "DisabledChatProvider",
     "OpenAICompatibleChatProvider",
+    "OpenAIResponsesChatProvider",
     "get_chat_provider",
 ]

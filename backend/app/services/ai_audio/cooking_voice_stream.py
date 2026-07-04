@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import threading
-import time
 from collections.abc import AsyncIterator, Callable
 from typing import Any
 
@@ -81,6 +80,7 @@ async def stream_cooking_assistant_voice_events(
     settings: Settings | Any | None = None,
     service_factory: Callable[[Session], Any] | None = None,
     tts_provider_factory: Callable[[Any, str], Any] | None = None,
+    db_session_factory: Callable[[], Any] | None = None,
 ) -> AsyncIterator[dict[str, Any]]:
     loop = asyncio.get_running_loop()
     events: asyncio.Queue[dict[str, Any] | object] = asyncio.Queue()
@@ -88,25 +88,26 @@ async def stream_cooking_assistant_voice_events(
     stop_event = threading.Event()
     stream_settings = settings or get_settings()
     tts_enabled = _should_stream_dashscope_tts(provider, stream_settings)
-    trace_started_at = time.perf_counter()
-    ai_first_token_emitted = False
-
-    def trace_elapsed_ms() -> int:
-        return int((time.perf_counter() - trace_started_at) * 1000)
 
     def emit(event: dict[str, Any] | object) -> None:
-        loop.call_soon_threadsafe(events.put_nowait, event)
+        try:
+            loop.call_soon_threadsafe(events.put_nowait, event)
+        except RuntimeError:
+            pass
 
     def emit_tts_text(delta: str) -> None:
         if tts_enabled:
-            loop.call_soon_threadsafe(text_chunks.put_nowait, delta)
+            try:
+                loop.call_soon_threadsafe(text_chunks.put_nowait, delta)
+            except RuntimeError:
+                pass
 
     def run_agent_stream() -> None:
-        nonlocal ai_first_token_emitted
         assistant_text_parts: list[str] = []
         seen_cards: set[str] = set()
-        service = (service_factory or AIApplicationService)(db)
+        worker_db = db_session_factory() if db_session_factory is not None else db
         try:
+            service = (service_factory or AIApplicationService)(worker_db)
             for event, data in service.stream_chat(
                 family_id=family_id,
                 user_id=user_id,
@@ -125,9 +126,6 @@ async def stream_cooking_assistant_voice_events(
                 if event == "message_delta":
                     delta = str(data.get("delta") or "")
                     if delta:
-                        if tts_enabled and not ai_first_token_emitted:
-                            ai_first_token_emitted = True
-                            emit({"type": "assistant_audio_trace", "stage": "ai_first_token", "elapsed_ms": trace_elapsed_ms()})
                         assistant_text_parts.append(delta)
                         emit({"type": "message_delta", "data": data})
                         emit({"type": "assistant_transcript_delta", "text": delta})
@@ -152,9 +150,9 @@ async def stream_cooking_assistant_voice_events(
                         emit({"type": "ui_actions", "card": card})
                     from app.api.ai import _discard_transient_chat_history
 
-                    _discard_transient_chat_history(db, family_id=family_id, response=data)
-                    if hasattr(db, "commit"):
-                        commit_session(db)
+                    _discard_transient_chat_history(worker_db, family_id=family_id, response=data)
+                    if hasattr(worker_db, "commit"):
+                        commit_session(worker_db)
                     run_id = data.get("run", {}).get("id") if isinstance(data.get("run"), dict) else None
                     live_ai_stream_cache.clear_run(run_id)
                     final_text = "".join(assistant_text_parts).strip() or _text_from_response_message(data)
@@ -170,8 +168,13 @@ async def stream_cooking_assistant_voice_events(
         except ValueError as exc:
             emit({"type": "error", "detail": str(exc)})
         finally:
+            if db_session_factory is not None and hasattr(worker_db, "close"):
+                worker_db.close()
             if tts_enabled:
-                loop.call_soon_threadsafe(text_chunks.put_nowait, None)
+                try:
+                    loop.call_soon_threadsafe(text_chunks.put_nowait, None)
+                except RuntimeError:
+                    pass
             emit(_AGENT_DONE)
 
     async def tts_text_iterator() -> AsyncIterator[str]:
@@ -218,10 +221,11 @@ async def stream_cooking_assistant_voice_events(
                     text="",
                     surface="recipe_cook_page",
                     family_id=family_id,
-                    metadata={"trace_started_at": trace_started_at},
+                    metadata={},
                 ),
             ):
-                mapped = {"type": f"assistant_{audio_event.pop('type')}", **audio_event}
+                event_type = str(audio_event.get("type") or "")
+                mapped = {"type": f"assistant_{event_type}", **{key: value for key, value in audio_event.items() if key != "type"}}
                 await events.put(mapped)
         except HTTPException as exc:
             await events.put({"type": "assistant_audio_error", "message": str(exc.detail)})

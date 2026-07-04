@@ -534,6 +534,48 @@ def _response_event(body: str) -> dict:
 
 
 class AIWorkspaceStreamingTestCase(AIAgentInfraTestCase):
+        def test_stream_chat_logs_concise_orchestrator_turn_summary(self) -> None:
+            class LoggingChatProvider(BaseChatProvider):
+                model_name = "logging-provider-model"
+
+                def generate(self, *, system: str, user: str) -> ChatProviderResult:
+                    raise AssertionError("workspace orchestrator should use generate_with_tools")
+
+                def generate_with_tools(
+                    self,
+                    *,
+                    system: str,
+                    user: str,
+                    tools,
+                    tool_handler,
+                    message_handler=None,
+                    max_rounds: int = 8,
+                ) -> ChatProviderResult:
+                    del system, user, tools, tool_handler, max_rounds
+                    if message_handler is not None:
+                        message_handler("收到。")
+                    return ChatProviderResult(text="收到。", status="completed", model=self.model_name)
+
+            with self.SessionLocal() as db:
+                with self.assertLogs("app.ai.workflows.orchestrator.agent", level="INFO") as logs:
+                    events = list(
+                        AIApplicationService(db, provider=LoggingChatProvider()).stream_chat(
+                            family_id=self.family.id,
+                            user_id=self.user.id,
+                            message="随便聊聊",
+                            client_run_id="agent_run-log-summary-test",
+                        )
+                    )
+
+            self.assertTrue(any(event_name == "message_delta" for event_name, _data in events))
+            summary_logs = [message for message in logs.output if "AI orchestrator turn completed" in message]
+            self.assertEqual(len(summary_logs), 1)
+            self.assertIn("run_id=agent_run-log-summary-test", summary_logs[0])
+            self.assertIn("model=logging-provider-model", summary_logs[0])
+            self.assertIn("status=completed", summary_logs[0])
+            self.assertIn("prefix_messages=", summary_logs[0])
+            self.assertIn("runtime_chars=", summary_logs[0])
+
         def test_stream_chat_yields_delta_before_orchestrator_node_finishes(self) -> None:
             first_delta_persisted = threading.Event()
             continue_stream = threading.Event()

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from dataclasses import replace
+
 from app.ai.tools.base import ToolDefinition
 from app.ai.tools.catalog.intent import skill_inject_request_schema
 from app.ai.workflows.orchestrator.skill_injection import SkillInjectionManager
@@ -35,6 +37,8 @@ def with_runtime_tool_schema(
     injection_manager: SkillInjectionManager,
     state: OrchestratorRunState,
 ) -> ToolDefinition:
+    if definition.name == "ui.propose_actions" and state.profile_key == "recipe_cook_page":
+        return _with_compact_ui_action_schema(definition)
     if definition.name != "skill.inject":
         return definition
     skill_keys = injection_manager.skill_registry.keys()
@@ -62,4 +66,22 @@ def with_runtime_tool_schema(
         followup_hint=definition.followup_hint,
         output_types=list(definition.output_types),
         draft_types=list(definition.draft_types),
+    )
+
+
+def _with_compact_ui_action_schema(definition: ToolDefinition) -> ToolDefinition:
+    properties = definition.input_schema.get("properties") if isinstance(definition.input_schema, dict) else {}
+    if not isinstance(properties, dict) or "actions" not in properties:
+        return definition
+    compact_properties = {"actions": properties["actions"]}
+    if "requiresConfirmation" in properties:
+        compact_properties["requiresConfirmation"] = properties["requiresConfirmation"]
+    return replace(
+        definition,
+        input_schema={
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["actions"],
+            "properties": compact_properties,
+        },
     )

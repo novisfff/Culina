@@ -1,6 +1,6 @@
 import { AiVoiceInputButton } from '../ai/AiVoiceInputButton';
 import type { VoiceRecording } from '../../hooks/useVoiceRecorder';
-import type { CookingRealtimeVoiceStatus } from './useCookingRealtimeVoiceSession';
+import { isCookingRealtimeVoiceMicDisabled, type CookingRealtimeVoiceStatus } from './useCookingRealtimeVoiceSession';
 
 type CookingVoiceControlsProps = {
   active: boolean;
@@ -23,6 +23,9 @@ const STATUS_LABELS: Record<CookingRealtimeVoiceStatus, string> = {
   idle: '未连接',
   connecting: '连接中',
   listening: '正在听',
+  recording: '正在听',
+  transcribing: '正在识别',
+  thinking: '小灶在想',
   speaking: '小灶在说',
   muted: '已静音',
   closed: '已挂断',
@@ -45,6 +48,8 @@ export function CookingVoiceControls({
   onRecording,
   onStartRecording,
 }: CookingVoiceControlsProps) {
+  const micDisabled = isCookingRealtimeVoiceMicDisabled(status, disabled);
+
   if (!active) {
     return (
       <button
@@ -69,7 +74,7 @@ export function CookingVoiceControls({
       <AiVoiceInputButton
         surface="recipe_cook_page"
         className="recipe-cook-ai-call-mic"
-        disabled={disabled || status === 'connecting' || status === 'muted'}
+        disabled={micDisabled}
         onStartRecording={onStartRecording}
         onTranscript={onTranscript}
         onRecording={onRecording}

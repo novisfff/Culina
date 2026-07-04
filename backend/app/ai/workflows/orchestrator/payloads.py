@@ -60,6 +60,7 @@ class OrchestratorPromptPayloadBuilder:
             include_dynamic_injection_contract=capability_policy.exposes_dynamic_injection_contract(),
             include_draft_contract=include_draft_contract,
             include_allowed_draft_types=include_draft_contract,
+            include_injected_skill_records=capability_policy.exposes_dynamic_injection_contract(),
             artifact_context_policy=capability_policy.artifact_context,
         )
 
@@ -109,16 +110,62 @@ class OrchestratorPromptPayloadBuilder:
         injection_history: list[dict[str, Any]],
         capability_policy: OrchestratorCapabilityPolicy | None = None,
     ) -> str | ProviderUserInput:
-        text = json.dumps(
-            self.user_payload(
-                context,
-                active_skill_keys,
-                injection_history,
-                capability_policy,
-            ),
+        payload = self.user_payload(
+            context,
+            active_skill_keys,
+            injection_history,
+            capability_policy,
+        )
+        prefix_messages = _stable_prefix_messages(context.subject)
+        if prefix_messages:
+            payload["subject"] = _runtime_subject(context.subject)
+        text = json.dumps(payload, ensure_ascii=False, default=str)
+        if not context.current_message_images and not prefix_messages:
+            return text
+        return ProviderUserInput(
+            text=text,
+            images=context.current_message_images,
+            prefix_messages=prefix_messages,
+        )
+
+
+def _stable_prefix_messages(subject: dict[str, Any]) -> list[str]:
+    extra = subject.get("extra") if isinstance(subject, dict) and isinstance(subject.get("extra"), dict) else {}
+    stable_context = extra.get("stableContext") if isinstance(extra, dict) else None
+    if not isinstance(stable_context, dict):
+        return []
+    return [
+        json.dumps(
+            {
+                "type": "stableSubject",
+                "subject": stable_context,
+            },
             ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
             default=str,
         )
-        if not context.current_message_images:
-            return text
-        return ProviderUserInput(text=text, images=context.current_message_images)
+    ]
+
+
+def _runtime_subject(subject: dict[str, Any]) -> dict[str, Any]:
+    if not isinstance(subject, dict):
+        return {}
+    extra = subject.get("extra") if isinstance(subject.get("extra"), dict) else {}
+    runtime_context = extra.get("runtimeContext") if isinstance(extra, dict) else None
+    runtime_subject = {
+        key: value
+        for key, value in subject.items()
+        if key != "extra"
+    }
+    if isinstance(runtime_context, dict):
+        runtime_subject["runtimeContext"] = runtime_context
+        return runtime_subject
+    runtime_extra = {
+        key: value
+        for key, value in extra.items()
+        if key != "stableContext"
+    }
+    if runtime_extra:
+        runtime_subject["extra"] = runtime_extra
+    return runtime_subject

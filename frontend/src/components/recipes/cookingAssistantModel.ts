@@ -134,10 +134,76 @@ export function buildCookingAssistantSubject(args: CookingAssistantSubjectArgs) 
   const recipe = args.activeCookCard.recipe;
   const previousStep = args.cookSteps[args.cookSession.currentStepIndex - 1] ?? null;
   const nextStep = args.cookSteps[args.cookSession.currentStepIndex + 1] ?? null;
+  const stableContext = {
+    recipeId: recipe.id,
+    recipeTitle: recipe.title,
+    servings: recipe.servings,
+    totalSteps: args.cookSteps.length,
+    steps: args.cookSteps.map((step, index) => stepSnapshot(step, index)),
+    ingredients: recipe.ingredient_items.map((item) => ({
+      id: item.id,
+      ingredientId: item.ingredient_id ?? null,
+      name: item.ingredient_name,
+      quantity: item.quantity,
+      unit: item.unit,
+      note: item.note,
+    })),
+  };
+  const runtimeContext = {
+    surface: 'recipe_cook_page',
+    cookSessionId: runtime.cookSessionId,
+    sessionRevision: runtime.sessionRevision,
+    currentStepIndex: args.cookSession.currentStepIndex,
+    currentStep: stepSnapshot(args.currentCookStep, args.cookSession.currentStepIndex),
+    previousStep: stepSnapshot(previousStep, args.cookSession.currentStepIndex - 1),
+    nextStep: stepSnapshot(nextStep, args.cookSession.currentStepIndex + 1),
+    checkedIngredientIds: args.cookSession.checkedIngredientIds,
+    shortages: (args.cookPreview?.shortages ?? args.activeCookCard.shortages).map((item) => {
+      if ('ingredient_name' in item) {
+        return {
+          ingredientId: item.ingredient_id ?? null,
+          ingredientName: item.ingredient_name,
+          requiredQuantity: item.required_quantity,
+          availableQuantity: item.available_quantity,
+          missingQuantity: item.missing_quantity,
+          unit: item.unit,
+          summary: formatCookShortageSummary(item),
+        };
+      }
+      return {
+        ingredientId: item.ingredientId ?? null,
+        ingredientName: item.ingredientName,
+        requiredQuantity: item.requiredQuantity,
+        availableQuantity: item.availableQuantity,
+        missingQuantity: item.missingQuantity,
+        unit: item.unit,
+        summary: `${item.ingredientName}缺 ${item.missingQuantity}${item.unit}`,
+      };
+    }),
+    timers: args.timers.map((timer) => ({
+      id: timer.id,
+      name: timer.name,
+      mode: timer.mode,
+      durationSeconds: timer.durationSeconds,
+      seconds: timer.seconds,
+      remainingSeconds: timer.mode === 'countdown' ? Math.max((timer.durationSeconds ?? 0) - timer.seconds, 0) : null,
+      display: formatCookTimer(timer.mode === 'countdown' ? Math.max((timer.durationSeconds ?? 0) - timer.seconds, 0) : timer.seconds),
+      running: timer.running,
+      active: timer.id === args.activeTimerId,
+    })),
+    activeTimerId: args.activeTimerId || null,
+    activeMobileTab: args.activeMobileTab,
+    assistantConversation: args.cookSession.aiAssistantMessages.slice(-12).map((message) => ({
+      role: message.role,
+      text: message.text,
+    })),
+  };
   return {
     source: 'recipe_cook_page',
     recipe_id: recipe.id,
     extra: {
+      stableContext,
+      runtimeContext,
       surface: 'recipe_cook_page',
       cookSessionId: runtime.cookSessionId,
       sessionRevision: runtime.sessionRevision,

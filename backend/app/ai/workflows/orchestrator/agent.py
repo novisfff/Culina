@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import inspect
+from time import perf_counter
 
 from app.ai.errors import AIExecutionCancelled, ApprovalRequired, HumanInputRequired
 from app.ai.observability.llm_exchange import LLMExchangeRecorder
@@ -76,6 +77,7 @@ class WorkspaceOrchestratorAgent:
             capability_policy,
         )
         trace_round_index = context.trace_round_index or 0
+        trace_started_at = perf_counter()
         orchestrator_span = (
             context.tracer.start_span(
                 "orchestrator_round",
@@ -120,6 +122,9 @@ class WorkspaceOrchestratorAgent:
             requires_terminal_output=requires_terminal_output,
             terminal_text_allowed=terminal_text_allowed,
         )
+        provider_prefix_message_count = 0
+        provider_stable_prefix_chars = 0
+        provider_runtime_payload_chars = 0
         gateway = OrchestratorToolGateway(
             context=context,
             injection_manager=self.injection_manager,
@@ -149,6 +154,23 @@ class WorkspaceOrchestratorAgent:
                 )
             return result
 
+        def log_turn_completed(result: SkillResult) -> None:
+            logger.info(
+                "AI orchestrator turn completed run_id=%s conversation_id=%s family_id=%s profile=%s model=%s status=%s elapsed_ms=%s text_chars=%s tool_calls=%s prefix_messages=%s stable_prefix_chars=%s runtime_chars=%s",
+                context.run_id,
+                context.conversation_id,
+                context.family_id,
+                state.profile_key,
+                result.model,
+                result.status,
+                int((perf_counter() - trace_started_at) * 1000),
+                len(result.text or ""),
+                len(result.tool_calls),
+                provider_prefix_message_count,
+                provider_stable_prefix_chars,
+                provider_runtime_payload_chars,
+            )
+
         try:
             gateway.refresh_tools()
 
@@ -158,14 +180,24 @@ class WorkspaceOrchestratorAgent:
                 state.streamed_text.append(delta)
                 emit_visible_delta(context, state, delta)
 
+            provider_user_input = self.prompt_payload_builder.provider_user_input(
+                context,
+                state.active_skill_keys,
+                state.injection_history,
+                state.capability_policy,
+            )
+            prefix_messages = list(getattr(provider_user_input, "prefix_messages", []) or [])
+            runtime_payload_text = (
+                getattr(provider_user_input, "text", "")
+                if not isinstance(provider_user_input, str)
+                else provider_user_input
+            )
+            provider_prefix_message_count = len(prefix_messages)
+            provider_stable_prefix_chars = sum(len(message) for message in prefix_messages)
+            provider_runtime_payload_chars = len(runtime_payload_text)
             provider_kwargs = {
                 "system": self.prompt_payload_builder.system_prompt(context, state.active_skill_keys),
-                "user": self.prompt_payload_builder.provider_user_input(
-                    context,
-                    state.active_skill_keys,
-                    state.injection_history,
-                    state.capability_policy,
-                ),
+                "user": provider_user_input,
                 "tools": gateway.refresh_tools,
                 "tool_handler": gateway.call_tool,
                 "message_handler": handle_message_delta,
@@ -185,19 +217,25 @@ class WorkspaceOrchestratorAgent:
                 )
             provider_result = self.provider.generate_with_tools(**provider_kwargs)
             if provider_result.status in {"failed", "fallback"}:
-                return finish_orchestrator_span(
-                    self.result_assembler.failed_result(
-                        provider_result,
-                        context,
-                        "orchestrator provider unavailable",
-                        state=state,
-                    )
+                result = self.result_assembler.failed_result(
+                    provider_result,
+                    context,
+                    "orchestrator provider unavailable",
+                    state=state,
                 )
-            return finish_orchestrator_span(self.result_assembler.completed_result(provider_result, context, state))
+                log_turn_completed(result)
+                return finish_orchestrator_span(result)
+            result = self.result_assembler.completed_result(provider_result, context, state)
+            log_turn_completed(result)
+            return finish_orchestrator_span(result)
         except ApprovalRequired:
-            return finish_orchestrator_span(self.result_assembler.approval_result(context, state))
+            result = self.result_assembler.approval_result(context, state)
+            log_turn_completed(result)
+            return finish_orchestrator_span(result)
         except HumanInputRequired as exc:
-            return finish_orchestrator_span(self.result_assembler.human_input_result(context, state, exc.request))
+            result = self.result_assembler.human_input_result(context, state, exc.request)
+            log_turn_completed(result)
+            return finish_orchestrator_span(result)
         except AIExecutionCancelled:
             raise
         except Exception as exc:
@@ -209,15 +247,15 @@ class WorkspaceOrchestratorAgent:
                 exc,
                 exc_info=True,
             )
-            return finish_orchestrator_span(
-                SkillResult(
-                    text="AI 工作台执行失败，请重试。",
-                    status="failed",
-                    model=model_name(context),
-                    error=str(exc),
-                    diagnostic=str(exc),
-                )
+            result = SkillResult(
+                text="AI 工作台执行失败，请重试。",
+                status="failed",
+                model=model_name(context),
+                error=str(exc),
+                diagnostic=str(exc),
             )
+            log_turn_completed(result)
+            return finish_orchestrator_span(result)
         finally:
             context.tool_executor = root_tool_executor
         return SkillResult(

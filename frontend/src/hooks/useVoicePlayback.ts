@@ -18,7 +18,7 @@ type WindowWithWebkitAudioContext = Window & typeof globalThis & {
   webkitAudioContext?: typeof AudioContext;
 };
 
-const PCM_INITIAL_BUFFER_SECONDS = 0.55;
+const PCM_INITIAL_BUFFER_SECONDS = 0.3;
 const PCM_MIN_SCHEDULE_SECONDS = 0.12;
 const PCM_START_LEAD_SECONDS = 0.12;
 const PCM_LOW_WATER_SECONDS = 0.22;

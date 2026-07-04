@@ -143,6 +143,17 @@ describe('useVoicePlayback', () => {
     expect(startedAtValues).toHaveLength(1);
   });
 
+  it('starts PCM playback once a phone-sized initial buffer is ready', () => {
+    renderProbe();
+
+    act(() => {
+      latest?.startPcmStream({ sampleRate: 24000, channels: 1, contentType: 'audio/pcm' });
+      latest?.appendPcmChunk(new Uint8Array(16000), { sampleRate: 24000, channels: 1, contentType: 'audio/pcm' });
+    });
+
+    expect(startedAtValues).toHaveLength(1);
+  });
+
   it('records playback trace events for first audio delta and actual start', () => {
     renderProbe();
 

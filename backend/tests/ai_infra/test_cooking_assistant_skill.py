@@ -130,6 +130,7 @@ class CookingAssistantSkillTestCase(AIAgentInfraTestCase):
 
                 def __init__(self) -> None:
                     self.tool_output: dict[str, Any] = {}
+                    self.ui_action_input_schema: dict[str, Any] = {}
 
                 def generate(self, *, system: str, user: str) -> ChatProviderResult:
                     raise AssertionError("orchestrator should use generate_with_tools")
@@ -143,7 +144,10 @@ class CookingAssistantSkillTestCase(AIAgentInfraTestCase):
                     tool_handler,
                     **kwargs,
                 ) -> ChatProviderResult:
-                    outer.assertIn("ui.propose_actions", [tool.name for tool in tools()])
+                    tool_list = tools()
+                    ui_action_tool = next(tool for tool in tool_list if tool.name == "ui.propose_actions")
+                    self.ui_action_input_schema = ui_action_tool.input_schema
+                    outer.assertIn("ui.propose_actions", [tool.name for tool in tool_list])
                     payload = {"actions": [{"type": "set_timer", "seconds": 300}]}
                     self.tool_output = tool_handler("ui.propose_actions", payload)
                     return ChatProviderResult(
@@ -191,6 +195,11 @@ class CookingAssistantSkillTestCase(AIAgentInfraTestCase):
                 skill_registry=build_workspace_skill_registry(),
             ).run(context, injected_skill_keys=profile.initial_skill_keys)
 
+            self.assertEqual(provider.ui_action_input_schema["required"], ["actions"])
+            self.assertEqual(set(provider.ui_action_input_schema["properties"].keys()), {"actions", "requiresConfirmation"})
+            self.assertNotIn("recipeId", provider.ui_action_input_schema["properties"])
+            self.assertNotIn("cookSessionId", provider.ui_action_input_schema["properties"])
+            self.assertNotIn("sessionRevision", provider.ui_action_input_schema["properties"])
             self.assertEqual(result.status, "completed")
             self.assertEqual(result.text, "好了，5 分钟倒计时开始了。")
             self.assertEqual(len(result.cards), 1)

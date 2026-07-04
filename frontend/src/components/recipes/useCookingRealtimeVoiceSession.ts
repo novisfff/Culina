@@ -2,7 +2,17 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { aiVoiceApi, type CookingRealtimeSessionResponse } from '../../api/aiVoiceApi';
 import type { VoiceRecording } from '../../hooks/useVoiceRecorder';
 
-export type CookingRealtimeVoiceStatus = 'idle' | 'connecting' | 'listening' | 'speaking' | 'muted' | 'closed' | 'failed';
+export type CookingRealtimeVoiceStatus =
+  | 'idle'
+  | 'connecting'
+  | 'listening'
+  | 'recording'
+  | 'transcribing'
+  | 'thinking'
+  | 'speaking'
+  | 'muted'
+  | 'closed'
+  | 'failed';
 
 type StartSessionArgs = {
   recipeId: string;
@@ -20,6 +30,7 @@ type CookingRealtimeVoiceSessionOptions = {
   onAssistantAudioDone?: (event: { sequence: number }) => void;
   onAssistantAudioError?: (message: string) => void;
   onAssistantAudioTrace?: (event: { stage: string; elapsed_ms?: number; [key: string]: unknown }) => void;
+  onVoiceTrace?: (event: { stage: string; details?: Record<string, unknown> }) => void;
   onUserTranscriptDelta?: (text: string) => void;
   onUserTranscriptDone?: (text: string) => void;
   onUiActions?: (card: unknown) => void;
@@ -35,6 +46,10 @@ function blobToDataUrl(blob: Blob) {
   });
 }
 
+export function isCookingRealtimeVoiceMicDisabled(status: CookingRealtimeVoiceStatus, disabled = false) {
+  return disabled || status === 'connecting' || status === 'muted' || status === 'closed' || status === 'failed';
+}
+
 export function useCookingRealtimeVoiceSession(options: CookingRealtimeVoiceSessionOptions = {}) {
   const [status, setStatus] = useState<CookingRealtimeVoiceStatus>('idle');
   const [session, setSession] = useState<CookingRealtimeSessionResponse | null>(null);
@@ -45,6 +60,20 @@ export function useCookingRealtimeVoiceSession(options: CookingRealtimeVoiceSess
   const [listenCycle, setListenCycle] = useState(0);
   const timerRef = useRef<number | null>(null);
   const socketRef = useRef<WebSocket | null>(null);
+  const activeTurnIdRef = useRef('');
+  const turnCounterRef = useRef(0);
+
+  const nextTurnId = useCallback(() => {
+    turnCounterRef.current += 1;
+    const turnId = `voice_turn-${Date.now()}-${turnCounterRef.current}`;
+    activeTurnIdRef.current = turnId;
+    return turnId;
+  }, []);
+
+  const belongsToActiveTurn = useCallback((message: { turn_id?: unknown }) => {
+    const turnId = typeof message.turn_id === 'string' ? message.turn_id : '';
+    return !turnId || !activeTurnIdRef.current || turnId === activeTurnIdRef.current;
+  }, []);
 
   useEffect(() => {
     if (startedAt === null) return undefined;
@@ -83,6 +112,9 @@ export function useCookingRealtimeVoiceSession(options: CookingRealtimeVoiceSess
       socket.onmessage = (event) => {
         try {
           const message = JSON.parse(String(event.data));
+          if (!belongsToActiveTurn(message)) {
+            return;
+          }
           if (message.type === 'status' && typeof message.status === 'string') {
             setStatus(message.status as CookingRealtimeVoiceStatus);
             if (message.status === 'listening') {
@@ -109,6 +141,7 @@ export function useCookingRealtimeVoiceSession(options: CookingRealtimeVoiceSess
             options.onAssistantAudio?.(new Blob([bytes], { type: contentType }));
           }
           if (message.type === 'assistant_audio_start') {
+            setStatus('speaking');
             options.onAssistantAudioStart?.({
               content_type: typeof message.content_type === 'string' ? message.content_type : 'audio/pcm',
               sample_rate: typeof message.sample_rate === 'number' ? message.sample_rate : 24000,
@@ -173,6 +206,7 @@ export function useCookingRealtimeVoiceSession(options: CookingRealtimeVoiceSess
     setElapsedSeconds(0);
     setLastTranscript('');
     setListenCycle(0);
+    activeTurnIdRef.current = '';
   }, []);
   const toggleMute = useCallback(() => {
     setStatus((current) => {
@@ -196,12 +230,13 @@ export function useCookingRealtimeVoiceSession(options: CookingRealtimeVoiceSess
   const sendTranscript = useCallback((text: string) => {
     const transcript = text.trim();
     if (!transcript) return;
+    const turnId = nextTurnId();
     setLastTranscript(transcript);
-    setStatus('speaking');
+    setStatus('thinking');
     if (socketRef.current?.readyState === WebSocket.OPEN) {
-      socketRef.current.send(JSON.stringify({ type: 'user_transcript_done', text: transcript }));
+      socketRef.current.send(JSON.stringify({ type: 'user_transcript_done', text: transcript, turn_id: turnId }));
     }
-  }, []);
+  }, [nextTurnId]);
   const sendRecording = useCallback(async (recording: VoiceRecording) => {
     if (status === 'muted') return;
     if (socketRef.current?.readyState !== WebSocket.OPEN) {
@@ -209,22 +244,43 @@ export function useCookingRealtimeVoiceSession(options: CookingRealtimeVoiceSess
       options.onError?.('小灶通话还没有连接好');
       return;
     }
+    const turnId = nextTurnId();
     setLastTranscript('');
-    setStatus('connecting');
+    setStatus('transcribing');
+    options.onVoiceTrace?.({
+      stage: 'frontend_recording_done',
+      details: {
+        turn_id: turnId,
+        duration_ms: recording.durationMs,
+        bytes: recording.blob.size,
+        mime_type: recording.mimeType,
+      },
+    });
     const dataUrl = await blobToDataUrl(recording.blob);
     socketRef.current.send(JSON.stringify({
       type: 'audio_chunk_done',
+      turn_id: turnId,
       data: dataUrl,
       mime_type: recording.mimeType,
       duration_ms: recording.durationMs,
       sample_rate: 16000,
       filename: recording.mimeType.includes('mp4') ? 'voice.mp4' : 'voice.webm',
     }));
-  }, [options, status]);
+    options.onVoiceTrace?.({
+      stage: 'frontend_audio_sent',
+      details: {
+        turn_id: turnId,
+        duration_ms: recording.durationMs,
+        bytes: recording.blob.size,
+        mime_type: recording.mimeType,
+      },
+    });
+  }, [nextTurnId, options, status]);
 
   useEffect(() => () => {
     socketRef.current?.close();
     socketRef.current = null;
+    activeTurnIdRef.current = '';
   }, []);
 
   const formattedElapsed = useMemo(() => {

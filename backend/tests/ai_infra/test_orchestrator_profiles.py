@@ -241,6 +241,8 @@ class OrchestratorProfileTestCase(AIAgentInfraTestCase):
             self.assertEqual(policy.allowed_skill_keys, ("cooking_assistant",))
             self.assertEqual(policy.to_state()["allowedSkillKeys"], ["cooking_assistant"])
             self.assertEqual(policy.to_state()["artifactContext"], "without_drafts")
+            self.assertEqual(policy.base_tools, ())
+            self.assertEqual(policy.to_state()["baseTools"], [])
             self.assertNotIn("skill.inject", policy.base_tools)
             self.assertEqual(COOKING_ASSISTANT_PROFILE.budget_config.max_business_skills_per_run, 0)
             self.assertEqual(
@@ -911,7 +913,7 @@ class OrchestratorProfileTestCase(AIAgentInfraTestCase):
             self.assertEqual(result.context_summary["orchestrator"]["budget"]["maxBusinessSkillsPerRun"], 0)
             self.assertIn("ui.propose_actions", provider.tool_names)
             self.assertIn("recipe.read_by_id", provider.tool_names)
-            self.assertIn("human.request_input", provider.tool_names)
+            self.assertNotIn("human.request_input", provider.tool_names)
             self.assertNotIn("skill.inject", provider.tool_names)
             metadata = prompt_contract_metadata(provider.system)
             self.assertEqual(metadata["profileKey"], "recipe_cook_page")
@@ -930,8 +932,10 @@ class OrchestratorProfileTestCase(AIAgentInfraTestCase):
             self.assertEqual(metadata["capabilityPolicy"]["draftContract"], "hidden")
             self.assertEqual(metadata["capabilityPolicy"]["artifactContext"], "without_drafts")
             self.assertEqual(metadata["capabilityPolicy"]["allowedSkillKeys"], ["cooking_assistant"])
+            self.assertLess(len(provider.system), 4200)
             self.assertIn("小灶", provider.system)
             self.assertNotIn("Catalog records:", provider.system)
+            self.assertNotIn("Injected skills:", provider.system)
             self.assertNotIn('"key": "meal_plan"', provider.system)
             self.assertNotIn("skill.inject", provider.system)
             self.assertNotIn("本轮最多生成一个 draft", provider.system)
@@ -1118,3 +1122,72 @@ class OrchestratorProfileTestCase(AIAgentInfraTestCase):
             self.assertEqual(payload["previousResults"][0]["drafts"], [])
             self.assertEqual(payload["previousResults"][0]["cards"][0]["type"], "today_recommendation")
             self.assertNotIn("allowedDraftTypes", payload)
+
+        def test_provider_user_input_uses_stable_subject_prefix_when_declared(self) -> None:
+            agent = WorkspaceOrchestratorAgent(
+                provider=MagicMock(),
+                skill_registry=build_workspace_skill_registry(),
+            )
+            context = SkillContext(
+                db=MagicMock(),
+                family_id=self.family.id,
+                user_id=self.user.id,
+                conversation_id="conversation-stable-prefix",
+                run_id="run-stable-prefix",
+                conversation=[],
+                current_message="下一步呢？",
+                subject={
+                    "source": "recipe_cook_page",
+                    "recipe_id": "recipe-tomato",
+                    "extra": {
+                        "stableContext": {
+                            "recipeId": "recipe-tomato",
+                            "recipeTitle": "番茄炒蛋",
+                            "steps": [{"id": "step-1", "text": "炒蛋。"}],
+                            "ingredients": [{"id": "ri-egg", "name": "鸡蛋"}],
+                        },
+                        "runtimeContext": {
+                            "currentStepIndex": 1,
+                            "sessionRevision": 7,
+                            "timers": [{"id": "timer-main", "remainingSeconds": 90}],
+                            "assistantConversation": [{"role": "user", "text": "你好"}],
+                        },
+                    },
+                },
+                orchestrator_profile=COOKING_ASSISTANT_PROFILE.to_state(),
+                quick_task="cooking_assistant",
+                tool_executor=ToolExecutor(
+                    build_workspace_tool_registry(),
+                    ToolContext(
+                        db=MagicMock(),
+                        family_id=self.family.id,
+                        user_id=self.user.id,
+                        conversation_id="conversation-stable-prefix",
+                        run_id="run-stable-prefix",
+                    ),
+                ),
+            )
+
+            user_input = agent.prompt_payload_builder.provider_user_input(
+                context,
+                ["cooking_assistant"],
+                [],
+            )
+
+            self.assertIsInstance(user_input, ProviderUserInput)
+            assert isinstance(user_input, ProviderUserInput)
+            self.assertEqual(len(user_input.prefix_messages), 1)
+            stable_payload = json.loads(user_input.prefix_messages[0])
+            runtime_payload = json.loads(user_input.text)
+            stable_text = json.dumps(stable_payload, ensure_ascii=False)
+            runtime_text = json.dumps(runtime_payload, ensure_ascii=False)
+            self.assertEqual(stable_payload["type"], "stableSubject")
+            self.assertEqual(stable_payload["subject"]["recipeTitle"], "番茄炒蛋")
+            self.assertNotIn("currentMessage", stable_payload)
+            self.assertNotIn("timers", stable_text)
+            self.assertNotIn("sessionRevision", stable_text)
+            self.assertNotIn("assistantConversation", stable_text)
+            self.assertEqual(runtime_payload["currentMessage"], "下一步呢？")
+            self.assertEqual(runtime_payload["subject"]["runtimeContext"]["currentStepIndex"], 1)
+            self.assertNotIn("stableContext", runtime_payload["subject"])
+            self.assertNotIn("ingredients", runtime_text)
