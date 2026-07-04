@@ -2,7 +2,8 @@ import { act, useEffect } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { api } from '../../api/client';
-import type { AiChatResponse, AiRunEvent } from '../../api/types';
+import type { AiChatResponse, AiResultCard, AiRunEvent, AiUiActionsCardData } from '../../api/types';
+import type { CookingAssistantActionResult } from './cookingAssistantModel';
 import { useCookingAssistantStream, type CookingAssistantMessage } from './useCookingAssistantStream';
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -16,6 +17,7 @@ type ProbeValue = {
 let root: Root | null = null;
 let container: HTMLDivElement | null = null;
 let latest: ProbeValue | null = null;
+let actionCardHandler: (card: AiResultCard) => CookingAssistantActionResult | null = () => null;
 
 function chatResponse(content: string): AiChatResponse {
   return {
@@ -61,7 +63,7 @@ function progressEvent(overrides: Partial<AiRunEvent>): AiRunEvent {
 function Probe() {
   const assistant = useCookingAssistantStream({
     buildSubject: () => ({ source: 'recipe_cook_page' }),
-    onActionCard: () => null,
+    onActionCard: actionCardHandler,
     initialMessagesKey: 'cook-session-1',
     initialMessages: [],
     onMessagesChange: vi.fn(),
@@ -89,6 +91,7 @@ beforeEach(() => {
   document.body.appendChild(container);
   root = createRoot(container);
   latest = null;
+  actionCardHandler = () => null;
 });
 
 afterEach(() => {
@@ -125,8 +128,56 @@ describe('useCookingAssistantStream', () => {
     const messageText = JSON.stringify(latest?.messages ?? []);
     expect(messageText).not.toContain('技能调用');
     expect(messageText).not.toContain('做菜助手');
-    expect(messageText).toContain('工具调用');
     expect(messageText).toContain('调用「当前步骤」');
+  });
+
+  it('hides generic ui action progress and shows the executed action summary', async () => {
+    const data: AiUiActionsCardData = {
+      surface: 'recipe_cook_page',
+      recipeId: 'recipe-1',
+      cookSessionId: 'cook-session-1',
+      sessionRevision: 1,
+      actions: [{ type: 'set_timer', timerId: 'timer-main', seconds: 300, name: '焖煮' }],
+      requiresConfirmation: false,
+    };
+    const card: AiResultCard = {
+      id: 'card-ui-action',
+      type: 'ui_actions',
+      title: '页面操作建议',
+      data: { ...data },
+    };
+    actionCardHandler = () => ({
+      status: 'executed',
+      message: '页面操作已执行。',
+      data,
+    });
+    vi.spyOn(api, 'streamChatAi').mockImplementation(async (_payload, handlers) => {
+      handlers?.onProgress?.(progressEvent({
+        id: 'ui-progress',
+        internal_code: 'ui.propose_actions',
+        user_message: '调用「页面操作建议」',
+      }));
+      handlers?.onMessagePart?.({
+        message_id: 'message-1',
+        conversation_id: 'conversation-1',
+        run_id: 'run-1',
+        part: { id: 'part-ui-action', type: 'result_card', card },
+      });
+      handlers?.onMessageDelta?.({ delta: '好了，5 分钟倒计时开始了。' });
+      return chatResponse('好了，5 分钟倒计时开始了。');
+    });
+
+    renderProbe();
+
+    await act(async () => {
+      await latest?.sendMessage('帮我计时');
+    });
+
+    const messageText = JSON.stringify(latest?.messages ?? []);
+    expect(messageText).toContain('设置 05:00 倒计时');
+    expect(messageText).toContain('已执行');
+    expect(messageText).not.toContain('工具调用');
+    expect(messageText).not.toContain('页面操作建议');
   });
 
   it('marks the reply complete when the final response arrives before the stream closes', async () => {

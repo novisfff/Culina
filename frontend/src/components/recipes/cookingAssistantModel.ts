@@ -390,7 +390,7 @@ export function buildCookingActionTaskText(data: AiUiActionsCardData) {
 
 export function buildCookingActionToolCardMessage(data: AiUiActionsCardData, status: CookingAssistantActionResult['status'], message?: string) {
   const statusText = status === 'executed' ? '已执行' : status === 'needs_confirmation' ? '等待确认' : '未执行';
-  return ['页面操作', status === 'rejected' && message ? message : buildCookingActionTaskText(data), statusText].join('\n');
+  return [status === 'rejected' && message ? message : buildCookingActionTaskText(data), statusText].join('\n');
 }
 
 function executeAction(action: AiCookPageAction, handlers: CookingAssistantActionHandlers) {
