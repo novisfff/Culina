@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from app.ai.errors import ToolBudgetHardStop
 from app.ai.skills.base import SkillContext
 from app.ai.tools.base import ToolDefinition
 from app.ai.workflows.orchestrator.draft_capture import (
@@ -117,6 +118,13 @@ class OrchestratorToolGateway:
         )
         if not budget_decision.allowed:
             output = budget_decision.output or {}
+            if output.get("code") == "tool_budget_exhausted":
+                self.state.tool_budget_exhausted_attempts += 1
+                self.state.tool_budget_last_output = dict(output)
+                if budget_decision.hard_stop:
+                    self.state.tool_budget_hard_stopped = True
+                    raise ToolBudgetHardStop(output)
+                self.state.tool_budget_exhausted = True
             self._capture_tool_contract_metadata(
                 name,
                 execution_definition.side_effect,

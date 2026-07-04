@@ -4,7 +4,7 @@ import logging
 import inspect
 from time import perf_counter
 
-from app.ai.errors import AIExecutionCancelled, ApprovalRequired, HumanInputRequired
+from app.ai.errors import AIExecutionCancelled, ApprovalRequired, HumanInputRequired, ToolBudgetHardStop
 from app.ai.observability.llm_exchange import LLMExchangeRecorder
 from app.ai.runtime.provider import BaseChatProvider
 from app.ai.skills.base import SkillContext, SkillResult
@@ -106,6 +106,7 @@ class WorkspaceOrchestratorAgent:
             profile_key=str(profile_state_value(profile_state, "key") or ""),
             response_style=str(profile_state_value(profile_state, "responseStyle", "response_style") or ""),
             capability_policy=capability_policy,
+            base_budget_config=base_budget_config,
             budget_config=budget_config,
             injection_history=[
                 {
@@ -148,6 +149,7 @@ class WorkspaceOrchestratorAgent:
                         "injectedSkills": state.active_skill_keys,
                         "readTools": sorted(state.read_outputs.keys()),
                         "budget": state.budget_config.to_state(),
+                        "budgetUsage": self.result_assembler.budget_usage(state),
                     },
                     error_code=result.error if result.status == "failed" else None,
                     error_message=result.error if result.status == "failed" else None,
@@ -234,6 +236,10 @@ class WorkspaceOrchestratorAgent:
             return finish_orchestrator_span(result)
         except HumanInputRequired as exc:
             result = self.result_assembler.human_input_result(context, state, exc.request)
+            log_turn_completed(result)
+            return finish_orchestrator_span(result)
+        except ToolBudgetHardStop:
+            result = self.result_assembler.tool_budget_hard_stop_result(context, state)
             log_turn_completed(result)
             return finish_orchestrator_span(result)
         except AIExecutionCancelled:

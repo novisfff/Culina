@@ -28,7 +28,7 @@ route_hints:
 - recipe_draft
 approval_policy: draft_then_confirm
 tool_budget:
-  max_tool_calls: 16
+  max_tool_calls: 28
   max_same_read_calls: 2
 completion_policy:
   followup_required_tools:

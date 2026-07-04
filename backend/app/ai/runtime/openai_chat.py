@@ -8,12 +8,17 @@ from typing import Any
 
 from openai import OpenAI
 
-from app.ai.errors import AIExecutionCancelled, ApprovalRequired, HumanInputRequired
+from app.ai.errors import AIExecutionCancelled, ApprovalRequired, HumanInputRequired, ToolBudgetHardStop
 from app.ai.runtime.messages import field_value, openai_chat_content, openai_chat_messages
 from app.ai.runtime.prompt_cache import (
     create_stream_with_unsupported_param_fallback,
     prompt_cache_api_params,
     prompt_cache_request_options,
+)
+from app.ai.runtime.tool_loop import (
+    MAX_ROUNDS_FINALIZATION_PROMPT,
+    max_rounds_finalization_round,
+    max_rounds_finalization_trace_options,
 )
 from app.ai.runtime.tooling import (
     chat_tool_definition_to_model_tool,
@@ -211,10 +216,20 @@ class OpenAICompatibleChatProvider(BaseChatProvider):
         text_parts: list[str] = []
 
         for _round in range(max(1, max_rounds)):
-            current_tools = tools()
+            finalization_round = max_rounds_finalization_round(
+                round_index=_round,
+                max_rounds=max_rounds,
+                requested_tool_call_count=len(requested_calls),
+            )
+            current_tools = [] if finalization_round else tools()
             name_map = {self._model_tool_name(tool.name): tool.name for tool in current_tools}
             model_tools = [self._tool_definition_to_model_tool(tool) for tool in current_tools]
             cache_options = self._chat_completions_cache_request_options(system, user, model_tools)
+            request_messages = (
+                [*messages, {"role": "user", "content": MAX_ROUNDS_FINALIZATION_PROMPT}]
+                if finalization_round
+                else messages
+            )
             response = None
             exchange = None
             for attempt in range(STREAM_TOOL_CALL_RETRY_COUNT + 1):
@@ -226,7 +241,7 @@ class OpenAICompatibleChatProvider(BaseChatProvider):
                         attempt_index=attempt + 1,
                         mode="stream",
                         model=self.model_name,
-                        request_messages=messages,
+                        request_messages=request_messages,
                         request_tools=model_tools,
                         request_options={
                             "model": self.model_name,
@@ -234,6 +249,7 @@ class OpenAICompatibleChatProvider(BaseChatProvider):
                             "roundIndex": _round + 1,
                             "attemptIndex": attempt + 1,
                             "maxRounds": max_rounds,
+                            **max_rounds_finalization_trace_options(finalization_round),
                             "toolCount": len(current_tools),
                             "supportsVision": self.supports_vision,
                             "temperature": 0,
@@ -248,7 +264,7 @@ class OpenAICompatibleChatProvider(BaseChatProvider):
                 try:
                     response = self._collect_stream_response(
                         self._create_chat_completion_stream(
-                            messages,
+                            request_messages,
                             tools=model_tools,
                             temperature=0,
                             prompt_cache_options=cache_options,
@@ -330,6 +346,8 @@ class OpenAICompatibleChatProvider(BaseChatProvider):
                 )
             if response.text:
                 text_parts.append(response.text)
+            if finalization_round and response.tool_calls:
+                break
             messages.append(self._assistant_message(response))
             if not response.tool_calls:
                 return ChatProviderResult(
@@ -358,7 +376,7 @@ class OpenAICompatibleChatProvider(BaseChatProvider):
                 )
                 try:
                     output = self._invoke_tool_handler(tool_handler, name, args, progress_event_id)
-                except (AIExecutionCancelled, ApprovalRequired, HumanInputRequired):
+                except (AIExecutionCancelled, ApprovalRequired, HumanInputRequired, ToolBudgetHardStop):
                     raise
                 except Exception as exc:
                     logger.warning(

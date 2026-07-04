@@ -27,6 +27,7 @@ from app.ai.workflows.runner_support.run_summary import (
     record_approval_outcome_summary,
     result_context_summary,
 )
+from app.ai.runtime.tool_loop import max_rounds_finalization_round
 from app.ai.workflows.runner import MAX_AGENT_ROUNDS
 from app.ai.workflows.orchestrator.tool_contracts import tool_completion_metadata
 from app.ai.workflows.orchestrator.profiles import (
@@ -816,6 +817,87 @@ class AIFoundationTestCase(AIAgentInfraTestCase):
             tool_message = next(message for message in second_messages if isinstance(message, dict) and message.get("role") == "tool")
             self.assertIn("tool_execution_failed", str(tool_message["content"]))
             self.assertIn("limit must be positive", str(tool_message["content"]))
+
+        def test_provider_tool_loop_finalization_round_requires_prior_tool_call_and_last_round(self) -> None:
+            self.assertFalse(
+                max_rounds_finalization_round(
+                    round_index=1,
+                    max_rounds=2,
+                    requested_tool_call_count=0,
+                )
+            )
+            self.assertFalse(
+                max_rounds_finalization_round(
+                    round_index=0,
+                    max_rounds=2,
+                    requested_tool_call_count=1,
+                )
+            )
+            self.assertTrue(
+                max_rounds_finalization_round(
+                    round_index=1,
+                    max_rounds=2,
+                    requested_tool_call_count=1,
+                )
+            )
+
+        def test_openai_compatible_provider_soft_finalizes_at_max_rounds(self) -> None:
+            class ToolCallChunk:
+                content = ""
+                tool_calls = [
+                    {
+                        "id": "call-read",
+                        "name": "inventory_read_available_items",
+                        "args": {"limit": 5},
+                    }
+                ]
+
+                def __add__(self, other):
+                    return other
+
+            class TextChunk:
+                tool_calls: list[dict[str, Any]] = []
+                tool_call_chunks: list[dict[str, Any]] = []
+
+                def __init__(self, content: str) -> None:
+                    self.content = content
+
+                def __add__(self, other):
+                    return TextChunk(f"{self.content}{getattr(other, 'content', '')}")
+
+            class FakeCompletions:
+                def __init__(self) -> None:
+                    self.requests: list[dict[str, Any]] = []
+
+                def create(self, **request):
+                    self.requests.append(request)
+                    if len(self.requests) == 1:
+                        return [_openai_stream_chunk_from_test_chunk(ToolCallChunk())]
+                    return [_openai_stream_chunk_from_test_chunk(TextChunk("我先基于已有结果总结。"))]
+
+            fake_completions = FakeCompletions()
+            provider = OpenAICompatibleChatProvider.__new__(OpenAICompatibleChatProvider)
+            provider.model_name = "compatible-model"
+            provider.supports_vision = False
+            provider.prompt_cache_enabled = True
+            provider.openai_client = SimpleNamespace(chat=SimpleNamespace(completions=fake_completions))
+            tool = build_workspace_tool_registry().get("inventory.read_available_items")
+
+            result = provider.generate_with_tools(
+                system="s",
+                user="u",
+                tools=lambda: [tool],
+                tool_handler=lambda name, payload: {"items": []},
+                max_rounds=2,
+            )
+
+            self.assertEqual(result.status, "completed")
+            self.assertEqual(result.text, "我先基于已有结果总结。")
+            self.assertEqual(len(fake_completions.requests), 2)
+            self.assertIn("tools", fake_completions.requests[0])
+            self.assertNotIn("tools", fake_completions.requests[1])
+            final_messages = fake_completions.requests[1]["messages"]
+            self.assertIn("工具调用轮次已经达到上限", final_messages[-1]["content"])
 
         def test_openai_compatible_provider_retries_empty_tool_response_before_completion(self) -> None:
             class EmptyChunk:
@@ -1735,6 +1817,57 @@ class AIFoundationTestCase(AIAgentInfraTestCase):
             self.assertEqual(output_item["call_id"], "call-read-items")
             self.assertIn("\"items\": []", output_item["output"])
 
+        def test_openai_responses_provider_soft_finalizes_at_max_rounds(self) -> None:
+            function_call = {
+                "type": "function_call",
+                "call_id": "call-read-items",
+                "name": "inventory_read_available_items",
+                "arguments": "{\"limit\": 5}",
+                "status": "completed",
+            }
+
+            class FakeResponses:
+                def __init__(self) -> None:
+                    self.requests: list[dict[str, Any]] = []
+
+                def create(self, **request):
+                    self.requests.append(request)
+                    if len(self.requests) == 1:
+                        return iter(
+                            [
+                                SimpleNamespace(type="response.output_item.done", item=function_call),
+                                SimpleNamespace(type="response.completed", response=SimpleNamespace(output=[function_call], usage=None)),
+                            ]
+                        )
+                    return iter(
+                        [
+                            SimpleNamespace(type="response.output_text.delta", delta="我先基于已有结果总结。"),
+                            SimpleNamespace(type="response.completed", response=SimpleNamespace(output=[], usage=None)),
+                        ]
+                    )
+
+            fake_responses = FakeResponses()
+            provider = OpenAIResponsesChatProvider.__new__(OpenAIResponsesChatProvider)
+            provider.model_name = "gpt-5-mini"
+            provider.supports_vision = False
+            provider.client = SimpleNamespace(responses=fake_responses)
+            tool = build_workspace_tool_registry().get("inventory.read_available_items")
+
+            result = provider.generate_with_tools(
+                system="system prompt",
+                user=ProviderUserInput(text="runtime turn"),
+                tools=lambda: [tool],
+                tool_handler=lambda name, payload: {"items": []},
+                max_rounds=2,
+            )
+
+            self.assertEqual(result.status, "completed")
+            self.assertEqual(result.text, "我先基于已有结果总结。")
+            self.assertEqual(len(fake_responses.requests), 2)
+            self.assertIn("tools", fake_responses.requests[0])
+            self.assertNotIn("tools", fake_responses.requests[1])
+            self.assertIn("工具调用轮次已经达到上限", str(fake_responses.requests[1]["input"]))
+
         def test_openai_responses_provider_preserves_same_name_tool_calls_without_ids(self) -> None:
             first_call = {
                 "type": "function_call",
@@ -2386,6 +2519,142 @@ class AIFoundationTestCase(AIAgentInfraTestCase):
             self.assertEqual(result.context_summary["orchestrator"]["budget"]["maxTotalToolCallsPerRun"], 0)
             self.assertEqual(result.tool_calls, [])
 
+        def test_orchestrator_adds_multi_skill_tool_budgets_under_global_cap(self) -> None:
+            manager = SkillInjectionManager(build_workspace_skill_registry())
+
+            budget = manager.budget_config_for(
+                ["meal_plan", "shopping_list", "recipe_draft", "inventory_analysis"],
+                OrchestratorBudgetConfig(),
+                MAIN_WORKSPACE_PROFILE.capability_policy,
+            )
+
+            self.assertEqual(budget.max_total_tool_calls_per_run, 48)
+            self.assertEqual(budget.max_same_read_tool_calls_per_run, 2)
+
+        def test_orchestrator_recomputes_dynamic_multi_skill_budget_from_global_cap(self) -> None:
+            class DynamicMultiSkillBudgetProvider(BaseChatProvider):
+                model_name = "orchestrator-dynamic-multi-skill-budget-model"
+
+                def generate(self, *, system: str, user: str) -> ChatProviderResult:
+                    raise AssertionError("orchestrator should use generate_with_tools")
+
+                def generate_with_tools(
+                    self,
+                    *,
+                    system: str,
+                    user: str,
+                    tools,
+                    tool_handler,
+                    message_handler=None,
+                    max_rounds: int = 8,
+                ) -> ChatProviderResult:
+                    del system, user, tools, max_rounds
+                    tool_handler("skill.inject", {"skills": ["meal_plan"], "reason": "安排晚餐"})
+                    tool_handler("skill.inject", {"skills": ["shopping_list"], "reason": "生成购物清单"})
+                    text = "已准备餐食安排和购物清单能力。"
+                    if message_handler is not None:
+                        message_handler(text)
+                    return ChatProviderResult(text=text, status="completed", model=self.model_name)
+
+            profile_state = MAIN_WORKSPACE_PROFILE.to_state()
+            profile_state["budgetConfig"] = OrchestratorBudgetConfig(max_total_tool_calls_per_run=48).to_state()
+            provider = DynamicMultiSkillBudgetProvider()
+            result = WorkspaceOrchestratorAgent(
+                provider=provider,
+                skill_registry=build_workspace_skill_registry(),
+            ).run(
+                SkillContext(
+                    db=MagicMock(),
+                    family_id=self.family.id,
+                    user_id=self.user.id,
+                    conversation_id="conversation-dynamic-multi-skill-budget",
+                    run_id="run-dynamic-multi-skill-budget",
+                    conversation=[{"id": "message-1", "role": "user", "content": "安排晚餐后生成购物清单", "artifacts": []}],
+                    current_message="安排晚餐后生成购物清单",
+                    orchestrator_profile=profile_state,
+                    tool_executor=ToolExecutor(
+                        build_workspace_tool_registry(),
+                        ToolContext(
+                            db=MagicMock(),
+                            family_id=self.family.id,
+                            user_id=self.user.id,
+                            conversation_id="conversation-dynamic-multi-skill-budget",
+                            run_id="run-dynamic-multi-skill-budget",
+                        ),
+                    ),
+                )
+            )
+
+            self.assertEqual(result.status, "completed")
+            self.assertEqual(result.context_summary["orchestrator"]["injectedSkills"], ["meal_plan", "shopping_list"])
+            self.assertEqual(result.context_summary["orchestrator"]["budget"]["maxTotalToolCallsPerRun"], 48)
+
+        def test_orchestrator_hard_stops_when_model_keeps_calling_after_tool_budget_exhausted(self) -> None:
+            class ToolBudgetHardStopProvider(BaseChatProvider):
+                model_name = "orchestrator-tool-budget-hard-stop-model"
+
+                def __init__(self) -> None:
+                    self.first_result: dict[str, Any] = {}
+
+                def generate(self, *, system: str, user: str) -> ChatProviderResult:
+                    raise AssertionError("orchestrator should use generate_with_tools")
+
+                def generate_with_tools(
+                    self,
+                    *,
+                    system: str,
+                    user: str,
+                    tools,
+                    tool_handler,
+                    message_handler=None,
+                    max_rounds: int = 8,
+                ) -> ChatProviderResult:
+                    del system, user, tools, message_handler, max_rounds
+                    self.first_result = tool_handler("test.contract_read", {})
+                    tool_handler("test.contract_read", {})
+                    raise AssertionError("second budget-exhausted tool call should hard stop")
+
+            tool_registry, skill_registry = _contract_tool_registries({"items": [{"name": "番茄"}]})
+            profile_state = _contract_test_profile_state()
+            profile_state["budgetConfig"] = OrchestratorBudgetConfig(max_total_tool_calls_per_run=0).to_state()
+            provider = ToolBudgetHardStopProvider()
+            result = WorkspaceOrchestratorAgent(
+                provider=provider,
+                skill_registry=skill_registry,
+            ).run(
+                SkillContext(
+                    db=MagicMock(),
+                    family_id=self.family.id,
+                    user_id=self.user.id,
+                    conversation_id="conversation-tool-budget-hard-stop",
+                    run_id="run-tool-budget-hard-stop",
+                    conversation=[{"id": "message-1", "role": "user", "content": "读取测试数据", "artifacts": []}],
+                    current_message="读取测试数据",
+                    orchestrator_profile=profile_state,
+                    tool_executor=ToolExecutor(
+                        tool_registry,
+                        ToolContext(
+                            db=MagicMock(),
+                            family_id=self.family.id,
+                            user_id=self.user.id,
+                            conversation_id="conversation-tool-budget-hard-stop",
+                            run_id="run-tool-budget-hard-stop",
+                        ),
+                    ),
+                ),
+                injected_skill_keys=["contract_test"],
+            )
+
+            self.assertEqual(provider.first_result["code"], "tool_budget_exhausted")
+            self.assertEqual(provider.first_result["status"], "summarize_current_run")
+            self.assertIn("基于已有结果", provider.first_result["messageForAssistant"])
+            self.assertEqual(result.status, "failed")
+            self.assertEqual(result.error, "tool_budget_hard_stop")
+            self.assertIn("工具调用预算已经用完", result.text)
+            self.assertEqual(result.context_summary["orchestrator"]["budgetUsage"]["exhaustedToolCallAttempts"], 2)
+            self.assertTrue(result.context_summary["orchestrator"]["budgetUsage"]["hardStopped"])
+            self.assertEqual(result.tool_calls, [])
+
         def test_orchestrator_applies_dynamic_skill_same_read_budget_after_injection(self) -> None:
             class DynamicSkillToolBudgetProvider(BaseChatProvider):
                 model_name = "orchestrator-dynamic-skill-tool-budget-model"
@@ -3007,7 +3276,7 @@ class AIFoundationTestCase(AIAgentInfraTestCase):
             self.assertEqual(provider.inject_result["injectedSkills"][0]["approvalPolicy"], "draft_then_confirm")
             self.assertEqual(
                 provider.inject_result["injectedSkills"][0]["toolBudget"],
-                {"max_tool_calls": 16, "max_same_read_calls": 2},
+                {"max_tool_calls": 28, "max_same_read_calls": 2},
             )
             self.assertEqual(
                 provider.inject_result["injectedSkills"][0]["draftContract"],

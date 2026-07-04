@@ -412,11 +412,11 @@ class AIRegistryAndMetricsTestCase(AIAgentInfraTestCase):
             self.assertIn("recipe_cook", skills)
             self.assertEqual(skills["cooking_assistant"]["tool_budget"], {"max_tool_calls": 8, "max_same_read_calls": 2})
             self.assertEqual(skills["food_profile"]["tool_budget"], {"max_tool_calls": 10, "max_same_read_calls": 2})
-            self.assertEqual(skills["ingredient_profile"]["tool_budget"], {"max_tool_calls": 10, "max_same_read_calls": 2})
+            self.assertEqual(skills["ingredient_profile"]["tool_budget"], {"max_tool_calls": 18, "max_same_read_calls": 2})
             self.assertIn("today_recommendation", skills["meal_plan"]["route_hints"])
             self.assertIn("meal_plan", skills["meal_plan"]["route_hints"])
             self.assertIn("meal_planning", skills["meal_plan"]["route_hints"])
-            self.assertEqual(skills["inventory_analysis"]["tool_budget"], {"max_tool_calls": 14, "max_same_read_calls": 2})
+            self.assertEqual(skills["inventory_analysis"]["tool_budget"], {"max_tool_calls": 24, "max_same_read_calls": 2})
             self.assertIn("inventory_summary", skills["inventory_analysis"]["route_hints"])
             self.assertIn("inventory_operation", skills["inventory_analysis"]["route_hints"])
             self.assertEqual(
@@ -436,7 +436,7 @@ class AIRegistryAndMetricsTestCase(AIAgentInfraTestCase):
                 },
             )
             self.assertEqual(skills["meal_log"]["tool_budget"], {"max_tool_calls": 10, "max_same_read_calls": 2})
-            self.assertEqual(skills["meal_plan"]["tool_budget"], {"max_tool_calls": 18, "max_same_read_calls": 2})
+            self.assertEqual(skills["meal_plan"]["tool_budget"], {"max_tool_calls": 28, "max_same_read_calls": 2})
             self.assertEqual(
                 skills["meal_plan"]["draft_contract"],
                 {
@@ -459,13 +459,13 @@ class AIRegistryAndMetricsTestCase(AIAgentInfraTestCase):
                 "workspace.read_artifact",
                 skills["meal_plan"]["completion_policy"]["followupRequiredTools"],
             )
-            self.assertEqual(skills["recipe_draft"]["tool_budget"], {"max_tool_calls": 16, "max_same_read_calls": 2})
+            self.assertEqual(skills["recipe_draft"]["tool_budget"], {"max_tool_calls": 28, "max_same_read_calls": 2})
             self.assertEqual(skills["recipe_draft"]["draft_contract"]["recipe"]["commitHandlerKey"], "recipe")
             self.assertEqual(skills["recipe_cook"]["tool_budget"], {"max_tool_calls": 12, "max_same_read_calls": 2})
             self.assertIn("recipe_cook", skills["recipe_cook"]["route_hints"])
             self.assertIn("cook_recipe", skills["recipe_cook"]["route_hints"])
             self.assertEqual(skills["recipe_cook"]["draft_contract"]["recipe_cook"]["schemaVersion"], "recipe_cook_operation.v1")
-            self.assertEqual(skills["shopping_list"]["tool_budget"], {"max_tool_calls": 14, "max_same_read_calls": 2})
+            self.assertEqual(skills["shopping_list"]["tool_budget"], {"max_tool_calls": 24, "max_same_read_calls": 2})
             self.assertEqual(skills["shopping_list"]["draft_contract"]["shopping_list"]["approvalConfigKey"], "shopping_list")
             self.assertIn(
                 "shopping.read_pending",

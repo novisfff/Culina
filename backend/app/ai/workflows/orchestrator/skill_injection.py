@@ -107,16 +107,23 @@ class SkillInjectionManager:
         base_config: OrchestratorBudgetConfig,
         capability_policy: OrchestratorCapabilityPolicy,
     ) -> OrchestratorBudgetConfig:
-        max_total_tool_calls = base_config.max_total_tool_calls_per_run
+        skill_total_tool_calls = 0
+        has_skill_tool_budget = False
         max_same_read_calls = base_config.max_same_read_tool_calls_per_run
         for key in skill_keys:
             if not capability_policy.allows_skill(key):
                 continue
             budget = self.skill_registry.get(key).manifest.tool_budget
             if "max_tool_calls" in budget:
-                max_total_tool_calls = min(max_total_tool_calls, budget["max_tool_calls"])
+                has_skill_tool_budget = True
+                skill_total_tool_calls += budget["max_tool_calls"]
             if "max_same_read_calls" in budget:
                 max_same_read_calls = min(max_same_read_calls, budget["max_same_read_calls"])
+        max_total_tool_calls = (
+            min(base_config.max_total_tool_calls_per_run, skill_total_tool_calls)
+            if has_skill_tool_budget
+            else base_config.max_total_tool_calls_per_run
+        )
         return OrchestratorBudgetConfig(
             max_business_skills_per_run=base_config.max_business_skills_per_run,
             max_total_tool_calls_per_run=max_total_tool_calls,

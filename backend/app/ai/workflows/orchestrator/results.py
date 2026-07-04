@@ -115,8 +115,35 @@ class OrchestratorResultAssembler:
                     "injectionHistory": state.injection_history,
                     "readTools": sorted(state.read_outputs.keys()),
                     "budget": state.budget_config.to_state(),
+                    "budgetUsage": self.budget_usage(state),
                 },
             },
+        )
+
+    def tool_budget_hard_stop_result(
+        self,
+        context: SkillContext,
+        state: OrchestratorRunState,
+    ) -> SkillResult:
+        return SkillResult(
+            text=(
+                "这轮工具调用预算已经用完，我先停在这里，避免继续循环调用工具。"
+                "我已经基于目前拿到的信息保留了上下文；你可以发送“继续”，我会从下一轮接着处理剩下的部分。"
+            ),
+            status="failed",
+            model=model_name(context),
+            error="tool_budget_hard_stop",
+            diagnostic=json.dumps(
+                {
+                    "error": "tool_budget_hard_stop",
+                    "lastOutput": state.tool_budget_last_output or {},
+                    "budgetUsage": self.budget_usage(state),
+                },
+                ensure_ascii=False,
+                default=str,
+            ),
+            context_summary=self.orchestrator_context_summary(state),
+            tool_calls=context.tool_executor.records(),
         )
 
     def orchestrator_context_summary(self, state: OrchestratorRunState) -> dict[str, Any]:
@@ -133,8 +160,21 @@ class OrchestratorResultAssembler:
                 "requiresTerminalOutput": state.requires_terminal_output,
                 "terminalTextAllowed": state.terminal_text_allowed,
                 "budget": state.budget_config.to_state(),
+                "budgetUsage": self.budget_usage(state),
             },
             **self.program_context_summary(state.read_outputs),
+        }
+
+    def budget_usage(self, state: OrchestratorRunState) -> dict[str, Any]:
+        used_tool_calls = len(state.historical_tool_signatures) + len(state.tool_signatures_this_call)
+        max_tool_calls = state.budget_config.max_total_tool_calls_per_run
+        return {
+            "usedToolCalls": used_tool_calls,
+            "maxToolCalls": max_tool_calls,
+            "remainingToolCalls": max(0, max_tool_calls - used_tool_calls),
+            "exhausted": state.tool_budget_exhausted,
+            "exhaustedToolCallAttempts": state.tool_budget_exhausted_attempts,
+            "hardStopped": state.tool_budget_hard_stopped,
         }
 
     def program_context_summary(self, read_outputs: dict[str, list[dict[str, Any]]]) -> dict[str, Any]:
