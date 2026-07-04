@@ -117,7 +117,7 @@ export type CookTimerState = {
 
 export type RecipeCookAssistantMessagePart =
   | { id: string; type: 'text'; text: string }
-  | { id: string; type: 'tool_card'; label: string; detail: string; status: string; tone?: 'normal' | 'success' | 'warning' | 'danger' };
+  | { id: string; type: 'tool_card'; label?: string; detail: string; status: string; tone?: 'normal' | 'success' | 'warning' | 'danger' };
 
 export type RecipeCookAssistantMessage = {
   id: string;

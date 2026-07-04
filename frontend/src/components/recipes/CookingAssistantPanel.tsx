@@ -361,10 +361,14 @@ export function CookingAssistantPanel({
         <div className="recipe-cook-ai-messages" ref={messagesAutoScroll.threadScrollRef} aria-live="polite">
           {assistant.messages.map((message) => {
             if (message.role === 'system') {
-              const [label = '页面操作', detail = message.text, status = '已处理'] = message.text.split('\n');
+              const lines = message.text.split('\n');
+              const hasLegacyLabel = lines.length >= 3;
+              const label = hasLegacyLabel ? lines[0] : '';
+              const detail = hasLegacyLabel ? lines[1] : lines[0] || message.text;
+              const status = hasLegacyLabel ? lines[2] : lines[1] || '已处理';
               return (
                 <div key={message.id} className={`recipe-cook-ai-tool-card ${message.tone ?? 'normal'}`} role="status">
-                  <span>{label}</span>
+                  {label ? <span>{label}</span> : null}
                   <strong>{detail}</strong>
                   <small>{status}</small>
                 </div>
@@ -381,7 +385,7 @@ export function CookingAssistantPanel({
                       if (part.type === 'tool_card') {
                         return (
                           <div key={part.id} className={`recipe-cook-ai-tool-card ${part.tone ?? message.tone ?? 'normal'}`} role="status">
-                            <span>{part.label}</span>
+                            {part.label ? <span>{part.label}</span> : null}
                             <strong>{part.detail}</strong>
                             <small>{part.status}</small>
                           </div>

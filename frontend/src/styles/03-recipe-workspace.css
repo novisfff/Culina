@@ -4438,14 +4438,15 @@
 }
 
 /* Voice recording active state overrides for cooking assistant composer */
-.recipe-cook-ai-composer:has(.recipe-cook-ai-voice-btn:is(.recording, .recognizing)) {
+.recipe-cook-ai-composer:has(.recipe-cook-ai-voice-btn:is(.preparing, .recording, .recognizing)) {
   grid-template-columns: minmax(0, 1fr) auto;
 }
 
-.recipe-cook-ai-composer:has(.recipe-cook-ai-voice-btn:is(.recording, .recognizing)) input {
+.recipe-cook-ai-composer:has(.recipe-cook-ai-voice-btn:is(.preparing, .recording, .recognizing)) input {
   display: none !important;
 }
 
+.recipe-cook-ai-voice-btn.preparing,
 .recipe-cook-ai-voice-btn.recording {
   justify-content: flex-start;
   width: 100% !important;
@@ -4470,9 +4471,22 @@
   box-shadow: none;
 }
 
+.recipe-cook-ai-voice-btn.preparing .ai-voice-icon,
 .recipe-cook-ai-voice-btn.recording .ai-voice-icon,
 .recipe-cook-ai-voice-btn.recognizing .ai-voice-icon {
   display: none !important;
+}
+
+.recipe-cook-ai-voice-btn.preparing .ai-voice-preparing-ui {
+  display: inline-flex !important;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  width: 100%;
+  min-width: 0;
+  color: #b45325;
+  font-size: 0.9rem;
+  font-weight: 750;
 }
 
 .recipe-cook-ai-voice-btn.recording .ai-voice-recording-ui {

@@ -8,7 +8,7 @@ import type {
   AssistantAudioTraceEvent,
 } from '../../api/aiApi';
 import type { AiChatResponse, AiMessagePart, AiResultCard, AiRunEvent } from '../../api/types';
-import type { CookingAssistantActionResult } from './cookingAssistantModel';
+import { buildCookingActionTaskText, type CookingAssistantActionResult } from './cookingAssistantModel';
 import type { RecipeCookAssistantMessage, RecipeCookAssistantMessagePart } from './RecipeWorkspaceModel';
 
 export type CookingAssistantMessage = RecipeCookAssistantMessage;
@@ -60,7 +60,7 @@ function progressTone(status: AiRunEvent['status']): CookingAssistantMessage['to
 function progressLabel(event: AiRunEvent) {
   if (event.type === 'skill') return '技能调用';
   if (event.type === 'script') return '脚本调用';
-  return '工具调用';
+  return '';
 }
 
 function progressDetail(event: AiRunEvent) {
@@ -72,6 +72,10 @@ function isAiRunEvent(event: AiRunEvent | { user_message?: string }): event is A
   return typeof (event as AiRunEvent).id === 'string'
     && typeof (event as AiRunEvent).status === 'string'
     && typeof (event as AiRunEvent).internal_code === 'string';
+}
+
+function isUiActionProgressEvent(event: AiRunEvent | { user_message?: string }) {
+  return isAiRunEvent(event) && event.internal_code === 'ui.propose_actions';
 }
 
 function responseFallbackText(response: AiChatResponse) {
@@ -88,7 +92,8 @@ function isGenericTaskFallback(value: string) {
 function messageTextFromParts(parts: RecipeCookAssistantMessagePart[]) {
   return parts.map((part) => {
     if (part.type === 'text') return part.text;
-    return `${part.label}：${part.detail}（${part.status}）`;
+    const label = part.label?.trim();
+    return `${label ? `${label}：` : ''}${part.detail}（${part.status}）`;
   }).filter(Boolean).join('\n');
 }
 
@@ -170,10 +175,11 @@ export function useCookingAssistantStream({
 
   const handleProgressEvent = useCallback((event: AiRunEvent | { user_message?: string }, assistantMessageId: string) => {
     const isFixedCookingSkillProgress = isAiRunEvent(event) && event.type === 'skill';
-    if (event.user_message && !isFixedCookingSkillProgress) {
+    const isUiActionProgress = isUiActionProgressEvent(event);
+    if (event.user_message && !isFixedCookingSkillProgress && !isUiActionProgress) {
       setProgressText(event.user_message);
     }
-    if (!isAiRunEvent(event) || !event.user_message || isFixedCookingSkillProgress) return;
+    if (!isAiRunEvent(event) || !event.user_message || isFixedCookingSkillProgress || isUiActionProgress) return;
     const tone = progressTone(event.status);
     upsertAssistantPart(assistantMessageId, {
       id: `assistant-progress-${event.id}`,
@@ -190,13 +196,12 @@ export function useCookingAssistantStream({
     handledCardIdsRef.current.add(card.id);
     const result = onActionCard(card);
     if (!result) return;
-    if (result.status !== 'executed' && result.data) {
+    if (result.data) {
       upsertAssistantPart(assistantMessageId, {
         id: `assistant-action-${card.id}`,
         type: 'tool_card',
-        label: '页面操作',
-        detail: result.message,
-        status: result.status === 'needs_confirmation' ? '等待确认' : '未执行',
+        detail: result.status === 'rejected' ? result.message : buildCookingActionTaskText(result.data),
+        status: result.status === 'executed' ? '已执行' : result.status === 'needs_confirmation' ? '等待确认' : '未执行',
         tone: resultTone(result),
       }, resultTone(result));
     }

@@ -205,7 +205,7 @@ describe('cookingAssistantModel', () => {
     expect(result.message).toBe('页面操作已执行。');
   });
 
-  it('builds tool card status without chat bubble templates', () => {
+  it('builds compact action tool card text without generic page-operation prefixes', () => {
     const runtime = buildCookingAssistantRuntimeState(subjectArgs());
     const data = {
       surface: 'recipe_cook_page' as const,
@@ -216,7 +216,9 @@ describe('cookingAssistantModel', () => {
       requiresConfirmation: false,
     };
 
-    expect(buildCookingActionToolCardMessage(data, 'executed')).toBe('页面操作\n设置 05:00 倒计时\n已执行');
+    expect(buildCookingActionToolCardMessage(data, 'executed')).toBe('设置 05:00 倒计时\n已执行');
+    expect(buildCookingActionToolCardMessage(data, 'needs_confirmation')).toBe('设置 05:00 倒计时\n等待确认');
+    expect(buildCookingActionToolCardMessage(data, 'rejected', '页面状态刚更新了一下，请再说一遍。')).toBe('页面状态刚更新了一下，请再说一遍。\n未执行');
   });
 
   it('rejects next step actions when already on the final step', () => {

@@ -23,6 +23,8 @@ type AiVoiceInputButtonProps = {
 type VoiceInputInteraction = 'tap' | 'hold';
 type VoiceInputStatus = 'idle' | 'recording' | 'recognizing';
 
+const HOLD_TO_SEND_THRESHOLD_MS = 220;
+
 function formatElapsed(seconds: number) {
   const minutes = Math.floor(seconds / 60);
   const rest = seconds % 60;
@@ -72,6 +74,7 @@ export function AiVoiceInputButton({
   const isBusy = recorder.isBusy || transcription.isTranscribing;
   const isActive = recorder.isRecording;
   const isRecognizing = transcription.isTranscribing || recorder.status === 'stopping';
+  const isPreparing = Boolean(recordingInteraction) && !isActive && !isRecognizing && recorder.status !== 'error';
   const isStarting = recorder.status === 'requesting_permission';
   const inputStatus: VoiceInputStatus = isActive ? 'recording' : isRecognizing ? 'recognizing' : 'idle';
 
@@ -121,7 +124,7 @@ export function AiVoiceInputButton({
     await handleRecordingComplete(recording, recordingInteractionRef.current ?? 'tap');
   }, [beginRecording, disabled, handleRecordingComplete, interactionMode, isBusy, recorder]);
 
-  const title = recorder.isRecording ? '停止录音' : transcription.isTranscribing ? '正在识别' : '语音输入';
+  const title = isPreparing ? '准备听你说话' : recorder.isRecording ? '停止录音' : transcription.isTranscribing ? '正在识别' : '语音输入';
   const error = recorder.error || transcription.error;
 
   const stopRecording = useCallback(async () => {
@@ -132,25 +135,27 @@ export function AiVoiceInputButton({
 
   const handlePointerDown = useCallback((event: PointerEvent<HTMLButtonElement>) => {
     if (disabled || isBusy || recorder.isRecording) return;
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+    suppressNextClickRef.current = true;
+    longPressTriggeredRef.current = false;
+    if (longPressTimerRef.current !== null) window.clearTimeout(longPressTimerRef.current);
     if (interactionMode === 'hold') {
       event.preventDefault();
-      event.currentTarget.setPointerCapture?.(event.pointerId);
       setIsHoldArming(true);
       beginRecording('hold');
       return;
     }
-    if (!enableHoldToSend) return;
-    event.currentTarget.setPointerCapture?.(event.pointerId);
-    setIsHoldArming(true);
-    longPressTriggeredRef.current = false;
-    if (longPressTimerRef.current !== null) window.clearTimeout(longPressTimerRef.current);
-    longPressTimerRef.current = window.setTimeout(() => {
-      longPressTimerRef.current = null;
-      longPressTriggeredRef.current = true;
-      suppressNextClickRef.current = true;
-      setIsHoldArming(false);
-      beginRecording('hold');
-    }, 360);
+    if (enableHoldToSend) {
+      setIsHoldArming(true);
+      longPressTimerRef.current = window.setTimeout(() => {
+        longPressTimerRef.current = null;
+        longPressTriggeredRef.current = true;
+        recordingInteractionRef.current = 'hold';
+        setRecordingInteraction('hold');
+        setIsHoldArming(false);
+      }, HOLD_TO_SEND_THRESHOLD_MS);
+    }
+    beginRecording('tap');
   }, [beginRecording, disabled, enableHoldToSend, interactionMode, isBusy, recorder]);
 
   const handlePointerEnd = useCallback(async (event: PointerEvent<HTMLButtonElement>) => {
@@ -217,9 +222,9 @@ export function AiVoiceInputButton({
     <button
       ref={buttonRef}
       type="button"
-      className={`ai-voice-input-button ${isActive ? 'recording' : ''} ${recordingInteraction === 'hold' ? 'hold-recording' : ''} ${isHoldArming ? 'hold-arming' : ''} ${isStarting ? 'starting' : ''} ${isRecognizing ? 'recognizing' : ''} ${isBusy ? 'busy' : ''} ${className}`.trim()}
+      className={`ai-voice-input-button ${isPreparing ? 'preparing' : ''} ${isActive ? 'recording' : ''} ${recordingInteraction === 'hold' ? 'hold-recording' : ''} ${isHoldArming ? 'hold-arming' : ''} ${isStarting ? 'starting' : ''} ${isRecognizing ? 'recognizing' : ''} ${isBusy ? 'busy' : ''} ${className}`.trim()}
       disabled={disabled}
-      aria-busy={isBusy || undefined}
+      aria-busy={isBusy || isPreparing || undefined}
       title={error || title}
       aria-label={error || title}
       onClick={handleClick}
@@ -252,6 +257,10 @@ export function AiVoiceInputButton({
       <span className="ai-voice-processing-ui" aria-hidden="true">
         <span className="ai-voice-spinner" />
         <span>正在识别</span>
+      </span>
+      <span className="ai-voice-preparing-ui" aria-hidden="true">
+        <span className="ai-voice-listening-dot" />
+        <span>准备听</span>
       </span>
       <span className="ai-voice-press-label">{transcription.isTranscribing ? '识别中' : '按住说话'}</span>
     </button>
