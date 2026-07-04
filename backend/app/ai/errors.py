@@ -16,3 +16,11 @@ class HumanInputRequired(Exception):
 
 class ApprovalRequired(Exception):
     """The current AI run produced a draft and must wait for approval."""
+
+
+class ToolBudgetHardStop(Exception):
+    """The model continued calling tools after the run tool budget was exhausted."""
+
+    def __init__(self, output: dict) -> None:
+        super().__init__("tool budget hard stop")
+        self.output = output

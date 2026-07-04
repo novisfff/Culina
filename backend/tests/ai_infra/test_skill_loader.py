@@ -784,11 +784,11 @@ class AISkillLoaderTestCase(AIAgentInfraTestCase):
             )
             self.assertEqual(
                 skill_registry.get("ingredient_profile").manifest.tool_budget,
-                {"max_tool_calls": 10, "max_same_read_calls": 2},
+                {"max_tool_calls": 18, "max_same_read_calls": 2},
             )
             self.assertEqual(
                 skill_registry.get("inventory_analysis").manifest.tool_budget,
-                {"max_tool_calls": 14, "max_same_read_calls": 2},
+                {"max_tool_calls": 24, "max_same_read_calls": 2},
             )
             self.assertEqual(
                 skill_registry.get("inventory_analysis").manifest.completion_policy.terminal_tools,
@@ -800,7 +800,7 @@ class AISkillLoaderTestCase(AIAgentInfraTestCase):
             )
             self.assertEqual(
                 skill_registry.get("meal_plan").manifest.tool_budget,
-                {"max_tool_calls": 18, "max_same_read_calls": 2},
+                {"max_tool_calls": 28, "max_same_read_calls": 2},
             )
             self.assertEqual(
                 skill_registry.get("meal_plan").manifest.completion_policy.terminal_tools,
@@ -824,7 +824,7 @@ class AISkillLoaderTestCase(AIAgentInfraTestCase):
             )
             self.assertEqual(
                 skill_registry.get("recipe_draft").manifest.tool_budget,
-                {"max_tool_calls": 16, "max_same_read_calls": 2},
+                {"max_tool_calls": 28, "max_same_read_calls": 2},
             )
             self.assertEqual(
                 skill_registry.get("recipe_draft").manifest.completion_policy.followup_required_tools[
@@ -842,7 +842,7 @@ class AISkillLoaderTestCase(AIAgentInfraTestCase):
             )
             self.assertEqual(
                 skill_registry.get("shopping_list").manifest.tool_budget,
-                {"max_tool_calls": 14, "max_same_read_calls": 2},
+                {"max_tool_calls": 24, "max_same_read_calls": 2},
             )
             self.assertIn(
                 "shopping.read_pending",

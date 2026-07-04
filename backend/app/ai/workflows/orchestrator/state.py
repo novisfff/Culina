@@ -14,6 +14,7 @@ class OrchestratorRunState:
     profile_key: str
     response_style: str
     capability_policy: OrchestratorCapabilityPolicy
+    base_budget_config: OrchestratorBudgetConfig
     budget_config: OrchestratorBudgetConfig
     injection_history: list[dict[str, Any]]
     trace_round_index: int
@@ -32,6 +33,10 @@ class OrchestratorRunState:
     draft_input_keys_this_call: set[tuple[str, str]] = field(default_factory=set)
     read_outputs: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
     tool_signatures_this_call: list[str] = field(default_factory=list)
+    tool_budget_exhausted: bool = False
+    tool_budget_exhausted_attempts: int = 0
+    tool_budget_hard_stopped: bool = False
+    tool_budget_last_output: dict[str, Any] | None = None
     draft_created_this_call: bool = False
     human_input_requested_this_call: bool = False
     current_scoped_executor: Any | None = None

@@ -42,7 +42,7 @@ route_hints:
 - today_recommendation
 approval_policy: draft_then_confirm
 tool_budget:
-  max_tool_calls: 18
+  max_tool_calls: 28
   max_same_read_calls: 2
 completion_policy:
   terminal_tools:

@@ -31,7 +31,7 @@ route_hints:
 - shopping_list
 approval_policy: draft_then_confirm
 tool_budget:
-  max_tool_calls: 14
+  max_tool_calls: 24
   max_same_read_calls: 2
 completion_policy:
   followup_required_tools:

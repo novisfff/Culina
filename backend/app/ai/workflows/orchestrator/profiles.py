@@ -9,7 +9,7 @@ CatalogScope = Literal["all", "initial_only", "hidden"]
 DraftContractPolicy = Literal["auto", "exposed", "hidden"]
 ArtifactContextPolicy = Literal["all", "without_drafts", "hidden"]
 DEFAULT_MAX_BUSINESS_SKILLS_PER_RUN = 4
-DEFAULT_MAX_TOTAL_TOOL_CALLS_PER_RUN = 32
+DEFAULT_MAX_TOTAL_TOOL_CALLS_PER_RUN = 48
 DEFAULT_MAX_SAME_READ_TOOL_CALLS_PER_RUN = 3
 MAIN_WORKSPACE_ALLOWED_SKILL_KEYS = (
     "food_profile",

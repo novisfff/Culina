@@ -25,7 +25,7 @@ route_hints:
 - ingredient_profile
 approval_policy: draft_then_confirm
 tool_budget:
-  max_tool_calls: 10
+  max_tool_calls: 18
   max_same_read_calls: 2
 completion_policy:
   followup_required_tools:

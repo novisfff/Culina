@@ -34,7 +34,7 @@ route_hints:
 - inventory_operation
 approval_policy: draft_then_confirm
 tool_budget:
-  max_tool_calls: 14
+  max_tool_calls: 24
   max_same_read_calls: 2
 completion_policy:
   terminal_tools:

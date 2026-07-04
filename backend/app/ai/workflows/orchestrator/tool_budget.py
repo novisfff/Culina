@@ -12,6 +12,7 @@ class ToolBudgetDecision:
     allowed: bool
     signature: str
     output: dict[str, object] | None = None
+    hard_stop: bool = False
 
 
 def evaluate_tool_budget(
@@ -25,14 +26,40 @@ def evaluate_tool_budget(
     current_tool_signature = tool_signature(tool_name, tool_payload)
     total_tool_count = len(state.historical_tool_signatures) + historical_record_count
     if total_tool_count >= state.budget_config.max_total_tool_calls_per_run:
+        output = {
+            "error": "本次任务的工具调用预算已经用完。",
+            "code": "tool_budget_exhausted",
+            "status": "summarize_current_run",
+            "messageForAssistant": (
+                "本次任务的工具调用预算已经用完。不要继续调用工具；请基于已有结果给用户自然总结，"
+                "说明已经完成的部分、尚未继续处理的部分，并提示用户可以发送“继续”来开启下一轮。"
+            ),
+            "budget": state.budget_config.to_state(),
+            "usage": {
+                "usedToolCalls": total_tool_count,
+                "maxToolCalls": state.budget_config.max_total_tool_calls_per_run,
+            },
+            "requiresFollowup": True,
+            "followupHint": "工具预算用完后必须基于已有结果自然收尾，不要继续调用工具。",
+        }
+        if state.tool_budget_exhausted:
+            return ToolBudgetDecision(
+                allowed=False,
+                signature=current_tool_signature,
+                output={
+                    **output,
+                    "status": "hard_stop_current_run",
+                    "messageForAssistant": (
+                        "工具调用预算已经用完，且模型仍继续请求工具。系统将硬结束本轮，"
+                        "避免继续循环调用。"
+                    ),
+                },
+                hard_stop=True,
+            )
         return ToolBudgetDecision(
             allowed=False,
             signature=current_tool_signature,
-            output={
-                "error": "本次任务的工具调用次数已经达到上限。请基于已有结果总结，或让用户缩小任务范围。",
-                "code": "tool_budget_exhausted",
-                "status": "stop_current_run",
-            },
+            output=output,
         )
     if (
         execution_definition.side_effect == "read"

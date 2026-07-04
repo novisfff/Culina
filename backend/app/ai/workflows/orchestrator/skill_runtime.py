@@ -96,7 +96,7 @@ def execute_skill_injection(
     state.active_skill_keys, added = injection_manager.inject(state.active_skill_keys, requested_new)
     state.budget_config = injection_manager.budget_config_for(
         state.active_skill_keys,
-        state.budget_config,
+        state.base_budget_config,
         state.capability_policy,
     )
     state.requires_terminal_output, state.terminal_text_allowed = injection_manager.completion_policy_for(
