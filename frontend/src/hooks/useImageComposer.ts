@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { api } from '../api/client';
 import type { ImageInputValue } from '../api/types';
 import {
@@ -43,6 +43,34 @@ export function useImageComposer(options: {
   generateErrorMessage?: string;
 }) {
   const [state, setState] = useState<ImageGenerationUiState>(IDLE_IMAGE_GENERATION_STATE);
+  const externalGeneratedAssetId = options.value.generatedAsset?.id ?? null;
+  const externalPendingJobId = options.value.pendingJob?.job_id ?? null;
+  const externalPendingJobStatus = options.value.pendingJob?.status ?? null;
+  const externalPendingJobError = options.value.pendingJob?.error ?? null;
+
+  useEffect(() => {
+    if (externalGeneratedAssetId || externalPendingJobStatus === 'succeeded') {
+      setState((current) => (current.isGenerating || current.jobId ? IDLE_IMAGE_GENERATION_STATE : current));
+      return;
+    }
+    if (externalPendingJobStatus === 'queued' || externalPendingJobStatus === 'running') {
+      setState((current) =>
+        current.isGenerating && current.jobId === externalPendingJobId
+          ? current
+          : { isGenerating: true, errorMessage: null, jobId: externalPendingJobId }
+      );
+      return;
+    }
+    if (externalPendingJobStatus === 'failed') {
+      setState({
+        isGenerating: false,
+        errorMessage: externalPendingJobError?.trim() || 'AI 主图生成失败',
+        jobId: externalPendingJobId,
+      });
+      return;
+    }
+    setState((current) => (current.isGenerating || current.jobId ? IDLE_IMAGE_GENERATION_STATE : current));
+  }, [externalGeneratedAssetId, externalPendingJobError, externalPendingJobId, externalPendingJobStatus]);
 
   async function upload(files: FileList | null) {
     if (!files || files.length === 0) return;

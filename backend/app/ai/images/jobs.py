@@ -454,11 +454,15 @@ def process_image_generation_job(
         with session_factory() as db:
             job = db.get(AIImageGenerationJob, job_id)
             if job is not None:
-                job.status = "failed"
+                if job.attempt_count >= MAX_ATTEMPTS:
+                    job.status = "failed"
+                    job.completed_at = utcnow()
+                else:
+                    job.status = "queued"
+                    job.completed_at = None
                 job.error = str(exc) or "AI 主图生成失败"
                 job.locked_at = None
-                job.completed_at = utcnow()
-                job.updated_at = job.completed_at
+                job.updated_at = utcnow()
                 db.commit()
         logger.warning("AI image generation failed job_id=%s error=%s", job_id, exc)
 

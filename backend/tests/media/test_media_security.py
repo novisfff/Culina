@@ -67,6 +67,14 @@ class FakeRasterImageGenerationClient:
         return self.generate_from_text(request)
 
 
+class FakeFailingImageGenerationClient:
+    def generate_from_text(self, request):
+        raise RuntimeError("provider down")
+
+    def generate_from_reference(self, request):
+        return self.generate_from_text(request)
+
+
 class MediaVariantServiceTestCase(unittest.TestCase):
     def test_build_media_variants_writes_three_webp_objects(self) -> None:
         with patch("app.services.media._put_media_object") as put_object:
@@ -316,6 +324,66 @@ class MediaSecurityTestCase(unittest.TestCase):
             self.assertIsNone(job.locked_at)
             self.assertIsNone(job.started_at)
             self.assertIsNone(job.completed_at)
+
+    def test_retryable_ai_render_failure_stays_active_until_attempts_are_exhausted(self) -> None:
+        response = self.client.post(
+            "/api/media/ai-render",
+            json={
+                "mode": ImageGenerationMode.TEXT.value,
+                "entity_type": MediaEntityType.FOOD.value,
+                "title": "番茄炒蛋",
+            },
+        )
+        self.assertEqual(response.status_code, 202)
+        job_id = response.json()["job_id"]
+
+        process_image_generation_job(
+            job_id,
+            session_factory=self.SessionLocal,
+            client_factory=FakeFailingImageGenerationClient,
+        )
+
+        first_poll_response = self.client.get(f"/api/media/ai-render/{job_id}")
+        self.assertEqual(first_poll_response.status_code, 200)
+        first_payload = first_poll_response.json()
+        self.assertEqual(first_payload["status"], "queued")
+        self.assertEqual(first_payload["error"], "provider down")
+        with self.SessionLocal() as db:
+            job = db.get(AIImageGenerationJob, job_id)
+            self.assertIsNotNone(job)
+            assert job is not None
+            self.assertEqual(job.status, "queued")
+            self.assertEqual(job.attempt_count, 1)
+            self.assertIsNone(job.locked_at)
+            self.assertIsNone(job.completed_at)
+            claimed_ids = claim_pending_image_generation_jobs(db)
+            self.assertEqual(claimed_ids, [job_id])
+
+        process_image_generation_job(
+            job_id,
+            session_factory=self.SessionLocal,
+            client_factory=FakeFailingImageGenerationClient,
+            claimed=True,
+        )
+        process_image_generation_job(
+            job_id,
+            session_factory=self.SessionLocal,
+            client_factory=FakeFailingImageGenerationClient,
+        )
+
+        final_poll_response = self.client.get(f"/api/media/ai-render/{job_id}")
+        self.assertEqual(final_poll_response.status_code, 200)
+        final_payload = final_poll_response.json()
+        self.assertEqual(final_payload["status"], "failed")
+        self.assertEqual(final_payload["error"], "provider down")
+        with self.SessionLocal() as db:
+            job = db.get(AIImageGenerationJob, job_id)
+            self.assertIsNotNone(job)
+            assert job is not None
+            self.assertEqual(job.status, "failed")
+            self.assertEqual(job.attempt_count, MAX_ATTEMPTS)
+            self.assertIsNone(job.locked_at)
+            self.assertIsNotNone(job.completed_at)
 
     def test_startup_recovery_requeues_interrupted_ai_render_job(self) -> None:
         response = self.client.post(
