@@ -232,6 +232,16 @@ export function useCookingAssistantStream({
     setProgressText('小助手在看当前步骤');
     appendMessage({ id: clientMessageId, role: 'user', text: message });
     appendMessage({ id: assistantMessageId, role: 'assistant', text: '' });
+    let responseHandled = false;
+    const finishResponse = (response: AiChatResponse) => {
+      if (responseHandled) return;
+      responseHandled = true;
+      handleResponse(response, assistantMessageId);
+      if (abortRef.current === controller) {
+        setProgressText('');
+        setIsSending(false);
+      }
+    };
     try {
       const stream = voicePlaybackEnabled ? api.streamCookingAssistantVoiceAi : api.streamChatAi;
       const response = await stream({
@@ -251,9 +261,11 @@ export function useCookingAssistantStream({
         onAssistantAudioDone,
         onAssistantAudioError,
         onAssistantAudioTrace,
+        onResponse: finishResponse,
       });
-      handleResponse(response, assistantMessageId);
+      finishResponse(response);
     } catch (error) {
+      if (responseHandled) return;
       const messageText = streamFailureMessage(error);
       setMessages((current) => current.map((messageItem) => (
         messageItem.id === assistantMessageId
@@ -268,9 +280,9 @@ export function useCookingAssistantStream({
     } finally {
       if (abortRef.current === controller) {
         abortRef.current = null;
+        setProgressText('');
+        setIsSending(false);
       }
-      setProgressText('');
-      setIsSending(false);
     }
   }, [
     appendAssistantDelta,

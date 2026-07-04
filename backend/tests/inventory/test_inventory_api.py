@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 from dataclasses import dataclass
-from datetime import date, timedelta
+from datetime import timedelta
 from decimal import Decimal
 
 import pytest
@@ -16,6 +16,7 @@ from app.core.enums import ActivityAction, IngredientExpiryMode, IngredientQuant
 from app.db.session import get_db
 from app.main import app
 from app.models.domain import ActivityLog, Base, Family, Ingredient, InventoryItem, Membership, User
+from app.services.clock import today_for_family
 from tests._transaction_failure import fail_next_commit
 
 
@@ -51,7 +52,7 @@ def inventory_api_context() -> Iterator[InventoryApiContext]:
         future=True,
         class_=Session,
     )
-    today = date(2026, 6, 28)
+    today = today_for_family("family-inventory")
 
     with SessionLocal() as db:
         family = Family(id="family-inventory", name="库存家庭", motto="", location="")

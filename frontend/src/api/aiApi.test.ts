@@ -268,10 +268,12 @@ describe('aiApi', () => {
     const audioDelta = { audio: 'ZmFrZS1hdWRpbw==', sequence: 1 };
     const audioDone = { sequence: 1 };
     const audioTrace = { stage: 'tts_segment_commit', elapsed_ms: 120, segment_sequence: 1 };
+    const messageDelta = { delta: '收' };
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(streamFrom(
-      `${sseBlock('assistant_audio_start', audioStart)}${sseBlock('assistant_audio_trace', audioTrace)}${sseBlock('assistant_audio_delta', audioDelta)}${sseBlock('assistant_audio_done', audioDone)}${sseBlock('response', response)}`,
+      `${sseBlock('assistant_audio_start', audioStart)}${sseBlock('assistant_audio_trace', audioTrace)}${sseBlock('message_delta', messageDelta)}${sseBlock('assistant_audio_delta', audioDelta)}${sseBlock('assistant_audio_done', audioDone)}${sseBlock('response', response)}`,
     ), { status: 200 }));
     const startSpy = vi.fn();
+    const messageDeltaSpy = vi.fn();
     const deltaSpy = vi.fn();
     const doneSpy = vi.fn();
     const traceSpy = vi.fn();
@@ -281,6 +283,7 @@ describe('aiApi', () => {
         { message: '下一步', subject: { source: 'recipe_cook_page' } },
         {
           onAssistantAudioStart: startSpy,
+          onMessageDelta: messageDeltaSpy,
           onAssistantAudioDelta: deltaSpy,
           onAssistantAudioDone: doneSpy,
           onAssistantAudioTrace: traceSpy,
@@ -289,6 +292,7 @@ describe('aiApi', () => {
     ).resolves.toEqual(response);
     expect(startSpy).toHaveBeenCalledWith(audioStart);
     expect(traceSpy).toHaveBeenCalledWith(audioTrace);
+    expect(messageDeltaSpy).toHaveBeenCalledWith(messageDelta);
     expect(deltaSpy).toHaveBeenCalledWith(audioDelta);
     expect(doneSpy).toHaveBeenCalledWith(audioDone);
   });

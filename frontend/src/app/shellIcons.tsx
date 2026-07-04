@@ -31,6 +31,8 @@ export type DashboardIconName =
   | 'edit'
   | 'check'
   | 'circle'
+  | 'speaker'
+  | 'speaker-off'
   | 'calendar'
   | 'flame'
   | 'mail'
@@ -43,6 +45,7 @@ export type DashboardIconName =
   | 'link'
   | 'refresh'
   | 'clear'
+  | 'trash'
   | 'x';
 
 function IconBase(props: { children: ReactNode }) {
@@ -274,6 +277,22 @@ export function DashboardIcon(props: { name: DashboardIconName }) {
           <circle cx="12" cy="12" r="8" />
         </IconBase>
       );
+    case 'speaker':
+      return (
+        <IconBase>
+          <path d="M5 9v6h4l5 4V5L9 9H5Z" />
+          <path d="M17 9.5a4 4 0 0 1 0 5" />
+          <path d="M19.5 7a7.5 7.5 0 0 1 0 10" />
+        </IconBase>
+      );
+    case 'speaker-off':
+      return (
+        <IconBase>
+          <path d="M5 9v6h4l5 4V5L9 9H5Z" />
+          <path d="m18 9 4 4" />
+          <path d="m22 9-4 4" />
+        </IconBase>
+      );
     case 'calendar':
       return (
         <IconBase>
@@ -364,6 +383,16 @@ export function DashboardIcon(props: { name: DashboardIconName }) {
           <path d="m5 15 7.6-7.6a2 2 0 0 1 2.8 0l1.2 1.2a2 2 0 0 1 0 2.8L10 18H5v-3Z" />
           <path d="m10.5 9.5 4 4" />
           <path d="M13 18h6" />
+        </IconBase>
+      );
+    case 'trash':
+      return (
+        <IconBase>
+          <path d="M5 7h14" />
+          <path d="M10 11v6" />
+          <path d="M14 11v6" />
+          <path d="M8 7l1-3h6l1 3" />
+          <path d="M7 7l1 14h8l1-14" />
         </IconBase>
       );
     case 'x':

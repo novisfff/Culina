@@ -2,9 +2,8 @@ from ._support import *
 
 from typing import Any
 
-from langchain_core.messages import ToolMessage
-
 from app.ai.errors import ApprovalRequired, HumanInputRequired
+from app.ai.runtime.provider import OpenAIResponsesChatProvider, ProviderImageInput, get_chat_provider
 from app.ai.tools import ToolRegistry
 from app.ai.tools.base import ToolDefinition
 from app.ai.workflows.runner_support.graph_state_builder import GraphStateBuilder
@@ -41,6 +40,53 @@ from app.schemas.ai import AIResultCardDTO
 def _tool_names(tools) -> list[str]:
     current_tools = tools()
     return sorted(tool.name for tool in current_tools)
+
+
+def _openai_stream_chunk_from_test_chunk(chunk: Any) -> dict[str, Any]:
+    delta: dict[str, Any] = {}
+    content = getattr(chunk, "content", None)
+    if not content:
+        content = getattr(chunk, "final_content", None)
+    if isinstance(content, str) and content:
+        delta["content"] = content
+    raw_tool_calls = list(getattr(chunk, "tool_calls", None) or [])
+    raw_tool_call_chunks = list(getattr(chunk, "tool_call_chunks", None) or [])
+    if raw_tool_calls:
+        delta["tool_calls"] = [
+            {
+                "id": str(call.get("id") or ""),
+                "index": call.get("index") if call.get("index") is not None else index,
+                "function": {
+                    "name": str(call.get("name") or ""),
+                    "arguments": json.dumps(call.get("args") or {}, ensure_ascii=False, default=str),
+                },
+            }
+            for index, call in enumerate(raw_tool_calls)
+            if isinstance(call, dict)
+        ]
+    elif raw_tool_call_chunks:
+        delta["tool_calls"] = [
+            {
+                "id": str(call.get("id") or ""),
+                "index": call.get("index") if call.get("index") is not None else index,
+                "function": {
+                    "name": str(call.get("name") or ""),
+                    "arguments": str(call.get("args") or ""),
+                },
+            }
+            for index, call in enumerate(raw_tool_call_chunks)
+            if isinstance(call, dict)
+        ]
+    return {"choices": [{"delta": delta}]}
+
+
+def _attach_openai_stream(provider: Any, stream_client: Any) -> None:
+    class FakeCompletions:
+        def create(self, **request):
+            chunks = stream_client.stream(request["messages"])
+            return [_openai_stream_chunk_from_test_chunk(chunk) for chunk in chunks]
+
+    provider.openai_client = SimpleNamespace(chat=SimpleNamespace(completions=FakeCompletions()))
 
 
 def _contract_tool_registries(
@@ -637,21 +683,51 @@ class AIFoundationTestCase(AIAgentInfraTestCase):
             self.assertIn("番茄", output_text)
             self.assertNotIn("其他家庭牛排", output_text)
 
-        def test_openai_compatible_provider_generate_uses_plain_text_mode(self) -> None:
+        def test_openai_compatible_provider_generate_uses_openai_sdk_plain_text_mode(self) -> None:
+            class FakeCompletions:
+                def __init__(self) -> None:
+                    self.request: dict[str, Any] | None = None
+
+                def create(self, **request):
+                    self.request = request
+                    return SimpleNamespace(
+                        choices=[SimpleNamespace(message=SimpleNamespace(content="普通回复"))],
+                        usage=None,
+                    )
+
+            fake_completions = FakeCompletions()
             provider = OpenAICompatibleChatProvider.__new__(OpenAICompatibleChatProvider)
             provider.model_name = "compatible-model"
-            base_client = MagicMock()
-            base_client.invoke.return_value = type("Message", (), {"content": "普通回复"})()
-            provider.client = base_client
+            provider.supports_vision = False
+            provider.prompt_cache_enabled = True
+            provider.openai_client = SimpleNamespace(chat=SimpleNamespace(completions=fake_completions))
 
             result = provider.generate(
                 system="直接回复",
-                user="安排晚餐",
+                user=ProviderUserInput(text="安排晚餐", prefix_messages=["稳定上下文"]),
             )
 
             self.assertEqual(result.text, "普通回复")
-            self.assertEqual(base_client.invoke.call_count, 1)
-            self.assertEqual(base_client.bind.call_count, 0)
+            assert fake_completions.request is not None
+            self.assertEqual(fake_completions.request["model"], "compatible-model")
+            self.assertNotIn("stream", fake_completions.request)
+            self.assertEqual(
+                [message["role"] for message in fake_completions.request["messages"]],
+                ["system", "user", "user"],
+            )
+            self.assertTrue(fake_completions.request["prompt_cache_key"].startswith("culina:"))
+
+        def test_openai_compatible_provider_does_not_expose_removed_legacy_helpers(self) -> None:
+            removed_helpers = [
+                "_generate_with_tools_blocking",
+                "_message_tool_calls",
+                "_emit_tool_call_previews",
+                "_emit_unstreamed_message_text",
+                "_message_to_openai",
+            ]
+
+            for helper in removed_helpers:
+                self.assertFalse(hasattr(OpenAICompatibleChatProvider, helper), helper)
 
         def test_openai_compatible_provider_propagates_human_input_interrupt(self) -> None:
             class ToolCallChunk:
@@ -677,6 +753,7 @@ class AIFoundationTestCase(AIAgentInfraTestCase):
             tool_client.bind.return_value = stream_client
             provider.client = MagicMock()
             provider.client.bind_tools.return_value = tool_client
+            _attach_openai_stream(provider, stream_client)
             stream_client.stream.return_value = [ToolCallChunk()]
             tool = build_workspace_tool_registry().get("human.request_input")
 
@@ -721,6 +798,7 @@ class AIFoundationTestCase(AIAgentInfraTestCase):
             tool_client.bind.return_value = stream_client
             provider.client = MagicMock()
             provider.client.bind_tools.return_value = tool_client
+            _attach_openai_stream(provider, stream_client)
             stream_client.stream.side_effect = [[ToolCallChunk()], [TextChunk("我已根据错误调整处理。")]]
             tool = build_workspace_tool_registry().get("inventory.read_available_items")
 
@@ -735,10 +813,9 @@ class AIFoundationTestCase(AIAgentInfraTestCase):
             self.assertEqual(result.text, "我已根据错误调整处理。")
             self.assertEqual(stream_client.stream.call_count, 2)
             second_messages = stream_client.stream.call_args_list[1].args[0]
-            tool_message = next(message for message in second_messages if isinstance(message, ToolMessage))
-            self.assertIsInstance(tool_message, ToolMessage)
-            self.assertIn("tool_execution_failed", str(tool_message.content))
-            self.assertIn("limit must be positive", str(tool_message.content))
+            tool_message = next(message for message in second_messages if isinstance(message, dict) and message.get("role") == "tool")
+            self.assertIn("tool_execution_failed", str(tool_message["content"]))
+            self.assertIn("limit must be positive", str(tool_message["content"]))
 
         def test_openai_compatible_provider_retries_empty_tool_response_before_completion(self) -> None:
             class EmptyChunk:
@@ -766,6 +843,7 @@ class AIFoundationTestCase(AIAgentInfraTestCase):
             tool_client.bind.return_value = stream_client
             provider.client = MagicMock()
             provider.client.bind_tools.return_value = tool_client
+            _attach_openai_stream(provider, stream_client)
             stream_client.stream.side_effect = [[EmptyChunk()], [TextChunk("重试后有结果。")]]
             tool = build_workspace_tool_registry().get("inventory.read_available_items")
 
@@ -797,6 +875,7 @@ class AIFoundationTestCase(AIAgentInfraTestCase):
             tool_client.bind.return_value = stream_client
             provider.client = MagicMock()
             provider.client.bind_tools.return_value = tool_client
+            _attach_openai_stream(provider, stream_client)
             stream_client.stream.return_value = [EmptyChunk()]
             tool = build_workspace_tool_registry().get("inventory.read_available_items")
 
@@ -851,6 +930,7 @@ class AIFoundationTestCase(AIAgentInfraTestCase):
             tool_client.bind.return_value = stream_client
             provider.client = MagicMock()
             provider.client.bind_tools.return_value = tool_client
+            _attach_openai_stream(provider, stream_client)
             stream_client.stream.side_effect = [[ToolCallChunk()], [TextChunk("我已换一种方式处理。")]]
             tool = build_workspace_tool_registry().get("inventory.read_available_items")
             previews: list[tuple[str, str, str]] = []
@@ -877,8 +957,8 @@ class AIFoundationTestCase(AIAgentInfraTestCase):
             self.assertEqual(previews, [("inventory.read_available_items", "0", "running")])
             self.assertEqual(handler_event_ids, ["event-0"])
             second_messages = stream_client.stream.call_args_list[1].args[0]
-            tool_message = next(message for message in second_messages if isinstance(message, ToolMessage))
-            self.assertIn("tool_execution_failed", str(tool_message.content))
+            tool_message = next(message for message in second_messages if isinstance(message, dict) and message.get("role") == "tool")
+            self.assertIn("tool_execution_failed", str(tool_message["content"]))
 
         def test_openai_compatible_provider_ignores_tool_stop_marker_output(self) -> None:
             class ToolCallChunk:
@@ -911,6 +991,7 @@ class AIFoundationTestCase(AIAgentInfraTestCase):
             tool_client.bind.return_value = stream_client
             provider.client = MagicMock()
             provider.client.bind_tools.return_value = tool_client
+            _attach_openai_stream(provider, stream_client)
             stream_client.stream.side_effect = [[ToolCallChunk()], [TextChunk("读取完成。")]]
             tool = build_workspace_tool_registry().get("inventory.read_available_items")
 
@@ -946,6 +1027,7 @@ class AIFoundationTestCase(AIAgentInfraTestCase):
             tool_client.bind.return_value = stream_client
             provider.client = MagicMock()
             provider.client.bind_tools.return_value = tool_client
+            _attach_openai_stream(provider, stream_client)
             stream_client.stream.return_value = [ToolCallChunk()]
             tool = build_workspace_tool_registry().get("recipe.create_draft")
 
@@ -975,6 +1057,7 @@ class AIFoundationTestCase(AIAgentInfraTestCase):
             tool_client.bind.return_value = stream_client
             provider.client = MagicMock()
             provider.client.bind_tools.return_value = tool_client
+            _attach_openai_stream(provider, stream_client)
             stream_client.stream.side_effect = [RuntimeError("incomplete chunked read"), [TextChunk("继续处理完成")]]
 
             result = provider.generate_with_tools(
@@ -1016,6 +1099,7 @@ class AIFoundationTestCase(AIAgentInfraTestCase):
             tool_client.bind.return_value = stream_client
             provider.client = MagicMock()
             provider.client.bind_tools.return_value = tool_client
+            _attach_openai_stream(provider, stream_client)
             stream_client.stream.side_effect = [
                 [
                     StreamChunk([{"index": 0, "id": "call-read-items", "name": "inventory_read_available_items", "args": ""}]),
@@ -1087,12 +1171,25 @@ class AIFoundationTestCase(AIAgentInfraTestCase):
             tool_client.bind.return_value = stream_client
             provider.client = MagicMock()
             provider.client.bind_tools.return_value = tool_client
-            stream_client.stream.return_value = [
-                PreviewChunk([{"index": 0, "id": "call-read-items", "name": "inventory_read_available_items", "args": ""}]),
-                TextChunk("我会先查看库存。"),
+            _attach_openai_stream(provider, stream_client)
+            stream_client.stream.side_effect = [
+                [
+                    PreviewChunk(
+                        [
+                            {
+                                "index": 0,
+                                "id": "call-read-items",
+                                "name": "inventory_read_available_items",
+                                "args": "{\"limit\": 50}",
+                            }
+                        ]
+                    )
+                ],
+                [TextChunk("我会先查看库存。")],
             ]
             tool = build_workspace_tool_registry().get("inventory.read_available_items")
             previews: list[tuple[str, str, str]] = []
+            handled: list[tuple[str, dict[str, Any]]] = []
 
             def preview_handler(name: str, preview_key: str, status: str) -> str:
                 previews.append((name, preview_key, status))
@@ -1102,19 +1199,14 @@ class AIFoundationTestCase(AIAgentInfraTestCase):
                 system="s",
                 user="u",
                 tools=lambda: [tool],
-                tool_handler=lambda _name, _payload: self.fail("tool handler should not run"),
+                tool_handler=lambda name, payload: handled.append((name, payload)) or {"items": []},
                 tool_preview_handler=preview_handler,
             )
 
             self.assertEqual(result.status, "completed")
             self.assertEqual(result.text, "我会先查看库存。")
-            self.assertEqual(
-                previews,
-                [
-                    ("inventory.read_available_items", "0", "running"),
-                    ("inventory.read_available_items", "0", "failed"),
-                ],
-            )
+            self.assertEqual(handled, [("inventory.read_available_items", {"limit": 50})])
+            self.assertEqual(previews, [("inventory.read_available_items", "0", "running")])
 
         def test_openai_compatible_provider_flushes_final_text_before_tool_execution(self) -> None:
             class AggregateChunk:
@@ -1164,6 +1256,7 @@ class AIFoundationTestCase(AIAgentInfraTestCase):
             tool_client.bind.return_value = stream_client
             provider.client = MagicMock()
             provider.client.bind_tools.return_value = tool_client
+            _attach_openai_stream(provider, stream_client)
             stream_client.stream.side_effect = [
                 [
                     AggregateChunk(final_content="我先看一下库存，再继续整理建议。"),
@@ -1224,6 +1317,7 @@ class AIFoundationTestCase(AIAgentInfraTestCase):
             tool_client.bind.return_value = stream_client
             provider.client = MagicMock()
             provider.client.bind_tools.return_value = tool_client
+            _attach_openai_stream(provider, stream_client)
             stream_client.stream.side_effect = [
                 [ToolCallChunk()],
                 RuntimeError("incomplete chunked read"),
@@ -1281,6 +1375,7 @@ class AIFoundationTestCase(AIAgentInfraTestCase):
             tool_client.bind.return_value = stream_client
             provider.client = MagicMock()
             provider.client.bind_tools.return_value = tool_client
+            _attach_openai_stream(provider, stream_client)
             stream_client.stream.side_effect = [[ToolCallChunk()], [TextChunk()]]
             tool = build_workspace_tool_registry().get("ui.propose_actions")
 
@@ -1315,6 +1410,488 @@ class AIFoundationTestCase(AIAgentInfraTestCase):
             self.assertEqual(result.text, "好了，3 分钟倒计时开始了。")
             self.assertEqual(result.tool_calls, [{"id": "call-ui-actions", "name": "ui.propose_actions", "args": ToolCallChunk.tool_calls[0]["args"]}])
             self.assertEqual(stream_client.stream.call_count, 2)
+
+        def test_openai_compatible_provider_places_prefix_messages_before_runtime_user_message(self) -> None:
+            class TextChunk:
+                content = "收到。"
+                tool_calls: list[dict[str, Any]] = []
+                tool_call_chunks: list[dict[str, Any]] = []
+
+                def __add__(self, other):
+                    return other
+
+            provider = OpenAICompatibleChatProvider.__new__(OpenAICompatibleChatProvider)
+            provider.model_name = "compatible-model"
+            stream_client = MagicMock()
+            tool_client = MagicMock()
+            tool_client.bind.return_value = stream_client
+            provider.client = MagicMock()
+            provider.client.bind_tools.return_value = tool_client
+            _attach_openai_stream(provider, stream_client)
+            stream_client.stream.return_value = [TextChunk()]
+
+            result = provider.generate_with_tools(
+                system="system prompt",
+                user=ProviderUserInput(
+                    text="runtime turn",
+                    prefix_messages=["stable primer"],
+                ),
+                tools=lambda: [],
+                tool_handler=lambda _name, _payload: {},
+            )
+
+            self.assertEqual(result.status, "completed")
+            request_messages = stream_client.stream.call_args_list[0].args[0]
+            self.assertEqual([message["role"] for message in request_messages[:3]], ["system", "user", "user"])
+            self.assertEqual(request_messages[1]["content"], "stable primer")
+            self.assertEqual(request_messages[2]["content"], [{"type": "text", "text": "runtime turn"}])
+
+        def test_openai_sdk_request_keeps_images_on_runtime_user_message(self) -> None:
+            class FakeCompletions:
+                def __init__(self) -> None:
+                    self.request: dict[str, Any] | None = None
+
+                def create(self, **request):
+                    self.request = request
+                    return [{"choices": [{"delta": {"content": "收到。"}}]}]
+
+            fake_completions = FakeCompletions()
+            provider = OpenAICompatibleChatProvider.__new__(OpenAICompatibleChatProvider)
+            provider.model_name = "compatible-model"
+            provider.supports_vision = True
+            provider.openai_client = SimpleNamespace(chat=SimpleNamespace(completions=fake_completions))
+
+            chunks = list(
+                provider.stream_generate(
+                    system="system prompt",
+                    user=ProviderUserInput(
+                        text="runtime turn",
+                        images=[ProviderImageInput(media_id="media-prefix-test", payload=b"hello", content_type="image/png")],
+                        prefix_messages=["stable primer"],
+                    ),
+                )
+            )
+
+            self.assertEqual(chunks, ["收到。"])
+            assert fake_completions.request is not None
+            request_messages = fake_completions.request["messages"]
+            self.assertEqual([message["role"] for message in request_messages], ["system", "user", "user"])
+            self.assertEqual(request_messages[1]["content"], "stable primer")
+            self.assertEqual(request_messages[2]["content"][0], {"type": "text", "text": "runtime turn"})
+            self.assertEqual(request_messages[2]["content"][1]["type"], "image_url")
+            self.assertNotIn("image_url", str(request_messages[1]["content"]))
+
+        def test_openai_compatible_provider_enables_prompt_cache_for_custom_api_base(self) -> None:
+            settings = SimpleNamespace(
+                ai_provider="openai-compatible",
+                ai_model="compatible-model",
+                ai_api_key="test-key",
+                ai_api_base="https://llm.example.test/compatible-mode/v1",
+                ai_timeout_seconds=15,
+                ai_supports_vision=False,
+                ai_prompt_cache_enabled=True,
+            )
+
+            with patch("app.ai.runtime.provider.get_settings", return_value=settings):
+                provider = get_chat_provider()
+
+            self.assertIsInstance(provider, OpenAICompatibleChatProvider)
+            self.assertTrue(provider.prompt_cache_enabled)
+
+        def test_openai_compatible_provider_can_disable_prompt_cache_from_settings(self) -> None:
+            settings = SimpleNamespace(
+                ai_provider="openai-compatible",
+                ai_model="compatible-model",
+                ai_api_key="test-key",
+                ai_api_base="https://llm.example.test/compatible-mode/v1",
+                ai_timeout_seconds=15,
+                ai_supports_vision=False,
+                ai_prompt_cache_enabled=False,
+            )
+
+            with patch("app.ai.runtime.provider.get_settings", return_value=settings):
+                provider = get_chat_provider()
+
+            self.assertIsInstance(provider, OpenAICompatibleChatProvider)
+            self.assertFalse(provider.prompt_cache_enabled)
+            options = provider._chat_completions_cache_request_options(
+                "system prompt",
+                ProviderUserInput(text="runtime turn", prefix_messages=["stable primer"]),
+                [],
+            )
+            self.assertEqual(options["providerProtocol"], "chat_completions")
+            self.assertNotIn("promptCacheKey", options)
+
+        def test_openai_compatible_prompt_cache_key_excludes_runtime_user_text(self) -> None:
+            provider = OpenAICompatibleChatProvider.__new__(OpenAICompatibleChatProvider)
+            provider.model_name = "compatible-model"
+            provider.prompt_cache_enabled = True
+            tool = build_workspace_tool_registry().get("inventory.read_available_items")
+            model_tools = [provider._tool_definition_to_model_tool(tool)]
+
+            first = provider._chat_completions_cache_request_options(
+                "system prompt",
+                ProviderUserInput(text="runtime question 1", prefix_messages=["stable primer"]),
+                model_tools,
+            )
+            second = provider._chat_completions_cache_request_options(
+                "system prompt",
+                ProviderUserInput(text="runtime question 2", prefix_messages=["stable primer"]),
+                model_tools,
+            )
+            changed_prefix = provider._chat_completions_cache_request_options(
+                "system prompt",
+                ProviderUserInput(text="runtime question 2", prefix_messages=["changed primer"]),
+                model_tools,
+            )
+
+            self.assertEqual(first["providerProtocol"], "chat_completions")
+            self.assertEqual(first["promptCacheKey"], second["promptCacheKey"])
+            self.assertEqual(first["requestPrefixHash"], second["requestPrefixHash"])
+            self.assertNotEqual(first["promptCacheKey"], changed_prefix["promptCacheKey"])
+            self.assertEqual(first["runtimePayloadChars"], len("runtime question 1"))
+
+        def test_openai_sdk_chat_completions_request_includes_prompt_cache_key(self) -> None:
+            class FakeCompletions:
+                def __init__(self) -> None:
+                    self.request: dict[str, Any] | None = None
+
+                def create(self, **request):
+                    self.request = request
+                    return [{"choices": [{"delta": {"content": "收到。"}}]}]
+
+            fake_completions = FakeCompletions()
+            provider = OpenAICompatibleChatProvider.__new__(OpenAICompatibleChatProvider)
+            provider.model_name = "compatible-model"
+            provider.supports_vision = False
+            provider.prompt_cache_enabled = True
+            provider.openai_client = SimpleNamespace(chat=SimpleNamespace(completions=fake_completions))
+
+            chunks = list(
+                provider.stream_generate(
+                    system="system prompt",
+                    user=ProviderUserInput(text="runtime turn", prefix_messages=["stable primer"]),
+                )
+            )
+
+            self.assertEqual(chunks, ["收到。"])
+            assert fake_completions.request is not None
+            self.assertTrue(fake_completions.request["prompt_cache_key"].startswith("culina:"))
+            self.assertEqual(fake_completions.request["prompt_cache_retention"], "24h")
+
+        def test_openai_responses_provider_factory_uses_responses_protocol(self) -> None:
+            for provider_name in ("openai-response", "openai-responses", "responses"):
+                settings = SimpleNamespace(
+                    ai_provider=provider_name,
+                    ai_model="gpt-5-mini",
+                    ai_api_key="test-key",
+                    ai_api_base="https://api.openai.com/v1",
+                    ai_timeout_seconds=15,
+                    ai_supports_vision=True,
+                )
+
+                with patch("app.ai.runtime.provider.get_settings", return_value=settings):
+                    provider = get_chat_provider()
+
+                self.assertIsInstance(provider, OpenAIResponsesChatProvider)
+                self.assertEqual(provider.model_name, "gpt-5-mini")
+
+        def test_openai_responses_provider_streams_runtime_after_prefix_and_keeps_images_runtime_only(self) -> None:
+            class FakeResponses:
+                def __init__(self) -> None:
+                    self.requests: list[dict[str, Any]] = []
+
+                def create(self, **request):
+                    self.requests.append(request)
+                    return iter(
+                        [
+                            SimpleNamespace(type="response.output_text.delta", delta="收"),
+                            SimpleNamespace(type="response.output_text.delta", delta="到。"),
+                            SimpleNamespace(type="response.completed", response=SimpleNamespace(output=[], usage=None)),
+                        ]
+                    )
+
+            fake_responses = FakeResponses()
+            provider = OpenAIResponsesChatProvider.__new__(OpenAIResponsesChatProvider)
+            provider.model_name = "gpt-5-mini"
+            provider.supports_vision = True
+            provider.client = SimpleNamespace(responses=fake_responses)
+            deltas: list[str] = []
+            tool = build_workspace_tool_registry().get("inventory.read_available_items")
+
+            result = provider.generate_with_tools(
+                system="system prompt",
+                user=ProviderUserInput(
+                    text="runtime turn",
+                    images=[ProviderImageInput(media_id="media-responses-test", payload=b"hello", content_type="image/png")],
+                    prefix_messages=["stable primer"],
+                ),
+                tools=lambda: [tool],
+                tool_handler=lambda _name, _payload: {},
+                message_handler=deltas.append,
+            )
+
+            self.assertEqual(result.status, "completed")
+            self.assertEqual(result.text, "收到。")
+            self.assertEqual(deltas, ["收", "到。"])
+            request = fake_responses.requests[0]
+            self.assertNotIn("instructions", request)
+            self.assertEqual(request["store"], False)
+            self.assertEqual(request["prompt_cache_retention"], "24h")
+            self.assertTrue(request["prompt_cache_key"].startswith("culina:"))
+            self.assertEqual([item["role"] for item in request["input"][:3]], ["system", "user", "user"])
+            self.assertEqual(request["input"][0]["content"], [{"type": "input_text", "text": "system prompt"}])
+            self.assertEqual(request["input"][1]["content"], [{"type": "input_text", "text": "stable primer"}])
+            self.assertEqual(request["input"][2]["content"][0], {"type": "input_text", "text": "runtime turn"})
+            self.assertEqual(request["input"][2]["content"][1]["type"], "input_image")
+            self.assertNotIn("input_image", str(request["input"][1]["content"]))
+            self.assertEqual(request["tools"][0]["type"], "function")
+            self.assertEqual(request["tools"][0]["name"], "inventory_read_available_items")
+            self.assertFalse(request["tools"][0]["strict"])
+
+        def test_openai_responses_prompt_cache_key_excludes_runtime_user_text(self) -> None:
+            provider = OpenAIResponsesChatProvider.__new__(OpenAIResponsesChatProvider)
+            provider.model_name = "gpt-5-mini"
+            provider.supports_vision = False
+            tool = build_workspace_tool_registry().get("inventory.read_available_items")
+            model_tools = [provider._tool_definition_to_model_tool(tool)]
+
+            first = provider._responses_cache_request_options(
+                "system prompt",
+                ProviderUserInput(text="runtime question 1", prefix_messages=["stable primer"]),
+                model_tools,
+            )
+            second = provider._responses_cache_request_options(
+                "system prompt",
+                ProviderUserInput(text="runtime question 2", prefix_messages=["stable primer"]),
+                model_tools,
+            )
+            changed_prefix = provider._responses_cache_request_options(
+                "system prompt",
+                ProviderUserInput(text="runtime question 2", prefix_messages=["changed primer"]),
+                model_tools,
+            )
+
+            self.assertEqual(first["promptCacheKey"], second["promptCacheKey"])
+            self.assertEqual(first["requestPrefixHash"], second["requestPrefixHash"])
+            self.assertNotEqual(first["promptCacheKey"], changed_prefix["promptCacheKey"])
+            self.assertEqual(first["runtimePayloadChars"], len("runtime question 1"))
+
+        def test_openai_responses_provider_appends_function_call_output_for_next_round(self) -> None:
+            function_call = {
+                "type": "function_call",
+                "call_id": "call-read-items",
+                "name": "inventory_read_available_items",
+                "arguments": "{\"limit\": 5}",
+                "status": "completed",
+            }
+
+            class FakeResponses:
+                def __init__(self) -> None:
+                    self.requests: list[dict[str, Any]] = []
+
+                def create(self, **request):
+                    self.requests.append(request)
+                    if len(self.requests) == 1:
+                        return iter(
+                            [
+                                SimpleNamespace(type="response.output_item.done", item=function_call),
+                                SimpleNamespace(type="response.completed", response=SimpleNamespace(output=[function_call], usage=None)),
+                            ]
+                        )
+                    return iter(
+                        [
+                            SimpleNamespace(type="response.output_text.delta", delta="库存读取完成。"),
+                            SimpleNamespace(type="response.completed", response=SimpleNamespace(output=[], usage=None)),
+                        ]
+                    )
+
+            fake_responses = FakeResponses()
+            provider = OpenAIResponsesChatProvider.__new__(OpenAIResponsesChatProvider)
+            provider.model_name = "gpt-5-mini"
+            provider.supports_vision = False
+            provider.client = SimpleNamespace(responses=fake_responses)
+            tool = build_workspace_tool_registry().get("inventory.read_available_items")
+            handled: list[tuple[str, dict[str, Any]]] = []
+
+            def tool_handler(name: str, payload: dict[str, Any]) -> dict[str, Any]:
+                handled.append((name, payload))
+                return {"items": []}
+
+            result = provider.generate_with_tools(
+                system="system prompt",
+                user=ProviderUserInput(text="runtime turn", prefix_messages=["stable primer"]),
+                tools=lambda: [tool],
+                tool_handler=tool_handler,
+            )
+
+            self.assertEqual(result.status, "completed")
+            self.assertEqual(result.text, "库存读取完成。")
+            self.assertEqual(handled, [("inventory.read_available_items", {"limit": 5})])
+            self.assertEqual(len(fake_responses.requests), 2)
+            second_input = fake_responses.requests[1]["input"]
+            self.assertIn(function_call, second_input)
+            output_item = next(item for item in second_input if item.get("type") == "function_call_output")
+            self.assertEqual(output_item["call_id"], "call-read-items")
+            self.assertIn("\"items\": []", output_item["output"])
+
+        def test_openai_responses_provider_preserves_same_name_tool_calls_without_ids(self) -> None:
+            first_call = {
+                "type": "function_call",
+                "name": "inventory_read_available_items",
+                "arguments": "{\"limit\": 1}",
+                "status": "completed",
+            }
+            second_call = {
+                "type": "function_call",
+                "name": "inventory_read_available_items",
+                "arguments": "{\"limit\": 2}",
+                "status": "completed",
+            }
+
+            class FakeResponses:
+                def __init__(self) -> None:
+                    self.requests: list[dict[str, Any]] = []
+
+                def create(self, **request):
+                    self.requests.append(request)
+                    if len(self.requests) == 1:
+                        return iter(
+                            [
+                                SimpleNamespace(type="response.output_item.done", item=first_call),
+                                SimpleNamespace(type="response.output_item.done", item=second_call),
+                                SimpleNamespace(type="response.completed", response=SimpleNamespace(output=[], usage=None)),
+                            ]
+                        )
+                    return iter(
+                        [
+                            SimpleNamespace(type="response.output_text.delta", delta="两次读取完成。"),
+                            SimpleNamespace(type="response.completed", response=SimpleNamespace(output=[], usage=None)),
+                        ]
+                    )
+
+            fake_responses = FakeResponses()
+            provider = OpenAIResponsesChatProvider.__new__(OpenAIResponsesChatProvider)
+            provider.model_name = "gpt-5-mini"
+            provider.supports_vision = False
+            provider.client = SimpleNamespace(responses=fake_responses)
+            tool = build_workspace_tool_registry().get("inventory.read_available_items")
+            handled: list[tuple[str, dict[str, Any]]] = []
+
+            def tool_handler(name: str, payload: dict[str, Any]) -> dict[str, Any]:
+                handled.append((name, payload))
+                return {"limit": payload["limit"]}
+
+            result = provider.generate_with_tools(
+                system="system prompt",
+                user=ProviderUserInput(text="runtime turn"),
+                tools=lambda: [tool],
+                tool_handler=tool_handler,
+            )
+
+            self.assertEqual(result.status, "completed")
+            self.assertEqual(result.text, "两次读取完成。")
+            self.assertEqual(
+                handled,
+                [
+                    ("inventory.read_available_items", {"limit": 1}),
+                    ("inventory.read_available_items", {"limit": 2}),
+                ],
+            )
+            second_input = fake_responses.requests[1]["input"]
+            outputs = [item for item in second_input if item.get("type") == "function_call_output"]
+            self.assertEqual([item["call_id"] for item in outputs], ["call_1", "call_2"])
+
+        def test_openai_responses_provider_retries_without_unsupported_cache_and_stream_options(self) -> None:
+            class FakeResponses:
+                def __init__(self) -> None:
+                    self.requests: list[dict[str, Any]] = []
+
+                def create(self, **request):
+                    self.requests.append(dict(request))
+                    if len(self.requests) == 1:
+                        raise TypeError("unexpected keyword argument 'prompt_cache_key'")
+                    if len(self.requests) == 2:
+                        raise TypeError("unexpected keyword argument 'stream_options'")
+                    return iter(
+                        [
+                            SimpleNamespace(type="response.output_text.delta", delta="已降级。"),
+                            SimpleNamespace(type="response.completed", response=SimpleNamespace(output=[], usage=None)),
+                        ]
+                    )
+
+            fake_responses = FakeResponses()
+            provider = OpenAIResponsesChatProvider.__new__(OpenAIResponsesChatProvider)
+            provider.model_name = "gpt-5-mini"
+            provider.supports_vision = False
+            provider.client = SimpleNamespace(responses=fake_responses)
+
+            result = provider.generate_with_tools(
+                system="system prompt",
+                user=ProviderUserInput(text="runtime turn", prefix_messages=["stable primer"]),
+                tools=lambda: [],
+                tool_handler=lambda _name, _payload: {},
+            )
+
+            self.assertEqual(result.status, "completed")
+            self.assertEqual(result.text, "已降级。")
+            self.assertIn("prompt_cache_key", fake_responses.requests[0])
+            self.assertNotIn("prompt_cache_key", fake_responses.requests[1])
+            self.assertIn("stream_options", fake_responses.requests[1])
+            self.assertNotIn("stream_options", fake_responses.requests[2])
+
+        def test_openai_responses_generate_preserves_trace_request_options(self) -> None:
+            class FakeResponses:
+                def create(self, **request):
+                    del request
+                    return iter(
+                        [
+                            SimpleNamespace(type="response.output_text.delta", delta="直接回复。"),
+                            SimpleNamespace(type="response.completed", response=SimpleNamespace(output=[], usage=None)),
+                        ]
+                    )
+
+            class FakeExchange:
+                def finish(self, **_kwargs) -> None:
+                    return None
+
+                def fail(self, **_kwargs) -> None:
+                    return None
+
+            class FakeRecorder:
+                def __init__(self) -> None:
+                    self.request_options: dict[str, Any] | None = None
+
+                def start_exchange(self, **kwargs):
+                    self.request_options = kwargs["request_options"]
+                    return FakeExchange()
+
+                def stream_chunks_payload(self, chunks: list[str]) -> list[dict[str, Any]]:
+                    return [{"text": chunk} for chunk in chunks]
+
+                def extract_token_usage(self, _message) -> dict[str, Any] | None:
+                    return None
+
+            provider = OpenAIResponsesChatProvider.__new__(OpenAIResponsesChatProvider)
+            provider.model_name = "gpt-5-mini"
+            provider.supports_vision = False
+            provider.client = SimpleNamespace(responses=FakeResponses())
+            recorder = FakeRecorder()
+
+            result = provider.generate(
+                system="system prompt",
+                user="runtime turn",
+                trace_recorder=recorder,
+                trace_request_options={
+                    "fallbackFromMode": "stream_generate",
+                    "fallbackOfExchangeId": "exchange-1",
+                },
+            )
+
+            self.assertEqual(result.status, "completed")
+            assert recorder.request_options is not None
+            self.assertEqual(recorder.request_options["fallbackFromMode"], "stream_generate")
+            self.assertEqual(recorder.request_options["fallbackOfExchangeId"], "exchange-1")
 
         def test_orchestrator_injects_multiple_skills_and_exposes_union_tools(self) -> None:
             class InjectingProvider(BaseChatProvider):

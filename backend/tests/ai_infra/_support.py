@@ -19,7 +19,7 @@ from sqlalchemy.pool import StaticPool
 from sqlalchemy import create_engine
 
 from app.ai.kitchen.recipe_drafts import _extract_json, build_recipe_image_render_payload
-from app.ai.runtime.provider import BaseChatProvider, ChatProviderResult, DisabledChatProvider, OpenAICompatibleChatProvider
+from app.ai.runtime.provider import BaseChatProvider, ChatProviderResult, DisabledChatProvider, OpenAICompatibleChatProvider, ProviderUserInput
 from app.ai.skills import (
     BaseSkill,
     CatalogSkill,

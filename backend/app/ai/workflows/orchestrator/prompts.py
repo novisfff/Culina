@@ -85,6 +85,7 @@ def build_orchestrator_system_prompt(
     include_dynamic_injection_contract: bool = True,
     include_draft_contract: bool = True,
     include_allowed_draft_types: bool = True,
+    include_injected_skill_records: bool = True,
     artifact_context_policy: str = "all",
 ) -> str:
     profile = profile_state if profile_state is not None else context.orchestrator_profile or {}
@@ -132,9 +133,10 @@ def build_orchestrator_system_prompt(
     sections = [
         _join_prompt_lines(contract_lines),
         "Prompt contract metadata:\n" + json.dumps(prompt_metadata, ensure_ascii=False, default=str),
-        "Injected skills:\n" + json.dumps(injected_skill_records, ensure_ascii=False, default=str),
         "Injected skill instructions:\n" + "\n\n---\n\n".join(injected_skill_instruction_sections),
     ]
+    if include_injected_skill_records:
+        sections.insert(2, "Injected skills:\n" + json.dumps(injected_skill_records, ensure_ascii=False, default=str))
     if include_catalog_records:
         sections.insert(1, "Catalog records:\n" + json.dumps(catalog_records, ensure_ascii=False, default=str))
     if profile_addon:

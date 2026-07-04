@@ -4,11 +4,17 @@ from datetime import timedelta
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from langchain_core.messages import AIMessage, AIMessageChunk, HumanMessage, SystemMessage
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 
 from app.ai.observability.llm_exchange import LLMExchangeRecorder
 from app.ai.observability.tracer import AIRunTracer
-from app.ai.runtime.provider import BaseChatProvider, ChatProviderResult, OpenAICompatibleChatProvider
+from app.ai.runtime.provider import (
+    BaseChatProvider,
+    ChatProviderResult,
+    OpenAICompatibleChatProvider,
+    OpenAIResponsesChatProvider,
+    ProviderUserInput,
+)
 from app.ai.workflows.orchestrator.skill_runtime import _record_skill_injection_trace
 from app.core.config import Settings
 from app.core.utils import create_id, utcnow
@@ -70,45 +76,51 @@ class AIObservabilityTestCase(AIAgentInfraTestCase):
         self.assertIn("AI graph prepare completed", output)
         self.assertIn("AI graph finalize perf summary", output)
 
-    def test_openai_compatible_provider_requests_stream_usage(self) -> None:
+    def test_openai_compatible_provider_uses_openai_sdk_client_only(self) -> None:
         provider = OpenAICompatibleChatProvider(
             api_base="https://example.invalid/v1",
             api_key="test-key",
             model_name="debug-model",
         )
 
-        self.assertTrue(getattr(provider.client, "stream_usage", False))
+        self.assertFalse(hasattr(provider, "client"))
+        self.assertIsNotNone(provider.openai_client)
 
     def test_streaming_tool_usage_chunk_is_recorded_on_exchange(self) -> None:
-        class UsageStreamClient:
-            stream_kwargs: dict | None = None
+        class FakeCompletions:
+            request: dict | None = None
 
-            def stream(self, _messages, **kwargs):
-                self.stream_kwargs = kwargs
+            def create(self, **kwargs):
+                self.request = kwargs
                 return iter(
                     [
-                        AIMessageChunk(content="补货建议已整理。"),
-                        AIMessageChunk(
-                            content="",
-                            usage_metadata={
+                        {
+                            "choices": [
+                                {
+                                    "delta": {
+                                        "content": "补货建议已整理。",
+                                        "tool_calls": None,
+                                    }
+                                }
+                            ],
+                            "usage": None,
+                        },
+                        {
+                            "choices": [],
+                            "usage": {
                                 "input_tokens": 41,
                                 "output_tokens": 9,
                                 "total_tokens": 50,
                                 "input_token_details": {"cache_read": 7},
                             },
-                        ),
+                        },
                     ]
                 )
 
-        class BindingClient:
-            def __init__(self, stream_client: UsageStreamClient) -> None:
-                self.stream_client = stream_client
-
-            def bind_tools(self, _tools):
-                return self
-
-            def bind(self, **_kwargs):
-                return self.stream_client
+        class FakeOpenAIClient:
+            def __init__(self) -> None:
+                self.completions = FakeCompletions()
+                self.chat = SimpleNamespace(completions=self.completions)
 
         response = self.client.post(
             "/api/ai/chat",
@@ -119,13 +131,13 @@ class AIObservabilityTestCase(AIAgentInfraTestCase):
         run_id = data["run"]["id"]
         conversation_id = data["conversation_id"]
 
-        stream_client = UsageStreamClient()
         provider = OpenAICompatibleChatProvider(
             api_base="https://example.invalid/v1",
             api_key="test-key",
             model_name="debug-model",
         )
-        provider.client = BindingClient(stream_client)
+        fake_openai_client = FakeOpenAIClient()
+        provider.openai_client = fake_openai_client
 
         with self.SessionLocal() as db:
             recorder = LLMExchangeRecorder(
@@ -147,10 +159,7 @@ class AIObservabilityTestCase(AIAgentInfraTestCase):
             db.commit()
 
         self.assertEqual(result.text, "补货建议已整理。")
-        self.assertEqual(
-            stream_client.stream_kwargs,
-            {"stream_usage": True, "stream_options": {"include_usage": True}},
-        )
+        self.assertEqual(fake_openai_client.completions.request["stream_options"], {"include_usage": True})
         exchange_response = self.client.get(f"/api/ai/runs/{run_id}/llm-exchanges")
         self.assertEqual(exchange_response.status_code, 200, exchange_response.text)
         exchange = exchange_response.json()["exchanges"][-1]
@@ -242,6 +251,83 @@ class AIObservabilityTestCase(AIAgentInfraTestCase):
         self.assertEqual(exchange["outputTokens"], 13)
         self.assertEqual(exchange["totalTokens"], 74)
         self.assertEqual(exchange["cachedTokens"], 5)
+
+    def test_openai_responses_usage_and_cache_options_are_recorded_on_exchange(self) -> None:
+        class FakeResponses:
+            request: dict | None = None
+
+            def create(self, **kwargs):
+                self.request = kwargs
+                return iter(
+                    [
+                        SimpleNamespace(type="response.output_text.delta", delta="补货建议已整理。"),
+                        SimpleNamespace(
+                            type="response.completed",
+                            response=SimpleNamespace(
+                                output=[],
+                                usage={
+                                    "input_tokens": 71,
+                                    "output_tokens": 11,
+                                    "total_tokens": 82,
+                                    "input_tokens_details": {"cached_tokens": 17},
+                                },
+                            ),
+                        ),
+                    ]
+                )
+
+        response = self.client.post(
+            "/api/ai/chat",
+            json={"message": "随便聊聊", "client_run_id": "agent_run-observability-responses-usage"},
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        data = response.json()
+        run_id = data["run"]["id"]
+        conversation_id = data["conversation_id"]
+
+        fake_responses = FakeResponses()
+        provider = OpenAIResponsesChatProvider.__new__(OpenAIResponsesChatProvider)
+        provider.model_name = "gpt-5-mini"
+        provider.supports_vision = False
+        provider.client = SimpleNamespace(responses=fake_responses)
+
+        with self.SessionLocal() as db:
+            recorder = LLMExchangeRecorder(
+                db=db,
+                family_id=self.family.id,
+                run_id=run_id,
+                conversation_id=conversation_id,
+                trace_id="ai_trace-responses-usage",
+                user_id=self.user.id,
+                span_id="ai_span-responses-usage",
+            )
+            result = provider.generate_with_tools(
+                system="系统",
+                user=ProviderUserInput(text="用户", prefix_messages=["稳定上下文"]),
+                tools=lambda: [],
+                tool_handler=lambda _name, _payload, _event_id=None: {},
+                trace_recorder=recorder,
+            )
+            db.commit()
+
+        self.assertEqual(result.text, "补货建议已整理。")
+        assert fake_responses.request is not None
+        self.assertEqual(fake_responses.request["prompt_cache_retention"], "24h")
+        exchange_response = self.client.get(f"/api/ai/runs/{run_id}/llm-exchanges")
+        self.assertEqual(exchange_response.status_code, 200, exchange_response.text)
+        exchange = exchange_response.json()["exchanges"][-1]
+        self.assertEqual(exchange["traceId"], "ai_trace-responses-usage")
+        self.assertEqual(exchange["inputTokens"], 71)
+        self.assertEqual(exchange["outputTokens"], 11)
+        self.assertEqual(exchange["totalTokens"], 82)
+        self.assertEqual(exchange["cachedTokens"], 17)
+        self.assertEqual(exchange["requestOptions"]["providerProtocol"], "responses")
+        self.assertEqual(exchange["requestOptions"]["promptCacheRetention"], "24h")
+        self.assertTrue(exchange["requestOptions"]["promptCacheKey"])
+        self.assertTrue(exchange["requestOptions"]["systemHash"])
+        self.assertTrue(exchange["requestOptions"]["stablePrefixHash"])
+        self.assertTrue(exchange["requestOptions"]["toolsHash"])
+        self.assertTrue(exchange["requestOptions"]["requestPrefixHash"])
 
     def test_sdk_object_token_usage_is_recorded_on_exchange(self) -> None:
         class UsageDetails:
@@ -836,9 +922,13 @@ class AIObservabilityTestCase(AIAgentInfraTestCase):
         self.assertEqual(detail["responseToolCalls"][0]["args"]["query"], "番茄")
 
     def test_stream_generate_empty_response_is_recorded_as_failed_exchange(self) -> None:
-        class EmptyStreamClient:
-            def stream(self, _messages):
+        class FakeCompletions:
+            def create(self, **_kwargs):
                 return iter(())
+
+        class FakeOpenAIClient:
+            def __init__(self) -> None:
+                self.chat = SimpleNamespace(completions=FakeCompletions())
 
         response = self.client.post(
             "/api/ai/chat",
@@ -854,7 +944,7 @@ class AIObservabilityTestCase(AIAgentInfraTestCase):
             api_key="test-key",
             model_name="debug-model",
         )
-        provider.client = EmptyStreamClient()
+        provider.openai_client = FakeOpenAIClient()
 
         with self.SessionLocal() as db:
             recorder = LLMExchangeRecorder(
@@ -879,13 +969,14 @@ class AIObservabilityTestCase(AIAgentInfraTestCase):
         self.assertEqual(exchange["errorCode"], "provider_empty_response")
         self.assertEqual(exchange["errorMessage"], "empty model response")
 
-    def test_stream_generate_fallback_exchange_links_to_failed_stream_exchange(self) -> None:
-        class FailingStreamClient:
-            def stream(self, _messages):
+    def test_stream_generate_failure_is_recorded_without_blocking_fallback(self) -> None:
+        class FakeCompletions:
+            def create(self, **_kwargs):
                 raise RuntimeError("stream transport closed")
 
-            def invoke(self, _messages):
-                return AIMessage(content="blocking fallback response")
+        class FakeOpenAIClient:
+            def __init__(self) -> None:
+                self.chat = SimpleNamespace(completions=FakeCompletions())
 
         response = self.client.post(
             "/api/ai/chat",
@@ -901,7 +992,7 @@ class AIObservabilityTestCase(AIAgentInfraTestCase):
             api_key="test-key",
             model_name="debug-model",
         )
-        provider.client = FailingStreamClient()
+        provider.openai_client = FakeOpenAIClient()
 
         with self.SessionLocal() as db:
             recorder = LLMExchangeRecorder(
@@ -916,17 +1007,15 @@ class AIObservabilityTestCase(AIAgentInfraTestCase):
             chunks = list(provider.stream_generate(system="系统", user="用户", trace_recorder=recorder))
             db.commit()
 
-        self.assertEqual(chunks, ["blocking fallback response"])
+        self.assertEqual(chunks, [])
         exchange_response = self.client.get(f"/api/ai/runs/{run_id}/llm-exchanges")
         self.assertEqual(exchange_response.status_code, 200, exchange_response.text)
         exchanges = [item for item in exchange_response.json()["exchanges"] if item["traceId"] == "ai_trace-stream-fallback"]
-        self.assertEqual(len(exchanges), 2)
-        failed_stream, fallback = exchanges
+        self.assertEqual(len(exchanges), 1)
+        failed_stream = exchanges[0]
         self.assertEqual(failed_stream["status"], "failed")
+        self.assertEqual(failed_stream["mode"], "stream_generate")
         self.assertEqual(failed_stream["errorMessage"], "stream transport closed")
-        self.assertEqual(fallback["mode"], "generate")
-        self.assertEqual(fallback["requestOptions"]["fallbackFromMode"], "stream_generate")
-        self.assertEqual(fallback["requestOptions"]["fallbackOfExchangeId"], failed_stream["id"])
 
     def test_durable_trace_writes_survive_business_session_rollback(self) -> None:
         response = self.client.post(

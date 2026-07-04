@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import base64
+import asyncio
 import json
+import time
+from collections.abc import Awaitable, Callable
 
 from jose import JWTError, jwt
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, WebSocket, WebSocketDisconnect, status
@@ -12,7 +15,7 @@ from sqlalchemy.orm import Session
 from app.core.config import get_settings
 from app.core.deps import get_current_auth
 from app.core.utils import create_id
-from app.db.session import get_db
+from app.db.session import SessionLocal, get_db
 from app.db.transactions import commit_session
 from app.models.domain import Membership, User
 from app.repos.auth import get_active_membership, get_user_by_id
@@ -179,7 +182,21 @@ def _decode_audio_event(event: dict) -> tuple[bytes, str, str]:
     return audio_bytes, content_type, filename
 
 
-async def _transcribe_voice_event(event: dict, *, session: RealtimeVoiceSessionState, websocket: WebSocket | None = None) -> str:
+def _with_turn_id(payload: dict, *, turn_id: str, expose_turn_id: bool) -> dict:
+    if expose_turn_id and turn_id:
+        return {**payload, "turn_id": turn_id}
+    return payload
+
+
+async def _transcribe_voice_event(
+    event: dict,
+    *,
+    session: RealtimeVoiceSessionState,
+    websocket: WebSocket | None = None,
+    send_json: Callable[[dict], Awaitable[None]] | None = None,
+    turn_id: str = "",
+    expose_turn_id: bool = False,
+) -> str:
     settings = get_settings()
     audio_bytes, content_type, filename = _decode_audio_event(event)
     if len(audio_bytes) > settings.ai_stt_max_upload_bytes:
@@ -195,12 +212,21 @@ async def _transcribe_voice_event(event: dict, *, session: RealtimeVoiceSessionS
     )
     if session.provider == "dashscope" and "pcm" in content_type.lower():
         async def send_delta(delta: str) -> None:
-            if websocket is not None and delta:
-                await websocket.send_json({"type": "user_transcript_delta", "text": delta})
+            if not delta:
+                return
+            payload = _with_turn_id(
+                {"type": "user_transcript_delta", "text": delta},
+                turn_id=turn_id,
+                expose_turn_id=expose_turn_id,
+            )
+            if send_json is not None:
+                await send_json(payload)
+            elif websocket is not None:
+                await websocket.send_json(payload)
 
         result = await DashScopeAudioProvider(settings, capability="stt").transcribe_realtime_audio(request, on_delta=send_delta)
     else:
-        result = AIAudioService(settings).transcribe(request, provider=session.provider)
+        result = await asyncio.to_thread(lambda: AIAudioService(settings).transcribe(request, provider=session.provider))
     return result.text.strip()
 
 
@@ -281,8 +307,20 @@ async def stream_cooking_assistant_voice(
     ensure_audio_enabled(settings)
     _validate_cooking_subject(request.subject)
     user, membership = auth
+    route_started_at = time.perf_counter()
+
+    def route_elapsed_ms() -> int:
+        return int((time.perf_counter() - route_started_at) * 1000)
 
     async def event_stream():
+        yield _sse_event(
+            "assistant_audio_trace",
+            {
+                "stage": "backend_sse_stream_start",
+                "elapsed_ms": route_elapsed_ms(),
+                "voice_provider": request.provider or settings.ai_realtime_provider,
+            },
+        )
         async for event in stream_cooking_assistant_voice_events(
             db,
             family_id=membership.family_id,
@@ -305,7 +343,15 @@ async def stream_cooking_assistant_voice(
                 payload = {key: value for key, value in event.items() if key != "type"}
             yield _sse_event(event_type, payload)
 
-    return StreamingResponse(event_stream(), media_type="text/event-stream")
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache, no-transform",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @router.post("/realtime/cooking/session", response_model=CookingRealtimeSessionResponse)
@@ -356,8 +402,14 @@ async def cooking_realtime_session_ws(
         await websocket.close(code=4404)
         return
 
+    send_lock = asyncio.Lock()
+
+    async def send_json(payload: dict) -> None:
+        async with send_lock:
+            await websocket.send_json(payload)
+
     await websocket.accept()
-    await websocket.send_json(
+    await send_json(
         {
             "type": "status",
             "status": "listening",
@@ -366,67 +418,110 @@ async def cooking_realtime_session_ws(
             "expires_at": session.expires_at.isoformat(),
         }
     )
+    active_turn_id = ""
+    current_turn_task: asyncio.Task | None = None
+
+    async def cancel_current_turn() -> None:
+        nonlocal current_turn_task
+        if current_turn_task is not None and not current_turn_task.done():
+            current_turn_task.cancel()
+            try:
+                await current_turn_task
+            except asyncio.CancelledError:
+                pass
+        current_turn_task = None
+
+    async def run_agent_turn(*, text: str, turn_id: str, expose_turn_id: bool) -> None:
+        nonlocal active_turn_id
+        if not text:
+            if active_turn_id == turn_id:
+                await send_json(_with_turn_id({"type": "status", "status": "listening"}, turn_id=turn_id, expose_turn_id=expose_turn_id))
+            return
+        await send_json(_with_turn_id({"type": "user_transcript_done", "text": text}, turn_id=turn_id, expose_turn_id=expose_turn_id))
+        await send_json(_with_turn_id({"type": "status", "status": "thinking"}, turn_id=turn_id, expose_turn_id=expose_turn_id))
+        speaking_sent = False
+        try:
+            async for voice_event in stream_cooking_assistant_voice_events(
+                db,
+                family_id=session.family_id,
+                user_id=session.user_id,
+                message=text,
+                subject=session.subject,
+                provider=session.provider,
+                settings=settings,
+                service_factory=AIApplicationService,
+                tts_provider_factory=lambda settings, capability: DashScopeAudioProvider(settings, capability=capability),
+                db_session_factory=SessionLocal,
+            ):
+                if active_turn_id != turn_id:
+                    break
+                event_type = voice_event.get("type")
+                if event_type in {"progress", "message_delta", "message_part", "response"}:
+                    continue
+                if not speaking_sent and event_type in {"assistant_transcript_delta", "assistant_audio_start", "assistant_audio_done", "ui_actions"}:
+                    speaking_sent = True
+                    await send_json(_with_turn_id({"type": "status", "status": "speaking"}, turn_id=turn_id, expose_turn_id=expose_turn_id))
+                await send_json(_with_turn_id(voice_event, turn_id=turn_id, expose_turn_id=expose_turn_id))
+        except asyncio.CancelledError:
+            raise
+        finally:
+            if active_turn_id == turn_id:
+                await send_json(_with_turn_id({"type": "status", "status": "listening"}, turn_id=turn_id, expose_turn_id=expose_turn_id))
+
+    async def run_audio_turn(*, event: dict, turn_id: str, expose_turn_id: bool) -> None:
+        await send_json(_with_turn_id({"type": "assistant_audio_trace", "stage": "backend_audio_received"}, turn_id=turn_id, expose_turn_id=expose_turn_id))
+        await send_json(_with_turn_id({"type": "status", "status": "transcribing"}, turn_id=turn_id, expose_turn_id=expose_turn_id))
+        try:
+            text = await _transcribe_voice_event(
+                event,
+                session=session,
+                websocket=websocket,
+                send_json=send_json,
+                turn_id=turn_id,
+                expose_turn_id=expose_turn_id,
+            )
+        except HTTPException as exc:
+            if active_turn_id == turn_id:
+                await send_json(_with_turn_id({"type": "error", "message": str(exc.detail)}, turn_id=turn_id, expose_turn_id=expose_turn_id))
+                await send_json(_with_turn_id({"type": "status", "status": "listening"}, turn_id=turn_id, expose_turn_id=expose_turn_id))
+            return
+        if active_turn_id == turn_id:
+            await send_json(_with_turn_id({"type": "assistant_audio_trace", "stage": "backend_stt_done"}, turn_id=turn_id, expose_turn_id=expose_turn_id))
+            await run_agent_turn(text=text, turn_id=turn_id, expose_turn_id=expose_turn_id)
+
+    async def start_turn(event: dict) -> None:
+        nonlocal active_turn_id, current_turn_task
+        expose_turn_id = isinstance(event.get("turn_id"), str) and bool(str(event.get("turn_id")).strip())
+        turn_id = str(event.get("turn_id") or create_id("voice_turn"))
+        active_turn_id = turn_id
+        await cancel_current_turn()
+        event_type = event.get("type")
+        if event_type == "audio_chunk_done":
+            current_turn_task = asyncio.create_task(run_audio_turn(event=event, turn_id=turn_id, expose_turn_id=expose_turn_id))
+            return
+        text = str(event.get("text") or "").strip()
+        current_turn_task = asyncio.create_task(run_agent_turn(text=text, turn_id=turn_id, expose_turn_id=expose_turn_id))
+
     try:
         while True:
             event = await websocket.receive_json()
             event_type = event.get("type")
             if event_type == "ping":
-                await websocket.send_json({"type": "pong"})
+                await send_json({"type": "pong"})
                 continue
             if event_type == "hangup":
                 realtime_voice_session_store.close(session_id)
-                await websocket.send_json({"type": "status", "status": "closed"})
+                await cancel_current_turn()
+                await send_json({"type": "status", "status": "closed"})
                 await websocket.close(code=1000)
                 return
             if event_type == "audio_chunk_done":
-                try:
-                    text = await _transcribe_voice_event(event, session=session, websocket=websocket)
-                except HTTPException as exc:
-                    await websocket.send_json({"type": "error", "message": str(exc.detail)})
-                    await websocket.send_json({"type": "status", "status": "listening"})
-                    continue
-                if text:
-                    await websocket.send_json({"type": "user_transcript_done", "text": text})
-                    await websocket.send_json({"type": "status", "status": "speaking"})
-                    async for voice_event in stream_cooking_assistant_voice_events(
-                        db,
-                        family_id=session.family_id,
-                        user_id=session.user_id,
-                        message=text,
-                        subject=session.subject,
-                        provider=session.provider,
-                        settings=settings,
-                        service_factory=AIApplicationService,
-                        tts_provider_factory=lambda settings, capability: DashScopeAudioProvider(settings, capability=capability),
-                    ):
-                        event_type = voice_event.get("type")
-                        if event_type in {"progress", "message_delta", "message_part", "response"}:
-                            continue
-                        await websocket.send_json(voice_event)
-                    await websocket.send_json({"type": "status", "status": "listening"})
+                await start_turn(event)
                 continue
             if event_type == "user_transcript_done":
-                text = str(event.get("text") or "").strip()
-                if text:
-                    await websocket.send_json({"type": "user_transcript_done", "text": text})
-                    await websocket.send_json({"type": "status", "status": "speaking"})
-                    async for voice_event in stream_cooking_assistant_voice_events(
-                        db,
-                        family_id=session.family_id,
-                        user_id=session.user_id,
-                        message=text,
-                        subject=session.subject,
-                        provider=session.provider,
-                        settings=settings,
-                        service_factory=AIApplicationService,
-                        tts_provider_factory=lambda settings, capability: DashScopeAudioProvider(settings, capability=capability),
-                    ):
-                        event_type = voice_event.get("type")
-                        if event_type in {"progress", "message_delta", "message_part", "response"}:
-                            continue
-                        await websocket.send_json(voice_event)
-                    await websocket.send_json({"type": "status", "status": "listening"})
+                await start_turn(event)
                 continue
-            await websocket.send_json({"type": "error", "message": "Unsupported voice event"})
+            await send_json({"type": "error", "message": "Unsupported voice event"})
     except WebSocketDisconnect:
+        await cancel_current_turn()
         realtime_voice_session_store.close(session_id)
