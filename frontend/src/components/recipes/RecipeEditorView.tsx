@@ -7,7 +7,7 @@ import type { AiRenderPayload } from '../../lib/aiImages';
 import { resolveAssetUrl } from '../../lib/assets';
 import { MediaWithPlaceholder } from '../MediaPlaceholder';
 import { useDebouncedSearchValue, useSearchCompositionState } from '../../hooks/useDebouncedValue';
-import { ActionButton, SearchLoadingIndicator, WorkspaceSubpageShell } from '../ui-kit';
+import { ActionButton, DropdownSelect, SearchLoadingIndicator, WorkspaceSubpageShell } from '../ui-kit';
 import {
   MAX_STEP_KEY_POINTS,
   RECIPE_STEP_ICON_OPTIONS,
@@ -37,6 +37,17 @@ type RecipeEditorSummaryItem = {
   label: string;
   value: string;
 };
+
+const SERVING_OPTIONS = [1, 2, 3, 4, 5, 6, 8].map((serving) => ({
+  value: String(serving),
+  label: `${serving} 人份`,
+}));
+
+const DIFFICULTY_OPTIONS: Array<{ value: Difficulty; label: string }> = [
+  { value: 'easy', label: DIFFICULTY_LABELS.easy },
+  { value: 'medium', label: DIFFICULTY_LABELS.medium },
+  { value: 'hard', label: DIFFICULTY_LABELS.hard },
+];
 
 type RecipeImageState = {
   isGenerating: boolean;
@@ -375,11 +386,13 @@ export function RecipeEditorView({
                   </label>
                   <label>
                     <span>份量</span>
-                    <select className="text-input" value={form.servings} onChange={(event) => setForm({ ...form, servings: event.target.value })}>
-                      {[1, 2, 3, 4, 5, 6, 8].map((serving) => (
-                        <option key={serving} value={String(serving)}>{serving} 人份</option>
-                      ))}
-                    </select>
+                    <DropdownSelect
+                      ariaLabel="选择份量"
+                      placeholder="选择份量"
+                      value={form.servings}
+                      options={SERVING_OPTIONS}
+                      onChange={(servings) => setForm({ ...form, servings })}
+                    />
                   </label>
                   <label>
                     <span>准备时长（分钟）</span>
@@ -387,11 +400,13 @@ export function RecipeEditorView({
                   </label>
                   <label>
                     <span>难度</span>
-                    <select className="text-input" value={form.difficulty} onChange={(event) => setForm({ ...form, difficulty: event.target.value as Difficulty })}>
-                      <option value="easy">简单</option>
-                      <option value="medium">中等</option>
-                      <option value="hard">复杂</option>
-                    </select>
+                    <DropdownSelect
+                      ariaLabel="选择难度"
+                      placeholder="选择难度"
+                      value={form.difficulty}
+                      options={DIFFICULTY_OPTIONS}
+                      onChange={(difficulty) => setForm({ ...form, difficulty: difficulty as Difficulty })}
+                    />
                   </label>
                   <label className="recipe-editor-tips-field">
                     <span>技巧 / 说明（选填）</span>
@@ -504,17 +519,13 @@ export function RecipeEditorView({
                               <span>图标</span>
                               <span className="recipe-editor-icon-select">
                                 <RecipeUiIcon name={getRecipeStepIconName(step.icon)} />
-                                <select
-                                  className="text-input"
+                                <DropdownSelect
+                                  ariaLabel="选择步骤图标"
+                                  placeholder="选择步骤图标"
                                   value={step.icon}
-                                  onChange={(event) => updateStepDraft(step.id, { icon: event.target.value })}
-                                >
-                                  {RECIPE_STEP_ICON_OPTIONS.map((option) => (
-                                    <option key={option.value} value={option.value}>
-                                      {option.label}
-                                    </option>
-                                  ))}
-                                </select>
+                                  options={RECIPE_STEP_ICON_OPTIONS.map((option) => ({ value: option.value, label: option.label }))}
+                                  onChange={(icon) => updateStepDraft(step.id, { icon })}
+                                />
                               </span>
                             </label>
                             <label className="recipe-editor-step-field-time">

@@ -38,6 +38,7 @@ import { usePagedList } from '../../hooks/usePagedList';
 import {
   ActionButton,
   Badge,
+  DropdownSelect,
   EmptyState,
   SearchLoadingIndicator,
   WorkspaceSubpageHeader,
@@ -283,76 +284,6 @@ type RecipeWorkspaceProps = {
   isUpdatingPlan?: boolean;
   isUpdatingScene?: boolean;
 };
-
-function RecipeToolbarDropdown({
-  value,
-  options,
-  icon,
-  title,
-  onChange,
-}: {
-  value: string;
-  options: { value: string; label: string }[];
-  icon: string;
-  title: string;
-  onChange: (value: any) => void;
-}) {
-  const [open, setOpen] = useState(false);
-  const rootRef = useRef<HTMLDivElement | null>(null);
-  const selectedOption = options.find((opt) => opt.value === value);
-
-  useEffect(() => {
-    if (!open) return;
-    const handlePointerDown = (event: MouseEvent) => {
-      if (!rootRef.current?.contains(event.target as Node)) {
-        setOpen(false);
-      }
-    };
-    document.addEventListener('mousedown', handlePointerDown);
-    return () => document.removeEventListener('mousedown', handlePointerDown);
-  }, [open]);
-
-  return (
-    <div className={open ? 'recipe-toolbar-dropdown is-open' : 'recipe-toolbar-dropdown'} ref={rootRef}>
-      <button
-        className="recipe-toolbar-dropdown-trigger"
-        type="button"
-        onClick={() => setOpen(!open)}
-        aria-expanded={open}
-      >
-        <span className="recipe-toolbar-dropdown-trigger-icon">
-          <RecipeUiIcon name={icon as any} />
-        </span>
-        <span className="recipe-toolbar-dropdown-trigger-text">
-          <span className="recipe-toolbar-dropdown-title">{title}</span>
-          <span className="recipe-toolbar-dropdown-value">{selectedOption?.label ?? value}</span>
-        </span>
-        <span className="recipe-toolbar-dropdown-trigger-chevron">
-          <RecipeUiIcon name="chevronDown" />
-        </span>
-      </button>
-      
-      {open && (
-        <div className="recipe-toolbar-dropdown-panel">
-          {options.map((opt) => (
-            <button
-              key={opt.value}
-              className={opt.value === value ? 'recipe-toolbar-dropdown-option is-selected' : 'recipe-toolbar-dropdown-option'}
-              type="button"
-              onClick={() => {
-                onChange(opt.value);
-                setOpen(false);
-              }}
-            >
-              <span>{opt.label}</span>
-              {opt.value === value && <RecipeUiIcon name="check" />}
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
 
 export function RecipeWorkspace(props: RecipeWorkspaceProps) {
   const categoryScrollRef = useRef<HTMLDivElement | null>(null);
@@ -1233,7 +1164,10 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
             />
             <SearchLoadingIndicator active={isRecipeSearchFetching} />
           </label>
-          <RecipeToolbarDropdown
+          <DropdownSelect
+            ariaLabel="难度"
+            labelPrefix="难度"
+            placeholder="难度"
             value={difficultyFilter}
             options={[
               { value: 'all', label: '全部' },
@@ -1241,15 +1175,24 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
               { value: 'medium', label: '中等' },
               { value: 'hard', label: '复杂' },
             ]}
-            icon="signal"
-            title="难度"
+            className="recipe-toolbar-dropdown"
+            triggerClassName="recipe-toolbar-dropdown-trigger"
+            menuClassName="recipe-toolbar-dropdown-panel"
+            optionClassName="recipe-toolbar-dropdown-option"
+            leadingIcon={<span className="recipe-toolbar-dropdown-trigger-icon"><RecipeUiIcon name="signal" /></span>}
             onChange={(val) => setDifficultyFilter(val as 'all' | Difficulty)}
           />
-          <RecipeToolbarDropdown
+          <DropdownSelect
+            ariaLabel="排序"
+            labelPrefix="排序"
+            placeholder="排序"
             value={sortMode}
             options={SORT_OPTIONS}
-            icon="clock"
-            title="排序"
+            className="recipe-toolbar-dropdown"
+            triggerClassName="recipe-toolbar-dropdown-trigger"
+            menuClassName="recipe-toolbar-dropdown-panel"
+            optionClassName="recipe-toolbar-dropdown-option"
+            leadingIcon={<span className="recipe-toolbar-dropdown-trigger-icon"><RecipeUiIcon name="clock" /></span>}
             onChange={(val) => setSortMode(val as RecipeSortMode)}
           />
         </div>

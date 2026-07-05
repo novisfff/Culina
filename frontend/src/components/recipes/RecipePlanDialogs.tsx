@@ -1,7 +1,7 @@
 import type { FormEvent } from 'react';
 import type { MealType, RecipePlanItem } from '../../api/types';
 import { formatDate, MEAL_TYPE_LABELS } from '../../lib/ui';
-import { ActionButton, Badge, FormActions, WorkspaceModal } from '../ui-kit';
+import { ActionButton, Badge, DropdownSelect, FormActions, WorkspaceModal } from '../ui-kit';
 import { DIFFICULTY_LABELS, type RecipeCardViewModel } from './workspaceModel';
 import { MEAL_TYPE_OPTIONS } from './RecipeWorkspaceOptions';
 import { RecipeCover, RecipeUiIcon } from './RecipeWorkspaceCards';
@@ -131,17 +131,13 @@ export function RecipePlanDialog(props: RecipePlanDialogProps) {
             </label>
             <label>
               <span>餐次</span>
-              <select
-                className="text-input"
+              <DropdownSelect
+                ariaLabel="选择餐别"
+                placeholder="选择餐别"
                 value={props.form.mealType}
-                onChange={(event) => props.onChangeForm({ ...props.form, mealType: event.target.value as MealType })}
-              >
-                {MEAL_TYPE_OPTIONS.map((item) => (
-                  <option key={item.value} value={item.value}>
-                    {item.label}
-                  </option>
-                ))}
-              </select>
+                options={MEAL_TYPE_OPTIONS}
+                onChange={(mealType) => props.onChangeForm({ ...props.form, mealType: mealType as MealType })}
+              />
             </label>
           </div>
           <label className="recipe-plan-note-field">
@@ -229,18 +225,14 @@ export function RecipePlanDetailDialog(props: RecipePlanDetailDialogProps) {
             </label>
             <label>
               <span>餐次</span>
-              <select
-                className="text-input"
+              <DropdownSelect
+                ariaLabel="选择餐别"
+                placeholder="选择餐别"
                 value={props.form.mealType}
-                onChange={(event) => props.onChangeForm({ ...props.form, mealType: event.target.value as MealType })}
+                options={MEAL_TYPE_OPTIONS}
                 disabled={props.isUpdatingPlan || isCooked}
-              >
-                {MEAL_TYPE_OPTIONS.map((item) => (
-                  <option key={item.value} value={item.value}>
-                    {item.label}
-                  </option>
-                ))}
-              </select>
+                onChange={(mealType) => props.onChangeForm({ ...props.form, mealType: mealType as MealType })}
+              />
             </label>
           </div>
 
