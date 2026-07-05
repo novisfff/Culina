@@ -92,3 +92,46 @@
     min-height: 44px;
   }
 }
+
+.ui-form-actions {
+  display: grid;
+  gap: 8px;
+  margin-top: 18px;
+}
+
+.ui-form-actions-reason {
+  margin: 0;
+  color: var(--text-soft);
+  font-size: 0.9rem;
+}
+
+.ui-form-actions-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.ui-form-actions-spacer {
+  flex: 1 1 auto;
+}
+
+.ui-form-actions-danger {
+  color: var(--danger, #d94b3d);
+}
+
+.ui-confirm-dialog-description {
+  color: var(--text-soft);
+  line-height: 1.6;
+}
+
+@media (max-width: 767px) {
+  .ui-form-actions-row {
+    align-items: stretch;
+  }
+
+  .ui-form-actions-row > button {
+    min-height: 44px;
+    flex: 1 1 100%;
+  }
+}
