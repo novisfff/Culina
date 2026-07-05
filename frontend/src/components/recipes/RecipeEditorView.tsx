@@ -7,7 +7,7 @@ import type { AiRenderPayload } from '../../lib/aiImages';
 import { resolveAssetUrl } from '../../lib/assets';
 import { MediaWithPlaceholder } from '../MediaPlaceholder';
 import { useDebouncedSearchValue, useSearchCompositionState } from '../../hooks/useDebouncedValue';
-import { ActionButton, DropdownSelect, ResourcePickerField, WorkspaceSubpageShell } from '../ui-kit';
+import { ActionButton, DropdownSelect, QuantityUnitField, ResourcePickerField, WorkspaceSubpageShell } from '../ui-kit';
 import {
   MAX_STEP_KEY_POINTS,
   RECIPE_STEP_ICON_OPTIONS,
@@ -442,30 +442,18 @@ export function RecipeEditorView({
                           </div>
 
                           <div className="recipe-editor-ingredient-col-right">
-                            {usesPresenceOnlyQuantity ? (
-                              <div className="recipe-editor-ingredient-presence-note">用量写在步骤或备注里</div>
-                            ) : (
-                              <div className="recipe-editor-ingredient-qty-group">
-                                <input
-                                  className="text-input"
-                                  type="number"
-                                  min="0.1"
-                                  step="0.1"
-                                  placeholder="数量"
-                                  value={item.quantity}
-                                  onChange={(event) => updateIngredientRow(item.id, 'quantity', event.target.value)}
-                                />
-                                <select
-                                  className="text-input"
-                                  value={item.unit}
-                                  onChange={(event) => updateIngredientRow(item.id, 'unit', event.target.value)}
-                                >
-                                  {[...new Set([item.unit, ...SHOPPING_UNIT_OPTIONS])].filter(Boolean).map((unit) => (
-                                    <option key={unit} value={unit}>{unit}</option>
-                                  ))}
-                                </select>
-                              </div>
-                            )}
+                            <QuantityUnitField
+                              className={usesPresenceOnlyQuantity ? 'recipe-editor-ingredient-presence-field' : 'recipe-editor-ingredient-qty-group'}
+                              quantity={item.quantity === undefined || item.quantity === null ? '' : String(item.quantity)}
+                              unit={item.unit || '份'}
+                              unitOptions={[item.unit || '份', ...SHOPPING_UNIT_OPTIONS]
+                                .filter((unit, unitIndex, list) => unit && list.indexOf(unit) === unitIndex)
+                                .map((unit) => ({ value: unit, label: unit }))}
+                              quantityDisabled={usesPresenceOnlyQuantity}
+                              quantityDisabledReason={usesPresenceOnlyQuantity ? '这个食材只记录是否需要，用量写在步骤或备注里。' : undefined}
+                              onQuantityChange={(quantity) => updateIngredientRow(item.id, 'quantity', quantity)}
+                              onUnitChange={(unit) => updateIngredientRow(item.id, 'unit', unit)}
+                            />
 
                             <label className="recipe-editor-ingredient-must-toggle">
                               <input

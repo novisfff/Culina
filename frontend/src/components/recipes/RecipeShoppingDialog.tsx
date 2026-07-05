@@ -208,32 +208,16 @@ export function RecipeShoppingDialog(props: RecipeShoppingDialogProps) {
                   if (option) props.onSelectIngredientOption(option);
                 }}
               />
-              <div className="recipe-shopping-custom-quantity">
-                <button type="button" onClick={() => props.onAdjustCustomQuantity(-1)} aria-label="自定义食材数量减一">
-                  <RecipeUiIcon name="minus" />
-                </button>
-                <input
-                  value={props.customForm.quantity}
-                  inputMode="decimal"
-                  placeholder="数量"
-                  onChange={(event) => props.onChangeCustomForm({ ...props.customForm, quantity: event.target.value })}
-                />
-                <button type="button" onClick={() => props.onAdjustCustomQuantity(1)} aria-label="自定义食材数量加一">
-                  <RecipeUiIcon name="plus" />
-                </button>
-              </div>
-              <div className="recipe-shopping-select-shell">
-                <select
-                  value={props.customForm.unit}
-                  onChange={(event) => props.onChangeCustomForm({ ...props.customForm, unit: event.target.value })}
-                  aria-label="自定义食材单位"
-                >
-                  {[props.customForm.unit, ...props.unitOptions].filter((unit, index, list) => unit && list.indexOf(unit) === index).map((unit) => (
-                    <option key={unit} value={unit}>{unit}</option>
-                  ))}
-                </select>
-                <RecipeUiIcon name="chevronDown" />
-              </div>
+              <QuantityUnitField
+                className="recipe-shopping-custom-quantity"
+                quantity={props.customForm.quantity}
+                unit={props.customForm.unit || '份'}
+                unitOptions={[props.customForm.unit || '份', ...props.unitOptions]
+                  .filter((unit, index, list) => unit && list.indexOf(unit) === index)
+                  .map((unit) => ({ value: unit, label: unit }))}
+                onQuantityChange={(quantity) => props.onChangeCustomForm({ ...props.customForm, quantity })}
+                onUnitChange={(unit) => props.onChangeCustomForm({ ...props.customForm, unit })}
+              />
               <button className="recipe-shopping-add-button" type="button" onClick={props.onAddCustomDraft} disabled={!props.customForm.ingredientId}>加入</button>
             </div>
           </section>
