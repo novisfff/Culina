@@ -3,7 +3,7 @@ import { buildMediaSizes, buildMediaSrcSet, resolveMediaUrl } from '../../lib/as
 import type { ShoppingListItem } from '../../api/types';
 import { chunkMobilePagedItems, useMobilePagedScroller } from '../../hooks/useMobilePagedScroller';
 import { MediaWithPlaceholder } from '../MediaPlaceholder';
-import { SearchLoadingIndicator, WorkspaceDrawer } from '../ui-kit';
+import { SearchField, WorkspaceDrawer } from '../ui-kit';
 import { tracksIngredientQuantity } from '../../lib/ingredientTracking';
 import { focusMobileInput } from '../../lib/mobileFocus';
 import type {
@@ -205,7 +205,7 @@ export function IngredientMobileView(props: IngredientMobileViewProps) {
                       <span>{status.label}</span>
                     </div>
                     <p>{summary.alerts[0]?.detail ?? status.detail}</p>
-                    <div className="mobile-ingredient-chip-row">
+                    <div className="mobile-ingredient-meta-row">
                       <span>{summary.primaryStorage}</span>
                       <span>{props.buildInventorySummaryLine(summary)}</span>
                     </div>
@@ -337,18 +337,18 @@ export function IngredientMobileView(props: IngredientMobileViewProps) {
           </button>
         </div>
         <div className="mobile-ingredient-library-filters">
-          <label className="mobile-ingredient-search">
-            {props.renderIcon('search')}
-            <input
-              id="mobile-ingredient-search"
-              value={props.catalogSearch}
-              placeholder="搜索食材、分类、备注或菜谱"
-              onChange={(event) => props.setCatalogSearch(event.target.value)}
-              onCompositionStart={props.onCatalogSearchCompositionStart}
-              onCompositionEnd={props.onCatalogSearchCompositionEnd}
-            />
-            <SearchLoadingIndicator active={Boolean(props.catalogSearch.trim()) && Boolean(props.isCatalogSearchFetching)} />
-          </label>
+          <SearchField
+            className="mobile-ingredient-search"
+            inputId="mobile-ingredient-search"
+            leadingIcon={props.renderIcon('search')}
+            ariaLabel="搜索食材"
+            placeholder="搜索食材、分类、备注或菜谱"
+            value={props.catalogSearch}
+            loading={Boolean(props.catalogSearch.trim()) && Boolean(props.isCatalogSearchFetching)}
+            onChange={props.setCatalogSearch}
+            onCompositionStart={props.onCatalogSearchCompositionStart}
+            onCompositionEnd={props.onCatalogSearchCompositionEnd}
+          />
           <div className="mobile-ingredient-tabs" aria-label="食材筛选">
             {[
               { value: 'all' as const, label: '全部' },
@@ -392,7 +392,7 @@ export function IngredientMobileView(props: IngredientMobileViewProps) {
                         <div className="mobile-ingredient-library-body">
                           <h3>{summary.ingredient.name}</h3>
                           <p>{summary.ingredient.category || '未分类'} · {summary.primaryStorage}</p>
-                          <div className="mobile-ingredient-chip-row">
+                          <div className="mobile-ingredient-meta-row">
                             <span>{status.label}</span>
                             <span>{props.buildInventorySummaryLine(summary)}</span>
                           </div>

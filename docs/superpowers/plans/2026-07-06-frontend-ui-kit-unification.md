@@ -3817,7 +3817,7 @@ git commit -m "refactor: migrate chips badges and states"
 - Consumes: all migrated components from Tasks 1-26.
 - Produces: no duplicate local component styles for migrated primitives; documentation records the new full-migration baseline.
 
-- [ ] **Step 1: Verify migration grep gates**
+- [x] **Step 1: Verify migration grep gates**
 
 Run:
 
@@ -3827,7 +3827,7 @@ rg -n "function CustomSelect|RecipeToolbarDropdown|<select|SearchLoadingIndicato
 
 Expected: no results, except `SearchLoadingIndicator` inside `frontend/src/components/ui-kit/SearchField.tsx` if `rg` scope includes ui-kit.
 
-- [ ] **Step 2: Remove obsolete CSS selectors**
+- [x] **Step 2: Remove obsolete CSS selectors**
 
 Delete CSS blocks that only served migrated primitives:
 
@@ -3851,12 +3851,12 @@ mobile-recipe-chip-row
 
 Keep business-specific layout classes when they still wrap domain cards or page sections.
 
-- [ ] **Step 3: Keep compatibility exports only for public names**
+- [x] **Step 3: Keep compatibility exports only for public names**
 
-In `frontend/src/components/ui-kit.tsx`, keep exports for existing names that are still used:
+In `frontend/src/components/ui-kit.tsx`, keep exports for existing names that are still used. Because this compatibility file is itself named `ui-kit.tsx`, the directory export must target the directory index explicitly:
 
 ```ts
-export * from './ui-kit';
+export * from './ui-kit/index';
 ```
 
 Run:
@@ -3867,7 +3867,7 @@ rg -n "from '../ui-kit'|from '../../components/ui-kit'|from './components/ui-kit
 
 Expected: imports continue to work through the compatibility file. Do not force every import to `../ui-kit/index` in this plan.
 
-- [ ] **Step 4: Update docs**
+- [x] **Step 4: Update docs**
 
 In `docs/frontend-code-standards.md`, replace the basic component section from Task 6 with this final baseline:
 
@@ -3889,7 +3889,7 @@ In `docs/plans/README.md`, add:
 - `docs/superpowers/plans/2026-07-06-frontend-ui-kit-unification.md`：前端基础组件统一化全量迁移计划，覆盖基础组件设计、全业务迁移、样式清理和验证命令。
 ```
 
-- [ ] **Step 5: Run full frontend verification**
+- [x] **Step 5: Run full frontend verification**
 
 Run:
 
@@ -3911,7 +3911,7 @@ Expected:
 - `check:style-tokens` exits 0. Report-only matches may remain report-only.
 - `git diff --check` produces no output.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add frontend/src docs/frontend-code-standards.md docs/plans/README.md docs/superpowers/plans/2026-07-06-frontend-ui-kit-unification.md

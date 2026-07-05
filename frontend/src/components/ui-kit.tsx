@@ -82,18 +82,6 @@ export function Badge(props: { children: ReactNode; className?: string }) {
   return <span className={props.className ? `badge ${props.className}` : 'badge'}>{props.children}</span>;
 }
 
-export function SearchLoadingIndicator(props: { active: boolean; className?: string }) {
-  if (!props.active) return null;
-
-  return (
-    <span
-      className={props.className ? `search-loading-indicator ${props.className}` : 'search-loading-indicator'}
-      aria-label="正在检索"
-      role="status"
-    />
-  );
-}
-
 export function ActionButton(
   props: {
     tone?: 'primary' | 'secondary' | 'tertiary';

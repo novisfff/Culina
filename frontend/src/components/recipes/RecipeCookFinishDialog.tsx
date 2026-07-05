@@ -1,7 +1,7 @@
 import { useState, type FormEvent, type ReactNode } from 'react';
 import type { CookRecipePreviewItem, CookRecipePreviewResponse, CookRecipeShortage, MealType } from '../../api/types';
 import { formatDate } from '../../lib/ui';
-import { ActionButton, FormActions, WorkspaceModal } from '../ui-kit';
+import { ActionButton, DropdownSelect, FormActions, WorkspaceModal } from '../ui-kit';
 import { MEAL_TYPE_OPTIONS } from './RecipeWorkspaceOptions';
 import {
   formatCookPreviewRequestLabel,
@@ -198,9 +198,13 @@ export function RecipeCookFinishDialog(props: RecipeCookFinishDialogProps) {
           </label>
           <label>
             <span>餐次</span>
-            <select className="text-input" value={props.session.mealType} onChange={(event) => props.onUpdateSession({ mealType: event.target.value as MealType })}>
-              {MEAL_TYPE_OPTIONS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
-            </select>
+            <DropdownSelect
+              ariaLabel="选择餐次"
+              placeholder="选择餐次"
+              value={props.session.mealType}
+              options={MEAL_TYPE_OPTIONS}
+              onChange={(mealType) => props.onUpdateSession({ mealType: mealType as MealType })}
+            />
           </label>
         </div>
         <label className="checkbox-row checkbox-card recipe-cook-finish-toggle">
@@ -219,14 +223,20 @@ export function RecipeCookFinishDialog(props: RecipeCookFinishDialogProps) {
       >
         <label className="recipe-cook-finish-field">
           <span>满意度</span>
-          <select className="text-input" value={props.session.rating} onChange={(event) => props.onUpdateSession({ rating: event.target.value })}>
-            <option value="">不评分</option>
-            <option value="5">5 分</option>
-            <option value="4">4 分</option>
-            <option value="3">3 分</option>
-            <option value="2">2 分</option>
-            <option value="1">1 分</option>
-          </select>
+          <DropdownSelect
+            ariaLabel="选择满意度"
+            placeholder="不评分"
+            value={props.session.rating}
+            clearOption={{ value: '', label: '不评分' }}
+            options={[
+              { value: '5', label: '5 分' },
+              { value: '4', label: '4 分' },
+              { value: '3', label: '3 分' },
+              { value: '2', label: '2 分' },
+              { value: '1', label: '1 分' },
+            ]}
+            onChange={(rating) => props.onUpdateSession({ rating })}
+          />
         </label>
         <label className="recipe-cook-finish-field">
           <span>做法调整 / 变体</span>

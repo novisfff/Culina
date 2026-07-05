@@ -467,7 +467,7 @@ export function MobileRecipeCard(props: {
           </button>
         </div>
         <p>{props.card.availabilityDetail}</p>
-        <div className="mobile-recipe-chip-row">
+        <div className="mobile-recipe-meta-row">
           {(props.card.ingredientPreview.length > 0 ? props.card.ingredientPreview.slice(0, 2) : ['家庭菜谱']).map((label) => (
             <span key={label}>{label}</span>
           ))}

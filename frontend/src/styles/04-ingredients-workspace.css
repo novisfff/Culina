@@ -1309,7 +1309,7 @@
   min-width: 0;
 }
 
-.ingredients-create-basic-section .ingredients-choice-chip {
+.ingredients-create-basic-section .ui-option-chip {
   min-width: 52px;
   min-height: 34px;
   padding: 6px 12px;
@@ -1417,7 +1417,7 @@
   background: rgba(250, 247, 244, 0.94);
 }
 
-.ingredients-create-workspace .ingredients-choice-chip {
+.ingredients-create-workspace .ui-option-chip {
   min-width: 52px;
   min-height: 34px;
   padding: 6px 12px;
@@ -1425,7 +1425,7 @@
   background: rgba(255, 255, 255, 0.82);
 }
 
-.ingredients-create-workspace .ingredients-choice-chip.active,
+.ingredients-create-workspace .ui-option-chip.is-selected,
 .ingredients-create-workspace .segmented-tab.active {
   border-color: rgba(210, 107, 51, 0.46);
   background: rgba(255, 244, 237, 0.86);
@@ -2790,7 +2790,7 @@
   gap: 8px;
 }
 
-.ingredients-restock-choice-row .ingredients-choice-chip {
+.ingredients-restock-choice-row .ui-option-chip {
   padding: 8px 16px;
   font-size: 0.9rem;
   font-weight: 600;
@@ -2802,12 +2802,12 @@
   cursor: pointer;
 }
 
-.ingredients-restock-choice-row .ingredients-choice-chip:hover {
+.ingredients-restock-choice-row .ui-option-chip:hover {
   background: #ffffff;
   border-color: rgba(210, 107, 51, 0.3);
 }
 
-.ingredients-restock-choice-row .ingredients-choice-chip.active {
+.ingredients-restock-choice-row .ui-option-chip.is-selected {
   background: rgba(210, 107, 51, 0.1);
   border-color: rgba(210, 107, 51, 0.4);
   color: #a8582d;
@@ -6162,37 +6162,6 @@
   background: rgba(255, 248, 240, 0.92);
 }
 
-.ingredients-choice-chip {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 36px;
-  padding: 7px 14px;
-  border-radius: 999px;
-  border: 1px solid rgba(147, 96, 63, 0.12);
-  background: rgba(255, 255, 255, 0.88);
-  color: var(--text-soft);
-  font-weight: 700;
-  white-space: nowrap;
-  cursor: pointer;
-  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
-}
-
-.ingredients-choice-chip:hover {
-  border-color: rgba(210, 107, 51, 0.28);
-  background: rgba(255, 255, 255, 0.98);
-  color: var(--accent-strong);
-  transform: translateY(-1px);
-  box-shadow: 0 4px 10px rgba(74, 54, 40, 0.04);
-}
-
-.ingredients-choice-chip.active {
-  border-color: var(--accent);
-  background: #fff4ec;
-  color: #7a4f2b;
-  box-shadow: 0 4px 10px rgba(210, 107, 51, 0.08);
-}
-
 .ingredients-restock-identity-card {
   display: grid;
   grid-template-columns: 112px minmax(0, 1fr);
@@ -6902,7 +6871,7 @@
   gap: 8px;
 }
 
-.ingredients-unit-chip {
+.ingredients-unit-option-group .ui-option-chip {
   min-height: 34px;
   padding-inline: 12px;
 }
@@ -7093,17 +7062,17 @@
   flex: 0 1 240px;
 }
 
-.ingredients-restock-footer-bar .workspace-overlay-actions,
-.shopping-quick-footer-bar .workspace-overlay-actions,
-.consume-quick-footer-bar .workspace-overlay-actions,
-.destroy-expired-footer-bar .workspace-overlay-actions {
+.ingredients-restock-footer-bar .ui-form-actions-row,
+.shopping-quick-footer-bar .ui-form-actions-row,
+.consume-quick-footer-bar .ui-form-actions-row,
+.destroy-expired-footer-bar .ui-form-actions-row {
   justify-content: space-between;
   align-items: center;
   width: 100%;
 }
 
-.consume-quick-footer-bar .workspace-overlay-actions,
-.destroy-expired-footer-bar .workspace-overlay-actions {
+.consume-quick-footer-bar .ui-form-actions-row,
+.destroy-expired-footer-bar .ui-form-actions-row {
   flex: 1 1 auto;
   width: auto;
 }
@@ -7945,7 +7914,7 @@
   .destroy-expired-modal .destroy-expired-form,
   .destroy-expired-modal .destroy-expired-form *,
   .destroy-expired-modal .destroy-expired-footer-bar,
-  .destroy-expired-modal .workspace-overlay-actions {
+  .destroy-expired-modal .ui-form-actions-row {
     box-sizing: border-box;
   }
 
@@ -8372,7 +8341,7 @@
     padding-bottom: 4px;
   }
 
-  .ingredients-choice-chip {
+  .ingredients-restock-choice-row .ui-option-chip {
     flex: 0 0 auto;
   }
 
@@ -8468,10 +8437,10 @@
     overflow-wrap: anywhere;
   }
 
-  .ingredients-restock-footer-bar .workspace-overlay-actions,
-  .shopping-quick-footer-bar .workspace-overlay-actions,
-  .consume-quick-footer-bar .workspace-overlay-actions,
-  .destroy-expired-footer-bar .workspace-overlay-actions {
+  .ingredients-restock-footer-bar .ui-form-actions-row,
+  .shopping-quick-footer-bar .ui-form-actions-row,
+  .consume-quick-footer-bar .ui-form-actions-row,
+  .destroy-expired-footer-bar .ui-form-actions-row {
     display: flex;
     flex-direction: column-reverse;
     align-items: stretch;
@@ -9318,7 +9287,7 @@
     gap: 8px !important;
   }
 
-  .inventory-restock-modal .ingredients-choice-chip {
+  .inventory-restock-modal .ui-option-chip {
     padding: 8px 12px !important;
     font-size: 0.85rem !important;
     min-height: 36px !important;
@@ -9336,14 +9305,14 @@
     transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1) !important;
   }
 
-  .inventory-restock-modal .ingredients-choice-chip:hover {
+  .inventory-restock-modal .ui-option-chip:hover {
     border-color: rgba(210, 107, 51, 0.28) !important;
     background: #fffdfb !important;
     color: #b35122 !important;
     transform: translateY(-1px);
   }
 
-  .inventory-restock-modal .ingredients-choice-chip.active {
+  .inventory-restock-modal .ui-option-chip.is-selected {
     background: #fff0e7 !important;
     border-color: #d26b33 !important;
     color: #b35122 !important;
@@ -9383,7 +9352,7 @@
     overflow-x: hidden;
   }
 
-  .inventory-restock-modal .ingredients-restock-footer-bar .workspace-overlay-actions {
+  .inventory-restock-modal .ingredients-restock-footer-bar .ui-form-actions-row {
     display: grid !important;
     grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
     gap: 10px !important;
@@ -9804,7 +9773,7 @@
   margin-top: 6px;
 }
 
-.ingredients-restock-unit-editor-custom .custom-select-trigger {
+.ingredients-restock-unit-editor-custom .ui-dropdown-select-trigger {
   min-height: 40px !important;
   border-radius: 12px !important;
   font-size: 0.88rem !important;
@@ -9812,7 +9781,7 @@
   border: 1px solid rgba(122, 85, 62, 0.12) !important;
 }
 
-.ingredients-restock-unit-editor-custom .custom-select-dropdown {
+.ingredients-restock-unit-editor-custom .ui-dropdown-select-menu {
   z-index: 1000 !important;
 }
 
@@ -9828,7 +9797,7 @@
   font-weight: 700;
 }
 
-.ingredients-restock-status-custom-field .custom-select-trigger {
+.ingredients-restock-status-custom-field .ui-dropdown-select-trigger {
   min-height: 40px !important;
   border-radius: 12px !important;
   font-size: 0.88rem !important;
@@ -9836,7 +9805,7 @@
   border: 1px solid rgba(122, 85, 62, 0.12) !important;
 }
 
-.ingredients-restock-status-custom-field .custom-select-dropdown {
+.ingredients-restock-status-custom-field .ui-dropdown-select-menu {
   z-index: 1000 !important;
   top: auto !important;
   bottom: calc(100% + 4px) !important;
@@ -9844,7 +9813,7 @@
 }
 
 /* Choice chip avatar style */
-.ingredients-choice-chip-avatar {
+.ingredients-restock-quick-avatar {
   width: 20px;
   height: 20px;
   border-radius: 4px;
@@ -9858,15 +9827,58 @@
   justify-content: center;
 }
 
-.ingredients-choice-chip-avatar img,
-.ingredients-choice-chip-avatar .media-placeholder {
+.ingredients-restock-quick-avatar img,
+.ingredients-restock-quick-avatar .media-placeholder {
   width: 100%;
   height: 100%;
   object-fit: cover;
 }
 
-.ingredients-choice-chip:has(.ingredients-choice-chip-avatar) {
+.ingredients-restock-quick-item:has(.ingredients-restock-quick-avatar) {
   padding-left: 6px !important;
+}
+
+.inventory-restock-modal .ingredients-restock-quick-item {
+  display: flex !important;
+  align-items: center !important;
+  width: 100% !important;
+  min-width: 0 !important;
+  min-height: 34px !important;
+  padding: 6px 10px !important;
+  border: 1px solid rgba(122, 85, 62, 0.12) !important;
+  border-radius: 12px !important;
+  background: #ffffff !important;
+  color: #4f372b !important;
+  font-size: 0.82rem !important;
+  font-weight: 700 !important;
+  box-shadow: 0 2px 6px rgba(74, 54, 40, 0.03) !important;
+  box-sizing: border-box !important;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1) !important;
+}
+
+.inventory-restock-modal .ingredients-restock-quick-item:hover {
+  border-color: rgba(210, 107, 51, 0.28) !important;
+  background: #fffdfb !important;
+  color: #b35122 !important;
+  transform: translateY(-1px);
+}
+
+.inventory-restock-modal .ingredients-restock-quick-item.active {
+  border-color: #d26b33 !important;
+  background: #fff0e7 !important;
+  color: #b35122 !important;
+  box-shadow: 0 4px 12px rgba(210, 107, 51, 0.08) !important;
+  transform: none !important;
+}
+
+.inventory-restock-modal .ingredients-restock-quick-item > span {
+  flex: 1 !important;
+  min-width: 0 !important;
+  overflow: hidden !important;
+  text-align: left !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
 }
 
 /* Compact 2-column suggestions grid styling */
@@ -9879,7 +9891,7 @@
   padding-bottom: 0 !important;
 }
 
-.inventory-restock-modal .ingredients-choice-chip {
+.inventory-restock-modal .ui-option-chip {
   display: flex !important;
   align-items: center !important;
   width: 100% !important;
@@ -9898,14 +9910,14 @@
   transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1) !important;
 }
 
-.inventory-restock-modal .ingredients-choice-chip:hover {
+.inventory-restock-modal .ui-option-chip:hover {
   border-color: rgba(210, 107, 51, 0.28) !important;
   background: #fffdfb !important;
   color: #b35122 !important;
   transform: translateY(-1px);
 }
 
-.inventory-restock-modal .ingredients-choice-chip.active {
+.inventory-restock-modal .ui-option-chip.is-selected {
   background: #fff0e7 !important;
   border-color: #d26b33 !important;
   color: #b35122 !important;
@@ -9913,7 +9925,7 @@
   transform: none !important;
 }
 
-.inventory-restock-modal .ingredients-choice-chip > span {
+.inventory-restock-modal .ui-option-chip > span {
   overflow: hidden !important;
   text-overflow: ellipsis !important;
   white-space: nowrap !important;
@@ -9922,7 +9934,7 @@
   min-width: 0 !important;
 }
 
-.inventory-restock-modal .ingredients-choice-chip-avatar {
+.inventory-restock-modal .ingredients-restock-quick-avatar {
   width: 20px !important;
   height: 20px !important;
   border-radius: 4px !important;

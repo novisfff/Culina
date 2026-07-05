@@ -3,7 +3,7 @@ import { buildMediaSizes, buildMediaSrcSet, resolveMediaUrl } from '../../lib/as
 import { FOOD_TYPE_LABELS, MEAL_TYPE_LABELS, formatDate } from '../../lib/ui';
 import { MediaWithPlaceholder } from '../MediaPlaceholder';
 import type { RecipeCardViewModel } from '../recipes/workspaceModel';
-import { ActionButton, Badge, WorkspaceDrawer } from '../ui-kit';
+import { ActionButton, Badge, FormActions, WorkspaceDrawer } from '../ui-kit';
 import { FoodIconName, FoodUiIcon } from './FoodWorkspacePrimitives';
 
 type FoodFactRow = {
@@ -95,20 +95,18 @@ export function FoodDetailDrawer(props: Props) {
   const showRelationPanel = !props.isOutsideFood && !props.isReadyLikeFood && !props.recipe;
   const canStartCook = props.normalizedType === 'selfMade' && Boolean(props.food.recipe_id);
   const detailActions = (
-    <div className="workspace-overlay-actions food-detail-actions">
-      <ActionButton
-        tone="primary"
-        type="button"
-        onClick={() => {
-          if (canStartCook && props.food.recipe_id) {
-            props.onStartCook(props.food.recipe_id);
-            return;
-          }
-          props.onQuickAdd(props.food, props.getDefaultMealType(props.food));
-        }}
-      >
-        {canStartCook ? '开始做' : props.getPrimaryFoodActionLabel(props.food)}
-      </ActionButton>
+    <FormActions
+      className="food-detail-actions"
+      primaryPlacement="before-extra"
+      primaryLabel={canStartCook ? '开始做' : props.getPrimaryFoodActionLabel(props.food)}
+      onPrimary={() => {
+        if (canStartCook && props.food.recipe_id) {
+          props.onStartCook(props.food.recipe_id);
+          return;
+        }
+        props.onQuickAdd(props.food, props.getDefaultMealType(props.food));
+      }}
+    >
       <ActionButton tone="secondary" type="button" onClick={() => props.onEdit(props.food)}>
         {props.getSecondaryFoodActionLabel(props.food)}
       </ActionButton>
@@ -118,7 +116,7 @@ export function FoodDetailDrawer(props: Props) {
       <ActionButton tone="secondary" type="button" onClick={props.onOpenLogs}>
         完整记一餐
       </ActionButton>
-    </div>
+    </FormActions>
   );
 
   return (

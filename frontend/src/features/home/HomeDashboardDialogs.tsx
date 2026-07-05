@@ -17,7 +17,7 @@ import type {
   DisposableExpiredInventoryItemViewModel,
   IngredientSummaryViewModel,
 } from '../../components/ingredients/workspaceModel';
-import { Avatar, Badge, DropdownSelect, EmptyState, FormActions, ResourcePickerField, WorkspaceModal } from '../../components/ui-kit';
+import { Avatar, Badge, DropdownSelect, EmptyState, FormActions, OptionChipGroup, ResourcePickerField, WorkspaceModal } from '../../components/ui-kit';
 import { addDateKeyDays } from '../../lib/date';
 import {
   FOOD_TYPE_LABELS,
@@ -589,7 +589,7 @@ export function HomeDashboardDialogs(props: Props) {
                         searchClassName="ingredients-restock-search-wrapper"
                         searchInputClassName="ingredients-restock-search-input"
                         listClassName="ingredients-restock-suggestions"
-                        optionClassName={(option, selected) => selected ? 'ingredients-choice-chip active' : 'ingredients-choice-chip'}
+                        optionClassName={(option, selected) => selected ? 'ingredients-restock-resource-option active' : 'ingredients-restock-resource-option'}
                         leadingIcon={<DashboardIcon name="list" />}
                         ariaLabel="选择食材"
                         placeholder="搜索现有食材..."
@@ -647,30 +647,25 @@ export function HomeDashboardDialogs(props: Props) {
                     <span>购买时间</span>
                     <p className="subtle">默认今天，需要时再改。</p>
                   </div>
-                  <div className="ingredients-restock-choice-row">
-                    {[
-                      { label: '今天', date: today },
-                      { label: '昨天', date: addDateKeyDays(today, -1) },
-                    ].map((item) => (
-                      <button
-                        key={item.label}
-                        type="button"
-                        className={homeRestockForm.purchaseDate === item.date ? 'ingredients-choice-chip active' : 'ingredients-choice-chip'}
-                        onClick={() =>
-                          props.updateHomeRestockForm({
-                            ...homeRestockForm,
-                            purchaseDate: item.date,
-                            expiryDate:
-                              homeRestockForm.expiryInputMode === 'days'
-                                ? resolveExpiryDateFromDays(item.date, homeRestockForm.expiryDays)
-                                : homeRestockForm.expiryDate,
-                          })
-                        }
-                      >
-                        {item.label}
-                      </button>
-                    ))}
-                  </div>
+                  <OptionChipGroup
+                    ariaLabel="购买时间"
+                    value={homeRestockForm.purchaseDate}
+                    options={[
+                      { value: today, label: '今天' },
+                      { value: addDateKeyDays(today, -1), label: '昨天' },
+                    ]}
+                    className="ingredients-restock-choice-row"
+                    onChange={(purchaseDate) =>
+                      props.updateHomeRestockForm({
+                        ...homeRestockForm,
+                        purchaseDate,
+                        expiryDate:
+                          homeRestockForm.expiryInputMode === 'days'
+                            ? resolveExpiryDateFromDays(purchaseDate, homeRestockForm.expiryDays)
+                            : homeRestockForm.expiryDate,
+                      })
+                    }
+                  />
                   <label>
                     <span>购买日期</span>
                     <input
@@ -696,24 +691,19 @@ export function HomeDashboardDialogs(props: Props) {
                     <span>存放位置</span>
                     <p className="subtle">按这次实际放的位置点一下。</p>
                   </div>
-                  <div className="ingredients-restock-choice-row">
-                    {['冷藏', '冷冻', '常温'].map((storage) => (
-                      <button
-                        key={storage}
-                        type="button"
-                        className={homeRestockForm.storageLocation === storage ? 'ingredients-choice-chip active' : 'ingredients-choice-chip'}
-                        onClick={() =>
-                          props.updateHomeRestockForm({
-                            ...homeRestockForm,
-                            storageLocation: storage,
-                            status: resolveInventoryStatusForStorage(storage),
-                          })
-                        }
-                      >
-                        {storage}
-                      </button>
-                    ))}
-                  </div>
+                  <OptionChipGroup
+                    ariaLabel="存放位置"
+                    value={homeRestockForm.storageLocation}
+                    options={['冷藏', '冷冻', '常温'].map((storage) => ({ value: storage, label: storage }))}
+                    className="ingredients-restock-choice-row"
+                    onChange={(storageLocation) =>
+                      props.updateHomeRestockForm({
+                        ...homeRestockForm,
+                        storageLocation,
+                        status: resolveInventoryStatusForStorage(storageLocation),
+                      })
+                    }
+                  />
                   <input
                     className="text-input"
                     placeholder="自定义位置"
@@ -733,36 +723,31 @@ export function HomeDashboardDialogs(props: Props) {
                     <span>到期信息</span>
                     <p className="subtle">确认这批食材怎么跟踪到期。</p>
                   </div>
-                  <div className="ingredients-restock-choice-row">
-                    {[
+                  <OptionChipGroup
+                    ariaLabel="到期信息"
+                    value={homeRestockForm.expiryInputMode}
+                    options={[
                       { value: 'none', label: '不记录' },
                       { value: 'days', label: '几天后到期' },
                       { value: 'manual_date', label: '包装到期日' },
-                    ].map((item) => (
-                      <button
-                        key={item.value}
-                        type="button"
-                        className={homeRestockForm.expiryInputMode === item.value ? 'ingredients-choice-chip active' : 'ingredients-choice-chip'}
-                        onClick={() => {
-                          const nextMode = item.value as HomeRestockFormState['expiryInputMode'];
-                          const nextDays = nextMode === 'days' ? homeRestockForm.expiryDays || '3' : '';
-                          props.updateHomeRestockForm({
-                            ...homeRestockForm,
-                            expiryInputMode: nextMode,
-                            expiryDays: nextDays,
-                            expiryDate:
-                              nextMode === 'days'
-                                ? resolveExpiryDateFromDays(homeRestockForm.purchaseDate, nextDays)
-                                : nextMode === 'manual_date'
-                                  ? homeRestockForm.expiryDate
-                                  : '',
-                          });
-                        }}
-                      >
-                        {item.label}
-                      </button>
-                    ))}
-                  </div>
+                    ]}
+                    className="ingredients-restock-choice-row"
+                    onChange={(value) => {
+                      const nextMode = value as HomeRestockFormState['expiryInputMode'];
+                      const nextDays = nextMode === 'days' ? homeRestockForm.expiryDays || '3' : '';
+                      props.updateHomeRestockForm({
+                        ...homeRestockForm,
+                        expiryInputMode: nextMode,
+                        expiryDays: nextDays,
+                        expiryDate:
+                          nextMode === 'days'
+                            ? resolveExpiryDateFromDays(homeRestockForm.purchaseDate, nextDays)
+                            : nextMode === 'manual_date'
+                              ? homeRestockForm.expiryDate
+                              : '',
+                      });
+                    }}
+                  />
                   {homeRestockForm.expiryInputMode === 'days' && (
                     <div className="form-grid compact-grid">
                       <label>

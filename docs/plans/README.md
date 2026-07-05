@@ -17,4 +17,4 @@
 
 ## 当前前端基础组件计划
 
-- `docs/superpowers/plans/2026-07-06-frontend-ui-kit-unification.md`：前端基础组件统一化全量迁移计划，先建立 DropdownSelect、FormActions、ConfirmDialog、FormField、SearchField 和 QuantityUnitField。
+- `docs/superpowers/plans/2026-07-06-frontend-ui-kit-unification.md`：前端基础组件统一化全量迁移计划，覆盖基础组件设计、全业务迁移、样式清理和验证命令。

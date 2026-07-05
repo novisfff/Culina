@@ -28,6 +28,7 @@ import {
   EmptyState,
   FormActions,
   ImageComposer,
+  OptionChipGroup,
   SearchField,
   SegmentedTabs,
   WorkspaceModal,
@@ -1333,28 +1334,20 @@ export function FoodWorkspace(props: Props) {
                       下一条
                     </button>
                   </div>
-                  <div className="food-governance-chips">
-                    <button
-                      type="button"
-                      className={governanceIssueFilter === 'all' ? 'active' : ''}
-                      onClick={() => openGovernanceIssue('all')}
-                    >
-                      <span>全部待补</span>
-                      <strong>{needsInfoFoods.length}</strong>
-                    </button>
-                    {governanceIssueSummaries.map((item) => (
-                      <button
-                        key={item.value}
-                        type="button"
-                        className={governanceIssueFilter === item.value ? 'active' : ''}
-                        onClick={() => openGovernanceIssue(item.value)}
-                        title={item.description}
-                      >
-                        <span>{item.label}</span>
-                        <strong>{item.count}</strong>
-                      </button>
-                    ))}
-                  </div>
+                  <OptionChipGroup
+                    ariaLabel="待完善类型"
+                    value={governanceIssueFilter}
+                    className="food-governance-options"
+                    options={[
+                      { value: 'all', label: '全部待补', description: `${needsInfoFoods.length}` },
+                      ...governanceIssueSummaries.map((item) => ({
+                        value: item.value,
+                        label: item.label,
+                        description: `${item.count}`,
+                      })),
+                    ]}
+                    onChange={(issue) => openGovernanceIssue(issue as 'all' | FoodGovernanceIssue)}
+                  />
                 </section>
               )}
           </div>

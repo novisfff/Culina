@@ -6,7 +6,7 @@ import type { Ingredient } from '../../api/types';
 import { resolveAssetUrl } from '../../lib/assets';
 import { useDebouncedSearchValue, useSearchCompositionState } from '../../hooks/useDebouncedValue';
 import { MediaWithPlaceholder } from '../MediaPlaceholder';
-import { ActionButton, Badge, EmptyState, ResourcePickerField, WorkspaceModal } from '../ui-kit';
+import { ActionButton, Badge, EmptyState, FormActions, ResourcePickerField, WorkspaceModal } from '../ui-kit';
 import { RecipeUiIcon } from './RecipeWorkspaceCards';
 import type { RecipeUnresolvedIngredientTarget } from './RecipeWorkspaceModel';
 
@@ -188,14 +188,14 @@ export function RecipeIngredientResolutionDialog(props: RecipeIngredientResoluti
             <EmptyState title="没有待处理食材" description="已将所有配料绑定到食材库，或从菜谱中移除。" />
           )}
 
-          <div className="workspace-overlay-actions">
-            <ActionButton tone="secondary" type="button" onClick={props.onClose}>
-              稍后处理
-            </ActionButton>
-            <ActionButton tone="primary" type="button" onClick={props.onRetrySave} disabled={unresolvedCount > 0}>
-              重新保存
-            </ActionButton>
-          </div>
+          <FormActions
+            className="recipe-ingredient-resolution-actions-footer"
+            primaryLabel="重新保存"
+            primaryDisabled={unresolvedCount > 0}
+            secondaryLabel="稍后处理"
+            onSecondary={props.onClose}
+            onPrimary={props.onRetrySave}
+          />
         </div>
       </WorkspaceModal>
     </div>

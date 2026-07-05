@@ -270,7 +270,7 @@ export function IngredientEditorView(props: IngredientEditorViewProps) {
                       ...props.ingredientUnitOptions.map((unit) => ({ value: unit, label: unit })),
                       { value: '__custom__', label: '自定义' },
                     ]}
-                    className="ingredients-unit-chip-group"
+                    className="ingredients-unit-option-group"
                     onChange={(defaultUnit) =>
                       props.setIngredientForm({
                         ...props.ingredientForm,

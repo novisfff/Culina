@@ -2738,7 +2738,7 @@ select.text-input {
 .touch-value-chip:focus-visible,
 .segmented-tab:focus-visible,
 .workspace-subnav-item:focus-visible,
-.ingredients-choice-chip:focus-visible {
+.ui-option-chip:focus-visible {
   outline: 2px solid rgba(210, 107, 51, 0.34);
   outline-offset: 2px;
 }
@@ -2781,7 +2781,7 @@ select.text-input {
 }
 
 .form-actions,
-.workspace-overlay-actions {
+.ui-form-actions-row {
   display: flex;
   justify-content: flex-end;
   align-items: center;

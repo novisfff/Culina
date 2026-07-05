@@ -1174,11 +1174,8 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
               { value: 'medium', label: '中等' },
               { value: 'hard', label: '复杂' },
             ]}
-            className="recipe-toolbar-dropdown"
-            triggerClassName="recipe-toolbar-dropdown-trigger"
-            menuClassName="recipe-toolbar-dropdown-panel"
-            optionClassName="recipe-toolbar-dropdown-option"
-            leadingIcon={<span className="recipe-toolbar-dropdown-trigger-icon"><RecipeUiIcon name="signal" /></span>}
+            className="recipe-filter-dropdown"
+            leadingIcon={<span className="recipe-filter-dropdown-icon"><RecipeUiIcon name="signal" /></span>}
             onChange={(val) => setDifficultyFilter(val as 'all' | Difficulty)}
           />
           <DropdownSelect
@@ -1187,11 +1184,8 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
             placeholder="排序"
             value={sortMode}
             options={SORT_OPTIONS}
-            className="recipe-toolbar-dropdown"
-            triggerClassName="recipe-toolbar-dropdown-trigger"
-            menuClassName="recipe-toolbar-dropdown-panel"
-            optionClassName="recipe-toolbar-dropdown-option"
-            leadingIcon={<span className="recipe-toolbar-dropdown-trigger-icon"><RecipeUiIcon name="clock" /></span>}
+            className="recipe-filter-dropdown"
+            leadingIcon={<span className="recipe-filter-dropdown-icon"><RecipeUiIcon name="clock" /></span>}
             onChange={(val) => setSortMode(val as RecipeSortMode)}
           />
         </div>

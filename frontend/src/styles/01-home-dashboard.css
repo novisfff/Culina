@@ -351,14 +351,14 @@
   font-size: 0.94rem;
 }
 
-.dashboard-chip-row,
+.dashboard-badge-row,
 .dashboard-food-actions {
   display: flex;
   align-items: center;
   gap: 6px;
 }
 
-.dashboard-chip-row {
+.dashboard-badge-row {
   min-width: 0;
   overflow-x: auto;
   overflow-y: hidden;
@@ -366,7 +366,7 @@
   scrollbar-width: none;
 }
 
-.dashboard-chip-row::-webkit-scrollbar {
+.dashboard-badge-row::-webkit-scrollbar {
   display: none;
 }
 
@@ -652,8 +652,8 @@
   background: #e8f5e4;
 }
 
-.dashboard-todo-modal .workspace-overlay-actions .solid-button,
-.dashboard-todo-modal .workspace-overlay-actions .ghost-button {
+.dashboard-todo-modal .ui-form-actions-row .solid-button,
+.dashboard-todo-modal .ui-form-actions-row .ghost-button {
   min-height: var(--tap-large);
   min-width: 116px;
   border-radius: 12px;

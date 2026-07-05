@@ -7379,171 +7379,22 @@
   min-width: 0;
 }
 
-/* Custom Recipe Toolbar Dropdown Styles */
-.recipe-toolbar-dropdown {
-  position: relative;
-  width: 100%;
-}
-
-.recipe-toolbar-dropdown-trigger {
-  display: flex;
-  align-items: center;
-  width: 100%;
+.recipe-filter-dropdown .ui-dropdown-select-trigger {
+  min-height: 46px;
   height: 46px;
-  padding: 0 12px;
-  border: 1px solid rgba(147, 96, 63, 0.08);
   border-radius: 18px;
-  background: #fbfaf8;
-  color: #7a6659;
-  font-size: 0.875rem;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all 0.2s ease;
-  user-select: none;
-  box-shadow: 0 1px 2px rgba(147, 96, 63, 0.02);
 }
 
-.recipe-toolbar-dropdown-trigger:hover,
-.recipe-toolbar-dropdown.is-open .recipe-toolbar-dropdown-trigger {
-  border-color: rgba(210, 107, 51, 0.18);
-  background: #faf8f5;
-  box-shadow: 0 2px 6px rgba(210, 107, 51, 0.04);
-}
-
-.recipe-toolbar-dropdown-trigger-icon {
+.recipe-filter-dropdown-icon {
   display: inline-flex;
   align-items: center;
-  justify-content: center;
   color: var(--accent);
-  margin-right: 6px;
-  flex-shrink: 0;
 }
 
-.recipe-toolbar-dropdown-trigger-icon svg {
+.recipe-filter-dropdown-icon svg {
   width: 14px;
   height: 14px;
   stroke-width: 2.3;
-}
-
-.recipe-toolbar-dropdown-trigger-text {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-  flex: 1;
-}
-
-.recipe-toolbar-dropdown-title {
-  color: #8a766a;
-  font-weight: 800;
-  font-size: 0.8125rem;
-  white-space: nowrap;
-}
-
-.recipe-toolbar-dropdown-value {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  background: #ffffff;
-  color: #2c1e16;
-  font-size: 0.8125rem;
-  font-weight: 800;
-  padding: 0 10px;
-  height: 28px;
-  line-height: 28px;
-  border-radius: 9px;
-  border: 1px solid rgba(147, 96, 63, 0.08);
-  box-shadow: 0 1px 2px rgba(147, 96, 63, 0.03);
-  white-space: nowrap;
-  min-width: 0;
-  text-overflow: ellipsis;
-  overflow: hidden;
-}
-
-.recipe-toolbar-dropdown-trigger-chevron {
-  display: inline-flex;
-  align-items: center;
-  margin-left: auto;
-  color: #a8968a;
-  transition: transform 0.2s ease;
-  flex-shrink: 0;
-}
-
-.recipe-toolbar-dropdown-trigger-chevron svg {
-  width: 12px;
-  height: 12px;
-  stroke-width: 2.6;
-}
-
-.recipe-toolbar-dropdown.is-open .recipe-toolbar-dropdown-trigger-chevron {
-  transform: rotate(180deg);
-}
-
-/* Custom Dropdown Floating Panel */
-.recipe-toolbar-dropdown-panel {
-  position: absolute;
-  top: 100%;
-  right: 0;
-  margin-top: 6px;
-  z-index: 120;
-  min-width: 160px;
-  padding: 6px;
-  border: 1px solid rgba(147, 96, 63, 0.12);
-  border-radius: 14px;
-  background: #ffffff;
-  box-shadow: 0 10px 30px rgba(76, 56, 42, 0.12);
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  animation: recipeDropdownFadeIn 0.18s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-}
-
-@keyframes recipeDropdownFadeIn {
-  from {
-    opacity: 0;
-    transform: translateY(-8px) scale(0.96);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0) scale(1);
-  }
-}
-
-/* Custom Dropdown Options */
-.recipe-toolbar-dropdown-option {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  min-height: 38px;
-  padding: 0 12px;
-  border: 0;
-  border-radius: 9px;
-  background: transparent;
-  color: #4a382d;
-  font-size: 0.875rem;
-  font-weight: 600;
-  text-align: left;
-  cursor: pointer;
-  white-space: nowrap;
-  transition: all 0.15s ease;
-  user-select: none;
-}
-
-.recipe-toolbar-dropdown-option:hover {
-  background: rgba(210, 107, 51, 0.06);
-  color: var(--accent-strong);
-}
-
-.recipe-toolbar-dropdown-option.is-selected {
-  background: rgba(210, 107, 51, 0.08);
-  color: var(--accent-strong);
-}
-
-.recipe-toolbar-dropdown-option svg {
-  width: 14px;
-  height: 14px;
-  color: var(--accent);
 }
 
 .recipe-search-input-shell .text-input {
@@ -8436,28 +8287,28 @@
   font-variant-numeric: tabular-nums;
 }
 
-.recipe-cook-exit-modal .workspace-overlay-actions {
+.recipe-cook-exit-modal .ui-form-actions-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr);
   gap: 10px;
   margin-top: 20px;
 }
 
-.recipe-cook-exit-modal .workspace-overlay-actions .ghost-button,
-.recipe-cook-exit-modal .workspace-overlay-actions .solid-button {
+.recipe-cook-exit-modal .ui-form-actions-row .ghost-button,
+.recipe-cook-exit-modal .ui-form-actions-row .solid-button {
   min-height: 48px;
   border-radius: 14px;
 }
 
-.recipe-cook-timer-delete-modal .workspace-overlay-actions {
+.recipe-cook-timer-delete-modal .ui-form-actions-row {
   display: flex;
   justify-content: flex-end;
   gap: 12px;
   margin-top: 24px;
 }
 
-.recipe-cook-timer-delete-modal .workspace-overlay-actions .ghost-button,
-.recipe-cook-timer-delete-modal .workspace-overlay-actions .solid-button {
+.recipe-cook-timer-delete-modal .ui-form-actions-row .ghost-button,
+.recipe-cook-timer-delete-modal .ui-form-actions-row .solid-button {
   min-width: 110px;
   min-height: 48px;
   border-radius: 14px;

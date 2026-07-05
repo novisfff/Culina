@@ -1,5 +1,4 @@
 import type { CompositionEvent, KeyboardEvent, ReactNode, Ref } from 'react';
-import { SearchLoadingIndicator } from '../ui-kit';
 
 export type SearchFieldProps = {
   ariaLabel: string;
@@ -23,6 +22,18 @@ export type SearchFieldProps = {
   onCompositionEnd?: (event: CompositionEvent<HTMLInputElement>) => void;
   onKeyDown?: (event: KeyboardEvent<HTMLInputElement>) => void;
 };
+
+function SearchLoadingIndicator(props: { active: boolean; className?: string }) {
+  if (!props.active) return null;
+
+  return (
+    <span
+      className={props.className ? `search-loading-indicator ${props.className}` : 'search-loading-indicator'}
+      aria-label="正在检索"
+      role="status"
+    />
+  );
+}
 
 export function SearchField({
   ariaLabel,

@@ -1407,13 +1407,13 @@
   box-shadow: none;
 }
 
-.food-governance-chips {
+.food-governance-options {
   display: grid;
   grid-template-columns: repeat(6, minmax(0, 1fr));
   gap: 8px;
 }
 
-.food-governance-chips button {
+.food-governance-options button {
   display: flex;
   min-width: 0;
   min-height: 40px;
@@ -1429,14 +1429,14 @@
   font-weight: 860;
 }
 
-.food-governance-chips button.active {
+.food-governance-options button.is-selected {
   border-color: rgba(210, 107, 51, 0.24);
   background: #fff0e6;
   color: #b35122;
 }
 
-.food-governance-chips span,
-.food-governance-chips strong {
+.food-governance-options span,
+.food-governance-options small {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -4253,7 +4253,7 @@
     justify-content: flex-end;
   }
 
-  .food-governance-chips {
+  .food-governance-options {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }
@@ -4550,7 +4550,7 @@
     width: 100%;
   }
 
-  .food-governance-chips {
+  .food-governance-options {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 

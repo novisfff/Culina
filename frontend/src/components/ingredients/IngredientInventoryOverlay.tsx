@@ -11,6 +11,7 @@ import {
   ComboboxField,
   DropdownSelect,
   FormActions,
+  OptionChipGroup,
   QuantityUnitField,
   ResourcePickerField,
   TouchRangeField,
@@ -114,12 +115,12 @@ export function IngredientInventoryOverlay(props: IngredientInventoryOverlayProp
                         type="button"
                         className={
                           props.inventoryForm.ingredientId === ingredient.id
-                            ? 'ingredients-choice-chip active'
-                            : 'ingredients-choice-chip'
+                            ? 'ingredients-restock-quick-item active'
+                            : 'ingredients-restock-quick-item'
                         }
                         onClick={() => props.syncInventoryIngredient(ingredient, ingredient.name)}
                       >
-                        <div className="ingredients-choice-chip-avatar">
+                        <div className="ingredients-restock-quick-avatar">
                           <MediaWithPlaceholder src={imageUrl} alt="" />
                         </div>
                         <span>{ingredient.name}</span>
@@ -241,32 +242,28 @@ export function IngredientInventoryOverlay(props: IngredientInventoryOverlayProp
               <span>购买时间</span>
               <p className="subtle">默认今天，需要时再改。</p>
             </div>
-            <div className="ingredients-restock-choice-row">
-              {[
-                { value: 'today', label: '今天', date: todayKey() },
-                { value: 'yesterday', label: '昨天', date: addDateKeyDays(todayKey(), -1) },
-                { value: 'custom', label: '自定义', date: props.inventoryForm.purchaseDate },
-              ].map((item) => (
-                <button
-                  key={item.value}
-                  type="button"
-                  className={
-                    props.inventoryForm.purchaseDatePreset === item.value
-                      ? 'ingredients-choice-chip active'
-                      : 'ingredients-choice-chip'
-                  }
-                  onClick={() =>
-                    props.setInventoryForm({
-                      ...props.inventoryForm,
-                      purchaseDatePreset: item.value as InventoryPurchasePreset,
-                      purchaseDate: item.value === 'custom' ? props.inventoryForm.purchaseDate : item.date,
-                    })
-                  }
-                >
-                  {item.label}
-                </button>
-              ))}
-            </div>
+            <OptionChipGroup
+              ariaLabel="购买时间"
+              value={props.inventoryForm.purchaseDatePreset}
+              options={[
+                { value: 'today', label: '今天' },
+                { value: 'yesterday', label: '昨天' },
+                { value: 'custom', label: '自定义' },
+              ]}
+              className="ingredients-restock-choice-row"
+              onChange={(purchaseDatePreset) =>
+                props.setInventoryForm({
+                  ...props.inventoryForm,
+                  purchaseDatePreset: purchaseDatePreset as InventoryPurchasePreset,
+                  purchaseDate:
+                    purchaseDatePreset === 'today'
+                      ? todayKey()
+                      : purchaseDatePreset === 'yesterday'
+                        ? addDateKeyDays(todayKey(), -1)
+                        : props.inventoryForm.purchaseDate,
+                })
+              }
+            />
             {props.inventoryForm.purchaseDatePreset === 'custom' && (
               <label>
                 <span>购买日期</span>
@@ -312,50 +309,41 @@ export function IngredientInventoryOverlay(props: IngredientInventoryOverlayProp
               <span>到期信息</span>
               <p className="subtle">确认这批食材怎么跟踪到期。</p>
             </div>
-            <div className="ingredients-restock-choice-row">
-              {[
+            <OptionChipGroup
+              ariaLabel="到期信息"
+              value={props.inventoryForm.expiryInputMode}
+              options={[
                 { value: 'none', label: '不记录' },
                 { value: 'days', label: '几天后到期' },
                 { value: 'manual_date', label: '包装到期日' },
-              ].map((item) => (
-                <button
-                  key={item.value}
-                  type="button"
-                  className={
-                    props.inventoryForm.expiryInputMode === item.value
-                      ? 'ingredients-choice-chip active'
-                      : 'ingredients-choice-chip'
-                  }
-                  onClick={() =>
-                    props.setInventoryForm({
-                      ...props.inventoryForm,
-                      expiryInputMode: item.value as IngredientExpiryMode,
-                      expiryDays:
-                        item.value === 'days'
-                          ? props.inventoryForm.expiryDays ||
-                            (props.selectedInventoryIngredient?.default_expiry_days
-                              ? String(props.selectedInventoryIngredient.default_expiry_days)
-                              : '3')
-                          : '',
-                      expiryDate:
-                        item.value === 'manual_date'
-                          ? props.inventoryForm.expiryDate
-                          : item.value === 'days'
-                            ? resolveExpiryDateFromDays(
-                                props.inventoryForm.purchaseDate,
-                                props.inventoryForm.expiryDays ||
-                                  (props.selectedInventoryIngredient?.default_expiry_days
-                                    ? String(props.selectedInventoryIngredient.default_expiry_days)
-                                    : '3')
-                              )
-                            : '',
-                    })
-                  }
-                >
-                  {item.label}
-                </button>
-              ))}
-            </div>
+              ]}
+              className="ingredients-restock-choice-row"
+              onChange={(expiryInputMode) =>
+                props.setInventoryForm({
+                  ...props.inventoryForm,
+                  expiryInputMode: expiryInputMode as IngredientExpiryMode,
+                  expiryDays:
+                    expiryInputMode === 'days'
+                      ? props.inventoryForm.expiryDays ||
+                        (props.selectedInventoryIngredient?.default_expiry_days
+                          ? String(props.selectedInventoryIngredient.default_expiry_days)
+                          : '3')
+                      : '',
+                  expiryDate:
+                    expiryInputMode === 'manual_date'
+                      ? props.inventoryForm.expiryDate
+                      : expiryInputMode === 'days'
+                        ? resolveExpiryDateFromDays(
+                            props.inventoryForm.purchaseDate,
+                            props.inventoryForm.expiryDays ||
+                              (props.selectedInventoryIngredient?.default_expiry_days
+                                ? String(props.selectedInventoryIngredient.default_expiry_days)
+                                : '3')
+                          )
+                        : '',
+                })
+              }
+            />
             {props.inventoryForm.expiryInputMode === 'days' ? (
               <div className="ingredients-restock-expiry-grid">
                 <TouchRangeField

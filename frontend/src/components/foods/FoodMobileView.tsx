@@ -152,7 +152,7 @@ export function FoodMobileView(props: {
                   </div>
                   <div className="mobile-dashboard-food-body">
                     <h3>{item.food.name}</h3>
-                    <div className="mobile-dashboard-chip-row">
+                    <div className="mobile-dashboard-badge-row">
                       <StatusBadge size="compact">{FOOD_TYPE_LABELS[item.food.type === 'packaged' ? 'readyMade' : item.food.type]}</StatusBadge>
                       <StatusBadge tone={cookingSummary?.availabilityLabel ? 'success' : 'neutral'} size="compact">
                         {cookingSummary?.availabilityLabel || item.food.routine_note || `${item.food.suitable_meal_types.length || 1} 餐适合`}
@@ -299,7 +299,7 @@ export function FoodMobileView(props: {
                         <div className="mobile-food-library-body">
                           <h3>{food.name}</h3>
                           <p>{cookingSummary ? ['家常菜谱', usageCount > 0 ? '最近做过' : cookingSummary.availabilityDetail].join(' · ') : [FOOD_TYPE_LABELS[food.type === 'packaged' ? 'readyMade' : food.type], usageCount > 0 ? '最近吃过' : '未记录'].join(' · ')}</p>
-                          <div className="mobile-food-chip-row">
+                          <div className="mobile-food-badge-row">
                             {labels.map((label) => (
                               <StatusBadge key={label} size="compact">{label}</StatusBadge>
                             ))}
