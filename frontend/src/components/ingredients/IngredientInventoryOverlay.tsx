@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
+import { useMemo, type FormEvent } from 'react';
 import type { Ingredient, IngredientExpiryMode, IngredientUnitConversion, InventoryStatus } from '../../api/types';
-import { resolveAssetUrl, resolveMediaUrl } from '../../lib/assets';
+import { resolveMediaUrl } from '../../lib/assets';
 import { addDateKeyDays } from '../../lib/date';
 import { tracksIngredientQuantity } from '../../lib/ingredientTracking';
 import { formatDate, INVENTORY_STATUS_LABELS, todayKey } from '../../lib/ui';
@@ -11,6 +11,7 @@ import {
   ComboboxField,
   DropdownSelect,
   FormActions,
+  ResourcePickerField,
   TouchRangeField,
   TouchStepperField,
   WorkspaceModal,
@@ -51,8 +52,6 @@ type IngredientInventoryOverlayProps = {
 
 export function IngredientInventoryOverlay(props: IngredientInventoryOverlayProps) {
   const tracksQuantity = tracksIngredientQuantity(props.selectedInventoryIngredient);
-  const [ingredientPickerOpen, setIngredientPickerOpen] = useState(false);
-  const pickerRef = useRef<HTMLDivElement | null>(null);
 
   const statusOptions = useMemo(() => {
     return Object.entries(INVENTORY_STATUS_LABELS).map(([key, label]) => ({
@@ -71,19 +70,6 @@ export function IngredientInventoryOverlay(props: IngredientInventoryOverlayProp
     });
     return matched.slice(0, 8);
   }, [props.ingredients, props.inventoryForm.ingredientQuery]);
-
-  useEffect(() => {
-    if (!ingredientPickerOpen) return;
-
-    function handlePointerDown(event: PointerEvent) {
-      if (pickerRef.current && !pickerRef.current.contains(event.target as Node)) {
-        setIngredientPickerOpen(false);
-      }
-    }
-
-    document.addEventListener('pointerdown', handlePointerDown);
-    return () => document.removeEventListener('pointerdown', handlePointerDown);
-  }, [ingredientPickerOpen]);
 
   return (
     <WorkspaceModal
@@ -138,48 +124,35 @@ export function IngredientInventoryOverlay(props: IngredientInventoryOverlayProp
           {!props.inventoryForm.ingredientLocked && !props.selectedInventoryIngredient && (
             <div className="ingredients-restock-search-field ingredients-restock-picker-field">
               <span>食材</span>
-              <div className="custom-combobox-container" ref={pickerRef}>
-                <input
-                  className="text-input"
-                  placeholder="搜索或选择食材"
-                  value={props.inventoryForm.ingredientQuery}
-                  onFocus={() => setIngredientPickerOpen(true)}
-                  onChange={(event) => {
-                    const nextQuery = event.target.value;
-                    const ingredient = props.ingredients.find((item) => item.name === nextQuery) ?? null;
-                    props.syncInventoryIngredient(ingredient, nextQuery);
-                    setIngredientPickerOpen(true);
-                  }}
-                />
-                <span className="custom-combobox-arrow" />
-                {ingredientPickerOpen && (
-                  <div className="custom-combobox-dropdown">
-                    {visibleIngredientOptions.length > 0 ? (
-                      visibleIngredientOptions.map((ingredient) => {
-                        const imageUrl = resolveMediaUrl(ingredient.image, 'thumb');
-                        return (
-                          <button
-                            key={ingredient.id}
-                            type="button"
-                            className={`custom-combobox-option ${props.inventoryForm.ingredientId === ingredient.id ? 'selected' : ''}`}
-                            onClick={() => {
-                              props.syncInventoryIngredient(ingredient, ingredient.name);
-                              setIngredientPickerOpen(false);
-                            }}
-                          >
-                            <div className="custom-combobox-option-avatar">
-                              <MediaWithPlaceholder src={imageUrl} alt="" />
-                            </div>
-                            <span>{ingredient.name}</span>
-                          </button>
-                        );
-                      })
-                    ) : (
-                      <div className="ingredients-restock-picker-empty">没有匹配的食材</div>
-                    )}
-                  </div>
-                )}
-              </div>
+              <ResourcePickerField
+                className="custom-combobox-container"
+                searchClassName="ingredients-restock-resource-search"
+                listClassName="custom-combobox-dropdown"
+                optionClassName={(option, selected) => selected ? 'custom-combobox-option selected' : 'custom-combobox-option'}
+                ariaLabel="选择食材"
+                placeholder="搜索或选择食材"
+                value={props.inventoryForm.ingredientId}
+                query={props.inventoryForm.ingredientQuery}
+                options={visibleIngredientOptions.map((ingredient) => ({
+                  id: ingredient.id,
+                  label: ingredient.name,
+                  description: `${ingredient.category || '食材'} · 默认 ${ingredient.default_unit || '个'}`,
+                  image: (
+                    <div className="custom-combobox-option-avatar">
+                      <MediaWithPlaceholder src={resolveMediaUrl(ingredient.image, 'thumb')} alt="" />
+                    </div>
+                  ),
+                }))}
+                emptyText="没有匹配的食材"
+                onQueryChange={(nextQuery) => {
+                  const ingredient = props.ingredients.find((item) => item.name === nextQuery) ?? null;
+                  props.syncInventoryIngredient(ingredient, nextQuery);
+                }}
+                onChange={(ingredientId) => {
+                  const ingredient = props.ingredients.find((item) => item.id === ingredientId) ?? null;
+                  props.syncInventoryIngredient(ingredient, ingredient?.name ?? '');
+                }}
+              />
             </div>
           )}
 

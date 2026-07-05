@@ -21,7 +21,11 @@ export type ResourcePickerFieldProps<T extends string> = {
   emptyText?: string;
   className?: string;
   searchClassName?: string;
+  searchInputId?: string;
+  searchInputClassName?: string;
   searchInputRef?: Ref<HTMLInputElement>;
+  leadingIcon?: ReactNode;
+  leadingIconClassName?: string;
   listClassName?: string;
   optionClassName?: string | ((option: ResourcePickerOption<T>, selected: boolean) => string | undefined);
   onSearchCompositionStart?: (event: CompositionEvent<HTMLInputElement>) => void;
@@ -41,7 +45,11 @@ export function ResourcePickerField<T extends string>({
   emptyText = '没有找到匹配项',
   className,
   searchClassName,
+  searchInputId,
+  searchInputClassName,
   searchInputRef,
+  leadingIcon,
+  leadingIconClassName,
   listClassName,
   optionClassName,
   onSearchCompositionStart,
@@ -58,7 +66,11 @@ export function ResourcePickerField<T extends string>({
     <div className={['ui-resource-picker', className].filter(Boolean).join(' ')}>
       <SearchField
         className={searchClassName}
+        inputId={searchInputId}
+        inputClassName={searchInputClassName}
         inputRef={searchInputRef}
+        leadingIcon={leadingIcon}
+        leadingIconClassName={leadingIconClassName}
         ariaLabel={ariaLabel}
         placeholder={placeholder}
         value={query}
