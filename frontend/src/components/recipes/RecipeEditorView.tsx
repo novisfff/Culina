@@ -7,7 +7,7 @@ import type { AiRenderPayload } from '../../lib/aiImages';
 import { resolveAssetUrl } from '../../lib/assets';
 import { MediaWithPlaceholder } from '../MediaPlaceholder';
 import { useDebouncedSearchValue, useSearchCompositionState } from '../../hooks/useDebouncedValue';
-import { ActionButton, DropdownSelect, SearchLoadingIndicator, WorkspaceSubpageShell } from '../ui-kit';
+import { ActionButton, DropdownSelect, ResourcePickerField, WorkspaceSubpageShell } from '../ui-kit';
 import {
   MAX_STEP_KEY_POINTS,
   RECIPE_STEP_ICON_OPTIONS,
@@ -230,61 +230,53 @@ function RecipeIngredientPicker({ row, rowIndex, ingredients, onSelect }: Recipe
       </button>
       {open && (
         <div className="recipe-ingredient-picker-panel">
-          <div className="recipe-ingredient-picker-search">
-            <input
-              ref={inputRef}
-              value={search}
-              placeholder="搜索或选择食材"
-              onChange={(event) => setSearch(event.target.value)}
-              onCompositionStart={searchComposition.onCompositionStart}
-              onCompositionEnd={searchComposition.onCompositionEnd}
-              onKeyDown={(event) => {
-                if (event.key === 'Escape') {
-                  setOpen(false);
-                }
-                if (event.key === 'Enter' && options[0]) {
-                  event.preventDefault();
-                  selectOption(options[0]);
-                }
-              }}
-            />
-            <SearchLoadingIndicator active={isIngredientSearchFetching} />
-            <RecipeUiIcon name="chevronDown" />
-          </div>
-          <div className="recipe-ingredient-picker-list" role="listbox">
-            {(row.ingredient_id || selectedLabel) && (
-              <button className="recipe-ingredient-picker-clear" type="button" onClick={() => selectOption(null)}>
-                清空选择
-              </button>
-            )}
-            {isIngredientSearchFetching && (
-              <div className="recipe-ingredient-picker-status">正在搜索...</div>
-            )}
-            {!isIngredientSearchFetching && appliedSearch === normalizedSearch && options.length === 0 && (
-              <div className="recipe-ingredient-picker-status">没有找到匹配食材</div>
-            )}
-            {options.map((ingredient) => (
-              <button
-                key={ingredient.id}
-                className={ingredient.id === row.ingredient_id ? 'recipe-ingredient-picker-option is-selected' : 'recipe-ingredient-picker-option'}
-                type="button"
-                role="option"
-                aria-selected={ingredient.id === row.ingredient_id}
-                onClick={() => selectOption(ingredient)}
-              >
+          {(row.ingredient_id || selectedLabel) && (
+            <button className="recipe-ingredient-picker-clear" type="button" onClick={() => selectOption(null)}>
+              清空选择
+            </button>
+          )}
+          <ResourcePickerField
+            className="recipe-ingredient-picker-resource"
+            searchClassName="recipe-ingredient-picker-search"
+            searchInputRef={inputRef}
+            listClassName="recipe-ingredient-picker-list"
+            optionClassName={(option, selected) => selected ? 'recipe-ingredient-picker-option is-selected' : 'recipe-ingredient-picker-option'}
+            ariaLabel="选择已有食材"
+            placeholder="搜索或选择食材"
+            value={row.ingredient_id ?? ''}
+            query={search}
+            loading={isIngredientSearchFetching}
+            emptyText={isIngredientSearchFetching ? '正在搜索...' : '没有找到匹配食材'}
+            options={options.map((ingredient) => ({
+              id: ingredient.id,
+              label: ingredient.name,
+              description: [ingredient.category, `默认 ${ingredient.default_unit}`, ingredient.default_storage].filter(Boolean).join(' · '),
+              image: (
                 <MediaWithPlaceholder
                   src={resolveAssetUrl(ingredient.image?.url)}
                   alt={ingredient.name}
                   className="recipe-ingredient-picker-thumb"
                   emptyLabel="暂无图"
                 />
-                <span>
-                  <strong>{ingredient.name}</strong>
-                  <small>{[ingredient.category, `默认 ${ingredient.default_unit}`, ingredient.default_storage].filter(Boolean).join(' · ')}</small>
-                </span>
-              </button>
-            ))}
-          </div>
+              ),
+            }))}
+            onQueryChange={setSearch}
+            onChange={(ingredientId) => {
+              const ingredient = options.find((item) => item.id === ingredientId);
+              if (ingredient) selectOption(ingredient);
+            }}
+            onSearchCompositionStart={searchComposition.onCompositionStart}
+            onSearchCompositionEnd={searchComposition.onCompositionEnd}
+            onSearchKeyDown={(event) => {
+              if (event.key === 'Escape') {
+                setOpen(false);
+              }
+              if (event.key === 'Enter' && options[0]) {
+                event.preventDefault();
+                selectOption(options[0]);
+              }
+            }}
+          />
         </div>
       )}
     </div>

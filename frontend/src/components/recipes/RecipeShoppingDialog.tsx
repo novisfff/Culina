@@ -1,6 +1,6 @@
 import type { Ingredient, RecipeIngredient } from '../../api/types';
 import { MediaWithPlaceholder } from '../MediaPlaceholder';
-import { Badge, EmptyState, FormActions, QuantityUnitField, WorkspaceModal } from '../ui-kit';
+import { Badge, EmptyState, FormActions, QuantityUnitField, ResourcePickerField, WorkspaceModal } from '../ui-kit';
 import {
   buildRecipeIngredientAvailabilityMap,
   buildShoppingDraftSourceLabel,
@@ -178,40 +178,36 @@ export function RecipeShoppingDialog(props: RecipeShoppingDialogProps) {
               </div>
             </div>
             <div className="recipe-shopping-custom-row">
-              <div className="recipe-shopping-combobox">
-                <div className="recipe-shopping-combobox-field">
-                  <RecipeUiIcon name="search" />
-                  <input
-                    value={props.customForm.title}
-                    placeholder="搜索食材库"
-                    onFocus={() => props.onSetIngredientPickerOpen(true)}
-                    onChange={(event) => {
-                      const nextTitle = event.target.value;
-                      const matched = props.ingredientOptions.find((item) => item.name === nextTitle);
-                      props.onChangeCustomForm({
-                        ...props.customForm,
-                        ingredientId: matched?.id ?? null,
-                        title: nextTitle,
-                        unit: matched?.unit ?? props.customForm.unit,
-                      });
-                      props.onSetIngredientPickerOpen(true);
-                    }}
-                  />
-                </div>
-                {props.isIngredientPickerOpen && props.visibleIngredientOptions.length > 0 && (
-                  <div className="recipe-shopping-combobox-menu">
-                    {props.visibleIngredientOptions.map((option) => (
-                      <button key={option.id} type="button" onClick={() => props.onSelectIngredientOption(option)}>
-                        <MediaWithPlaceholder src={option.imageUrl} alt="" />
-                        <span>
-                          <strong>{option.name}</strong>
-                          <small>{option.category || '食材'} · 默认 {option.unit}</small>
-                        </span>
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
+              <ResourcePickerField
+                className="recipe-shopping-combobox"
+                searchClassName="recipe-shopping-combobox-field"
+                listClassName="recipe-shopping-combobox-menu"
+                ariaLabel="从食材库添加"
+                placeholder="搜索食材库"
+                value={props.customForm.ingredientId ?? ''}
+                query={props.customForm.title}
+                options={props.visibleIngredientOptions.map((option) => ({
+                  id: option.id,
+                  label: option.name,
+                  description: `${option.category || '食材'} · 默认 ${option.unit}`,
+                  image: <MediaWithPlaceholder src={option.imageUrl} alt="" />,
+                }))}
+                emptyText="没有匹配的食材，请先去食材库建档。"
+                onQueryChange={(nextTitle) => {
+                  const matched = props.ingredientOptions.find((item) => item.name === nextTitle);
+                  props.onChangeCustomForm({
+                    ...props.customForm,
+                    ingredientId: matched?.id ?? null,
+                    title: nextTitle,
+                    unit: matched?.unit ?? props.customForm.unit,
+                  });
+                  props.onSetIngredientPickerOpen(true);
+                }}
+                onChange={(ingredientId) => {
+                  const option = props.ingredientOptions.find((item) => item.id === ingredientId);
+                  if (option) props.onSelectIngredientOption(option);
+                }}
+              />
               <div className="recipe-shopping-custom-quantity">
                 <button type="button" onClick={() => props.onAdjustCustomQuantity(-1)} aria-label="自定义食材数量减一">
                   <RecipeUiIcon name="minus" />

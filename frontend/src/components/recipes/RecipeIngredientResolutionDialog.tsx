@@ -6,7 +6,7 @@ import type { Ingredient } from '../../api/types';
 import { resolveAssetUrl } from '../../lib/assets';
 import { useDebouncedSearchValue, useSearchCompositionState } from '../../hooks/useDebouncedValue';
 import { MediaWithPlaceholder } from '../MediaPlaceholder';
-import { ActionButton, Badge, EmptyState, SearchLoadingIndicator, WorkspaceModal } from '../ui-kit';
+import { ActionButton, Badge, EmptyState, ResourcePickerField, WorkspaceModal } from '../ui-kit';
 import { RecipeUiIcon } from './RecipeWorkspaceCards';
 import type { RecipeUnresolvedIngredientTarget } from './RecipeWorkspaceModel';
 
@@ -99,46 +99,40 @@ function RecipeIngredientCandidateSearch({
         <Badge>待处理</Badge>
       </div>
 
-      <label className="recipe-ingredient-resolution-search">
+      <div className="recipe-ingredient-resolution-search">
         <span>检索已有食材</span>
-        <span className="recipe-ingredient-resolution-search-input">
-          <input
-            className="text-input"
-            value={search}
-            placeholder="输入食材名或别名"
-            onChange={(event) => setSearch(event.target.value)}
-            onCompositionStart={searchComposition.onCompositionStart}
-            onCompositionEnd={searchComposition.onCompositionEnd}
-          />
-          <SearchLoadingIndicator active={isCandidateSearchFetching} />
-        </span>
-      </label>
-
-      <div className="recipe-ingredient-resolution-candidates">
-        {isCandidateSearchFetching ? <p className="recipe-ingredient-resolution-status">正在检索相似食材...</p> : null}
-        {!isCandidateSearchFetching && candidates.length === 0 ? (
-          <p className="recipe-ingredient-resolution-status">没有找到合适候选，可以先新建食材。</p>
-        ) : null}
-        {candidates.map((ingredient) => (
-          <button
-            key={ingredient.id}
-            type="button"
-            className="recipe-ingredient-resolution-candidate"
-            onClick={() => onResolveWithIngredient(target, ingredient)}
-          >
-            <MediaWithPlaceholder
-              src={resolveAssetUrl(ingredient.image?.url)}
-              alt={ingredient.name}
-              className="recipe-ingredient-resolution-candidate-media"
-              emptyLabel="暂无图"
-            />
-            <span>
-              <strong>{ingredient.name}</strong>
-              <small>{[ingredient.category, `默认 ${ingredient.default_unit}`, ingredient.default_storage].filter(Boolean).join(' · ')}</small>
-            </span>
-            <RecipeUiIcon name="check" />
-          </button>
-        ))}
+        <ResourcePickerField
+          className="recipe-ingredient-resolution-resource-picker"
+          searchClassName="recipe-ingredient-resolution-search-input"
+          listClassName="recipe-ingredient-resolution-candidates"
+          optionClassName="recipe-ingredient-resolution-candidate"
+          ariaLabel="选择匹配食材"
+          placeholder="输入食材名或别名"
+          value=""
+          query={search}
+          loading={isCandidateSearchFetching}
+          emptyText={isCandidateSearchFetching ? '正在检索相似食材...' : '没有找到合适候选，可以先新建食材。'}
+          options={candidates.map((ingredient) => ({
+            id: ingredient.id,
+            label: ingredient.name,
+            description: [ingredient.category, `默认 ${ingredient.default_unit}`, ingredient.default_storage].filter(Boolean).join(' · '),
+            image: (
+              <MediaWithPlaceholder
+                src={resolveAssetUrl(ingredient.image?.url)}
+                alt={ingredient.name}
+                className="recipe-ingredient-resolution-candidate-media"
+                emptyLabel="暂无图"
+              />
+            ),
+          }))}
+          onQueryChange={setSearch}
+          onChange={(ingredientId) => {
+            const ingredient = candidates.find((item) => item.id === ingredientId);
+            if (ingredient) onResolveWithIngredient(target, ingredient);
+          }}
+          onSearchCompositionStart={searchComposition.onCompositionStart}
+          onSearchCompositionEnd={searchComposition.onCompositionEnd}
+        />
       </div>
 
       <div className="recipe-ingredient-resolution-actions">

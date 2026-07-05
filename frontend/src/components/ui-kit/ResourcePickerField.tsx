@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import type { CompositionEvent, KeyboardEvent, ReactNode, Ref } from 'react';
 import { SearchField } from './SearchField';
 
 export type ResourcePickerOption<T extends string> = {
@@ -20,6 +20,13 @@ export type ResourcePickerFieldProps<T extends string> = {
   loading?: boolean;
   emptyText?: string;
   className?: string;
+  searchClassName?: string;
+  searchInputRef?: Ref<HTMLInputElement>;
+  listClassName?: string;
+  optionClassName?: string | ((option: ResourcePickerOption<T>, selected: boolean) => string | undefined);
+  onSearchCompositionStart?: (event: CompositionEvent<HTMLInputElement>) => void;
+  onSearchCompositionEnd?: (event: CompositionEvent<HTMLInputElement>) => void;
+  onSearchKeyDown?: (event: KeyboardEvent<HTMLInputElement>) => void;
 };
 
 export function ResourcePickerField<T extends string>({
@@ -33,11 +40,35 @@ export function ResourcePickerField<T extends string>({
   loading = false,
   emptyText = '没有找到匹配项',
   className,
+  searchClassName,
+  searchInputRef,
+  listClassName,
+  optionClassName,
+  onSearchCompositionStart,
+  onSearchCompositionEnd,
+  onSearchKeyDown,
 }: ResourcePickerFieldProps<T>) {
+  function getOptionClassName(option: ResourcePickerOption<T>) {
+    const selected = option.id === value;
+    if (typeof optionClassName === 'function') return optionClassName(option, selected);
+    return [optionClassName, selected ? 'is-selected' : undefined].filter(Boolean).join(' ') || undefined;
+  }
+
   return (
     <div className={['ui-resource-picker', className].filter(Boolean).join(' ')}>
-      <SearchField ariaLabel={ariaLabel} placeholder={placeholder} value={query} loading={loading} onChange={onQueryChange} />
-      <div className="ui-resource-picker-list" role="listbox" aria-label={`${ariaLabel}结果`}>
+      <SearchField
+        className={searchClassName}
+        inputRef={searchInputRef}
+        ariaLabel={ariaLabel}
+        placeholder={placeholder}
+        value={query}
+        loading={loading}
+        onChange={onQueryChange}
+        onCompositionStart={onSearchCompositionStart}
+        onCompositionEnd={onSearchCompositionEnd}
+        onKeyDown={onSearchKeyDown}
+      />
+      <div className={['ui-resource-picker-list', listClassName].filter(Boolean).join(' ')} role="listbox" aria-label={`${ariaLabel}结果`}>
         {options.length === 0 ? <p className="ui-resource-picker-empty">{emptyText}</p> : null}
         {options.map((option) => (
           <button
@@ -46,7 +77,7 @@ export function ResourcePickerField<T extends string>({
             role="option"
             aria-selected={option.id === value}
             disabled={option.disabled}
-            className={option.id === value ? 'is-selected' : undefined}
+            className={getOptionClassName(option)}
             onClick={() => onChange(option.id)}
           >
             {option.image}

@@ -1,4 +1,4 @@
-import type { CompositionEvent, ReactNode, Ref } from 'react';
+import type { CompositionEvent, KeyboardEvent, ReactNode, Ref } from 'react';
 import { SearchLoadingIndicator } from '../ui-kit';
 
 export type SearchFieldProps = {
@@ -21,6 +21,7 @@ export type SearchFieldProps = {
   clearIcon?: ReactNode;
   onCompositionStart?: (event: CompositionEvent<HTMLInputElement>) => void;
   onCompositionEnd?: (event: CompositionEvent<HTMLInputElement>) => void;
+  onKeyDown?: (event: KeyboardEvent<HTMLInputElement>) => void;
 };
 
 export function SearchField({
@@ -43,6 +44,7 @@ export function SearchField({
   clearIcon = '×',
   onCompositionStart,
   onCompositionEnd,
+  onKeyDown,
 }: SearchFieldProps) {
   return (
     <div className={['ui-search-field', className, disabled ? 'is-disabled' : ''].filter(Boolean).join(' ')}>
@@ -61,6 +63,7 @@ export function SearchField({
         onChange={(event) => onChange(event.target.value)}
         onCompositionStart={onCompositionStart}
         onCompositionEnd={onCompositionEnd}
+        onKeyDown={onKeyDown}
       />
       <SearchLoadingIndicator active={loading} className={['ui-search-field-loading', loadingClassName].filter(Boolean).join(' ')} />
       {value ? (
