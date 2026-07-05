@@ -1,7 +1,7 @@
 import type { FormEvent } from 'react';
 import { formatDate, formatRelativeDays, INVENTORY_STATUS_LABELS } from '../../lib/ui';
 import { MediaWithPlaceholder } from '../MediaPlaceholder';
-import { ActionButton, Badge, EmptyState, WorkspaceModal } from '../ui-kit';
+import { Badge, EmptyState, FormActions, WorkspaceModal } from '../ui-kit';
 import type { IngredientSummaryViewModel } from './workspaceModel';
 
 type DestroyExpiredItem = {
@@ -116,18 +116,16 @@ export function IngredientDestroyExpiredOverlay(props: IngredientDestroyExpiredO
                 : '当前没有可销毁的过期批次。'}
             </p>
           </div>
-          <div className="workspace-overlay-actions">
-            <ActionButton tone="secondary" type="button" onClick={props.closeOverlay}>
-              取消
-            </ActionButton>
-            <ActionButton
-              tone="primary"
-              type="submit"
-              disabled={props.isDisposingExpiredInventory || props.destroyExpiredItems.length === 0}
-            >
-              {props.isDisposingExpiredInventory ? '销毁中...' : '确认销毁'}
-            </ActionButton>
-          </div>
+          <FormActions
+            className="destroy-expired-actions"
+            primaryLabel="确认销毁"
+            primaryType="submit"
+            primaryTone="danger"
+            primaryDisabled={props.destroyExpiredItems.length === 0}
+            isSubmitting={Boolean(props.isDisposingExpiredInventory)}
+            secondaryLabel="取消"
+            onSecondary={props.closeOverlay}
+          />
         </div>
       </form>
     </WorkspaceModal>

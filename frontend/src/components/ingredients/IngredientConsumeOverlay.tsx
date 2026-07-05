@@ -1,6 +1,6 @@
 import type { CSSProperties, FormEvent } from 'react';
 import { MediaWithPlaceholder } from '../MediaPlaceholder';
-import { ActionButton, Badge, WorkspaceModal } from '../ui-kit';
+import { ActionButton, Badge, FormActions, WorkspaceModal } from '../ui-kit';
 import type { IngredientSummaryViewModel } from './workspaceModel';
 import type { ConsumeQuickPreset } from './consumeQuickHelpers';
 import { formatNumericString } from './ingredientWorkspaceForms';
@@ -231,14 +231,15 @@ export function IngredientConsumeOverlay(props: IngredientConsumeOverlayProps) {
                 : '系统会自动优先扣减更早到期批次。'}
             </p>
           </div>
-          <div className="workspace-overlay-actions">
-            <ActionButton tone="secondary" type="button" onClick={props.closeOverlay}>
-              取消
-            </ActionButton>
-            <ActionButton tone="primary" type="submit" disabled={props.isConsumingInventory || !props.consumeCanSubmit}>
-              {props.isConsumingInventory ? '保存中...' : '记录这次消费'}
-            </ActionButton>
-          </div>
+          <FormActions
+            className="consume-quick-actions"
+            primaryLabel="确认消耗"
+            primaryType="submit"
+            primaryDisabled={!props.consumeCanSubmit}
+            isSubmitting={Boolean(props.isConsumingInventory)}
+            secondaryLabel="取消"
+            onSecondary={props.closeOverlay}
+          />
         </div>
       </form>
     </WorkspaceModal>

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import type { Ingredient, IngredientUnitConversion } from '../../api/types';
 import { MediaWithPlaceholder } from '../MediaPlaceholder';
-import { ActionButton, Badge, TouchStepperField, WorkspaceModal } from '../ui-kit';
+import { Badge, FormActions, TouchStepperField, WorkspaceModal } from '../ui-kit';
 import { resolvePreferredIngredientUnit } from '../../lib/ingredientUnits';
 import { tracksIngredientQuantity } from '../../lib/ingredientTracking';
 import { resolveMediaUrl } from '../../lib/assets';
@@ -319,14 +319,15 @@ export function IngredientShoppingOverlay(props: IngredientShoppingOverlayProps)
           </section>
 
           <div className="shopping-quick-footer-bar">
-            <div className="workspace-overlay-actions">
-              <ActionButton tone="secondary" type="button" onClick={props.closeOverlay}>
-                取消
-              </ActionButton>
-              <ActionButton tone="primary" type="submit" disabled={props.isCreatingShopping || !props.selectedShoppingIngredient}>
-                {props.isCreatingShopping ? '保存中...' : '加入清单'}
-              </ActionButton>
-            </div>
+            <FormActions
+              className="shopping-quick-actions"
+              primaryLabel="加入采购清单"
+              primaryType="submit"
+              primaryDisabled={!props.selectedShoppingIngredient}
+              isSubmitting={Boolean(props.isCreatingShopping)}
+              secondaryLabel="取消"
+              onSecondary={props.closeOverlay}
+            />
           </div>
         </div>
       </form>

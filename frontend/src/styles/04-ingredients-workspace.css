@@ -7109,26 +7109,34 @@
 }
 
 .ingredients-restock-actions,
+.shopping-quick-actions,
+.consume-quick-actions,
 .destroy-expired-actions {
   margin: 0;
 }
 
-.ingredients-restock-actions {
+.ingredients-restock-actions,
+.shopping-quick-actions {
   width: 100%;
 }
 
+.consume-quick-actions,
 .destroy-expired-actions {
   flex: 1 1 auto;
   width: auto;
 }
 
 .ingredients-restock-actions .ui-form-actions-row,
+.shopping-quick-actions .ui-form-actions-row,
+.consume-quick-actions .ui-form-actions-row,
 .destroy-expired-actions .ui-form-actions-row {
   justify-content: space-between;
   align-items: center;
 }
 
 .ingredients-restock-actions .ui-form-actions-spacer,
+.shopping-quick-actions .ui-form-actions-spacer,
+.consume-quick-actions .ui-form-actions-spacer,
 .destroy-expired-actions .ui-form-actions-spacer {
   display: none;
 }
@@ -7138,6 +7146,8 @@
 .consume-quick-footer-bar .ghost-button,
 .destroy-expired-footer-bar .ghost-button,
 .ingredients-restock-actions .ghost-button,
+.shopping-quick-actions .ghost-button,
+.consume-quick-actions .ghost-button,
 .destroy-expired-actions .ghost-button {
   flex: 0 0 auto;
   min-width: 108px;
@@ -7150,6 +7160,8 @@
 .consume-quick-footer-bar .solid-button,
 .destroy-expired-footer-bar .solid-button,
 .ingredients-restock-actions .solid-button,
+.shopping-quick-actions .solid-button,
+.consume-quick-actions .solid-button,
 .destroy-expired-actions .solid-button {
   flex: 1 1 auto;
   min-width: 0;
@@ -8467,6 +8479,8 @@
   }
 
   .ingredients-restock-actions .ui-form-actions-row,
+  .shopping-quick-actions .ui-form-actions-row,
+  .consume-quick-actions .ui-form-actions-row,
   .destroy-expired-actions .ui-form-actions-row {
     display: flex;
     flex-direction: column-reverse;
@@ -8484,6 +8498,10 @@
   .destroy-expired-footer-bar .solid-button,
   .ingredients-restock-actions .ghost-button,
   .ingredients-restock-actions .solid-button,
+  .shopping-quick-actions .ghost-button,
+  .shopping-quick-actions .solid-button,
+  .consume-quick-actions .ghost-button,
+  .consume-quick-actions .solid-button,
   .destroy-expired-actions .ghost-button,
   .destroy-expired-actions .solid-button {
     width: 100%;

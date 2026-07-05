@@ -9,6 +9,7 @@ import {
   ActionButton,
   Badge,
   DropdownSelect,
+  FormActions,
   TouchRangeField,
   TouchStepperField,
   WorkspaceModal,
@@ -534,18 +535,15 @@ export function IngredientInventoryOverlay(props: IngredientInventoryOverlayProp
         </div>
 
         <div className="ingredients-restock-footer-bar">
-          <div className="workspace-overlay-actions">
-            <ActionButton tone="secondary" type="button" onClick={props.closeOverlay}>
-              取消
-            </ActionButton>
-            <ActionButton
-              tone="primary"
-              type="submit"
-              disabled={props.isCreatingInventory || !props.inventoryForm.ingredientId}
-            >
-              {props.isCreatingInventory ? '保存中...' : tracksQuantity ? '保存这批库存' : '确认已有'}
-            </ActionButton>
-          </div>
+          <FormActions
+            className="ingredients-restock-actions"
+            primaryLabel={tracksQuantity ? '补入库存' : '确认已有'}
+            primaryType="submit"
+            primaryDisabled={!props.inventoryForm.ingredientId}
+            isSubmitting={Boolean(props.isCreatingInventory)}
+            secondaryLabel="取消"
+            onSecondary={props.closeOverlay}
+          />
         </div>
       </form>
     </WorkspaceModal>
