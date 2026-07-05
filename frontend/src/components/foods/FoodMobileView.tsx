@@ -4,7 +4,7 @@ import { buildMediaSizes, buildMediaSrcSet, resolveMediaUrl } from '../../lib/as
 import { FOOD_TYPE_LABELS, MEAL_TYPE_LABELS, getFoodCoverAsset } from '../../lib/ui';
 import { chunkMobilePagedItems, useMobilePagedScroller } from '../../hooks/useMobilePagedScroller';
 import { MediaWithPlaceholder } from '../MediaPlaceholder';
-import { Badge, EmptyState, SearchLoadingIndicator } from '../ui-kit';
+import { Badge, EmptyState, SearchField } from '../ui-kit';
 import { focusMobileInput } from '../../lib/mobileFocus';
 import { resolveMobileSceneCoverSource } from './FoodMobileSceneModel';
 import { FoodUiIcon } from './FoodWorkspacePrimitives';
@@ -249,18 +249,19 @@ export function FoodMobileView(props: {
           </button>
         </div>
         <div className="mobile-food-library-filters">
-          <label className="mobile-food-search">
-            <FoodUiIcon name="search" />
-            <input
-              id="mobile-food-search"
-              value={props.search}
-              placeholder="搜索食物、食材或菜谱"
-              onChange={(event) => props.onSearchChange(event.target.value)}
-              onCompositionStart={props.onSearchCompositionStart}
-              onCompositionEnd={props.onSearchCompositionEnd}
-            />
-            <SearchLoadingIndicator active={Boolean(props.search.trim()) && Boolean(props.isSearchFetching)} />
-          </label>
+          <SearchField
+            className="mobile-food-search"
+            inputId="mobile-food-search"
+            ariaLabel="搜索食物"
+            placeholder="搜索食物、食材或菜谱"
+            value={props.search}
+            loading={Boolean(props.search.trim()) && Boolean(props.isSearchFetching)}
+            leadingIcon={<FoodUiIcon name="search" />}
+            onChange={props.onSearchChange}
+            onClear={() => props.onSearchChange('')}
+            onCompositionStart={props.onSearchCompositionStart}
+            onCompositionEnd={props.onSearchCompositionEnd}
+          />
           <div className="mobile-food-tabs" aria-label="食物分类">
             {props.filterTabs.map((item) => (
               <button key={item.label} className={item.active ? 'active' : ''} type="button" onClick={item.onClick}>

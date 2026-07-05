@@ -40,7 +40,7 @@ import {
   Badge,
   DropdownSelect,
   EmptyState,
-  SearchLoadingIndicator,
+  SearchField,
   WorkspaceSubpageHeader,
   WorkspaceSubpageShell,
 } from '../ui-kit';
@@ -1150,20 +1150,19 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
     return (
       <section className="recipe-filter-shell">
         <div className="recipe-search-row">
-          <label className="recipe-search-input-shell">
-            <span className="recipe-search-input-icon" aria-hidden="true">
-              <RecipeUiIcon name="search" />
-            </span>
-            <input
-              className="text-input"
-              placeholder="搜索菜谱、食材或技巧"
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-              onCompositionStart={recipeSearchComposition.onCompositionStart}
-              onCompositionEnd={recipeSearchComposition.onCompositionEnd}
-            />
-            <SearchLoadingIndicator active={isRecipeSearchFetching} />
-          </label>
+          <SearchField
+            className="recipe-search-input-shell"
+            ariaLabel="搜索菜谱"
+            placeholder="搜索菜谱、食材或技巧"
+            value={search}
+            loading={isRecipeSearchFetching}
+            leadingIcon={<RecipeUiIcon name="search" />}
+            leadingIconClassName="recipe-search-input-icon"
+            onChange={setSearch}
+            onClear={() => setSearch('')}
+            onCompositionStart={recipeSearchComposition.onCompositionStart}
+            onCompositionEnd={recipeSearchComposition.onCompositionEnd}
+          />
           <DropdownSelect
             ariaLabel="难度"
             labelPrefix="难度"

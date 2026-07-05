@@ -4,7 +4,7 @@ import {
   ActionButton,
   Badge,
   EmptyState,
-  SearchLoadingIndicator,
+  SearchField,
 } from '../ui-kit';
 import { IngredientCategoryIcon } from './IngredientEditorView';
 import type {
@@ -136,20 +136,19 @@ export function IngredientCatalogPanel(props: CatalogPanelProps) {
               <props.IngredientWorkspaceIcon name="search" />
               档案检索
             </span>
-            <span className="ingredients-catalog-search-input-shell">
-              <span className="ingredients-catalog-search-input-icon" aria-hidden="true">
-                <props.IngredientWorkspaceIcon name="search" />
-              </span>
-              <input
-                className="text-input"
-                placeholder="搜索食材、分类、备注或关联菜谱"
-                value={props.catalogSearch}
-                onChange={(event) => props.onCatalogSearchChange(event.target.value)}
-                onCompositionStart={props.onCatalogSearchCompositionStart}
-                onCompositionEnd={props.onCatalogSearchCompositionEnd}
-              />
-              <SearchLoadingIndicator active={Boolean(props.catalogSearch.trim()) && Boolean(props.isCatalogSearchFetching)} />
-            </span>
+            <SearchField
+              className="ingredients-catalog-search-input-shell"
+              ariaLabel="搜索食材"
+              placeholder="搜索食材、分类、备注或关联菜谱"
+              value={props.catalogSearch}
+              loading={Boolean(props.catalogSearch.trim()) && Boolean(props.isCatalogSearchFetching)}
+              leadingIcon={<props.IngredientWorkspaceIcon name="search" />}
+              leadingIconClassName="ingredients-catalog-search-input-icon"
+              onChange={props.onCatalogSearchChange}
+              onClear={() => props.onCatalogSearchChange('')}
+              onCompositionStart={props.onCatalogSearchCompositionStart}
+              onCompositionEnd={props.onCatalogSearchCompositionEnd}
+            />
           </label>
           <span className="ingredients-catalog-search-count">
             {props.catalogCountLabel}
@@ -305,20 +304,19 @@ export function IngredientInventoryPanel(props: InventoryPanelProps) {
               <props.IngredientWorkspaceIcon name="inventory" />
               库存检索
             </span>
-            <span className="ingredients-inventory-search-input-shell">
-              <span className="ingredients-inventory-search-input-icon" aria-hidden="true">
-                <props.IngredientWorkspaceIcon name="search" />
-              </span>
-              <input
-                className="text-input"
-                placeholder="搜索食材名称、分类、位置或提醒"
-                value={props.inventorySearch}
-                onChange={(event) => props.onInventorySearchChange(event.target.value)}
-                onCompositionStart={props.onInventorySearchCompositionStart}
-                onCompositionEnd={props.onInventorySearchCompositionEnd}
-              />
-              <SearchLoadingIndicator active={Boolean(props.inventorySearch.trim()) && Boolean(props.isInventorySearchFetching)} />
-            </span>
+            <SearchField
+              className="ingredients-inventory-search-input-shell"
+              ariaLabel="搜索库存"
+              placeholder="搜索食材名称、分类、位置或提醒"
+              value={props.inventorySearch}
+              loading={Boolean(props.inventorySearch.trim()) && Boolean(props.isInventorySearchFetching)}
+              leadingIcon={<props.IngredientWorkspaceIcon name="search" />}
+              leadingIconClassName="ingredients-inventory-search-input-icon"
+              onChange={props.onInventorySearchChange}
+              onClear={() => props.onInventorySearchChange('')}
+              onCompositionStart={props.onInventorySearchCompositionStart}
+              onCompositionEnd={props.onInventorySearchCompositionEnd}
+            />
           </label>
           <div className="ingredients-inventory-filter-row">
             <button
@@ -520,17 +518,16 @@ export function IngredientShoppingPanel(props: ShoppingPanelProps) {
               <props.IngredientWorkspaceIcon name="shopping" />
               采购检索
             </span>
-            <span className="ingredients-shopping-search-input-shell">
-              <span className="ingredients-shopping-search-input-icon" aria-hidden="true">
-                <props.IngredientWorkspaceIcon name="search" />
-              </span>
-              <input
-                className="text-input"
-                placeholder="搜索待买名称、原因、分类或关联食材"
-                value={props.shoppingSearch}
-                onChange={(event) => props.onShoppingSearchChange(event.target.value)}
-              />
-            </span>
+            <SearchField
+              className="ingredients-shopping-search-input-shell"
+              ariaLabel="搜索采购项"
+              placeholder="搜索待买名称、原因、分类或关联食材"
+              value={props.shoppingSearch}
+              leadingIcon={<props.IngredientWorkspaceIcon name="search" />}
+              leadingIconClassName="ingredients-shopping-search-input-icon"
+              onChange={props.onShoppingSearchChange}
+              onClear={() => props.onShoppingSearchChange('')}
+            />
           </label>
           <div className="ingredients-shopping-filter-group">
             <div className="ingredients-shopping-filter-row">

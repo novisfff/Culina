@@ -28,7 +28,7 @@ import {
   EmptyState,
   FormActions,
   ImageComposer,
-  SearchLoadingIndicator,
+  SearchField,
   SegmentedTabs,
   WorkspaceModal,
 } from '../ui-kit';
@@ -1277,18 +1277,18 @@ export function FoodWorkspace(props: Props) {
               <div className="workspace-toolbar-copy">
                 <h3>食物库</h3>
               </div>
-              <label className="food-search-field">
-                <FoodUiIcon name="search" />
-                <input
-                  className="text-input"
-                  placeholder="搜索食物、来源、口味或备注..."
-                  value={search}
-                  onChange={(event) => setSearch(event.target.value)}
-                  onCompositionStart={foodSearchComposition.onCompositionStart}
-                  onCompositionEnd={foodSearchComposition.onCompositionEnd}
-                />
-                <SearchLoadingIndicator active={isFoodSearchFetching} />
-              </label>
+              <SearchField
+                className="food-search-field"
+                ariaLabel="搜索食物"
+                placeholder="搜索食物、来源、口味或备注..."
+                value={search}
+                loading={isFoodSearchFetching}
+                leadingIcon={<FoodUiIcon name="search" />}
+                onChange={setSearch}
+                onClear={() => setSearch('')}
+                onCompositionStart={foodSearchComposition.onCompositionStart}
+                onCompositionEnd={foodSearchComposition.onCompositionEnd}
+              />
               <div className="food-library-head-actions">
                 <p className="workspace-toolbar-summary">显示 {filteredFoods.length} / {props.foods.length} 份食物</p>
                 {hasFoodFilters && (

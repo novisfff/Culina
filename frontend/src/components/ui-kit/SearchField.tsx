@@ -10,6 +10,8 @@ export type SearchFieldProps = {
   loading?: boolean;
   disabled?: boolean;
   className?: string;
+  inputId?: string;
+  inputClassName?: string;
   inputRef?: Ref<HTMLInputElement>;
   autoFocus?: boolean;
   leadingIcon?: ReactNode;
@@ -30,6 +32,8 @@ export function SearchField({
   loading = false,
   disabled = false,
   className,
+  inputId,
+  inputClassName,
   inputRef,
   autoFocus = false,
   leadingIcon,
@@ -44,7 +48,9 @@ export function SearchField({
     <div className={['ui-search-field', className, disabled ? 'is-disabled' : ''].filter(Boolean).join(' ')}>
       {leadingIcon ? <span className={['ui-search-field-icon', leadingIconClassName].filter(Boolean).join(' ')} aria-hidden="true">{leadingIcon}</span> : null}
       <input
+        id={inputId}
         ref={inputRef}
+        className={['text-input', inputClassName].filter(Boolean).join(' ')}
         type="search"
         role="searchbox"
         aria-label={ariaLabel}
