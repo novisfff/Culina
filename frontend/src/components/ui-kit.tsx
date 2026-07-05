@@ -852,3 +852,5 @@ export function ImageComposer(props: {
     </ContainerTag>
   );
 }
+
+export * from './ui-kit/index';

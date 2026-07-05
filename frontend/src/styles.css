@@ -2,6 +2,7 @@
  * Keep imports ordered to preserve the original cascade across workspaces.
  */
 @import './styles/00-foundation.css';
+@import './styles/00-ui-kit.css';
 @import './styles/01-home-dashboard.css';
 @import './styles/02-family-settings.css';
 @import './styles/03-recipe-workspace.css';
