@@ -30,6 +30,7 @@ type Props = {
   runEventsById: Record<string, AiRunEvent[]>;
   streamProgress: AiRunEvent[];
   thinkingRunIds: Set<string>;
+  thinkingMessageIds: Set<string>;
   activeAssistantRunId: string | null;
   activeStreamRunId: string | null;
   submittingApprovalId: string | null;
@@ -175,7 +176,11 @@ export function AiMobilePage(props: Props) {
   const composerDockRef = useRef<HTMLDivElement | null>(null);
   const pageRef = useAiMobileViewport(composerDockRef);
   const threadAutoScroll = useAiThreadAutoScroll({
-    contentKey: aiThreadAutoScrollKey(props.messages, props.streamProgress, props.thinkingRunIds),
+    contentKey: aiThreadAutoScrollKey(
+      props.messages,
+      props.streamProgress,
+      new Set([...props.thinkingRunIds, ...props.thinkingMessageIds]),
+    ),
     resetKey: props.activeConversationKey,
     activeOutputKey: props.activeStreamRunId ?? props.activeAssistantRunId,
     forceScrollKey: latestUserMessageScrollKey(props.messages),
@@ -230,7 +235,7 @@ export function AiMobilePage(props: Props) {
                         ? props.streamProgress
                         : []
                 }
-                isThinking={Boolean(message.run_id && props.thinkingRunIds.has(message.run_id))}
+                isThinking={Boolean((message.run_id && props.thinkingRunIds.has(message.run_id)) || props.thinkingMessageIds.has(message.id))}
                 isLatestAssistant={message.role === 'assistant' && index === props.messages.length - 1}
                 activeStreamRunId={props.activeStreamRunId}
                 submittingApprovalId={props.submittingApprovalId}

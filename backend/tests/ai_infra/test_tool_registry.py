@@ -158,7 +158,15 @@ class AIToolRegistryTestCase(AIAgentInfraTestCase):
                     payload={
                         "draftType": "shopping_list",
                         "schemaVersion": "shopping_list.v1",
-                        "items": [{"title": "鸡蛋", "quantity": 2, "unit": "个", "reason": "搭配晚餐"}],
+                        "items": [
+                            {
+                                "ingredientId": "ingredient-tomato",
+                                "title": "番茄",
+                                "quantity": 2,
+                                "unit": "个",
+                                "reason": "搭配晚餐",
+                            }
+                        ],
                     },
                     suffix="read-artifact",
                 )
@@ -179,7 +187,7 @@ class AIToolRegistryTestCase(AIAgentInfraTestCase):
                 approval_output = executor.call("workspace.read_artifact", {"id": approval.id, "kind": "approval"})
 
                 self.assertEqual(draft_output["artifact"]["kind"], "draft")
-                self.assertEqual(draft_output["artifact"]["payload"]["items"][0]["title"], "鸡蛋")
+                self.assertEqual(draft_output["artifact"]["payload"]["items"][0]["title"], "番茄")
                 self.assertEqual(approval_output["artifact"]["kind"], "approval")
                 self.assertEqual(approval_output["artifact"]["initialValues"]["draft"]["items"][0]["unit"], "个")
 
@@ -529,6 +537,36 @@ class AIToolRegistryTestCase(AIAgentInfraTestCase):
                                 "schemaVersion": "shopping_list.v1",
                                 "sourceDraftId": "missing-draft",
                                 "items": [{"title": "鸡蛋", "quantity": 2, "unit": "个", "reason": "测试"}],
+                            }
+                        },
+                    )
+
+                with self.assertRaisesRegex(ValueError, "购物清单项目必须引用真实食材"):
+                    executor.call(
+                        "shopping.create_draft",
+                        {
+                            "draft": {
+                                "draftType": "shopping_list",
+                                "schemaVersion": "shopping_list.v1",
+                                "items": [{"title": "鸡蛋", "quantity": 2, "unit": "个", "reason": "测试"}],
+                            }
+                        },
+                    )
+
+                with self.assertRaisesRegex(ValueError, "购物清单项目必须引用真实食材"):
+                    executor.call(
+                        "shopping.create_draft",
+                        {
+                            "draft": {
+                                "draftType": "shopping_list",
+                                "schemaVersion": "shopping_list_operation.v1",
+                                "operations": [
+                                    {
+                                        "operationId": "op-create-freeform",
+                                        "action": "create",
+                                        "payload": {"title": "鸡蛋", "quantity": 2, "unit": "个", "reason": "测试"},
+                                    }
+                                ],
                             }
                         },
                     )

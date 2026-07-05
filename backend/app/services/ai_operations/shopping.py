@@ -11,13 +11,27 @@ from sqlalchemy.orm import Session
 from app.ai.errors import AIConflictError
 from app.core.enums import ActivityAction
 from app.core.utils import create_id
-from app.models.domain import ShoppingListItem
+from app.models.domain import Ingredient, ShoppingListItem
 from app.schemas.shopping import CreateShoppingListItemRequest
 from app.services.activity import log_activity
 from app.services.serializers import serialize_shopping_item
 
 
 UpdatedAtValidator = Callable[[datetime | None, str, str], None]
+
+
+def _require_shopping_ingredient(db: Session, *, family_id: str, item_in: CreateShoppingListItemRequest) -> Ingredient:
+    if not item_in.ingredient_id:
+        raise ValueError("购物清单项目必须引用真实食材")
+    ingredient = db.scalar(
+        select(Ingredient).where(
+            Ingredient.family_id == family_id,
+            Ingredient.id == item_in.ingredient_id,
+        )
+    )
+    if ingredient is None:
+        raise ValueError("购物清单项目引用了不存在的食材")
+    return ingredient
 
 
 def execute_shopping_list_draft(
@@ -53,11 +67,12 @@ def _apply_shopping_item_operations(
         action = str(operation.get("action") or "")
         if action == "create":
             item_in = CreateShoppingListItemRequest.model_validate(operation.get("payload") or {})
+            ingredient = _require_shopping_ingredient(db, family_id=family_id, item_in=item_in)
             item = ShoppingListItem(
                 id=create_id("shopping"),
                 family_id=family_id,
-                ingredient_id=item_in.ingredient_id,
-                title=item_in.title,
+                ingredient_id=ingredient.id,
+                title=ingredient.name,
                 quantity=Decimal(str(item_in.quantity or 1)),
                 unit=item_in.unit or "份",
                 quantity_mode=item_in.quantity_mode,
@@ -126,8 +141,9 @@ def _apply_shopping_item_operations(
             entity_ids.append(item.id)
             continue
         item_in = CreateShoppingListItemRequest.model_validate(operation.get("payload") or {})
-        item.ingredient_id = item_in.ingredient_id
-        item.title = item_in.title
+        ingredient = _require_shopping_ingredient(db, family_id=family_id, item_in=item_in)
+        item.ingredient_id = ingredient.id
+        item.title = ingredient.name
         item.quantity = Decimal(str(item_in.quantity or 1))
         item.unit = item_in.unit or "份"
         item.quantity_mode = item_in.quantity_mode
@@ -159,11 +175,12 @@ def _create_shopping_items_from_payload(
     created: list[ShoppingListItem] = []
     for item_payload in payload.get("items") or []:
         item_in = CreateShoppingListItemRequest.model_validate(item_payload)
+        ingredient = _require_shopping_ingredient(db, family_id=family_id, item_in=item_in)
         item = ShoppingListItem(
             id=create_id("shopping"),
             family_id=family_id,
-            ingredient_id=item_in.ingredient_id,
-            title=item_in.title,
+            ingredient_id=ingredient.id,
+            title=ingredient.name,
             quantity=Decimal(str(item_in.quantity or 1)),
             unit=item_in.unit or "份",
             quantity_mode=item_in.quantity_mode,

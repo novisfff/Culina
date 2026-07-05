@@ -204,7 +204,7 @@ type IngredientWorkspaceProps = {
     title: string;
     quantity?: number | null;
     unit?: string | null;
-    ingredient_id?: string | null;
+    ingredient_id: string;
     quantity_mode?: ShoppingListItem['quantity_mode'];
     display_label?: string | null;
     reason: string;

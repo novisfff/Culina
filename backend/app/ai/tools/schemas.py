@@ -94,8 +94,8 @@ SHOPPING_LIST_DRAFT_SCHEMA: dict[str, Any] = {
                 "required": ["title"],
                 "properties": {
                     "title": {"type": "string", "minLength": 1, "maxLength": 80},
-                    "ingredient_id": {"type": ["string", "null"]},
-                    "ingredientId": {"type": ["string", "null"]},
+                    "ingredient_id": {"type": "string", "minLength": 1, "maxLength": 64},
+                    "ingredientId": {"type": "string", "minLength": 1, "maxLength": 64},
                     "quantity": {"type": "number", "exclusiveMinimum": 0},
                     "unit": {"type": "string", "minLength": 1, "maxLength": 20},
                     "quantity_mode": {"type": "string", "enum": ["track_quantity", "not_track_quantity"]},
@@ -127,8 +127,8 @@ SHOPPING_LIST_DRAFT_SCHEMA: dict[str, Any] = {
                         "additionalProperties": False,
                         "properties": {
                             "title": {"type": "string", "minLength": 1, "maxLength": 80},
-                            "ingredient_id": {"type": ["string", "null"]},
-                            "ingredientId": {"type": ["string", "null"]},
+                            "ingredient_id": {"type": "string", "minLength": 1, "maxLength": 64},
+                            "ingredientId": {"type": "string", "minLength": 1, "maxLength": 64},
                             "quantity": {"type": "number", "exclusiveMinimum": 0},
                             "unit": {"type": "string", "minLength": 1, "maxLength": 20},
                             "quantity_mode": {"type": "string", "enum": ["track_quantity", "not_track_quantity"]},

@@ -44,6 +44,7 @@ import {
   appendDeltaToMessageParts,
   messageTextFromParts,
   isPendingHumanInputPart,
+  hasOutputAfterHumanInputRequest,
   mergeRemoteAndLocalMessage,
   messagePartKey,
   mergeMessagePart,
@@ -899,6 +900,12 @@ export function AiWorkspace({
   const humanInputMutationRunId = humanInputMutation.isPending
     ? humanInputMutation.variables?.message.run_id ?? null
     : null;
+  const humanInputMutationMessageId = humanInputMutation.isPending
+    ? humanInputMutation.variables?.message.id ?? null
+    : null;
+  const humanInputMutationRequestId = humanInputMutation.isPending
+    ? humanInputMutation.variables?.request.id ?? null
+    : null;
   const activeLocalBusyRunIds = new Set(
     [
       activeStreamRunId,
@@ -947,6 +954,25 @@ export function AiWorkspace({
   ]);
   const isAnotherConversationRunning = localBusyEntries.some((entry) => !isCurrentConversationBusyEntry(entry));
   const isAssistantBusy = Boolean(activeVisibleRunId) || Boolean(activeApprovalRunId) || Boolean(activeHumanInputRunId);
+  const thinkingMessageIds = useMemo(() => {
+    if (!isSubmittingActiveHumanInput || !humanInputMutationMessageId || !humanInputMutationRequestId) {
+      return new Set<string>();
+    }
+    const message = displayedMessages.find((item) => item.id === humanInputMutationMessageId);
+    if (!message || hasOutputAfterHumanInputRequest(message, humanInputMutationRequestId)) {
+      return new Set<string>();
+    }
+    return new Set([humanInputMutationMessageId]);
+  }, [
+    displayedMessages,
+    humanInputMutationMessageId,
+    humanInputMutationRequestId,
+    isSubmittingActiveHumanInput,
+  ]);
+  const threadThinkingKeys = useMemo(
+    () => new Set([...thinkingRunIds, ...thinkingMessageIds]),
+    [thinkingMessageIds, thinkingRunIds],
+  );
   const effectiveComposerPaused = isComposerPaused || isAnotherConversationRunning;
   const effectiveComposerPauseMessage = isSubmittingActiveHumanInput
     ? '正在提交你的回答，AI 会接着处理当前任务。'
@@ -1227,7 +1253,7 @@ export function AiWorkspace({
     ?? (approvalStreamMutation.isPending ? approvalMutationRunId : null)
     ?? (humanInputMutation.isPending ? humanInputMutationRunId : null);
   const threadAutoScroll = useAiThreadAutoScroll({
-    contentKey: aiThreadAutoScrollKey(displayedMessages, streamProgress, thinkingRunIds),
+    contentKey: aiThreadAutoScrollKey(displayedMessages, streamProgress, threadThinkingKeys),
     resetKey: activeConversationKey,
     activeOutputKey: activeThreadOutputKey,
     forceScrollKey: latestUserMessageScrollKey(displayedMessages),
@@ -1261,6 +1287,7 @@ export function AiWorkspace({
         runEventsById={runEventsById}
         streamProgress={streamProgress}
         thinkingRunIds={thinkingRunIds}
+        thinkingMessageIds={thinkingMessageIds}
         activeAssistantRunId={activeVisibleRunId}
         activeStreamRunId={activeStreamRunId}
         submittingApprovalId={submittingApprovalId}
@@ -1377,7 +1404,7 @@ export function AiWorkspace({
                             ? streamProgress
                             : []
                     }
-                    isThinking={Boolean(message.run_id && thinkingRunIds.has(message.run_id))}
+                    isThinking={Boolean((message.run_id && thinkingRunIds.has(message.run_id)) || thinkingMessageIds.has(message.id))}
                     isLatestAssistant={message.id === latestAssistantMessageId}
                     activeStreamRunId={activeStreamRunId}
                     submittingApprovalId={submittingApprovalId}

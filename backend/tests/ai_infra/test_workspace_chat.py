@@ -71,12 +71,13 @@ class AIWorkspaceChatTestCase(AIAgentInfraTestCase):
                 shopping_payload = {
                     "draftType": "shopping_list",
                     "schemaVersion": "shopping_list.v1",
-                    "items": [
-                        {
-                            "title": "鸡蛋",
-                            "quantity": 2,
-                            "unit": "个",
-                            "reason": "用于番茄鸡蛋面",
+                "items": [
+                    {
+                        "ingredientId": "ingredient-tomato",
+                        "title": "番茄",
+                        "quantity": 2,
+                        "unit": "个",
+                        "reason": "用于番茄鸡蛋面",
                             "sourceMeals": ["番茄鸡蛋面"],
                         }
                     ],

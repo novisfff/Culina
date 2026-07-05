@@ -72,19 +72,19 @@ def _normalize_shopping_item_payload(
         raise ValueError("购物清单项目格式不正确")
     normalized = dict(payload)
     ingredient_id = normalized.get("ingredient_id") or normalized.get("ingredientId")
-    if ingredient_id:
-        ingredient = db.scalar(select(Ingredient).where(Ingredient.family_id == family_id, Ingredient.id == str(ingredient_id)))
-        if ingredient is None:
-            raise ValueError("购物清单项目引用了不存在的食材")
-        normalized["ingredient_id"] = ingredient.id
-        normalized.setdefault("title", ingredient.name)
-        normalized["quantity_mode"] = ingredient.quantity_tracking_mode.value if hasattr(ingredient.quantity_tracking_mode, "value") else ingredient.quantity_tracking_mode
-        if normalized["quantity_mode"] == IngredientQuantityTrackingMode.NOT_TRACK_QUANTITY.value:
-            normalized.setdefault("quantity", 1)
-            normalized.setdefault("unit", ingredient.default_unit or "份")
-            normalized["display_label"] = normalized.get("display_label") or normalized.get("displayLabel") or "需要补充"
+    if not isinstance(ingredient_id, str) or not ingredient_id.strip():
+        raise ValueError("购物清单项目必须引用真实食材")
+    ingredient = db.scalar(select(Ingredient).where(Ingredient.family_id == family_id, Ingredient.id == ingredient_id.strip()))
+    if ingredient is None:
+        raise ValueError("购物清单项目引用了不存在的食材")
+    normalized["ingredient_id"] = ingredient.id
+    normalized["title"] = ingredient.name
+    normalized["quantity_mode"] = ingredient.quantity_tracking_mode.value if hasattr(ingredient.quantity_tracking_mode, "value") else ingredient.quantity_tracking_mode
+    if normalized["quantity_mode"] == IngredientQuantityTrackingMode.NOT_TRACK_QUANTITY.value:
+        normalized.setdefault("quantity", 1)
+        normalized.setdefault("unit", ingredient.default_unit or "份")
+        normalized["display_label"] = normalized.get("display_label") or normalized.get("displayLabel") or "需要补充"
     else:
-        normalized["quantity_mode"] = normalized.get("quantity_mode") or normalized.get("quantityMode") or IngredientQuantityTrackingMode.TRACK_QUANTITY.value
         normalized["display_label"] = normalized.get("display_label") or normalized.get("displayLabel")
     return CreateShoppingListItemRequest.model_validate(normalized)
 

@@ -53,6 +53,7 @@ describe('AiMobilePage viewport', () => {
           runEventsById={{}}
           streamProgress={[]}
           thinkingRunIds={new Set()}
+          thinkingMessageIds={new Set()}
           activeAssistantRunId={null}
           activeStreamRunId={null}
           submittingApprovalId={null}

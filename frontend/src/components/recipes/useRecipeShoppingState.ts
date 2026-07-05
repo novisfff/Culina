@@ -21,7 +21,7 @@ type UseRecipeShoppingStateArgs = {
     title: string;
     quantity?: number | null;
     unit?: string | null;
-    ingredient_id?: string | null;
+    ingredient_id: string;
     quantity_mode?: ShoppingListItem['quantity_mode'];
     display_label?: string | null;
     reason: string;
@@ -33,6 +33,7 @@ export function useRecipeShoppingState(args: UseRecipeShoppingStateArgs) {
   const [shoppingDialogCard, setShoppingDialogCard] = useState<RecipeCardViewModel | null>(null);
   const [shoppingDrafts, setShoppingDrafts] = useState<RecipeShoppingDraftItem[]>([]);
   const [shoppingCustomForm, setShoppingCustomForm] = useState<RecipeShoppingCustomForm>({
+    ingredientId: null,
     title: '',
     quantity: '1',
     unit: '个',
@@ -64,13 +65,13 @@ export function useRecipeShoppingState(args: UseRecipeShoppingStateArgs) {
     closeCookDialog();
     setShoppingDialogCard(card);
     setShoppingDrafts(buildShoppingDraftsFromShortages(card));
-    setShoppingCustomForm({ title: '', quantity: '1', unit: '个' });
+    setShoppingCustomForm({ ingredientId: null, title: '', quantity: '1', unit: '个' });
   }
 
   function closeShoppingDialog() {
     setShoppingDialogCard(null);
     setShoppingDrafts([]);
-    setShoppingCustomForm({ title: '', quantity: '1', unit: '个' });
+    setShoppingCustomForm({ ingredientId: null, title: '', quantity: '1', unit: '个' });
   }
 
   function updateShoppingDraft(
@@ -97,6 +98,10 @@ export function useRecipeShoppingState(args: UseRecipeShoppingStateArgs) {
 
   function addRecipeIngredientToShoppingDraft(item: RecipeIngredient) {
     if (!shoppingDialogCard) return;
+    if (!item.ingredient_id) {
+      args.showRecipeNotice({ tone: 'warning', title: '先创建食材档案', message: '这个菜谱食材还没有绑定食材档案，先建档后才能加入采购清单。' });
+      return;
+    }
     const draft = buildShoppingDraftFromRecipeIngredient(shoppingDialogCard.recipe.title, item);
     setShoppingDrafts((current) => {
       if (current.some((entry) => entry.recipeIngredientId === item.id)) return current;
@@ -108,11 +113,11 @@ export function useRecipeShoppingState(args: UseRecipeShoppingStateArgs) {
     if (!shoppingDialogCard) return;
     const draft = buildCustomShoppingDraft(shoppingDialogCard.recipe.title, shoppingCustomForm);
     if (!draft) {
-      args.showRecipeNotice({ tone: 'warning', title: '还差一点', message: '请填写采购名称和大于 0 的数量。' });
+      args.showRecipeNotice({ tone: 'warning', title: '还差一点', message: '请先从食材库选择食材，并填写大于 0 的数量。' });
       return;
     }
     setShoppingDrafts((current) => [...current, draft]);
-    setShoppingCustomForm({ title: '', quantity: '1', unit: shoppingCustomForm.unit.trim() || '个' });
+    setShoppingCustomForm({ ingredientId: null, title: '', quantity: '1', unit: shoppingCustomForm.unit.trim() || '个' });
     setIsShoppingIngredientPickerOpen(false);
   }
 
@@ -125,6 +130,7 @@ export function useRecipeShoppingState(args: UseRecipeShoppingStateArgs) {
   function selectShoppingIngredientOption(option: RecipeShoppingIngredientOption) {
     setShoppingCustomForm((current) => ({
       ...current,
+      ingredientId: option.id,
       title: option.name,
       unit: option.unit,
     }));
