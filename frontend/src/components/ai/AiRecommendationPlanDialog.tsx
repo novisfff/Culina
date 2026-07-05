@@ -2,7 +2,7 @@ import { useEffect, useState, type FormEvent } from 'react';
 import type { AiTodayRecommendationItem, CreateFoodPlanItemPayload, MealType } from '../../api/types';
 import { todayKey } from '../../lib/date';
 import { MEAL_TYPE_LABELS } from '../../lib/ui';
-import { ActionButton, WorkspaceModal } from '../ui-kit';
+import { FormActions, WorkspaceModal } from '../ui-kit';
 import { ResultImage } from './AiResultCards';
 
 export type AiRecommendationPlanRequest = {
@@ -115,14 +115,14 @@ export function AiRecommendationPlanDialog({ request, isSubmitting, onClose, onS
           </label>
 
           {error && <p className="form-error" role="alert">{error}</p>}
-          <div className="workspace-overlay-actions">
-            <ActionButton tone="primary" type="submit" disabled={isSubmitting || !activeRequest.recommendation.foodId}>
-              {isSubmitting ? '加入中...' : '确认加入'}
-            </ActionButton>
-            <ActionButton tone="secondary" type="button" disabled={isSubmitting} onClick={onClose}>
-              取消
-            </ActionButton>
-          </div>
+          <FormActions
+            primaryLabel="加入菜单计划"
+            primaryType="submit"
+            primaryDisabled={!activeRequest.recommendation.foodId}
+            isSubmitting={isSubmitting}
+            secondaryLabel="取消"
+            onSecondary={onClose}
+          />
         </form>
       </WorkspaceModal>
     </div>
