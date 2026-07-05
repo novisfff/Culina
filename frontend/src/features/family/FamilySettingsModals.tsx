@@ -1,7 +1,7 @@
 import type { FormEventHandler } from 'react';
 import type { FamilyDetail, ImageInputValue, Member, UserSummary } from '../../api/types';
 import { MediaWithPlaceholder } from '../../components/MediaPlaceholder';
-import { ActionButton, Avatar, FormActions, WorkspaceModal } from '../../components/ui-kit';
+import { ActionButton, Avatar, DropdownSelect, FormActions, WorkspaceModal } from '../../components/ui-kit';
 import { ShellIcon } from '../../app/shellIcons';
 
 export type InviteFormState = {
@@ -96,14 +96,16 @@ export function InviteMemberModal(props: {
           </label>
           <label>
             <span>角色</span>
-            <select
-              className="text-input"
+            <DropdownSelect
+              ariaLabel="选择成员角色"
+              placeholder="选择成员角色"
               value={props.form.role}
-              onChange={(event) => props.onChange({ ...props.form, role: event.target.value as 'Owner' | 'Member' })}
-            >
-              <option value="Member">家庭成员</option>
-              <option value="Owner">主理人</option>
-            </select>
+              options={[
+                { value: 'Member', label: '家庭成员' },
+                { value: 'Owner', label: '主理人' },
+              ]}
+              onChange={(role) => props.onChange({ ...props.form, role: role as 'Owner' | 'Member' })}
+            />
           </label>
           <label className="span-two">
             <span>邮箱</span>

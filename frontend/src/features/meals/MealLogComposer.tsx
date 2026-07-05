@@ -1,7 +1,12 @@
 import type { FormEventHandler } from 'react';
 import type { Food, ImageInputValue, MealType, Member } from '../../api/types';
-import { ImageComposer, SectionHeading } from '../../components/ui-kit';
+import { DropdownSelect, ImageComposer, SectionHeading } from '../../components/ui-kit';
 import { MEAL_TYPE_LABELS } from '../../lib/ui';
+
+const MEAL_OPTIONS: Array<{ value: MealType; label: string }> = Object.entries(MEAL_TYPE_LABELS).map(([value, label]) => ({
+  value: value as MealType,
+  label,
+}));
 
 export type LocalMealFoodEntry = {
   food_id: string;
@@ -72,17 +77,13 @@ export function MealLogComposer({
             </label>
             <label>
               <span>餐别</span>
-              <select
-                className="text-input"
+              <DropdownSelect
+                ariaLabel="选择餐别"
+                placeholder="选择餐别"
                 value={form.mealType}
-                onChange={(event) => onFormChange({ ...form, mealType: event.target.value as MealType })}
-              >
-                {Object.entries(MEAL_TYPE_LABELS).map(([key, label]) => (
-                  <option key={key} value={key}>
-                    {label}
-                  </option>
-                ))}
-              </select>
+                options={MEAL_OPTIONS}
+                onChange={(nextMealType) => onFormChange({ ...form, mealType: nextMealType as MealType })}
+              />
             </label>
           </div>
         </section>
