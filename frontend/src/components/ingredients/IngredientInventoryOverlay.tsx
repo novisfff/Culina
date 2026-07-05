@@ -8,6 +8,7 @@ import { MediaWithPlaceholder } from '../MediaPlaceholder';
 import {
   ActionButton,
   Badge,
+  DropdownSelect,
   TouchRangeField,
   TouchStepperField,
   WorkspaceModal,
@@ -45,77 +46,6 @@ type IngredientInventoryOverlayProps = {
   submitInventory: (event: FormEvent<HTMLFormElement>) => Promise<void>;
   isCreatingInventory?: boolean;
 };
-
-type CustomSelectOption = {
-  value: string;
-  label: string;
-};
-
-function CustomSelect(props: {
-  placeholder: string;
-  value: string;
-  options: CustomSelectOption[];
-  onChange: (value: string) => void;
-}) {
-  const [isOpen, setIsOpen] = useState(false);
-  const containerRef = useRef<HTMLDivElement | null>(null);
-
-  const selectedOption = props.options.find((opt) => opt.value === props.value);
-  const triggerLabel = selectedOption ? selectedOption.label : props.placeholder;
-
-  useEffect(() => {
-    if (!isOpen) return;
-
-    function handlePointerDown(event: PointerEvent) {
-      if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
-        setIsOpen(false);
-      }
-    }
-
-    function handleKeyDown(event: KeyboardEvent) {
-      if (event.key === 'Escape') {
-        setIsOpen(false);
-      }
-    }
-
-    document.addEventListener('pointerdown', handlePointerDown);
-    document.addEventListener('keydown', handleKeyDown);
-    return () => {
-      document.removeEventListener('pointerdown', handlePointerDown);
-      document.removeEventListener('keydown', handleKeyDown);
-    };
-  }, [isOpen]);
-
-  return (
-    <div className="custom-select-container" ref={containerRef} aria-expanded={isOpen}>
-      <button
-        type="button"
-        className="custom-select-trigger"
-        onClick={() => setIsOpen((prev) => !prev)}
-      >
-        <span>{triggerLabel}</span>
-        <span className="custom-select-arrow" />
-      </button>
-      {isOpen && (
-        <div className="custom-select-dropdown">
-          {props.options.map((option) => (
-            <button
-              key={option.value}
-              type="button"
-              className={`custom-select-option ${props.value === option.value ? 'selected' : ''}`}
-              onClick={() => {
-                props.onChange(option.value);
-                setIsOpen(false);
-              }}
-            >
-              {option.label}
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
 
 export function IngredientInventoryOverlay(props: IngredientInventoryOverlayProps) {
   const tracksQuantity = tracksIngredientQuantity(props.selectedInventoryIngredient);
@@ -573,7 +503,8 @@ export function IngredientInventoryOverlay(props: IngredientInventoryOverlayProp
               <div className="ingredients-modal-advanced-fields">
                 <div className="ingredients-restock-status-custom-field">
                   <span>状态</span>
-                  <CustomSelect
+                  <DropdownSelect
+                    ariaLabel="选择状态"
                     placeholder="选择状态"
                     value={props.inventoryForm.status}
                     options={statusOptions}

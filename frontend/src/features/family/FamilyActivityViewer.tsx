@@ -4,7 +4,7 @@ import { api } from '../../api/client';
 import { queryKeys } from '../../api/queryKeys';
 import type { ActivityLog, Member } from '../../api/types';
 import { DashboardIcon } from '../../app/shellIcons';
-import { ActionButton, EmptyState, WorkspaceModal } from '../../components/ui-kit';
+import { ActionButton, DropdownSelect, EmptyState, WorkspaceModal } from '../../components/ui-kit';
 import { formatDateTime } from '../../lib/ui';
 import {
   DEFAULT_FAMILY_ACTIVITY_FILTERS,
@@ -34,90 +34,6 @@ function activityIconName(log: ActivityLog) {
   if (log.action === 'invite') return 'user-plus';
   if (log.action === 'create') return 'plus';
   return 'edit';
-}
-
-type CustomSelectOption = {
-  value: string;
-  label: string;
-};
-
-type CustomSelectProps = {
-  labelPrefix: string;
-  placeholder: string;
-  value: string;
-  options: CustomSelectOption[];
-  onChange: (value: string) => void;
-};
-
-function CustomSelect({ labelPrefix, placeholder, value, options, onChange }: CustomSelectProps) {
-  const [isOpen, setIsOpen] = useState(false);
-  const containerRef = useRef<HTMLDivElement | null>(null);
-
-  const selectedOption = options.find((opt) => opt.value === value);
-  const triggerLabel = selectedOption ? `${labelPrefix}: ${selectedOption.label}` : placeholder;
-
-  useEffect(() => {
-    if (!isOpen) return;
-
-    function handlePointerDown(event: PointerEvent) {
-      if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
-        setIsOpen(false);
-      }
-    }
-
-    function handleKeyDown(event: KeyboardEvent) {
-      if (event.key === 'Escape') {
-        setIsOpen(false);
-      }
-    }
-
-    document.addEventListener('pointerdown', handlePointerDown);
-    document.addEventListener('keydown', handleKeyDown);
-    return () => {
-      document.removeEventListener('pointerdown', handlePointerDown);
-      document.removeEventListener('keydown', handleKeyDown);
-    };
-  }, [isOpen]);
-
-  return (
-    <div className="custom-select-container" ref={containerRef} aria-expanded={isOpen}>
-      <button
-        type="button"
-        className="custom-select-trigger"
-        onClick={() => setIsOpen((prev) => !prev)}
-      >
-        <span>{triggerLabel}</span>
-        <span className="custom-select-arrow" />
-      </button>
-      {isOpen && (
-        <div className="custom-select-dropdown">
-          <button
-            type="button"
-            className={`custom-select-option ${value === '' ? 'selected' : ''}`}
-            onClick={() => {
-              onChange('');
-              setIsOpen(false);
-            }}
-          >
-            {placeholder.replace(`${labelPrefix}: `, '')}
-          </button>
-          {options.map((option) => (
-            <button
-              key={option.value}
-              type="button"
-              className={`custom-select-option ${value === option.value ? 'selected' : ''}`}
-              onClick={() => {
-                onChange(option.value);
-                setIsOpen(false);
-              }}
-            >
-              {option.label}
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
-  );
 }
 
 function FamilyActivityFiltersPanel(props: {
@@ -172,25 +88,31 @@ function FamilyActivityFiltersPanel(props: {
         </div>
       )}
       <div className="family-activity-viewer-select-grid">
-        <CustomSelect
+        <DropdownSelect
+          ariaLabel="筛选操作人"
           labelPrefix="操作人"
           placeholder="操作人: 所有人"
           value={props.filters.actorId}
           options={actorOptions}
+          clearOption={{ value: '', label: '所有人' }}
           onChange={(val) => updateFilters({ actorId: val })}
         />
-        <CustomSelect
+        <DropdownSelect
+          ariaLabel="筛选操作类型"
           labelPrefix="类型"
           placeholder="类型: 全部操作"
           value={props.filters.action}
           options={actionOptions}
+          clearOption={{ value: '', label: '全部操作' }}
           onChange={(val) => updateFilters({ action: val })}
         />
-        <CustomSelect
+        <DropdownSelect
+          ariaLabel="筛选对象"
           labelPrefix="对象"
           placeholder="对象: 全部模块"
           value={props.filters.entityType}
           options={entityOptions}
+          clearOption={{ value: '', label: '全部模块' }}
           onChange={(val) => updateFilters({ entityType: val })}
         />
         <button className="ghost-button" type="button" onClick={props.onReset}>
