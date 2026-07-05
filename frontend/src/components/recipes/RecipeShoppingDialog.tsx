@@ -1,6 +1,6 @@
 import type { Ingredient, RecipeIngredient } from '../../api/types';
 import { MediaWithPlaceholder } from '../MediaPlaceholder';
-import { ActionButton, Badge, EmptyState, WorkspaceModal } from '../ui-kit';
+import { ActionButton, Badge, EmptyState, QuantityUnitField, WorkspaceModal } from '../ui-kit';
 import {
   buildRecipeIngredientAvailabilityMap,
   buildShoppingDraftSourceLabel,
@@ -105,33 +105,15 @@ export function RecipeShoppingDialog(props: RecipeShoppingDialogProps) {
                             />
                           </label>
                         ) : (
-                          <>
-                            <div className="recipe-shopping-stepper" aria-label={`${item.title} 数量`}>
-                              <button type="button" onClick={() => props.onAdjustDraftQuantity(item.id, -1)} aria-label={`${item.title} 数量减一`}>
-                                <RecipeUiIcon name="minus" />
-                              </button>
-                              <input
-                                value={item.quantity}
-                                inputMode="decimal"
-                                onChange={(event) => props.onUpdateDraft(item.id, { quantity: event.target.value })}
-                              />
-                              <button type="button" onClick={() => props.onAdjustDraftQuantity(item.id, 1)} aria-label={`${item.title} 数量加一`}>
-                                <RecipeUiIcon name="plus" />
-                              </button>
-                            </div>
-                            <div className="recipe-shopping-select-shell">
-                              <select
-                                value={item.unit}
-                                onChange={(event) => props.onUpdateDraft(item.id, { unit: event.target.value })}
-                                aria-label={`${item.title} 单位`}
-                              >
-                                {[item.unit, ...props.unitOptions].filter((unit, index, list) => unit && list.indexOf(unit) === index).map((unit) => (
-                                  <option key={unit} value={unit}>{unit}</option>
-                                ))}
-                              </select>
-                              <RecipeUiIcon name="chevronDown" />
-                            </div>
-                          </>
+                          <QuantityUnitField
+                            quantity={item.quantity === '' || item.quantity === null || item.quantity === undefined ? '' : String(item.quantity)}
+                            unit={item.unit || '份'}
+                            unitOptions={[item.unit || '份', ...props.unitOptions]
+                              .filter((unit, index, list) => unit && list.indexOf(unit) === index)
+                              .map((unit) => ({ value: unit, label: unit }))}
+                            onQuantityChange={(value) => props.onUpdateDraft(item.id, { quantity: value })}
+                            onUnitChange={(unit) => props.onUpdateDraft(item.id, { unit })}
+                          />
                         )}
                         <button className="recipe-shopping-delete-button" type="button" onClick={() => props.onRemoveDraft(item.id)}>删除</button>
                       </div>

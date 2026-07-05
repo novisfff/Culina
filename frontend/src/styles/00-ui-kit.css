@@ -213,3 +213,51 @@
     height: 38px;
   }
 }
+
+.ui-quantity-unit-field {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(120px, 0.75fr);
+  gap: 10px;
+  align-items: end;
+}
+
+.ui-quantity-unit-number,
+.ui-quantity-unit-select {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  color: var(--text);
+  font-weight: 700;
+}
+
+.ui-quantity-unit-number input {
+  min-height: 40px;
+  min-width: 0;
+  border: 1px solid var(--line-soft);
+  border-radius: 12px;
+  background: var(--surface, #fff);
+  color: var(--text);
+  padding: 0 12px;
+  font: inherit;
+}
+
+.ui-quantity-unit-number input:disabled {
+  opacity: 0.62;
+}
+
+.ui-quantity-unit-reason {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: var(--text-soft);
+  font-size: 0.88rem;
+}
+
+@media (max-width: 767px) {
+  .ui-quantity-unit-field {
+    grid-template-columns: 1fr;
+  }
+
+  .ui-quantity-unit-number input {
+    min-height: 44px;
+  }
+}
