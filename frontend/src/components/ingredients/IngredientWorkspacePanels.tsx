@@ -4,9 +4,9 @@ import {
   ActionButton,
   Badge,
   EmptyState,
+  OptionChipGroup,
   SearchField,
 } from '../ui-kit';
-import { IngredientCategoryIcon } from './IngredientEditorView';
 import type {
   IngredientSummaryViewModel,
   InventoryStorageOverviewViewModel,
@@ -15,7 +15,6 @@ import type {
   ShoppingCardViewModel,
   StorageGroupViewModel,
 } from './workspaceModel';
-import { getIngredientCategoryPreset } from './workspaceModel';
 import type { InventoryStorageFocus, InventorySortMode } from './ingredientWorkspaceForms';
 import type { CatalogStatusFilter } from './useIngredientWorkspaceState';
 
@@ -160,34 +159,16 @@ export function IngredientCatalogPanel(props: CatalogPanelProps) {
               <props.IngredientWorkspaceIcon name="filter" />
               分类筛选
             </span>
-            <div className="ingredients-catalog-category-row" role="group" aria-label="按分类筛选食材档案">
-              <button
-                className={props.catalogCategoryFilter === 'all' ? 'chip ingredients-category-chip active' : 'chip ingredients-category-chip'}
-                type="button"
-                onClick={() => props.onCatalogCategoryFilterChange('all')}
-              >
-                <span className="ingredients-category-chip-icon" aria-hidden="true">
-                  <props.IngredientWorkspaceIcon name="total" />
-                </span>
-                全部
-              </button>
-              {props.catalogCategories.map((category) => {
-                const categoryPreset = getIngredientCategoryPreset(category);
-                return (
-                  <button
-                    key={category}
-                    className={props.catalogCategoryFilter === category ? 'chip ingredients-category-chip active' : 'chip ingredients-category-chip'}
-                    type="button"
-                    onClick={() => props.onCatalogCategoryFilterChange(category)}
-                  >
-                    <span className="ingredients-category-chip-icon" aria-hidden="true">
-                      <IngredientCategoryIcon name={categoryPreset?.icon ?? 'more'} />
-                    </span>
-                    {category}
-                  </button>
-                );
-              })}
-            </div>
+            <OptionChipGroup
+              ariaLabel="按分类筛选食材档案"
+              value={props.catalogCategoryFilter}
+              options={[
+                { value: 'all', label: '全部' },
+                ...props.catalogCategories.map((category) => ({ value: category, label: category })),
+              ]}
+              className="ingredients-catalog-category-row ingredients-category-chip-group"
+              onChange={props.onCatalogCategoryFilterChange}
+            />
           </div>
           <div className="ingredients-catalog-filter-row-secondary">
             <div className="ingredients-catalog-filter-section ingredients-catalog-filter-section-status" aria-label="按库存状态筛选食材档案">
@@ -195,21 +176,17 @@ export function IngredientCatalogPanel(props: CatalogPanelProps) {
                 <props.IngredientWorkspaceIcon name="status" />
                 状态筛选
               </span>
-              <div className="ingredients-catalog-status-filter-row">
-                {props.catalogStatusItems.map((item) => {
-                  return (
-                    <button
-                      key={item.value}
-                      className={props.catalogStatusFilter === item.value ? `chip ingredients-status-chip tone-${item.value} active` : `chip ingredients-status-chip tone-${item.value}`}
-                      type="button"
-                      onClick={() => props.onCatalogStatusFilterChange(item.value)}
-                    >
-                      {item.label}
-                      <small>{props.catalogStatusCounts[item.value]}</small>
-                    </button>
-                  );
-                })}
-              </div>
+              <OptionChipGroup
+                ariaLabel="按库存状态筛选食材档案"
+                value={props.catalogStatusFilter}
+                options={props.catalogStatusItems.map((item) => ({
+                  value: item.value,
+                  label: item.label,
+                  description: String(props.catalogStatusCounts[item.value]),
+                }))}
+                className="ingredients-catalog-status-filter-row ingredients-status-chip-group"
+                onChange={props.onCatalogStatusFilterChange}
+              />
             </div>
             <button className="ingredients-catalog-clear-filter" type="button" onClick={props.onResetCatalogFilters}>
               <span className="ingredients-catalog-clear-filter-icon" aria-hidden="true">
@@ -319,28 +296,16 @@ export function IngredientInventoryPanel(props: InventoryPanelProps) {
             />
           </label>
           <div className="ingredients-inventory-filter-row">
-            <button
-              className={
-                props.inventoryQuickFilter === 'all'
-                  ? 'chip ingredients-inventory-filter-chip active'
-                  : 'chip ingredients-inventory-filter-chip'
-              }
-              type="button"
-              onClick={() => props.onInventoryQuickFilterChange('all')}
-            >
-              全部库存
-            </button>
-            <button
-              className={
-                props.inventoryQuickFilter === 'alerted'
-                  ? 'chip ingredients-inventory-filter-chip active'
-                  : 'chip ingredients-inventory-filter-chip'
-              }
-              type="button"
-              onClick={() => props.onInventoryQuickFilterChange('alerted')}
-            >
-              仅看提醒
-            </button>
+            <OptionChipGroup
+              ariaLabel="库存快捷筛选"
+              value={props.inventoryQuickFilter}
+              options={[
+                { value: 'all', label: '全部库存' },
+                { value: 'alerted', label: '仅看提醒' },
+              ]}
+              className="ingredients-inventory-filter-chip-group"
+              onChange={props.onInventoryQuickFilterChange}
+            />
             <button
               className="chip ingredients-inventory-filter-chip ingredients-inventory-clear-filter"
               type="button"
@@ -530,25 +495,19 @@ export function IngredientShoppingPanel(props: ShoppingPanelProps) {
             />
           </label>
           <div className="ingredients-shopping-filter-group">
-            <div className="ingredients-shopping-filter-row">
-              {props.shoppingOverview.map((item) => (
-                <button
-                  key={item.key}
-                  className={
-                    props.shoppingFocus === item.key
-                      ? 'chip ingredients-shopping-filter-chip active'
-                      : 'chip ingredients-shopping-filter-chip'
-                  }
-                  type="button"
-                  onClick={() =>
-                    props.onShoppingFocusChange((current) => (current === item.key ? 'all' : item.key))
-                  }
-                >
-                  {item.label}
-                  <span>{item.count}</span>
-                </button>
-              ))}
-            </div>
+            <OptionChipGroup
+              ariaLabel="采购清单筛选"
+              value={props.shoppingFocus}
+              options={props.shoppingOverview.map((item) => ({
+                value: item.key,
+                label: item.label,
+                description: String(item.count),
+              }))}
+              className="ingredients-shopping-filter-row ingredients-shopping-filter-chip-group"
+              onChange={(nextFocus) =>
+                props.onShoppingFocusChange((current) => (current === nextFocus ? 'all' : nextFocus))
+              }
+            />
           </div>
           <button
             className="ingredients-shopping-clear-filter"

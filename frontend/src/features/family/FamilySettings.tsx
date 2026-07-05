@@ -2,7 +2,7 @@ import { useState, type FormEventHandler, type ReactNode } from 'react';
 import type { ActivityLog, FamilyDetail, Member, MembershipSummary, UserSummary } from '../../api/types';
 import { DashboardIcon, ShellIcon, type DashboardIconName } from '../../app/shellIcons';
 import { MediaWithPlaceholder } from '../../components/MediaPlaceholder';
-import { Avatar, Badge, EmptyState } from '../../components/ui-kit';
+import { Avatar, Badge, StateBlock, StatusBadge } from '../../components/ui-kit';
 import { formatDateTime } from '../../lib/ui';
 import {
   FamilyEditModal,
@@ -267,9 +267,9 @@ export function FamilySettings(props: FamilySettingsProps) {
                   <div className="family-member-copy">
                     <div className="family-member-title">
                       <h3>{member.display_name}</h3>
-                      <Badge className={member.role === 'Owner' ? 'family-role-owner' : 'family-role-member'}>
+                      <StatusBadge tone={member.role === 'Owner' ? 'plan' : 'neutral'} className={member.role === 'Owner' ? 'family-role-owner' : 'family-role-member'}>
                         {member.role === 'Owner' ? '主理人' : '成员'}
-                      </Badge>
+                      </StatusBadge>
                     </div>
                     <p>{member.username}</p>
                     <span>
@@ -322,7 +322,7 @@ export function FamilySettings(props: FamilySettingsProps) {
                   </div>
                 </article>
               ))}
-              {props.activityLogs.length === 0 && <EmptyState title="暂无家庭活动" description="记录餐食、采购和食材后，这里会自动更新。" />}
+              {props.activityLogs.length === 0 && <StateBlock status="empty" title="暂无家庭活动" description="记录餐食、采购和食材后，这里会自动更新。" />}
             </div>
           </section>
 

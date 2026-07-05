@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type FormEventHandler, type ReactNode } from 'react';
 import type { Food, FoodPlanItem, MealLog, Member, UpdateMealLogPayload } from '../../api/types';
-import { Avatar, Badge, FormActions, PageHeader, WorkspaceModal } from '../../components/ui-kit';
+import { Avatar, Badge, FormActions, OptionChipGroup, PageHeader, StateBlock, StatusBadge, WorkspaceModal } from '../../components/ui-kit';
 import { MediaWithPlaceholder } from '../../components/MediaPlaceholder';
 import { resolveAssetUrl } from '../../lib/assets';
 import { formatDateTime, MEAL_TYPE_LABELS } from '../../lib/ui';
@@ -160,13 +160,13 @@ export function MealLogWorkspace(props: Props) {
                 <span><MealLogIcon name="search" className="meal-log-ui-icon" /></span>
                 <input value={searchQuery} placeholder="搜索菜品、食材或者备注" onChange={(event) => setSearchQuery(event.target.value)} />
               </label>
-              <div className="meal-log-segment" aria-label="记录状态筛选">
-                {STATUS_FILTERS.map((item) => (
-                  <button key={item.key} type="button" className={statusFilter === item.key ? 'active' : ''} onClick={() => setStatusFilter(item.key)}>
-                    {item.label}
-                  </button>
-                ))}
-              </div>
+              <OptionChipGroup
+                ariaLabel="记录状态筛选"
+                value={statusFilter}
+                options={STATUS_FILTERS.map((item) => ({ value: item.key, label: item.label }))}
+                className="meal-log-segment"
+                onChange={setStatusFilter}
+              />
               <div className="meal-log-meal-filter" aria-label="餐别筛选">
                 {MEAL_FILTERS.map((item) => (
                   <button key={item.key} type="button" className={mealFilter === item.key ? 'active' : ''} onClick={() => setMealFilter(item.key)}>
@@ -216,13 +216,19 @@ export function MealLogWorkspace(props: Props) {
                               <strong>{buildMealTitle(meal)}</strong>
                               <span className="meal-log-record-subline">
                                 <time>{formatMealTime(meal)}</time>
-                                <Badge className={source.status === 'planned' ? 'badge-planned' : 'badge-manual'}>
+                                <StatusBadge tone={source.status === 'planned' ? 'plan' : 'neutral'} size="compact" className={source.status === 'planned' ? 'badge-planned' : 'badge-manual'}>
                                   {source.status === 'planned' ? '菜单计划' : '手动补录'}
-                                </Badge>
+                                </StatusBadge>
                               </span>
                             </span>
                             <span className="meal-log-record-info">
-                              <span className={`meal-record-status status-${getMealLogStatus(meal)}`}>{getMealLogStatusLabel(meal)}</span>
+                              <StatusBadge
+                                tone={getMealLogStatus(meal) === 'done' ? 'success' : 'warning'}
+                                size="compact"
+                                className={`meal-record-status status-${getMealLogStatus(meal)}`}
+                              >
+                                {getMealLogStatusLabel(meal)}
+                              </StatusBadge>
                               <span className={ratingSummary ? 'meal-log-row-rating has-rating' : 'meal-log-row-rating'}>
                                 {ratingSummary ? `★ ${ratingSummary}` : '待评分'}
                               </span>
@@ -240,7 +246,12 @@ export function MealLogWorkspace(props: Props) {
                 ))}
               </div>
             ) : (
-              <div className="meal-log-empty-panel">没有符合条件的记录。换一个筛选条件，或手动补录一餐。</div>
+              <StateBlock
+                status="empty"
+                title="没有符合条件的记录"
+                description="换一个筛选条件，或手动补录一餐。"
+                className="meal-log-empty-panel"
+              />
             )}
         </section>
       </main>

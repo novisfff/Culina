@@ -3,7 +3,7 @@ import type { ActivityLog, Food, FoodPlanItem, FoodRecommendations, Ingredient, 
 import type { TabKey } from '../../app/AppShell';
 import { DashboardIcon, DashboardMealIcon, ShellIcon } from '../../app/shellIcons';
 import { MediaWithPlaceholder } from '../../components/MediaPlaceholder';
-import { ActionButton, Badge, EmptyState, FormActions, PageHeader, WorkspaceModal } from '../../components/ui-kit';
+import { ActionButton, Badge, EmptyState, FormActions, PageHeader, StateBlock, StatusBadge, WorkspaceModal } from '../../components/ui-kit';
 import { MEAL_OPTIONS } from '../../components/foods/FoodWorkspaceOptions';
 import { FoodDetailDrawer } from '../../components/foods/FoodDetailDrawer';
 import {
@@ -617,9 +617,12 @@ export function HomeDashboard(props: HomeDashboardProps) {
                                   <strong>{item.ingredient_name}</strong>
                                   <p>{item.storage_location || INVENTORY_STATUS_LABELS[item.status]}</p>
                                 </div>
-                                <Badge className={expiryBadge.className}>
+                                <StatusBadge
+                                  tone={item.daysLeft < 0 ? 'danger' : item.daysLeft <= 3 ? 'warning' : 'success'}
+                                  className={expiryBadge.className}
+                                >
                                   {expiryBadge.label}
-                                </Badge>
+                                </StatusBadge>
                                 <button
                                   className="solid-button button-compact"
                                   type="button"
@@ -635,7 +638,7 @@ export function HomeDashboard(props: HomeDashboardProps) {
                             );
                           })
                         ) : (
-                          <EmptyState title="没有临期食材" description="库存状态很稳，可以放心安排菜单。" />
+                          <StateBlock status="empty" title="没有临期食材" description="库存状态很稳，可以放心安排菜单。" />
                         )}
                         {hasMoreExpiringInventoryItems && (
                           <div className="dashboard-expiry-loading">继续下滑加载更多</div>
@@ -667,9 +670,12 @@ export function HomeDashboard(props: HomeDashboardProps) {
                                   <span>{item.description}</span>
                                 </span>
                                 <span className="dashboard-todo-meta">
-                                  <Badge className={item.done ? 'dashboard-done-badge' : item.status === '紧急' ? 'dashboard-danger-badge' : 'dashboard-wait-badge'}>
+                                  <StatusBadge
+                                    tone={item.done ? 'success' : item.status === '紧急' ? 'danger' : 'warning'}
+                                    className={item.done ? 'dashboard-done-badge' : item.status === '紧急' ? 'dashboard-danger-badge' : 'dashboard-wait-badge'}
+                                  >
                                     {item.status}
-                                  </Badge>
+                                  </StatusBadge>
                                   <small>{item.dateLabel}</small>
                                 </span>
                                 <span className="dashboard-todo-arrow" aria-hidden="true">
@@ -682,7 +688,7 @@ export function HomeDashboard(props: HomeDashboardProps) {
                             )}
                           </>
                         ) : (
-                          <EmptyState title="今日没有待办" description="新的临期、采购和餐食记录会自动出现在这里。" />
+                          <StateBlock status="empty" title="今日没有待办" description="新的临期、采购和餐食记录会自动出现在这里。" />
                         )}
                       </div>
                     </section>

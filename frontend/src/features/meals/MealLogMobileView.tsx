@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 import type { MealLog } from '../../api/types';
-import { Badge } from '../../components/ui-kit';
+import { StateBlock, StatusBadge } from '../../components/ui-kit';
 import { FoodUiIcon } from '../../components/foods/FoodWorkspacePrimitives';
 import { formatDate, MEAL_TYPE_LABELS } from '../../lib/ui';
 import type { MealSource } from './MealLogEnrichment';
@@ -170,7 +170,9 @@ export function MealLogMobileView(props: Props) {
                           </span>
                         </small>
                       </span>
-                      <Badge className={isEnriched ? 'mobile-log-status done' : 'mobile-log-status pending'}>{getMealLogStatusLabel(meal)}</Badge>
+                      <StatusBadge tone={isEnriched ? 'success' : 'warning'} size="compact" className={isEnriched ? 'mobile-log-status done' : 'mobile-log-status pending'}>
+                        {getMealLogStatusLabel(meal)}
+                      </StatusBadge>
                     </button>
                   );
                 })}
@@ -178,7 +180,12 @@ export function MealLogMobileView(props: Props) {
             </section>
           ))
         ) : (
-          <div className="mobile-log-empty">没有符合条件的记录。</div>
+          <StateBlock
+            status="empty"
+            title="没有符合条件的记录"
+            description="换一个筛选条件，或先补录一餐。"
+            className="mobile-log-empty"
+          />
         )}
       </section>
     </main>
