@@ -7108,10 +7108,37 @@
   width: auto;
 }
 
+.ingredients-restock-actions,
+.destroy-expired-actions {
+  margin: 0;
+}
+
+.ingredients-restock-actions {
+  width: 100%;
+}
+
+.destroy-expired-actions {
+  flex: 1 1 auto;
+  width: auto;
+}
+
+.ingredients-restock-actions .ui-form-actions-row,
+.destroy-expired-actions .ui-form-actions-row {
+  justify-content: space-between;
+  align-items: center;
+}
+
+.ingredients-restock-actions .ui-form-actions-spacer,
+.destroy-expired-actions .ui-form-actions-spacer {
+  display: none;
+}
+
 .ingredients-restock-footer-bar .ghost-button,
 .shopping-quick-footer-bar .ghost-button,
 .consume-quick-footer-bar .ghost-button,
-.destroy-expired-footer-bar .ghost-button {
+.destroy-expired-footer-bar .ghost-button,
+.ingredients-restock-actions .ghost-button,
+.destroy-expired-actions .ghost-button {
   flex: 0 0 auto;
   min-width: 108px;
   min-height: var(--tap-large);
@@ -7121,7 +7148,9 @@
 .ingredients-restock-footer-bar .solid-button,
 .shopping-quick-footer-bar .solid-button,
 .consume-quick-footer-bar .solid-button,
-.destroy-expired-footer-bar .solid-button {
+.destroy-expired-footer-bar .solid-button,
+.ingredients-restock-actions .solid-button,
+.destroy-expired-actions .solid-button {
   flex: 1 1 auto;
   min-width: 0;
   min-height: var(--tap-large);
@@ -8437,6 +8466,14 @@
     gap: 12px;
   }
 
+  .ingredients-restock-actions .ui-form-actions-row,
+  .destroy-expired-actions .ui-form-actions-row {
+    display: flex;
+    flex-direction: column-reverse;
+    align-items: stretch;
+    gap: 12px;
+  }
+
   .ingredients-restock-footer-bar .ghost-button,
   .ingredients-restock-footer-bar .solid-button,
   .shopping-quick-footer-bar .ghost-button,
@@ -8444,7 +8481,11 @@
   .consume-quick-footer-bar .ghost-button,
   .consume-quick-footer-bar .solid-button,
   .destroy-expired-footer-bar .ghost-button,
-  .destroy-expired-footer-bar .solid-button {
+  .destroy-expired-footer-bar .solid-button,
+  .ingredients-restock-actions .ghost-button,
+  .ingredients-restock-actions .solid-button,
+  .destroy-expired-actions .ghost-button,
+  .destroy-expired-actions .solid-button {
     width: 100%;
   }
 }

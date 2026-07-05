@@ -17,7 +17,7 @@ import type {
   DisposableExpiredInventoryItemViewModel,
   IngredientSummaryViewModel,
 } from '../../components/ingredients/workspaceModel';
-import { ActionButton, Avatar, Badge, DropdownSelect, EmptyState, WorkspaceModal } from '../../components/ui-kit';
+import { Avatar, Badge, DropdownSelect, EmptyState, FormActions, WorkspaceModal } from '../../components/ui-kit';
 import { addDateKeyDays } from '../../lib/date';
 import {
   FOOD_TYPE_LABELS,
@@ -284,14 +284,15 @@ export function HomeDashboardDialogs(props: Props) {
                   onChange={(event) => props.setHomePlanAddForm((current) => ({ ...current, note: event.target.value }))}
                 />
               </label>
-              <div className="workspace-overlay-actions">
-                <ActionButton tone="primary" type="submit" disabled={props.isCreatingFoodPlanItem || !props.homePlanAddFood}>
-                  {props.isCreatingFoodPlanItem ? '加入中...' : '加入菜单'}
-                </ActionButton>
-                <ActionButton tone="secondary" type="button" onClick={props.closeHomePlanAddDialog}>
-                  取消
-                </ActionButton>
-              </div>
+              <FormActions
+                className="recipe-plan-dialog-actions"
+                primaryLabel="加入菜单"
+                primaryType="submit"
+                primaryDisabled={!props.homePlanAddFood}
+                isSubmitting={props.isCreatingFoodPlanItem}
+                secondaryLabel="取消"
+                onSecondary={props.closeHomePlanAddDialog}
+              />
             </form>
           </WorkspaceModal>
         </div>
@@ -374,22 +375,17 @@ export function HomeDashboardDialogs(props: Props) {
 
               {homeExpiryReviewItem.notes && <p className="dashboard-todo-dialog-note">{homeExpiryReviewItem.notes}</p>}
 
-              <div className="workspace-overlay-actions">
-                <ActionButton
-                  tone="primary"
-                  type="button"
-                  onClick={() => {
-                    const ingredientId = homeExpiryReviewItem.ingredient_id;
-                    props.closeHomeExpiryReview();
-                    props.openIngredientDetail(ingredientId);
-                  }}
-                >
-                  查看食材详情
-                </ActionButton>
-                <ActionButton tone="secondary" type="button" onClick={props.closeHomeExpiryReview}>
-                  关闭
-                </ActionButton>
-              </div>
+              <FormActions
+                className="dashboard-todo-actions"
+                primaryLabel="查看食材详情"
+                secondaryLabel="关闭"
+                onPrimary={() => {
+                  const ingredientId = homeExpiryReviewItem.ingredient_id;
+                  props.closeHomeExpiryReview();
+                  props.openIngredientDetail(ingredientId);
+                }}
+                onSecondary={props.closeHomeExpiryReview}
+              />
             </div>
           </WorkspaceModal>
         </div>
@@ -471,11 +467,11 @@ export function HomeDashboardDialogs(props: Props) {
                 </section>
               )}
 
-              <div className="workspace-overlay-actions">
-                <ActionButton tone="primary" type="button" onClick={props.closeHomeMealDetail}>
-                  知道了
-                </ActionButton>
-              </div>
+              <FormActions
+                className="dashboard-todo-actions"
+                primaryLabel="知道了"
+                onPrimary={props.closeHomeMealDetail}
+              />
             </div>
           </WorkspaceModal>
         </div>
@@ -852,18 +848,15 @@ export function HomeDashboardDialogs(props: Props) {
               </div>
 
               <div className="ingredients-restock-footer-bar">
-                <div className="workspace-overlay-actions">
-                  <ActionButton tone="secondary" type="button" onClick={props.closeHomeRestock} disabled={props.isCreatingInventory}>
-                    取消
-                  </ActionButton>
-                  <ActionButton
-                    tone="primary"
-                    type="submit"
-                    disabled={props.isCreatingInventory || !homeRestockForm.ingredientId}
-                  >
-                    {props.isCreatingInventory ? '保存中...' : '保存这批库存'}
-                  </ActionButton>
-                </div>
+                <FormActions
+                  className="ingredients-restock-actions"
+                  primaryLabel="补入库存"
+                  primaryType="submit"
+                  primaryDisabled={!props.homeRestockIngredient}
+                  isSubmitting={props.isCreatingInventory}
+                  secondaryLabel="取消"
+                  onSecondary={props.closeHomeRestock}
+                />
               </div>
             </form>
           </WorkspaceModal>
@@ -967,23 +960,15 @@ export function HomeDashboardDialogs(props: Props) {
                       : '当前没有可销毁的过期批次。'}
                   </p>
                 </div>
-                <div className="workspace-overlay-actions">
-                  <ActionButton
-                    tone="secondary"
-                    type="button"
-                    onClick={() => props.setHomeExpiredDisposalIngredientId(null)}
-                    disabled={props.isDisposingExpiredInventory}
-                  >
-                    取消
-                  </ActionButton>
-                  <ActionButton
-                    tone="primary"
-                    type="submit"
-                    disabled={props.isDisposingExpiredInventory || props.homeExpiredDisposalItems.length === 0}
-                  >
-                    {props.isDisposingExpiredInventory ? '销毁中...' : '确认销毁'}
-                  </ActionButton>
-                </div>
+                <FormActions
+                  className="destroy-expired-actions"
+                  primaryLabel="确认销毁"
+                  primaryType="submit"
+                  primaryDisabled={props.homeExpiredDisposalItems.length === 0}
+                  isSubmitting={props.isDisposingExpiredInventory}
+                  secondaryLabel="取消"
+                  onSecondary={() => props.setHomeExpiredDisposalIngredientId(null)}
+                />
               </div>
             </form>
           </WorkspaceModal>

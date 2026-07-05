@@ -1,7 +1,7 @@
 import type { FormEvent } from 'react';
 import { buildMediaSizes, buildMediaSrcSet, resolveMediaUrl } from '../../lib/assets';
 import { MediaWithPlaceholder } from '../MediaPlaceholder';
-import { ActionButton, WorkspaceModal } from '../ui-kit';
+import { ActionButton, FormActions, WorkspaceModal } from '../ui-kit';
 import { FoodUiIcon } from './FoodWorkspacePrimitives';
 import type { FoodSceneCardView, FoodSceneFormMode, ManagedFoodScene } from './useFoodSceneState';
 
@@ -166,18 +166,15 @@ export function FoodSceneDialogs(props: FoodSceneDialogsProps) {
                 {!props.sceneDraft.name.trim() && <small className="food-scene-image-hint">填写场景名称后可生成封面</small>}
                 {props.sceneImageState.errorMessage && <p className="image-composer-error recipe-scene-error">{props.sceneImageState.errorMessage}</p>}
               </div>
-              <div className="workspace-overlay-actions food-scene-form-actions">
-                <ActionButton tone="secondary" type="button" onClick={props.onCloseSceneForm}>
-                  取消
-                </ActionButton>
-                <ActionButton
-                  tone="primary"
-                  type="submit"
-                  disabled={props.isUpdatingScene || !props.sceneDraft.name.trim()}
-                >
-                  {props.sceneFormMode === 'edit' ? '保存场景' : '添加场景'}
-                </ActionButton>
-              </div>
+              <FormActions
+                className="food-scene-form-actions"
+                primaryLabel={props.sceneFormMode === 'create' ? '创建场景' : '保存场景'}
+                primaryType="submit"
+                primaryDisabled={!props.sceneDraft.name.trim()}
+                isSubmitting={Boolean(props.isUpdatingScene)}
+                secondaryLabel="取消"
+                onSecondary={props.onCloseSceneForm}
+              />
             </form>
           </WorkspaceModal>
         </div>

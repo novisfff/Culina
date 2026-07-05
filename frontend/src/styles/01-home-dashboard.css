@@ -660,6 +660,22 @@
   font-size: var(--text-body);
 }
 
+.dashboard-todo-actions .ui-form-actions-row {
+  justify-content: flex-end;
+}
+
+.dashboard-todo-actions .ui-form-actions-spacer {
+  display: none;
+}
+
+.dashboard-todo-actions .solid-button,
+.dashboard-todo-actions .ghost-button {
+  min-height: var(--tap-large);
+  min-width: 116px;
+  border-radius: 12px;
+  font-size: var(--text-body);
+}
+
 
 .dashboard-todo-dialog {
   display: grid;

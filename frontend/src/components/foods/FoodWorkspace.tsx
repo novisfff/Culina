@@ -26,6 +26,7 @@ import {
   ActionButton,
   Badge,
   EmptyState,
+  FormActions,
   ImageComposer,
   SearchLoadingIndicator,
   SegmentedTabs,
@@ -1803,14 +1804,14 @@ export function FoodWorkspace(props: Props) {
                   </div>
                 </div>
 
-                <div className="workspace-overlay-actions food-quick-meal-actions">
-                  <ActionButton tone="secondary" type="button" onClick={() => setQuickMealDialog(null)}>
-                    取消
-                  </ActionButton>
-                  <ActionButton tone="primary" type="submit" disabled={isSubmitting}>
-                    {isCookAction ? '开始做' : '记这一餐'}
-                  </ActionButton>
-                </div>
+                <FormActions
+                  className="food-quick-meal-actions"
+                  primaryLabel={isCookAction ? '开始做' : '记录这一餐'}
+                  primaryType="submit"
+                  isSubmitting={isSubmitting}
+                  secondaryLabel="取消"
+                  onSecondary={() => setQuickMealDialog(null)}
+                />
               </form>
             </WorkspaceModal>
           </div>

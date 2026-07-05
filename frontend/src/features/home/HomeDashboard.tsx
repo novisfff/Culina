@@ -3,7 +3,7 @@ import type { ActivityLog, Food, FoodPlanItem, FoodRecommendations, Ingredient, 
 import type { TabKey } from '../../app/AppShell';
 import { DashboardIcon, DashboardMealIcon, ShellIcon } from '../../app/shellIcons';
 import { MediaWithPlaceholder } from '../../components/MediaPlaceholder';
-import { ActionButton, Badge, EmptyState, PageHeader, WorkspaceModal } from '../../components/ui-kit';
+import { ActionButton, Badge, EmptyState, FormActions, PageHeader, WorkspaceModal } from '../../components/ui-kit';
 import { MEAL_OPTIONS } from '../../components/foods/FoodWorkspaceOptions';
 import { FoodDetailDrawer } from '../../components/foods/FoodDetailDrawer';
 import {
@@ -361,14 +361,14 @@ export function HomeDashboard(props: HomeDashboardProps) {
                       </div>
                     </div>
 
-                    <div className="workspace-overlay-actions food-quick-meal-actions">
-                      <ActionButton tone="secondary" type="button" onClick={() => setQuickMealDialog(null)}>
-                        取消
-                      </ActionButton>
-                      <ActionButton tone="primary" type="submit" disabled={isSubmitting}>
-                        {isCookAction ? '开始做' : '记这一餐'}
-                      </ActionButton>
-                    </div>
+                    <FormActions
+                      className="food-quick-meal-actions"
+                      primaryLabel={isCookAction ? '开始做' : '记录这一餐'}
+                      primaryType="submit"
+                      isSubmitting={isSubmitting}
+                      secondaryLabel="取消"
+                      onSecondary={() => setQuickMealDialog(null)}
+                    />
                   </form>
                 </WorkspaceModal>
               </div>

@@ -4205,6 +4205,17 @@
   padding-top: 2px;
 }
 
+.food-quick-meal-actions .ui-form-actions-row {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: minmax(0, 0.82fr) minmax(0, 1.18fr);
+  gap: 10px;
+}
+
+.food-quick-meal-actions .ui-form-actions-spacer {
+  display: none;
+}
+
 .food-quick-meal-actions .solid-button,
 .food-quick-meal-actions .ghost-button {
   min-height: 44px;

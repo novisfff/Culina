@@ -1,6 +1,6 @@
 import type { FormEvent } from 'react';
 import type { Food, MealType, Recipe, MediaAsset } from '../../api/types';
-import { ActionButton, Badge, WorkspaceModal } from '../ui-kit';
+import { Badge, FormActions, WorkspaceModal } from '../ui-kit';
 import { buildMediaSizes, buildMediaSrcSet, resolveMediaUrl } from '../../lib/assets';
 import { MediaWithPlaceholder } from '../MediaPlaceholder';
 import { FOOD_TYPE_LABELS, MEAL_TYPE_LABELS } from '../../lib/ui';
@@ -197,14 +197,15 @@ export function FoodPlanDialog(props: FoodPlanDialogProps) {
               onChange={(event) => props.onPlanNoteChange(event.target.value)}
             />
           </label>
-          <div className="workspace-overlay-actions">
-            <ActionButton tone="primary" type="submit" disabled={props.isUpdatingPlan || !props.planForm.foodId}>
-              加入菜单
-            </ActionButton>
-            <ActionButton tone="secondary" type="button" onClick={props.onClose}>
-              取消
-            </ActionButton>
-          </div>
+          <FormActions
+            className="recipe-plan-dialog-actions"
+            primaryLabel="保存计划"
+            primaryType="submit"
+            primaryDisabled={Boolean(props.isUpdatingPlan || !props.planForm.foodId)}
+            isSubmitting={Boolean(props.isUpdatingPlan)}
+            secondaryLabel="取消"
+            onSecondary={props.onClose}
+          />
         </form>
       </WorkspaceModal>
     </div>

@@ -7,6 +7,7 @@ export type FormActionsProps = {
   onPrimary?: () => void;
   primaryType?: 'button' | 'submit';
   primaryTone?: 'primary' | 'danger';
+  primaryPlacement?: 'before-extra' | 'after-extra';
   primaryDisabled?: boolean;
   primaryDisabledReason?: string;
   isSubmitting?: boolean;
@@ -21,6 +22,7 @@ export function FormActions({
   onPrimary,
   primaryType = 'button',
   primaryTone = 'primary',
+  primaryPlacement = 'after-extra',
   primaryDisabled = false,
   primaryDisabledReason,
   isSubmitting = false,
@@ -29,6 +31,18 @@ export function FormActions({
   className,
 }: FormActionsProps) {
   const disabled = primaryDisabled || isSubmitting;
+  const primaryAction = (
+    <ActionButton
+      tone="primary"
+      type={primaryType}
+      className={primaryTone === 'danger' ? 'danger' : undefined}
+      onClick={onPrimary}
+      disabled={disabled}
+    >
+      {isSubmitting ? '处理中...' : primaryLabel}
+    </ActionButton>
+  );
+
   return (
     <div className={['ui-form-actions', className].filter(Boolean).join(' ')}>
       {primaryDisabledReason && disabled ? <p className="ui-form-actions-reason">{primaryDisabledReason}</p> : null}
@@ -39,16 +53,9 @@ export function FormActions({
             {secondaryLabel}
           </ActionButton>
         ) : null}
+        {primaryPlacement === 'before-extra' ? primaryAction : null}
         {children}
-        <ActionButton
-          tone="primary"
-          type={primaryType}
-          className={primaryTone === 'danger' ? 'danger' : undefined}
-          onClick={onPrimary}
-          disabled={disabled}
-        >
-          {isSubmitting ? '处理中...' : primaryLabel}
-        </ActionButton>
+        {primaryPlacement === 'after-extra' ? primaryAction : null}
       </div>
     </div>
   );

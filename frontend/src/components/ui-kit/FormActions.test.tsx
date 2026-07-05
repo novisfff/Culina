@@ -73,4 +73,16 @@ describe('FormActions', () => {
     const buttons = Array.from(view.querySelectorAll<HTMLButtonElement>('button'));
     expect(buttons.map((button) => button.textContent)).toEqual(['上一步', '跳过此步', '下一步']);
   });
+
+  it('can render the primary action before extra actions', () => {
+    const view = renderActions(
+      <FormActions primaryLabel="保存" primaryPlacement="before-extra">
+        <button type="button">取消修改</button>
+        <button type="button">删除</button>
+      </FormActions>,
+    );
+
+    const buttons = Array.from(view.querySelectorAll<HTMLButtonElement>('button'));
+    expect(buttons.map((button) => button.textContent)).toEqual(['保存', '取消修改', '删除']);
+  });
 });

@@ -5401,6 +5401,14 @@
   margin-top: 2px;
 }
 
+.food-scene-form-actions .ui-form-actions-row {
+  justify-content: flex-end;
+}
+
+.food-scene-form-actions .ui-form-actions-spacer {
+  display: none;
+}
+
 .food-scene-form-actions .solid-button,
 .food-scene-form-actions .ghost-button {
   min-height: 42px;
@@ -6883,6 +6891,17 @@
   align-items: center;
 }
 
+.recipe-plan-detail-actions .ui-form-actions-row {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(118px, 1fr));
+  gap: 10px;
+}
+
+.recipe-plan-detail-actions .ui-form-actions-spacer {
+  display: none;
+}
+
 .recipe-plan-detail-actions .solid-button,
 .recipe-plan-detail-actions .ghost-button,
 .recipe-plan-detail-actions .tertiary-button {
@@ -6926,6 +6945,10 @@
   }
 
   .recipe-plan-detail-actions {
+    grid-template-columns: 1fr;
+  }
+
+  .recipe-plan-detail-actions .ui-form-actions-row {
     grid-template-columns: 1fr;
   }
 
