@@ -6,7 +6,7 @@ import { queryKeys } from '../../api/queryKeys';
 import type { SearchEntityType, SearchResultItem } from '../../api/types';
 import { DashboardIcon } from '../../app/shellIcons';
 import { MediaWithPlaceholder } from '../../components/MediaPlaceholder';
-import { SearchLoadingIndicator } from '../../components/ui-kit';
+import { SearchField } from '../../components/ui-kit';
 import { useDebouncedSearchValue, useSearchCompositionState } from '../../hooks/useDebouncedValue';
 import { resolveAssetUrl } from '../../lib/assets';
 import { buildGlobalSearchResultView, type GlobalSearchResultView } from './globalSearchModel';
@@ -127,27 +127,24 @@ export function GlobalSearchOverlay(props: Props) {
     <div className="global-search-root" role="dialog" aria-modal="true" aria-label="全局搜索" onKeyDown={handleKeyDown}>
       <button className="global-search-backdrop" type="button" aria-label="关闭全局搜索" onClick={props.onClose} />
       <section className={showContent ? 'global-search-panel has-content' : 'global-search-panel'} aria-label="全局搜索">
-        <div className="global-search-input-row">
-          <span className="global-search-input-icon" aria-hidden="true">
-            <DashboardIcon name="search" />
-          </span>
-          <input
-            ref={inputRef}
-            autoFocus
-            value={query}
-            placeholder="搜索食材、食物、菜谱、餐食计划"
-            aria-label="搜索食材、食物、菜谱、餐食计划"
-            onChange={(event) => setQuery(event.target.value)}
-            onCompositionStart={searchComposition.onCompositionStart}
-            onCompositionEnd={searchComposition.onCompositionEnd}
-          />
-          <SearchLoadingIndicator active={isLoading} className="global-search-loading" />
-          {trimmedQuery && (
-            <button className="global-search-clear" type="button" aria-label="清空搜索" onClick={() => setQuery('')}>
-              <DashboardIcon name="x" />
-            </button>
-          )}
-        </div>
+        <SearchField
+          className="global-search-input-row"
+          inputRef={inputRef}
+          autoFocus
+          ariaLabel="搜索食材、食物、菜谱、餐食计划"
+          placeholder="搜索食材、食物、菜谱、餐食计划"
+          value={query}
+          loading={isLoading}
+          leadingIcon={<DashboardIcon name="search" />}
+          leadingIconClassName="global-search-input-icon"
+          loadingClassName="global-search-loading"
+          clearClassName="global-search-clear"
+          clearIcon={<DashboardIcon name="x" />}
+          onChange={setQuery}
+          onClear={() => setQuery('')}
+          onCompositionStart={searchComposition.onCompositionStart}
+          onCompositionEnd={searchComposition.onCompositionEnd}
+        />
 
         {showContent && (
           <div className="global-search-content">
