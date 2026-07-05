@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type FormEventHandler, type ReactNode } from 'react';
 import type { Food, FoodPlanItem, MealLog, Member, UpdateMealLogPayload } from '../../api/types';
-import { Avatar, Badge, PageHeader, WorkspaceModal } from '../../components/ui-kit';
+import { Avatar, Badge, FormActions, PageHeader, WorkspaceModal } from '../../components/ui-kit';
 import { MediaWithPlaceholder } from '../../components/MediaPlaceholder';
 import { resolveAssetUrl } from '../../lib/assets';
 import { formatDateTime, MEAL_TYPE_LABELS } from '../../lib/ui';
@@ -343,11 +343,13 @@ export function MealLogWorkspace(props: Props) {
                   </aside>
                 </div>
 
-                <div className="meal-log-preview-modal-actions">
-                  <button className="solid-button" type="button" onClick={() => setModalMode('enrich')}>
-                    继续补充
-                  </button>
-                </div>
+                <FormActions
+                  className="meal-log-preview-modal-actions"
+                  primaryLabel="继续补充"
+                  onPrimary={() => setModalMode('enrich')}
+                  secondaryLabel="取消"
+                  onSecondary={() => setModalMode(null)}
+                />
               </div>
             ) : viewModel.selectedMeal && viewModel.selectedSource ? (
               <MealEnrichmentForm

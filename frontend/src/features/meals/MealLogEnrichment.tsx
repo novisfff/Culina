@@ -1,6 +1,6 @@
 import type { FormEvent } from 'react';
 import type { MealLog, MediaAsset, Member, UpdateMealLogPayload } from '../../api/types';
-import { Avatar } from '../../components/ui-kit';
+import { Avatar, FormActions } from '../../components/ui-kit';
 import { FoodRatingInput } from '../../components/foods/FoodWorkspacePrimitives';
 import { MediaWithPlaceholder } from '../../components/MediaPlaceholder';
 import { resolveAssetUrl } from '../../lib/assets';
@@ -227,14 +227,14 @@ export function MealEnrichmentForm(props: {
 
       <div className="meal-enrichment-footer">
         <span><i><MealEnrichmentIcon name="info" /></i>保存后，本次补充记录将会出现在记录时间线中</span>
-        <div>
-          <button className="ghost-button" type="button" onClick={props.onCancel}>
-            稍后再说
-          </button>
-          <button className="solid-button" type="submit" disabled={enrichmentState.isBusy}>
-            {props.isUpdating ? '保存中...' : enrichmentState.photoState.isGenerating ? '上传中...' : '保存记录'}
-          </button>
-        </div>
+        <FormActions
+          className="meal-enrichment-actions"
+          primaryLabel="保存记录"
+          primaryType="submit"
+          isSubmitting={enrichmentState.isBusy}
+          secondaryLabel="稍后再说"
+          onSecondary={props.onCancel}
+        />
       </div>
       {enrichmentState.activePhoto && <MealPhotoLightbox photo={enrichmentState.activePhoto} title={title} onClose={() => enrichmentState.setActivePhoto(null)} />}
     </form>

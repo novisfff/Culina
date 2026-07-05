@@ -818,6 +818,14 @@
   border-top: 1px dashed rgba(210, 107, 51, 0.2);
 }
 
+.meal-log-preview-modal-actions .ui-form-actions-row {
+  justify-content: flex-end;
+}
+
+.meal-log-preview-modal-actions .ui-form-actions-spacer {
+  display: none;
+}
+
 .meal-log-preview-modal-actions button {
   min-width: 148px;
   min-height: 50px;
@@ -1501,6 +1509,18 @@
   gap: 14px;
 }
 
+.meal-enrichment-actions {
+  margin-top: 0;
+}
+
+.meal-enrichment-actions .ui-form-actions-row {
+  justify-content: flex-end;
+}
+
+.meal-enrichment-actions .ui-form-actions-spacer {
+  display: none;
+}
+
 .meal-enrichment-footer button {
   min-width: 148px;
   min-height: 50px;
@@ -1555,6 +1575,10 @@
   }
 
   .meal-enrichment-footer > div {
+    justify-content: flex-end;
+  }
+
+  .meal-enrichment-actions .ui-form-actions-row {
     justify-content: flex-end;
   }
 
@@ -1772,6 +1796,13 @@
   }
 
   .meal-enrichment-footer > div {
+    display: grid;
+    grid-template-columns: 0.9fr 1.1fr;
+    width: 100%;
+    gap: 10px;
+  }
+
+  .meal-enrichment-actions .ui-form-actions-row {
     display: grid;
     grid-template-columns: 0.9fr 1.1fr;
     width: 100%;

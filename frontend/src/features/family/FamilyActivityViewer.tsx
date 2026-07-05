@@ -4,7 +4,7 @@ import { api } from '../../api/client';
 import { queryKeys } from '../../api/queryKeys';
 import type { ActivityLog, Member } from '../../api/types';
 import { DashboardIcon } from '../../app/shellIcons';
-import { ActionButton, DropdownSelect, EmptyState, WorkspaceModal } from '../../components/ui-kit';
+import { DropdownSelect, EmptyState, FormActions, WorkspaceModal } from '../../components/ui-kit';
 import { formatDateTime } from '../../lib/ui';
 import {
   DEFAULT_FAMILY_ACTIVITY_FILTERS,
@@ -217,11 +217,12 @@ export function FamilyActivityModal(props: FamilyActivityViewerProps & { onClose
         />
         <FamilyActivityTimeline logs={viewer.logs} isFetching={viewer.isFetching} hasFilters={viewer.hasFilters} />
         {canLoadMore && (
-          <div className="family-activity-viewer-actions">
-            <ActionButton tone="secondary" type="button" onClick={() => viewer.setLimit((current) => current + FAMILY_ACTIVITY_PAGE_SIZE)}>
-              加载更多
-            </ActionButton>
-          </div>
+          <FormActions
+            className="family-activity-viewer-actions"
+            primaryLabel="加载更多"
+            primaryDisabled={!canLoadMore}
+            onPrimary={() => viewer.setLimit((current) => current + FAMILY_ACTIVITY_PAGE_SIZE)}
+          />
         )}
       </WorkspaceModal>
     </div>
@@ -260,11 +261,12 @@ export function FamilyActivityMobilePage(props: FamilyActivityViewerProps & { on
       />
       <FamilyActivityTimeline logs={viewer.logs} isFetching={viewer.isFetching} hasFilters={viewer.hasFilters} />
       {canLoadMore && (
-        <div className="family-activity-viewer-actions">
-          <ActionButton tone="secondary" type="button" onClick={() => viewer.setLimit((current) => current + FAMILY_ACTIVITY_PAGE_SIZE)}>
-            加载更多
-          </ActionButton>
-        </div>
+        <FormActions
+          className="family-activity-viewer-actions"
+          primaryLabel="加载更多"
+          primaryDisabled={!canLoadMore}
+          onPrimary={() => viewer.setLimit((current) => current + FAMILY_ACTIVITY_PAGE_SIZE)}
+        />
       )}
     </main>
   );

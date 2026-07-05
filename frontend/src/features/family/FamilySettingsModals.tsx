@@ -1,7 +1,7 @@
 import type { FormEventHandler } from 'react';
 import type { FamilyDetail, ImageInputValue, Member, UserSummary } from '../../api/types';
 import { MediaWithPlaceholder } from '../../components/MediaPlaceholder';
-import { ActionButton, Avatar, WorkspaceModal } from '../../components/ui-kit';
+import { ActionButton, Avatar, FormActions, WorkspaceModal } from '../../components/ui-kit';
 import { ShellIcon } from '../../app/shellIcons';
 
 export type InviteFormState = {
@@ -114,14 +114,14 @@ export function InviteMemberModal(props: {
               onChange={(event) => props.onChange({ ...props.form, email: event.target.value })}
             />
           </label>
-          <div className="span-two workspace-overlay-actions">
-            <ActionButton tone="secondary" type="button" onClick={props.onClose} disabled={props.isSubmitting}>
-              取消
-            </ActionButton>
-            <ActionButton tone="primary" type="submit" disabled={props.isSubmitting}>
-              {props.isSubmitting ? '创建中...' : '创建成员账号'}
-            </ActionButton>
-          </div>
+          <FormActions
+            className="span-two family-settings-form-actions"
+            primaryLabel="创建成员账号"
+            primaryType="submit"
+            isSubmitting={props.isSubmitting}
+            secondaryLabel="取消"
+            onSecondary={props.onClose}
+          />
         </form>
       </WorkspaceModal>
     </div>
@@ -187,14 +187,14 @@ export function MemberEditModal(props: {
               </label>
             </div>
           </section>
-          <div className="workspace-overlay-actions member-edit-actions">
-            <ActionButton tone="secondary" type="button" onClick={props.onClose} disabled={props.isSubmitting}>
-              取消
-            </ActionButton>
-            <ActionButton tone="primary" type="submit" disabled={props.isSubmitting}>
-              {props.isSubmitting ? '保存中...' : '保存信息'}
-            </ActionButton>
-          </div>
+          <FormActions
+            className="member-edit-actions"
+            primaryLabel="保存信息"
+            primaryType="submit"
+            isSubmitting={props.isSubmitting}
+            secondaryLabel="取消"
+            onSecondary={props.onClose}
+          />
         </form>
       </WorkspaceModal>
     </div>
@@ -245,14 +245,14 @@ export function PasswordChangeModal(props: {
               onChange={(event) => props.onChange({ ...props.form, confirmPassword: event.target.value })}
             />
           </label>
-          <div className="span-two workspace-overlay-actions">
-            <ActionButton tone="secondary" type="button" onClick={props.onClose} disabled={props.isSubmitting}>
-              取消
-            </ActionButton>
-            <ActionButton tone="primary" type="submit" disabled={props.isSubmitting}>
-              {props.isSubmitting ? '修改中...' : '修改密码'}
-            </ActionButton>
-          </div>
+          <FormActions
+            className="span-two family-settings-form-actions"
+            primaryLabel="修改密码"
+            primaryType="submit"
+            isSubmitting={props.isSubmitting}
+            secondaryLabel="取消"
+            onSecondary={props.onClose}
+          />
         </form>
       </WorkspaceModal>
     </div>
@@ -396,35 +396,30 @@ export function ProfileEditModal(props: {
                       onChange={(event) => props.onChange({ ...props.form, avatarPrompt: event.target.value })}
                     />
                   </label>
-                  <div className="profile-avatar-prompt-actions">
-                    <ActionButton tone="secondary" type="button" onClick={props.imageControls.onPromptClose} disabled={props.imageControls.isGenerating}>
-                      取消
-                    </ActionButton>
-                    <ActionButton
-                      tone="primary"
-                      type="button"
-                      disabled={props.imageControls.isGenerating}
-                      onClick={async () => {
-                        await props.imageControls.onGenerateText();
-                        props.imageControls.onPromptClose();
-                      }}
-                    >
-                      {props.imageControls.isGenerating ? '后台生成中' : '生成头像'}
-                    </ActionButton>
-                  </div>
+                  <FormActions
+                    className="profile-avatar-prompt-actions"
+                    primaryLabel="生成头像"
+                    primaryDisabled={!props.form.avatarPrompt.trim()}
+                    isSubmitting={props.imageControls.isGenerating}
+                    secondaryLabel="取消"
+                    onPrimary={() => {
+                      void Promise.resolve(props.imageControls.onGenerateText()).then(props.imageControls.onPromptClose);
+                    }}
+                    onSecondary={props.imageControls.onPromptClose}
+                  />
                 </div>
               )}
             </div>
             {props.imageControls.errorMessage && <span className="image-composer-error">{props.imageControls.errorMessage}</span>}
           </section>
-          <div className="workspace-overlay-actions profile-edit-actions">
-            <ActionButton tone="secondary" type="button" onClick={props.onClose} disabled={isBusy}>
-              取消
-            </ActionButton>
-            <ActionButton tone="primary" type="submit" disabled={isBusy}>
-              {props.isSubmitting ? '保存中...' : '保存资料'}
-            </ActionButton>
-          </div>
+          <FormActions
+            className="profile-edit-actions"
+            primaryLabel="保存资料"
+            primaryType="submit"
+            isSubmitting={isBusy}
+            secondaryLabel="取消"
+            onSecondary={props.onClose}
+          />
         </form>
       </WorkspaceModal>
     </div>
@@ -548,22 +543,17 @@ export function FamilyEditModal(props: {
                       onChange={(event) => props.onChange({ ...props.form, imagePrompt: event.target.value })}
                     />
                   </label>
-                  <div className="family-image-prompt-actions">
-                    <ActionButton tone="secondary" type="button" onClick={props.imageControls.onPromptClose} disabled={props.imageControls.isGenerating}>
-                      取消
-                    </ActionButton>
-                    <ActionButton
-                      tone="primary"
-                      type="button"
-                      disabled={props.imageControls.isGenerating}
-                      onClick={async () => {
-                        await props.imageControls.onGenerateText();
-                        props.imageControls.onPromptClose();
-                      }}
-                    >
-                      {props.imageControls.isGenerating ? '后台生成中' : '生成家庭图'}
-                    </ActionButton>
-                  </div>
+                  <FormActions
+                    className="family-image-prompt-actions"
+                    primaryLabel="生成家庭图"
+                    primaryDisabled={!props.form.imagePrompt.trim()}
+                    isSubmitting={props.imageControls.isGenerating}
+                    secondaryLabel="取消"
+                    onPrimary={() => {
+                      void Promise.resolve(props.imageControls.onGenerateText()).then(props.imageControls.onPromptClose);
+                    }}
+                    onSecondary={props.imageControls.onPromptClose}
+                  />
                 </div>
               )}
               {showBottomPreview && (
@@ -594,14 +584,14 @@ export function FamilyEditModal(props: {
             </div>
             {props.imageControls.errorMessage && <span className="image-composer-error">{props.imageControls.errorMessage}</span>}
           </section>
-          <div className="workspace-overlay-actions family-edit-actions">
-            <ActionButton tone="secondary" type="button" onClick={props.onClose} disabled={isBusy}>
-              取消
-            </ActionButton>
-            <ActionButton tone="primary" type="submit" disabled={isBusy}>
-              {props.isSubmitting ? '保存中...' : '保存家庭信息'}
-            </ActionButton>
-          </div>
+          <FormActions
+            className="family-edit-actions"
+            primaryLabel="保存家庭信息"
+            primaryType="submit"
+            isSubmitting={isBusy}
+            secondaryLabel="取消"
+            onSecondary={props.onClose}
+          />
         </form>
       </WorkspaceModal>
     </div>

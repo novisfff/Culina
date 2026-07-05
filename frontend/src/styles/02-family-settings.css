@@ -1125,6 +1125,14 @@
   padding-top: 4px;
 }
 
+.family-activity-viewer-actions .ui-form-actions-row {
+  justify-content: center;
+}
+
+.family-activity-viewer-actions .ui-form-actions-spacer {
+  display: none;
+}
+
 .family-invite-option,
 .family-permission-note {
   display: grid;
@@ -1932,6 +1940,24 @@
   justify-content: flex-end;
   gap: 10px;
   min-width: 0;
+}
+
+.profile-avatar-prompt-actions .ui-form-actions-row,
+.family-image-prompt-actions .ui-form-actions-row,
+.profile-edit-actions .ui-form-actions-row,
+.member-edit-actions .ui-form-actions-row,
+.family-edit-actions .ui-form-actions-row,
+.family-settings-form-actions .ui-form-actions-row {
+  justify-content: flex-end;
+}
+
+.profile-avatar-prompt-actions .ui-form-actions-spacer,
+.family-image-prompt-actions .ui-form-actions-spacer,
+.profile-edit-actions .ui-form-actions-spacer,
+.member-edit-actions .ui-form-actions-spacer,
+.family-edit-actions .ui-form-actions-spacer,
+.family-settings-form-actions .ui-form-actions-spacer {
+  display: none;
 }
 
 .profile-avatar-prompt-actions .ghost-button,
