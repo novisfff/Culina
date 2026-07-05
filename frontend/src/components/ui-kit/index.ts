@@ -4,3 +4,4 @@ export * from './ConfirmDialog';
 export * from './FormField';
 export * from './SearchField';
 export * from './QuantityUnitField';
+export * from './ComboboxField';
