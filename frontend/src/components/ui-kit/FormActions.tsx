@@ -3,6 +3,7 @@ import { ActionButton } from '../ui-kit';
 
 export type FormActionsProps = {
   primaryLabel: ReactNode;
+  children?: ReactNode;
   onPrimary?: () => void;
   primaryType?: 'button' | 'submit';
   primaryTone?: 'primary' | 'danger';
@@ -16,6 +17,7 @@ export type FormActionsProps = {
 
 export function FormActions({
   primaryLabel,
+  children,
   onPrimary,
   primaryType = 'button',
   primaryTone = 'primary',
@@ -37,6 +39,7 @@ export function FormActions({
             {secondaryLabel}
           </ActionButton>
         ) : null}
+        {children}
         <ActionButton
           tone="primary"
           type={primaryType}

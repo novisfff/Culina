@@ -1,7 +1,7 @@
 import { useState, type FormEvent, type ReactNode } from 'react';
 import type { CookRecipePreviewItem, CookRecipePreviewResponse, CookRecipeShortage, MealType } from '../../api/types';
 import { formatDate } from '../../lib/ui';
-import { ActionButton, WorkspaceModal } from '../ui-kit';
+import { ActionButton, FormActions, WorkspaceModal } from '../ui-kit';
 import { MEAL_TYPE_OPTIONS } from './RecipeWorkspaceOptions';
 import {
   formatCookPreviewRequestLabel,
@@ -111,8 +111,6 @@ export function RecipeCookFinishDialog(props: RecipeCookFinishDialogProps) {
   const shortages = props.cookPreview?.shortages ?? [];
   const hasInventoryAttention = shortages.length > 0 || Boolean(props.cookPreviewError);
   const hasFeedback = Boolean(props.session.rating || props.session.adjustments.trim() || props.session.resultNote.trim());
-  const submitLabel = props.isCooking ? '处理中...' : '确认完成';
-
   function markCompleted(stepId: CookFinishStepId) {
     setCompletedStepIds((current) => addUniqueStep(current, stepId));
     setSkippedStepIds((current) => removeStep(current, stepId));
@@ -321,7 +319,14 @@ export function RecipeCookFinishDialog(props: RecipeCookFinishDialogProps) {
             {renderActiveStep()}
           </div>
 
-          <div className="workspace-overlay-actions recipe-cook-finish-actions">
+          <FormActions
+            className="recipe-cook-finish-actions"
+            primaryLabel={isSummaryStep ? '确认完成' : '下一步'}
+            primaryType={isSummaryStep ? 'submit' : 'button'}
+            primaryDisabled={isSummaryStep ? props.submitDisabled : false}
+            isSubmitting={Boolean(isSummaryStep && props.isCooking)}
+            onPrimary={isSummaryStep ? undefined : goNext}
+          >
             <ActionButton tone="tertiary" type="button" onClick={props.onClose}>稍后处理</ActionButton>
             <ActionButton tone="secondary" type="button" onClick={() => setActiveStepId(COOK_FINISH_STEPS[Math.max(activeStepIndex - 1, 0)].id)} disabled={activeStepIndex <= 0}>
               上一步
@@ -331,10 +336,7 @@ export function RecipeCookFinishDialog(props: RecipeCookFinishDialogProps) {
                 跳过此步
               </ActionButton>
             ) : null}
-            <ActionButton tone="primary" type={isSummaryStep ? 'submit' : 'button'} disabled={isSummaryStep ? props.submitDisabled : false} onClick={isSummaryStep ? undefined : goNext}>
-              {isSummaryStep ? submitLabel : '下一步'}
-            </ActionButton>
-          </div>
+          </FormActions>
         </form>
       </WorkspaceModal>
     </div>

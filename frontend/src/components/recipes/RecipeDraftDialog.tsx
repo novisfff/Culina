@@ -1,4 +1,4 @@
-import { ActionButton, WorkspaceModal } from '../ui-kit';
+import { FormActions, WorkspaceModal } from '../ui-kit';
 import { RecipeUiIcon } from './RecipeWorkspaceCards';
 import {
   getRecipeDraftGenerationStepState,
@@ -82,19 +82,15 @@ export function RecipeDraftDialog(props: RecipeDraftDialogProps) {
 
           {props.error ? <p className="form-error">{props.error}</p> : null}
 
-          <div className="recipe-ai-draft-modal-actions">
-            <ActionButton tone="secondary" type="button" onClick={props.onClose} disabled={props.isBusy}>
-              取消
-            </ActionButton>
-            <ActionButton
-              tone="primary"
-              type="button"
-              onClick={props.onGenerate}
-              disabled={props.isBusy || props.isImageGenerating || props.stage === 'done'}
-            >
-              {props.actionLabel}
-            </ActionButton>
-          </div>
+          <FormActions
+            className="recipe-ai-draft-modal-actions"
+            primaryLabel={props.actionLabel}
+            primaryDisabled={props.isBusy || props.isImageGenerating || props.stage === 'done'}
+            isSubmitting={props.isBusy}
+            secondaryLabel="取消"
+            onPrimary={props.onGenerate}
+            onSecondary={props.onClose}
+          />
         </div>
       </WorkspaceModal>
     </div>

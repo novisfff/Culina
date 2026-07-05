@@ -2333,6 +2333,17 @@
   grid-template-columns: 1fr 1fr;
 }
 
+.recipe-ai-draft-modal-actions .ui-form-actions-row {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.recipe-ai-draft-modal-actions .ui-form-actions-spacer {
+  display: none;
+}
+
 .recipe-ai-draft-modal-actions .solid-button:disabled,
 .recipe-ai-draft-modal-actions .ghost-button:disabled {
   cursor: wait;
@@ -5857,6 +5868,15 @@
   flex-wrap: wrap;
 }
 
+.recipe-cook-finish-actions .ui-form-actions-row {
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+
+.recipe-cook-finish-actions .ui-form-actions-spacer {
+  display: none;
+}
+
 .recipe-discovery-page {
   display: grid;
   gap: 18px;
@@ -8278,6 +8298,11 @@
   }
 
   .recipe-cook-finish-actions {
+    display: grid;
+    gap: 8px;
+  }
+
+  .recipe-cook-finish-actions .ui-form-actions-row {
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 8px;

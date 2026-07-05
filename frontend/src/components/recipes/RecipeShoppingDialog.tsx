@@ -1,6 +1,6 @@
 import type { Ingredient, RecipeIngredient } from '../../api/types';
 import { MediaWithPlaceholder } from '../MediaPlaceholder';
-import { ActionButton, Badge, EmptyState, QuantityUnitField, WorkspaceModal } from '../ui-kit';
+import { Badge, EmptyState, FormActions, QuantityUnitField, WorkspaceModal } from '../ui-kit';
 import {
   buildRecipeIngredientAvailabilityMap,
   buildShoppingDraftSourceLabel,
@@ -247,14 +247,15 @@ export function RecipeShoppingDialog(props: RecipeShoppingDialogProps) {
               <span><RecipeUiIcon name="clipboard" /></span>
               <p>已选择 <strong>{buildShoppingPayloadsFromDrafts(props.drafts).length} 项</strong>，将加入采购清单</p>
             </div>
-            <div className="workspace-overlay-actions">
-              <ActionButton tone="secondary" type="button" onClick={props.onClose}>
-                取消
-              </ActionButton>
-              <ActionButton tone="primary" type="button" onClick={props.onSubmit} disabled={props.isCreatingShopping || props.drafts.length === 0}>
-                {props.isCreatingShopping ? '加入中...' : '确认加入清单'}
-              </ActionButton>
-            </div>
+            <FormActions
+              className="recipe-shopping-actions"
+              primaryLabel="确认加入清单"
+              primaryDisabled={props.drafts.length === 0}
+              isSubmitting={Boolean(props.isCreatingShopping)}
+              secondaryLabel="取消"
+              onPrimary={props.onSubmit}
+              onSecondary={props.onClose}
+            />
           </div>
         </div>
       </WorkspaceModal>

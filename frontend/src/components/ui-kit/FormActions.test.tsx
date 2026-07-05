@@ -61,4 +61,16 @@ describe('FormActions', () => {
     act(() => view.querySelector<HTMLButtonElement>('button')?.click());
     expect(onPrimary).toHaveBeenCalled();
   });
+
+  it('renders extra actions before the primary action', () => {
+    const view = renderActions(
+      <FormActions primaryLabel="下一步">
+        <button type="button">上一步</button>
+        <button type="button">跳过此步</button>
+      </FormActions>,
+    );
+
+    const buttons = Array.from(view.querySelectorAll<HTMLButtonElement>('button'));
+    expect(buttons.map((button) => button.textContent)).toEqual(['上一步', '跳过此步', '下一步']);
+  });
 });

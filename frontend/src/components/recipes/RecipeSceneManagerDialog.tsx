@@ -2,7 +2,7 @@ import type { FormEvent } from 'react';
 import { resolveAssetUrl } from '../../lib/assets';
 import type { ImageGenerationUiState } from '../../hooks/useImageComposer';
 import { MediaWithPlaceholder } from '../MediaPlaceholder';
-import { ActionButton, WorkspaceModal } from '../ui-kit';
+import { ActionButton, FormActions, WorkspaceModal } from '../ui-kit';
 import { RecipeUiIcon } from './RecipeWorkspaceCards';
 import type { ManagedRecipeScene, RecipeSceneCard, RecipeSceneFormMode } from './RecipeWorkspaceModel';
 
@@ -79,10 +79,18 @@ export function RecipeSceneManagerDialog(props: RecipeSceneManagerDialogProps) {
                     onChange={(event) => props.onChangeDraft({ ...props.sceneDraft, imagePrompt: event.target.value })}
                   />
                 </label>
-                <ActionButton tone="primary" type="submit">
-                  <span aria-hidden="true">+</span>
-                  {props.sceneFormMode === 'edit' ? '保存场景' : '添加场景'}
-                </ActionButton>
+                <FormActions
+                  className="recipe-scene-form-actions"
+                  primaryLabel={(
+                    <>
+                      <span aria-hidden="true">+</span>
+                      {props.sceneFormMode === 'edit' ? '保存场景' : '添加场景'}
+                    </>
+                  )}
+                  primaryType="submit"
+                  primaryDisabled={Boolean(props.isUpdatingScene)}
+                  isSubmitting={Boolean(props.isUpdatingScene)}
+                />
               </div>
               <div className="recipe-scene-image-panel">
                 <button

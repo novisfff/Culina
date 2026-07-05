@@ -554,6 +554,26 @@
   border-radius: 16px;
 }
 
+.recipe-plan-dialog-actions {
+  margin-top: 4px;
+  padding-top: 4px;
+}
+
+.recipe-plan-dialog-actions .ui-form-actions-row {
+  justify-content: flex-end;
+}
+
+.recipe-plan-dialog-actions .ui-form-actions-spacer {
+  display: none;
+}
+
+.recipe-plan-dialog-actions .solid-button,
+.recipe-plan-dialog-actions .ghost-button {
+  min-height: 50px;
+  min-width: 116px;
+  border-radius: 16px;
+}
+
 @media (max-width: 767px) {
   .recipe-discovery-card-body {
     grid-template-rows: 48px 60px 24px 36px;
@@ -691,6 +711,19 @@
 
   .recipe-plan-dialog-form .workspace-overlay-actions .solid-button,
   .recipe-plan-dialog-form .workspace-overlay-actions .ghost-button {
+    width: 100%;
+    min-height: 50px;
+    border-radius: 16px;
+  }
+
+  .recipe-plan-dialog-actions .ui-form-actions-row {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+  }
+
+  .recipe-plan-dialog-actions .solid-button,
+  .recipe-plan-dialog-actions .ghost-button {
     width: 100%;
     min-height: 50px;
     border-radius: 16px;
@@ -4813,6 +4846,18 @@
   line-height: 1;
 }
 
+.recipe-scene-form-actions {
+  margin-top: 0;
+}
+
+.recipe-scene-form-actions .ui-form-actions-row {
+  display: grid;
+}
+
+.recipe-scene-form-actions .ui-form-actions-spacer {
+  display: none;
+}
+
 .recipe-scene-generate-button {
   display: inline-flex;
   min-height: 42px;
@@ -6036,6 +6081,31 @@
   box-shadow: var(--brand-button-shadow);
 }
 
+.recipe-shopping-actions {
+  margin: 0;
+}
+
+.recipe-shopping-actions .ui-form-actions-row {
+  justify-content: flex-end;
+}
+
+.recipe-shopping-actions .ui-form-actions-spacer {
+  display: none;
+}
+
+.recipe-shopping-actions .ghost-button,
+.recipe-shopping-actions .solid-button {
+  min-width: 124px;
+  min-height: 52px;
+  border-radius: 14px;
+}
+
+.recipe-shopping-actions .solid-button {
+  min-width: 168px;
+  background: var(--brand-button-bg);
+  box-shadow: var(--brand-button-shadow);
+}
+
 @media (max-width: 767px) {
   .recipe-shopping-modal.workspace-modal {
     width: calc(100vw - 16px);
@@ -6286,6 +6356,18 @@
 
   .recipe-shopping-footer-bar .ghost-button,
   .recipe-shopping-footer-bar .solid-button {
+    width: 100%;
+    min-height: 48px;
+  }
+
+  .recipe-shopping-actions .ui-form-actions-row {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+
+  .recipe-shopping-actions .ghost-button,
+  .recipe-shopping-actions .solid-button {
     width: 100%;
     min-height: 48px;
   }

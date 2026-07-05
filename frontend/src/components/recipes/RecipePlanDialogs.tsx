@@ -1,7 +1,7 @@
 import type { FormEvent } from 'react';
 import type { MealType, RecipePlanItem } from '../../api/types';
 import { formatDate, MEAL_TYPE_LABELS } from '../../lib/ui';
-import { ActionButton, Badge, WorkspaceModal } from '../ui-kit';
+import { ActionButton, Badge, FormActions, WorkspaceModal } from '../ui-kit';
 import { DIFFICULTY_LABELS, type RecipeCardViewModel } from './workspaceModel';
 import { MEAL_TYPE_OPTIONS } from './RecipeWorkspaceOptions';
 import { RecipeCover, RecipeUiIcon } from './RecipeWorkspaceCards';
@@ -153,14 +153,15 @@ export function RecipePlanDialog(props: RecipePlanDialogProps) {
               onChange={(event) => props.onChangeForm({ ...props.form, note: event.target.value })}
             />
           </label>
-          <div className="workspace-overlay-actions">
-            <ActionButton tone="primary" type="submit" disabled={props.isUpdatingPlan || !props.hasRecipes || !props.form.recipeId}>
-              加入菜单
-            </ActionButton>
-            <ActionButton tone="secondary" type="button" onClick={props.onClose}>
-              取消
-            </ActionButton>
-          </div>
+          <FormActions
+            className="recipe-plan-dialog-actions"
+            primaryLabel="加入菜单"
+            primaryType="submit"
+            primaryDisabled={Boolean(props.isUpdatingPlan || !props.hasRecipes || !props.form.recipeId)}
+            isSubmitting={Boolean(props.isUpdatingPlan)}
+            secondaryLabel="取消"
+            onSecondary={props.onClose}
+          />
         </form>
       </WorkspaceModal>
     </div>
