@@ -5,3 +5,4 @@ export * from './FormField';
 export * from './SearchField';
 export * from './QuantityUnitField';
 export * from './ComboboxField';
+export * from './ResourcePickerField';
