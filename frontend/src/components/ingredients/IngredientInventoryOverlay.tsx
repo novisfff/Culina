@@ -11,9 +11,9 @@ import {
   ComboboxField,
   DropdownSelect,
   FormActions,
+  QuantityUnitField,
   ResourcePickerField,
   TouchRangeField,
-  TouchStepperField,
   WorkspaceModal,
 } from '../ui-kit';
 import type { PendingShoppingCompletion } from './IngredientWorkspaceOverlayTypes';
@@ -70,6 +70,15 @@ export function IngredientInventoryOverlay(props: IngredientInventoryOverlayProp
     });
     return matched.slice(0, 8);
   }, [props.ingredients, props.inventoryForm.ingredientQuery]);
+  const inventoryQuantityUnitOptions = useMemo(() => {
+    const currentUnit = props.inventoryForm.unit || props.selectedInventoryIngredient?.default_unit || '个';
+    const units = props.selectedInventoryIngredient
+      ? [currentUnit, ...props.inventoryUnitOptions.map((option) => option.unit)]
+      : [currentUnit];
+    return units
+      .filter((unit, index, list) => unit && list.indexOf(unit) === index)
+      .map((unit) => ({ value: unit, label: unit }));
+  }, [props.inventoryForm.unit, props.inventoryUnitOptions, props.selectedInventoryIngredient]);
 
   return (
     <WorkspaceModal
@@ -187,25 +196,25 @@ export function IngredientInventoryOverlay(props: IngredientInventoryOverlayProp
             </section>
           )}
 
-          {tracksQuantity ? (
           <section className="ingredients-restock-field-group ingredients-restock-quantity-section">
             <div className="ingredients-restock-quantity-row">
-              <TouchStepperField
-                label="数量"
-                value={props.inventoryQuantityValue}
-                min={props.inventoryQuantityStep}
-                step={props.inventoryQuantityStep}
-                quickValues={props.inventoryQuantityQuickValues}
-                allowCustomInput
-                customInputMode="inline"
-                customInputLabel="直接输入"
-                inputMin={props.inventoryQuantityStep}
-                inputStep={props.inventoryQuantityStep}
-                formatValue={(value) => formatNumericString(value)}
-                onChange={(value) =>
+              <QuantityUnitField
+                className="ingredients-restock-quantity-field"
+                quantity={props.inventoryForm.quantity}
+                unit={props.inventoryForm.unit || props.selectedInventoryIngredient?.default_unit || '个'}
+                unitOptions={inventoryQuantityUnitOptions}
+                quantityDisabled={!tracksQuantity}
+                quantityDisabledReason={!tracksQuantity ? '这个食材只记录是否有库存，不填写具体数量。' : undefined}
+                onQuantityChange={(quantity) =>
                   props.setInventoryForm({
                     ...props.inventoryForm,
-                    quantity: formatNumericString(value),
+                    quantity,
+                  })
+                }
+                onUnitChange={(unit) =>
+                  props.setInventoryForm({
+                    ...props.inventoryForm,
+                    unit,
                   })
                 }
               />
@@ -223,42 +232,9 @@ export function IngredientInventoryOverlay(props: IngredientInventoryOverlayProp
                         : '切换单位后会自动折算到主单位'
                     : '先选食材，再切换这次录入单位。'}
                 </p>
-                <div className="ingredients-restock-unit-chip-row">
-                  {(props.selectedInventoryIngredient
-                    ? props.inventoryUnitOptions
-                    : [{ unit: props.inventoryForm.unit || '个', ratio_to_default: 1 }]
-                  ).map((option) => (
-                    <button
-                      key={`inventory-unit-${option.unit}`}
-                      type="button"
-                      className={
-                        props.inventoryForm.unit === option.unit
-                          ? 'ingredients-choice-chip ingredients-unit-chip active'
-                          : 'ingredients-choice-chip ingredients-unit-chip'
-                      }
-                      onClick={() =>
-                        props.setInventoryForm({
-                          ...props.inventoryForm,
-                          unit: option.unit,
-                        })
-                      }
-                      disabled={!props.selectedInventoryIngredient}
-                    >
-                      {option.unit}
-                    </button>
-                  ))}
-                </div>
               </section>
             </div>
           </section>
-          ) : (
-            <section className="ingredients-restock-field-group ingredients-restock-quantity-section">
-              <div className="ingredients-create-rule-note ingredients-create-lowstock-note">
-                <span>只记录有无</span>
-                <p>这类食材只确认家里已经补上，不需要填写数量，做菜完成时也不会自动扣减。</p>
-              </div>
-            </section>
-          )}
 
           <section className="ingredients-restock-field-group">
             <div className="ingredients-restock-field-head">

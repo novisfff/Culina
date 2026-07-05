@@ -1,11 +1,11 @@
 import { useMemo, type FormEvent } from 'react';
 import type { Ingredient, IngredientUnitConversion } from '../../api/types';
 import { MediaWithPlaceholder } from '../MediaPlaceholder';
-import { Badge, ComboboxField, FormActions, OptionChipGroup, ResourcePickerField, TouchStepperField, WorkspaceModal } from '../ui-kit';
+import { Badge, FormActions, QuantityUnitField, ResourcePickerField, WorkspaceModal } from '../ui-kit';
 import { resolvePreferredIngredientUnit } from '../../lib/ingredientUnits';
 import { tracksIngredientQuantity } from '../../lib/ingredientTracking';
 import { resolveMediaUrl } from '../../lib/assets';
-import { buildUnitPresetOptions, formatNumericString, type ShoppingDialogFormState } from './ingredientWorkspaceForms';
+import { buildUnitPresetOptions, type ShoppingDialogFormState } from './ingredientWorkspaceForms';
 
 type IngredientShoppingOverlayProps = {
   closeOverlay: () => void;
@@ -26,7 +26,6 @@ type IngredientShoppingOverlayProps = {
 export function IngredientShoppingOverlay(props: IngredientShoppingOverlayProps) {
   const shoppingUnitOptions = buildUnitPresetOptions(props.shoppingForm.unit || '个');
   const tracksQuantity = tracksIngredientQuantity(props.selectedShoppingIngredient);
-  const unitOptions = useMemo(() => shoppingUnitOptions.map((unit) => ({ value: unit, label: unit })), [shoppingUnitOptions]);
   const visibleIngredientOptions = useMemo(() => {
     const query = props.shoppingForm.title.trim().toLowerCase();
     if (!query) return props.ingredients.slice(0, 10);
@@ -34,6 +33,15 @@ export function IngredientShoppingOverlay(props: IngredientShoppingOverlayProps)
       .filter((item) => item.name.toLowerCase().includes(query) || String(item.category || '').toLowerCase().includes(query))
       .slice(0, 10);
   }, [props.ingredients, props.shoppingForm.title]);
+  const shoppingQuantityUnitOptions = useMemo(() => {
+    const currentUnit = props.shoppingForm.unit || props.selectedShoppingIngredient?.default_unit || '份';
+    const units = props.selectedShoppingIngredient
+      ? [currentUnit, ...props.shoppingIngredientUnitOptions.map((option) => option.unit)]
+      : [currentUnit, ...shoppingUnitOptions];
+    return units
+      .filter((unit, index, list) => unit && list.indexOf(unit) === index)
+      .map((unit) => ({ value: unit, label: unit }));
+  }, [props.selectedShoppingIngredient, props.shoppingForm.unit, props.shoppingIngredientUnitOptions, shoppingUnitOptions]);
 
   return (
     <WorkspaceModal
@@ -114,26 +122,25 @@ export function IngredientShoppingOverlay(props: IngredientShoppingOverlayProps)
             </div>
           )}
 
-          {tracksQuantity ? (
           <section className="ingredients-restock-field-group ingredients-restock-quantity-section">
             <div className="ingredients-restock-quantity-row">
-              <TouchStepperField
-                label="数量"
-                value={props.shoppingQuantityValue}
-                min={props.shoppingQuantityStep}
-                step={props.shoppingQuantityStep}
-                quickValues={props.shoppingQuantityQuickValues}
-                allowCustomInput
-                customInputMode="inline"
-                customInputLabel="直接输入"
-                inputMin={props.shoppingQuantityStep}
-                inputStep={props.shoppingQuantityStep}
-                formatValue={(value) => formatNumericString(value)}
-                helper="常见数量点一下就能完成。"
-                onChange={(value) =>
+              <QuantityUnitField
+                className="ingredients-shopping-quantity-field"
+                quantity={props.shoppingForm.quantity}
+                unit={props.shoppingForm.unit || props.selectedShoppingIngredient?.default_unit || '份'}
+                unitOptions={shoppingQuantityUnitOptions}
+                quantityDisabled={!tracksQuantity}
+                quantityDisabledReason={!tracksQuantity ? '只提醒需要补充，不记录具体数量。' : undefined}
+                onQuantityChange={(quantity) =>
                   props.setShoppingForm({
                     ...props.shoppingForm,
-                    quantity: formatNumericString(value),
+                    quantity,
+                  })
+                }
+                onUnitChange={(unit) =>
+                  props.setShoppingForm({
+                    ...props.shoppingForm,
+                    unit,
                   })
                 }
               />
@@ -142,50 +149,12 @@ export function IngredientShoppingOverlay(props: IngredientShoppingOverlayProps)
                   <span>单位</span>
                   <strong>{props.shoppingForm.unit || props.selectedShoppingIngredient?.default_unit || '个'}</strong>
                 </div>
-                {props.selectedShoppingIngredient ? (
-                  <>
-                    <p className="subtle">默认先用主单位，常用副单位点一下就能切换。</p>
-                    <OptionChipGroup
-                      ariaLabel="采购单位"
-                      value={props.shoppingForm.unit}
-                      options={props.shoppingIngredientUnitOptions.map((option) => ({ value: option.unit, label: option.unit }))}
-                      className="ingredients-unit-chip-group"
-                      onChange={(unit) =>
-                        props.setShoppingForm({
-                          ...props.shoppingForm,
-                          unit,
-                        })
-                      }
-                    />
-                  </>
-                ) : (
-                  <>
-                    <p className="subtle">默认值不对时再改。</p>
-                    <div className="ingredients-restock-unit-editor-custom">
-                      <ComboboxField
-                        ariaLabel="采购单位"
-                        placeholder="选择或输入单位"
-                        value={props.shoppingForm.unit}
-                        options={unitOptions}
-                        allowCustom
-                        onChange={(unit) =>
-                          props.setShoppingForm({ ...props.shoppingForm, unit: String(unit) })
-                        }
-                      />
-                    </div>
-                  </>
-                )}
+                <p className="subtle">
+                  {props.selectedShoppingIngredient ? '默认先用主单位，常用副单位可以在上方切换。' : '默认值不对时再改。'}
+                </p>
               </section>
             </div>
           </section>
-          ) : (
-            <section className="ingredients-restock-field-group ingredients-restock-quantity-section">
-              <div className="ingredients-create-rule-note ingredients-create-lowstock-note">
-                <span>需要补充</span>
-                <p>这类食材不要求精确采购数量，清单里会显示为需要补充。</p>
-              </div>
-            </section>
-          )}
 
           <section className="ingredients-restock-field-group">
             <div className="ingredients-restock-field-head">

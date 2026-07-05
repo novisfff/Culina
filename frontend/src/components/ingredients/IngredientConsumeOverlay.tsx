@@ -1,6 +1,7 @@
 import type { CSSProperties, FormEvent } from 'react';
 import { MediaWithPlaceholder } from '../MediaPlaceholder';
-import { ActionButton, Badge, FormActions, WorkspaceModal } from '../ui-kit';
+import { ActionButton, Badge, FormActions, QuantityUnitField, WorkspaceModal } from '../ui-kit';
+import { tracksIngredientQuantity } from '../../lib/ingredientTracking';
 import type { IngredientSummaryViewModel } from './workspaceModel';
 import type { ConsumeQuickPreset } from './consumeQuickHelpers';
 import { formatNumericString } from './ingredientWorkspaceForms';
@@ -36,6 +37,12 @@ type IngredientConsumeOverlayProps = {
 };
 
 export function IngredientConsumeOverlay(props: IngredientConsumeOverlayProps) {
+  const consumeTracksQuantity = tracksIngredientQuantity(props.selectedConsumeSummary.ingredient);
+  const currentUnit = props.selectedConsumeUnit?.unit ?? props.consumeForm.unit;
+  const consumeQuantityUnitOptions = [currentUnit, ...props.consumeUnitOptions.map((option) => option.unit)]
+    .filter((unit, index, list) => unit && list.indexOf(unit) === index)
+    .map((unit) => ({ value: unit, label: unit }));
+
   return (
     <WorkspaceModal
       title="快速消费"
@@ -78,34 +85,6 @@ export function IngredientConsumeOverlay(props: IngredientConsumeOverlayProps) {
             </div>
           </section>
 
-          {props.consumeUnitOptions.length > 1 && (
-            <section className="ingredients-restock-field-group ingredients-consume-unit-section">
-              <div className="ingredients-restock-field-head">
-                <span>记录单位</span>
-              </div>
-              <div className="ingredients-restock-choice-row ingredients-consume-unit-row">
-                {props.consumeUnitOptions.map((item) => (
-                  <button
-                    key={`${props.selectedConsumeSummary.ingredient.id}-${item.unit}`}
-                    type="button"
-                    className={
-                      props.selectedConsumeUnit?.unit === item.unit
-                        ? 'ingredients-choice-chip ingredients-consume-unit-chip active'
-                        : 'ingredients-choice-chip ingredients-consume-unit-chip'
-                    }
-                    onClick={() => props.updateConsumeUnit(item.unit)}
-                  >
-                    <span className="ingredients-consume-unit-chip-label">{item.unit}</span>
-                    <small>
-                      当前剩余 {formatNumericString(item.available)}
-                      {item.unit}
-                    </small>
-                  </button>
-                ))}
-              </div>
-            </section>
-          )}
-
           <section
             className={
               props.consumeIsAllState
@@ -116,6 +95,22 @@ export function IngredientConsumeOverlay(props: IngredientConsumeOverlayProps) {
             <div className="ingredients-restock-field-head">
               <span>本次用量</span>
             </div>
+            <QuantityUnitField
+              className="ingredients-consume-quantity-field"
+              quantity={props.consumeForm.quantity}
+              unit={currentUnit}
+              unitOptions={consumeQuantityUnitOptions}
+              quantityDisabled={!consumeTracksQuantity || !props.selectedConsumeUnit}
+              quantityDisabledReason={
+                !consumeTracksQuantity
+                  ? '这个食材只记录是否还有，不按数量扣减。'
+                  : !props.selectedConsumeUnit
+                    ? '先选择可消费单位。'
+                    : undefined
+              }
+              onQuantityChange={props.updateConsumeQuantityInput}
+              onUnitChange={props.updateConsumeUnit}
+            />
             <div
               className={
                 props.consumeIsAllState
@@ -125,22 +120,6 @@ export function IngredientConsumeOverlay(props: IngredientConsumeOverlayProps) {
             >
               <div className="touch-field-head consume-quick-range-head">
                 <span>拖拉条</span>
-                <label className="consume-quick-range-editor-shell">
-                  <input
-                    className="consume-quick-range-editor-input"
-                    type="number"
-                    min={0}
-                    max={props.consumeAvailableQuantity || undefined}
-                    step={props.consumeStep}
-                    inputMode="decimal"
-                    aria-label="消费量输入"
-                    placeholder={formatNumericString(props.consumeSuggestedQuantity)}
-                    value={props.consumeForm.quantity}
-                    disabled={!props.selectedConsumeUnit}
-                    onChange={(event) => props.updateConsumeQuantityInput(event.target.value)}
-                  />
-                  <strong>{(props.selectedConsumeUnit?.unit ?? props.consumeForm.unit) || '单位'}</strong>
-                </label>
               </div>
               <div className="touch-field-helper">
                 {props.selectedConsumeUnit
