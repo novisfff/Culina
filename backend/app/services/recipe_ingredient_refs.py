@@ -5,6 +5,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core.enums import IngredientQuantityTrackingMode
 from app.models.domain import Ingredient
 
 
@@ -53,11 +54,16 @@ def normalize_recipe_ingredient_items(
         if ingredient is None:
             unresolved.append(_unresolved_item(index, item, reason="ingredient_not_found"))
             continue
+        quantity = _normalized_quantity(item, ingredient)
+        if quantity is None:
+            unresolved.append(_unresolved_item(index, item, reason="quantity_required"))
+            continue
         normalized.append(
             {
                 **item,
                 "ingredient_id": ingredient.id,
                 "ingredient_name": ingredient.name,
+                "quantity": quantity,
                 "unit": ingredient.default_unit,
                 "note": str(item.get("note") or ""),
             }
@@ -86,6 +92,25 @@ def _coerce_item(item: Any) -> dict[str, Any]:
 
 def _ingredient_id(item: dict[str, Any]) -> str:
     return str(item.get("ingredient_id") or item.get("ingredientId") or "").strip()
+
+
+def _tracks_quantity(ingredient: Ingredient) -> bool:
+    mode = ingredient.quantity_tracking_mode
+    value = mode.value if hasattr(mode, "value") else str(mode)
+    return value != IngredientQuantityTrackingMode.NOT_TRACK_QUANTITY.value
+
+
+def _normalized_quantity(item: dict[str, Any], ingredient: Ingredient) -> float | None:
+    raw_quantity = item.get("quantity")
+    try:
+        quantity = float(raw_quantity)
+    except (TypeError, ValueError):
+        quantity = 0
+    if quantity > 0:
+        return quantity
+    if not _tracks_quantity(ingredient):
+        return 1
+    return None
 
 
 def _unresolved_item(index: int, item: dict[str, Any], *, reason: str) -> dict[str, Any]:

@@ -5204,7 +5204,6 @@
   .recipe-workspace-cook-mode .recipe-cook-ai-composer input {
     height: 36px;
     min-height: 36px;
-    font-size: 16px;
   }
 
   .recipe-workspace-cook-mode .recipe-cook-ai-send-btn {
@@ -6291,7 +6290,6 @@
   .food-plan-modal .recipe-plan-search-input,
   .food-plan-modal .recipe-plan-dialog-form .text-input {
     min-width: 0;
-    font-size: 16px;
   }
 
   .food-plan-modal .recipe-plan-option-panel {
@@ -8065,10 +8063,13 @@
   .family-activity-viewer-select-grid .custom-select-trigger {
     min-height: 36px;
     border-radius: 10px;
-    font-size: 0.82rem;
     background-color: rgba(255, 255, 255, 0.88) !important;
     border: 1px solid rgba(122, 85, 62, 0.12) !important;
     color: #2f251e !important;
+  }
+
+  .family-activity-viewer-select-grid .custom-select-trigger {
+    font-size: 0.82rem;
   }
 
   .custom-select-dropdown {
@@ -8147,6 +8148,23 @@
     overflow-y: auto !important;
     overscroll-behavior: contain;
     -webkit-overflow-scrolling: touch;
+  }
+
+  :is(.login-shell, .app-shell, .workspace-overlay-root, .global-search-root) :is(
+    input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]):not([type="hidden"]),
+    textarea,
+    select,
+    .text-input,
+    .compact-input
+  ) {
+    font-size: 16px !important;
+  }
+
+  :is(.app-shell, .workspace-overlay-root)
+    .ai-confirmation-item
+    .ai-inventory-dispose-reason
+    textarea.compact-reason-textarea {
+    font-size: 16px !important;
   }
 
 }

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { MediaWithPlaceholder } from '../MediaPlaceholder';
 import { buildUnitPresetOptions } from '../ingredients/ingredientWorkspaceForms';
-import { asNumber, asText } from './aiDraftValueUtils';
+import { asNumber, asText, draftNumberFromInput, draftNumberInputValue } from './aiDraftValueUtils';
 
 function textFromUnknownItem(value: unknown) {
   if (typeof value === 'string') return value;
@@ -33,7 +33,7 @@ export type AiResourceOptionLoader = (
 type MealPlanIngredientItem = {
   ingredientId: string;
   name: string;
-  quantity: number;
+  quantity: number | '';
   unit: string;
 };
 
@@ -548,7 +548,7 @@ export function normalizeMealPlanIngredientItems(value: unknown, options: AiReso
     return [{
       ingredientId: option?.id ?? ingredientId,
       name: option?.label ?? name,
-      quantity: Math.max(0.1, asNumber(record?.quantity, 1)),
+      quantity: draftNumberInputValue(record?.quantity, 1),
       unit: asText(record?.unit) || option?.unit || '份',
     }];
   });
@@ -710,10 +710,10 @@ export function IngredientQuantityPicker({
                   type="number"
                   min={0.1}
                   step={0.1}
-                  value={item.quantity}
+                  value={draftNumberInputValue(item.quantity, 1)}
                   disabled={disabled}
                   aria-label={`${item.name}数量`}
-                  onChange={(event) => updateItem(index, { quantity: Math.max(0.1, Number(event.target.value) || 1) })}
+                  onChange={(event) => updateItem(index, { quantity: draftNumberFromInput(event.target.value) })}
                 />
                 <UnitComboboxInput
                   value={item.unit}

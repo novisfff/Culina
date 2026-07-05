@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { api } from '../../api/client';
 import type { Ingredient } from '../../api/types';
 import { RecipeEditorView } from './RecipeEditorView';
-import type { RecipeFormState } from './RecipeWorkspaceModel';
+import type { RecipeDraftIngredient, RecipeFormState } from './RecipeWorkspaceModel';
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -59,7 +59,12 @@ function changeInput(input: HTMLInputElement, value: string) {
   });
 }
 
-async function renderEditor(selectIngredientRow = vi.fn()) {
+async function renderEditor(options: {
+  selectIngredientRow?: ReturnType<typeof vi.fn>;
+  ingredientRows?: RecipeDraftIngredient[];
+  ingredients?: Ingredient[];
+} = {}) {
+  const selectIngredientRow = options.selectIngredientRow ?? vi.fn();
   container = document.createElement('div');
   document.body.appendChild(container);
   root = createRoot(container);
@@ -76,8 +81,8 @@ async function renderEditor(selectIngredientRow = vi.fn()) {
           selectedRecipeId={null}
           form={recipeForm()}
           setForm={vi.fn()}
-          ingredientRows={[{ id: 'row-1', ingredient_id: '', ingredient_name: '', quantity: '', unit: '个', note: '' }]}
-          ingredients={[tomato]}
+          ingredientRows={options.ingredientRows ?? [{ id: 'row-1', ingredient_id: '', ingredient_name: '', quantity: '', unit: '个', note: '' }]}
+          ingredients={options.ingredients ?? [tomato]}
           sceneTagDraft=""
           setSceneTagDraft={vi.fn()}
           sceneSelectOptions={[]}
@@ -154,12 +159,30 @@ afterEach(() => {
 });
 
 describe('RecipeEditorView ingredient picker', () => {
+  it('hides quantity controls for selected presence-only ingredients from search results', async () => {
+    await renderEditor({
+      ingredients: [tomato],
+      ingredientRows: [{
+        id: 'row-1',
+        ingredient_id: 'ingredient-oil',
+        ingredient_name: '食用油',
+        quantity: '',
+        unit: '毫升',
+        note: '',
+        quantity_tracking_mode: 'not_track_quantity',
+      } as RecipeDraftIngredient],
+    });
+
+    expect(container?.textContent).toContain('用量写在步骤或备注里');
+    expect(container?.querySelector('.recipe-editor-ingredient-qty-group')).toBeNull();
+  });
+
   it('searches ingredients through the API and selects the returned option', async () => {
     vi.useFakeTimers();
     const getIngredients = vi.spyOn(api, 'getIngredients').mockResolvedValue([okra]);
     const selectIngredientRow = vi.fn();
 
-    await renderEditor(selectIngredientRow);
+    await renderEditor({ selectIngredientRow });
     const trigger = container?.querySelector<HTMLButtonElement>('.recipe-ingredient-picker-trigger');
     expect(trigger).toBeTruthy();
 

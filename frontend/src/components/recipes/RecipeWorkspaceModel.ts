@@ -7,6 +7,7 @@ import type {
   Difficulty,
   ImageInputValue,
   Ingredient,
+  IngredientQuantityTrackingMode,
   MealType,
   Recipe,
   RecipeIngredient,
@@ -15,13 +16,17 @@ import type {
   RecipeStep,
 } from '../../api/types';
 import { resolveAssetUrl } from '../../lib/assets';
+import { tracksIngredientQuantity } from '../../lib/ingredientTracking';
 import { readJsonStorage, removeStorage, writeJsonStorage } from '../../lib/storage';
 import type { AiRenderPayload } from '../../lib/aiImages';
 import { buildIngredientPlaceholderSvg, emptyImages, splitTags, todayKey } from '../../lib/ui';
 import { MEAL_TYPE_OPTIONS, OPTIONAL_INGREDIENT_NOTE_PATTERN } from './RecipeWorkspaceOptions';
 import type { RecipeCardViewModel } from './workspaceModel';
 
-export type RecipeDraftIngredient = Omit<RecipeIngredient, 'quantity'> & { quantity: number | string };
+export type RecipeDraftIngredient = Omit<RecipeIngredient, 'quantity'> & {
+  quantity: number | string;
+  quantity_tracking_mode?: IngredientQuantityTrackingMode;
+};
 
 export type RecipeStepDraft = {
   id: string;
@@ -421,6 +426,11 @@ function parsePositiveNumber(value: number | string, fallback: number) {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
+export function isPresenceOnlyRecipeIngredient(item: RecipeDraftIngredient, ingredient: Ingredient | undefined) {
+  const trackingSource = item.quantity_tracking_mode ? item : ingredient;
+  return Boolean(item.ingredient_id && trackingSource && !tracksIngredientQuantity(trackingSource));
+}
+
 export function resolveRecipeDifficulty(value: RecipeFormState['difficulty']): Difficulty {
   return value || 'easy';
 }
@@ -475,11 +485,12 @@ export function buildRecipePayload(
       .filter((item) => item.ingredient_id || item.ingredient_name.trim())
       .map((item) => {
         const ingredient = ingredients.find((entry) => entry.id === item.ingredient_id);
+        const usesPresenceOnlyQuantity = isPresenceOnlyRecipeIngredient(item, ingredient);
         return {
           ingredient_id: item.ingredient_id || null,
           ingredient_name: ingredient?.name ?? item.ingredient_name.trim(),
-          quantity: parsePositiveNumber(item.quantity, 1),
-          unit: item.unit.trim() || ingredient?.default_unit || '个',
+          quantity: usesPresenceOnlyQuantity ? 1 : parsePositiveNumber(item.quantity, 1),
+          unit: usesPresenceOnlyQuantity ? ingredient?.default_unit || item.unit.trim() || '份' : item.unit.trim() || ingredient?.default_unit || '个',
           note: item.note.trim(),
         };
       }),
@@ -1110,12 +1121,16 @@ function isStringArray(value: unknown): value is string[] {
 function isAiRecipeDraftIngredient(value: unknown): value is AiGeneratedRecipeDraft['ingredient_items'][number] {
   if (!value || typeof value !== 'object') return false;
   const item = value as Partial<AiGeneratedRecipeDraft['ingredient_items'][number]>;
+  const quantityIsValid =
+    item.quantity === undefined ||
+    item.quantity === null ||
+    (typeof item.quantity === 'number' && Number.isFinite(item.quantity));
+  const unitIsValid = item.unit === undefined || item.unit === null || typeof item.unit === 'string';
   return (
     (typeof item.ingredient_id === 'string' || item.ingredient_id === null || item.ingredient_id === undefined) &&
     typeof item.ingredient_name === 'string' &&
-    typeof item.quantity === 'number' &&
-    Number.isFinite(item.quantity) &&
-    typeof item.unit === 'string' &&
+    quantityIsValid &&
+    unitIsValid &&
     typeof item.note === 'string'
   );
 }
@@ -1184,8 +1199,8 @@ export function buildRecipeFormFromGeneratedDraft(
             id: newDraftId('ingredient'),
             ingredient_id: item.ingredient_id ?? '',
             ingredient_name: item.ingredient_name,
-            quantity: item.quantity,
-            unit: item.unit,
+            quantity: item.quantity ?? '',
+            unit: item.unit ?? '',
             note: item.note,
           }))
         : defaultIngredientRows(),

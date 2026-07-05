@@ -11,9 +11,10 @@ import { asDraftArray, asNumber, asText, isDraftRecord } from './aiDraftValueUti
 const INVENTORY_ACTIONS: AiInventoryOperationAction[] = ['restock', 'consume', 'dispose'];
 const INVENTORY_STATUSES: InventoryStatus[] = ['fresh', 'opened', 'frozen', 'expiring'];
 
-export type InventoryOperationDraftItemViewModel = Omit<AiInventoryOperationDraftItem, 'action' | 'batchOptions' | 'status'> & {
+export type InventoryOperationDraftItemViewModel = Omit<AiInventoryOperationDraftItem, 'action' | 'batchOptions' | 'quantity' | 'status'> & {
   action: AiInventoryOperationAction | '';
   batchOptions: AiInventoryBatchOption[];
+  quantity: number | '';
   status?: InventoryStatus | '';
   defaultUnit?: string;
   defaultStorage?: string;
@@ -118,7 +119,7 @@ export function validateInventoryOperationDraftForSubmit(draft: InventoryOperati
     if (!item.action) {
       return `${ingredientName} 的库存处理方式无效`;
     }
-    if (!Number.isFinite(item.quantity) || item.quantity <= 0) {
+    if (typeof item.quantity !== 'number' || !Number.isFinite(item.quantity) || item.quantity <= 0) {
       return `${ingredientName} 的处理数量需要大于 0`;
     }
     if (!item.unit.trim()) {

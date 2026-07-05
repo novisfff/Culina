@@ -615,7 +615,14 @@ export interface AiConversation {
   last_run_status: string;
 }
 
-export interface AiGeneratedRecipeDraft extends RecipePayload {
+export interface AiGeneratedRecipeDraft extends Omit<RecipePayload, 'ingredient_items'> {
+  ingredient_items: Array<{
+    ingredient_id?: string | null;
+    ingredient_name: string;
+    quantity?: number | null;
+    unit?: string | null;
+    note: string;
+  }>;
   scene_tags?: string[];
 }
 

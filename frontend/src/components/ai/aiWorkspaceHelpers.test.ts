@@ -256,6 +256,63 @@ describe('aiWorkspaceHelpers', () => {
     expect(merged.parts).toEqual(local.parts);
   });
 
+  it('completes a trailing streamed text prefix instead of appending the final snapshot', () => {
+    const local: AiMessage = {
+      id: 'message-local',
+      conversation_id: 'conversation-1',
+      role: 'assistant',
+      content: '已确认火腿食材档案已创建。接下来我继续生成烤冷面菜谱草稿：会把火腿作为正式配料绑定进菜谱；“香辣味烧烤料”先作为可选调味写入步骤/小贴士，不单独扣',
+      content_type: 'parts',
+      parts: [
+        {
+          id: 'operation-result',
+          type: 'result_card',
+          card: {
+            id: 'operation-result-card',
+            type: 'operation_result',
+            title: '已创建食材档案',
+            data: {
+              actionSummary: '火腿已写入食材库。',
+              entityCount: 1,
+              entityCountLabel: '1 个食材',
+              workspaceLabel: '食材库',
+            },
+          } as AiResultCard,
+        },
+        {
+          id: 'streamed-continuation',
+          type: 'text',
+          text: '已确认火腿食材档案已创建。接下来我继续生成烤冷面菜谱草稿：会把火腿作为正式配料绑定进菜谱；“香辣味烧烤料”先作为可选调味写入步骤/小贴士，不单独扣',
+        },
+      ],
+      run_id: 'run-final-merge',
+      status: 'running',
+      metadata: {},
+      created_at: '2026-05-30T00:00:00Z',
+    };
+    const remote: AiMessage = {
+      ...local,
+      id: 'message-remote',
+      content: '已确认火腿食材档案已创建。接下来我继续生成烤冷面菜谱草稿：会把火腿作为正式配料绑定进菜谱；“香辣味烧烤料”先作为可选调味写入步骤/小贴士，不单独扣库存。',
+      parts: [{
+        id: 'final-continuation',
+        type: 'text',
+        text: '已确认火腿食材档案已创建。接下来我继续生成烤冷面菜谱草稿：会把火腿作为正式配料绑定进菜谱；“香辣味烧烤料”先作为可选调味写入步骤/小贴士，不单独扣库存。',
+      }],
+      status: 'completed',
+    };
+
+    const merged = mergeRemoteAndLocalMessage(remote, local, { preferLocalOrder: true });
+
+    const textParts = merged.parts.filter((part) => part.type === 'text');
+    expect(textParts).toEqual([{
+      id: 'streamed-continuation',
+      type: 'text',
+      text: '已确认火腿食材档案已创建。接下来我继续生成烤冷面菜谱草稿：会把火腿作为正式配料绑定进菜谱；“香辣味烧烤料”先作为可选调味写入步骤/小贴士，不单独扣库存。',
+    }]);
+    expect(merged.content).toBe('已确认火腿食材档案已创建。接下来我继续生成烤冷面菜谱草稿：会把火腿作为正式配料绑定进菜谱；“香辣味烧烤料”先作为可选调味写入步骤/小贴士，不单独扣库存。');
+  });
+
   it('keeps new final text when it is not the full streamed text snapshot', () => {
     const local: AiMessage = {
       id: 'message-local',
