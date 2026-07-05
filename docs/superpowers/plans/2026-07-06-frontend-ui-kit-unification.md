@@ -153,7 +153,7 @@
   - `function DropdownSelect<T extends string>(props: DropdownSelectProps<T>): JSX.Element`
   - `DropdownSelectProps<T>` includes `ariaLabel`, `placeholder`, `value`, `options`, `onChange`, optional `labelPrefix`, optional `clearOption`, optional `disabled`, optional `className`.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `frontend/src/components/ui-kit/DropdownSelect.test.tsx`:
 
@@ -228,13 +228,13 @@ describe('DropdownSelect', () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `npm --prefix frontend run test -- src/components/ui-kit/DropdownSelect.test.tsx`
 
 Expected: FAIL with an import error for `./DropdownSelect`.
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 
 Create `frontend/src/components/ui-kit/DropdownSelect.tsx`:
 
@@ -480,19 +480,19 @@ Modify `frontend/src/styles.css`:
 @import './styles/07-mobile.css';
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `npm --prefix frontend run test -- src/components/ui-kit/DropdownSelect.test.tsx`
 
 Expected: PASS.
 
-- [ ] **Step 5: Run typecheck for exported API**
+- [x] **Step 5: Run typecheck for exported API**
 
 Run: `npm --prefix frontend run typecheck`
 
 Expected: PASS.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add frontend/src/components/ui-kit.tsx frontend/src/components/ui-kit frontend/src/styles.css frontend/src/styles/00-ui-kit.css
@@ -515,13 +515,13 @@ git commit -m "feat: add shared dropdown select"
 - Consumes: `DropdownSelect<T extends string>` from Task 1.
 - Produces: no new public API; removes three local `CustomSelect` implementations and routes simple select UI through the shared component.
 
-- [ ] **Step 1: Inspect the three local select shapes**
+- [x] **Step 1: Inspect the three local select shapes**
 
 Run: `rg -n "type CustomSelect|function CustomSelect|<CustomSelect" frontend/src/features/home/HomeDashboardDialogs.tsx frontend/src/features/family/FamilyActivityViewer.tsx frontend/src/components/ingredients/IngredientInventoryOverlay.tsx`
 
 Expected: output includes local `CustomSelect` definitions in all three files.
 
-- [ ] **Step 2: Replace the home dashboard select import and usage**
+- [x] **Step 2: Replace the home dashboard select import and usage**
 
 In `frontend/src/features/home/HomeDashboardDialogs.tsx`, change the ui-kit import to include `DropdownSelect`:
 
@@ -553,7 +553,7 @@ If the call is inline and not using a `props` object, use the explicit variables
 />
 ```
 
-- [ ] **Step 3: Replace the family activity select import and usage**
+- [x] **Step 3: Replace the family activity select import and usage**
 
 In `frontend/src/features/family/FamilyActivityViewer.tsx`, change the ui-kit import:
 
@@ -575,7 +575,7 @@ Delete local `CustomSelectProps` and `CustomSelect`. Replace member/status/limit
 />
 ```
 
-- [ ] **Step 4: Replace the ingredient inventory overlay select import and usage**
+- [x] **Step 4: Replace the ingredient inventory overlay select import and usage**
 
 In `frontend/src/components/ingredients/IngredientInventoryOverlay.tsx`, change the ui-kit import:
 
@@ -597,7 +597,7 @@ Delete the local `CustomSelect` function. Replace simple non-search select calls
 
 Use `as string` only when the existing form field is typed wider than string; do not loosen the `DropdownSelect` component type.
 
-- [ ] **Step 5: Run targeted tests**
+- [x] **Step 5: Run targeted tests**
 
 Run:
 
@@ -611,13 +611,13 @@ npm --prefix frontend run test -- \
 
 Expected: PASS.
 
-- [ ] **Step 6: Run typecheck**
+- [x] **Step 6: Run typecheck**
 
 Run: `npm --prefix frontend run typecheck`
 
 Expected: PASS.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add frontend/src/features/home/HomeDashboardDialogs.tsx frontend/src/features/family/FamilyActivityViewer.tsx frontend/src/components/ingredients/IngredientInventoryOverlay.tsx
@@ -645,7 +645,7 @@ git commit -m "refactor: reuse shared dropdown select"
   - `ConfirmDialog(props): JSX.Element | null`
   - `ConfirmDialog` props: `open`, `title`, `description`, `confirmLabel`, `cancelLabel`, `tone`, `isSubmitting`, `onConfirm`, `onCancel`.
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 Create `frontend/src/components/ui-kit/FormActions.test.tsx`:
 
@@ -728,13 +728,13 @@ describe('ConfirmDialog', () => {
 });
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `npm --prefix frontend run test -- src/components/ui-kit/FormActions.test.tsx src/components/ui-kit/ConfirmDialog.test.tsx`
 
 Expected: FAIL with import errors for `FormActions` and `ConfirmDialog`.
 
-- [ ] **Step 3: Implement FormActions**
+- [x] **Step 3: Implement FormActions**
 
 Create `frontend/src/components/ui-kit/FormActions.tsx`:
 
@@ -793,7 +793,7 @@ export function FormActions({
 }
 ```
 
-- [ ] **Step 4: Implement ConfirmDialog**
+- [x] **Step 4: Implement ConfirmDialog**
 
 Create `frontend/src/components/ui-kit/ConfirmDialog.tsx`:
 
@@ -912,13 +912,13 @@ Append to `frontend/src/styles/00-ui-kit.css`:
 }
 ```
 
-- [ ] **Step 5: Run component tests**
+- [x] **Step 5: Run component tests**
 
 Run: `npm --prefix frontend run test -- src/components/ui-kit/FormActions.test.tsx src/components/ui-kit/ConfirmDialog.test.tsx`
 
 Expected: PASS.
 
-- [ ] **Step 6: Migrate AI delete conversation dialog**
+- [x] **Step 6: Migrate AI delete conversation dialog**
 
 Modify `frontend/src/components/ai/AiDeleteConversationDialog.tsx` to use `ConfirmDialog`:
 
@@ -948,7 +948,7 @@ export function AiDeleteConversationDialog(props: {
 }
 ```
 
-- [ ] **Step 7: Migrate RecipeCookView confirmation modals**
+- [x] **Step 7: Migrate RecipeCookView confirmation modals**
 
 In `frontend/src/components/recipes/RecipeCookView.tsx`, import `ConfirmDialog`:
 
@@ -998,7 +998,7 @@ Replace the timer delete confirmation modal with:
 />
 ```
 
-- [ ] **Step 8: Run targeted tests**
+- [x] **Step 8: Run targeted tests**
 
 Run:
 
@@ -1012,13 +1012,13 @@ npm --prefix frontend run test -- \
 
 Expected: PASS.
 
-- [ ] **Step 9: Run build**
+- [x] **Step 9: Run build**
 
 Run: `npm --prefix frontend run build`
 
 Expected: PASS; existing bundle budget warnings are acceptable if the build exits 0.
 
-- [ ] **Step 10: Commit**
+- [x] **Step 10: Commit**
 
 ```bash
 git add frontend/src/components/ui-kit frontend/src/styles/00-ui-kit.css frontend/src/components/ai/AiDeleteConversationDialog.tsx frontend/src/components/recipes/RecipeCookView.tsx
@@ -1045,7 +1045,7 @@ git commit -m "refactor: standardize confirmation dialogs"
   - `SearchField(props): JSX.Element`
   - `SearchField` supports `value`, `onChange`, `placeholder`, `ariaLabel`, `loading`, `onCompositionStart`, `onCompositionEnd`, `onClear`.
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 Create `frontend/src/components/ui-kit/FormField.test.tsx`:
 
@@ -1113,13 +1113,13 @@ describe('SearchField', () => {
 });
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `npm --prefix frontend run test -- src/components/ui-kit/FormField.test.tsx src/components/ui-kit/SearchField.test.tsx`
 
 Expected: FAIL with import errors.
 
-- [ ] **Step 3: Implement FormField**
+- [x] **Step 3: Implement FormField**
 
 Create `frontend/src/components/ui-kit/FormField.tsx`:
 
@@ -1151,7 +1151,7 @@ export function FormField({ label, children, hint, error, required = false, disa
 }
 ```
 
-- [ ] **Step 4: Implement SearchField**
+- [x] **Step 4: Implement SearchField**
 
 Create `frontend/src/components/ui-kit/SearchField.tsx`:
 
@@ -1300,13 +1300,13 @@ Append to `frontend/src/styles/00-ui-kit.css`:
 }
 ```
 
-- [ ] **Step 5: Run component tests**
+- [x] **Step 5: Run component tests**
 
 Run: `npm --prefix frontend run test -- src/components/ui-kit/FormField.test.tsx src/components/ui-kit/SearchField.test.tsx`
 
 Expected: PASS.
 
-- [ ] **Step 6: Migrate GlobalSearchOverlay input**
+- [x] **Step 6: Migrate GlobalSearchOverlay input**
 
 In `frontend/src/features/search/GlobalSearchOverlay.tsx`, import `SearchField`:
 
@@ -1329,7 +1329,7 @@ Replace the local search input block with:
 
 Keep result rendering unchanged.
 
-- [ ] **Step 7: Run targeted tests**
+- [x] **Step 7: Run targeted tests**
 
 Run:
 
@@ -1342,13 +1342,13 @@ npm --prefix frontend run test -- \
 
 Expected: PASS.
 
-- [ ] **Step 8: Run smoke**
+- [x] **Step 8: Run smoke**
 
 Run: `npm --prefix frontend run smoke`
 
 Expected: PASS for login, workspace tabs and responsive checks.
 
-- [ ] **Step 9: Commit**
+- [x] **Step 9: Commit**
 
 ```bash
 git add frontend/src/components/ui-kit frontend/src/styles/00-ui-kit.css frontend/src/features/search/GlobalSearchOverlay.tsx
@@ -1372,7 +1372,7 @@ git commit -m "feat: add shared form and search fields"
   - `QuantityUnitField(props): JSX.Element`
   - Props include `quantity`, `unit`, `unitOptions`, `onQuantityChange`, `onUnitChange`, optional `quantityDisabled`, optional `quantityDisabledReason`, optional `allowEmptyQuantity`.
 
-- [ ] **Step 1: Write failing test**
+- [x] **Step 1: Write failing test**
 
 Create `frontend/src/components/ui-kit/QuantityUnitField.test.tsx`:
 
@@ -1422,13 +1422,13 @@ describe('QuantityUnitField', () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `npm --prefix frontend run test -- src/components/ui-kit/QuantityUnitField.test.tsx`
 
 Expected: FAIL with import error.
 
-- [ ] **Step 3: Implement QuantityUnitField**
+- [x] **Step 3: Implement QuantityUnitField**
 
 Create `frontend/src/components/ui-kit/QuantityUnitField.tsx`:
 
@@ -1556,13 +1556,13 @@ Append to `frontend/src/styles/00-ui-kit.css`:
 }
 ```
 
-- [ ] **Step 4: Run component test**
+- [x] **Step 4: Run component test**
 
 Run: `npm --prefix frontend run test -- src/components/ui-kit/QuantityUnitField.test.tsx`
 
 Expected: PASS.
 
-- [ ] **Step 5: Replace one low-risk recipe shopping quantity row**
+- [x] **Step 5: Replace one low-risk recipe shopping quantity row**
 
 In `frontend/src/components/recipes/RecipeShoppingDialog.tsx`, import `QuantityUnitField`:
 
@@ -1586,7 +1586,7 @@ Replace the custom quantity and unit controls for shopping draft rows with:
 />
 ```
 
-- [ ] **Step 6: Run targeted tests**
+- [x] **Step 6: Run targeted tests**
 
 Run:
 
@@ -1598,13 +1598,13 @@ npm --prefix frontend run test -- \
 
 Expected: PASS.
 
-- [ ] **Step 7: Run build**
+- [x] **Step 7: Run build**
 
 Run: `npm --prefix frontend run build`
 
 Expected: PASS; existing bundle budget warnings are acceptable if the command exits 0.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add frontend/src/components/ui-kit frontend/src/styles/00-ui-kit.css frontend/src/components/recipes/RecipeShoppingDialog.tsx
@@ -1624,7 +1624,7 @@ git commit -m "feat: add shared quantity unit field"
 - Consumes: components created in Tasks 1 to 5.
 - Produces: documented placement rules for future UI component work.
 
-- [ ] **Step 1: Update frontend standards**
+- [x] **Step 1: Update frontend standards**
 
 In `docs/frontend-code-standards.md`, add this section after “样式与体验”:
 
@@ -1640,7 +1640,7 @@ In `docs/frontend-code-standards.md`, add this section after “样式与体验�
 - 基础组件样式放在 `frontend/src/styles/00-ui-kit.css`，使用 `.ui-*` 前缀；业务域样式继续放在对应业务 CSS 文件中。
 ```
 
-- [ ] **Step 2: Update plans README**
+- [x] **Step 2: Update plans README**
 
 In `docs/plans/README.md`, append:
 
@@ -1650,7 +1650,7 @@ In `docs/plans/README.md`, append:
 - `docs/superpowers/plans/2026-07-06-frontend-ui-kit-unification.md`：前端基础组件统一化全量迁移计划，先建立 DropdownSelect、FormActions、ConfirmDialog、FormField、SearchField 和 QuantityUnitField。
 ```
 
-- [ ] **Step 3: Run quality commands**
+- [x] **Step 3: Run quality commands**
 
 Run:
 
@@ -1672,7 +1672,7 @@ Expected:
 - `check:style-tokens` exits 0. Report-only matches may remain report-only.
 - `git diff --check` produces no output.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add docs/frontend-code-standards.md docs/plans/README.md docs/superpowers/plans/2026-07-06-frontend-ui-kit-unification.md
@@ -1693,7 +1693,7 @@ git commit -m "docs: document frontend ui kit plan"
 - Consumes: `00-ui-kit.css` and exports created in Tasks 1 to 5.
 - Produces: `ComboboxField<T extends string>(props)` for preset + optional custom text.
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 Create `frontend/src/components/ui-kit/ComboboxField.test.tsx`:
 
@@ -1726,13 +1726,13 @@ describe('ComboboxField', () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `npm --prefix frontend run test -- src/components/ui-kit/ComboboxField.test.tsx`
 
 Expected: FAIL with import error for `./ComboboxField`.
 
-- [ ] **Step 3: Implement ComboboxField**
+- [x] **Step 3: Implement ComboboxField**
 
 Create `frontend/src/components/ui-kit/ComboboxField.tsx`:
 
@@ -1836,7 +1836,7 @@ export function ComboboxField<T extends string>({
 }
 ```
 
-- [ ] **Step 4: Export component**
+- [x] **Step 4: Export component**
 
 In `frontend/src/components/ui-kit/index.ts`, add:
 
@@ -1844,7 +1844,7 @@ In `frontend/src/components/ui-kit/index.ts`, add:
 export * from './ComboboxField';
 ```
 
-- [ ] **Step 5: Add styles**
+- [x] **Step 5: Add styles**
 
 Append to `frontend/src/styles/00-ui-kit.css`:
 
@@ -1913,13 +1913,13 @@ Append to `frontend/src/styles/00-ui-kit.css`:
 }
 ```
 
-- [ ] **Step 6: Run component test**
+- [x] **Step 6: Run component test**
 
 Run: `npm --prefix frontend run test -- src/components/ui-kit/ComboboxField.test.tsx`
 
 Expected: PASS.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add frontend/src/components/ui-kit frontend/src/styles/00-ui-kit.css
@@ -1940,7 +1940,7 @@ git commit -m "feat: add combobox field primitive"
 - Consumes: `SearchField` from Task 4.
 - Produces: `ResourcePickerField<T extends string>(props)` for selecting an existing resource id without accepting free text.
 
-- [ ] **Step 1: Write failing test**
+- [x] **Step 1: Write failing test**
 
 Create `frontend/src/components/ui-kit/ResourcePickerField.test.tsx`:
 
@@ -1969,13 +1969,13 @@ describe('ResourcePickerField', () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `npm --prefix frontend run test -- src/components/ui-kit/ResourcePickerField.test.tsx`
 
 Expected: FAIL with import error for `./ResourcePickerField`.
 
-- [ ] **Step 3: Implement ResourcePickerField**
+- [x] **Step 3: Implement ResourcePickerField**
 
 Create `frontend/src/components/ui-kit/ResourcePickerField.tsx`:
 
@@ -2044,7 +2044,7 @@ export function ResourcePickerField<T extends string>({
 }
 ```
 
-- [ ] **Step 4: Export component**
+- [x] **Step 4: Export component**
 
 In `frontend/src/components/ui-kit/index.ts`, add:
 
@@ -2052,7 +2052,7 @@ In `frontend/src/components/ui-kit/index.ts`, add:
 export * from './ResourcePickerField';
 ```
 
-- [ ] **Step 5: Add styles**
+- [x] **Step 5: Add styles**
 
 Append to `frontend/src/styles/00-ui-kit.css`:
 
@@ -2107,13 +2107,13 @@ Append to `frontend/src/styles/00-ui-kit.css`:
 }
 ```
 
-- [ ] **Step 6: Run component test**
+- [x] **Step 6: Run component test**
 
 Run: `npm --prefix frontend run test -- src/components/ui-kit/ResourcePickerField.test.tsx`
 
 Expected: PASS.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add frontend/src/components/ui-kit frontend/src/styles/00-ui-kit.css
@@ -2134,7 +2134,7 @@ git commit -m "feat: add resource picker field primitive"
 - Consumes: none beyond `00-ui-kit.css` tokens.
 - Produces: `OptionChipGroup<T extends string>(props)` for single-choice filter/preset rows.
 
-- [ ] **Step 1: Write failing test**
+- [x] **Step 1: Write failing test**
 
 Create `frontend/src/components/ui-kit/OptionChipGroup.test.tsx`:
 
@@ -2160,13 +2160,13 @@ describe('OptionChipGroup', () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `npm --prefix frontend run test -- src/components/ui-kit/OptionChipGroup.test.tsx`
 
 Expected: FAIL with import error for `./OptionChipGroup`.
 
-- [ ] **Step 3: Implement OptionChipGroup**
+- [x] **Step 3: Implement OptionChipGroup**
 
 Create `frontend/src/components/ui-kit/OptionChipGroup.tsx`:
 
@@ -2208,7 +2208,7 @@ export function OptionChipGroup<T extends string>({ ariaLabel, value, options, o
 }
 ```
 
-- [ ] **Step 4: Export component**
+- [x] **Step 4: Export component**
 
 In `frontend/src/components/ui-kit/index.ts`, add:
 
@@ -2216,7 +2216,7 @@ In `frontend/src/components/ui-kit/index.ts`, add:
 export * from './OptionChipGroup';
 ```
 
-- [ ] **Step 5: Add styles**
+- [x] **Step 5: Add styles**
 
 Append to `frontend/src/styles/00-ui-kit.css`:
 
@@ -2255,13 +2255,13 @@ Append to `frontend/src/styles/00-ui-kit.css`:
 }
 ```
 
-- [ ] **Step 6: Run component test**
+- [x] **Step 6: Run component test**
 
 Run: `npm --prefix frontend run test -- src/components/ui-kit/OptionChipGroup.test.tsx`
 
 Expected: PASS.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add frontend/src/components/ui-kit frontend/src/styles/00-ui-kit.css
@@ -2284,7 +2284,7 @@ git commit -m "feat: add option chip group primitive"
 - Consumes: none beyond `00-ui-kit.css` tokens.
 - Produces: `StatusBadge(props)` and `StateBlock(props)` for semantic badges and empty/loading/error blocks.
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 Create `frontend/src/components/ui-kit/StatusBadge.test.tsx`:
 
@@ -2323,7 +2323,7 @@ describe('StateBlock', () => {
 });
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run:
 
@@ -2335,7 +2335,7 @@ npm --prefix frontend run test -- \
 
 Expected: FAIL with import errors.
 
-- [ ] **Step 3: Implement StatusBadge**
+- [x] **Step 3: Implement StatusBadge**
 
 Create `frontend/src/components/ui-kit/StatusBadge.tsx`:
 
@@ -2354,7 +2354,7 @@ export function StatusBadge(props: { children: ReactNode; tone?: StatusBadgeTone
 }
 ```
 
-- [ ] **Step 4: Implement StateBlock**
+- [x] **Step 4: Implement StateBlock**
 
 Create `frontend/src/components/ui-kit/StateBlock.tsx`:
 
@@ -2383,7 +2383,7 @@ export function StateBlock(props: StateBlockProps) {
 }
 ```
 
-- [ ] **Step 5: Export components**
+- [x] **Step 5: Export components**
 
 In `frontend/src/components/ui-kit/index.ts`, add:
 
@@ -2392,7 +2392,7 @@ export * from './StatusBadge';
 export * from './StateBlock';
 ```
 
-- [ ] **Step 6: Add styles**
+- [x] **Step 6: Add styles**
 
 Append to `frontend/src/styles/00-ui-kit.css`:
 
@@ -2448,7 +2448,7 @@ Append to `frontend/src/styles/00-ui-kit.css`:
 }
 ```
 
-- [ ] **Step 7: Run component tests**
+- [x] **Step 7: Run component tests**
 
 Run:
 
@@ -2460,7 +2460,7 @@ npm --prefix frontend run test -- \
 
 Expected: PASS.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add frontend/src/components/ui-kit frontend/src/styles/00-ui-kit.css
@@ -2481,7 +2481,7 @@ git commit -m "feat: add status and state primitives"
 - Consumes: primitives from Tasks 1 to 10.
 - Produces: `MobileActionBar(props)` for safe-area bottom actions and a complete ui-kit export surface for migration tasks.
 
-- [ ] **Step 1: Write failing test**
+- [x] **Step 1: Write failing test**
 
 Create `frontend/src/components/ui-kit/MobileActionBar.test.tsx`:
 
@@ -2498,13 +2498,13 @@ describe('MobileActionBar', () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `npm --prefix frontend run test -- src/components/ui-kit/MobileActionBar.test.tsx`
 
 Expected: FAIL with import error for `./MobileActionBar`.
 
-- [ ] **Step 3: Implement MobileActionBar**
+- [x] **Step 3: Implement MobileActionBar**
 
 Create `frontend/src/components/ui-kit/MobileActionBar.tsx`:
 
@@ -2516,7 +2516,7 @@ export function MobileActionBar(props: { children: ReactNode; className?: string
 }
 ```
 
-- [ ] **Step 4: Normalize final ui-kit exports**
+- [x] **Step 4: Normalize final ui-kit exports**
 
 Rewrite `frontend/src/components/ui-kit/index.ts` to:
 
@@ -2535,7 +2535,7 @@ export * from './StateBlock';
 export * from './MobileActionBar';
 ```
 
-- [ ] **Step 5: Add styles**
+- [x] **Step 5: Add styles**
 
 Append to `frontend/src/styles/00-ui-kit.css`:
 
@@ -2550,7 +2550,7 @@ Append to `frontend/src/styles/00-ui-kit.css`:
 }
 ```
 
-- [ ] **Step 6: Run foundation tests**
+- [x] **Step 6: Run foundation tests**
 
 Run:
 
@@ -2566,7 +2566,7 @@ npm --prefix frontend run test -- \
 
 Expected: PASS.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add frontend/src/components/ui-kit frontend/src/styles/00-ui-kit.css frontend/src/components/ui-kit.tsx
@@ -2587,13 +2587,13 @@ git commit -m "feat: add mobile action bar primitive"
 - Consumes: `ConfirmDialog`, `FormActions`.
 - Produces: AI modal action rows use shared footer components.
 
-- [ ] **Step 1: Find AI modal actions**
+- [x] **Step 1: Find AI modal actions**
 
 Run: `rg -n "workspace-overlay-actions|ai-delete-confirm-actions|<WorkspaceModal" frontend/src/components/ai --glob '*.{tsx,ts}'`
 
 Expected: results include `AiDeleteConversationDialog.tsx`, `AiQualityDiagnosticsModal.tsx`, and `AiRecommendationPlanDialog.tsx`.
 
-- [ ] **Step 2: Replace AI delete dialog**
+- [x] **Step 2: Replace AI delete dialog**
 
 Replace the body of `AiDeleteConversationDialog` with:
 
@@ -2613,7 +2613,7 @@ return (
 );
 ```
 
-- [ ] **Step 3: Replace AI recommendation plan dialog footer**
+- [x] **Step 3: Replace AI recommendation plan dialog footer**
 
 In `frontend/src/components/ai/AiRecommendationPlanDialog.tsx`, replace the `workspace-overlay-actions` block with:
 
@@ -2628,7 +2628,7 @@ In `frontend/src/components/ai/AiRecommendationPlanDialog.tsx`, replace the `wor
 />
 ```
 
-- [ ] **Step 4: Keep quality diagnostics close-only modal unchanged**
+- [x] **Step 4: Keep quality diagnostics close-only modal unchanged**
 
 In `frontend/src/components/ai/AiQualityDiagnosticsModal.tsx`, keep `WorkspaceModal` because it has no submit footer. Verify it uses `closeLabel` or readable close text.
 
@@ -2636,13 +2636,13 @@ Run: `rg -n "closeLabel|closeAriaLabel" frontend/src/components/ai/AiQualityDiag
 
 Expected: output includes `closeLabel` or `closeAriaLabel`.
 
-- [ ] **Step 5: Run tests**
+- [x] **Step 5: Run tests**
 
 Run: `npm --prefix frontend run test -- src/components/ui-kit/ConfirmDialog.test.tsx src/components/ui-kit/FormActions.test.tsx src/components/ai/AiRecommendationPlanDialog.test.tsx`
 
 Expected: PASS.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add frontend/src/components/ai
@@ -2667,7 +2667,7 @@ git commit -m "refactor: migrate ai modal actions"
 - Consumes: `ConfirmDialog`, `FormActions`.
 - Produces: recipe dialogs use shared confirm and footer components.
 
-- [ ] **Step 1: Replace cook exit confirmation**
+- [x] **Step 1: Replace cook exit confirmation**
 
 In `RecipeCookView.tsx`, replace the `pendingExitTarget` modal with:
 
@@ -2688,7 +2688,7 @@ In `RecipeCookView.tsx`, replace the `pendingExitTarget` modal with:
 />
 ```
 
-- [ ] **Step 2: Replace cook timer delete confirmation**
+- [x] **Step 2: Replace cook timer delete confirmation**
 
 In `RecipeCookView.tsx`, replace the `deletingTimerId` modal with:
 
@@ -2709,7 +2709,7 @@ In `RecipeCookView.tsx`, replace the `deletingTimerId` modal with:
 />
 ```
 
-- [ ] **Step 3: Replace recipe dialog submit footers**
+- [x] **Step 3: Replace recipe dialog submit footers**
 
 Replace submit footer blocks in `RecipeDraftDialog.tsx`, `RecipePlanDialogs.tsx`, `RecipeSceneManagerDialog.tsx`, `RecipeShoppingDialog.tsx`, and `RecipeCookFinishDialog.tsx` with `FormActions`.
 
@@ -2739,13 +2739,13 @@ Use this shape for `RecipeShoppingDialog.tsx`:
 />
 ```
 
-- [ ] **Step 4: Run tests**
+- [x] **Step 4: Run tests**
 
 Run: `npm --prefix frontend run test -- src/components/recipes/RecipeCookTimerModel.test.ts src/components/recipes/RecipeWorkspace.test.ts src/components/ui-kit/FormActions.test.tsx src/components/ui-kit/ConfirmDialog.test.tsx`
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add frontend/src/components/recipes
@@ -2770,7 +2770,7 @@ git commit -m "refactor: migrate recipe modal actions"
 - Consumes: `FormActions`, `ConfirmDialog`.
 - Produces: food and home dialogs use shared action rows.
 
-- [ ] **Step 1: Replace food plan form footer**
+- [x] **Step 1: Replace food plan form footer**
 
 In `FoodPlanDialog.tsx`, replace the footer with:
 
@@ -2785,7 +2785,7 @@ In `FoodPlanDialog.tsx`, replace the footer with:
 />
 ```
 
-- [ ] **Step 2: Replace food scene form footer**
+- [x] **Step 2: Replace food scene form footer**
 
 In `FoodSceneDialogs.tsx`, replace the scene form footer with:
 
@@ -2800,7 +2800,7 @@ In `FoodSceneDialogs.tsx`, replace the scene form footer with:
 />
 ```
 
-- [ ] **Step 3: Replace quick meal modal footer**
+- [x] **Step 3: Replace quick meal modal footer**
 
 In `FoodWorkspace.tsx` and `HomeDashboard.tsx`, replace quick meal modal action rows with:
 
@@ -2814,7 +2814,7 @@ In `FoodWorkspace.tsx` and `HomeDashboard.tsx`, replace quick meal modal action 
 />
 ```
 
-- [ ] **Step 4: Replace home dashboard dialog footers**
+- [x] **Step 4: Replace home dashboard dialog footers**
 
 In `HomeDashboardDialogs.tsx`, replace home plan add, expiry review, restock, and meal detail footers with `FormActions`. For restock submit use:
 
@@ -2829,13 +2829,13 @@ In `HomeDashboardDialogs.tsx`, replace home plan add, expiry review, restock, an
 />
 ```
 
-- [ ] **Step 5: Run tests**
+- [x] **Step 5: Run tests**
 
 Run: `npm --prefix frontend run test -- src/components/foods/FoodWorkspace.test.ts src/features/home/homeDashboardModel.test.ts src/components/ui-kit/FormActions.test.tsx`
 
 Expected: PASS.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add frontend/src/components/foods frontend/src/features/home
@@ -2859,7 +2859,7 @@ git commit -m "refactor: migrate food and home modal actions"
 - Consumes: `FormActions`, `ConfirmDialog`.
 - Produces: ingredient overlays use shared footer and confirm components.
 
-- [ ] **Step 1: Replace consume overlay footer**
+- [x] **Step 1: Replace consume overlay footer**
 
 In `IngredientConsumeOverlay.tsx`, replace the footer with:
 
@@ -2874,7 +2874,7 @@ In `IngredientConsumeOverlay.tsx`, replace the footer with:
 />
 ```
 
-- [ ] **Step 2: Replace destroy expired overlay footer**
+- [x] **Step 2: Replace destroy expired overlay footer**
 
 In `IngredientDestroyExpiredOverlay.tsx`, replace the footer with:
 
@@ -2890,7 +2890,7 @@ In `IngredientDestroyExpiredOverlay.tsx`, replace the footer with:
 />
 ```
 
-- [ ] **Step 3: Replace inventory and shopping overlay footers**
+- [x] **Step 3: Replace inventory and shopping overlay footers**
 
 In `IngredientInventoryOverlay.tsx`, use:
 
@@ -2918,13 +2918,13 @@ In `IngredientShoppingOverlay.tsx`, use:
 />
 ```
 
-- [ ] **Step 4: Run tests**
+- [x] **Step 4: Run tests**
 
 Run: `npm --prefix frontend run test -- src/components/ingredients/consumeQuickHelpers.test.ts src/components/ingredients/workspaceModel.test.ts src/components/ui-kit/FormActions.test.tsx`
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add frontend/src/components/ingredients
@@ -2946,7 +2946,7 @@ git commit -m "refactor: migrate ingredient modal actions"
 - Consumes: `FormActions`.
 - Produces: family and meal modals use shared form actions.
 
-- [ ] **Step 1: Replace family settings modal footers**
+- [x] **Step 1: Replace family settings modal footers**
 
 In `FamilySettingsModals.tsx`, replace profile, password, member, family profile and image prompt footers with:
 
@@ -2973,7 +2973,7 @@ For image prompt sections use:
 />
 ```
 
-- [ ] **Step 2: Replace family activity modal footer**
+- [x] **Step 2: Replace family activity modal footer**
 
 In `FamilyActivityViewer.tsx`, replace the load-more action row with:
 
@@ -2985,7 +2985,7 @@ In `FamilyActivityViewer.tsx`, replace the load-more action row with:
 />
 ```
 
-- [ ] **Step 3: Replace meal enrichment modal footer**
+- [x] **Step 3: Replace meal enrichment modal footer**
 
 In `MealLogWorkspace.tsx`, replace enrichment modal action rows with:
 
@@ -3000,13 +3000,13 @@ In `MealLogWorkspace.tsx`, replace enrichment modal action rows with:
 />
 ```
 
-- [ ] **Step 4: Run tests**
+- [x] **Step 4: Run tests**
 
 Run: `npm --prefix frontend run test -- src/features/family/FamilyActivityViewerModel.test.ts src/features/meals/MealLogWorkspaceModel.test.ts src/components/ui-kit/FormActions.test.tsx`
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add frontend/src/features/family frontend/src/features/meals
@@ -3028,7 +3028,7 @@ git commit -m "refactor: migrate family and meal modal actions"
 - Consumes: `DropdownSelect`, `ComboboxField`.
 - Produces: `ApprovalSelectField` and `ApprovalComboboxField` keep their exports while delegating to shared primitives.
 
-- [ ] **Step 1: Rebuild ApprovalSelectField**
+- [x] **Step 1: Rebuild ApprovalSelectField**
 
 In `AiApprovalFields.tsx`, keep the wrapper label and icon, and replace the custom menu with:
 
@@ -3044,7 +3044,7 @@ In `AiApprovalFields.tsx`, keep the wrapper label and icon, and replace the cust
 />
 ```
 
-- [ ] **Step 2: Rebuild ApprovalComboboxField**
+- [x] **Step 2: Rebuild ApprovalComboboxField**
 
 In `AiApprovalFields.tsx`, replace the custom combobox menu with:
 
@@ -3061,13 +3061,13 @@ In `AiApprovalFields.tsx`, replace the custom combobox menu with:
 />
 ```
 
-- [ ] **Step 3: Run AI approval tests**
+- [x] **Step 3: Run AI approval tests**
 
 Run: `npm --prefix frontend run test -- src/components/ai/AiApprovalPanel.test.tsx src/components/ai/AiInventoryOperationApproval.test.tsx src/components/ui-kit/DropdownSelect.test.tsx src/components/ui-kit/ComboboxField.test.tsx`
 
 Expected: PASS.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add frontend/src/components/ai
@@ -3089,7 +3089,7 @@ git commit -m "refactor: migrate ai approval selects"
 - Consumes: `DropdownSelect`, `ComboboxField`.
 - Produces: recipe toolbar, editor and plan dialogs use shared select components.
 
-- [ ] **Step 1: Replace RecipeToolbarDropdown**
+- [x] **Step 1: Replace RecipeToolbarDropdown**
 
 In `RecipeWorkspace.tsx`, delete `RecipeToolbarDropdown` and replace each usage with:
 
@@ -3105,7 +3105,7 @@ In `RecipeWorkspace.tsx`, delete `RecipeToolbarDropdown` and replace each usage 
 />
 ```
 
-- [ ] **Step 2: Replace recipe editor finite selects**
+- [x] **Step 2: Replace recipe editor finite selects**
 
 In `RecipeEditorView.tsx`, replace servings, difficulty and step icon native selects with `DropdownSelect`.
 
@@ -3133,7 +3133,7 @@ Use this for step icon:
 />
 ```
 
-- [ ] **Step 3: Replace recipe plan meal type selects**
+- [x] **Step 3: Replace recipe plan meal type selects**
 
 In `RecipePlanDialogs.tsx`, replace meal type selects with:
 
@@ -3147,13 +3147,13 @@ In `RecipePlanDialogs.tsx`, replace meal type selects with:
 />
 ```
 
-- [ ] **Step 4: Run tests**
+- [x] **Step 4: Run tests**
 
 Run: `npm --prefix frontend run test -- src/components/recipes/RecipeEditorView.test.tsx src/components/recipes/RecipeWorkspace.test.ts src/components/ui-kit/DropdownSelect.test.tsx`
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add frontend/src/components/recipes
@@ -3174,7 +3174,7 @@ git commit -m "refactor: migrate recipe selects"
 - Consumes: `DropdownSelect`, `ComboboxField`, `OptionChipGroup`.
 - Produces: ingredient storage, unit, category and status controls use shared primitives.
 
-- [ ] **Step 1: Replace ingredient storage combobox**
+- [x] **Step 1: Replace ingredient storage combobox**
 
 In `IngredientInventoryOverlay.tsx` and `IngredientEditorView.tsx`, use:
 
@@ -3189,7 +3189,7 @@ In `IngredientInventoryOverlay.tsx` and `IngredientEditorView.tsx`, use:
 />
 ```
 
-- [ ] **Step 2: Replace ingredient unit combobox**
+- [x] **Step 2: Replace ingredient unit combobox**
 
 Use:
 
@@ -3204,7 +3204,7 @@ Use:
 />
 ```
 
-- [ ] **Step 3: Replace ingredient category chips**
+- [x] **Step 3: Replace ingredient category chips**
 
 Use:
 
@@ -3217,13 +3217,13 @@ Use:
 />
 ```
 
-- [ ] **Step 4: Run tests**
+- [x] **Step 4: Run tests**
 
 Run: `npm --prefix frontend run test -- src/components/ingredients/workspaceModel.test.ts src/components/ui-kit/ComboboxField.test.tsx src/components/ui-kit/OptionChipGroup.test.tsx`
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add frontend/src/components/ingredients
@@ -3245,7 +3245,7 @@ git commit -m "refactor: migrate ingredient selects"
 - Consumes: `DropdownSelect`, `OptionChipGroup`.
 - Produces: family activity filters, member role select and meal type select use shared primitives.
 
-- [ ] **Step 1: Replace family activity filters**
+- [x] **Step 1: Replace family activity filters**
 
 In `FamilyActivityViewer.tsx`, replace the remaining filter select calls with:
 
@@ -3261,7 +3261,7 @@ In `FamilyActivityViewer.tsx`, replace the remaining filter select calls with:
 />
 ```
 
-- [ ] **Step 2: Replace member role select**
+- [x] **Step 2: Replace member role select**
 
 In `FamilySettingsModals.tsx`, replace role native select with:
 
@@ -3278,7 +3278,7 @@ In `FamilySettingsModals.tsx`, replace role native select with:
 />
 ```
 
-- [ ] **Step 3: Replace meal log meal type select**
+- [x] **Step 3: Replace meal log meal type select**
 
 In `MealLogComposer.tsx`, replace meal type native select with:
 
@@ -3292,13 +3292,13 @@ In `MealLogComposer.tsx`, replace meal type native select with:
 />
 ```
 
-- [ ] **Step 4: Run tests**
+- [x] **Step 4: Run tests**
 
 Run: `npm --prefix frontend run test -- src/features/family/FamilyActivityViewerModel.test.ts src/features/meals/MealLogWorkspaceModel.test.ts src/components/ui-kit/DropdownSelect.test.tsx`
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add frontend/src/features/family frontend/src/features/meals
@@ -3325,7 +3325,7 @@ git commit -m "refactor: migrate family and meal selects"
 - Consumes: `SearchField`.
 - Produces: all workspace and mobile search inputs use the shared search field.
 
-- [ ] **Step 1: Replace global search input**
+- [x] **Step 1: Replace global search input**
 
 In `GlobalSearchOverlay.tsx`, use:
 
@@ -3340,7 +3340,7 @@ In `GlobalSearchOverlay.tsx`, use:
 />
 ```
 
-- [ ] **Step 2: Replace food search inputs**
+- [x] **Step 2: Replace food search inputs**
 
 In `FoodWorkspace.tsx` and `FoodMobileView.tsx`, use:
 
@@ -3357,7 +3357,7 @@ In `FoodWorkspace.tsx` and `FoodMobileView.tsx`, use:
 />
 ```
 
-- [ ] **Step 3: Replace ingredient panel search inputs**
+- [x] **Step 3: Replace ingredient panel search inputs**
 
 In `IngredientWorkspacePanels.tsx`, use:
 
@@ -3374,7 +3374,7 @@ In `IngredientWorkspacePanels.tsx`, use:
 
 For inventory search use the same component with `props.inventorySearch`, `props.setInventorySearch`, and `props.isInventorySearchFetching`.
 
-- [ ] **Step 4: Replace recipe search inputs**
+- [x] **Step 4: Replace recipe search inputs**
 
 In `RecipeWorkspace.tsx` and `RecipeMobileLibraryView.tsx`, use:
 
@@ -3391,13 +3391,13 @@ In `RecipeWorkspace.tsx` and `RecipeMobileLibraryView.tsx`, use:
 />
 ```
 
-- [ ] **Step 5: Run tests**
+- [x] **Step 5: Run tests**
 
 Run: `npm --prefix frontend run test -- src/components/ui-kit/SearchField.test.tsx src/features/search/GlobalSearchOverlay.test.tsx src/hooks/useDebouncedValue.test.tsx src/components/foods/FoodWorkspace.test.ts src/components/recipes/RecipeWorkspace.test.ts`
 
 Expected: PASS.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add frontend/src/features/search frontend/src/components/foods frontend/src/components/ingredients/IngredientWorkspacePanels.tsx frontend/src/components/recipes
@@ -3419,7 +3419,7 @@ git commit -m "refactor: migrate workspace search fields"
 - Consumes: `ResourcePickerField`.
 - Produces: recipe ingredient binding and shopping custom ingredient selection use shared resource picker.
 
-- [ ] **Step 1: Replace recipe editor ingredient picker**
+- [x] **Step 1: Replace recipe editor ingredient picker**
 
 In `RecipeEditorView.tsx`, use:
 
@@ -3440,7 +3440,7 @@ In `RecipeEditorView.tsx`, use:
 />
 ```
 
-- [ ] **Step 2: Replace ingredient resolution picker**
+- [x] **Step 2: Replace ingredient resolution picker**
 
 In `RecipeIngredientResolutionDialog.tsx`, use:
 
@@ -3461,7 +3461,7 @@ In `RecipeIngredientResolutionDialog.tsx`, use:
 />
 ```
 
-- [ ] **Step 3: Replace shopping custom ingredient picker**
+- [x] **Step 3: Replace shopping custom ingredient picker**
 
 In `RecipeShoppingDialog.tsx`, replace `.recipe-shopping-combobox` with:
 
@@ -3495,13 +3495,13 @@ In `RecipeShoppingDialog.tsx`, replace `.recipe-shopping-combobox` with:
 />
 ```
 
-- [ ] **Step 4: Run tests**
+- [x] **Step 4: Run tests**
 
 Run: `npm --prefix frontend run test -- src/components/ui-kit/ResourcePickerField.test.tsx src/components/recipes/RecipeEditorView.test.tsx src/components/recipes/RecipeWorkspace.test.ts`
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add frontend/src/components/recipes
@@ -3523,7 +3523,7 @@ git commit -m "refactor: migrate recipe resource pickers"
 - Consumes: `ResourcePickerField`.
 - Produces: home plan food selection, home restock ingredient selection and ingredient overlay selection use shared resource picker.
 
-- [ ] **Step 1: Replace home food plan picker**
+- [x] **Step 1: Replace home food plan picker**
 
 In `HomeDashboardDialogs.tsx`, use:
 
@@ -3546,7 +3546,7 @@ In `HomeDashboardDialogs.tsx`, use:
 />
 ```
 
-- [ ] **Step 2: Replace ingredient overlay picker**
+- [x] **Step 2: Replace ingredient overlay picker**
 
 In `IngredientInventoryOverlay.tsx`, use:
 
@@ -3566,17 +3566,17 @@ In `IngredientInventoryOverlay.tsx`, use:
 />
 ```
 
-- [ ] **Step 3: Replace shopping overlay picker**
+- [x] **Step 3: Replace shopping overlay picker**
 
 In `IngredientShoppingOverlay.tsx`, use the same `ResourcePickerField` shape with `props.shoppingForm.ingredientId`, `props.shoppingForm.title`, `props.setShoppingForm`, and `props.selectShoppingIngredient`.
 
-- [ ] **Step 4: Run tests**
+- [x] **Step 4: Run tests**
 
 Run: `npm --prefix frontend run test -- src/features/home/homeDashboardModel.test.ts src/components/ingredients/workspaceModel.test.ts src/components/ui-kit/ResourcePickerField.test.tsx`
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add frontend/src/features/home/HomeDashboardDialogs.tsx frontend/src/components/ingredients/IngredientInventoryOverlay.tsx frontend/src/components/ingredients/IngredientShoppingOverlay.tsx
@@ -3597,7 +3597,7 @@ git commit -m "refactor: migrate home and ingredient resource pickers"
 - Consumes: `QuantityUnitField`.
 - Produces: ingredient inventory, shopping and consume quantity controls use shared component.
 
-- [ ] **Step 1: Replace inventory quantity field**
+- [x] **Step 1: Replace inventory quantity field**
 
 Use:
 
@@ -3613,7 +3613,7 @@ Use:
 />
 ```
 
-- [ ] **Step 2: Replace shopping quantity field**
+- [x] **Step 2: Replace shopping quantity field**
 
 Use:
 
@@ -3629,7 +3629,7 @@ Use:
 />
 ```
 
-- [ ] **Step 3: Replace consume quantity field**
+- [x] **Step 3: Replace consume quantity field**
 
 Use:
 
@@ -3645,13 +3645,13 @@ Use:
 />
 ```
 
-- [ ] **Step 4: Run tests**
+- [x] **Step 4: Run tests**
 
 Run: `npm --prefix frontend run test -- src/components/ui-kit/QuantityUnitField.test.tsx src/components/ingredients/consumeQuickHelpers.test.ts`
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add frontend/src/components/ingredients
@@ -3672,7 +3672,7 @@ git commit -m "refactor: migrate ingredient quantity fields"
 - Consumes: `QuantityUnitField`.
 - Produces: recipe ingredient and shopping quantity controls use shared component.
 
-- [ ] **Step 1: Replace recipe ingredient quantity field**
+- [x] **Step 1: Replace recipe ingredient quantity field**
 
 In `RecipeEditorView.tsx`, use:
 
@@ -3688,17 +3688,17 @@ In `RecipeEditorView.tsx`, use:
 />
 ```
 
-- [ ] **Step 2: Replace recipe shopping quantity field**
+- [x] **Step 2: Replace recipe shopping quantity field**
 
 In `RecipeShoppingDialog.tsx`, use the `QuantityUnitField` snippet already defined in Task 5 with `item`, `props.unitOptions`, and `props.onUpdateDraft`.
 
-- [ ] **Step 3: Run tests**
+- [x] **Step 3: Run tests**
 
 Run: `npm --prefix frontend run test -- src/components/ui-kit/QuantityUnitField.test.tsx src/components/recipes/RecipeEditorView.test.tsx src/components/recipes/RecipeWorkspace.test.ts`
 
 Expected: PASS.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add frontend/src/components/recipes
@@ -3726,7 +3726,7 @@ git commit -m "refactor: migrate recipe quantity fields"
 - Consumes: `OptionChipGroup`, `StatusBadge`, `StateBlock`.
 - Produces: filter chip rows, semantic badges and custom empty states use shared primitives.
 
-- [ ] **Step 1: Replace ingredient filter chips**
+- [x] **Step 1: Replace ingredient filter chips**
 
 In `IngredientWorkspacePanels.tsx`, use:
 
@@ -3743,7 +3743,7 @@ In `IngredientWorkspacePanels.tsx`, use:
 />
 ```
 
-- [ ] **Step 2: Replace ingredient editor chips**
+- [x] **Step 2: Replace ingredient editor chips**
 
 In `IngredientEditorView.tsx`, use `OptionChipGroup` for category, unit preset and storage preset rows. For storage:
 
@@ -3756,7 +3756,7 @@ In `IngredientEditorView.tsx`, use `OptionChipGroup` for category, unit preset a
 />
 ```
 
-- [ ] **Step 3: Replace semantic badges**
+- [x] **Step 3: Replace semantic badges**
 
 Use `StatusBadge` for status badges. Example in `HomeDashboard.tsx`:
 
@@ -3768,7 +3768,7 @@ Use `StatusBadge` for status badges. Example in `HomeDashboard.tsx`:
 
 Use `Badge` only for neutral metadata.
 
-- [ ] **Step 4: Replace custom empty blocks**
+- [x] **Step 4: Replace custom empty blocks**
 
 Use `StateBlock` for custom empty text blocks. Example:
 
@@ -3782,13 +3782,13 @@ Use `StateBlock` for custom empty text blocks. Example:
 />
 ```
 
-- [ ] **Step 5: Run tests**
+- [x] **Step 5: Run tests**
 
 Run: `npm --prefix frontend run test -- src/components/ui-kit/OptionChipGroup.test.tsx src/components/ingredients/workspaceModel.test.ts src/components/foods/FoodWorkspace.test.ts src/features/home/homeDashboardModel.test.ts src/features/meals/MealLogWorkspaceModel.test.ts`
 
 Expected: PASS.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add frontend/src/components frontend/src/features
