@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 
 export type DropdownSelectOption<T extends string> = {
   value: T;
@@ -16,6 +16,10 @@ export type DropdownSelectProps<T extends string> = {
   clearOption?: { value: ''; label: string; description?: string };
   disabled?: boolean;
   className?: string;
+  triggerClassName?: string;
+  menuClassName?: string;
+  optionClassName?: string;
+  leadingIcon?: ReactNode;
 };
 
 export function DropdownSelect<T extends string>({
@@ -28,6 +32,10 @@ export function DropdownSelect<T extends string>({
   clearOption,
   disabled = false,
   className,
+  triggerClassName,
+  menuClassName,
+  optionClassName,
+  leadingIcon,
 }: DropdownSelectProps<T>) {
   const [isOpen, setIsOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement | null>(null);
@@ -70,7 +78,7 @@ export function DropdownSelect<T extends string>({
     >
       <button
         type="button"
-        className="ui-dropdown-select-trigger"
+        className={['ui-dropdown-select-trigger', triggerClassName].filter(Boolean).join(' ')}
         aria-label={triggerText}
         aria-haspopup="listbox"
         aria-expanded={isOpen}
@@ -78,18 +86,19 @@ export function DropdownSelect<T extends string>({
         disabled={disabled}
         onClick={() => setIsOpen((current) => !current)}
       >
+        {leadingIcon}
         <span>{triggerText}</span>
         <span className="ui-dropdown-select-chevron" aria-hidden="true" />
       </button>
       {isOpen && (
-        <div id={listboxId} className="ui-dropdown-select-menu" role="listbox" aria-label={ariaLabel}>
+        <div id={listboxId} className={['ui-dropdown-select-menu', menuClassName].filter(Boolean).join(' ')} role="listbox" aria-label={ariaLabel}>
           {allOptions.map((option) => {
             const selected = option.value === value;
             return (
               <button
                 key={option.value || '__clear'}
                 type="button"
-                className={selected ? 'ui-dropdown-select-option is-selected' : 'ui-dropdown-select-option'}
+                className={['ui-dropdown-select-option', optionClassName, selected ? 'is-selected' : ''].filter(Boolean).join(' ')}
                 role="option"
                 aria-selected={selected}
                 onClick={() => {

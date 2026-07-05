@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { MediaWithPlaceholder } from '../MediaPlaceholder';
+import { ComboboxField, DropdownSelect } from '../ui-kit';
 import { buildUnitPresetOptions } from '../ingredients/ingredientWorkspaceForms';
 import { asNumber, asText, draftNumberFromInput, draftNumberInputValue } from './aiDraftValueUtils';
 
@@ -125,88 +126,21 @@ export function ApprovalSelectField({
   className?: string;
   onChange: (value: string) => void;
 }) {
-  const [isOpen, setIsOpen] = useState(false);
-  const closeTimerRef = useRef<number | null>(null);
-  const selectedOption = options.find((option) => option.value === value) ?? options[0];
-  const openMenu = () => {
-    if (closeTimerRef.current) {
-      window.clearTimeout(closeTimerRef.current);
-      closeTimerRef.current = null;
-    }
-    setIsOpen(true);
-  };
-  const closeMenuSoon = () => {
-    closeTimerRef.current = window.setTimeout(() => setIsOpen(false), 120);
-  };
-  const closeMenu = () => {
-    if (closeTimerRef.current) {
-      window.clearTimeout(closeTimerRef.current);
-      closeTimerRef.current = null;
-    }
-    setIsOpen(false);
-  };
-  const selectValue = (nextValue: string) => {
-    onChange(nextValue);
-    closeMenu();
-  };
-
-  useEffect(() => () => {
-    if (closeTimerRef.current) window.clearTimeout(closeTimerRef.current);
-  }, []);
-
   return (
     <label className={`ai-resource-field ai-resource-field-choice ${className}`.trim()}>
       <span>{label}</span>
-      <div className={`ai-resource-select ai-choice-select${isOpen ? ' is-open' : ''}${disabled ? ' is-disabled' : ''}`}>
-        <ResourceSelectIcon kind={icon} />
-        <button
-          className="ai-single-select-trigger"
-          type="button"
-          disabled={disabled}
-          aria-haspopup="listbox"
-          aria-expanded={isOpen}
-          onBlur={closeMenuSoon}
-          onClick={() => {
-            if (isOpen) {
-              closeMenu();
-            } else {
-              openMenu();
-            }
-          }}
-          onKeyDown={(event) => {
-            if (event.key === 'ArrowDown' || event.key === 'Enter' || event.key === ' ') {
-              event.preventDefault();
-              openMenu();
-            }
-            if (event.key === 'Escape') {
-              closeMenu();
-            }
-          }}
-        >
-          {selectedOption?.label ?? '请选择'}
-        </button>
-        <span className="ai-resource-select-chevron" aria-hidden="true" />
-        {!disabled && isOpen && (
-          <div className="ai-resource-menu ai-single-select-menu" role="listbox" onMouseDown={(event) => event.preventDefault()}>
-            {options.map((option) => {
-              const selected = option.value === value;
-              return (
-                <button
-                  key={option.value}
-                  type="button"
-                  className={selected ? 'is-selected' : ''}
-                  role="option"
-                  aria-selected={selected}
-                  onClick={() => selectValue(option.value)}
-                >
-                  <span className="ai-select-option-mark" aria-hidden="true" />
-                  <strong>{option.label}</strong>
-                </button>
-              );
-            })}
-          </div>
-        )}
-      </div>
+      <DropdownSelect
+        ariaLabel={label}
+        placeholder="请选择"
+        value={value}
+        options={options}
+        disabled={disabled}
+        className="ai-resource-select ai-choice-select"
+        triggerClassName="ai-single-select-trigger"
+        menuClassName="ai-resource-menu ai-single-select-menu"
+        leadingIcon={<ResourceSelectIcon kind={icon} />}
+        onChange={(nextValue) => onChange(nextValue)}
+      />
     </label>
   );
 }
@@ -232,106 +166,22 @@ export function ApprovalComboboxField({
   className?: string;
   onChange: (value: string) => void;
 }) {
-  const [isOpen, setIsOpen] = useState(false);
-  const [query, setQuery] = useState('');
-  const closeTimerRef = useRef<number | null>(null);
-  const normalizedQuery = normalizeSearchText(query);
-  const normalizedValue = normalizeSearchText(value);
-  const visibleOptions = options.filter((option) => {
-    if (!normalizedQuery) return true;
-    return normalizeSearchText(`${option.label} ${option.value} ${option.description ?? ''}`).includes(normalizedQuery);
-  });
-  const exactMatch = options.some((option) => normalizeSearchText(option.value) === normalizedValue || normalizeSearchText(option.label) === normalizedValue);
-  const customValue = value.trim();
-  const showCustom = allowCustom && customValue && !exactMatch;
-  const openMenu = () => {
-    if (closeTimerRef.current) {
-      window.clearTimeout(closeTimerRef.current);
-      closeTimerRef.current = null;
-    }
-    setQuery('');
-    setIsOpen(true);
-  };
-  const closeMenuSoon = () => {
-    closeTimerRef.current = window.setTimeout(() => setIsOpen(false), 120);
-  };
-  const selectValue = (nextValue: string) => {
-    onChange(nextValue);
-    setQuery('');
-    setIsOpen(false);
-  };
-
-  useEffect(() => () => {
-    if (closeTimerRef.current) window.clearTimeout(closeTimerRef.current);
-  }, []);
-
   return (
     <label className={`ai-resource-field ai-resource-field-choice ai-resource-field-combobox ${className}`.trim()}>
       <span>{label}</span>
-      <div className={`ai-resource-select ai-combobox-select${isOpen ? ' is-open' : ''}${disabled ? ' is-disabled' : ''}`}>
-        <ResourceSelectIcon kind={icon} />
-        <input
-          type="text"
-          value={value}
-          disabled={disabled}
-          placeholder={placeholder ?? '请选择'}
-          role="combobox"
-          aria-expanded={isOpen}
-          onFocus={openMenu}
-          onBlur={closeMenuSoon}
-          onChange={(event) => {
-            if (closeTimerRef.current) {
-              window.clearTimeout(closeTimerRef.current);
-              closeTimerRef.current = null;
-            }
-            setQuery(event.target.value);
-            onChange(event.target.value);
-            setIsOpen(true);
-          }}
-        />
-        <span className="ai-resource-select-chevron" aria-hidden="true" />
-        {!disabled && isOpen && (
-          <div className="ai-resource-menu ai-combobox-menu" role="listbox" onMouseDown={(event) => event.preventDefault()}>
-            {visibleOptions.length > 0 && visibleOptions.map((option) => {
-              const selected = option.value === value;
-              return (
-                <button
-                  key={option.value}
-                  type="button"
-                  className={selected ? 'is-selected' : ''}
-                  role="option"
-                  aria-selected={selected}
-                  onClick={() => selectValue(option.value)}
-                >
-                  <span className="ai-combobox-option-mark" aria-hidden="true" />
-                  <span>
-                    <strong>{option.label}</strong>
-                    {option.description && <small>{option.description}</small>}
-                  </span>
-                </button>
-              );
-            })}
-            {showCustom && (
-              <button
-                type="button"
-                className="ai-combobox-custom-option"
-                role="option"
-                aria-selected="false"
-                onClick={() => selectValue(customValue)}
-              >
-                <span className="ai-combobox-option-mark is-custom" aria-hidden="true">＋</span>
-                <span>
-                  <strong>使用自定义：{customValue}</strong>
-                  <small>确认后保存为本次草稿的字段值</small>
-                </span>
-              </button>
-            )}
-            {visibleOptions.length === 0 && !showCustom && (
-              <p className="ai-resource-menu-state">没有匹配项</p>
-            )}
-          </div>
-        )}
-      </div>
+      <ComboboxField
+        ariaLabel={label}
+        placeholder={placeholder ?? '请选择或输入'}
+        value={value}
+        options={options}
+        disabled={disabled}
+        allowCustom={allowCustom}
+        className="ai-resource-select ai-combobox-select ai-choice-combobox"
+        menuClassName="ai-resource-menu ai-combobox-menu"
+        customOptionClassName="ai-combobox-custom-option"
+        leadingIcon={<ResourceSelectIcon kind={icon} />}
+        onChange={(nextValue) => onChange(String(nextValue))}
+      />
     </label>
   );
 }

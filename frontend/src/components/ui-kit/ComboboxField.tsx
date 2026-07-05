@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 
 export type ComboboxOption<T extends string> = {
   value: T;
@@ -15,6 +15,11 @@ export type ComboboxFieldProps<T extends string> = {
   allowCustom?: boolean;
   disabled?: boolean;
   className?: string;
+  inputClassName?: string;
+  menuClassName?: string;
+  optionClassName?: string;
+  customOptionClassName?: string;
+  leadingIcon?: ReactNode;
 };
 
 function normalizeComboboxText(value: string) {
@@ -30,17 +35,27 @@ export function ComboboxField<T extends string>({
   allowCustom = false,
   disabled = false,
   className,
+  inputClassName,
+  menuClassName,
+  optionClassName,
+  customOptionClassName,
+  leadingIcon,
 }: ComboboxFieldProps<T>) {
-  const [query, setQuery] = useState(String(value ?? ''));
+  const [inputValue, setInputValue] = useState(String(value ?? ''));
+  const [filterQuery, setFilterQuery] = useState('');
   const [isOpen, setIsOpen] = useState(false);
   const visibleOptions = useMemo(() => {
-    const normalized = normalizeComboboxText(query);
+    const normalized = normalizeComboboxText(filterQuery);
     if (!normalized) return options;
     return options.filter((option) => normalizeComboboxText(`${option.label} ${option.value} ${option.description ?? ''}`).includes(normalized));
-  }, [options, query]);
+  }, [options, filterQuery]);
+
+  useEffect(() => {
+    setInputValue(String(value ?? ''));
+  }, [value]);
 
   function commitCustomValue() {
-    const next = query.trim();
+    const next = inputValue.trim();
     if (allowCustom && next) {
       onChange(next);
       setIsOpen(false);
@@ -49,17 +64,25 @@ export function ComboboxField<T extends string>({
 
   return (
     <div className={['ui-combobox-field', className, isOpen ? 'is-open' : '', disabled ? 'is-disabled' : ''].filter(Boolean).join(' ')}>
+      {leadingIcon}
       <input
+        className={inputClassName}
         role="combobox"
         aria-label={ariaLabel}
         aria-expanded={isOpen}
         aria-autocomplete="list"
         disabled={disabled}
         placeholder={placeholder}
-        value={query}
-        onFocus={() => setIsOpen(true)}
+        value={inputValue}
+        onFocus={() => {
+          setFilterQuery('');
+          setIsOpen(true);
+        }}
         onChange={(event) => {
-          setQuery(event.target.value);
+          const nextValue = event.target.value;
+          setInputValue(nextValue);
+          setFilterQuery(nextValue);
+          onChange(nextValue);
           setIsOpen(true);
         }}
         onKeyDown={(event) => {
@@ -68,15 +91,17 @@ export function ComboboxField<T extends string>({
         }}
       />
       {isOpen && (
-        <div className="ui-combobox-menu" role="listbox" aria-label={`${ariaLabel}选项`}>
+        <div className={['ui-combobox-menu', menuClassName].filter(Boolean).join(' ')} role="listbox" aria-label={`${ariaLabel}选项`}>
           {visibleOptions.map((option) => (
             <button
               key={option.value}
               type="button"
+              className={optionClassName}
               role="option"
               aria-selected={option.value === value}
               onClick={() => {
-                setQuery(option.label);
+                setInputValue(option.label);
+                setFilterQuery(option.label);
                 onChange(option.value);
                 setIsOpen(false);
               }}
@@ -85,9 +110,9 @@ export function ComboboxField<T extends string>({
               {option.description ? <small>{option.description}</small> : null}
             </button>
           ))}
-          {allowCustom && query.trim() && !visibleOptions.some((option) => normalizeComboboxText(option.label) === normalizeComboboxText(query)) ? (
-            <button type="button" role="option" aria-selected={false} onClick={commitCustomValue}>
-              <strong>使用“{query.trim()}”</strong>
+          {allowCustom && inputValue.trim() && !options.some((option) => normalizeComboboxText(option.label) === normalizeComboboxText(inputValue)) ? (
+            <button type="button" className={customOptionClassName} role="option" aria-selected={false} onClick={commitCustomValue}>
+              <strong>使用自定义：{inputValue.trim()}</strong>
             </button>
           ) : null}
         </div>
