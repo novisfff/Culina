@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import type { Ingredient, IngredientUnitConversion } from '../../api/types';
 import { MediaWithPlaceholder } from '../MediaPlaceholder';
-import { Badge, FormActions, TouchStepperField, WorkspaceModal } from '../ui-kit';
+import { Badge, ComboboxField, FormActions, OptionChipGroup, TouchStepperField, WorkspaceModal } from '../ui-kit';
 import { resolvePreferredIngredientUnit } from '../../lib/ingredientUnits';
 import { tracksIngredientQuantity } from '../../lib/ingredientTracking';
 import { resolveMediaUrl } from '../../lib/assets';
@@ -22,77 +22,6 @@ type IngredientShoppingOverlayProps = {
   submitShopping: (event: FormEvent<HTMLFormElement>) => Promise<void>;
   isCreatingShopping?: boolean;
 };
-
-type CustomSelectOption = {
-  value: string;
-  label: string;
-};
-
-function CustomSelect(props: {
-  placeholder: string;
-  value: string;
-  options: CustomSelectOption[];
-  onChange: (value: string) => void;
-}) {
-  const [isOpen, setIsOpen] = useState(false);
-  const containerRef = useRef<HTMLDivElement | null>(null);
-
-  const selectedOption = props.options.find((opt) => opt.value === props.value);
-  const triggerLabel = selectedOption ? selectedOption.label : props.placeholder;
-
-  useEffect(() => {
-    if (!isOpen) return;
-
-    function handlePointerDown(event: PointerEvent) {
-      if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
-        setIsOpen(false);
-      }
-    }
-
-    function handleKeyDown(event: KeyboardEvent) {
-      if (event.key === 'Escape') {
-        setIsOpen(false);
-      }
-    }
-
-    document.addEventListener('pointerdown', handlePointerDown);
-    document.addEventListener('keydown', handleKeyDown);
-    return () => {
-      document.removeEventListener('pointerdown', handlePointerDown);
-      document.removeEventListener('keydown', handleKeyDown);
-    };
-  }, [isOpen]);
-
-  return (
-    <div className="custom-select-container" ref={containerRef} aria-expanded={isOpen}>
-      <button
-        type="button"
-        className="custom-select-trigger"
-        onClick={() => setIsOpen((prev) => !prev)}
-      >
-        <span>{triggerLabel}</span>
-        <span className="custom-select-arrow" />
-      </button>
-      {isOpen && (
-        <div className="custom-select-dropdown">
-          {props.options.map((option) => (
-            <button
-              key={option.value}
-              type="button"
-              className={`custom-select-option ${props.value === option.value ? 'selected' : ''}`}
-              onClick={() => {
-                props.onChange(option.value);
-                setIsOpen(false);
-              }}
-            >
-              {option.label}
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
 
 function CustomAutocomplete(props: {
   ingredients: Ingredient[];
@@ -167,9 +96,7 @@ function CustomAutocomplete(props: {
 export function IngredientShoppingOverlay(props: IngredientShoppingOverlayProps) {
   const shoppingUnitOptions = buildUnitPresetOptions(props.shoppingForm.unit || '个');
   const tracksQuantity = tracksIngredientQuantity(props.selectedShoppingIngredient);
-  const unitOptions = useMemo(() => {
-    return shoppingUnitOptions.map((unit) => ({ value: unit, label: unit }));
-  }, [shoppingUnitOptions]);
+  const unitOptions = useMemo(() => shoppingUnitOptions.map((unit) => ({ value: unit, label: unit })), [shoppingUnitOptions]);
 
   return (
     <WorkspaceModal
@@ -254,38 +181,31 @@ export function IngredientShoppingOverlay(props: IngredientShoppingOverlayProps)
                 {props.selectedShoppingIngredient ? (
                   <>
                     <p className="subtle">默认先用主单位，常用副单位点一下就能切换。</p>
-                    <div className="ingredients-restock-unit-chip-row">
-                      {props.shoppingIngredientUnitOptions.map((option) => (
-                        <button
-                          key={`shopping-unit-${option.unit}`}
-                          type="button"
-                          className={
-                            props.shoppingForm.unit === option.unit
-                              ? 'ingredients-choice-chip ingredients-unit-chip active'
-                              : 'ingredients-choice-chip ingredients-unit-chip'
-                          }
-                          onClick={() =>
-                            props.setShoppingForm({
-                              ...props.shoppingForm,
-                              unit: option.unit,
-                            })
-                          }
-                        >
-                          {option.unit}
-                        </button>
-                      ))}
-                    </div>
+                    <OptionChipGroup
+                      ariaLabel="采购单位"
+                      value={props.shoppingForm.unit}
+                      options={props.shoppingIngredientUnitOptions.map((option) => ({ value: option.unit, label: option.unit }))}
+                      className="ingredients-unit-chip-group"
+                      onChange={(unit) =>
+                        props.setShoppingForm({
+                          ...props.shoppingForm,
+                          unit,
+                        })
+                      }
+                    />
                   </>
                 ) : (
                   <>
                     <p className="subtle">默认值不对时再改。</p>
                     <div className="ingredients-restock-unit-editor-custom">
-                      <CustomSelect
-                        placeholder="选择单位"
+                      <ComboboxField
+                        ariaLabel="采购单位"
+                        placeholder="选择或输入单位"
                         value={props.shoppingForm.unit}
                         options={unitOptions}
-                        onChange={(val) =>
-                          props.setShoppingForm({ ...props.shoppingForm, unit: val })
+                        allowCustom
+                        onChange={(unit) =>
+                          props.setShoppingForm({ ...props.shoppingForm, unit: String(unit) })
                         }
                       />
                     </div>

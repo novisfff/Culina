@@ -8,6 +8,7 @@ import { MediaWithPlaceholder } from '../MediaPlaceholder';
 import {
   ActionButton,
   Badge,
+  ComboboxField,
   DropdownSelect,
   FormActions,
   TouchRangeField,
@@ -342,58 +343,19 @@ export function IngredientInventoryOverlay(props: IngredientInventoryOverlayProp
               <span>存放位置</span>
               <p className="subtle">按这次实际放的位置点一下。</p>
             </div>
-            <div className="ingredients-restock-choice-row">
-              {INVENTORY_STORAGE_PRESETS.map((storage) => (
-                <button
-                  key={storage}
-                  type="button"
-                  className={
-                    props.inventoryForm.storageLocation === storage
-                      ? 'ingredients-choice-chip active'
-                      : 'ingredients-choice-chip'
-                  }
-                  onClick={() =>
-                    props.setInventoryForm({
-                      ...props.inventoryForm,
-                      storageLocation: storage,
-                    })
-                  }
-                >
-                  {storage}
-                </button>
-              ))}
-              <button
-                type="button"
-                className={props.usesCustomStorage ? 'ingredients-choice-chip active' : 'ingredients-choice-chip'}
-                onClick={() =>
-                  props.setInventoryForm({
-                    ...props.inventoryForm,
-                    storageLocation:
-                      props.usesCustomStorage && props.inventoryForm.storageLocation
-                        ? props.inventoryForm.storageLocation
-                        : '',
-                  })
-                }
-              >
-                其他
-              </button>
-            </div>
-            {props.usesCustomStorage && (
-              <label>
-                <span>自定义位置</span>
-                <input
-                  className="text-input"
-                  value={props.inventoryForm.storageLocation}
-                  placeholder="例如 门边小冰箱"
-                  onChange={(event) =>
-                    props.setInventoryForm({
-                      ...props.inventoryForm,
-                      storageLocation: event.target.value,
-                    })
-                  }
-                />
-              </label>
-            )}
+            <ComboboxField
+              ariaLabel="保存位置"
+              placeholder="选择或输入保存位置"
+              value={props.inventoryForm.storageLocation}
+              options={INVENTORY_STORAGE_PRESETS.map((storage) => ({ value: storage, label: storage }))}
+              allowCustom
+              onChange={(storageLocation) =>
+                props.setInventoryForm({
+                  ...props.inventoryForm,
+                  storageLocation: String(storageLocation),
+                })
+              }
+            />
           </section>
 
           <section className="ingredients-restock-field-group">

@@ -5,7 +5,9 @@ import { MediaWithPlaceholder } from '../MediaPlaceholder';
 import {
   ActionButton,
   Badge,
+  ComboboxField,
   ImageComposer,
+  OptionChipGroup,
   SegmentedTabs,
   TouchRangeField,
   TouchStepperField,
@@ -213,27 +215,20 @@ export function IngredientEditorView(props: IngredientEditorViewProps) {
               <div className="ingredients-create-form-right-col">
                 <div className="ingredients-category-field">
                   <span>分类</span>
-                  <div className="ingredients-category-presets" role="group" aria-label="常见食材分类">
-                    {props.ingredientVisibleCategoryPresets.map((item) => (
-                      <button
-                        key={item.label}
-                        className={
-                          props.ingredientForm.category.trim() === item.label
-                            ? 'chip ingredients-category-chip active'
-                            : 'chip ingredients-category-chip'
-                        }
-                        type="button"
-                        onClick={() => {
-                          props.setIngredientCustomCategoryOpen(false);
-                          props.applyIngredientCategoryPreset(item.label);
-                        }}
-                      >
-                        <span className="ingredients-category-chip-icon" aria-hidden="true">
-                          <IngredientCategoryIcon name={item.icon} />
-                        </span>
-                        {item.label}
-                      </button>
-                    ))}
+                  <div className="ingredients-category-presets" aria-label="常见食材分类">
+                    <OptionChipGroup
+                      ariaLabel="食材分类"
+                      value={props.ingredientForm.category}
+                      options={props.ingredientVisibleCategoryPresets.map((item) => ({
+                        value: item.label,
+                        label: item.label,
+                      }))}
+                      className="ingredients-category-chip-group"
+                      onChange={(category) => {
+                        props.setIngredientCustomCategoryOpen(false);
+                        props.applyIngredientCategoryPreset(category);
+                      }}
+                    />
                     {props.showIngredientCategoryCustomInput ? (
                       <input
                         className="ingredients-category-custom-input"
@@ -275,20 +270,13 @@ export function IngredientEditorView(props: IngredientEditorViewProps) {
                     </button>
                   </div>
                   <div className="ingredients-restock-choice-row">
-                    {props.ingredientUnitOptions.map((unit) => (
-                      <button
-                        key={unit}
-                        className={
-                          props.ingredientForm.defaultUnit.trim() === unit
-                            ? 'ingredients-choice-chip active'
-                            : 'ingredients-choice-chip'
-                        }
-                        type="button"
-                        onClick={() => props.setIngredientForm({ ...props.ingredientForm, defaultUnit: unit })}
-                      >
-                        {unit}
-                      </button>
-                    ))}
+                    <OptionChipGroup
+                      ariaLabel="默认单位"
+                      value={props.ingredientForm.defaultUnit}
+                      options={props.ingredientUnitOptions.map((unit) => ({ value: unit, label: unit }))}
+                      className="ingredients-unit-chip-group"
+                      onChange={(defaultUnit) => props.setIngredientForm({ ...props.ingredientForm, defaultUnit })}
+                    />
                     <button
                       className={props.ingredientUsesCustomUnit ? 'ingredients-choice-chip active' : 'ingredients-choice-chip'}
                       type="button"
@@ -305,10 +293,13 @@ export function IngredientEditorView(props: IngredientEditorViewProps) {
                   {props.ingredientUsesCustomUnit && (
                     <label>
                       <span>自定义单位</span>
-                      <input
-                        className="text-input"
+                      <ComboboxField
+                        ariaLabel="默认单位"
+                        placeholder="选择或输入单位"
                         value={props.ingredientForm.defaultUnit}
-                        onChange={(event) => props.setIngredientForm({ ...props.ingredientForm, defaultUnit: event.target.value })}
+                        options={props.ingredientUnitOptions.map((unit) => ({ value: unit, label: unit }))}
+                        allowCustom
+                        onChange={(defaultUnit) => props.setIngredientForm({ ...props.ingredientForm, defaultUnit: String(defaultUnit) })}
                       />
                     </label>
                   )}
@@ -408,55 +399,14 @@ export function IngredientEditorView(props: IngredientEditorViewProps) {
                       <p className="subtle">以后补库存时会先带出这里的建议位置。</p>
                     </div>
                   </div>
-                  <div className="ingredients-restock-choice-row ingredients-storage-choice-row">
-                    {INVENTORY_STORAGE_PRESETS.map((storage) => (
-                      <button
-                        key={storage}
-                        className={
-                          props.ingredientForm.defaultStorage === storage
-                            ? `ingredients-choice-chip ingredients-storage-choice-chip tone-${storage} active`
-                            : `ingredients-choice-chip ingredients-storage-choice-chip tone-${storage}`
-                        }
-                        type="button"
-                        onClick={() => props.setIngredientForm({ ...props.ingredientForm, defaultStorage: storage })}
-                      >
-                        <span className="ingredients-storage-choice-icon" aria-hidden="true">
-                          {props.renderStorageIcon(storage)}
-                        </span>
-                        {storage}
-                      </button>
-                    ))}
-                    <button
-                      className={
-                        props.ingredientUsesCustomStorage
-                          ? 'ingredients-choice-chip ingredients-storage-choice-chip tone-other active'
-                          : 'ingredients-choice-chip ingredients-storage-choice-chip tone-other'
-                      }
-                      type="button"
-                      onClick={() =>
-                        props.setIngredientForm({
-                          ...props.ingredientForm,
-                          defaultStorage: props.ingredientUsesCustomStorage ? props.ingredientForm.defaultStorage : '',
-                        })
-                      }
-                    >
-                      <span className="ingredients-storage-choice-icon" aria-hidden="true">
-                        {props.renderIcon('plus')}
-                      </span>
-                      其他
-                    </button>
-                  </div>
-                  {props.ingredientUsesCustomStorage && (
-                    <label>
-                      <span>自定义位置</span>
-                      <input
-                        className="text-input"
-                        value={props.ingredientForm.defaultStorage}
-                        placeholder="例如 阳台储物柜"
-                        onChange={(event) => props.setIngredientForm({ ...props.ingredientForm, defaultStorage: event.target.value })}
-                      />
-                    </label>
-                  )}
+                  <ComboboxField
+                    ariaLabel="保存位置"
+                    placeholder="选择或输入保存位置"
+                    value={props.ingredientForm.defaultStorage}
+                    options={INVENTORY_STORAGE_PRESETS.map((storage) => ({ value: storage, label: storage }))}
+                    allowCustom
+                    onChange={(defaultStorage) => props.setIngredientForm({ ...props.ingredientForm, defaultStorage: String(defaultStorage) })}
+                  />
                 </div>
               </div>
             </div>
