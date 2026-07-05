@@ -456,3 +456,12 @@
   font: inherit;
   font-weight: 700;
 }
+
+.ui-mobile-action-bar {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  gap: 10px;
+  padding: 12px 0 calc(12px + env(safe-area-inset-bottom, 0px));
+  background: linear-gradient(to top, var(--bg), rgba(250, 248, 245, 0.86));
+}

@@ -9,3 +9,4 @@ export * from './ResourcePickerField';
 export * from './OptionChipGroup';
 export * from './StatusBadge';
 export * from './StateBlock';
+export * from './MobileActionBar';
