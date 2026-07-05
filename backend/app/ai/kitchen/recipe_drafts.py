@@ -42,12 +42,12 @@ RECIPE_DRAFT_JSON_SCHEMA: dict[str, Any] = {
             "items": {
                 "type": "object",
                 "additionalProperties": False,
-                "required": ["ingredient_id", "ingredient_name", "quantity", "unit", "note"],
+                "required": ["ingredient_id", "ingredient_name", "note"],
                 "properties": {
                     "ingredient_id": {"type": "string", "minLength": 1},
                     "ingredient_name": {"type": "string"},
-                    "quantity": {"type": "number", "exclusiveMinimum": 0},
-                    "unit": {"type": "string"},
+                    "quantity": {"type": ["number", "null"], "exclusiveMinimum": 0},
+                    "unit": {"type": ["string", "null"]},
                     "note": {"type": "string"},
                 },
             },
@@ -153,7 +153,8 @@ def _selected_ingredient_lines(context: AgentContext) -> list[str]:
             f"1{entry['unit']}={entry['ratio_to_default']:g}{item.default_unit}"
             for entry in conversions
         )
-        parts = [f"默认单位={item.default_unit}"]
+        quantity_mode = item.quantity_tracking_mode.value if hasattr(item.quantity_tracking_mode, "value") else str(item.quantity_tracking_mode)
+        parts = [f"默认单位={item.default_unit}", f"计量模式={quantity_mode}"]
         if supported_units:
             parts.append(f"支持单位={','.join(supported_units)}")
         if conversion_text:
@@ -179,7 +180,8 @@ def build_recipe_draft_messages(context: AgentContext, request: RecipeDraftGener
 硬规则：
 - 菜谱必须真实可做，适合家庭厨房复做，不生成品牌、人物、医疗功效或营养治疗承诺。
 - 系统食材必须保留对应 ingredient_id，并优先使用默认单位。
-- ingredient_items 中的 quantity 和 unit 必须已经换算到该食材的默认单位；用户给出支持单位时按配置换算后填写默认单位。
+- 对 `quantityTrackingMode=track_quantity` 的食材，ingredient_items 中的 quantity 和 unit 必须已经换算到该食材的默认单位；用户给出支持单位时按配置换算后填写默认单位。
+- 对 `quantityTrackingMode=not_track_quantity` 的食材，不需要硬填结构化 quantity/unit；把“少许、喷油、按口味、出锅前撒”等用量线索写在步骤 text 或 note 里。
 - 如果用户给出的单位没有配置换算关系，不要硬编库存扣减数量；可把口语用量写入步骤或 tips，等待用户先补充食材单位配置。
 - 自由食材进入 ingredient_items 前必须先调用 ingredient.search 召回当前家庭候选；明确是同一食材时才绑定真实 ingredient_id。
 - ingredient.search 只是候选召回，不能把检索结果自动当作匹配成功；多个候选或不确定时，不要强行绑定。
@@ -187,7 +189,7 @@ def build_recipe_draft_messages(context: AgentContext, request: RecipeDraftGener
 - ingredient_items 只能包含已绑定真实 ingredient_id 的食材；ingredient_id 不能为空。
 - ingredient_items 要包含主料、必要辅料和主要调料/蘸料，帮助用户做菜前准备充分；盐、生抽、老抽、料酒、醋、糖、淀粉、食用油、姜、葱、蒜、辣椒、花椒、胡椒粉、香油、蚝油等只要会明显影响成菜且能匹配真实食材，就不要只藏在步骤或 tips 里。
 - 只有点缀项、极少量可选调味、按口味自调且不适合库存追踪的内容，才可以写入步骤或 tips；主要调料没有候选食材时，必须在 tips 中提示需要先补食材档案或确认替代项。
-- 数量要按 servings 估算，不能都写 1 或“适量”；主要调料也要给可执行的估算量。
+- 数量要按 servings 估算，不能都写 1 或“适量”；但 `quantityTrackingMode=not_track_quantity` 的主要调料可以不填结构化数量，必须在步骤或备注里给可执行用量线索。
 - steps 必须 3 到 8 步，覆盖备菜、预处理或烹调、调味收尾、装盘检查。涉及肉蛋海鲜必须写熟透判断。
 - 每步 text 至少两句，包含具体动作、用量或比例线索、火力或温度、时间范围、完成状态判断。
 - icon 只能是 pan、tomato、bowl、timer、tip、plate；difficulty 只能是 easy、medium、hard。

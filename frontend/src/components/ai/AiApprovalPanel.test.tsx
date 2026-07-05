@@ -963,6 +963,34 @@ describe('ApprovalPanel', () => {
     rendered.unmount();
   });
 
+  it('keeps numeric draft inputs empty while users replace an existing value', async () => {
+    const pending = shoppingApproval();
+    const decideSpy = vi.fn().mockResolvedValue(undefined);
+    const ingredients = [
+      { id: 'ingredient-egg', name: '鸡蛋', category: '蛋奶', default_unit: '盒' },
+    ] as Ingredient[];
+    const rendered = await renderWithQuery(<ApprovalPanel approval={pending} ingredients={ingredients} onDecision={decideSpy} />);
+    const quantityInput = rendered.container.querySelector<HTMLInputElement>('.ai-shopping-list-draft-editor input[type="number"]');
+
+    expect(quantityInput?.value).toBe('1');
+    changeInput(quantityInput as HTMLInputElement, '');
+    expect(quantityInput?.value).toBe('');
+    changeInput(quantityInput as HTMLInputElement, '2');
+    expect(quantityInput?.value).toBe('2');
+
+    await act(async () => {
+      rendered.container.querySelector<HTMLButtonElement>('button.solid-button')?.click();
+    });
+    await flushAsync();
+    expect(decideSpy).toHaveBeenCalledWith(
+      pending,
+      'approved',
+      { draft: expect.objectContaining({ items: [expect.objectContaining({ quantity: 2 })] }) },
+      '',
+    );
+    rendered.unmount();
+  });
+
   it('renders shopping list drafts with summary, quantity mode dropdown, and unit combobox', async () => {
     const pending = shoppingApproval({
       initial_values: {

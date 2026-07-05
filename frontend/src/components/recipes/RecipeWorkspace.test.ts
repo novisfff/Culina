@@ -67,6 +67,24 @@ const egg: Ingredient = {
   updated_at: '2026-05-01T10:00:00Z',
 };
 
+const salt: Ingredient = {
+  id: 'ingredient-salt',
+  family_id: 'family-1',
+  name: '盐',
+  category: '调料',
+  default_unit: 'g',
+  unit_conversions: [],
+  quantity_tracking_mode: 'not_track_quantity',
+  default_storage: '常温',
+  default_expiry_mode: 'none',
+  default_expiry_days: null,
+  default_low_stock_threshold: null,
+  notes: '',
+  image: null,
+  created_at: '2026-05-01T10:00:00Z',
+  updated_at: '2026-05-01T10:00:00Z',
+};
+
 function recipeForm(overrides: Partial<RecipeFormState> = {}): RecipeFormState {
   return {
     title: ' 番茄炒蛋 ',
@@ -161,6 +179,38 @@ describe('recipe workspace payload helpers', () => {
 
     expect(payload.ingredient_items).toEqual([{ ingredient_id: null, ingredient_name: '葱花', quantity: 0.5, unit: '个', note: '可选' }]);
     expect(payload.media_ids).toEqual([]);
+  });
+
+  it('does not require quantity input for linked presence-only ingredients', () => {
+    const payload = buildRecipePayload(
+      recipeForm({ images: {} }),
+      [{ id: 'row-salt', ingredient_id: salt.id, ingredient_name: '盐', quantity: '', unit: '', note: '出锅前按口味调整' }],
+      [tomato, egg, salt]
+    );
+
+    expect(payload.ingredient_items).toEqual([
+      { ingredient_id: salt.id, ingredient_name: '盐', quantity: 1, unit: 'g', note: '出锅前按口味调整' },
+    ]);
+  });
+
+  it('uses row tracking snapshots for presence-only ingredients selected from search results', () => {
+    const payload = buildRecipePayload(
+      recipeForm({ images: {} }),
+      [{
+        id: 'row-oil',
+        ingredient_id: 'ingredient-oil',
+        ingredient_name: '食用油',
+        quantity: 999,
+        unit: '毫升',
+        note: '步骤里写少量刷油',
+        quantity_tracking_mode: 'not_track_quantity',
+      } as RecipeDraftIngredient],
+      [tomato, egg]
+    );
+
+    expect(payload.ingredient_items).toEqual([
+      { ingredient_id: 'ingredient-oil', ingredient_name: '食用油', quantity: 1, unit: '毫升', note: '步骤里写少量刷油' },
+    ]);
   });
 
   it('parses unresolved ingredient API errors and maps them back to editable rows', () => {
@@ -287,6 +337,38 @@ describe('recipe workspace payload helpers', () => {
     expect(result.ingredients).toMatchObject([
       { ingredient_id: tomato.id, ingredient_name: '番茄', quantity: 2, unit: '个', note: '切块' },
       { ingredient_id: '', ingredient_name: '葱花', quantity: 1, unit: '撮', note: '可选：出锅点缀' },
+    ]);
+  });
+
+  it('accepts generated presence-only recipe draft ingredients without quantity or unit', () => {
+    const draft = {
+      title: '清炒番茄',
+      servings: 2,
+      prep_minutes: 12,
+      difficulty: 'easy',
+      ingredient_items: [
+        { ingredient_id: salt.id, ingredient_name: '盐', note: '步骤中按口味少量调整' },
+      ],
+      steps: [
+        {
+          title: '调味',
+          text: '番茄炒软后关小火，撒少量盐调味。',
+          icon: 'pan',
+          summary: '按口味调味',
+          estimated_minutes: 2,
+          tip: '先少放，出锅前再尝味。',
+          key_points: ['少量多次'],
+        },
+      ],
+      tips: '盐不单独计算用量，按步骤提示调整。',
+      scene_tags: ['家常菜'],
+      media_ids: [],
+    };
+
+    expect(isAiGeneratedRecipeDraft(draft)).toBe(true);
+    if (!isAiGeneratedRecipeDraft(draft)) throw new Error('draft should be accepted');
+    expect(buildRecipeFormFromGeneratedDraft(draft).ingredients).toMatchObject([
+      { ingredient_id: salt.id, ingredient_name: '盐', quantity: '', unit: '', note: '步骤中按口味少量调整' },
     ]);
   });
 

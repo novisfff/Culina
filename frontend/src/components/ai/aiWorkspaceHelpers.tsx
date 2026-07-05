@@ -154,19 +154,79 @@ function messageTextPartToAppend(existingParts: AiMessagePart[], part: AiMessage
   return part;
 }
 
+function compactMessageText(value: string) {
+  return value.replace(/\s+/g, '');
+}
+
+function sliceAfterCompactPrefix(text: string, compactPrefixLength: number) {
+  if (compactPrefixLength <= 0) return text;
+  let consumed = 0;
+  for (let index = 0; index < text.length; index += 1) {
+    if (/\s/.test(text[index])) continue;
+    consumed += 1;
+    if (consumed >= compactPrefixLength) {
+      return text.slice(index + 1);
+    }
+  }
+  return '';
+}
+
+function findTrailingTextPartIndex(parts: AiMessagePart[]) {
+  for (let index = parts.length - 1; index >= 0; index -= 1) {
+    const part = parts[index];
+    if (part.type === 'text' && part.text?.trim()) return index;
+  }
+  return -1;
+}
+
+function completedTrailingTextParts(existingParts: AiMessagePart[], part: AiMessagePart) {
+  if (part.type !== 'text') return null;
+  const text = part.text?.trim();
+  if (!text) return null;
+  const trailingTextIndex = findTrailingTextPartIndex(existingParts);
+  if (trailingTextIndex < 0 || !existingParts.slice(0, trailingTextIndex).some((item) => item.type !== 'text')) {
+    return null;
+  }
+  const trailingTextPart = existingParts[trailingTextIndex];
+  if (trailingTextPart.type !== 'text') return null;
+  const trailingText = trailingTextPart.text?.trim() ?? '';
+  const compactText = compactMessageText(text);
+  const compactTrailingText = compactMessageText(trailingText);
+  if (compactText.length > compactTrailingText.length && compactText.startsWith(compactTrailingText)) {
+    return existingParts.map((item, index) => (index === trailingTextIndex ? { ...item, text } : item));
+  }
+  const existingText = messageTextFromParts(existingParts).trim();
+  const compactExistingText = compactMessageText(existingText);
+  if (compactText.length > compactExistingText.length && compactText.startsWith(compactExistingText)) {
+    const suffix = sliceAfterCompactPrefix(text, compactExistingText.length).trim();
+    if (!suffix) return existingParts;
+    return existingParts.map((item, index) => (
+      index === trailingTextIndex && item.type === 'text'
+        ? { ...item, text: appendAssistantDelta(item.text ?? '', suffix, false) }
+        : item
+    ));
+  }
+  return null;
+}
+
 function mergeMessageParts(primary: AiMessage, secondary: AiMessage) {
   const secondaryPartsByKey = new Map(secondary.parts.map((part) => [messagePartKey(part), part]));
   const primaryPartKeys = new Set(primary.parts.map(messagePartKey));
   const primaryHasText = primary.parts.some((part) => part.type === 'text' && part.text?.trim());
   const primaryHasStructure = hasStructurePart(primary);
   const primaryText = messageTextFromParts(primary.parts);
-  const parts = primary.parts.map((part) => {
+  let parts = primary.parts.map((part) => {
     const secondaryPart = secondaryPartsByKey.get(messagePartKey(part));
     return secondaryPart ? mergeMessagePart(part, secondaryPart) : part;
   });
   for (const part of secondary.parts) {
     if (part.type === 'text' && primaryHasText && primaryHasStructure && part.text?.trim() === primaryText.trim()) continue;
     if (!primaryPartKeys.has(messagePartKey(part))) {
+      const completedParts = completedTrailingTextParts(parts, part);
+      if (completedParts) {
+        parts = completedParts;
+        continue;
+      }
       const partToAppend = messageTextPartToAppend(parts, part);
       if (partToAppend) parts.push(partToAppend);
     }

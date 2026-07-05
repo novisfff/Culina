@@ -18,6 +18,7 @@ import {
   createEmptyRecipeStepDraft,
   getRecipeShoppingRequirement,
   getRecipeStepIconName,
+  isPresenceOnlyRecipeIngredient,
   stripRecipeIngredientRequirementNote,
   type RecipeDraftGenerationStage,
   type RecipeDraftIngredient,
@@ -410,65 +411,73 @@ export function RecipeEditorView({
                   </ActionButton>
                 </div>
                 <div className="recipe-editor-ingredient-table">
-                  {ingredientRows.map((item, index) => (
-                    <div key={item.id} className="recipe-editor-ingredient-row">
-                      <span className="recipe-editor-drag-handle">::</span>
-                      
-                      <div className="recipe-editor-ingredient-main">
-                        <div className="recipe-editor-ingredient-col-left">
-                          <RecipeIngredientPicker
-                            row={item}
-                            rowIndex={index}
-                            ingredients={ingredients}
-                            onSelect={(ingredient) => selectIngredientRow(item.id, ingredient)}
-                          />
-                          <input
-                            className="text-input recipe-editor-ingredient-note"
-                            value={stripRecipeIngredientRequirementNote(item.note)}
-                            placeholder="备注 (选填)"
-                            onChange={(event) => updateIngredientNote(item.id, event.target.value)}
-                          />
-                        </div>
-                        
-                        <div className="recipe-editor-ingredient-col-right">
-                          <div className="recipe-editor-ingredient-qty-group">
-                            <input
-                              className="text-input"
-                              type="number"
-                              min="0.1"
-                              step="0.1"
-                              placeholder="数量"
-                              value={item.quantity}
-                              onChange={(event) => updateIngredientRow(item.id, 'quantity', event.target.value)}
-                            />
-                            <select
-                              className="text-input"
-                              value={item.unit}
-                              onChange={(event) => updateIngredientRow(item.id, 'unit', event.target.value)}
-                            >
-                              {[...new Set([item.unit, ...SHOPPING_UNIT_OPTIONS])].filter(Boolean).map((unit) => (
-                                <option key={unit} value={unit}>{unit}</option>
-                              ))}
-                            </select>
-                          </div>
-                          
-                          <label className="recipe-editor-ingredient-must-toggle">
-                            <input
-                              type="checkbox"
-                              checked={getRecipeShoppingRequirement(item) === 'required'}
-                              onChange={(event) => updateIngredientRequirement(item.id, event.target.checked ? 'required' : 'optional')}
-                            />
-                            <span className="toggle-slider" />
-                            <span className="toggle-label">必须</span>
-                          </label>
-                        </div>
-                      </div>
+                  {ingredientRows.map((item, index) => {
+                    const selectedIngredient = item.ingredient_id ? ingredients.find((ingredient) => ingredient.id === item.ingredient_id) : null;
+                    const usesPresenceOnlyQuantity = isPresenceOnlyRecipeIngredient(item, selectedIngredient ?? undefined);
+                    return (
+                      <div key={item.id} className="recipe-editor-ingredient-row">
+                        <span className="recipe-editor-drag-handle">::</span>
 
-                      <button className="recipe-editor-icon-button" type="button" onClick={() => removeIngredientRow(item.id)} aria-label={`删除原料 ${index + 1}`}>
-                        <RecipeUiIcon name="minus" />
-                      </button>
-                    </div>
-                  ))}
+                        <div className="recipe-editor-ingredient-main">
+                          <div className="recipe-editor-ingredient-col-left">
+                            <RecipeIngredientPicker
+                              row={item}
+                              rowIndex={index}
+                              ingredients={ingredients}
+                              onSelect={(ingredient) => selectIngredientRow(item.id, ingredient)}
+                            />
+                            <input
+                              className="text-input recipe-editor-ingredient-note"
+                              value={stripRecipeIngredientRequirementNote(item.note)}
+                              placeholder="备注 (选填)"
+                              onChange={(event) => updateIngredientNote(item.id, event.target.value)}
+                            />
+                          </div>
+
+                          <div className="recipe-editor-ingredient-col-right">
+                            {usesPresenceOnlyQuantity ? (
+                              <div className="recipe-editor-ingredient-presence-note">用量写在步骤或备注里</div>
+                            ) : (
+                              <div className="recipe-editor-ingredient-qty-group">
+                                <input
+                                  className="text-input"
+                                  type="number"
+                                  min="0.1"
+                                  step="0.1"
+                                  placeholder="数量"
+                                  value={item.quantity}
+                                  onChange={(event) => updateIngredientRow(item.id, 'quantity', event.target.value)}
+                                />
+                                <select
+                                  className="text-input"
+                                  value={item.unit}
+                                  onChange={(event) => updateIngredientRow(item.id, 'unit', event.target.value)}
+                                >
+                                  {[...new Set([item.unit, ...SHOPPING_UNIT_OPTIONS])].filter(Boolean).map((unit) => (
+                                    <option key={unit} value={unit}>{unit}</option>
+                                  ))}
+                                </select>
+                              </div>
+                            )}
+
+                            <label className="recipe-editor-ingredient-must-toggle">
+                              <input
+                                type="checkbox"
+                                checked={getRecipeShoppingRequirement(item) === 'required'}
+                                onChange={(event) => updateIngredientRequirement(item.id, event.target.checked ? 'required' : 'optional')}
+                              />
+                              <span className="toggle-slider" />
+                              <span className="toggle-label">必须</span>
+                            </label>
+                          </div>
+                        </div>
+
+                        <button className="recipe-editor-icon-button" type="button" onClick={() => removeIngredientRow(item.id)} aria-label={`删除原料 ${index + 1}`}>
+                          <RecipeUiIcon name="minus" />
+                        </button>
+                      </div>
+                    );
+                  })}
                 </div>
               </section>
 

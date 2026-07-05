@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { AiApprovalRequest, AiGeneratedRecipeDraft, Difficulty, Food, Ingredient } from '../../api/types';
 import { FoodRatingInput } from '../foods/FoodWorkspacePrimitives';
 import { resolveMediaUrl } from '../../lib/assets';
+import { tracksIngredientQuantity } from '../../lib/ingredientTracking';
 import { RECIPE_STEP_ICON_OPTIONS } from '../recipes/RecipeWorkspaceOptions';
 import { INVENTORY_STORAGE_PRESETS, buildUnitPresetOptions } from '../ingredients/ingredientWorkspaceForms';
 import { getIngredientEditorCategoryPresets } from '../ingredients/workspaceModel';
@@ -22,7 +23,7 @@ import {
   validateInventoryOperationDraftForSubmit,
   type InventoryOperationDraftItemPatch,
 } from './aiInventoryOperationDraftModel';
-import { asDraftArray, asNumber, asText } from './aiDraftValueUtils';
+import { asDraftArray, asNumber, asText, draftNumberFromInput, draftNumberInputValue, nullableDraftNumberFromInput } from './aiDraftValueUtils';
 
 export type { AiResourceOptionLoader } from './AiApprovalFields';
 
@@ -239,11 +240,20 @@ function recipeDraftUnitOptions(unit: string) {
   return buildUnitPresetOptions(unit).map((item) => ({ value: item, label: item }));
 }
 
+function recipeIngredientUsesPresenceQuantity(
+  item: AiGeneratedRecipeDraft['ingredient_items'][number],
+  ingredients: Ingredient[],
+) {
+  if (!item.ingredient_id) return false;
+  const ingredient = ingredients.find((entry) => entry.id === item.ingredient_id);
+  return Boolean(ingredient && !tracksIngredientQuantity(ingredient));
+}
+
 function recipeIngredientItemsFromUnknown(value: unknown): AiGeneratedRecipeDraft['ingredient_items'] {
   return asDraftArray(value).map((item) => ({
     ingredient_id: asText(item.ingredient_id) || asText(item.ingredientId) || null,
     ingredient_name: asText(item.ingredient_name) || asText(item.ingredientName) || asText(item.name),
-    quantity: asNumber(item.quantity, 1),
+    quantity: draftNumberInputValue(item.quantity, 1) as number,
     unit: asText(item.unit, '份'),
     note: asText(item.note),
   }));
@@ -266,8 +276,8 @@ function recipeDraftFromRecord(record: Record<string, unknown>, fallback?: Recor
   const difficulty = asText(record.difficulty) || asText(fallbackRecord.difficulty) || 'easy';
   return {
     title: asText(record.title) || asText(fallbackRecord.title),
-    servings: asNumber(record.servings, asNumber(fallbackRecord.servings, 1)),
-    prep_minutes: asNumber(record.prep_minutes, asNumber(fallbackRecord.prep_minutes, 0)),
+    servings: draftNumberInputValue(record.servings, asNumber(fallbackRecord.servings, 1)) as number,
+    prep_minutes: draftNumberInputValue(record.prep_minutes, asNumber(fallbackRecord.prep_minutes, 0)) as number,
     difficulty: (DIFFICULTY_OPTIONS.some((option) => option.value === difficulty) ? difficulty : 'easy') as Difficulty,
     ingredient_items: recipeIngredientItemsFromUnknown(record.ingredient_items ?? fallbackRecord.ingredient_items),
     steps: recipeStepsFromUnknown(record.steps ?? fallbackRecord.steps),
@@ -592,7 +602,7 @@ function shoppingListQuantityMode(value: Record<string, unknown>) {
 
 function shoppingListItemRecord(value: Record<string, unknown>) {
   const quantityMode = shoppingListQuantityMode(value);
-  const quantity = asNumber(value.quantity, 1);
+  const quantity = draftNumberInputValue(value.quantity, 1);
   const unit = asText(value.unit, '份');
   return {
     ...value,
@@ -1405,11 +1415,11 @@ export function ApprovalPanel({
                 <div className="ai-confirmation-grid ai-confirmation-grid-three">
                   <label className="ai-resource-field">
                     <span>份量</span>
-                    <input className="text-input" type="number" min={1} value={operationRecipe.servings} disabled={readonly} onChange={(event) => updatePayload({ servings: Number(event.target.value) || 1 })} />
+                    <input className="text-input" type="number" min={1} value={draftNumberInputValue(operationRecipe.servings, 1)} disabled={readonly} onChange={(event) => updatePayload({ servings: draftNumberFromInput(event.target.value) })} />
                   </label>
                   <label className="ai-resource-field">
                     <span>时间（分钟）</span>
-                    <input className="text-input" type="number" min={0} value={operationRecipe.prep_minutes} disabled={readonly} onChange={(event) => updatePayload({ prep_minutes: Number(event.target.value) || 0 })} />
+                    <input className="text-input" type="number" min={0} value={draftNumberInputValue(operationRecipe.prep_minutes, 0)} disabled={readonly} onChange={(event) => updatePayload({ prep_minutes: draftNumberFromInput(event.target.value) })} />
                   </label>
                   <ApprovalSelectField
                     label="难度"
@@ -1444,54 +1454,61 @@ export function ApprovalPanel({
                     </button>
                   )}
                 </div>
-                {operationRecipe.ingredient_items.map((item, index) => (
-                  <div className={`ai-recipe-ingredient-card${item.ingredient_id ? '' : ' is-unbound'}`} key={`${item.ingredient_name}-${index}`}>
-                    <SearchableResourceSelect
-                      kind="ingredient"
-                      label={`食材 ${index + 1}`}
-                      value={item.ingredient_id ?? ''}
-                      selectedLabel={item.ingredient_name}
-                      placeholder="从食材库选择"
-                      disabled={readonly}
-                      selectedOption={ingredientOptions.find((option) => option.id === item.ingredient_id || option.label === item.ingredient_name) ?? null}
-                      loadOptions={loadApprovalResourceOptions}
-                      onSelect={(option) => updateOperationIngredient(index, {
-                        ingredient_id: option.id,
-                        ingredient_name: option.label,
-                        unit: option.unit || item.unit,
-                      })}
-                    />
-                    {!item.ingredient_id && (
-                      <p className="ai-recipe-binding-warning">
-                        未绑定到食材库。请先选择已有食材；如果家里还没有这个食材，应先生成食材档案草稿。
-                      </p>
-                    )}
-                    <div className="ai-confirmation-grid ai-confirmation-grid-compact">
-                      <label className="ai-resource-field">
-                        <span>数量</span>
-                        <input className="text-input" type="number" min={0.1} step={0.1} value={item.quantity} disabled={readonly} onChange={(event) => updateOperationIngredient(index, { quantity: Number(event.target.value) || 1 })} />
-                      </label>
-                      <ApprovalComboboxField
-                        label="单位"
-                        value={item.unit}
+                {operationRecipe.ingredient_items.map((item, index) => {
+                  const usesPresenceQuantity = recipeIngredientUsesPresenceQuantity(item, ingredients);
+                  return (
+                    <div className={`ai-recipe-ingredient-card${item.ingredient_id ? '' : ' is-unbound'}`} key={`${item.ingredient_name}-${index}`}>
+                      <SearchableResourceSelect
+                        kind="ingredient"
+                        label={`食材 ${index + 1}`}
+                        value={item.ingredient_id ?? ''}
+                        selectedLabel={item.ingredient_name}
+                        placeholder="从食材库选择"
                         disabled={readonly}
-                        options={recipeDraftUnitOptions(item.unit)}
-                        placeholder="选择单位"
-                        icon="step"
-                        onChange={(unit) => updateOperationIngredient(index, { unit })}
+                        selectedOption={ingredientOptions.find((option) => option.id === item.ingredient_id || option.label === item.ingredient_name) ?? null}
+                        loadOptions={loadApprovalResourceOptions}
+                        onSelect={(option) => updateOperationIngredient(index, {
+                          ingredient_id: option.id,
+                          ingredient_name: option.label,
+                          unit: option.unit || item.unit || '',
+                        })}
                       />
+                      {!item.ingredient_id && (
+                        <p className="ai-recipe-binding-warning">
+                          未绑定到食材库。请先选择已有食材；如果家里还没有这个食材，应先生成食材档案草稿。
+                        </p>
+                      )}
+                      {usesPresenceQuantity ? (
+                        <div className="recipe-editor-ingredient-presence-note">用量写在步骤或备注里</div>
+                      ) : (
+                        <div className="ai-confirmation-grid ai-confirmation-grid-compact">
+                          <label className="ai-resource-field">
+                            <span>数量</span>
+                            <input className="text-input" type="number" min={0.1} step={0.1} value={draftNumberInputValue(item.quantity)} disabled={readonly} onChange={(event) => updateOperationIngredient(index, { quantity: draftNumberFromInput(event.target.value) as number })} />
+                          </label>
+                          <ApprovalComboboxField
+                            label="单位"
+                            value={item.unit ?? ''}
+                            disabled={readonly}
+                            options={recipeDraftUnitOptions(item.unit ?? '')}
+                            placeholder="选择单位"
+                            icon="step"
+                            onChange={(unit) => updateOperationIngredient(index, { unit })}
+                          />
+                        </div>
+                      )}
+                      <label className="ai-resource-field">
+                        <span>处理备注</span>
+                        <input className="text-input" value={item.note} disabled={readonly} placeholder="例如切块、提前浸泡" onChange={(event) => updateOperationIngredient(index, { note: event.target.value })} />
+                      </label>
+                      {!readonly && operationRecipe.ingredient_items.length > 1 && (
+                        <button className="ghost-button ai-draft-remove-button" type="button" onClick={() => updatePayload({ ingredient_items: operationRecipe.ingredient_items.filter((_, itemIndex) => itemIndex !== index) })}>
+                          删除食材
+                        </button>
+                      )}
                     </div>
-                    <label className="ai-resource-field">
-                      <span>处理备注</span>
-                      <input className="text-input" value={item.note} disabled={readonly} placeholder="例如切块、提前浸泡" onChange={(event) => updateOperationIngredient(index, { note: event.target.value })} />
-                    </label>
-                    {!readonly && operationRecipe.ingredient_items.length > 1 && (
-                      <button className="ghost-button ai-draft-remove-button" type="button" onClick={() => updatePayload({ ingredient_items: operationRecipe.ingredient_items.filter((_, itemIndex) => itemIndex !== index) })}>
-                        删除食材
-                      </button>
-                    )}
-                  </div>
-                ))}
+                  );
+                })}
               </div>
               <div className="ai-recipe-draft-section">
                 <div className="ai-recipe-draft-section-head ai-recipe-draft-section-head-row">
@@ -1518,7 +1535,7 @@ export function ApprovalPanel({
                       </label>
                       <label className="ai-resource-field">
                         <span>预计用时（分钟）</span>
-                        <input className="text-input" type="number" min={1} value={step.estimated_minutes ?? ''} disabled={readonly} placeholder="分钟" onChange={(event) => updateOperationStep(index, { estimated_minutes: Number(event.target.value) || null })} />
+                        <input className="text-input" type="number" min={1} value={draftNumberInputValue(step.estimated_minutes)} disabled={readonly} placeholder="分钟" onChange={(event) => updateOperationStep(index, { estimated_minutes: nullableDraftNumberFromInput(event.target.value) })} />
                       </label>
                       <ApprovalSelectField
                         label="步骤图标"
@@ -1607,7 +1624,7 @@ export function ApprovalPanel({
           </div>
         );
       };
-      const renderMissingIngredients = (item: Record<string, unknown>, onChange: (nextItems: Array<{ ingredientId: string; name: string; quantity: number; unit: string }>) => void) => (
+      const renderMissingIngredients = (item: Record<string, unknown>, onChange: (nextItems: Array<{ ingredientId: string; name: string; quantity: number | ''; unit: string }>) => void) => (
         <div className="ai-meal-plan-missing-section">
           <p className="ai-recipe-summary-note">这里仅作为计划缺料提醒，不会登记库存或加入购物清单。</p>
           <IngredientQuantityPicker
@@ -1946,7 +1963,7 @@ export function ApprovalPanel({
                 <div className="ai-confirmation-grid ai-confirmation-grid-compact">
                   <label className="ai-resource-field">
                     <span>数量</span>
-                    <input className="text-input" type="number" min={0.1} step={0.1} value={record.quantity} disabled={readonly} onChange={(event) => patchItem({ quantity: Number(event.target.value) || 1 })} />
+                    <input className="text-input" type="number" min={0.1} step={0.1} value={draftNumberInputValue(record.quantity, 1)} disabled={readonly} onChange={(event) => patchItem({ quantity: draftNumberFromInput(event.target.value) })} />
                   </label>
                   <ApprovalComboboxField
                     label="单位"
@@ -2236,7 +2253,7 @@ export function ApprovalPanel({
                         />
                         <label className="ai-resource-field">
                           <span>份数</span>
-                          <input className="text-input" type="number" min={0.1} step={0.1} value={asNumber(food.servings)} disabled={readonly} onChange={(event) => updateMealLogFood(index, { servings: Number(event.target.value) || 1 })} />
+                          <input className="text-input" type="number" min={0.1} step={0.1} value={draftNumberInputValue(food.servings, 1)} disabled={readonly} onChange={(event) => updateMealLogFood(index, { servings: draftNumberFromInput(event.target.value) })} />
                         </label>
                         <label className="ai-resource-field ai-confirmation-copy-field">
                           <span>食物备注</span>
@@ -2460,7 +2477,7 @@ export function ApprovalPanel({
               <div className="ai-confirmation-grid">
                 <label className="ai-resource-field">
                   <span>份数</span>
-                  <input className="text-input" type="number" min={0.1} step={0.1} value={asNumber(structuredDraft.servings, 1)} disabled={readonly} onChange={(event) => updateDraft({ servings: Number(event.target.value) || 1 })} />
+                  <input className="text-input" type="number" min={0.1} step={0.1} value={draftNumberInputValue(structuredDraft.servings, 1)} disabled={readonly} onChange={(event) => updateDraft({ servings: draftNumberFromInput(event.target.value) })} />
                 </label>
                 <label className="ai-resource-field ai-resource-field-date">
                   <span>日期</span>
@@ -3610,11 +3627,11 @@ export function ApprovalPanel({
                       <div className="ai-confirmation-grid ai-confirmation-grid-three">
                         <label className="ai-resource-field">
                           <span>份量</span>
-                          <input className="text-input" type="number" min={1} value={recipe.servings} disabled={readonly} onChange={(event) => setRecipe({ ...recipe, servings: Number(event.target.value) || 1 })} />
+                          <input className="text-input" type="number" min={1} value={draftNumberInputValue(recipe.servings, 1)} disabled={readonly} onChange={(event) => setRecipe({ ...recipe, servings: draftNumberFromInput(event.target.value) as number })} />
                         </label>
                         <label className="ai-resource-field">
                           <span>时间（分钟）</span>
-                          <input className="text-input" type="number" min={0} value={recipe.prep_minutes} disabled={readonly} onChange={(event) => setRecipe({ ...recipe, prep_minutes: Number(event.target.value) || 0 })} />
+                          <input className="text-input" type="number" min={0} value={draftNumberInputValue(recipe.prep_minutes, 0)} disabled={readonly} onChange={(event) => setRecipe({ ...recipe, prep_minutes: draftNumberFromInput(event.target.value) as number })} />
                         </label>
                         <ApprovalSelectField
                           label="难度"
@@ -3640,54 +3657,61 @@ export function ApprovalPanel({
                           </button>
                         )}
                       </div>
-                      {recipe.ingredient_items.map((item, index) => (
-                        <div className={`ai-recipe-ingredient-card${item.ingredient_id ? '' : ' is-unbound'}`} key={`${item.ingredient_name}-${index}`}>
-                          <SearchableResourceSelect
-                            kind="ingredient"
-                            label={`食材 ${index + 1}`}
-                            value={item.ingredient_id ?? ''}
-                            selectedLabel={item.ingredient_name}
-                            placeholder="从食材库选择"
-                            disabled={readonly}
-                            selectedOption={ingredientOptions.find((option) => option.id === item.ingredient_id || option.label === item.ingredient_name) ?? null}
-                            loadOptions={loadApprovalResourceOptions}
-                            onSelect={(option) => updateIngredient(index, {
-                              ingredient_id: option.id,
-                              ingredient_name: option.label,
-                              unit: option.unit || item.unit,
-                            })}
-                          />
-                          {!item.ingredient_id && (
-                            <p className="ai-recipe-binding-warning">
-                              未绑定到食材库。请先选择已有食材；如果家里还没有这个食材，应先生成食材档案草稿。
-                            </p>
-                          )}
-                          <div className="ai-confirmation-grid ai-confirmation-grid-compact">
-                            <label className="ai-resource-field">
-                              <span>数量</span>
-                              <input className="text-input" type="number" min={0.1} step={0.1} value={item.quantity} disabled={readonly} onChange={(event) => updateIngredient(index, { quantity: Number(event.target.value) || 1 })} />
-                            </label>
-                            <ApprovalComboboxField
-                              label="单位"
-                              value={item.unit}
+                      {recipe.ingredient_items.map((item, index) => {
+                        const usesPresenceQuantity = recipeIngredientUsesPresenceQuantity(item, ingredients);
+                        return (
+                          <div className={`ai-recipe-ingredient-card${item.ingredient_id ? '' : ' is-unbound'}`} key={`${item.ingredient_name}-${index}`}>
+                            <SearchableResourceSelect
+                              kind="ingredient"
+                              label={`食材 ${index + 1}`}
+                              value={item.ingredient_id ?? ''}
+                              selectedLabel={item.ingredient_name}
+                              placeholder="从食材库选择"
                               disabled={readonly}
-                              options={recipeDraftUnitOptions(item.unit)}
-                              placeholder="选择单位"
-                              icon="step"
-                              onChange={(unit) => updateIngredient(index, { unit })}
+                              selectedOption={ingredientOptions.find((option) => option.id === item.ingredient_id || option.label === item.ingredient_name) ?? null}
+                              loadOptions={loadApprovalResourceOptions}
+                              onSelect={(option) => updateIngredient(index, {
+                                ingredient_id: option.id,
+                                ingredient_name: option.label,
+                                unit: option.unit || item.unit || '',
+                              })}
                             />
+                            {!item.ingredient_id && (
+                              <p className="ai-recipe-binding-warning">
+                                未绑定到食材库。请先选择已有食材；如果家里还没有这个食材，应先生成食材档案草稿。
+                              </p>
+                            )}
+                            {usesPresenceQuantity ? (
+                              <div className="recipe-editor-ingredient-presence-note">用量写在步骤或备注里</div>
+                            ) : (
+                              <div className="ai-confirmation-grid ai-confirmation-grid-compact">
+                                <label className="ai-resource-field">
+                                  <span>数量</span>
+                                  <input className="text-input" type="number" min={0.1} step={0.1} value={draftNumberInputValue(item.quantity)} disabled={readonly} onChange={(event) => updateIngredient(index, { quantity: draftNumberFromInput(event.target.value) as number })} />
+                                </label>
+                                <ApprovalComboboxField
+                                  label="单位"
+                                  value={item.unit ?? ''}
+                                  disabled={readonly}
+                                  options={recipeDraftUnitOptions(item.unit ?? '')}
+                                  placeholder="选择单位"
+                                  icon="step"
+                                  onChange={(unit) => updateIngredient(index, { unit })}
+                                />
+                              </div>
+                            )}
+                            <label className="ai-resource-field">
+                              <span>处理备注</span>
+                              <input className="text-input" value={item.note} disabled={readonly} placeholder="例如切块、提前浸泡" onChange={(event) => updateIngredient(index, { note: event.target.value })} />
+                            </label>
+                            {!readonly && recipe.ingredient_items.length > 1 && (
+                              <button className="ghost-button ai-draft-remove-button" type="button" onClick={() => setRecipe({ ...recipe, ingredient_items: recipe.ingredient_items.filter((_, itemIndex) => itemIndex !== index) })}>
+                                删除食材
+                              </button>
+                            )}
                           </div>
-                          <label className="ai-resource-field">
-                            <span>处理备注</span>
-                            <input className="text-input" value={item.note} disabled={readonly} placeholder="例如切块、提前浸泡" onChange={(event) => updateIngredient(index, { note: event.target.value })} />
-                          </label>
-                          {!readonly && recipe.ingredient_items.length > 1 && (
-                            <button className="ghost-button ai-draft-remove-button" type="button" onClick={() => setRecipe({ ...recipe, ingredient_items: recipe.ingredient_items.filter((_, itemIndex) => itemIndex !== index) })}>
-                              删除食材
-                            </button>
-                          )}
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   </section>
                   <section className="ai-confirmation-item">
@@ -3716,7 +3740,7 @@ export function ApprovalPanel({
                             </label>
                             <label className="ai-resource-field">
                               <span>预计用时（分钟）</span>
-                              <input className="text-input" type="number" min={1} value={step.estimated_minutes ?? ''} disabled={readonly} placeholder="分钟" onChange={(event) => updateStep(index, { estimated_minutes: Number(event.target.value) || null })} />
+                              <input className="text-input" type="number" min={1} value={draftNumberInputValue(step.estimated_minutes)} disabled={readonly} placeholder="分钟" onChange={(event) => updateStep(index, { estimated_minutes: nullableDraftNumberFromInput(event.target.value) })} />
                             </label>
                             <ApprovalSelectField
                               label="步骤图标"

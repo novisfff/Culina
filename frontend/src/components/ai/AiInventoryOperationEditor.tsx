@@ -5,6 +5,7 @@ import { INVENTORY_STORAGE_PRESETS, buildUnitPresetOptions } from '../ingredient
 import { MediaWithPlaceholder } from '../MediaPlaceholder';
 import { ApprovalComboboxField, ApprovalSelectField } from './AiApprovalFields';
 import type { InventoryOperationDraftItemPatch, InventoryOperationDraftItemViewModel, InventoryOperationDraftViewModel } from './aiInventoryOperationDraftModel';
+import { draftNumberFromInput, draftNumberInputValue } from './aiDraftValueUtils';
 
 const ACTION_LABELS: Record<string, string> = {
   restock: '补货',
@@ -19,7 +20,7 @@ const INVENTORY_STATUS_OPTIONS = [
   { value: 'expiring', label: '临期' },
 ];
 
-function formatInventoryQuantity(quantity: number | null | undefined, unit: string | null | undefined) {
+function formatInventoryQuantity(quantity: unknown, unit: string | null | undefined) {
   const numeric = typeof quantity === 'number' && Number.isFinite(quantity) ? quantity : 0;
   const display = Number.isInteger(numeric) ? String(numeric) : String(Number(numeric.toFixed(2)));
   const unitText = unit ?? '';
@@ -226,10 +227,10 @@ export function AiInventoryOperationEditor({
                     type="number"
                     min={0.01}
                     step={0.01}
-                    value={item.quantity}
+                    value={draftNumberInputValue(item.quantity, 0.01)}
                     disabled={readonly}
                     onChange={(event) => onUpdateItem(index, {
-                      quantity: Number(event.target.value) || 0.01,
+                      quantity: draftNumberFromInput(event.target.value),
                     })}
                   />
                   <ApprovalComboboxField

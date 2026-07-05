@@ -12,13 +12,15 @@ from app.schemas.media import MediaAssetOut
 class RecipeIngredientIn(BaseModel):
     ingredient_id: str | None = None
     ingredient_name: str = Field(min_length=1)
-    quantity: float = Field(gt=0)
-    unit: str = Field(min_length=1)
+    quantity: float | None = Field(default=None, gt=0)
+    unit: str = ""
     note: str = ""
 
 
 class RecipeIngredientOut(RecipeIngredientIn):
     id: str
+    quantity: float = Field(gt=0)
+    unit: str = Field(min_length=1)
 
 
 class RecipeStepIn(BaseModel):

@@ -345,6 +345,61 @@ class AIRecipeDraftsAndImagesTestCase(AIAgentInfraTestCase):
             self.assertEqual(draft["ingredient_items"][0]["unit"], "个")
             self.assertNotIn("ingredient-secret", [item["ingredient_id"] for item in draft["ingredient_items"]])
 
+        def test_recipe_draft_runner_allows_presence_only_ingredients_without_quantity(self) -> None:
+            with self.SessionLocal() as db:
+                db.add(
+                    Ingredient(
+                        id="ingredient-salt",
+                        family_id=self.family.id,
+                        name="盐",
+                        category="调料",
+                        default_unit="g",
+                        unit_conversions=[],
+                        quantity_tracking_mode=IngredientQuantityTrackingMode.NOT_TRACK_QUANTITY,
+                        default_storage="常温",
+                        default_expiry_mode=IngredientExpiryMode.NONE,
+                        notes="",
+                        created_by=self.user.id,
+                        updated_by=self.user.id,
+                    )
+                )
+                db.commit()
+            provider = FakeChatProvider(
+                """
+                {
+                  "title": "清炒番茄",
+                  "servings": 2,
+                  "prep_minutes": 12,
+                  "difficulty": "easy",
+                  "ingredient_items": [
+                    {"ingredient_id": "ingredient-tomato", "ingredient_name": "番茄", "quantity": 2, "unit": "个", "note": "切块"},
+                    {"ingredient_id": "ingredient-salt", "ingredient_name": "盐", "note": "步骤中按口味少量调整"}
+                  ],
+                  "steps": [
+                    {"title": "备菜", "text": "番茄洗净切成小块，放在盘中备用。切块大小尽量一致，后面中火翻炒时更容易均匀变软。", "icon": "tomato", "summary": "处理番茄", "estimated_minutes": 4, "tip": "切块均匀更容易出汁。", "key_points": ["切块一致"]},
+                    {"title": "翻炒", "text": "热锅后倒入少量油，中火下番茄翻炒 3 到 4 分钟。看到番茄明显出汁、边缘变软后转小火准备调味。", "icon": "pan", "summary": "炒出汤汁", "estimated_minutes": 5, "tip": "保持中火，避免糊底。", "key_points": ["中火", "炒出汁"]},
+                    {"title": "调味装盘", "text": "小火撒少量盐，先翻匀 30 秒后尝味。确认咸淡合适、汤汁略微浓稠后关火装盘。", "icon": "plate", "summary": "按口味调味", "estimated_minutes": 3, "tip": "盐少量多次加入。", "key_points": ["尝味", "装盘"]}
+                  ],
+                  "tips": "盐属于只记录有无的调料，用量写在步骤里即可。",
+                  "scene_tags": ["家常菜"]
+                }
+                """
+            )
+            with self.SessionLocal() as db:
+                result = self._generate_recipe_draft(
+                    db,
+                    provider,
+                    prompt="清炒番茄，盐少量调味",
+                    subject={"ingredientIds": ["ingredient-tomato", "ingredient-salt"]},
+                )
+
+            self.assertEqual(result["status"], "completed")
+            salt_item = next(item for item in result["draft"]["ingredient_items"] if item["ingredient_id"] == "ingredient-salt")
+            self.assertEqual(salt_item["ingredient_name"], "盐")
+            self.assertEqual(salt_item["quantity"], 1)
+            self.assertEqual(salt_item["unit"], "g")
+            self.assertEqual(salt_item["note"], "步骤中按口味少量调整")
+
         def test_recipe_image_prompts_do_not_force_banner_composition(self) -> None:
             draft = {
                 "title": "番茄炒蛋",

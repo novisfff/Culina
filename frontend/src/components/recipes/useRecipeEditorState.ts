@@ -89,6 +89,7 @@ export function useRecipeEditorState(args: {
             ingredient_id: value,
             ingredient_name: ingredient?.name ?? '',
             unit: ingredient?.default_unit ?? item.unit,
+            quantity_tracking_mode: ingredient?.quantity_tracking_mode,
           };
         }
         return { ...item, [key]: value };
@@ -105,6 +106,7 @@ export function useRecipeEditorState(args: {
               ingredient_id: ingredient?.id ?? '',
               ingredient_name: ingredient?.name ?? '',
               unit: ingredient?.default_unit ?? item.unit,
+              quantity_tracking_mode: ingredient?.quantity_tracking_mode,
             }
           : item
       )
