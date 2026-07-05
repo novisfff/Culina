@@ -21,6 +21,25 @@ export function isPendingHumanInputPart(part: AiMessagePart) {
   return (part.status ?? 'pending') === 'pending';
 }
 
+export function hasOutputAfterHumanInputRequest(message: AiMessage, requestId: string) {
+  let hasSeenRequest = false;
+  for (const part of message.parts) {
+    if (part.type === 'human_input_request' && part.request?.id === requestId) {
+      hasSeenRequest = true;
+      continue;
+    }
+    if (!hasSeenRequest) continue;
+    if (part.type === 'text') {
+      if (part.text?.trim()) return true;
+      continue;
+    }
+    if (part.type === 'run_activity') return Boolean(part.activity);
+    if (part.type === 'image') return Boolean(part.image);
+    return Boolean(part.card || part.draft || part.approval || part.request);
+  }
+  return false;
+}
+
 function hasRenderableMessageContent(message: AiMessage) {
   return Boolean(message.content?.trim()) || message.parts.some((part) => part.type !== 'text' || Boolean(part.text?.trim()));
 }

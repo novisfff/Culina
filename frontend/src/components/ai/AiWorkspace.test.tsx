@@ -407,6 +407,60 @@ describe('AiWorkspace pending approval restore', () => {
     const assistantMessages = desktopView.querySelectorAll('.ai-message-assistant');
     expect(assistantMessages).toHaveLength(1);
     expect((assistantMessages[0] as HTMLElement).textContent).toContain('已按三天继续安排。');
+    expect(desktopView.querySelector('.ai-thinking-cue')).toBeNull();
+    rendered.unmount();
+  });
+
+  it('keeps thinking after a human input answer is submitted before the next output arrives', async () => {
+    vi.useFakeTimers();
+    vi.spyOn(api, 'getAiMessages').mockResolvedValue([
+      {
+        id: 'message-human-input-resume',
+        conversation_id: 'conversation-1',
+        role: 'assistant',
+        content: '要把西红柿合并到哪一条采购项？',
+        content_type: 'parts',
+        parts: [
+          { id: 'text-question', type: 'text', text: '要把西红柿合并到哪一条采购项？' },
+          {
+            id: 'human-input-part',
+            type: 'human_input_request',
+            status: 'pending',
+            request: {
+              id: 'human-input-resume',
+              question: '要把西红柿合并到哪一条采购项？',
+              inputMode: 'choice',
+              options: [{ id: 'single', label: '单独新增“番茄 1 个”' }],
+              allowMultiple: false,
+              required: true,
+              reason: null,
+              sourceSkills: ['shopping_list'],
+              resumeHint: {},
+            },
+          },
+        ],
+        run_id: null,
+        status: 'completed',
+        metadata: {},
+        created_at: '2026-05-30T00:00:00Z',
+      },
+    ]);
+    vi.spyOn(api, 'getPendingAiApprovals').mockResolvedValue([]);
+    vi.spyOn(api, 'streamAiHumanInputResponse').mockImplementation(() => new Promise<AiChatResponse>(() => undefined));
+
+    const rendered = await renderWithQuery(<AiWorkspace conversations={[conversation()]} isLoading={false} />);
+    await advanceTimers(0);
+    const desktopView = rendered.container.querySelector('.ai-desktop-view') as HTMLElement;
+    await act(async () => {
+      desktopView.querySelector<HTMLButtonElement>('.ai-clarification-option')?.click();
+      await Promise.resolve();
+    });
+    await advanceTimers(300);
+
+    const messageBody = desktopView.querySelector<HTMLElement>('.ai-message-assistant .ai-message-body') as HTMLElement;
+    expect(messageBody.textContent).toContain('回答');
+    expect(messageBody.textContent).toContain('单独新增“番茄 1 个”');
+    expect(messageBody.querySelector('.ai-thinking-cue')?.textContent).toContain('正在思考');
     rendered.unmount();
   });
 

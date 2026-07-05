@@ -174,7 +174,7 @@ export function IngredientShoppingOverlay(props: IngredientShoppingOverlayProps)
   return (
     <WorkspaceModal
       title="新增采购项"
-      description="把这次要买的数量和原因快速记下来。"
+      description="从已有食材里选择要买的东西，再记录数量和原因。"
       closeLabel="关闭"
       closeAriaLabel="关闭"
       className="workspace-modal-wide shopping-quick-modal"
@@ -217,6 +217,9 @@ export function IngredientShoppingOverlay(props: IngredientShoppingOverlayProps)
                   });
                 }}
               />
+              {props.shoppingForm.title.trim() && !props.selectedShoppingIngredient && (
+                <p className="subtle">采购清单只能选择已有食材。没有这个食材时，请先创建食材档案。</p>
+              )}
             </div>
           )}
 
@@ -320,7 +323,7 @@ export function IngredientShoppingOverlay(props: IngredientShoppingOverlayProps)
               <ActionButton tone="secondary" type="button" onClick={props.closeOverlay}>
                 取消
               </ActionButton>
-              <ActionButton tone="primary" type="submit" disabled={props.isCreatingShopping}>
+              <ActionButton tone="primary" type="submit" disabled={props.isCreatingShopping || !props.selectedShoppingIngredient}>
                 {props.isCreatingShopping ? '保存中...' : '加入清单'}
               </ActionButton>
             </div>

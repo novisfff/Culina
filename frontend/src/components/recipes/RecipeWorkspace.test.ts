@@ -1003,30 +1003,39 @@ describe('recipe workspace payload helpers', () => {
     });
   });
 
-  it('builds custom shopping drafts and filters invalid payloads before submit', () => {
-    const custom = buildCustomShoppingDraft('番茄炒蛋', { title: '  厨房纸 ', quantity: '2', unit: '包' });
-    expect(custom).toMatchObject({
-      title: '厨房纸',
+  it('builds custom shopping drafts only from selected ingredients and filters invalid payloads before submit', () => {
+    expect(buildCustomShoppingDraft('番茄炒蛋', { ingredientId: null, title: '  厨房纸 ', quantity: '2', unit: '包' })).toBeNull();
+
+    const custom = buildCustomShoppingDraft('番茄炒蛋', {
+      ingredientId: egg.id,
+      title: '  鸡蛋 ',
       quantity: '2',
-      unit: '包',
+      unit: '枚',
+    });
+    expect(custom).toMatchObject({
+      ingredientId: egg.id,
+      title: '鸡蛋',
+      quantity: '2',
+      unit: '枚',
       source: 'custom',
       requirement: 'required',
     });
-    expect(buildCustomShoppingDraft('番茄炒蛋', { title: '', quantity: '2', unit: '包' })).toBeNull();
-    expect(buildCustomShoppingDraft('番茄炒蛋', { title: '盐', quantity: '0', unit: '包' })).toBeNull();
+    expect(buildCustomShoppingDraft('番茄炒蛋', { ingredientId: egg.id, title: '', quantity: '2', unit: '包' })).toBeNull();
+    expect(buildCustomShoppingDraft('番茄炒蛋', { ingredientId: egg.id, title: '盐', quantity: '0', unit: '包' })).toBeNull();
 
     expect(
       buildShoppingPayloadsFromDrafts([
         custom!,
         { id: 'bad-title', title: ' ', quantity: '1', unit: '个', reason: 'x', source: 'custom', requirement: 'required' },
         { id: 'bad-quantity', title: '盐', quantity: '-1', unit: '包', reason: 'x', source: 'custom', requirement: 'required' },
+        { id: 'bad-ingredient', title: '盐', quantity: '1', unit: '包', reason: 'x', source: 'custom', requirement: 'required' },
       ])
     ).toEqual([
       {
-        title: '厨房纸',
+        title: '鸡蛋',
         quantity: 2,
-        unit: '包',
-        ingredient_id: null,
+        unit: '枚',
+        ingredient_id: egg.id,
         quantity_mode: 'track_quantity',
         display_label: null,
         reason: '来自菜谱：番茄炒蛋',

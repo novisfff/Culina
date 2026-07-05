@@ -179,7 +179,7 @@ class ProgressiveMultiDraftProvider(BaseChatProvider):
         shopping_draft = {
             "draftType": "shopping_list",
             "schemaVersion": "shopping_list.v1",
-            "items": [{"title": "鸡蛋", "quantity": 2, "unit": "个", "reason": "搭配晚餐"}],
+            "items": [{"ingredientId": "ingredient-tomato", "title": "番茄", "quantity": 2, "unit": "个", "reason": "搭配晚餐"}],
         }
         self.active_calls += 1
         if self.active_calls == 1:
@@ -375,7 +375,7 @@ class RetrySameDraftProvider(BaseChatProvider):
         draft = {
             "draftType": "shopping_list",
             "schemaVersion": "shopping_list.v1",
-            "items": [{"title": "牛奶", "quantity": 1, "unit": "瓶", "reason": "早餐"}],
+            "items": [{"ingredientId": "ingredient-tomato", "title": "番茄", "quantity": 1, "unit": "个", "reason": "早餐"}],
         }
         text = "我先生成购物清单草稿。"
         _emit_text(message_handler, text)

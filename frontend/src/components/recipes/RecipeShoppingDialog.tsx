@@ -140,7 +140,7 @@ export function RecipeShoppingDialog(props: RecipeShoppingDialogProps) {
                 })}
               </div>
             ) : (
-              <EmptyState title="还没有待加入项" description="可以从下方已有食材点加号，或添加任意食材。" />
+              <EmptyState title="还没有待加入项" description="可以从下方已有食材点加号，或从食材库选择要补买的食材。" />
             )}
           </section>
 
@@ -157,6 +157,7 @@ export function RecipeShoppingDialog(props: RecipeShoppingDialogProps) {
                 const alreadyAdded = props.drafts.some((draft) => draft.recipeIngredientId === item.id);
                 const requirement = getRecipeShoppingRequirement(item);
                 const linkedIngredient = item.ingredient_id ? props.ingredients.find((ingredient) => ingredient.id === item.ingredient_id) ?? null : null;
+                const canAddIngredient = Boolean(item.ingredient_id);
                 return (
                   <article key={item.id} className="recipe-shopping-candidate-row">
                     <div className="recipe-shopping-candidate-media">
@@ -178,8 +179,8 @@ export function RecipeShoppingDialog(props: RecipeShoppingDialogProps) {
                               : '未匹配库存'}
                       </span>
                     </div>
-                    <button type="button" disabled={alreadyAdded} onClick={() => props.onAddRecipeIngredient(item)}>
-                      {alreadyAdded ? '已加入' : <RecipeUiIcon name="plus" />}
+                    <button type="button" disabled={alreadyAdded || !canAddIngredient} onClick={() => props.onAddRecipeIngredient(item)}>
+                      {alreadyAdded ? '已加入' : canAddIngredient ? <RecipeUiIcon name="plus" /> : '先建档'}
                     </button>
                   </article>
                 );
@@ -190,8 +191,8 @@ export function RecipeShoppingDialog(props: RecipeShoppingDialogProps) {
           <section className="recipe-shopping-custom-section">
             <div className="recipe-shopping-section-head compact">
               <div>
-                <h3>添加任意食材</h3>
-                <p>顺手补其他要买的东西。</p>
+                <h3>从食材库添加</h3>
+                <p>先选择已有食材，再补数量和单位。</p>
               </div>
             </div>
             <div className="recipe-shopping-custom-row">
@@ -200,13 +201,14 @@ export function RecipeShoppingDialog(props: RecipeShoppingDialogProps) {
                   <RecipeUiIcon name="search" />
                   <input
                     value={props.customForm.title}
-                    placeholder="搜索或输入食材名称"
+                    placeholder="搜索食材库"
                     onFocus={() => props.onSetIngredientPickerOpen(true)}
                     onChange={(event) => {
                       const nextTitle = event.target.value;
                       const matched = props.ingredientOptions.find((item) => item.name === nextTitle);
                       props.onChangeCustomForm({
                         ...props.customForm,
+                        ingredientId: matched?.id ?? null,
                         title: nextTitle,
                         unit: matched?.unit ?? props.customForm.unit,
                       });
@@ -254,7 +256,7 @@ export function RecipeShoppingDialog(props: RecipeShoppingDialogProps) {
                 </select>
                 <RecipeUiIcon name="chevronDown" />
               </div>
-              <button className="recipe-shopping-add-button" type="button" onClick={props.onAddCustomDraft}>加入</button>
+              <button className="recipe-shopping-add-button" type="button" onClick={props.onAddCustomDraft} disabled={!props.customForm.ingredientId}>加入</button>
             </div>
           </section>
 

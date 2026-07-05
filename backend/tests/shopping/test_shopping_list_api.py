@@ -203,6 +203,7 @@ def test_create_shopping_item_with_current_family_ingredient_sets_audit_and_acti
     payload = response.json()
     assert payload["family_id"] == shopping_api_context.family_id
     assert payload["ingredient_id"] == shopping_api_context.ingredient_id
+    assert payload["title"] == "番茄"
     assert payload["unit"] == "个"
     assert payload["created_by"] == shopping_api_context.user_id
     assert payload["updated_by"] == shopping_api_context.user_id
@@ -224,7 +225,34 @@ def test_create_shopping_item_with_current_family_ingredient_sets_audit_and_acti
             )
         )
         assert log is not None
-        assert log.summary == "加入购物清单 补番茄"
+        assert log.summary == "加入购物清单 番茄"
+
+
+def test_create_shopping_item_requires_current_family_ingredient_without_side_effects(
+    shopping_api_context: ShoppingApiContext,
+) -> None:
+    response = shopping_api_context.client.post(
+        "/api/shopping-list",
+        json={
+            "title": "临时牛奶",
+            "quantity": 1,
+            "unit": "盒",
+            "reason": "周末早餐",
+        },
+    )
+
+    assert response.status_code == 422
+    assert response.json()["detail"] == "采购项必须选择已有食材"
+
+    with shopping_api_context.SessionLocal() as db:
+        leaked_item = db.scalar(
+            select(ShoppingListItem).where(
+                ShoppingListItem.family_id == shopping_api_context.family_id,
+                ShoppingListItem.title == "临时牛奶",
+            )
+        )
+        assert leaked_item is None
+        assert db.scalar(select(ActivityLog).where(ActivityLog.summary == "加入购物清单 临时牛奶")) is None
 
 
 def test_create_shopping_item_rejects_other_family_ingredient_without_side_effects(
@@ -300,7 +328,7 @@ def test_patch_shopping_item_updates_fields_and_relinks_ingredient(shopping_api_
 
     assert response.status_code == 200, response.text
     payload = response.json()
-    assert payload["title"] == "番茄罐头"
+    assert payload["title"] == "番茄"
     assert payload["quantity"] == 3
     assert payload["unit"] == "罐"
     assert payload["ingredient_id"] == shopping_api_context.ingredient_id
@@ -310,7 +338,7 @@ def test_patch_shopping_item_updates_fields_and_relinks_ingredient(shopping_api_
     with shopping_api_context.SessionLocal() as db:
         item = db.get(ShoppingListItem, shopping_api_context.item_id)
         assert item is not None
-        assert item.title == "番茄罐头"
+        assert item.title == "番茄"
         assert item.quantity == Decimal("3")
         assert item.unit == "罐"
         assert item.reason == "补做意面"
@@ -319,10 +347,35 @@ def test_patch_shopping_item_updates_fields_and_relinks_ingredient(shopping_api_
             select(ActivityLog).where(
                 ActivityLog.family_id == shopping_api_context.family_id,
                 ActivityLog.entity_id == shopping_api_context.item_id,
-                ActivityLog.summary == "更新购物清单 番茄罐头",
+                ActivityLog.summary == "更新购物清单 番茄",
             )
         )
         assert log is not None
+
+
+def test_patch_shopping_item_rejects_clearing_ingredient_on_content_update(
+    shopping_api_context: ShoppingApiContext,
+) -> None:
+    response = shopping_api_context.client.patch(
+        f"/api/shopping-list/{shopping_api_context.item_id}",
+        json={
+            "title": "临时采购",
+            "quantity": 1,
+            "unit": "盒",
+            "ingredient_id": None,
+            "reason": "不应解绑",
+        },
+    )
+
+    assert response.status_code == 422
+    assert response.json()["detail"] == "采购项必须选择已有食材"
+
+    with shopping_api_context.SessionLocal() as db:
+        item = db.get(ShoppingListItem, shopping_api_context.item_id)
+        assert item is not None
+        assert item.title == "番茄"
+        assert item.ingredient_id == shopping_api_context.ingredient_id
+        assert db.scalar(select(ActivityLog).where(ActivityLog.summary == "更新购物清单 临时采购")) is None
 
 
 def test_patch_shopping_item_rejects_other_family_ingredient(shopping_api_context: ShoppingApiContext) -> None:

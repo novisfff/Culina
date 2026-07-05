@@ -91,7 +91,18 @@ export type RecipeShoppingDraftItem = {
   recipeIngredientId?: string;
 };
 
+export type RecipeShoppingPayload = {
+  title: string;
+  quantity: number | null;
+  unit: string | null;
+  ingredient_id: string;
+  quantity_mode: 'track_quantity' | 'not_track_quantity';
+  display_label: string | null;
+  reason: string;
+};
+
 export type RecipeShoppingCustomForm = {
+  ingredientId: string | null;
   title: string;
   quantity: string;
   unit: string;
@@ -1035,11 +1046,13 @@ export function buildShoppingDraftFromRecipeIngredient(recipeTitle: string, item
 }
 
 export function buildCustomShoppingDraft(recipeTitle: string, item: RecipeShoppingCustomForm): RecipeShoppingDraftItem | null {
+  const ingredientId = item.ingredientId?.trim() || null;
   const title = item.title.trim();
   const quantity = Number(item.quantity);
-  if (!title || !Number.isFinite(quantity) || quantity <= 0) return null;
+  if (!ingredientId || !title || !Number.isFinite(quantity) || quantity <= 0) return null;
   return {
     id: `custom-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+    ingredientId,
     title,
     quantity: formatShoppingQuantity(quantity),
     unit: item.unit.trim() || '个',
@@ -1049,24 +1062,29 @@ export function buildCustomShoppingDraft(recipeTitle: string, item: RecipeShoppi
   };
 }
 
-export function buildShoppingPayloadsFromDrafts(drafts: RecipeShoppingDraftItem[]) {
+export function buildShoppingPayloadsFromDrafts(drafts: RecipeShoppingDraftItem[]): RecipeShoppingPayload[] {
   return drafts
-    .map((item) => {
+    .flatMap((item) => {
       const usesPresenceQuantity = item.quantityMode === 'not_track_quantity';
-      return {
+      const ingredientId = item.ingredientId?.trim();
+      const payload = {
         title: item.title.trim(),
         quantity: usesPresenceQuantity ? null : Number(item.quantity),
         unit: usesPresenceQuantity ? null : item.unit.trim() || '个',
-        ingredient_id: item.ingredientId ?? null,
+        ingredient_id: ingredientId ?? '',
         quantity_mode: item.quantityMode ?? 'track_quantity',
         display_label: item.displayLabel ?? null,
         reason: item.reason.trim(),
       };
+      if (
+        !payload.title ||
+        !payload.ingredient_id ||
+        (payload.quantity_mode !== 'not_track_quantity' && (!Number.isFinite(payload.quantity) || payload.quantity === null || payload.quantity <= 0))
+      ) {
+        return [];
+      }
+      return [payload];
     })
-    .filter((item) =>
-      item.title &&
-      (item.quantity_mode === 'not_track_quantity' || (Number.isFinite(item.quantity) && item.quantity !== null && item.quantity > 0))
-    );
 }
 
 function buildShoppingCandidateKey(item: RecipeIngredient) {

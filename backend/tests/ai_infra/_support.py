@@ -730,7 +730,17 @@ class FakeChatProvider(BaseChatProvider):
             if isinstance(artifact, dict) and artifact.get("type") == "meal_plan"
         ]
         source_id = plans[-1]["id"] if plans else None
-        items = [{"title": "鸡蛋", "quantity": 2, "unit": "个", "reason": "用于番茄鸡蛋面", "sourceMeals": ["番茄鸡蛋面"], "alreadyPending": False}]
+        items = [
+            {
+                "ingredientId": "ingredient-tomato",
+                "title": "番茄",
+                "quantity": 2,
+                "unit": "个",
+                "reason": "用于番茄鸡蛋面",
+                "sourceMeals": ["番茄鸡蛋面"],
+                "alreadyPending": False,
+            }
+        ]
         draft = {"draftType": "shopping_list", "schemaVersion": "shopping_list.v1", "items": items, "sourceDraftId": source_id}
         emit_visible("我根据餐食计划里的缺失食材合并了 1 个购物清单草稿项。")
         call("shopping.create_draft", {"draft": draft})

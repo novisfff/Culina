@@ -61,7 +61,7 @@ type UseIngredientActionStateArgs = {
     title: string;
     quantity?: number | null;
     unit?: string | null;
-    ingredient_id?: string | null;
+    ingredient_id: string;
     quantity_mode?: ShoppingListItem['quantity_mode'];
     display_label?: string | null;
     reason: string;
@@ -72,7 +72,7 @@ type UseIngredientActionStateArgs = {
       title?: string;
       quantity?: number | null;
       unit?: string | null;
-      ingredient_id?: string | null;
+      ingredient_id?: string;
       quantity_mode?: ShoppingListItem['quantity_mode'];
       display_label?: string | null;
       reason?: string;
@@ -159,6 +159,10 @@ export function useIngredientActionState(args: UseIngredientActionStateArgs) {
     const selectedShoppingIngredient = args.shoppingForm.title.trim()
       ? args.ingredientOptions.find((item) => item.name === args.shoppingForm.title.trim()) ?? null
       : null;
+    if (!selectedShoppingIngredient) {
+      args.showNotice({ tone: 'warning', title: '先选择食材档案', message: '采购清单只能从已有食材创建。没有这个食材时，请先创建食材档案。' });
+      return;
+    }
     const tracksQuantity = tracksIngredientQuantity(selectedShoppingIngredient);
     const quantity = tracksQuantity ? parsePositiveNumber(args.shoppingForm.quantity) : 1;
     if (tracksQuantity && quantity === null) {
@@ -171,7 +175,7 @@ export function useIngredientActionState(args: UseIngredientActionStateArgs) {
         title: args.shoppingForm.title.trim(),
         quantity: tracksQuantity ? shoppingQuantity : null,
         unit: tracksQuantity ? args.shoppingForm.unit.trim() || '个' : null,
-        ingredient_id: selectedShoppingIngredient?.id ?? null,
+        ingredient_id: selectedShoppingIngredient.id,
         quantity_mode: tracksQuantity ? 'track_quantity' : 'not_track_quantity',
         display_label: tracksQuantity ? null : '需要补充',
         reason: args.shoppingForm.reason.trim() || (!tracksQuantity ? '需要补充' : ''),
