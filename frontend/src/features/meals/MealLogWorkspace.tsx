@@ -89,6 +89,7 @@ export function MealLogWorkspace(props: Props) {
     mealFilter,
   }), [props.recentMeals, props.foodPlanItems, props.members, selectedMealId, searchQuery, statusFilter, mealFilter]);
   const activePreviewPhoto = viewModel.selectedMeal?.photos.find((photo) => photo.id === activePreviewPhotoId) ?? null;
+  const mealEnrichmentFormId = 'meal-log-enrichment-overlay-form';
 
   useEffect(() => {
     if (!selectedMealId && viewModel.selectedMeal) {
@@ -269,6 +270,28 @@ export function MealLogWorkspace(props: Props) {
             eyebrow={modalMode === 'enrich' ? undefined : '记录'}
             className="meal-log-modal meal-log-enrich-modal meal-log-preview-modal"
             onClose={() => setModalMode(null)}
+            footerInfo={modalMode === 'enrich' ? <span>保存后，本次补充记录将会出现在记录时间线中</span> : undefined}
+            footerActions={
+              modalMode === 'preview' && viewModel.selectedMeal && viewModel.selectedSource ? (
+                <FormActions
+                  className="meal-log-preview-modal-actions"
+                  primaryLabel="继续补充"
+                  onPrimary={() => setModalMode('enrich')}
+                  secondaryLabel="取消"
+                  onSecondary={() => setModalMode(null)}
+                />
+              ) : modalMode === 'enrich' && viewModel.selectedMeal && viewModel.selectedSource ? (
+                <FormActions
+                  className="meal-enrichment-actions"
+                  primaryLabel="保存记录"
+                  primaryType="submit"
+                  primaryForm={mealEnrichmentFormId}
+                  isSubmitting={props.isUpdatingMeal}
+                  secondaryLabel="稍后再说"
+                  onSecondary={() => setModalMode(null)}
+                />
+              ) : undefined
+            }
           >
             {modalMode === 'preview' && viewModel.selectedMeal && viewModel.selectedSource ? (
               <div className="meal-log-preview-detail">
@@ -354,16 +377,11 @@ export function MealLogWorkspace(props: Props) {
                   </aside>
                 </div>
 
-                <FormActions
-                  className="meal-log-preview-modal-actions"
-                  primaryLabel="继续补充"
-                  onPrimary={() => setModalMode('enrich')}
-                  secondaryLabel="取消"
-                  onSecondary={() => setModalMode(null)}
-                />
               </div>
             ) : viewModel.selectedMeal && viewModel.selectedSource ? (
               <MealEnrichmentForm
+                formId={mealEnrichmentFormId}
+                showFooter={false}
                 meal={viewModel.selectedMeal}
                 members={props.members}
                 source={viewModel.selectedSource}

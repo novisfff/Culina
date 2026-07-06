@@ -53,6 +53,7 @@ type IngredientInventoryOverlayProps = {
 
 export function IngredientInventoryOverlay(props: IngredientInventoryOverlayProps) {
   const tracksQuantity = tracksIngredientQuantity(props.selectedInventoryIngredient);
+  const inventoryFormId = 'ingredient-inventory-overlay-form';
 
   const statusOptions = useMemo(() => {
     return Object.entries(INVENTORY_STATUS_LABELS).map(([key, label]) => ({
@@ -89,8 +90,20 @@ export function IngredientInventoryOverlay(props: IngredientInventoryOverlayProp
       closeAriaLabel="关闭"
       className="workspace-modal-wide inventory-restock-modal"
       onClose={props.closeOverlay}
+      footerActions={
+        <FormActions
+          className="ingredients-restock-actions"
+          primaryLabel={tracksQuantity ? '补入库存' : '确认已有'}
+          primaryType="submit"
+          primaryForm={inventoryFormId}
+          primaryDisabled={!props.inventoryForm.ingredientId}
+          isSubmitting={Boolean(props.isCreatingInventory)}
+          secondaryLabel="取消"
+          onSecondary={props.closeOverlay}
+        />
+      }
     >
-      <form className="ingredients-restock-form" onSubmit={(event) => void props.submitInventory(event)}>
+      <form id={inventoryFormId} className="ingredients-restock-form" onSubmit={(event) => void props.submitInventory(event)}>
         <div className="ingredients-restock-scroll">
           {props.pendingShoppingToComplete && (
             <div className="ingredients-restock-source-note">
@@ -433,17 +446,6 @@ export function IngredientInventoryOverlay(props: IngredientInventoryOverlayProp
           </section>
         </div>
 
-        <div className="ingredients-restock-footer-bar">
-          <FormActions
-            className="ingredients-restock-actions"
-            primaryLabel={tracksQuantity ? '补入库存' : '确认已有'}
-            primaryType="submit"
-            primaryDisabled={!props.inventoryForm.ingredientId}
-            isSubmitting={Boolean(props.isCreatingInventory)}
-            secondaryLabel="取消"
-            onSecondary={props.closeOverlay}
-          />
-        </div>
       </form>
     </WorkspaceModal>
   );

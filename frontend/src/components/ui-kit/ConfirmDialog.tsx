@@ -50,17 +50,19 @@ export function ConfirmDialog({
         onClose={() => {
           if (!isSubmitting) onCancel();
         }}
+        footerActions={
+          <FormActions
+            primaryLabel={confirmLabel}
+            primaryTone={tone === 'danger' ? 'danger' : 'primary'}
+            secondaryLabel={cancelLabel}
+            isSubmitting={isSubmitting}
+            className={actionsClassName}
+            onPrimary={onConfirm}
+            onSecondary={onCancel}
+          />
+        }
       >
         {typeof description === 'string' ? null : <div className="ui-confirm-dialog-description">{description}</div>}
-        <FormActions
-          primaryLabel={confirmLabel}
-          primaryTone={tone === 'danger' ? 'danger' : 'primary'}
-          secondaryLabel={cancelLabel}
-          isSubmitting={isSubmitting}
-          className={actionsClassName}
-          onPrimary={onConfirm}
-          onSecondary={onCancel}
-        />
       </WorkspaceModal>
     </div>
   );

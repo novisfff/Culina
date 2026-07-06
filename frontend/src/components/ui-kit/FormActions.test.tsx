@@ -85,4 +85,10 @@ describe('FormActions', () => {
     const buttons = Array.from(view.querySelectorAll<HTMLButtonElement>('button'));
     expect(buttons.map((button) => button.textContent)).toEqual(['保存', '取消修改', '删除']);
   });
+
+  it('can link the primary action to an external form', () => {
+    const view = renderActions(<FormActions primaryLabel="提交" primaryType="submit" primaryForm="inventory-form" />);
+
+    expect(view.querySelector<HTMLButtonElement>('button')?.getAttribute('form')).toBe('inventory-form');
+  });
 });

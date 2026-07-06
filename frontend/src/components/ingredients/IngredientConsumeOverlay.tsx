@@ -37,6 +37,7 @@ type IngredientConsumeOverlayProps = {
 };
 
 export function IngredientConsumeOverlay(props: IngredientConsumeOverlayProps) {
+  const consumeFormId = 'ingredient-consume-overlay-form';
   const consumeTracksQuantity = tracksIngredientQuantity(props.selectedConsumeSummary.ingredient);
   const currentUnit = props.selectedConsumeUnit?.unit ?? props.consumeForm.unit;
   const consumeQuantityUnitOptions = [currentUnit, ...props.consumeUnitOptions.map((option) => option.unit)]
@@ -51,8 +52,37 @@ export function IngredientConsumeOverlay(props: IngredientConsumeOverlayProps) {
       closeAriaLabel="关闭"
       className="consume-quick-modal"
       onClose={props.closeOverlay}
+      footerInfo={
+        <div className="consume-quick-footer-summary">
+          <span>本次将记录</span>
+          <strong>
+            {props.selectedConsumeUnit
+              ? `${formatNumericString(props.consumeQuantityValue)}${props.selectedConsumeUnit.unit}`
+              : '先选单位'}
+          </strong>
+          <p>
+            {props.selectedConsumeUnit
+              ? props.consumeIsAllState
+                ? '提交后这一单位库存会接近清空。'
+                : `提交后剩余 ${formatNumericString(props.consumeRemainingQuantity)}${props.selectedConsumeUnit.unit}。`
+              : '系统会自动优先扣减更早到期批次。'}
+          </p>
+        </div>
+      }
+      footerActions={
+        <FormActions
+          className="consume-quick-actions"
+          primaryLabel="确认消耗"
+          primaryType="submit"
+          primaryForm={consumeFormId}
+          primaryDisabled={!props.consumeCanSubmit}
+          isSubmitting={Boolean(props.isConsumingInventory)}
+          secondaryLabel="取消"
+          onSecondary={props.closeOverlay}
+        />
+      }
     >
-      <form className="consume-quick-form" onSubmit={(event) => void props.submitConsume(event)}>
+      <form id={consumeFormId} className="consume-quick-form" onSubmit={(event) => void props.submitConsume(event)}>
         <div className="consume-quick-scroll">
           <section className="ingredients-restock-identity-card ingredients-consume-identity-card">
             <div className="ingredients-restock-identity-media">
@@ -194,32 +224,6 @@ export function IngredientConsumeOverlay(props: IngredientConsumeOverlayProps) {
           </section>
         </div>
 
-        <div className="consume-quick-footer-bar">
-          <div className="consume-quick-footer-summary">
-            <span>本次将记录</span>
-            <strong>
-              {props.selectedConsumeUnit
-                ? `${formatNumericString(props.consumeQuantityValue)}${props.selectedConsumeUnit.unit}`
-                : '先选单位'}
-            </strong>
-            <p>
-              {props.selectedConsumeUnit
-                ? props.consumeIsAllState
-                  ? '提交后这一单位库存会接近清空。'
-                  : `提交后剩余 ${formatNumericString(props.consumeRemainingQuantity)}${props.selectedConsumeUnit.unit}。`
-                : '系统会自动优先扣减更早到期批次。'}
-            </p>
-          </div>
-          <FormActions
-            className="consume-quick-actions"
-            primaryLabel="确认消耗"
-            primaryType="submit"
-            primaryDisabled={!props.consumeCanSubmit}
-            isSubmitting={Boolean(props.isConsumingInventory)}
-            secondaryLabel="取消"
-            onSecondary={props.closeOverlay}
-          />
-        </div>
       </form>
     </WorkspaceModal>
   );

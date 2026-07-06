@@ -42,6 +42,7 @@ export function FoodPlanDialog(props: FoodPlanDialogProps) {
   if (!props.isOpen) {
     return null;
   }
+  const planFormId = 'food-plan-dialog-form';
   const selectedPlanFoodCoverAsset = props.selectedPlanFood
     ? props.getFoodCoverAsset?.(props.selectedPlanFood, props.recipes)
     : undefined;
@@ -58,8 +59,20 @@ export function FoodPlanDialog(props: FoodPlanDialogProps) {
         eyebrow="菜单计划"
         onClose={props.onClose}
         className="recipe-plan-modal food-plan-modal"
+        footerActions={
+          <FormActions
+            className="recipe-plan-dialog-actions"
+            primaryLabel="保存计划"
+            primaryType="submit"
+            primaryForm={planFormId}
+            primaryDisabled={Boolean(props.isUpdatingPlan || !props.planForm.foodId)}
+            isSubmitting={Boolean(props.isUpdatingPlan)}
+            secondaryLabel="取消"
+            onSecondary={props.onClose}
+          />
+        }
       >
-        <form className="recipe-plan-dialog-form" onSubmit={props.onSubmit}>
+        <form id={planFormId} className="recipe-plan-dialog-form" onSubmit={props.onSubmit}>
           {props.selectedPlanFood ? (
             <div className="recipe-plan-dialog-hero">
               <div className="recipe-plan-selected-cover">
@@ -197,15 +210,6 @@ export function FoodPlanDialog(props: FoodPlanDialogProps) {
               onChange={(event) => props.onPlanNoteChange(event.target.value)}
             />
           </label>
-          <FormActions
-            className="recipe-plan-dialog-actions"
-            primaryLabel="保存计划"
-            primaryType="submit"
-            primaryDisabled={Boolean(props.isUpdatingPlan || !props.planForm.foodId)}
-            isSubmitting={Boolean(props.isUpdatingPlan)}
-            secondaryLabel="取消"
-            onSecondary={props.onClose}
-          />
         </form>
       </WorkspaceModal>
     </div>

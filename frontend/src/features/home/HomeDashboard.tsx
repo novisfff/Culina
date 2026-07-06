@@ -299,6 +299,7 @@ export function HomeDashboard(props: HomeDashboardProps) {
             const cover = resolveAssetUrl(getFoodCover(quickMealDialog.food, recipes));
             const isCookAction = Boolean(quickMealDialog.food.recipe_id);
             const isSubmitting = Boolean(isQuickAdding || (isCookAction && isCreatingFoodPlanItem));
+            const quickMealFormId = 'home-quick-meal-form';
 
             return (
               <div className="workspace-overlay-root home-dashboard-overlay-root">
@@ -309,8 +310,19 @@ export function HomeDashboard(props: HomeDashboardProps) {
                   eyebrow="快速操作"
                   className="food-quick-meal-modal"
                   onClose={() => setQuickMealDialog(null)}
+                  footerActions={
+                    <FormActions
+                      className="food-quick-meal-actions"
+                      primaryLabel={isCookAction ? '开始做' : '记录这一餐'}
+                      primaryType="submit"
+                      primaryForm={quickMealFormId}
+                      isSubmitting={isSubmitting}
+                      secondaryLabel="取消"
+                      onSecondary={() => setQuickMealDialog(null)}
+                    />
+                  }
                 >
-                  <form className="food-quick-meal-form" onSubmit={submitQuickMealDialog}>
+                  <form id={quickMealFormId} className="food-quick-meal-form" onSubmit={submitQuickMealDialog}>
                     <div className="food-quick-meal-hero">
                       <span className="food-quick-meal-cover">
                         <MediaWithPlaceholder src={cover} alt="" />
@@ -361,14 +373,6 @@ export function HomeDashboard(props: HomeDashboardProps) {
                       </div>
                     </div>
 
-                    <FormActions
-                      className="food-quick-meal-actions"
-                      primaryLabel={isCookAction ? '开始做' : '记录这一餐'}
-                      primaryType="submit"
-                      isSubmitting={isSubmitting}
-                      secondaryLabel="取消"
-                      onSecondary={() => setQuickMealDialog(null)}
-                    />
                   </form>
                 </WorkspaceModal>
               </div>

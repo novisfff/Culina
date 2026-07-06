@@ -7397,15 +7397,6 @@
   stroke-width: 2.3;
 }
 
-.recipe-search-input-shell .text-input {
-  padding: 0 54px 0 22px !important;
-  font-size: 0.9375rem !important;
-}
-
-.recipe-search-row .text-input::placeholder {
-  color: #a99d93;
-}
-
 .recipe-filter-action {
   gap: 7px;
   font-weight: 850;

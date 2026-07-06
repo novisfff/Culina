@@ -728,8 +728,14 @@ textarea:focus-visible {
 .card,
 .stat-card,
 .food-card,
-.workspace-drawer,
 .workspace-modal {
+  border: 1px solid var(--line-soft);
+  background: var(--surface-2);
+  box-shadow: var(--shadow-sm);
+  backdrop-filter: blur(10px);
+}
+
+.workspace-drawer {
   border: 1px solid var(--line-soft);
   background: var(--surface-2);
   box-shadow: var(--shadow-sm);
@@ -3259,81 +3265,6 @@ select.text-input {
   font-size: 0.96rem;
 }
 
-/* ==========================================================================
-   Culina Unified Main Search Fields
-   ========================================================================== */
-
-.food-search-field,
-.recipe-search-input-shell,
-.ingredients-catalog-search-input-shell {
-  position: relative;
-  min-width: 0;
-  --main-search-height: 46px;
-  --main-search-radius: 18px;
-  --main-search-border: rgba(92, 67, 48, 0.12);
-  --main-search-border-focus: rgba(210, 107, 51, 0.5);
-}
-
-.food-search-field .text-input,
-.recipe-search-input-shell .text-input,
-.ingredients-catalog-search-input-shell .text-input {
-  min-height: var(--main-search-height) !important;
-  height: var(--main-search-height) !important;
-  border-radius: var(--main-search-radius) !important;
-  border: 1px solid var(--main-search-border) !important;
-  background: linear-gradient(180deg, #ffffff 0%, #fffcf8 100%) !important;
-  padding: 0 48px 0 18px !important;
-  color: var(--text) !important;
-  font-size: 1rem !important;
-  font-weight: 600 !important;
-  line-height: calc(var(--main-search-height) - 2px) !important;
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.9),
-    0 6px 18px rgba(74, 54, 40, 0.035) !important;
-  transition: border-color 160ms ease, box-shadow 160ms ease, background-color 160ms ease !important;
-}
-
-.food-search-field .text-input::placeholder,
-.recipe-search-input-shell .text-input::placeholder,
-.ingredients-catalog-search-input-shell .text-input::placeholder {
-  color: #9b9189 !important;
-  font-weight: 600 !important;
-}
-
-.food-search-field .text-input:focus,
-.recipe-search-input-shell .text-input:focus,
-.ingredients-catalog-search-input-shell .text-input:focus {
-  border-color: var(--main-search-border-focus) !important;
-  background: #ffffff !important;
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.94),
-    0 0 0 3px rgba(210, 107, 51, 0.1),
-    0 8px 22px rgba(74, 54, 40, 0.05) !important;
-  outline: none !important;
-}
-
-.food-search-field svg,
-.recipe-search-input-icon,
-.ingredients-catalog-search-input-icon {
-  position: absolute !important;
-  right: 17px !important;
-  left: auto !important;
-  top: 50% !important;
-  z-index: 2 !important;
-  display: inline-flex !important;
-  width: 18px !important;
-  height: 18px !important;
-  color: #8f837a !important;
-  transform: translateY(-50%) !important;
-  pointer-events: none !important;
-}
-
-.recipe-search-input-icon svg,
-.ingredients-catalog-search-input-icon svg {
-  width: 100%;
-  height: 100%;
-}
-
 .search-loading-indicator {
   display: inline-flex;
   width: 14px;
@@ -3346,15 +3277,7 @@ select.text-input {
   animation: searchLoadingSpin 720ms linear infinite;
 }
 
-.food-search-field .search-loading-indicator,
-.recipe-search-input-shell .search-loading-indicator,
-.ingredients-catalog-search-input-shell .search-loading-indicator,
-.ingredients-inventory-search-input-shell .search-loading-indicator {
-  position: absolute;
-  top: calc(50% - 7px);
-  right: 43px;
-  z-index: 3;
-}
+
 
 @keyframes searchLoadingSpin {
   to {

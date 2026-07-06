@@ -108,6 +108,46 @@ export function FoodPlanDetailModal(props: Props) {
   const todayDate = todayKey();
   const planDateOptions = Array.from({ length: 7 }, (_, index) => addDateDays(todayDate, index));
   const cover = props.food ? getFoodCover(props.food, props.recipes) : undefined;
+  const planDetailFormId = 'food-plan-detail-form';
+  const footerActions = props.isEditing ? (
+    <FormActions
+      className="recipe-plan-detail-actions"
+      primaryLabel="保存修改"
+      primaryType="submit"
+      primaryForm={planDetailFormId}
+      primaryPlacement="before-extra"
+      primaryDisabled={Boolean(props.isUpdatingPlan || props.item.status === 'cooked')}
+      isSubmitting={Boolean(props.isUpdatingPlan)}
+    >
+      <ActionButton tone="secondary" type="button" onClick={props.onResetEdit} disabled={props.isUpdatingPlan}>
+        取消修改
+      </ActionButton>
+      <ActionButton tone="tertiary" type="button" onClick={props.onDelete} disabled={props.isUpdatingPlan}>
+        删除
+      </ActionButton>
+    </FormActions>
+  ) : (
+    <FormActions
+      className="recipe-plan-detail-actions"
+      primaryLabel={props.item.recipe_id ? '开始做' : '记到今天'}
+      primaryPlacement="before-extra"
+      primaryDisabled={Boolean(props.isCompleting || props.item.status === 'cooked')}
+      isSubmitting={Boolean(props.isCompleting)}
+      onPrimary={props.onComplete}
+    >
+      {props.onSupplementRecord && (
+        <ActionButton tone="secondary" type="button" onClick={props.onSupplementRecord} disabled={props.isSupplementing}>
+          {props.isSupplementing ? '打开中...' : '补充记录'}
+        </ActionButton>
+      )}
+      <ActionButton tone="secondary" type="button" onClick={() => props.onEditingChange(true)} disabled={props.isUpdatingPlan || props.item.status === 'cooked'}>
+        修改
+      </ActionButton>
+      <ActionButton tone="tertiary" type="button" onClick={props.onDelete} disabled={props.isUpdatingPlan}>
+        删除
+      </ActionButton>
+    </FormActions>
+  );
 
   return (
     <div className={props.overlayRootClassName ? `workspace-overlay-root ${props.overlayRootClassName}` : 'workspace-overlay-root'}>
@@ -118,8 +158,9 @@ export function FoodPlanDetailModal(props: Props) {
         eyebrow="菜单计划详情"
         onClose={props.onClose}
         className="recipe-plan-detail-modal food-plan-detail-modal"
+        footerActions={footerActions}
       >
-        <form className="recipe-plan-detail-form" onSubmit={props.onSubmit}>
+        <form id={planDetailFormId} className="recipe-plan-detail-form" onSubmit={props.onSubmit}>
           <section className="recipe-plan-detail-card">
             <div className="recipe-plan-detail-cover">
               <MediaWithPlaceholder
@@ -203,45 +244,6 @@ export function FoodPlanDetailModal(props: Props) {
                 />
               </label>
             </>
-          )}
-
-          {props.isEditing ? (
-            <FormActions
-              className="recipe-plan-detail-actions"
-              primaryLabel="保存修改"
-              primaryType="submit"
-              primaryPlacement="before-extra"
-              primaryDisabled={Boolean(props.isUpdatingPlan || props.item.status === 'cooked')}
-              isSubmitting={Boolean(props.isUpdatingPlan)}
-            >
-              <ActionButton tone="secondary" type="button" onClick={props.onResetEdit} disabled={props.isUpdatingPlan}>
-                取消修改
-              </ActionButton>
-              <ActionButton tone="tertiary" type="button" onClick={props.onDelete} disabled={props.isUpdatingPlan}>
-                删除
-              </ActionButton>
-            </FormActions>
-          ) : (
-            <FormActions
-              className="recipe-plan-detail-actions"
-              primaryLabel={props.item.recipe_id ? '开始做' : '记到今天'}
-              primaryPlacement="before-extra"
-              primaryDisabled={Boolean(props.isCompleting || props.item.status === 'cooked')}
-              isSubmitting={Boolean(props.isCompleting)}
-              onPrimary={props.onComplete}
-            >
-              {props.onSupplementRecord && (
-                <ActionButton tone="secondary" type="button" onClick={props.onSupplementRecord} disabled={props.isSupplementing}>
-                  {props.isSupplementing ? '打开中...' : '补充记录'}
-                </ActionButton>
-              )}
-              <ActionButton tone="secondary" type="button" onClick={() => props.onEditingChange(true)} disabled={props.isUpdatingPlan || props.item.status === 'cooked'}>
-                修改
-              </ActionButton>
-              <ActionButton tone="tertiary" type="button" onClick={props.onDelete} disabled={props.isUpdatingPlan}>
-                删除
-              </ActionButton>
-            </FormActions>
           )}
         </form>
       </WorkspaceModal>

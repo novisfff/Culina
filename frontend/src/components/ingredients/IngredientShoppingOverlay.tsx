@@ -24,6 +24,7 @@ type IngredientShoppingOverlayProps = {
 };
 
 export function IngredientShoppingOverlay(props: IngredientShoppingOverlayProps) {
+  const shoppingFormId = 'ingredient-shopping-overlay-form';
   const shoppingUnitOptions = buildUnitPresetOptions(props.shoppingForm.unit || '个');
   const tracksQuantity = tracksIngredientQuantity(props.selectedShoppingIngredient);
   const visibleIngredientOptions = useMemo(() => {
@@ -51,8 +52,20 @@ export function IngredientShoppingOverlay(props: IngredientShoppingOverlayProps)
       closeAriaLabel="关闭"
       className="workspace-modal-wide shopping-quick-modal"
       onClose={props.closeOverlay}
+      footerActions={
+        <FormActions
+          className="shopping-quick-actions"
+          primaryLabel="加入采购清单"
+          primaryType="submit"
+          primaryForm={shoppingFormId}
+          primaryDisabled={!props.selectedShoppingIngredient}
+          isSubmitting={Boolean(props.isCreatingShopping)}
+          secondaryLabel="取消"
+          onSecondary={props.closeOverlay}
+        />
+      }
     >
-      <form className="shopping-quick-form" onSubmit={(event) => void props.submitShopping(event)}>
+      <form id={shoppingFormId} className="shopping-quick-form" onSubmit={(event) => void props.submitShopping(event)}>
         <div className="shopping-quick-scroll">
           {props.selectedShoppingIngredient ? (
             <section className="ingredients-restock-identity-card">
@@ -171,17 +184,6 @@ export function IngredientShoppingOverlay(props: IngredientShoppingOverlayProps)
             />
           </section>
 
-          <div className="shopping-quick-footer-bar">
-            <FormActions
-              className="shopping-quick-actions"
-              primaryLabel="加入采购清单"
-              primaryType="submit"
-              primaryDisabled={!props.selectedShoppingIngredient}
-              isSubmitting={Boolean(props.isCreatingShopping)}
-              secondaryLabel="取消"
-              onSecondary={props.closeOverlay}
-            />
-          </div>
         </div>
       </form>
     </WorkspaceModal>

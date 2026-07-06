@@ -160,6 +160,16 @@ export function RecipeIngredientResolutionDialog(props: RecipeIngredientResoluti
         eyebrow="保存前确认"
         onClose={props.onClose}
         className="recipe-ingredient-resolution-modal"
+        footerActions={
+          <FormActions
+            className="recipe-ingredient-resolution-actions-footer"
+            primaryLabel="重新保存"
+            primaryDisabled={unresolvedCount > 0}
+            secondaryLabel="稍后处理"
+            onSecondary={props.onClose}
+            onPrimary={props.onRetrySave}
+          />
+        }
       >
         <div className="recipe-ingredient-resolution-dialog">
           <section className="recipe-ingredient-resolution-summary">
@@ -188,14 +198,6 @@ export function RecipeIngredientResolutionDialog(props: RecipeIngredientResoluti
             <EmptyState title="没有待处理食材" description="已将所有配料绑定到食材库，或从菜谱中移除。" />
           )}
 
-          <FormActions
-            className="recipe-ingredient-resolution-actions-footer"
-            primaryLabel="重新保存"
-            primaryDisabled={unresolvedCount > 0}
-            secondaryLabel="稍后处理"
-            onSecondary={props.onClose}
-            onPrimary={props.onRetrySave}
-          />
         </div>
       </WorkspaceModal>
     </div>

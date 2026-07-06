@@ -210,26 +210,7 @@
   font-weight: 700;
 }
 
-.ingredients-catalog-search-input-shell,
-.ingredients-shopping-search-input-shell {
-  display: grid;
-  min-width: 0;
-}
 
-.ingredients-catalog-search-input-shell .text-input,
-.ingredients-shopping-search-input-shell .text-input,
-.ingredients-inventory-search-field .text-input {
-  min-height: 46px;
-  border-color: rgba(92, 67, 48, 0.11);
-  border-radius: 11px;
-  background: #fff;
-  box-shadow: none;
-}
-
-.ingredients-catalog-search-input-icon,
-.ingredients-shopping-search-input-icon {
-  color: #9f948c;
-}
 
 .ingredients-catalog-filter-bar {
   gap: 16px;
@@ -1443,31 +1424,6 @@
   white-space: nowrap;
 }
 
-.food-search-field {
-  position: relative;
-  display: block;
-}
-
-.food-search-field svg {
-  position: absolute;
-  right: 16px;
-  top: 50%;
-  z-index: 1;
-  width: 18px;
-  height: 18px;
-  color: #9a8e85;
-  transform: translateY(-50%);
-  pointer-events: none;
-}
-
-.food-search-field .text-input {
-  min-height: 46px;
-  padding: 0 48px 0 18px;
-  border-color: rgba(92, 67, 48, 0.11);
-  border-radius: 18px;
-  font-size: 1rem;
-  line-height: 46px;
-}
 
 .food-filter-group {
   display: grid;
@@ -3882,21 +3838,96 @@
 }
 
 .food-detail-actions {
+  width: 100%;
+  max-width: 680px;
+  margin: 0;
+}
+
+.food-detail-actions-mobile {
+  display: none;
+}
+
+.food-detail-drawer > .workspace-overlay-footer {
+  gap: 0;
+  margin-top: 12px;
+  margin-inline: -24px;
+  margin-bottom: -24px;
+  padding: 12px 24px 18px;
+  background: rgba(92, 67, 48, 0.035);
+  border-top: 1px solid rgba(92, 67, 48, 0.08);
+  box-shadow: none;
+}
+
+.food-detail-drawer > .workspace-overlay-footer > .workspace-overlay-footer-actions {
+  width: 100%;
+  flex: 1 1 auto;
+  justify-content: center;
+  margin-left: 0 !important;
+}
+
+.food-detail-drawer > .workspace-overlay-footer .food-detail-actions .ui-form-actions-row {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 10px;
-  align-items: stretch;
-  margin-top: -2px;
+  width: 100%;
 }
 
-.food-detail-actions .solid-button,
-.food-detail-actions .ghost-button {
+.food-detail-drawer > .workspace-overlay-footer .food-detail-actions .ui-form-actions-row .solid-button {
+  grid-column: span 3;
+  min-width: 0;
   min-height: 44px;
-  border-radius: 12px;
+  width: 100%;
+  border-radius: 14px;
+  background: linear-gradient(135deg, #e7763f 0%, #d26b33 100%) !important;
+  color: #ffffff !important;
+  border: 0 !important;
+  box-shadow: 0 6px 18px rgba(210, 107, 51, 0.18) !important;
+  font-weight: 700;
+  transition: all 180ms cubic-bezier(0.16, 1, 0.3, 1) !important;
 }
 
-.food-detail-actions .solid-button {
-  grid-column: 1 / -1;
+.food-detail-drawer > .workspace-overlay-footer .food-detail-actions .ui-form-actions-row .solid-button:hover {
+  background: linear-gradient(135deg, #eb8451 0%, #db753d 100%) !important;
+  box-shadow: 0 8px 22px rgba(210, 107, 51, 0.28) !important;
+  transform: translateY(-1px);
+}
+
+.food-detail-drawer > .workspace-overlay-footer .food-detail-actions .ui-form-actions-row .solid-button:active {
+  transform: translateY(1px);
+}
+
+.food-detail-drawer > .workspace-overlay-footer .food-detail-actions .ui-form-actions-row .ghost-button {
+  min-width: 0;
+  min-height: 42px;
+  width: 100%;
+  padding-inline: 12px;
+  white-space: nowrap;
+  background: #ffffff !important;
+  border: 1px solid rgba(92, 67, 48, 0.16) !important;
+  color: #5c4330 !important;
+  border-radius: 12px;
+  font-weight: 700;
+  box-shadow: 0 2px 6px rgba(74, 54, 40, 0.02) !important;
+  transition: all 180ms cubic-bezier(0.16, 1, 0.3, 1) !important;
+}
+
+.food-detail-drawer > .workspace-overlay-footer .food-detail-actions .ui-form-actions-row .ghost-button:nth-of-type(2) {
+  grid-column: span 1;
+}
+
+.food-detail-drawer > .workspace-overlay-footer .food-detail-actions .ui-form-actions-row .ghost-button:nth-of-type(3),
+.food-detail-drawer > .workspace-overlay-footer .food-detail-actions .ui-form-actions-row .ghost-button:nth-of-type(4) {
+  grid-column: span 2;
+}
+
+.food-detail-drawer > .workspace-overlay-footer .food-detail-actions .ui-form-actions-row .ghost-button:hover {
+  background: #faf8f5 !important;
+  border-color: rgba(92, 67, 48, 0.28) !important;
+  transform: translateY(-1px);
+}
+
+.food-detail-drawer > .workspace-overlay-footer .food-detail-actions .ui-form-actions-row .ghost-button:active {
+  transform: translateY(1px);
 }
 
 .food-quick-meal-modal.workspace-modal {
@@ -3951,12 +3982,6 @@
 .food-recipe-editor-modal .workspace-overlay-head {
   margin-bottom: 12px;
   padding-bottom: 12px;
-}
-
-.food-recipe-editor-modal .workspace-overlay-close {
-  min-height: 40px;
-  padding: 0 14px;
-  font-size: 0.9rem;
 }
 
 .food-recipe-editor-modal .workspace-overlay-body {
@@ -13265,24 +13290,40 @@ button.ai-clarification-option:hover:not(:disabled) .ai-clarification-option-ind
     line-height: 1.2;
   }
 
-  .food-detail-actions {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 10px;
-    margin: 2px 0 16px;
+  .food-detail-drawer > .workspace-overlay-footer {
+    display: none;
+  }
+
+  .food-detail-actions-mobile {
+    display: block;
+    width: 100%;
+    max-width: none;
+    margin: 8px 0 18px;
     padding-bottom: 0;
   }
 
-  .food-detail-actions button {
+  .food-detail-actions-mobile .ui-form-actions-row {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+    width: 100%;
+  }
+
+  .food-detail-actions-mobile .ui-form-actions-spacer {
+    display: none;
+  }
+
+  .food-detail-actions-mobile button {
     min-width: 0;
+    width: 100%;
     transition: all 0.12s ease;
   }
 
-  .food-detail-actions button:active {
+  .food-detail-actions-mobile button:active {
     transform: scale(0.97);
   }
 
-  .food-detail-actions button:nth-child(1) { /* Primary Action e.g. "记这一餐" */
+  .food-detail-actions-mobile button:nth-of-type(1) { /* Primary Action e.g. "记这一餐" */
     grid-column: 1 / -1;
     order: 1;
     min-height: 48px;
@@ -13293,7 +13334,7 @@ button.ai-clarification-option:hover:not(:disabled) .ai-clarification-option-ind
     font-weight: 900;
   }
 
-  .food-detail-actions button:nth-child(3) { /* "加入菜单" */
+  .food-detail-actions-mobile button:nth-of-type(3) { /* "加入菜单" */
     order: 2;
     min-height: 44px;
     border-radius: 12px;
@@ -13304,7 +13345,7 @@ button.ai-clarification-option:hover:not(:disabled) .ai-clarification-option-ind
     font-weight: 850;
   }
 
-  .food-detail-actions button:nth-child(4) { /* "完整记一餐" */
+  .food-detail-actions-mobile button:nth-of-type(4) { /* "完整记一餐" */
     order: 3;
     min-height: 44px;
     border-radius: 12px;
@@ -13315,7 +13356,7 @@ button.ai-clarification-option:hover:not(:disabled) .ai-clarification-option-ind
     font-weight: 850;
   }
 
-  .food-detail-actions button:nth-child(2) { /* Secondary Action e.g. "编辑资料" */
+  .food-detail-actions-mobile button:nth-of-type(2) { /* Secondary Action e.g. "编辑资料" */
     grid-column: 1 / -1;
     order: 4;
     min-height: 44px;

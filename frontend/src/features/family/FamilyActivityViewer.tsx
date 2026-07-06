@@ -207,6 +207,16 @@ export function FamilyActivityModal(props: FamilyActivityViewerProps & { onClose
         description={`共 ${viewer.logs.length} 条记录 · ${viewer.hasFilters ? '已应用筛选' : '按最新时间倒序展示'}`}
         closeAriaLabel="关闭家庭活动"
         onClose={props.onClose}
+        footerActions={
+          canLoadMore ? (
+            <FormActions
+              className="family-activity-viewer-actions"
+              primaryLabel="加载更多"
+              primaryDisabled={!canLoadMore}
+              onPrimary={() => viewer.setLimit((current) => current + FAMILY_ACTIVITY_PAGE_SIZE)}
+            />
+          ) : undefined
+        }
       >
         <FamilyActivityFiltersPanel
           filters={viewer.filters}
@@ -216,14 +226,6 @@ export function FamilyActivityModal(props: FamilyActivityViewerProps & { onClose
           onReset={viewer.resetFilters}
         />
         <FamilyActivityTimeline logs={viewer.logs} isFetching={viewer.isFetching} hasFilters={viewer.hasFilters} />
-        {canLoadMore && (
-          <FormActions
-            className="family-activity-viewer-actions"
-            primaryLabel="加载更多"
-            primaryDisabled={!canLoadMore}
-            onPrimary={() => viewer.setLimit((current) => current + FAMILY_ACTIVITY_PAGE_SIZE)}
-          />
-        )}
       </WorkspaceModal>
     </div>
   );

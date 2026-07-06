@@ -39,6 +39,7 @@ export function AiRecommendationPlanDialog({ request, isSubmitting, onClose, onS
 
   if (!request) return null;
   const activeRequest = request;
+  const planFormId = 'ai-recommendation-plan-form';
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -69,8 +70,19 @@ export function AiRecommendationPlanDialog({ request, isSubmitting, onClose, onS
         eyebrow="AI 推荐"
         className="ai-recommendation-plan-modal"
         onClose={onClose}
+        footerActions={
+          <FormActions
+            primaryLabel="加入菜单计划"
+            primaryType="submit"
+            primaryForm={planFormId}
+            primaryDisabled={!activeRequest.recommendation.foodId}
+            isSubmitting={isSubmitting}
+            secondaryLabel="取消"
+            onSecondary={onClose}
+          />
+        }
       >
-        <form className="ai-recommendation-plan-form" onSubmit={submit}>
+        <form id={planFormId} className="ai-recommendation-plan-form" onSubmit={submit}>
           <div className="ai-recommendation-plan-food">
             <ResultImage asset={activeRequest.recommendation.image} alt={activeRequest.recommendation.name} />
             <div>
@@ -115,14 +127,6 @@ export function AiRecommendationPlanDialog({ request, isSubmitting, onClose, onS
           </label>
 
           {error && <p className="form-error" role="alert">{error}</p>}
-          <FormActions
-            primaryLabel="加入菜单计划"
-            primaryType="submit"
-            primaryDisabled={!activeRequest.recommendation.foodId}
-            isSubmitting={isSubmitting}
-            secondaryLabel="取消"
-            onSecondary={onClose}
-          />
         </form>
       </WorkspaceModal>
     </div>

@@ -94,9 +94,9 @@ export function FoodDetailDrawer(props: Props) {
   const coverUrl = resolveMediaUrl(props.coverAsset, 'large') ?? (props.cover ? props.resolveAssetUrl(props.cover) : undefined);
   const showRelationPanel = !props.isOutsideFood && !props.isReadyLikeFood && !props.recipe;
   const canStartCook = props.normalizedType === 'selfMade' && Boolean(props.food.recipe_id);
-  const detailActions = (
+  const renderDetailActions = (className: string) => (
     <FormActions
-      className="food-detail-actions"
+      className={`food-detail-actions ${className}`}
       primaryPlacement="before-extra"
       primaryLabel={canStartCook ? '开始做' : props.getPrimaryFoodActionLabel(props.food)}
       onPrimary={() => {
@@ -128,6 +128,7 @@ export function FoodDetailDrawer(props: Props) {
         description={props.food.routine_note || props.food.notes || props.getSceneTags(props.food).join('、') || props.food.scene || '这份食物还没有补充决策备注。'}
         className="food-detail-drawer"
         onClose={props.onClose}
+        footerActions={renderDetailActions('food-detail-actions-desktop')}
       >
         <div className="food-detail-hero">
           <div className="food-detail-cover">
@@ -147,7 +148,7 @@ export function FoodDetailDrawer(props: Props) {
           </div>
         </div>
 
-        {detailActions}
+        {renderDetailActions('food-detail-actions-mobile')}
 
         <section className="food-detail-section">
           <div className="food-detail-section-head">

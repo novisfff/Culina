@@ -224,11 +224,16 @@ function WorkspaceOverlayShell(props: {
   eyebrow?: string;
   closeLabel?: ReactNode;
   closeAriaLabel?: string;
+  footer?: ReactNode;
+  footerInfo?: ReactNode;
+  footerActions?: ReactNode;
   className?: string;
   onClose: () => void;
   children: ReactNode;
 }) {
   const shellClassName = props.kind === 'drawer' ? 'workspace-drawer' : 'workspace-modal';
+  const sheetClassName = props.kind === 'drawer' ? 'workspace-drawer-sheet' : 'workspace-modal-sheet';
+  const hasFooter = Boolean(props.footer || props.footerInfo || props.footerActions);
   const panelRef = useRef<HTMLElement>(null);
   const dragRef = useRef({ pointerId: -1, startY: 0, startTime: 0, distance: 0 });
   const closeTimerRef = useRef<number | null>(null);
@@ -322,7 +327,7 @@ function WorkspaceOverlayShell(props: {
   return (
     <section
       ref={panelRef}
-      className={props.className ? `${shellClassName} workspace-overlay-panel workspace-mobile-sheet ${props.className}` : `${shellClassName} workspace-overlay-panel workspace-mobile-sheet`}
+      className={props.className ? `${shellClassName} workspace-overlay-panel ${sheetClassName} ${props.className}` : `${shellClassName} workspace-overlay-panel ${sheetClassName}`}
       onClick={(event) => event.stopPropagation()}
     >
       <div
@@ -338,12 +343,34 @@ function WorkspaceOverlayShell(props: {
           <h3>{props.title}</h3>
           {props.description && <p className="subtle">{props.description}</p>}
         </div>
-        <ActionButton tone="secondary" size="compact" type="button" className="workspace-overlay-close" onClick={props.onClose}>
-          <span aria-hidden={props.closeAriaLabel ? 'true' : undefined}>{props.closeLabel ?? '关闭'}</span>
-          {props.closeAriaLabel ? <span className="sr-only">{props.closeAriaLabel}</span> : null}
+        <ActionButton
+          tone="secondary"
+          size="compact"
+          type="button"
+          className="workspace-overlay-close"
+          aria-label={props.closeAriaLabel ?? (typeof props.closeLabel === 'string' ? props.closeLabel : '关闭弹窗')}
+          onClick={props.onClose}
+        >
+          <span className="workspace-overlay-close-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" focusable="false">
+              <path d="M6.5 6.5 17.5 17.5" />
+              <path d="M17.5 6.5 6.5 17.5" />
+            </svg>
+          </span>
+          <span className="workspace-overlay-close-label">{props.closeLabel ?? '关闭'}</span>
         </ActionButton>
       </div>
       <div className="workspace-overlay-body">{props.children}</div>
+      {hasFooter ? (
+        <footer className="workspace-overlay-footer">
+          {props.footer ?? (
+            <>
+              {props.footerInfo ? <div className="workspace-overlay-footer-info">{props.footerInfo}</div> : null}
+              {props.footerActions ? <div className="workspace-overlay-footer-actions">{props.footerActions}</div> : null}
+            </>
+          )}
+        </footer>
+      ) : null}
     </section>
   );
 }
@@ -354,6 +381,9 @@ export function WorkspaceDrawer(props: {
   eyebrow?: string;
   closeLabel?: ReactNode;
   closeAriaLabel?: string;
+  footer?: ReactNode;
+  footerInfo?: ReactNode;
+  footerActions?: ReactNode;
   className?: string;
   onClose: () => void;
   children: ReactNode;
@@ -367,6 +397,9 @@ export function WorkspaceModal(props: {
   eyebrow?: string;
   closeLabel?: ReactNode;
   closeAriaLabel?: string;
+  footer?: ReactNode;
+  footerInfo?: ReactNode;
+  footerActions?: ReactNode;
   className?: string;
   onClose: () => void;
   children: ReactNode;

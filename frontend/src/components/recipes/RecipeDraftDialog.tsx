@@ -31,6 +31,17 @@ export function RecipeDraftDialog(props: RecipeDraftDialogProps) {
         eyebrow="AI 生成"
         onClose={props.onClose}
         className="recipe-ai-draft-modal"
+        footerActions={
+          <FormActions
+            className="recipe-ai-draft-modal-actions"
+            primaryLabel={props.actionLabel}
+            primaryDisabled={props.isBusy || props.isImageGenerating || props.stage === 'done'}
+            isSubmitting={props.isBusy}
+            secondaryLabel="取消"
+            onPrimary={props.onGenerate}
+            onSecondary={props.onClose}
+          />
+        }
       >
         <div className="recipe-ai-draft-modal-body">
           <section className="recipe-ai-source-panel">
@@ -82,15 +93,6 @@ export function RecipeDraftDialog(props: RecipeDraftDialogProps) {
 
           {props.error ? <p className="form-error">{props.error}</p> : null}
 
-          <FormActions
-            className="recipe-ai-draft-modal-actions"
-            primaryLabel={props.actionLabel}
-            primaryDisabled={props.isBusy || props.isImageGenerating || props.stage === 'done'}
-            isSubmitting={props.isBusy}
-            secondaryLabel="取消"
-            onPrimary={props.onGenerate}
-            onSecondary={props.onClose}
-          />
         </div>
       </WorkspaceModal>
     </div>

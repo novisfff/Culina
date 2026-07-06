@@ -54,6 +54,23 @@ export function RecipeShoppingDialog(props: RecipeShoppingDialogProps) {
         closeAriaLabel="关闭采购确认"
         onClose={props.onClose}
         className="recipe-shopping-modal"
+        footerInfo={
+          <div className="recipe-shopping-footer-summary">
+            <span><RecipeUiIcon name="clipboard" /></span>
+            <p>已选择 <strong>{buildShoppingPayloadsFromDrafts(props.drafts).length} 项</strong>，将加入采购清单</p>
+          </div>
+        }
+        footerActions={
+          <FormActions
+            className="recipe-shopping-actions"
+            primaryLabel="确认加入清单"
+            primaryDisabled={props.drafts.length === 0}
+            isSubmitting={Boolean(props.isCreatingShopping)}
+            secondaryLabel="取消"
+            onPrimary={props.onSubmit}
+            onSecondary={props.onClose}
+          />
+        }
       >
         <div className="recipe-shopping-dialog">
           <section className="recipe-shopping-draft-section">
@@ -222,21 +239,6 @@ export function RecipeShoppingDialog(props: RecipeShoppingDialogProps) {
             </div>
           </section>
 
-          <div className="recipe-shopping-footer-bar">
-            <div className="recipe-shopping-footer-summary">
-              <span><RecipeUiIcon name="clipboard" /></span>
-              <p>已选择 <strong>{buildShoppingPayloadsFromDrafts(props.drafts).length} 项</strong>，将加入采购清单</p>
-            </div>
-            <FormActions
-              className="recipe-shopping-actions"
-              primaryLabel="确认加入清单"
-              primaryDisabled={props.drafts.length === 0}
-              isSubmitting={Boolean(props.isCreatingShopping)}
-              secondaryLabel="取消"
-              onPrimary={props.onSubmit}
-              onSecondary={props.onClose}
-            />
-          </div>
         </div>
       </WorkspaceModal>
     </div>

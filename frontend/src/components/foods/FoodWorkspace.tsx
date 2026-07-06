@@ -1730,6 +1730,7 @@ export function FoodWorkspace(props: Props) {
         const isCookAction = quickMealDialog.action === 'cook' && quickMealDialog.recipeId;
         const title = isCookAction ? '开始做这道菜' : getPrimaryFoodActionLabel(quickMealDialog.food);
         const isSubmitting = Boolean(props.isQuickAdding || (isCookAction && props.isUpdatingPlan));
+        const quickMealFormId = 'food-workspace-quick-meal-form';
 
         return (
           <div className="workspace-overlay-root food-workspace-overlay-root">
@@ -1740,8 +1741,19 @@ export function FoodWorkspace(props: Props) {
               eyebrow="快速操作"
               className="food-quick-meal-modal"
               onClose={() => setQuickMealDialog(null)}
+              footerActions={
+                <FormActions
+                  className="food-quick-meal-actions"
+                  primaryLabel={isCookAction ? '开始做' : '记录这一餐'}
+                  primaryType="submit"
+                  primaryForm={quickMealFormId}
+                  isSubmitting={isSubmitting}
+                  secondaryLabel="取消"
+                  onSecondary={() => setQuickMealDialog(null)}
+                />
+              }
             >
-              <form className="food-quick-meal-form" onSubmit={submitQuickMealDialog}>
+              <form id={quickMealFormId} className="food-quick-meal-form" onSubmit={submitQuickMealDialog}>
                 <div className="food-quick-meal-hero">
                   <span className="food-quick-meal-cover">
                     <MediaWithPlaceholder
@@ -1797,14 +1809,6 @@ export function FoodWorkspace(props: Props) {
                   </div>
                 </div>
 
-                <FormActions
-                  className="food-quick-meal-actions"
-                  primaryLabel={isCookAction ? '开始做' : '记录这一餐'}
-                  primaryType="submit"
-                  isSubmitting={isSubmitting}
-                  secondaryLabel="取消"
-                  onSecondary={() => setQuickMealDialog(null)}
-                />
               </form>
             </WorkspaceModal>
           </div>

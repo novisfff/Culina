@@ -90,6 +90,8 @@ export function MealPhotoLightbox(props: { photo: MediaAsset; title: string; onC
 }
 
 export function MealEnrichmentForm(props: {
+  formId?: string;
+  showFooter?: boolean;
   meal: MealLog;
   members: Member[];
   source: MealSource;
@@ -115,9 +117,10 @@ export function MealEnrichmentForm(props: {
   }
 
   const title = buildMealTitle(props.meal);
+  const showFooter = props.showFooter ?? true;
 
   return (
-    <form className="meal-enrichment-form" onSubmit={submit}>
+    <form id={props.formId} className="meal-enrichment-form" onSubmit={submit}>
       <div className="meal-enrichment-summary">
         <span className="meal-enrichment-meal-pill">
           <span><MealEnrichmentIcon name="check" /></span>
@@ -225,17 +228,19 @@ export function MealEnrichmentForm(props: {
         </aside>
       </div>
 
-      <div className="meal-enrichment-footer">
-        <span><i><MealEnrichmentIcon name="info" /></i>保存后，本次补充记录将会出现在记录时间线中</span>
-        <FormActions
-          className="meal-enrichment-actions"
-          primaryLabel="保存记录"
-          primaryType="submit"
-          isSubmitting={enrichmentState.isBusy}
-          secondaryLabel="稍后再说"
-          onSecondary={props.onCancel}
-        />
-      </div>
+      {showFooter ? (
+        <div className="meal-enrichment-footer">
+          <span><i><MealEnrichmentIcon name="info" /></i>保存后，本次补充记录将会出现在记录时间线中</span>
+          <FormActions
+            className="meal-enrichment-actions"
+            primaryLabel="保存记录"
+            primaryType="submit"
+            isSubmitting={enrichmentState.isBusy}
+            secondaryLabel="稍后再说"
+            onSecondary={props.onCancel}
+          />
+        </div>
+      ) : null}
       {enrichmentState.activePhoto && <MealPhotoLightbox photo={enrichmentState.activePhoto} title={title} onClose={() => enrichmentState.setActivePhoto(null)} />}
     </form>
   );

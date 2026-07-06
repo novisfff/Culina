@@ -478,42 +478,7 @@
   min-width: 0;
 }
 
-.ingredients-catalog-search-input-shell {
-  position: relative;
-  display: block;
-  min-width: 0;
-}
 
-.ingredients-catalog-search-field .text-input {
-  width: 100%;
-  min-height: 46px;
-  border-radius: 18px;
-  font-size: 1rem;
-  background: rgba(255, 255, 255, 0.96);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9);
-}
-
-.ingredients-catalog-search-input-icon {
-  position: absolute;
-  left: 17px;
-  top: 50%;
-  display: inline-flex;
-  width: 14px;
-  height: 14px;
-  color: rgba(122, 102, 90, 0.56);
-  transform: translateY(-50%);
-  pointer-events: none;
-}
-
-.ingredients-catalog-search-input-icon svg {
-  width: 100%;
-  height: 100%;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 2;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-}
 
 .ingredients-catalog-filter-bar {
   display: flex;
@@ -1949,36 +1914,6 @@
   min-width: 0;
 }
 
-.ingredients-shopping-search-field {
-  min-width: 0;
-}
-
-.ingredients-shopping-search-input-shell {
-  position: relative;
-  display: block;
-  min-width: 0;
-}
-
-.ingredients-shopping-search-field .text-input {
-  width: 100%;
-  min-height: 40px;
-  padding-left: 38px;
-  border-radius: 14px;
-  background: rgba(255, 255, 255, 0.96);
-}
-
-.ingredients-shopping-search-input-icon {
-  position: absolute;
-  left: 15px;
-  top: 50%;
-  display: inline-flex;
-  width: 14px;
-  height: 14px;
-  color: rgba(122, 102, 90, 0.58);
-  transform: translateY(-50%);
-  pointer-events: none;
-}
-
 .ingredients-shopping-filter-group {
   min-width: 0;
 }
@@ -2864,8 +2799,7 @@
   margin: 0;
 }
 
-.ingredients-storage-head,
-.workspace-overlay-head {
+.ingredients-storage-head {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
@@ -4004,13 +3938,7 @@
   font-size: 0.86rem;
 }
 
-.ingredients-inventory-search-field .text-input {
-  min-height: 46px;
-  border: 0;
-  border-radius: 0;
-  font-size: 1rem;
-  background: transparent;
-}
+
 
 .ingredients-inventory-toolbar-actions {
   display: flex;
@@ -4128,76 +4056,7 @@
   stroke-width: 2;
 }
 
-.ingredients-workspace .ingredients-catalog-search-input-shell,
-.ingredients-workspace .ingredients-inventory-search-input-shell,
-.ingredients-workspace .ingredients-shopping-search-input-shell {
-  position: relative;
-  display: block;
-  min-width: 0;
-}
 
-.ingredients-workspace .ingredients-catalog-search-field .text-input,
-.ingredients-workspace .ingredients-inventory-search-field .text-input,
-.ingredients-workspace .ingredients-shopping-search-field .text-input {
-  width: 100%;
-  min-height: 46px;
-  height: 46px;
-  padding: 0 48px 0 18px;
-  border: 1px solid rgba(92, 67, 48, 0.11) !important;
-  border-radius: 18px !important;
-  background: #ffffff !important;
-  color: var(--text);
-  font-size: 1rem;
-  font-weight: 650;
-  line-height: 46px;
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.86),
-    0 6px 18px rgba(74, 54, 40, 0.025) !important;
-}
-
-.ingredients-workspace .ingredients-catalog-search-field .text-input::placeholder,
-.ingredients-workspace .ingredients-inventory-search-field .text-input::placeholder,
-.ingredients-workspace .ingredients-shopping-search-field .text-input::placeholder {
-  color: #9b9189;
-  font-weight: 650;
-}
-
-.ingredients-workspace .ingredients-catalog-search-field:focus-within .text-input,
-.ingredients-workspace .ingredients-inventory-search-field:focus-within .text-input,
-.ingredients-workspace .ingredients-shopping-search-field:focus-within .text-input {
-  border-color: rgba(210, 107, 51, 0.42) !important;
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.9),
-    0 0 0 3px rgba(210, 107, 51, 0.08) !important;
-  outline: none;
-}
-
-.ingredients-workspace .ingredients-catalog-search-input-icon,
-.ingredients-workspace .ingredients-inventory-search-input-icon,
-.ingredients-workspace .ingredients-shopping-search-input-icon {
-  position: absolute;
-  right: 17px;
-  left: auto;
-  top: 50%;
-  width: 18px;
-  height: 18px;
-  color: #8f837a;
-  transform: translateY(-50%);
-  pointer-events: none;
-}
-
-.ingredients-workspace .ingredients-catalog-search-input-icon svg,
-.ingredients-workspace .ingredients-inventory-search-input-icon svg,
-.ingredients-workspace .ingredients-shopping-search-input-icon svg {
-  display: block;
-  width: 18px;
-  height: 18px;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 2;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-}
 
 .ingredients-workspace .ingredients-catalog-search-count,
 .ingredients-workspace .ingredients-toolbar-summary {
@@ -5655,94 +5514,6 @@
   }
 }
 
-.workspace-overlay-root {
-  position: fixed;
-  inset: 0;
-  z-index: var(--z-overlay);
-  display: grid;
-  align-items: stretch;
-  justify-items: end;
-  pointer-events: none;
-}
-
-.workspace-overlay-backdrop {
-  position: absolute;
-  inset: 0;
-  background: rgba(55, 40, 30, 0.28);
-  backdrop-filter: blur(8px);
-  pointer-events: auto;
-}
-
-.workspace-drawer,
-.workspace-modal {
-  position: relative;
-  pointer-events: auto;
-  background: rgba(255, 251, 246, 0.98);
-  border: 1px solid rgba(92, 67, 48, 0.12);
-  box-shadow: 0 18px 40px rgba(55, 40, 30, 0.14);
-}
-
-.workspace-drawer {
-  width: min(480px, 100vw);
-  height: 100%;
-  padding: 20px;
-  border-radius: 32px 0 0 32px;
-  overflow: auto;
-}
-
-.workspace-modal {
-  align-self: center;
-  justify-self: center;
-  width: min(560px, calc(100vw - 24px));
-  max-height: calc(100vh - 48px);
-  padding: 20px;
-  border-radius: 28px;
-  overflow: auto;
-}
-
-.workspace-modal-wide {
-  width: min(var(--modal-width-lg), calc(100vw - 32px));
-}
-
-.workspace-overlay-head {
-  display: flex;
-  align-items: start;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 16px;
-  padding-bottom: 14px;
-  border-bottom: 1px solid rgba(92, 67, 48, 0.08);
-}
-
-.workspace-overlay-titleblock {
-  display: grid;
-  gap: 4px;
-  min-width: 0;
-}
-
-.workspace-overlay-titleblock h3,
-.workspace-overlay-titleblock p {
-  margin: 0;
-}
-
-.workspace-overlay-titleblock h3 {
-  font-size: 1.08rem;
-  line-height: 1.22;
-}
-
-.workspace-overlay-close {
-  flex: 0 0 auto;
-}
-
-.workspace-overlay-body {
-  display: grid;
-  gap: 14px;
-}
-
-.workspace-overlay-drag-zone {
-  display: none;
-}
-
 .ingredient-editor-modal.workspace-modal {
   display: flex;
   flex-direction: column;
@@ -5775,7 +5546,7 @@
   display: flex;
   flex-direction: column;
   max-height: calc(100vh - 40px);
-  padding: 18px 18px 0;
+  padding: 24px;
   overflow: hidden;
   background:
     linear-gradient(180deg, rgba(255, 254, 252, 0.98), rgba(255, 249, 242, 0.98)),
@@ -5809,56 +5580,6 @@
     rgba(255, 249, 245, 0.99);
 }
 
-.inventory-restock-modal .workspace-overlay-head,
-.shopping-quick-modal .workspace-overlay-head,
-.consume-quick-modal .workspace-overlay-head,
-.destroy-expired-modal .workspace-overlay-head {
-  align-items: flex-start;
-  gap: 14px;
-  margin-bottom: 0;
-  padding: 0 2px 14px;
-}
-
-.inventory-restock-modal .workspace-overlay-titleblock,
-.shopping-quick-modal .workspace-overlay-titleblock,
-.consume-quick-modal .workspace-overlay-titleblock,
-.destroy-expired-modal .workspace-overlay-titleblock {
-  gap: 6px;
-}
-
-.inventory-restock-modal .workspace-overlay-titleblock h3,
-.shopping-quick-modal .workspace-overlay-titleblock h3,
-.consume-quick-modal .workspace-overlay-titleblock h3,
-.destroy-expired-modal .workspace-overlay-titleblock h3 {
-  font-size: 1.25rem;
-  line-height: 1.4;
-  font-weight: 600;
-}
-
-.inventory-restock-modal .workspace-overlay-titleblock .subtle,
-.shopping-quick-modal .workspace-overlay-titleblock .subtle,
-.consume-quick-modal .workspace-overlay-titleblock .subtle,
-.destroy-expired-modal .workspace-overlay-titleblock .subtle {
-  max-width: 34ch;
-  color: var(--text-soft);
-  font-size: 0.82rem;
-}
-
-.inventory-restock-modal .workspace-overlay-close,
-.shopping-quick-modal .workspace-overlay-close,
-.consume-quick-modal .workspace-overlay-close,
-.destroy-expired-modal .workspace-overlay-close {
-  min-width: 38px;
-  min-height: 38px;
-  width: 38px;
-  height: 38px;
-  padding: 0;
-  border-radius: 14px;
-  font-size: 1.35rem;
-  line-height: 1;
-  color: var(--text-soft);
-}
-
 .inventory-restock-modal .workspace-overlay-body,
 .shopping-quick-modal .workspace-overlay-body,
 .consume-quick-modal .workspace-overlay-body,
@@ -5867,7 +5588,7 @@
   min-height: 0;
   display: flex;
   overflow: hidden;
-  padding-top: 14px;
+  padding-top: 4px;
 }
 
 .ingredients-modal-advanced {
@@ -7885,24 +7606,6 @@
     overflow: auto;
   }
 
-  .destroy-expired-modal .workspace-overlay-close {
-    width: 64px;
-    min-width: 64px;
-    max-width: 64px;
-    height: 44px;
-    min-height: 44px;
-    max-height: 44px;
-    padding: 0;
-    border: 0;
-    border-radius: 15px;
-    background: #f7f3f0;
-    color: #74655b;
-    font-size: 0.875rem;
-    font-weight: 900;
-    line-height: 1;
-    box-shadow: 0 6px 16px rgba(74, 54, 40, 0.05);
-  }
-
   .destroy-expired-modal .destroy-expired-form {
     flex: 0 0 auto;
     min-height: auto;
@@ -9102,14 +8805,6 @@
   border-bottom: 1px solid rgba(225, 203, 185, 0.72);
 }
 
-.workspace-modal.recipe-plan-modal .workspace-overlay-close {
-  min-width: 68px;
-  border-radius: 18px;
-  background: rgba(255, 255, 255, 0.82);
-  color: #6a5749;
-  box-shadow: 0 10px 24px rgba(74, 54, 40, 0.1);
-}
-
 .recipe-plan-dialog-form {
   display: grid;
   gap: 16px;
@@ -9171,17 +8866,6 @@
     color: #8a7c72;
     margin-top: 4px;
     line-height: 1.4;
-  }
-
-  .inventory-restock-modal .workspace-overlay-close {
-    background: rgba(92, 67, 48, 0.05);
-    border: 0;
-    border-radius: 12px;
-    padding: 6px 12px;
-    min-height: 28px;
-    font-size: 0.8rem;
-    font-weight: 850;
-    color: #7a6a5f;
   }
 
   .inventory-restock-modal .ingredients-restock-scroll {
@@ -9574,10 +9258,7 @@
     flex: 1 1 auto;
   }
 
-  .ingredients-catalog-search-field .text-input {
-    min-height: 40px;
-    border-radius: 14px;
-  }
+
 
   .ingredients-catalog-filter-bar {
     display: grid;

@@ -37,6 +37,8 @@ type RecipePlanDialogProps = {
 };
 
 export function RecipePlanDialog(props: RecipePlanDialogProps) {
+  const recipePlanFormId = 'recipe-plan-dialog-form';
+
   return (
     <div className="workspace-overlay-root">
       <div className="workspace-overlay-backdrop" onClick={props.onClose} />
@@ -46,8 +48,20 @@ export function RecipePlanDialog(props: RecipePlanDialogProps) {
         eyebrow="菜单计划"
         onClose={props.onClose}
         className="recipe-plan-modal"
+        footerActions={
+          <FormActions
+            className="recipe-plan-dialog-actions"
+            primaryLabel="加入菜单"
+            primaryType="submit"
+            primaryForm={recipePlanFormId}
+            primaryDisabled={Boolean(props.isUpdatingPlan || !props.hasRecipes || !props.form.recipeId)}
+            isSubmitting={Boolean(props.isUpdatingPlan)}
+            secondaryLabel="取消"
+            onSecondary={props.onClose}
+          />
+        }
       >
-        <form className="recipe-plan-dialog-form" onSubmit={props.onSubmit}>
+        <form id={recipePlanFormId} className="recipe-plan-dialog-form" onSubmit={props.onSubmit}>
           <div className="recipe-plan-dialog-hero">
             <div className="recipe-plan-selected-cover">
               {props.card ? (
@@ -149,15 +163,6 @@ export function RecipePlanDialog(props: RecipePlanDialogProps) {
               onChange={(event) => props.onChangeForm({ ...props.form, note: event.target.value })}
             />
           </label>
-          <FormActions
-            className="recipe-plan-dialog-actions"
-            primaryLabel="加入菜单"
-            primaryType="submit"
-            primaryDisabled={Boolean(props.isUpdatingPlan || !props.hasRecipes || !props.form.recipeId)}
-            isSubmitting={Boolean(props.isUpdatingPlan)}
-            secondaryLabel="取消"
-            onSecondary={props.onClose}
-          />
         </form>
       </WorkspaceModal>
     </div>
@@ -180,6 +185,8 @@ type RecipePlanDetailDialogProps = {
 
 export function RecipePlanDetailDialog(props: RecipePlanDetailDialogProps) {
   const isCooked = props.item.status === 'cooked';
+  const recipePlanDetailFormId = 'recipe-plan-detail-dialog-form';
+
   return (
     <div className="workspace-overlay-root">
       <div className="workspace-overlay-backdrop" onClick={props.onClose} />
@@ -189,8 +196,33 @@ export function RecipePlanDetailDialog(props: RecipePlanDetailDialogProps) {
         eyebrow="菜单计划详情"
         onClose={props.onClose}
         className="recipe-plan-detail-modal"
+        footerActions={
+          <div className="recipe-plan-detail-actions">
+            <ActionButton
+              tone="primary"
+              type="button"
+              onClick={() => props.onStartCook(props.item)}
+              disabled={props.isCookingRecipe || isCooked}
+            >
+              <RecipeUiIcon name="utensils" />
+              开始做
+            </ActionButton>
+            <ActionButton
+              tone="secondary"
+              type="submit"
+              form={recipePlanDetailFormId}
+              disabled={props.isUpdatingPlan || isCooked}
+            >
+              <RecipeUiIcon name="edit" />
+              保存修改
+            </ActionButton>
+            <ActionButton tone="tertiary" type="button" onClick={() => props.onDelete(props.item)} disabled={props.isUpdatingPlan}>
+              删除
+            </ActionButton>
+          </div>
+        }
       >
-        <form className="recipe-plan-detail-form" onSubmit={props.onSubmit}>
+        <form id={recipePlanDetailFormId} className="recipe-plan-detail-form" onSubmit={props.onSubmit}>
           <section className="recipe-plan-detail-card">
             <div className="recipe-plan-detail-cover">
               {props.card ? (
@@ -247,24 +279,6 @@ export function RecipePlanDetailDialog(props: RecipePlanDetailDialogProps) {
             />
           </label>
 
-          <div className="recipe-plan-detail-actions">
-            <ActionButton
-              tone="primary"
-              type="button"
-              onClick={() => props.onStartCook(props.item)}
-              disabled={props.isCookingRecipe || isCooked}
-            >
-              <RecipeUiIcon name="utensils" />
-              开始做
-            </ActionButton>
-            <ActionButton tone="secondary" type="submit" disabled={props.isUpdatingPlan || isCooked}>
-              <RecipeUiIcon name="edit" />
-              保存修改
-            </ActionButton>
-            <ActionButton tone="tertiary" type="button" onClick={() => props.onDelete(props.item)} disabled={props.isUpdatingPlan}>
-              删除
-            </ActionButton>
-          </div>
         </form>
       </WorkspaceModal>
     </div>

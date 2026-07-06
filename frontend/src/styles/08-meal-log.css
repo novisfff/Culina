@@ -903,53 +903,14 @@
   box-shadow: 0 24px 70px rgba(37, 25, 18, 0.24);
 }
 
-.meal-log-enrich-modal .workspace-overlay-head {
-  align-items: start;
-  padding-bottom: 0;
-  border-bottom: 0;
-  margin-bottom: 20px;
-}
-
-.meal-log-enrich-modal .workspace-overlay-titleblock .eyebrow {
-  display: none;
-}
-
-.meal-log-enrich-modal .workspace-overlay-titleblock h3 {
-  margin: 0;
-  color: #261c16;
-  font-family: var(--font-sans);
-  font-size: 1.25rem;
-  font-weight: 600;
-  line-height: 1.4;
-  letter-spacing: 0;
-}
-
-.meal-log-enrich-modal .workspace-overlay-titleblock .subtle {
-  margin-top: 6px;
-  color: #8a796e;
-  font-size: 0.82rem;
-  font-weight: 500;
-}
-
-.meal-log-enrich-modal .workspace-overlay-close {
-  width: 32px;
-  min-width: 32px;
-  height: 32px;
-  min-height: 32px;
-  border: 0;
-  background: transparent;
-  color: #5f5148;
-  font-size: 0.95rem;
-  line-height: 1;
-  box-shadow: none;
-}
-
 .meal-log-enrich-modal .workspace-overlay-body {
-  overflow: visible;
+  min-height: 0;
+  overflow: auto;
 }
 
 .meal-log-enrich-modal .meal-enrichment-form {
   gap: 28px;
+  min-height: 0;
 }
 
 .meal-enrichment-icon {
@@ -1598,26 +1559,6 @@
 @media (max-width: 640px) {
   .meal-log-enrich-modal.workspace-modal {
     overflow: hidden;
-  }
-
-  .meal-log-enrich-modal .workspace-overlay-head {
-    margin-bottom: 0;
-  }
-
-  .meal-log-enrich-modal .workspace-overlay-titleblock h3 {
-    font-size: var(--home-sheet-title-size);
-    line-height: 1.15;
-  }
-
-  .meal-log-enrich-modal .workspace-overlay-titleblock .subtle {
-    max-width: 100%;
-    margin-top: 2px;
-    font-size: var(--home-sheet-description-size);
-    line-height: 1.5;
-  }
-
-  .meal-log-enrich-modal .workspace-overlay-close {
-    font-size: var(--home-sheet-close-font-size);
   }
 
   .meal-log-enrich-modal .meal-enrichment-form {

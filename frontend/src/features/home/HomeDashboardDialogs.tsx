@@ -108,6 +108,10 @@ export function HomeDashboardDialogs(props: Props) {
   const homeExpiryReviewItem = props.homeExpiryReviewItem;
   const homeRestockShoppingItem = props.homeRestockShoppingItem;
   const homeRestockForm = props.homeRestockForm;
+  const homePlanAddFormId = 'home-plan-add-overlay-form';
+  const homeRestockFormId = 'home-restock-overlay-form';
+  const homeExpiredDisposalFormId = 'home-expired-disposal-overlay-form';
+  const homeMealEnrichmentFormId = 'home-meal-enrichment-overlay-form';
 
   const statusOptions = useMemo(() => {
     return Object.entries(INVENTORY_STATUS_LABELS).map(([key, label]) => ({
@@ -205,8 +209,20 @@ export function HomeDashboardDialogs(props: Props) {
             eyebrow="菜单计划"
             onClose={props.closeHomePlanAddDialog}
             className="recipe-plan-modal food-plan-modal"
+            footerActions={
+              <FormActions
+                className="recipe-plan-dialog-actions"
+                primaryLabel="加入菜单"
+                primaryType="submit"
+                primaryForm={homePlanAddFormId}
+                primaryDisabled={!props.homePlanAddFood}
+                isSubmitting={props.isCreatingFoodPlanItem}
+                secondaryLabel="取消"
+                onSecondary={props.closeHomePlanAddDialog}
+              />
+            }
           >
-            <form className="recipe-plan-dialog-form" onSubmit={(event) => void props.submitHomePlanAdd(event)}>
+            <form id={homePlanAddFormId} className="recipe-plan-dialog-form" onSubmit={(event) => void props.submitHomePlanAdd(event)}>
               {props.homePlanAddFood ? (
                 <div className="recipe-plan-dialog-hero">
                   <div className="recipe-plan-selected-cover">
@@ -325,15 +341,6 @@ export function HomeDashboardDialogs(props: Props) {
                   onChange={(event) => props.setHomePlanAddForm((current) => ({ ...current, note: event.target.value }))}
                 />
               </label>
-              <FormActions
-                className="recipe-plan-dialog-actions"
-                primaryLabel="加入菜单"
-                primaryType="submit"
-                primaryDisabled={!props.homePlanAddFood}
-                isSubmitting={props.isCreatingFoodPlanItem}
-                secondaryLabel="取消"
-                onSecondary={props.closeHomePlanAddDialog}
-              />
             </form>
           </WorkspaceModal>
         </div>
@@ -348,8 +355,22 @@ export function HomeDashboardDialogs(props: Props) {
             className="meal-log-modal meal-log-enrich-modal"
             closeAriaLabel="关闭"
             onClose={props.closeHomeMealEnrichment}
+            footerInfo={<span>保存后，本次补充记录将会出现在记录时间线中</span>}
+            footerActions={
+              <FormActions
+                className="meal-enrichment-actions"
+                primaryLabel="保存记录"
+                primaryType="submit"
+                primaryForm={homeMealEnrichmentFormId}
+                isSubmitting={props.isUpdatingMeal}
+                secondaryLabel="稍后再说"
+                onSecondary={props.closeHomeMealEnrichment}
+              />
+            }
           >
             <MealEnrichmentForm
+              formId={homeMealEnrichmentFormId}
+              showFooter={false}
               meal={props.homeMealEnrichmentMeal}
               members={props.homeMealEnrichmentMembers}
               source={props.homeMealEnrichmentSource}
@@ -372,6 +393,19 @@ export function HomeDashboardDialogs(props: Props) {
             description="先核对这批库存的信息；需要调整数量、位置或继续处理时进入食材详情。"
             className="dashboard-todo-modal"
             onClose={props.closeHomeExpiryReview}
+            footerActions={
+              <FormActions
+                className="dashboard-todo-actions"
+                primaryLabel="查看食材详情"
+                secondaryLabel="关闭"
+                onPrimary={() => {
+                  const ingredientId = homeExpiryReviewItem.ingredient_id;
+                  props.closeHomeExpiryReview();
+                  props.openIngredientDetail(ingredientId);
+                }}
+                onSecondary={props.closeHomeExpiryReview}
+              />
+            }
           >
             <div className="dashboard-todo-dialog">
               <section className="dashboard-todo-dialog-hero">
@@ -416,17 +450,6 @@ export function HomeDashboardDialogs(props: Props) {
 
               {homeExpiryReviewItem.notes && <p className="dashboard-todo-dialog-note">{homeExpiryReviewItem.notes}</p>}
 
-              <FormActions
-                className="dashboard-todo-actions"
-                primaryLabel="查看食材详情"
-                secondaryLabel="关闭"
-                onPrimary={() => {
-                  const ingredientId = homeExpiryReviewItem.ingredient_id;
-                  props.closeHomeExpiryReview();
-                  props.openIngredientDetail(ingredientId);
-                }}
-                onSecondary={props.closeHomeExpiryReview}
-              />
             </div>
           </WorkspaceModal>
         </div>
@@ -440,6 +463,13 @@ export function HomeDashboardDialogs(props: Props) {
             description="这条今日待办已经完成，下面是本餐记录。"
             className="dashboard-todo-modal meal-detail-modal"
             onClose={props.closeHomeMealDetail}
+            footerActions={
+              <FormActions
+                className="dashboard-todo-actions"
+                primaryLabel="知道了"
+                onPrimary={props.closeHomeMealDetail}
+              />
+            }
           >
             <div className="dashboard-todo-dialog meal-detail-dialog">
               <section className="meal-detail-head">
@@ -508,11 +538,6 @@ export function HomeDashboardDialogs(props: Props) {
                 </section>
               )}
 
-              <FormActions
-                className="dashboard-todo-actions"
-                primaryLabel="知道了"
-                onPrimary={props.closeHomeMealDetail}
-              />
             </div>
           </WorkspaceModal>
         </div>
@@ -528,8 +553,20 @@ export function HomeDashboardDialogs(props: Props) {
             closeAriaLabel="关闭"
             className="workspace-modal-wide inventory-restock-modal"
             onClose={props.closeHomeRestock}
+            footerActions={
+              <FormActions
+                className="ingredients-restock-actions"
+                primaryLabel="补入库存"
+                primaryType="submit"
+                primaryForm={homeRestockFormId}
+                primaryDisabled={!props.homeRestockIngredient}
+                isSubmitting={props.isCreatingInventory}
+                secondaryLabel="取消"
+                onSecondary={props.closeHomeRestock}
+              />
+            }
           >
-            <form className="ingredients-restock-form" onSubmit={(event) => void props.submitHomeRestock(event)}>
+            <form id={homeRestockFormId} className="ingredients-restock-form" onSubmit={(event) => void props.submitHomeRestock(event)}>
               <div className="ingredients-restock-scroll">
                 <div className="ingredients-restock-source-note">
                   <Badge>来自采购提醒</Badge>
@@ -813,17 +850,6 @@ export function HomeDashboardDialogs(props: Props) {
                 </section>
               </div>
 
-              <div className="ingredients-restock-footer-bar">
-                <FormActions
-                  className="ingredients-restock-actions"
-                  primaryLabel="补入库存"
-                  primaryType="submit"
-                  primaryDisabled={!props.homeRestockIngredient}
-                  isSubmitting={props.isCreatingInventory}
-                  secondaryLabel="取消"
-                  onSecondary={props.closeHomeRestock}
-                />
-              </div>
             </form>
           </WorkspaceModal>
         </div>
@@ -839,8 +865,31 @@ export function HomeDashboardDialogs(props: Props) {
             closeAriaLabel="关闭"
             className="workspace-modal-wide destroy-expired-modal"
             onClose={() => props.setHomeExpiredDisposalIngredientId(null)}
+            footerInfo={
+              <div className="destroy-expired-footer-summary">
+                <span>确认后将处理</span>
+                <strong>{props.homeExpiredDisposalItems.length} 条过期批次</strong>
+                <p>
+                  {props.homeExpiredDisposalItems.length > 0
+                    ? '系统会把这些批次的剩余量清零，并在刷新后同步库存状态。'
+                    : '当前没有可销毁的过期批次。'}
+                </p>
+              </div>
+            }
+            footerActions={
+              <FormActions
+                className="destroy-expired-actions"
+                primaryLabel="确认销毁"
+                primaryType="submit"
+                primaryForm={homeExpiredDisposalFormId}
+                primaryDisabled={props.homeExpiredDisposalItems.length === 0}
+                isSubmitting={props.isDisposingExpiredInventory}
+                secondaryLabel="取消"
+                onSecondary={() => props.setHomeExpiredDisposalIngredientId(null)}
+              />
+            }
           >
-            <form className="destroy-expired-form" onSubmit={(event) => void props.submitHomeExpiredDisposal(event)}>
+            <form id={homeExpiredDisposalFormId} className="destroy-expired-form" onSubmit={(event) => void props.submitHomeExpiredDisposal(event)}>
               <div className="destroy-expired-scroll">
                 <section className="ingredients-restock-identity-card destroy-expired-summary-card">
                   <div className="ingredients-restock-identity-media">
@@ -916,26 +965,6 @@ export function HomeDashboardDialogs(props: Props) {
                 </section>
               </div>
 
-              <div className="destroy-expired-footer-bar">
-                <div className="destroy-expired-footer-summary">
-                  <span>确认后将处理</span>
-                  <strong>{props.homeExpiredDisposalItems.length} 条过期批次</strong>
-                  <p>
-                    {props.homeExpiredDisposalItems.length > 0
-                      ? '系统会把这些批次的剩余量清零，并在刷新后同步库存状态。'
-                      : '当前没有可销毁的过期批次。'}
-                  </p>
-                </div>
-                <FormActions
-                  className="destroy-expired-actions"
-                  primaryLabel="确认销毁"
-                  primaryType="submit"
-                  primaryDisabled={props.homeExpiredDisposalItems.length === 0}
-                  isSubmitting={props.isDisposingExpiredInventory}
-                  secondaryLabel="取消"
-                  onSecondary={() => props.setHomeExpiredDisposalIngredientId(null)}
-                />
-              </div>
             </form>
           </WorkspaceModal>
         </div>

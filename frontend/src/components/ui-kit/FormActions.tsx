@@ -6,6 +6,7 @@ export type FormActionsProps = {
   children?: ReactNode;
   onPrimary?: () => void;
   primaryType?: 'button' | 'submit';
+  primaryForm?: string;
   primaryTone?: 'primary' | 'danger';
   primaryPlacement?: 'before-extra' | 'after-extra';
   primaryDisabled?: boolean;
@@ -21,6 +22,7 @@ export function FormActions({
   children,
   onPrimary,
   primaryType = 'button',
+  primaryForm,
   primaryTone = 'primary',
   primaryPlacement = 'after-extra',
   primaryDisabled = false,
@@ -35,6 +37,7 @@ export function FormActions({
     <ActionButton
       tone="primary"
       type={primaryType}
+      form={primaryForm}
       className={primaryTone === 'danger' ? 'danger' : undefined}
       onClick={onPrimary}
       disabled={disabled}

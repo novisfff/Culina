@@ -27,6 +27,8 @@ type FoodSceneDialogsProps = {
 };
 
 export function FoodSceneDialogs(props: FoodSceneDialogsProps) {
+  const sceneFormId = 'food-scene-form-modal-form';
+
   return (
     <>
       {props.isSceneManagerOpen && !props.sceneFormMode && (
@@ -102,8 +104,20 @@ export function FoodSceneDialogs(props: FoodSceneDialogsProps) {
             eyebrow="食物场景"
             onClose={props.onCloseSceneForm}
             className="food-scene-form-modal"
+            footerActions={
+              <FormActions
+                className="food-scene-form-actions"
+                primaryLabel={props.sceneFormMode === 'create' ? '创建场景' : '保存场景'}
+                primaryType="submit"
+                primaryForm={sceneFormId}
+                primaryDisabled={!props.sceneDraft.name.trim()}
+                isSubmitting={Boolean(props.isUpdatingScene)}
+                secondaryLabel="取消"
+                onSecondary={props.onCloseSceneForm}
+              />
+            }
           >
-            <form className="food-scene-form" onSubmit={props.onSubmitScene}>
+            <form id={sceneFormId} className="food-scene-form" onSubmit={props.onSubmitScene}>
               <div className="food-scene-form-fields">
                 <label className="food-scene-input-field">
                   <span>场景名称</span>
@@ -166,15 +180,6 @@ export function FoodSceneDialogs(props: FoodSceneDialogsProps) {
                 {!props.sceneDraft.name.trim() && <small className="food-scene-image-hint">填写场景名称后可生成封面</small>}
                 {props.sceneImageState.errorMessage && <p className="image-composer-error recipe-scene-error">{props.sceneImageState.errorMessage}</p>}
               </div>
-              <FormActions
-                className="food-scene-form-actions"
-                primaryLabel={props.sceneFormMode === 'create' ? '创建场景' : '保存场景'}
-                primaryType="submit"
-                primaryDisabled={!props.sceneDraft.name.trim()}
-                isSubmitting={Boolean(props.isUpdatingScene)}
-                secondaryLabel="取消"
-                onSecondary={props.onCloseSceneForm}
-              />
             </form>
           </WorkspaceModal>
         </div>

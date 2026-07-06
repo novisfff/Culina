@@ -59,6 +59,8 @@ export function InviteMemberModal(props: {
   onSubmit: FormEventHandler<HTMLFormElement>;
   onClose: () => void;
 }) {
+  const inviteFormId = 'family-invite-member-form';
+
   return (
     <div className="workspace-overlay-root family-settings-overlay-root">
       <div className="workspace-overlay-backdrop" onClick={props.onClose} />
@@ -67,8 +69,19 @@ export function InviteMemberModal(props: {
         description="为家庭成员开通登录账号，完成后会立即出现在成员列表中。"
         className="invite-member-modal"
         onClose={props.onClose}
+        footerActions={
+          <FormActions
+            className="family-settings-form-actions"
+            primaryLabel="创建成员账号"
+            primaryType="submit"
+            primaryForm={inviteFormId}
+            isSubmitting={props.isSubmitting}
+            secondaryLabel="取消"
+            onSecondary={props.onClose}
+          />
+        }
       >
-        <form className="form-grid compact-grid" onSubmit={props.onSubmit}>
+        <form id={inviteFormId} className="form-grid compact-grid" onSubmit={props.onSubmit}>
           <label>
             <span>用户名</span>
             <input
@@ -116,14 +129,6 @@ export function InviteMemberModal(props: {
               onChange={(event) => props.onChange({ ...props.form, email: event.target.value })}
             />
           </label>
-          <FormActions
-            className="span-two family-settings-form-actions"
-            primaryLabel="创建成员账号"
-            primaryType="submit"
-            isSubmitting={props.isSubmitting}
-            secondaryLabel="取消"
-            onSecondary={props.onClose}
-          />
         </form>
       </WorkspaceModal>
     </div>
@@ -138,6 +143,8 @@ export function MemberEditModal(props: {
   onSubmit: FormEventHandler<HTMLFormElement>;
   onClose: () => void;
 }) {
+  const memberEditFormId = 'family-member-edit-form';
+
   return (
     <div className="workspace-overlay-root family-settings-overlay-root">
       <div className="workspace-overlay-backdrop" onClick={props.onClose} />
@@ -146,8 +153,19 @@ export function MemberEditModal(props: {
         description="管理员可以维护成员昵称和联系方式，普通成员只能查看这些信息。"
         onClose={props.onClose}
         className="member-edit-modal"
+        footerActions={
+          <FormActions
+            className="member-edit-actions"
+            primaryLabel="保存信息"
+            primaryType="submit"
+            primaryForm={memberEditFormId}
+            isSubmitting={props.isSubmitting}
+            secondaryLabel="取消"
+            onSecondary={props.onClose}
+          />
+        }
       >
-        <form className="member-edit-form" onSubmit={props.onSubmit}>
+        <form id={memberEditFormId} className="member-edit-form" onSubmit={props.onSubmit}>
           <section className="member-edit-card">
             <div className="member-edit-preview">
               <Avatar
@@ -189,14 +207,6 @@ export function MemberEditModal(props: {
               </label>
             </div>
           </section>
-          <FormActions
-            className="member-edit-actions"
-            primaryLabel="保存信息"
-            primaryType="submit"
-            isSubmitting={props.isSubmitting}
-            secondaryLabel="取消"
-            onSecondary={props.onClose}
-          />
         </form>
       </WorkspaceModal>
     </div>
@@ -210,6 +220,8 @@ export function PasswordChangeModal(props: {
   onSubmit: FormEventHandler<HTMLFormElement>;
   onClose: () => void;
 }) {
+  const passwordFormId = 'family-password-change-form';
+
   return (
     <div className="workspace-overlay-root family-settings-overlay-root">
       <div className="workspace-overlay-backdrop" onClick={props.onClose} />
@@ -218,8 +230,19 @@ export function PasswordChangeModal(props: {
         description="输入当前密码并设置一个包含字母和数字的新密码。"
         className="password-change-modal"
         onClose={props.onClose}
+        footerActions={
+          <FormActions
+            className="family-settings-form-actions"
+            primaryLabel="修改密码"
+            primaryType="submit"
+            primaryForm={passwordFormId}
+            isSubmitting={props.isSubmitting}
+            secondaryLabel="取消"
+            onSecondary={props.onClose}
+          />
+        }
       >
-        <form className="form-grid compact-grid" onSubmit={props.onSubmit}>
+        <form id={passwordFormId} className="form-grid compact-grid" onSubmit={props.onSubmit}>
           <label className="span-two">
             <span>当前密码</span>
             <input
@@ -247,14 +270,6 @@ export function PasswordChangeModal(props: {
               onChange={(event) => props.onChange({ ...props.form, confirmPassword: event.target.value })}
             />
           </label>
-          <FormActions
-            className="span-two family-settings-form-actions"
-            primaryLabel="修改密码"
-            primaryType="submit"
-            isSubmitting={props.isSubmitting}
-            secondaryLabel="取消"
-            onSecondary={props.onClose}
-          />
         </form>
       </WorkspaceModal>
     </div>
@@ -281,6 +296,7 @@ export function ProfileEditModal(props: {
     props.imageControls.isGenerating
   );
   const bottomPreviewUrl = props.resolveAssetUrl(props.form.avatarImages.generatedAsset?.url);
+  const profileEditFormId = 'family-profile-edit-form';
 
   return (
     <div className="workspace-overlay-root family-settings-overlay-root">
@@ -290,8 +306,19 @@ export function ProfileEditModal(props: {
         description="更新联系方式与头像，头像可上传本地图片，也可以按你的说明生成。"
         onClose={props.onClose}
         className="profile-edit-modal"
+        footerActions={
+          <FormActions
+            className="profile-edit-actions"
+            primaryLabel="保存资料"
+            primaryType="submit"
+            primaryForm={profileEditFormId}
+            isSubmitting={isBusy}
+            secondaryLabel="取消"
+            onSecondary={props.onClose}
+          />
+        }
       >
-        <form className="profile-edit-form" onSubmit={props.onSubmit}>
+        <form id={profileEditFormId} className="profile-edit-form" onSubmit={props.onSubmit}>
           <section className="profile-edit-card">
             <div className="profile-edit-preview">
               <Avatar label={previewLabel} seed={previewSeed} imageUrl={imageUrl} large />
@@ -414,14 +441,6 @@ export function ProfileEditModal(props: {
             </div>
             {props.imageControls.errorMessage && <span className="image-composer-error">{props.imageControls.errorMessage}</span>}
           </section>
-          <FormActions
-            className="profile-edit-actions"
-            primaryLabel="保存资料"
-            primaryType="submit"
-            isSubmitting={isBusy}
-            secondaryLabel="取消"
-            onSecondary={props.onClose}
-          />
         </form>
       </WorkspaceModal>
     </div>
@@ -446,6 +465,7 @@ export function FamilyEditModal(props: {
     props.imageControls.isGenerating
   );
   const bottomPreviewUrl = props.resolveAssetUrl(props.form.images.generatedAsset?.url);
+  const familyEditFormId = 'family-edit-form';
 
   return (
     <div className="workspace-overlay-root family-settings-overlay-root">
@@ -455,8 +475,19 @@ export function FamilyEditModal(props: {
         description="维护家庭资料与家庭头像，家庭图可上传本地照片，也可以按说明生成。"
         onClose={props.onClose}
         className="family-edit-modal"
+        footerActions={
+          <FormActions
+            className="family-edit-actions"
+            primaryLabel="保存家庭信息"
+            primaryType="submit"
+            primaryForm={familyEditFormId}
+            isSubmitting={isBusy}
+            secondaryLabel="取消"
+            onSecondary={props.onClose}
+          />
+        }
       >
-        <form className="family-edit-form" onSubmit={props.onSubmit}>
+        <form id={familyEditFormId} className="family-edit-form" onSubmit={props.onSubmit}>
           <section className="family-edit-card">
             <div
               className={`family-edit-preview ${imageUrl ? 'has-image' : ''}`}
@@ -586,14 +617,6 @@ export function FamilyEditModal(props: {
             </div>
             {props.imageControls.errorMessage && <span className="image-composer-error">{props.imageControls.errorMessage}</span>}
           </section>
-          <FormActions
-            className="family-edit-actions"
-            primaryLabel="保存家庭信息"
-            primaryType="submit"
-            isSubmitting={isBusy}
-            secondaryLabel="取消"
-            onSecondary={props.onClose}
-          />
         </form>
       </WorkspaceModal>
     </div>

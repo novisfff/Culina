@@ -26,6 +26,8 @@ type IngredientDestroyExpiredOverlayProps = {
 };
 
 export function IngredientDestroyExpiredOverlay(props: IngredientDestroyExpiredOverlayProps) {
+  const destroyExpiredFormId = 'ingredient-destroy-expired-overlay-form';
+
   return (
     <WorkspaceModal
       title="销毁已过期批次"
@@ -34,8 +36,32 @@ export function IngredientDestroyExpiredOverlay(props: IngredientDestroyExpiredO
       closeAriaLabel="关闭"
       className="workspace-modal-wide destroy-expired-modal"
       onClose={props.closeOverlay}
+      footerInfo={
+        <div className="destroy-expired-footer-summary">
+          <span>将处理</span>
+          <strong>{props.destroyExpiredItems.length} 条过期批次</strong>
+          <p>
+            {props.destroyExpiredItems.length > 0
+              ? '剩余量会清零，历史记录和日志保留。'
+              : '当前没有可销毁的过期批次。'}
+          </p>
+        </div>
+      }
+      footerActions={
+        <FormActions
+          className="destroy-expired-actions"
+          primaryLabel="确认销毁"
+          primaryType="submit"
+          primaryForm={destroyExpiredFormId}
+          primaryTone="danger"
+          primaryDisabled={props.destroyExpiredItems.length === 0}
+          isSubmitting={Boolean(props.isDisposingExpiredInventory)}
+          secondaryLabel="取消"
+          onSecondary={props.closeOverlay}
+        />
+      }
     >
-      <form className="destroy-expired-form" onSubmit={(event) => void props.submitDestroyExpired(event)}>
+      <form id={destroyExpiredFormId} className="destroy-expired-form" onSubmit={(event) => void props.submitDestroyExpired(event)}>
         <div className="destroy-expired-scroll">
           <section className="ingredients-restock-identity-card destroy-expired-summary-card">
             <div className="ingredients-restock-identity-media">
@@ -106,27 +132,6 @@ export function IngredientDestroyExpiredOverlay(props: IngredientDestroyExpiredO
           </section>
         </div>
 
-        <div className="destroy-expired-footer-bar">
-          <div className="destroy-expired-footer-summary">
-            <span>将处理</span>
-            <strong>{props.destroyExpiredItems.length} 条过期批次</strong>
-            <p>
-              {props.destroyExpiredItems.length > 0
-                ? '剩余量会清零，历史记录和日志保留。'
-                : '当前没有可销毁的过期批次。'}
-            </p>
-          </div>
-          <FormActions
-            className="destroy-expired-actions"
-            primaryLabel="确认销毁"
-            primaryType="submit"
-            primaryTone="danger"
-            primaryDisabled={props.destroyExpiredItems.length === 0}
-            isSubmitting={Boolean(props.isDisposingExpiredInventory)}
-            secondaryLabel="取消"
-            onSecondary={props.closeOverlay}
-          />
-        </div>
       </form>
     </WorkspaceModal>
   );
