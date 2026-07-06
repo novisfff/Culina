@@ -122,7 +122,7 @@ export function FoodPlanDetailModal(props: Props) {
       <ActionButton tone="secondary" type="button" onClick={props.onResetEdit} disabled={props.isUpdatingPlan}>
         取消修改
       </ActionButton>
-      <ActionButton tone="tertiary" type="button" onClick={props.onDelete} disabled={props.isUpdatingPlan}>
+      <ActionButton tone="tertiary" type="button" className="ui-form-actions-danger" onClick={props.onDelete} disabled={props.isUpdatingPlan}>
         删除
       </ActionButton>
     </FormActions>
@@ -143,7 +143,7 @@ export function FoodPlanDetailModal(props: Props) {
       <ActionButton tone="secondary" type="button" onClick={() => props.onEditingChange(true)} disabled={props.isUpdatingPlan || props.item.status === 'cooked'}>
         修改
       </ActionButton>
-      <ActionButton tone="tertiary" type="button" onClick={props.onDelete} disabled={props.isUpdatingPlan}>
+      <ActionButton tone="tertiary" type="button" className="ui-form-actions-danger" onClick={props.onDelete} disabled={props.isUpdatingPlan}>
         删除
       </ActionButton>
     </FormActions>

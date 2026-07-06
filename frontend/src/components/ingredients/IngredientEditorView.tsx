@@ -8,7 +8,6 @@ import {
   ComboboxField,
   ImageComposer,
   OptionChipGroup,
-  SegmentedTabs,
   TouchRangeField,
   TouchStepperField,
   WorkspaceSubpageShell,
@@ -195,7 +194,10 @@ export function IngredientEditorView(props: IngredientEditorViewProps) {
                       <p className="subtle">调料等常备品可只记录有无。</p>
                     </div>
                   </div>
-                  <SegmentedTabs
+                  <OptionChipGroup
+                    ariaLabel="数量记录方式"
+                    size="large"
+                    className="ingredients-quantity-tracking-options"
                     options={[
                       { value: 'track_quantity', label: '记录数量' },
                       { value: 'not_track_quantity', label: '只记录有无' },
@@ -216,27 +218,39 @@ export function IngredientEditorView(props: IngredientEditorViewProps) {
                 <div className="ingredients-category-field">
                   <span>分类</span>
                   <div className="ingredients-category-presets" aria-label="常见食材分类">
-                    <OptionChipGroup
-                      ariaLabel="食材分类"
-                      value={props.showIngredientCategoryCustomInput ? '__custom__' : props.ingredientForm.category}
-                      options={[
-                        ...props.ingredientVisibleCategoryPresets.map((item) => ({
-                          value: item.label,
-                          label: item.label,
-                        })),
-                        { value: '__custom__', label: '+ 自定义' },
-                      ]}
-                      className="ingredients-category-chip-group"
-                      onChange={(category) => {
-                        if (category === '__custom__') {
-                          props.setIngredientCustomCategoryOpen(true);
-                          props.setIngredientForm({ ...props.ingredientForm, category: '' });
-                          return;
+                    {props.ingredientVisibleCategoryPresets.map((item) => (
+                      <button
+                        key={item.label}
+                        className={
+                          !props.showIngredientCategoryCustomInput && props.ingredientForm.category === item.label
+                            ? 'ingredients-category-chip active'
+                            : 'ingredients-category-chip'
                         }
-                        props.setIngredientCustomCategoryOpen(false);
-                        props.applyIngredientCategoryPreset(category);
+                        type="button"
+                        onClick={() => {
+                          props.setIngredientCustomCategoryOpen(false);
+                          props.applyIngredientCategoryPreset(item.label);
+                        }}
+                      >
+                        <span className="ingredients-category-chip-icon" aria-hidden="true">
+                          <IngredientCategoryIcon name={item.icon} />
+                        </span>
+                        <span>{item.label}</span>
+                      </button>
+                    ))}
+                    <button
+                      className={props.showIngredientCategoryCustomInput ? 'ingredients-category-chip active' : 'ingredients-category-chip'}
+                      type="button"
+                      onClick={() => {
+                        props.setIngredientCustomCategoryOpen(true);
+                        props.setIngredientForm({ ...props.ingredientForm, category: '' });
                       }}
-                    />
+                    >
+                      <span className="ingredients-category-chip-icon" aria-hidden="true">
+                        <IngredientCategoryIcon name="custom" />
+                      </span>
+                      <span>自定义</span>
+                    </button>
                     {props.showIngredientCategoryCustomInput ? (
                       <input
                         className="ingredients-category-custom-input"
@@ -279,7 +293,7 @@ export function IngredientEditorView(props: IngredientEditorViewProps) {
                     }
                   />
                   {props.ingredientUsesCustomUnit && (
-                    <label>
+                    <label className="ingredients-inline-custom-field">
                       <span>自定义单位</span>
                       <ComboboxField
                         ariaLabel="默认单位"
@@ -380,7 +394,7 @@ export function IngredientEditorView(props: IngredientEditorViewProps) {
                     )}
                   </section>
                 </div>
-                <div className="ingredients-restock-field-group">
+                <div className="ingredients-restock-field-group ingredients-storage-field-group">
                   <div className="ingredients-restock-field-head">
                     <div>
                       <span>默认存放位置</span>
@@ -403,7 +417,7 @@ export function IngredientEditorView(props: IngredientEditorViewProps) {
                     }
                   />
                   {props.ingredientUsesCustomStorage && (
-                    <label>
+                    <label className="ingredients-storage-custom-field">
                       <span>自定义位置</span>
                       <input
                         className="text-input"
@@ -426,7 +440,9 @@ export function IngredientEditorView(props: IngredientEditorViewProps) {
                   <span>默认保质期规则</span>
                   <p className="subtle">把长期规则留在资料卡里，补库存时就不用每次重想。</p>
                 </div>
-                <SegmentedTabs
+                <OptionChipGroup
+                  ariaLabel="默认保质期规则"
+                  className="ingredients-rule-option-group"
                   options={[
                     { value: 'none', label: '不跟踪到期' },
                     { value: 'days', label: '买后几天' },
@@ -457,7 +473,9 @@ export function IngredientEditorView(props: IngredientEditorViewProps) {
                     <p>当前只判断家里是否有这类食材，不因为数量不足触发补货提醒。</p>
                   </div>
                 ) : (
-                  <SegmentedTabs
+                  <OptionChipGroup
+                    ariaLabel="默认低库存提醒"
+                    className="ingredients-rule-option-group"
                     options={[
                       { value: 'off', label: '不提醒' },
                       { value: 'on', label: '设置提醒' },

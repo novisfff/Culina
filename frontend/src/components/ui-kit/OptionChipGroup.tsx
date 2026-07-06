@@ -10,12 +10,24 @@ export type OptionChipGroupProps<T extends string> = {
   value: T;
   options: readonly OptionChip<T>[];
   onChange: (value: T) => void;
+  size?: 'small' | 'medium' | 'large';
   className?: string;
 };
 
-export function OptionChipGroup<T extends string>({ ariaLabel, value, options, onChange, className }: OptionChipGroupProps<T>) {
+export function OptionChipGroup<T extends string>({
+  ariaLabel,
+  value,
+  options,
+  onChange,
+  size = 'medium',
+  className,
+}: OptionChipGroupProps<T>) {
   return (
-    <div className={['ui-option-chip-group', className].filter(Boolean).join(' ')} role="radiogroup" aria-label={ariaLabel}>
+    <div
+      className={['ui-option-chip-group', `size-${size}`, className].filter(Boolean).join(' ')}
+      role="radiogroup"
+      aria-label={ariaLabel}
+    >
       {options.map((option) => (
         <button
           key={option.value}

@@ -41,6 +41,7 @@ import {
   Badge,
   DropdownSelect,
   EmptyState,
+  OptionChipGroup,
   SearchField,
   WorkspaceSubpageHeader,
   WorkspaceSubpageShell,
@@ -1198,22 +1199,18 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
             onChange={(val) => setSortMode(val as RecipeSortMode)}
           />
         </div>
-        <div className="recipe-filter-row">
-          {QUICK_FILTERS.map((item) => (
-            <button
-              key={item.value}
-              className={quickFilter === item.value ? 'chip recipe-filter-chip active' : 'chip recipe-filter-chip'}
-              type="button"
-              onClick={() => {
-                setQuickFilter(item.value);
-                setSceneFilter('all');
-                setRecommendationPage(0);
-              }}
-            >
-              {item.label}
-            </button>
-          ))}
-        </div>
+        <OptionChipGroup
+          ariaLabel="菜谱快捷筛选"
+          size="medium"
+          className="recipe-filter-row"
+          value={quickFilter}
+          options={QUICK_FILTERS}
+          onChange={(value) => {
+            setQuickFilter(value);
+            setSceneFilter('all');
+            setRecommendationPage(0);
+          }}
+        />
       </section>
     );
   }

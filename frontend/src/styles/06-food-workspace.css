@@ -1440,31 +1440,10 @@
   white-space: nowrap;
 }
 
-.food-filter-group .segmented-tabs {
+.food-filter-group .food-filter-chip-group {
   justify-content: flex-start;
-  gap: 6px;
   overflow-x: auto;
-  padding: 0;
-  border: 0;
-  background: transparent;
-}
-
-.food-filter-group .segmented-tab {
-  min-height: 32px;
-  padding: 0 11px;
-  border: 1px solid rgba(92, 67, 48, 0.1);
-  border-radius: 999px;
-  background: #fffdfb;
-  color: #6f5f55;
-  font-size: 0.78rem;
-  white-space: nowrap;
-  box-shadow: 0 4px 10px rgba(74, 54, 40, 0.025);
-}
-
-.food-filter-group .segmented-tab.active {
-  border-color: rgba(227, 103, 34, 0.22);
-  background: #fff3ea;
-  color: #db5a1b;
+  padding-bottom: 0;
 }
 
 .food-feedback {
@@ -3839,7 +3818,7 @@
 
 .food-detail-actions {
   width: 100%;
-  max-width: 680px;
+  max-width: none;
   margin: 0;
 }
 
@@ -3852,31 +3831,32 @@
   margin-top: 12px;
   margin-inline: -24px;
   margin-bottom: -24px;
-  padding: 12px 24px 18px;
-  background: rgba(92, 67, 48, 0.035);
+  padding: 12px 40px 16px;
+  background: rgba(255, 253, 251, 0.96);
   border-top: 1px solid rgba(92, 67, 48, 0.08);
-  box-shadow: none;
+  box-shadow: 0 -10px 30px rgba(74, 54, 40, 0.05);
 }
 
 .food-detail-drawer > .workspace-overlay-footer > .workspace-overlay-footer-actions {
   width: 100%;
   flex: 1 1 auto;
-  justify-content: center;
+  justify-content: flex-start;
   margin-left: 0 !important;
 }
 
 .food-detail-drawer > .workspace-overlay-footer .food-detail-actions .ui-form-actions-row {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-start;
   gap: 10px;
   width: 100%;
 }
 
 .food-detail-drawer > .workspace-overlay-footer .food-detail-actions .ui-form-actions-row .solid-button {
-  grid-column: span 3;
-  min-width: 0;
+  flex: 0 1 220px;
+  min-width: 180px;
   min-height: 44px;
-  width: 100%;
   border-radius: 14px;
   background: linear-gradient(135deg, #e7763f 0%, #d26b33 100%) !important;
   color: #ffffff !important;
@@ -3897,10 +3877,10 @@
 }
 
 .food-detail-drawer > .workspace-overlay-footer .food-detail-actions .ui-form-actions-row .ghost-button {
-  min-width: 0;
-  min-height: 42px;
-  width: 100%;
-  padding-inline: 12px;
+  flex: 0 1 156px;
+  min-width: 136px;
+  min-height: 44px;
+  padding-inline: 14px;
   white-space: nowrap;
   background: #ffffff !important;
   border: 1px solid rgba(92, 67, 48, 0.16) !important;
@@ -3909,15 +3889,6 @@
   font-weight: 700;
   box-shadow: 0 2px 6px rgba(74, 54, 40, 0.02) !important;
   transition: all 180ms cubic-bezier(0.16, 1, 0.3, 1) !important;
-}
-
-.food-detail-drawer > .workspace-overlay-footer .food-detail-actions .ui-form-actions-row .ghost-button:nth-of-type(2) {
-  grid-column: span 1;
-}
-
-.food-detail-drawer > .workspace-overlay-footer .food-detail-actions .ui-form-actions-row .ghost-button:nth-of-type(3),
-.food-detail-drawer > .workspace-overlay-footer .food-detail-actions .ui-form-actions-row .ghost-button:nth-of-type(4) {
-  grid-column: span 2;
 }
 
 .food-detail-drawer > .workspace-overlay-footer .food-detail-actions .ui-form-actions-row .ghost-button:hover {
@@ -13307,8 +13278,8 @@ button.ai-clarification-option:hover:not(:disabled) .ai-clarification-option-ind
 
   .food-detail-actions-mobile .ui-form-actions-row {
     display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 10px;
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    gap: 8px;
     width: 100%;
   }
 
@@ -13317,58 +13288,48 @@ button.ai-clarification-option:hover:not(:disabled) .ai-clarification-option-ind
   }
 
   .food-detail-actions-mobile button {
+    grid-column: span 2;
     min-width: 0;
     width: 100%;
+    min-height: 44px;
+    padding-right: 8px;
+    padding-left: 8px;
+    border-radius: 12px;
+    font-size: 0.86rem;
+    font-weight: 850;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
     transition: all 0.12s ease;
+  }
+
+  .food-detail-actions-mobile .ui-form-actions-primary {
+    grid-column: 1 / -1;
+    min-height: 50px;
+    border-radius: 14px;
+    background: var(--brand-button-bg);
+    box-shadow: 0 8px 18px rgba(210, 107, 51, 0.22);
+    font-size: 0.96rem;
+    font-weight: 900;
+  }
+
+  .food-detail-actions-mobile .ui-form-actions-row > button:nth-of-type(2):nth-last-of-type(1) {
+    grid-column: span 6;
+  }
+
+  .food-detail-actions-mobile .ui-form-actions-row > button:nth-of-type(2):nth-last-of-type(2),
+  .food-detail-actions-mobile .ui-form-actions-row > button:nth-of-type(3):nth-last-of-type(1) {
+    grid-column: span 3;
   }
 
   .food-detail-actions-mobile button:active {
     transform: scale(0.97);
   }
 
-  .food-detail-actions-mobile button:nth-of-type(1) { /* Primary Action e.g. "记这一餐" */
-    grid-column: 1 / -1;
-    order: 1;
-    min-height: 48px;
-    border-radius: 14px;
-    background: var(--brand-button-bg);
-    box-shadow: 0 8px 18px rgba(210, 107, 51, 0.22);
-    font-size: 0.94rem;
-    font-weight: 900;
-  }
-
-  .food-detail-actions-mobile button:nth-of-type(3) { /* "加入菜单" */
-    order: 2;
-    min-height: 44px;
-    border-radius: 12px;
-    background: #ffffff;
-    border: 1px solid rgba(92, 67, 48, 0.12);
-    color: #5c4e46;
-    font-size: 0.88rem;
-    font-weight: 850;
-  }
-
-  .food-detail-actions-mobile button:nth-of-type(4) { /* "完整记一餐" */
-    order: 3;
-    min-height: 44px;
-    border-radius: 12px;
-    background: #ffffff;
-    border: 1px solid rgba(92, 67, 48, 0.12);
-    color: #5c4e46;
-    font-size: 0.88rem;
-    font-weight: 850;
-  }
-
-  .food-detail-actions-mobile button:nth-of-type(2) { /* Secondary Action e.g. "编辑资料" */
-    grid-column: 1 / -1;
-    order: 4;
-    min-height: 44px;
-    border-radius: 12px;
+  .food-detail-actions-mobile button:not(.ui-form-actions-primary) {
     background: transparent;
     border: 1px solid rgba(92, 67, 48, 0.12);
-    color: #7a6d64;
-    font-size: 0.88rem;
-    font-weight: 850;
+    color: #6c5d53;
   }
 }
 

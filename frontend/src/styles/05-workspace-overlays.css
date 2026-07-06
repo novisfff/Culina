@@ -941,7 +941,6 @@
   .solid-button,
   .ghost-button,
   .tertiary-button,
-  .segmented-tab,
   .workspace-subnav-item,
   .ui-option-chip,
   .touch-stepper-button,
@@ -1088,12 +1087,6 @@
 
   .toolbar-inline {
     gap: 10px;
-  }
-
-  .toolbar-inline .segmented-tabs,
-  .ingredients-panel .segmented-tabs {
-    width: 100%;
-    justify-content: flex-start;
   }
 
   .form-grid,
@@ -3955,30 +3948,6 @@
 .recipe-filter-row {
   gap: 12px;
   padding-top: 3px;
-}
-
-.recipe-filter-chip {
-  min-width: 74px;
-  min-height: 40px;
-  justify-content: center;
-  padding: 8px 18px;
-  background: #faf8f6;
-  color: #8d8177;
-  font-size: 0.88rem;
-}
-
-.recipe-filter-chip.active {
-  background: var(--brand-button-bg);
-  box-shadow: 0 6px 14px rgba(210, 107, 51, 0.14);
-}
-
-.recipe-filter-chip.active::after {
-  display: none;
-}
-
-.recipe-filter-chip:last-child:not(.active) {
-  background: #fff1ec;
-  color: #B35122;
 }
 
 .recipe-discovery-layout {

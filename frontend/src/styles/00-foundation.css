@@ -1996,45 +1996,6 @@ textarea:focus-visible {
   place-items: center;
 }
 
-.segmented-tabs {
-  display: inline-flex;
-  gap: 6px;
-  flex-wrap: nowrap;
-  padding: 6px;
-  max-width: 100%;
-  overflow-x: auto;
-  border-radius: 999px;
-  background: var(--surface-3);
-  border: 1px solid var(--line-soft);
-  scrollbar-width: none;
-}
-
-.segmented-tabs::-webkit-scrollbar {
-  display: none;
-}
-
-.segmented-tab {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 38px;
-  border: 0;
-  border-radius: 999px;
-  padding: 9px 13px;
-  background: transparent;
-  color: var(--text-soft);
-  font-weight: 700;
-  font-size: 0.92rem;
-  white-space: nowrap;
-  flex: 0 0 auto;
-}
-
-.segmented-tab.active {
-  background: white;
-  color: var(--text);
-  box-shadow: var(--shadow-sm);
-}
-
 .workspace-subnav {
   display: flex;
   align-items: center;
@@ -2742,7 +2703,6 @@ select.text-input {
 
 .touch-stepper-button:focus-visible,
 .touch-value-chip:focus-visible,
-.segmented-tab:focus-visible,
 .workspace-subnav-item:focus-visible,
 .ui-option-chip:focus-visible {
   outline: 2px solid rgba(210, 107, 51, 0.34);

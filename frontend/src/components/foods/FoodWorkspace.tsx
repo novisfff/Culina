@@ -30,7 +30,6 @@ import {
   ImageComposer,
   OptionChipGroup,
   SearchField,
-  SegmentedTabs,
   WorkspaceModal,
 } from '../ui-kit';
 import { FoodPlanDetailModal } from './FoodPlanDetailModal';
@@ -1302,7 +1301,10 @@ export function FoodWorkspace(props: Props) {
               <div className="food-toolbar-controls">
                 <div className="food-filter-group">
                   <span>类型</span>
-                  <SegmentedTabs
+                  <OptionChipGroup
+                    ariaLabel="食物类型"
+                    size="small"
+                    className="food-filter-chip-group"
                     options={[{ value: 'all', label: '全部' }, ...FOOD_TYPE_OPTIONS.map((item) => ({ value: item.value, label: item.label }))]}
                     value={typeFilter}
                     onChange={(value) => setTypeFilter(value)}
@@ -1310,7 +1312,10 @@ export function FoodWorkspace(props: Props) {
                 </div>
                 <div className="food-filter-group">
                   <span>餐别</span>
-                  <SegmentedTabs
+                  <OptionChipGroup
+                    ariaLabel="适合餐别"
+                    size="small"
+                    className="food-filter-chip-group"
                     options={[{ value: 'all', label: '全餐别' }, ...MEAL_OPTIONS.map((item) => ({ value: item.value, label: item.label }))]}
                     value={mealFilter}
                     onChange={(value) => setMealFilter(value)}

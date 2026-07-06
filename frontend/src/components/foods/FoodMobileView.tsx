@@ -4,7 +4,7 @@ import { buildMediaSizes, buildMediaSrcSet, resolveMediaUrl } from '../../lib/as
 import { FOOD_TYPE_LABELS, MEAL_TYPE_LABELS, getFoodCoverAsset } from '../../lib/ui';
 import { chunkMobilePagedItems, useMobilePagedScroller } from '../../hooks/useMobilePagedScroller';
 import { MediaWithPlaceholder } from '../MediaPlaceholder';
-import { EmptyState, SearchField, StateBlock, StatusBadge } from '../ui-kit';
+import { EmptyState, OptionChipGroup, SearchField, StateBlock, StatusBadge } from '../ui-kit';
 import { focusMobileInput } from '../../lib/mobileFocus';
 import { resolveMobileSceneCoverSource } from './FoodMobileSceneModel';
 import { FoodUiIcon } from './FoodWorkspacePrimitives';
@@ -264,13 +264,14 @@ export function FoodMobileView(props: {
             onCompositionStart={props.onSearchCompositionStart}
             onCompositionEnd={props.onSearchCompositionEnd}
           />
-          <div className="mobile-food-tabs" aria-label="食物分类">
-            {props.filterTabs.map((item) => (
-              <button key={item.label} className={item.active ? 'active' : ''} type="button" onClick={item.onClick}>
-                {item.label}
-              </button>
-            ))}
-          </div>
+          <OptionChipGroup
+            ariaLabel="食物分类"
+            value={props.filterTabs.find((item) => item.active)?.label ?? ''}
+            options={props.filterTabs.map((item) => ({ value: item.label, label: item.label }))}
+            size="large"
+            className="mobile-food-chip-group"
+            onChange={(nextValue) => props.filterTabs.find((item) => item.label === nextValue)?.onClick()}
+          />
         </div>
         {props.mobileLibraryFoods.length > 0 ? (
           <>

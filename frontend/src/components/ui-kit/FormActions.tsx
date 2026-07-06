@@ -33,30 +33,34 @@ export function FormActions({
   className,
 }: FormActionsProps) {
   const disabled = primaryDisabled || isSubmitting;
+  const primaryClassName = ['ui-form-actions-primary', primaryTone === 'danger' ? 'danger' : undefined]
+    .filter(Boolean)
+    .join(' ');
   const primaryAction = (
     <ActionButton
       tone="primary"
       type={primaryType}
       form={primaryForm}
-      className={primaryTone === 'danger' ? 'danger' : undefined}
+      className={primaryClassName}
       onClick={onPrimary}
       disabled={disabled}
     >
       {isSubmitting ? '处理中...' : primaryLabel}
     </ActionButton>
   );
+  const secondaryAction = secondaryLabel ? (
+    <ActionButton tone="secondary" type="button" className="ui-form-actions-secondary" onClick={onSecondary} disabled={isSubmitting}>
+      {secondaryLabel}
+    </ActionButton>
+  ) : null;
 
   return (
-    <div className={['ui-form-actions', className].filter(Boolean).join(' ')}>
+    <div className={['ui-form-actions', className].filter(Boolean).join(' ')} data-primary-placement={primaryPlacement}>
       {primaryDisabledReason && disabled ? <p className="ui-form-actions-reason">{primaryDisabledReason}</p> : null}
       <div className="ui-form-actions-row">
         <span className="ui-form-actions-spacer" />
-        {secondaryLabel ? (
-          <ActionButton tone="secondary" type="button" onClick={onSecondary} disabled={isSubmitting}>
-            {secondaryLabel}
-          </ActionButton>
-        ) : null}
         {primaryPlacement === 'before-extra' ? primaryAction : null}
+        {secondaryAction}
         {children}
         {primaryPlacement === 'after-extra' ? primaryAction : null}
       </div>

@@ -3,7 +3,7 @@ import { buildMediaSizes, buildMediaSrcSet, resolveMediaUrl } from '../../lib/as
 import type { ShoppingListItem } from '../../api/types';
 import { chunkMobilePagedItems, useMobilePagedScroller } from '../../hooks/useMobilePagedScroller';
 import { MediaWithPlaceholder } from '../MediaPlaceholder';
-import { SearchField, WorkspaceDrawer } from '../ui-kit';
+import { OptionChipGroup, SearchField, WorkspaceDrawer, type OptionChip } from '../ui-kit';
 import { tracksIngredientQuantity } from '../../lib/ingredientTracking';
 import { focusMobileInput } from '../../lib/mobileFocus';
 import type {
@@ -22,6 +22,14 @@ type CatalogCardStatus = {
   stockLine: string;
   hint: string;
 };
+
+const MOBILE_INGREDIENT_FILTER_OPTIONS: readonly OptionChip<MobileIngredientFilter>[] = [
+  { value: 'all', label: '全部' },
+  { value: 'seasoning', label: '调料' },
+  { value: 'alerted', label: '提醒' },
+  { value: 'empty', label: '缺货' },
+  { value: 'stocked', label: '在库' },
+];
 
 function focusMobileIngredientSearch() {
   focusMobileInput('mobile-ingredient-search', { containerSelector: '.mobile-ingredient-library-filters' });
@@ -349,24 +357,14 @@ export function IngredientMobileView(props: IngredientMobileViewProps) {
             onCompositionStart={props.onCatalogSearchCompositionStart}
             onCompositionEnd={props.onCatalogSearchCompositionEnd}
           />
-          <div className="mobile-ingredient-tabs" aria-label="食材筛选">
-            {[
-              { value: 'all' as const, label: '全部' },
-              { value: 'seasoning' as const, label: '调料' },
-              { value: 'alerted' as const, label: '提醒' },
-              { value: 'empty' as const, label: '缺货' },
-              { value: 'stocked' as const, label: '在库' },
-            ].map((item) => (
-              <button
-                key={item.value}
-                className={props.mobileIngredientFilter === item.value ? 'active' : ''}
-                type="button"
-                onClick={() => props.setMobileIngredientFilter(item.value)}
-              >
-                {item.label}
-              </button>
-            ))}
-          </div>
+          <OptionChipGroup
+            ariaLabel="食材筛选"
+            value={props.mobileIngredientFilter}
+            options={MOBILE_INGREDIENT_FILTER_OPTIONS}
+            size="large"
+            className="mobile-ingredient-chip-group"
+            onChange={props.setMobileIngredientFilter}
+          />
         </div>
         {props.mobileCatalogSummaries.length > 0 ? (
           <>

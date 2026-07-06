@@ -742,6 +742,10 @@
 }
 
 .ingredients-create-workspace .text-input {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
   padding: 12px 15px;
   border-radius: 12px;
   min-height: 46px;
@@ -835,6 +839,10 @@
   grid-template-columns: minmax(0, 1.35fr) minmax(260px, 1fr);
   gap: 18px;
   align-items: stretch;
+}
+
+.ingredient-editor-modal .ingredients-create-basic-section .form-grid.compact-grid {
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .ingredients-create-basic-section .ingredients-unit-conversion-panel {
@@ -1221,7 +1229,7 @@
   gap: 2px;
 }
 
-.ingredients-create-basic-section .ingredients-quantity-tracking-card .segmented-tabs {
+.ingredients-create-basic-section .ingredients-quantity-tracking-card .ingredients-quantity-tracking-options {
   justify-self: stretch;
   width: 100%;
   display: grid;
@@ -1229,10 +1237,8 @@
   gap: 8px;
 }
 
-.ingredients-create-basic-section .ingredients-quantity-tracking-card .segmented-tab {
-  min-height: 38px;
-  padding: 8px 12px;
-  white-space: nowrap;
+.ingredients-create-basic-section .ingredients-quantity-tracking-card .ingredients-quantity-tracking-options .ui-option-chip {
+  width: 100%;
 }
 
 .ingredients-create-workspace .ingredients-restock-choice-row {
@@ -1243,7 +1249,49 @@
   display: flex;
   flex-direction: column;
   min-height: 0;
+  min-width: 0;
   height: 100%;
+}
+
+.ingredients-create-basic-section .ingredients-storage-field-group {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+}
+
+.ingredients-create-basic-section .ingredients-storage-field-group .ingredients-storage-chip-group {
+  max-width: 100%;
+}
+
+.ingredients-create-basic-section .ingredients-storage-custom-field {
+  box-sizing: border-box;
+  display: grid;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+}
+
+.ingredients-create-basic-section .ingredients-inline-custom-field {
+  box-sizing: border-box;
+  display: grid;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+}
+
+.ingredients-create-basic-section .ingredients-storage-custom-field .text-input,
+.ingredients-create-basic-section .ingredients-inline-custom-field .text-input {
+  box-sizing: border-box;
+  display: block;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .ingredients-create-basic-section .ingredients-restock-choice-row {
@@ -1382,22 +1430,6 @@
   background: rgba(250, 247, 244, 0.94);
 }
 
-.ingredients-create-workspace .ui-option-chip {
-  min-width: 52px;
-  min-height: 34px;
-  padding: 6px 12px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.82);
-}
-
-.ingredients-create-workspace .ui-option-chip.is-selected,
-.ingredients-create-workspace .segmented-tab.active {
-  border-color: rgba(210, 107, 51, 0.46);
-  background: rgba(255, 244, 237, 0.86);
-  color: var(--accent-strong);
-  box-shadow: none;
-}
-
 /* Specific overrides for Storage Choice Chips to override general active styles and shape */
 .ingredients-create-workspace .ingredients-storage-choice-chip {
   background: #ffffff !important;
@@ -1465,22 +1497,6 @@
   color: #5c4d43 !important;
 }
 
-.ingredients-create-workspace .segmented-tabs {
-  padding: 0;
-  gap: 10px;
-  border: 0;
-  border-radius: 0;
-  background: transparent;
-}
-
-.ingredients-create-workspace .segmented-tab {
-  min-height: 36px;
-  padding: 8px 16px;
-  border-radius: 10px;
-  border: 1px solid rgba(92, 67, 48, 0.11);
-  background: rgba(255, 255, 255, 0.78);
-}
-
 .ingredients-create-rules-section .form-grid.compact-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1531,7 +1547,7 @@
   gap: 12px;
 }
 
-.ingredients-create-rules-section .segmented-tabs {
+.ingredients-create-rules-section .ingredients-rule-option-group {
   align-self: start;
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(0, 1fr));
@@ -1539,14 +1555,8 @@
   width: 100%;
 }
 
-.ingredients-create-rules-section .segmented-tab {
-  min-height: 38px;
-  padding: 6px 8px;
-  font-size: 0.8125rem;
-  white-space: nowrap;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
+.ingredients-create-rules-section .ingredients-rule-option-group .ui-option-chip {
+  width: 100%;
 }
 
 .ingredients-create-workspace .image-composer-workspace-inline {
@@ -2744,8 +2754,8 @@
 
 .ingredients-restock-choice-row .ui-option-chip.is-selected {
   background: rgba(210, 107, 51, 0.1);
-  border-color: rgba(210, 107, 51, 0.4);
-  color: #a8582d;
+  border-color: rgba(210, 107, 51, 0.24);
+  color: var(--accent-strong);
 }
 
 .ingredients-restock-locked-field {
@@ -8856,10 +8866,10 @@
   }
 
   .inventory-restock-modal .ui-option-chip.is-selected {
-    background: #fff0e7 !important;
-    border-color: #d26b33 !important;
-    color: #b35122 !important;
-    box-shadow: 0 4px 12px rgba(210, 107, 51, 0.08) !important;
+    background: rgba(210, 107, 51, 0.1) !important;
+    border-color: rgba(210, 107, 51, 0.24) !important;
+    color: var(--accent-strong) !important;
+    box-shadow: 0 4px 12px rgba(210, 107, 51, 0.055) !important;
     transform: none !important;
   }
 
@@ -9283,10 +9293,10 @@
 }
 
 .inventory-restock-modal .ui-option-chip.is-selected {
-  background: #fff0e7 !important;
-  border-color: #d26b33 !important;
-  color: #b35122 !important;
-  box-shadow: 0 4px 12px rgba(210, 107, 51, 0.08) !important;
+  background: rgba(210, 107, 51, 0.1) !important;
+  border-color: rgba(210, 107, 51, 0.24) !important;
+  color: var(--accent-strong) !important;
+  box-shadow: 0 4px 12px rgba(210, 107, 51, 0.055) !important;
   transform: none !important;
 }
 

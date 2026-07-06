@@ -107,27 +107,6 @@ export function ActionButton(
   );
 }
 
-export function SegmentedTabs<T extends string>(props: {
-  options: Array<{ value: T; label: string }>;
-  value: T;
-  onChange: (value: T) => void;
-}) {
-  return (
-    <div className="segmented-tabs" role="tablist" aria-label="页面分段">
-      {props.options.map((item) => (
-        <button
-          key={item.value}
-          className={props.value === item.value ? 'segmented-tab active' : 'segmented-tab'}
-          type="button"
-          onClick={() => props.onChange(item.value)}
-        >
-          {item.label}
-        </button>
-      ))}
-    </div>
-  );
-}
-
 export function WorkspaceSubnav<T extends string>(props: {
   items: Array<{ value: T; label: string; icon?: ReactNode }>;
   value: T;

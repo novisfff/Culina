@@ -84,6 +84,8 @@ describe('FormActions', () => {
 
     const buttons = Array.from(view.querySelectorAll<HTMLButtonElement>('button'));
     expect(buttons.map((button) => button.textContent)).toEqual(['保存', '取消修改', '删除']);
+    expect(view.querySelector('.ui-form-actions')?.getAttribute('data-primary-placement')).toBe('before-extra');
+    expect(buttons[0].className).toContain('ui-form-actions-primary');
   });
 
   it('can link the primary action to an external form', () => {

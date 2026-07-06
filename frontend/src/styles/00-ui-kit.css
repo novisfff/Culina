@@ -514,10 +514,32 @@
   margin: 0;
 }
 
+.workspace-modal > .workspace-overlay-footer > .workspace-overlay-footer-actions:has(.ui-form-actions[data-primary-placement="before-extra"]),
+.workspace-drawer > .workspace-overlay-footer > .workspace-overlay-footer-actions:has(.ui-form-actions[data-primary-placement="before-extra"]) {
+  flex: 1 1 100%;
+  width: 100%;
+  margin-left: 0;
+}
+
+.workspace-modal > .workspace-overlay-footer .ui-form-actions[data-primary-placement="before-extra"],
+.workspace-drawer > .workspace-overlay-footer .ui-form-actions[data-primary-placement="before-extra"] {
+  width: 100%;
+}
+
 .workspace-modal > .workspace-overlay-footer .ui-form-actions .ui-form-actions-row,
 .workspace-drawer > .workspace-overlay-footer .ui-form-actions .ui-form-actions-row {
   justify-content: flex-end;
   gap: 12px;
+}
+
+.workspace-modal > .workspace-overlay-footer .ui-form-actions[data-primary-placement="before-extra"] .ui-form-actions-row,
+.workspace-drawer > .workspace-overlay-footer .ui-form-actions[data-primary-placement="before-extra"] .ui-form-actions-row {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  align-items: stretch;
+  justify-content: stretch;
+  gap: 12px;
+  width: 100%;
 }
 
 .workspace-modal > .workspace-overlay-footer .ui-form-actions-spacer,
@@ -534,6 +556,30 @@
   font-size: 0.95rem;
   font-weight: 700;
   transition: all 180ms cubic-bezier(0.16, 1, 0.3, 1) !important;
+}
+
+.workspace-modal > .workspace-overlay-footer .ui-form-actions[data-primary-placement="before-extra"] .ui-form-actions-row :is(.solid-button, .ghost-button, .tertiary-button),
+.workspace-drawer > .workspace-overlay-footer .ui-form-actions[data-primary-placement="before-extra"] .ui-form-actions-row :is(.solid-button, .ghost-button, .tertiary-button) {
+  grid-column: span 2;
+  width: 100%;
+  min-width: 0;
+}
+
+.workspace-modal > .workspace-overlay-footer .ui-form-actions[data-primary-placement="before-extra"] .ui-form-actions-primary,
+.workspace-drawer > .workspace-overlay-footer .ui-form-actions[data-primary-placement="before-extra"] .ui-form-actions-primary {
+  grid-column: 1 / -1;
+}
+
+.workspace-modal > .workspace-overlay-footer .ui-form-actions[data-primary-placement="before-extra"] .ui-form-actions-row > button:nth-of-type(2):nth-last-of-type(1),
+.workspace-drawer > .workspace-overlay-footer .ui-form-actions[data-primary-placement="before-extra"] .ui-form-actions-row > button:nth-of-type(2):nth-last-of-type(1) {
+  grid-column: span 6;
+}
+
+.workspace-modal > .workspace-overlay-footer .ui-form-actions[data-primary-placement="before-extra"] .ui-form-actions-row > button:nth-of-type(2):nth-last-of-type(2),
+.workspace-modal > .workspace-overlay-footer .ui-form-actions[data-primary-placement="before-extra"] .ui-form-actions-row > button:nth-of-type(3):nth-last-of-type(1),
+.workspace-drawer > .workspace-overlay-footer .ui-form-actions[data-primary-placement="before-extra"] .ui-form-actions-row > button:nth-of-type(2):nth-last-of-type(2),
+.workspace-drawer > .workspace-overlay-footer .ui-form-actions[data-primary-placement="before-extra"] .ui-form-actions-row > button:nth-of-type(3):nth-last-of-type(1) {
+  grid-column: span 3;
 }
 
 .workspace-modal > .workspace-overlay-footer .ui-form-actions .ui-form-actions-row .solid-button,
@@ -590,6 +636,13 @@
   transform: translateY(1px);
 }
 
+.workspace-modal > .workspace-overlay-footer .ui-form-actions .ui-form-actions-row .ui-form-actions-danger,
+.workspace-drawer > .workspace-overlay-footer .ui-form-actions .ui-form-actions-row .ui-form-actions-danger {
+  border-color: rgba(217, 75, 61, 0.18) !important;
+  background: rgba(253, 235, 232, 0.74) !important;
+  color: #b84538 !important;
+}
+
 .workspace-modal > .workspace-overlay-body {
   padding-right: 4px;
 }
@@ -597,6 +650,49 @@
 .workspace-modal > .workspace-overlay-body > :is(form, div, section) {
   min-height: 0;
   max-width: 100%;
+}
+
+@media (max-width: 900px) {
+  .workspace-modal > .workspace-overlay-footer > .workspace-overlay-footer-actions:has(.ui-form-actions),
+  .workspace-drawer > .workspace-overlay-footer > .workspace-overlay-footer-actions:has(.ui-form-actions) {
+    flex: 1 1 100%;
+    width: 100%;
+    margin-left: 0;
+  }
+
+  .workspace-modal > .workspace-overlay-footer .ui-form-actions,
+  .workspace-drawer > .workspace-overlay-footer .ui-form-actions {
+    width: 100%;
+  }
+
+  .workspace-modal > .workspace-overlay-footer .ui-form-actions .ui-form-actions-row,
+  .workspace-drawer > .workspace-overlay-footer .ui-form-actions .ui-form-actions-row {
+    display: grid;
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    align-items: stretch;
+    justify-content: stretch;
+    gap: 12px;
+    width: 100%;
+  }
+
+  .workspace-modal > .workspace-overlay-footer .ui-form-actions .ui-form-actions-row :is(.solid-button, .ghost-button, .tertiary-button),
+  .workspace-drawer > .workspace-overlay-footer .ui-form-actions .ui-form-actions-row :is(.solid-button, .ghost-button, .tertiary-button) {
+    grid-column: span 2;
+    width: 100%;
+    min-width: 0;
+  }
+
+  .workspace-modal > .workspace-overlay-footer .ui-form-actions[data-primary-placement="after-extra"] .ui-form-actions-row > button:nth-last-of-type(1):nth-of-type(3n + 1),
+  .workspace-drawer > .workspace-overlay-footer .ui-form-actions[data-primary-placement="after-extra"] .ui-form-actions-row > button:nth-last-of-type(1):nth-of-type(3n + 1) {
+    grid-column: span 6;
+  }
+
+  .workspace-modal > .workspace-overlay-footer .ui-form-actions[data-primary-placement="after-extra"] .ui-form-actions-row > button:nth-last-of-type(2):nth-of-type(3n + 1),
+  .workspace-modal > .workspace-overlay-footer .ui-form-actions[data-primary-placement="after-extra"] .ui-form-actions-row > button:nth-last-of-type(1):nth-of-type(3n + 2),
+  .workspace-drawer > .workspace-overlay-footer .ui-form-actions[data-primary-placement="after-extra"] .ui-form-actions-row > button:nth-last-of-type(2):nth-of-type(3n + 1),
+  .workspace-drawer > .workspace-overlay-footer .ui-form-actions[data-primary-placement="after-extra"] .ui-form-actions-row > button:nth-last-of-type(1):nth-of-type(3n + 2) {
+    grid-column: span 3;
+  }
 }
 
 @media (max-width: 767px) {
@@ -643,33 +739,67 @@
   }
 
   .workspace-modal > .workspace-overlay-footer .ui-form-actions .ui-form-actions-row {
-    display: flex;
-    flex-wrap: wrap;
+    display: grid;
+    grid-template-columns: repeat(6, minmax(0, 1fr));
     align-items: stretch;
-    justify-content: flex-end;
     gap: 10px;
     width: 100%;
   }
 
   .workspace-drawer > .workspace-overlay-footer .ui-form-actions .ui-form-actions-row {
-    display: flex;
-    flex-wrap: wrap;
+    display: grid;
+    grid-template-columns: repeat(6, minmax(0, 1fr));
     align-items: stretch;
-    justify-content: flex-end;
     gap: 10px;
     width: 100%;
   }
 
   .workspace-modal > .workspace-overlay-footer .ui-form-actions .ui-form-actions-row :is(.solid-button, .ghost-button, .tertiary-button) {
-    flex: 1 1 min(150px, calc(50% - 5px));
+    grid-column: span 2;
     min-width: 0;
     min-height: 52px;
   }
 
   .workspace-drawer > .workspace-overlay-footer .ui-form-actions .ui-form-actions-row :is(.solid-button, .ghost-button, .tertiary-button) {
-    flex: 1 1 min(150px, calc(50% - 5px));
+    grid-column: span 2;
     min-width: 0;
     min-height: 52px;
+  }
+
+  .workspace-modal > .workspace-overlay-footer .ui-form-actions[data-primary-placement="after-extra"] .ui-form-actions-row > button:nth-last-of-type(1):nth-of-type(3n + 1),
+  .workspace-drawer > .workspace-overlay-footer .ui-form-actions[data-primary-placement="after-extra"] .ui-form-actions-row > button:nth-last-of-type(1):nth-of-type(3n + 1) {
+    grid-column: span 6;
+  }
+
+  .workspace-modal > .workspace-overlay-footer .ui-form-actions[data-primary-placement="after-extra"] .ui-form-actions-row > button:nth-last-of-type(2):nth-of-type(3n + 1),
+  .workspace-modal > .workspace-overlay-footer .ui-form-actions[data-primary-placement="after-extra"] .ui-form-actions-row > button:nth-last-of-type(1):nth-of-type(3n + 2),
+  .workspace-drawer > .workspace-overlay-footer .ui-form-actions[data-primary-placement="after-extra"] .ui-form-actions-row > button:nth-last-of-type(2):nth-of-type(3n + 1),
+  .workspace-drawer > .workspace-overlay-footer .ui-form-actions[data-primary-placement="after-extra"] .ui-form-actions-row > button:nth-last-of-type(1):nth-of-type(3n + 2) {
+    grid-column: span 3;
+  }
+
+  .workspace-modal > .workspace-overlay-footer .ui-form-actions[data-primary-placement="before-extra"] .ui-form-actions-primary,
+  .workspace-drawer > .workspace-overlay-footer .ui-form-actions[data-primary-placement="before-extra"] .ui-form-actions-primary {
+    grid-column: 1 / -1;
+  }
+
+  .workspace-modal > .workspace-overlay-footer .ui-form-actions[data-primary-placement="before-extra"] .ui-form-actions-row > button:nth-of-type(2):nth-last-of-type(1),
+  .workspace-drawer > .workspace-overlay-footer .ui-form-actions[data-primary-placement="before-extra"] .ui-form-actions-row > button:nth-of-type(2):nth-last-of-type(1) {
+    grid-column: span 6;
+  }
+
+  .workspace-modal > .workspace-overlay-footer .ui-form-actions[data-primary-placement="before-extra"] .ui-form-actions-row > button:nth-of-type(2):nth-last-of-type(2),
+  .workspace-modal > .workspace-overlay-footer .ui-form-actions[data-primary-placement="before-extra"] .ui-form-actions-row > button:nth-of-type(3):nth-last-of-type(1),
+  .workspace-drawer > .workspace-overlay-footer .ui-form-actions[data-primary-placement="before-extra"] .ui-form-actions-row > button:nth-of-type(2):nth-last-of-type(2),
+  .workspace-drawer > .workspace-overlay-footer .ui-form-actions[data-primary-placement="before-extra"] .ui-form-actions-row > button:nth-of-type(3):nth-last-of-type(1) {
+    grid-column: span 3;
+  }
+
+  .workspace-modal > .workspace-overlay-footer .ui-form-actions .ui-form-actions-row .ui-form-actions-danger,
+  .workspace-drawer > .workspace-overlay-footer .ui-form-actions .ui-form-actions-row .ui-form-actions-danger {
+    border-color: rgba(217, 75, 61, 0.18) !important;
+    background: rgba(253, 235, 232, 0.74) !important;
+    color: #b84538 !important;
   }
 }
 
@@ -1103,30 +1233,77 @@
   gap: 8px;
   overflow-x: auto;
   padding-bottom: 2px;
+  scrollbar-width: none;
+}
+
+.ui-option-chip-group::-webkit-scrollbar {
+  display: none;
 }
 
 .ui-option-chip {
   min-height: 38px;
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 6px;
-  border: 1px solid var(--line-soft);
+  flex: 0 0 auto;
+  border: 1px solid rgba(92, 67, 48, 0.1);
   border-radius: 999px;
-  background: var(--surface, #fff);
-  color: var(--text-soft);
+  background: #fffdfb;
+  color: #6f5f55;
   padding: 0 12px;
   white-space: nowrap;
-  font: inherit;
+  font-size: 0.875rem;
+  font-weight: 760;
+  line-height: 1.2;
+  box-shadow: 0 4px 10px rgba(74, 54, 40, 0.025);
+  transition: border-color 160ms ease, background 160ms ease, color 160ms ease, box-shadow 160ms ease;
 }
 
 .ui-option-chip.is-selected {
-  border-color: var(--accent);
-  background: var(--accent-soft);
+  border-color: rgba(210, 107, 51, 0.24);
+  background: rgba(210, 107, 51, 0.1);
   color: var(--accent-strong);
+  box-shadow: 0 4px 12px rgba(210, 107, 51, 0.055);
+}
+
+.ui-option-chip:disabled {
+  cursor: not-allowed;
+  opacity: 0.58;
+}
+
+.ui-option-chip small {
+  color: inherit;
+  font-size: 0.78em;
+  font-weight: 700;
+  opacity: 0.78;
+}
+
+.ui-option-chip-group.size-small {
+  gap: 6px;
+}
+
+.ui-option-chip-group.size-small .ui-option-chip {
+  min-height: 32px;
+  padding: 0 11px;
+  font-size: 0.78rem;
+}
+
+.ui-option-chip-group.size-medium .ui-option-chip {
+  min-height: 38px;
+  padding: 0 12px;
+}
+
+.ui-option-chip-group.size-large .ui-option-chip {
+  min-height: 46px;
+  padding: 0 16px;
+  font-size: 0.9375rem;
 }
 
 @media (max-width: 767px) {
-  .ui-option-chip {
+  .ui-option-chip,
+  .ui-option-chip-group.size-small .ui-option-chip,
+  .ui-option-chip-group.size-medium .ui-option-chip {
     min-height: 44px;
   }
 }
