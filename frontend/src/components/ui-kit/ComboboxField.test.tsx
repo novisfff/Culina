@@ -75,4 +75,18 @@ describe('ComboboxField', () => {
 
     expect(onChange).toHaveBeenCalledWith('袋');
   });
+
+  it('closes options when clicking outside the field container', () => {
+    const onChange = vi.fn();
+    const view = renderCombobox(<ComboboxField ariaLabel="单位" value="" options={[{ value: '个', label: '个' }]} onChange={onChange} placeholder="输入单位" />);
+    const input = view.querySelector<HTMLInputElement>('input[role="combobox"]')!;
+
+    act(() => input.focus());
+    expect(view.querySelector('[role="listbox"]')).not.toBeNull();
+
+    act(() => {
+      document.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }));
+    });
+    expect(view.querySelector('[role="listbox"]')).toBeNull();
+  });
 });

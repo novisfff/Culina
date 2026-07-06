@@ -663,8 +663,8 @@
 
 .meal-log-preview-layout {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 500px;
-  gap: 38px;
+  grid-template-columns: minmax(0, 1fr) 350px;
+  gap: 24px;
 }
 
 .meal-log-preview-main,
@@ -675,7 +675,7 @@
 }
 
 .meal-log-preview-photo-side {
-  padding-left: 38px;
+  padding-left: 24px;
   border-left: 1px solid rgba(210, 107, 51, 0.16);
 }
 
@@ -1016,8 +1016,8 @@
 
 .meal-log-enrich-modal .meal-enrichment-layout {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 500px;
-  gap: 38px;
+  grid-template-columns: minmax(0, 1fr) 350px;
+  gap: 24px;
 }
 
 .meal-enrichment-main,
@@ -1028,7 +1028,7 @@
 }
 
 .meal-enrichment-photo-side {
-  padding-left: 38px;
+  padding-left: 24px;
   border-left: 1px solid rgba(210, 107, 51, 0.16);
 }
 
@@ -1073,7 +1073,7 @@
 
 .meal-dish-rating-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(260px, auto);
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: 12px;
   min-width: 0;
@@ -1146,8 +1146,9 @@
   min-height: 48px;
   display: inline-flex;
   align-items: center;
+  flex-shrink: 0 !important;
   gap: 8px;
-  padding: 0 14px;
+  padding: 0 14px 0 12px !important;
   border: 1px solid rgba(147, 96, 63, 0.12);
   border-radius: 12px;
   background: rgba(255, 255, 255, 0.86);
@@ -1171,7 +1172,6 @@
   background: #fff4ec;
   color: #2f251e;
   box-shadow: 0 4px 12px rgba(210, 107, 51, 0.12);
-  transform: scale(1.02);
 }
 
 .meal-enrichment-member-pills button .avatar {
@@ -1180,6 +1180,11 @@
   height: 28px;
   min-height: 28px;
   font-size: 0.82rem;
+  margin: 0 !important;
+  position: relative !important;
+  left: 0 !important;
+  transform: none !important;
+  flex-shrink: 0 !important;
 }
 
 .meal-enrichment-member-pills button i {
@@ -1283,95 +1288,212 @@
 .meal-photo-lightbox {
   position: fixed;
   inset: 0;
-  z-index: 1400;
+  z-index: 1500;
+  background: rgba(10, 7, 5, 0.96);
+  backdrop-filter: blur(12px);
   display: grid;
-  place-items: center;
-  padding: 28px;
+  grid-template-rows: 100%;
+  overflow: hidden;
 }
 
 .meal-photo-lightbox-backdrop {
   position: absolute;
   inset: 0;
   border: 0;
-  background: rgba(34, 24, 18, 0.68);
+  background: transparent;
   box-shadow: none;
-}
-
-.meal-photo-lightbox-panel {
-  position: relative;
-  z-index: 1;
-  width: min(1040px, calc(100vw - 56px));
-  max-height: calc(100vh - 56px);
-  display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
-  gap: 16px;
-  padding: 18px;
-  border: 1px solid rgba(255, 255, 255, 0.62);
-  border-radius: 22px;
-  background: rgba(255, 255, 255, 0.96);
-  box-shadow: 0 24px 70px rgba(21, 14, 10, 0.36);
+  cursor: default;
 }
 
 .meal-photo-lightbox-head {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 20;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 18px;
+  gap: 24px;
+  padding: 24px 28px 48px;
+  background: linear-gradient(to bottom, rgba(10, 7, 5, 0.95) 0%, rgba(10, 7, 5, 0.8) 40%, rgba(10, 7, 5, 0) 100%);
+  pointer-events: none;
 }
 
-.meal-photo-lightbox-head > div:first-child {
+.meal-photo-lightbox-info,
+.meal-photo-lightbox-actions {
+  pointer-events: auto;
+}
+
+.meal-photo-lightbox-info {
   display: grid;
-  gap: 3px;
+  gap: 4px;
   min-width: 0;
 }
 
-.meal-photo-lightbox-head strong,
-.meal-photo-lightbox-head span {
+.meal-photo-lightbox-info strong {
+  color: #ffffff;
+  font-size: 1.22rem;
+  font-weight: 700;
+  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.5);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.meal-photo-lightbox-head strong {
-  color: #2f251e;
-  font-size: 1.02rem;
-}
-
-.meal-photo-lightbox-head span {
-  color: var(--text-faint);
-  font-size: 0.82rem;
-  font-weight: 760;
+.meal-photo-lightbox-info span {
+  color: rgba(255, 255, 255, 0.45);
+  font-size: 0.86rem;
+  font-weight: 500;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .meal-photo-lightbox-actions {
   display: inline-flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
   flex: 0 0 auto;
 }
 
-.meal-photo-lightbox-actions a,
-.meal-photo-lightbox-actions button {
+.meal-photo-lightbox-download {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   min-height: 40px;
-  border-radius: 11px;
+  padding: 0 18px;
+  border: 1.5px solid rgba(255, 255, 255, 0.24);
+  border-radius: 12px;
+  background: transparent;
+  color: #ffffff;
+  font-size: 0.92rem;
+  font-weight: 700;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
   text-decoration: none;
+  transition: all 0.2s ease;
 }
 
-.meal-photo-lightbox-panel > img {
-  width: 100%;
-  max-height: calc(100vh - 160px);
-  display: block;
+.meal-photo-lightbox-download:hover {
+  border-color: #ffffff;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.meal-photo-lightbox-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 0 20px;
+  border: 0;
+  border-radius: 12px;
+  background: var(--accent);
+  color: #ffffff;
+  font-size: 0.92rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+}
+
+.meal-photo-lightbox-close:hover {
+  background: var(--accent-dark, #b85422);
+  transform: translateY(-1px);
+  box-shadow: 0 6px 16px rgba(210, 107, 51, 0.36);
+}
+
+.meal-photo-lightbox-viewport {
+  position: absolute;
+  inset: 0;
+  z-index: 10;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: grab;
+  user-select: none;
+  background: transparent;
+  padding: 96px 24px 84px;
+}
+
+.meal-photo-lightbox-viewport.grabbing {
+  cursor: grabbing;
+}
+
+.meal-photo-lightbox-viewport img {
+  max-width: 90vw;
+  max-height: 80vh;
   object-fit: contain;
-  border-radius: 16px;
-  background: #1f1712;
+  pointer-events: none;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6);
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.meal-photo-lightbox-toolbar {
+  position: absolute;
+  bottom: 32px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 30;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 999px;
+  background: rgba(22, 18, 15, 0.85);
+  backdrop-filter: blur(12px);
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.6);
+  pointer-events: auto;
+}
+
+.meal-photo-lightbox-toolbar button {
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.75);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.meal-photo-lightbox-toolbar button:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.12);
+  color: #ffffff;
+}
+
+.meal-photo-lightbox-toolbar button:disabled {
+  opacity: 0.25;
+  cursor: default;
+}
+
+.meal-photo-lightbox-scale-text {
+  min-width: 54px;
+  color: #ffffff;
+  text-align: center;
+  font-size: 0.88rem;
+  font-weight: 700;
+}
+
+.meal-photo-lightbox-divider {
+  width: 1px;
+  height: 20px;
+  background: rgba(255, 255, 255, 0.16);
+  margin: 0 6px;
 }
 
 .meal-enrichment-photo-add {
   display: grid;
   align-content: center;
   justify-items: center;
-  gap: 7px;
-  padding: 18px;
+  gap: 4px;
+  padding: 10px 6px;
   border: 1px dashed rgba(210, 107, 51, 0.32);
   border-radius: 15px;
   background: rgba(255, 252, 248, 0.86);
@@ -1401,28 +1523,30 @@
 }
 
 .meal-photo-add-icon {
-  width: 44px;
-  height: 44px;
+  width: 32px;
+  height: 32px;
   display: grid;
   place-items: center;
-  border-radius: 14px;
+  border-radius: 10px;
   background: #fff4df;
   color: #4d4038;
 }
 
 .meal-photo-add-icon .meal-enrichment-icon {
-  width: 28px;
-  height: 28px;
+  width: 18px;
+  height: 18px;
 }
 
 .meal-enrichment-photo-add strong {
   color: #6a5548;
+  font-size: 0.8rem;
 }
 
 .meal-enrichment-photo-add small,
 .meal-enrichment-photo-error {
   color: var(--text-faint);
   font-weight: 750;
+  font-size: 0.68rem;
 }
 
 .meal-enrichment-photo-error {
@@ -1635,11 +1759,12 @@
   }
 
   .meal-log-enrich-modal .meal-dish-rating-row .food-rating-input {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
-    gap: 8px 10px;
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px 12px;
     min-height: 0;
-    padding: 12px;
+    padding: 10px 12px;
     border-radius: 16px;
   }
 
@@ -1651,15 +1776,13 @@
 
   .meal-dish-rating-row .food-rating-input > strong {
     min-width: 0;
-    justify-self: end;
     font-size: 0.86rem;
   }
 
   .meal-dish-rating-row .food-rating-clear {
-    grid-column: 1 / -1;
-    width: 100%;
+    width: auto;
     min-height: 30px;
-    margin-left: 0;
+    margin-left: auto;
   }
 
   .meal-enrichment-member-pills {
@@ -1672,7 +1795,7 @@
     min-width: 0;
     min-height: 46px;
     justify-content: start;
-    padding: 0 10px;
+    padding: 0 12px 0 10px !important;
     border-radius: 16px;
   }
 
@@ -1759,24 +1882,69 @@
   }
 
   .meal-photo-lightbox {
-    padding: 12px;
-  }
-
-  .meal-photo-lightbox-panel {
-    width: calc(100vw - 24px);
-    max-height: calc(100dvh - 24px);
-    gap: 12px;
-    padding: 12px;
-    border-radius: 20px;
+    padding: 0;
+    background: #0a0705;
   }
 
   .meal-photo-lightbox-head {
-    align-items: stretch;
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 20;
+    display: flex;
     flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+    padding: 16px 16px 24px;
+    background: linear-gradient(to bottom, rgba(10, 7, 5, 0.98) 0%, rgba(10, 7, 5, 0.85) 50%, rgba(10, 7, 5, 0) 100%);
+    pointer-events: none;
+  }
+
+  .meal-photo-lightbox-info,
+  .meal-photo-lightbox-actions {
+    pointer-events: auto;
+  }
+
+  .meal-photo-lightbox-info strong {
+    font-size: 1.05rem;
+    color: #ffffff;
+    text-align: center;
+  }
+
+  .meal-photo-lightbox-info span {
+    font-size: 0.78rem;
+    color: rgba(255, 255, 255, 0.45);
+    text-align: center;
   }
 
   .meal-photo-lightbox-actions {
     display: grid;
     grid-template-columns: 1fr 1fr;
+    gap: 8px;
+  }
+
+  .meal-photo-lightbox-close,
+  .meal-photo-lightbox-download {
+    min-height: 38px;
+    font-size: 0.88rem;
+    padding: 0 12px;
+    border-radius: 10px;
+  }
+
+  .meal-photo-lightbox-viewport {
+    padding: 110px 12px 80px;
+  }
+
+  .meal-photo-lightbox-viewport img {
+    max-width: 100vw;
+    max-height: calc(100dvh - 190px);
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+  }
+
+  .meal-photo-lightbox-toolbar {
+    bottom: 20px;
+    padding: 6px 10px;
+    gap: 4px;
   }
 }

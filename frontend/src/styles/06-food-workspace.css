@@ -10466,8 +10466,7 @@ button.ai-clarification-option:hover:not(:disabled) .ai-clarification-option-ind
 }
 
 .ai-resource-menu button {
-  display: grid;
-  grid-template-columns: 28px minmax(0, 1fr);
+  display: flex;
   align-items: center;
   gap: 8px;
   min-height: 40px;
@@ -10493,11 +10492,15 @@ button.ai-clarification-option:hover:not(:disabled) .ai-clarification-option-ind
 }
 
 .ai-choice-menu button {
-  grid-template-columns: 24px minmax(0, 1fr);
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .ai-single-select-menu button {
-  grid-template-columns: 24px minmax(0, 1fr);
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .ai-choice-check {

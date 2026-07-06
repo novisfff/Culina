@@ -1,4 +1,5 @@
-import type { FormEvent } from 'react';
+import { useState, useRef, useEffect, type FormEvent } from 'react';
+import { createPortal } from 'react-dom';
 import type { MealLog, MediaAsset, Member, UpdateMealLogPayload } from '../../api/types';
 import { Avatar, FormActions } from '../../components/ui-kit';
 import { FoodRatingInput } from '../../components/foods/FoodWorkspacePrimitives';
@@ -65,27 +66,171 @@ export function MealPhotoLightbox(props: { photo: MediaAsset; title: string; onC
   const photoUrl = resolveAssetUrl(props.photo.url) ?? props.photo.url;
   const downloadName = props.photo.name || `${props.title || '餐食照片'}.jpg`;
 
-  return (
+  const [scale, setScale] = useState(1);
+  const [translateX, setTranslateX] = useState(0);
+  const [translateY, setTranslateY] = useState(0);
+  const [rotation, setRotation] = useState(0);
+  const [isDragging, setIsDragging] = useState(false);
+  const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
+
+  const viewportRef = useRef<HTMLDivElement>(null);
+
+  const zoomIn = () => setScale(prev => Math.min(prev + 0.25, 4));
+  const zoomOut = () => {
+    setScale(prev => {
+      const next = Math.max(prev - 0.25, 1);
+      if (next === 1) {
+        setTranslateX(0);
+        setTranslateY(0);
+      }
+      return next;
+    });
+  };
+  const rotateClockwise = () => setRotation(prev => (prev + 90) % 360);
+  const reset = () => {
+    setScale(1);
+    setTranslateX(0);
+    setTranslateY(0);
+    setRotation(0);
+  };
+
+  const handleMouseDown = (e: React.MouseEvent) => {
+    e.preventDefault();
+    if (scale <= 1) return;
+    setIsDragging(true);
+    setDragStart({ x: e.clientX - translateX, y: e.clientY - translateY });
+  };
+
+  const handleMouseMove = (e: React.MouseEvent) => {
+    if (!isDragging) return;
+    setTranslateX(e.clientX - dragStart.x);
+    setTranslateY(e.clientY - dragStart.y);
+  };
+
+  const handleMouseUpOrLeave = () => {
+    setIsDragging(false);
+  };
+
+  const handleDoubleClick = () => {
+    if (scale > 1) {
+      reset();
+    } else {
+      setScale(2);
+    }
+  };
+
+  const handleTouchStart = (e: React.TouchEvent) => {
+    if (e.touches.length === 1) {
+      if (scale <= 1) return;
+      setIsDragging(true);
+      const touch = e.touches[0];
+      setDragStart({ x: touch.clientX - translateX, y: touch.clientY - translateY });
+    }
+  };
+
+  const handleTouchMove = (e: React.TouchEvent) => {
+    if (!isDragging || e.touches.length !== 1) return;
+    const touch = e.touches[0];
+    setTranslateX(touch.clientX - dragStart.x);
+    setTranslateY(touch.clientY - dragStart.y);
+  };
+
+  const handleTouchEnd = () => {
+    setIsDragging(false);
+  };
+
+  const handleViewportClick = (e: React.MouseEvent) => {
+    if (e.target === e.currentTarget) {
+      props.onClose();
+    }
+  };
+
+  useEffect(() => {
+    const viewport = viewportRef.current;
+    if (!viewport) return;
+
+    const handleWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      const delta = e.deltaY < 0 ? 0.15 : -0.15;
+      setScale(prev => {
+        const next = Math.min(Math.max(prev + delta, 1), 4);
+        if (next === 1) {
+          setTranslateX(0);
+          setTranslateY(0);
+        }
+        return next;
+      });
+    };
+
+    viewport.addEventListener('wheel', handleWheel, { passive: false });
+    return () => {
+      viewport.removeEventListener('wheel', handleWheel);
+    };
+  }, []);
+
+  return createPortal(
     <div className="meal-photo-lightbox" role="dialog" aria-modal="true" aria-label="查看餐食照片">
       <button className="meal-photo-lightbox-backdrop" type="button" aria-label="关闭大图" onClick={props.onClose} />
-      <div className="meal-photo-lightbox-panel">
-        <div className="meal-photo-lightbox-head">
-          <div>
-            <strong>{props.photo.alt || props.title || '餐食照片'}</strong>
-            <span>{props.photo.name}</span>
-          </div>
-          <div className="meal-photo-lightbox-actions">
-            <a className="ghost-button" href={photoUrl} download={downloadName} target="_blank" rel="noreferrer">
-              下载原图
-            </a>
-            <button className="solid-button" type="button" onClick={props.onClose}>
-              关闭
-            </button>
-          </div>
+      
+      <div className="meal-photo-lightbox-head">
+        <div className="meal-photo-lightbox-info">
+          <strong>{props.photo.alt || props.title || '餐食照片'}</strong>
+          {props.photo.name && <span>{props.photo.name}</span>}
         </div>
-        <MediaWithPlaceholder src={photoUrl} alt={props.photo.alt || props.title} />
+        <div className="meal-photo-lightbox-actions">
+          <a className="meal-photo-lightbox-download" href={photoUrl} download={downloadName} target="_blank" rel="noreferrer">
+            下载原图
+          </a>
+          <button className="meal-photo-lightbox-close" type="button" onClick={props.onClose}>
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M18 6L6 18M6 6l12 12"/></svg>
+            <span>关闭</span>
+          </button>
+        </div>
       </div>
-    </div>
+
+      <div 
+        className={`meal-photo-lightbox-viewport ${isDragging ? 'grabbing' : ''}`}
+        ref={viewportRef}
+        onMouseDown={handleMouseDown}
+        onMouseMove={handleMouseMove}
+        onMouseUp={handleMouseUpOrLeave}
+        onMouseLeave={handleMouseUpOrLeave}
+        onTouchStart={handleTouchStart}
+        onTouchMove={handleTouchMove}
+        onTouchEnd={handleTouchEnd}
+        onDoubleClick={handleDoubleClick}
+        onClick={handleViewportClick}
+      >
+        <img 
+          src={photoUrl} 
+          alt={props.photo.alt || props.title} 
+          draggable={false}
+          style={{
+            transform: `translate(${translateX}px, ${translateY}px) scale(${scale}) rotate(${rotation}deg)`,
+            transition: isDragging ? 'none' : 'transform 0.2s cubic-bezier(0.16, 1, 0.3, 1)',
+          }}
+          onClick={e => e.stopPropagation()}
+        />
+
+        <div className="meal-photo-lightbox-toolbar" onMouseDown={e => e.stopPropagation()} onClick={e => e.stopPropagation()}>
+          <button type="button" onClick={zoomOut} disabled={scale <= 1} title="缩小">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M5 12h14"/></svg>
+          </button>
+          <span className="meal-photo-lightbox-scale-text">{Math.round(scale * 100)}%</span>
+          <button type="button" onClick={zoomIn} disabled={scale >= 4} title="放大">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M12 5v14M5 12h14"/></svg>
+          </button>
+          <span className="meal-photo-lightbox-divider" />
+          <button type="button" onClick={rotateClockwise} title="顺时针旋转90°">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M21.5 2v6h-6M21.34 8a10 10 0 10-.5 6"/></svg>
+          </button>
+          <button type="button" onClick={reset} disabled={scale === 1 && rotation === 0 && translateX === 0 && translateY === 0} title="重置">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M3 12a9 9 0 109-9 9.75 9.75 0 00-6.74 2.74L3 8M3 3v5h5"/></svg>
+          </button>
+        </div>
+      </div>
+    </div>,
+    document.body
   );
 }
 

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 
 export type ComboboxOption<T extends string> = {
   value: T;
@@ -44,6 +44,8 @@ export function ComboboxField<T extends string>({
   const [inputValue, setInputValue] = useState(String(value ?? ''));
   const [filterQuery, setFilterQuery] = useState('');
   const [isOpen, setIsOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement | null>(null);
+
   const visibleOptions = useMemo(() => {
     const normalized = normalizeComboboxText(filterQuery);
     if (!normalized) return options;
@@ -54,6 +56,29 @@ export function ComboboxField<T extends string>({
     setInputValue(String(value ?? ''));
   }, [value]);
 
+  useEffect(() => {
+    if (!isOpen) return undefined;
+
+    function handlePointerDown(event: PointerEvent) {
+      if (!rootRef.current?.contains(event.target as Node)) {
+        setIsOpen(false);
+      }
+    }
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === 'Escape') {
+        setIsOpen(false);
+      }
+    }
+
+    document.addEventListener('pointerdown', handlePointerDown);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('pointerdown', handlePointerDown);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isOpen]);
+
   function commitCustomValue() {
     const next = inputValue.trim();
     if (allowCustom && next) {
@@ -63,7 +88,10 @@ export function ComboboxField<T extends string>({
   }
 
   return (
-    <div className={['ui-combobox-field', className, isOpen ? 'is-open' : '', disabled ? 'is-disabled' : ''].filter(Boolean).join(' ')}>
+    <div
+      className={['ui-combobox-field', className, isOpen ? 'is-open' : '', disabled ? 'is-disabled' : ''].filter(Boolean).join(' ')}
+      ref={rootRef}
+    >
       {leadingIcon}
       <input
         className={inputClassName}
@@ -106,8 +134,10 @@ export function ComboboxField<T extends string>({
                 setIsOpen(false);
               }}
             >
-              <strong>{option.label}</strong>
-              {option.description ? <small>{option.description}</small> : null}
+              <span className="ui-dropdown-select-option-copy">
+                <strong>{option.label}</strong>
+                {option.description ? <small>{option.description}</small> : null}
+              </span>
             </button>
           ))}
           {allowCustom && inputValue.trim() && !options.some((option) => normalizeComboboxText(option.label) === normalizeComboboxText(inputValue)) ? (
