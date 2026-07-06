@@ -15,6 +15,7 @@ import {
   buildSeasoningSummaries,
   buildShoppingCardGroups,
   buildStorageGroups,
+  countDisposableExpiredInventoryItems,
   filterShoppingCards,
   filterIngredientSummariesForInventory,
   filterIngredientSummaries,
@@ -886,6 +887,7 @@ describe('ingredient workspace model', () => {
         expiryDate: '2026-03-18',
       }),
     ]);
+    expect(countDisposableExpiredInventoryItems(summaries[0]!, '2026-03-20')).toBe(1);
   });
 
   it('shows core preset categories first and appends custom categories for filter chips', () => {

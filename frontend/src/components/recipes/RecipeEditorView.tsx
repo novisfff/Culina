@@ -1,10 +1,9 @@
 import { useEffect, useMemo, useRef, useState, type Dispatch, type FormEvent, type SetStateAction } from 'react';
 import type { Difficulty, Ingredient, MediaAsset } from '../../api/types';
-import type { AiRenderPayload } from '../../lib/aiImages';
 import { resolveAssetUrl } from '../../lib/assets';
 import { MediaWithPlaceholder } from '../MediaPlaceholder';
 import { useIngredientResourceSearch } from '../../hooks/useIngredientResourceSearch';
-import { ActionButton, DropdownSelect, QuantityUnitField, SearchableResourceSelect, WorkspaceSubpageShell } from '../ui-kit';
+import { ActionButton, DropdownSelect, ImageComposer, QuantityUnitField, SearchableResourceSelect, WorkspaceSubpageShell } from '../ui-kit';
 import {
   MAX_STEP_KEY_POINTS,
   RECIPE_STEP_ICON_OPTIONS,
@@ -17,7 +16,6 @@ import {
   getRecipeStepIconName,
   isPresenceOnlyRecipeIngredient,
   stripRecipeIngredientRequirementNote,
-  type RecipeDraftGenerationStage,
   type RecipeDraftIngredient,
   type RecipeFormState,
   type RecipeShoppingRequirement,
@@ -28,11 +26,6 @@ import { DIFFICULTY_LABELS } from './workspaceModel';
 type RecipeEditorCompletionItem = {
   label: string;
   done: boolean;
-};
-
-type RecipeEditorSummaryItem = {
-  label: string;
-  value: string;
 };
 
 const SERVING_OPTIONS = [1, 2, 3, 4, 5, 6, 8].map((serving) => ({
@@ -64,21 +57,16 @@ type RecipeEditorViewProps = {
   sceneSelectOptions: string[];
   editorSceneTags: string[];
   visibleStepTips: Record<string, boolean>;
-  stepKeyPointSlots: Record<string, number>;
   editorCoverUrl: string | null | undefined;
-  editorReferenceUrl: string | null | undefined;
   editorCoverAsset: MediaAsset | undefined;
   editorIngredientCount: number;
   editorStepCount: number;
   editorCompletionItems: RecipeEditorCompletionItem[];
   editorCompletionPercent: number;
-  aiSourceSummary: RecipeEditorSummaryItem[];
   recipeDraftError: string | null;
   isRecipeDraftBusy: boolean;
   recipeImageState: RecipeImageState;
-  recipeDraftGenerationStage: RecipeDraftGenerationStage;
   recipeDraftButtonLabel: string;
-  recipeImagePayload: AiRenderPayload;
   submitDisabled: boolean;
   isCreatingRecipe?: boolean;
   isUpdatingRecipe?: boolean;
@@ -248,21 +236,16 @@ export function RecipeEditorView({
   sceneSelectOptions,
   editorSceneTags,
   visibleStepTips,
-  stepKeyPointSlots,
   editorCoverUrl,
-  editorReferenceUrl,
   editorCoverAsset,
   editorIngredientCount,
   editorStepCount,
   editorCompletionItems,
   editorCompletionPercent,
-  aiSourceSummary,
   recipeDraftError,
   isRecipeDraftBusy,
   recipeImageState,
-  recipeDraftGenerationStage,
   recipeDraftButtonLabel,
-  recipeImagePayload,
   submitDisabled,
   isCreatingRecipe,
   isUpdatingRecipe,
@@ -597,73 +580,22 @@ export function RecipeEditorView({
                   <span className="recipe-editor-section-index">4</span>
                   <h3>{entityLabel}封面</h3>
                 </div>
-                <div className="recipe-editor-cover-grid">
-                  <div className="recipe-editor-cover-preview">
-                    <MediaWithPlaceholder src={editorCoverUrl} alt={form.title || `${entityLabel}封面`} />
-                  </div>
-                  <div className="recipe-editor-cover-workspace">
-                    <div className="recipe-editor-cover-toolbar">
-                      <div>
-                        <h4>{entityLabel}封面</h4>
-                        <p>可直接基于{entityLabel}信息生成，也可以上传参考图后生成统一风格主图。</p>
-                      </div>
-                      <div className="recipe-editor-cover-actions">
-                        <button
-                          className="ghost-button ai-action"
-                          type="button"
-                          onClick={() => void handleRecipeImageGenerate('text')}
-                          disabled={recipeImageState.isGenerating}
-                        >
-                          <RecipeUiIcon name="sparkle" />
-                          {recipeImageState.isGenerating ? '正在生成...' : '基于信息生成'}
-                        </button>
-                        <label className={recipeImageState.isGenerating ? 'ghost-button disabled' : 'ghost-button'}>
-                          <input
-                            type="file"
-                            accept="image/*,.svg"
-                            capture="environment"
-                            disabled={recipeImageState.isGenerating}
-                            onChange={(event) => {
-                              void handleRecipeImageUpload(event.target.files);
-                              event.currentTarget.value = '';
-                            }}
-                          />
-                          <RecipeUiIcon name="image" />
-                          上传图片生成
-                        </label>
-                        {form.images.referenceAsset && (
-                          <button
-                            className="ghost-button ai-action"
-                            type="button"
-                            onClick={() => void handleRecipeImageGenerate('reference')}
-                            disabled={recipeImageState.isGenerating}
-                          >
-                            <RecipeUiIcon name="sparkle" />
-                            {recipeImageState.isGenerating ? '正在生成...' : '基于参考图生成'}
-                          </button>
-                        )}
-                        <button
-                          className="ghost-button"
-                          type="button"
-                          onClick={resetRecipeImageInput}
-                          disabled={recipeImageState.isGenerating || !editorCoverAsset}
-                        >
-                          <RecipeUiIcon name="reset" />
-                          清空图片
-                        </button>
-                      </div>
-                    </div>
-
-                    {recipeImageState.errorMessage && <span className="image-composer-error">{recipeImageState.errorMessage}</span>}
-                    <p className="recipe-editor-cover-hint">
-                      {recipeImageState.isGenerating
-                        ? `封面后台生成中，可以先保存${entityLabel}。`
-                        : editorReferenceUrl && !form.images.generatedAsset
-                          ? '已上传参考图，可继续生成统一风格主图。'
-                          : '推荐尺寸：4:3，JPG/PNG，30 MB 以内。'}
-                    </p>
-                  </div>
-                </div>
+                <ImageComposer
+                  title={`${entityLabel}封面`}
+                  value={form.images}
+                  previewLabel={form.title || `${entityLabel}封面`}
+                  onUpload={(files) => void handleRecipeImageUpload(files)}
+                  onGenerate={(mode) => void handleRecipeImageGenerate(mode)}
+                  onReset={resetRecipeImageInput}
+                  isGenerating={recipeImageState.isGenerating}
+                  errorMessage={recipeImageState.errorMessage}
+                  variant="workspace-inline"
+                  uploadTitle="上传参考图"
+                  uploadHint="上传后生成统一风格封面"
+                  generatedTitle="封面主图"
+                  generateLabel={recipeImageState.isGenerating ? '正在生成...' : undefined}
+                  clearLabel="清空图片"
+                />
               </section>
             </main>
 

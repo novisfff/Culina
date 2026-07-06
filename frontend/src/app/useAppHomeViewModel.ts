@@ -175,13 +175,18 @@ export function useAppHomeViewModel(args: UseAppHomeViewModelArgs) {
   const homeRestockIngredientImageUrl =
     homeRestockIngredient?.image?.url ? args.resolveDashboardAssetUrl(homeRestockIngredient.image.url) : undefined;
 
-  const ingredientSummaries = buildIngredientSummaries({
-    ingredients: args.ingredients,
-    inventoryItems: args.inventoryItems,
-    recipes: args.recipes,
-  });
+  const homeExpiredDisposalIngredient = args.homeExpiredDisposalIngredientId
+    ? args.ingredients.find((item) => item.id === args.homeExpiredDisposalIngredientId) ?? null
+    : null;
+  const ingredientSummaries = homeExpiredDisposalIngredient
+    ? buildIngredientSummaries({
+        ingredients: [homeExpiredDisposalIngredient],
+        inventoryItems: args.inventoryItems.filter((item) => item.ingredient_id === homeExpiredDisposalIngredient.id),
+        recipes: args.recipes,
+      })
+    : [];
   const homeExpiredDisposalSummary =
-    ingredientSummaries.find((item) => item.ingredient.id === args.homeExpiredDisposalIngredientId) ?? null;
+    ingredientSummaries[0] ?? null;
   const homeExpiredDisposalItems = homeExpiredDisposalSummary
     ? buildDisposableExpiredInventoryItems(homeExpiredDisposalSummary)
     : [];

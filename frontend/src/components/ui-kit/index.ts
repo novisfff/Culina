@@ -10,3 +10,4 @@ export * from './OptionChipGroup';
 export * from './StatusBadge';
 export * from './StateBlock';
 export * from './MobileActionBar';
+export * from './ImageComposer';

@@ -72,6 +72,7 @@ import {
   buildShoppingOverview,
   buildIngredientCategoryFilters,
   buildStorageGroups,
+  countDisposableExpiredInventoryItems,
   filterShoppingCards,
   filterIngredientSummaries,
   filterIngredientSummariesForInventory,
@@ -1098,8 +1099,7 @@ function InventoryIngredientCard(props: InventoryIngredientCardProps) {
   const { summary } = props;
   const status = buildInventoryCardStatus(summary);
   const presentation = buildInventoryCardPresentation(summary);
-  const disposableExpiredItems = buildDisposableExpiredInventoryItems(summary);
-  const canDestroyExpired = disposableExpiredItems.length > 0;
+  const canDestroyExpired = countDisposableExpiredInventoryItems(summary) > 0;
   const alertTone = summary.alerts.length > 0 ? getIngredientAlertTone(summary) : null;
   const imageUrl = resolveMediaUrl(summary.ingredient.image, 'card');
   const hasCustomImage = Boolean(summary.ingredient.image?.url);
@@ -1317,8 +1317,7 @@ function IngredientCatalogCard(props: IngredientCatalogCardProps) {
   const status = buildCatalogCardStatus(summary);
   const tracksQuantity = tracksIngredientQuantity(summary.ingredient);
   const canConsume = tracksQuantity && summary.availableInventoryItems.length > 0;
-  const disposableExpiredItems = buildDisposableExpiredInventoryItems(summary);
-  const canDestroyExpired = disposableExpiredItems.length > 0;
+  const canDestroyExpired = countDisposableExpiredInventoryItems(summary) > 0;
   const metaLine = [
     summary.ingredient.category || '未分类',
     summary.primaryStorage || summary.ingredient.default_storage || '常温',
@@ -2040,7 +2039,7 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
       buildCatalogStatus={buildCatalogCardStatus}
       buildInventorySummaryLine={buildInventorySummaryLine}
       buildShoppingReason={resolveShoppingReason}
-      countDisposableExpiredItems={(summary) => buildDisposableExpiredInventoryItems(summary).length}
+      countDisposableExpiredItems={countDisposableExpiredInventoryItems}
       renderStorageIllustration={InventoryStorageIllustration}
       renderIcon={(name) => <IngredientWorkspaceIcon name={name as IngredientWorkspaceIconName} />}
       isUpdatingShopping={props.isUpdatingShopping}

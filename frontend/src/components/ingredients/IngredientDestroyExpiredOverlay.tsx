@@ -61,7 +61,11 @@ export function IngredientDestroyExpiredOverlay(props: IngredientDestroyExpiredO
         />
       }
     >
-      <form id={destroyExpiredFormId} className="destroy-expired-form" onSubmit={(event) => void props.submitDestroyExpired(event)}>
+      <form
+        id={destroyExpiredFormId}
+        className="destroy-expired-form"
+        onSubmit={(event) => void props.submitDestroyExpired(event)}
+      >
         <div className="destroy-expired-scroll">
           <section className="ingredients-restock-identity-card destroy-expired-summary-card">
             <div className="ingredients-restock-identity-media">
@@ -98,28 +102,17 @@ export function IngredientDestroyExpiredOverlay(props: IngredientDestroyExpiredO
             {props.destroyExpiredItems.length > 0 ? (
               <div className="destroy-expired-list">
                 {props.destroyExpiredItems.map((item) => (
-                  <article key={item.id} className="destroy-expired-item">
-                    <div className="destroy-expired-item-head">
-                      <div className="destroy-expired-item-title">
-                        <strong>{item.remainingLabel}</strong>
-                        <span>{item.storageLocation}</span>
-                      </div>
-                      <div className="destroy-expired-item-badges">
-                        <Badge className="destroy-expired-item-badge is-danger">
-                          已过期 {formatRelativeDays(item.expiryDate)}
-                        </Badge>
-                        <Badge>{INVENTORY_STATUS_LABELS[item.status]}</Badge>
-                      </div>
+                  <article key={item.id} className="destroy-expired-row">
+                    <div className="destroy-expired-row-main">
+                      <strong>{item.remainingLabel}</strong>
+                      <span>{item.storageLocation}</span>
                     </div>
-                    <div className="destroy-expired-item-meta">
-                      <span>购买于 {formatDate(item.purchaseDate)}</span>
-                      <span className="is-expiry">到期日 {formatDate(item.expiryDate)}</span>
+                    <div className="destroy-expired-row-meta">
+                      <span className="is-danger">已过期 {formatRelativeDays(item.expiryDate)}</span>
+                      <span>{INVENTORY_STATUS_LABELS[item.status]}</span>
+                      <span>购 {formatDate(item.purchaseDate)}</span>
+                      <span>到期 {formatDate(item.expiryDate)}</span>
                     </div>
-                    {item.notes && (
-                      <p className="destroy-expired-item-note" title={item.notes}>
-                        {item.notes}
-                      </p>
-                    )}
                   </article>
                 ))}
               </div>
@@ -131,7 +124,6 @@ export function IngredientDestroyExpiredOverlay(props: IngredientDestroyExpiredO
             )}
           </section>
         </div>
-
       </form>
     </WorkspaceModal>
   );

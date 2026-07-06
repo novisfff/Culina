@@ -1053,14 +1053,6 @@
     gap: 12px;
   }
 
-  .dashboard-overview {
-    grid-template-columns: 1fr;
-  }
-
-  .dashboard-overview-copy h2 {
-    font-size: 1.28rem;
-  }
-
   .page-header .hero-actions {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1135,10 +1127,6 @@
 
   .ingredients-summary-grid {
     justify-content: stretch;
-  }
-
-  .compact-metric-strip {
-    grid-template-columns: 1fr;
   }
 
   .recipe-card {
@@ -1256,10 +1244,6 @@
     grid-template-columns: 1fr;
   }
 
-  .dashboard-overview-metrics {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
   .ingredient-detail-hero,
   .ingredients-create-layout {
     grid-template-columns: 1fr;
@@ -1272,7 +1256,6 @@
   .workspace-subpage-body,
   .ingredients-panel-toolbar,
   .workspace-toolbar,
-  .dense-list-row-main,
   .ingredients-checklist-row,
   .ingredients-shopping-quantity-row {
     grid-template-columns: 1fr;
@@ -1287,29 +1270,22 @@
   .ingredients-storage-head,
   .ingredients-storage-meta,
   .workspace-subpage-actions,
-  .dense-list-row-meta,
-  .dense-list-row-trailing,
-  .dense-list-row-footer,
   .ingredients-row-actions,
   .ingredient-work-card-expand-actions {
     justify-content: flex-start;
   }
 
-  .dense-list-row-trailing,
   .workspace-subpage-actions,
   .workspace-toolbar-actions,
   .ingredient-work-card-actions {
     width: 100%;
   }
 
-  .dense-list-row-copy,
   .ingredients-checklist-copy {
     min-width: 0;
   }
 
   .ingredients-checklist-row .ghost-button,
-  .dense-list-row-trailing .ghost-button,
-  .dense-list-row-trailing .solid-button,
   .ingredient-work-card-actions .solid-button,
   .ingredient-work-card-actions .ghost-button,
   .ingredient-work-card-actions .tertiary-button {

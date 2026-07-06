@@ -24,7 +24,6 @@ import {
   todayKey,
 } from './lib/ui';
 import { MealLogWorkspace } from './features/meals/MealLogWorkspace';
-import { useMealLogComposerState } from './features/meals/useMealLogComposerState';
 import type { FamilyStatCard } from './features/family/FamilySettings';
 import { useFamilySettingsState } from './features/family/useFamilySettingsState';
 import {
@@ -276,7 +275,6 @@ function App() {
     createFoodMutation,
     updateFoodMutation,
     toggleFavoriteMutation,
-    createMealMutation,
     updateMealMutation,
     quickAddMealMutation,
   } = useAppMutations();
@@ -313,14 +311,6 @@ function App() {
     isOwner: membership?.role === 'Owner',
     showNotice,
   });
-  const mealLogComposer = useMealLogComposerState({
-    foods,
-    memberIds: members.map((member) => member.id),
-    currentUserId: user?.id,
-    showNotice,
-    createMealLog: (payload) => createMealMutation.mutateAsync(payload),
-  });
-
   useEffect(() => {
     setVisibleExpiryCount(10);
   }, [inventoryItems.length]);
@@ -814,28 +804,13 @@ function App() {
 
         {activeTab === 'logs' && (
           <MealLogWorkspace
-            form={mealLogComposer.form}
-            foods={foods}
             foodPlanItems={foodPlanItems}
             members={members}
-            entries={mealLogComposer.entries}
-            selectedParticipants={mealLogComposer.selectedParticipants}
             recentMeals={recentMeals}
-            isSubmitting={createMealMutation.isPending}
             isUpdatingMeal={updateMealMutation.isPending}
-            isGeneratingPhoto={mealLogComposer.imageComposer.state.isGenerating}
-            photoErrorMessage={mealLogComposer.imageComposer.state.errorMessage}
             notificationCenter={mobileNotificationCenter}
             updateMealLog={(mealLogId, payload) => updateMealMutation.mutateAsync({ mealLogId, payload })}
             onBackHome={() => setActiveTab('home')}
-            onSubmit={mealLogComposer.submit}
-            onFormChange={mealLogComposer.setForm}
-            onToggleFood={mealLogComposer.toggleFood}
-            onUpdateFood={mealLogComposer.updateFood}
-            onUpdateParticipant={mealLogComposer.updateParticipant}
-            onUploadPhoto={(files) => void mealLogComposer.imageComposer.upload(files)}
-            onGeneratePhoto={(mode) => void mealLogComposer.imageComposer.generate(mode)}
-            onResetPhoto={mealLogComposer.imageComposer.reset}
           />
         )}
 

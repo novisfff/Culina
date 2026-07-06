@@ -99,12 +99,6 @@
   font-weight: 600;
 }
 
-.meal-enrichment-notes > span {
-  color: var(--accent-strong);
-  font-size: 0.78rem;
-  font-weight: 850;
-}
-
 .meal-enrichment-form {
   display: grid;
   gap: 16px;
@@ -117,10 +111,6 @@
 .meal-enrichment-notes {
   display: grid;
   gap: 8px;
-}
-
-.meal-enrichment-form .image-composer {
-  grid-column: auto;
 }
 
 .meal-log-empty-panel {
@@ -246,6 +236,21 @@
   background: #fff;
   color: var(--accent-strong);
   box-shadow: 0 4px 12px rgba(74, 54, 40, 0.06);
+}
+
+.meal-log-icon-slot {
+  width: 20px;
+  height: 20px;
+  display: inline-grid;
+  place-items: center;
+  flex: 0 0 20px;
+  line-height: 0;
+}
+
+.meal-log-icon-slot.compact {
+  width: 18px;
+  height: 18px;
+  flex-basis: 18px;
 }
 
 .meal-log-timeline-head {
@@ -881,17 +886,12 @@
   font-weight: 800;
 }
 
-.meal-log-modal .page-main-column,
 .meal-log-modal .meal-enrichment-form {
   padding: 0;
   border: 0;
   border-radius: 0;
   background: transparent;
   box-shadow: none;
-}
-
-.meal-log-modal .page-main-column {
-  width: min(860px, 100%);
 }
 
 .meal-log-enrich-modal.workspace-modal {
@@ -1059,11 +1059,6 @@
 
 .meal-enrichment-step-title strong {
   font-size: 1.06rem;
-}
-
-.meal-enrichment-step-title small {
-  color: var(--text-faint);
-  font-size: 0.86rem;
 }
 
 .meal-dish-rating-list {
@@ -1279,10 +1274,6 @@
   width: 14px;
   height: 14px;
   stroke-width: 2.4;
-}
-
-.meal-photo-remove-button:disabled {
-  opacity: 0.9;
 }
 
 .meal-photo-lightbox {

@@ -950,24 +950,17 @@ export function HomeDashboardDialogs(props: Props) {
                       {props.homeExpiredDisposalItems.map((item) => {
                         const expiredDays = Math.abs(getExpiryDaysLeft(item.expiryDate, today));
                         return (
-                          <article key={item.id} className="destroy-expired-item">
-                            <div className="destroy-expired-item-head">
-                              <div className="destroy-expired-item-title">
-                                <strong>{item.remainingLabel}</strong>
-                                <span>{item.storageLocation}</span>
-                              </div>
-                              <div className="destroy-expired-item-badges">
-                                <Badge className="destroy-expired-item-badge is-danger">已过期 {expiredDays} 天</Badge>
-                                <Badge>{INVENTORY_STATUS_LABELS[item.status]}</Badge>
-                              </div>
+                          <article key={item.id} className="destroy-expired-row">
+                            <div className="destroy-expired-row-main">
+                              <strong>{item.remainingLabel}</strong>
+                              <span>{item.storageLocation}</span>
                             </div>
-                            <div className="destroy-expired-item-meta">
-                              <span>购买于 {formatDate(item.purchaseDate)}</span>
-                              <span>到期日 {formatDate(item.expiryDate)}</span>
+                            <div className="destroy-expired-row-meta">
+                              <span className="is-danger">已过期 {expiredDays} 天</span>
+                              <span>{INVENTORY_STATUS_LABELS[item.status]}</span>
+                              <span>购 {formatDate(item.purchaseDate)}</span>
+                              <span>到期 {formatDate(item.expiryDate)}</span>
                             </div>
-                            <p className="destroy-expired-item-note" title={item.notes || '当前没有备注'}>
-                              {item.notes || '当前没有备注'}
-                            </p>
                           </article>
                         );
                       })}

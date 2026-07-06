@@ -332,7 +332,6 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
     setSceneTagDraft,
     visibleStepTips,
     setVisibleStepTips,
-    stepKeyPointSlots,
     setStepKeyPointSlots,
     recipeDraftGenerationStage,
     setRecipeDraftGenerationStage,
@@ -567,7 +566,6 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
   const editorSceneTags = splitTags(form.sceneTags);
   const editorCoverAsset = getImagePreview(form.images);
   const editorCoverUrl = resolveAssetUrl(editorCoverAsset?.url);
-  const editorReferenceUrl = resolveAssetUrl(form.images.referenceAsset?.url);
   const aiSourceIngredients = ingredientRows
     .filter((item) => item.ingredient_id || item.ingredient_name.trim())
     .map((item) => {
@@ -1340,21 +1338,16 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
           sceneSelectOptions={sceneSelectOptions}
           editorSceneTags={editorSceneTags}
           visibleStepTips={visibleStepTips}
-          stepKeyPointSlots={stepKeyPointSlots}
           editorCoverUrl={editorCoverUrl}
-          editorReferenceUrl={editorReferenceUrl}
           editorCoverAsset={editorCoverAsset}
           editorIngredientCount={editorIngredientCount}
           editorStepCount={editorStepCount}
           editorCompletionItems={editorCompletionItems}
           editorCompletionPercent={editorCompletionPercent}
-          aiSourceSummary={aiSourceSummary}
           recipeDraftError={recipeDraftError}
           isRecipeDraftBusy={isRecipeDraftBusy}
           recipeImageState={recipeImageState}
-          recipeDraftGenerationStage={recipeDraftGenerationStage}
           recipeDraftButtonLabel={recipeDraftButtonLabel}
-          recipeImagePayload={recipeImagePayload}
           submitDisabled={submitDisabled}
           isCreatingRecipe={props.isCreatingRecipe}
           isUpdatingRecipe={props.isUpdatingRecipe}

@@ -17,7 +17,7 @@ import {
   type InventoryStorageFocus,
   type ShoppingDialogFormState,
 } from './ingredientWorkspaceForms';
-import { buildDisposableExpiredInventoryItems, type IngredientOverlayMode, type IngredientSummaryViewModel } from './workspaceModel';
+import { countDisposableExpiredInventoryItems, type IngredientOverlayMode, type IngredientSummaryViewModel } from './workspaceModel';
 import { resolveInitialConsumeQuantity } from './consumeQuickHelpers';
 
 type UseIngredientOverlayStateArgs = {
@@ -182,7 +182,7 @@ export function useIngredientOverlayState(args: UseIngredientOverlayStateArgs) {
 
   function openDestroyExpiredOverlay(ingredientId: string) {
     const summary = args.summaries.find((item) => item.ingredient.id === ingredientId) ?? null;
-    if (!summary || buildDisposableExpiredInventoryItems(summary).length === 0) {
+    if (!summary || countDisposableExpiredInventoryItems(summary) === 0) {
       return;
     }
     setPendingShoppingToComplete(null);

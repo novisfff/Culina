@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { FoodPlanItem, MealLog, Member } from '../../api/types';
-import { buildMealLogWorkspaceViewModel, filterMealLogs, groupMealsByDate } from './MealLogWorkspaceModel';
+import { buildMealLogWorkspaceViewModel, filterMealLogs, getMealTone, groupMealsByDate } from './MealLogWorkspaceModel';
 import { resolveMealSource } from './MealLogEnrichmentModel';
 
 function makeMealLog(id: string, overrides: Partial<MealLog> = {}): MealLog {
@@ -60,6 +60,13 @@ describe('MealLogWorkspaceModel', () => {
     ]);
 
     expect(filterMealLogs({ meals: [doneMeal, pendingMeal], mealSources, searchQuery: '香', statusFilter: 'done', mealFilter: 'lunch' })).toEqual([doneMeal]);
+  });
+
+  it('maps meal types to explicit tone class names', () => {
+    expect(getMealTone('breakfast')).toBe('meal-tone-breakfast');
+    expect(getMealTone('lunch')).toBe('meal-tone-lunch');
+    expect(getMealTone('dinner')).toBe('meal-tone-dinner');
+    expect(getMealTone('snack')).toBe('meal-tone-snack');
   });
 
   it('groups meals by date while preserving order', () => {

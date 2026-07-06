@@ -168,12 +168,6 @@ export function useAppMutations() {
       invalidateAfterFoodChanged(queryClient);
     },
   });
-  const createMealMutation = useMutation({
-    mutationFn: api.createMealLog,
-    onSuccess: () => {
-      invalidateAfterMealLogChanged(queryClient);
-    },
-  });
   const updateMealMutation = useMutation({
     mutationFn: ({ mealLogId, payload }: { mealLogId: string; payload: Parameters<typeof api.updateMealLog>[1] }) =>
       api.updateMealLog(mealLogId, payload),
@@ -213,7 +207,6 @@ export function useAppMutations() {
     createFoodMutation,
     updateFoodMutation,
     toggleFavoriteMutation,
-    createMealMutation,
     updateMealMutation,
     quickAddMealMutation,
   };

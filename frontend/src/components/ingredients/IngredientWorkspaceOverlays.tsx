@@ -42,12 +42,20 @@ export function IngredientWorkspaceOverlays(props: OverlayLayerProps) {
     return null;
   }
 
+  const isInventoryOverlay = props.overlayMode === 'inventory';
+  const isConsumeOverlay = props.overlayMode === 'consume';
+  const isDestroyExpiredOverlay = props.overlayMode === 'destroyExpired';
+  const isShoppingOverlay = props.overlayMode === 'shopping';
   const selectedInventoryIngredient =
-    props.ingredients.find((item) => item.id === props.inventoryForm.ingredientId) ?? null;
+    isInventoryOverlay
+      ? props.ingredients.find((item) => item.id === props.inventoryForm.ingredientId) ?? null
+      : null;
   const selectedConsumeSummary =
-    props.ingredientSummaries.find((item) => item.ingredient.id === props.consumeForm.ingredientId) ?? null;
+    isConsumeOverlay
+      ? props.ingredientSummaries.find((item) => item.ingredient.id === props.consumeForm.ingredientId) ?? null
+      : null;
   const selectedDestroyExpiredSummary =
-    props.destroyExpiredIngredientId
+    isDestroyExpiredOverlay && props.destroyExpiredIngredientId
       ? props.ingredientSummaries.find((item) => item.ingredient.id === props.destroyExpiredIngredientId) ?? null
       : null;
   const destroyExpiredItems = selectedDestroyExpiredSummary
@@ -93,33 +101,37 @@ export function IngredientWorkspaceOverlays(props: OverlayLayerProps) {
   const selectedInventoryUnit =
     inventoryUnitOptions.find((item) => item.unit === props.inventoryForm.unit) ?? inventoryUnitOptions[0] ?? null;
   const inventoryNormalizedQuantity =
-    selectedInventoryIngredient && parsePositiveNumber(props.inventoryForm.quantity) !== null
-      ? convertQuantityToDefaultUnit(
-          selectedInventoryIngredient,
-          parsePositiveNumber(props.inventoryForm.quantity) ?? 0,
-          props.inventoryForm.unit
-        )
+    selectedInventoryIngredient
+      ? (() => {
+          const parsedQuantity = parsePositiveNumber(props.inventoryForm.quantity);
+          return parsedQuantity !== null
+            ? convertQuantityToDefaultUnit(selectedInventoryIngredient, parsedQuantity, props.inventoryForm.unit)
+            : null;
+        })()
       : null;
   const inventoryQuantityValue =
-    parsePositiveNumber(props.inventoryForm.quantity) ??
-    resolveTouchDefaultValue(props.inventoryForm.unit || selectedInventoryIngredient?.default_unit || '个', 'quantity');
-  const inventoryQuantityStep = resolveTouchStep(
-    props.inventoryForm.unit || selectedInventoryIngredient?.default_unit || '个'
-  );
-  const inventoryQuantityQuickValues = resolveTouchQuickValues(
-    props.inventoryForm.unit || selectedInventoryIngredient?.default_unit || '个',
-    'quantity'
-  );
-  const inventoryExpiryDaysValue = resolveClampedDaysValue(
-    props.inventoryForm.expiryDays,
-    selectedInventoryIngredient?.default_expiry_days ?? 3
-  );
+    isInventoryOverlay
+      ? parsePositiveNumber(props.inventoryForm.quantity) ??
+        resolveTouchDefaultValue(props.inventoryForm.unit || selectedInventoryIngredient?.default_unit || '个', 'quantity')
+      : 0;
+  const inventoryUnit = props.inventoryForm.unit || selectedInventoryIngredient?.default_unit || '个';
+  const inventoryQuantityStep = isInventoryOverlay ? resolveTouchStep(inventoryUnit) : 1;
+  const inventoryQuantityQuickValues = isInventoryOverlay
+    ? resolveTouchQuickValues(inventoryUnit, 'quantity')
+    : [];
+  const inventoryExpiryDaysValue = isInventoryOverlay
+    ? resolveClampedDaysValue(props.inventoryForm.expiryDays, selectedInventoryIngredient?.default_expiry_days ?? 3)
+    : 3;
   const shoppingQuantityValue =
-    parsePositiveNumber(props.shoppingForm.quantity) ??
-    resolveTouchDefaultValue(props.shoppingForm.unit || '个', 'quantity');
-  const shoppingQuantityStep = resolveTouchStep(props.shoppingForm.unit || '个');
-  const shoppingQuantityQuickValues = resolveTouchQuickValues(props.shoppingForm.unit || '个', 'quantity');
-  const selectedShoppingIngredient = props.shoppingForm.title.trim()
+    isShoppingOverlay
+      ? parsePositiveNumber(props.shoppingForm.quantity) ??
+        resolveTouchDefaultValue(props.shoppingForm.unit || '个', 'quantity')
+      : 0;
+  const shoppingQuantityStep = isShoppingOverlay ? resolveTouchStep(props.shoppingForm.unit || '个') : 1;
+  const shoppingQuantityQuickValues = isShoppingOverlay
+    ? resolveTouchQuickValues(props.shoppingForm.unit || '个', 'quantity')
+    : [];
+  const selectedShoppingIngredient = isShoppingOverlay && props.shoppingForm.title.trim()
     ? props.ingredients.find((item) => item.name === props.shoppingForm.title.trim()) ?? null
     : null;
   const shoppingIngredientUnitOptions = selectedShoppingIngredient
@@ -161,7 +173,7 @@ export function IngredientWorkspaceOverlays(props: OverlayLayerProps) {
       ]
     : [];
 
-  if (props.overlayMode === 'destroyExpired' && !selectedDestroyExpiredSummary) {
+  if (isDestroyExpiredOverlay && !selectedDestroyExpiredSummary) {
     return null;
   }
 
@@ -228,7 +240,7 @@ export function IngredientWorkspaceOverlays(props: OverlayLayerProps) {
     <div className="workspace-overlay-root ingredient-workspace-overlay-root">
       <div className="workspace-overlay-backdrop" onClick={props.closeOverlay} />
 
-      {props.overlayMode === 'inventory' && (
+      {isInventoryOverlay && (
         <IngredientInventoryOverlay
           closeOverlay={props.closeOverlay}
           inventoryForm={props.inventoryForm}
@@ -255,7 +267,7 @@ export function IngredientWorkspaceOverlays(props: OverlayLayerProps) {
         />
       )}
 
-      {props.overlayMode === 'consume' && selectedConsumeSummary && (
+      {isConsumeOverlay && selectedConsumeSummary && (
         <IngredientConsumeOverlay
           closeOverlay={props.closeOverlay}
           consumeForm={props.consumeForm}
@@ -282,7 +294,7 @@ export function IngredientWorkspaceOverlays(props: OverlayLayerProps) {
         />
       )}
 
-      {props.overlayMode === 'destroyExpired' && selectedDestroyExpiredSummary && (
+      {isDestroyExpiredOverlay && selectedDestroyExpiredSummary && (
         <IngredientDestroyExpiredOverlay
           closeOverlay={props.closeOverlay}
           selectedDestroyExpiredSummary={selectedDestroyExpiredSummary}
@@ -295,7 +307,7 @@ export function IngredientWorkspaceOverlays(props: OverlayLayerProps) {
         />
       )}
 
-      {props.overlayMode === 'shopping' && (
+      {isShoppingOverlay && (
         <IngredientShoppingOverlay
           closeOverlay={props.closeOverlay}
           ingredients={props.ingredients}

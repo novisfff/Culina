@@ -44,7 +44,7 @@ import {
 import { useDebouncedSearchValue, useSearchCompositionState } from '../../hooks/useDebouncedValue';
 import { usePagedList } from '../../hooks/usePagedList';
 import { useNotice } from '../../hooks/useNotice';
-import { DIFFICULTY_LABELS, buildRecipeCards, type RecipeCardViewModel } from '../recipes/workspaceModel';
+import { DIFFICULTY_LABELS, buildRecipeCards } from '../recipes/workspaceModel';
 import { RecipeEditorView } from '../recipes/RecipeEditorView';
 import { useRecipeEditorState } from '../recipes/useRecipeEditorState';
 import {
@@ -114,24 +114,6 @@ export type TodayFoodRecommendation = {
   mealType: MealType;
   score: number;
   reasons: string[];
-};
-
-export type FoodRelationFact = {
-  label: string;
-  value: string;
-};
-
-export type FoodRelationViewModel = {
-  linkedRecipeCard: RecipeCardViewModel | null;
-  usage: {
-    count: number;
-    last: string | null;
-  };
-  lastMealLog: MealLog | null;
-  relationFacts: FoodRelationFact[];
-  shortagePreview: string[];
-  summary: string;
-  detail: string;
 };
 
 type Props = {
@@ -902,7 +884,6 @@ export function FoodWorkspace(props: Props) {
   const recipeEditorSceneTags = splitTags(recipeEditor.form.sceneTags);
   const recipeEditorCoverAsset = getImagePreview(recipeEditor.form.images);
   const recipeEditorCoverUrl = resolveAssetUrl(recipeEditorCoverAsset?.url);
-  const recipeEditorReferenceUrl = resolveAssetUrl(recipeEditor.form.images.referenceAsset?.url);
   const recipeEditorCompletionItems = [
     { label: '已填写基础信息', done: Boolean(recipeEditor.form.title.trim() && Number(recipeEditor.form.servings) > 0) },
     { label: '已添加原料', done: recipeEditorIngredientCount > 0 },
@@ -918,13 +899,6 @@ export function FoodWorkspace(props: Props) {
     props.recipes.forEach((recipe) => recipe.scene_tags?.forEach((tag) => names.add(tag)));
     return Array.from(names).sort((left, right) => left.localeCompare(right, 'zh-CN'));
   }, [props.foodScenes, props.recipes]);
-  const recipeEditorAiSourceSummary = [
-    { label: '菜名', value: recipeEditor.form.title.trim() || '未填写' },
-    { label: '份量', value: `${recipeEditor.form.servings || '2'} 人份` },
-    { label: '时长', value: recipeEditor.form.prepMinutes ? `${recipeEditor.form.prepMinutes} 分钟` : '未填写' },
-    { label: '难度', value: recipeEditor.form.difficulty ? DIFFICULTY_LABELS[resolveRecipeDifficulty(recipeEditor.form.difficulty)] : '未填写' },
-    { label: '标签', value: recipeEditorSceneTags.join('、') || '未填写' },
-  ];
   const recipeEditorImagePayload = buildRecipeImagePayload(recipeEditor.form, recipeEditor.ingredientRows, props.ingredients);
   const recipeEditorImageComposer = useImageComposer({
     value: recipeEditor.form.images,
@@ -1681,21 +1655,16 @@ export function FoodWorkspace(props: Props) {
               sceneSelectOptions={recipeEditorSceneSelectOptions}
               editorSceneTags={recipeEditorSceneTags}
               visibleStepTips={recipeEditor.visibleStepTips}
-              stepKeyPointSlots={recipeEditor.stepKeyPointSlots}
               editorCoverUrl={recipeEditorCoverUrl}
-              editorReferenceUrl={recipeEditorReferenceUrl}
               editorCoverAsset={recipeEditorCoverAsset}
               editorIngredientCount={recipeEditorIngredientCount}
               editorStepCount={recipeEditorStepCount}
               editorCompletionItems={recipeEditorCompletionItems}
               editorCompletionPercent={recipeEditorCompletionPercent}
-              aiSourceSummary={recipeEditorAiSourceSummary}
               recipeDraftError={recipeEditor.recipeDraftError}
               isRecipeDraftBusy={false}
               recipeImageState={recipeEditorImageComposer.state}
-              recipeDraftGenerationStage={recipeEditor.recipeDraftGenerationStage}
               recipeDraftButtonLabel={getRecipeDraftGenerationButtonLabel(recipeEditor.recipeDraftGenerationStage)}
-              recipeImagePayload={recipeEditorImagePayload}
               submitDisabled={recipeEditorSubmitDisabled}
               isCreatingRecipe={props.isCreatingRecipe}
               isUpdatingRecipe={props.isUpdatingRecipe}

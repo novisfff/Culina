@@ -12,7 +12,7 @@ type MealLogIconName =
   | 'done'
   | 'trend';
 
-export function MealLogIcon(props: { name: MealLogIconName; className?: string }) {
+export function MealLogIcon(props: { name: MealLogIconName }) {
   const common = {
     width: 20,
     height: 20,
@@ -31,7 +31,7 @@ export function MealLogIcon(props: { name: MealLogIconName; className?: string }
   };
 
   return (
-    <svg {...common} className={props.className}>
+    <svg {...common}>
       {props.name === 'all' && (
         <>
           <rect {...strokeProps} x="4.5" y="4.5" width="6" height="6" rx="1.4" />
