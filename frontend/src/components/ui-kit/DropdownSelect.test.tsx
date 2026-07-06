@@ -102,4 +102,29 @@ describe('DropdownSelect', () => {
     expect(document.querySelector('[role="listbox"]')).toBeNull();
     expect(onChange).not.toHaveBeenCalled();
   });
+
+  it('renders trigger and option icons with stable wrapper classes', () => {
+    renderDropdown(
+      <DropdownSelect
+        ariaLabel="选择难度"
+        labelPrefix="难度"
+        placeholder="难度"
+        value="easy"
+        options={[
+          { value: 'easy', label: '简单', icon: <span data-testid="easy-option-icon">E</span> },
+          { value: 'hard', label: '复杂', icon: <span data-testid="hard-option-icon">H</span> },
+        ]}
+        leadingIcon={<span data-testid="trigger-icon">T</span>}
+        onChange={vi.fn()}
+      />
+    );
+
+    const trigger = findButtonByText('T难度: 简单');
+    expect(trigger?.querySelector('.ui-dropdown-select-leading-icon [data-testid="trigger-icon"]')).not.toBeNull();
+
+    act(() => trigger?.click());
+
+    const optionIcon = document.querySelector('[data-testid="hard-option-icon"]');
+    expect(optionIcon?.closest('.ui-dropdown-select-option-icon')).not.toBeNull();
+  });
 });

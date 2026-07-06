@@ -6164,69 +6164,8 @@
     line-height: 1.25;
   }
 
-  .food-plan-modal .recipe-plan-combobox {
-    grid-template-columns: 20px minmax(0, 1fr);
-    min-height: 50px;
-    padding: 0 14px;
-    gap: 8px;
-    border-radius: 16px;
-  }
-
-  .food-plan-modal .recipe-plan-combobox > .recipe-ui-icon {
-    width: 18px;
-    height: 18px;
-  }
-
-  .food-plan-modal .recipe-plan-search-input,
   .food-plan-modal .recipe-plan-dialog-form .text-input {
     min-width: 0;
-  }
-
-  .food-plan-modal .recipe-plan-option-panel {
-    gap: 8px;
-    max-height: clamp(160px, 28dvh, 236px);
-    margin-top: 2px;
-    padding: 6px;
-    overflow-x: hidden;
-    overflow-y: auto;
-    border-radius: 18px;
-    overscroll-behavior: contain;
-    touch-action: pan-y;
-  }
-
-  .food-plan-modal .recipe-plan-option {
-    grid-template-columns: 58px minmax(0, 1fr) auto;
-    gap: 10px;
-    min-height: 66px;
-    padding: 7px;
-    border-radius: 15px;
-  }
-
-  .food-plan-modal .recipe-plan-option-cover.recipe-work-cover,
-  .food-plan-modal .recipe-plan-option-cover.recipe-work-cover img,
-  .food-plan-modal .recipe-plan-option-cover.recipe-work-cover .recipe-cover-illustration {
-    width: 52px;
-    height: 52px;
-  }
-
-  .food-plan-modal .recipe-plan-option strong {
-    max-width: 100%;
-    font-size: 0.94rem;
-    line-height: 1.2;
-  }
-
-  .food-plan-modal .recipe-plan-option small {
-    max-width: 100%;
-    font-size: 0.78rem;
-    line-height: 1.25;
-  }
-
-  .food-plan-modal .recipe-plan-option-status.badge {
-    max-width: 58px;
-    padding: 5px 7px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
   }
 
   .food-plan-modal .recipe-plan-form-row {
@@ -8092,8 +8031,7 @@
     gap: 8px;
   }
 
-  .family-activity-viewer-custom-dates input,
-  .family-activity-viewer-select-grid .ui-dropdown-select-trigger {
+  .family-activity-viewer-custom-dates input {
     min-height: 36px;
     border-radius: 10px;
     background-color: rgba(255, 255, 255, 0.88) !important;
@@ -8101,24 +8039,7 @@
     color: #2f251e !important;
   }
 
-  .family-activity-viewer-select-grid .ui-dropdown-select-trigger {
-    font-size: 0.82rem;
-  }
-
-  .ui-dropdown-select-menu {
-    box-shadow: 0 8px 24px rgba(75, 52, 34, 0.16) !important;
-    border-radius: 14px !important;
-    padding: 6px !important;
-    max-height: 200px !important;
-  }
-
-  .ui-dropdown-select-option {
-    min-height: 38px !important;
-    font-size: 0.84rem !important;
-    border-radius: 10px !important;
-  }
-
-  .family-activity-viewer-select-grid button {
+  .family-activity-viewer-select-grid > button {
     min-height: 36px;
     border-radius: 10px;
     font-size: 0.82rem;

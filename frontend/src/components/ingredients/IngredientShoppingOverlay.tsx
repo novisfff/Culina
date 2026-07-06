@@ -1,10 +1,11 @@
 import { useMemo, type FormEvent } from 'react';
 import type { Ingredient, IngredientUnitConversion } from '../../api/types';
 import { MediaWithPlaceholder } from '../MediaPlaceholder';
-import { Badge, FormActions, QuantityUnitField, ResourcePickerField, WorkspaceModal } from '../ui-kit';
+import { Badge, FormActions, QuantityUnitField, SearchableResourceSelect, WorkspaceModal } from '../ui-kit';
 import { resolvePreferredIngredientUnit } from '../../lib/ingredientUnits';
 import { tracksIngredientQuantity } from '../../lib/ingredientTracking';
 import { resolveMediaUrl } from '../../lib/assets';
+import { useIngredientResourceSearch } from '../../hooks/useIngredientResourceSearch';
 import { buildUnitPresetOptions, type ShoppingDialogFormState } from './ingredientWorkspaceForms';
 
 type IngredientShoppingOverlayProps = {
@@ -27,13 +28,10 @@ export function IngredientShoppingOverlay(props: IngredientShoppingOverlayProps)
   const shoppingFormId = 'ingredient-shopping-overlay-form';
   const shoppingUnitOptions = buildUnitPresetOptions(props.shoppingForm.unit || '个');
   const tracksQuantity = tracksIngredientQuantity(props.selectedShoppingIngredient);
-  const visibleIngredientOptions = useMemo(() => {
-    const query = props.shoppingForm.title.trim().toLowerCase();
-    if (!query) return props.ingredients.slice(0, 10);
-    return props.ingredients
-      .filter((item) => item.name.toLowerCase().includes(query) || String(item.category || '').toLowerCase().includes(query))
-      .slice(0, 10);
-  }, [props.ingredients, props.shoppingForm.title]);
+  const ingredientSearch = useIngredientResourceSearch(props.shoppingForm.title, {
+    enabled: !props.selectedShoppingIngredient,
+    fallbackIngredients: props.ingredients,
+  });
   const shoppingQuantityUnitOptions = useMemo(() => {
     const currentUnit = props.shoppingForm.unit || props.selectedShoppingIngredient?.default_unit || '份';
     const units = props.selectedShoppingIngredient
@@ -88,28 +86,28 @@ export function IngredientShoppingOverlay(props: IngredientShoppingOverlayProps)
           ) : (
             <div className="shopping-quick-name-field">
               <span>名称</span>
-              <ResourcePickerField
-                className="custom-combobox-container"
-                searchClassName="ingredients-shopping-resource-search"
-                listClassName="custom-combobox-dropdown"
-                optionClassName={(option, selected) => selected ? 'custom-combobox-option selected' : 'custom-combobox-option'}
+              <SearchableResourceSelect
                 ariaLabel="选择采购食材"
                 placeholder="输入名称或直接选食材"
                 value=""
                 query={props.shoppingForm.title}
-                options={visibleIngredientOptions.map((ingredient) => ({
+                presentation="popover"
+                loading={ingredientSearch.isSearching}
+                loadingMore={ingredientSearch.isFetchingNextPage}
+                hasMore={ingredientSearch.hasMore}
+                loadMoreText="加载更多食材"
+                loadingMoreText="正在加载更多食材..."
+                options={ingredientSearch.ingredients.map((ingredient) => ({
                   id: ingredient.id,
                   label: ingredient.name,
                   description: `${ingredient.category || '食材'} · 默认 ${ingredient.default_unit || '个'}`,
-                  image: (
-                    <div className="custom-combobox-option-avatar">
-                      <MediaWithPlaceholder src={resolveMediaUrl(ingredient.image, 'thumb')} alt="" />
-                    </div>
-                  ),
+                  image: <MediaWithPlaceholder src={resolveMediaUrl(ingredient.image, 'thumb')} alt="" />,
                 }))}
-                emptyText="没有匹配的食材，请先创建食材档案。"
+                emptyText={ingredientSearch.isSearching ? '正在搜索...' : '没有匹配的食材，请先创建食材档案。'}
+                onSearchCompositionStart={ingredientSearch.onCompositionStart}
+                onSearchCompositionEnd={ingredientSearch.onCompositionEnd}
                 onQueryChange={(nextTitle) => {
-                  const matchedIngredient = props.ingredients.find((item) => item.name === nextTitle) ?? null;
+                  const matchedIngredient = ingredientSearch.findIngredientByName(nextTitle);
                   props.setShoppingForm({
                     ...props.shoppingForm,
                     title: nextTitle,
@@ -119,8 +117,13 @@ export function IngredientShoppingOverlay(props: IngredientShoppingOverlayProps)
                       : props.shoppingForm.unit,
                   });
                 }}
+                onLoadMore={() => {
+                  if (ingredientSearch.hasMore && !ingredientSearch.isFetchingNextPage) {
+                    void ingredientSearch.fetchNextPage();
+                  }
+                }}
                 onChange={(ingredientId) => {
-                  const ingredient = props.ingredients.find((item) => item.id === ingredientId);
+                  const ingredient = ingredientSearch.findIngredientById(ingredientId);
                   if (!ingredient) return;
                   props.setShoppingForm({
                     ...props.shoppingForm,

@@ -10385,7 +10385,7 @@ button.ai-clarification-option:hover:not(:disabled) .ai-clarification-option-ind
   appearance: none;
 }
 
-.ai-single-select-trigger,
+.ai-single-select-trigger:not(.ui-dropdown-select-trigger),
 .ai-multi-select-trigger {
   min-width: 0;
   width: 100%;
@@ -10403,23 +10403,23 @@ button.ai-clarification-option:hover:not(:disabled) .ai-clarification-option-ind
   cursor: pointer;
 }
 
-.ai-choice-select .ai-single-select-trigger,
+.ai-choice-select .ai-single-select-trigger:not(.ui-dropdown-select-trigger),
 .ai-choice-select .ai-multi-select-trigger {
   grid-column: 2 / 4;
   grid-row: 1;
   padding-right: 24px;
 }
 
-.ai-single-select-trigger {
+.ai-single-select-trigger:not(.ui-dropdown-select-trigger) {
   min-height: 28px;
 }
 
-.ai-single-select-trigger:focus-visible,
+.ai-single-select-trigger:not(.ui-dropdown-select-trigger):focus-visible,
 .ai-multi-select-trigger:focus-visible {
   outline: none;
 }
 
-.ai-single-select-trigger:disabled,
+.ai-single-select-trigger:not(.ui-dropdown-select-trigger):disabled,
 .ai-multi-select-trigger:disabled {
   cursor: default;
 }

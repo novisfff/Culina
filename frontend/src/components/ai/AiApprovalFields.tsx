@@ -135,7 +135,7 @@ export function ApprovalSelectField({
         value={value}
         options={options}
         disabled={disabled}
-        className="ai-resource-select ai-choice-select"
+        className="ai-choice-select"
         triggerClassName="ai-single-select-trigger"
         menuClassName="ai-resource-menu ai-single-select-menu"
         leadingIcon={<ResourceSelectIcon kind={icon} />}
@@ -242,7 +242,7 @@ export function ApprovalMultiSelectField({
   );
 }
 
-export function SearchableResourceSelect({
+export function AiSearchableResourceSelect({
   kind,
   label,
   value,
@@ -542,7 +542,7 @@ export function IngredientQuantityPicker({
       <div className="ai-meal-plan-ingredient-list">
         {items.map((item, index) => (
           <div className="ai-meal-plan-ingredient-row" key={`${item.ingredientId || item.name}-${index}`}>
-            <SearchableResourceSelect
+            <AiSearchableResourceSelect
               kind="ingredient"
               label={`食材 ${index + 1}`}
               value={item.ingredientId}
@@ -582,7 +582,7 @@ export function IngredientQuantityPicker({
         ))}
       </div>
       {!disabled && (
-        <SearchableResourceSelect
+        <AiSearchableResourceSelect
           kind="ingredient"
           label={items.length > 0 ? '添加食材' : '选择食材'}
           value=""

@@ -35,6 +35,7 @@ import { emptyImages, formatDate, formatDateTime, getImagePreview, splitTags, to
 import { IDLE_IMAGE_GENERATION_STATE, useImageComposer, type ImageGenerationUiState } from '../../hooks/useImageComposer';
 import { useDebouncedSearchValue, useSearchCompositionState } from '../../hooks/useDebouncedValue';
 import { usePagedList } from '../../hooks/usePagedList';
+import { useRecipeResourceSearch } from '../../hooks/useRecipeResourceSearch';
 import {
   ActionButton,
   Badge,
@@ -377,8 +378,6 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
     setShoppingCustomForm,
     isShoppingIngredientPickerOpen,
     setIsShoppingIngredientPickerOpen,
-    shoppingIngredientOptions,
-    visibleShoppingIngredientOptions,
     openShoppingDialog,
     closeShoppingDialog,
     updateShoppingDraft,
@@ -741,11 +740,21 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
     isCookingRecipe: props.isCookingRecipe,
     showRecipeNotice,
   });
-  const planRecipeQuery = planRecipeSearch.trim().toLowerCase();
+  const planRecipeFallbackRecipes = useMemo(() => cards.map((card) => card.recipe), [cards]);
+  const planRecipeSearchResults = useRecipeResourceSearch(planRecipeSearch, {
+    enabled: isPlanDialogOpen && isPlanRecipePickerOpen,
+    fallbackRecipes: planRecipeFallbackRecipes,
+  });
   const planRecipeOptions = useMemo(() => {
-    if (!planRecipeQuery) return cards;
-    return cards.filter((card) => card.searchText.includes(planRecipeQuery) || card.recipe.title.toLowerCase().includes(planRecipeQuery));
-  }, [cards, planRecipeQuery]);
+    const seen = new Set<string>();
+    return planRecipeSearchResults.recipes
+      .map((recipe) => cardByRecipeId.get(recipe.id) ?? null)
+      .filter((card): card is RecipeCardViewModel => {
+        if (!card || seen.has(card.recipe.id)) return false;
+        seen.add(card.recipe.id);
+        return true;
+      });
+  }, [cardByRecipeId, planRecipeSearchResults.recipes]);
 
   function updateCategoryScrollState() {
     const node = categoryScrollRef.current;
@@ -1565,6 +1574,9 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
           recipeOptions={planRecipeOptions}
           recipeSearch={planRecipeSearch}
           isRecipePickerOpen={isPlanRecipePickerOpen}
+          isRecipeSearchLoading={planRecipeSearchResults.isSearching}
+          isRecipeSearchLoadingMore={planRecipeSearchResults.isFetchingNextPage}
+          hasMoreRecipeOptions={planRecipeSearchResults.hasMore}
           weekRange={props.recipePlanWeekRange}
           isUpdatingPlan={props.isUpdatingPlan}
           hasRecipes={cards.length > 0}
@@ -1573,6 +1585,11 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
           onChangeForm={setPlanForm}
           onChangeRecipeSearch={setPlanRecipeSearch}
           onSetRecipePickerOpen={setIsPlanRecipePickerOpen}
+          onLoadMoreRecipeOptions={() => {
+            if (planRecipeSearchResults.hasMore && !planRecipeSearchResults.isFetchingNextPage) {
+              void planRecipeSearchResults.fetchNextPage();
+            }
+          }}
           onSelectRecipe={selectPlanRecipe}
         />
       )}
@@ -1599,8 +1616,6 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
           ingredients={props.ingredients}
           drafts={shoppingDrafts}
           customForm={shoppingCustomForm}
-          ingredientOptions={shoppingIngredientOptions}
-          visibleIngredientOptions={visibleShoppingIngredientOptions}
           isIngredientPickerOpen={isShoppingIngredientPickerOpen}
           isCreatingShopping={props.isCreatingShopping}
           unitOptions={SHOPPING_UNIT_OPTIONS}

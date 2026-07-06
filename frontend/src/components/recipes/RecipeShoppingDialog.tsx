@@ -1,6 +1,9 @@
 import type { Ingredient, RecipeIngredient } from '../../api/types';
+import { resolveMediaUrl } from '../../lib/assets';
+import { resolvePreferredIngredientUnit } from '../../lib/ingredientUnits';
+import { useIngredientResourceSearch } from '../../hooks/useIngredientResourceSearch';
 import { MediaWithPlaceholder } from '../MediaPlaceholder';
-import { Badge, EmptyState, FormActions, QuantityUnitField, ResourcePickerField, WorkspaceModal } from '../ui-kit';
+import { Badge, EmptyState, FormActions, QuantityUnitField, SearchableResourceSelect, WorkspaceModal } from '../ui-kit';
 import {
   buildRecipeIngredientAvailabilityMap,
   buildShoppingDraftSourceLabel,
@@ -10,7 +13,6 @@ import {
   getRecipeShoppingRequirement,
   type RecipeShoppingCustomForm,
   type RecipeShoppingDraftItem,
-  type RecipeShoppingIngredientOption,
 } from './RecipeWorkspaceModel';
 import { RecipeUiIcon } from './RecipeWorkspaceCards';
 import type { RecipeCardViewModel } from './workspaceModel';
@@ -20,8 +22,6 @@ type RecipeShoppingDialogProps = {
   ingredients: Ingredient[];
   drafts: RecipeShoppingDraftItem[];
   customForm: RecipeShoppingCustomForm;
-  ingredientOptions: RecipeShoppingIngredientOption[];
-  visibleIngredientOptions: RecipeShoppingIngredientOption[];
   isIngredientPickerOpen: boolean;
   isCreatingShopping?: boolean;
   unitOptions: string[];
@@ -36,13 +36,17 @@ type RecipeShoppingDialogProps = {
   onAddRecipeIngredient: (item: RecipeIngredient) => void;
   onChangeCustomForm: (form: RecipeShoppingCustomForm) => void;
   onSetIngredientPickerOpen: (open: boolean) => void;
-  onSelectIngredientOption: (option: RecipeShoppingIngredientOption) => void;
+  onSelectIngredientOption: (ingredient: Ingredient) => void;
   onAdjustCustomQuantity: (delta: number) => void;
   onAddCustomDraft: () => void;
   onSubmit: () => void;
 };
 
 export function RecipeShoppingDialog(props: RecipeShoppingDialogProps) {
+  const ingredientSearch = useIngredientResourceSearch(props.customForm.title, {
+    fallbackIngredients: props.ingredients,
+  });
+
   return (
     <div className="workspace-overlay-root">
       <div className="workspace-overlay-backdrop" onClick={props.onClose} />
@@ -195,34 +199,46 @@ export function RecipeShoppingDialog(props: RecipeShoppingDialogProps) {
               </div>
             </div>
             <div className="recipe-shopping-custom-row">
-              <ResourcePickerField
-                className="recipe-shopping-combobox"
-                searchClassName="recipe-shopping-combobox-field"
-                listClassName="recipe-shopping-combobox-menu"
+              <SearchableResourceSelect
                 ariaLabel="从食材库添加"
                 placeholder="搜索食材库"
                 value={props.customForm.ingredientId ?? ''}
                 query={props.customForm.title}
-                options={props.visibleIngredientOptions.map((option) => ({
-                  id: option.id,
-                  label: option.name,
-                  description: `${option.category || '食材'} · 默认 ${option.unit}`,
-                  image: <MediaWithPlaceholder src={option.imageUrl} alt="" />,
+                presentation="popover"
+                loading={ingredientSearch.isSearching}
+                loadingMore={ingredientSearch.isFetchingNextPage}
+                hasMore={ingredientSearch.hasMore}
+                loadMoreText="加载更多食材"
+                loadingMoreText="正在加载更多食材..."
+                options={ingredientSearch.ingredients.map((ingredient) => ({
+                  id: ingredient.id,
+                  label: ingredient.name,
+                  description: `${ingredient.category || '食材'} · 默认 ${ingredient.default_unit || '个'}`,
+                  image: <MediaWithPlaceholder src={resolveMediaUrl(ingredient.image, 'thumb')} alt="" />,
                 }))}
-                emptyText="没有匹配的食材，请先去食材库建档。"
+                emptyText={ingredientSearch.isSearching ? '正在搜索...' : '没有匹配的食材，请先去食材库建档。'}
+                onSearchCompositionStart={ingredientSearch.onCompositionStart}
+                onSearchCompositionEnd={ingredientSearch.onCompositionEnd}
                 onQueryChange={(nextTitle) => {
-                  const matched = props.ingredientOptions.find((item) => item.name === nextTitle);
+                  const matched = ingredientSearch.findIngredientByName(nextTitle);
                   props.onChangeCustomForm({
                     ...props.customForm,
                     ingredientId: matched?.id ?? null,
                     title: nextTitle,
-                    unit: matched?.unit ?? props.customForm.unit,
+                    unit: matched
+                      ? resolvePreferredIngredientUnit(matched, props.customForm.unit) || matched.default_unit
+                      : props.customForm.unit,
                   });
                   props.onSetIngredientPickerOpen(true);
                 }}
+                onLoadMore={() => {
+                  if (ingredientSearch.hasMore && !ingredientSearch.isFetchingNextPage) {
+                    void ingredientSearch.fetchNextPage();
+                  }
+                }}
                 onChange={(ingredientId) => {
-                  const option = props.ingredientOptions.find((item) => item.id === ingredientId);
-                  if (option) props.onSelectIngredientOption(option);
+                  const ingredient = ingredientSearch.findIngredientById(ingredientId);
+                  if (ingredient) props.onSelectIngredientOption(ingredient);
                 }}
               />
               <QuantityUnitField

@@ -890,7 +890,7 @@
   border-color: rgba(122, 85, 62, 0.14);
 }
 
-.family-activity-viewer-select-grid button {
+.family-activity-viewer-select-grid > button {
   width: 100%;
   min-height: 36px !important;
   padding: 0 10px !important;
@@ -904,7 +904,7 @@
   transition: all 0.2s ease;
 }
 
-.family-activity-viewer-select-grid button:hover {
+.family-activity-viewer-select-grid > button:hover {
   background: rgba(122, 85, 62, 0.12) !important;
   color: #2f251e !important;
 }

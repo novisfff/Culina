@@ -1,12 +1,9 @@
-import { useEffect, useMemo, useState } from 'react';
-import { keepPreviousData, useQuery } from '@tanstack/react-query';
-import { api } from '../../api/client';
-import { queryKeys } from '../../api/queryKeys';
+import { useEffect, useState } from 'react';
 import type { Ingredient } from '../../api/types';
 import { resolveAssetUrl } from '../../lib/assets';
-import { useDebouncedSearchValue, useSearchCompositionState } from '../../hooks/useDebouncedValue';
+import { useIngredientResourceSearch } from '../../hooks/useIngredientResourceSearch';
 import { MediaWithPlaceholder } from '../MediaPlaceholder';
-import { ActionButton, Badge, EmptyState, FormActions, ResourcePickerField, WorkspaceModal } from '../ui-kit';
+import { ActionButton, Badge, EmptyState, FormActions, SearchableResourceSelect, WorkspaceModal } from '../ui-kit';
 import { RecipeUiIcon } from './RecipeWorkspaceCards';
 import type { RecipeUnresolvedIngredientTarget } from './RecipeWorkspaceModel';
 
@@ -48,40 +45,7 @@ function RecipeIngredientCandidateSearch({
   onRemoveIngredientRow: (target: RecipeUnresolvedIngredientTarget) => void;
 }) {
   const [search, setSearch] = useState(target.ingredient_name);
-  const normalizedSearch = search.trim();
-  const searchComposition = useSearchCompositionState();
-  const searchValue = useDebouncedSearchValue(search, { isComposing: searchComposition.isComposing });
-  const candidateQuery = useQuery({
-    queryKey: queryKeys.ingredientPickerSearch(searchValue),
-    queryFn: () => api.getIngredients({ q: searchValue, limit: 8 }),
-    enabled: Boolean(searchValue),
-    placeholderData: keepPreviousData,
-  });
-  const [appliedSearch, setAppliedSearch] = useState('');
-  const [appliedCandidates, setAppliedCandidates] = useState<Ingredient[]>([]);
-  useEffect(() => {
-    if (!normalizedSearch) {
-      setAppliedSearch('');
-      setAppliedCandidates([]);
-      return;
-    }
-    if (searchValue && !candidateQuery.isPlaceholderData && candidateQuery.data) {
-      setAppliedSearch(searchValue);
-      setAppliedCandidates(candidateQuery.data);
-    }
-  }, [candidateQuery.data, candidateQuery.isPlaceholderData, normalizedSearch, searchValue]);
-  const fallbackCandidates = useMemo(() => {
-    const keyword = normalizedSearch.toLocaleLowerCase();
-    if (!keyword) return ingredients.slice(0, 8);
-    return ingredients
-      .filter((ingredient) => ingredient.name.toLocaleLowerCase().includes(keyword) || ingredient.category.toLocaleLowerCase().includes(keyword))
-      .slice(0, 8);
-  }, [ingredients, normalizedSearch]);
-  const candidates = normalizedSearch ? appliedCandidates : fallbackCandidates;
-  const isCandidateSearchFetching =
-    Boolean(normalizedSearch) &&
-    !searchComposition.isComposing &&
-    (appliedSearch !== normalizedSearch || candidateQuery.isFetching);
+  const ingredientSearch = useIngredientResourceSearch(search, { fallbackIngredients: ingredients });
 
   useEffect(() => {
     setSearch(target.ingredient_name);
@@ -101,18 +65,18 @@ function RecipeIngredientCandidateSearch({
 
       <div className="recipe-ingredient-resolution-search">
         <span>检索已有食材</span>
-        <ResourcePickerField
-          className="recipe-ingredient-resolution-resource-picker"
-          searchClassName="recipe-ingredient-resolution-search-input"
-          listClassName="recipe-ingredient-resolution-candidates"
-          optionClassName="recipe-ingredient-resolution-candidate"
+        <SearchableResourceSelect
           ariaLabel="选择匹配食材"
           placeholder="输入食材名或别名"
           value=""
           query={search}
-          loading={isCandidateSearchFetching}
-          emptyText={isCandidateSearchFetching ? '正在检索相似食材...' : '没有找到合适候选，可以先新建食材。'}
-          options={candidates.map((ingredient) => ({
+          loading={ingredientSearch.isSearching}
+          loadingMore={ingredientSearch.isFetchingNextPage}
+          hasMore={ingredientSearch.hasMore}
+          emptyText={ingredientSearch.isSearching ? '正在检索相似食材...' : '没有找到合适候选，可以先新建食材。'}
+          loadMoreText="加载更多食材"
+          loadingMoreText="正在加载更多食材..."
+          options={ingredientSearch.ingredients.map((ingredient) => ({
             id: ingredient.id,
             label: ingredient.name,
             description: [ingredient.category, `默认 ${ingredient.default_unit}`, ingredient.default_storage].filter(Boolean).join(' · '),
@@ -120,18 +84,22 @@ function RecipeIngredientCandidateSearch({
               <MediaWithPlaceholder
                 src={resolveAssetUrl(ingredient.image?.url)}
                 alt={ingredient.name}
-                className="recipe-ingredient-resolution-candidate-media"
                 emptyLabel="暂无图"
               />
             ),
           }))}
           onQueryChange={setSearch}
+          onLoadMore={() => {
+            if (ingredientSearch.hasMore && !ingredientSearch.isFetchingNextPage) {
+              void ingredientSearch.fetchNextPage();
+            }
+          }}
           onChange={(ingredientId) => {
-            const ingredient = candidates.find((item) => item.id === ingredientId);
+            const ingredient = ingredientSearch.findIngredientById(ingredientId);
             if (ingredient) onResolveWithIngredient(target, ingredient);
           }}
-          onSearchCompositionStart={searchComposition.onCompositionStart}
-          onSearchCompositionEnd={searchComposition.onCompositionEnd}
+          onSearchCompositionStart={ingredientSearch.onCompositionStart}
+          onSearchCompositionEnd={ingredientSearch.onCompositionEnd}
         />
       </div>
 

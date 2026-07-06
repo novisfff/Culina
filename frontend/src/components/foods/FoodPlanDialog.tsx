@@ -1,7 +1,8 @@
 import type { FormEvent } from 'react';
 import type { Food, MealType, Recipe, MediaAsset } from '../../api/types';
-import { Badge, FormActions, WorkspaceModal } from '../ui-kit';
+import { FormActions, SearchableResourceSelect, WorkspaceModal } from '../ui-kit';
 import { buildMediaSizes, buildMediaSrcSet, resolveMediaUrl } from '../../lib/assets';
+import { useFoodResourceSearch } from '../../hooks/useFoodResourceSearch';
 import { MediaWithPlaceholder } from '../MediaPlaceholder';
 import { FOOD_TYPE_LABELS, MEAL_TYPE_LABELS } from '../../lib/ui';
 import { MEAL_OPTIONS } from './FoodWorkspaceOptions';
@@ -10,8 +11,8 @@ import { FoodUiIcon } from './FoodWorkspacePrimitives';
 type FoodPlanDialogProps = {
   isOpen: boolean;
   selectedPlanFood: Food | null;
+  foods: Food[];
   recipes: Recipe[];
-  planFoodOptions: Food[];
   planFoodSearch: string;
   planForm: {
     foodId: string;
@@ -39,9 +40,10 @@ type FoodPlanDialogProps = {
 };
 
 export function FoodPlanDialog(props: FoodPlanDialogProps) {
-  if (!props.isOpen) {
-    return null;
-  }
+  const foodSearch = useFoodResourceSearch(props.planFoodSearch, {
+    enabled: props.isOpen && !props.selectedPlanFood,
+    fallbackFoods: props.foods,
+  });
   const planFormId = 'food-plan-dialog-form';
   const selectedPlanFoodCoverAsset = props.selectedPlanFood
     ? props.getFoodCoverAsset?.(props.selectedPlanFood, props.recipes)
@@ -49,6 +51,10 @@ export function FoodPlanDialog(props: FoodPlanDialogProps) {
   const selectedPlanFoodCoverUrl =
     resolveMediaUrl(selectedPlanFoodCoverAsset, 'card') ??
     (props.selectedPlanFood ? props.resolveFoodAssetUrl(props.getFoodCover(props.selectedPlanFood, props.recipes) ?? '') : undefined);
+
+  if (!props.isOpen) {
+    return null;
+  }
 
   return (
     <div className="workspace-overlay-root food-workspace-overlay-root">
@@ -113,51 +119,56 @@ export function FoodPlanDialog(props: FoodPlanDialogProps) {
           ) : (
             <div className="recipe-plan-picker">
               <label htmlFor="food-plan-search">选择食物</label>
-              <div className="recipe-plan-combobox">
-                <FoodUiIcon name="search" />
-                <input
-                  id="food-plan-search"
-                  className="recipe-plan-search-input"
-                  value={props.planFoodSearch}
-                  placeholder="搜索食物、来源、场景或备注"
-                  onChange={(event) => props.onPlanFoodSearchChange(event.target.value)}
-                />
-              </div>
-              <div className="recipe-plan-option-panel">
-                {props.planFoodOptions.length > 0 ? (
-                  props.planFoodOptions.map((food) => {
-                    const coverAsset = props.getFoodCoverAsset?.(food, props.recipes);
-                    const cover = resolveMediaUrl(coverAsset, 'thumb') ?? props.resolveFoodAssetUrl(props.getFoodCover(food, props.recipes) ?? '');
-                    return (
-                      <button key={food.id} type="button" className="recipe-plan-option" onClick={() => props.onSelectPlanFood(food)}>
-                        <span className="recipe-plan-option-cover recipe-work-cover">
-                          <MediaWithPlaceholder
-                            src={cover}
-                            srcSet={buildMediaSrcSet(coverAsset)}
-                            sizes={buildMediaSizes('thumb')}
-                            alt=""
-                          />
-                        </span>
-                        <span>
-                          <strong>{food.name}</strong>
-                          <small>
-                            {[
-                              FOOD_TYPE_LABELS[props.normalizeFoodType(food)],
-                              food.source_name || food.purchase_source || food.category,
-                              food.recipe_id ? '可开始做' : '可记到今天',
-                            ]
-                              .filter(Boolean)
-                              .join(' · ')}
-                          </small>
-                        </span>
-                        <Badge className="recipe-plan-option-status">{MEAL_TYPE_LABELS[props.getDefaultMealType(food)]}</Badge>
-                      </button>
-                    );
-                  })
-                ) : (
-                  <div className="recipe-plan-option-empty">没有找到匹配的食物</div>
-                )}
-              </div>
+              <SearchableResourceSelect
+                searchInputId="food-plan-search"
+                ariaLabel="选择食物"
+                placeholder="搜索食物、来源、场景或备注"
+                value={props.planForm.foodId}
+                query={props.planFoodSearch}
+                presentation="popover"
+                loading={foodSearch.isSearching}
+                loadingMore={foodSearch.isFetchingNextPage}
+                hasMore={foodSearch.hasMore}
+                loadMoreText="加载更多食物"
+                loadingMoreText="正在加载更多食物..."
+                options={foodSearch.foods.map((food) => {
+                  const coverAsset = props.getFoodCoverAsset?.(food, props.recipes);
+                  const cover = resolveMediaUrl(coverAsset, 'thumb') ?? props.resolveFoodAssetUrl(props.getFoodCover(food, props.recipes) ?? '');
+                  return {
+                    id: food.id,
+                    label: food.name,
+                    description: [
+                      FOOD_TYPE_LABELS[props.normalizeFoodType(food)],
+                      food.source_name || food.purchase_source || food.category,
+                      food.recipe_id ? '可开始做' : '可记到今天',
+                      MEAL_TYPE_LABELS[props.getDefaultMealType(food)],
+                    ]
+                      .filter(Boolean)
+                      .join(' · '),
+                    image: (
+                      <MediaWithPlaceholder
+                        src={cover}
+                        srcSet={buildMediaSrcSet(coverAsset)}
+                        sizes={buildMediaSizes('thumb')}
+                        alt=""
+                      />
+                    ),
+                  };
+                })}
+                emptyText={foodSearch.isSearching ? '正在搜索...' : '没有找到匹配的食物'}
+                onSearchCompositionStart={foodSearch.onCompositionStart}
+                onSearchCompositionEnd={foodSearch.onCompositionEnd}
+                onQueryChange={props.onPlanFoodSearchChange}
+                onLoadMore={() => {
+                  if (foodSearch.hasMore && !foodSearch.isFetchingNextPage) {
+                    void foodSearch.fetchNextPage();
+                  }
+                }}
+                onChange={(foodId) => {
+                  const food = foodSearch.findFoodById(foodId);
+                  if (food) props.onSelectPlanFood(food);
+                }}
+              />
             </div>
           )}
 

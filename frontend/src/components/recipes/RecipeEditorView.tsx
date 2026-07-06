@@ -1,13 +1,10 @@
 import { useEffect, useMemo, useRef, useState, type Dispatch, type FormEvent, type SetStateAction } from 'react';
-import { keepPreviousData, useQuery } from '@tanstack/react-query';
-import { api } from '../../api/client';
-import { queryKeys } from '../../api/queryKeys';
 import type { Difficulty, Ingredient, MediaAsset } from '../../api/types';
 import type { AiRenderPayload } from '../../lib/aiImages';
 import { resolveAssetUrl } from '../../lib/assets';
 import { MediaWithPlaceholder } from '../MediaPlaceholder';
-import { useDebouncedSearchValue, useSearchCompositionState } from '../../hooks/useDebouncedValue';
-import { ActionButton, DropdownSelect, QuantityUnitField, ResourcePickerField, WorkspaceSubpageShell } from '../ui-kit';
+import { useIngredientResourceSearch } from '../../hooks/useIngredientResourceSearch';
+import { ActionButton, DropdownSelect, QuantityUnitField, SearchableResourceSelect, WorkspaceSubpageShell } from '../ui-kit';
 import {
   MAX_STEP_KEY_POINTS,
   RECIPE_STEP_ICON_OPTIONS,
@@ -130,49 +127,25 @@ function RecipeIngredientPicker({ row, rowIndex, ingredients, onSelect }: Recipe
   const [search, setSearch] = useState('');
   const rootRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
-  const normalizedSearch = search.trim();
-  const searchComposition = useSearchCompositionState();
-  const searchValue = useDebouncedSearchValue(search, { isComposing: searchComposition.isComposing });
   const selectedIngredient = ingredients.find((ingredient) => ingredient.id === row.ingredient_id) ?? null;
   const selectedLabel = selectedIngredient?.name ?? row.ingredient_name.trim();
-  const ingredientSearchQuery = useQuery({
-    queryKey: queryKeys.ingredientPickerSearch(searchValue),
-    queryFn: () => api.getIngredients({ q: searchValue, limit: 20 }),
-    enabled: open && Boolean(searchValue),
-    placeholderData: keepPreviousData,
+  const ingredientSearch = useIngredientResourceSearch(search, {
+    enabled: open,
+    fallbackIngredients: ingredients,
   });
-  const [appliedSearch, setAppliedSearch] = useState('');
-  const [appliedSearchResults, setAppliedSearchResults] = useState<Ingredient[]>([]);
-  useEffect(() => {
-    if (!normalizedSearch) {
-      setAppliedSearch('');
-      setAppliedSearchResults([]);
-      return;
-    }
-    if (searchValue && !ingredientSearchQuery.isPlaceholderData && ingredientSearchQuery.data) {
-      setAppliedSearch(searchValue);
-      setAppliedSearchResults(ingredientSearchQuery.data);
-    }
-  }, [ingredientSearchQuery.data, ingredientSearchQuery.isPlaceholderData, normalizedSearch, searchValue]);
-  const optionSource = normalizedSearch ? appliedSearchResults : ingredients;
-  const isIngredientSearchFetching =
-    Boolean(normalizedSearch) &&
-    !searchComposition.isComposing &&
-    (appliedSearch !== normalizedSearch || ingredientSearchQuery.isFetching);
   const options = useMemo(() => {
     const seen = new Set<string>();
     return [
       selectedIngredient,
-      ...optionSource,
+      ...ingredientSearch.ingredients,
     ]
       .filter((ingredient): ingredient is Ingredient => Boolean(ingredient))
       .filter((ingredient) => {
         if (seen.has(ingredient.id)) return false;
         seen.add(ingredient.id);
         return true;
-      })
-      .slice(0, 20);
-  }, [optionSource, selectedIngredient]);
+      });
+  }, [ingredientSearch.ingredients, selectedIngredient]);
 
   useEffect(() => {
     if (!open) return;
@@ -192,7 +165,7 @@ function RecipeIngredientPicker({ row, rowIndex, ingredients, onSelect }: Recipe
   }, [open]);
 
   function openPicker() {
-    setSearch(selectedLabel || '');
+    if (!open) setSearch(selectedLabel || '');
     setOpen(true);
   }
 
@@ -203,82 +176,61 @@ function RecipeIngredientPicker({ row, rowIndex, ingredients, onSelect }: Recipe
   }
 
   return (
-    <div className={open ? 'recipe-ingredient-picker is-open' : 'recipe-ingredient-picker'} ref={rootRef}>
-      <button
-        className={selectedLabel ? 'recipe-ingredient-picker-trigger has-value' : 'recipe-ingredient-picker-trigger'}
-        type="button"
-        onClick={openPicker}
-        aria-expanded={open}
-        aria-haspopup="listbox"
-      >
-        {selectedIngredient && (
-          selectedIngredient.image?.url ? (
+    <div className="recipe-ingredient-picker" ref={rootRef}>
+      <SearchableResourceSelect
+        className={open ? 'recipe-ingredient-picker-select is-open' : 'recipe-ingredient-picker-select'}
+        ariaLabel="选择已有食材"
+        placeholder={`选择原料 ${rowIndex + 1}`}
+        value={row.ingredient_id ?? ''}
+        query={open ? search : selectedLabel}
+        presentation="popover"
+        listOpen={open}
+        loading={ingredientSearch.isSearching}
+        loadingMore={ingredientSearch.isFetchingNextPage}
+        hasMore={ingredientSearch.hasMore}
+        emptyText={ingredientSearch.isSearching ? '正在搜索...' : '没有找到匹配食材'}
+        loadMoreText="加载更多食材"
+        loadingMoreText="正在加载更多食材..."
+        searchInputRef={inputRef}
+        options={options.map((ingredient) => ({
+          id: ingredient.id,
+          label: ingredient.name,
+          description: [ingredient.category, `默认 ${ingredient.default_unit}`, ingredient.default_storage].filter(Boolean).join(' · '),
+          image: (
             <MediaWithPlaceholder
-              src={resolveAssetUrl(selectedIngredient.image.url)}
-              alt={selectedLabel}
-              className="recipe-ingredient-picker-trigger-thumb"
-              showLabel={false}
+              src={resolveAssetUrl(ingredient.image?.url)}
+              alt={ingredient.name}
+              emptyLabel="暂无图"
             />
-          ) : (
-            <span className="recipe-ingredient-picker-trigger-thumb-placeholder">
-              <RecipeUiIcon name="basket" />
-            </span>
-          )
-        )}
-        <span>{selectedLabel || `选择原料 ${rowIndex + 1}`}</span>
-        <RecipeUiIcon name="chevronDown" />
-      </button>
-      {open && (
-        <div className="recipe-ingredient-picker-panel">
-          {(row.ingredient_id || selectedLabel) && (
-            <button className="recipe-ingredient-picker-clear" type="button" onClick={() => selectOption(null)}>
-              清空选择
-            </button>
-          )}
-          <ResourcePickerField
-            className="recipe-ingredient-picker-resource"
-            searchClassName="recipe-ingredient-picker-search"
-            searchInputRef={inputRef}
-            listClassName="recipe-ingredient-picker-list"
-            optionClassName={(option, selected) => selected ? 'recipe-ingredient-picker-option is-selected' : 'recipe-ingredient-picker-option'}
-            ariaLabel="选择已有食材"
-            placeholder="搜索或选择食材"
-            value={row.ingredient_id ?? ''}
-            query={search}
-            loading={isIngredientSearchFetching}
-            emptyText={isIngredientSearchFetching ? '正在搜索...' : '没有找到匹配食材'}
-            options={options.map((ingredient) => ({
-              id: ingredient.id,
-              label: ingredient.name,
-              description: [ingredient.category, `默认 ${ingredient.default_unit}`, ingredient.default_storage].filter(Boolean).join(' · '),
-              image: (
-                <MediaWithPlaceholder
-                  src={resolveAssetUrl(ingredient.image?.url)}
-                  alt={ingredient.name}
-                  className="recipe-ingredient-picker-thumb"
-                  emptyLabel="暂无图"
-                />
-              ),
-            }))}
-            onQueryChange={setSearch}
-            onChange={(ingredientId) => {
-              const ingredient = options.find((item) => item.id === ingredientId);
-              if (ingredient) selectOption(ingredient);
-            }}
-            onSearchCompositionStart={searchComposition.onCompositionStart}
-            onSearchCompositionEnd={searchComposition.onCompositionEnd}
-            onSearchKeyDown={(event) => {
-              if (event.key === 'Escape') {
-                setOpen(false);
-              }
-              if (event.key === 'Enter' && options[0]) {
-                event.preventDefault();
-                selectOption(options[0]);
-              }
-            }}
-          />
-        </div>
-      )}
+          ),
+        }))}
+        onSearchFocus={openPicker}
+        onSearchClear={() => selectOption(null)}
+        onSearchCompositionStart={ingredientSearch.onCompositionStart}
+        onSearchCompositionEnd={ingredientSearch.onCompositionEnd}
+        onSearchKeyDown={(event) => {
+          if (event.key === 'Escape') {
+            setOpen(false);
+          }
+          if (event.key === 'Enter' && options[0]) {
+            event.preventDefault();
+            selectOption(options[0]);
+          }
+        }}
+        onQueryChange={(nextSearch) => {
+          setSearch(nextSearch);
+          setOpen(true);
+        }}
+        onLoadMore={() => {
+          if (ingredientSearch.hasMore && !ingredientSearch.isFetchingNextPage) {
+            void ingredientSearch.fetchNextPage();
+          }
+        }}
+        onChange={(ingredientId) => {
+          const ingredient = options.find((item) => item.id === ingredientId);
+          if (ingredient) selectOption(ingredient);
+        }}
+      />
     </div>
   );
 }
@@ -498,12 +450,16 @@ export function RecipeEditorView({
                             <label className="recipe-editor-step-field-icon">
                               <span>图标</span>
                               <span className="recipe-editor-icon-select">
-                                <RecipeUiIcon name={getRecipeStepIconName(step.icon)} />
                                 <DropdownSelect
                                   ariaLabel="选择步骤图标"
                                   placeholder="选择步骤图标"
                                   value={step.icon}
-                                  options={RECIPE_STEP_ICON_OPTIONS.map((option) => ({ value: option.value, label: option.label }))}
+                                  leadingIcon={<RecipeUiIcon name={getRecipeStepIconName(step.icon)} />}
+                                  options={RECIPE_STEP_ICON_OPTIONS.map((option) => ({
+                                    value: option.value,
+                                    label: option.label,
+                                    icon: <RecipeUiIcon name={getRecipeStepIconName(option.value)} />
+                                  }))}
                                   onChange={(icon) => updateStepDraft(step.id, { icon })}
                                 />
                               </span>

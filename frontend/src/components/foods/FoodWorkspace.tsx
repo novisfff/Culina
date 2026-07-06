@@ -602,7 +602,6 @@ export function FoodWorkspace(props: Props) {
     openPlanDialog,
     planDateOptions,
     planDetailForm,
-    planFoodOptions,
     planFoodSearch,
     planForm,
     resetPlanDetailForm,
@@ -1873,8 +1872,8 @@ export function FoodWorkspace(props: Props) {
       <FoodPlanDialog
         isOpen={isPlanDialogOpen}
         selectedPlanFood={selectedPlanFood}
+        foods={props.foods}
         recipes={props.recipes}
-        planFoodOptions={planFoodOptions}
         planFoodSearch={planFoodSearch}
         planForm={planForm}
         todayDate={todayDate}

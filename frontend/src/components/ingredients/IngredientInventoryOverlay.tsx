@@ -4,6 +4,7 @@ import { resolveMediaUrl } from '../../lib/assets';
 import { addDateKeyDays } from '../../lib/date';
 import { tracksIngredientQuantity } from '../../lib/ingredientTracking';
 import { formatDate, INVENTORY_STATUS_LABELS, todayKey } from '../../lib/ui';
+import { useIngredientResourceSearch } from '../../hooks/useIngredientResourceSearch';
 import { MediaWithPlaceholder } from '../MediaPlaceholder';
 import {
   ActionButton,
@@ -13,7 +14,7 @@ import {
   FormActions,
   OptionChipGroup,
   QuantityUnitField,
-  ResourcePickerField,
+  SearchableResourceSelect,
   TouchRangeField,
   WorkspaceModal,
 } from '../ui-kit';
@@ -54,6 +55,11 @@ type IngredientInventoryOverlayProps = {
 export function IngredientInventoryOverlay(props: IngredientInventoryOverlayProps) {
   const tracksQuantity = tracksIngredientQuantity(props.selectedInventoryIngredient);
   const inventoryFormId = 'ingredient-inventory-overlay-form';
+  const shouldShowIngredientPicker = !props.inventoryForm.ingredientLocked && !props.selectedInventoryIngredient;
+  const ingredientSearch = useIngredientResourceSearch(props.inventoryForm.ingredientQuery, {
+    enabled: shouldShowIngredientPicker,
+    fallbackIngredients: props.ingredients,
+  });
 
   const statusOptions = useMemo(() => {
     return Object.entries(INVENTORY_STATUS_LABELS).map(([key, label]) => ({
@@ -62,16 +68,6 @@ export function IngredientInventoryOverlay(props: IngredientInventoryOverlayProp
     }));
   }, []);
 
-  const visibleIngredientOptions = useMemo(() => {
-    const query = props.inventoryForm.ingredientQuery.trim().toLowerCase();
-    const matched = props.ingredients.filter((ingredient) => {
-      if (!query) return true;
-      return [ingredient.name, ingredient.category, ingredient.default_storage, ingredient.notes]
-        .filter(Boolean)
-        .some((value) => String(value).toLowerCase().includes(query));
-    });
-    return matched.slice(0, 8);
-  }, [props.ingredients, props.inventoryForm.ingredientQuery]);
   const inventoryQuantityUnitOptions = useMemo(() => {
     const currentUnit = props.inventoryForm.unit || props.selectedInventoryIngredient?.default_unit || '个';
     const units = props.selectedInventoryIngredient
@@ -144,35 +140,40 @@ export function IngredientInventoryOverlay(props: IngredientInventoryOverlayProp
               </section>
             )}
 
-          {!props.inventoryForm.ingredientLocked && !props.selectedInventoryIngredient && (
-            <div className="ingredients-restock-search-field ingredients-restock-picker-field">
+          {shouldShowIngredientPicker && (
+            <div className="ingredients-restock-search-field">
               <span>食材</span>
-              <ResourcePickerField
-                className="custom-combobox-container"
-                searchClassName="ingredients-restock-resource-search"
-                listClassName="custom-combobox-dropdown"
-                optionClassName={(option, selected) => selected ? 'custom-combobox-option selected' : 'custom-combobox-option'}
+              <SearchableResourceSelect
                 ariaLabel="选择食材"
                 placeholder="搜索或选择食材"
                 value={props.inventoryForm.ingredientId}
                 query={props.inventoryForm.ingredientQuery}
-                options={visibleIngredientOptions.map((ingredient) => ({
+                presentation="popover"
+                loading={ingredientSearch.isSearching}
+                loadingMore={ingredientSearch.isFetchingNextPage}
+                hasMore={ingredientSearch.hasMore}
+                loadMoreText="加载更多食材"
+                loadingMoreText="正在加载更多食材..."
+                options={ingredientSearch.ingredients.map((ingredient) => ({
                   id: ingredient.id,
                   label: ingredient.name,
                   description: `${ingredient.category || '食材'} · 默认 ${ingredient.default_unit || '个'}`,
-                  image: (
-                    <div className="custom-combobox-option-avatar">
-                      <MediaWithPlaceholder src={resolveMediaUrl(ingredient.image, 'thumb')} alt="" />
-                    </div>
-                  ),
+                  image: <MediaWithPlaceholder src={resolveMediaUrl(ingredient.image, 'thumb')} alt="" />,
                 }))}
-                emptyText="没有匹配的食材"
+                emptyText={ingredientSearch.isSearching ? '正在搜索...' : '没有匹配的食材'}
+                onSearchCompositionStart={ingredientSearch.onCompositionStart}
+                onSearchCompositionEnd={ingredientSearch.onCompositionEnd}
                 onQueryChange={(nextQuery) => {
-                  const ingredient = props.ingredients.find((item) => item.name === nextQuery) ?? null;
+                  const ingredient = ingredientSearch.findIngredientByName(nextQuery);
                   props.syncInventoryIngredient(ingredient, nextQuery);
                 }}
+                onLoadMore={() => {
+                  if (ingredientSearch.hasMore && !ingredientSearch.isFetchingNextPage) {
+                    void ingredientSearch.fetchNextPage();
+                  }
+                }}
                 onChange={(ingredientId) => {
-                  const ingredient = props.ingredients.find((item) => item.id === ingredientId) ?? null;
+                  const ingredient = ingredientSearch.findIngredientById(ingredientId);
                   props.syncInventoryIngredient(ingredient, ingredient?.name ?? '');
                 }}
               />

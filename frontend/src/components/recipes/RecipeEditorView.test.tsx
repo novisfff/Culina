@@ -37,6 +37,14 @@ const okra: Ingredient = {
   default_storage: '常温',
 };
 
+function buildIngredient(id: string, name: string): Ingredient {
+  return {
+    ...tomato,
+    id,
+    name,
+  };
+}
+
 function recipeForm(): RecipeFormState {
   return {
     title: '',
@@ -179,45 +187,89 @@ describe('RecipeEditorView ingredient picker', () => {
 
   it('searches ingredients through the API and selects the returned option', async () => {
     vi.useFakeTimers();
-    const getIngredients = vi.spyOn(api, 'getIngredients').mockResolvedValue([okra]);
+    const getIngredients = vi.spyOn(api, 'getIngredients').mockImplementation(async (params = {}) => (
+      params.q ? [okra] : [tomato]
+    ));
     const selectIngredientRow = vi.fn();
 
     await renderEditor({ selectIngredientRow });
-    const trigger = container?.querySelector<HTMLButtonElement>('.recipe-ingredient-picker-trigger');
-    expect(trigger).toBeTruthy();
+    const trigger = container?.querySelector('.recipe-ingredient-picker-trigger');
+    expect(trigger).toBeNull();
+
+    const select = container?.querySelector('.recipe-ingredient-picker .ui-searchable-resource-select');
+    expect(select).toBeTruthy();
 
     await act(async () => {
-      trigger?.click();
+      container?.querySelector<HTMLInputElement>('.recipe-ingredient-picker [role="searchbox"]')?.focus();
+    });
+    await waitForAssertion(() => {
+      expect(getIngredients).toHaveBeenCalledWith({ q: '', limit: 20, offset: 0 });
     });
 
-    const input = container?.querySelector<HTMLInputElement>('.recipe-ingredient-picker-search input');
+    expect(container?.querySelector('.recipe-ingredient-picker-search')).toBeNull();
+    expect(container?.querySelector('.recipe-ingredient-picker-panel')).toBeNull();
+    const input = container?.querySelector<HTMLInputElement>('.recipe-ingredient-picker [role="searchbox"]');
     expect(input).toBeTruthy();
 
     changeInput(input!, '西');
     changeInput(input!, '西红柿');
-    expect(getIngredients).not.toHaveBeenCalled();
+    expect(getIngredients).toHaveBeenCalledTimes(1);
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(299);
     });
-    expect(getIngredients).not.toHaveBeenCalled();
+    expect(getIngredients).toHaveBeenCalledTimes(1);
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(1);
     });
 
-    expect(getIngredients).toHaveBeenCalledWith({ q: '西红柿', limit: 20 });
-    expect(getIngredients).toHaveBeenCalledTimes(1);
+    expect(getIngredients).toHaveBeenCalledWith({ q: '西红柿', limit: 20, offset: 0 });
+    expect(getIngredients).toHaveBeenCalledTimes(2);
     await waitForAssertion(() => {
       expect(container?.textContent).toContain('秋葵');
     });
 
-    const option = Array.from(container?.querySelectorAll<HTMLButtonElement>('.recipe-ingredient-picker-option') ?? [])
+    const option = Array.from(container?.querySelectorAll<HTMLButtonElement>('[role="option"]') ?? [])
       .find((button) => button.textContent?.includes('秋葵'));
     await act(async () => {
       option?.click();
     });
 
     expect(selectIngredientRow).toHaveBeenCalledWith('row-1', okra);
+  });
+
+  it('loads the next ingredient page when the picker list reaches the bottom', async () => {
+    vi.useFakeTimers();
+    const firstPage = Array.from({ length: 20 }, (_, index) => buildIngredient(`ingredient-page-1-${index}`, `食材 ${index + 1}`));
+    const nextIngredient = buildIngredient('ingredient-next-page', '下一页食材');
+    const getIngredients = vi.spyOn(api, 'getIngredients').mockImplementation(async (params = {}) => (
+      params.offset === 20 ? [nextIngredient] : firstPage
+    ));
+
+    await renderEditor({ ingredients: [] });
+    await act(async () => {
+      container?.querySelector<HTMLInputElement>('.recipe-ingredient-picker [role="searchbox"]')?.focus();
+    });
+
+    await waitForAssertion(() => {
+      expect(container?.textContent).toContain('食材 20');
+    });
+
+    const list = container?.querySelector<HTMLDivElement>('.ui-searchable-resource-select-list');
+    expect(list).not.toBeNull();
+    Object.defineProperty(list, 'scrollHeight', { value: 200, configurable: true });
+    Object.defineProperty(list, 'clientHeight', { value: 100, configurable: true });
+    Object.defineProperty(list, 'scrollTop', { value: 96, configurable: true });
+
+    await act(async () => {
+      list?.dispatchEvent(new Event('scroll', { bubbles: true }));
+      await Promise.resolve();
+    });
+
+    await waitForAssertion(() => {
+      expect(getIngredients).toHaveBeenCalledWith({ q: '', limit: 20, offset: 20 });
+      expect(container?.textContent).toContain('下一页食材');
+    });
   });
 });

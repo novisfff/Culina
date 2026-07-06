@@ -1,7 +1,7 @@
 import type { FormEvent } from 'react';
 import type { MealType, RecipePlanItem } from '../../api/types';
 import { formatDate, MEAL_TYPE_LABELS } from '../../lib/ui';
-import { ActionButton, Badge, DropdownSelect, FormActions, WorkspaceModal } from '../ui-kit';
+import { ActionButton, Badge, DropdownSelect, FormActions, SearchableResourceSelect, WorkspaceModal } from '../ui-kit';
 import { DIFFICULTY_LABELS, type RecipeCardViewModel } from './workspaceModel';
 import { MEAL_TYPE_OPTIONS } from './RecipeWorkspaceOptions';
 import { RecipeCover, RecipeUiIcon } from './RecipeWorkspaceCards';
@@ -25,6 +25,9 @@ type RecipePlanDialogProps = {
   recipeOptions: RecipeCardViewModel[];
   recipeSearch: string;
   isRecipePickerOpen: boolean;
+  isRecipeSearchLoading?: boolean;
+  isRecipeSearchLoadingMore?: boolean;
+  hasMoreRecipeOptions?: boolean;
   weekRange: { start: string; end: string };
   isUpdatingPlan?: boolean;
   hasRecipes: boolean;
@@ -33,6 +36,7 @@ type RecipePlanDialogProps = {
   onChangeForm: (form: RecipePlanFormState) => void;
   onChangeRecipeSearch: (value: string) => void;
   onSetRecipePickerOpen: (open: boolean | ((current: boolean) => boolean)) => void;
+  onLoadMoreRecipeOptions: () => void;
   onSelectRecipe: (card: RecipeCardViewModel) => void;
 };
 
@@ -81,54 +85,40 @@ export function RecipePlanDialog(props: RecipePlanDialogProps) {
 
           <div className="recipe-plan-picker">
             <label htmlFor="recipe-plan-search">选择菜谱</label>
-            <div className="recipe-plan-combobox">
-              <RecipeUiIcon name="search" />
-              <input
-                id="recipe-plan-search"
-                className="recipe-plan-search-input"
-                value={props.isRecipePickerOpen || props.recipeSearch ? props.recipeSearch : props.card?.recipe.title ?? ''}
-                placeholder="搜索菜谱、食材或标签"
-                onFocus={() => {
-                  props.onChangeRecipeSearch('');
-                  props.onSetRecipePickerOpen(true);
-                }}
-                onChange={(event) => {
-                  props.onChangeRecipeSearch(event.target.value);
-                  props.onSetRecipePickerOpen(true);
-                }}
-              />
-              <button
-                type="button"
-                className="recipe-plan-picker-toggle"
-                aria-label="展开菜谱列表"
-                onClick={() => props.onSetRecipePickerOpen((current) => !current)}
-              >
-                <RecipeUiIcon name="chevronDown" className={props.isRecipePickerOpen ? 'is-open' : undefined} />
-              </button>
-            </div>
-            {props.isRecipePickerOpen && (
-              <div className="recipe-plan-option-panel">
-                {props.recipeOptions.length > 0 ? (
-                  props.recipeOptions.slice(0, 8).map((card) => (
-                    <button
-                      key={card.recipe.id}
-                      type="button"
-                      className={card.recipe.id === props.form.recipeId ? 'recipe-plan-option active' : 'recipe-plan-option'}
-                      onClick={() => props.onSelectRecipe(card)}
-                    >
-                      <RecipeCover card={card} className="recipe-plan-option-cover" />
-                      <span>
-                        <strong>{card.recipe.title}</strong>
-                        <small>{card.recipe.prep_minutes} 分钟 · {card.recipe.servings} 人份 · {card.ingredientPreview.slice(0, 3).join('、') || '暂无原料'}</small>
-                      </span>
-                      <Badge className={`recipe-plan-option-status tone-${card.availability}`}>{card.availabilityLabel}</Badge>
-                    </button>
-                  ))
-                ) : (
-                  <div className="recipe-plan-option-empty">没有找到匹配的菜谱</div>
-                )}
-              </div>
-            )}
+            <SearchableResourceSelect
+              searchInputId="recipe-plan-search"
+              ariaLabel="选择菜谱"
+              placeholder="搜索菜谱、食材或标签"
+              value={props.form.recipeId}
+              query={props.isRecipePickerOpen || props.recipeSearch ? props.recipeSearch : props.card?.recipe.title ?? ''}
+              presentation="popover"
+              listOpen={props.isRecipePickerOpen}
+              loading={Boolean(props.isRecipeSearchLoading)}
+              loadingMore={Boolean(props.isRecipeSearchLoadingMore)}
+              hasMore={Boolean(props.hasMoreRecipeOptions)}
+              loadMoreText="加载更多菜谱"
+              loadingMoreText="正在加载更多菜谱..."
+              options={props.recipeOptions.map((card) => ({
+                id: card.recipe.id,
+                label: card.recipe.title,
+                description: `${card.recipe.prep_minutes} 分钟 · ${card.recipe.servings} 人份 · ${card.ingredientPreview.slice(0, 3).join('、') || '暂无原料'} · ${card.availabilityLabel}`,
+                image: <RecipeCover card={card} />,
+              }))}
+              emptyText={props.isRecipeSearchLoading ? '正在搜索...' : '没有找到匹配的菜谱'}
+              onSearchFocus={() => {
+                props.onChangeRecipeSearch('');
+                props.onSetRecipePickerOpen(true);
+              }}
+              onQueryChange={(value) => {
+                props.onChangeRecipeSearch(value);
+                props.onSetRecipePickerOpen(true);
+              }}
+              onLoadMore={props.onLoadMoreRecipeOptions}
+              onChange={(recipeId) => {
+                const card = props.recipeOptions.find((item) => item.recipe.id === recipeId);
+                if (card) props.onSelectRecipe(card);
+              }}
+            />
           </div>
 
           <div className="recipe-plan-form-row">

@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import type { Ingredient, RecipeIngredient, ShoppingListItem } from '../../api/types';
 import type { RecipeCardViewModel } from './workspaceModel';
 import {
@@ -8,11 +8,9 @@ import {
   buildShoppingPayloadsFromDrafts,
   formatShoppingQuantity,
   resolveErrorMessage,
-  resolveIngredientImageUrl,
   type RecipeNotice,
   type RecipeShoppingCustomForm,
   type RecipeShoppingDraftItem,
-  type RecipeShoppingIngredientOption,
 } from './RecipeWorkspaceModel';
 
 type UseRecipeShoppingStateArgs = {
@@ -39,27 +37,6 @@ export function useRecipeShoppingState(args: UseRecipeShoppingStateArgs) {
     unit: '个',
   });
   const [isShoppingIngredientPickerOpen, setIsShoppingIngredientPickerOpen] = useState(false);
-
-  const shoppingIngredientOptions = useMemo<RecipeShoppingIngredientOption[]>(
-    () =>
-      args.ingredients.map((ingredient) => ({
-        id: ingredient.id,
-        name: ingredient.name,
-        unit: ingredient.default_unit || '个',
-        imageUrl: resolveIngredientImageUrl(ingredient, ingredient.name),
-        category: ingredient.category,
-        quantityMode: ingredient.quantity_tracking_mode ?? 'track_quantity',
-      })),
-    [args.ingredients]
-  );
-
-  const visibleShoppingIngredientOptions = useMemo(() => {
-    const keyword = shoppingCustomForm.title.trim().toLowerCase();
-    if (!keyword) return shoppingIngredientOptions.slice(0, 8);
-    return shoppingIngredientOptions
-      .filter((item) => `${item.name} ${item.category}`.toLowerCase().includes(keyword))
-      .slice(0, 8);
-  }, [shoppingCustomForm.title, shoppingIngredientOptions]);
 
   function openShoppingDialog(card: RecipeCardViewModel, closeCookDialog: () => void) {
     closeCookDialog();
@@ -127,12 +104,12 @@ export function useRecipeShoppingState(args: UseRecipeShoppingStateArgs) {
     setShoppingCustomForm({ ...shoppingCustomForm, quantity: formatShoppingQuantity(nextQuantity) });
   }
 
-  function selectShoppingIngredientOption(option: RecipeShoppingIngredientOption) {
+  function selectShoppingIngredientOption(ingredient: Ingredient) {
     setShoppingCustomForm((current) => ({
       ...current,
-      ingredientId: option.id,
-      title: option.name,
-      unit: option.unit,
+      ingredientId: ingredient.id,
+      title: ingredient.name,
+      unit: ingredient.default_unit || '个',
     }));
     setIsShoppingIngredientPickerOpen(false);
   }
@@ -159,8 +136,6 @@ export function useRecipeShoppingState(args: UseRecipeShoppingStateArgs) {
     setShoppingCustomForm,
     isShoppingIngredientPickerOpen,
     setIsShoppingIngredientPickerOpen,
-    shoppingIngredientOptions,
-    visibleShoppingIngredientOptions,
     openShoppingDialog,
     closeShoppingDialog,
     updateShoppingDraft,

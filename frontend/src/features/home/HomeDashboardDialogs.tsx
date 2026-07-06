@@ -17,8 +17,11 @@ import type {
   DisposableExpiredInventoryItemViewModel,
   IngredientSummaryViewModel,
 } from '../../components/ingredients/workspaceModel';
-import { Avatar, Badge, DropdownSelect, EmptyState, FormActions, OptionChipGroup, ResourcePickerField, WorkspaceModal } from '../../components/ui-kit';
+import { Avatar, Badge, DropdownSelect, EmptyState, FormActions, OptionChipGroup, SearchableResourceSelect, WorkspaceModal } from '../../components/ui-kit';
+import { resolveMediaUrl } from '../../lib/assets';
 import { addDateKeyDays } from '../../lib/date';
+import { useFoodResourceSearch } from '../../hooks/useFoodResourceSearch';
+import { useIngredientResourceSearch } from '../../hooks/useIngredientResourceSearch';
 import {
   FOOD_TYPE_LABELS,
   formatDate,
@@ -121,6 +124,14 @@ export function HomeDashboardDialogs(props: Props) {
   }, []);
 
   const [showIngredientSelector, setShowIngredientSelector] = useState(false);
+  const homeRestockIngredientSearch = useIngredientResourceSearch(homeRestockForm?.ingredientQuery ?? '', {
+    enabled: Boolean(homeRestockShoppingItem && homeRestockForm && showIngredientSelector),
+    fallbackIngredients: props.ingredients,
+  });
+  const homePlanFoodSearch = useFoodResourceSearch(props.homePlanAddFoodSearch, {
+    enabled: props.isHomePlanAddDialogOpen && !props.homePlanAddFood,
+    fallbackFoods: props.homePlanAddFoodOptions,
+  });
 
   useEffect(() => {
     setShowIngredientSelector(false);
@@ -130,7 +141,7 @@ export function HomeDashboardDialogs(props: Props) {
     if (!homeRestockForm) return;
     const normalizedQuery = query.trim();
     const match = normalizedQuery
-      ? props.ingredients.find((item) => item.name === normalizedQuery)
+      ? homeRestockIngredientSearch.findIngredientByName(normalizedQuery)
         ?? props.ingredients.find((item) => item.name.includes(normalizedQuery) || normalizedQuery.includes(item.name))
         ?? null
       : null;
@@ -256,19 +267,19 @@ export function HomeDashboardDialogs(props: Props) {
               ) : (
                 <div className="recipe-plan-picker">
                   <label htmlFor="home-food-plan-search">选择食物</label>
-                  <ResourcePickerField
-                    className="recipe-plan-resource-picker"
-                    searchClassName="recipe-plan-combobox"
+                  <SearchableResourceSelect
                     searchInputId="home-food-plan-search"
-                    searchInputClassName="recipe-plan-search-input"
-                    listClassName="recipe-plan-option-panel"
-                    optionClassName="recipe-plan-option"
-                    leadingIcon={<DashboardIcon name="list" />}
                     ariaLabel="选择食物"
                     placeholder="搜索食物、来源、场景或备注"
                     value=""
                     query={props.homePlanAddFoodSearch}
-                    options={props.homePlanAddFoodOptions.map((food) => {
+                    presentation="popover"
+                    loading={homePlanFoodSearch.isSearching}
+                    loadingMore={homePlanFoodSearch.isFetchingNextPage}
+                    hasMore={homePlanFoodSearch.hasMore}
+                    loadMoreText="加载更多食物"
+                    loadingMoreText="正在加载更多食物..."
+                    options={homePlanFoodSearch.foods.map((food) => {
                       const cover = getFoodCover(food, props.recipes);
                       return {
                         id: food.id,
@@ -280,17 +291,20 @@ export function HomeDashboardDialogs(props: Props) {
                         ]
                           .filter(Boolean)
                           .join(' · '),
-                        image: (
-                          <span className="recipe-plan-option-cover recipe-work-cover">
-                            <MediaWithPlaceholder src={props.resolveAssetUrl(cover)} alt="" />
-                          </span>
-                        ),
+                        image: <MediaWithPlaceholder src={props.resolveAssetUrl(cover)} alt="" />,
                       };
                     })}
-                    emptyText="没有找到匹配的食物"
+                    emptyText={homePlanFoodSearch.isSearching ? '正在搜索...' : '没有找到匹配的食物'}
+                    onSearchCompositionStart={homePlanFoodSearch.onCompositionStart}
+                    onSearchCompositionEnd={homePlanFoodSearch.onCompositionEnd}
                     onQueryChange={props.setHomePlanAddFoodSearch}
+                    onLoadMore={() => {
+                      if (homePlanFoodSearch.hasMore && !homePlanFoodSearch.isFetchingNextPage) {
+                        void homePlanFoodSearch.fetchNextPage();
+                      }
+                    }}
                     onChange={(foodId) => {
-                      const food = props.homePlanAddFoodOptions.find((item) => item.id === foodId);
+                      const food = homePlanFoodSearch.findFoodById(foodId);
                       if (food) props.selectHomePlanAddFood(food);
                     }}
                   />
@@ -620,34 +634,36 @@ export function HomeDashboardDialogs(props: Props) {
                   )}
 
                   {showIngredientSelector && (
-                    <div className="ingredients-restock-selector-panel">
-                      <ResourcePickerField
-                        className="ingredients-restock-resource-picker"
-                        searchClassName="ingredients-restock-search-wrapper"
-                        searchInputClassName="ingredients-restock-search-input"
-                        listClassName="ingredients-restock-suggestions"
-                        optionClassName={(option, selected) => selected ? 'ingredients-restock-resource-option active' : 'ingredients-restock-resource-option'}
-                        leadingIcon={<DashboardIcon name="list" />}
+                    <div className="ingredients-restock-search-field ingredients-restock-selector-panel">
+                      <span>食材</span>
+                      <SearchableResourceSelect
                         ariaLabel="选择食材"
                         placeholder="搜索现有食材..."
                         value={homeRestockForm.ingredientId}
                         query={homeRestockForm.ingredientQuery}
-                        options={props.ingredients
-                          .filter((item) =>
-                            homeRestockForm.ingredientQuery.trim()
-                              ? item.name.toLowerCase().includes(homeRestockForm.ingredientQuery.trim().toLowerCase())
-                              : true
-                          )
-                          .slice(0, 8)
+                        loading={homeRestockIngredientSearch.isSearching}
+                        loadingMore={homeRestockIngredientSearch.isFetchingNextPage}
+                        hasMore={homeRestockIngredientSearch.hasMore}
+                        loadMoreText="加载更多食材"
+                        loadingMoreText="正在加载更多食材..."
+                        options={homeRestockIngredientSearch.ingredients
                           .map((ingredient) => ({
                             id: ingredient.id,
                             label: ingredient.name,
                             description: `${ingredient.category || '食材'} · 默认 ${ingredient.default_unit || '个'}`,
+                            image: <MediaWithPlaceholder src={resolveMediaUrl(ingredient.image, 'thumb')} alt="" />,
                           }))}
-                        emptyText="没有找到匹配的食材"
+                        emptyText={homeRestockIngredientSearch.isSearching ? '正在搜索...' : '没有找到匹配的食材'}
+                        onSearchCompositionStart={homeRestockIngredientSearch.onCompositionStart}
+                        onSearchCompositionEnd={homeRestockIngredientSearch.onCompositionEnd}
                         onQueryChange={updateHomeRestockIngredientQuery}
+                        onLoadMore={() => {
+                          if (homeRestockIngredientSearch.hasMore && !homeRestockIngredientSearch.isFetchingNextPage) {
+                            void homeRestockIngredientSearch.fetchNextPage();
+                          }
+                        }}
                         onChange={(ingredientId) => {
-                          const ingredient = props.ingredients.find((item) => item.id === ingredientId);
+                          const ingredient = homeRestockIngredientSearch.findIngredientById(ingredientId);
                           if (ingredient) selectHomeRestockIngredient(ingredient);
                         }}
                       />

@@ -10,6 +10,7 @@ export const queryKeys = {
   shoppingList: ['shopping-list'] as const,
   recipes: ['recipes'] as const,
   recipeSearch: (query: string) => ['recipes', 'search', query.trim()] as const,
+  recipePickerSearch: (query: string) => ['recipes', 'picker-search', query.trim()] as const,
   recipeDiscovery: ['recipe-discovery'] as const,
   recipeStats: ['recipe-stats'] as const,
   recipeFavorites: ['recipe-favorites'] as const,
@@ -18,6 +19,7 @@ export const queryKeys = {
   foodScenes: ['food-scenes'] as const,
   foods: ['foods'] as const,
   foodSearch: (query: string) => ['foods', 'search', query.trim()] as const,
+  foodPickerSearch: (query: string) => ['foods', 'picker-search', query.trim()] as const,
   foodRecommendations: ['food-recommendations'] as const,
   searchRoot: ['search'] as const,
   search: (query: string, scopes: readonly string[] = [], limit = 20, offset = 0) =>

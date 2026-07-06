@@ -21,6 +21,7 @@ export type SearchFieldProps = {
   onCompositionStart?: (event: CompositionEvent<HTMLInputElement>) => void;
   onCompositionEnd?: (event: CompositionEvent<HTMLInputElement>) => void;
   onKeyDown?: (event: KeyboardEvent<HTMLInputElement>) => void;
+  onFocus?: () => void;
 };
 
 function SearchLoadingIndicator(props: { active: boolean; className?: string }) {
@@ -56,6 +57,7 @@ export function SearchField({
   onCompositionStart,
   onCompositionEnd,
   onKeyDown,
+  onFocus,
 }: SearchFieldProps) {
   return (
     <div className={['ui-search-field', className, disabled ? 'is-disabled' : ''].filter(Boolean).join(' ')}>
@@ -75,6 +77,7 @@ export function SearchField({
         onCompositionStart={onCompositionStart}
         onCompositionEnd={onCompositionEnd}
         onKeyDown={onKeyDown}
+        onFocus={onFocus}
       />
       <SearchLoadingIndicator active={loading} className={['ui-search-field-loading', loadingClassName].filter(Boolean).join(' ')} />
       {value ? (

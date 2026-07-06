@@ -4,6 +4,7 @@ export type DropdownSelectOption<T extends string> = {
   value: T;
   label: string;
   description?: string;
+  icon?: ReactNode;
 };
 
 export type DropdownSelectProps<T extends string> = {
@@ -13,7 +14,7 @@ export type DropdownSelectProps<T extends string> = {
   options: readonly DropdownSelectOption<T>[];
   onChange: (value: T | '') => void;
   labelPrefix?: string;
-  clearOption?: { value: ''; label: string; description?: string };
+  clearOption?: { value: ''; label: string; description?: string; icon?: ReactNode };
   disabled?: boolean;
   className?: string;
   triggerClassName?: string;
@@ -86,8 +87,8 @@ export function DropdownSelect<T extends string>({
         disabled={disabled}
         onClick={() => setIsOpen((current) => !current)}
       >
-        {leadingIcon}
-        <span>{triggerText}</span>
+        {leadingIcon ? <span className="ui-dropdown-select-leading-icon">{leadingIcon}</span> : null}
+        <span className="ui-dropdown-select-trigger-label">{triggerText}</span>
         <span className="ui-dropdown-select-chevron" aria-hidden="true" />
       </button>
       {isOpen && (
@@ -106,6 +107,7 @@ export function DropdownSelect<T extends string>({
                   setIsOpen(false);
                 }}
               >
+                {option.icon ? <span className="ui-dropdown-select-option-icon">{option.icon}</span> : null}
                 <span className="ui-dropdown-select-option-copy">
                   <strong>{option.label}</strong>
                   {option.description ? <small>{option.description}</small> : null}
