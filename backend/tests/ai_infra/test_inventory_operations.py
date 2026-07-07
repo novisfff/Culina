@@ -709,6 +709,55 @@ class AIInventoryOperationsTestCase(AIAgentInfraTestCase):
                 self.assertEqual(expired["items"][0]["suggestedAction"], "dispose")
                 self.assertEqual(expiring_with_expired["items"], [])
 
+        def test_inventory_summary_includes_ready_food_stock(self) -> None:
+            with self.SessionLocal() as db:
+                db.add(
+                    Food(
+                        id="food-ai-stock-yogurt",
+                        family_id=self.family.id,
+                        name="蓝莓酸奶",
+                        type="readyMade",
+                        category="饮品",
+                        flavor_tags=[],
+                        scene_tags=[],
+                        suitable_meal_types=["breakfast"],
+                        source_name="盒马",
+                        purchase_source="盒马",
+                        scene="",
+                        notes="",
+                        routine_note="",
+                        stock_quantity=Decimal("2"),
+                        stock_unit="盒",
+                        expiry_date=today_for_family(self.family.id),
+                        favorite=False,
+                        created_by=self.user.id,
+                        updated_by=self.user.id,
+                    )
+                )
+                db.commit()
+                executor = ToolExecutor(
+                    build_workspace_tool_registry(),
+                    ToolContext(
+                        db=db,
+                        family_id=self.family.id,
+                        user_id=self.user.id,
+                        conversation_id="conversation-food-stock-summary",
+                        run_id="run-food-stock-summary",
+                    ),
+                )
+
+                summary = executor.call("inventory.read_summary", {"days": 7})
+
+                food_items = [
+                    item
+                    for item in summary["items"]
+                    if item.get("sourceType") == "food" and item.get("foodId") == "food-ai-stock-yogurt"
+                ]
+                self.assertEqual(len(food_items), 1)
+                self.assertEqual(food_items[0]["name"], "蓝莓酸奶")
+                self.assertEqual(food_items[0]["quantity"], "2盒")
+                self.assertEqual(summary["card"]["data"]["foodStockCount"], 1)
+
         def test_inventory_operation_draft_normalizes_real_entities_and_rejects_cross_family_items(self) -> None:
             with self.SessionLocal() as db:
                 draft = normalize_inventory_operation_draft(

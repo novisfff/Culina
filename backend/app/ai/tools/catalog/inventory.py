@@ -26,18 +26,20 @@ from app.ai.tools.catalog.inventory_unit_conversion import (
 from app.core.utils import create_id
 from app.models.domain import InventoryItem
 from app.services.clock import today_for_family
+from app.services.inventory_overview import build_inventory_overview
 from app.services.inventory_usage import remaining_quantity, tracks_quantity
 
 
 INVENTORY_SUMMARY_OUTPUT = {
     "type": "object",
-    "required": ["queryFocus", "availableCount", "expiringCount", "lowStockCount", "items", "card"],
+    "required": ["queryFocus", "availableCount", "expiringCount", "lowStockCount", "foodStockCount", "items", "card"],
     "additionalProperties": False,
     "properties": {
         "queryFocus": {"type": "string", "enum": ["overview"]},
         "availableCount": {"type": "integer", "minimum": 0},
         "expiringCount": {"type": "integer", "minimum": 0},
         "lowStockCount": {"type": "integer", "minimum": 0},
+        "foodStockCount": {"type": "integer", "minimum": 0},
         "items": {"type": "array", "items": {"type": "object"}},
         "card": {
             "type": "object",
@@ -54,10 +56,13 @@ INVENTORY_SUMMARY_OUTPUT = {
 
 INVENTORY_ITEM_OUTPUT = {
     "type": "object",
-    "required": ["id", "ingredientId", "name", "quantity", "unit", "status", "displayStatus", "quantityTrackingMode"],
+    "required": ["id", "sourceType", "ingredientId", "foodId", "inventoryItemId", "name", "quantity", "unit", "status", "displayStatus", "quantityTrackingMode"],
     "properties": {
         "id": {"type": "string"},
-        "ingredientId": {"type": "string"},
+        "sourceType": {"type": "string", "enum": ["ingredient", "food"]},
+        "foodId": {"type": ["string", "null"]},
+        "ingredientId": {"type": ["string", "null"]},
+        "inventoryItemId": {"type": ["string", "null"]},
         "name": {"type": "string"},
         "image": {"type": ["object", "null"]},
         "quantity": {"type": "string"},
@@ -133,7 +138,10 @@ def inventory_record(
     display_status = "expired" if days_until_expiry is not None and days_until_expiry < 0 else "expiring" if days_until_expiry is not None and days_until_expiry <= 7 else "low_stock" if is_low_stock else "available"
     record = {
         "id": item.id,
+        "sourceType": "ingredient",
+        "foodId": None,
         "ingredientId": item.ingredient_id,
+        "inventoryItemId": item.id,
         "name": item.ingredient.name if item.ingredient else item.ingredient_id,
         "image": first_entity_media(media_map or {}, "ingredient", item.ingredient_id),
         "quantity": decimal_text(remaining) if is_tracked else "已有",
@@ -150,6 +158,29 @@ def inventory_record(
     if suggested_action:
         record["suggestedAction"] = suggested_action
     return record
+
+
+def overview_inventory_record(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": row["id"],
+        "sourceType": row["source_type"],
+        "foodId": row["source_id"] if row["source_type"] == "food" else None,
+        "ingredientId": row["source_id"] if row["source_type"] == "ingredient" else None,
+        "inventoryItemId": row.get("inventory_item_id"),
+        "name": row["title"],
+        "image": row.get("image"),
+        "quantity": row["quantity_label"],
+        "unit": row["unit"],
+        "quantityTrackingMode": row["quantity_tracking_mode"],
+        "status": row.get("status") or "food_stock",
+        "displayStatus": "expired" if row["tone"] == "danger" else "expiring" if row["tone"] == "warning" else "available",
+        "expiryDate": row["expiry_date"].isoformat() if hasattr(row.get("expiry_date"), "isoformat") else row.get("expiry_date"),
+        "daysUntilExpiry": row.get("days_until_expiry"),
+        "lowStockThreshold": None,
+        "purchaseDate": "",
+        "storageLocation": row["storage_location"],
+        "suggestedAction": row["primary_action"],
+    }
 
 
 def read_inventory(context: ToolContext, *, limit: int = 80) -> list[InventoryItem]:
@@ -297,45 +328,33 @@ def inventory_read_low_stock_items(context: ToolContext, payload: dict[str, Any]
 def inventory_read_summary(context: ToolContext, payload: dict[str, Any]) -> dict[str, Any]:
     today = today_for_family(context.family_id)
     days = int(payload.get("days") or 7)
-    remaining = _remaining_expression()
-    items = list(
-        context.db.scalars(
-            select(InventoryItem)
-            .options(selectinload(InventoryItem.ingredient))
-            .where(InventoryItem.family_id == context.family_id, remaining > 0)
-            .order_by(
-                InventoryItem.expiry_date.is_(None),
-                InventoryItem.expiry_date.asc(),
-                InventoryItem.purchase_date.asc(),
-                InventoryItem.id.asc(),
-            )
-        )
-    )
-    expiring = [
-        item
-        for item in items
-        if item.expiry_date is not None and today <= item.expiry_date <= today + timedelta(days=days)
-    ]
-    low_stock = [
-        item
-        for item in items
-        if item.low_stock_threshold is not None
-        and item.low_stock_threshold > 0
-        and remaining_quantity(item) <= item.low_stock_threshold
-    ]
-    selected_items = expiring[:6] or low_stock[:6] or items[:6]
-    media_map = entity_media_map(
+    overview = build_inventory_overview(
         context.db,
         family_id=context.family_id,
-        entity_types={"ingredient"},
-        entity_ids=[item.ingredient_id for item in selected_items],
+        scope="all",
+        query="",
+        today=today,
     )
+    rows = overview["items"]
+    expiring = [
+        row
+        for row in rows
+        if row.get("days_until_expiry") is not None and 0 <= row["days_until_expiry"] <= days
+    ]
+    low_stock = [
+        row
+        for row in rows
+        if row["source_type"] == "ingredient" and row["tone"] == "warning" and row.get("days_until_expiry") is None
+    ]
+    selected_rows = expiring[:6] or low_stock[:6] or rows[:6]
+    records = [overview_inventory_record(row) for row in selected_rows]
     data = {
         "queryFocus": "overview",
-        "availableCount": len(items),
+        "availableCount": overview["summary"]["total_count"],
         "expiringCount": len(expiring),
         "lowStockCount": len(low_stock),
-        "items": [inventory_record(item, media_map, today=today) for item in selected_items],
+        "foodStockCount": overview["summary"]["food_count"],
+        "items": records,
     }
     return {
         **data,
