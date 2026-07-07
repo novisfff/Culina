@@ -45,7 +45,7 @@ export function invalidateAfterIngredientChanged(queryClient: QueryClient) {
 }
 
 export function invalidateAfterInventoryChanged(queryClient: QueryClient) {
-  invalidateMany(queryClient, [queryKeys.inventory, queryKeys.foodRecommendations, queryKeys.activityLogs]);
+  invalidateMany(queryClient, [queryKeys.inventory, queryKeys.inventoryOverview(), queryKeys.foodRecommendations, queryKeys.activityLogs]);
 }
 
 export function invalidateAfterShoppingChanged(queryClient: QueryClient) {
@@ -102,7 +102,7 @@ export function invalidateAfterFoodSceneChanged(queryClient: QueryClient) {
 }
 
 export function invalidateAfterFoodChanged(queryClient: QueryClient) {
-  invalidateMany(queryClient, [queryKeys.foods, queryKeys.foodRecommendations, queryKeys.activityLogs]);
+  invalidateMany(queryClient, [queryKeys.foods, queryKeys.inventoryOverview(), queryKeys.foodRecommendations, queryKeys.activityLogs]);
 }
 
 export function invalidateAfterMealLogChanged(queryClient: QueryClient) {
@@ -110,7 +110,14 @@ export function invalidateAfterMealLogChanged(queryClient: QueryClient) {
 }
 
 export function invalidateAfterQuickMealAdded(queryClient: QueryClient) {
-  invalidateMany(queryClient, [queryKeys.mealLogs, queryKeys.foodPlanRoot, queryKeys.foodRecommendations, queryKeys.activityLogs]);
+  invalidateMany(queryClient, [
+    queryKeys.mealLogs,
+    queryKeys.foodPlanRoot,
+    queryKeys.foods,
+    queryKeys.inventoryOverview(),
+    queryKeys.foodRecommendations,
+    queryKeys.activityLogs,
+  ]);
 }
 
 export function invalidateAfterAiApprovalSettled(queryClient: QueryClient, conversationId: string) {
