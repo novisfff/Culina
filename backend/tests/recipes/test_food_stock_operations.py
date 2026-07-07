@@ -5,7 +5,8 @@ from decimal import Decimal
 
 from sqlalchemy import select
 
-from app.models.domain import ActivityLog, Food
+from app.models.domain import ActivityLog, Food, MealLogFood
+from app.api.meal_logs import _select_food_for_quick_add
 
 from ._support import RecipeApiTestCase
 
@@ -130,3 +131,63 @@ class RecipeFoodStockOperationsTestCase(RecipeApiTestCase):
             refreshed = db.get(Food, "food-stock-quick")
             assert refreshed is not None
             self.assertEqual(refreshed.stock_quantity, Decimal("1.00"))
+
+    def test_quick_add_plan_replay_does_not_double_deduct_stock(self) -> None:
+        food = self._ready_food(id="food-stock-replay", stock_quantity=Decimal("3"))
+        with self.SessionLocal() as db:
+            db.add(food)
+            db.commit()
+
+        plan_response = self.client.post(
+            "/api/food-plan",
+            json={"food_id": food.id, "plan_date": "2026-07-07", "meal_type": "breakfast", "note": "库存回放"},
+        )
+        self.assertEqual(plan_response.status_code, 201, plan_response.text)
+        plan = plan_response.json()
+
+        payload = {
+            "food_id": food.id,
+            "date": "2026-07-07",
+            "meal_type": "breakfast",
+            "servings": 1,
+            "note": "完成计划",
+            "food_plan_item_id": plan["id"],
+            "deduct_food_stock": True,
+            "stock_quantity": 1,
+        }
+
+        first_response = self.client.post("/api/meal-logs/quick-add", json=payload)
+        self.assertEqual(first_response.status_code, 201, first_response.text)
+
+        second_response = self.client.post("/api/meal-logs/quick-add", json=payload)
+        self.assertEqual(second_response.status_code, 201, second_response.text)
+        self.assertEqual(second_response.json()["id"], first_response.json()["id"])
+
+        with self.SessionLocal() as db:
+            refreshed = db.get(Food, food.id)
+            assert refreshed is not None
+            self.assertEqual(refreshed.stock_quantity, Decimal("2.00"))
+            meal_entries = list(db.scalars(select(MealLogFood).where(MealLogFood.food_id == food.id)))
+            self.assertEqual(len(meal_entries), 1)
+
+        with self.SessionLocal() as db:
+            entries = list(
+                db.scalars(
+                    select(ActivityLog).where(
+                        ActivityLog.entity_type == "Food",
+                        ActivityLog.entity_id == food.id,
+                    )
+                )
+            )
+        self.assertEqual(len(entries), 1)
+
+    def test_quick_add_food_stock_query_uses_row_lock(self) -> None:
+        statement = _select_food_for_quick_add(food_id="food-stock-lock", family_id="family-test", deduct_food_stock=True)
+        self.assertIsNotNone(statement._for_update_arg)
+
+        unlocked_statement = _select_food_for_quick_add(
+            food_id="food-stock-lock",
+            family_id="family-test",
+            deduct_food_stock=False,
+        )
+        self.assertIsNone(unlocked_statement._for_update_arg)

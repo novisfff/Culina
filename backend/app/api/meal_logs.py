@@ -32,6 +32,13 @@ MEAL_TYPE_LABELS = {
 }
 
 
+def _select_food_for_quick_add(*, food_id: str, family_id: str, deduct_food_stock: bool):
+    statement = select(Food).where(Food.id == food_id, Food.family_id == family_id)
+    if deduct_food_stock:
+        statement = statement.with_for_update()
+    return statement
+
+
 def _build_deduction_suggestions(db: Session, food_entries: list[MealLogFood]) -> list[InventoryDeductionSuggestion]:
     suggestions: list[InventoryDeductionSuggestion] = []
     food_ids = [entry.food_id for entry in food_entries]
@@ -221,7 +228,13 @@ def quick_add_meal_log(
     db: Session = Depends(get_db),
 ) -> dict:
     user, membership = auth
-    food = db.scalar(select(Food).where(Food.id == payload.food_id, Food.family_id == membership.family_id))
+    food = db.scalar(
+        _select_food_for_quick_add(
+            food_id=payload.food_id,
+            family_id=membership.family_id,
+            deduct_food_stock=payload.deduct_food_stock,
+        )
+    )
     if food is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Food not found")
 
@@ -285,7 +298,8 @@ def quick_add_meal_log(
     entry = None
     if plan_item is not None:
         entry = next((item for item in meal_log.food_entries if item.food_id == food.id and item.note == payload.note), None)
-    if entry is None:
+    entry_created = entry is None
+    if entry_created:
         entry = MealLogFood(
             id=create_id("meal-food"),
             meal_log_id=meal_log.id,
@@ -314,7 +328,7 @@ def quick_add_meal_log(
             target_name=food.name,
         )
 
-    if payload.deduct_food_stock:
+    if payload.deduct_food_stock and entry_created:
         try:
             apply_food_stock_consume(
                 db,
