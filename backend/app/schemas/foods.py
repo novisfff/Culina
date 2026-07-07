@@ -39,6 +39,19 @@ class FoodOut(BaseModel):
     updated_by: str | None = None
 
 
+class FoodStockChangeRequest(BaseModel):
+    quantity: float = Field(gt=0)
+    unit: str | None = Field(default=None, max_length=32)
+    expiry_date: date_type | None = None
+    purchase_source: str | None = Field(default=None, max_length=120)
+    note: str = Field(default="", max_length=255)
+    reason: str = Field(default="", max_length=255)
+
+
+class FoodStockChangeOut(FoodOut):
+    pass
+
+
 class FoodRecommendationRecipeAvailabilityOut(BaseModel):
     recipe_id: str
     availability: Literal["ready", "partial", "missing"]

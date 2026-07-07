@@ -17,6 +17,7 @@ from app.repos.media import build_media_map, get_media_assets_for_entities
 from app.schemas.meal_logs import CreateMealLogRequest, MealLogOut, QuickAddMealLogRequest, UpdateMealLogRequest
 from app.services.activity import log_activity
 from app.services.clock import today_for_family
+from app.services.food_stock import apply_food_stock_consume
 from app.services.media import bind_media_assets, replace_media_assets
 from app.services.search.jobs import enqueue_search_index_job
 from app.services.serializers import serialize_meal_log
@@ -312,6 +313,20 @@ def quick_add_meal_log(
             entity_id=plan_item.id,
             target_name=food.name,
         )
+
+    if payload.deduct_food_stock:
+        try:
+            apply_food_stock_consume(
+                db,
+                family_id=membership.family_id,
+                user_id=user.id,
+                food=food,
+                quantity=Decimal(str(payload.stock_quantity or payload.servings)),
+                unit=payload.stock_unit or food.stock_unit or "份",
+                note="随餐食记录扣减",
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
     log_activity(
         db,
