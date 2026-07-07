@@ -5,7 +5,7 @@ import { FOOD_TYPE_LABELS, getFoodCoverAsset } from '../../lib/ui';
 import { MediaWithPlaceholder } from '../MediaPlaceholder';
 import { FormActions, WorkspaceModal, WorkspaceOverlayFrame } from '../ui-kit';
 import { MEAL_OPTIONS } from './FoodWorkspaceOptions';
-import { getPrimaryFoodActionLabel, normalizeFoodType } from './FoodWorkspaceHelpers';
+import { getPrimaryFoodActionLabel, isReadyLikeFood, normalizeFoodType } from './FoodWorkspaceHelpers';
 
 export type FoodQuickMealDialogState = {
   action: 'cook' | 'eat';
@@ -13,6 +13,8 @@ export type FoodQuickMealDialogState = {
   food: Food;
   mealType: MealType;
   recipeId?: string;
+  deductStock?: boolean;
+  stockQuantity?: string;
 };
 
 type FoodQuickMealDialogProps = {
@@ -21,7 +23,7 @@ type FoodQuickMealDialogProps = {
   isSubmitting?: boolean;
   recipes: Recipe[];
   overlayRootClassName?: string;
-  onChange: (patch: Partial<Pick<FoodQuickMealDialogState, 'date' | 'mealType'>>) => void;
+  onChange: (patch: Partial<Pick<FoodQuickMealDialogState, 'date' | 'mealType' | 'deductStock' | 'stockQuantity'>>) => void;
   onClose: () => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
 };
@@ -131,6 +133,38 @@ export function FoodQuickMealDialog(props: FoodQuickMealDialogProps) {
               ))}
             </div>
           </div>
+
+          {!isCookAction && isReadyLikeFood(props.dialog.food) && props.dialog.food.stock_quantity != null && props.dialog.food.stock_quantity > 0 && (
+            <div className="food-quick-meal-stock-box">
+              <label className="food-quick-meal-stock-toggle">
+                <input
+                  type="checkbox"
+                  checked={props.dialog.deductStock ?? true}
+                  disabled={isSubmitting}
+                  onChange={(event) => props.onChange({ deductStock: event.target.checked })}
+                />
+                <span>
+                  <strong>同步扣减库存</strong>
+                  <small>当前剩余 {props.dialog.food.stock_quantity}{props.dialog.food.stock_unit || '份'}</small>
+                </span>
+              </label>
+              {(props.dialog.deductStock ?? true) && (
+                <label className="food-quick-meal-stock-quantity">
+                  <span>扣减数量</span>
+                  <input
+                    className="text-input"
+                    type="number"
+                    min="0.1"
+                    step="0.5"
+                    value={props.dialog.stockQuantity ?? '1'}
+                    disabled={isSubmitting}
+                    onChange={(event) => props.onChange({ stockQuantity: event.target.value })}
+                  />
+                  <em>{props.dialog.food.stock_unit || '份'}</em>
+                </label>
+              )}
+            </div>
+          )}
         </form>
       </WorkspaceModal>
     </WorkspaceOverlayFrame>

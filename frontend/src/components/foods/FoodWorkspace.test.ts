@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import type { Food, Ingredient, InventoryItem, MealLog, MediaAsset, Recipe } from '../../api/types';
 import { todayKey } from '../../lib/ui';
@@ -170,6 +171,17 @@ function makeMealLog(food: Food, date: string, mealType: MealLog['meal_type'] = 
 }
 
 describe('food workspace helpers', () => {
+  it('quick meal dialog exposes ready food stock deduction controls', () => {
+    const dialogSource = readFileSync('src/components/foods/FoodQuickMealDialog.tsx', 'utf8');
+    expect(dialogSource).toContain('同步扣减库存');
+    expect(dialogSource).toContain('stockQuantity');
+    expect(dialogSource).toContain('deductStock');
+
+    const workspaceSource = readFileSync('src/components/foods/FoodWorkspace.tsx', 'utf8');
+    expect(workspaceSource).toContain('deduct_food_stock');
+    expect(workspaceSource).toContain('stock_quantity');
+  });
+
   it('builds practical food payload fields for non-recipe foods', () => {
     expect(buildFoodPayloadFromForm(form, [recipe], ['media-1'])).toMatchObject({
       name: '冷冻牛肉饭',

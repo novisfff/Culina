@@ -258,6 +258,55 @@
   white-space: nowrap;
 }
 
+.food-quick-meal-stock-box {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid rgba(92, 67, 48, 0.12);
+  border-radius: 18px;
+  background: #fffaf1;
+}
+
+.food-quick-meal-stock-toggle {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  color: var(--text);
+}
+
+.food-quick-meal-stock-toggle input {
+  width: 18px;
+  height: 18px;
+}
+
+.food-quick-meal-stock-toggle span {
+  display: grid;
+  gap: 2px;
+}
+
+.food-quick-meal-stock-toggle small {
+  color: var(--text-soft);
+  font-size: 0.8125rem;
+}
+
+.food-quick-meal-stock-quantity {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 120px auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.food-quick-meal-stock-quantity span {
+  color: var(--text-soft);
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+.food-quick-meal-stock-quantity em {
+  color: var(--text-soft);
+  font-style: normal;
+}
+
 .food-recommendation-body p {
   color: #7c7067;
   font-size: 0.78rem;
@@ -4150,4 +4199,10 @@
 .food-sidebar-scene-thumb .media-placeholder-glow,
 .food-sidebar-scene-thumb .media-placeholder-spark {
   display: none !important;
+}
+
+@media (max-width: 767px) {
+  .food-quick-meal-stock-quantity {
+    grid-template-columns: 1fr;
+  }
 }

@@ -140,4 +140,34 @@ describe('FoodQuickMealDialog', () => {
     expect(onChange).not.toHaveBeenCalled();
     expect(onClose).not.toHaveBeenCalled();
   });
+
+  it('shows stock deduction controls for eat actions with stock', () => {
+    const { onChange, view } = renderDialog({
+      dialog: {
+        food: {
+          ...buildFood(),
+          type: 'instant',
+          stock_quantity: 3,
+          stock_unit: '盒',
+        },
+        deductStock: true,
+        stockQuantity: '1.5',
+      },
+    });
+
+    expect(view.textContent).toContain('同步扣减库存');
+    expect(view.textContent).toContain('当前剩余 3盒');
+    expect(view.textContent).toContain('扣减数量');
+
+    const checkbox = view.querySelector<HTMLInputElement>('.food-quick-meal-stock-toggle input');
+    const quantityInput = view.querySelector<HTMLInputElement>('.food-quick-meal-stock-quantity input');
+
+    expect(checkbox?.checked).toBe(true);
+    expect(quantityInput?.value).toBe('1.5');
+
+    act(() => {
+      checkbox?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+    expect(onChange).toHaveBeenCalledWith({ deductStock: false });
+  });
 });

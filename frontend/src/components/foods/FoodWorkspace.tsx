@@ -15,6 +15,7 @@ import type {
   MealLog,
   MealType,
   MediaAsset,
+  QuickAddMealLogPayload,
   Recipe,
   RecipePayload,
 } from '../../api/types';
@@ -172,7 +173,7 @@ type Props = {
   updateFoodFavorite: (foodId: string, favorite: boolean) => Promise<Food>;
   createRecipe: (payload: RecipePayload) => Promise<Recipe>;
   updateRecipe: (recipeId: string, payload: RecipePayload) => Promise<Recipe>;
-  quickAddMeal: (payload: { food_id: string; date: string; meal_type: MealType; servings: number; note: string; food_plan_item_id?: string }) => Promise<MealLog>;
+  quickAddMeal: (payload: QuickAddMealLogPayload) => Promise<MealLog>;
   createFoodPlanItem: (payload: { food_id: string; plan_date: string; meal_type: MealType; note: string }) => Promise<FoodPlanItem>;
   updateFoodPlanItem: (itemId: string, payload: { food_id?: string; plan_date?: string; meal_type?: MealType; note?: string; status?: 'planned' | 'cooked' | 'skipped' }) => Promise<FoodPlanItem>;
   deleteFoodPlanItem: (itemId: string) => Promise<void>;
@@ -556,7 +557,6 @@ export function FoodWorkspace(props: Props) {
     removeSceneTag,
     addSceneTag,
     createAndAddSceneTag,
-    quickAdd,
     clearFoodFilters,
     openGovernanceIssue,
   } = useFoodWorkspaceState({
@@ -1076,16 +1076,41 @@ export function FoodWorkspace(props: Props) {
   }
 
   function openQuickMealDialog(food: Food, mealType: MealType, action: FoodQuickMealDialogState['action']) {
+    const shouldDeductStock =
+      action === 'eat' &&
+      isReadyLikeFood(food) &&
+      food.stock_quantity !== null &&
+      food.stock_quantity !== undefined &&
+      food.stock_quantity > 0;
     setQuickMealDialog({
       action,
       date: todayKey(),
       food,
       mealType,
       recipeId: action === 'cook' ? food.recipe_id ?? undefined : undefined,
+      deductStock: shouldDeductStock,
+      stockQuantity: shouldDeductStock ? '1' : '',
     });
   }
 
-  function updateQuickMealDialog(patch: Partial<Pick<FoodQuickMealDialogState, 'date' | 'mealType'>>) {
+  async function quickAdd(
+    food: Food,
+    mealType: MealType,
+    date: string,
+    stockPatch: Pick<QuickAddMealLogPayload, 'deduct_food_stock' | 'stock_quantity' | 'stock_unit'> = {}
+  ) {
+    await props.quickAddMeal({
+      food_id: food.id,
+      date,
+      meal_type: mealType,
+      servings: 1,
+      note: '',
+      ...stockPatch,
+    });
+    setFeedback(`${food.name} 已记录到${date === todayKey() ? '今天' : formatDate(date)}${MEAL_TYPE_LABELS[mealType]}`);
+  }
+
+  function updateQuickMealDialog(patch: Partial<Pick<FoodQuickMealDialogState, 'date' | 'mealType' | 'deductStock' | 'stockQuantity'>>) {
     setQuickMealDialog((current) => (current ? { ...current, ...patch } : current));
   }
 
@@ -1105,7 +1130,12 @@ export function FoodWorkspace(props: Props) {
       props.onStartRecipe(current.recipeId, planItem.id);
       return;
     }
-    await quickAdd(current.food, current.mealType, current.date);
+    const stockQuantity = Number(current.stockQuantity || 1);
+    await quickAdd(current.food, current.mealType, current.date, {
+      deduct_food_stock: Boolean(current.deductStock),
+      stock_quantity: current.deductStock && Number.isFinite(stockQuantity) ? stockQuantity : null,
+      stock_unit: current.food.stock_unit || '份',
+    });
     setQuickMealDialog(null);
   }
 
