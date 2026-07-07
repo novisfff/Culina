@@ -1,5 +1,5 @@
 import type { ComponentProps } from 'react';
-import { WorkspaceDrawer } from '../ui-kit';
+import { WorkspaceDrawer, WorkspaceOverlayFrame } from '../ui-kit';
 import { RecipeDetailView } from './RecipeDetailView';
 
 type RecipeDetailDrawerProps = Omit<ComponentProps<typeof RecipeDetailView>, 'backLabel' | 'compactHeader' | 'onBack' | 'showHeroTitle'> & {
@@ -10,8 +10,7 @@ export function RecipeDetailDrawer({ onClose, ...props }: RecipeDetailDrawerProp
   const metaLine = `${props.selectedCard.recipe.prep_minutes} 分钟 · ${props.selectedCard.recipe.servings} 人份 · ${props.selectedCard.availabilityLabel}`;
 
   return (
-    <div className="workspace-overlay-root recipe-workspace-overlay-root">
-      <div className="workspace-overlay-backdrop" onClick={onClose} />
+    <WorkspaceOverlayFrame rootClassName="recipe-workspace-overlay-root" onClose={onClose}>
       <WorkspaceDrawer
         eyebrow="菜谱资料"
         title={props.selectedCard.recipe.title}
@@ -28,6 +27,6 @@ export function RecipeDetailDrawer({ onClose, ...props }: RecipeDetailDrawerProp
           onBack={onClose}
         />
       </WorkspaceDrawer>
-    </div>
+    </WorkspaceOverlayFrame>
   );
 }

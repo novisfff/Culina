@@ -1,11 +1,12 @@
-import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
+import { useMemo, type FormEvent } from 'react';
 import type { Ingredient, IngredientUnitConversion } from '../../api/types';
 import { MediaWithPlaceholder } from '../MediaPlaceholder';
-import { ActionButton, Badge, TouchStepperField, WorkspaceModal } from '../ui-kit';
+import { Badge, FormActions, QuantityUnitField, SearchableResourceSelect, WorkspaceModal } from '../ui-kit';
 import { resolvePreferredIngredientUnit } from '../../lib/ingredientUnits';
 import { tracksIngredientQuantity } from '../../lib/ingredientTracking';
 import { resolveMediaUrl } from '../../lib/assets';
-import { buildUnitPresetOptions, formatNumericString, type ShoppingDialogFormState } from './ingredientWorkspaceForms';
+import { useIngredientResourceSearch } from '../../hooks/useIngredientResourceSearch';
+import { buildUnitPresetOptions, type ShoppingDialogFormState } from './ingredientWorkspaceForms';
 
 type IngredientShoppingOverlayProps = {
   closeOverlay: () => void;
@@ -23,153 +24,23 @@ type IngredientShoppingOverlayProps = {
   isCreatingShopping?: boolean;
 };
 
-type CustomSelectOption = {
-  value: string;
-  label: string;
-};
-
-function CustomSelect(props: {
-  placeholder: string;
-  value: string;
-  options: CustomSelectOption[];
-  onChange: (value: string) => void;
-}) {
-  const [isOpen, setIsOpen] = useState(false);
-  const containerRef = useRef<HTMLDivElement | null>(null);
-
-  const selectedOption = props.options.find((opt) => opt.value === props.value);
-  const triggerLabel = selectedOption ? selectedOption.label : props.placeholder;
-
-  useEffect(() => {
-    if (!isOpen) return;
-
-    function handlePointerDown(event: PointerEvent) {
-      if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
-        setIsOpen(false);
-      }
-    }
-
-    function handleKeyDown(event: KeyboardEvent) {
-      if (event.key === 'Escape') {
-        setIsOpen(false);
-      }
-    }
-
-    document.addEventListener('pointerdown', handlePointerDown);
-    document.addEventListener('keydown', handleKeyDown);
-    return () => {
-      document.removeEventListener('pointerdown', handlePointerDown);
-      document.removeEventListener('keydown', handleKeyDown);
-    };
-  }, [isOpen]);
-
-  return (
-    <div className="custom-select-container" ref={containerRef} aria-expanded={isOpen}>
-      <button
-        type="button"
-        className="custom-select-trigger"
-        onClick={() => setIsOpen((prev) => !prev)}
-      >
-        <span>{triggerLabel}</span>
-        <span className="custom-select-arrow" />
-      </button>
-      {isOpen && (
-        <div className="custom-select-dropdown">
-          {props.options.map((option) => (
-            <button
-              key={option.value}
-              type="button"
-              className={`custom-select-option ${props.value === option.value ? 'selected' : ''}`}
-              onClick={() => {
-                props.onChange(option.value);
-                setIsOpen(false);
-              }}
-            >
-              {option.label}
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function CustomAutocomplete(props: {
-  ingredients: Ingredient[];
-  value: string;
-  onChange: (value: string, matchedIngredient: Ingredient | null) => void;
-}) {
-  const [isOpen, setIsOpen] = useState(false);
-  const containerRef = useRef<HTMLDivElement | null>(null);
-
-  const query = props.value.trim().toLowerCase();
-  const matched = useMemo(() => {
-    if (!query) return props.ingredients.slice(0, 10);
-    return props.ingredients
-      .filter((item) => item.name.toLowerCase().includes(query))
-      .slice(0, 10);
-  }, [props.ingredients, query]);
-
-  useEffect(() => {
-    if (!isOpen) return;
-
-    function handlePointerDown(event: PointerEvent) {
-      if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
-        setIsOpen(false);
-      }
-    }
-
-    document.addEventListener('pointerdown', handlePointerDown);
-    return () => document.removeEventListener('pointerdown', handlePointerDown);
-  }, [isOpen]);
-
-  return (
-    <div className="custom-combobox-container" ref={containerRef}>
-      <input
-        className="text-input"
-        placeholder="输入名称或直接选食材"
-        value={props.value}
-        onFocus={() => setIsOpen(true)}
-        onChange={(event) => {
-          const nextVal = event.target.value;
-          const matchedItem = props.ingredients.find((item) => item.name === nextVal) ?? null;
-          props.onChange(nextVal, matchedItem);
-        }}
-      />
-      <span className="custom-combobox-arrow" />
-      {isOpen && matched.length > 0 && (
-        <div className="custom-combobox-dropdown">
-          {matched.map((item) => (
-            <button
-              key={item.id}
-              type="button"
-              className={`custom-combobox-option ${props.value === item.name ? 'selected' : ''}`}
-              onClick={() => {
-                props.onChange(item.name, item);
-                setIsOpen(false);
-              }}
-            >
-              <div className="custom-combobox-option-avatar">
-                <MediaWithPlaceholder
-                  src={resolveMediaUrl(item.image, 'thumb')}
-                  alt={item.name}
-                />
-              </div>
-              <span>{item.name}</span>
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
 export function IngredientShoppingOverlay(props: IngredientShoppingOverlayProps) {
+  const shoppingFormId = 'ingredient-shopping-overlay-form';
   const shoppingUnitOptions = buildUnitPresetOptions(props.shoppingForm.unit || '个');
   const tracksQuantity = tracksIngredientQuantity(props.selectedShoppingIngredient);
-  const unitOptions = useMemo(() => {
-    return shoppingUnitOptions.map((unit) => ({ value: unit, label: unit }));
-  }, [shoppingUnitOptions]);
+  const ingredientSearch = useIngredientResourceSearch(props.shoppingForm.title, {
+    enabled: !props.selectedShoppingIngredient,
+    fallbackIngredients: props.ingredients,
+  });
+  const shoppingQuantityUnitOptions = useMemo(() => {
+    const currentUnit = props.shoppingForm.unit || props.selectedShoppingIngredient?.default_unit || '份';
+    const units = props.selectedShoppingIngredient
+      ? [currentUnit, ...props.shoppingIngredientUnitOptions.map((option) => option.unit)]
+      : [currentUnit, ...shoppingUnitOptions];
+    return units
+      .filter((unit, index, list) => unit && list.indexOf(unit) === index)
+      .map((unit) => ({ value: unit, label: unit }));
+  }, [props.selectedShoppingIngredient, props.shoppingForm.unit, props.shoppingIngredientUnitOptions, shoppingUnitOptions]);
 
   return (
     <WorkspaceModal
@@ -179,8 +50,20 @@ export function IngredientShoppingOverlay(props: IngredientShoppingOverlayProps)
       closeAriaLabel="关闭"
       className="workspace-modal-wide shopping-quick-modal"
       onClose={props.closeOverlay}
+      footerActions={
+        <FormActions
+          className="shopping-quick-actions"
+          primaryLabel="加入采购清单"
+          primaryType="submit"
+          primaryForm={shoppingFormId}
+          primaryDisabled={!props.selectedShoppingIngredient}
+          isSubmitting={Boolean(props.isCreatingShopping)}
+          secondaryLabel="取消"
+          onSecondary={props.closeOverlay}
+        />
+      }
     >
-      <form className="shopping-quick-form" onSubmit={(event) => void props.submitShopping(event)}>
+      <form id={shoppingFormId} className="shopping-quick-form" onSubmit={(event) => void props.submitShopping(event)}>
         <div className="shopping-quick-scroll">
           {props.selectedShoppingIngredient ? (
             <section className="ingredients-restock-identity-card">
@@ -203,10 +86,28 @@ export function IngredientShoppingOverlay(props: IngredientShoppingOverlayProps)
           ) : (
             <div className="shopping-quick-name-field">
               <span>名称</span>
-              <CustomAutocomplete
-                ingredients={props.ingredients}
-                value={props.shoppingForm.title}
-                onChange={(nextTitle, matchedIngredient) => {
+              <SearchableResourceSelect
+                ariaLabel="选择采购食材"
+                placeholder="输入名称或直接选食材"
+                value=""
+                query={props.shoppingForm.title}
+                presentation="popover"
+                loading={ingredientSearch.isSearching}
+                loadingMore={ingredientSearch.isFetchingNextPage}
+                hasMore={ingredientSearch.hasMore}
+                loadMoreText="加载更多食材"
+                loadingMoreText="正在加载更多食材..."
+                options={ingredientSearch.ingredients.map((ingredient) => ({
+                  id: ingredient.id,
+                  label: ingredient.name,
+                  description: `${ingredient.category || '食材'} · 默认 ${ingredient.default_unit || '个'}`,
+                  image: <MediaWithPlaceholder src={resolveMediaUrl(ingredient.image, 'thumb')} alt="" />,
+                }))}
+                emptyText={ingredientSearch.isSearching ? '正在搜索...' : '没有匹配的食材，请先创建食材档案。'}
+                onSearchCompositionStart={ingredientSearch.onCompositionStart}
+                onSearchCompositionEnd={ingredientSearch.onCompositionEnd}
+                onQueryChange={(nextTitle) => {
+                  const matchedIngredient = ingredientSearch.findIngredientByName(nextTitle);
                   props.setShoppingForm({
                     ...props.shoppingForm,
                     title: nextTitle,
@@ -216,6 +117,20 @@ export function IngredientShoppingOverlay(props: IngredientShoppingOverlayProps)
                       : props.shoppingForm.unit,
                   });
                 }}
+                onLoadMore={() => {
+                  if (ingredientSearch.hasMore && !ingredientSearch.isFetchingNextPage) {
+                    void ingredientSearch.fetchNextPage();
+                  }
+                }}
+                onChange={(ingredientId) => {
+                  const ingredient = ingredientSearch.findIngredientById(ingredientId);
+                  if (!ingredient) return;
+                  props.setShoppingForm({
+                    ...props.shoppingForm,
+                    title: ingredient.name,
+                    unit: resolvePreferredIngredientUnit(ingredient, props.shoppingForm.unit) || ingredient.default_unit,
+                  });
+                }}
               />
               {props.shoppingForm.title.trim() && !props.selectedShoppingIngredient && (
                 <p className="subtle">采购清单只能选择已有食材。没有这个食材时，请先创建食材档案。</p>
@@ -223,26 +138,25 @@ export function IngredientShoppingOverlay(props: IngredientShoppingOverlayProps)
             </div>
           )}
 
-          {tracksQuantity ? (
           <section className="ingredients-restock-field-group ingredients-restock-quantity-section">
             <div className="ingredients-restock-quantity-row">
-              <TouchStepperField
-                label="数量"
-                value={props.shoppingQuantityValue}
-                min={props.shoppingQuantityStep}
-                step={props.shoppingQuantityStep}
-                quickValues={props.shoppingQuantityQuickValues}
-                allowCustomInput
-                customInputMode="inline"
-                customInputLabel="直接输入"
-                inputMin={props.shoppingQuantityStep}
-                inputStep={props.shoppingQuantityStep}
-                formatValue={(value) => formatNumericString(value)}
-                helper="常见数量点一下就能完成。"
-                onChange={(value) =>
+              <QuantityUnitField
+                className="ingredients-shopping-quantity-field"
+                quantity={props.shoppingForm.quantity}
+                unit={props.shoppingForm.unit || props.selectedShoppingIngredient?.default_unit || '份'}
+                unitOptions={shoppingQuantityUnitOptions}
+                quantityDisabled={!tracksQuantity}
+                quantityDisabledReason={!tracksQuantity ? '只提醒需要补充，不记录具体数量。' : undefined}
+                onQuantityChange={(quantity) =>
                   props.setShoppingForm({
                     ...props.shoppingForm,
-                    quantity: formatNumericString(value),
+                    quantity,
+                  })
+                }
+                onUnitChange={(unit) =>
+                  props.setShoppingForm({
+                    ...props.shoppingForm,
+                    unit,
                   })
                 }
               />
@@ -251,57 +165,12 @@ export function IngredientShoppingOverlay(props: IngredientShoppingOverlayProps)
                   <span>单位</span>
                   <strong>{props.shoppingForm.unit || props.selectedShoppingIngredient?.default_unit || '个'}</strong>
                 </div>
-                {props.selectedShoppingIngredient ? (
-                  <>
-                    <p className="subtle">默认先用主单位，常用副单位点一下就能切换。</p>
-                    <div className="ingredients-restock-unit-chip-row">
-                      {props.shoppingIngredientUnitOptions.map((option) => (
-                        <button
-                          key={`shopping-unit-${option.unit}`}
-                          type="button"
-                          className={
-                            props.shoppingForm.unit === option.unit
-                              ? 'ingredients-choice-chip ingredients-unit-chip active'
-                              : 'ingredients-choice-chip ingredients-unit-chip'
-                          }
-                          onClick={() =>
-                            props.setShoppingForm({
-                              ...props.shoppingForm,
-                              unit: option.unit,
-                            })
-                          }
-                        >
-                          {option.unit}
-                        </button>
-                      ))}
-                    </div>
-                  </>
-                ) : (
-                  <>
-                    <p className="subtle">默认值不对时再改。</p>
-                    <div className="ingredients-restock-unit-editor-custom">
-                      <CustomSelect
-                        placeholder="选择单位"
-                        value={props.shoppingForm.unit}
-                        options={unitOptions}
-                        onChange={(val) =>
-                          props.setShoppingForm({ ...props.shoppingForm, unit: val })
-                        }
-                      />
-                    </div>
-                  </>
-                )}
+                <p className="subtle">
+                  {props.selectedShoppingIngredient ? '默认先用主单位，常用副单位可以在上方切换。' : '默认值不对时再改。'}
+                </p>
               </section>
             </div>
           </section>
-          ) : (
-            <section className="ingredients-restock-field-group ingredients-restock-quantity-section">
-              <div className="ingredients-create-rule-note ingredients-create-lowstock-note">
-                <span>需要补充</span>
-                <p>这类食材不要求精确采购数量，清单里会显示为需要补充。</p>
-              </div>
-            </section>
-          )}
 
           <section className="ingredients-restock-field-group">
             <div className="ingredients-restock-field-head">
@@ -318,16 +187,6 @@ export function IngredientShoppingOverlay(props: IngredientShoppingOverlayProps)
             />
           </section>
 
-          <div className="shopping-quick-footer-bar">
-            <div className="workspace-overlay-actions">
-              <ActionButton tone="secondary" type="button" onClick={props.closeOverlay}>
-                取消
-              </ActionButton>
-              <ActionButton tone="primary" type="submit" disabled={props.isCreatingShopping || !props.selectedShoppingIngredient}>
-                {props.isCreatingShopping ? '保存中...' : '加入清单'}
-              </ActionButton>
-            </div>
-          </div>
         </div>
       </form>
     </WorkspaceModal>

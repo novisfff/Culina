@@ -35,11 +35,14 @@ import { emptyImages, formatDate, formatDateTime, getImagePreview, splitTags, to
 import { IDLE_IMAGE_GENERATION_STATE, useImageComposer, type ImageGenerationUiState } from '../../hooks/useImageComposer';
 import { useDebouncedSearchValue, useSearchCompositionState } from '../../hooks/useDebouncedValue';
 import { usePagedList } from '../../hooks/usePagedList';
+import { useRecipeResourceSearch } from '../../hooks/useRecipeResourceSearch';
 import {
   ActionButton,
   Badge,
+  DropdownSelect,
   EmptyState,
-  SearchLoadingIndicator,
+  OptionChipGroup,
+  SearchField,
   WorkspaceSubpageHeader,
   WorkspaceSubpageShell,
 } from '../ui-kit';
@@ -284,76 +287,6 @@ type RecipeWorkspaceProps = {
   isUpdatingScene?: boolean;
 };
 
-function RecipeToolbarDropdown({
-  value,
-  options,
-  icon,
-  title,
-  onChange,
-}: {
-  value: string;
-  options: { value: string; label: string }[];
-  icon: string;
-  title: string;
-  onChange: (value: any) => void;
-}) {
-  const [open, setOpen] = useState(false);
-  const rootRef = useRef<HTMLDivElement | null>(null);
-  const selectedOption = options.find((opt) => opt.value === value);
-
-  useEffect(() => {
-    if (!open) return;
-    const handlePointerDown = (event: MouseEvent) => {
-      if (!rootRef.current?.contains(event.target as Node)) {
-        setOpen(false);
-      }
-    };
-    document.addEventListener('mousedown', handlePointerDown);
-    return () => document.removeEventListener('mousedown', handlePointerDown);
-  }, [open]);
-
-  return (
-    <div className={open ? 'recipe-toolbar-dropdown is-open' : 'recipe-toolbar-dropdown'} ref={rootRef}>
-      <button
-        className="recipe-toolbar-dropdown-trigger"
-        type="button"
-        onClick={() => setOpen(!open)}
-        aria-expanded={open}
-      >
-        <span className="recipe-toolbar-dropdown-trigger-icon">
-          <RecipeUiIcon name={icon as any} />
-        </span>
-        <span className="recipe-toolbar-dropdown-trigger-text">
-          <span className="recipe-toolbar-dropdown-title">{title}</span>
-          <span className="recipe-toolbar-dropdown-value">{selectedOption?.label ?? value}</span>
-        </span>
-        <span className="recipe-toolbar-dropdown-trigger-chevron">
-          <RecipeUiIcon name="chevronDown" />
-        </span>
-      </button>
-      
-      {open && (
-        <div className="recipe-toolbar-dropdown-panel">
-          {options.map((opt) => (
-            <button
-              key={opt.value}
-              className={opt.value === value ? 'recipe-toolbar-dropdown-option is-selected' : 'recipe-toolbar-dropdown-option'}
-              type="button"
-              onClick={() => {
-                onChange(opt.value);
-                setOpen(false);
-              }}
-            >
-              <span>{opt.label}</span>
-              {opt.value === value && <RecipeUiIcon name="check" />}
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
 export function RecipeWorkspace(props: RecipeWorkspaceProps) {
   const categoryScrollRef = useRef<HTMLDivElement | null>(null);
   const discoveryScrollRef = useRef<HTMLDivElement | null>(null);
@@ -399,7 +332,6 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
     setSceneTagDraft,
     visibleStepTips,
     setVisibleStepTips,
-    stepKeyPointSlots,
     setStepKeyPointSlots,
     recipeDraftGenerationStage,
     setRecipeDraftGenerationStage,
@@ -446,8 +378,6 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
     setShoppingCustomForm,
     isShoppingIngredientPickerOpen,
     setIsShoppingIngredientPickerOpen,
-    shoppingIngredientOptions,
-    visibleShoppingIngredientOptions,
     openShoppingDialog,
     closeShoppingDialog,
     updateShoppingDraft,
@@ -636,7 +566,6 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
   const editorSceneTags = splitTags(form.sceneTags);
   const editorCoverAsset = getImagePreview(form.images);
   const editorCoverUrl = resolveAssetUrl(editorCoverAsset?.url);
-  const editorReferenceUrl = resolveAssetUrl(form.images.referenceAsset?.url);
   const aiSourceIngredients = ingredientRows
     .filter((item) => item.ingredient_id || item.ingredient_name.trim())
     .map((item) => {
@@ -810,11 +739,21 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
     isCookingRecipe: props.isCookingRecipe,
     showRecipeNotice,
   });
-  const planRecipeQuery = planRecipeSearch.trim().toLowerCase();
+  const planRecipeFallbackRecipes = useMemo(() => cards.map((card) => card.recipe), [cards]);
+  const planRecipeSearchResults = useRecipeResourceSearch(planRecipeSearch, {
+    enabled: isPlanDialogOpen && isPlanRecipePickerOpen,
+    fallbackRecipes: planRecipeFallbackRecipes,
+  });
   const planRecipeOptions = useMemo(() => {
-    if (!planRecipeQuery) return cards;
-    return cards.filter((card) => card.searchText.includes(planRecipeQuery) || card.recipe.title.toLowerCase().includes(planRecipeQuery));
-  }, [cards, planRecipeQuery]);
+    const seen = new Set<string>();
+    return planRecipeSearchResults.recipes
+      .map((recipe) => cardByRecipeId.get(recipe.id) ?? null)
+      .filter((card): card is RecipeCardViewModel => {
+        if (!card || seen.has(card.recipe.id)) return false;
+        seen.add(card.recipe.id);
+        return true;
+      });
+  }, [cardByRecipeId, planRecipeSearchResults.recipes]);
 
   function updateCategoryScrollState() {
     const node = categoryScrollRef.current;
@@ -1219,21 +1158,22 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
     return (
       <section className="recipe-filter-shell">
         <div className="recipe-search-row">
-          <label className="recipe-search-input-shell">
-            <span className="recipe-search-input-icon" aria-hidden="true">
-              <RecipeUiIcon name="search" />
-            </span>
-            <input
-              className="text-input"
-              placeholder="搜索菜谱、食材或技巧"
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-              onCompositionStart={recipeSearchComposition.onCompositionStart}
-              onCompositionEnd={recipeSearchComposition.onCompositionEnd}
-            />
-            <SearchLoadingIndicator active={isRecipeSearchFetching} />
-          </label>
-          <RecipeToolbarDropdown
+          <SearchField
+            className="recipe-search-input-shell"
+            ariaLabel="搜索菜谱"
+            placeholder="搜索菜谱、食材或技巧"
+            value={search}
+            loading={isRecipeSearchFetching}
+            leadingIcon={<RecipeUiIcon name="search" />}
+            leadingIconClassName="recipe-search-input-icon"
+            onChange={setSearch}
+            onClear={() => setSearch('')}
+            onCompositionStart={recipeSearchComposition.onCompositionStart}
+            onCompositionEnd={recipeSearchComposition.onCompositionEnd}
+          />
+          <DropdownSelect
+            ariaLabel="难度"
+            placeholder="难度"
             value={difficultyFilter}
             options={[
               { value: 'all', label: '全部' },
@@ -1241,34 +1181,32 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
               { value: 'medium', label: '中等' },
               { value: 'hard', label: '复杂' },
             ]}
-            icon="signal"
-            title="难度"
+            className="recipe-filter-dropdown"
+            leadingIcon={<span><RecipeUiIcon name="difficulty" /></span>}
             onChange={(val) => setDifficultyFilter(val as 'all' | Difficulty)}
           />
-          <RecipeToolbarDropdown
+          <DropdownSelect
+            ariaLabel="排序"
+            placeholder="排序"
             value={sortMode}
             options={SORT_OPTIONS}
-            icon="clock"
-            title="排序"
+            className="recipe-filter-dropdown"
+            leadingIcon={<span><RecipeUiIcon name="sort" /></span>}
             onChange={(val) => setSortMode(val as RecipeSortMode)}
           />
         </div>
-        <div className="recipe-filter-row">
-          {QUICK_FILTERS.map((item) => (
-            <button
-              key={item.value}
-              className={quickFilter === item.value ? 'chip recipe-filter-chip active' : 'chip recipe-filter-chip'}
-              type="button"
-              onClick={() => {
-                setQuickFilter(item.value);
-                setSceneFilter('all');
-                setRecommendationPage(0);
-              }}
-            >
-              {item.label}
-            </button>
-          ))}
-        </div>
+        <OptionChipGroup
+          ariaLabel="菜谱快捷筛选"
+          size="medium"
+          className="recipe-filter-row"
+          value={quickFilter}
+          options={QUICK_FILTERS}
+          onChange={(value) => {
+            setQuickFilter(value);
+            setSceneFilter('all');
+            setRecommendationPage(0);
+          }}
+        />
       </section>
     );
   }
@@ -1398,21 +1336,16 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
           sceneSelectOptions={sceneSelectOptions}
           editorSceneTags={editorSceneTags}
           visibleStepTips={visibleStepTips}
-          stepKeyPointSlots={stepKeyPointSlots}
           editorCoverUrl={editorCoverUrl}
-          editorReferenceUrl={editorReferenceUrl}
           editorCoverAsset={editorCoverAsset}
           editorIngredientCount={editorIngredientCount}
           editorStepCount={editorStepCount}
           editorCompletionItems={editorCompletionItems}
           editorCompletionPercent={editorCompletionPercent}
-          aiSourceSummary={aiSourceSummary}
           recipeDraftError={recipeDraftError}
           isRecipeDraftBusy={isRecipeDraftBusy}
           recipeImageState={recipeImageState}
-          recipeDraftGenerationStage={recipeDraftGenerationStage}
           recipeDraftButtonLabel={recipeDraftButtonLabel}
-          recipeImagePayload={recipeImagePayload}
           submitDisabled={submitDisabled}
           isCreatingRecipe={props.isCreatingRecipe}
           isUpdatingRecipe={props.isUpdatingRecipe}
@@ -1629,6 +1562,9 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
           recipeOptions={planRecipeOptions}
           recipeSearch={planRecipeSearch}
           isRecipePickerOpen={isPlanRecipePickerOpen}
+          isRecipeSearchLoading={planRecipeSearchResults.isSearching}
+          isRecipeSearchLoadingMore={planRecipeSearchResults.isFetchingNextPage}
+          hasMoreRecipeOptions={planRecipeSearchResults.hasMore}
           weekRange={props.recipePlanWeekRange}
           isUpdatingPlan={props.isUpdatingPlan}
           hasRecipes={cards.length > 0}
@@ -1637,6 +1573,11 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
           onChangeForm={setPlanForm}
           onChangeRecipeSearch={setPlanRecipeSearch}
           onSetRecipePickerOpen={setIsPlanRecipePickerOpen}
+          onLoadMoreRecipeOptions={() => {
+            if (planRecipeSearchResults.hasMore && !planRecipeSearchResults.isFetchingNextPage) {
+              void planRecipeSearchResults.fetchNextPage();
+            }
+          }}
           onSelectRecipe={selectPlanRecipe}
         />
       )}
@@ -1663,8 +1604,6 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
           ingredients={props.ingredients}
           drafts={shoppingDrafts}
           customForm={shoppingCustomForm}
-          ingredientOptions={shoppingIngredientOptions}
-          visibleIngredientOptions={visibleShoppingIngredientOptions}
           isIngredientPickerOpen={isShoppingIngredientPickerOpen}
           isCreatingShopping={props.isCreatingShopping}
           unitOptions={SHOPPING_UNIT_OPTIONS}

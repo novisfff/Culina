@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState, type Dispatch, type Ref, type SetStateAction } from 'react';
 import type { CookRecipePreviewResponse, RecipeStep } from '../../api/types';
-import { ActionButton, WorkspaceModal } from '../ui-kit';
+import { ActionButton, ConfirmDialog } from '../ui-kit';
 import { CookingAssistantPanel } from './CookingAssistantPanel';
 import { COOK_TIMER_PRESETS } from './RecipeWorkspaceOptions';
 import { RecipeUiIcon } from './RecipeWorkspaceCards';
@@ -397,7 +397,7 @@ export function RecipeCookView({
           <section className={`recipe-cook-timer-card ${activeTimer?.mode || 'countup'}${activeTimer?.running ? ' running' : ''}${cookTimerJustStarted ? ' started' : ''}${isCookTimerCustomOpen ? ' custom-open' : ''}${isFinished ? ' finished' : ''}`}>
             <div className="recipe-cook-timer-head">
               <div>
-                <span className="recipe-cook-timer-title-span">
+                <span>
                   <RecipeUiIcon name="clock" className="timer-head-icon" />
                   烹饪计时器
                 </span>
@@ -495,7 +495,7 @@ export function RecipeCookView({
                   <span>已选择</span>
                   <strong>{formatCookTimer(cookTimerPicker.minutes * 60 + cookTimerPicker.seconds)}</strong>
                 </div>
-                <div className="recipe-cook-timer-actions custom-actions">
+                <div className="recipe-cook-timer-actions">
                   <button type="button" onClick={() => setIsCookTimerCustomOpen(false)}>
                     取消
                   </button>
@@ -671,91 +671,39 @@ export function RecipeCookView({
         </aside>
       </div>
 
-      {pendingExitTarget && (
-        <div className="workspace-overlay-root">
-          <div className="workspace-overlay-backdrop" onClick={() => setPendingExitTarget(null)} />
-          <WorkspaceModal
-            title={getExitConfirmTitle(pendingExitTarget)}
-            description={`当前有 ${runningTimers.length} 个计时器正在工作。退出后会暂停计时，烹饪步骤和已用时间仍会保留。`}
-            eyebrow="计时提醒"
-            onClose={() => setPendingExitTarget(null)}
-            closeAriaLabel="关闭退出提醒"
-            className="recipe-cook-exit-modal"
-          >
-            <div className="recipe-cook-exit-warning">
-              <span className="recipe-cook-exit-warning-icon"><RecipeUiIcon name="warning" /></span>
-              <div>
-                <strong>正在计时</strong>
-                <span>返回做菜页面后，可从当前进度继续计时。</span>
-              </div>
-            </div>
-            <div className="recipe-cook-exit-timers" aria-label="正在运行的计时器">
-              {runningTimers.map((timer) => {
-                const displaySeconds = timer.mode === 'countdown'
-                  ? Math.max((timer.durationSeconds ?? 0) - timer.seconds, 0)
-                  : timer.seconds;
-                return (
-                  <div key={timer.id} className="recipe-cook-exit-timer">
-                    <span><RecipeUiIcon name="clock" /></span>
-                    <div>
-                      <strong>{timer.name}</strong>
-                      <small>{timer.mode === 'countdown' ? '剩余时间' : '已用时间'}</small>
-                    </div>
-                    <b>{formatCookTimer(displaySeconds)}</b>
-                  </div>
-                );
-              })}
-            </div>
-            <div className="workspace-overlay-actions">
-              <ActionButton tone="secondary" type="button" onClick={() => setPendingExitTarget(null)}>
-                继续烹饪
-              </ActionButton>
-              <ActionButton
-                tone="primary"
-                type="button"
-                onClick={() => {
-                  const target = pendingExitTarget;
-                  setPendingExitTarget(null);
-                  exitCookMode(target);
-                }}
-              >
-                暂停并退出
-              </ActionButton>
-            </div>
-          </WorkspaceModal>
-        </div>
-      )}
+      <ConfirmDialog
+        open={Boolean(pendingExitTarget)}
+        title={pendingExitTarget ? getExitConfirmTitle(pendingExitTarget) : '退出烹饪'}
+        description={`当前有 ${runningTimers.length} 个计时器正在工作。退出后会暂停计时，烹饪步骤和已用时间仍会保留。`}
+        confirmLabel="暂停并退出"
+        cancelLabel="继续烹饪"
+        tone="primary"
+        onCancel={() => setPendingExitTarget(null)}
+        onConfirm={() => {
+          const target = pendingExitTarget;
+          setPendingExitTarget(null);
+          if (target) {
+            exitCookMode(target);
+          }
+        }}
+      />
 
-      {deletingTimerId && (
-        <div className="workspace-overlay-root">
-          <div className="workspace-overlay-backdrop" onClick={() => setDeletingTimerId(null)} />
-          <WorkspaceModal
-            title="确认删除正在运行的计时器？"
-            description="该计时器正在运行中，删除后将无法恢复计时进度。"
-            eyebrow="删除确认"
-            onClose={() => setDeletingTimerId(null)}
-            className="recipe-cook-timer-delete-modal"
-          >
-            <div className="workspace-overlay-actions">
-              <ActionButton tone="secondary" type="button" onClick={() => setDeletingTimerId(null)}>
-                继续计时
-              </ActionButton>
-              <ActionButton
-                tone="primary"
-                className="danger"
-                type="button"
-                onClick={() => {
-                  const target = timers.find((t) => t.id === deletingTimerId);
-                  if (target) deleteTimer(target.id);
-                  setDeletingTimerId(null);
-                }}
-              >
-                确认删除
-              </ActionButton>
-            </div>
-          </WorkspaceModal>
-        </div>
-      )}
+      <ConfirmDialog
+        open={Boolean(deletingTimerId)}
+        title="确认删除正在运行的计时器？"
+        description="该计时器正在运行中，删除后将无法恢复计时进度。"
+        confirmLabel="确认删除"
+        cancelLabel="继续计时"
+        tone="danger"
+        onCancel={() => setDeletingTimerId(null)}
+        onConfirm={() => {
+          if (deletingTimerId) {
+            const target = timers.find((timer) => timer.id === deletingTimerId);
+            if (target) deleteTimer(target.id);
+          }
+          setDeletingTimerId(null);
+        }}
+      />
     </main>
   );
 }

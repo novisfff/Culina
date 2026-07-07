@@ -125,6 +125,18 @@
   font-weight: 600;
 }
 
+.global-search-empty {
+  margin: 4px;
+  padding: 18px 16px;
+  border: 1px dashed rgba(147, 96, 63, 0.18);
+  border-radius: 18px;
+  background: rgba(252, 250, 247, 0.76);
+  color: var(--text-soft);
+  font-size: 0.9375rem;
+  font-weight: 600;
+  text-align: center;
+}
+
 .global-search-result-list {
   display: grid;
   gap: 6px;
@@ -281,28 +293,10 @@
   --global-search-tone-bg: rgba(240, 238, 255, 0.88);
 }
 
-.global-search-result-ingredient .global-search-result-media,
-.global-search-result-ingredient .global-search-type-pill {
-  background: var(--global-search-tone-bg);
-  color: var(--global-search-tone);
-}
-
-.global-search-result-food .global-search-result-media,
-.global-search-result-food .global-search-type-pill {
-  background: var(--global-search-tone-bg);
-  color: var(--global-search-tone);
-}
-
-.global-search-result-recipe .global-search-result-media,
-.global-search-result-recipe .global-search-type-pill {
-  background: var(--global-search-tone-bg);
-  color: var(--global-search-tone);
-}
-
-.global-search-result-meal_plan .global-search-result-media,
-.global-search-result-meal_plan .global-search-type-pill {
-  background: var(--global-search-tone-bg);
-  color: var(--global-search-tone);
+.global-search-result .global-search-result-media,
+.global-search-result .global-search-type-pill {
+  background: var(--global-search-tone-bg, rgba(244, 235, 225, 0.74));
+  color: var(--global-search-tone, var(--text-soft));
 }
 
 @media (max-width: 720px) {

@@ -3,7 +3,7 @@ import { buildMediaSizes, buildMediaSrcSet, resolveMediaUrl } from '../../lib/as
 import { FOOD_TYPE_LABELS, MEAL_TYPE_LABELS, formatDate } from '../../lib/ui';
 import { MediaWithPlaceholder } from '../MediaPlaceholder';
 import type { RecipeCardViewModel } from '../recipes/workspaceModel';
-import { ActionButton, Badge, WorkspaceDrawer } from '../ui-kit';
+import { ActionButton, Badge, FormActions, WorkspaceDrawer, WorkspaceOverlayFrame } from '../ui-kit';
 import { FoodIconName, FoodUiIcon } from './FoodWorkspacePrimitives';
 
 type FoodFactRow = {
@@ -94,42 +94,54 @@ export function FoodDetailDrawer(props: Props) {
   const coverUrl = resolveMediaUrl(props.coverAsset, 'large') ?? (props.cover ? props.resolveAssetUrl(props.cover) : undefined);
   const showRelationPanel = !props.isOutsideFood && !props.isReadyLikeFood && !props.recipe;
   const canStartCook = props.normalizedType === 'selfMade' && Boolean(props.food.recipe_id);
-  const detailActions = (
-    <div className="workspace-overlay-actions food-detail-actions">
-      <ActionButton
-        tone="primary"
-        type="button"
-        onClick={() => {
-          if (canStartCook && props.food.recipe_id) {
-            props.onStartCook(props.food.recipe_id);
-            return;
-          }
-          props.onQuickAdd(props.food, props.getDefaultMealType(props.food));
-        }}
-      >
-        {canStartCook ? '开始做' : props.getPrimaryFoodActionLabel(props.food)}
-      </ActionButton>
-      <ActionButton tone="secondary" type="button" onClick={() => props.onEdit(props.food)}>
+  const isBusy = Boolean(props.isQuickAdding);
+
+  function closeIfAllowed() {
+    if (!isBusy) {
+      props.onClose();
+    }
+  }
+
+  const renderDetailActions = (className: string) => (
+    <FormActions
+      className={`food-detail-actions ${className}`}
+      primaryPlacement="before-extra"
+      primaryLabel={canStartCook ? '开始做' : props.getPrimaryFoodActionLabel(props.food)}
+      primaryDisabled={isBusy}
+      isSubmitting={isBusy}
+      onPrimary={() => {
+        if (canStartCook && props.food.recipe_id) {
+          props.onStartCook(props.food.recipe_id);
+          return;
+        }
+        props.onQuickAdd(props.food, props.getDefaultMealType(props.food));
+      }}
+    >
+      <ActionButton tone="secondary" type="button" onClick={() => props.onEdit(props.food)} disabled={isBusy}>
         {props.getSecondaryFoodActionLabel(props.food)}
       </ActionButton>
-      <ActionButton tone="secondary" type="button" onClick={() => props.onOpenPlanDialog(props.food)}>
+      <ActionButton tone="secondary" type="button" onClick={() => props.onOpenPlanDialog(props.food)} disabled={isBusy}>
         加入菜单
       </ActionButton>
-      <ActionButton tone="secondary" type="button" onClick={props.onOpenLogs}>
+      <ActionButton tone="secondary" type="button" onClick={props.onOpenLogs} disabled={isBusy}>
         完整记一餐
       </ActionButton>
-    </div>
+    </FormActions>
   );
 
   return (
-    <div className={props.overlayRootClassName ? `workspace-overlay-root ${props.overlayRootClassName}` : 'workspace-overlay-root'}>
-      <div className="workspace-overlay-backdrop" onClick={props.onClose} />
+    <WorkspaceOverlayFrame
+      rootClassName={props.overlayRootClassName}
+      onClose={closeIfAllowed}
+      closeOnBackdrop={!isBusy}
+    >
       <WorkspaceDrawer
         eyebrow={FOOD_TYPE_LABELS[props.normalizedType]}
         title={props.food.name}
         description={props.food.routine_note || props.food.notes || props.getSceneTags(props.food).join('、') || props.food.scene || '这份食物还没有补充决策备注。'}
         className="food-detail-drawer"
-        onClose={props.onClose}
+        onClose={closeIfAllowed}
+        footerActions={renderDetailActions('food-detail-actions-desktop')}
       >
         <div className="food-detail-hero">
           <div className="food-detail-cover">
@@ -149,7 +161,7 @@ export function FoodDetailDrawer(props: Props) {
           </div>
         </div>
 
-        {detailActions}
+        {renderDetailActions('food-detail-actions-mobile')}
 
         <section className="food-detail-section">
           <div className="food-detail-section-head">
@@ -224,64 +236,64 @@ export function FoodDetailDrawer(props: Props) {
         {props.recipe && (
           <section className="food-detail-section food-detail-recipe-card">
             <div className="food-detail-recipe-header">
-              <span className="recipe-badge">
-                <FoodUiIcon name="bowl" className="recipe-badge-icon" /> 家常菜谱
+              <span className="food-detail-recipe-badge">
+                <FoodUiIcon name="bowl" className="food-detail-recipe-badge-icon" /> 家常菜谱
               </span>
-              <h4 className="recipe-title">{props.recipe.title}</h4>
+              <h4 className="food-detail-recipe-title">{props.recipe.title}</h4>
             </div>
 
             <div className="food-detail-recipe-metrics">
-              <div className="metric-box">
-                <strong className="metric-value">{props.usage.count > 0 ? `${props.usage.count}次` : '还未记录'}</strong>
-                <span className="metric-label">餐食记录</span>
+              <div className="food-detail-recipe-metric-card">
+                <strong className="food-detail-recipe-metric-value">{props.usage.count > 0 ? `${props.usage.count}次` : '还未记录'}</strong>
+                <span className="food-detail-recipe-metric-label">餐食记录</span>
               </div>
-              <div className="metric-divider" />
-              <div className="metric-box">
-                <strong className="metric-value">{props.relation.lastMealLog ? formatDate(props.relation.lastMealLog.date) : '还没有'}</strong>
-                <span className="metric-label">最近一次</span>
+              <div className="food-detail-recipe-metric-divider" />
+              <div className="food-detail-recipe-metric-card">
+                <strong className="food-detail-recipe-metric-value">{props.relation.lastMealLog ? formatDate(props.relation.lastMealLog.date) : '还没有'}</strong>
+                <span className="food-detail-recipe-metric-label">最近一次</span>
               </div>
-              <div className="metric-divider" />
-              <div className="metric-box">
-                <strong className="metric-value">{props.recipe.ingredient_items.length}个</strong>
-                <span className="metric-label">所需原料</span>
+              <div className="food-detail-recipe-metric-divider" />
+              <div className="food-detail-recipe-metric-card">
+                <strong className="food-detail-recipe-metric-value">{props.recipe.ingredient_items.length}个</strong>
+                <span className="food-detail-recipe-metric-label">所需原料</span>
               </div>
             </div>
 
             {props.relation.shortagePreview.length > 0 ? (
-              <div className="recipe-status-alert missing">
-                <span className="alert-badge">需要补齐</span>
-                <p className="alert-text">
+              <div className="food-detail-recipe-status-alert missing">
+                <span className="food-detail-recipe-alert-badge">需要补齐</span>
+                <p className="food-detail-recipe-alert-text">
                   缺少 <strong>{props.relation.shortagePreview.length}</strong> 种食材：{props.relation.shortagePreview.join('、')}
                 </p>
               </div>
             ) : (
-              <div className="recipe-status-alert ready">
-                <span className="alert-badge">食材齐全</span>
-                <p className="alert-text">
+              <div className="food-detail-recipe-status-alert ready">
+                <span className="food-detail-recipe-alert-badge">食材齐全</span>
+                <p className="food-detail-recipe-alert-text">
                   全部原料均有库存，可以直接开始烹饪。
                 </p>
               </div>
             )}
 
             {linkedRecipeCard && (
-              <div className="recipe-ingredients-pills">
+              <div className="food-detail-recipe-ingredients-pills">
                 {linkedRecipeCard.ingredientAvailability.map((item) => (
-                  <div key={item.item.id} className={`ingredient-pill ${item.ready ? 'ready' : 'missing'}`}>
-                    <span className="pill-dot" />
-                    <span className="pill-name">{item.item.ingredient_name}</span>
-                    <span className="pill-status">{item.ready ? '已有' : `缺 ${item.missingQuantity}${item.unit}`}</span>
+                  <div key={item.item.id} className={`food-detail-recipe-ingredient-pill ${item.ready ? 'ready' : 'missing'}`}>
+                    <span className="food-detail-recipe-pill-dot" />
+                    <span className="food-detail-recipe-pill-name">{item.item.ingredient_name}</span>
+                    <span className="food-detail-recipe-pill-status">{item.ready ? '已有' : `缺 ${item.missingQuantity}${item.unit}`}</span>
                   </div>
                 ))}
               </div>
             )}
 
             {props.recipe.steps.length > 0 && (
-              <div className="recipe-steps-timeline">
+              <div className="food-detail-recipe-steps-timeline">
                 {props.recipe.steps.map((step, index) => (
-                  <div key={step.id || `${props.recipe?.id}-step-${index}`} className="timeline-item">
-                    <div className="timeline-badge">{index + 1}</div>
-                    <div className="timeline-content">
-                      <p className="timeline-text">{step.summary || step.text}</p>
+                  <div key={step.id || `${props.recipe?.id}-step-${index}`} className="food-detail-recipe-timeline-item">
+                    <div className="food-detail-recipe-timeline-badge">{index + 1}</div>
+                    <div className="food-detail-recipe-timeline-content">
+                      <p className="food-detail-recipe-timeline-text">{step.summary || step.text}</p>
                     </div>
                   </div>
                 ))}
@@ -289,7 +301,7 @@ export function FoodDetailDrawer(props: Props) {
             )}
 
             <div className="food-detail-recipe-actions">
-              <ActionButton tone="secondary" size="compact" type="button" onClick={() => props.onEditRecipe(props.food)}>
+              <ActionButton tone="secondary" size="compact" type="button" onClick={() => props.onEditRecipe(props.food)} disabled={isBusy}>
                 编辑菜谱
               </ActionButton>
             </div>
@@ -416,7 +428,7 @@ export function FoodDetailDrawer(props: Props) {
           </div>
           <div className="food-detail-meal-actions">
             {props.detailMealOptions.map((item) => (
-              <button key={item.value} type="button" disabled={props.isQuickAdding} onClick={() => props.onQuickAdd(props.food, item.value)}>
+              <button key={item.value} type="button" disabled={isBusy} onClick={() => props.onQuickAdd(props.food, item.value)}>
                 + {item.label}
               </button>
             ))}
@@ -448,6 +460,6 @@ export function FoodDetailDrawer(props: Props) {
         </section>
 
       </WorkspaceDrawer>
-    </div>
+    </WorkspaceOverlayFrame>
   );
 }

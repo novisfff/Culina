@@ -1,12 +1,9 @@
-import { useEffect, useMemo, useState } from 'react';
-import { keepPreviousData, useQuery } from '@tanstack/react-query';
-import { api } from '../../api/client';
-import { queryKeys } from '../../api/queryKeys';
+import { useEffect, useState } from 'react';
 import type { Ingredient } from '../../api/types';
 import { resolveAssetUrl } from '../../lib/assets';
-import { useDebouncedSearchValue, useSearchCompositionState } from '../../hooks/useDebouncedValue';
+import { useIngredientResourceSearch } from '../../hooks/useIngredientResourceSearch';
 import { MediaWithPlaceholder } from '../MediaPlaceholder';
-import { ActionButton, Badge, EmptyState, SearchLoadingIndicator, WorkspaceModal } from '../ui-kit';
+import { ActionButton, Badge, EmptyState, FormActions, SearchableResourceSelect, WorkspaceModal, WorkspaceOverlayFrame } from '../ui-kit';
 import { RecipeUiIcon } from './RecipeWorkspaceCards';
 import type { RecipeUnresolvedIngredientTarget } from './RecipeWorkspaceModel';
 
@@ -48,40 +45,7 @@ function RecipeIngredientCandidateSearch({
   onRemoveIngredientRow: (target: RecipeUnresolvedIngredientTarget) => void;
 }) {
   const [search, setSearch] = useState(target.ingredient_name);
-  const normalizedSearch = search.trim();
-  const searchComposition = useSearchCompositionState();
-  const searchValue = useDebouncedSearchValue(search, { isComposing: searchComposition.isComposing });
-  const candidateQuery = useQuery({
-    queryKey: queryKeys.ingredientPickerSearch(searchValue),
-    queryFn: () => api.getIngredients({ q: searchValue, limit: 8 }),
-    enabled: Boolean(searchValue),
-    placeholderData: keepPreviousData,
-  });
-  const [appliedSearch, setAppliedSearch] = useState('');
-  const [appliedCandidates, setAppliedCandidates] = useState<Ingredient[]>([]);
-  useEffect(() => {
-    if (!normalizedSearch) {
-      setAppliedSearch('');
-      setAppliedCandidates([]);
-      return;
-    }
-    if (searchValue && !candidateQuery.isPlaceholderData && candidateQuery.data) {
-      setAppliedSearch(searchValue);
-      setAppliedCandidates(candidateQuery.data);
-    }
-  }, [candidateQuery.data, candidateQuery.isPlaceholderData, normalizedSearch, searchValue]);
-  const fallbackCandidates = useMemo(() => {
-    const keyword = normalizedSearch.toLocaleLowerCase();
-    if (!keyword) return ingredients.slice(0, 8);
-    return ingredients
-      .filter((ingredient) => ingredient.name.toLocaleLowerCase().includes(keyword) || ingredient.category.toLocaleLowerCase().includes(keyword))
-      .slice(0, 8);
-  }, [ingredients, normalizedSearch]);
-  const candidates = normalizedSearch ? appliedCandidates : fallbackCandidates;
-  const isCandidateSearchFetching =
-    Boolean(normalizedSearch) &&
-    !searchComposition.isComposing &&
-    (appliedSearch !== normalizedSearch || candidateQuery.isFetching);
+  const ingredientSearch = useIngredientResourceSearch(search, { fallbackIngredients: ingredients });
 
   useEffect(() => {
     setSearch(target.ingredient_name);
@@ -99,46 +63,45 @@ function RecipeIngredientCandidateSearch({
         <Badge>待处理</Badge>
       </div>
 
-      <label className="recipe-ingredient-resolution-search">
+      <div className="recipe-ingredient-resolution-search">
         <span>检索已有食材</span>
-        <span className="recipe-ingredient-resolution-search-input">
-          <input
-            className="text-input"
-            value={search}
-            placeholder="输入食材名或别名"
-            onChange={(event) => setSearch(event.target.value)}
-            onCompositionStart={searchComposition.onCompositionStart}
-            onCompositionEnd={searchComposition.onCompositionEnd}
-          />
-          <SearchLoadingIndicator active={isCandidateSearchFetching} />
-        </span>
-      </label>
-
-      <div className="recipe-ingredient-resolution-candidates">
-        {isCandidateSearchFetching ? <p className="recipe-ingredient-resolution-status">正在检索相似食材...</p> : null}
-        {!isCandidateSearchFetching && candidates.length === 0 ? (
-          <p className="recipe-ingredient-resolution-status">没有找到合适候选，可以先新建食材。</p>
-        ) : null}
-        {candidates.map((ingredient) => (
-          <button
-            key={ingredient.id}
-            type="button"
-            className="recipe-ingredient-resolution-candidate"
-            onClick={() => onResolveWithIngredient(target, ingredient)}
-          >
-            <MediaWithPlaceholder
-              src={resolveAssetUrl(ingredient.image?.url)}
-              alt={ingredient.name}
-              className="recipe-ingredient-resolution-candidate-media"
-              emptyLabel="暂无图"
-            />
-            <span>
-              <strong>{ingredient.name}</strong>
-              <small>{[ingredient.category, `默认 ${ingredient.default_unit}`, ingredient.default_storage].filter(Boolean).join(' · ')}</small>
-            </span>
-            <RecipeUiIcon name="check" />
-          </button>
-        ))}
+        <SearchableResourceSelect
+          ariaLabel="选择匹配食材"
+          placeholder="输入食材名或别名"
+          value=""
+          query={search}
+          loading={ingredientSearch.isSearching}
+          loadingMore={ingredientSearch.isFetchingNextPage}
+          hasMore={ingredientSearch.hasMore}
+          disabled={isCreatingIngredient}
+          emptyText={ingredientSearch.isSearching ? '正在检索相似食材...' : '没有找到合适候选，可以先新建食材。'}
+          loadMoreText="加载更多食材"
+          loadingMoreText="正在加载更多食材..."
+          options={ingredientSearch.ingredients.map((ingredient) => ({
+            id: ingredient.id,
+            label: ingredient.name,
+            description: [ingredient.category, `默认 ${ingredient.default_unit}`, ingredient.default_storage].filter(Boolean).join(' · '),
+            image: (
+              <MediaWithPlaceholder
+                src={resolveAssetUrl(ingredient.image?.url)}
+                alt={ingredient.name}
+                emptyLabel="暂无图"
+              />
+            ),
+          }))}
+          onQueryChange={setSearch}
+          onLoadMore={() => {
+            if (ingredientSearch.hasMore && !ingredientSearch.isFetchingNextPage) {
+              void ingredientSearch.fetchNextPage();
+            }
+          }}
+          onChange={(ingredientId) => {
+            const ingredient = ingredientSearch.findIngredientById(ingredientId);
+            if (ingredient) onResolveWithIngredient(target, ingredient);
+          }}
+          onSearchCompositionStart={ingredientSearch.onCompositionStart}
+          onSearchCompositionEnd={ingredientSearch.onCompositionEnd}
+        />
       </div>
 
       <div className="recipe-ingredient-resolution-actions">
@@ -157,15 +120,35 @@ function RecipeIngredientCandidateSearch({
 
 export function RecipeIngredientResolutionDialog(props: RecipeIngredientResolutionDialogProps) {
   const unresolvedCount = props.targets.length;
+
+  function closeIfAllowed() {
+    if (!props.isCreatingIngredient) {
+      props.onClose();
+    }
+  }
+
   return (
-    <div className="workspace-overlay-root">
-      <div className="workspace-overlay-backdrop" onClick={props.onClose} />
+    <WorkspaceOverlayFrame
+      rootClassName="recipe-workspace-overlay-root"
+      onClose={closeIfAllowed}
+      closeOnBackdrop={!props.isCreatingIngredient}
+    >
       <WorkspaceModal
         title="处理缺失食材"
         description="这些配料还没有绑定到食材库，处理后才能保存菜谱。"
         eyebrow="保存前确认"
-        onClose={props.onClose}
+        onClose={closeIfAllowed}
         className="recipe-ingredient-resolution-modal"
+        footerActions={
+          <FormActions
+            primaryLabel="重新保存"
+            primaryDisabled={unresolvedCount > 0}
+            secondaryLabel="稍后处理"
+            isSubmitting={Boolean(props.isCreatingIngredient)}
+            onSecondary={closeIfAllowed}
+            onPrimary={props.onRetrySave}
+          />
+        }
       >
         <div className="recipe-ingredient-resolution-dialog">
           <section className="recipe-ingredient-resolution-summary">
@@ -194,16 +177,8 @@ export function RecipeIngredientResolutionDialog(props: RecipeIngredientResoluti
             <EmptyState title="没有待处理食材" description="已将所有配料绑定到食材库，或从菜谱中移除。" />
           )}
 
-          <div className="workspace-overlay-actions">
-            <ActionButton tone="secondary" type="button" onClick={props.onClose}>
-              稍后处理
-            </ActionButton>
-            <ActionButton tone="primary" type="button" onClick={props.onRetrySave} disabled={unresolvedCount > 0}>
-              重新保存
-            </ActionButton>
-          </div>
         </div>
       </WorkspaceModal>
-    </div>
+    </WorkspaceOverlayFrame>
   );
 }

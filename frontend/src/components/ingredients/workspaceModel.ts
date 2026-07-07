@@ -654,6 +654,23 @@ export function buildDisposableExpiredInventoryItems(
     });
 }
 
+export function countDisposableExpiredInventoryItems(
+  summary: IngredientSummaryViewModel,
+  referenceDate = todayKey()
+) {
+  const referenceTime = new Date(referenceDate).getTime();
+
+  return summary.inventoryItems.reduce((count, item) => {
+    if (!item.expiry_date) {
+      return count;
+    }
+    if (new Date(item.expiry_date).getTime() >= referenceTime) {
+      return count;
+    }
+    return getInventoryRemainingQuantity(item) > 0 ? count + 1 : count;
+  }, 0);
+}
+
 export function buildInventoryCardPresentation(
   summary: IngredientSummaryViewModel,
   referenceDate = todayKey()

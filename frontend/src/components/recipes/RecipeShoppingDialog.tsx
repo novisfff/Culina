@@ -1,6 +1,9 @@
 import type { Ingredient, RecipeIngredient } from '../../api/types';
+import { resolveMediaUrl } from '../../lib/assets';
+import { resolvePreferredIngredientUnit } from '../../lib/ingredientUnits';
+import { useIngredientResourceSearch } from '../../hooks/useIngredientResourceSearch';
 import { MediaWithPlaceholder } from '../MediaPlaceholder';
-import { ActionButton, Badge, EmptyState, WorkspaceModal } from '../ui-kit';
+import { Badge, EmptyState, FormActions, QuantityUnitField, SearchableResourceSelect, WorkspaceModal, WorkspaceOverlayFrame } from '../ui-kit';
 import {
   buildRecipeIngredientAvailabilityMap,
   buildShoppingDraftSourceLabel,
@@ -10,7 +13,6 @@ import {
   getRecipeShoppingRequirement,
   type RecipeShoppingCustomForm,
   type RecipeShoppingDraftItem,
-  type RecipeShoppingIngredientOption,
 } from './RecipeWorkspaceModel';
 import { RecipeUiIcon } from './RecipeWorkspaceCards';
 import type { RecipeCardViewModel } from './workspaceModel';
@@ -20,8 +22,6 @@ type RecipeShoppingDialogProps = {
   ingredients: Ingredient[];
   drafts: RecipeShoppingDraftItem[];
   customForm: RecipeShoppingCustomForm;
-  ingredientOptions: RecipeShoppingIngredientOption[];
-  visibleIngredientOptions: RecipeShoppingIngredientOption[];
   isIngredientPickerOpen: boolean;
   isCreatingShopping?: boolean;
   unitOptions: string[];
@@ -36,24 +36,56 @@ type RecipeShoppingDialogProps = {
   onAddRecipeIngredient: (item: RecipeIngredient) => void;
   onChangeCustomForm: (form: RecipeShoppingCustomForm) => void;
   onSetIngredientPickerOpen: (open: boolean) => void;
-  onSelectIngredientOption: (option: RecipeShoppingIngredientOption) => void;
+  onSelectIngredientOption: (ingredient: Ingredient) => void;
   onAdjustCustomQuantity: (delta: number) => void;
   onAddCustomDraft: () => void;
   onSubmit: () => void;
 };
 
 export function RecipeShoppingDialog(props: RecipeShoppingDialogProps) {
+  const ingredientSearch = useIngredientResourceSearch(props.customForm.title, {
+    fallbackIngredients: props.ingredients,
+  });
+  const isCreatingShopping = Boolean(props.isCreatingShopping);
+  const validDraftCount = buildShoppingPayloadsFromDrafts(props.drafts).length;
+
+  function closeIfAllowed() {
+    if (!isCreatingShopping) {
+      props.onClose();
+    }
+  }
+
   return (
-    <div className="workspace-overlay-root">
-      <div className="workspace-overlay-backdrop" onClick={props.onClose} />
+    <WorkspaceOverlayFrame
+      rootClassName="recipe-workspace-overlay-root"
+      onClose={closeIfAllowed}
+      closeOnBackdrop={!isCreatingShopping}
+    >
       <WorkspaceModal
         title="加入采购清单"
         description={props.card.recipe.title}
         eyebrow="采购确认"
         closeLabel="关闭"
         closeAriaLabel="关闭采购确认"
-        onClose={props.onClose}
+        onClose={closeIfAllowed}
         className="recipe-shopping-modal"
+        footerInfo={
+          <div className="recipe-shopping-footer-summary">
+            <span><RecipeUiIcon name="clipboard" /></span>
+            <p>已选择 <strong>{validDraftCount} 项</strong>，将加入采购清单</p>
+          </div>
+        }
+        footerActions={
+          <FormActions
+            className="recipe-shopping-actions"
+            primaryLabel="确认加入清单"
+            primaryDisabled={validDraftCount === 0}
+            isSubmitting={isCreatingShopping}
+            secondaryLabel="取消"
+            onPrimary={props.onSubmit}
+            onSecondary={closeIfAllowed}
+          />
+        }
       >
         <div className="recipe-shopping-dialog">
           <section className="recipe-shopping-draft-section">
@@ -91,6 +123,7 @@ export function RecipeShoppingDialog(props: RecipeShoppingDialogProps) {
                           className="text-input"
                           value={item.title}
                           placeholder="采购项名称"
+                          disabled={isCreatingShopping}
                           onChange={(event) => props.onUpdateDraft(item.id, { title: event.target.value })}
                         />
                       </div>
@@ -101,39 +134,23 @@ export function RecipeShoppingDialog(props: RecipeShoppingDialogProps) {
                             <input
                               value={item.displayLabel ?? '需要补充'}
                               placeholder="需要补充"
+                              disabled={isCreatingShopping}
                               onChange={(event) => props.onUpdateDraft(item.id, { displayLabel: event.target.value })}
                             />
                           </label>
                         ) : (
-                          <>
-                            <div className="recipe-shopping-stepper" aria-label={`${item.title} 数量`}>
-                              <button type="button" onClick={() => props.onAdjustDraftQuantity(item.id, -1)} aria-label={`${item.title} 数量减一`}>
-                                <RecipeUiIcon name="minus" />
-                              </button>
-                              <input
-                                value={item.quantity}
-                                inputMode="decimal"
-                                onChange={(event) => props.onUpdateDraft(item.id, { quantity: event.target.value })}
-                              />
-                              <button type="button" onClick={() => props.onAdjustDraftQuantity(item.id, 1)} aria-label={`${item.title} 数量加一`}>
-                                <RecipeUiIcon name="plus" />
-                              </button>
-                            </div>
-                            <div className="recipe-shopping-select-shell">
-                              <select
-                                value={item.unit}
-                                onChange={(event) => props.onUpdateDraft(item.id, { unit: event.target.value })}
-                                aria-label={`${item.title} 单位`}
-                              >
-                                {[item.unit, ...props.unitOptions].filter((unit, index, list) => unit && list.indexOf(unit) === index).map((unit) => (
-                                  <option key={unit} value={unit}>{unit}</option>
-                                ))}
-                              </select>
-                              <RecipeUiIcon name="chevronDown" />
-                            </div>
-                          </>
+                          <QuantityUnitField
+                            quantity={item.quantity === '' || item.quantity === null || item.quantity === undefined ? '' : String(item.quantity)}
+                            unit={item.unit || '份'}
+                            unitOptions={[item.unit || '份', ...props.unitOptions]
+                              .filter((unit, index, list) => unit && list.indexOf(unit) === index)
+                              .map((unit) => ({ value: unit, label: unit }))}
+                            quantityDisabled={isCreatingShopping}
+                            onQuantityChange={(value) => props.onUpdateDraft(item.id, { quantity: value })}
+                            onUnitChange={(unit) => props.onUpdateDraft(item.id, { unit })}
+                          />
                         )}
-                        <button className="recipe-shopping-delete-button" type="button" onClick={() => props.onRemoveDraft(item.id)}>删除</button>
+                        <button className="recipe-shopping-delete-button" type="button" onClick={() => props.onRemoveDraft(item.id)} disabled={isCreatingShopping}>删除</button>
                       </div>
                     </article>
                   );
@@ -179,7 +196,7 @@ export function RecipeShoppingDialog(props: RecipeShoppingDialogProps) {
                               : '未匹配库存'}
                       </span>
                     </div>
-                    <button type="button" disabled={alreadyAdded || !canAddIngredient} onClick={() => props.onAddRecipeIngredient(item)}>
+                    <button type="button" disabled={isCreatingShopping || alreadyAdded || !canAddIngredient} onClick={() => props.onAddRecipeIngredient(item)}>
                       {alreadyAdded ? '已加入' : canAddIngredient ? <RecipeUiIcon name="plus" /> : '先建档'}
                     </button>
                   </article>
@@ -196,86 +213,66 @@ export function RecipeShoppingDialog(props: RecipeShoppingDialogProps) {
               </div>
             </div>
             <div className="recipe-shopping-custom-row">
-              <div className="recipe-shopping-combobox">
-                <div className="recipe-shopping-combobox-field">
-                  <RecipeUiIcon name="search" />
-                  <input
-                    value={props.customForm.title}
-                    placeholder="搜索食材库"
-                    onFocus={() => props.onSetIngredientPickerOpen(true)}
-                    onChange={(event) => {
-                      const nextTitle = event.target.value;
-                      const matched = props.ingredientOptions.find((item) => item.name === nextTitle);
-                      props.onChangeCustomForm({
-                        ...props.customForm,
-                        ingredientId: matched?.id ?? null,
-                        title: nextTitle,
-                        unit: matched?.unit ?? props.customForm.unit,
-                      });
-                      props.onSetIngredientPickerOpen(true);
-                    }}
-                  />
-                </div>
-                {props.isIngredientPickerOpen && props.visibleIngredientOptions.length > 0 && (
-                  <div className="recipe-shopping-combobox-menu">
-                    {props.visibleIngredientOptions.map((option) => (
-                      <button key={option.id} type="button" onClick={() => props.onSelectIngredientOption(option)}>
-                        <MediaWithPlaceholder src={option.imageUrl} alt="" />
-                        <span>
-                          <strong>{option.name}</strong>
-                          <small>{option.category || '食材'} · 默认 {option.unit}</small>
-                        </span>
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-              <div className="recipe-shopping-custom-quantity">
-                <button type="button" onClick={() => props.onAdjustCustomQuantity(-1)} aria-label="自定义食材数量减一">
-                  <RecipeUiIcon name="minus" />
-                </button>
-                <input
-                  value={props.customForm.quantity}
-                  inputMode="decimal"
-                  placeholder="数量"
-                  onChange={(event) => props.onChangeCustomForm({ ...props.customForm, quantity: event.target.value })}
-                />
-                <button type="button" onClick={() => props.onAdjustCustomQuantity(1)} aria-label="自定义食材数量加一">
-                  <RecipeUiIcon name="plus" />
-                </button>
-              </div>
-              <div className="recipe-shopping-select-shell">
-                <select
-                  value={props.customForm.unit}
-                  onChange={(event) => props.onChangeCustomForm({ ...props.customForm, unit: event.target.value })}
-                  aria-label="自定义食材单位"
-                >
-                  {[props.customForm.unit, ...props.unitOptions].filter((unit, index, list) => unit && list.indexOf(unit) === index).map((unit) => (
-                    <option key={unit} value={unit}>{unit}</option>
-                  ))}
-                </select>
-                <RecipeUiIcon name="chevronDown" />
-              </div>
-              <button className="recipe-shopping-add-button" type="button" onClick={props.onAddCustomDraft} disabled={!props.customForm.ingredientId}>加入</button>
+              <SearchableResourceSelect
+                ariaLabel="从食材库添加"
+                placeholder="搜索食材库"
+                value={props.customForm.ingredientId ?? ''}
+                query={props.customForm.title}
+                presentation="popover"
+                loading={ingredientSearch.isSearching}
+                loadingMore={ingredientSearch.isFetchingNextPage}
+                hasMore={ingredientSearch.hasMore}
+                disabled={isCreatingShopping}
+                loadMoreText="加载更多食材"
+                loadingMoreText="正在加载更多食材..."
+                options={ingredientSearch.ingredients.map((ingredient) => ({
+                  id: ingredient.id,
+                  label: ingredient.name,
+                  description: `${ingredient.category || '食材'} · 默认 ${ingredient.default_unit || '个'}`,
+                  image: <MediaWithPlaceholder src={resolveMediaUrl(ingredient.image, 'thumb')} alt="" />,
+                }))}
+                emptyText={ingredientSearch.isSearching ? '正在搜索...' : '没有匹配的食材，请先去食材库建档。'}
+                onSearchCompositionStart={ingredientSearch.onCompositionStart}
+                onSearchCompositionEnd={ingredientSearch.onCompositionEnd}
+                onQueryChange={(nextTitle) => {
+                  const matched = ingredientSearch.findIngredientByName(nextTitle);
+                  props.onChangeCustomForm({
+                    ...props.customForm,
+                    ingredientId: matched?.id ?? null,
+                    title: nextTitle,
+                    unit: matched
+                      ? resolvePreferredIngredientUnit(matched, props.customForm.unit) || matched.default_unit
+                      : props.customForm.unit,
+                  });
+                  props.onSetIngredientPickerOpen(true);
+                }}
+                onLoadMore={() => {
+                  if (ingredientSearch.hasMore && !ingredientSearch.isFetchingNextPage) {
+                    void ingredientSearch.fetchNextPage();
+                  }
+                }}
+                onChange={(ingredientId) => {
+                  const ingredient = ingredientSearch.findIngredientById(ingredientId);
+                  if (ingredient) props.onSelectIngredientOption(ingredient);
+                }}
+              />
+              <QuantityUnitField
+                className="recipe-shopping-custom-quantity"
+                quantity={props.customForm.quantity}
+                unit={props.customForm.unit || '份'}
+                unitOptions={[props.customForm.unit || '份', ...props.unitOptions]
+                  .filter((unit, index, list) => unit && list.indexOf(unit) === index)
+                  .map((unit) => ({ value: unit, label: unit }))}
+                onQuantityChange={(quantity) => props.onChangeCustomForm({ ...props.customForm, quantity })}
+                onUnitChange={(unit) => props.onChangeCustomForm({ ...props.customForm, unit })}
+                quantityDisabled={isCreatingShopping}
+              />
+              <button className="recipe-shopping-add-button" type="button" onClick={props.onAddCustomDraft} disabled={isCreatingShopping || !props.customForm.ingredientId}>加入</button>
             </div>
           </section>
 
-          <div className="recipe-shopping-footer-bar">
-            <div className="recipe-shopping-footer-summary">
-              <span><RecipeUiIcon name="clipboard" /></span>
-              <p>已选择 <strong>{buildShoppingPayloadsFromDrafts(props.drafts).length} 项</strong>，将加入采购清单</p>
-            </div>
-            <div className="workspace-overlay-actions">
-              <ActionButton tone="secondary" type="button" onClick={props.onClose}>
-                取消
-              </ActionButton>
-              <ActionButton tone="primary" type="button" onClick={props.onSubmit} disabled={props.isCreatingShopping || props.drafts.length === 0}>
-                {props.isCreatingShopping ? '加入中...' : '确认加入清单'}
-              </ActionButton>
-            </div>
-          </div>
         </div>
       </WorkspaceModal>
-    </div>
+    </WorkspaceOverlayFrame>
   );
 }

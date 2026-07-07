@@ -75,6 +75,16 @@ export function RecipeUiIcon(props: { name: RecipeUiIconName; className?: string
           <path d="M8.2 12h7.6M8.2 15.5h5.4" />
         </svg>
       );
+    case 'difficulty':
+      return (
+        <svg {...common}>
+          <path d="M5 16.5a7.5 7.5 0 0 1 14 0" />
+          <path d="M7.6 13.2 5.9 11.5M12 10V7.6M16.4 13.2l1.7-1.7" />
+          <path d="m12 16 3.8-4.2" />
+          <circle cx="12" cy="16" r="1.3" />
+          <path d="M6 19.5h12" />
+        </svg>
+      );
     case 'edit':
       return (
         <svg {...common}>
@@ -177,6 +187,13 @@ export function RecipeUiIcon(props: { name: RecipeUiIconName; className?: string
       return (
         <svg {...common}>
           <path d="M5.5 18.5h2.2v-4.2H5.5v4.2ZM10.9 18.5h2.2V9.7h-2.2v8.8ZM16.3 18.5h2.2V5.5h-2.2v13Z" />
+        </svg>
+      );
+    case 'sort':
+      return (
+        <svg {...common}>
+          <path d="M6 7h9M6 12h7M6 17h5" />
+          <path d="M18 5.5v13M15.5 16l2.5 2.5 2.5-2.5" />
         </svg>
       );
     case 'sparkle':
@@ -467,7 +484,7 @@ export function MobileRecipeCard(props: {
           </button>
         </div>
         <p>{props.card.availabilityDetail}</p>
-        <div className="mobile-recipe-chip-row">
+        <div className="mobile-recipe-meta-row">
           {(props.card.ingredientPreview.length > 0 ? props.card.ingredientPreview.slice(0, 2) : ['家庭菜谱']).map((label) => (
             <span key={label}>{label}</span>
           ))}

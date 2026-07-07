@@ -104,11 +104,6 @@ export const foodsApi = {
       body: JSON.stringify({ favorite }),
     }),
   getMealLogs: () => request<MealLog[]>('/api/meal-logs'),
-  createMealLog: (payload: Record<string, unknown>) =>
-    request<MealLog>('/api/meal-logs', {
-      method: 'POST',
-      body: JSON.stringify(payload),
-    }),
   updateMealLog: (mealLogId: string, payload: UpdateMealLogPayload) =>
     request<MealLog>(`/api/meal-logs/${mealLogId}`, {
       method: 'PATCH',

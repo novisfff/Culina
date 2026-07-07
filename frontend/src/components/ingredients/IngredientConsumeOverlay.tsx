@@ -1,6 +1,7 @@
 import type { CSSProperties, FormEvent } from 'react';
 import { MediaWithPlaceholder } from '../MediaPlaceholder';
-import { ActionButton, Badge, WorkspaceModal } from '../ui-kit';
+import { ActionButton, Badge, FormActions, QuantityUnitField, WorkspaceModal } from '../ui-kit';
+import { tracksIngredientQuantity } from '../../lib/ingredientTracking';
 import type { IngredientSummaryViewModel } from './workspaceModel';
 import type { ConsumeQuickPreset } from './consumeQuickHelpers';
 import { formatNumericString } from './ingredientWorkspaceForms';
@@ -36,6 +37,13 @@ type IngredientConsumeOverlayProps = {
 };
 
 export function IngredientConsumeOverlay(props: IngredientConsumeOverlayProps) {
+  const consumeFormId = 'ingredient-consume-overlay-form';
+  const consumeTracksQuantity = tracksIngredientQuantity(props.selectedConsumeSummary.ingredient);
+  const currentUnit = props.selectedConsumeUnit?.unit ?? props.consumeForm.unit;
+  const consumeQuantityUnitOptions = [currentUnit, ...props.consumeUnitOptions.map((option) => option.unit)]
+    .filter((unit, index, list) => unit && list.indexOf(unit) === index)
+    .map((unit) => ({ value: unit, label: unit }));
+
   return (
     <WorkspaceModal
       title="快速消费"
@@ -44,8 +52,37 @@ export function IngredientConsumeOverlay(props: IngredientConsumeOverlayProps) {
       closeAriaLabel="关闭"
       className="consume-quick-modal"
       onClose={props.closeOverlay}
+      footerInfo={
+        <div className="consume-quick-footer-summary">
+          <span>本次将记录</span>
+          <strong>
+            {props.selectedConsumeUnit
+              ? `${formatNumericString(props.consumeQuantityValue)}${props.selectedConsumeUnit.unit}`
+              : '先选单位'}
+          </strong>
+          <p>
+            {props.selectedConsumeUnit
+              ? props.consumeIsAllState
+                ? '提交后这一单位库存会接近清空。'
+                : `提交后剩余 ${formatNumericString(props.consumeRemainingQuantity)}${props.selectedConsumeUnit.unit}。`
+              : '系统会自动优先扣减更早到期批次。'}
+          </p>
+        </div>
+      }
+      footerActions={
+        <FormActions
+          className="consume-quick-actions"
+          primaryLabel="确认消耗"
+          primaryType="submit"
+          primaryForm={consumeFormId}
+          primaryDisabled={!props.consumeCanSubmit}
+          isSubmitting={Boolean(props.isConsumingInventory)}
+          secondaryLabel="取消"
+          onSecondary={props.closeOverlay}
+        />
+      }
     >
-      <form className="consume-quick-form" onSubmit={(event) => void props.submitConsume(event)}>
+      <form id={consumeFormId} className="consume-quick-form" onSubmit={(event) => void props.submitConsume(event)}>
         <div className="consume-quick-scroll">
           <section className="ingredients-restock-identity-card ingredients-consume-identity-card">
             <div className="ingredients-restock-identity-media">
@@ -78,34 +115,6 @@ export function IngredientConsumeOverlay(props: IngredientConsumeOverlayProps) {
             </div>
           </section>
 
-          {props.consumeUnitOptions.length > 1 && (
-            <section className="ingredients-restock-field-group ingredients-consume-unit-section">
-              <div className="ingredients-restock-field-head">
-                <span>记录单位</span>
-              </div>
-              <div className="ingredients-restock-choice-row ingredients-consume-unit-row">
-                {props.consumeUnitOptions.map((item) => (
-                  <button
-                    key={`${props.selectedConsumeSummary.ingredient.id}-${item.unit}`}
-                    type="button"
-                    className={
-                      props.selectedConsumeUnit?.unit === item.unit
-                        ? 'ingredients-choice-chip ingredients-consume-unit-chip active'
-                        : 'ingredients-choice-chip ingredients-consume-unit-chip'
-                    }
-                    onClick={() => props.updateConsumeUnit(item.unit)}
-                  >
-                    <span className="ingredients-consume-unit-chip-label">{item.unit}</span>
-                    <small>
-                      当前剩余 {formatNumericString(item.available)}
-                      {item.unit}
-                    </small>
-                  </button>
-                ))}
-              </div>
-            </section>
-          )}
-
           <section
             className={
               props.consumeIsAllState
@@ -116,6 +125,22 @@ export function IngredientConsumeOverlay(props: IngredientConsumeOverlayProps) {
             <div className="ingredients-restock-field-head">
               <span>本次用量</span>
             </div>
+            <QuantityUnitField
+              className="ingredients-consume-quantity-field"
+              quantity={props.consumeForm.quantity}
+              unit={currentUnit}
+              unitOptions={consumeQuantityUnitOptions}
+              quantityDisabled={!consumeTracksQuantity || !props.selectedConsumeUnit}
+              quantityDisabledReason={
+                !consumeTracksQuantity
+                  ? '这个食材只记录是否还有，不按数量扣减。'
+                  : !props.selectedConsumeUnit
+                    ? '先选择可消费单位。'
+                    : undefined
+              }
+              onQuantityChange={props.updateConsumeQuantityInput}
+              onUnitChange={props.updateConsumeUnit}
+            />
             <div
               className={
                 props.consumeIsAllState
@@ -125,22 +150,6 @@ export function IngredientConsumeOverlay(props: IngredientConsumeOverlayProps) {
             >
               <div className="touch-field-head consume-quick-range-head">
                 <span>拖拉条</span>
-                <label className="consume-quick-range-editor-shell">
-                  <input
-                    className="consume-quick-range-editor-input"
-                    type="number"
-                    min={0}
-                    max={props.consumeAvailableQuantity || undefined}
-                    step={props.consumeStep}
-                    inputMode="decimal"
-                    aria-label="消费量输入"
-                    placeholder={formatNumericString(props.consumeSuggestedQuantity)}
-                    value={props.consumeForm.quantity}
-                    disabled={!props.selectedConsumeUnit}
-                    onChange={(event) => props.updateConsumeQuantityInput(event.target.value)}
-                  />
-                  <strong>{(props.selectedConsumeUnit?.unit ?? props.consumeForm.unit) || '单位'}</strong>
-                </label>
               </div>
               <div className="touch-field-helper">
                 {props.selectedConsumeUnit
@@ -215,31 +224,6 @@ export function IngredientConsumeOverlay(props: IngredientConsumeOverlayProps) {
           </section>
         </div>
 
-        <div className="consume-quick-footer-bar">
-          <div className="consume-quick-footer-summary">
-            <span>本次将记录</span>
-            <strong>
-              {props.selectedConsumeUnit
-                ? `${formatNumericString(props.consumeQuantityValue)}${props.selectedConsumeUnit.unit}`
-                : '先选单位'}
-            </strong>
-            <p>
-              {props.selectedConsumeUnit
-                ? props.consumeIsAllState
-                  ? '提交后这一单位库存会接近清空。'
-                  : `提交后剩余 ${formatNumericString(props.consumeRemainingQuantity)}${props.selectedConsumeUnit.unit}。`
-                : '系统会自动优先扣减更早到期批次。'}
-            </p>
-          </div>
-          <div className="workspace-overlay-actions">
-            <ActionButton tone="secondary" type="button" onClick={props.closeOverlay}>
-              取消
-            </ActionButton>
-            <ActionButton tone="primary" type="submit" disabled={props.isConsumingInventory || !props.consumeCanSubmit}>
-              {props.isConsumingInventory ? '保存中...' : '记录这次消费'}
-            </ActionButton>
-          </div>
-        </div>
       </form>
     </WorkspaceModal>
   );

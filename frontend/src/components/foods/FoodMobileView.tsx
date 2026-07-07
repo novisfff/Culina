@@ -4,7 +4,7 @@ import { buildMediaSizes, buildMediaSrcSet, resolveMediaUrl } from '../../lib/as
 import { FOOD_TYPE_LABELS, MEAL_TYPE_LABELS, getFoodCoverAsset } from '../../lib/ui';
 import { chunkMobilePagedItems, useMobilePagedScroller } from '../../hooks/useMobilePagedScroller';
 import { MediaWithPlaceholder } from '../MediaPlaceholder';
-import { Badge, EmptyState, SearchLoadingIndicator } from '../ui-kit';
+import { EmptyState, OptionChipGroup, SearchField, StateBlock, StatusBadge } from '../ui-kit';
 import { focusMobileInput } from '../../lib/mobileFocus';
 import { resolveMobileSceneCoverSource } from './FoodMobileSceneModel';
 import { FoodUiIcon } from './FoodWorkspacePrimitives';
@@ -152,9 +152,11 @@ export function FoodMobileView(props: {
                   </div>
                   <div className="mobile-dashboard-food-body">
                     <h3>{item.food.name}</h3>
-                    <div className="mobile-dashboard-chip-row">
-                      <Badge>{FOOD_TYPE_LABELS[item.food.type === 'packaged' ? 'readyMade' : item.food.type]}</Badge>
-                      <Badge>{cookingSummary?.availabilityLabel || item.food.routine_note || `${item.food.suitable_meal_types.length || 1} 餐适合`}</Badge>
+                    <div className="mobile-dashboard-badge-row">
+                      <StatusBadge size="compact">{FOOD_TYPE_LABELS[item.food.type === 'packaged' ? 'readyMade' : item.food.type]}</StatusBadge>
+                      <StatusBadge tone={cookingSummary?.availabilityLabel ? 'success' : 'neutral'} size="compact">
+                        {cookingSummary?.availabilityLabel || item.food.routine_note || `${item.food.suitable_meal_types.length || 1} 餐适合`}
+                      </StatusBadge>
                     </div>
                     <p>{cookingSummary?.shortagePreview.length ? `缺 ${cookingSummary.shortagePreview.join('、')}` : cookingSummary?.metaLabel || item.reasons[0] || item.food.notes || '适合今天安排'}</p>
                     <div className="mobile-dashboard-food-actions">
@@ -249,25 +251,27 @@ export function FoodMobileView(props: {
           </button>
         </div>
         <div className="mobile-food-library-filters">
-          <label className="mobile-food-search">
-            <FoodUiIcon name="search" />
-            <input
-              id="mobile-food-search"
-              value={props.search}
-              placeholder="搜索食物、食材或菜谱"
-              onChange={(event) => props.onSearchChange(event.target.value)}
-              onCompositionStart={props.onSearchCompositionStart}
-              onCompositionEnd={props.onSearchCompositionEnd}
-            />
-            <SearchLoadingIndicator active={Boolean(props.search.trim()) && Boolean(props.isSearchFetching)} />
-          </label>
-          <div className="mobile-food-tabs" aria-label="食物分类">
-            {props.filterTabs.map((item) => (
-              <button key={item.label} className={item.active ? 'active' : ''} type="button" onClick={item.onClick}>
-                {item.label}
-              </button>
-            ))}
-          </div>
+          <SearchField
+            className="mobile-food-search"
+            inputId="mobile-food-search"
+            ariaLabel="搜索食物"
+            placeholder="搜索食物、食材或菜谱"
+            value={props.search}
+            loading={Boolean(props.search.trim()) && Boolean(props.isSearchFetching)}
+            leadingIcon={<FoodUiIcon name="search" />}
+            onChange={props.onSearchChange}
+            onClear={() => props.onSearchChange('')}
+            onCompositionStart={props.onSearchCompositionStart}
+            onCompositionEnd={props.onSearchCompositionEnd}
+          />
+          <OptionChipGroup
+            ariaLabel="食物分类"
+            value={props.filterTabs.find((item) => item.active)?.label ?? ''}
+            options={props.filterTabs.map((item) => ({ value: item.label, label: item.label }))}
+            size="large"
+            className="mobile-food-chip-group"
+            onChange={(nextValue) => props.filterTabs.find((item) => item.label === nextValue)?.onClick()}
+          />
         </div>
         {props.mobileLibraryFoods.length > 0 ? (
           <>
@@ -296,9 +300,9 @@ export function FoodMobileView(props: {
                         <div className="mobile-food-library-body">
                           <h3>{food.name}</h3>
                           <p>{cookingSummary ? ['家常菜谱', usageCount > 0 ? '最近做过' : cookingSummary.availabilityDetail].join(' · ') : [FOOD_TYPE_LABELS[food.type === 'packaged' ? 'readyMade' : food.type], usageCount > 0 ? '最近吃过' : '未记录'].join(' · ')}</p>
-                          <div className="mobile-food-chip-row">
+                          <div className="mobile-food-badge-row">
                             {labels.map((label) => (
-                              <span key={label}>{label}</span>
+                              <StatusBadge key={label} size="compact">{label}</StatusBadge>
                             ))}
                           </div>
                           <div className="mobile-food-card-actions">
@@ -329,10 +333,14 @@ export function FoodMobileView(props: {
             </div>
           </>
         ) : (
-          <div className="mobile-food-empty">
-            <strong>{props.emptyTitle}</strong>
-            <button type="button" onClick={props.onClearFoodFilters}>清空筛选</button>
-          </div>
+          <StateBlock
+            status="empty"
+            title={props.emptyTitle}
+            description="调整筛选条件，或先补充一条常吃食物。"
+            actionLabel="清空筛选"
+            onAction={props.onClearFoodFilters}
+            className="mobile-food-empty"
+          />
         )}
       </section>
     </section>

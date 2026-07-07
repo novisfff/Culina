@@ -1,4 +1,4 @@
-import { ActionButton, WorkspaceModal } from '../ui-kit';
+import { FormActions, WorkspaceModal, WorkspaceOverlayFrame } from '../ui-kit';
 import { RecipeUiIcon } from './RecipeWorkspaceCards';
 import {
   getRecipeDraftGenerationStepState,
@@ -23,14 +23,24 @@ type RecipeDraftDialogProps = {
 
 export function RecipeDraftDialog(props: RecipeDraftDialogProps) {
   return (
-    <div className="workspace-overlay-root">
-      <div className="workspace-overlay-backdrop" onClick={props.onClose} />
+    <WorkspaceOverlayFrame onClose={props.onClose}>
       <WorkspaceModal
         title="AI 补全菜谱"
         description="AI 会基于当前编辑表单里的信息生成完整菜谱，确认后覆盖左侧表单内容。"
         eyebrow="AI 生成"
         onClose={props.onClose}
         className="recipe-ai-draft-modal"
+        footerActions={
+          <FormActions
+            className="recipe-ai-draft-modal-actions"
+            primaryLabel={props.actionLabel}
+            primaryDisabled={props.isBusy || props.isImageGenerating || props.stage === 'done'}
+            isSubmitting={props.isBusy}
+            secondaryLabel="取消"
+            onPrimary={props.onGenerate}
+            onSecondary={props.onClose}
+          />
+        }
       >
         <div className="recipe-ai-draft-modal-body">
           <section className="recipe-ai-source-panel">
@@ -82,21 +92,8 @@ export function RecipeDraftDialog(props: RecipeDraftDialogProps) {
 
           {props.error ? <p className="form-error">{props.error}</p> : null}
 
-          <div className="recipe-ai-draft-modal-actions">
-            <ActionButton tone="secondary" type="button" onClick={props.onClose} disabled={props.isBusy}>
-              取消
-            </ActionButton>
-            <ActionButton
-              tone="primary"
-              type="button"
-              onClick={props.onGenerate}
-              disabled={props.isBusy || props.isImageGenerating || props.stage === 'done'}
-            >
-              {props.actionLabel}
-            </ActionButton>
-          </div>
         </div>
       </WorkspaceModal>
-    </div>
+    </WorkspaceOverlayFrame>
   );
 }

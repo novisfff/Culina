@@ -113,10 +113,6 @@ export function invalidateAfterQuickMealAdded(queryClient: QueryClient) {
   invalidateMany(queryClient, [queryKeys.mealLogs, queryKeys.foodPlanRoot, queryKeys.foodRecommendations, queryKeys.activityLogs]);
 }
 
-export function invalidateAfterLegacyAiQuery(queryClient: QueryClient) {
-  invalidateMany(queryClient, [queryKeys.aiConversations, queryKeys.family, queryKeys.activityLogs]);
-}
-
 export function invalidateAfterAiApprovalSettled(queryClient: QueryClient, conversationId: string) {
   invalidateMany(queryClient, [
     queryKeys.aiMessages(conversationId),

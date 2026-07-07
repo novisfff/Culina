@@ -1,12 +1,11 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import { createPortal } from 'react-dom';
-import { keepPreviousData, useQuery } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import { api } from '../../api/client';
 import { queryKeys } from '../../api/queryKeys';
 import type { SearchEntityType, SearchResultItem } from '../../api/types';
 import { DashboardIcon } from '../../app/shellIcons';
 import { MediaWithPlaceholder } from '../../components/MediaPlaceholder';
-import { SearchLoadingIndicator } from '../../components/ui-kit';
 import { useDebouncedSearchValue, useSearchCompositionState } from '../../hooks/useDebouncedValue';
 import { resolveAssetUrl } from '../../lib/assets';
 import { buildGlobalSearchResultView, type GlobalSearchResultView } from './globalSearchModel';
@@ -103,7 +102,6 @@ export function GlobalSearchOverlay(props: Props) {
         offset: 0,
       }),
     enabled: props.open && Boolean(searchValue),
-    placeholderData: keepPreviousData,
   });
 
   const searchDataMatchesCurrentQuery = Boolean(searchValue) && searchQuery.data?.query === searchValue;
@@ -113,7 +111,8 @@ export function GlobalSearchOverlay(props: Props) {
   );
   const isWaitingForDebounce = Boolean(trimmedQuery) && !searchValue;
   const isLoading = isWaitingForDebounce || searchQuery.isFetching;
-  const showContent = results.length > 0 || (searchDataMatchesCurrentQuery && Boolean(searchQuery.data?.degraded));
+  const hasResolvedSearch = searchDataMatchesCurrentQuery && Boolean(searchValue);
+  const showContent = hasResolvedSearch;
 
   function handleKeyDown(event: KeyboardEvent<HTMLDivElement>) {
     if (event.key === 'Escape') {
@@ -141,7 +140,9 @@ export function GlobalSearchOverlay(props: Props) {
             onCompositionStart={searchComposition.onCompositionStart}
             onCompositionEnd={searchComposition.onCompositionEnd}
           />
-          <SearchLoadingIndicator active={isLoading} className="global-search-loading" />
+          {isLoading && (
+            <span className="search-loading-indicator global-search-loading" aria-label="正在检索" role="status" />
+          )}
           {trimmedQuery && (
             <button className="global-search-clear" type="button" aria-label="清空搜索" onClick={() => setQuery('')}>
               <DashboardIcon name="x" />
@@ -160,6 +161,11 @@ export function GlobalSearchOverlay(props: Props) {
                   <GlobalSearchResultRow key={result.id} result={result} onSelect={props.onSelect} />
                 ))}
               </div>
+            )}
+            {hasResolvedSearch && results.length === 0 && (
+              <p className="global-search-empty" role="status">
+                没找到匹配内容
+              </p>
             )}
           </div>
         )}

@@ -178,7 +178,7 @@ export function HomeMobileDashboard(props: {
                   </div>
                   <div className="mobile-dashboard-food-body">
                     <h3>{food.name}</h3>
-                    <div className="mobile-dashboard-chip-row">
+                    <div className="mobile-dashboard-badge-row">
                       <Badge>{FOOD_TYPE_LABELS[food.type]}</Badge>
                       <Badge>{food.routine_note || `${food.suitable_meal_types.length || 1} 餐适合`}</Badge>
                     </div>

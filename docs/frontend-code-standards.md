@@ -112,6 +112,16 @@ API 调用优先通过 `frontend/src/api` 中的 client 与类型封装。修改
 - 避免企业后台式密集表格作为主要体验。
 - 空状态、加载态、错误态和提交中状态必须可理解。
 
+## 基础组件统一化
+
+高频基础组件统一放在 `frontend/src/components/ui-kit/`，并通过 `frontend/src/components/ui-kit.tsx` 兼容出口导出。业务页面不得再新增局部 `CustomSelect`、裸业务确认弹窗、重复搜索输入、重复数量单位输入或自建筛选 chip。
+
+- 弹窗、确认框、表单动作、下拉选择、可输入 combobox、资源选择、搜索输入、数量单位输入、chip group、状态徽标、状态块和移动端底部动作栏属于基础组件。
+- 基础组件只负责结构、视觉、可访问性、loading/disabled/error 状态、手机端触控尺寸和桌面/手机 presentation。
+- 食材、食物、菜谱、AI 审批等业务规则不得写入基础组件；这些规则应留在业务 model、hook 或具体业务组件中。
+- 手机端和桌面/pad 端共享基础语义和 props；弹层、选择器、导航和长列表可在组件内部使用不同 presentation。
+- 基础组件样式放在 `frontend/src/styles/00-ui-kit.css`，使用 `.ui-*` 前缀；业务域样式继续放在对应业务 CSS 文件中。
+
 ## 8. 文件体量
 
 文件体量是健康检查，不是开发目标：

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 import type { Food, FoodPlanItem, MealLog, MealType } from '../../api/types';
 import type { NoticeState } from '../../hooks/useNotice';
 import { addDateKeyDays, todayKey } from '../../lib/date';
@@ -16,10 +16,6 @@ function resolveErrorMessage(reason: unknown, fallback: string) {
     return reason.message;
   }
   return fallback;
-}
-
-function getFoodSceneTags(food: Food) {
-  return food.scene_tags ?? [];
 }
 
 export function useFoodPlanState(input: {
@@ -75,18 +71,6 @@ export function useFoodPlanState(input: {
     };
   });
   const planDateOptions = Array.from({ length: 90 }, (_, index) => addDateKeyDays(todayDate, index));
-  const planFoodOptions = useMemo(() => {
-    const query = planFoodSearch.trim().toLowerCase();
-    return input.foods
-      .filter((food) => {
-        if (!query) return true;
-        return [food.name, food.category, food.source_name, food.purchase_source, food.scene, food.notes, food.routine_note, ...getFoodSceneTags(food)]
-          .join(' ')
-          .toLowerCase()
-          .includes(query);
-      })
-      .slice(0, 8);
-  }, [input.foods, planFoodSearch]);
   const selectedPlanFood = planForm.foodId ? input.foods.find((food) => food.id === planForm.foodId) ?? null : null;
 
   function openPlanDialog(food?: Food) {
@@ -241,7 +225,6 @@ export function useFoodPlanState(input: {
     openPlanDialog,
     planDateOptions,
     planDetailForm,
-    planFoodOptions,
     planFoodSearch,
     planForm,
     resetPlanDetailForm,

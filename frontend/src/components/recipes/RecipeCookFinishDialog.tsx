@@ -1,7 +1,7 @@
 import { useState, type FormEvent, type ReactNode } from 'react';
 import type { CookRecipePreviewItem, CookRecipePreviewResponse, CookRecipeShortage, MealType } from '../../api/types';
 import { formatDate } from '../../lib/ui';
-import { ActionButton, WorkspaceModal } from '../ui-kit';
+import { ActionButton, DropdownSelect, FormActions, WorkspaceModal, WorkspaceOverlayFrame } from '../ui-kit';
 import { MEAL_TYPE_OPTIONS } from './RecipeWorkspaceOptions';
 import {
   formatCookPreviewRequestLabel,
@@ -111,7 +111,13 @@ export function RecipeCookFinishDialog(props: RecipeCookFinishDialogProps) {
   const shortages = props.cookPreview?.shortages ?? [];
   const hasInventoryAttention = shortages.length > 0 || Boolean(props.cookPreviewError);
   const hasFeedback = Boolean(props.session.rating || props.session.adjustments.trim() || props.session.resultNote.trim());
-  const submitLabel = props.isCooking ? '处理中...' : '确认完成';
+  const isCooking = Boolean(props.isCooking);
+
+  function closeIfAllowed() {
+    if (!isCooking) {
+      props.onClose();
+    }
+  }
 
   function markCompleted(stepId: CookFinishStepId) {
     setCompletedStepIds((current) => addUniqueStep(current, stepId));
@@ -200,9 +206,13 @@ export function RecipeCookFinishDialog(props: RecipeCookFinishDialogProps) {
           </label>
           <label>
             <span>餐次</span>
-            <select className="text-input" value={props.session.mealType} onChange={(event) => props.onUpdateSession({ mealType: event.target.value as MealType })}>
-              {MEAL_TYPE_OPTIONS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
-            </select>
+            <DropdownSelect
+              ariaLabel="选择餐次"
+              placeholder="选择餐次"
+              value={props.session.mealType}
+              options={MEAL_TYPE_OPTIONS}
+              onChange={(mealType) => props.onUpdateSession({ mealType: mealType as MealType })}
+            />
           </label>
         </div>
         <label className="checkbox-row checkbox-card recipe-cook-finish-toggle">
@@ -221,14 +231,20 @@ export function RecipeCookFinishDialog(props: RecipeCookFinishDialogProps) {
       >
         <label className="recipe-cook-finish-field">
           <span>满意度</span>
-          <select className="text-input" value={props.session.rating} onChange={(event) => props.onUpdateSession({ rating: event.target.value })}>
-            <option value="">不评分</option>
-            <option value="5">5 分</option>
-            <option value="4">4 分</option>
-            <option value="3">3 分</option>
-            <option value="2">2 分</option>
-            <option value="1">1 分</option>
-          </select>
+          <DropdownSelect
+            ariaLabel="选择满意度"
+            placeholder="不评分"
+            value={props.session.rating}
+            clearOption={{ value: '', label: '不评分' }}
+            options={[
+              { value: '5', label: '5 分' },
+              { value: '4', label: '4 分' },
+              { value: '3', label: '3 分' },
+              { value: '2', label: '2 分' },
+              { value: '1', label: '1 分' },
+            ]}
+            onChange={(rating) => props.onUpdateSession({ rating })}
+          />
         </label>
         <label className="recipe-cook-finish-field">
           <span>做法调整 / 变体</span>
@@ -278,18 +294,44 @@ export function RecipeCookFinishDialog(props: RecipeCookFinishDialogProps) {
     return renderSummaryStep();
   }
 
+  const cookFinishFormId = 'recipe-cook-finish-form';
+
   return (
-    <div className="workspace-overlay-root recipe-workspace-overlay-root">
-      <div className="workspace-overlay-backdrop" onClick={props.onClose} />
+    <WorkspaceOverlayFrame
+      rootClassName="recipe-workspace-overlay-root"
+      onClose={closeIfAllowed}
+      closeOnBackdrop={!isCooking}
+    >
       <WorkspaceModal
         title={`完成烹饪：${props.recipeTitle}`}
         description="按步骤核对本次写入内容；不想处理的步骤可以先跳过，确认前也能切回修改。"
         eyebrow="完成确认"
-        onClose={props.onClose}
+        onClose={closeIfAllowed}
         closeAriaLabel="关闭完成烹饪确认"
         className="recipe-cook-finish-modal"
+        footerActions={
+          <FormActions
+            className="recipe-cook-finish-actions"
+            primaryLabel={isSummaryStep ? '确认完成' : '下一步'}
+            primaryType={isSummaryStep ? 'submit' : 'button'}
+            primaryForm={isSummaryStep ? cookFinishFormId : undefined}
+            primaryDisabled={isSummaryStep ? props.submitDisabled : false}
+            isSubmitting={Boolean(isSummaryStep && isCooking)}
+            onPrimary={isSummaryStep ? undefined : goNext}
+          >
+            <ActionButton tone="tertiary" type="button" onClick={closeIfAllowed} disabled={isCooking}>稍后处理</ActionButton>
+            <ActionButton tone="secondary" type="button" onClick={() => setActiveStepId(COOK_FINISH_STEPS[Math.max(activeStepIndex - 1, 0)].id)} disabled={activeStepIndex <= 0}>
+              上一步
+            </ActionButton>
+            {!isSummaryStep ? (
+              <ActionButton tone="secondary" type="button" onClick={skipCurrentStep}>
+                跳过此步
+              </ActionButton>
+            ) : null}
+          </FormActions>
+        }
       >
-        <form className="recipe-cook-finish-form" onSubmit={handleSubmit}>
+        <form id={cookFinishFormId} className="recipe-cook-finish-form" onSubmit={handleSubmit}>
           <div className="recipe-cook-finish-steps" role="tablist" aria-label="完成烹饪步骤">
             {COOK_FINISH_STEPS.map((step, index) => {
               const status = getCookFinishStepStatus({
@@ -321,22 +363,8 @@ export function RecipeCookFinishDialog(props: RecipeCookFinishDialogProps) {
             {renderActiveStep()}
           </div>
 
-          <div className="workspace-overlay-actions recipe-cook-finish-actions">
-            <ActionButton tone="tertiary" type="button" onClick={props.onClose}>稍后处理</ActionButton>
-            <ActionButton tone="secondary" type="button" onClick={() => setActiveStepId(COOK_FINISH_STEPS[Math.max(activeStepIndex - 1, 0)].id)} disabled={activeStepIndex <= 0}>
-              上一步
-            </ActionButton>
-            {!isSummaryStep ? (
-              <ActionButton tone="secondary" type="button" onClick={skipCurrentStep}>
-                跳过此步
-              </ActionButton>
-            ) : null}
-            <ActionButton tone="primary" type={isSummaryStep ? 'submit' : 'button'} disabled={isSummaryStep ? props.submitDisabled : false} onClick={isSummaryStep ? undefined : goNext}>
-              {isSummaryStep ? submitLabel : '下一步'}
-            </ActionButton>
-          </div>
         </form>
       </WorkspaceModal>
-    </div>
+    </WorkspaceOverlayFrame>
   );
 }

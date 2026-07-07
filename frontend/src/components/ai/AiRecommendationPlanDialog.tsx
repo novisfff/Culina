@@ -2,7 +2,7 @@ import { useEffect, useState, type FormEvent } from 'react';
 import type { AiTodayRecommendationItem, CreateFoodPlanItemPayload, MealType } from '../../api/types';
 import { todayKey } from '../../lib/date';
 import { MEAL_TYPE_LABELS } from '../../lib/ui';
-import { ActionButton, WorkspaceModal } from '../ui-kit';
+import { FormActions, WorkspaceModal, WorkspaceOverlayFrame } from '../ui-kit';
 import { ResultImage } from './AiResultCards';
 
 export type AiRecommendationPlanRequest = {
@@ -39,6 +39,12 @@ export function AiRecommendationPlanDialog({ request, isSubmitting, onClose, onS
 
   if (!request) return null;
   const activeRequest = request;
+  const planFormId = 'ai-recommendation-plan-form';
+  const closeIfAllowed = () => {
+    if (!isSubmitting) {
+      onClose();
+    }
+  };
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -61,16 +67,30 @@ export function AiRecommendationPlanDialog({ request, isSubmitting, onClose, onS
   }
 
   return (
-    <div className="workspace-overlay-root ai-recommendation-plan-root">
-      <div className="workspace-overlay-backdrop" onClick={isSubmitting ? undefined : onClose} />
+    <WorkspaceOverlayFrame
+      rootClassName="ai-recommendation-plan-root"
+      closeOnBackdrop={!isSubmitting}
+      onClose={closeIfAllowed}
+    >
       <WorkspaceModal
         title="加入菜单计划"
         description="日期和餐次已按你的提问预填，确认后写入家庭菜单。"
         eyebrow="AI 推荐"
         className="ai-recommendation-plan-modal"
-        onClose={onClose}
+        onClose={closeIfAllowed}
+        footerActions={
+          <FormActions
+            primaryLabel="加入菜单计划"
+            primaryType="submit"
+            primaryForm={planFormId}
+            primaryDisabled={!activeRequest.recommendation.foodId}
+            isSubmitting={isSubmitting}
+            secondaryLabel="取消"
+            onSecondary={closeIfAllowed}
+          />
+        }
       >
-        <form className="ai-recommendation-plan-form" onSubmit={submit}>
+        <form id={planFormId} className="ai-recommendation-plan-form" onSubmit={submit}>
           <div className="ai-recommendation-plan-food">
             <ResultImage asset={activeRequest.recommendation.image} alt={activeRequest.recommendation.name} />
             <div>
@@ -115,16 +135,8 @@ export function AiRecommendationPlanDialog({ request, isSubmitting, onClose, onS
           </label>
 
           {error && <p className="form-error" role="alert">{error}</p>}
-          <div className="workspace-overlay-actions">
-            <ActionButton tone="primary" type="submit" disabled={isSubmitting || !activeRequest.recommendation.foodId}>
-              {isSubmitting ? '加入中...' : '确认加入'}
-            </ActionButton>
-            <ActionButton tone="secondary" type="button" disabled={isSubmitting} onClick={onClose}>
-              取消
-            </ActionButton>
-          </div>
         </form>
       </WorkspaceModal>
-    </div>
+    </WorkspaceOverlayFrame>
   );
 }

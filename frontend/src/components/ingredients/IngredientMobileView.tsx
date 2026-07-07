@@ -3,7 +3,7 @@ import { buildMediaSizes, buildMediaSrcSet, resolveMediaUrl } from '../../lib/as
 import type { ShoppingListItem } from '../../api/types';
 import { chunkMobilePagedItems, useMobilePagedScroller } from '../../hooks/useMobilePagedScroller';
 import { MediaWithPlaceholder } from '../MediaPlaceholder';
-import { SearchLoadingIndicator, WorkspaceDrawer } from '../ui-kit';
+import { OptionChipGroup, SearchField, WorkspaceDrawer, WorkspaceOverlayFrame, type OptionChip } from '../ui-kit';
 import { tracksIngredientQuantity } from '../../lib/ingredientTracking';
 import { focusMobileInput } from '../../lib/mobileFocus';
 import type {
@@ -22,6 +22,14 @@ type CatalogCardStatus = {
   stockLine: string;
   hint: string;
 };
+
+const MOBILE_INGREDIENT_FILTER_OPTIONS: readonly OptionChip<MobileIngredientFilter>[] = [
+  { value: 'all', label: '全部' },
+  { value: 'seasoning', label: '调料' },
+  { value: 'alerted', label: '提醒' },
+  { value: 'empty', label: '缺货' },
+  { value: 'stocked', label: '在库' },
+];
 
 function focusMobileIngredientSearch() {
   focusMobileInput('mobile-ingredient-search', { containerSelector: '.mobile-ingredient-library-filters' });
@@ -86,6 +94,12 @@ export function IngredientMobileView(props: IngredientMobileViewProps) {
 
   function closeShoppingCard() {
     setSelectedShoppingCardId(null);
+  }
+
+  function closeShoppingCardIfAllowed() {
+    if (!props.isUpdatingShopping) {
+      closeShoppingCard();
+    }
   }
 
   function handleShoppingCardKeyDown(event: KeyboardEvent<HTMLElement>, card: ShoppingCardViewModel) {
@@ -205,7 +219,7 @@ export function IngredientMobileView(props: IngredientMobileViewProps) {
                       <span>{status.label}</span>
                     </div>
                     <p>{summary.alerts[0]?.detail ?? status.detail}</p>
-                    <div className="mobile-ingredient-chip-row">
+                    <div className="mobile-ingredient-meta-row">
                       <span>{summary.primaryStorage}</span>
                       <span>{props.buildInventorySummaryLine(summary)}</span>
                     </div>
@@ -337,36 +351,26 @@ export function IngredientMobileView(props: IngredientMobileViewProps) {
           </button>
         </div>
         <div className="mobile-ingredient-library-filters">
-          <label className="mobile-ingredient-search">
-            {props.renderIcon('search')}
-            <input
-              id="mobile-ingredient-search"
-              value={props.catalogSearch}
-              placeholder="搜索食材、分类、备注或菜谱"
-              onChange={(event) => props.setCatalogSearch(event.target.value)}
-              onCompositionStart={props.onCatalogSearchCompositionStart}
-              onCompositionEnd={props.onCatalogSearchCompositionEnd}
-            />
-            <SearchLoadingIndicator active={Boolean(props.catalogSearch.trim()) && Boolean(props.isCatalogSearchFetching)} />
-          </label>
-          <div className="mobile-ingredient-tabs" aria-label="食材筛选">
-            {[
-              { value: 'all' as const, label: '全部' },
-              { value: 'seasoning' as const, label: '调料' },
-              { value: 'alerted' as const, label: '提醒' },
-              { value: 'empty' as const, label: '缺货' },
-              { value: 'stocked' as const, label: '在库' },
-            ].map((item) => (
-              <button
-                key={item.value}
-                className={props.mobileIngredientFilter === item.value ? 'active' : ''}
-                type="button"
-                onClick={() => props.setMobileIngredientFilter(item.value)}
-              >
-                {item.label}
-              </button>
-            ))}
-          </div>
+          <SearchField
+            className="mobile-ingredient-search"
+            inputId="mobile-ingredient-search"
+            leadingIcon={props.renderIcon('search')}
+            ariaLabel="搜索食材"
+            placeholder="搜索食材、分类、备注或菜谱"
+            value={props.catalogSearch}
+            loading={Boolean(props.catalogSearch.trim()) && Boolean(props.isCatalogSearchFetching)}
+            onChange={props.setCatalogSearch}
+            onCompositionStart={props.onCatalogSearchCompositionStart}
+            onCompositionEnd={props.onCatalogSearchCompositionEnd}
+          />
+          <OptionChipGroup
+            ariaLabel="食材筛选"
+            value={props.mobileIngredientFilter}
+            options={MOBILE_INGREDIENT_FILTER_OPTIONS}
+            size="large"
+            className="mobile-ingredient-chip-group"
+            onChange={props.setMobileIngredientFilter}
+          />
         </div>
         {props.mobileCatalogSummaries.length > 0 ? (
           <>
@@ -392,7 +396,7 @@ export function IngredientMobileView(props: IngredientMobileViewProps) {
                         <div className="mobile-ingredient-library-body">
                           <h3>{summary.ingredient.name}</h3>
                           <p>{summary.ingredient.category || '未分类'} · {summary.primaryStorage}</p>
-                          <div className="mobile-ingredient-chip-row">
+                          <div className="mobile-ingredient-meta-row">
                             <span>{status.label}</span>
                             <span>{props.buildInventorySummaryLine(summary)}</span>
                           </div>
@@ -547,13 +551,12 @@ export function IngredientMobileView(props: IngredientMobileViewProps) {
       </section>
 
       {selectedShoppingCard && (
-        <div className="workspace-overlay-root ingredient-workspace-overlay-root mobile-ingredient-shopping-drawer-root">
-          <button
-            className="workspace-overlay-backdrop mobile-ingredient-shopping-drawer-backdrop"
-            type="button"
-            aria-label="关闭采购待办详情"
-            onClick={closeShoppingCard}
-          />
+        <WorkspaceOverlayFrame
+          rootClassName="ingredient-workspace-overlay-root mobile-ingredient-shopping-drawer-root"
+          backdropClassName="mobile-ingredient-shopping-drawer-backdrop"
+          closeOnBackdrop={!props.isUpdatingShopping}
+          onClose={closeShoppingCardIfAllowed}
+        >
           <WorkspaceDrawer
             eyebrow={selectedShoppingCard.sourceLabel}
             title={selectedShoppingCard.title}
@@ -561,7 +564,7 @@ export function IngredientMobileView(props: IngredientMobileViewProps) {
             closeLabel="关闭"
             closeAriaLabel="关闭采购待办详情"
             className={`mobile-ingredient-shopping-drawer tone-${selectedShoppingCard.statusTone}`}
-            onClose={closeShoppingCard}
+            onClose={closeShoppingCardIfAllowed}
           >
             <div className="mobile-ingredient-shopping-drawer-summary">
               <span className="mobile-ingredient-shopping-drawer-cover">
@@ -634,7 +637,7 @@ export function IngredientMobileView(props: IngredientMobileViewProps) {
               </button>
             </div>
           </WorkspaceDrawer>
-        </div>
+        </WorkspaceOverlayFrame>
       )}
     </section>
   );

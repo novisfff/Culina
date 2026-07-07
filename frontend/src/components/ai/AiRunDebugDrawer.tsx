@@ -4,7 +4,7 @@ import { api } from '../../api/client';
 import { isApiError } from '../../api/request';
 import { queryKeys } from '../../api/queryKeys';
 import type { AiRunLLMExchange, AiRunTraceTreeNode } from '../../api/types';
-import { WorkspaceDrawer } from '../ui-kit';
+import { WorkspaceDrawer, WorkspaceOverlayFrame } from '../ui-kit';
 
 type AiRunDebugDrawerProps = {
   runId: string | null;
@@ -665,8 +665,7 @@ export function AiRunDebugDrawer({ runId, open, onClose }: AiRunDebugDrawerProps
   if (!open || !runId) return null;
 
   return (
-    <div className="workspace-overlay-root ai-debug-drawer-root">
-      <div className="workspace-overlay-backdrop" onClick={onClose} />
+    <WorkspaceOverlayFrame rootClassName="ai-debug-drawer-root" onClose={onClose}>
       <WorkspaceDrawer
         title="运行调试"
         eyebrow="AI Trace"
@@ -741,6 +740,6 @@ export function AiRunDebugDrawer({ runId, open, onClose }: AiRunDebugDrawerProps
           </div>
         )}
       </WorkspaceDrawer>
-    </div>
+    </WorkspaceOverlayFrame>
   );
 }

@@ -1,8 +1,8 @@
 import type { ReactNode } from 'react';
 import type { MealLog } from '../../api/types';
-import { Badge } from '../../components/ui-kit';
+import { StateBlock, StatusBadge } from '../../components/ui-kit';
 import { FoodUiIcon } from '../../components/foods/FoodWorkspacePrimitives';
-import { formatDate, MEAL_TYPE_LABELS } from '../../lib/ui';
+import { MEAL_TYPE_LABELS } from '../../lib/ui';
 import type { MealSource } from './MealLogEnrichment';
 import { MealLogIcon } from './MealLogIcons';
 import {
@@ -12,6 +12,7 @@ import {
   formatDateGroupLabel,
   formatMealTime,
   getMealIconName,
+  getMealLogStatus,
   getMealLogStatusLabel,
   getMealTone,
   type MealLogMealFilter,
@@ -19,7 +20,6 @@ import {
 } from './MealLogWorkspaceModel';
 
 type Props = {
-  recentMeals: MealLog[];
   pendingMeals: MealLog[];
   selectedMeal: MealLog | null;
   mealSources: Map<string, MealSource>;
@@ -38,24 +38,6 @@ type Props = {
   onMealFilterChange: (value: MealLogMealFilter) => void;
   notificationCenter?: ReactNode;
 };
-
-const iconSlotStyle = {
-  width: 20,
-  height: 20,
-  display: 'inline-grid',
-  placeItems: 'center',
-  lineHeight: 0,
-  flex: '0 0 20px',
-} as const;
-
-const compactIconSlotStyle = {
-  width: 18,
-  height: 18,
-  display: 'inline-grid',
-  placeItems: 'center',
-  lineHeight: 0,
-  flex: '0 0 18px',
-} as const;
 
 export function MealLogMobileView(props: Props) {
   const mobileStats = [
@@ -94,7 +76,7 @@ export function MealLogMobileView(props: Props) {
         {mobileStats.map((item) => (
           <article key={item.label} className={`mobile-log-stat-card tone-${item.tone}`}>
             <span aria-hidden="true">
-              <MealLogIcon name={item.icon} className="meal-log-ui-icon" />
+              <MealLogIcon name={item.icon} />
             </span>
             <div>
               <strong>{item.label}</strong>
@@ -107,7 +89,7 @@ export function MealLogMobileView(props: Props) {
 
       <label className="mobile-log-search-field">
         <span aria-hidden="true">
-          <MealLogIcon name="search" className="meal-log-ui-icon" />
+          <MealLogIcon name="search" />
         </span>
         <input value={props.searchQuery} placeholder="搜索菜品、食材或备注" onChange={(event) => props.onSearchChange(event.target.value)} />
       </label>
@@ -123,8 +105,8 @@ export function MealLogMobileView(props: Props) {
         <div className="mobile-log-filter-row meal-filter">
           {MEAL_FILTERS.map((item) => (
             <button key={item.key} type="button" className={props.mealFilter === item.key ? 'active' : ''} onClick={() => props.onMealFilterChange(item.key)}>
-              <span style={iconSlotStyle}>
-                <MealLogIcon name={getMealIconName(item.key)} className="meal-log-ui-icon" />
+              <span className="meal-log-icon-slot">
+                <MealLogIcon name={getMealIconName(item.key)} />
               </span>
               {item.key === 'all' ? '全部餐次' : item.label}
             </button>
@@ -138,12 +120,14 @@ export function MealLogMobileView(props: Props) {
             <section key={group.date} className="mobile-log-day-group">
               <div className="mobile-log-day-title">
                 <span />
-                <strong>{group.date === new Date().toISOString().slice(0, 10) ? `今天 · ${formatDate(group.date)}` : formatDateGroupLabel(group.date)}</strong>
+                <strong>{formatDateGroupLabel(group.date)}</strong>
               </div>
               <div className="mobile-log-day-card">
                 {group.meals.map((meal) => {
                   const source = props.mealSources.get(meal.id);
-                  const isEnriched = getMealLogStatusLabel(meal) === '已补充';
+                  const mealStatus = getMealLogStatus(meal);
+                  const mealStatusLabel = getMealLogStatusLabel(meal);
+                  const isEnriched = mealStatus === 'done';
                   return (
                     <button
                       key={meal.id}
@@ -155,8 +139,8 @@ export function MealLogMobileView(props: Props) {
                       }}
                     >
                       <span className={`mobile-log-record-meal ${getMealTone(meal.meal_type)}`}>
-                        <i style={iconSlotStyle}>
-                          <MealLogIcon name={getMealIconName(meal.meal_type)} className="meal-log-ui-icon" />
+                        <i className="meal-log-icon-slot">
+                          <MealLogIcon name={getMealIconName(meal.meal_type)} />
                         </i>
                         {MEAL_TYPE_LABELS[meal.meal_type]}
                       </span>
@@ -165,12 +149,14 @@ export function MealLogMobileView(props: Props) {
                         <small>
                           {formatMealTime(meal)} <em>{source?.status === 'planned' ? '来自菜单计划' : '手动记录'}</em>
                           <span className="mobile-log-record-meta">
-                            <small><span style={compactIconSlotStyle}><MealLogIcon name="photo" className="meal-log-ui-icon" /></span>{meal.photos.length}</small>
-                            <small><span style={compactIconSlotStyle}><MealLogIcon name="note" className="meal-log-ui-icon" /></span>{meal.notes.trim() ? 1 : 0}</small>
+                            <small><span className="meal-log-icon-slot compact"><MealLogIcon name="photo" /></span>{meal.photos.length}</small>
+                            <small><span className="meal-log-icon-slot compact"><MealLogIcon name="note" /></span>{meal.notes.trim() ? 1 : 0}</small>
                           </span>
                         </small>
                       </span>
-                      <Badge className={isEnriched ? 'mobile-log-status done' : 'mobile-log-status pending'}>{getMealLogStatusLabel(meal)}</Badge>
+                      <StatusBadge tone={isEnriched ? 'success' : 'warning'} size="compact" className={isEnriched ? 'mobile-log-status done' : 'mobile-log-status pending'}>
+                        {mealStatusLabel}
+                      </StatusBadge>
                     </button>
                   );
                 })}
@@ -178,7 +164,12 @@ export function MealLogMobileView(props: Props) {
             </section>
           ))
         ) : (
-          <div className="mobile-log-empty">没有符合条件的记录。</div>
+          <StateBlock
+            status="empty"
+            title="没有符合条件的记录"
+            description="换一个筛选条件，或先补录一餐。"
+            className="mobile-log-empty"
+          />
         )}
       </section>
     </main>

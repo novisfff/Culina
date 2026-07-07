@@ -208,6 +208,14 @@ const fixtures = {
   '/api/meal-logs': [],
   '/api/activity-logs': [],
   '/api/ai/conversations': [],
+  '/api/ai/status': {
+    enabled: true,
+    provider: 'openai-compatible',
+    model: 'fake-model',
+    supports_vision: true,
+    status: 'ready',
+    detail: 'AI 已就绪。',
+  },
   '/api/media/ai-render/active': [],
   '/api/search/index-jobs/active': [],
 };
@@ -383,8 +391,8 @@ async function fulfillJson(route, body, status = 200) {
   });
 }
 
-async function createPage(browser, viewport, authenticated = true) {
-  const context = await browser.newContext({ viewport });
+async function createPage(browser, viewport, authenticated = true, contextOptions = {}) {
+  const context = await browser.newContext({ viewport, ...contextOptions });
   const unexpectedRequests = [];
   const pageErrors = [];
   const consoleErrors = [];
@@ -484,6 +492,57 @@ async function expectNoHorizontalOverflow(page, label) {
   }
 }
 
+async function expectHeaderActionBesideCopy(page, headerSelector, label) {
+  const result = await page.evaluate((selector) => {
+    const header = document.querySelector(selector);
+    const copy = header?.querySelector('.page-header-copy');
+    const side = header?.querySelector('.page-header-side');
+    const action = side?.querySelector('button');
+    if (!header || !copy || !side || !action) {
+      return { ok: false, reason: 'missing-element' };
+    }
+    const copyRect = copy.getBoundingClientRect();
+    const actionRect = action.getBoundingClientRect();
+    return {
+      ok: actionRect.top <= copyRect.top + 18,
+      copyTop: Math.round(copyRect.top),
+      copyBottom: Math.round(copyRect.bottom),
+      actionTop: Math.round(actionRect.top),
+      actionText: action.textContent?.trim() ?? '',
+    };
+  }, headerSelector);
+
+  if (!result.ok) {
+    throw new Error(
+      `${label} 操作按钮掉到第二行：${result.reason ?? `${result.actionText} top ${result.actionTop}, copy top ${result.copyTop}, copy bottom ${result.copyBottom}`}`
+    );
+  }
+}
+
+async function expectButtonsOnOneLine(page, selector, label) {
+  const result = await page.evaluate((targetSelector) => {
+    const buttons = Array.from(document.querySelectorAll(targetSelector));
+    if (buttons.length === 0) {
+      return { ok: false, reason: 'missing-buttons' };
+    }
+    const tops = buttons.map((button) => Math.round(button.getBoundingClientRect().top));
+    const minTop = Math.min(...tops);
+    const maxTop = Math.max(...tops);
+    return {
+      ok: maxTop - minTop <= 2,
+      count: buttons.length,
+      tops,
+      labels: buttons.map((button) => button.textContent?.trim() || button.getAttribute('aria-label') || ''),
+    };
+  }, selector);
+
+  if (!result.ok) {
+    throw new Error(
+      `${label} 操作按钮换行：${result.reason ?? `${result.count} 个按钮 top=${result.tops.join(',')} labels=${result.labels.join('/')}`}`
+    );
+  }
+}
+
 async function runLoginSmoke(browser, baseUrl) {
   const { context, page, assertClean } = await createPage(browser, { width: 1280, height: 900 }, false);
   await page.goto(baseUrl, { waitUntil: 'domcontentloaded' });
@@ -526,11 +585,38 @@ async function runResponsiveSmoke(browser, baseUrl, viewport, label) {
   await context.close();
 }
 
+async function runOrientationLockSmoke(browser, baseUrl, viewport, label, expectedText, contextOptions = {}) {
+  const { context, page, assertClean } = await createPage(browser, viewport, true, contextOptions);
+  await page.goto(baseUrl, { waitUntil: 'domcontentloaded' });
+  await expectVisibleText(page, expectedText, `${label} 方向提示`);
+  await expectNoHorizontalOverflow(page, `${label} 方向提示`);
+
+  const appFrameDisplay = await page.evaluate(() => {
+    const appFrame = document.querySelector('.app-frame');
+    return appFrame ? getComputedStyle(appFrame).display : 'missing';
+  });
+  if (appFrameDisplay !== 'none') {
+    throw new Error(`${label} 方向不符时仍显示主工作区：${appFrameDisplay}`);
+  }
+
+  assertClean();
+  await context.close();
+}
+
 async function runTabletLandscapeSmoke(browser, baseUrl) {
   const { context, page, assertClean } = await createPage(browser, { width: 1112, height: 834 });
   await page.goto(baseUrl, { waitUntil: 'domcontentloaded' });
   await expectVisible(page.getByRole('heading', { name: '首页' }), '1112x834 首页标题');
   await expectNoHorizontalOverflow(page, '1112x834 首页');
+  await expectHeaderActionBesideCopy(page, '.dashboard-page .page-header', '1112x834 首页头部');
+  const legacyDetailButtonCount = await page.locator('.dashboard-food-card .dashboard-icon-button[aria-label="查看详情"]').count();
+  if (legacyDetailButtonCount !== 0) {
+    throw new Error(`1112x834 首页推荐卡仍显示详情按钮：${legacyDetailButtonCount} 个`);
+  }
+  await page.locator('.dashboard-food-card').first().click();
+  await expectVisible(page.locator('.food-detail-drawer'), '1112x834 首页推荐卡详情抽屉');
+  await page.getByLabel('关闭弹窗').last().click();
+  await page.locator('.food-detail-drawer').waitFor({ state: 'detached', timeout: 10_000 });
 
   const layout = await page.evaluate(() => {
     const statGrid = document.querySelector('.dashboard-stat-grid');
@@ -546,6 +632,11 @@ async function runTabletLandscapeSmoke(browser, baseUrl) {
       `1112x834 首页布局提前降级：统计区 ${layout.statColumns} 列，推荐区 ${layout.foodColumns} 列`
     );
   }
+
+  await page.getByRole('button', { name: '我的家庭' }).first().click();
+  await expectVisible(page.getByRole('heading', { name: '我的家庭' }), '1112x834 家庭页标题');
+  await expectNoHorizontalOverflow(page, '1112x834 家庭页');
+  await expectButtonsOnOneLine(page, '.family-hero-actions > button', '1112x834 家庭页头部');
 
   assertClean();
   await context.close();
@@ -563,11 +654,16 @@ async function runTabletAirWorkspaceSmoke(browser, baseUrl) {
       return element ? getComputedStyle(element) : null;
     };
     const columnCount = (selector) => styles(selector)?.gridTemplateColumns.split(' ').length ?? 0;
+    const columnWidths = (selector) =>
+      styles(selector)?.gridTemplateColumns.split(' ').map((value) => Number.parseFloat(value)).filter(Number.isFinite) ?? [];
+    const expiryItems = Array.from(document.querySelectorAll('.dashboard-expiry-item'));
     return {
       lowerColumns: columnCount('.dashboard-lower-grid'),
+      lowerColumnWidths: columnWidths('.dashboard-lower-grid'),
       expiryColumns: columnCount('.dashboard-expiry-list'),
       todoColumns: columnCount('.dashboard-todo-list'),
       activityColumns: columnCount('.dashboard-activity-list'),
+      expiryItemOverflow: expiryItems.map((item) => item.scrollWidth - item.clientWidth),
       weekOrder: styles('.dashboard-week-panel')?.order ?? 'missing',
       expiryOrder: styles('.dashboard-expiry-panel')?.order ?? 'missing',
       todoOrder: styles('.dashboard-todo-panel')?.order ?? 'missing',
@@ -578,12 +674,15 @@ async function runTabletAirWorkspaceSmoke(browser, baseUrl) {
     homeCompactLayout.expiryColumns !== 1 ||
     homeCompactLayout.todoColumns !== 1 ||
     homeCompactLayout.activityColumns !== 1 ||
+    homeCompactLayout.lowerColumnWidths.length !== 2 ||
+    Math.abs(homeCompactLayout.lowerColumnWidths[0] - homeCompactLayout.lowerColumnWidths[1]) > 2 ||
+    homeCompactLayout.expiryItemOverflow.some((overflow) => overflow > 1) ||
     homeCompactLayout.weekOrder !== '1' ||
     homeCompactLayout.expiryOrder !== '2' ||
     homeCompactLayout.todoOrder !== '3'
   ) {
     throw new Error(
-      `1180x820 首页摘要布局异常：主区 ${homeCompactLayout.lowerColumns} 列，临期 ${homeCompactLayout.expiryColumns} 列，待办 ${homeCompactLayout.todoColumns} 列，记录 ${homeCompactLayout.activityColumns} 列`
+      `1180x820 首页摘要布局异常：主区 ${homeCompactLayout.lowerColumns} 列/${homeCompactLayout.lowerColumnWidths.join(',')}，临期 ${homeCompactLayout.expiryColumns} 列，临期溢出 ${homeCompactLayout.expiryItemOverflow.join(',')}，待办 ${homeCompactLayout.todoColumns} 列，记录 ${homeCompactLayout.activityColumns} 列`
     );
   }
 
@@ -631,6 +730,11 @@ async function runTabletAirWorkspaceSmoke(browser, baseUrl) {
     const sideFavoritePanel = document.querySelector('.recipe-favorite-side-panel');
     const searchRow = document.querySelector('.recipe-search-row');
     const searchControls = searchRow ? Array.from(searchRow.children) : [];
+    const searchRowRect = searchRow ? searchRow.getBoundingClientRect() : null;
+    const searchControlRects = searchControls.map((element) => element.getBoundingClientRect());
+    const filterLabels = searchControls
+      .slice(1)
+      .map((element) => element.textContent?.replace(/\s+/g, ' ').trim() ?? '');
     return {
       inspirationColumns: columnCount('.recipe-inspiration-grid'),
       discoveryColumns: columnCount('.recipe-discovery-layout'),
@@ -640,6 +744,12 @@ async function runTabletAirWorkspaceSmoke(browser, baseUrl) {
       sideFavoriteDisplay: sideFavoritePanel ? getComputedStyle(sideFavoritePanel).display : 'missing',
       searchColumns: columnCount('.recipe-search-row'),
       searchRowTops: searchControls.map((element) => Math.round(element.getBoundingClientRect().top)),
+      searchRowOverflow: searchRow ? searchRow.scrollWidth - searchRow.clientWidth : Number.POSITIVE_INFINITY,
+      searchControlRightOverflow:
+        searchRowRect && searchControlRects.length > 0
+          ? Math.max(...searchControlRects.map((rect) => rect.right - searchRowRect.right))
+          : Number.POSITIVE_INFINITY,
+      filterLabels,
     };
   });
   const recipeSearchTopSpread =
@@ -654,10 +764,13 @@ async function runTabletAirWorkspaceSmoke(browser, baseUrl) {
     recipeLayout.favoriteDisplay === 'none' ||
     recipeLayout.sideFavoriteDisplay !== 'none' ||
     recipeLayout.searchColumns !== 3 ||
-    recipeSearchTopSpread > 2
+    recipeSearchTopSpread > 2 ||
+    recipeLayout.searchRowOverflow > 1 ||
+    recipeLayout.searchControlRightOverflow > 1 ||
+    recipeLayout.filterLabels.some((label) => label.includes('难度:') || label.includes('排序:'))
   ) {
     throw new Error(
-      `1180x820 菜谱页布局异常：概览区 ${recipeLayout.inspirationColumns} 列，内容区 ${recipeLayout.discoveryColumns} 列，卡片区 ${recipeLayout.cardColumns} 列，收藏 ${recipeLayout.favoriteColumns} 列/${recipeLayout.favoriteDisplay}，侧栏收藏 ${recipeLayout.sideFavoriteDisplay}，筛选 ${recipeLayout.searchColumns} 列/${recipeLayout.searchRowTops.join(',')}`
+      `1180x820 菜谱页布局异常：概览区 ${recipeLayout.inspirationColumns} 列，内容区 ${recipeLayout.discoveryColumns} 列，卡片区 ${recipeLayout.cardColumns} 列，收藏 ${recipeLayout.favoriteColumns} 列/${recipeLayout.favoriteDisplay}，侧栏收藏 ${recipeLayout.sideFavoriteDisplay}，筛选 ${recipeLayout.searchColumns} 列/${recipeLayout.searchRowTops.join(',')}，溢出 ${recipeLayout.searchRowOverflow}/${recipeLayout.searchControlRightOverflow}，标签 ${recipeLayout.filterLabels.join('|')}`
     );
   }
 
@@ -696,6 +809,57 @@ async function runTabletAirWorkspaceSmoke(browser, baseUrl) {
     throw new Error(`1180x820 食材库存卡片未保持三列：${inventoryColumns} 列`);
   }
 
+  await page.getByRole('button', { name: '记录' }).first().click();
+  await expectVisible(page.getByRole('heading', { name: '餐食记录中心' }), '1180x820 餐食记录页');
+  await expectNoHorizontalOverflow(page, '1180x820 餐食记录页');
+  const mealLogMetricLayout = await page.evaluate(() => {
+    const grid = document.querySelector('.meal-log-command-grid');
+    const cards = grid ? Array.from(grid.querySelectorAll('.meal-log-metric-card')) : [];
+    const tops = cards.map((card) => Math.round(card.getBoundingClientRect().top));
+    return {
+      columns: grid ? getComputedStyle(grid).gridTemplateColumns.split(' ').length : 0,
+      count: cards.length,
+      tops,
+      overflow: grid ? grid.scrollWidth - grid.clientWidth : Number.POSITIVE_INFINITY,
+    };
+  });
+  const mealLogMetricTopSpread =
+    mealLogMetricLayout.tops.length > 0
+      ? Math.max(...mealLogMetricLayout.tops) - Math.min(...mealLogMetricLayout.tops)
+      : Number.POSITIVE_INFINITY;
+  if (
+    mealLogMetricLayout.columns !== 4 ||
+    mealLogMetricLayout.count !== 4 ||
+    mealLogMetricTopSpread > 2 ||
+    mealLogMetricLayout.overflow > 1
+  ) {
+    throw new Error(
+      `1180x820 餐食记录统计卡布局异常：${mealLogMetricLayout.columns} 列/${mealLogMetricLayout.count} 张，top=${mealLogMetricLayout.tops.join(',')}，溢出 ${mealLogMetricLayout.overflow}`
+    );
+  }
+
+  await page.evaluate(() => {
+    localStorage.setItem('ai_sidebar_collapsed', 'false');
+  });
+  await page.getByRole('button', { name: 'AI' }).first().click();
+  await expectVisibleText(page, 'AI 厨房助手', '1180x820 AI 工作区');
+  await expectNoHorizontalOverflow(page, '1180x820 AI 工作区');
+  const aiLayout = await page.evaluate(() => {
+    const shell = document.querySelector('.ai-workspace-shell');
+    const sidePanel = document.querySelector('.ai-side-panel');
+    const trigger = document.querySelector('.ai-sidebar-trigger-btn');
+    return {
+      collapsed: shell?.classList.contains('is-collapsed') ?? false,
+      sideWidth: sidePanel ? Math.round(sidePanel.getBoundingClientRect().width) : Number.POSITIVE_INFINITY,
+      hasTrigger: Boolean(trigger),
+    };
+  });
+  if (!aiLayout.collapsed || aiLayout.sideWidth > 1 || !aiLayout.hasTrigger) {
+    throw new Error(
+      `1180x820 AI 历史栏未默认折叠：collapsed=${aiLayout.collapsed} sideWidth=${aiLayout.sideWidth} trigger=${aiLayout.hasTrigger}`
+    );
+  }
+
   assertClean();
   await context.close();
 }
@@ -708,10 +872,26 @@ async function main() {
     await runLoginSmoke(browser, preview.url);
     await runDesktopSmoke(browser, preview.url);
     await runResponsiveSmoke(browser, preview.url, { width: 390, height: 844 }, '390x844');
-    await runResponsiveSmoke(browser, preview.url, { width: 768, height: 1024 }, '768x1024');
+    await runOrientationLockSmoke(
+      browser,
+      preview.url,
+      { width: 768, height: 1024 },
+      '768x1024',
+      '电脑和 iPad 端需要横屏查看'
+    );
+    await runOrientationLockSmoke(
+      browser,
+      preview.url,
+      { width: 844, height: 390 },
+      '844x390',
+      '手机端需要竖屏查看',
+      { isMobile: true, hasTouch: true }
+    );
     await runTabletLandscapeSmoke(browser, preview.url);
     await runTabletAirWorkspaceSmoke(browser, preview.url);
-    console.log('Smoke passed: login, desktop workspace tabs, 390x844, 768x1024, 1112x834 and 1180x820 responsive checks.');
+    console.log(
+      'Smoke passed: login, desktop workspace tabs, 390x844, 768x1024 orientation lock, 844x390 mobile orientation lock, 1112x834 and 1180x820 responsive checks.'
+    );
   } finally {
     try {
       await browser.close();

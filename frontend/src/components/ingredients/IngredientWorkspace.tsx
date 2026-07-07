@@ -25,95 +25,33 @@ import type {
 } from '../../api/types';
 import { buildMediaSizes, buildMediaSrcSet, resolveAssetUrl, resolveMediaUrl } from '../../lib/assets';
 import { MediaWithPlaceholder } from '../MediaPlaceholder';
-import { addDateKeyDays } from '../../lib/date';
-import {
-  formatDate,
-  formatDateTime,
-  formatRelativeDays,
-  getImagePreview,
-  INVENTORY_STATUS_LABELS,
-} from '../../lib/ui';
-import {
-  type AiRenderPayload,
-  getMediaIds,
-} from '../../lib/aiImages';
-import {
-  IDLE_IMAGE_GENERATION_STATE,
-  useImageComposer,
-} from '../../hooks/useImageComposer';
+import { formatDate } from '../../lib/ui';
+import type { AiRenderPayload } from '../../lib/aiImages';
 import { useDebouncedSearchValue, useSearchCompositionState } from '../../hooks/useDebouncedValue';
 import { usePagedList } from '../../hooks/usePagedList';
 import { useNotice } from '../../hooks/useNotice';
 import {
   ActionButton,
-  Badge,
-  SectionHeading,
   WorkspaceDrawer,
   WorkspaceModal,
+  WorkspaceOverlayFrame,
 } from '../ui-kit';
-import {
-  convertQuantityFromDefaultUnit,
-  convertQuantityToDefaultUnit,
-  getIngredientAvailableQuantityInDefault,
-  getIngredientUnitOptions,
-  getInventoryConsumedQuantity,
-  getInventoryRemainingQuantity,
-  normalizeIngredientUnit,
-  resolvePreferredIngredientUnit,
-} from '../../lib/ingredientUnits';
+import { getIngredientAvailableQuantityInDefault } from '../../lib/ingredientUnits';
 import { tracksIngredientQuantity } from '../../lib/ingredientTracking';
 import {
-  buildDisposableExpiredInventoryItems,
   buildInventoryCardPresentation,
   buildInventoryCardStatus,
-  buildInventoryStorageOverview,
-  buildIngredientSummaries,
-  buildShoppingCards,
-  buildShoppingOverview,
-  buildIngredientCategoryFilters,
-  buildStorageGroups,
-  filterShoppingCards,
-  filterIngredientSummaries,
-  filterIngredientSummariesForInventory,
-  getIngredientCategoryPreset,
-  INGREDIENT_CATEGORY_PRESETS,
-  sortInventorySummariesByExpiry,
+  countDisposableExpiredInventoryItems,
   type IngredientSummaryViewModel,
   type IngredientWorkspacePanel,
   type InventoryStorageOverviewViewModel,
   type ShoppingCardViewModel,
 } from './workspaceModel';
 import {
-  buildConsumeUnitOptions,
-  buildIngredientForm,
-  buildInventoryForm,
-  buildShoppingForm,
-  buildUnitPresetOptions,
-  clampNumber,
-  createIngredientUnitConversionDraft,
-  defaultConsumeForm,
   defaultIngredientForm,
   formatNumericString,
-  INVENTORY_STORAGE_PRESETS,
-  isCustomChoiceValue,
-  parseOptionalNumber,
-  parsePositiveNumber,
-  resolveClampedDaysValue,
-  resolveExpiryDateFromDays,
-  resolveInventoryStatusForStorage,
-  resolveTouchDefaultValue,
-  resolveTouchQuickValues,
-  resolveTouchStep,
-  sanitizeIngredientUnitConversions,
   type IngredientCreateFormState,
-  type IngredientUnitConversionDraft,
-  type InventoryStorageFocus,
 } from './ingredientWorkspaceForms';
-import {
-  IngredientCatalogPanel,
-  IngredientInventoryPanel,
-  IngredientShoppingPanel,
-} from './IngredientWorkspacePanels';
 import { IngredientDetailView } from './IngredientDetailView';
 import { IngredientDetailPage } from './IngredientDetailPage';
 import { IngredientEditorView } from './IngredientEditorView';
@@ -128,8 +66,6 @@ import {
   STORAGE_SHELF_IDEAL_WIDTH,
   STORAGE_SHELF_MAX_DISPLAY_COLUMNS,
   type CatalogStatusFilter,
-  type InventoryQuickFilter,
-  type MobileIngredientFilter,
   type PersistedIngredientWorkspaceState,
   useIngredientWorkspaceState,
 } from './useIngredientWorkspaceState';
@@ -1098,8 +1034,7 @@ function InventoryIngredientCard(props: InventoryIngredientCardProps) {
   const { summary } = props;
   const status = buildInventoryCardStatus(summary);
   const presentation = buildInventoryCardPresentation(summary);
-  const disposableExpiredItems = buildDisposableExpiredInventoryItems(summary);
-  const canDestroyExpired = disposableExpiredItems.length > 0;
+  const canDestroyExpired = countDisposableExpiredInventoryItems(summary) > 0;
   const alertTone = summary.alerts.length > 0 ? getIngredientAlertTone(summary) : null;
   const imageUrl = resolveMediaUrl(summary.ingredient.image, 'card');
   const hasCustomImage = Boolean(summary.ingredient.image?.url);
@@ -1317,8 +1252,7 @@ function IngredientCatalogCard(props: IngredientCatalogCardProps) {
   const status = buildCatalogCardStatus(summary);
   const tracksQuantity = tracksIngredientQuantity(summary.ingredient);
   const canConsume = tracksQuantity && summary.availableInventoryItems.length > 0;
-  const disposableExpiredItems = buildDisposableExpiredInventoryItems(summary);
-  const canDestroyExpired = disposableExpiredItems.length > 0;
+  const canDestroyExpired = countDisposableExpiredInventoryItems(summary) > 0;
   const metaLine = [
     summary.ingredient.category || '未分类',
     summary.primaryStorage || summary.ingredient.default_storage || '常温',
@@ -1953,6 +1887,12 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
   const submitIngredient = editorState.submitIngredient;
   const handleCreateSubmit = editorState.handleCreateSubmit;
   const isEditingIngredient = editorState.isEditingIngredient;
+  const isIngredientFormSubmitting = Boolean(props.isCreatingIngredient || props.isUpdatingIngredient);
+  const closeIngredientFormIfAllowed = () => {
+    if (!isIngredientFormSubmitting) {
+      goBackFromIngredientForm();
+    }
+  };
   const ingredientVisibleCategoryPresets = editorState.ingredientVisibleCategoryPresets;
   const ingredientCategoryIsVisiblePreset = editorState.ingredientCategoryIsVisiblePreset;
   const showIngredientCategoryCustomInput = editorState.showIngredientCategoryCustomInput;
@@ -2040,7 +1980,7 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
       buildCatalogStatus={buildCatalogCardStatus}
       buildInventorySummaryLine={buildInventorySummaryLine}
       buildShoppingReason={resolveShoppingReason}
-      countDisposableExpiredItems={(summary) => buildDisposableExpiredInventoryItems(summary).length}
+      countDisposableExpiredItems={countDisposableExpiredInventoryItems}
       renderStorageIllustration={InventoryStorageIllustration}
       renderIcon={(name) => <IngredientWorkspaceIcon name={name as IngredientWorkspaceIconName} />}
       isUpdatingShopping={props.isUpdatingShopping}
@@ -2163,15 +2103,11 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
         </div>
         <div className="ingredients-detail-mobile-only">
           {renderIngredientHubPage(
-            <div
-              className="workspace-overlay-root ingredient-workspace-overlay-root mobile-ingredient-detail-popover-root"
+            <WorkspaceOverlayFrame
+              rootClassName="ingredient-workspace-overlay-root mobile-ingredient-detail-popover-root"
+              backdropClassName="mobile-ingredient-detail-popover-backdrop"
+              onClose={goBackToWorkspace}
             >
-              <button
-                className="workspace-overlay-backdrop mobile-ingredient-detail-popover-backdrop"
-                type="button"
-                onClick={goBackToWorkspace}
-                aria-label="关闭食材详情"
-              />
               <WorkspaceDrawer
                 eyebrow={selectedIngredient.ingredient.category || '食材'}
                 title={selectedIngredient.ingredient.name}
@@ -2183,7 +2119,7 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
               >
                 <IngredientDetailView {...detailViewProps} />
               </WorkspaceDrawer>
-            </div>
+            </WorkspaceOverlayFrame>
           )}
         </div>
       </>
@@ -2195,15 +2131,18 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
       {renderIngredientHubPage()}
 
       {workspaceView === 'create' && (
-        <div className="workspace-overlay-root ingredient-workspace-overlay-root">
-          <div className="workspace-overlay-backdrop" onClick={goBackFromIngredientForm} />
+        <WorkspaceOverlayFrame
+          rootClassName="ingredient-workspace-overlay-root"
+          closeOnBackdrop={!isIngredientFormSubmitting}
+          onClose={closeIngredientFormIfAllowed}
+        >
           <WorkspaceModal
             title={isEditingIngredient ? '编辑食材' : '新增食材'}
             description={isEditingIngredient ? '调整名称、分类、图片和备注后，可以直接保存这张资料卡。' : '填写基础信息、图片和备注后，就能继续登记第一批库存。'}
             eyebrow="食材资料"
             className="ingredient-editor-modal"
             closeLabel="关闭"
-            onClose={goBackFromIngredientForm}
+            onClose={closeIngredientFormIfAllowed}
           >
             <IngredientEditorView
               embedded
@@ -2237,7 +2176,7 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
               onResetImage={ingredientImageComposer.reset}
               onSubmit={handleCreateSubmit}
               onSaveWithoutRestock={() => void submitIngredient(false)}
-              onBack={goBackFromIngredientForm}
+              onBack={closeIngredientFormIfAllowed}
               isCreatingIngredient={props.isCreatingIngredient}
               isUpdatingIngredient={props.isUpdatingIngredient}
               renderIcon={(name) => <IngredientWorkspaceIcon name={name as IngredientWorkspaceIconName} />}
@@ -2245,7 +2184,7 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
               ScrollableChipRail={ScrollableChipRail}
             />
           </WorkspaceModal>
-        </div>
+        </WorkspaceOverlayFrame>
       )}
     </>
   );

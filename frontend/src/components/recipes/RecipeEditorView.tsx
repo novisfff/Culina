@@ -1,13 +1,9 @@
 import { useEffect, useMemo, useRef, useState, type Dispatch, type FormEvent, type SetStateAction } from 'react';
-import { keepPreviousData, useQuery } from '@tanstack/react-query';
-import { api } from '../../api/client';
-import { queryKeys } from '../../api/queryKeys';
 import type { Difficulty, Ingredient, MediaAsset } from '../../api/types';
-import type { AiRenderPayload } from '../../lib/aiImages';
 import { resolveAssetUrl } from '../../lib/assets';
 import { MediaWithPlaceholder } from '../MediaPlaceholder';
-import { useDebouncedSearchValue, useSearchCompositionState } from '../../hooks/useDebouncedValue';
-import { ActionButton, SearchLoadingIndicator, WorkspaceSubpageShell } from '../ui-kit';
+import { useIngredientResourceSearch } from '../../hooks/useIngredientResourceSearch';
+import { ActionButton, DropdownSelect, ImageComposer, QuantityUnitField, SearchableResourceSelect, WorkspaceSubpageShell } from '../ui-kit';
 import {
   MAX_STEP_KEY_POINTS,
   RECIPE_STEP_ICON_OPTIONS,
@@ -20,7 +16,6 @@ import {
   getRecipeStepIconName,
   isPresenceOnlyRecipeIngredient,
   stripRecipeIngredientRequirementNote,
-  type RecipeDraftGenerationStage,
   type RecipeDraftIngredient,
   type RecipeFormState,
   type RecipeShoppingRequirement,
@@ -33,10 +28,16 @@ type RecipeEditorCompletionItem = {
   done: boolean;
 };
 
-type RecipeEditorSummaryItem = {
-  label: string;
-  value: string;
-};
+const SERVING_OPTIONS = [1, 2, 3, 4, 5, 6, 8].map((serving) => ({
+  value: String(serving),
+  label: `${serving} 人份`,
+}));
+
+const DIFFICULTY_OPTIONS: Array<{ value: Difficulty; label: string }> = [
+  { value: 'easy', label: DIFFICULTY_LABELS.easy },
+  { value: 'medium', label: DIFFICULTY_LABELS.medium },
+  { value: 'hard', label: DIFFICULTY_LABELS.hard },
+];
 
 type RecipeImageState = {
   isGenerating: boolean;
@@ -56,21 +57,16 @@ type RecipeEditorViewProps = {
   sceneSelectOptions: string[];
   editorSceneTags: string[];
   visibleStepTips: Record<string, boolean>;
-  stepKeyPointSlots: Record<string, number>;
   editorCoverUrl: string | null | undefined;
-  editorReferenceUrl: string | null | undefined;
   editorCoverAsset: MediaAsset | undefined;
   editorIngredientCount: number;
   editorStepCount: number;
   editorCompletionItems: RecipeEditorCompletionItem[];
   editorCompletionPercent: number;
-  aiSourceSummary: RecipeEditorSummaryItem[];
   recipeDraftError: string | null;
   isRecipeDraftBusy: boolean;
   recipeImageState: RecipeImageState;
-  recipeDraftGenerationStage: RecipeDraftGenerationStage;
   recipeDraftButtonLabel: string;
-  recipeImagePayload: AiRenderPayload;
   submitDisabled: boolean;
   isCreatingRecipe?: boolean;
   isUpdatingRecipe?: boolean;
@@ -119,49 +115,25 @@ function RecipeIngredientPicker({ row, rowIndex, ingredients, onSelect }: Recipe
   const [search, setSearch] = useState('');
   const rootRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
-  const normalizedSearch = search.trim();
-  const searchComposition = useSearchCompositionState();
-  const searchValue = useDebouncedSearchValue(search, { isComposing: searchComposition.isComposing });
   const selectedIngredient = ingredients.find((ingredient) => ingredient.id === row.ingredient_id) ?? null;
   const selectedLabel = selectedIngredient?.name ?? row.ingredient_name.trim();
-  const ingredientSearchQuery = useQuery({
-    queryKey: queryKeys.ingredientPickerSearch(searchValue),
-    queryFn: () => api.getIngredients({ q: searchValue, limit: 20 }),
-    enabled: open && Boolean(searchValue),
-    placeholderData: keepPreviousData,
+  const ingredientSearch = useIngredientResourceSearch(search, {
+    enabled: open,
+    fallbackIngredients: ingredients,
   });
-  const [appliedSearch, setAppliedSearch] = useState('');
-  const [appliedSearchResults, setAppliedSearchResults] = useState<Ingredient[]>([]);
-  useEffect(() => {
-    if (!normalizedSearch) {
-      setAppliedSearch('');
-      setAppliedSearchResults([]);
-      return;
-    }
-    if (searchValue && !ingredientSearchQuery.isPlaceholderData && ingredientSearchQuery.data) {
-      setAppliedSearch(searchValue);
-      setAppliedSearchResults(ingredientSearchQuery.data);
-    }
-  }, [ingredientSearchQuery.data, ingredientSearchQuery.isPlaceholderData, normalizedSearch, searchValue]);
-  const optionSource = normalizedSearch ? appliedSearchResults : ingredients;
-  const isIngredientSearchFetching =
-    Boolean(normalizedSearch) &&
-    !searchComposition.isComposing &&
-    (appliedSearch !== normalizedSearch || ingredientSearchQuery.isFetching);
   const options = useMemo(() => {
     const seen = new Set<string>();
     return [
       selectedIngredient,
-      ...optionSource,
+      ...ingredientSearch.ingredients,
     ]
       .filter((ingredient): ingredient is Ingredient => Boolean(ingredient))
       .filter((ingredient) => {
         if (seen.has(ingredient.id)) return false;
         seen.add(ingredient.id);
         return true;
-      })
-      .slice(0, 20);
-  }, [optionSource, selectedIngredient]);
+      });
+  }, [ingredientSearch.ingredients, selectedIngredient]);
 
   useEffect(() => {
     if (!open) return;
@@ -181,7 +153,7 @@ function RecipeIngredientPicker({ row, rowIndex, ingredients, onSelect }: Recipe
   }, [open]);
 
   function openPicker() {
-    setSearch(selectedLabel || '');
+    if (!open) setSearch(selectedLabel || '');
     setOpen(true);
   }
 
@@ -192,90 +164,61 @@ function RecipeIngredientPicker({ row, rowIndex, ingredients, onSelect }: Recipe
   }
 
   return (
-    <div className={open ? 'recipe-ingredient-picker is-open' : 'recipe-ingredient-picker'} ref={rootRef}>
-      <button
-        className={selectedLabel ? 'recipe-ingredient-picker-trigger has-value' : 'recipe-ingredient-picker-trigger'}
-        type="button"
-        onClick={openPicker}
-        aria-expanded={open}
-        aria-haspopup="listbox"
-      >
-        {selectedIngredient && (
-          selectedIngredient.image?.url ? (
+    <div className="recipe-ingredient-picker" ref={rootRef}>
+      <SearchableResourceSelect
+        className={open ? 'recipe-ingredient-picker-select is-open' : 'recipe-ingredient-picker-select'}
+        ariaLabel="选择已有食材"
+        placeholder={`选择原料 ${rowIndex + 1}`}
+        value={row.ingredient_id ?? ''}
+        query={open ? search : selectedLabel}
+        presentation="popover"
+        listOpen={open}
+        loading={ingredientSearch.isSearching}
+        loadingMore={ingredientSearch.isFetchingNextPage}
+        hasMore={ingredientSearch.hasMore}
+        emptyText={ingredientSearch.isSearching ? '正在搜索...' : '没有找到匹配食材'}
+        loadMoreText="加载更多食材"
+        loadingMoreText="正在加载更多食材..."
+        searchInputRef={inputRef}
+        options={options.map((ingredient) => ({
+          id: ingredient.id,
+          label: ingredient.name,
+          description: [ingredient.category, `默认 ${ingredient.default_unit}`, ingredient.default_storage].filter(Boolean).join(' · '),
+          image: (
             <MediaWithPlaceholder
-              src={resolveAssetUrl(selectedIngredient.image.url)}
-              alt={selectedLabel}
-              className="recipe-ingredient-picker-trigger-thumb"
-              showLabel={false}
+              src={resolveAssetUrl(ingredient.image?.url)}
+              alt={ingredient.name}
+              emptyLabel="暂无图"
             />
-          ) : (
-            <span className="recipe-ingredient-picker-trigger-thumb-placeholder">
-              <RecipeUiIcon name="basket" />
-            </span>
-          )
-        )}
-        <span>{selectedLabel || `选择原料 ${rowIndex + 1}`}</span>
-        <RecipeUiIcon name="chevronDown" />
-      </button>
-      {open && (
-        <div className="recipe-ingredient-picker-panel">
-          <div className="recipe-ingredient-picker-search">
-            <input
-              ref={inputRef}
-              value={search}
-              placeholder="搜索或选择食材"
-              onChange={(event) => setSearch(event.target.value)}
-              onCompositionStart={searchComposition.onCompositionStart}
-              onCompositionEnd={searchComposition.onCompositionEnd}
-              onKeyDown={(event) => {
-                if (event.key === 'Escape') {
-                  setOpen(false);
-                }
-                if (event.key === 'Enter' && options[0]) {
-                  event.preventDefault();
-                  selectOption(options[0]);
-                }
-              }}
-            />
-            <SearchLoadingIndicator active={isIngredientSearchFetching} />
-            <RecipeUiIcon name="chevronDown" />
-          </div>
-          <div className="recipe-ingredient-picker-list" role="listbox">
-            {(row.ingredient_id || selectedLabel) && (
-              <button className="recipe-ingredient-picker-clear" type="button" onClick={() => selectOption(null)}>
-                清空选择
-              </button>
-            )}
-            {isIngredientSearchFetching && (
-              <div className="recipe-ingredient-picker-status">正在搜索...</div>
-            )}
-            {!isIngredientSearchFetching && appliedSearch === normalizedSearch && options.length === 0 && (
-              <div className="recipe-ingredient-picker-status">没有找到匹配食材</div>
-            )}
-            {options.map((ingredient) => (
-              <button
-                key={ingredient.id}
-                className={ingredient.id === row.ingredient_id ? 'recipe-ingredient-picker-option is-selected' : 'recipe-ingredient-picker-option'}
-                type="button"
-                role="option"
-                aria-selected={ingredient.id === row.ingredient_id}
-                onClick={() => selectOption(ingredient)}
-              >
-                <MediaWithPlaceholder
-                  src={resolveAssetUrl(ingredient.image?.url)}
-                  alt={ingredient.name}
-                  className="recipe-ingredient-picker-thumb"
-                  emptyLabel="暂无图"
-                />
-                <span>
-                  <strong>{ingredient.name}</strong>
-                  <small>{[ingredient.category, `默认 ${ingredient.default_unit}`, ingredient.default_storage].filter(Boolean).join(' · ')}</small>
-                </span>
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
+          ),
+        }))}
+        onSearchFocus={openPicker}
+        onSearchClear={() => selectOption(null)}
+        onSearchCompositionStart={ingredientSearch.onCompositionStart}
+        onSearchCompositionEnd={ingredientSearch.onCompositionEnd}
+        onSearchKeyDown={(event) => {
+          if (event.key === 'Escape') {
+            setOpen(false);
+          }
+          if (event.key === 'Enter' && options[0]) {
+            event.preventDefault();
+            selectOption(options[0]);
+          }
+        }}
+        onQueryChange={(nextSearch) => {
+          setSearch(nextSearch);
+          setOpen(true);
+        }}
+        onLoadMore={() => {
+          if (ingredientSearch.hasMore && !ingredientSearch.isFetchingNextPage) {
+            void ingredientSearch.fetchNextPage();
+          }
+        }}
+        onChange={(ingredientId) => {
+          const ingredient = options.find((item) => item.id === ingredientId);
+          if (ingredient) selectOption(ingredient);
+        }}
+      />
     </div>
   );
 }
@@ -293,21 +236,16 @@ export function RecipeEditorView({
   sceneSelectOptions,
   editorSceneTags,
   visibleStepTips,
-  stepKeyPointSlots,
   editorCoverUrl,
-  editorReferenceUrl,
   editorCoverAsset,
   editorIngredientCount,
   editorStepCount,
   editorCompletionItems,
   editorCompletionPercent,
-  aiSourceSummary,
   recipeDraftError,
   isRecipeDraftBusy,
   recipeImageState,
-  recipeDraftGenerationStage,
   recipeDraftButtonLabel,
-  recipeImagePayload,
   submitDisabled,
   isCreatingRecipe,
   isUpdatingRecipe,
@@ -375,11 +313,13 @@ export function RecipeEditorView({
                   </label>
                   <label>
                     <span>份量</span>
-                    <select className="text-input" value={form.servings} onChange={(event) => setForm({ ...form, servings: event.target.value })}>
-                      {[1, 2, 3, 4, 5, 6, 8].map((serving) => (
-                        <option key={serving} value={String(serving)}>{serving} 人份</option>
-                      ))}
-                    </select>
+                    <DropdownSelect
+                      ariaLabel="选择份量"
+                      placeholder="选择份量"
+                      value={form.servings}
+                      options={SERVING_OPTIONS}
+                      onChange={(servings) => setForm({ ...form, servings })}
+                    />
                   </label>
                   <label>
                     <span>准备时长（分钟）</span>
@@ -387,11 +327,13 @@ export function RecipeEditorView({
                   </label>
                   <label>
                     <span>难度</span>
-                    <select className="text-input" value={form.difficulty} onChange={(event) => setForm({ ...form, difficulty: event.target.value as Difficulty })}>
-                      <option value="easy">简单</option>
-                      <option value="medium">中等</option>
-                      <option value="hard">复杂</option>
-                    </select>
+                    <DropdownSelect
+                      ariaLabel="选择难度"
+                      placeholder="选择难度"
+                      value={form.difficulty}
+                      options={DIFFICULTY_OPTIONS}
+                      onChange={(difficulty) => setForm({ ...form, difficulty: difficulty as Difficulty })}
+                    />
                   </label>
                   <label className="recipe-editor-tips-field">
                     <span>技巧 / 说明（选填）</span>
@@ -435,30 +377,18 @@ export function RecipeEditorView({
                           </div>
 
                           <div className="recipe-editor-ingredient-col-right">
-                            {usesPresenceOnlyQuantity ? (
-                              <div className="recipe-editor-ingredient-presence-note">用量写在步骤或备注里</div>
-                            ) : (
-                              <div className="recipe-editor-ingredient-qty-group">
-                                <input
-                                  className="text-input"
-                                  type="number"
-                                  min="0.1"
-                                  step="0.1"
-                                  placeholder="数量"
-                                  value={item.quantity}
-                                  onChange={(event) => updateIngredientRow(item.id, 'quantity', event.target.value)}
-                                />
-                                <select
-                                  className="text-input"
-                                  value={item.unit}
-                                  onChange={(event) => updateIngredientRow(item.id, 'unit', event.target.value)}
-                                >
-                                  {[...new Set([item.unit, ...SHOPPING_UNIT_OPTIONS])].filter(Boolean).map((unit) => (
-                                    <option key={unit} value={unit}>{unit}</option>
-                                  ))}
-                                </select>
-                              </div>
-                            )}
+                            <QuantityUnitField
+                              className={usesPresenceOnlyQuantity ? 'recipe-editor-ingredient-presence-field' : 'recipe-editor-ingredient-qty-group'}
+                              quantity={item.quantity === undefined || item.quantity === null ? '' : String(item.quantity)}
+                              unit={item.unit || '份'}
+                              unitOptions={[item.unit || '份', ...SHOPPING_UNIT_OPTIONS]
+                                .filter((unit, unitIndex, list) => unit && list.indexOf(unit) === unitIndex)
+                                .map((unit) => ({ value: unit, label: unit }))}
+                              quantityDisabled={usesPresenceOnlyQuantity}
+                              quantityDisabledReason={usesPresenceOnlyQuantity ? '这个食材只记录是否需要，用量写在步骤或备注里。' : undefined}
+                              onQuantityChange={(quantity) => updateIngredientRow(item.id, 'quantity', quantity)}
+                              onUnitChange={(unit) => updateIngredientRow(item.id, 'unit', unit)}
+                            />
 
                             <label className="recipe-editor-ingredient-must-toggle">
                               <input
@@ -503,18 +433,18 @@ export function RecipeEditorView({
                             <label className="recipe-editor-step-field-icon">
                               <span>图标</span>
                               <span className="recipe-editor-icon-select">
-                                <RecipeUiIcon name={getRecipeStepIconName(step.icon)} />
-                                <select
-                                  className="text-input"
+                                <DropdownSelect
+                                  ariaLabel="选择步骤图标"
+                                  placeholder="选择步骤图标"
                                   value={step.icon}
-                                  onChange={(event) => updateStepDraft(step.id, { icon: event.target.value })}
-                                >
-                                  {RECIPE_STEP_ICON_OPTIONS.map((option) => (
-                                    <option key={option.value} value={option.value}>
-                                      {option.label}
-                                    </option>
-                                  ))}
-                                </select>
+                                  leadingIcon={<RecipeUiIcon name={getRecipeStepIconName(step.icon)} />}
+                                  options={RECIPE_STEP_ICON_OPTIONS.map((option) => ({
+                                    value: option.value,
+                                    label: option.label,
+                                    icon: <RecipeUiIcon name={getRecipeStepIconName(option.value)} />
+                                  }))}
+                                  onChange={(icon) => updateStepDraft(step.id, { icon })}
+                                />
                               </span>
                             </label>
                             <label className="recipe-editor-step-field-time">
@@ -650,73 +580,22 @@ export function RecipeEditorView({
                   <span className="recipe-editor-section-index">4</span>
                   <h3>{entityLabel}封面</h3>
                 </div>
-                <div className="recipe-editor-cover-grid">
-                  <div className="recipe-editor-cover-preview">
-                    <MediaWithPlaceholder src={editorCoverUrl} alt={form.title || `${entityLabel}封面`} />
-                  </div>
-                  <div className="recipe-editor-cover-workspace">
-                    <div className="recipe-editor-cover-toolbar">
-                      <div>
-                        <h4>{entityLabel}封面</h4>
-                        <p>可直接基于{entityLabel}信息生成，也可以上传参考图后生成统一风格主图。</p>
-                      </div>
-                      <div className="recipe-editor-cover-actions">
-                        <button
-                          className="ghost-button ai-action"
-                          type="button"
-                          onClick={() => void handleRecipeImageGenerate('text')}
-                          disabled={recipeImageState.isGenerating}
-                        >
-                          <RecipeUiIcon name="sparkle" />
-                          {recipeImageState.isGenerating ? '正在生成...' : '基于信息生成'}
-                        </button>
-                        <label className={recipeImageState.isGenerating ? 'ghost-button disabled' : 'ghost-button'}>
-                          <input
-                            type="file"
-                            accept="image/*,.svg"
-                            capture="environment"
-                            disabled={recipeImageState.isGenerating}
-                            onChange={(event) => {
-                              void handleRecipeImageUpload(event.target.files);
-                              event.currentTarget.value = '';
-                            }}
-                          />
-                          <RecipeUiIcon name="image" />
-                          上传图片生成
-                        </label>
-                        {form.images.referenceAsset && (
-                          <button
-                            className="ghost-button ai-action"
-                            type="button"
-                            onClick={() => void handleRecipeImageGenerate('reference')}
-                            disabled={recipeImageState.isGenerating}
-                          >
-                            <RecipeUiIcon name="sparkle" />
-                            {recipeImageState.isGenerating ? '正在生成...' : '基于参考图生成'}
-                          </button>
-                        )}
-                        <button
-                          className="ghost-button"
-                          type="button"
-                          onClick={resetRecipeImageInput}
-                          disabled={recipeImageState.isGenerating || !editorCoverAsset}
-                        >
-                          <RecipeUiIcon name="reset" />
-                          清空图片
-                        </button>
-                      </div>
-                    </div>
-
-                    {recipeImageState.errorMessage && <span className="image-composer-error">{recipeImageState.errorMessage}</span>}
-                    <p className="recipe-editor-cover-hint">
-                      {recipeImageState.isGenerating
-                        ? `封面后台生成中，可以先保存${entityLabel}。`
-                        : editorReferenceUrl && !form.images.generatedAsset
-                          ? '已上传参考图，可继续生成统一风格主图。'
-                          : '推荐尺寸：4:3，JPG/PNG，30 MB 以内。'}
-                    </p>
-                  </div>
-                </div>
+                <ImageComposer
+                  title={`${entityLabel}封面`}
+                  value={form.images}
+                  previewLabel={form.title || `${entityLabel}封面`}
+                  onUpload={(files) => void handleRecipeImageUpload(files)}
+                  onGenerate={(mode) => void handleRecipeImageGenerate(mode)}
+                  onReset={resetRecipeImageInput}
+                  isGenerating={recipeImageState.isGenerating}
+                  errorMessage={recipeImageState.errorMessage}
+                  variant="workspace-inline"
+                  uploadTitle="上传参考图"
+                  uploadHint="上传后生成统一风格封面"
+                  generatedTitle="封面主图"
+                  generateLabel={recipeImageState.isGenerating ? '正在生成...' : undefined}
+                  clearLabel="清空图片"
+                />
               </section>
             </main>
 

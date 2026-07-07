@@ -12,7 +12,7 @@ import {
   ApprovalSelectField,
   IngredientQuantityPicker,
   ResourceSelectIcon,
-  SearchableResourceSelect,
+  AiSearchableResourceSelect,
   normalizeMealPlanIngredientItems,
 } from './AiApprovalFields';
 import type { AiResourceKind, AiResourceOption, AiResourceOptionLoader } from './AiApprovalFields';
@@ -915,6 +915,9 @@ export function approvalStatusText(value: unknown) {
       return '已拒绝';
     case 'expired':
       return '已过期';
+    case 'cancelled':
+    case 'canceled':
+      return '已取消';
     default:
       return typeof value === 'string' ? value : '待确认';
   }
@@ -1458,7 +1461,7 @@ export function ApprovalPanel({
                   const usesPresenceQuantity = recipeIngredientUsesPresenceQuantity(item, ingredients);
                   return (
                     <div className={`ai-recipe-ingredient-card${item.ingredient_id ? '' : ' is-unbound'}`} key={`${item.ingredient_name}-${index}`}>
-                      <SearchableResourceSelect
+                      <AiSearchableResourceSelect
                         kind="ingredient"
                         label={`食材 ${index + 1}`}
                         value={item.ingredient_id ?? ''}
@@ -1681,7 +1684,7 @@ export function ApprovalPanel({
                 onChange={(mealType) => patchItem({ mealType })}
               />
             </div>
-            <SearchableResourceSelect
+            <AiSearchableResourceSelect
               kind="food"
               label="食物"
               value={record.foodId}
@@ -1924,7 +1927,7 @@ export function ApprovalPanel({
                 <strong>采购项</strong>
                 <span>必须绑定食材库中的食材。</span>
               </div>
-              <SearchableResourceSelect
+              <AiSearchableResourceSelect
                 kind="ingredient"
                 label="采购食材"
                 value={record.ingredientId}
@@ -2240,7 +2243,7 @@ export function ApprovalPanel({
                           </div>
                           <em>{formatServingCount(food.servings)} 份</em>
                         </div>
-                        <SearchableResourceSelect
+                        <AiSearchableResourceSelect
                           kind="food"
                           label="食物"
                           value={asText(food.foodId)}
@@ -3444,7 +3447,7 @@ export function ApprovalPanel({
         const category = asText(record.category) || asText((structuredDraft.before as Record<string, unknown> | undefined)?.category);
         const unit = asText(record.default_unit) || asText((structuredDraft.before as Record<string, unknown> | undefined)?.default_unit);
         const actionLabel = action === 'update' ? '修改' : '新增';
-        return [actionLabel, name, category, unit].filter(Boolean).join(' · ');
+        return [actionLabel, name, category, unit].filter(Boolean);
       }
       if (draftType === 'recipe') {
         const action = asText(structuredDraft.action);
@@ -3466,6 +3469,7 @@ export function ApprovalPanel({
     }
     return '';
   }, [recipeApproval, recipe, usesStructuredDraftEditor, draftType, structuredDraft, inventoryOperationDraft]);
+  const briefSummaryParts = Array.isArray(briefSummary) ? briefSummary : briefSummary ? [briefSummary] : [];
 
   return (
     <section className={`ai-approval-panel${isExpanded ? ' is-expanded' : ' is-collapsed'}`}>
@@ -3485,11 +3489,11 @@ export function ApprovalPanel({
         <div className="ai-approval-head-copy">
           <div className="ai-approval-title-row">
             <h3>{currentApproval.title}</h3>
-            {!isExpanded && briefSummary && (
-              <span className="ai-approval-brief-badge">
-                {briefSummary}
+            {!isExpanded && briefSummaryParts.map((summaryPart) => (
+              <span className="ai-approval-brief-badge" key={summaryPart}>
+                {summaryPart}
               </span>
-            )}
+            ))}
           </div>
           <p>{currentApproval.instruction}</p>
         </div>
@@ -3661,7 +3665,7 @@ export function ApprovalPanel({
                         const usesPresenceQuantity = recipeIngredientUsesPresenceQuantity(item, ingredients);
                         return (
                           <div className={`ai-recipe-ingredient-card${item.ingredient_id ? '' : ' is-unbound'}`} key={`${item.ingredient_name}-${index}`}>
-                            <SearchableResourceSelect
+                            <AiSearchableResourceSelect
                               kind="ingredient"
                               label={`食材 ${index + 1}`}
                               value={item.ingredient_id ?? ''}

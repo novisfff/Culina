@@ -1,60 +1,3 @@
-.dashboard-overview {
-  display: grid;
-  gap: 18px;
-  grid-template-columns: minmax(0, 1fr) minmax(360px, 0.92fr);
-  align-items: center;
-}
-
-.dashboard-overview-copy {
-  display: grid;
-  gap: 8px;
-}
-
-.dashboard-overview-copy h2 {
-  margin: 0;
-  font-size: 1.42rem;
-  line-height: 1.2;
-  font-weight: 700;
-}
-
-.dashboard-overview-copy p:last-child {
-  margin: 0;
-}
-
-.dashboard-overview-side {
-  display: grid;
-  gap: 12px;
-}
-
-.dashboard-overview-metrics {
-  display: grid;
-  gap: 10px;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-}
-
-.dashboard-overview .hero-actions {
-  justify-content: flex-start;
-}
-
-.dashboard-metric-card {
-  display: grid;
-  gap: 4px;
-  padding: 12px 14px;
-  border-radius: 16px;
-  border: 1px solid var(--line-soft);
-  background: var(--surface-3);
-}
-
-.dashboard-metric-card span {
-  color: var(--text-faint);
-  font-size: 0.78rem;
-}
-
-.dashboard-metric-card strong {
-  font-size: 1.08rem;
-  line-height: 1.1;
-}
-
 .dashboard-page {
   display: grid;
   gap: 16px;
@@ -67,40 +10,26 @@
   box-shadow: 0 12px 34px rgba(76, 56, 42, 0.055);
 }
 
-.dashboard-hero {
-  display: grid;
-  gap: 16px;
-  padding: 20px 24px 18px;
+.dashboard-page .page-header {
+  position: relative;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: start;
+  padding-right: 220px;
 }
 
-.dashboard-hero-head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 20px;
-}
-
-.dashboard-hero h1 {
-  margin: 0;
-  color: #231812;
-  font-size: clamp(2.15rem, 2.75vw, 2.75rem);
-  font-weight: 950;
-  line-height: 0.95;
-}
-
-.dashboard-hero p {
-  margin: 6px 0 0;
-  color: #776a61;
-  font-size: 0.98rem;
-  font-weight: 600;
-  line-height: 1.45;
+.dashboard-page .page-header-side {
+  position: absolute;
+  top: 24px;
+  right: 24px;
+  align-self: start;
+  padding-top: 0;
 }
 
 .dashboard-hero-actions {
   display: flex;
   align-items: center;
   gap: 14px;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   justify-content: flex-end;
 }
 
@@ -117,9 +46,6 @@
 .dashboard-hero-actions svg,
 .dashboard-stat-icon svg,
 .dashboard-icon-button svg,
-.dashboard-add-plan svg,
-.dashboard-link-button svg,
-.dashboard-shopping-icon svg,
 .dashboard-activity-mark svg,
 .dashboard-todo-check svg,
 .dashboard-todo-arrow svg {
@@ -232,14 +158,9 @@
   align-items: start;
 }
 
-.dashboard-left,
-.dashboard-right {
+.dashboard-left {
   display: grid;
   gap: 14px;
-}
-
-.dashboard-right {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .dashboard-panel {
@@ -298,6 +219,7 @@
   border: 1px solid var(--line-soft);
   border-radius: 14px;
   background: rgba(255, 255, 255, 0.92);
+  cursor: pointer;
   transition: transform 0.22s cubic-bezier(0.16, 1, 0.3, 1),
               box-shadow 0.22s cubic-bezier(0.16, 1, 0.3, 1),
               border-color 0.22s cubic-bezier(0.16, 1, 0.3, 1);
@@ -307,6 +229,12 @@
   transform: translateY(-2px);
   border-color: rgba(210, 107, 51, 0.24);
   box-shadow: 0 12px 28px rgba(74, 54, 40, 0.08);
+}
+
+.dashboard-food-card:focus-visible {
+  outline: 3px solid rgba(210, 107, 51, 0.24);
+  outline-offset: 3px;
+  border-color: rgba(210, 107, 51, 0.38);
 }
 
 .dashboard-food-cover {
@@ -351,14 +279,7 @@
   font-size: 0.94rem;
 }
 
-.dashboard-chip-row,
-.dashboard-food-actions {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.dashboard-chip-row {
+.dashboard-badge-row {
   min-width: 0;
   overflow-x: auto;
   overflow-y: hidden;
@@ -366,13 +287,13 @@
   scrollbar-width: none;
 }
 
-.dashboard-chip-row::-webkit-scrollbar {
+.dashboard-badge-row::-webkit-scrollbar {
   display: none;
 }
 
 .dashboard-food-actions {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 30px 30px;
+  grid-template-columns: minmax(0, 1fr) 30px;
   align-items: center;
   gap: 6px;
   width: 100%;
@@ -414,8 +335,7 @@
   opacity: 0.55;
 }
 
-.dashboard-icon-button,
-.dashboard-add-plan {
+.dashboard-icon-button {
   width: 34px;
   height: 34px;
   display: grid;
@@ -652,8 +572,8 @@
   background: #e8f5e4;
 }
 
-.dashboard-todo-modal .workspace-overlay-actions .solid-button,
-.dashboard-todo-modal .workspace-overlay-actions .ghost-button {
+.dashboard-todo-actions .solid-button,
+.dashboard-todo-actions .ghost-button {
   min-height: var(--tap-large);
   min-width: 116px;
   border-radius: 12px;
@@ -987,7 +907,7 @@
   gap: 0;
   padding: 10px 14px;
   border: 1px solid rgba(234, 214, 198, 0.8);
-  border-radius: 13px;
+  border-radius: 14px;
   background: rgba(255, 255, 255, 0.76);
 }
 
@@ -1175,7 +1095,7 @@
   gap: 10px;
   padding: 14px;
   border: 1px solid rgba(234, 214, 198, 0.8);
-  border-radius: 13px;
+  border-radius: 14px;
   background: rgba(255, 255, 255, 0.78);
 }
 
@@ -1288,8 +1208,7 @@
 }
 
 .dashboard-plan-meal-copy strong,
-.dashboard-plan-meal-copy small,
-.dashboard-plan-snack-row strong {
+.dashboard-plan-meal-copy small {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1416,14 +1335,6 @@
   height: 15px;
 }
 
-.dashboard-plan-detail-cover-image {
-  width: 100%;
-  height: 102px;
-  display: block;
-  border-radius: 14px;
-  object-fit: cover;
-}
-
 .dashboard-shopping-row {
   display: flex;
   align-items: stretch;
@@ -1453,7 +1364,7 @@
   gap: 9px;
   padding: 8px 9px;
   border: 1px solid var(--line-soft);
-  border-radius: 13px;
+  border-radius: 14px;
   background: linear-gradient(135deg, rgba(255, 255, 255, 0.95), rgba(255, 248, 241, 0.9));
   box-shadow: 0 10px 24px rgba(77, 52, 35, 0.07);
   color: inherit;
@@ -1664,19 +1575,6 @@
   white-space: nowrap;
 }
 
-.dashboard-link-button {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  justify-self: start;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: #8b7b6e;
-  font-size: 0.82rem;
-  font-weight: 800;
-}
-
 .dashboard-activity-item {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
@@ -1714,6 +1612,10 @@
 }
 
 @media (min-width: 901px) and (max-width: 1280px) {
+  .dashboard-lower-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .dashboard-lower-left,
   .dashboard-lower-right {
     display: contents;
@@ -1774,6 +1676,32 @@
     overflow-x: hidden;
   }
 
+  .dashboard-expiry-item {
+    grid-template-columns: 48px minmax(0, 1fr) auto auto;
+    gap: 8px;
+    min-height: 52px;
+    padding-right: 8px;
+  }
+
+  .dashboard-ingredient-thumb {
+    width: 48px;
+  }
+
+  .dashboard-expiry-badge {
+    padding: 3px 6px;
+    border-radius: 7px;
+    font-size: 0.68rem;
+    line-height: 1.15;
+  }
+
+  .dashboard-expiry-item .solid-button {
+    min-height: 28px;
+    height: 28px;
+    padding: 0 10px;
+    border-radius: 8px;
+    font-size: 0.76rem;
+  }
+
   .dashboard-todo-list {
     grid-template-columns: 1fr;
     max-height: 132px;
@@ -1827,21 +1755,13 @@
   }
 }
 
-/* Unified Food Card Placeholders (Desktop/iPad/Mobile) */
-.dashboard-food-cover .media-placeholder,
-.mobile-ingredient-priority-cover .media-placeholder,
-.mobile-ingredient-library-cover .media-placeholder {
+/* Unified Food Card Placeholders */
+.dashboard-food-cover .media-placeholder {
   gap: 0;
 }
 
 .dashboard-food-cover .media-placeholder-label,
 .dashboard-food-cover .media-placeholder-glow,
-.dashboard-food-cover .media-placeholder-spark,
-.mobile-ingredient-priority-cover .media-placeholder-label,
-.mobile-ingredient-priority-cover .media-placeholder-glow,
-.mobile-ingredient-priority-cover .media-placeholder-spark,
-.mobile-ingredient-library-cover .media-placeholder-label,
-.mobile-ingredient-library-cover .media-placeholder-glow,
-.mobile-ingredient-library-cover .media-placeholder-spark {
+.dashboard-food-cover .media-placeholder-spark {
   display: none !important;
 }

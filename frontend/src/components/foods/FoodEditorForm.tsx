@@ -1,5 +1,5 @@
-import type { Dispatch, FormEventHandler, SetStateAction } from 'react';
-import type { Food, FoodType, MealType, Recipe } from '../../api/types';
+import type { CSSProperties, Dispatch, FormEventHandler, SetStateAction } from 'react';
+import type { FoodType, MealType, Recipe } from '../../api/types';
 import { FOOD_TYPE_LABELS } from '../../lib/ui';
 import { ActionButton, Badge, ImageComposer, WorkspaceSubpageHeader, WorkspaceSubpageShell } from '../ui-kit';
 import {
@@ -74,6 +74,10 @@ function isReadyLikeType(foodType: FoodType) {
 }
 
 export function FoodEditorForm(props: Props) {
+  const completionPercent = Math.min(100, Math.max(0, props.completionPercent));
+  const completionBarStyle = {
+    '--food-editor-completion': `${completionPercent}%`,
+  } as CSSProperties;
   const showTypeGrid = props.view === 'create' || !props.isSelfMade;
   const typeOptions = props.view === 'create'
     ? FOOD_CREATE_TYPE_OPTIONS
@@ -359,10 +363,18 @@ export function FoodEditorForm(props: Props) {
               <div className="food-editor-completion">
                 <div className="food-editor-completion-head">
                   <span>资料完整度</span>
-                  <strong>{props.completionPercent}%</strong>
+                  <strong>{completionPercent}%</strong>
                 </div>
-                <div className="food-editor-completion-bar">
-                  <span style={{ width: `${props.completionPercent}%` }} />
+                <div
+                  className="food-editor-completion-bar"
+                  role="progressbar"
+                  aria-label="资料完整度"
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                  aria-valuenow={completionPercent}
+                  style={completionBarStyle}
+                >
+                  <span />
                 </div>
                 <div className="food-editor-completion-list">
                   {props.completionItems.map((item) => (
@@ -377,7 +389,7 @@ export function FoodEditorForm(props: Props) {
                   <FoodUiIcon name="save" />
                   <span>{props.isSavingFood ? '保存中...' : props.submitLabel ?? (props.view === 'create' ? '保存食物' : '保存修改')}</span>
                 </ActionButton>
-                <ActionButton tone="secondary" type="button" onClick={props.onBack}>
+                <ActionButton tone="secondary" type="button" onClick={props.onBack} disabled={props.isSavingFood}>
                   <FoodUiIcon name="arrowLeft" />
                   <span>返回食物库</span>
                 </ActionButton>

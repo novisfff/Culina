@@ -1,24 +1,28 @@
-import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
-import type { Ingredient, IngredientExpiryMode, IngredientUnitConversion, InventoryStatus } from '../../api/types';
-import { resolveAssetUrl, resolveMediaUrl } from '../../lib/assets';
-import { addDateKeyDays } from '../../lib/date';
+import { useMemo, type FormEvent } from 'react';
+import type { Ingredient, IngredientUnitConversion } from '../../api/types';
+import { resolveMediaUrl } from '../../lib/assets';
 import { tracksIngredientQuantity } from '../../lib/ingredientTracking';
-import { formatDate, INVENTORY_STATUS_LABELS, todayKey } from '../../lib/ui';
+import { useIngredientResourceSearch } from '../../hooks/useIngredientResourceSearch';
 import { MediaWithPlaceholder } from '../MediaPlaceholder';
 import {
-  ActionButton,
   Badge,
-  TouchRangeField,
-  TouchStepperField,
+  FormActions,
+  SearchableResourceSelect,
   WorkspaceModal,
 } from '../ui-kit';
+import {
+  IngredientRestockAdvancedSection,
+  IngredientRestockExpirySection,
+  IngredientRestockIdentitySection,
+  IngredientRestockPurchaseSection,
+  IngredientRestockQuantitySection,
+  IngredientRestockStorageSection,
+  resolvePurchaseDatePatch,
+} from './IngredientRestockSections';
 import type { PendingShoppingCompletion } from './IngredientWorkspaceOverlayTypes';
 import {
-  formatNumericString,
-  INVENTORY_STORAGE_PRESETS,
   resolveExpiryDateFromDays,
   type InventoryDrawerFormState,
-  type InventoryPurchasePreset,
 } from './ingredientWorkspaceForms';
 
 type IngredientInventoryOverlayProps = {
@@ -33,125 +37,33 @@ type IngredientInventoryOverlayProps = {
   selectedInventoryIngredient: Ingredient | null;
   selectedIngredientPreview?: string;
   selectedIngredientMeta: string[];
-  usesCustomStorage: boolean;
   inventoryUnitOptions: IngredientUnitConversion[];
   selectedInventoryUnit: IngredientUnitConversion | null;
   inventoryNormalizedQuantity: number | null;
-  inventoryQuantityValue: number;
-  inventoryQuantityStep: number;
-  inventoryQuantityQuickValues: number[];
   inventoryExpiryDaysValue: number;
   syncInventoryIngredient: (ingredient: Ingredient | null, ingredientQuery?: string) => void;
   submitInventory: (event: FormEvent<HTMLFormElement>) => Promise<void>;
   isCreatingInventory?: boolean;
 };
 
-type CustomSelectOption = {
-  value: string;
-  label: string;
-};
-
-function CustomSelect(props: {
-  placeholder: string;
-  value: string;
-  options: CustomSelectOption[];
-  onChange: (value: string) => void;
-}) {
-  const [isOpen, setIsOpen] = useState(false);
-  const containerRef = useRef<HTMLDivElement | null>(null);
-
-  const selectedOption = props.options.find((opt) => opt.value === props.value);
-  const triggerLabel = selectedOption ? selectedOption.label : props.placeholder;
-
-  useEffect(() => {
-    if (!isOpen) return;
-
-    function handlePointerDown(event: PointerEvent) {
-      if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
-        setIsOpen(false);
-      }
-    }
-
-    function handleKeyDown(event: KeyboardEvent) {
-      if (event.key === 'Escape') {
-        setIsOpen(false);
-      }
-    }
-
-    document.addEventListener('pointerdown', handlePointerDown);
-    document.addEventListener('keydown', handleKeyDown);
-    return () => {
-      document.removeEventListener('pointerdown', handlePointerDown);
-      document.removeEventListener('keydown', handleKeyDown);
-    };
-  }, [isOpen]);
-
-  return (
-    <div className="custom-select-container" ref={containerRef} aria-expanded={isOpen}>
-      <button
-        type="button"
-        className="custom-select-trigger"
-        onClick={() => setIsOpen((prev) => !prev)}
-      >
-        <span>{triggerLabel}</span>
-        <span className="custom-select-arrow" />
-      </button>
-      {isOpen && (
-        <div className="custom-select-dropdown">
-          {props.options.map((option) => (
-            <button
-              key={option.value}
-              type="button"
-              className={`custom-select-option ${props.value === option.value ? 'selected' : ''}`}
-              onClick={() => {
-                props.onChange(option.value);
-                setIsOpen(false);
-              }}
-            >
-              {option.label}
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
 export function IngredientInventoryOverlay(props: IngredientInventoryOverlayProps) {
   const tracksQuantity = tracksIngredientQuantity(props.selectedInventoryIngredient);
-  const [ingredientPickerOpen, setIngredientPickerOpen] = useState(false);
-  const pickerRef = useRef<HTMLDivElement | null>(null);
+  const inventoryFormId = 'ingredient-inventory-overlay-form';
+  const shouldShowIngredientPicker = !props.inventoryForm.ingredientLocked && !props.selectedInventoryIngredient;
+  const ingredientSearch = useIngredientResourceSearch(props.inventoryForm.ingredientQuery, {
+    enabled: shouldShowIngredientPicker,
+    fallbackIngredients: props.ingredients,
+  });
 
-  const statusOptions = useMemo(() => {
-    return Object.entries(INVENTORY_STATUS_LABELS).map(([key, label]) => ({
-      value: key,
-      label: label,
-    }));
-  }, []);
-
-  const visibleIngredientOptions = useMemo(() => {
-    const query = props.inventoryForm.ingredientQuery.trim().toLowerCase();
-    const matched = props.ingredients.filter((ingredient) => {
-      if (!query) return true;
-      return [ingredient.name, ingredient.category, ingredient.default_storage, ingredient.notes]
-        .filter(Boolean)
-        .some((value) => String(value).toLowerCase().includes(query));
-    });
-    return matched.slice(0, 8);
-  }, [props.ingredients, props.inventoryForm.ingredientQuery]);
-
-  useEffect(() => {
-    if (!ingredientPickerOpen) return;
-
-    function handlePointerDown(event: PointerEvent) {
-      if (pickerRef.current && !pickerRef.current.contains(event.target as Node)) {
-        setIngredientPickerOpen(false);
-      }
-    }
-
-    document.addEventListener('pointerdown', handlePointerDown);
-    return () => document.removeEventListener('pointerdown', handlePointerDown);
-  }, [ingredientPickerOpen]);
+  const inventoryQuantityUnitOptions = useMemo(() => {
+    const currentUnit = props.inventoryForm.unit || props.selectedInventoryIngredient?.default_unit || '个';
+    const units = props.selectedInventoryIngredient
+      ? [currentUnit, ...props.inventoryUnitOptions.map((option) => option.unit)]
+      : [currentUnit];
+    return units
+      .filter((unit, index, list) => unit && list.indexOf(unit) === index)
+      .map((unit) => ({ value: unit, label: unit }));
+  }, [props.inventoryForm.unit, props.inventoryUnitOptions, props.selectedInventoryIngredient]);
 
   return (
     <WorkspaceModal
@@ -161,8 +73,20 @@ export function IngredientInventoryOverlay(props: IngredientInventoryOverlayProp
       closeAriaLabel="关闭"
       className="workspace-modal-wide inventory-restock-modal"
       onClose={props.closeOverlay}
+      footerActions={
+        <FormActions
+          className="ingredients-restock-actions"
+          primaryLabel={tracksQuantity ? '补入库存' : '确认已有'}
+          primaryType="submit"
+          primaryForm={inventoryFormId}
+          primaryDisabled={!props.inventoryForm.ingredientId}
+          isSubmitting={Boolean(props.isCreatingInventory)}
+          secondaryLabel="取消"
+          onSecondary={props.closeOverlay}
+        />
+      }
     >
-      <form className="ingredients-restock-form" onSubmit={(event) => void props.submitInventory(event)}>
+      <form id={inventoryFormId} className="ingredients-restock-form" onSubmit={(event) => void props.submitInventory(event)}>
         <div className="ingredients-restock-scroll">
           {props.pendingShoppingToComplete && (
             <div className="ingredients-restock-source-note">
@@ -187,12 +111,12 @@ export function IngredientInventoryOverlay(props: IngredientInventoryOverlayProp
                         type="button"
                         className={
                           props.inventoryForm.ingredientId === ingredient.id
-                            ? 'ingredients-choice-chip active'
-                            : 'ingredients-choice-chip'
+                            ? 'ingredients-restock-quick-item active'
+                            : 'ingredients-restock-quick-item'
                         }
                         onClick={() => props.syncInventoryIngredient(ingredient, ingredient.name)}
                       >
-                        <div className="ingredients-choice-chip-avatar">
+                        <div className="ingredients-restock-quick-avatar">
                           <MediaWithPlaceholder src={imageUrl} alt="" />
                         </div>
                         <span>{ingredient.name}</span>
@@ -203,419 +127,107 @@ export function IngredientInventoryOverlay(props: IngredientInventoryOverlayProp
               </section>
             )}
 
-          {!props.inventoryForm.ingredientLocked && !props.selectedInventoryIngredient && (
-            <div className="ingredients-restock-search-field ingredients-restock-picker-field">
+          {shouldShowIngredientPicker && (
+            <div className="ingredients-restock-search-field">
               <span>食材</span>
-              <div className="custom-combobox-container" ref={pickerRef}>
-                <input
-                  className="text-input"
-                  placeholder="搜索或选择食材"
-                  value={props.inventoryForm.ingredientQuery}
-                  onFocus={() => setIngredientPickerOpen(true)}
-                  onChange={(event) => {
-                    const nextQuery = event.target.value;
-                    const ingredient = props.ingredients.find((item) => item.name === nextQuery) ?? null;
-                    props.syncInventoryIngredient(ingredient, nextQuery);
-                    setIngredientPickerOpen(true);
-                  }}
-                />
-                <span className="custom-combobox-arrow" />
-                {ingredientPickerOpen && (
-                  <div className="custom-combobox-dropdown">
-                    {visibleIngredientOptions.length > 0 ? (
-                      visibleIngredientOptions.map((ingredient) => {
-                        const imageUrl = resolveMediaUrl(ingredient.image, 'thumb');
-                        return (
-                          <button
-                            key={ingredient.id}
-                            type="button"
-                            className={`custom-combobox-option ${props.inventoryForm.ingredientId === ingredient.id ? 'selected' : ''}`}
-                            onClick={() => {
-                              props.syncInventoryIngredient(ingredient, ingredient.name);
-                              setIngredientPickerOpen(false);
-                            }}
-                          >
-                            <div className="custom-combobox-option-avatar">
-                              <MediaWithPlaceholder src={imageUrl} alt="" />
-                            </div>
-                            <span>{ingredient.name}</span>
-                          </button>
-                        );
-                      })
-                    ) : (
-                      <div className="ingredients-restock-picker-empty">没有匹配的食材</div>
-                    )}
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
-
-          {props.selectedInventoryIngredient && (
-            <section className="ingredients-restock-identity-card">
-              <div className="ingredients-restock-identity-media">
-                <MediaWithPlaceholder
-                  src={props.selectedIngredientPreview}
-                  alt={props.selectedInventoryIngredient.name}
-                />
-              </div>
-              <div className="ingredients-restock-identity-copy">
-                <div className="ingredients-restock-identity-head">
-                  <div>
-                    <h4>{props.selectedInventoryIngredient.name}</h4>
-                    <p>{props.selectedIngredientMeta.join(' · ')}</p>
-                  </div>
-                  <Badge>{props.inventoryForm.ingredientLocked ? '当前食材' : '已选食材'}</Badge>
-                </div>
-                {!props.inventoryForm.ingredientLocked && (
-                  <ActionButton
-                    tone="tertiary"
-                    size="compact"
-                    type="button"
-                    className="ingredients-restock-identity-switch"
-                    onClick={() => props.syncInventoryIngredient(null, '')}
-                  >
-                    换一个食材
-                  </ActionButton>
-                )}
-              </div>
-            </section>
-          )}
-
-          {tracksQuantity ? (
-          <section className="ingredients-restock-field-group ingredients-restock-quantity-section">
-            <div className="ingredients-restock-quantity-row">
-              <TouchStepperField
-                label="数量"
-                value={props.inventoryQuantityValue}
-                min={props.inventoryQuantityStep}
-                step={props.inventoryQuantityStep}
-                quickValues={props.inventoryQuantityQuickValues}
-                allowCustomInput
-                customInputMode="inline"
-                customInputLabel="直接输入"
-                inputMin={props.inventoryQuantityStep}
-                inputStep={props.inventoryQuantityStep}
-                formatValue={(value) => formatNumericString(value)}
-                onChange={(value) =>
-                  props.setInventoryForm({
-                    ...props.inventoryForm,
-                    quantity: formatNumericString(value),
-                  })
-                }
+              <SearchableResourceSelect
+                ariaLabel="选择食材"
+                placeholder="搜索或选择食材"
+                value={props.inventoryForm.ingredientId}
+                query={props.inventoryForm.ingredientQuery}
+                presentation="popover"
+                loading={ingredientSearch.isSearching}
+                loadingMore={ingredientSearch.isFetchingNextPage}
+                hasMore={ingredientSearch.hasMore}
+                loadMoreText="加载更多食材"
+                loadingMoreText="正在加载更多食材..."
+                options={ingredientSearch.ingredients.map((ingredient) => ({
+                  id: ingredient.id,
+                  label: ingredient.name,
+                  description: `${ingredient.category || '食材'} · 默认 ${ingredient.default_unit || '个'}`,
+                  image: <MediaWithPlaceholder src={resolveMediaUrl(ingredient.image, 'thumb')} alt="" />,
+                }))}
+                emptyText={ingredientSearch.isSearching ? '正在搜索...' : '没有匹配的食材'}
+                onSearchCompositionStart={ingredientSearch.onCompositionStart}
+                onSearchCompositionEnd={ingredientSearch.onCompositionEnd}
+                onQueryChange={(nextQuery) => {
+                  const ingredient = ingredientSearch.findIngredientByName(nextQuery);
+                  props.syncInventoryIngredient(ingredient, nextQuery);
+                }}
+                onLoadMore={() => {
+                  if (ingredientSearch.hasMore && !ingredientSearch.isFetchingNextPage) {
+                    void ingredientSearch.fetchNextPage();
+                  }
+                }}
+                onChange={(ingredientId) => {
+                  const ingredient = ingredientSearch.findIngredientById(ingredientId);
+                  props.syncInventoryIngredient(ingredient, ingredient?.name ?? '');
+                }}
               />
-              <section className="ingredients-restock-unit-card">
-                <div className="ingredients-restock-unit-card-head">
-                  <span>单位</span>
-                  <strong>{props.inventoryForm.unit || props.selectedInventoryIngredient?.default_unit || '个'}</strong>
-                </div>
-                <p className="subtle">
-                  {props.selectedInventoryIngredient
-                    ? props.selectedInventoryUnit?.unit === props.selectedInventoryIngredient.default_unit
-                      ? '默认按主单位直接记库存'
-                      : props.inventoryNormalizedQuantity !== null
-                        ? `将记为 ${formatNumericString(props.inventoryNormalizedQuantity)}${props.selectedInventoryIngredient.default_unit} 库存`
-                        : '切换单位后会自动折算到主单位'
-                    : '先选食材，再切换这次录入单位。'}
-                </p>
-                <div className="ingredients-restock-unit-chip-row">
-                  {(props.selectedInventoryIngredient
-                    ? props.inventoryUnitOptions
-                    : [{ unit: props.inventoryForm.unit || '个', ratio_to_default: 1 }]
-                  ).map((option) => (
-                    <button
-                      key={`inventory-unit-${option.unit}`}
-                      type="button"
-                      className={
-                        props.inventoryForm.unit === option.unit
-                          ? 'ingredients-choice-chip ingredients-unit-chip active'
-                          : 'ingredients-choice-chip ingredients-unit-chip'
-                      }
-                      onClick={() =>
-                        props.setInventoryForm({
-                          ...props.inventoryForm,
-                          unit: option.unit,
-                        })
-                      }
-                      disabled={!props.selectedInventoryIngredient}
-                    >
-                      {option.unit}
-                    </button>
-                  ))}
-                </div>
-              </section>
             </div>
-          </section>
-          ) : (
-            <section className="ingredients-restock-field-group ingredients-restock-quantity-section">
-              <div className="ingredients-create-rule-note ingredients-create-lowstock-note">
-                <span>只记录有无</span>
-                <p>这类食材只确认家里已经补上，不需要填写数量，做菜完成时也不会自动扣减。</p>
-              </div>
-            </section>
           )}
 
-          <section className="ingredients-restock-field-group">
-            <div className="ingredients-restock-field-head">
-              <span>购买时间</span>
-              <p className="subtle">默认今天，需要时再改。</p>
-            </div>
-            <div className="ingredients-restock-choice-row">
-              {[
-                { value: 'today', label: '今天', date: todayKey() },
-                { value: 'yesterday', label: '昨天', date: addDateKeyDays(todayKey(), -1) },
-                { value: 'custom', label: '自定义', date: props.inventoryForm.purchaseDate },
-              ].map((item) => (
-                <button
-                  key={item.value}
-                  type="button"
-                  className={
-                    props.inventoryForm.purchaseDatePreset === item.value
-                      ? 'ingredients-choice-chip active'
-                      : 'ingredients-choice-chip'
-                  }
-                  onClick={() =>
-                    props.setInventoryForm({
-                      ...props.inventoryForm,
-                      purchaseDatePreset: item.value as InventoryPurchasePreset,
-                      purchaseDate: item.value === 'custom' ? props.inventoryForm.purchaseDate : item.date,
-                    })
-                  }
-                >
-                  {item.label}
-                </button>
-              ))}
-            </div>
-            {props.inventoryForm.purchaseDatePreset === 'custom' && (
-              <label>
-                <span>购买日期</span>
-                <input
-                  className="text-input"
-                  type="date"
-                  required
-                  value={props.inventoryForm.purchaseDate}
-                  onChange={(event) =>
-                    props.setInventoryForm({
-                      ...props.inventoryForm,
-                      purchaseDate: event.target.value,
-                      purchaseDatePreset: 'custom',
-                    })
-                  }
-                />
-              </label>
-            )}
-          </section>
+          <IngredientRestockIdentitySection
+            ingredient={props.selectedInventoryIngredient}
+            previewUrl={props.selectedIngredientPreview}
+            meta={props.selectedIngredientMeta}
+            badgeLabel={props.inventoryForm.ingredientLocked ? '当前食材' : '已选食材'}
+            canSwitch={!props.inventoryForm.ingredientLocked}
+            onSwitch={() => props.syncInventoryIngredient(null, '')}
+          />
 
-          <section className="ingredients-restock-field-group">
-            <div className="ingredients-restock-field-head">
-              <span>存放位置</span>
-              <p className="subtle">按这次实际放的位置点一下。</p>
-            </div>
-            <div className="ingredients-restock-choice-row">
-              {INVENTORY_STORAGE_PRESETS.map((storage) => (
-                <button
-                  key={storage}
-                  type="button"
-                  className={
-                    props.inventoryForm.storageLocation === storage
-                      ? 'ingredients-choice-chip active'
-                      : 'ingredients-choice-chip'
-                  }
-                  onClick={() =>
-                    props.setInventoryForm({
-                      ...props.inventoryForm,
-                      storageLocation: storage,
-                    })
-                  }
-                >
-                  {storage}
-                </button>
-              ))}
-              <button
-                type="button"
-                className={props.usesCustomStorage ? 'ingredients-choice-chip active' : 'ingredients-choice-chip'}
-                onClick={() =>
-                  props.setInventoryForm({
-                    ...props.inventoryForm,
-                    storageLocation:
-                      props.usesCustomStorage && props.inventoryForm.storageLocation
-                        ? props.inventoryForm.storageLocation
-                        : '',
-                  })
-                }
-              >
-                其他
-              </button>
-            </div>
-            {props.usesCustomStorage && (
-              <label>
-                <span>自定义位置</span>
-                <input
-                  className="text-input"
-                  value={props.inventoryForm.storageLocation}
-                  placeholder="例如 门边小冰箱"
-                  onChange={(event) =>
-                    props.setInventoryForm({
-                      ...props.inventoryForm,
-                      storageLocation: event.target.value,
-                    })
-                  }
-                />
-              </label>
-            )}
-          </section>
+          <IngredientRestockQuantitySection
+            ingredient={props.selectedInventoryIngredient}
+            quantity={props.inventoryForm.quantity}
+            unit={props.inventoryForm.unit || props.selectedInventoryIngredient?.default_unit || '个'}
+            unitOptions={inventoryQuantityUnitOptions}
+            selectedUnit={props.selectedInventoryUnit}
+            normalizedQuantity={props.inventoryNormalizedQuantity}
+            onQuantityChange={(quantity) => props.setInventoryForm({ ...props.inventoryForm, quantity })}
+            onUnitChange={(unit) => props.setInventoryForm({ ...props.inventoryForm, unit })}
+          />
 
-          <section className="ingredients-restock-field-group">
-            <div className="ingredients-restock-field-head">
-              <span>到期信息</span>
-              <p className="subtle">确认这批食材怎么跟踪到期。</p>
-            </div>
-            <div className="ingredients-restock-choice-row">
-              {[
-                { value: 'none', label: '不记录' },
-                { value: 'days', label: '几天后到期' },
-                { value: 'manual_date', label: '包装到期日' },
-              ].map((item) => (
-                <button
-                  key={item.value}
-                  type="button"
-                  className={
-                    props.inventoryForm.expiryInputMode === item.value
-                      ? 'ingredients-choice-chip active'
-                      : 'ingredients-choice-chip'
-                  }
-                  onClick={() =>
-                    props.setInventoryForm({
-                      ...props.inventoryForm,
-                      expiryInputMode: item.value as IngredientExpiryMode,
-                      expiryDays:
-                        item.value === 'days'
-                          ? props.inventoryForm.expiryDays ||
-                            (props.selectedInventoryIngredient?.default_expiry_days
-                              ? String(props.selectedInventoryIngredient.default_expiry_days)
-                              : '3')
-                          : '',
-                      expiryDate:
-                        item.value === 'manual_date'
-                          ? props.inventoryForm.expiryDate
-                          : item.value === 'days'
-                            ? resolveExpiryDateFromDays(
-                                props.inventoryForm.purchaseDate,
-                                props.inventoryForm.expiryDays ||
-                                  (props.selectedInventoryIngredient?.default_expiry_days
-                                    ? String(props.selectedInventoryIngredient.default_expiry_days)
-                                    : '3')
-                              )
-                            : '',
-                    })
-                  }
-                >
-                  {item.label}
-                </button>
-              ))}
-            </div>
-            {props.inventoryForm.expiryInputMode === 'days' ? (
-              <div className="ingredients-restock-expiry-grid">
-                <TouchRangeField
-                  label="买后几天到期"
-                  value={props.inventoryExpiryDaysValue}
-                  min={1}
-                  max={30}
-                  step={1}
-                  marks={[1, 3, 7, 14, 30]}
-                  formatValue={(value) => `${value} 天`}
-                  onChange={(value) =>
-                    props.setInventoryForm({
-                      ...props.inventoryForm,
-                      expiryDays: String(value),
-                    })
-                  }
-                />
-                <div className="ingredients-restock-result-card">
-                  <span>预计到期日</span>
-                  <strong>
-                    {props.inventoryForm.expiryDate ? formatDate(props.inventoryForm.expiryDate) : '先选天数'}
-                  </strong>
-                  <p>
-                    {props.inventoryForm.expiryDate
-                      ? `${props.inventoryForm.purchaseDate} 购入`
-                      : '拖动后会自动换算日期'}
-                  </p>
-                </div>
-              </div>
-            ) : props.inventoryForm.expiryInputMode === 'manual_date' ? (
-              <label>
-                <span>包装到期日</span>
-                <input
-                  className="text-input"
-                  type="date"
-                  required
-                  value={props.inventoryForm.expiryDate}
-                  onChange={(event) =>
-                    props.setInventoryForm({ ...props.inventoryForm, expiryDate: event.target.value })
-                  }
-                />
-              </label>
-            ) : (
-              <p className="ingredients-restock-field-note">这批不跟踪到期提醒。</p>
-            )}
-          </section>
+          <IngredientRestockPurchaseSection
+            purchaseDate={props.inventoryForm.purchaseDate}
+            purchaseDatePreset={props.inventoryForm.purchaseDatePreset}
+            onChange={(patch) => {
+              const resolvedPatch = resolvePurchaseDatePatch(patch);
+              const purchaseDate = resolvedPatch.purchaseDate ?? props.inventoryForm.purchaseDate;
+              props.setInventoryForm({
+                ...props.inventoryForm,
+                ...resolvedPatch,
+                expiryDate:
+                  props.inventoryForm.expiryInputMode === 'days'
+                    ? resolveExpiryDateFromDays(purchaseDate, props.inventoryForm.expiryDays)
+                    : props.inventoryForm.expiryDate,
+              });
+            }}
+          />
 
-          <section className="ingredients-modal-advanced">
-            <button
-              className="ghost-button ingredients-modal-advanced-toggle"
-              type="button"
-              onClick={() => props.setInventoryAdvancedOpen(!props.inventoryAdvancedOpen)}
-            >
-              {props.inventoryAdvancedOpen ? '收起更多选项' : '更多选项'}
-            </button>
-            {props.inventoryAdvancedOpen && (
-              <div className="ingredients-modal-advanced-fields">
-                <div className="ingredients-restock-status-custom-field">
-                  <span>状态</span>
-                  <CustomSelect
-                    placeholder="选择状态"
-                    value={props.inventoryForm.status}
-                    options={statusOptions}
-                    onChange={(val) =>
-                      props.setInventoryForm({
-                        ...props.inventoryForm,
-                        status: val as InventoryStatus,
-                        statusDirty: true,
-                      })
-                    }
-                  />
-                </div>
-                <label className="span-two">
-                  <span>备注</span>
-                  <textarea
-                    className="text-input"
-                    rows={3}
-                    value={props.inventoryForm.notes}
-                    onChange={(event) =>
-                      props.setInventoryForm({ ...props.inventoryForm, notes: event.target.value })
-                    }
-                  />
-                </label>
-              </div>
-            )}
-          </section>
+          <IngredientRestockStorageSection
+            storageLocation={props.inventoryForm.storageLocation}
+            onChange={(storageLocation) => props.setInventoryForm({ ...props.inventoryForm, storageLocation })}
+          />
+
+          <IngredientRestockExpirySection
+            expiryInputMode={props.inventoryForm.expiryInputMode}
+            expiryDays={props.inventoryForm.expiryDays}
+            expiryDate={props.inventoryForm.expiryDate}
+            purchaseDate={props.inventoryForm.purchaseDate}
+            defaultExpiryDays={props.selectedInventoryIngredient?.default_expiry_days}
+            expiryDaysValue={props.inventoryExpiryDaysValue}
+            onChange={(patch) => props.setInventoryForm({ ...props.inventoryForm, ...patch })}
+          />
+
+          <IngredientRestockAdvancedSection
+            open={props.inventoryAdvancedOpen}
+            status={props.inventoryForm.status}
+            notes={props.inventoryForm.notes}
+            onOpenChange={props.setInventoryAdvancedOpen}
+            onChange={(patch) => props.setInventoryForm({ ...props.inventoryForm, ...patch })}
+          />
         </div>
 
-        <div className="ingredients-restock-footer-bar">
-          <div className="workspace-overlay-actions">
-            <ActionButton tone="secondary" type="button" onClick={props.closeOverlay}>
-              取消
-            </ActionButton>
-            <ActionButton
-              tone="primary"
-              type="submit"
-              disabled={props.isCreatingInventory || !props.inventoryForm.ingredientId}
-            >
-              {props.isCreatingInventory ? '保存中...' : tracksQuantity ? '保存这批库存' : '确认已有'}
-            </ActionButton>
-          </div>
-        </div>
       </form>
     </WorkspaceModal>
   );

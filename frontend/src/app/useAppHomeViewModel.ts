@@ -61,17 +61,15 @@ export function useAppHomeViewModel(args: UseAppHomeViewModelArgs) {
   const homePlanAddFood = args.homePlanAddFoodId
     ? args.foods.find((food) => food.id === args.homePlanAddFoodId) ?? null
     : null;
-  const homePlanAddFoodOptions = args.foods
-    .filter((food) => {
-      const query = args.homePlanAddFoodSearch.trim().toLowerCase();
-      if (!query) return true;
-      return [food.name, food.category, food.source_name, food.purchase_source, food.scene, food.notes, food.routine_note]
-        .filter(Boolean)
-        .join(' ')
-        .toLowerCase()
-        .includes(query);
-    })
-    .slice(0, 8);
+  const homePlanAddFoodOptions = args.foods.filter((food) => {
+    const query = args.homePlanAddFoodSearch.trim().toLowerCase();
+    if (!query) return true;
+    return [food.name, food.category, food.source_name, food.purchase_source, food.scene, food.notes, food.routine_note]
+      .filter(Boolean)
+      .join(' ')
+      .toLowerCase()
+      .includes(query);
+  });
 
   const currentUser = args.user;
   const isOwner = args.membershipRole === 'Owner';
@@ -177,13 +175,18 @@ export function useAppHomeViewModel(args: UseAppHomeViewModelArgs) {
   const homeRestockIngredientImageUrl =
     homeRestockIngredient?.image?.url ? args.resolveDashboardAssetUrl(homeRestockIngredient.image.url) : undefined;
 
-  const ingredientSummaries = buildIngredientSummaries({
-    ingredients: args.ingredients,
-    inventoryItems: args.inventoryItems,
-    recipes: args.recipes,
-  });
+  const homeExpiredDisposalIngredient = args.homeExpiredDisposalIngredientId
+    ? args.ingredients.find((item) => item.id === args.homeExpiredDisposalIngredientId) ?? null
+    : null;
+  const ingredientSummaries = homeExpiredDisposalIngredient
+    ? buildIngredientSummaries({
+        ingredients: [homeExpiredDisposalIngredient],
+        inventoryItems: args.inventoryItems.filter((item) => item.ingredient_id === homeExpiredDisposalIngredient.id),
+        recipes: args.recipes,
+      })
+    : [];
   const homeExpiredDisposalSummary =
-    ingredientSummaries.find((item) => item.ingredient.id === args.homeExpiredDisposalIngredientId) ?? null;
+    ingredientSummaries[0] ?? null;
   const homeExpiredDisposalItems = homeExpiredDisposalSummary
     ? buildDisposableExpiredInventoryItems(homeExpiredDisposalSummary)
     : [];

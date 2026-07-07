@@ -4,7 +4,7 @@ import { api } from '../../api/client';
 import { queryKeys } from '../../api/queryKeys';
 import type { ActivityLog, Member } from '../../api/types';
 import { DashboardIcon } from '../../app/shellIcons';
-import { ActionButton, EmptyState, WorkspaceModal } from '../../components/ui-kit';
+import { DropdownSelect, EmptyState, FormActions, WorkspaceModal, WorkspaceOverlayFrame } from '../../components/ui-kit';
 import { formatDateTime } from '../../lib/ui';
 import {
   DEFAULT_FAMILY_ACTIVITY_FILTERS,
@@ -34,90 +34,6 @@ function activityIconName(log: ActivityLog) {
   if (log.action === 'invite') return 'user-plus';
   if (log.action === 'create') return 'plus';
   return 'edit';
-}
-
-type CustomSelectOption = {
-  value: string;
-  label: string;
-};
-
-type CustomSelectProps = {
-  labelPrefix: string;
-  placeholder: string;
-  value: string;
-  options: CustomSelectOption[];
-  onChange: (value: string) => void;
-};
-
-function CustomSelect({ labelPrefix, placeholder, value, options, onChange }: CustomSelectProps) {
-  const [isOpen, setIsOpen] = useState(false);
-  const containerRef = useRef<HTMLDivElement | null>(null);
-
-  const selectedOption = options.find((opt) => opt.value === value);
-  const triggerLabel = selectedOption ? `${labelPrefix}: ${selectedOption.label}` : placeholder;
-
-  useEffect(() => {
-    if (!isOpen) return;
-
-    function handlePointerDown(event: PointerEvent) {
-      if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
-        setIsOpen(false);
-      }
-    }
-
-    function handleKeyDown(event: KeyboardEvent) {
-      if (event.key === 'Escape') {
-        setIsOpen(false);
-      }
-    }
-
-    document.addEventListener('pointerdown', handlePointerDown);
-    document.addEventListener('keydown', handleKeyDown);
-    return () => {
-      document.removeEventListener('pointerdown', handlePointerDown);
-      document.removeEventListener('keydown', handleKeyDown);
-    };
-  }, [isOpen]);
-
-  return (
-    <div className="custom-select-container" ref={containerRef} aria-expanded={isOpen}>
-      <button
-        type="button"
-        className="custom-select-trigger"
-        onClick={() => setIsOpen((prev) => !prev)}
-      >
-        <span>{triggerLabel}</span>
-        <span className="custom-select-arrow" />
-      </button>
-      {isOpen && (
-        <div className="custom-select-dropdown">
-          <button
-            type="button"
-            className={`custom-select-option ${value === '' ? 'selected' : ''}`}
-            onClick={() => {
-              onChange('');
-              setIsOpen(false);
-            }}
-          >
-            {placeholder.replace(`${labelPrefix}: `, '')}
-          </button>
-          {options.map((option) => (
-            <button
-              key={option.value}
-              type="button"
-              className={`custom-select-option ${value === option.value ? 'selected' : ''}`}
-              onClick={() => {
-                onChange(option.value);
-                setIsOpen(false);
-              }}
-            >
-              {option.label}
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
-  );
 }
 
 function FamilyActivityFiltersPanel(props: {
@@ -172,25 +88,31 @@ function FamilyActivityFiltersPanel(props: {
         </div>
       )}
       <div className="family-activity-viewer-select-grid">
-        <CustomSelect
+        <DropdownSelect
+          ariaLabel="筛选操作人"
           labelPrefix="操作人"
           placeholder="操作人: 所有人"
           value={props.filters.actorId}
           options={actorOptions}
+          clearOption={{ value: '', label: '所有人' }}
           onChange={(val) => updateFilters({ actorId: val })}
         />
-        <CustomSelect
+        <DropdownSelect
+          ariaLabel="筛选操作类型"
           labelPrefix="类型"
           placeholder="类型: 全部操作"
           value={props.filters.action}
           options={actionOptions}
+          clearOption={{ value: '', label: '全部操作' }}
           onChange={(val) => updateFilters({ action: val })}
         />
-        <CustomSelect
+        <DropdownSelect
+          ariaLabel="筛选对象"
           labelPrefix="对象"
           placeholder="对象: 全部模块"
           value={props.filters.entityType}
           options={entityOptions}
+          clearOption={{ value: '', label: '全部模块' }}
           onChange={(val) => updateFilters({ entityType: val })}
         />
         <button className="ghost-button" type="button" onClick={props.onReset}>
@@ -276,8 +198,7 @@ export function FamilyActivityModal(props: FamilyActivityViewerProps & { onClose
   const canLoadMore = viewer.logs.length >= viewer.limit;
 
   return (
-    <div className="workspace-overlay-root family-settings-overlay-root">
-      <div className="workspace-overlay-backdrop" onClick={props.onClose} />
+    <WorkspaceOverlayFrame rootClassName="family-settings-overlay-root" onClose={props.onClose}>
       <WorkspaceModal
         className="family-activity-viewer-modal"
         eyebrow="家庭活动"
@@ -285,6 +206,16 @@ export function FamilyActivityModal(props: FamilyActivityViewerProps & { onClose
         description={`共 ${viewer.logs.length} 条记录 · ${viewer.hasFilters ? '已应用筛选' : '按最新时间倒序展示'}`}
         closeAriaLabel="关闭家庭活动"
         onClose={props.onClose}
+        footerActions={
+          canLoadMore ? (
+            <FormActions
+              className="family-activity-viewer-actions"
+              primaryLabel="加载更多"
+              primaryDisabled={!canLoadMore}
+              onPrimary={() => viewer.setLimit((current) => current + FAMILY_ACTIVITY_PAGE_SIZE)}
+            />
+          ) : undefined
+        }
       >
         <FamilyActivityFiltersPanel
           filters={viewer.filters}
@@ -294,15 +225,8 @@ export function FamilyActivityModal(props: FamilyActivityViewerProps & { onClose
           onReset={viewer.resetFilters}
         />
         <FamilyActivityTimeline logs={viewer.logs} isFetching={viewer.isFetching} hasFilters={viewer.hasFilters} />
-        {canLoadMore && (
-          <div className="family-activity-viewer-actions">
-            <ActionButton tone="secondary" type="button" onClick={() => viewer.setLimit((current) => current + FAMILY_ACTIVITY_PAGE_SIZE)}>
-              加载更多
-            </ActionButton>
-          </div>
-        )}
       </WorkspaceModal>
-    </div>
+    </WorkspaceOverlayFrame>
   );
 }
 
@@ -338,11 +262,12 @@ export function FamilyActivityMobilePage(props: FamilyActivityViewerProps & { on
       />
       <FamilyActivityTimeline logs={viewer.logs} isFetching={viewer.isFetching} hasFilters={viewer.hasFilters} />
       {canLoadMore && (
-        <div className="family-activity-viewer-actions">
-          <ActionButton tone="secondary" type="button" onClick={() => viewer.setLimit((current) => current + FAMILY_ACTIVITY_PAGE_SIZE)}>
-            加载更多
-          </ActionButton>
-        </div>
+        <FormActions
+          className="family-activity-viewer-actions"
+          primaryLabel="加载更多"
+          primaryDisabled={!canLoadMore}
+          onPrimary={() => viewer.setLimit((current) => current + FAMILY_ACTIVITY_PAGE_SIZE)}
+        />
       )}
     </main>
   );

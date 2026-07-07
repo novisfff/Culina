@@ -17,13 +17,17 @@ afterEach(() => {
 });
 
 describe('AiRecommendationPlanDialog', () => {
-  it('prefills the queried date and meal type before creating a plan item', async () => {
-    const submitted: CreateFoodPlanItemPayload[] = [];
+  function renderDialog(props: {
+    isSubmitting?: boolean;
+    onClose?: () => void;
+    onSubmit?: (payload: CreateFoodPlanItemPayload) => Promise<void>;
+  } = {}) {
     container = document.createElement('div');
     document.body.appendChild(container);
     root = createRoot(container);
-
-    await act(async () => {
+    const onClose = props.onClose ?? vi.fn();
+    const onSubmit = props.onSubmit ?? vi.fn(async () => undefined);
+    act(() => {
       root?.render(
         <AiRecommendationPlanDialog
           request={{
@@ -42,20 +46,28 @@ describe('AiRecommendationPlanDialog', () => {
               evidence: [],
             },
           }}
-          isSubmitting={false}
-          onClose={vi.fn()}
-          onSubmit={async (payload) => {
-            submitted.push(payload);
-          }}
+          isSubmitting={Boolean(props.isSubmitting)}
+          onClose={onClose}
+          onSubmit={onSubmit}
         />,
       );
     });
+    return { onClose, onSubmit, view: container };
+  }
 
-    expect(container.querySelector<HTMLInputElement>('input[type="date"]')?.value).toBe('2026-06-15');
-    expect(container.querySelector<HTMLButtonElement>('.ai-recommendation-meal-options .active')?.textContent).toBe('晚餐');
+  it('prefills the queried date and meal type before creating a plan item', async () => {
+    const submitted: CreateFoodPlanItemPayload[] = [];
+    const { view } = renderDialog({
+      onSubmit: async (payload) => {
+        submitted.push(payload);
+      },
+    });
+
+    expect(view.querySelector<HTMLInputElement>('input[type="date"]')?.value).toBe('2026-06-15');
+    expect(view.querySelector<HTMLButtonElement>('.ai-recommendation-meal-options .active')?.textContent).toBe('晚餐');
 
     await act(async () => {
-      container?.querySelector<HTMLFormElement>('form')?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+      view.querySelector<HTMLFormElement>('form')?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
     });
 
     expect(submitted).toEqual([
@@ -66,5 +78,16 @@ describe('AiRecommendationPlanDialog', () => {
         note: '来自 AI 推荐：适合明晚快速准备。',
       },
     ]);
+  });
+
+  it('keeps the dialog open while a plan item is submitting', () => {
+    const { onClose, view } = renderDialog({ isSubmitting: true });
+
+    act(() => view.querySelector<HTMLDivElement>('.workspace-overlay-backdrop')?.click());
+    act(() => view.querySelector<HTMLButtonElement>('.workspace-overlay-close')?.click());
+    act(() => view.querySelector<HTMLButtonElement>('button.ui-form-actions-secondary')?.click());
+
+    expect(view.querySelector('.workspace-overlay-root.ai-recommendation-plan-root')).not.toBeNull();
+    expect(onClose).not.toHaveBeenCalled();
   });
 });

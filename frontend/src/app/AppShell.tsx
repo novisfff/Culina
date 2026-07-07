@@ -130,6 +130,29 @@ function useMobileVisualViewportMetrics(activeTab: TabKey) {
   }, [activeTab]);
 }
 
+function OrientationLockScreen(props: { mode: 'landscape' | 'portrait' }) {
+  const isLandscapeMode = props.mode === 'landscape';
+
+  return (
+    <section
+      className={`app-orientation-lock app-orientation-lock-${props.mode}`}
+      aria-live="polite"
+      aria-label={isLandscapeMode ? '请横屏使用 Culina' : '请竖屏使用 Culina'}
+    >
+      <div className="app-orientation-card" role="status">
+        <span className="app-orientation-logo" aria-hidden="true">
+          <ShellIcon name="logo" />
+        </span>
+        <div className="app-orientation-copy">
+          <p>{isLandscapeMode ? '请横屏使用 Culina' : '请竖屏使用 Culina'}</p>
+          <strong>{isLandscapeMode ? '电脑和 iPad 端需要横屏查看' : '手机端需要竖屏查看'}</strong>
+          <span>{isLandscapeMode ? '旋转设备后，家庭厨房工作台会自动恢复。' : '旋转手机后，就能继续记录和查看。'}</span>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 export function AppNotificationCenter(props: {
   jobs: AppNotificationJob[];
   isLoading?: boolean;
@@ -343,6 +366,8 @@ export function AppShell({
 
   return (
     <div className={isAiActive ? 'app-shell app-shell-ai' : 'app-shell'}>
+      <OrientationLockScreen mode="landscape" />
+      <OrientationLockScreen mode="portrait" />
       {notice}
       <div className="page-glow page-glow-left" />
       <div className="page-glow page-glow-right" />

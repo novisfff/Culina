@@ -282,6 +282,21 @@ describe('GlobalSearchOverlay', () => {
     }));
   });
 
+  it('shows an empty state when a completed search has no matches', async () => {
+    await renderOverlay({
+      items: [],
+      total: 0,
+      query: '没有结果',
+      search_mode: 'hybrid',
+      degraded: false,
+    });
+
+    changeInput(document.querySelector<HTMLInputElement>('input[aria-label="搜索食材、食物、菜谱、餐食计划"]')!, '没有结果');
+    await waitForSearchRequest();
+
+    await waitForBodyText('没找到匹配内容');
+  });
+
   it('clears visible results when the query is cleared', async () => {
     await renderOverlay({
       items: [

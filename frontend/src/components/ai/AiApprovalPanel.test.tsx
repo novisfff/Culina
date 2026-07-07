@@ -701,6 +701,54 @@ describe('ApprovalPanel', () => {
     rendered.unmount();
   });
 
+  it('renders cancelled approval status in Chinese', async () => {
+    const rendered = await renderWithQuery(
+      <ApprovalPanel
+        approval={ingredientProfileApproval({ status: 'cancelled', decision: 'rejected' })}
+        onDecision={() => undefined}
+      />,
+    );
+
+    expect(rendered.container.querySelector('.ai-approval-status')?.textContent).toBe('已取消');
+    expect(rendered.container.textContent).not.toContain('cancelled');
+    rendered.unmount();
+  });
+
+  it('splits collapsed ingredient approval summary into short badges', async () => {
+    const rendered = await renderWithQuery(
+      <ApprovalPanel
+        approval={ingredientProfileApproval({
+          status: 'cancelled',
+          decision: 'rejected',
+          initial_values: {
+            draft: {
+              draftType: 'ingredient_profile',
+              schemaVersion: 'ingredient_profile.v1',
+              action: 'create',
+              payload: {
+                name: '沙拉',
+                category: '其他',
+                default_unit: '份',
+                unit_conversions: [],
+                default_storage: '冷藏',
+                default_expiry_mode: 'none',
+                default_expiry_days: null,
+                default_low_stock_threshold: null,
+                notes: '',
+              },
+            },
+          },
+        })}
+        onDecision={() => undefined}
+      />,
+    );
+
+    const badges = Array.from(rendered.container.querySelectorAll('.ai-approval-brief-badge'));
+    expect(badges.map((badge) => badge.textContent)).toEqual(['新增', '沙拉', '其他', '份']);
+    expect(rendered.container.textContent).not.toContain('新增 · 沙拉 · 其他 · 份');
+    rendered.unmount();
+  });
+
   it('shows structured failure summary for retry approvals', async () => {
     const rendered = await renderWithQuery(
       <ApprovalPanel

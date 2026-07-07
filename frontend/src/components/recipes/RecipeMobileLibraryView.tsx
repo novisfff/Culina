@@ -1,5 +1,5 @@
 import type { CompositionEventHandler, Dispatch, ReactNode, SetStateAction } from 'react';
-import { EmptyState, SearchLoadingIndicator } from '../ui-kit';
+import { EmptyState, SearchField } from '../ui-kit';
 import {
   MobileRecipeCard,
   MobileRecipeSceneCard,
@@ -74,7 +74,7 @@ export function RecipeMobileLibraryView(props: {
         <p>按库存、常做和快手程度，快速决定下一餐要做什么。</p>
       </header>
 
-      <section className="mobile-recipe-panel mobile-recipe-featured-panel">
+      <section className="mobile-recipe-panel">
         <div className="mobile-recipe-section-head">
           <h2>今天可以做 <span>✦</span></h2>
           <button
@@ -137,18 +137,18 @@ export function RecipeMobileLibraryView(props: {
           </button>
         </div>
         <div className="mobile-recipe-library-filters">
-          <label className="mobile-recipe-search">
-            <RecipeUiIcon name="search" />
-            <input
-              id="mobile-recipe-search"
-              value={props.search}
-              placeholder="搜索菜谱、食材或技巧"
-              onChange={(event) => props.onSearchChange(event.target.value)}
-              onCompositionStart={props.onSearchCompositionStart}
-              onCompositionEnd={props.onSearchCompositionEnd}
-            />
-            <SearchLoadingIndicator active={Boolean(props.search.trim()) && Boolean(props.isSearchFetching)} />
-          </label>
+          <SearchField
+            inputId="mobile-recipe-search"
+            ariaLabel="搜索菜谱"
+            placeholder="搜索菜谱、食材或技巧"
+            value={props.search}
+            loading={Boolean(props.search.trim()) && Boolean(props.isSearchFetching)}
+            leadingIcon={<RecipeUiIcon name="search" />}
+            onChange={props.onSearchChange}
+            onClear={() => props.onSearchChange('')}
+            onCompositionStart={props.onSearchCompositionStart}
+            onCompositionEnd={props.onSearchCompositionEnd}
+          />
           <div className="mobile-recipe-tabs" aria-label="菜谱分类">
             {[
               { value: 'recommend' as const, label: '推荐' },

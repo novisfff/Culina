@@ -148,7 +148,7 @@ export function RecipeDetailView({
 
           <div className="recipe-detail-content-grid">
             <main className="recipe-detail-main-column">
-              <section className="recipe-detail-section recipe-detail-ingredients-section">
+              <section className="recipe-detail-section">
                 <div className="recipe-detail-section-head">
                   <span><RecipeUiIcon name="basket" /></span>
                   <div>
