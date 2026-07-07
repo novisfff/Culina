@@ -45,7 +45,7 @@ export function invalidateAfterIngredientChanged(queryClient: QueryClient) {
 }
 
 export function invalidateAfterInventoryChanged(queryClient: QueryClient) {
-  invalidateMany(queryClient, [queryKeys.inventory, queryKeys.inventoryOverview(), queryKeys.foodRecommendations, queryKeys.activityLogs]);
+  invalidateMany(queryClient, [queryKeys.inventory, queryKeys.inventoryOverviewRoot, queryKeys.foodRecommendations, queryKeys.activityLogs]);
 }
 
 export function invalidateAfterShoppingChanged(queryClient: QueryClient) {
@@ -102,7 +102,7 @@ export function invalidateAfterFoodSceneChanged(queryClient: QueryClient) {
 }
 
 export function invalidateAfterFoodChanged(queryClient: QueryClient) {
-  invalidateMany(queryClient, [queryKeys.foods, queryKeys.inventoryOverview(), queryKeys.foodRecommendations, queryKeys.activityLogs]);
+  invalidateMany(queryClient, [queryKeys.foods, queryKeys.inventoryOverviewRoot, queryKeys.foodRecommendations, queryKeys.activityLogs]);
 }
 
 export function invalidateAfterMealLogChanged(queryClient: QueryClient) {
@@ -114,7 +114,7 @@ export function invalidateAfterQuickMealAdded(queryClient: QueryClient) {
     queryKeys.mealLogs,
     queryKeys.foodPlanRoot,
     queryKeys.foods,
-    queryKeys.inventoryOverview(),
+    queryKeys.inventoryOverviewRoot,
     queryKeys.foodRecommendations,
     queryKeys.activityLogs,
   ]);
