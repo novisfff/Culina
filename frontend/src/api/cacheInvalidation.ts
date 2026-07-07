@@ -79,6 +79,7 @@ export function invalidateAfterRecipeDeleted(queryClient: QueryClient) {
 export function invalidateAfterRecipeCooked(queryClient: QueryClient) {
   invalidateMany(queryClient, [
     queryKeys.inventory,
+    queryKeys.inventoryOverviewRoot,
     queryKeys.recipeDiscovery,
     queryKeys.foodRecommendations,
     queryKeys.recipeStats,
@@ -127,6 +128,7 @@ export function invalidateAfterAiApprovalSettled(queryClient: QueryClient, conve
     queryKeys.aiConversations,
     queryKeys.aiQualityMetrics,
     queryKeys.inventory,
+    queryKeys.inventoryOverviewRoot,
     queryKeys.recipes,
     queryKeys.shoppingList,
     queryKeys.foodPlanRoot,

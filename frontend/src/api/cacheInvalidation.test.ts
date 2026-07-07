@@ -45,6 +45,7 @@ describe('cacheInvalidation', () => {
 
     expect(invalidatedKeys(queryClient)).toEqual([
       ['inventory'],
+      ['inventory', 'overview'],
       ['recipe-discovery'],
       ['food-recommendations'],
       ['recipe-stats'],
@@ -103,6 +104,7 @@ describe('cacheInvalidation', () => {
       ['ai-conversations'],
       ['ai-quality-metrics'],
       ['inventory'],
+      ['inventory', 'overview'],
       ['recipes'],
       ['shopping-list'],
       ['food-plan'],

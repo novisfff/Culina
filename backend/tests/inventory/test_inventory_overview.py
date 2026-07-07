@@ -16,6 +16,7 @@ from app.core.enums import MembershipStatus, UserRole
 from app.db.session import get_db
 from app.main import app
 from app.models.domain import Base, Family, Membership, User
+from app.services.clock import today_for_family
 
 
 @dataclass(frozen=True)
@@ -404,3 +405,140 @@ def test_inventory_overview_excludes_other_family_rows(
     }
     assert "ingredient-overview-other" not in {item["source_id"] for item in payload["items"]}
     assert "food-overview-other" not in {item["source_id"] for item in payload["items"]}
+
+
+def test_inventory_overview_excludes_cross_family_ingredient_metadata_leaks(
+    inventory_overview_api_context: InventoryOverviewApiContext,
+) -> None:
+    from app.core.enums import InventoryStatus
+    from app.models.domain import Family, Ingredient, InventoryItem, Membership, User
+
+    with inventory_overview_api_context.SessionLocal() as db:
+        other_family = Family(id="family-overview-leak", name="串家庭食材", motto="", location="")
+        other_user = User(
+            id="user-overview-leak",
+            username="overview-user-leak",
+            display_name="串家庭用户",
+            avatar_seed="",
+            is_active=True,
+        )
+        other_membership = Membership(
+            id="membership-overview-leak",
+            family_id=other_family.id,
+            user_id=other_user.id,
+            role=UserRole.MEMBER,
+            status=MembershipStatus.ACTIVE,
+        )
+        leaked_ingredient = Ingredient(
+            id="ingredient-overview-leak",
+            family_id=other_family.id,
+            name="其他家庭鸡蛋",
+            category="蛋类",
+            default_unit="个",
+            unit_conversions=[],
+            default_storage="冷藏",
+            default_expiry_mode="none",
+            notes="",
+            created_by=other_user.id,
+            updated_by=other_user.id,
+        )
+        mismatched_item = InventoryItem(
+            id="inventory-overview-leak",
+            family_id=inventory_overview_api_context.family_id,
+            ingredient_id=leaked_ingredient.id,
+            quantity=Decimal("6"),
+            consumed_quantity=Decimal("0"),
+            disposed_quantity=Decimal("0"),
+            unit="个",
+            entered_quantity=Decimal("6"),
+            entered_unit="个",
+            status=InventoryStatus.FRESH,
+            purchase_date=date(2026, 7, 1),
+            expiry_date=date(2026, 7, 9),
+            storage_location="冷藏",
+            notes="",
+            low_stock_threshold=Decimal("1"),
+            created_by=inventory_overview_api_context.user_id,
+            updated_by=inventory_overview_api_context.user_id,
+        )
+        db.add_all([other_family, other_user, other_membership, leaked_ingredient, mismatched_item])
+        db.commit()
+
+    response = inventory_overview_api_context.client.get("/api/inventory/overview?scope=ingredient")
+
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["summary"]["total_count"] == 0
+    assert payload["items"] == []
+
+
+def test_inventory_overview_expiring_count_excludes_expired_rows(
+    inventory_overview_api_context: InventoryOverviewApiContext,
+) -> None:
+    from app.core.enums import InventoryStatus
+    from app.models.domain import Food, Ingredient, InventoryItem
+
+    with inventory_overview_api_context.SessionLocal() as db:
+        today = today_for_family(inventory_overview_api_context.family_id)
+        ingredient = Ingredient(
+            id="ingredient-overview-expiring",
+            family_id=inventory_overview_api_context.family_id,
+            name="生菜",
+            category="蔬菜",
+            default_unit="颗",
+            unit_conversions=[],
+            default_storage="冷藏",
+            default_expiry_mode="none",
+            notes="",
+            created_by=inventory_overview_api_context.user_id,
+            updated_by=inventory_overview_api_context.user_id,
+        )
+        expiring_item = InventoryItem(
+            id="inventory-overview-expiring",
+            family_id=inventory_overview_api_context.family_id,
+            ingredient_id=ingredient.id,
+            quantity=Decimal("2"),
+            consumed_quantity=Decimal("0"),
+            disposed_quantity=Decimal("0"),
+            unit="颗",
+            entered_quantity=Decimal("2"),
+            entered_unit="颗",
+            status=InventoryStatus.FRESH,
+            purchase_date=today,
+            expiry_date=today + timedelta(days=2),
+            storage_location="冷藏",
+            notes="",
+            low_stock_threshold=Decimal("1"),
+            created_by=inventory_overview_api_context.user_id,
+            updated_by=inventory_overview_api_context.user_id,
+        )
+        expired_food = Food(
+            id="food-overview-expired",
+            family_id=inventory_overview_api_context.family_id,
+            name="过期酸奶",
+            type="readyMade",
+            category="饮品",
+            flavor_tags=[],
+            scene_tags=[],
+            suitable_meal_types=["breakfast"],
+            source_name="超市",
+            purchase_source="超市",
+            scene="",
+            notes="",
+            routine_note="",
+            stock_quantity=Decimal("1"),
+            stock_unit="盒",
+            expiry_date=today - timedelta(days=1),
+            favorite=False,
+            created_by=inventory_overview_api_context.user_id,
+            updated_by=inventory_overview_api_context.user_id,
+        )
+        db.add_all([ingredient, expiring_item, expired_food])
+        db.commit()
+
+    response = inventory_overview_api_context.client.get("/api/inventory/overview?scope=all")
+
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["summary"]["alert_count"] == 2
+    assert payload["summary"]["expiring_count"] == 1

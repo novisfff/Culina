@@ -759,6 +759,110 @@ class AIInventoryOperationsTestCase(AIAgentInfraTestCase):
                 self.assertNotIn("suggestedAction", food_items[0])
                 self.assertEqual(summary["card"]["data"]["foodStockCount"], 1)
 
+        def test_inventory_contextual_read_tools_include_ready_food_stock(self) -> None:
+            today = today_for_family(self.family.id)
+            with self.SessionLocal() as db:
+                db.add_all(
+                    [
+                        Food(
+                            id="food-ai-stock-available",
+                            family_id=self.family.id,
+                            name="即食鸡胸肉",
+                            type="packaged",
+                            category="即食",
+                            flavor_tags=[],
+                            scene_tags=[],
+                            suitable_meal_types=["lunch"],
+                            source_name="便利店",
+                            purchase_source="便利店",
+                            scene="",
+                            notes="",
+                            routine_note="",
+                            stock_quantity=Decimal("3"),
+                            stock_unit="包",
+                            expiry_date=today + timedelta(days=5),
+                            favorite=False,
+                            created_by=self.user.id,
+                            updated_by=self.user.id,
+                        ),
+                        Food(
+                            id="food-ai-stock-expiring",
+                            family_id=self.family.id,
+                            name="三明治",
+                            type="readyMade",
+                            category="熟食",
+                            flavor_tags=[],
+                            scene_tags=[],
+                            suitable_meal_types=["breakfast"],
+                            source_name="面包店",
+                            purchase_source="面包店",
+                            scene="",
+                            notes="",
+                            routine_note="",
+                            stock_quantity=Decimal("1"),
+                            stock_unit="份",
+                            expiry_date=today + timedelta(days=1),
+                            favorite=False,
+                            created_by=self.user.id,
+                            updated_by=self.user.id,
+                        ),
+                        Food(
+                            id="food-ai-stock-expired",
+                            family_id=self.family.id,
+                            name="过期饭团",
+                            type="instant",
+                            category="速食",
+                            flavor_tags=[],
+                            scene_tags=[],
+                            suitable_meal_types=["breakfast"],
+                            source_name="便利店",
+                            purchase_source="便利店",
+                            scene="",
+                            notes="",
+                            routine_note="",
+                            stock_quantity=Decimal("2"),
+                            stock_unit="个",
+                            expiry_date=today - timedelta(days=1),
+                            favorite=False,
+                            created_by=self.user.id,
+                            updated_by=self.user.id,
+                        ),
+                    ]
+                )
+                db.commit()
+                executor = ToolExecutor(
+                    build_workspace_tool_registry(),
+                    ToolContext(
+                        db=db,
+                        family_id=self.family.id,
+                        user_id=self.user.id,
+                        conversation_id="conversation-contextual-food-stock",
+                        run_id="run-contextual-food-stock",
+                    ),
+                )
+
+                available = executor.call("inventory.read_available_items", {"limit": 20})
+                expiring = executor.call("inventory.read_expiring_items", {"days": 3})
+                expired = executor.call("inventory.read_expired_items", {"limit": 20})
+                low_stock = executor.call("inventory.read_low_stock_items", {"limit": 20})
+
+                available_food = next(item for item in available["items"] if item["foodId"] == "food-ai-stock-available")
+                self.assertEqual(available_food["sourceType"], "food")
+                self.assertIsNone(available_food["ingredientId"])
+                self.assertEqual(available_food["quantity"], "3包")
+
+                expiring_food = next(item for item in expiring["items"] if item["foodId"] == "food-ai-stock-expiring")
+                self.assertEqual(expiring_food["sourceType"], "food")
+                self.assertEqual(expiring_food["displayStatus"], "expiring")
+                self.assertEqual(expiring_food["suggestedAction"], "consume")
+
+                expired_food = next(item for item in expired["items"] if item["foodId"] == "food-ai-stock-expired")
+                self.assertEqual(expired_food["sourceType"], "food")
+                self.assertEqual(expired_food["displayStatus"], "expired")
+                self.assertEqual(expired_food["suggestedAction"], "dispose")
+
+                self.assertFalse(any(item["sourceType"] == "food" for item in low_stock["items"]))
+
         def test_inventory_summary_preserves_low_stock_count_and_priority_for_ingredients(self) -> None:
             with self.SessionLocal() as db:
                 item = db.get(InventoryItem, "inventory-tomato")

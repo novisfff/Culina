@@ -91,6 +91,8 @@ def _ingredient_rows(
         ingredient = item.ingredient
         if ingredient is None:
             continue
+        if ingredient.family_id != family_id:
+            continue
         tracks = tracks_quantity(ingredient)
         remaining = remaining_quantity(item)
         has_presence = item.quantity - getattr(item, "disposed_quantity", Decimal("0")) > 0
@@ -235,7 +237,9 @@ def build_inventory_overview(
         "food_count": sum(1 for row in rows if row["source_type"] == "food"),
         "alert_count": sum(1 for row in rows if row["tone"] in {"warning", "danger"}),
         "expiring_count": sum(
-            1 for row in rows if row["days_until_expiry"] is not None and row["days_until_expiry"] <= 7
+            1
+            for row in rows
+            if row["days_until_expiry"] is not None and 0 <= row["days_until_expiry"] <= 7
         ),
         "empty_count": sum(1 for row in rows if row["tone"] == "empty"),
     }

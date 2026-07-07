@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import date, timedelta
 from decimal import Decimal
 from typing import Any
 
@@ -193,6 +193,47 @@ def _overview_row_key(row: dict[str, Any]) -> tuple[str, str]:
     return (row["source_type"], str(row.get("inventory_item_id") or row["source_id"]))
 
 
+def _with_suggested_action(record: dict[str, Any], suggested_action: str | None) -> dict[str, Any]:
+    if suggested_action is None:
+        return record
+    return {**record, "suggestedAction": suggested_action}
+
+
+def _contextual_record_sort_key(record: dict[str, Any]) -> tuple[bool, str, str, str]:
+    expiry_date = record.get("expiryDate")
+    purchase_date = record.get("purchaseDate") or "9999-12-31"
+    return (expiry_date is None, expiry_date or "9999-12-31", purchase_date, str(record["id"]))
+
+
+def _food_contextual_records(
+    context: ToolContext,
+    *,
+    today: date,
+    limit: int,
+    predicate,
+    suggested_action: str | None = None,
+) -> list[dict[str, Any]]:
+    overview = build_inventory_overview(
+        context.db,
+        family_id=context.family_id,
+        scope="food",
+        query="",
+        today=today,
+    )
+    rows = [row for row in overview["items"] if predicate(row)]
+    rows.sort(
+        key=lambda row: (
+            row.get("expiry_date") is None,
+            row.get("expiry_date") or date.max,
+            str(row["id"]),
+        )
+    )
+    return [
+        _with_suggested_action(overview_inventory_record(row), suggested_action)
+        for row in rows[:limit]
+    ]
+
+
 def read_inventory(context: ToolContext, *, limit: int = 80) -> list[InventoryItem]:
     return list(
         context.db.scalars(
@@ -227,10 +268,18 @@ def inventory_read_available_items(context: ToolContext, payload: dict[str, Any]
     )
     media_map = entity_media_map(context.db, family_id=context.family_id, entity_types={"ingredient"}, entity_ids=[item.ingredient_id for item in items])
     today = today_for_family(context.family_id)
+    ingredient_records = [inventory_record(item, media_map, today=today) for item in items]
+    food_records = _food_contextual_records(
+        context,
+        today=today,
+        limit=limit,
+        predicate=lambda row: True,
+    )
+    records = sorted([*ingredient_records, *food_records], key=_contextual_record_sort_key)[:limit]
     return {
         "queryFocus": "available",
-        "items": [inventory_record(item, media_map, today=today) for item in items],
-        "count": len(items),
+        "items": records,
+        "count": len(records),
     }
 
 
@@ -252,19 +301,24 @@ def inventory_read_expiring_items(context: ToolContext, payload: dict[str, Any])
         )
     )
     media_map = entity_media_map(context.db, family_id=context.family_id, entity_types={"ingredient"}, entity_ids=[item.ingredient_id for item in items])
-    return {
-        "queryFocus": "expiring",
-        "items": [
-            inventory_record(
-                item,
-                media_map,
-                today=today,
-                suggested_action="consume",
-            )
-            for item in items
-        ],
-        "count": len(items),
-    }
+    ingredient_records = [
+        inventory_record(
+            item,
+            media_map,
+            today=today,
+            suggested_action="consume",
+        )
+        for item in items
+    ]
+    food_records = _food_contextual_records(
+        context,
+        today=today,
+        limit=10_000,
+        predicate=lambda row: row.get("days_until_expiry") is not None and 0 <= row["days_until_expiry"] <= days,
+        suggested_action="consume",
+    )
+    records = sorted([*ingredient_records, *food_records], key=_contextual_record_sort_key)
+    return {"queryFocus": "expiring", "items": records, "count": len(records)}
 
 
 def inventory_read_expired_items(context: ToolContext, payload: dict[str, Any]) -> dict[str, Any]:
@@ -290,14 +344,19 @@ def inventory_read_expired_items(context: ToolContext, payload: dict[str, Any]) 
         entity_types={"ingredient"},
         entity_ids=[item.ingredient_id for item in items],
     )
-    return {
-        "queryFocus": "expired",
-        "items": [
-            inventory_record(item, media_map, today=today, suggested_action="dispose")
-            for item in items
-        ],
-        "count": len(items),
-    }
+    ingredient_records = [
+        inventory_record(item, media_map, today=today, suggested_action="dispose")
+        for item in items
+    ]
+    food_records = _food_contextual_records(
+        context,
+        today=today,
+        limit=limit,
+        predicate=lambda row: row.get("days_until_expiry") is not None and row["days_until_expiry"] < 0,
+        suggested_action="dispose",
+    )
+    records = sorted([*ingredient_records, *food_records], key=_contextual_record_sort_key)[:limit]
+    return {"queryFocus": "expired", "items": records, "count": len(records)}
 
 
 def inventory_read_low_stock_items(context: ToolContext, payload: dict[str, Any]) -> dict[str, Any]:
