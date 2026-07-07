@@ -56,6 +56,12 @@ import { IngredientDetailView } from './IngredientDetailView';
 import { IngredientDetailPage } from './IngredientDetailPage';
 import { IngredientEditorView } from './IngredientEditorView';
 import { IngredientHubPage } from './IngredientHubPage';
+import { IngredientInventoryPanelContextProvider } from './IngredientWorkspacePanels';
+import {
+  buildUnifiedInventoryGroups,
+  buildUnifiedInventorySummary,
+  filterUnifiedInventoryItems,
+} from './inventoryOverviewModel';
 import { useIngredientWorkspaceEffects } from './useIngredientWorkspaceEffects';
 import { useIngredientWorkspaceData } from './useIngredientWorkspaceData';
 import { useIngredientEditorState } from './useIngredientEditorState';
@@ -66,6 +72,7 @@ import {
   STORAGE_SHELF_IDEAL_WIDTH,
   STORAGE_SHELF_MAX_DISPLAY_COLUMNS,
   type CatalogStatusFilter,
+  type InventorySourceFilter,
   type PersistedIngredientWorkspaceState,
   useIngredientWorkspaceState,
 } from './useIngredientWorkspaceState';
@@ -1569,6 +1576,8 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
     setCatalogStatusFilter,
     inventorySearch,
     setInventorySearch,
+    inventorySourceFilter,
+    setInventorySourceFilter,
     inventoryQuickFilter,
     setInventoryQuickFilter,
     inventoryStorageFocus,
@@ -1621,6 +1630,11 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
     enabled: Boolean(inventorySearchValue),
     placeholderData: keepPreviousData,
   });
+  const inventoryOverviewQuery = useQuery({
+    queryKey: queryKeys.inventoryOverview(inventorySourceFilter, inventorySearchValue),
+    queryFn: () => api.getInventoryOverview({ scope: inventorySourceFilter, q: inventorySearchValue }),
+    placeholderData: (previous) => previous,
+  });
   const [appliedCatalogSearch, setAppliedCatalogSearch] = useState('');
   const [appliedCatalogResults, setAppliedCatalogResults] = useState<Ingredient[]>([]);
   const [appliedInventorySearch, setAppliedInventorySearch] = useState('');
@@ -1661,6 +1675,23 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
   const searchAwareIngredients = appliedCatalogSearch ? appliedCatalogResults : props.ingredients;
   const searchAwareInventoryItems =
     appliedInventorySearch ? appliedInventoryResults : props.inventoryItems;
+  const unifiedInventoryItems = inventoryOverviewQuery.data?.items ?? [];
+  const filteredUnifiedInventoryItems = useMemo(
+    () =>
+      filterUnifiedInventoryItems(unifiedInventoryItems, {
+        source: inventorySourceFilter,
+        search: appliedInventorySearch,
+      }),
+    [appliedInventorySearch, inventorySourceFilter, unifiedInventoryItems]
+  );
+  const unifiedInventoryGroups = useMemo(
+    () => buildUnifiedInventoryGroups(filteredUnifiedInventoryItems),
+    [filteredUnifiedInventoryItems]
+  );
+  const unifiedInventorySummary = useMemo(
+    () => buildUnifiedInventorySummary(filteredUnifiedInventoryItems),
+    [filteredUnifiedInventoryItems]
+  );
   const isCatalogSearchFetching =
     Boolean(normalizedCatalogSearch) &&
     !catalogSearchComposition.isComposing &&
@@ -1939,110 +1970,145 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
     isCreatingShopping: props.isCreatingShopping,
   } as const;
 
+  function findUnifiedInventoryItemBySourceId(sourceId: string) {
+    return unifiedInventoryItems.find((item) => item.source_id === sourceId);
+  }
+
+  function handleOpenFoodStockFromInventory(foodId: string) {
+    const item = findUnifiedInventoryItemBySourceId(foodId);
+    showNotice({
+      tone: 'warning',
+      title: '成品库存先到食物页处理',
+      message: `${item?.title ?? '这项成品'} 的库存资料编辑还在食物工作台里，先去那边继续。`,
+    });
+  }
+
+  function handleRecordFoodStockMeal(foodId: string) {
+    const item = findUnifiedInventoryItemBySourceId(foodId);
+    showNotice({
+      tone: 'warning',
+      title: '记餐入口还在食物页',
+      message: `${item?.title ?? '这项成品'} 现在需要到食物工作台记到今天，这里先帮你把库存一起看清。`,
+    });
+  }
+
   const renderIngredientHubPage = (mobileDetailPopover?: ReactNode) => (
-    <IngredientHubPage
-      noticeToast={noticeToast}
-      overlays={overlayLayerProps}
-      workspaceMetrics={workspaceMetrics}
-      desktopActions={desktopActions}
-      panelItems={PANEL_ITEMS.map((item) => ({
-        ...item,
-        icon: <IngredientWorkspaceIcon name={item.icon} />,
-      }))}
-      activePanel={activePanel}
-      openWorkspacePanel={openWorkspacePanel}
-      allAlertsCount={allAlerts.length}
-      stockedIngredientCount={stockedIngredientCount}
-      pendingShoppingCount={pendingShopping.length}
-      summariesCount={summaries.length}
-      catalogSearch={catalogSearch}
-      setCatalogSearch={setCatalogSearch}
-      mobileIngredientFilter={mobileIngredientFilter}
-      setMobileIngredientFilter={setMobileIngredientFilter}
-      mobileStorageFocus={mobileStorageFocus}
-      setMobileStorageFocus={setMobileStorageFocus}
-      mobilePrioritySummaries={mobilePrioritySummaries}
-      mobileStorageCards={mobileStorageCards}
-      mobileCatalogSummaries={mobileCatalogSummaries}
-      mobileCatalogResetKey={mobileCatalogResetKey}
-      mobileShoppingCards={mobileShoppingCards}
-      mobileShoppingGroups={mobileShoppingGroups}
-      mobileHasCatalogFilters={mobileHasCatalogFiltersForUi}
-      notificationCenter={props.notificationCenter}
-      openDetailView={openDetailView}
-      openInventoryOverlay={openInventoryOverlay}
-      openConsumeOverlay={openConsumeOverlay}
-      openShoppingOverlay={openShoppingOverlay}
-      openDestroyExpiredOverlay={openDestroyExpiredOverlay}
-      openCreateView={openCreateView}
-      openInventoryFromShopping={openInventoryFromShopping}
-      buildPriorityStatus={buildInventoryCardStatus}
-      buildCatalogStatus={buildCatalogCardStatus}
-      buildInventorySummaryLine={buildInventorySummaryLine}
-      buildShoppingReason={resolveShoppingReason}
-      countDisposableExpiredItems={countDisposableExpiredInventoryItems}
-      renderStorageIllustration={InventoryStorageIllustration}
-      renderIcon={(name) => <IngredientWorkspaceIcon name={name as IngredientWorkspaceIconName} />}
-      isUpdatingShopping={props.isUpdatingShopping}
-      isCreatingInventory={props.isCreatingInventory}
-      isCatalogSearchFetching={isCatalogSearchFetching}
-      onCatalogSearchCompositionStart={catalogSearchComposition.onCompositionStart}
-      onCatalogSearchCompositionEnd={catalogSearchComposition.onCompositionEnd}
-      catalogCountLabel={catalogCountLabel}
-      catalogCategoryFilter={catalogCategoryFilter}
-      catalogStatusFilter={catalogStatusFilter}
-      catalogCategories={catalogCategories}
-      catalogStatusItems={CATALOG_STATUS_FILTERS}
-      catalogStatusCounts={catalogStatusCounts}
-      filteredSummaries={filteredSummaries}
-      visibleFilteredSummaries={visibleFilteredSummaries}
-      hasMoreCatalogSummaries={catalogCardPager.hasMore}
-      onLoadMoreCatalogSummaries={catalogCardPager.loadMore}
-      catalogLoadMoreRef={catalogCardPager.sentinelRef}
-      expandedCatalogIngredientId={expandedCatalogIngredientId}
-      catalogGridStyle={catalogGridStyle}
-      setCatalogCategoryFilter={setCatalogCategoryFilter}
-      setCatalogStatusFilter={setCatalogStatusFilter}
-      openInventoryPanel={openInventoryPanel}
-      toggleCatalogCard={toggleCatalogCard}
-      catalogMeasureRef={catalogMeasureRef}
-      ScrollableChipRail={ScrollableChipRail}
-      IngredientCatalogCard={IngredientCatalogCard}
-      inventorySearch={inventorySearch}
-      isInventorySearchFetching={isInventorySearchFetching}
-      onInventorySearchCompositionStart={inventorySearchComposition.onCompositionStart}
-      onInventorySearchCompositionEnd={inventorySearchComposition.onCompositionEnd}
-      setInventorySearch={setInventorySearch}
-      inventoryQuickFilter={inventoryQuickFilter}
-      setInventoryQuickFilter={setInventoryQuickFilter}
-      inventoryStorageFocus={inventoryStorageFocus}
-      setInventoryStorageFocus={setInventoryStorageFocus}
-      inventorySortMode={inventorySortMode}
-      setInventorySortMode={setInventorySortMode}
-      focusedInventorySummaries={focusedInventorySummaries}
-      inventoryStorageOverview={inventoryStorageOverview}
-      inventoryGroups={inventoryGroups}
-      InventoryStorageOverviewCard={InventoryStorageOverviewCard}
-      InventoryIngredientCard={InventoryIngredientCard}
-      shoppingOverview={shoppingOverview}
-      shoppingFocus={shoppingFocus}
-      setShoppingFocus={setShoppingFocus}
-      shoppingSearch={shoppingSearch}
-      setShoppingSearch={setShoppingSearch}
-      pendingShoppingCards={pendingShoppingCards}
-      visiblePendingShoppingCards={visiblePendingShoppingCards}
-      visiblePendingShoppingGroups={visiblePendingShoppingGroups}
-      completedShoppingCards={completedShoppingCards}
-      visibleCompletedShoppingCards={visibleCompletedShoppingCards}
-      activeShoppingOverview={activeShoppingOverview}
-      showCompletedShopping={showCompletedShopping}
-      setShowCompletedShopping={setShowCompletedShopping}
-      onUpdateShoppingItem={props.updateShoppingItem}
-      onDeleteShoppingItem={props.deleteShoppingItem}
-      ShoppingWorkRow={ShoppingWorkRow}
-      ShoppingHistoryRow={ShoppingHistoryRow}
-      mobileDetailPopover={mobileDetailPopover}
-    />
+    <IngredientInventoryPanelContextProvider
+      value={{
+        inventorySourceFilter,
+        onInventorySourceFilterChange: setInventorySourceFilter,
+        unifiedInventoryItems: filteredUnifiedInventoryItems,
+        unifiedInventoryGroups,
+        unifiedInventorySummary,
+        isInventoryOverviewFetching: inventoryOverviewQuery.isFetching,
+        onOpenFoodStock: handleOpenFoodStockFromInventory,
+        onRecordFoodStockMeal: handleRecordFoodStockMeal,
+      }}
+    >
+      <IngredientHubPage
+        noticeToast={noticeToast}
+        overlays={overlayLayerProps}
+        workspaceMetrics={workspaceMetrics}
+        desktopActions={desktopActions}
+        panelItems={PANEL_ITEMS.map((item) => ({
+          ...item,
+          icon: <IngredientWorkspaceIcon name={item.icon} />,
+        }))}
+        activePanel={activePanel}
+        openWorkspacePanel={openWorkspacePanel}
+        allAlertsCount={allAlerts.length}
+        stockedIngredientCount={stockedIngredientCount}
+        pendingShoppingCount={pendingShopping.length}
+        summariesCount={summaries.length}
+        catalogSearch={catalogSearch}
+        setCatalogSearch={setCatalogSearch}
+        mobileIngredientFilter={mobileIngredientFilter}
+        setMobileIngredientFilter={setMobileIngredientFilter}
+        mobileStorageFocus={mobileStorageFocus}
+        setMobileStorageFocus={setMobileStorageFocus}
+        mobilePrioritySummaries={mobilePrioritySummaries}
+        mobileStorageCards={mobileStorageCards}
+        mobileCatalogSummaries={mobileCatalogSummaries}
+        mobileCatalogResetKey={mobileCatalogResetKey}
+        mobileShoppingCards={mobileShoppingCards}
+        mobileShoppingGroups={mobileShoppingGroups}
+        mobileHasCatalogFilters={mobileHasCatalogFiltersForUi}
+        notificationCenter={props.notificationCenter}
+        openDetailView={openDetailView}
+        openInventoryOverlay={openInventoryOverlay}
+        openConsumeOverlay={openConsumeOverlay}
+        openShoppingOverlay={openShoppingOverlay}
+        openDestroyExpiredOverlay={openDestroyExpiredOverlay}
+        openCreateView={openCreateView}
+        openInventoryFromShopping={openInventoryFromShopping}
+        buildPriorityStatus={buildInventoryCardStatus}
+        buildCatalogStatus={buildCatalogCardStatus}
+        buildInventorySummaryLine={buildInventorySummaryLine}
+        buildShoppingReason={resolveShoppingReason}
+        countDisposableExpiredItems={countDisposableExpiredInventoryItems}
+        renderStorageIllustration={InventoryStorageIllustration}
+        renderIcon={(name) => <IngredientWorkspaceIcon name={name as IngredientWorkspaceIconName} />}
+        isUpdatingShopping={props.isUpdatingShopping}
+        isCreatingInventory={props.isCreatingInventory}
+        isCatalogSearchFetching={isCatalogSearchFetching}
+        onCatalogSearchCompositionStart={catalogSearchComposition.onCompositionStart}
+        onCatalogSearchCompositionEnd={catalogSearchComposition.onCompositionEnd}
+        catalogCountLabel={catalogCountLabel}
+        catalogCategoryFilter={catalogCategoryFilter}
+        catalogStatusFilter={catalogStatusFilter}
+        catalogCategories={catalogCategories}
+        catalogStatusItems={CATALOG_STATUS_FILTERS}
+        catalogStatusCounts={catalogStatusCounts}
+        filteredSummaries={filteredSummaries}
+        visibleFilteredSummaries={visibleFilteredSummaries}
+        hasMoreCatalogSummaries={catalogCardPager.hasMore}
+        onLoadMoreCatalogSummaries={catalogCardPager.loadMore}
+        catalogLoadMoreRef={catalogCardPager.sentinelRef}
+        expandedCatalogIngredientId={expandedCatalogIngredientId}
+        catalogGridStyle={catalogGridStyle}
+        setCatalogCategoryFilter={setCatalogCategoryFilter}
+        setCatalogStatusFilter={setCatalogStatusFilter}
+        openInventoryPanel={openInventoryPanel}
+        toggleCatalogCard={toggleCatalogCard}
+        catalogMeasureRef={catalogMeasureRef}
+        ScrollableChipRail={ScrollableChipRail}
+        IngredientCatalogCard={IngredientCatalogCard}
+        inventorySearch={inventorySearch}
+        isInventorySearchFetching={isInventorySearchFetching}
+        onInventorySearchCompositionStart={inventorySearchComposition.onCompositionStart}
+        onInventorySearchCompositionEnd={inventorySearchComposition.onCompositionEnd}
+        setInventorySearch={setInventorySearch}
+        inventoryQuickFilter={inventoryQuickFilter}
+        setInventoryQuickFilter={setInventoryQuickFilter}
+        inventoryStorageFocus={inventoryStorageFocus}
+        setInventoryStorageFocus={setInventoryStorageFocus}
+        inventorySortMode={inventorySortMode}
+        setInventorySortMode={setInventorySortMode}
+        focusedInventorySummaries={focusedInventorySummaries}
+        inventoryStorageOverview={inventoryStorageOverview}
+        inventoryGroups={inventoryGroups}
+        InventoryStorageOverviewCard={InventoryStorageOverviewCard}
+        InventoryIngredientCard={InventoryIngredientCard}
+        shoppingOverview={shoppingOverview}
+        shoppingFocus={shoppingFocus}
+        setShoppingFocus={setShoppingFocus}
+        shoppingSearch={shoppingSearch}
+        setShoppingSearch={setShoppingSearch}
+        pendingShoppingCards={pendingShoppingCards}
+        visiblePendingShoppingCards={visiblePendingShoppingCards}
+        visiblePendingShoppingGroups={visiblePendingShoppingGroups}
+        completedShoppingCards={completedShoppingCards}
+        visibleCompletedShoppingCards={visibleCompletedShoppingCards}
+        activeShoppingOverview={activeShoppingOverview}
+        showCompletedShopping={showCompletedShopping}
+        setShowCompletedShopping={setShowCompletedShopping}
+        onUpdateShoppingItem={props.updateShoppingItem}
+        onDeleteShoppingItem={props.deleteShoppingItem}
+        ShoppingWorkRow={ShoppingWorkRow}
+        ShoppingHistoryRow={ShoppingHistoryRow}
+        mobileDetailPopover={mobileDetailPopover}
+      />
+    </IngredientInventoryPanelContextProvider>
   );
 
   if (workspaceView === 'detail' && selectedIngredient) {

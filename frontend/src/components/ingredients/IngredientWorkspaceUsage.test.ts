@@ -30,4 +30,16 @@ describe('IngredientWorkspace shared overlay usage', () => {
           <div className="workspace-overlay-backdrop" onClick={goBackFromIngredientForm} />`,
     );
   });
+
+  it('renders unified inventory source filters and food stock copy', () => {
+    const panelsSource = readFileSync(resolve(__dirname, 'IngredientWorkspacePanels.tsx'), 'utf8');
+    expect(panelsSource).toContain('全部库存');
+    expect(panelsSource).toContain('食材库存');
+    expect(panelsSource).toContain('成品速食');
+    expect(panelsSource).toContain('getUnifiedInventoryActionLabel');
+
+    const workspaceSource = readFileSync(sourcePath, 'utf8');
+    expect(workspaceSource).toContain('api.getInventoryOverview');
+    expect(workspaceSource).toContain('queryKeys.inventoryOverview');
+  });
 });
