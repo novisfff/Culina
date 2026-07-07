@@ -217,6 +217,8 @@ function App() {
     setIngredientNavigationRequest,
     ingredientNavigationRequestIdRef,
     foodNavigationRequest,
+    setFoodNavigationRequest,
+    foodNavigationRequestIdRef,
     foodPlanNavigationRequest,
     recipeNavigationRequest,
     globalSearchOpen,
@@ -236,6 +238,20 @@ function App() {
   const handleMobileRecipeLibraryRedirect = useCallback(() => {
     setActiveTab('foods');
   }, []);
+
+  const openFoodWorkspaceFromIngredients = useCallback(
+    (foodId: string, target: 'edit' | 'quickMeal') => {
+      foodNavigationRequestIdRef.current += 1;
+      setFoodNavigationRequest({
+        foodId,
+        requestId: foodNavigationRequestIdRef.current,
+        target,
+        quickMealAction: target === 'quickMeal' ? 'eat' : undefined,
+      });
+      setActiveTab('foods');
+    },
+    [foodNavigationRequestIdRef, setActiveTab, setFoodNavigationRequest]
+  );
 
   const startRecipeCook = useCallback((recipeId: string, foodPlanItemId?: string) => {
     setPendingRecipeCookId(recipeId);
@@ -780,6 +796,8 @@ function App() {
               shoppingItems={shoppingItems}
               recipes={recipes}
               notificationCenter={mobileNotificationCenter}
+              onOpenFoodEditor={(foodId) => openFoodWorkspaceFromIngredients(foodId, 'edit')}
+              onOpenFoodQuickMeal={(foodId) => openFoodWorkspaceFromIngredients(foodId, 'quickMeal')}
               navigationRequest={ingredientNavigationRequest}
               createIngredient={(payload) => createIngredientMutation.mutateAsync(payload)}
               updateIngredient={(ingredientId, payload) => updateIngredientMutation.mutateAsync({ ingredientId, payload })}

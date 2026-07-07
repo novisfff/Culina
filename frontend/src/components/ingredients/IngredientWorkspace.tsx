@@ -89,6 +89,8 @@ type IngredientWorkspaceProps = {
   recipes: Recipe[];
   shoppingItems: ShoppingListItem[];
   notificationCenter?: ReactNode;
+  onOpenFoodEditor?: (foodId: string) => void;
+  onOpenFoodQuickMeal?: (foodId: string) => void;
   navigationRequest?: {
     view: 'catalog' | 'detail';
     ingredientId?: string;
@@ -1975,20 +1977,28 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
   }
 
   function handleOpenFoodStockFromInventory(foodId: string) {
+    props.onOpenFoodEditor?.(foodId);
+    if (props.onOpenFoodEditor) {
+      return;
+    }
     const item = findUnifiedInventoryItemBySourceId(foodId);
     showNotice({
       tone: 'warning',
-      title: '成品库存先到食物页处理',
-      message: `${item?.title ?? '这项成品'} 的库存资料编辑还在食物工作台里，先去那边继续。`,
+      title: '暂时无法打开食物资料',
+      message: `${item?.title ?? '这项成品'} 还没有接通到食物工作台，请稍后再试。`,
     });
   }
 
   function handleRecordFoodStockMeal(foodId: string) {
+    props.onOpenFoodQuickMeal?.(foodId);
+    if (props.onOpenFoodQuickMeal) {
+      return;
+    }
     const item = findUnifiedInventoryItemBySourceId(foodId);
     showNotice({
       tone: 'warning',
-      title: '记餐入口还在食物页',
-      message: `${item?.title ?? '这项成品'} 现在需要到食物工作台记到今天，这里先帮你把库存一起看清。`,
+      title: '暂时无法打开记餐流程',
+      message: `${item?.title ?? '这项成品'} 的记餐入口还没有接通，请稍后再试。`,
     });
   }
 

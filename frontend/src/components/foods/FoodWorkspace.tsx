@@ -127,6 +127,8 @@ type Props = {
   navigationRequest?: {
     foodId: string;
     requestId: number;
+    target?: 'detail' | 'edit' | 'quickMeal';
+    quickMealAction?: 'eat' | 'cook';
   } | null;
   foodPlanNavigationRequest?: {
     itemId: string;
@@ -1101,6 +1103,24 @@ export function FoodWorkspace(props: Props) {
     if (!nextFood) return;
     handleOpenEdit(nextFood);
   }
+
+  useEffect(() => {
+    const navigationRequest = props.navigationRequest;
+    if (!navigationRequest || navigationRequest.target === 'detail') {
+      return;
+    }
+    const food = props.foods.find((item) => item.id === navigationRequest.foodId);
+    if (!food) {
+      return;
+    }
+    if (props.navigationRequest?.target === 'edit') {
+      handleOpenEdit(food);
+      return;
+    }
+    if (props.navigationRequest?.target === 'quickMeal') {
+      openQuickMealDialog(food, getDefaultMealType(food), navigationRequest.quickMealAction ?? 'eat');
+    }
+  }, [props.navigationRequest?.requestId]);
 
   return (
     <main className="food-workspace">

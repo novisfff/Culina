@@ -42,4 +42,16 @@ describe('IngredientWorkspace shared overlay usage', () => {
     expect(workspaceSource).toContain('api.getInventoryOverview');
     expect(workspaceSource).toContain('queryKeys.inventoryOverview');
   });
+
+  it('routes unified food-stock actions into existing food workspace flows', () => {
+    const workspaceSource = readFileSync(sourcePath, 'utf8');
+    const appSource = readFileSync(resolve(__dirname, '../../App.tsx'), 'utf8');
+
+    expect(workspaceSource).toContain('props.onOpenFoodEditor?.(foodId)');
+    expect(workspaceSource).toContain('props.onOpenFoodQuickMeal?.(foodId)');
+    expect(workspaceSource).not.toContain('成品库存先到食物页处理');
+    expect(workspaceSource).not.toContain('记餐入口还在食物页');
+    expect(appSource).toContain('onOpenFoodEditor={(foodId)');
+    expect(appSource).toContain('onOpenFoodQuickMeal={(foodId)');
+  });
 });

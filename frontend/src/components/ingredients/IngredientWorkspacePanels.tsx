@@ -375,6 +375,7 @@ export function IngredientInventoryPanel(props: InventoryPanelProps) {
   const unifiedContext = useUnifiedInventoryPanelContext();
   const unifiedGroups = unifiedContext?.unifiedInventoryGroups ?? [];
   const sourceFilter = unifiedContext?.inventorySourceFilter ?? 'ingredient';
+  const hasInventorySearch = props.inventorySearch.trim().length > 0;
   const unifiedSummary = unifiedContext?.unifiedInventorySummary ?? {
     totalCount: props.focusedInventorySummaries.length,
     ingredientCount: props.focusedInventorySummaries.length,
@@ -608,16 +609,36 @@ export function IngredientInventoryPanel(props: InventoryPanelProps) {
           })
         ) : (
           <EmptyState
-            title={props.summariesCount === 0 ? '还没有库存对象' : '没有匹配的库存食材'}
+            title={
+              hasInventorySearch
+                ? sourceFilter === 'food'
+                  ? '没有匹配的成品速食库存'
+                  : sourceFilter === 'ingredient'
+                    ? '没有匹配的食材库存'
+                    : '没有匹配的库存记录'
+                : sourceFilter === 'food'
+                  ? '还没有成品速食库存'
+                  : sourceFilter === 'ingredient'
+                    ? '还没有食材库存'
+                    : '还没有库存记录'
+            }
             description={
-              props.summariesCount === 0
-                ? '先新增常用食材，再开始补库存和查看当前状态。'
-                : props.inventoryStorageFocus !== 'all'
+              hasInventorySearch
+                ? props.inventoryStorageFocus !== 'all'
                   ? `当前 ${props.inventoryStorageFocus} 位置下没有匹配结果，试试切回全部位置或换个关键词。`
-                  : '试试新的搜索词，或者先为常用食材登记一批库存。'
+                  : sourceFilter === 'food'
+                    ? '换个关键词试试，或者去食物页补充这份成品速食的库存信息。'
+                    : sourceFilter === 'ingredient'
+                      ? '换个关键词试试，或者先为常用食材登记一批库存。'
+                      : '换个关键词试试，或者切换到食材库存 / 成品速食继续看。'
+                : sourceFilter === 'food'
+                  ? '成品速食的库存、到期和记餐入口会统一显示在这里。'
+                  : sourceFilter === 'ingredient'
+                    ? '先新增常用食材并登记库存，后面就能在这里集中处理提醒。'
+                    : '食材库存和成品速食库存会一起汇总在这里，方便统一查看和处理。'
             }
             action={
-              props.summariesCount === 0 ? (
+              !hasInventorySearch && sourceFilter !== 'food' && props.summariesCount === 0 ? (
                 <ActionButton tone="secondary" type="button" onClick={props.onOpenCreateView}>
                   新增食材
                 </ActionButton>
