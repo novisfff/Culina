@@ -757,6 +757,7 @@ export function FoodWorkspace(props: Props) {
   const hasFoodFilters = Boolean(search.trim()) || typeFilter !== 'all' || mealFilter !== 'all' || lensFilter !== 'all' || sceneFilter !== 'all' || governanceIssueFilter !== 'all';
   const todayDate = todayKey();
   const [quickMealDialog, setQuickMealDialog] = useState<FoodQuickMealDialogState | null>(null);
+  const [quickMealStockError, setQuickMealStockError] = useState<string | null>(null);
   const [isFoodRecipeEditorOpen, setIsFoodRecipeEditorOpen] = useState(false);
   const [mobileCookingFilter, setMobileCookingFilter] = useState<MobileCookingFilter>('all');
   const quickMealDateOptions = useMemo(
@@ -1091,6 +1092,7 @@ export function FoodWorkspace(props: Props) {
       deductStock: shouldDeductStock,
       stockQuantity: shouldDeductStock ? '1' : '',
     });
+    setQuickMealStockError(null);
   }
 
   async function quickAdd(
@@ -1111,6 +1113,7 @@ export function FoodWorkspace(props: Props) {
   }
 
   function updateQuickMealDialog(patch: Partial<Pick<FoodQuickMealDialogState, 'date' | 'mealType' | 'deductStock' | 'stockQuantity'>>) {
+    setQuickMealStockError(null);
     setQuickMealDialog((current) => (current ? { ...current, ...patch } : current));
   }
 
@@ -1130,13 +1133,32 @@ export function FoodWorkspace(props: Props) {
       props.onStartRecipe(current.recipeId, planItem.id);
       return;
     }
-    const stockQuantity = Number(current.stockQuantity || 1);
-    await quickAdd(current.food, current.mealType, current.date, {
-      deduct_food_stock: Boolean(current.deductStock),
-      stock_quantity: current.deductStock && Number.isFinite(stockQuantity) ? stockQuantity : null,
-      stock_unit: current.food.stock_unit || '份',
-    });
-    setQuickMealDialog(null);
+    let stockQuantity: number | null = null;
+    if (current.deductStock) {
+      const stockQuantityText = current.stockQuantity?.trim() ?? '';
+      const parsedStockQuantity = Number(stockQuantityText);
+      if (!stockQuantityText || !Number.isFinite(parsedStockQuantity) || parsedStockQuantity <= 0) {
+        setQuickMealStockError('请输入大于 0 的扣减数量。');
+        return;
+      }
+      stockQuantity = parsedStockQuantity;
+    }
+
+    try {
+      await quickAdd(current.food, current.mealType, current.date, {
+        deduct_food_stock: Boolean(current.deductStock),
+        stock_quantity: current.deductStock ? stockQuantity : null,
+        stock_unit: current.deductStock ? current.food.stock_unit || '份' : null,
+      });
+      setQuickMealStockError(null);
+      setQuickMealDialog(null);
+    } catch (reason) {
+      showNotice({
+        tone: 'danger',
+        title: '记录这一餐失败',
+        message: resolveErrorMessage(reason, '记录这一餐失败，请稍后再试。'),
+      });
+    }
   }
 
   function handleRecommendationPrimaryAction(item: RecommendationCardViewModel) {
@@ -1785,12 +1807,15 @@ export function FoodWorkspace(props: Props) {
 
         return (
           <FoodQuickMealDialog
-            dialog={quickMealDialog}
+            dialog={{ ...quickMealDialog, stockQuantityError: quickMealStockError }}
             dateOptions={quickMealDateOptions}
             isSubmitting={isSubmitting}
             recipes={props.recipes}
             onChange={updateQuickMealDialog}
-            onClose={() => setQuickMealDialog(null)}
+            onClose={() => {
+              setQuickMealStockError(null);
+              setQuickMealDialog(null);
+            }}
             onSubmit={submitQuickMealDialog}
           />
         );

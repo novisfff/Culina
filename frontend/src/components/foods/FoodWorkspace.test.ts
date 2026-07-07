@@ -1,8 +1,15 @@
+// @vitest-environment jsdom
+
 import { readFileSync } from 'node:fs';
-import { describe, expect, it } from 'vitest';
+import { createElement } from 'react';
+import { act } from 'react';
+import { createRoot, type Root } from 'react-dom/client';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Food, Ingredient, InventoryItem, MealLog, MediaAsset, Recipe } from '../../api/types';
 import { todayKey } from '../../lib/ui';
 import {
+  FoodWorkspace,
   FOOD_CREATE_TYPE_OPTIONS,
   buildFoodPayloadFromForm,
   buildTodayFoodRecommendations,
@@ -36,6 +43,18 @@ const recipe: Recipe = {
   created_at: '2026-05-01T10:00:00Z',
   updated_at: '2026-05-01T10:00:00Z',
 };
+
+(globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+
+let root: Root | null = null;
+let container: HTMLDivElement | null = null;
+
+afterEach(() => {
+  act(() => root?.unmount());
+  container?.remove();
+  root = null;
+  container = null;
+});
 
 const baseFood: Food = {
   id: 'food-1',
@@ -170,6 +189,78 @@ function makeMealLog(food: Food, date: string, mealType: MealLog['meal_type'] = 
   };
 }
 
+function attachRoot() {
+  container = document.createElement('div');
+  document.body.append(container);
+  root = createRoot(container);
+  return container;
+}
+
+function renderWorkspace(options: {
+  food?: Food;
+  quickAddMeal?: (payload: {
+    food_id: string;
+    date: string;
+    meal_type: MealLog['meal_type'];
+    servings: number;
+    note: string;
+    deduct_food_stock?: boolean;
+    stock_quantity?: number | null;
+    stock_unit?: string | null;
+  }) => Promise<MealLog>;
+} = {}) {
+  const view = attachRoot();
+  const food = options.food ?? baseFood;
+  const quickAddMeal = options.quickAddMeal ?? vi.fn(async () => makeMealLog(food, todayKey()));
+  const client = new QueryClient({
+    defaultOptions: {
+      queries: { retry: false },
+      mutations: { retry: false },
+    },
+  });
+
+  act(() => {
+    root?.render(
+      createElement(
+        QueryClientProvider,
+        { client },
+        createElement(FoodWorkspace, {
+          foods: [food],
+          recipes: [],
+          ingredients: [],
+          inventoryItems: [],
+          mealLogs: [],
+          foodRecommendations: null,
+          foodScenes: [],
+          foodPlanItems: [],
+          foodPlanWeekRange: { start: todayKey(), end: todayKey() },
+          navigationRequest: { foodId: food.id, requestId: 1, target: 'quickMeal', quickMealAction: 'eat' },
+          foodPlanNavigationRequest: null,
+          createFood: vi.fn(),
+          updateFood: vi.fn(),
+          updateFoodFavorite: vi.fn(),
+          createRecipe: vi.fn(),
+          updateRecipe: vi.fn(),
+          quickAddMeal,
+          createFoodPlanItem: vi.fn(),
+          updateFoodPlanItem: vi.fn(),
+          deleteFoodPlanItem: vi.fn(),
+          createFoodScene: vi.fn(),
+          updateFoodScene: vi.fn(),
+          deleteFoodScene: vi.fn(),
+          onStartRecipe: vi.fn(),
+          onOpenLogs: vi.fn(),
+          onFoodPlanPreviousWeek: vi.fn(),
+          onFoodPlanCurrentWeek: vi.fn(),
+          onFoodPlanNextWeek: vi.fn(),
+        }),
+      ),
+    );
+  });
+
+  return { client, food, quickAddMeal, view };
+}
+
 describe('food workspace helpers', () => {
   it('quick meal dialog exposes ready food stock deduction controls', () => {
     const dialogSource = readFileSync('src/components/foods/FoodQuickMealDialog.tsx', 'utf8');
@@ -180,6 +271,51 @@ describe('food workspace helpers', () => {
     const workspaceSource = readFileSync('src/components/foods/FoodWorkspace.tsx', 'utf8');
     expect(workspaceSource).toContain('deduct_food_stock');
     expect(workspaceSource).toContain('stock_quantity');
+  });
+
+  it('blocks quick meal submit when stock deduction quantity is empty', async () => {
+    const { quickAddMeal, view } = renderWorkspace();
+    const quantityInput = view.querySelector<HTMLInputElement>('.food-quick-meal-stock-quantity input');
+    const form = view.querySelector<HTMLFormElement>('#food-workspace-quick-meal-form');
+
+    expect(quantityInput).not.toBeNull();
+    expect(form).not.toBeNull();
+
+    act(() => {
+      if (!quantityInput) return;
+      const valueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set;
+      valueSetter?.call(quantityInput, '');
+      quantityInput.dispatchEvent(new Event('input', { bubbles: true }));
+      quantityInput.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+
+    await act(async () => {
+      form?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    });
+
+    expect(quickAddMeal).not.toHaveBeenCalled();
+    expect(view.textContent).toContain('请输入大于 0 的扣减数量。');
+    expect(view.querySelector('.food-quick-meal-modal')).not.toBeNull();
+  });
+
+  it('shows a danger notice and keeps the quick meal dialog open when quick add fails', async () => {
+    const quickAddMeal = vi.fn(async () => {
+      throw new Error('库存服务暂时不可用');
+    });
+    const { view } = renderWorkspace({ quickAddMeal });
+    const form = view.querySelector<HTMLFormElement>('#food-workspace-quick-meal-form');
+
+    expect(form).not.toBeNull();
+
+    await act(async () => {
+      form?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    });
+
+    expect(quickAddMeal).toHaveBeenCalledTimes(1);
+    expect(view.querySelector('.recipe-notice-toast.tone-danger')).not.toBeNull();
+    expect(view.textContent).toContain('记录这一餐失败');
+    expect(view.textContent).toContain('库存服务暂时不可用');
+    expect(view.querySelector('.food-quick-meal-modal')).not.toBeNull();
   });
 
   it('builds practical food payload fields for non-recipe foods', () => {

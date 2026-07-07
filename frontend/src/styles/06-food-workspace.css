@@ -307,6 +307,10 @@
   font-style: normal;
 }
 
+.food-quick-meal-stock-error {
+  margin: -2px 0 0;
+}
+
 .food-recommendation-body p {
   color: #7c7067;
   font-size: 0.78rem;

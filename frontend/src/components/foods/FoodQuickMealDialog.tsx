@@ -15,6 +15,7 @@ export type FoodQuickMealDialogState = {
   recipeId?: string;
   deductStock?: boolean;
   stockQuantity?: string;
+  stockQuantityError?: string | null;
 };
 
 type FoodQuickMealDialogProps = {
@@ -158,11 +159,18 @@ export function FoodQuickMealDialog(props: FoodQuickMealDialogProps) {
                     step="0.5"
                     value={props.dialog.stockQuantity ?? '1'}
                     disabled={isSubmitting}
+                    aria-invalid={props.dialog.stockQuantityError ? 'true' : undefined}
+                    aria-describedby={props.dialog.stockQuantityError ? 'food-quick-meal-stock-error' : undefined}
                     onChange={(event) => props.onChange({ stockQuantity: event.target.value })}
                   />
                   <em>{props.dialog.food.stock_unit || '份'}</em>
                 </label>
               )}
+              {props.dialog.stockQuantityError ? (
+                <p id="food-quick-meal-stock-error" className="form-error food-quick-meal-stock-error" role="alert">
+                  {props.dialog.stockQuantityError}
+                </p>
+              ) : null}
             </div>
           )}
         </form>

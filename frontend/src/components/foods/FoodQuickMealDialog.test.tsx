@@ -170,4 +170,27 @@ describe('FoodQuickMealDialog', () => {
     });
     expect(onChange).toHaveBeenCalledWith({ deductStock: false });
   });
+
+  it('shows an inline stock quantity error when provided', () => {
+    const { view } = renderDialog({
+      dialog: {
+        food: {
+          ...buildFood(),
+          type: 'instant',
+          stock_quantity: 3,
+          stock_unit: '盒',
+        },
+        deductStock: true,
+        stockQuantity: '',
+        stockQuantityError: '请输入大于 0 的扣减数量。',
+      },
+    });
+
+    const quantityInput = view.querySelector<HTMLInputElement>('.food-quick-meal-stock-quantity input');
+    const error = view.querySelector<HTMLElement>('.food-quick-meal-stock-error');
+
+    expect(quantityInput?.getAttribute('aria-invalid')).toBe('true');
+    expect(quantityInput?.getAttribute('aria-describedby')).toBe('food-quick-meal-stock-error');
+    expect(error?.textContent).toContain('请输入大于 0 的扣减数量。');
+  });
 });
