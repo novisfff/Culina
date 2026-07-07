@@ -81,6 +81,8 @@ type IngredientMobileViewProps = {
 
 export function IngredientMobileView(props: IngredientMobileViewProps) {
   const [selectedShoppingCardId, setSelectedShoppingCardId] = useState<string | null>(null);
+  const priorityItemCount = props.mobilePrioritySummaries.length + props.mobileFoodStockItems.length;
+  const hasPriorityItems = priorityItemCount > 0;
   const catalogPager = useMobilePagedScroller({
     itemCount: props.mobileCatalogSummaries.length,
     resetKey: props.mobileCatalogResetKey,
@@ -207,125 +209,129 @@ export function IngredientMobileView(props: IngredientMobileViewProps) {
 
       <section className="mobile-ingredient-panel">
         <div className="mobile-ingredient-section-head">
-          <h2>今天先处理 <span>{props.mobilePrioritySummaries.length} 项</span></h2>
+          <h2>今天先处理 <span>{priorityItemCount} 项</span></h2>
         </div>
-        {props.mobilePrioritySummaries.length > 0 ? (
-          <div className="mobile-ingredient-priority-scroller">
-            {props.mobilePrioritySummaries.map((summary) => {
-              const imageUrl = resolveMediaUrl(summary.ingredient.image, 'card');
-              const status = props.buildPriorityStatus(summary);
-              const canConsume = tracksIngredientQuantity(summary.ingredient) && summary.availableInventoryItems.length > 0;
-              const canDestroyExpired = props.countDisposableExpiredItems(summary) > 0;
-              return (
-                <article key={summary.ingredient.id} className={`mobile-ingredient-priority-card tone-${status.tone}`}>
-                  <button className="mobile-ingredient-priority-cover" type="button" onClick={() => props.openDetailView(summary.ingredient.id)}>
-                    <MediaWithPlaceholder
-                      src={imageUrl}
-                      srcSet={buildMediaSrcSet(summary.ingredient.image)}
-                      sizes={buildMediaSizes('card')}
-                      alt={summary.ingredient.name}
-                    />
-                  </button>
-                  <div className="mobile-ingredient-priority-body">
-                    <div className="mobile-ingredient-card-head">
-                      <h3>{summary.ingredient.name}</h3>
-                      <span>{status.label}</span>
+        {hasPriorityItems ? (
+          <>
+            {props.mobilePrioritySummaries.length > 0 && (
+              <div className="mobile-ingredient-priority-scroller">
+                {props.mobilePrioritySummaries.map((summary) => {
+                  const imageUrl = resolveMediaUrl(summary.ingredient.image, 'card');
+                  const status = props.buildPriorityStatus(summary);
+                  const canConsume = tracksIngredientQuantity(summary.ingredient) && summary.availableInventoryItems.length > 0;
+                  const canDestroyExpired = props.countDisposableExpiredItems(summary) > 0;
+                  return (
+                    <article key={summary.ingredient.id} className={`mobile-ingredient-priority-card tone-${status.tone}`}>
+                      <button className="mobile-ingredient-priority-cover" type="button" onClick={() => props.openDetailView(summary.ingredient.id)}>
+                        <MediaWithPlaceholder
+                          src={imageUrl}
+                          srcSet={buildMediaSrcSet(summary.ingredient.image)}
+                          sizes={buildMediaSizes('card')}
+                          alt={summary.ingredient.name}
+                        />
+                      </button>
+                      <div className="mobile-ingredient-priority-body">
+                        <div className="mobile-ingredient-card-head">
+                          <h3>{summary.ingredient.name}</h3>
+                          <span>{status.label}</span>
+                        </div>
+                        <p>{summary.alerts[0]?.detail ?? status.detail}</p>
+                        <div className="mobile-ingredient-meta-row">
+                          <span>{summary.primaryStorage}</span>
+                          <span>{props.buildInventorySummaryLine(summary)}</span>
+                        </div>
+                        <div className="mobile-ingredient-card-actions">
+                          {canDestroyExpired ? (
+                            <>
+                              <button
+                                className="mobile-ingredient-primary compact"
+                                type="button"
+                                onClick={() => props.openDestroyExpiredOverlay(summary.ingredient.id)}
+                              >
+                                处理
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => props.openDetailView(summary.ingredient.id)}
+                              >
+                                查看批次
+                              </button>
+                            </>
+                          ) : canConsume ? (
+                            <>
+                              <button
+                                className="mobile-ingredient-primary compact"
+                                type="button"
+                                onClick={() => props.openConsumeOverlay(summary.ingredient.id)}
+                              >
+                                消费
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => props.openInventoryOverlay(summary.ingredient.id)}
+                              >
+                                补货
+                              </button>
+                            </>
+                          ) : (
+                            <>
+                              <button
+                                className="mobile-ingredient-primary compact"
+                                type="button"
+                                onClick={() => props.openInventoryOverlay(summary.ingredient.id)}
+                              >
+                                {summary.inventoryItems.length > 0 ? '补货' : '登记首批'}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  props.openShoppingOverlay({
+                                    ingredient: summary.ingredient,
+                                    reason: props.buildShoppingReason(summary),
+                                  })
+                                }
+                              >
+                                采购
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    </article>
+                  );
+                })}
+              </div>
+            )}
+            {props.mobileFoodStockItems.length > 0 && (
+              <div className="mobile-food-stock-strip" aria-label="成品速食库存">
+                {props.mobileFoodStockItems.slice(0, 6).map((item) => (
+                  <article key={item.id} className={`mobile-food-stock-card tone-${item.tone}`}>
+                    <div>
+                      <span>成品速食</span>
+                      <h3>{item.title}</h3>
+                      <p>{item.quantity_label} · {getFoodStockExpiryLine(item)}</p>
                     </div>
-                    <p>{summary.alerts[0]?.detail ?? status.detail}</p>
-                    <div className="mobile-ingredient-meta-row">
-                      <span>{summary.primaryStorage}</span>
-                      <span>{props.buildInventorySummaryLine(summary)}</span>
+                    <div className="mobile-food-stock-card-actions">
+                      <button
+                        type="button"
+                        className="mobile-ingredient-primary compact"
+                        onClick={() => props.openFoodStockMeal(item.source_id)}
+                      >
+                        记到今天
+                      </button>
+                      <button type="button" onClick={() => props.openFoodStockEditor(item.source_id)}>
+                        编辑
+                      </button>
                     </div>
-                    <div className="mobile-ingredient-card-actions">
-                      {canDestroyExpired ? (
-                        <>
-                          <button
-                            className="mobile-ingredient-primary compact"
-                            type="button"
-                            onClick={() => props.openDestroyExpiredOverlay(summary.ingredient.id)}
-                          >
-                            处理
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => props.openDetailView(summary.ingredient.id)}
-                          >
-                            查看批次
-                          </button>
-                        </>
-                      ) : canConsume ? (
-                        <>
-                          <button
-                            className="mobile-ingredient-primary compact"
-                            type="button"
-                            onClick={() => props.openConsumeOverlay(summary.ingredient.id)}
-                          >
-                            消费
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => props.openInventoryOverlay(summary.ingredient.id)}
-                          >
-                            补货
-                          </button>
-                        </>
-                      ) : (
-                        <>
-                          <button
-                            className="mobile-ingredient-primary compact"
-                            type="button"
-                            onClick={() => props.openInventoryOverlay(summary.ingredient.id)}
-                          >
-                            {summary.inventoryItems.length > 0 ? '补货' : '登记首批'}
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() =>
-                              props.openShoppingOverlay({
-                                ingredient: summary.ingredient,
-                                reason: props.buildShoppingReason(summary),
-                              })
-                            }
-                          >
-                            采购
-                          </button>
-                        </>
-                      )}
-                    </div>
-                  </div>
-                </article>
-              );
-            })}
-          </div>
+                  </article>
+                ))}
+              </div>
+            )}
+          </>
         ) : (
           <div className="mobile-ingredient-empty">
-            <strong>当前没有需要优先处理的食材</strong>
-            <span>可以继续浏览食材库，或直接登记一批新库存。</span>
-          </div>
-        )}
-        {props.mobileFoodStockItems.length > 0 && (
-          <div className="mobile-food-stock-strip" aria-label="成品速食库存">
-            {props.mobileFoodStockItems.slice(0, 6).map((item) => (
-              <article key={item.id} className={`mobile-food-stock-card tone-${item.tone}`}>
-                <div>
-                  <span>成品速食</span>
-                  <h3>{item.title}</h3>
-                  <p>{item.quantity_label} · {getFoodStockExpiryLine(item)}</p>
-                </div>
-                <div className="mobile-food-stock-card-actions">
-                  <button
-                    type="button"
-                    className="mobile-ingredient-primary compact"
-                    onClick={() => props.openFoodStockMeal(item.source_id)}
-                  >
-                    记到今天
-                  </button>
-                  <button type="button" onClick={() => props.openFoodStockEditor(item.source_id)}>
-                    编辑
-                  </button>
-                </div>
-              </article>
-            ))}
+            <strong>当前没有需要优先处理的食材或成品</strong>
+            <span>可以继续浏览食材库、看看成品速食库存，或直接登记一批新库存。</span>
           </div>
         )}
       </section>

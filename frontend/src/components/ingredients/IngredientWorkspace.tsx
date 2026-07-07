@@ -1695,8 +1695,8 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
     [filteredUnifiedInventoryItems]
   );
   const mobileFoodStockItems = useMemo(
-    () => filteredUnifiedInventoryItems.filter((item) => item.source_type === 'food'),
-    [filteredUnifiedInventoryItems]
+    () => unifiedInventoryItems.filter((item) => item.source_type === 'food'),
+    [unifiedInventoryItems]
   );
   const isCatalogSearchFetching =
     Boolean(normalizedCatalogSearch) &&
