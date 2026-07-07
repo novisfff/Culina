@@ -246,3 +246,161 @@ def test_inventory_overview_filters_scope_and_query(
     assert payload["summary"]["total_count"] == 1
     assert payload["items"][0]["source_type"] == "food"
     assert payload["items"][0]["source_id"] == "food-overview-query-yogurt"
+
+
+def test_inventory_overview_excludes_other_family_rows(
+    inventory_overview_api_context: InventoryOverviewApiContext,
+) -> None:
+    from app.core.enums import InventoryStatus
+    from app.models.domain import Family, Food, Ingredient, InventoryItem, Membership, User
+
+    with inventory_overview_api_context.SessionLocal() as db:
+        current_ingredient = Ingredient(
+            id="ingredient-overview-current",
+            family_id=inventory_overview_api_context.family_id,
+            name="当前番茄",
+            category="蔬菜",
+            default_unit="个",
+            unit_conversions=[],
+            default_storage="冷藏",
+            default_expiry_mode="none",
+            notes="",
+            created_by=inventory_overview_api_context.user_id,
+            updated_by=inventory_overview_api_context.user_id,
+        )
+        current_inventory_item = InventoryItem(
+            id="inventory-overview-current",
+            family_id=inventory_overview_api_context.family_id,
+            ingredient_id=current_ingredient.id,
+            quantity=Decimal("3"),
+            consumed_quantity=Decimal("1"),
+            disposed_quantity=Decimal("0"),
+            unit="个",
+            entered_quantity=Decimal("3"),
+            entered_unit="个",
+            status=InventoryStatus.FRESH,
+            purchase_date=date(2026, 7, 1),
+            expiry_date=date(2026, 7, 10),
+            storage_location="冷藏",
+            notes="",
+            low_stock_threshold=Decimal("1"),
+            created_by=inventory_overview_api_context.user_id,
+            updated_by=inventory_overview_api_context.user_id,
+        )
+        current_food = Food(
+            id="food-overview-current",
+            family_id=inventory_overview_api_context.family_id,
+            name="当前酸奶",
+            type="readyMade",
+            category="饮品",
+            flavor_tags=[],
+            scene_tags=["早餐"],
+            suitable_meal_types=["breakfast"],
+            source_name="当前超市",
+            purchase_source="当前超市",
+            scene="",
+            notes="",
+            routine_note="",
+            stock_quantity=Decimal("4"),
+            stock_unit="盒",
+            expiry_date=date(2026, 7, 8),
+            favorite=False,
+            created_by=inventory_overview_api_context.user_id,
+            updated_by=inventory_overview_api_context.user_id,
+        )
+        other_family = Family(id="family-overview-other", name="其他家庭", motto="", location="")
+        other_user = User(
+            id="user-overview-other",
+            username="overview-user-other",
+            display_name="其他家庭用户",
+            avatar_seed="",
+            is_active=True,
+        )
+        other_membership = Membership(
+            id="membership-overview-other",
+            family_id=other_family.id,
+            user_id=other_user.id,
+            role=UserRole.MEMBER,
+            status=MembershipStatus.ACTIVE,
+        )
+        other_ingredient = Ingredient(
+            id="ingredient-overview-other",
+            family_id=other_family.id,
+            name="其他番茄",
+            category="蔬菜",
+            default_unit="个",
+            unit_conversions=[],
+            default_storage="冷藏",
+            default_expiry_mode="none",
+            notes="",
+            created_by=other_user.id,
+            updated_by=other_user.id,
+        )
+        other_inventory_item = InventoryItem(
+            id="inventory-overview-other",
+            family_id=other_family.id,
+            ingredient_id=other_ingredient.id,
+            quantity=Decimal("5"),
+            consumed_quantity=Decimal("0"),
+            disposed_quantity=Decimal("0"),
+            unit="个",
+            entered_quantity=Decimal("5"),
+            entered_unit="个",
+            status=InventoryStatus.FRESH,
+            purchase_date=date(2026, 7, 1),
+            expiry_date=date(2026, 7, 10),
+            storage_location="冷藏",
+            notes="",
+            low_stock_threshold=Decimal("1"),
+            created_by=other_user.id,
+            updated_by=other_user.id,
+        )
+        other_food = Food(
+            id="food-overview-other",
+            family_id=other_family.id,
+            name="其他酸奶",
+            type="readyMade",
+            category="饮品",
+            flavor_tags=[],
+            scene_tags=["早餐"],
+            suitable_meal_types=["breakfast"],
+            source_name="其他超市",
+            purchase_source="其他超市",
+            scene="",
+            notes="",
+            routine_note="",
+            stock_quantity=Decimal("4"),
+            stock_unit="盒",
+            expiry_date=date(2026, 7, 8),
+            favorite=False,
+            created_by=other_user.id,
+            updated_by=other_user.id,
+        )
+        db.add_all(
+            [
+                current_ingredient,
+                current_inventory_item,
+                current_food,
+                other_family,
+                other_user,
+                other_membership,
+                other_ingredient,
+                other_inventory_item,
+                other_food,
+            ]
+        )
+        db.commit()
+
+    response = inventory_overview_api_context.client.get("/api/inventory/overview?scope=all")
+
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["summary"]["total_count"] == 2
+    assert payload["summary"]["ingredient_count"] == 1
+    assert payload["summary"]["food_count"] == 1
+    assert {item["source_id"] for item in payload["items"]} == {
+        "ingredient-overview-current",
+        "food-overview-current",
+    }
+    assert "ingredient-overview-other" not in {item["source_id"] for item in payload["items"]}
+    assert "food-overview-other" not in {item["source_id"] for item in payload["items"]}
