@@ -20,7 +20,9 @@ from app.schemas.inventory import (
     DisposeExpiredInventoryResponse,
     InventoryItemOut,
 )
+from app.schemas.inventory_overview import InventoryOverviewOut, InventoryOverviewScope
 from app.services.clock import today_for_family
+from app.services.inventory_overview import build_inventory_overview
 from app.services.inventory_operations import (
     consume_ingredient_inventory,
     create_inventory_batch,
@@ -32,6 +34,23 @@ from app.services.search.hybrid import hybrid_search
 from app.services.serializers import serialize_inventory_item
 
 router = APIRouter(tags=["inventory"])
+
+
+@router.get("/api/inventory/overview", response_model=InventoryOverviewOut)
+def inventory_overview(
+    scope: InventoryOverviewScope = Query(default="all"),
+    q: str = Query(default="", max_length=100),
+    auth: tuple = Depends(get_current_auth),
+    db: Session = Depends(get_db),
+) -> dict:
+    _, membership = auth
+    return build_inventory_overview(
+        db,
+        family_id=membership.family_id,
+        scope=scope,
+        query=q,
+        today=today_for_family(membership.family_id),
+    )
 
 
 @router.get("/api/inventory", response_model=list[InventoryItemOut])
