@@ -1704,6 +1704,69 @@
     display: none;
   }
 
+  .mobile-food-stock-strip {
+    display: grid;
+    gap: 12px;
+    margin-top: 12px;
+  }
+
+  .mobile-food-stock-card {
+    display: grid;
+    gap: 12px;
+    min-width: 0;
+    padding: 16px;
+    border: 1px solid rgba(92, 67, 48, 0.12);
+    border-radius: 20px;
+    background: #fffdf9;
+  }
+
+  .mobile-food-stock-card.tone-warning {
+    border-color: rgba(230, 154, 46, 0.28);
+    background: #fff8e8;
+  }
+
+  .mobile-food-stock-card.tone-danger {
+    border-color: rgba(217, 75, 61, 0.28);
+    background: #fff1ee;
+  }
+
+  .mobile-food-stock-card > div {
+    min-width: 0;
+  }
+
+  .mobile-food-stock-card span {
+    color: #7c6a5e;
+    font-size: 0.75rem;
+    font-weight: 700;
+  }
+
+  .mobile-food-stock-card h3 {
+    margin: 4px 0;
+    color: var(--text);
+    font-size: 1rem;
+    line-height: 1.28;
+    word-break: break-word;
+  }
+
+  .mobile-food-stock-card p {
+    margin: 0;
+    color: var(--text-soft);
+    font-size: 0.875rem;
+    line-height: 1.4;
+    word-break: break-word;
+  }
+
+  .mobile-food-stock-card-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .mobile-food-stock-card-actions button {
+    min-width: 0;
+    min-height: 44px;
+  }
+
   .mobile-ingredient-priority-card {
     width: min(100%, 356px);
     min-width: min(100%, 356px);

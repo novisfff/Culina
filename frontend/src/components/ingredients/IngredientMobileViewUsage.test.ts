@@ -19,4 +19,14 @@ describe('IngredientMobileView shared overlay usage', () => {
       'className="workspace-overlay-backdrop mobile-ingredient-shopping-drawer-backdrop"',
     );
   });
+
+  it('mobile ingredient page can present ready food stock', () => {
+    const mobileSource = readFileSync(sourcePath, 'utf8');
+    expect(mobileSource).toContain('mobileFoodStockItems');
+    expect(mobileSource).toContain('成品速食');
+    expect(mobileSource).toContain('记到今天');
+
+    const workspaceSource = readFileSync(resolve(__dirname, 'IngredientWorkspace.tsx'), 'utf8');
+    expect(workspaceSource).toContain('mobileFoodStockItems');
+  });
 });

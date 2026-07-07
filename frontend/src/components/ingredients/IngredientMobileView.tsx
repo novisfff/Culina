@@ -1,6 +1,6 @@
 import { useState, type CompositionEventHandler, type KeyboardEvent, type ReactNode } from 'react';
 import { buildMediaSizes, buildMediaSrcSet, resolveMediaUrl } from '../../lib/assets';
-import type { ShoppingListItem } from '../../api/types';
+import type { InventoryOverviewItem, ShoppingListItem } from '../../api/types';
 import { chunkMobilePagedItems, useMobilePagedScroller } from '../../hooks/useMobilePagedScroller';
 import { MediaWithPlaceholder } from '../MediaPlaceholder';
 import { OptionChipGroup, SearchField, WorkspaceDrawer, WorkspaceOverlayFrame, type OptionChip } from '../ui-kit';
@@ -50,6 +50,7 @@ type IngredientMobileViewProps = {
   mobileStorageFocus: InventoryStorageFocus;
   setMobileStorageFocus: (value: InventoryStorageFocus | ((current: InventoryStorageFocus) => InventoryStorageFocus)) => void;
   mobilePrioritySummaries: IngredientSummaryViewModel[];
+  mobileFoodStockItems: InventoryOverviewItem[];
   mobileStorageCards: InventoryStorageOverviewViewModel[];
   mobileCatalogSummaries: IngredientSummaryViewModel[];
   mobileCatalogResetKey: string;
@@ -65,6 +66,8 @@ type IngredientMobileViewProps = {
   openDestroyExpiredOverlay: (ingredientId: string) => void;
   openCreateView: () => void;
   openInventoryFromShopping: (item: ShoppingListItem) => void;
+  openFoodStockMeal: (foodId: string) => void;
+  openFoodStockEditor: (foodId: string) => void;
   buildPriorityStatus: (summary: IngredientSummaryViewModel) => InventoryCardStatusViewModel;
   buildCatalogStatus: (summary: IngredientSummaryViewModel) => CatalogCardStatus;
   buildInventorySummaryLine: (summary: IngredientSummaryViewModel) => string;
@@ -124,6 +127,16 @@ export function IngredientMobileView(props: IngredientMobileViewProps) {
       .catch(() => undefined);
   }
 
+  function getFoodStockExpiryLine(item: InventoryOverviewItem) {
+    if (item.days_until_expiry == null) {
+      return '未记录到期';
+    }
+    if (item.days_until_expiry <= 0) {
+      return '今天需处理';
+    }
+    return `${item.days_until_expiry} 天后到期`;
+  }
+
   return (
     <section className="mobile-ingredient-page" aria-label="手机食材页">
       <div className="mobile-ingredient-topbar">
@@ -161,7 +174,7 @@ export function IngredientMobileView(props: IngredientMobileViewProps) {
           <button type="button" className="metric-btn tone-stocked" onClick={() => props.setMobileIngredientFilter('stocked')}>
             <span className="metric-btn-icon">{props.renderIcon('stocked')}</span>
             <div className="metric-btn-content">
-              <strong>{props.stockedIngredientCount}</strong>
+              <strong>{props.stockedIngredientCount + props.mobileFoodStockItems.length}</strong>
               <span>在库</span>
             </div>
           </button>
@@ -288,6 +301,31 @@ export function IngredientMobileView(props: IngredientMobileViewProps) {
           <div className="mobile-ingredient-empty">
             <strong>当前没有需要优先处理的食材</strong>
             <span>可以继续浏览食材库，或直接登记一批新库存。</span>
+          </div>
+        )}
+        {props.mobileFoodStockItems.length > 0 && (
+          <div className="mobile-food-stock-strip" aria-label="成品速食库存">
+            {props.mobileFoodStockItems.slice(0, 6).map((item) => (
+              <article key={item.id} className={`mobile-food-stock-card tone-${item.tone}`}>
+                <div>
+                  <span>成品速食</span>
+                  <h3>{item.title}</h3>
+                  <p>{item.quantity_label} · {getFoodStockExpiryLine(item)}</p>
+                </div>
+                <div className="mobile-food-stock-card-actions">
+                  <button
+                    type="button"
+                    className="mobile-ingredient-primary compact"
+                    onClick={() => props.openFoodStockMeal(item.source_id)}
+                  >
+                    记到今天
+                  </button>
+                  <button type="button" onClick={() => props.openFoodStockEditor(item.source_id)}>
+                    编辑
+                  </button>
+                </div>
+              </article>
+            ))}
           </div>
         )}
       </section>

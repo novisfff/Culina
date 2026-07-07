@@ -1694,6 +1694,10 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
     () => buildUnifiedInventorySummary(filteredUnifiedInventoryItems),
     [filteredUnifiedInventoryItems]
   );
+  const mobileFoodStockItems = useMemo(
+    () => filteredUnifiedInventoryItems.filter((item) => item.source_type === 'food'),
+    [filteredUnifiedInventoryItems]
+  );
   const isCatalogSearchFetching =
     Boolean(normalizedCatalogSearch) &&
     !catalogSearchComposition.isComposing &&
@@ -2037,6 +2041,7 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
         mobileStorageFocus={mobileStorageFocus}
         setMobileStorageFocus={setMobileStorageFocus}
         mobilePrioritySummaries={mobilePrioritySummaries}
+        mobileFoodStockItems={mobileFoodStockItems}
         mobileStorageCards={mobileStorageCards}
         mobileCatalogSummaries={mobileCatalogSummaries}
         mobileCatalogResetKey={mobileCatalogResetKey}
@@ -2051,6 +2056,8 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
         openDestroyExpiredOverlay={openDestroyExpiredOverlay}
         openCreateView={openCreateView}
         openInventoryFromShopping={openInventoryFromShopping}
+        openFoodStockMeal={handleRecordFoodStockMeal}
+        openFoodStockEditor={handleOpenFoodStockFromInventory}
         buildPriorityStatus={buildInventoryCardStatus}
         buildCatalogStatus={buildCatalogCardStatus}
         buildInventorySummaryLine={buildInventorySummaryLine}

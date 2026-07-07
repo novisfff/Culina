@@ -7,7 +7,7 @@ import type {
   RefObject,
   SetStateAction,
 } from 'react';
-import type { ShoppingListItem } from '../../api/types';
+import type { InventoryOverviewItem, ShoppingListItem } from '../../api/types';
 import type { OverlayLayerProps } from './IngredientWorkspaceOverlayTypes';
 import { IngredientHubView } from './IngredientHubView';
 import { IngredientMobileView } from './IngredientMobileView';
@@ -112,6 +112,7 @@ type IngredientHubPageProps = {
   mobileStorageFocus: InventoryStorageFocus;
   setMobileStorageFocus: (value: InventoryStorageFocus | ((current: InventoryStorageFocus) => InventoryStorageFocus)) => void;
   mobilePrioritySummaries: IngredientSummaryViewModel[];
+  mobileFoodStockItems: InventoryOverviewItem[];
   mobileStorageCards: InventoryStorageOverviewViewModel[];
   mobileCatalogSummaries: IngredientSummaryViewModel[];
   mobileCatalogResetKey: string;
@@ -126,6 +127,8 @@ type IngredientHubPageProps = {
   openDestroyExpiredOverlay: (ingredientId: string) => void;
   openCreateView: () => void;
   openInventoryFromShopping: (item: ShoppingListItem) => void;
+  openFoodStockMeal: (foodId: string) => void;
+  openFoodStockEditor: (foodId: string) => void;
   buildPriorityStatus: (summary: IngredientSummaryViewModel) => InventoryCardStatusViewModel;
   buildCatalogStatus: (summary: IngredientSummaryViewModel) => {
     label: string;
@@ -367,6 +370,7 @@ export function IngredientHubPage(props: IngredientHubPageProps) {
               mobileStorageFocus={props.mobileStorageFocus}
               setMobileStorageFocus={props.setMobileStorageFocus}
               mobilePrioritySummaries={props.mobilePrioritySummaries}
+              mobileFoodStockItems={props.mobileFoodStockItems}
               mobileStorageCards={props.mobileStorageCards}
               mobileCatalogSummaries={props.mobileCatalogSummaries}
               mobileCatalogResetKey={props.mobileCatalogResetKey}
@@ -381,6 +385,8 @@ export function IngredientHubPage(props: IngredientHubPageProps) {
               openDestroyExpiredOverlay={props.openDestroyExpiredOverlay}
               openCreateView={props.openCreateView}
               openInventoryFromShopping={props.openInventoryFromShopping}
+              openFoodStockMeal={props.openFoodStockMeal}
+              openFoodStockEditor={props.openFoodStockEditor}
               onDeleteShoppingItem={props.onDeleteShoppingItem}
               buildPriorityStatus={props.buildPriorityStatus}
               buildCatalogStatus={props.buildCatalogStatus}
