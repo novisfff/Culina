@@ -74,7 +74,7 @@ export function RecipeMobileLibraryView(props: {
         <p>按库存、常做和快手程度，快速决定下一餐要做什么。</p>
       </header>
 
-      <section className="mobile-recipe-panel mobile-recipe-featured-panel">
+      <section className="mobile-recipe-panel">
         <div className="mobile-recipe-section-head">
           <h2>今天可以做 <span>✦</span></h2>
           <button
@@ -138,7 +138,6 @@ export function RecipeMobileLibraryView(props: {
         </div>
         <div className="mobile-recipe-library-filters">
           <SearchField
-            className="mobile-recipe-search"
             inputId="mobile-recipe-search"
             ariaLabel="搜索菜谱"
             placeholder="搜索菜谱、食材或技巧"

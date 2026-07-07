@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { ActionButton } from '../ui-kit';
+import { ActionButton } from './ActionButton';
 
 export type FormActionsProps = {
   primaryLabel: ReactNode;

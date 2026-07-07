@@ -77,4 +77,28 @@ describe('ConfirmDialog', () => {
 
     expect(view.textContent).not.toContain('确认删除。');
   });
+
+  it('passes through custom classes without adding unused internal chrome classes', () => {
+    const view = renderDialog(
+      <ConfirmDialog
+        open
+        title="删除会话"
+        description="删除后不可恢复。"
+        confirmLabel="删除"
+        tone="danger"
+        rootClassName="custom-confirm-root"
+        modalClassName="custom-confirm-modal"
+        actionsClassName="custom-confirm-actions"
+        onConfirm={vi.fn()}
+        onCancel={vi.fn()}
+      />,
+    );
+
+    expect(view.querySelector('.workspace-overlay-root')?.className).toContain('custom-confirm-root');
+    expect(view.querySelector('.workspace-modal')?.className).toContain('custom-confirm-modal');
+    expect(view.querySelector('.ui-form-actions')?.className).toContain('custom-confirm-actions');
+    expect(view.querySelector('.ui-confirm-dialog-root')).toBeNull();
+    expect(view.querySelector('.ui-confirm-dialog')).toBeNull();
+    expect(view.querySelector('.workspace-modal')?.className).not.toContain('is-danger');
+  });
 });

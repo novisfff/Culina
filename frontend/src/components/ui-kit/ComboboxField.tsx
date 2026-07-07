@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react';
 
 export type ComboboxOption<T extends string> = {
   value: T;
@@ -17,7 +17,6 @@ export type ComboboxFieldProps<T extends string> = {
   className?: string;
   inputClassName?: string;
   menuClassName?: string;
-  optionClassName?: string;
   customOptionClassName?: string;
   leadingIcon?: ReactNode;
 };
@@ -37,7 +36,6 @@ export function ComboboxField<T extends string>({
   className,
   inputClassName,
   menuClassName,
-  optionClassName,
   customOptionClassName,
   leadingIcon,
 }: ComboboxFieldProps<T>) {
@@ -45,6 +43,7 @@ export function ComboboxField<T extends string>({
   const [filterQuery, setFilterQuery] = useState('');
   const [isOpen, setIsOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement | null>(null);
+  const listboxId = useId();
 
   const visibleOptions = useMemo(() => {
     const normalized = normalizeComboboxText(filterQuery);
@@ -98,6 +97,7 @@ export function ComboboxField<T extends string>({
         role="combobox"
         aria-label={ariaLabel}
         aria-expanded={isOpen}
+        aria-controls={isOpen ? listboxId : undefined}
         aria-autocomplete="list"
         disabled={disabled}
         placeholder={placeholder}
@@ -115,16 +115,19 @@ export function ComboboxField<T extends string>({
         }}
         onKeyDown={(event) => {
           if (event.key === 'Escape') setIsOpen(false);
-          if (event.key === 'Enter') commitCustomValue();
+          const canCommitCustomValue = allowCustom && Boolean(inputValue.trim());
+          if (event.key === 'Enter' && canCommitCustomValue) {
+            event.preventDefault();
+            commitCustomValue();
+          }
         }}
       />
       {isOpen && (
-        <div className={['ui-combobox-menu', menuClassName].filter(Boolean).join(' ')} role="listbox" aria-label={`${ariaLabel}选项`}>
+        <div id={listboxId} className={['ui-combobox-menu', menuClassName].filter(Boolean).join(' ')} role="listbox" aria-label={`${ariaLabel}选项`}>
           {visibleOptions.map((option) => (
             <button
               key={option.value}
               type="button"
-              className={optionClassName}
               role="option"
               aria-selected={option.value === value}
               onClick={() => {

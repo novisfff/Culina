@@ -1,10 +1,21 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import type { FoodPlanItem, MealLog, Member, UpdateMealLogPayload } from '../../api/types';
-import { Avatar, Badge, FormActions, OptionChipGroup, PageHeader, StateBlock, StatusBadge, WorkspaceModal } from '../../components/ui-kit';
+import {
+  Avatar,
+  Badge,
+  FormActions,
+  OptionChipGroup,
+  PageHeader,
+  StateBlock,
+  StatusBadge,
+  WorkspaceModal,
+  WorkspaceOverlayFrame,
+} from '../../components/ui-kit';
 import { MediaWithPlaceholder } from '../../components/MediaPlaceholder';
 import { resolveAssetUrl } from '../../lib/assets';
 import { formatDateTime, MEAL_TYPE_LABELS } from '../../lib/ui';
-import { MealEnrichmentForm, MealPhotoLightbox } from './MealLogEnrichment';
+import { MealEnrichmentModal } from './MealEnrichmentModal';
+import { MealPhotoLightbox } from './MealLogEnrichment';
 import { MealLogIcon } from './MealLogIcons';
 import { MealLogMobileView } from './MealLogMobileView';
 import {
@@ -20,7 +31,6 @@ import {
   getMealRatingSummary,
   getMealTone,
   isMealLogEnriched,
-  resolveMealSource,
   type MealLogMealFilter,
   type MealLogStatusFilter,
 } from './MealLogWorkspaceModel';
@@ -164,8 +174,13 @@ export function MealLogWorkspace(props: Props) {
                     </div>
                     <div className="meal-log-record-list">
                       {group.meals.map((meal) => {
-                        const source = viewModel.mealSources.get(meal.id) ?? resolveMealSource(meal, props.foodPlanItems);
+                        const source = viewModel.mealSources.get(meal.id);
+                        if (!source) {
+                          return null;
+                        }
                         const isSelected = viewModel.selectedMeal?.id === meal.id;
+                        const mealStatus = getMealLogStatus(meal);
+                        const mealStatusLabel = getMealLogStatusLabel(meal);
                         const ratingSummary = getMealRatingSummary(meal);
                         return (
                           <button
@@ -189,11 +204,11 @@ export function MealLogWorkspace(props: Props) {
                             </span>
                             <span className="meal-log-record-info">
                               <StatusBadge
-                                tone={getMealLogStatus(meal) === 'done' ? 'success' : 'warning'}
+                                tone={mealStatus === 'done' ? 'success' : 'warning'}
                                 size="compact"
-                                className={`meal-record-status status-${getMealLogStatus(meal)}`}
+                                className={`meal-record-status status-${mealStatus}`}
                               >
-                                {getMealLogStatusLabel(meal)}
+                                {mealStatusLabel}
                               </StatusBadge>
                               <span className={ratingSummary ? 'meal-log-row-rating has-rating' : 'meal-log-row-rating'}>
                                 {ratingSummary ? `★ ${ratingSummary}` : '待评分'}
@@ -222,22 +237,29 @@ export function MealLogWorkspace(props: Props) {
         </section>
       </main>
 
-      {modalMode && (
-        <div className="workspace-overlay-root">
-          <div className="workspace-overlay-backdrop" onClick={() => setModalMode(null)} />
+      {modalMode === 'enrich' ? (
+        <MealEnrichmentModal
+          open
+          meal={viewModel.selectedMeal}
+          source={viewModel.selectedSource}
+          members={props.members}
+          isUpdating={props.isUpdatingMeal}
+          updateMealLog={props.updateMealLog}
+          onClose={() => setModalMode(null)}
+          formId={mealEnrichmentFormId}
+        />
+      ) : null}
+
+      {modalMode === 'preview' && (
+        <WorkspaceOverlayFrame onClose={() => setModalMode(null)}>
           <WorkspaceModal
-            title={modalMode === 'preview' ? '记录预览' : '补充记录'}
-            description={
-              modalMode === 'preview'
-                ? '查看这次餐食的来源、评价、评论和照片。'
-                : '为这次待补充记录添加评价、家人、照片和评论'
-            }
-            eyebrow={modalMode === 'enrich' ? undefined : '记录'}
+            title="记录预览"
+            description="查看这次餐食的来源、评价、评论和照片。"
+            eyebrow="记录"
             className="meal-log-modal meal-log-enrich-modal meal-log-preview-modal"
             onClose={() => setModalMode(null)}
-            footerInfo={modalMode === 'enrich' ? <span>保存后，本次补充记录将会出现在记录时间线中</span> : undefined}
             footerActions={
-              modalMode === 'preview' && viewModel.selectedMeal && viewModel.selectedSource ? (
+              viewModel.selectedMeal && viewModel.selectedSource ? (
                 <FormActions
                   className="meal-log-preview-modal-actions"
                   primaryLabel="继续补充"
@@ -245,20 +267,10 @@ export function MealLogWorkspace(props: Props) {
                   secondaryLabel="取消"
                   onSecondary={() => setModalMode(null)}
                 />
-              ) : modalMode === 'enrich' && viewModel.selectedMeal && viewModel.selectedSource ? (
-                <FormActions
-                  className="meal-enrichment-actions"
-                  primaryLabel="保存记录"
-                  primaryType="submit"
-                  primaryForm={mealEnrichmentFormId}
-                  isSubmitting={props.isUpdatingMeal}
-                  secondaryLabel="稍后再说"
-                  onSecondary={() => setModalMode(null)}
-                />
               ) : undefined
             }
           >
-            {modalMode === 'preview' && viewModel.selectedMeal && viewModel.selectedSource ? (
+            {viewModel.selectedMeal && viewModel.selectedSource ? (
               <div className="meal-log-preview-detail">
                 <div className="meal-enrichment-summary">
                   <span className={`meal-enrichment-meal-pill ${getMealTone(viewModel.selectedMeal.meal_type)}`}>
@@ -343,21 +355,9 @@ export function MealLogWorkspace(props: Props) {
                 </div>
 
               </div>
-            ) : viewModel.selectedMeal && viewModel.selectedSource ? (
-              <MealEnrichmentForm
-                formId={mealEnrichmentFormId}
-                showFooter={false}
-                meal={viewModel.selectedMeal}
-                members={props.members}
-                source={viewModel.selectedSource}
-                isUpdating={props.isUpdatingMeal}
-                updateMealLog={props.updateMealLog}
-                onCancel={() => setModalMode(null)}
-                onSaved={() => setModalMode(null)}
-              />
             ) : null}
           </WorkspaceModal>
-        </div>
+        </WorkspaceOverlayFrame>
       )}
       {activePreviewPhoto && viewModel.selectedMeal && (
         <MealPhotoLightbox photo={activePreviewPhoto} title={buildMealTitle(viewModel.selectedMeal)} onClose={() => setActivePreviewPhotoId(null)} />

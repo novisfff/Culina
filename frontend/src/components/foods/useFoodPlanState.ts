@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 import type { Food, FoodPlanItem, MealLog, MealType } from '../../api/types';
 import type { NoticeState } from '../../hooks/useNotice';
 import { addDateKeyDays, todayKey } from '../../lib/date';

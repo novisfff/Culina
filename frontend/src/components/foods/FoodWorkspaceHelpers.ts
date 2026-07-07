@@ -1,6 +1,6 @@
 import type { Food, FoodType, Ingredient, InventoryItem, MealLog, MealType, Recipe } from '../../api/types';
 import { todayKey } from '../../lib/date';
-import { FOOD_TYPE_LABELS, MEAL_TYPE_LABELS, formatDate, getFoodCover } from '../../lib/ui';
+import { MEAL_TYPE_LABELS, formatDate, getFoodCover } from '../../lib/ui';
 import { buildRecipeCards, type RecipeCardViewModel } from '../recipes/workspaceModel';
 import { FOOD_GOVERNANCE_ISSUE_OPTIONS, type FoodGovernanceIssue } from './FoodWorkspaceOptions';
 

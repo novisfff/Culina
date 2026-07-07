@@ -4,7 +4,7 @@ import { api } from '../../api/client';
 import { queryKeys } from '../../api/queryKeys';
 import type { ActivityLog, Member } from '../../api/types';
 import { DashboardIcon } from '../../app/shellIcons';
-import { DropdownSelect, EmptyState, FormActions, WorkspaceModal } from '../../components/ui-kit';
+import { DropdownSelect, EmptyState, FormActions, WorkspaceModal, WorkspaceOverlayFrame } from '../../components/ui-kit';
 import { formatDateTime } from '../../lib/ui';
 import {
   DEFAULT_FAMILY_ACTIVITY_FILTERS,
@@ -198,8 +198,7 @@ export function FamilyActivityModal(props: FamilyActivityViewerProps & { onClose
   const canLoadMore = viewer.logs.length >= viewer.limit;
 
   return (
-    <div className="workspace-overlay-root family-settings-overlay-root">
-      <div className="workspace-overlay-backdrop" onClick={props.onClose} />
+    <WorkspaceOverlayFrame rootClassName="family-settings-overlay-root" onClose={props.onClose}>
       <WorkspaceModal
         className="family-activity-viewer-modal"
         eyebrow="家庭活动"
@@ -227,7 +226,7 @@ export function FamilyActivityModal(props: FamilyActivityViewerProps & { onClose
         />
         <FamilyActivityTimeline logs={viewer.logs} isFetching={viewer.isFetching} hasFilters={viewer.hasFilters} />
       </WorkspaceModal>
-    </div>
+    </WorkspaceOverlayFrame>
   );
 }
 

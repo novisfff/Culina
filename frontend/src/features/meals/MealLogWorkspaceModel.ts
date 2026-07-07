@@ -1,4 +1,5 @@
 import type { FoodPlanItem, MealLog, Member } from '../../api/types';
+import { addDateKeyDays } from '../../lib/date';
 import { formatDate, todayKey } from '../../lib/ui';
 import { buildMealTitle, getMealRatingSummary, isMealLogEnriched, resolveMealSource, type MealSource } from './MealLogEnrichmentModel';
 
@@ -59,15 +60,16 @@ export function formatDateGroupLabel(dateKey: string) {
 }
 
 export function groupMealsByDate(meals: MealLog[]) {
-  return meals.reduce<Array<{ date: string; meals: MealLog[] }>>((groups, meal) => {
-    const existing = groups.find((group) => group.date === meal.date);
-    if (existing) {
-      existing.meals.push(meal);
-      return groups;
+  const groups = new Map<string, MealLog[]>();
+  for (const meal of meals) {
+    const items = groups.get(meal.date);
+    if (items) {
+      items.push(meal);
+      continue;
     }
-    groups.push({ date: meal.date, meals: [meal] });
-    return groups;
-  }, []);
+    groups.set(meal.date, [meal]);
+  }
+  return Array.from(groups, ([date, items]) => ({ date, meals: items }));
 }
 
 export function getParticipantMembers(meal: MealLog, members: Member[]) {
@@ -78,9 +80,7 @@ export function getParticipantMembers(meal: MealLog, members: Member[]) {
 
 export function getWeekRecordCount(meals: MealLog[]) {
   const today = todayKey();
-  const weekStart = new Date(today);
-  weekStart.setDate(weekStart.getDate() - 6);
-  const weekStartKey = weekStart.toISOString().slice(0, 10);
+  const weekStartKey = addDateKeyDays(today, -6);
   return meals.filter((meal) => meal.date >= weekStartKey && meal.date <= today).length;
 }
 
@@ -121,7 +121,7 @@ export function buildMealLogWorkspaceViewModel(args: {
   const enrichedCount = args.recentMeals.filter(isMealLogEnriched).length;
   const weekRecordCount = getWeekRecordCount(args.recentMeals);
   const selectedMeal = args.recentMeals.find((meal) => meal.id === args.selectedMealId) ?? pendingMeals[0] ?? args.recentMeals[0] ?? null;
-  const selectedSource = selectedMeal ? mealSources.get(selectedMeal.id) ?? resolveMealSource(selectedMeal, args.foodPlanItems) : null;
+  const selectedSource = selectedMeal ? (mealSources.get(selectedMeal.id) ?? null) : null;
   const selectedParticipantMembers = selectedMeal ? getParticipantMembers(selectedMeal, args.members) : [];
   const filteredMeals = filterMealLogs({
     meals: args.recentMeals,

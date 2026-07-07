@@ -15,10 +15,7 @@ import {
   isSeasoningIngredient,
   sortInventorySummariesByExpiry,
   type IngredientSummaryViewModel,
-  type InventoryStorageOverviewViewModel,
-  type ShoppingCardViewModel,
   type ShoppingOverviewViewModel,
-  type StorageGroupViewModel,
 } from './workspaceModel';
 import type { InventoryStorageFocus } from './ingredientWorkspaceForms';
 import type {

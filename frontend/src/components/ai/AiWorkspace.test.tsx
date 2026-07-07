@@ -19,6 +19,8 @@ function changeInput(input: HTMLInputElement | HTMLTextAreaElement, value: strin
 
 afterEach(() => {
   cleanupTestDomAndMocks();
+  window.localStorage.clear();
+  setViewportWidth(1024);
 });
 
 beforeEach(() => {
@@ -35,6 +37,14 @@ beforeEach(() => {
   vi.spyOn(api, 'getIngredients').mockResolvedValue([]);
 });
 
+function setViewportWidth(width: number) {
+  Object.defineProperty(window, 'innerWidth', {
+    configurable: true,
+    writable: true,
+    value: width,
+  });
+}
+
 async function advanceTimers(ms: number) {
   await act(async () => {
     await vi.advanceTimersByTimeAsync(ms);
@@ -42,6 +52,34 @@ async function advanceTimers(ms: number) {
 }
 
 describe('AiWorkspace pending approval restore', () => {
+  it('defaults to collapsed history on iPad width even when desktop preference is expanded', async () => {
+    setViewportWidth(1180);
+    window.localStorage.setItem('ai_sidebar_collapsed', 'false');
+    vi.spyOn(api, 'getAiMessages').mockResolvedValue([]);
+    vi.spyOn(api, 'getPendingAiApprovals').mockResolvedValue([]);
+
+    const rendered = await renderWithQuery(<AiWorkspace conversations={[conversation()]} isLoading={false} />);
+    await flushAsync();
+
+    expect(rendered.container.querySelector('.ai-workspace-shell')?.classList.contains('is-collapsed')).toBe(true);
+    expect(rendered.container.querySelector('.ai-sidebar-trigger-btn')).not.toBeNull();
+    rendered.unmount();
+  });
+
+  it('keeps desktop history expanded when the saved desktop preference is expanded', async () => {
+    setViewportWidth(1440);
+    window.localStorage.setItem('ai_sidebar_collapsed', 'false');
+    vi.spyOn(api, 'getAiMessages').mockResolvedValue([]);
+    vi.spyOn(api, 'getPendingAiApprovals').mockResolvedValue([]);
+
+    const rendered = await renderWithQuery(<AiWorkspace conversations={[conversation()]} isLoading={false} />);
+    await flushAsync();
+
+    expect(rendered.container.querySelector('.ai-workspace-shell')?.classList.contains('is-collapsed')).toBe(false);
+    expect(rendered.container.querySelector('.ai-side-panel')).not.toBeNull();
+    rendered.unmount();
+  });
+
   it('restores pending approvals as an assistant message when history is missing', async () => {
     vi.spyOn(api, 'getAiMessages').mockResolvedValue([]);
     vi.spyOn(api, 'getPendingAiApprovals').mockResolvedValue([approval()]);

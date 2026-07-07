@@ -202,7 +202,7 @@ export function RecipeLibraryView({
 
           <section className="recipe-discovery-shell">
             <div className="recipe-inspiration-grid">
-              <article className="recipe-inspiration-card compact-gallery">
+              <article className="recipe-inspiration-card">
                 <div className="recipe-inspiration-head">
                   <h3 className="recipe-inspiration-title"><RecipeUiIcon name="clock" />最近做过</h3>
                   <button type="button" onClick={() => onShowDiscoveryFilter('common', { sort: 'updated' })}>查看全部</button>
@@ -217,7 +217,7 @@ export function RecipeLibraryView({
                   ))}
                 </div>
               </article>
-              <article className="recipe-inspiration-card top-list">
+              <article className="recipe-inspiration-card">
                 <div className="recipe-inspiration-head">
                   <h3 className="recipe-inspiration-title"><RecipeUiIcon name="flame" />本周常做 <span>TOP3</span></h3>
                 </div>
@@ -231,7 +231,7 @@ export function RecipeLibraryView({
                   ))}
                 </div>
               </article>
-              <article className="recipe-inspiration-card compact-gallery recipe-quick-inspiration">
+              <article className="recipe-inspiration-card recipe-quick-inspiration">
                 <div className="recipe-inspiration-head">
                   <h3 className="recipe-inspiration-title"><RecipeUiIcon name="zap" />快手菜 <span>10-20 分钟搞定</span></h3>
                   <button

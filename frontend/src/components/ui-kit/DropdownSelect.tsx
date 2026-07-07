@@ -19,7 +19,6 @@ export type DropdownSelectProps<T extends string> = {
   className?: string;
   triggerClassName?: string;
   menuClassName?: string;
-  optionClassName?: string;
   leadingIcon?: ReactNode;
 };
 
@@ -35,7 +34,6 @@ export function DropdownSelect<T extends string>({
   className,
   triggerClassName,
   menuClassName,
-  optionClassName,
   leadingIcon,
 }: DropdownSelectProps<T>) {
   const [isOpen, setIsOpen] = useState(false);
@@ -99,7 +97,7 @@ export function DropdownSelect<T extends string>({
               <button
                 key={option.value || '__clear'}
                 type="button"
-                className={['ui-dropdown-select-option', optionClassName, selected ? 'is-selected' : ''].filter(Boolean).join(' ')}
+                className={['ui-dropdown-select-option', selected ? 'is-selected' : ''].filter(Boolean).join(' ')}
                 role="option"
                 aria-selected={selected}
                 onClick={() => {

@@ -76,7 +76,7 @@ export function MediaPlaceholder(props: {
       {state === 'loading' && <span className="media-placeholder-glow" />}
       <MediaPlaceholderIcon state={state} />
       {props.showLabel !== false && <span className="media-placeholder-label">{label}</span>}
-        {state === 'loading' && (
+      {state === 'loading' && (
         <>
           <span className="media-placeholder-spark media-placeholder-spark-a" />
           <span className="media-placeholder-spark media-placeholder-spark-b" />

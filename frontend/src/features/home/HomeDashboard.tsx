@@ -1,9 +1,18 @@
-import { useMemo, useState, type Dispatch, type FormEvent, type ReactNode, type SetStateAction, type UIEvent } from 'react';
+import { useMemo, useState, type Dispatch, type FormEvent, type KeyboardEvent, type ReactNode, type SetStateAction, type UIEvent } from 'react';
 import type { ActivityLog, Food, FoodPlanItem, FoodRecommendations, Ingredient, InventoryItem, MealLog, MealType, Member, Recipe, ShoppingListItem } from '../../api/types';
 import type { TabKey } from '../../app/AppShell';
-import { DashboardIcon, DashboardMealIcon, ShellIcon } from '../../app/shellIcons';
+import { DashboardIcon, DashboardMealIcon } from '../../app/shellIcons';
 import { MediaWithPlaceholder } from '../../components/MediaPlaceholder';
-import { ActionButton, Badge, EmptyState, FormActions, PageHeader, StateBlock, StatusBadge, WorkspaceModal } from '../../components/ui-kit';
+import {
+  Badge,
+  EmptyState,
+  PageHeader,
+  StateBlock,
+  StatusBadge,
+  WorkspaceModal,
+  WorkspaceOverlayFrame,
+} from '../../components/ui-kit';
+import { FoodQuickMealDialog, type FoodQuickMealDialogState } from '../../components/foods/FoodQuickMealDialog';
 import { MEAL_OPTIONS } from '../../components/foods/FoodWorkspaceOptions';
 import { FoodDetailDrawer } from '../../components/foods/FoodDetailDrawer';
 import {
@@ -102,22 +111,6 @@ export type HomeDashboardProps = {
   onFoodPlanNextWeek: () => void;
 };
 
-type HomeQuickMealDialogState = {
-  date: string;
-  food: Food;
-  mealType: MealType;
-};
-
-function getHomeQuickMealDateParts(dateKey: string) {
-  const [year, month, day] = dateKey.split('-').map(Number);
-  const date = new Date(year, (month || 1) - 1, day || 1);
-  return {
-    day: String(day || 1),
-    month: String(month || 1),
-    weekday: new Intl.DateTimeFormat('zh-CN', { weekday: 'short' }).format(date),
-  };
-}
-
 function getSuggestedHomeMealType(hour = new Date().getHours()): MealType {
   if (hour < 10) return 'breakfast';
   if (hour < 15) return 'lunch';
@@ -193,7 +186,7 @@ export function HomeDashboard(props: HomeDashboardProps) {
     onFoodPlanCurrentWeek,
     onFoodPlanNextWeek,
   } = props;
-  const [quickMealDialog, setQuickMealDialog] = useState<HomeQuickMealDialogState | null>(null);
+  const [quickMealDialog, setQuickMealDialog] = useState<FoodQuickMealDialogState | null>(null);
   const [detailFood, setDetailFood] = useState<Food | null>(null);
   const [isActivityViewerOpen, setIsActivityViewerOpen] = useState(false);
   const [morePlansPopover, setMorePlansPopover] = useState<{
@@ -205,6 +198,13 @@ export function HomeDashboard(props: HomeDashboardProps) {
   function openDetail(food: Food) {
     setDetailFood(food);
   }
+
+  function handleRecommendationCardKeyDown(event: KeyboardEvent<HTMLElement>, food: Food) {
+    if (event.target !== event.currentTarget) return;
+    if (event.key !== 'Enter' && event.key !== ' ') return;
+    event.preventDefault();
+    openDetail(food);
+  }
   const quickMealDateOptions = useMemo(
     () => Array.from({ length: 7 }, (_, index) => addDateKeyDays(todayKey(), index)),
     []
@@ -212,13 +212,15 @@ export function HomeDashboard(props: HomeDashboardProps) {
 
   function openQuickMealDialog(food: Food, fallbackMealType?: MealType) {
     setQuickMealDialog({
+      action: food.recipe_id ? 'cook' : 'eat',
       date: todayKey(),
       food,
       mealType: getHomeQuickDefaultMealType(food, fallbackMealType),
+      recipeId: food.recipe_id ?? undefined,
     });
   }
 
-  function updateQuickMealDialog(patch: Partial<Pick<HomeQuickMealDialogState, 'date' | 'mealType'>>) {
+  function updateQuickMealDialog(patch: Partial<Pick<FoodQuickMealDialogState, 'date' | 'mealType'>>) {
     setQuickMealDialog((current) => (current ? { ...current, ...patch } : current));
   }
 
@@ -296,86 +298,20 @@ export function HomeDashboard(props: HomeDashboardProps) {
           />
 
           {quickMealDialog && (() => {
-            const cover = resolveAssetUrl(getFoodCover(quickMealDialog.food, recipes));
-            const isCookAction = Boolean(quickMealDialog.food.recipe_id);
+            const isCookAction = quickMealDialog.action === 'cook' && quickMealDialog.recipeId;
             const isSubmitting = Boolean(isQuickAdding || (isCookAction && isCreatingFoodPlanItem));
-            const quickMealFormId = 'home-quick-meal-form';
 
             return (
-              <div className="workspace-overlay-root home-dashboard-overlay-root">
-                <div className="workspace-overlay-backdrop" onClick={() => setQuickMealDialog(null)} />
-                <WorkspaceModal
-                  title={isCookAction ? '开始做这道菜' : '开始做'}
-                  description="确认日期和餐次，点一下就完成。"
-                  eyebrow="快速操作"
-                  className="food-quick-meal-modal"
-                  onClose={() => setQuickMealDialog(null)}
-                  footerActions={
-                    <FormActions
-                      className="food-quick-meal-actions"
-                      primaryLabel={isCookAction ? '开始做' : '记录这一餐'}
-                      primaryType="submit"
-                      primaryForm={quickMealFormId}
-                      isSubmitting={isSubmitting}
-                      secondaryLabel="取消"
-                      onSecondary={() => setQuickMealDialog(null)}
-                    />
-                  }
-                >
-                  <form id={quickMealFormId} className="food-quick-meal-form" onSubmit={submitQuickMealDialog}>
-                    <div className="food-quick-meal-hero">
-                      <span className="food-quick-meal-cover">
-                        <MediaWithPlaceholder src={cover} alt="" />
-                      </span>
-                      <span className="food-quick-meal-copy">
-                        <strong>{quickMealDialog.food.name}</strong>
-                        <small>
-                          {FOOD_TYPE_LABELS[quickMealDialog.food.type]}
-                          {quickMealDialog.food.source_name || quickMealDialog.food.purchase_source ? ` · ${quickMealDialog.food.source_name || quickMealDialog.food.purchase_source}` : ''}
-                        </small>
-                      </span>
-                    </div>
-
-                    <div className="food-quick-meal-field">
-                      <span>日期</span>
-                      <div className="food-quick-meal-date-strip" role="listbox" aria-label="选择日期">
-                        {quickMealDateOptions.map((dateKey, index) => {
-                          const parts = getHomeQuickMealDateParts(dateKey);
-                          const label = index === 0 ? '今天' : index === 1 ? '明天' : parts.weekday;
-                          return (
-                            <button
-                              key={dateKey}
-                              type="button"
-                              className={quickMealDialog.date === dateKey ? 'active' : ''}
-                              onClick={() => updateQuickMealDialog({ date: dateKey })}
-                            >
-                              <span>{label}</span>
-                              <strong>{parts.month}/{parts.day}</strong>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-
-                    <div className="food-quick-meal-field">
-                      <span>餐次</span>
-                      <div className="food-quick-meal-segments" role="radiogroup" aria-label="选择餐次">
-                        {MEAL_OPTIONS.map((meal) => (
-                          <button
-                            key={meal.value}
-                            type="button"
-                            className={quickMealDialog.mealType === meal.value ? 'active' : ''}
-                            onClick={() => updateQuickMealDialog({ mealType: meal.value })}
-                          >
-                            {meal.label}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-
-                  </form>
-                </WorkspaceModal>
-              </div>
+              <FoodQuickMealDialog
+                dialog={quickMealDialog}
+                dateOptions={quickMealDateOptions}
+                recipes={recipes}
+                isSubmitting={isSubmitting}
+                overlayRootClassName="home-dashboard-overlay-root"
+                onChange={updateQuickMealDialog}
+                onClose={() => setQuickMealDialog(null)}
+                onSubmit={submitQuickMealDialog}
+              />
             );
           })()}
 
@@ -458,8 +394,10 @@ export function HomeDashboard(props: HomeDashboardProps) {
           })()}
 
           {morePlansPopover && (
-            <div className="workspace-overlay-root home-dashboard-overlay-root">
-              <div className="workspace-overlay-backdrop" onClick={() => setMorePlansPopover(null)} />
+            <WorkspaceOverlayFrame
+              rootClassName="home-dashboard-overlay-root"
+              onClose={() => setMorePlansPopover(null)}
+            >
               <WorkspaceModal
                 title={`${formatDate(morePlansPopover.date)} · ${MEAL_TYPE_LABELS[morePlansPopover.mealType]}计划`}
                 description={`共 ${morePlansPopover.items.length} 项计划`}
@@ -490,7 +428,7 @@ export function HomeDashboard(props: HomeDashboardProps) {
                   })}
                 </div>
               </WorkspaceModal>
-            </div>
+            </WorkspaceOverlayFrame>
           )}
 
           <main className="dashboard-page">
@@ -543,8 +481,17 @@ export function HomeDashboard(props: HomeDashboardProps) {
                     <div className="dashboard-food-row">
                       {dashboardRecommendations.map(({ recommendation, coverUrl }) => {
                         const food = recommendation.food;
+                        const primaryActionLabel = food.recipe_id ? '开始做' : getPrimaryFoodActionLabel(food);
                         return (
-                          <article key={food.id} className="dashboard-food-card">
+                          <article
+                            key={food.id}
+                            className="dashboard-food-card"
+                            role="button"
+                            tabIndex={0}
+                            aria-label={`查看食物详情：${food.name}`}
+                            onClick={() => openDetail(food)}
+                            onKeyDown={(event) => handleRecommendationCardKeyDown(event, food)}
+                          >
                             <div className="dashboard-food-cover">
                               <MediaWithPlaceholder src={resolveAssetUrl(coverUrl)} alt="" />
                             </div>
@@ -559,24 +506,21 @@ export function HomeDashboard(props: HomeDashboardProps) {
                                 <button
                                   className="solid-button button-compact"
                                   type="button"
-                                  onClick={() => openQuickMealDialog(food, foodRecommendations?.target_meal_type)}
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    openQuickMealDialog(food, foodRecommendations?.target_meal_type);
+                                  }}
                                   disabled={isQuickAdding || isCreatingFoodPlanItem}
                                 >
-                                  开始做
+                                  {primaryActionLabel}
                                 </button>
                                 <button
                                   className="dashboard-icon-button"
                                   type="button"
-                                  onClick={() => openDetail(food)}
-                                  aria-label="查看详情"
-                                  title="查看详情"
-                                >
-                                  <DashboardIcon name="list" />
-                                </button>
-                                <button
-                                  className="dashboard-icon-button"
-                                  type="button"
-                                  onClick={() => openHomePlanAddDialog(food, foodRecommendations?.target_meal_type ?? 'dinner')}
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    openHomePlanAddDialog(food, foodRecommendations?.target_meal_type ?? 'dinner');
+                                  }}
                                   disabled={isCreatingFoodPlanItem}
                                   aria-label={`加入菜单：${food.name}`}
                                   title="加入菜单"

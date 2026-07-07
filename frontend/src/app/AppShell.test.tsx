@@ -225,6 +225,13 @@ describe('AppNotificationCenter', () => {
 });
 
 describe('AppShell mobile keyboard layout', () => {
+  it('renders orientation guidance for tablet/desktop portrait and mobile landscape', () => {
+    const view = renderAppShell(<main>工作区内容</main>);
+
+    expect(view.textContent).toContain('电脑和 iPad 端需要横屏查看');
+    expect(view.textContent).toContain('手机端需要竖屏查看');
+  });
+
   it('does not keep a keyboard bottom inset when the viewport changes without text focus', () => {
     const rafSpy = vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback: FrameRequestCallback) => {
       callback(0);

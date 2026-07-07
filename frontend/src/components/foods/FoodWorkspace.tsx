@@ -26,17 +26,18 @@ import {
   ActionButton,
   Badge,
   EmptyState,
-  FormActions,
-  ImageComposer,
   OptionChipGroup,
   SearchField,
   WorkspaceModal,
+  WorkspaceOverlayFrame,
 } from '../ui-kit';
 import { FoodPlanDetailModal } from './FoodPlanDetailModal';
 import { FoodPlanDialog } from './FoodPlanDialog';
+import { FoodQuickMealDialog, type FoodQuickMealDialogState } from './FoodQuickMealDialog';
+import { FoodRecipeEditorDialog } from './FoodRecipeEditorDialog';
 import { FoodSceneDialogs } from './FoodSceneDialogs';
 import { FoodHubView } from './FoodHubView';
-import { FOOD_TYPE_LABELS, MEAL_TYPE_LABELS, emptyImages, formatDate, getFoodCover, getFoodCoverAsset, getImagePreview, splitTags, todayKey } from '../../lib/ui';
+import { FOOD_TYPE_LABELS, MEAL_TYPE_LABELS, formatDate, getFoodCover, getFoodCoverAsset, getImagePreview, splitTags, todayKey } from '../../lib/ui';
 import {
   IDLE_IMAGE_GENERATION_STATE,
   useImageComposer,
@@ -44,7 +45,7 @@ import {
 import { useDebouncedSearchValue, useSearchCompositionState } from '../../hooks/useDebouncedValue';
 import { usePagedList } from '../../hooks/usePagedList';
 import { useNotice } from '../../hooks/useNotice';
-import { DIFFICULTY_LABELS, buildRecipeCards } from '../recipes/workspaceModel';
+import { buildRecipeCards } from '../recipes/workspaceModel';
 import { RecipeEditorView } from '../recipes/RecipeEditorView';
 import { useRecipeEditorState } from '../recipes/useRecipeEditorState';
 import {
@@ -52,11 +53,9 @@ import {
   buildRecipePayload,
   getRecipeDraftGenerationButtonLabel,
   resolveErrorMessage,
-  resolveRecipeDifficulty,
 } from '../recipes/RecipeWorkspaceModel';
-import { FoodRatingInput, FoodUiIcon } from './FoodWorkspacePrimitives';
+import { FoodUiIcon } from './FoodWorkspacePrimitives';
 import {
-  FOOD_CREATE_TYPE_DETAILS,
   FOOD_CREATE_TYPE_OPTIONS,
   FOOD_GOVERNANCE_ISSUE_OPTIONS,
   FOOD_LENS_COPY,
@@ -93,14 +92,12 @@ import {
   getFoodFactRows,
   getFoodMealHistory,
   getFoodAudienceText,
-  buildFoodRelationViewModel,
   getDaysUntil,
   getDaysSince,
   isFoodExpiring,
   getFoodGovernanceIssues,
   getFoodGovernanceIssueLabels,
   isFoodMissingDecisionInfo,
-  getLastMealLogForFood,
   buildFoodRelationViewModelFromRecipeCards,
   buildFoodCookingSummaryFromRecipeCards,
   type FoodCookingSummary,
@@ -191,14 +188,6 @@ type RecommendationCardViewModel = {
 };
 
 type MobileCookingFilter = 'all' | 'ready' | 'shortage';
-
-type QuickMealDialogState = {
-  action: 'cook' | 'eat';
-  date: string;
-  food: Food;
-  mealType: MealType;
-  recipeId?: string;
-};
 
 function getFoodPlanDateParts(dateKey: string) {
   const [year, month, day] = dateKey.split('-').map(Number);
@@ -733,7 +722,7 @@ export function FoodWorkspace(props: Props) {
   const nextGovernanceSummary = nextGovernanceFood ? `${nextGovernanceFood.name} · ${getFoodGovernanceIssueLabels(nextGovernanceFood, props.recipes).join('、')}` : '资料已够完整';
   const hasFoodFilters = Boolean(search.trim()) || typeFilter !== 'all' || mealFilter !== 'all' || lensFilter !== 'all' || sceneFilter !== 'all' || governanceIssueFilter !== 'all';
   const todayDate = todayKey();
-  const [quickMealDialog, setQuickMealDialog] = useState<QuickMealDialogState | null>(null);
+  const [quickMealDialog, setQuickMealDialog] = useState<FoodQuickMealDialogState | null>(null);
   const [isFoodRecipeEditorOpen, setIsFoodRecipeEditorOpen] = useState(false);
   const [mobileCookingFilter, setMobileCookingFilter] = useState<MobileCookingFilter>('all');
   const quickMealDateOptions = useMemo(
@@ -966,6 +955,18 @@ export function FoodWorkspace(props: Props) {
     recipeEditorImageComposer.setState(IDLE_IMAGE_GENERATION_STATE);
   }
 
+  function closeFoodRecipeEditorIfAllowed() {
+    if (!props.isCreatingRecipe && !props.isUpdatingRecipe) {
+      closeFoodRecipeEditor();
+    }
+  }
+
+  function closeFoodEditorIfAllowed() {
+    if (!props.isSavingFood) {
+      setView('list');
+    }
+  }
+
   async function handleSubmitFood(event: Parameters<typeof submitFood>[0]) {
     event.preventDefault();
     if (!canSubmit) return;
@@ -1040,7 +1041,7 @@ export function FoodWorkspace(props: Props) {
     }
   }
 
-  function openQuickMealDialog(food: Food, mealType: MealType, action: QuickMealDialogState['action']) {
+  function openQuickMealDialog(food: Food, mealType: MealType, action: FoodQuickMealDialogState['action']) {
     setQuickMealDialog({
       action,
       date: todayKey(),
@@ -1050,7 +1051,7 @@ export function FoodWorkspace(props: Props) {
     });
   }
 
-  function updateQuickMealDialog(patch: Partial<Pick<QuickMealDialogState, 'date' | 'mealType'>>) {
+  function updateQuickMealDialog(patch: Partial<Pick<FoodQuickMealDialogState, 'date' | 'mealType'>>) {
     setQuickMealDialog((current) => (current ? { ...current, ...patch } : current));
   }
 
@@ -1576,15 +1577,18 @@ export function FoodWorkspace(props: Props) {
       />
 
       {view !== 'list' && !isFoodRecipeEditorOpen && (
-        <div className="workspace-overlay-root food-workspace-overlay-root">
-          <div className="workspace-overlay-backdrop" onClick={() => setView('list')} />
+        <WorkspaceOverlayFrame
+          rootClassName="food-workspace-overlay-root"
+          onClose={closeFoodEditorIfAllowed}
+          closeOnBackdrop={!props.isSavingFood}
+        >
           <WorkspaceModal
             title={view === 'create' ? '新增食物' : '编辑食物'}
             description={isSelfMade ? '家常菜的菜谱、用料和日常记录都放在食物里维护。' : '补充来源、价格、复购和保质信息，让常吃食物更容易再次安排。'}
             eyebrow="食物资料"
             className="food-editor-modal"
             closeLabel="关闭"
-            onClose={() => setView('list')}
+            onClose={closeFoodEditorIfAllowed}
           >
             <FoodEditorForm
               embedded
@@ -1608,7 +1612,7 @@ export function FoodWorkspace(props: Props) {
               submitLabel={isSelfMade ? (view === 'create' ? '保存家常菜谱' : '保存菜谱和资料') : undefined}
               view={view}
               onAddSceneTag={addSceneTag}
-              onBack={() => setView('list')}
+              onBack={closeFoodEditorIfAllowed}
               onCreateAndAddSceneTag={() => void createAndAddSceneTag()}
               onFormChange={setForm}
               onGenerateImage={(mode) => void imageComposer.generate(mode)}
@@ -1623,168 +1627,89 @@ export function FoodWorkspace(props: Props) {
               setNewSceneTagName={setNewSceneTagName}
             />
           </WorkspaceModal>
-        </div>
+        </WorkspaceOverlayFrame>
       )}
 
       {isFoodRecipeEditorOpen && (
-        <div className="workspace-overlay-root food-workspace-overlay-root">
-          <div className="workspace-overlay-backdrop" onClick={closeFoodRecipeEditor} />
-          <WorkspaceModal
-            title={recipeEditor.selectedRecipeId || form.recipeId ? '编辑菜谱和用料' : '添加菜谱和用料'}
-            description={currentRecipe ? `正在编辑「${currentRecipe.title}」` : '保存后会自动同步为一份家常食物。'}
-            eyebrow="食物里的家常菜谱"
-            className="food-recipe-editor-modal"
-            closeLabel="关闭"
-            onClose={closeFoodRecipeEditor}
-          >
-            <RecipeEditorView
-              isEditing={Boolean(recipeEditor.selectedRecipeId || form.recipeId)}
-              entityLabel="菜谱"
-              submitLabel="保存菜谱"
-              previewLabel="回到食物"
-              summaryCreateHint="保存后回到食物库"
-              backLabel="回到食物"
-              isRecipeAiApplied={false}
-              selectedRecipeId={recipeEditor.selectedRecipeId}
-              form={recipeEditor.form}
-              setForm={recipeEditor.setForm}
-              ingredientRows={recipeEditor.ingredientRows}
-              ingredients={props.ingredients}
-              sceneTagDraft={recipeEditor.sceneTagDraft}
-              setSceneTagDraft={recipeEditor.setSceneTagDraft}
-              sceneSelectOptions={recipeEditorSceneSelectOptions}
-              editorSceneTags={recipeEditorSceneTags}
-              visibleStepTips={recipeEditor.visibleStepTips}
-              editorCoverUrl={recipeEditorCoverUrl}
-              editorCoverAsset={recipeEditorCoverAsset}
-              editorIngredientCount={recipeEditorIngredientCount}
-              editorStepCount={recipeEditorStepCount}
-              editorCompletionItems={recipeEditorCompletionItems}
-              editorCompletionPercent={recipeEditorCompletionPercent}
-              recipeDraftError={recipeEditor.recipeDraftError}
-              isRecipeDraftBusy={false}
-              recipeImageState={recipeEditorImageComposer.state}
-              recipeDraftButtonLabel={getRecipeDraftGenerationButtonLabel(recipeEditor.recipeDraftGenerationStage)}
-              submitDisabled={recipeEditorSubmitDisabled}
-              isCreatingRecipe={props.isCreatingRecipe}
-              isUpdatingRecipe={props.isUpdatingRecipe}
-              showAiDraftAction={false}
-              showDeleteAction={false}
-              compactHeader
-              onBack={closeFoodRecipeEditor}
-              onSubmit={(event) => void submitFoodRecipeEditor(event)}
-              onDelete={() => undefined}
-              onOpenDraftDialog={() => undefined}
-              updateIngredientRow={recipeEditor.updateIngredientRow}
-              selectIngredientRow={recipeEditor.selectIngredientRow}
-              updateIngredientNote={recipeEditor.updateIngredientNote}
-              updateIngredientRequirement={recipeEditor.updateIngredientRequirement}
-              addIngredientRow={recipeEditor.addIngredientRow}
-              removeIngredientRow={recipeEditor.removeIngredientRow}
-              updateStepDraft={recipeEditor.updateStepDraft}
-              getStepKeyPointValues={recipeEditor.getStepKeyPointValues}
-              getStepKeyPointRowCount={recipeEditor.getStepKeyPointRowCount}
-              addStepTip={recipeEditor.addStepTip}
-              addStepKeyPoint={recipeEditor.addStepKeyPoint}
-              updateStepKeyPoint={recipeEditor.updateStepKeyPoint}
-              removeStepKeyPoint={recipeEditor.removeStepKeyPoint}
-              commitSceneTagDraft={recipeEditor.commitSceneTagDraft}
-              handleRecipeImageUpload={(files) => recipeEditorImageComposer.upload(files)}
-              handleRecipeImageGenerate={(mode) => recipeEditorImageComposer.generate(mode)}
-              resetRecipeImageInput={recipeEditorImageComposer.reset}
-            />
-          </WorkspaceModal>
-        </div>
+        <FoodRecipeEditorDialog
+          currentRecipeTitle={currentRecipe?.title}
+          isEditing={Boolean(recipeEditor.selectedRecipeId || form.recipeId)}
+          isSaving={Boolean(props.isCreatingRecipe || props.isUpdatingRecipe)}
+          onClose={closeFoodRecipeEditor}
+        >
+          <RecipeEditorView
+            isEditing={Boolean(recipeEditor.selectedRecipeId || form.recipeId)}
+            entityLabel="菜谱"
+            submitLabel="保存菜谱"
+            previewLabel="回到食物"
+            summaryCreateHint="保存后回到食物库"
+            backLabel="回到食物"
+            isRecipeAiApplied={false}
+            selectedRecipeId={recipeEditor.selectedRecipeId}
+            form={recipeEditor.form}
+            setForm={recipeEditor.setForm}
+            ingredientRows={recipeEditor.ingredientRows}
+            ingredients={props.ingredients}
+            sceneTagDraft={recipeEditor.sceneTagDraft}
+            setSceneTagDraft={recipeEditor.setSceneTagDraft}
+            sceneSelectOptions={recipeEditorSceneSelectOptions}
+            editorSceneTags={recipeEditorSceneTags}
+            visibleStepTips={recipeEditor.visibleStepTips}
+            editorCoverUrl={recipeEditorCoverUrl}
+            editorCoverAsset={recipeEditorCoverAsset}
+            editorIngredientCount={recipeEditorIngredientCount}
+            editorStepCount={recipeEditorStepCount}
+            editorCompletionItems={recipeEditorCompletionItems}
+            editorCompletionPercent={recipeEditorCompletionPercent}
+            recipeDraftError={recipeEditor.recipeDraftError}
+            isRecipeDraftBusy={false}
+            recipeImageState={recipeEditorImageComposer.state}
+            recipeDraftButtonLabel={getRecipeDraftGenerationButtonLabel(recipeEditor.recipeDraftGenerationStage)}
+            submitDisabled={recipeEditorSubmitDisabled}
+            isCreatingRecipe={props.isCreatingRecipe}
+            isUpdatingRecipe={props.isUpdatingRecipe}
+            showAiDraftAction={false}
+            showDeleteAction={false}
+            compactHeader
+            onBack={closeFoodRecipeEditorIfAllowed}
+            onSubmit={(event) => void submitFoodRecipeEditor(event)}
+            onDelete={() => undefined}
+            onOpenDraftDialog={() => undefined}
+            updateIngredientRow={recipeEditor.updateIngredientRow}
+            selectIngredientRow={recipeEditor.selectIngredientRow}
+            updateIngredientNote={recipeEditor.updateIngredientNote}
+            updateIngredientRequirement={recipeEditor.updateIngredientRequirement}
+            addIngredientRow={recipeEditor.addIngredientRow}
+            removeIngredientRow={recipeEditor.removeIngredientRow}
+            updateStepDraft={recipeEditor.updateStepDraft}
+            getStepKeyPointValues={recipeEditor.getStepKeyPointValues}
+            getStepKeyPointRowCount={recipeEditor.getStepKeyPointRowCount}
+            addStepTip={recipeEditor.addStepTip}
+            addStepKeyPoint={recipeEditor.addStepKeyPoint}
+            updateStepKeyPoint={recipeEditor.updateStepKeyPoint}
+            removeStepKeyPoint={recipeEditor.removeStepKeyPoint}
+            commitSceneTagDraft={recipeEditor.commitSceneTagDraft}
+            handleRecipeImageUpload={(files) => recipeEditorImageComposer.upload(files)}
+            handleRecipeImageGenerate={(mode) => recipeEditorImageComposer.generate(mode)}
+            resetRecipeImageInput={recipeEditorImageComposer.reset}
+          />
+        </FoodRecipeEditorDialog>
       )}
 
       {quickMealDialog && (() => {
-        const coverAsset = getFoodCoverAsset(quickMealDialog.food, props.recipes);
-        const cover = resolveMediaUrl(coverAsset, 'card');
         const isCookAction = quickMealDialog.action === 'cook' && quickMealDialog.recipeId;
-        const title = isCookAction ? '开始做这道菜' : getPrimaryFoodActionLabel(quickMealDialog.food);
         const isSubmitting = Boolean(props.isQuickAdding || (isCookAction && props.isUpdatingPlan));
-        const quickMealFormId = 'food-workspace-quick-meal-form';
 
         return (
-          <div className="workspace-overlay-root food-workspace-overlay-root">
-            <div className="workspace-overlay-backdrop" onClick={() => setQuickMealDialog(null)} />
-            <WorkspaceModal
-              title={title}
-              description="确认日期和餐次，点一下就完成。"
-              eyebrow="快速操作"
-              className="food-quick-meal-modal"
-              onClose={() => setQuickMealDialog(null)}
-              footerActions={
-                <FormActions
-                  className="food-quick-meal-actions"
-                  primaryLabel={isCookAction ? '开始做' : '记录这一餐'}
-                  primaryType="submit"
-                  primaryForm={quickMealFormId}
-                  isSubmitting={isSubmitting}
-                  secondaryLabel="取消"
-                  onSecondary={() => setQuickMealDialog(null)}
-                />
-              }
-            >
-              <form id={quickMealFormId} className="food-quick-meal-form" onSubmit={submitQuickMealDialog}>
-                <div className="food-quick-meal-hero">
-                  <span className="food-quick-meal-cover">
-                    <MediaWithPlaceholder
-                      src={cover}
-                      srcSet={buildMediaSrcSet(coverAsset)}
-                      sizes={buildMediaSizes('thumb')}
-                      alt=""
-                    />
-                  </span>
-                  <span className="food-quick-meal-copy">
-                    <strong>{quickMealDialog.food.name}</strong>
-                    <small>
-                      {FOOD_TYPE_LABELS[normalizeFoodType(quickMealDialog.food)]}
-                      {quickMealDialog.food.source_name || quickMealDialog.food.purchase_source ? ` · ${quickMealDialog.food.source_name || quickMealDialog.food.purchase_source}` : ''}
-                    </small>
-                  </span>
-                </div>
-
-                <div className="food-quick-meal-field">
-                  <span>日期</span>
-                  <div className="food-quick-meal-date-strip" role="listbox" aria-label="选择日期">
-                    {quickMealDateOptions.map((dateKey, index) => {
-                      const parts = getFoodPlanDateParts(dateKey);
-                      const label = index === 0 ? '今天' : index === 1 ? '明天' : parts.weekday;
-                      return (
-                        <button
-                          key={dateKey}
-                          type="button"
-                          className={quickMealDialog.date === dateKey ? 'active' : ''}
-                          onClick={() => updateQuickMealDialog({ date: dateKey })}
-                        >
-                          <span>{label}</span>
-                          <strong>{parts.month}/{parts.day}</strong>
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-
-                <div className="food-quick-meal-field">
-                  <span>餐次</span>
-                  <div className="food-quick-meal-segments" role="radiogroup" aria-label="选择餐次">
-                    {MEAL_OPTIONS.map((meal) => (
-                      <button
-                        key={meal.value}
-                        type="button"
-                        className={quickMealDialog.mealType === meal.value ? 'active' : ''}
-                        onClick={() => updateQuickMealDialog({ mealType: meal.value })}
-                      >
-                        {meal.label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-              </form>
-            </WorkspaceModal>
-          </div>
+          <FoodQuickMealDialog
+            dialog={quickMealDialog}
+            dateOptions={quickMealDateOptions}
+            isSubmitting={isSubmitting}
+            recipes={props.recipes}
+            onChange={updateQuickMealDialog}
+            onClose={() => setQuickMealDialog(null)}
+            onSubmit={submitQuickMealDialog}
+          />
         );
       })()}
 

@@ -696,9 +696,6 @@
     color: #c04f10;
   }
 
-  .mobile-log-filter-row span {
-  }
-
   .mobile-log-timeline-list,
   .mobile-log-day-group {
     display: grid;
@@ -1758,6 +1755,20 @@
     border-radius: 0 !important;
   }
 
+  .mobile-ingredient-priority-cover .media-placeholder,
+  .mobile-ingredient-library-cover .media-placeholder {
+    gap: 0;
+  }
+
+  .mobile-ingredient-priority-cover .media-placeholder-label,
+  .mobile-ingredient-priority-cover .media-placeholder-glow,
+  .mobile-ingredient-priority-cover .media-placeholder-spark,
+  .mobile-ingredient-library-cover .media-placeholder-label,
+  .mobile-ingredient-library-cover .media-placeholder-glow,
+  .mobile-ingredient-library-cover .media-placeholder-spark {
+    display: none !important;
+  }
+
   .mobile-ingredient-priority-cover img,
   .mobile-ingredient-library-cover img,
   .mobile-ingredient-shopping-cover img,
@@ -2214,33 +2225,6 @@
     -webkit-overflow-scrolling: touch;
   }
 
-  .mobile-ingredient-shopping-drawer-handle {
-    justify-self: center;
-    width: 52px;
-    height: 22px;
-    padding: 0;
-    border: 0;
-    background: transparent;
-  }
-
-  .mobile-ingredient-shopping-drawer-handle::before {
-    content: "";
-    display: block;
-    width: 48px;
-    height: 5px;
-    margin: 8px auto 0;
-    border-radius: 999px;
-    background: rgba(92, 67, 48, 0.16);
-  }
-
-  .mobile-ingredient-shopping-drawer-head {
-    min-width: 0;
-    display: grid;
-    grid-template-columns: 64px minmax(0, 1fr) 64px;
-    align-items: center;
-    gap: 12px;
-  }
-
   .mobile-ingredient-shopping-drawer-cover {
     width: 64px;
     height: 64px;
@@ -2248,59 +2232,6 @@
     border-radius: 18px;
     background: #f3e5d7;
   }
-
-  .mobile-ingredient-shopping-drawer-head > div {
-    min-width: 0;
-    display: grid;
-    gap: 4px;
-  }
-
-  .mobile-ingredient-shopping-drawer-head span {
-    color: #9a7c68;
-    font-size: 0.78rem;
-    font-weight: 900;
-  }
-
-  .mobile-ingredient-shopping-drawer-head h3,
-  .mobile-ingredient-shopping-drawer-head p {
-    min-width: 0;
-    margin: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .mobile-ingredient-shopping-drawer-head h3 {
-    color: #281d17;
-    font-size: 1.22rem;
-    font-weight: 950;
-  }
-
-  .mobile-ingredient-shopping-drawer-head p {
-    color: #77665a;
-    font-size: 0.9rem;
-    font-weight: 760;
-  }
-
-  .mobile-ingredient-shopping-drawer-head > button {
-    width: 64px;
-    min-width: 64px;
-    max-width: 64px;
-    height: 44px;
-    min-height: 44px;
-    max-height: 44px;
-    padding: 0;
-    border: 0;
-    border-radius: 15px;
-    background: #f7f3f0;
-    color: #74655b;
-    font: inherit;
-    font-size: 14px;
-    font-weight: 900;
-    line-height: 1;
-    box-shadow: 0 6px 16px rgba(74, 54, 40, 0.05);
-  }
-
   .mobile-ingredient-shopping-drawer-summary {
     min-width: 0;
     display: grid;
@@ -3931,29 +3862,6 @@
     height: 18px;
   }
 
-  .mobile-food-recommend-card {
-    display: grid;
-    grid-template-columns: minmax(136px, 1fr) minmax(0, 1.16fr);
-    overflow: hidden;
-    border: 1px solid rgba(231, 213, 199, 0.95);
-    border-radius: 18px;
-    background: rgba(255, 255, 255, 0.9);
-  }
-
-  .mobile-food-recommend-cover {
-    min-height: 172px;
-    display: grid;
-    place-items: center;
-    overflow: hidden;
-    background:
-      radial-gradient(circle at 45% 42%, rgba(255, 255, 255, 0.48), transparent 24%),
-      linear-gradient(135deg, #d9b993, #b0784b);
-    color: #fff7ef;
-    font-size: 1.4rem;
-    font-weight: 950;
-  }
-
-  .mobile-food-recommend-cover img,
   .mobile-food-scene-grid img,
   .mobile-food-library-cover img {
     width: 100%;
@@ -3962,15 +3870,6 @@
     object-fit: cover;
   }
 
-  .mobile-food-recommend-body {
-    min-width: 0;
-    display: grid;
-    align-content: center;
-    gap: 10px;
-    padding: 16px 14px;
-  }
-
-  .mobile-food-recommend-body h3,
   .mobile-food-library-body h3 {
     margin: 0;
     overflow: hidden;
@@ -3979,10 +3878,6 @@
     line-height: 1.18;
     text-overflow: ellipsis;
     white-space: nowrap;
-  }
-
-  .mobile-food-recommend-body h3 {
-    font-size: 1.25rem;
   }
 
   .mobile-food-badge-row {
@@ -4010,19 +3905,6 @@
     line-height: 1;
     text-overflow: ellipsis;
     white-space: nowrap;
-  }
-
-  .mobile-food-recommend-body p {
-    min-height: 44px;
-    margin: 0;
-    overflow: hidden;
-    color: #756459;
-    font-size: 0.94rem;
-    font-weight: 780;
-    line-height: 1.48;
-    display: -webkit-box;
-    -webkit-line-clamp: 2;
-    -webkit-box-orient: vertical;
   }
 
   .mobile-food-card-actions {
@@ -4336,11 +4218,6 @@
 
   .mobile-food-library-card .mobile-food-badge-row span:nth-child(n + 3) {
     display: none;
-  }
-
-  .mobile-food-featured .mobile-food-badge-row span {
-    max-width: calc((100% - 6px) / 2);
-    flex: 1 1 0;
   }
 
   .mobile-food-empty {
@@ -4845,10 +4722,6 @@
     color: var(--success, #4F9A58);
   }
 
-  .recipe-workspace-cook-mode .recipe-cook-step-count {
-    display: none;
-  }
-
   .recipe-workspace-cook-mode .recipe-cook-current-step {
     width: 100%;
     height: auto;
@@ -4874,10 +4747,6 @@
     font-weight: 900;
     line-height: 1;
     pointer-events: none;
-  }
-
-  .recipe-workspace-cook-mode .recipe-cook-step-board {
-    display: block;
   }
 
   .recipe-workspace-cook-mode .recipe-cook-current-step-copy {
@@ -4971,11 +4840,6 @@
     border-color: rgba(226, 205, 189, 0.45);
     border-radius: 18px;
     background: rgba(255, 255, 255, 0.82);
-  }
-
-  .recipe-workspace-cook-mode .recipe-cook-step-overview-head {
-    color: #7a665b;
-    font-size: 0.98rem;
   }
 
   .recipe-workspace-cook-mode .recipe-cook-step-overview-list {
@@ -5101,10 +4965,6 @@
 
   .recipe-workspace-cook-mode .recipe-cook-ai-head {
     grid-template-columns: 32px minmax(0, 1fr) auto;
-  }
-
-  .recipe-workspace-cook-mode .recipe-cook-ai-drag-handle {
-    display: none;
   }
 
   .recipe-workspace-cook-mode .recipe-cook-ai-messages {
@@ -5261,19 +5121,6 @@
     color: var(--accent-strong, #B35122);
   }
 
-  .recipe-workspace-cook-mode .recipe-cook-timer-dial {
-    --timer-dot-offset: -92px;
-    width: min(190px, 72vw);
-  }
-
-  .recipe-workspace-cook-mode .recipe-cook-timer-dial strong {
-    font-size: 2.75rem;
-  }
-
-  .recipe-workspace-cook-mode .recipe-cook-timer-dial span {
-    font-size: 0.9rem;
-  }
-
   .recipe-workspace-cook-mode .recipe-cook-timer-actions {
     display: grid;
     grid-template-columns: minmax(0, 1fr) minmax(0, 1.18fr);
@@ -5323,12 +5170,6 @@
 
   .recipe-workspace-cook-mode .recipe-cook-tab-btn:last-child {
     display: none;
-  }
-
-  .recipe-workspace-cook-mode .recipe-cook-panel-head span {
-    color: #7b6a5f;
-    font-size: 1.08rem;
-    font-weight: 920;
   }
 
   .recipe-workspace-cook-mode .recipe-cook-ingredient-checklist {
@@ -6666,20 +6507,6 @@
     will-change: transform;
   }
 
-  .mobile-bottom-nav-frame {
-    position: absolute;
-    inset: -26px 0 0;
-    z-index: 0;
-    width: 100%;
-    height: calc(100% + 26px);
-    overflow: visible;
-    fill: var(--mobile-nav-surface);
-    stroke: var(--mobile-nav-border);
-    stroke-width: 1.7px;
-    vector-effect: non-scaling-stroke;
-    pointer-events: none;
-  }
-
   .mobile-bottom-nav::after {
     content: none;
   }
@@ -6788,19 +6615,6 @@
 @media (min-width: 560px) and (max-width: 767px) {
   .recipe-workspace.recipe-workspace-cook-mode {
     max-width: 720px;
-  }
-
-  .recipe-workspace-cook-mode .recipe-cook-hero-panel {
-    grid-template-columns: minmax(0, 1fr) minmax(280px, 0.72fr);
-    align-items: end;
-  }
-
-  .recipe-workspace-cook-mode .recipe-cook-progress-card {
-    align-self: end;
-  }
-
-  .recipe-workspace-cook-mode .recipe-cook-step-board {
-    grid-template-columns: minmax(0, 1fr) minmax(240px, 0.72fr);
   }
 
   .recipe-workspace-cook-mode .recipe-cook-side-panel {
@@ -7330,7 +7144,6 @@
 
   .workspace-overlay-root .destroy-expired-modal :is(
     .destroy-expired-summary-metric,
-    .destroy-expired-item,
     .destroy-expired-row,
     .ingredients-restock-identity-card
   ) {

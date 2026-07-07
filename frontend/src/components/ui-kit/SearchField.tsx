@@ -15,9 +15,6 @@ export type SearchFieldProps = {
   autoFocus?: boolean;
   leadingIcon?: ReactNode;
   leadingIconClassName?: string;
-  loadingClassName?: string;
-  clearClassName?: string;
-  clearIcon?: ReactNode;
   onCompositionStart?: (event: CompositionEvent<HTMLInputElement>) => void;
   onCompositionEnd?: (event: CompositionEvent<HTMLInputElement>) => void;
   onKeyDown?: (event: KeyboardEvent<HTMLInputElement>) => void;
@@ -51,9 +48,6 @@ export function SearchField({
   autoFocus = false,
   leadingIcon,
   leadingIconClassName,
-  loadingClassName,
-  clearClassName,
-  clearIcon = '×',
   onCompositionStart,
   onCompositionEnd,
   onKeyDown,
@@ -79,10 +73,10 @@ export function SearchField({
         onKeyDown={onKeyDown}
         onFocus={onFocus}
       />
-      <SearchLoadingIndicator active={loading} className={['ui-search-field-loading', loadingClassName].filter(Boolean).join(' ')} />
+      <SearchLoadingIndicator active={loading} className="ui-search-field-loading" />
       {value ? (
-        <button type="button" className={['ui-search-field-clear', clearClassName].filter(Boolean).join(' ')} aria-label="清空搜索" onClick={onClear ?? (() => onChange(''))} disabled={disabled}>
-          {clearIcon}
+        <button type="button" className="ui-search-field-clear" aria-label="清空搜索" onClick={onClear ?? (() => onChange(''))} disabled={disabled}>
+          ×
         </button>
       ) : null}
     </div>

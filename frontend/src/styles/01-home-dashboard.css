@@ -10,11 +10,26 @@
   box-shadow: 0 12px 34px rgba(76, 56, 42, 0.055);
 }
 
+.dashboard-page .page-header {
+  position: relative;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: start;
+  padding-right: 220px;
+}
+
+.dashboard-page .page-header-side {
+  position: absolute;
+  top: 24px;
+  right: 24px;
+  align-self: start;
+  padding-top: 0;
+}
+
 .dashboard-hero-actions {
   display: flex;
   align-items: center;
   gap: 14px;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   justify-content: flex-end;
 }
 
@@ -204,6 +219,7 @@
   border: 1px solid var(--line-soft);
   border-radius: 14px;
   background: rgba(255, 255, 255, 0.92);
+  cursor: pointer;
   transition: transform 0.22s cubic-bezier(0.16, 1, 0.3, 1),
               box-shadow 0.22s cubic-bezier(0.16, 1, 0.3, 1),
               border-color 0.22s cubic-bezier(0.16, 1, 0.3, 1);
@@ -213,6 +229,12 @@
   transform: translateY(-2px);
   border-color: rgba(210, 107, 51, 0.24);
   box-shadow: 0 12px 28px rgba(74, 54, 40, 0.08);
+}
+
+.dashboard-food-card:focus-visible {
+  outline: 3px solid rgba(210, 107, 51, 0.24);
+  outline-offset: 3px;
+  border-color: rgba(210, 107, 51, 0.38);
 }
 
 .dashboard-food-cover {
@@ -257,13 +279,6 @@
   font-size: 0.94rem;
 }
 
-.dashboard-badge-row,
-.dashboard-food-actions {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
 .dashboard-badge-row {
   min-width: 0;
   overflow-x: auto;
@@ -278,7 +293,7 @@
 
 .dashboard-food-actions {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 30px 30px;
+  grid-template-columns: minmax(0, 1fr) 30px;
   align-items: center;
   gap: 6px;
   width: 100%;
@@ -555,22 +570,6 @@
 .dashboard-done-badge {
   color: #5ca25d;
   background: #e8f5e4;
-}
-
-.dashboard-todo-modal .ui-form-actions-row .solid-button,
-.dashboard-todo-modal .ui-form-actions-row .ghost-button {
-  min-height: var(--tap-large);
-  min-width: 116px;
-  border-radius: 12px;
-  font-size: var(--text-body);
-}
-
-.dashboard-todo-actions .ui-form-actions-row {
-  justify-content: flex-end;
-}
-
-.dashboard-todo-actions .ui-form-actions-spacer {
-  display: none;
 }
 
 .dashboard-todo-actions .solid-button,
@@ -1613,6 +1612,10 @@
 }
 
 @media (min-width: 901px) and (max-width: 1280px) {
+  .dashboard-lower-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .dashboard-lower-left,
   .dashboard-lower-right {
     display: contents;
@@ -1673,6 +1676,32 @@
     overflow-x: hidden;
   }
 
+  .dashboard-expiry-item {
+    grid-template-columns: 48px minmax(0, 1fr) auto auto;
+    gap: 8px;
+    min-height: 52px;
+    padding-right: 8px;
+  }
+
+  .dashboard-ingredient-thumb {
+    width: 48px;
+  }
+
+  .dashboard-expiry-badge {
+    padding: 3px 6px;
+    border-radius: 7px;
+    font-size: 0.68rem;
+    line-height: 1.15;
+  }
+
+  .dashboard-expiry-item .solid-button {
+    min-height: 28px;
+    height: 28px;
+    padding: 0 10px;
+    border-radius: 8px;
+    font-size: 0.76rem;
+  }
+
   .dashboard-todo-list {
     grid-template-columns: 1fr;
     max-height: 132px;
@@ -1726,21 +1755,13 @@
   }
 }
 
-/* Unified Food Card Placeholders (Desktop/iPad/Mobile) */
-.dashboard-food-cover .media-placeholder,
-.mobile-ingredient-priority-cover .media-placeholder,
-.mobile-ingredient-library-cover .media-placeholder {
+/* Unified Food Card Placeholders */
+.dashboard-food-cover .media-placeholder {
   gap: 0;
 }
 
 .dashboard-food-cover .media-placeholder-label,
 .dashboard-food-cover .media-placeholder-glow,
-.dashboard-food-cover .media-placeholder-spark,
-.mobile-ingredient-priority-cover .media-placeholder-label,
-.mobile-ingredient-priority-cover .media-placeholder-glow,
-.mobile-ingredient-priority-cover .media-placeholder-spark,
-.mobile-ingredient-library-cover .media-placeholder-label,
-.mobile-ingredient-library-cover .media-placeholder-glow,
-.mobile-ingredient-library-cover .media-placeholder-spark {
+.dashboard-food-cover .media-placeholder-spark {
   display: none !important;
 }

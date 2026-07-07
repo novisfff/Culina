@@ -66,6 +66,35 @@ type AiWorkspaceProps = {
   isCreatingFoodPlanItem?: boolean;
 };
 export { ApprovalPanel } from './AiConversationThread';
+const AI_TABLET_SIDEBAR_COLLAPSE_MAX_WIDTH = 1280;
+
+function isTabletAiWorkspaceViewport() {
+  return typeof window !== 'undefined' && window.innerWidth <= AI_TABLET_SIDEBAR_COLLAPSE_MAX_WIDTH;
+}
+
+function readStoredAiSidebarCollapsed() {
+  try {
+    return localStorage.getItem('ai_sidebar_collapsed');
+  } catch {
+    return null;
+  }
+}
+
+function resolveInitialAiSidebarCollapsed() {
+  if (isTabletAiWorkspaceViewport()) return true;
+  const stored = readStoredAiSidebarCollapsed();
+  return stored === 'true';
+}
+
+function storeAiSidebarCollapsedPreference(collapsed: boolean) {
+  if (isTabletAiWorkspaceViewport()) return;
+  try {
+    localStorage.setItem('ai_sidebar_collapsed', String(collapsed));
+  } catch (e) {
+    console.warn(e);
+  }
+}
+
 function getLocalPendingRunId(conversationKey: string, messages: AiMessage[]) {
   return messages.find((message) => message.role === 'assistant' && message.run_id)?.run_id
     ?? conversationKey.replace(/^pending-conversation-/, '');
@@ -166,24 +195,10 @@ export function AiWorkspace({
     },
     setFeedback: setPlanFeedback,
   });
-  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(() => {
-    try {
-      const stored = localStorage.getItem('ai_sidebar_collapsed');
-      if (stored !== null) {
-        return stored === 'true';
-      }
-      return typeof window !== 'undefined' ? window.innerWidth <= 1280 : false;
-    } catch {
-      return typeof window !== 'undefined' ? window.innerWidth <= 1280 : false;
-    }
-  });
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(resolveInitialAiSidebarCollapsed);
   const toggleSidebar = (collapsed: boolean) => {
     setIsSidebarCollapsed(collapsed);
-    try {
-      localStorage.setItem('ai_sidebar_collapsed', String(collapsed));
-    } catch (e) {
-      console.warn(e);
-    }
+    storeAiSidebarCollapsedPreference(collapsed);
   };
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);

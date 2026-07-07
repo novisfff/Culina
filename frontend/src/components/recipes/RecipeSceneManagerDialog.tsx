@@ -2,7 +2,7 @@ import type { FormEvent } from 'react';
 import { resolveAssetUrl } from '../../lib/assets';
 import type { ImageGenerationUiState } from '../../hooks/useImageComposer';
 import { MediaWithPlaceholder } from '../MediaPlaceholder';
-import { ActionButton, FormActions, WorkspaceModal } from '../ui-kit';
+import { ActionButton, FormActions, WorkspaceModal, WorkspaceOverlayFrame } from '../ui-kit';
 import { RecipeUiIcon } from './RecipeWorkspaceCards';
 import type { ManagedRecipeScene, RecipeSceneCard, RecipeSceneFormMode } from './RecipeWorkspaceModel';
 
@@ -28,8 +28,7 @@ type RecipeSceneManagerDialogProps = {
 
 export function RecipeSceneManagerDialog(props: RecipeSceneManagerDialogProps) {
   return (
-    <div className="workspace-overlay-root">
-      <div className="workspace-overlay-backdrop" onClick={props.onClose} />
+    <WorkspaceOverlayFrame onClose={props.onClose}>
       <WorkspaceModal
         title="场景管理"
         description="场景管理已迁移到食物页。"
@@ -166,6 +165,6 @@ export function RecipeSceneManagerDialog(props: RecipeSceneManagerDialogProps) {
           </div>
         </div>
       </WorkspaceModal>
-    </div>
+    </WorkspaceOverlayFrame>
   );
 }

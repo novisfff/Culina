@@ -2,7 +2,7 @@ import { useEffect, useState, type FormEvent } from 'react';
 import type { AiTodayRecommendationItem, CreateFoodPlanItemPayload, MealType } from '../../api/types';
 import { todayKey } from '../../lib/date';
 import { MEAL_TYPE_LABELS } from '../../lib/ui';
-import { FormActions, WorkspaceModal } from '../ui-kit';
+import { FormActions, WorkspaceModal, WorkspaceOverlayFrame } from '../ui-kit';
 import { ResultImage } from './AiResultCards';
 
 export type AiRecommendationPlanRequest = {
@@ -40,6 +40,11 @@ export function AiRecommendationPlanDialog({ request, isSubmitting, onClose, onS
   if (!request) return null;
   const activeRequest = request;
   const planFormId = 'ai-recommendation-plan-form';
+  const closeIfAllowed = () => {
+    if (!isSubmitting) {
+      onClose();
+    }
+  };
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -62,14 +67,17 @@ export function AiRecommendationPlanDialog({ request, isSubmitting, onClose, onS
   }
 
   return (
-    <div className="workspace-overlay-root ai-recommendation-plan-root">
-      <div className="workspace-overlay-backdrop" onClick={isSubmitting ? undefined : onClose} />
+    <WorkspaceOverlayFrame
+      rootClassName="ai-recommendation-plan-root"
+      closeOnBackdrop={!isSubmitting}
+      onClose={closeIfAllowed}
+    >
       <WorkspaceModal
         title="加入菜单计划"
         description="日期和餐次已按你的提问预填，确认后写入家庭菜单。"
         eyebrow="AI 推荐"
         className="ai-recommendation-plan-modal"
-        onClose={onClose}
+        onClose={closeIfAllowed}
         footerActions={
           <FormActions
             primaryLabel="加入菜单计划"
@@ -78,7 +86,7 @@ export function AiRecommendationPlanDialog({ request, isSubmitting, onClose, onS
             primaryDisabled={!activeRequest.recommendation.foodId}
             isSubmitting={isSubmitting}
             secondaryLabel="取消"
-            onSecondary={onClose}
+            onSecondary={closeIfAllowed}
           />
         }
       >
@@ -129,6 +137,6 @@ export function AiRecommendationPlanDialog({ request, isSubmitting, onClose, onS
           {error && <p className="form-error" role="alert">{error}</p>}
         </form>
       </WorkspaceModal>
-    </div>
+    </WorkspaceOverlayFrame>
   );
 }

@@ -1173,7 +1173,6 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
           />
           <DropdownSelect
             ariaLabel="难度"
-            labelPrefix="难度"
             placeholder="难度"
             value={difficultyFilter}
             options={[
@@ -1183,17 +1182,16 @@ export function RecipeWorkspace(props: RecipeWorkspaceProps) {
               { value: 'hard', label: '复杂' },
             ]}
             className="recipe-filter-dropdown"
-            leadingIcon={<span className="recipe-filter-dropdown-icon"><RecipeUiIcon name="signal" /></span>}
+            leadingIcon={<span><RecipeUiIcon name="difficulty" /></span>}
             onChange={(val) => setDifficultyFilter(val as 'all' | Difficulty)}
           />
           <DropdownSelect
             ariaLabel="排序"
-            labelPrefix="排序"
             placeholder="排序"
             value={sortMode}
             options={SORT_OPTIONS}
             className="recipe-filter-dropdown"
-            leadingIcon={<span className="recipe-filter-dropdown-icon"><RecipeUiIcon name="clock" /></span>}
+            leadingIcon={<span><RecipeUiIcon name="sort" /></span>}
             onChange={(val) => setSortMode(val as RecipeSortMode)}
           />
         </div>

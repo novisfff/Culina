@@ -1,4 +1,4 @@
-import { FormActions, WorkspaceModal } from '../ui-kit';
+import { FormActions, WorkspaceModal, WorkspaceOverlayFrame } from '../ui-kit';
 import { RecipeUiIcon } from './RecipeWorkspaceCards';
 import {
   getRecipeDraftGenerationStepState,
@@ -23,8 +23,7 @@ type RecipeDraftDialogProps = {
 
 export function RecipeDraftDialog(props: RecipeDraftDialogProps) {
   return (
-    <div className="workspace-overlay-root">
-      <div className="workspace-overlay-backdrop" onClick={props.onClose} />
+    <WorkspaceOverlayFrame onClose={props.onClose}>
       <WorkspaceModal
         title="AI 补全菜谱"
         description="AI 会基于当前编辑表单里的信息生成完整菜谱，确认后覆盖左侧表单内容。"
@@ -95,6 +94,6 @@ export function RecipeDraftDialog(props: RecipeDraftDialogProps) {
 
         </div>
       </WorkspaceModal>
-    </div>
+    </WorkspaceOverlayFrame>
   );
 }

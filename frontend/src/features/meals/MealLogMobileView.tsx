@@ -2,7 +2,7 @@ import type { ReactNode } from 'react';
 import type { MealLog } from '../../api/types';
 import { StateBlock, StatusBadge } from '../../components/ui-kit';
 import { FoodUiIcon } from '../../components/foods/FoodWorkspacePrimitives';
-import { formatDate, MEAL_TYPE_LABELS } from '../../lib/ui';
+import { MEAL_TYPE_LABELS } from '../../lib/ui';
 import type { MealSource } from './MealLogEnrichment';
 import { MealLogIcon } from './MealLogIcons';
 import {
@@ -12,6 +12,7 @@ import {
   formatDateGroupLabel,
   formatMealTime,
   getMealIconName,
+  getMealLogStatus,
   getMealLogStatusLabel,
   getMealTone,
   type MealLogMealFilter,
@@ -119,12 +120,14 @@ export function MealLogMobileView(props: Props) {
             <section key={group.date} className="mobile-log-day-group">
               <div className="mobile-log-day-title">
                 <span />
-                <strong>{group.date === new Date().toISOString().slice(0, 10) ? `今天 · ${formatDate(group.date)}` : formatDateGroupLabel(group.date)}</strong>
+                <strong>{formatDateGroupLabel(group.date)}</strong>
               </div>
               <div className="mobile-log-day-card">
                 {group.meals.map((meal) => {
                   const source = props.mealSources.get(meal.id);
-                  const isEnriched = getMealLogStatusLabel(meal) === '已补充';
+                  const mealStatus = getMealLogStatus(meal);
+                  const mealStatusLabel = getMealLogStatusLabel(meal);
+                  const isEnriched = mealStatus === 'done';
                   return (
                     <button
                       key={meal.id}
@@ -152,7 +155,7 @@ export function MealLogMobileView(props: Props) {
                         </small>
                       </span>
                       <StatusBadge tone={isEnriched ? 'success' : 'warning'} size="compact" className={isEnriched ? 'mobile-log-status done' : 'mobile-log-status pending'}>
-                        {getMealLogStatusLabel(meal)}
+                        {mealStatusLabel}
                       </StatusBadge>
                     </button>
                   );

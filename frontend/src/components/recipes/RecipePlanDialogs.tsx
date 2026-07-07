@@ -1,7 +1,7 @@
 import type { FormEvent } from 'react';
 import type { MealType, RecipePlanItem } from '../../api/types';
 import { formatDate, MEAL_TYPE_LABELS } from '../../lib/ui';
-import { ActionButton, Badge, DropdownSelect, FormActions, SearchableResourceSelect, WorkspaceModal } from '../ui-kit';
+import { ActionButton, Badge, DropdownSelect, FormActions, SearchableResourceSelect, WorkspaceModal, WorkspaceOverlayFrame } from '../ui-kit';
 import { DIFFICULTY_LABELS, type RecipeCardViewModel } from './workspaceModel';
 import { MEAL_TYPE_OPTIONS } from './RecipeWorkspaceOptions';
 import { RecipeCover, RecipeUiIcon } from './RecipeWorkspaceCards';
@@ -44,8 +44,7 @@ export function RecipePlanDialog(props: RecipePlanDialogProps) {
   const recipePlanFormId = 'recipe-plan-dialog-form';
 
   return (
-    <div className="workspace-overlay-root">
-      <div className="workspace-overlay-backdrop" onClick={props.onClose} />
+    <WorkspaceOverlayFrame onClose={props.onClose}>
       <WorkspaceModal
         title={props.card ? `加菜：${props.card.recipe.title}` : '加菜到菜单'}
         description="选择日期和餐次后加入当前周菜单。"
@@ -155,7 +154,7 @@ export function RecipePlanDialog(props: RecipePlanDialogProps) {
           </label>
         </form>
       </WorkspaceModal>
-    </div>
+    </WorkspaceOverlayFrame>
   );
 }
 
@@ -178,8 +177,7 @@ export function RecipePlanDetailDialog(props: RecipePlanDetailDialogProps) {
   const recipePlanDetailFormId = 'recipe-plan-detail-dialog-form';
 
   return (
-    <div className="workspace-overlay-root">
-      <div className="workspace-overlay-backdrop" onClick={props.onClose} />
+    <WorkspaceOverlayFrame onClose={props.onClose}>
       <WorkspaceModal
         title={props.item.recipe_title}
         description={`${formatDate(props.item.plan_date)} · ${MEAL_TYPE_LABELS[props.item.meal_type]}${isCooked ? ' · 已完成' : ''}`}
@@ -271,6 +269,6 @@ export function RecipePlanDetailDialog(props: RecipePlanDetailDialogProps) {
 
         </form>
       </WorkspaceModal>
-    </div>
+    </WorkspaceOverlayFrame>
   );
 }

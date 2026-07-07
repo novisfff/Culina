@@ -121,22 +121,24 @@ const llmExchanges: AiRunLLMExchangeResponse = {
   ],
 };
 
-async function renderDrawer() {
+async function renderDrawer(props: { onClose?: () => void } = {}) {
   const container = document.createElement('div');
   document.body.appendChild(container);
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+  const onClose = props.onClose ?? vi.fn();
   let root: Root | null = null;
   await act(async () => {
     root = createRoot(container);
     root.render(
       <QueryClientProvider client={queryClient}>
-        <AiRunDebugDrawer runId="run-debug-1" open onClose={vi.fn()} />
+        <AiRunDebugDrawer runId="run-debug-1" open onClose={onClose} />
       </QueryClientProvider>,
     );
   });
   await flushQueries();
   return {
     container,
+    onClose,
     unmount: () => {
       act(() => {
         root?.unmount();
@@ -213,6 +215,25 @@ describe('AiRunDebugDrawer', () => {
     expect(detailSpy).toHaveBeenCalledWith('run-debug-1', 'exchange-1');
     expect(rendered.container.textContent).toContain('番茄还有吗');
 
+    rendered.unmount();
+  });
+
+  it('uses the shared workspace overlay frame and closes from overlay controls', async () => {
+    vi.spyOn(api, 'getAiRunTraceTree').mockResolvedValue(traceTree);
+    vi.spyOn(api, 'getAiRunLlmExchanges').mockResolvedValue(llmExchanges);
+    const onClose = vi.fn();
+
+    const rendered = await renderDrawer({ onClose });
+
+    expect(rendered.container.querySelector('.workspace-overlay-root.ai-debug-drawer-root')).not.toBeNull();
+    await act(async () => {
+      rendered.container.querySelector<HTMLDivElement>('.workspace-overlay-backdrop')?.click();
+    });
+    await act(async () => {
+      rendered.container.querySelector<HTMLButtonElement>('.workspace-overlay-close')?.click();
+    });
+
+    expect(onClose).toHaveBeenCalledTimes(2);
     rendered.unmount();
   });
 });

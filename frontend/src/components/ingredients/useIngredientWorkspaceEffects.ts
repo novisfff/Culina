@@ -3,8 +3,6 @@ import type { Dispatch, RefObject, SetStateAction } from 'react';
 import type { Ingredient } from '../../api/types';
 import { defaultIngredientForm, type IngredientCreateFormState } from './ingredientWorkspaceForms';
 import type { IngredientSummaryViewModel, IngredientWorkspaceView } from './workspaceModel';
-import type { CatalogStatusFilter } from './useIngredientWorkspaceState';
-
 type UseIngredientWorkspaceEffectsArgs = {
   ingredients: Ingredient[];
   transientIngredient: Ingredient | null;

@@ -1,5 +1,5 @@
 import type { AiQualityMetrics } from '../../api/types';
-import { WorkspaceModal } from '../ui-kit';
+import { WorkspaceModal, WorkspaceOverlayFrame } from '../ui-kit';
 import { AiQualityDiagnosticsCard } from './AiQualityDiagnosticsCard';
 
 type AiQualityDiagnosticsModalProps = {
@@ -18,8 +18,7 @@ export function AiQualityDiagnosticsModal({
   onClose,
 }: AiQualityDiagnosticsModalProps) {
   return (
-    <div className="workspace-overlay-root ai-quality-modal-root">
-      <div className="workspace-overlay-backdrop" onClick={onClose} />
+    <WorkspaceOverlayFrame rootClassName="ai-quality-modal-root" onClose={onClose}>
       <WorkspaceModal
         title="AI 质量诊断"
         eyebrow="最近运行"
@@ -36,6 +35,6 @@ export function AiQualityDiagnosticsModal({
           onRetry={onRetry}
         />
       </WorkspaceModal>
-    </div>
+    </WorkspaceOverlayFrame>
   );
 }

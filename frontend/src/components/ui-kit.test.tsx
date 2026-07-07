@@ -109,10 +109,12 @@ describe('WorkspaceOverlayShell', () => {
   });
 
   it('keeps mobile drawer footer actions hierarchical and compact', () => {
+    const foundationStyles = readFileSync(resolve(repoRoot, 'styles/00-foundation.css'), 'utf8');
     const uiKitStyles = readFileSync(resolve(repoRoot, 'styles/00-ui-kit.css'), 'utf8');
     const mobileStyles = readFileSync(resolve(repoRoot, 'styles/07-mobile.css'), 'utf8');
     const foodStyles = readFileSync(resolve(repoRoot, 'styles/06-food-workspace.css'), 'utf8');
 
+    expect(foundationStyles).not.toContain('.ui-form-actions-row');
     expect(uiKitStyles).toContain('grid-template-columns: repeat(6, minmax(0, 1fr));');
     expect(uiKitStyles).toContain('.workspace-modal > .workspace-overlay-footer > .workspace-overlay-footer-actions:has(.ui-form-actions[data-primary-placement="before-extra"])');
     expect(uiKitStyles).toContain('@media (max-width: 900px)');

@@ -1,7 +1,7 @@
 import type { FormEvent } from 'react';
 import { buildMediaSizes, buildMediaSrcSet, resolveMediaUrl } from '../../lib/assets';
 import { MediaWithPlaceholder } from '../MediaPlaceholder';
-import { ActionButton, FormActions, WorkspaceModal } from '../ui-kit';
+import { ActionButton, FormActions, WorkspaceModal, WorkspaceOverlayFrame } from '../ui-kit';
 import { FoodUiIcon } from './FoodWorkspacePrimitives';
 import type { FoodSceneCardView, FoodSceneFormMode, ManagedFoodScene } from './useFoodSceneState';
 
@@ -28,17 +28,33 @@ type FoodSceneDialogsProps = {
 
 export function FoodSceneDialogs(props: FoodSceneDialogsProps) {
   const sceneFormId = 'food-scene-form-modal-form';
+  const isUpdatingScene = Boolean(props.isUpdatingScene);
+
+  function closeManagerIfAllowed() {
+    if (!isUpdatingScene) {
+      props.onCloseManager();
+    }
+  }
+
+  function closeSceneFormIfAllowed() {
+    if (!isUpdatingScene) {
+      props.onCloseSceneForm();
+    }
+  }
 
   return (
     <>
       {props.isSceneManagerOpen && !props.sceneFormMode && (
-        <div className="workspace-overlay-root food-workspace-overlay-root">
-          <div className="workspace-overlay-backdrop" onClick={props.onCloseManager} />
+        <WorkspaceOverlayFrame
+          rootClassName="food-workspace-overlay-root"
+          onClose={closeManagerIfAllowed}
+          closeOnBackdrop={!isUpdatingScene}
+        >
           <WorkspaceModal
             title="场景管理"
             description="新增常用食物场景，或整理不再使用的场景入口。"
             eyebrow="食物场景"
-            onClose={props.onCloseManager}
+            onClose={closeManagerIfAllowed}
             className="food-scene-manager-modal"
           >
             <div className="food-scene-manager">
@@ -47,7 +63,7 @@ export function FoodSceneDialogs(props: FoodSceneDialogsProps) {
                   <strong>{props.sceneCards.length} 个场景</strong>
                   <span>整理食物库里的场景入口和封面。</span>
                 </div>
-                <ActionButton tone="primary" type="button" onClick={props.onOpenCreateScene}>
+                <ActionButton tone="primary" type="button" onClick={props.onOpenCreateScene} disabled={isUpdatingScene}>
                   <FoodUiIcon name="plus" />
                   <span>新建场景</span>
                 </ActionButton>
@@ -57,33 +73,33 @@ export function FoodSceneDialogs(props: FoodSceneDialogsProps) {
                   props.sceneCards.map((scene) => {
                     const imageUrl = resolveMediaUrl(scene.imageAsset, 'thumb') ?? (scene.imageUrl ? props.resolveFoodAssetUrl(scene.imageUrl) : undefined);
                     return (
-                    <article key={scene.name} className="food-scene-row">
-                      <div className="food-scene-row-thumb">
-                        <MediaWithPlaceholder
-                          src={imageUrl}
-                          srcSet={buildMediaSrcSet(scene.imageAsset)}
-                          sizes={buildMediaSizes('thumb')}
-                          alt=""
-                        />
-                      </div>
-                      <div className="food-scene-row-copy">
-                        <div className="food-scene-row-titleline">
-                          <strong>{scene.name}</strong>
-                          <span>{scene.id ? '自定义' : '推荐'}</span>
+                      <article key={scene.name} className="food-scene-row">
+                        <div className="food-scene-row-thumb">
+                          <MediaWithPlaceholder
+                            src={imageUrl}
+                            srcSet={buildMediaSrcSet(scene.imageAsset)}
+                            sizes={buildMediaSizes('thumb')}
+                            alt=""
+                          />
                         </div>
-                        {scene.description && <p>{scene.description}</p>}
-                      </div>
-                      <div className="food-scene-row-actions">
-                        <button type="button" onClick={() => props.onOpenEditScene(scene)}>
-                          {scene.id ? '编辑' : '创建'}
-                        </button>
-                        {scene.id && (
-                          <button type="button" disabled={props.isUpdatingScene} onClick={() => props.onDeleteScene(scene.id!)}>
-                            删除
+                        <div className="food-scene-row-copy">
+                          <div className="food-scene-row-titleline">
+                            <strong>{scene.name}</strong>
+                            <span>{scene.id ? '自定义' : '推荐'}</span>
+                          </div>
+                          {scene.description && <p>{scene.description}</p>}
+                        </div>
+                        <div className="food-scene-row-actions">
+                          <button type="button" disabled={isUpdatingScene} onClick={() => props.onOpenEditScene(scene)}>
+                            {scene.id ? '编辑' : '创建'}
                           </button>
-                        )}
-                      </div>
-                    </article>
+                          {scene.id && (
+                            <button type="button" disabled={isUpdatingScene} onClick={() => props.onDeleteScene(scene.id!)}>
+                              删除
+                            </button>
+                          )}
+                        </div>
+                      </article>
                     );
                   })
                 ) : (
@@ -92,17 +108,20 @@ export function FoodSceneDialogs(props: FoodSceneDialogsProps) {
               </div>
             </div>
           </WorkspaceModal>
-        </div>
+        </WorkspaceOverlayFrame>
       )}
 
       {props.sceneFormMode && (
-        <div className="workspace-overlay-root food-workspace-overlay-root">
-          <div className="workspace-overlay-backdrop" onClick={props.onCloseSceneForm} />
+        <WorkspaceOverlayFrame
+          rootClassName="food-workspace-overlay-root"
+          onClose={closeSceneFormIfAllowed}
+          closeOnBackdrop={!isUpdatingScene}
+        >
           <WorkspaceModal
             title={props.sceneFormMode === 'edit' ? '编辑场景' : '新建场景'}
             description="填写名称和说明后，可生成一张统一风格的食物场景封面。"
             eyebrow="食物场景"
-            onClose={props.onCloseSceneForm}
+            onClose={closeSceneFormIfAllowed}
             className="food-scene-form-modal"
             footerActions={
               <FormActions
@@ -111,9 +130,9 @@ export function FoodSceneDialogs(props: FoodSceneDialogsProps) {
                 primaryType="submit"
                 primaryForm={sceneFormId}
                 primaryDisabled={!props.sceneDraft.name.trim()}
-                isSubmitting={Boolean(props.isUpdatingScene)}
+                isSubmitting={isUpdatingScene}
                 secondaryLabel="取消"
-                onSecondary={props.onCloseSceneForm}
+                onSecondary={closeSceneFormIfAllowed}
               />
             }
           >
@@ -125,6 +144,7 @@ export function FoodSceneDialogs(props: FoodSceneDialogsProps) {
                     className="text-input"
                     value={props.sceneDraft.name}
                     placeholder="场景名称，例如：加班晚餐"
+                    disabled={isUpdatingScene}
                     onChange={(event) => props.onSceneDraftChange({ ...props.sceneDraft, name: event.target.value })}
                   />
                 </label>
@@ -134,6 +154,7 @@ export function FoodSceneDialogs(props: FoodSceneDialogsProps) {
                     className="text-input"
                     value={props.sceneDraft.description}
                     placeholder="说明，例如：快手、省心、适合工作日"
+                    disabled={isUpdatingScene}
                     onChange={(event) => props.onSceneDraftChange({ ...props.sceneDraft, description: event.target.value })}
                   />
                 </label>
@@ -143,6 +164,7 @@ export function FoodSceneDialogs(props: FoodSceneDialogsProps) {
                     className="text-input"
                     value={props.sceneDraft.imagePrompt}
                     placeholder="图片描述，例如：一桌轻食晚餐"
+                    disabled={isUpdatingScene}
                     onChange={(event) => props.onSceneDraftChange({ ...props.sceneDraft, imagePrompt: event.target.value })}
                   />
                 </label>
@@ -160,7 +182,7 @@ export function FoodSceneDialogs(props: FoodSceneDialogsProps) {
                   <div className="food-scene-cover-actions">
                     <button
                       type="button"
-                      disabled={props.sceneImageState.isGenerating || !props.sceneDraft.name.trim()}
+                      disabled={isUpdatingScene || props.sceneImageState.isGenerating || !props.sceneDraft.name.trim()}
                       onClick={props.onGenerateSceneImage}
                     >
                       <FoodUiIcon name="star" />
@@ -170,6 +192,7 @@ export function FoodSceneDialogs(props: FoodSceneDialogsProps) {
                       <button
                         className="danger"
                         type="button"
+                        disabled={isUpdatingScene}
                         onClick={() => props.onSceneDraftChange({ ...props.sceneDraft, imageAssetId: undefined, imageAssetUrl: undefined })}
                       >
                         移除
@@ -182,7 +205,7 @@ export function FoodSceneDialogs(props: FoodSceneDialogsProps) {
               </div>
             </form>
           </WorkspaceModal>
-        </div>
+        </WorkspaceOverlayFrame>
       )}
     </>
   );

@@ -3,23 +3,41 @@ import type {
   Food,
   FoodPlanItem,
   Ingredient,
-  InventoryStatus,
   MealLog,
   Member,
   Recipe,
   ShoppingListItem,
   UpdateMealLogPayload,
 } from '../../api/types';
-import { DashboardIcon } from '../../app/shellIcons';
 import { MediaWithPlaceholder } from '../../components/MediaPlaceholder';
 import { FoodPlanDetailModal, type FoodPlanDetailFormState } from '../../components/foods/FoodPlanDetailModal';
+import {
+  FoodPlanDateMealNoteFields,
+  FoodPlanFoodPicker,
+  FoodPlanSelectedHero,
+} from '../../components/foods/FoodPlanDialogParts';
+import { DestroyExpiredInventoryDialog } from '../../components/ingredients/IngredientDestroyExpiredOverlay';
+import {
+  IngredientRestockAdvancedSection,
+  IngredientRestockExpirySection,
+  IngredientRestockPurchaseSection,
+  IngredientRestockQuantitySection,
+  IngredientRestockStorageSection,
+  resolvePurchaseDatePatch,
+} from '../../components/ingredients/IngredientRestockSections';
 import type {
   DisposableExpiredInventoryItemViewModel,
   IngredientSummaryViewModel,
 } from '../../components/ingredients/workspaceModel';
-import { Avatar, Badge, DropdownSelect, EmptyState, FormActions, OptionChipGroup, SearchableResourceSelect, WorkspaceModal } from '../../components/ui-kit';
+import {
+  parsePositiveNumber,
+  resolveClampedDaysValue,
+  type InventoryPurchasePreset,
+} from '../../components/ingredients/ingredientWorkspaceForms';
+import { Avatar, Badge, FormActions, SearchableResourceSelect, WorkspaceModal, WorkspaceOverlayFrame } from '../../components/ui-kit';
 import { resolveMediaUrl } from '../../lib/assets';
 import { addDateKeyDays } from '../../lib/date';
+import { convertQuantityToDefaultUnit, getIngredientUnitOptions } from '../../lib/ingredientUnits';
 import { useFoodResourceSearch } from '../../hooks/useFoodResourceSearch';
 import { useIngredientResourceSearch } from '../../hooks/useIngredientResourceSearch';
 import {
@@ -34,7 +52,6 @@ import {
 } from '../../lib/ui';
 import {
   DASHBOARD_PLAN_MEAL_TYPES,
-  getExpiryDaysLeft,
   resolveExpiryDateFromDays,
   resolveInventoryStatusForStorage,
   type DashboardExpiryTodoInventoryItem,
@@ -42,7 +59,8 @@ import {
   type HomeRestockFormState,
 } from './homeDashboardModel';
 import type { HomePlanAddFormState } from './useHomeDashboardState';
-import { MealEnrichmentForm, type MealSource } from '../meals/MealLogEnrichment';
+import { MealEnrichmentModal } from '../meals/MealEnrichmentModal';
+import type { MealSource } from '../meals/MealLogEnrichment';
 
 type Props = {
   recipes: Recipe[];
@@ -113,15 +131,6 @@ export function HomeDashboardDialogs(props: Props) {
   const homeRestockForm = props.homeRestockForm;
   const homePlanAddFormId = 'home-plan-add-overlay-form';
   const homeRestockFormId = 'home-restock-overlay-form';
-  const homeExpiredDisposalFormId = 'home-expired-disposal-overlay-form';
-  const homeMealEnrichmentFormId = 'home-meal-enrichment-overlay-form';
-
-  const statusOptions = useMemo(() => {
-    return Object.entries(INVENTORY_STATUS_LABELS).map(([key, label]) => ({
-      value: key,
-      label: label,
-    }));
-  }, []);
 
   const [showIngredientSelector, setShowIngredientSelector] = useState(false);
   const homeRestockIngredientSearch = useIngredientResourceSearch(homeRestockForm?.ingredientQuery ?? '', {
@@ -132,10 +141,54 @@ export function HomeDashboardDialogs(props: Props) {
     enabled: props.isHomePlanAddDialogOpen && !props.homePlanAddFood,
     fallbackFoods: props.homePlanAddFoodOptions,
   });
+  const homeRestockUnitOptions = useMemo(() => {
+    const currentUnit = homeRestockForm?.unit || props.homeRestockIngredient?.default_unit || '个';
+    const units = props.homeRestockIngredient
+      ? [currentUnit, ...getIngredientUnitOptions(props.homeRestockIngredient).map((option) => option.unit)]
+      : [currentUnit];
+    return units
+      .filter((unit, index, list) => unit && list.indexOf(unit) === index)
+      .map((unit) => ({ value: unit, label: unit }));
+  }, [homeRestockForm?.unit, props.homeRestockIngredient]);
+  const homeRestockSelectedUnit =
+    props.homeRestockIngredient && homeRestockForm
+      ? getIngredientUnitOptions(props.homeRestockIngredient).find((item) => item.unit === homeRestockForm.unit) ??
+        { unit: homeRestockForm.unit || props.homeRestockIngredient.default_unit || '个' }
+      : null;
+  const homeRestockNormalizedQuantity =
+    props.homeRestockIngredient && homeRestockForm
+      ? (() => {
+          const parsedQuantity = parsePositiveNumber(homeRestockForm.quantity);
+          return parsedQuantity !== null
+            ? convertQuantityToDefaultUnit(props.homeRestockIngredient, parsedQuantity, homeRestockForm.unit)
+            : null;
+        })()
+      : null;
+  const homePurchaseDatePreset: InventoryPurchasePreset =
+    homeRestockForm?.purchaseDate === today
+      ? 'today'
+      : homeRestockForm?.purchaseDate === addDateKeyDays(today, -1)
+        ? 'yesterday'
+        : 'custom';
+  const homeRestockExpiryDaysValue = homeRestockForm
+    ? resolveClampedDaysValue(homeRestockForm.expiryDays, props.homeRestockIngredient?.default_expiry_days ?? 3)
+    : 3;
 
   useEffect(() => {
     setShowIngredientSelector(false);
   }, [homeRestockShoppingItem?.id]);
+
+  const closeHomePlanAddDialogIfAllowed = () => {
+    if (!props.isCreatingFoodPlanItem) {
+      props.closeHomePlanAddDialog();
+    }
+  };
+
+  const closeHomeRestockIfAllowed = () => {
+    if (!props.isCreatingInventory) {
+      props.closeHomeRestock();
+    }
+  };
 
   function updateHomeRestockIngredientQuery(query: string) {
     if (!homeRestockForm) return;
@@ -212,13 +265,16 @@ export function HomeDashboardDialogs(props: Props) {
       )}
 
       {props.isHomePlanAddDialogOpen && (
-        <div className="workspace-overlay-root home-dashboard-overlay-root">
-          <div className="workspace-overlay-backdrop" onClick={props.closeHomePlanAddDialog} />
+        <WorkspaceOverlayFrame
+          rootClassName="home-dashboard-overlay-root"
+          onClose={closeHomePlanAddDialogIfAllowed}
+          closeOnBackdrop={!props.isCreatingFoodPlanItem}
+        >
           <WorkspaceModal
             title="加食物到菜单"
             description="选择日期和餐次后加入当前周菜单。"
             eyebrow="菜单计划"
-            onClose={props.closeHomePlanAddDialog}
+            onClose={closeHomePlanAddDialogIfAllowed}
             className="recipe-plan-modal food-plan-modal"
             footerActions={
               <FormActions
@@ -229,179 +285,102 @@ export function HomeDashboardDialogs(props: Props) {
                 primaryDisabled={!props.homePlanAddFood}
                 isSubmitting={props.isCreatingFoodPlanItem}
                 secondaryLabel="取消"
-                onSecondary={props.closeHomePlanAddDialog}
+                onSecondary={closeHomePlanAddDialogIfAllowed}
               />
             }
           >
             <form id={homePlanAddFormId} className="recipe-plan-dialog-form" onSubmit={(event) => void props.submitHomePlanAdd(event)}>
               {props.homePlanAddFood ? (
-                <div className="recipe-plan-dialog-hero">
-                  <div className="recipe-plan-selected-cover">
-                    <MediaWithPlaceholder
-                      src={props.resolveAssetUrl(getFoodCover(props.homePlanAddFood, props.recipes))}
-                      alt={props.homePlanAddFood.name}
-                    />
-                  </div>
-                  <div className="recipe-plan-selected-copy">
-                    <span className="recipe-plan-dialog-kicker">即将加入</span>
-                    <strong>{props.homePlanAddFood.name}</strong>
-                    <div className="recipe-plan-selected-meta">
-                      <span>
-                        <DashboardIcon name="list" />
-                        {FOOD_TYPE_LABELS[props.homePlanAddFood.type]}
-                      </span>
-                      <span>
-                        <DashboardIcon name="calendar" />
-                        {props.homePlanAddFood.source_name || props.homePlanAddFood.purchase_source || props.homePlanAddFood.category || '常吃食物'}
-                      </span>
-                      <span>
-                        <DashboardIcon name={props.homePlanAddFood.recipe_id ? 'pot' : 'receipt'} />
-                        {props.homePlanAddFood.recipe_id ? '有菜谱' : '可直接记录'}
-                      </span>
-                    </div>
-                  </div>
-                  <button className="recipe-plan-change-food" type="button" onClick={() => props.setHomePlanAddFoodId(null)}>
-                    修改
-                  </button>
-                </div>
+                <FoodPlanSelectedHero
+                  food={props.homePlanAddFood}
+                  coverUrl={props.resolveAssetUrl(getFoodCover(props.homePlanAddFood, props.recipes))}
+                  typeLabel={FOOD_TYPE_LABELS[props.homePlanAddFood.type]}
+                  sourceLabel={
+                    props.homePlanAddFood.source_name ||
+                    props.homePlanAddFood.purchase_source ||
+                    props.homePlanAddFood.category ||
+                    '常吃食物'
+                  }
+                  capabilityLabel={props.homePlanAddFood.recipe_id ? '有菜谱' : '可直接记录'}
+                  iconKind={props.homePlanAddFood.recipe_id ? 'bookOpen' : 'clipboard'}
+                  onClear={() => props.setHomePlanAddFoodId(null)}
+                />
               ) : (
-                <div className="recipe-plan-picker">
-                  <label htmlFor="home-food-plan-search">选择食物</label>
-                  <SearchableResourceSelect
-                    searchInputId="home-food-plan-search"
-                    ariaLabel="选择食物"
-                    placeholder="搜索食物、来源、场景或备注"
-                    value=""
-                    query={props.homePlanAddFoodSearch}
-                    presentation="popover"
-                    loading={homePlanFoodSearch.isSearching}
-                    loadingMore={homePlanFoodSearch.isFetchingNextPage}
-                    hasMore={homePlanFoodSearch.hasMore}
-                    loadMoreText="加载更多食物"
-                    loadingMoreText="正在加载更多食物..."
-                    options={homePlanFoodSearch.foods.map((food) => {
-                      const cover = getFoodCover(food, props.recipes);
-                      return {
-                        id: food.id,
-                        label: food.name,
-                        description: [
-                          FOOD_TYPE_LABELS[food.type],
-                          food.source_name || food.purchase_source || food.category,
-                          food.recipe_id ? '可开始做' : '可记到今天',
-                        ]
-                          .filter(Boolean)
-                          .join(' · '),
-                        image: <MediaWithPlaceholder src={props.resolveAssetUrl(cover)} alt="" />,
-                      };
-                    })}
-                    emptyText={homePlanFoodSearch.isSearching ? '正在搜索...' : '没有找到匹配的食物'}
-                    onSearchCompositionStart={homePlanFoodSearch.onCompositionStart}
-                    onSearchCompositionEnd={homePlanFoodSearch.onCompositionEnd}
-                    onQueryChange={props.setHomePlanAddFoodSearch}
-                    onLoadMore={() => {
-                      if (homePlanFoodSearch.hasMore && !homePlanFoodSearch.isFetchingNextPage) {
-                        void homePlanFoodSearch.fetchNextPage();
-                      }
-                    }}
-                    onChange={(foodId) => {
-                      const food = homePlanFoodSearch.findFoodById(foodId);
-                      if (food) props.selectHomePlanAddFood(food);
-                    }}
-                  />
-                </div>
+                <FoodPlanFoodPicker
+                  searchInputId="home-food-plan-search"
+                  value=""
+                  query={props.homePlanAddFoodSearch}
+                  loading={homePlanFoodSearch.isSearching}
+                  loadingMore={homePlanFoodSearch.isFetchingNextPage}
+                  hasMore={homePlanFoodSearch.hasMore}
+                  options={homePlanFoodSearch.foods.map((food) => {
+                    const cover = getFoodCover(food, props.recipes);
+                    return {
+                      id: food.id,
+                      label: food.name,
+                      description: [
+                        FOOD_TYPE_LABELS[food.type],
+                        food.source_name || food.purchase_source || food.category,
+                        food.recipe_id ? '可开始做' : '可记到今天',
+                      ]
+                        .filter(Boolean)
+                        .join(' · '),
+                      image: <MediaWithPlaceholder src={props.resolveAssetUrl(cover)} alt="" />,
+                    };
+                  })}
+                  emptyText={homePlanFoodSearch.isSearching ? '正在搜索...' : '没有找到匹配的食物'}
+                  onCompositionStart={homePlanFoodSearch.onCompositionStart}
+                  onCompositionEnd={homePlanFoodSearch.onCompositionEnd}
+                  onQueryChange={props.setHomePlanAddFoodSearch}
+                  onLoadMore={() => {
+                    if (homePlanFoodSearch.hasMore && !homePlanFoodSearch.isFetchingNextPage) {
+                      void homePlanFoodSearch.fetchNextPage();
+                    }
+                  }}
+                  onChange={(foodId) => {
+                    const food = homePlanFoodSearch.findFoodById(foodId);
+                    if (food) props.selectHomePlanAddFood(food);
+                  }}
+                />
               )}
 
-              <div className="recipe-plan-form-row">
-                <label className="recipe-plan-date-field">
-                  <span>计划日期</span>
-                  <div className="recipe-plan-date-strip" role="radiogroup" aria-label="计划日期">
-                    {props.dashboardPlanDays.map((day) => (
-                      <button
-                        key={day.date}
-                        type="button"
-                        className={props.homePlanAddForm.planDate === day.date ? 'active' : ''}
-                        aria-pressed={props.homePlanAddForm.planDate === day.date}
-                        onClick={() => props.setHomePlanAddForm((current) => ({ ...current, planDate: day.date }))}
-                      >
-                        <span>{day.isToday ? '今天' : `周${day.weekday}`}</span>
-                        <strong>{day.date.slice(5).replace('-', '/')}</strong>
-                      </button>
-                    ))}
-                  </div>
-                </label>
-                <label className="recipe-plan-meal-field">
-                  <span>餐次</span>
-                  <div className="recipe-plan-meal-segment" role="radiogroup" aria-label="餐次">
-                    {DASHBOARD_PLAN_MEAL_TYPES.map((mealType) => (
-                      <button
-                        key={mealType}
-                        type="button"
-                        className={props.homePlanAddForm.mealType === mealType ? 'active' : ''}
-                        aria-pressed={props.homePlanAddForm.mealType === mealType}
-                        onClick={() => props.setHomePlanAddForm((current) => ({ ...current, mealType }))}
-                      >
-                        {MEAL_TYPE_LABELS[mealType]}
-                      </button>
-                    ))}
-                  </div>
-                </label>
-              </div>
-              <label className="recipe-plan-note-field">
-                <span>备注</span>
-                <input
-                  className="text-input"
-                  value={props.homePlanAddForm.note}
-                  placeholder="比如：少油、常点套餐、提前解冻"
-                  onChange={(event) => props.setHomePlanAddForm((current) => ({ ...current, note: event.target.value }))}
-                />
-              </label>
+              <FoodPlanDateMealNoteFields
+                planDate={props.homePlanAddForm.planDate}
+                mealType={props.homePlanAddForm.mealType}
+                note={props.homePlanAddForm.note}
+                todayDate={today}
+                planDateOptions={props.dashboardPlanDays.map((day) => ({
+                  value: day.date,
+                  label: day.isToday ? '今天' : `周${day.weekday}`,
+                  display: day.date.slice(5).replace('-', '/'),
+                }))}
+                mealOptions={DASHBOARD_PLAN_MEAL_TYPES.map((value) => ({ value, label: MEAL_TYPE_LABELS[value] }))}
+                notePlaceholder="比如：少油、常点套餐、提前解冻"
+                onPlanDateChange={(planDate) => props.setHomePlanAddForm((current) => ({ ...current, planDate }))}
+                onMealTypeChange={(mealType) => props.setHomePlanAddForm((current) => ({ ...current, mealType }))}
+                onPlanNoteChange={(note) => props.setHomePlanAddForm((current) => ({ ...current, note }))}
+              />
             </form>
           </WorkspaceModal>
-        </div>
+        </WorkspaceOverlayFrame>
       )}
 
-      {props.homeMealEnrichmentMeal && props.homeMealEnrichmentSource && (
-        <div className="workspace-overlay-root home-dashboard-overlay-root">
-          <div className="workspace-overlay-backdrop" onClick={props.closeHomeMealEnrichment} />
-          <WorkspaceModal
-            title="补充记录"
-            description="为这次菜单安排添加评价、家人、照片和评论。"
-            className="meal-log-modal meal-log-enrich-modal"
-            closeAriaLabel="关闭"
-            onClose={props.closeHomeMealEnrichment}
-            footerInfo={<span>保存后，本次补充记录将会出现在记录时间线中</span>}
-            footerActions={
-              <FormActions
-                className="meal-enrichment-actions"
-                primaryLabel="保存记录"
-                primaryType="submit"
-                primaryForm={homeMealEnrichmentFormId}
-                isSubmitting={props.isUpdatingMeal}
-                secondaryLabel="稍后再说"
-                onSecondary={props.closeHomeMealEnrichment}
-              />
-            }
-          >
-            <MealEnrichmentForm
-              formId={homeMealEnrichmentFormId}
-              showFooter={false}
-              meal={props.homeMealEnrichmentMeal}
-              members={props.homeMealEnrichmentMembers}
-              source={props.homeMealEnrichmentSource}
-              isUpdating={props.isUpdatingMeal}
-              updateMealLog={props.updateMealLog}
-              requireMeaningfulInput={props.homeMealEnrichmentMeal.id.startsWith('draft-')}
-              onInvalidSave={props.onInvalidMealEnrichmentSave}
-              onCancel={props.closeHomeMealEnrichment}
-              onSaved={props.closeHomeMealEnrichment}
-            />
-          </WorkspaceModal>
-        </div>
-      )}
+      <MealEnrichmentModal
+        open={Boolean(props.homeMealEnrichmentMeal && props.homeMealEnrichmentSource)}
+        meal={props.homeMealEnrichmentMeal}
+        source={props.homeMealEnrichmentSource}
+        members={props.homeMealEnrichmentMembers}
+        isUpdating={props.isUpdatingMeal}
+        updateMealLog={props.updateMealLog}
+        requireMeaningfulInput={props.homeMealEnrichmentMeal?.id.startsWith('draft-')}
+        onInvalidSave={props.onInvalidMealEnrichmentSave}
+        onClose={props.closeHomeMealEnrichment}
+        overlayRootClassName="home-dashboard-overlay-root"
+        formId="home-meal-enrichment-overlay-form"
+      />
 
       {homeExpiryReviewItem && (
-        <div className="workspace-overlay-root home-dashboard-overlay-root">
-          <div className="workspace-overlay-backdrop" onClick={props.closeHomeExpiryReview} />
+        <WorkspaceOverlayFrame rootClassName="home-dashboard-overlay-root" onClose={props.closeHomeExpiryReview}>
           <WorkspaceModal
             title="处理临期食材"
             description="先核对这批库存的信息；需要调整数量、位置或继续处理时进入食材详情。"
@@ -466,12 +445,11 @@ export function HomeDashboardDialogs(props: Props) {
 
             </div>
           </WorkspaceModal>
-        </div>
+        </WorkspaceOverlayFrame>
       )}
 
       {props.homeMealDetail && (
-        <div className="workspace-overlay-root home-dashboard-overlay-root">
-          <div className="workspace-overlay-backdrop" onClick={props.closeHomeMealDetail} />
+        <WorkspaceOverlayFrame rootClassName="home-dashboard-overlay-root" onClose={props.closeHomeMealDetail}>
           <WorkspaceModal
             title="餐食详情"
             description="这条今日待办已经完成，下面是本餐记录。"
@@ -554,19 +532,22 @@ export function HomeDashboardDialogs(props: Props) {
 
             </div>
           </WorkspaceModal>
-        </div>
+        </WorkspaceOverlayFrame>
       )}
 
       {homeRestockShoppingItem && homeRestockForm && (
-        <div className="workspace-overlay-root home-dashboard-overlay-root">
-          <div className="workspace-overlay-backdrop" onClick={props.closeHomeRestock} />
+        <WorkspaceOverlayFrame
+          rootClassName="home-dashboard-overlay-root"
+          onClose={closeHomeRestockIfAllowed}
+          closeOnBackdrop={!props.isCreatingInventory}
+        >
           <WorkspaceModal
             title="登记这批库存"
             description="从首页采购提醒快速入库，保存后会把这条采购项标记完成。"
             closeLabel="关闭"
             closeAriaLabel="关闭"
             className="workspace-modal-wide inventory-restock-modal"
-            onClose={props.closeHomeRestock}
+            onClose={closeHomeRestockIfAllowed}
             footerActions={
               <FormActions
                 className="ingredients-restock-actions"
@@ -576,7 +557,7 @@ export function HomeDashboardDialogs(props: Props) {
                 primaryDisabled={!props.homeRestockIngredient}
                 isSubmitting={props.isCreatingInventory}
                 secondaryLabel="取消"
-                onSecondary={props.closeHomeRestock}
+                onSecondary={closeHomeRestockIfAllowed}
               />
             }
           >
@@ -671,312 +652,115 @@ export function HomeDashboardDialogs(props: Props) {
                   )}
                 </section>
 
-                <section className="ingredients-restock-field-group">
-                  <div className="form-grid compact-grid">
-                    <label>
-                      <span>数量</span>
-                      <input
-                        className="text-input"
-                        type="number"
-                        min="0.1"
-                        step="0.1"
-                        value={homeRestockForm.quantity}
-                        onChange={(event) => props.updateHomeRestockForm({ ...homeRestockForm, quantity: event.target.value })}
-                      />
-                    </label>
-                    <label>
-                      <span>单位</span>
-                      <input
-                        className="text-input"
-                        value={homeRestockForm.unit}
-                        onChange={(event) => props.updateHomeRestockForm({ ...homeRestockForm, unit: event.target.value })}
-                      />
-                    </label>
-                  </div>
-                </section>
+                <IngredientRestockQuantitySection
+                  ingredient={props.homeRestockIngredient}
+                  quantity={homeRestockForm.quantity}
+                  unit={homeRestockForm.unit || props.homeRestockIngredient?.default_unit || '个'}
+                  unitOptions={homeRestockUnitOptions}
+                  selectedUnit={homeRestockSelectedUnit}
+                  normalizedQuantity={homeRestockNormalizedQuantity}
+                  onQuantityChange={(quantity) => props.updateHomeRestockForm({ ...homeRestockForm, quantity })}
+                  onUnitChange={(unit) => props.updateHomeRestockForm({ ...homeRestockForm, unit })}
+                />
 
-                <section className="ingredients-restock-field-group">
-                  <div className="ingredients-restock-field-head">
-                    <span>购买时间</span>
-                    <p className="subtle">默认今天，需要时再改。</p>
-                  </div>
-                  <OptionChipGroup
-                    ariaLabel="购买时间"
-                    value={homeRestockForm.purchaseDate}
-                    options={[
-                      { value: today, label: '今天' },
-                      { value: addDateKeyDays(today, -1), label: '昨天' },
-                    ]}
-                    className="ingredients-restock-choice-row"
-                    onChange={(purchaseDate) =>
-                      props.updateHomeRestockForm({
-                        ...homeRestockForm,
-                        purchaseDate,
-                        expiryDate:
-                          homeRestockForm.expiryInputMode === 'days'
-                            ? resolveExpiryDateFromDays(purchaseDate, homeRestockForm.expiryDays)
-                            : homeRestockForm.expiryDate,
-                      })
-                    }
-                  />
-                  <label>
-                    <span>购买日期</span>
-                    <input
-                      className="text-input"
-                      type="date"
-                      value={homeRestockForm.purchaseDate}
-                      onChange={(event) =>
-                        props.updateHomeRestockForm({
-                          ...homeRestockForm,
-                          purchaseDate: event.target.value,
-                          expiryDate:
-                            homeRestockForm.expiryInputMode === 'days'
-                              ? resolveExpiryDateFromDays(event.target.value, homeRestockForm.expiryDays)
-                              : homeRestockForm.expiryDate,
-                        })
-                      }
-                    />
-                  </label>
-                </section>
+                <IngredientRestockPurchaseSection
+                  purchaseDate={homeRestockForm.purchaseDate}
+                  purchaseDatePreset={homePurchaseDatePreset}
+                  onChange={(patch) => {
+                    const resolvedPatch = resolvePurchaseDatePatch(patch);
+                    const purchaseDate = resolvedPatch.purchaseDate ?? homeRestockForm.purchaseDate;
+                    props.updateHomeRestockForm({
+                      ...homeRestockForm,
+                      purchaseDate,
+                      expiryDate:
+                        homeRestockForm.expiryInputMode === 'days'
+                          ? resolveExpiryDateFromDays(purchaseDate, homeRestockForm.expiryDays)
+                          : homeRestockForm.expiryDate,
+                    });
+                  }}
+                />
 
-                <section className="ingredients-restock-field-group">
-                  <div className="ingredients-restock-field-head">
-                    <span>存放位置</span>
-                    <p className="subtle">按这次实际放的位置点一下。</p>
-                  </div>
-                  <OptionChipGroup
-                    ariaLabel="存放位置"
-                    value={homeRestockForm.storageLocation}
-                    options={['冷藏', '冷冻', '常温'].map((storage) => ({ value: storage, label: storage }))}
-                    className="ingredients-restock-choice-row"
-                    onChange={(storageLocation) =>
-                      props.updateHomeRestockForm({
-                        ...homeRestockForm,
-                        storageLocation,
-                        status: resolveInventoryStatusForStorage(storageLocation),
-                      })
-                    }
-                  />
-                  <input
-                    className="text-input"
-                    placeholder="自定义位置"
-                    value={homeRestockForm.storageLocation}
-                    onChange={(event) =>
-                      props.updateHomeRestockForm({
-                        ...homeRestockForm,
-                        storageLocation: event.target.value,
-                        status: resolveInventoryStatusForStorage(event.target.value),
-                      })
-                    }
-                  />
-                </section>
+                <IngredientRestockStorageSection
+                  storageLocation={homeRestockForm.storageLocation}
+                  onChange={(storageLocation) =>
+                    props.updateHomeRestockForm({
+                      ...homeRestockForm,
+                      storageLocation,
+                      status: resolveInventoryStatusForStorage(storageLocation),
+                    })
+                  }
+                />
 
-                <section className="ingredients-restock-field-group">
-                  <div className="ingredients-restock-field-head">
-                    <span>到期信息</span>
-                    <p className="subtle">确认这批食材怎么跟踪到期。</p>
-                  </div>
-                  <OptionChipGroup
-                    ariaLabel="到期信息"
-                    value={homeRestockForm.expiryInputMode}
-                    options={[
-                      { value: 'none', label: '不记录' },
-                      { value: 'days', label: '几天后到期' },
-                      { value: 'manual_date', label: '包装到期日' },
-                    ]}
-                    className="ingredients-restock-choice-row"
-                    onChange={(value) => {
-                      const nextMode = value as HomeRestockFormState['expiryInputMode'];
-                      const nextDays = nextMode === 'days' ? homeRestockForm.expiryDays || '3' : '';
-                      props.updateHomeRestockForm({
-                        ...homeRestockForm,
-                        expiryInputMode: nextMode,
-                        expiryDays: nextDays,
-                        expiryDate:
-                          nextMode === 'days'
-                            ? resolveExpiryDateFromDays(homeRestockForm.purchaseDate, nextDays)
-                            : nextMode === 'manual_date'
-                              ? homeRestockForm.expiryDate
-                              : '',
-                      });
-                    }}
-                  />
-                  {homeRestockForm.expiryInputMode === 'days' && (
-                    <div className="form-grid compact-grid">
-                      <label>
-                        <span>买后几天到期</span>
-                        <input
-                          className="text-input"
-                          type="number"
-                          min="1"
-                          value={homeRestockForm.expiryDays}
-                          onChange={(event) =>
-                            props.updateHomeRestockForm({
-                              ...homeRestockForm,
-                              expiryDays: event.target.value,
-                              expiryDate: resolveExpiryDateFromDays(homeRestockForm.purchaseDate, event.target.value),
-                            })
-                          }
-                        />
-                      </label>
-                      <div className="ingredients-restock-result-card">
-                        <span>预计到期日</span>
-                        <strong>{homeRestockForm.expiryDate ? formatDate(homeRestockForm.expiryDate) : '先填天数'}</strong>
-                        <p>{homeRestockForm.purchaseDate} 购入</p>
-                      </div>
-                    </div>
-                  )}
-                  {homeRestockForm.expiryInputMode === 'manual_date' && (
-                    <label>
-                      <span>包装到期日</span>
-                      <input
-                        className="text-input"
-                        type="date"
-                        value={homeRestockForm.expiryDate}
-                        onChange={(event) => props.updateHomeRestockForm({ ...homeRestockForm, expiryDate: event.target.value })}
-                      />
-                    </label>
-                  )}
-                </section>
+                <IngredientRestockExpirySection
+                  expiryInputMode={homeRestockForm.expiryInputMode}
+                  expiryDays={homeRestockForm.expiryDays}
+                  expiryDate={homeRestockForm.expiryDate}
+                  purchaseDate={homeRestockForm.purchaseDate}
+                  defaultExpiryDays={props.homeRestockIngredient?.default_expiry_days}
+                  expiryDaysValue={homeRestockExpiryDaysValue}
+                  onChange={(patch) => {
+                    const expiryDays = patch.expiryDays ?? homeRestockForm.expiryDays;
+                    props.updateHomeRestockForm({
+                      ...homeRestockForm,
+                      ...patch,
+                      expiryDate:
+                        patch.expiryDays && homeRestockForm.expiryInputMode === 'days'
+                          ? resolveExpiryDateFromDays(homeRestockForm.purchaseDate, expiryDays)
+                          : patch.expiryDate ?? homeRestockForm.expiryDate,
+                    });
+                  }}
+                />
 
-                <section className="ingredients-modal-advanced">
-                  <div className="ingredients-modal-advanced-fields">
-                    <div className="ingredients-restock-status-custom-field">
-                      <span>状态</span>
-                      <DropdownSelect
-                        ariaLabel="选择状态"
-                        placeholder="选择状态"
-                        value={homeRestockForm.status}
-                        options={statusOptions}
-                        onChange={(val) =>
-                          props.updateHomeRestockForm({ ...homeRestockForm, status: val as InventoryStatus })
-                        }
-                      />
-                    </div>
-                    <label className="span-two">
-                      <span>备注</span>
-                      <textarea
-                        className="text-input"
-                        rows={3}
-                        value={homeRestockForm.notes}
-                        onChange={(event) => props.updateHomeRestockForm({ ...homeRestockForm, notes: event.target.value })}
-                      />
-                    </label>
-                  </div>
-                </section>
+                <IngredientRestockAdvancedSection
+                  open
+                  showToggle={false}
+                  status={homeRestockForm.status}
+                  notes={homeRestockForm.notes}
+                  onOpenChange={() => undefined}
+                  onChange={(patch) => props.updateHomeRestockForm({ ...homeRestockForm, ...patch })}
+                />
               </div>
 
             </form>
           </WorkspaceModal>
-        </div>
+        </WorkspaceOverlayFrame>
       )}
 
       {props.homeExpiredDisposalSummary && (
-        <div className="workspace-overlay-root home-dashboard-overlay-root">
-          <div className="workspace-overlay-backdrop" onClick={() => props.setHomeExpiredDisposalIngredientId(null)} />
-          <WorkspaceModal
-            title="销毁已过期批次"
-            description="会将这些过期批次的剩余量清零，但保留批次历史记录和活动日志。"
-            closeLabel="关闭"
-            closeAriaLabel="关闭"
-            className="workspace-modal-wide destroy-expired-modal"
-            onClose={() => props.setHomeExpiredDisposalIngredientId(null)}
-            footerInfo={
-              <div className="destroy-expired-footer-summary">
-                <span>确认后将处理</span>
+        <DestroyExpiredInventoryDialog
+          closeOverlay={() => props.setHomeExpiredDisposalIngredientId(null)}
+          summary={props.homeExpiredDisposalSummary}
+          previewUrl={props.resolveAssetUrl(props.homeExpiredDisposalSummary.ingredient.image?.url)}
+          meta={[
+            props.homeExpiredDisposalSummary.ingredient.category || '未分类',
+            props.homeExpiredDisposalSummary.primaryStorage,
+          ]}
+          items={props.homeExpiredDisposalItems}
+          headline={props.homeExpiredDisposalSummary.quantitySummaries[0]?.label ?? '当前已空'}
+          submit={props.submitHomeExpiredDisposal}
+          isSubmitting={props.isDisposingExpiredInventory}
+          formId="home-expired-disposal-overlay-form"
+          overlayRootClassName="home-dashboard-overlay-root"
+          description="会将这些过期批次的剩余量清零，但保留批次历史记录和活动日志。"
+          footerSummaryIntro="确认后将处理"
+          footerSummaryDetail="系统会把这些批次的剩余量清零，并在刷新后同步库存状态。"
+          summaryMetrics={
+            <>
+              <article className="destroy-expired-summary-metric is-primary">
+                <span>本次处理范围</span>
                 <strong>{props.homeExpiredDisposalItems.length} 条过期批次</strong>
-                <p>
-                  {props.homeExpiredDisposalItems.length > 0
-                    ? '系统会把这些批次的剩余量清零，并在刷新后同步库存状态。'
-                    : '当前没有可销毁的过期批次。'}
-                </p>
-              </div>
-            }
-            footerActions={
-              <FormActions
-                className="destroy-expired-actions"
-                primaryLabel="确认销毁"
-                primaryType="submit"
-                primaryForm={homeExpiredDisposalFormId}
-                primaryDisabled={props.homeExpiredDisposalItems.length === 0}
-                isSubmitting={props.isDisposingExpiredInventory}
-                secondaryLabel="取消"
-                onSecondary={() => props.setHomeExpiredDisposalIngredientId(null)}
-              />
-            }
-          >
-            <form id={homeExpiredDisposalFormId} className="destroy-expired-form" onSubmit={(event) => void props.submitHomeExpiredDisposal(event)}>
-              <div className="destroy-expired-scroll">
-                <section className="ingredients-restock-identity-card destroy-expired-summary-card">
-                  <div className="ingredients-restock-identity-media">
-                    <MediaWithPlaceholder
-                      src={props.resolveAssetUrl(props.homeExpiredDisposalSummary.ingredient.image?.url)}
-                      alt={props.homeExpiredDisposalSummary.ingredient.name}
-                    />
-                  </div>
-                  <div className="ingredients-restock-identity-copy">
-                    <div className="ingredients-restock-identity-head">
-                      <div>
-                        <h4>{props.homeExpiredDisposalSummary.ingredient.name}</h4>
-                        <p>{props.homeExpiredDisposalSummary.ingredient.category || '未分类'} · {props.homeExpiredDisposalSummary.primaryStorage}</p>
-                      </div>
-                      <div className="destroy-expired-summary-badges">
-                        <Badge>{props.homeExpiredDisposalItems.length} 条待销毁</Badge>
-                        <Badge>{props.homeExpiredDisposalSummary.quantitySummaries[0]?.label ?? '当前已空'}</Badge>
-                      </div>
-                    </div>
-                    <div className="destroy-expired-summary-grid">
-                      <article className="destroy-expired-summary-metric is-primary">
-                        <span>本次处理范围</span>
-                        <strong>{props.homeExpiredDisposalItems.length} 条过期批次</strong>
-                        <p>仅包含已经过期且当前仍有剩余量的批次。</p>
-                      </article>
-                      <article className="destroy-expired-summary-metric">
-                        <span>处理结果</span>
-                        <strong>清零剩余量</strong>
-                        <p>批次记录、备注和活动日志都会继续保留。</p>
-                      </article>
-                    </div>
-                  </div>
-                </section>
-
-                <section className="ingredients-restock-field-group destroy-expired-list-section">
-                  <div className="ingredients-restock-field-head">
-                    <span>将要销毁的批次</span>
-                    <p className="subtle">只列出到期日早于今天的剩余批次；今天到期和未来到期不会出现在这里。</p>
-                  </div>
-                  {props.homeExpiredDisposalItems.length > 0 ? (
-                    <div className="destroy-expired-list">
-                      {props.homeExpiredDisposalItems.map((item) => {
-                        const expiredDays = Math.abs(getExpiryDaysLeft(item.expiryDate, today));
-                        return (
-                          <article key={item.id} className="destroy-expired-row">
-                            <div className="destroy-expired-row-main">
-                              <strong>{item.remainingLabel}</strong>
-                              <span>{item.storageLocation}</span>
-                            </div>
-                            <div className="destroy-expired-row-meta">
-                              <span className="is-danger">已过期 {expiredDays} 天</span>
-                              <span>{INVENTORY_STATUS_LABELS[item.status]}</span>
-                              <span>购 {formatDate(item.purchaseDate)}</span>
-                              <span>到期 {formatDate(item.expiryDate)}</span>
-                            </div>
-                          </article>
-                        );
-                      })}
-                    </div>
-                  ) : (
-                    <EmptyState
-                      title="当前没有可销毁的批次"
-                      description="这份食材现在没有“已过期且仍有剩余量”的批次，可以直接关闭这个面板。"
-                    />
-                  )}
-                </section>
-              </div>
-
-            </form>
-          </WorkspaceModal>
-        </div>
+                <p>仅包含已经过期且当前仍有剩余量的批次。</p>
+              </article>
+              <article className="destroy-expired-summary-metric">
+                <span>处理结果</span>
+                <strong>清零剩余量</strong>
+                <p>批次记录、备注和活动日志都会继续保留。</p>
+              </article>
+            </>
+          }
+          listTitle="将要销毁的批次"
+          listDescription="只列出已经过期且当前仍有剩余量的批次；今天到期和未来到期不会出现在这里。"
+        />
       )}
     </>
   );

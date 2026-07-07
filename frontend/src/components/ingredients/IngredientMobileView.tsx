@@ -3,7 +3,7 @@ import { buildMediaSizes, buildMediaSrcSet, resolveMediaUrl } from '../../lib/as
 import type { ShoppingListItem } from '../../api/types';
 import { chunkMobilePagedItems, useMobilePagedScroller } from '../../hooks/useMobilePagedScroller';
 import { MediaWithPlaceholder } from '../MediaPlaceholder';
-import { OptionChipGroup, SearchField, WorkspaceDrawer, type OptionChip } from '../ui-kit';
+import { OptionChipGroup, SearchField, WorkspaceDrawer, WorkspaceOverlayFrame, type OptionChip } from '../ui-kit';
 import { tracksIngredientQuantity } from '../../lib/ingredientTracking';
 import { focusMobileInput } from '../../lib/mobileFocus';
 import type {
@@ -94,6 +94,12 @@ export function IngredientMobileView(props: IngredientMobileViewProps) {
 
   function closeShoppingCard() {
     setSelectedShoppingCardId(null);
+  }
+
+  function closeShoppingCardIfAllowed() {
+    if (!props.isUpdatingShopping) {
+      closeShoppingCard();
+    }
   }
 
   function handleShoppingCardKeyDown(event: KeyboardEvent<HTMLElement>, card: ShoppingCardViewModel) {
@@ -545,13 +551,12 @@ export function IngredientMobileView(props: IngredientMobileViewProps) {
       </section>
 
       {selectedShoppingCard && (
-        <div className="workspace-overlay-root ingredient-workspace-overlay-root mobile-ingredient-shopping-drawer-root">
-          <button
-            className="workspace-overlay-backdrop mobile-ingredient-shopping-drawer-backdrop"
-            type="button"
-            aria-label="关闭采购待办详情"
-            onClick={closeShoppingCard}
-          />
+        <WorkspaceOverlayFrame
+          rootClassName="ingredient-workspace-overlay-root mobile-ingredient-shopping-drawer-root"
+          backdropClassName="mobile-ingredient-shopping-drawer-backdrop"
+          closeOnBackdrop={!props.isUpdatingShopping}
+          onClose={closeShoppingCardIfAllowed}
+        >
           <WorkspaceDrawer
             eyebrow={selectedShoppingCard.sourceLabel}
             title={selectedShoppingCard.title}
@@ -559,7 +564,7 @@ export function IngredientMobileView(props: IngredientMobileViewProps) {
             closeLabel="关闭"
             closeAriaLabel="关闭采购待办详情"
             className={`mobile-ingredient-shopping-drawer tone-${selectedShoppingCard.statusTone}`}
-            onClose={closeShoppingCard}
+            onClose={closeShoppingCardIfAllowed}
           >
             <div className="mobile-ingredient-shopping-drawer-summary">
               <span className="mobile-ingredient-shopping-drawer-cover">
@@ -632,7 +637,7 @@ export function IngredientMobileView(props: IngredientMobileViewProps) {
               </button>
             </div>
           </WorkspaceDrawer>
-        </div>
+        </WorkspaceOverlayFrame>
       )}
     </section>
   );

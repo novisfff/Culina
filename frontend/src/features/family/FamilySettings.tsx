@@ -155,15 +155,6 @@ export function FamilySettings(props: FamilySettingsProps) {
                   修改密码
                 </button>
               )}
-              <button
-                className="ghost-button family-icon-action"
-                type="button"
-                onClick={() => props.onOverlayChange('profile')}
-                aria-label="编辑我的资料"
-                title="编辑我的资料"
-              >
-                <DashboardIcon name="more" />
-              </button>
             </div>
           </div>
         </section>

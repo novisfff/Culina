@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import { act } from 'react';
-import type { ReactElement } from 'react';
+import type { FormEvent, ReactElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { ComboboxField } from './ComboboxField';
@@ -59,6 +59,9 @@ describe('ComboboxField', () => {
     const input = view.querySelector<HTMLInputElement>('input[role="combobox"]')!;
 
     act(() => input.focus());
+    const listbox = view.querySelector<HTMLElement>('[role="listbox"]');
+    expect(input.getAttribute('aria-controls')).toBe(listbox?.id);
+
     changeInput(input, '冷');
     act(() => findOption(view, '冷藏')?.click());
 
@@ -67,13 +70,19 @@ describe('ComboboxField', () => {
 
   it('allows custom values when enabled', () => {
     const onChange = vi.fn();
-    const view = renderCombobox(<ComboboxField ariaLabel="单位" value="" options={[{ value: '个', label: '个' }]} allowCustom onChange={onChange} placeholder="输入单位" />);
+    const onSubmit = vi.fn((event: FormEvent<HTMLFormElement>) => event.preventDefault());
+    const view = renderCombobox(
+      <form onSubmit={onSubmit}>
+        <ComboboxField ariaLabel="单位" value="" options={[{ value: '个', label: '个' }]} allowCustom onChange={onChange} placeholder="输入单位" />
+      </form>,
+    );
     const input = view.querySelector<HTMLInputElement>('input[role="combobox"]')!;
 
     changeInput(input, '袋');
     act(() => input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })));
 
     expect(onChange).toHaveBeenCalledWith('袋');
+    expect(onSubmit).not.toHaveBeenCalled();
   });
 
   it('closes options when clicking outside the field container', () => {

@@ -397,7 +397,7 @@ export function RecipeCookView({
           <section className={`recipe-cook-timer-card ${activeTimer?.mode || 'countup'}${activeTimer?.running ? ' running' : ''}${cookTimerJustStarted ? ' started' : ''}${isCookTimerCustomOpen ? ' custom-open' : ''}${isFinished ? ' finished' : ''}`}>
             <div className="recipe-cook-timer-head">
               <div>
-                <span className="recipe-cook-timer-title-span">
+                <span>
                   <RecipeUiIcon name="clock" className="timer-head-icon" />
                   烹饪计时器
                 </span>
@@ -495,7 +495,7 @@ export function RecipeCookView({
                   <span>已选择</span>
                   <strong>{formatCookTimer(cookTimerPicker.minutes * 60 + cookTimerPicker.seconds)}</strong>
                 </div>
-                <div className="recipe-cook-timer-actions custom-actions">
+                <div className="recipe-cook-timer-actions">
                   <button type="button" onClick={() => setIsCookTimerCustomOpen(false)}>
                     取消
                   </button>

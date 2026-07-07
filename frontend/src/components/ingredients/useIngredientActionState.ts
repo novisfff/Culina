@@ -4,7 +4,6 @@ import type {
   DisposeExpiredInventoryResponse,
   Ingredient,
   InventoryItem,
-  Recipe,
   ShoppingListItem,
 } from '../../api/types';
 import type { NoticeTone } from '../../hooks/useNotice';

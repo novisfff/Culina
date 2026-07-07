@@ -1,4 +1,4 @@
-import type { PointerEvent } from 'react';
+import type { CSSProperties, PointerEvent } from 'react';
 import { AppLogoIcon } from '../../app/shellIcons';
 
 export type FoodIconName =
@@ -35,9 +35,16 @@ function parseRatingValue(value: string): number | null {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+function clampRatingValue(value: number) {
+  return Math.min(5, Math.max(0, value));
+}
+
 export function FoodRatingInput(props: { value: string; onChange: (value: string) => void; disabled?: boolean }) {
-  const rating = parseRatingValue(props.value) ?? 0;
+  const rating = clampRatingValue(parseRatingValue(props.value) ?? 0);
   const display = rating > 0 ? `${rating.toFixed(1).replace(/\.0$/, '')} 分` : '未评分';
+  const ratingFillStyle = {
+    '--rating-width': `${(rating / 5) * 100}%`,
+  } as CSSProperties;
   const stars = Array.from({ length: 5 }, (_, index) => <span key={index}>★</span>);
 
   function updateRatingFromClientX(element: HTMLDivElement, clientX: number) {
@@ -61,9 +68,10 @@ export function FoodRatingInput(props: { value: string; onChange: (value: string
         aria-valuemin={0}
         aria-valuemax={5}
         aria-valuenow={rating}
+        aria-valuetext={display}
         aria-disabled={props.disabled ? true : undefined}
         tabIndex={props.disabled ? -1 : 0}
-        style={{ ['--rating-width' as string]: `${(rating / 5) * 100}%` }}
+        style={ratingFillStyle}
         onPointerDown={(event) => {
           if (props.disabled) return;
           event.preventDefault();

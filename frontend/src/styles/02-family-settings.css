@@ -50,6 +50,7 @@
 
 .family-hero-copy {
   display: grid;
+  flex: 1 1 0;
   gap: 4px;
   min-width: 0;
 }
@@ -76,14 +77,17 @@
 
 .family-hero-actions {
   display: flex;
+  flex: 0 0 auto;
   align-items: center;
   justify-content: flex-end;
   gap: 12px;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+  min-width: 0;
 }
 
 .family-action-primary,
 .family-action-secondary {
+  flex: 0 0 auto;
   min-height: 42px;
   padding-inline: 17px;
   border-radius: 12px;
@@ -93,6 +97,7 @@
   align-items: center;
   justify-content: center;
   gap: 9px;
+  white-space: nowrap;
   cursor: pointer;
   transition: all 0.2s ease;
 }
@@ -135,39 +140,26 @@
   box-shadow: none;
 }
 
-.family-icon-action {
-  min-height: 42px;
-  width: 42px;
-  padding: 0;
-  border: 1px solid rgba(147, 96, 63, 0.16);
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.8);
-  color: #5c4e46;
-  box-shadow: 0 4px 12px rgba(74, 54, 40, 0.03);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0;
-  cursor: pointer;
-  transition: all 0.2s ease;
-}
+@media (min-width: 768px) and (max-width: 1180px) {
+  .family-hero-head {
+    gap: 14px;
+  }
 
-.family-icon-action:hover {
-  background: #fff;
-  border-color: rgba(147, 96, 63, 0.25);
-  color: #2f251e;
-  box-shadow: 0 6px 16px rgba(74, 54, 40, 0.05);
-  transform: translateY(-1px);
-}
+  .family-hero-actions {
+    gap: 8px;
+  }
 
-.family-icon-action:active {
-  transform: translateY(0);
-  background: rgba(255, 255, 255, 0.6);
+  .family-action-primary,
+  .family-action-secondary {
+    min-height: 40px;
+    padding-inline: 13px;
+    font-size: 0.88rem;
+  }
+
 }
 
 .family-action-primary svg,
 .family-action-secondary svg,
-.family-icon-action svg,
 .family-stat-icon svg,
 .family-profile-copy svg,
 .family-owner-copy svg,
@@ -329,9 +321,6 @@
 .family-cover-card img {
   width: 100%;
   height: 100%;
-}
-
-.family-cover-card img {
   display: block;
   object-fit: cover;
   transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1);
@@ -992,10 +981,6 @@
   justify-content: center;
 }
 
-.family-activity-viewer-actions .ui-form-actions-spacer {
-  display: none;
-}
-
 .family-invite-option,
 .family-permission-note {
   display: grid;
@@ -1192,8 +1177,7 @@
   align-self: start;
 }
 
-.family-edit-preview.has-image img,
-.family-edit-preview.has-image .media-placeholder-root {
+.family-edit-preview.has-image img {
   display: none !important;
 }
 
@@ -1534,8 +1518,7 @@
   border: 1px solid rgba(228, 172, 133, 0.36) !important;
 }
 
-.family-image-large-preview.has-image .family-image-preview-mask,
-.family-image-large-preview.has-image .media-placeholder-root {
+.family-image-large-preview.has-image .family-image-preview-mask {
   position: absolute !important;
   top: 0 !important;
   left: 0 !important;
@@ -1778,20 +1761,12 @@
 }
 
 .profile-avatar-prompt-actions .ui-form-actions-row,
-.family-image-prompt-actions .ui-form-actions-row,
-.profile-edit-actions .ui-form-actions-row,
-.member-edit-actions .ui-form-actions-row,
-.family-edit-actions .ui-form-actions-row,
-.family-settings-form-actions .ui-form-actions-row {
+.family-image-prompt-actions .ui-form-actions-row {
   justify-content: flex-end;
 }
 
 .profile-avatar-prompt-actions .ui-form-actions-spacer,
-.family-image-prompt-actions .ui-form-actions-spacer,
-.profile-edit-actions .ui-form-actions-spacer,
-.member-edit-actions .ui-form-actions-spacer,
-.family-edit-actions .ui-form-actions-spacer,
-.family-settings-form-actions .ui-form-actions-spacer {
+.family-image-prompt-actions .ui-form-actions-spacer {
   display: none;
 }
 
@@ -1800,12 +1775,6 @@
 .family-image-prompt-actions .ghost-button,
 .family-image-prompt-actions .solid-button {
   min-width: 0;
-}
-
-.profile-edit-actions,
-.member-edit-actions,
-.family-edit-actions {
-  justify-content: flex-end;
 }
 
 .family-edit-modal.workspace-modal {
@@ -1835,67 +1804,6 @@
     grid-template-columns: 1fr;
   }
 
-  .dashboard-lower-grid {
-    grid-template-columns: 1fr;
-  }
-}
-
-@media (min-width: 901px) and (max-width: 1280px) {
-  .dashboard-lower-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-}
-
-@media (max-width: 1023px) {
-  .dashboard-stat-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .dashboard-week-head {
-    grid-template-columns: 1fr;
-  }
-
-  .dashboard-week-title,
-  .dashboard-week-controls {
-    flex-wrap: wrap;
-  }
-
-  .dashboard-week-edit-button {
-    justify-self: start;
-  }
-
-  .dashboard-food-row {
-    grid-template-columns: 1fr;
-  }
-
-  .dashboard-expiry-list {
-    max-height: 320px;
-  }
-}
-
-@media (min-width: 768px) and (max-width: 900px) {
-  .dashboard-week-grid {
-    grid-template-columns: repeat(7, minmax(0, 1fr));
-    gap: 6px;
-  }
-
-  .dashboard-day-card {
-    min-width: 0;
-    min-height: 78px;
-    padding: 8px 4px;
-  }
-
-  .dashboard-day-card strong {
-    font-size: 0.88rem;
-  }
-
-  .dashboard-day-card small {
-    font-size: 0.68rem;
-  }
-
-  .dashboard-day-meal-dots {
-    gap: 3px;
-  }
 }
 
 @media (max-width: 767px) {
@@ -1963,15 +1871,10 @@
 
   .family-action-primary,
   .family-action-secondary,
-  .family-icon-action,
   .family-owner-actions button,
   .family-member-actions .ghost-button,
   .family-invite-option button {
     width: 100%;
-  }
-
-  .family-icon-action {
-    min-width: 100%;
   }
 
   .family-stat-grid,
@@ -2021,222 +1924,6 @@
     justify-items: start;
   }
 
-  .dashboard-hero-actions {
-    display: grid;
-    grid-template-columns: 1fr;
-    justify-content: stretch;
-  }
-
-  .dashboard-stat-grid,
-  .dashboard-week-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .dashboard-week-summary {
-    grid-template-columns: 1fr;
-    gap: 12px;
-  }
-
-  .dashboard-week-summary-item {
-    padding: 0;
-    border-right: 0;
-  }
-
-  .dashboard-week-controls {
-    display: grid;
-    grid-template-columns: 1fr;
-  }
-
-  .dashboard-week-nav-button,
-  .dashboard-week-range-button,
-  .dashboard-week-edit-button {
-    width: 100%;
-  }
-
-  .dashboard-stat-card,
-  .dashboard-food-card,
-  .dashboard-expiry-item,
-  .dashboard-activity-item {
-    grid-template-columns: 1fr;
-    justify-items: start;
-  }
-
-  .dashboard-todo-item {
-    grid-template-columns: 28px minmax(0, 1fr) auto;
-    align-items: start;
-  }
-
-  .dashboard-todo-meta {
-    align-items: flex-end;
-    flex-direction: column;
-    gap: 4px;
-  }
-
-  .dashboard-todo-arrow {
-    display: none;
-  }
-
-  .dashboard-todo-copy span {
-    white-space: normal;
-  }
-
-  .dashboard-todo-dialog-hero,
-  .meal-detail-head,
-  .dashboard-todo-dialog-grid,
-  .meal-detail-food-item,
-  .meal-detail-photo-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .dashboard-food-cover {
-    width: 100%;
-    min-height: 190px;
-  }
-
-  .dashboard-panel {
-    padding: 18px;
-  }
-
-  .dashboard-panel-head {
-    align-items: flex-start;
-  }
-
-  .dashboard-day-card {
-    grid-template-columns: auto minmax(0, 1fr) auto;
-    place-items: center start;
-    min-height: 62px;
-    text-align: left;
-  }
-
-  .dashboard-plan-meal-row {
-    grid-template-columns: 62px minmax(0, 1fr) 34px;
-    padding: 9px;
-  }
-
-  .dashboard-plan-dish {
-    min-width: 100%;
-  }
-}
-
-.inline-cluster {
-  display: flex;
-  gap: 10px;
-  align-items: center;
-}
-
-.empty-state {
-  display: grid;
-  gap: 10px;
-  padding: 24px;
-  border-radius: 22px;
-  background: rgba(255, 255, 255, 0.78);
-  border: 1px dashed rgba(92, 67, 48, 0.16);
-  text-align: center;
-  color: var(--text-soft);
-}
-
-.empty-state p {
-  margin: 0;
-}
-
-.ingredients-workspace {
-  --ingredient-card: rgba(255, 255, 255, 0.92);
-  --ingredient-line: rgba(92, 67, 48, 0.11);
-  --ingredient-soft-surface: rgba(255, 255, 255, 0.72);
-  display: grid;
-  gap: 16px;
-  padding-bottom: 92px;
-}
-
-.ingredients-panel,
-.workspace-subpage,
-.ingredient-detail-section {
-  background:
-    linear-gradient(180deg, rgba(255, 252, 248, 0.97) 0%, rgba(255, 255, 255, 0.9) 100%);
-}
-
-.ingredients-workspace .solid-button,
-.ingredients-workspace .ghost-button {
-  min-height: 36px;
-  padding: 8px 14px;
-  border-radius: 14px;
-  font-size: 0.92rem;
-}
-
-.ingredients-workspace .ghost-button {
-  background: rgba(255, 255, 255, 0.9);
-}
-
-.workspace-subpage-shell {
-  gap: 16px;
-}
-
-.workspace-editor-layout,
-.workspace-editor-main,
-.workspace-editor-side {
-  display: grid;
-  gap: 14px;
-}
-
-.workspace-editor-side {
-  align-content: start;
-}
-
-.workspace-action-rail {
-  display: grid;
-  gap: 16px;
-  align-content: start;
-}
-
-.workspace-action-rail-copy {
-  display: grid;
-  gap: 6px;
-}
-
-.workspace-summary-list {
-  display: grid;
-  gap: 10px;
-}
-
-.workspace-summary-row {
-  display: grid;
-  gap: 4px;
-  padding: 11px 12px;
-  border-radius: 14px;
-  border: 1px solid var(--line-soft);
-  background: rgba(255, 255, 255, 0.74);
-}
-
-.workspace-summary-row span {
-  color: var(--text-faint);
-  font-size: 0.78rem;
-}
-
-.workspace-summary-row strong {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 0.94rem;
-}
-
-.workspace-inline-note {
-  padding: 11px 12px;
-  border-radius: 14px;
-  border: 1px solid rgba(220, 150, 50, 0.2);
-  background: rgba(255, 250, 240, 0.96);
-  color: #8d6134;
-  font-size: 0.84rem;
-}
-
-.workspace-rail-actions {
-  display: grid;
-  gap: 10px;
-}
-
-.workspace-rail-actions .solid-button,
-.workspace-rail-actions .ghost-button {
-  width: 100%;
 }
 
 

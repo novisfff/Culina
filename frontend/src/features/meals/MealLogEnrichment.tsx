@@ -1,12 +1,13 @@
 import { useState, useRef, useEffect, type FormEvent } from 'react';
 import { createPortal } from 'react-dom';
 import type { MealLog, MediaAsset, Member, UpdateMealLogPayload } from '../../api/types';
-import { Avatar, FormActions } from '../../components/ui-kit';
+import { Avatar } from '../../components/ui-kit';
 import { FoodRatingInput } from '../../components/foods/FoodWorkspacePrimitives';
 import { MediaWithPlaceholder } from '../../components/MediaPlaceholder';
 import { resolveAssetUrl } from '../../lib/assets';
 import { formatDate, MEAL_TYPE_LABELS } from '../../lib/ui';
 import { buildMealTitle, type MealSource } from './MealLogEnrichmentModel';
+import { formatMealTime } from './MealLogWorkspaceModel';
 import { useMealEnrichmentState } from './useMealEnrichmentState';
 export { buildMealTitle, getMealRatingSummary, isMealLogEnriched, resolveMealSource, type MealSource } from './MealLogEnrichmentModel';
 
@@ -14,8 +15,7 @@ type MealEnrichmentIconName =
   | 'calendar'
   | 'check'
   | 'close'
-  | 'image'
-  | 'info';
+  | 'image';
 
 function MealEnrichmentIcon({ name }: { name: MealEnrichmentIconName }) {
   const paths: Record<MealEnrichmentIconName, JSX.Element> = {
@@ -44,13 +44,6 @@ function MealEnrichmentIcon({ name }: { name: MealEnrichmentIconName }) {
         <rect x="4.5" y="5" width="15" height="14" rx="3" />
         <circle cx="9" cy="9.5" r="1.6" />
         <path d="M6.5 16l4-4 3 3 1.7-1.7L18 16" />
-      </>
-    ),
-    info: (
-      <>
-        <circle cx="12" cy="12" r="8" />
-        <path d="M12 10.5v5" />
-        <path d="M12 7.5h.1" />
       </>
     ),
   };
@@ -207,7 +200,6 @@ export function MealPhotoLightbox(props: { photo: MediaAsset; title: string; onC
           draggable={false}
           style={{
             transform: `translate(${translateX}px, ${translateY}px) scale(${scale}) rotate(${rotation}deg)`,
-            transition: isDragging ? 'none' : 'transform 0.2s cubic-bezier(0.16, 1, 0.3, 1)',
           }}
           onClick={e => e.stopPropagation()}
         />
@@ -236,7 +228,6 @@ export function MealPhotoLightbox(props: { photo: MediaAsset; title: string; onC
 
 export function MealEnrichmentForm(props: {
   formId?: string;
-  showFooter?: boolean;
   meal: MealLog;
   members: Member[];
   source: MealSource;
@@ -244,7 +235,6 @@ export function MealEnrichmentForm(props: {
   updateMealLog: (mealLogId: string, payload: UpdateMealLogPayload) => Promise<unknown>;
   requireMeaningfulInput?: boolean;
   onInvalidSave?: () => void;
-  onCancel?: () => void;
   onSaved?: () => void;
 }) {
   const enrichmentState = useMealEnrichmentState({
@@ -262,7 +252,6 @@ export function MealEnrichmentForm(props: {
   }
 
   const title = buildMealTitle(props.meal);
-  const showFooter = props.showFooter ?? true;
 
   return (
     <form id={props.formId} className="meal-enrichment-form" onSubmit={submit}>
@@ -273,7 +262,7 @@ export function MealEnrichmentForm(props: {
         </span>
         <strong>{title}</strong>
         <span className="meal-enrichment-summary-divider" />
-        <small><MealEnrichmentIcon name="calendar" />{formatDate(props.meal.date)} {props.meal.created_at.slice(11, 16)}</small>
+        <small><MealEnrichmentIcon name="calendar" />{formatDate(props.meal.date)} {formatMealTime(props.meal)}</small>
         <span className="meal-enrichment-source-pill">{props.source.status === 'planned' ? '来自菜单计划' : '手动补录'}</span>
       </div>
 
@@ -342,7 +331,7 @@ export function MealEnrichmentForm(props: {
             <strong>餐食照片</strong>
           </div>
           <p>可上传本次真实餐食照片，帮助回顾与分享</p>
-          <div className="meal-enrichment-photo-grid">
+          <div className="meal-log-photo-grid meal-enrichment-photo-grid">
             {enrichmentState.photos.map((photo) => (
               <div className="meal-enrichment-photo-thumb" key={photo.id}>
                 <button className="meal-photo-open-button" type="button" onClick={() => enrichmentState.setActivePhoto(photo)} aria-label="查看大图">
@@ -373,19 +362,6 @@ export function MealEnrichmentForm(props: {
         </aside>
       </div>
 
-      {showFooter ? (
-        <div className="meal-enrichment-footer">
-          <span><i><MealEnrichmentIcon name="info" /></i>保存后，本次补充记录将会出现在记录时间线中</span>
-          <FormActions
-            className="meal-enrichment-actions"
-            primaryLabel="保存记录"
-            primaryType="submit"
-            isSubmitting={enrichmentState.isBusy}
-            secondaryLabel="稍后再说"
-            onSecondary={props.onCancel}
-          />
-        </div>
-      ) : null}
       {enrichmentState.activePhoto && <MealPhotoLightbox photo={enrichmentState.activePhoto} title={title} onClose={() => enrichmentState.setActivePhoto(null)} />}
     </form>
   );

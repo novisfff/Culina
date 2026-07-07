@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
-import { WorkspaceModal } from '../ui-kit';
 import { FormActions } from './FormActions';
+import { WorkspaceModal } from './WorkspaceOverlay';
+import { WorkspaceOverlayFrame } from './WorkspaceOverlayFrame';
 
 export type ConfirmDialogProps = {
   open: boolean;
@@ -33,23 +34,23 @@ export function ConfirmDialog({
 }: ConfirmDialogProps) {
   if (!open) return null;
 
+  function cancelIfAllowed() {
+    if (!isSubmitting) onCancel();
+  }
+
   return (
-    <div className={['workspace-overlay-root ui-confirm-dialog-root', rootClassName].filter(Boolean).join(' ')}>
-      <div
-        className="workspace-overlay-backdrop"
-        onClick={() => {
-          if (!isSubmitting) onCancel();
-        }}
-      />
+    <WorkspaceOverlayFrame
+      rootClassName={rootClassName}
+      closeOnBackdrop={!isSubmitting}
+      onClose={cancelIfAllowed}
+    >
       <WorkspaceModal
         title={title}
         description={typeof description === 'string' ? description : undefined}
         closeLabel={cancelLabel}
         closeAriaLabel={typeof cancelLabel === 'string' ? cancelLabel : '关闭确认弹窗'}
-        className={['ui-confirm-dialog', tone === 'danger' ? 'is-danger' : '', modalClassName].filter(Boolean).join(' ')}
-        onClose={() => {
-          if (!isSubmitting) onCancel();
-        }}
+        className={modalClassName}
+        onClose={cancelIfAllowed}
         footerActions={
           <FormActions
             primaryLabel={confirmLabel}
@@ -64,6 +65,6 @@ export function ConfirmDialog({
       >
         {typeof description === 'string' ? null : <div className="ui-confirm-dialog-description">{description}</div>}
       </WorkspaceModal>
-    </div>
+    </WorkspaceOverlayFrame>
   );
 }

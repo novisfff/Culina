@@ -12,7 +12,7 @@ import type {
   UpdateMealLogPayload,
 } from './api/types';
 import { useAuth } from './auth/AuthContext';
-import { LoginScreen } from './components/LoginScreen';
+import { AuthStatusScreen, LoginScreen } from './components/LoginScreen';
 import { addDateKeyDays, getRecipeWeekRange } from './components/recipes/workspaceModel';
 import {
   EmptyState,
@@ -323,12 +323,10 @@ function App() {
 
   if (isBootLoading) {
     return (
-      <main className="login-shell">
-        <section className="login-card">
-          <h1>正在连接家庭厨房...</h1>
-          <p className="subtle">家庭数据加载中...</p>
-        </section>
-      </main>
+      <AuthStatusScreen
+        title="正在连接家庭厨房..."
+        description="家庭数据加载中..."
+      />
     );
   }
 

@@ -1,6 +1,6 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { FoodPlanItem, MealLog, Member } from '../../api/types';
-import { buildMealLogWorkspaceViewModel, filterMealLogs, getMealTone, groupMealsByDate } from './MealLogWorkspaceModel';
+import { buildMealLogWorkspaceViewModel, filterMealLogs, getMealTone, getWeekRecordCount, groupMealsByDate } from './MealLogWorkspaceModel';
 import { resolveMealSource } from './MealLogEnrichmentModel';
 
 function makeMealLog(id: string, overrides: Partial<MealLog> = {}): MealLog {
@@ -50,6 +50,10 @@ const member: Member = {
   status: 'active',
 };
 
+afterEach(() => {
+  vi.useRealTimers();
+});
+
 describe('MealLogWorkspaceModel', () => {
   it('filters meal logs by search, status, and meal type', () => {
     const doneMeal = makeMealLog('meal-done', { notes: '很香', meal_type: 'lunch' });
@@ -80,6 +84,17 @@ describe('MealLogWorkspaceModel', () => {
       ['2026-06-02', ['meal-1', 'meal-2']],
       ['2026-06-01', ['meal-3']],
     ]);
+  });
+
+  it('counts meals inside the rolling 7-day window using local date keys', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-06-08T10:00:00+08:00'));
+
+    expect(getWeekRecordCount([
+      makeMealLog('meal-1', { date: '2026-06-08' }),
+      makeMealLog('meal-2', { date: '2026-06-02' }),
+      makeMealLog('meal-3', { date: '2026-06-01' }),
+    ])).toBe(2);
   });
 
   it('builds a workspace view model with selected source and participant members', () => {

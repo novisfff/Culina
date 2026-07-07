@@ -3,7 +3,7 @@ import type { Ingredient } from '../../api/types';
 import { resolveAssetUrl } from '../../lib/assets';
 import { useIngredientResourceSearch } from '../../hooks/useIngredientResourceSearch';
 import { MediaWithPlaceholder } from '../MediaPlaceholder';
-import { ActionButton, Badge, EmptyState, FormActions, SearchableResourceSelect, WorkspaceModal } from '../ui-kit';
+import { ActionButton, Badge, EmptyState, FormActions, SearchableResourceSelect, WorkspaceModal, WorkspaceOverlayFrame } from '../ui-kit';
 import { RecipeUiIcon } from './RecipeWorkspaceCards';
 import type { RecipeUnresolvedIngredientTarget } from './RecipeWorkspaceModel';
 
@@ -73,6 +73,7 @@ function RecipeIngredientCandidateSearch({
           loading={ingredientSearch.isSearching}
           loadingMore={ingredientSearch.isFetchingNextPage}
           hasMore={ingredientSearch.hasMore}
+          disabled={isCreatingIngredient}
           emptyText={ingredientSearch.isSearching ? '正在检索相似食材...' : '没有找到合适候选，可以先新建食材。'}
           loadMoreText="加载更多食材"
           loadingMoreText="正在加载更多食材..."
@@ -119,22 +120,32 @@ function RecipeIngredientCandidateSearch({
 
 export function RecipeIngredientResolutionDialog(props: RecipeIngredientResolutionDialogProps) {
   const unresolvedCount = props.targets.length;
+
+  function closeIfAllowed() {
+    if (!props.isCreatingIngredient) {
+      props.onClose();
+    }
+  }
+
   return (
-    <div className="workspace-overlay-root">
-      <div className="workspace-overlay-backdrop" onClick={props.onClose} />
+    <WorkspaceOverlayFrame
+      rootClassName="recipe-workspace-overlay-root"
+      onClose={closeIfAllowed}
+      closeOnBackdrop={!props.isCreatingIngredient}
+    >
       <WorkspaceModal
         title="处理缺失食材"
         description="这些配料还没有绑定到食材库，处理后才能保存菜谱。"
         eyebrow="保存前确认"
-        onClose={props.onClose}
+        onClose={closeIfAllowed}
         className="recipe-ingredient-resolution-modal"
         footerActions={
           <FormActions
-            className="recipe-ingredient-resolution-actions-footer"
             primaryLabel="重新保存"
             primaryDisabled={unresolvedCount > 0}
             secondaryLabel="稍后处理"
-            onSecondary={props.onClose}
+            isSubmitting={Boolean(props.isCreatingIngredient)}
+            onSecondary={closeIfAllowed}
             onPrimary={props.onRetrySave}
           />
         }
@@ -168,6 +179,6 @@ export function RecipeIngredientResolutionDialog(props: RecipeIngredientResoluti
 
         </div>
       </WorkspaceModal>
-    </div>
+    </WorkspaceOverlayFrame>
   );
 }
