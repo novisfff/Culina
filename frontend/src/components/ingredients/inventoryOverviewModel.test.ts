@@ -5,6 +5,7 @@ import {
   buildUnifiedInventorySummary,
   filterUnifiedInventoryItems,
   getUnifiedInventoryActionLabel,
+  getUnifiedInventoryFoodPrimaryActionKind,
 } from './inventoryOverviewModel';
 
 const ingredientItem: InventoryOverviewItem = {
@@ -76,5 +77,7 @@ describe('inventoryOverviewModel', () => {
     });
     expect(getUnifiedInventoryActionLabel(foodItem)).toBe('记到今天');
     expect(getUnifiedInventoryActionLabel(ingredientItem)).toBe('消费');
+    expect(getUnifiedInventoryFoodPrimaryActionKind(foodItem)).toBe('recordMeal');
+    expect(getUnifiedInventoryFoodPrimaryActionKind({ ...foodItem, primary_action: 'edit_food_stock' })).toBe('editStock');
   });
 });

@@ -45,10 +45,12 @@ describe('IngredientWorkspace shared overlay usage', () => {
 
   it('routes unified food-stock actions into existing food workspace flows', () => {
     const workspaceSource = readFileSync(sourcePath, 'utf8');
+    const panelsSource = readFileSync(resolve(__dirname, 'IngredientWorkspacePanels.tsx'), 'utf8');
     const appSource = readFileSync(resolve(__dirname, '../../App.tsx'), 'utf8');
 
     expect(workspaceSource).toContain('props.onOpenFoodEditor?.(foodId)');
     expect(workspaceSource).toContain('props.onOpenFoodQuickMeal?.(foodId)');
+    expect(panelsSource).toContain('getUnifiedInventoryFoodPrimaryActionKind');
     expect(workspaceSource).not.toContain('成品库存先到食物页处理');
     expect(workspaceSource).not.toContain('记餐入口还在食物页');
     expect(appSource).toContain('onOpenFoodEditor={(foodId)');

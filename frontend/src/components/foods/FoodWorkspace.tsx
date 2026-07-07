@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { api } from '../../api/client';
 import { queryKeys } from '../../api/queryKeys';
@@ -112,6 +112,38 @@ export type TodayFoodRecommendation = {
   score: number;
   reasons: string[];
 };
+
+type FoodWorkspaceNavigationRequest = NonNullable<Props['navigationRequest']>;
+
+type FoodNavigationRequestAction =
+  | { kind: 'idle' }
+  | { kind: 'pending' }
+  | { kind: 'edit'; food: Food; requestId: number }
+  | { kind: 'quickMeal'; food: Food; requestId: number; quickMealAction: 'eat' | 'cook' };
+
+export function resolveFoodNavigationRequestAction(args: {
+  foods: Food[];
+  navigationRequest?: FoodWorkspaceNavigationRequest | null;
+  handledRequestId: number | null;
+}): FoodNavigationRequestAction {
+  const { foods, navigationRequest, handledRequestId } = args;
+  if (!navigationRequest || navigationRequest.target === 'detail' || handledRequestId === navigationRequest.requestId) {
+    return { kind: 'idle' };
+  }
+  const food = foods.find((item) => item.id === navigationRequest.foodId);
+  if (!food) {
+    return { kind: 'pending' };
+  }
+  if (navigationRequest.target === 'edit') {
+    return { kind: 'edit', food, requestId: navigationRequest.requestId };
+  }
+  return {
+    kind: 'quickMeal',
+    food,
+    requestId: navigationRequest.requestId,
+    quickMealAction: navigationRequest.quickMealAction ?? 'eat',
+  };
+}
 
 type Props = {
   foods: Food[];
@@ -1104,23 +1136,24 @@ export function FoodWorkspace(props: Props) {
     handleOpenEdit(nextFood);
   }
 
+  const handledNavigationRequestIdRef = useRef<number | null>(null);
+
   useEffect(() => {
-    const navigationRequest = props.navigationRequest;
-    if (!navigationRequest || navigationRequest.target === 'detail') {
+    const action = resolveFoodNavigationRequestAction({
+      foods: props.foods,
+      navigationRequest: props.navigationRequest,
+      handledRequestId: handledNavigationRequestIdRef.current,
+    });
+    if (action.kind === 'edit') {
+      handledNavigationRequestIdRef.current = action.requestId;
+      handleOpenEdit(action.food);
       return;
     }
-    const food = props.foods.find((item) => item.id === navigationRequest.foodId);
-    if (!food) {
-      return;
+    if (action.kind === 'quickMeal') {
+      handledNavigationRequestIdRef.current = action.requestId;
+      openQuickMealDialog(action.food, getDefaultMealType(action.food), action.quickMealAction);
     }
-    if (props.navigationRequest?.target === 'edit') {
-      handleOpenEdit(food);
-      return;
-    }
-    if (props.navigationRequest?.target === 'quickMeal') {
-      openQuickMealDialog(food, getDefaultMealType(food), navigationRequest.quickMealAction ?? 'eat');
-    }
-  }, [props.navigationRequest?.requestId]);
+  }, [props.foods, props.navigationRequest]);
 
   return (
     <main className="food-workspace">

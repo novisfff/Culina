@@ -8,6 +8,7 @@ import {
   filterFoodWorkspaceItems,
   getMobileDefaultFoodSceneCardMedia,
   getMobileFoodSceneFilterState,
+  resolveFoodNavigationRequestAction,
   getSuggestedMealTypeForHour,
   type FoodFormState,
 } from './FoodWorkspace';
@@ -230,6 +231,32 @@ describe('food workspace helpers', () => {
       mealFilter: 'all',
       sceneFilter: '工作日晚餐',
     });
+  });
+
+  it('keeps cross-workspace edit and quick-meal requests pending until the food exists', () => {
+    expect(resolveFoodNavigationRequestAction({
+      foods: [],
+      navigationRequest: { foodId: baseFood.id, requestId: 4, target: 'edit' },
+      handledRequestId: null,
+    })).toEqual({ kind: 'pending' });
+
+    expect(resolveFoodNavigationRequestAction({
+      foods: [baseFood],
+      navigationRequest: { foodId: baseFood.id, requestId: 4, target: 'edit' },
+      handledRequestId: null,
+    })).toMatchObject({ kind: 'edit', food: baseFood, requestId: 4 });
+
+    expect(resolveFoodNavigationRequestAction({
+      foods: [baseFood],
+      navigationRequest: { foodId: baseFood.id, requestId: 5, target: 'quickMeal', quickMealAction: 'cook' },
+      handledRequestId: null,
+    })).toMatchObject({ kind: 'quickMeal', food: baseFood, requestId: 5, quickMealAction: 'cook' });
+
+    expect(resolveFoodNavigationRequestAction({
+      foods: [baseFood],
+      navigationRequest: { foodId: baseFood.id, requestId: 5, target: 'quickMeal', quickMealAction: 'cook' },
+      handledRequestId: 5,
+    })).toEqual({ kind: 'idle' });
   });
 
   it('keeps generated scene media on default mobile scene cards', () => {

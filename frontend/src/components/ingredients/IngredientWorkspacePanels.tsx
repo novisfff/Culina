@@ -18,6 +18,7 @@ import {
 } from '../ui-kit';
 import {
   getUnifiedInventoryActionLabel,
+  getUnifiedInventoryFoodPrimaryActionKind,
   getUnifiedInventorySourceLabel,
   type UnifiedInventoryGroup,
 } from './inventoryOverviewModel';
@@ -333,6 +334,10 @@ function UnifiedInventoryFoodCard(props: {
   onEditStock: () => void;
 }) {
   const actionLabel = getUnifiedInventoryActionLabel(props.item);
+  const primaryAction =
+    getUnifiedInventoryFoodPrimaryActionKind(props.item) === 'editStock'
+      ? props.onEditStock
+      : props.onRecordMeal;
   const sourceLabel = getUnifiedInventorySourceLabel(props.item);
   const expiryLabel =
     props.item.days_until_expiry == null
@@ -360,7 +365,7 @@ function UnifiedInventoryFoodCard(props: {
         </div>
       </div>
       <div className="ingredients-unified-inventory-actions">
-        <ActionButton tone="secondary" size="compact" type="button" onClick={props.onRecordMeal}>
+        <ActionButton tone="secondary" size="compact" type="button" onClick={primaryAction}>
           {actionLabel}
         </ActionButton>
         <ActionButton tone="tertiary" size="compact" type="button" onClick={props.onEditStock}>

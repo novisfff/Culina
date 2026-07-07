@@ -14,8 +14,8 @@ describe('FoodWorkspace navigation usage', () => {
     expect(appNavigationSource).toContain("quickMealAction?: 'eat' | 'cook'");
     expect(stateSource).toContain("args.navigationRequest?.target === 'edit'");
     expect(stateSource).toContain("args.navigationRequest?.target === 'quickMeal'");
-    expect(workspaceSource).toContain("props.navigationRequest?.target === 'edit'");
-    expect(workspaceSource).toContain("props.navigationRequest?.target === 'quickMeal'");
-    expect(workspaceSource).toContain('openQuickMealDialog(food, getDefaultMealType(food), navigationRequest.quickMealAction ??');
+    expect(workspaceSource).toContain('resolveFoodNavigationRequestAction');
+    expect(workspaceSource).toContain('handledNavigationRequestIdRef');
+    expect(workspaceSource).toContain("quickMealAction: navigationRequest.quickMealAction ?? 'eat'");
   });
 });

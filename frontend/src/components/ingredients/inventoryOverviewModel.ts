@@ -93,3 +93,9 @@ export function getUnifiedInventoryActionLabel(item: Pick<InventoryOverviewItem,
       return '查看';
   }
 }
+
+export function getUnifiedInventoryFoodPrimaryActionKind(
+  item: Pick<InventoryOverviewItem, 'primary_action'>
+): 'recordMeal' | 'editStock' {
+  return item.primary_action === 'edit_food_stock' ? 'editStock' : 'recordMeal';
+}
