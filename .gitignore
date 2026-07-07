@@ -24,3 +24,4 @@ backend/tests/__pycache__/
 .env
 .DS_Store
 tmp/
+.worktrees/
