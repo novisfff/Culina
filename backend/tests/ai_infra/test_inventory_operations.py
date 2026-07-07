@@ -756,7 +756,56 @@ class AIInventoryOperationsTestCase(AIAgentInfraTestCase):
                 self.assertEqual(len(food_items), 1)
                 self.assertEqual(food_items[0]["name"], "蓝莓酸奶")
                 self.assertEqual(food_items[0]["quantity"], "2盒")
+                self.assertNotIn("suggestedAction", food_items[0])
                 self.assertEqual(summary["card"]["data"]["foodStockCount"], 1)
+
+        def test_inventory_summary_preserves_low_stock_count_and_priority_for_ingredients(self) -> None:
+            with self.SessionLocal() as db:
+                item = db.get(InventoryItem, "inventory-tomato")
+                assert item is not None
+                item.low_stock_threshold = Decimal("4")
+                item.expiry_date = None
+                db.add(
+                    Food(
+                        id="food-ai-stock-milk",
+                        family_id=self.family.id,
+                        name="鲜牛奶",
+                        type="readyMade",
+                        category="饮品",
+                        flavor_tags=[],
+                        scene_tags=[],
+                        suitable_meal_types=["breakfast"],
+                        source_name="超市",
+                        purchase_source="盒马",
+                        scene="",
+                        notes="",
+                        routine_note="",
+                        stock_quantity=Decimal("2"),
+                        stock_unit="盒",
+                        expiry_date=today_for_family(self.family.id) + timedelta(days=2),
+                        favorite=False,
+                        created_by=self.user.id,
+                        updated_by=self.user.id,
+                    )
+                )
+                db.flush()
+                executor = ToolExecutor(
+                    build_workspace_tool_registry(),
+                    ToolContext(
+                        db=db,
+                        family_id=self.family.id,
+                        user_id=self.user.id,
+                        conversation_id="conversation-low-stock-summary",
+                        run_id="run-low-stock-summary",
+                    ),
+                )
+
+                summary = executor.call("inventory.read_summary", {"days": 7})
+
+                self.assertEqual(summary["lowStockCount"], 1)
+                self.assertEqual(summary["card"]["data"]["lowStockCount"], 1)
+                self.assertEqual(summary["items"][0]["sourceType"], "ingredient")
+                self.assertEqual(summary["items"][0]["inventoryItemId"], "inventory-tomato")
 
         def test_inventory_operation_draft_normalizes_real_entities_and_rejects_cross_family_items(self) -> None:
             with self.SessionLocal() as db:
