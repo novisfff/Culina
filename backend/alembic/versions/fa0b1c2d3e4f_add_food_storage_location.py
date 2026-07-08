@@ -1,7 +1,7 @@
 """add food storage location
 
 Revision ID: fa0b1c2d3e4f
-Revises: f9b0c1d2e3f4
+Revises: 0a1b2c3d4e5f
 Create Date: 2026-07-08 10:30:00.000000
 """
 
@@ -10,7 +10,7 @@ import sqlalchemy as sa
 
 
 revision = "fa0b1c2d3e4f"
-down_revision = "f9b0c1d2e3f4"
+down_revision = "0a1b2c3d4e5f"
 branch_labels = None
 depends_on = None
 
