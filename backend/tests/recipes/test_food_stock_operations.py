@@ -29,6 +29,7 @@ class RecipeFoodStockOperationsTestCase(RecipeApiTestCase):
             "routine_note": "",
             "stock_quantity": Decimal("2"),
             "stock_unit": "盒",
+            "storage_location": "冷藏",
             "expiry_date": date(2026, 7, 10),
             "favorite": False,
             "created_by": self.user.id,
@@ -44,13 +45,14 @@ class RecipeFoodStockOperationsTestCase(RecipeApiTestCase):
 
         restock = self.client.post(
             "/api/foods/food-stock-yogurt/stock/restock",
-            json={"quantity": 3, "unit": "盒", "expiry_date": "2026-07-20", "purchase_source": "山姆", "note": "周末补货"},
+            json={"quantity": 3, "unit": "盒", "expiry_date": "2026-07-20", "purchase_source": "山姆", "storage_location": "冷冻", "note": "周末补货"},
         )
         self.assertEqual(restock.status_code, 200, restock.text)
         self.assertEqual(restock.json()["stock_quantity"], 5)
         self.assertEqual(restock.json()["stock_unit"], "盒")
         self.assertEqual(restock.json()["expiry_date"], "2026-07-20")
         self.assertEqual(restock.json()["purchase_source"], "山姆")
+        self.assertEqual(restock.json()["storage_location"], "冷冻")
 
         consume = self.client.post(
             "/api/foods/food-stock-yogurt/stock/consume",
@@ -58,6 +60,7 @@ class RecipeFoodStockOperationsTestCase(RecipeApiTestCase):
         )
         self.assertEqual(consume.status_code, 200, consume.text)
         self.assertEqual(consume.json()["stock_quantity"], 4)
+        self.assertEqual(consume.json()["storage_location"], "冷冻")
 
         dispose = self.client.post(
             "/api/foods/food-stock-yogurt/stock/dispose",
@@ -65,6 +68,7 @@ class RecipeFoodStockOperationsTestCase(RecipeApiTestCase):
         )
         self.assertEqual(dispose.status_code, 200, dispose.text)
         self.assertEqual(dispose.json()["stock_quantity"], 2)
+        self.assertEqual(dispose.json()["storage_location"], "冷冻")
 
         with self.SessionLocal() as db:
             logs = list(

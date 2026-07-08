@@ -144,6 +144,7 @@ def test_inventory_overview_returns_ingredient_and_ready_food_stock(
             routine_note="早餐备用",
             stock_quantity=Decimal("2"),
             stock_unit="盒",
+            storage_location="冷藏",
             expiry_date=date(2026, 7, 8),
             favorite=False,
             created_by=inventory_overview_api_context.user_id,
@@ -184,6 +185,7 @@ def test_inventory_overview_returns_ingredient_and_ready_food_stock(
     assert payload["items"][0]["source_id"] == "food-overview-yogurt"
     assert payload["items"][0]["title"] == "蓝莓酸奶"
     assert payload["items"][0]["quantity_label"] == "2盒"
+    assert payload["items"][0]["storage_location"] == "冷藏"
     assert payload["items"][0]["primary_action"] == "record_meal"
     assert payload["items"][1]["source_id"] == "ingredient-overview-tomato"
     assert payload["items"][1]["quantity_label"] == "2个"
@@ -211,6 +213,7 @@ def test_inventory_overview_filters_scope_and_query(
             routine_note="",
             stock_quantity=Decimal("1"),
             stock_unit="盒",
+            storage_location="常温",
             expiry_date=date.today() + timedelta(days=3),
             favorite=False,
             created_by=inventory_overview_api_context.user_id,
@@ -232,6 +235,7 @@ def test_inventory_overview_filters_scope_and_query(
             routine_note="",
             stock_quantity=Decimal("2"),
             stock_unit="袋",
+            storage_location="冷冻",
             expiry_date=date.today() + timedelta(days=20),
             favorite=False,
             created_by=inventory_overview_api_context.user_id,
@@ -247,6 +251,13 @@ def test_inventory_overview_filters_scope_and_query(
     assert payload["summary"]["total_count"] == 1
     assert payload["items"][0]["source_type"] == "food"
     assert payload["items"][0]["source_id"] == "food-overview-query-yogurt"
+
+    freezer_response = inventory_overview_api_context.client.get("/api/inventory/overview?scope=food&q=冷冻")
+    assert freezer_response.status_code == 200, freezer_response.text
+    freezer_payload = freezer_response.json()
+    assert freezer_payload["summary"]["total_count"] == 1
+    assert freezer_payload["items"][0]["source_id"] == "food-overview-query-dumpling"
+    assert freezer_payload["items"][0]["storage_location"] == "冷冻"
 
 
 def test_inventory_overview_excludes_other_family_rows(

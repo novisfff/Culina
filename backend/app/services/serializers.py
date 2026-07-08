@@ -353,6 +353,7 @@ def serialize_food(food: Food, media_map: dict[tuple[str, str], list[MediaAsset]
         "expiry_date": food.expiry_date,
         "stock_quantity": float(food.stock_quantity) if food.stock_quantity is not None else None,
         "stock_unit": food.stock_unit,
+        "storage_location": food.storage_location,
         "favorite": food.favorite,
         "recipe_id": food.recipe_id,
         "created_at": _utc_datetime(food.created_at),

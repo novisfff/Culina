@@ -343,7 +343,8 @@ function UnifiedInventoryFoodCard(props: {
   const sourceLabel = getUnifiedInventorySourceLabel(props.item);
   const imageUrl = resolveMediaUrl(props.item.image, 'card');
   const hasCustomImage = Boolean(props.item.image?.url);
-  const metaLine = [props.item.category || '未分类', props.item.storage_location || '食物库'].join(' · ');
+  const storageLocation = props.item.storage_location || '常温';
+  const metaLine = [props.item.category || '未分类', storageLocation].join(' · ');
   const expiryLabel =
     props.item.days_until_expiry == null
       ? '未记录到期'
@@ -441,7 +442,7 @@ function UnifiedInventoryFoodCard(props: {
 
             <div className="ingredient-visual-tag-row inventory-ingredient-card-tag-row">
               <span className="ingredient-visual-pill inventory-ingredient-card-pill-location">
-                {props.item.storage_location || '食物库'}
+                {storageLocation}
               </span>
               <span className="ingredient-visual-pill ingredient-work-card-stable-pill ingredient-visual-pill-flex">
                 {sourceLabel} · {statusLabel}

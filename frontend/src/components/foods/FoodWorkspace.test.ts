@@ -25,6 +25,7 @@ import {
   buildFoodRelationViewModel,
   getFoodGovernanceIssues,
 } from './FoodWorkspaceHelpers';
+import { foodToForm, getFoodFormCompletionItems, makeBlankFoodForm } from './FoodWorkspaceModel';
 import { buildRecipeCards } from '../recipes/workspaceModel';
 
 const recipe: Recipe = {
@@ -77,6 +78,7 @@ const baseFood: Food = {
   expiry_date: '2026-06-01',
   stock_quantity: 2,
   stock_unit: '盒',
+  storage_location: '冷冻',
   favorite: true,
   recipe_id: null,
   created_at: '2026-05-01T10:00:00Z',
@@ -161,6 +163,7 @@ const form: FoodFormState = {
   expiryDate: '2026-06-01',
   stockQuantity: '2',
   stockUnit: '盒',
+  storageLocation: '冷冻',
   favorite: true,
   recipeId: '',
   images: {},
@@ -332,8 +335,16 @@ describe('food workspace helpers', () => {
       rating: 4,
       repurchase: true,
       stock_quantity: 2,
+      storage_location: '冷冻',
       media_ids: ['media-1'],
     });
+  });
+
+  it('round-trips ready-like food storage location through food forms', () => {
+    expect(makeBlankFoodForm('instant').storageLocation).toBe('常温');
+    expect(makeBlankFoodForm('takeout').storageLocation).toBe('');
+    expect(foodToForm(baseFood).storageLocation).toBe('冷冻');
+    expect(getFoodFormCompletionItems(form, null).some((item) => item.label === '存放位置' && item.done)).toBe(true);
   });
 
   it('offers home-cooked food as a guided create type', () => {

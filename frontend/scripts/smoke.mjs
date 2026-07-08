@@ -207,11 +207,11 @@ const inventoryOverview = {
       tone: 'warning',
       expiry_date: '2026-06-02',
       days_until_expiry: 1,
-      storage_location: '食物库',
+      storage_location: '冷藏',
       purchase_source: '家里做',
       updated_at: now,
       primary_action: 'record_meal',
-      search_text: `${food.name} ${food.category} ${food.source_name} ${food.purchase_source}`,
+      search_text: `${food.name} ${food.category} 冷藏 ${food.source_name} ${food.purchase_source}`,
     },
   ],
 };

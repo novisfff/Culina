@@ -38,17 +38,16 @@ export function filterUnifiedInventoryItems(items: InventoryOverviewItem[], filt
 }
 
 function groupWeight(key: string) {
-  if (key === '食物库') return 0;
-  if (key === '冷藏') return 1;
-  if (key === '冷冻') return 2;
-  if (key === '常温') return 3;
+  if (key === '冷藏') return 0;
+  if (key === '冷冻') return 1;
+  if (key === '常温') return 2;
   return 4;
 }
 
 export function buildUnifiedInventoryGroups(items: InventoryOverviewItem[]): UnifiedInventoryGroup[] {
   const grouped = new Map<string, InventoryOverviewItem[]>();
   for (const item of items) {
-    const key = item.storage_location || (item.source_type === 'food' ? '食物库' : '常温');
+    const key = item.storage_location || '常温';
     grouped.set(key, [...(grouped.get(key) ?? []), item]);
   }
 

@@ -176,6 +176,7 @@ export interface FoodStockChangePayload {
   unit?: string | null;
   expiry_date?: string | null;
   purchase_source?: string | null;
+  storage_location?: string | null;
   note?: string;
   reason?: string;
 }
@@ -519,6 +520,7 @@ export interface Food {
   expiry_date?: string | null;
   stock_quantity?: number | null;
   stock_unit: string;
+  storage_location: string;
   favorite: boolean;
   recipe_id?: string | null;
   created_at: string;
@@ -545,6 +547,7 @@ export interface FoodPayload {
   expiry_date?: string | null;
   stock_quantity?: number | null;
   stock_unit: string;
+  storage_location: string;
   favorite: boolean;
   recipe_id?: string | null;
   media_ids: string[];

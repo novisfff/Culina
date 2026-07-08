@@ -309,7 +309,7 @@ export function IngredientMobileView(props: IngredientMobileViewProps) {
                     <div>
                       <span>成品速食</span>
                       <h3>{item.title}</h3>
-                      <p>{item.quantity_label} · {getFoodStockExpiryLine(item)}</p>
+                      <p>{item.storage_location || '常温'} · {item.quantity_label} · {getFoodStockExpiryLine(item)}</p>
                     </div>
                     <div className="mobile-food-stock-card-actions">
                       <button

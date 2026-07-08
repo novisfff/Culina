@@ -57,6 +57,7 @@ const food: Food = {
   expiry_date: null,
   stock_quantity: null,
   stock_unit: '',
+  storage_location: '',
   favorite: false,
   recipe_id: null,
   created_at: '2026-06-01T10:00:00Z',

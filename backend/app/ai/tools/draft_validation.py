@@ -657,14 +657,18 @@ def _normalize_food_profile_operation_draft(db: Session, *, family_id: str, payl
             "before": _serialize_food_before(food),
             "payload": {"favorite": favorite},
         }
-    normalized = normalize_food_profile_draft_for_tools(db, family_id=family_id, payload=payload.get("payload") or {})
+    incoming_payload = payload.get("payload") or {}
+    before = _serialize_food_before(food)
+    normalized = normalize_food_profile_draft_for_tools(db, family_id=family_id, payload=incoming_payload)
+    if isinstance(incoming_payload, dict) and "storage_location" not in incoming_payload and "storageLocation" not in incoming_payload:
+        normalized["storage_location"] = before.get("storage_location", "")
     return {
         "draftType": "food_profile",
         "schemaVersion": "food_profile_operation.v1",
         "action": "update",
         "targetId": food.id,
         "baseUpdatedAt": base_updated_at,
-        "before": _serialize_food_before(food),
+        "before": before,
         "payload": {key: value for key, value in normalized.items() if key not in {"draftType", "schemaVersion"}},
     }
 

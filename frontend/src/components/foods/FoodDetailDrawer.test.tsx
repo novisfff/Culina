@@ -42,6 +42,7 @@ function buildFood(): Food {
     notes: '',
     routine_note: '适合晚餐',
     stock_unit: '份',
+    storage_location: '',
     favorite: false,
     recipe_id: 'recipe-1',
     created_at: '2026-07-07T00:00:00Z',

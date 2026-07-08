@@ -392,6 +392,7 @@ class Food(AuditMixin, Base):
     expiry_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     stock_quantity: Mapped[Decimal | None] = mapped_column(Numeric(10, 2), nullable=True)
     stock_unit: Mapped[str] = mapped_column(String(32), default="", nullable=False)
+    storage_location: Mapped[str] = mapped_column(String(120), default="", nullable=False)
     favorite: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     recipe_id: Mapped[str | None] = mapped_column(ForeignKey("recipes.id", ondelete="SET NULL"), nullable=True)
 

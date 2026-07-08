@@ -47,11 +47,11 @@ const foodItem: InventoryOverviewItem = {
   tone: 'warning',
   expiry_date: '2026-07-08',
   days_until_expiry: 1,
-  storage_location: '食物库',
+  storage_location: '冷冻',
   purchase_source: '盒马',
   updated_at: '2026-07-07T12:00:00Z',
   primary_action: 'record_meal',
-  search_text: '蓝莓酸奶 饮品 盒马 早餐',
+  search_text: '蓝莓酸奶 饮品 冷冻 盒马 早餐',
 };
 
 describe('inventoryOverviewModel', () => {
@@ -59,13 +59,19 @@ describe('inventoryOverviewModel', () => {
     expect(filterUnifiedInventoryItems([ingredientItem, foodItem], { source: 'food', search: '酸奶' })).toEqual([foodItem]);
     expect(filterUnifiedInventoryItems([ingredientItem, foodItem], { source: 'ingredient', search: '酸奶' })).toEqual([]);
     expect(filterUnifiedInventoryItems([ingredientItem, foodItem], { source: 'all', search: '冷藏' })).toEqual([ingredientItem]);
+    expect(filterUnifiedInventoryItems([ingredientItem, foodItem], { source: 'food', search: '冷冻' })).toEqual([foodItem]);
   });
 
   it('groups items by storage and counts food stock separately', () => {
     const groups = buildUnifiedInventoryGroups([ingredientItem, foodItem]);
-    expect(groups.map((group) => group.key)).toEqual(['食物库', '冷藏']);
-    expect(groups[0].foodCount).toBe(1);
-    expect(groups[1].ingredientCount).toBe(1);
+    expect(groups.map((group) => group.key)).toEqual(['冷藏', '冷冻']);
+    expect(groups[0].ingredientCount).toBe(1);
+    expect(groups[1].foodCount).toBe(1);
+  });
+
+  it('falls back food stock without a location to room temperature', () => {
+    const groups = buildUnifiedInventoryGroups([{ ...foodItem, storage_location: '' }]);
+    expect(groups.map((group) => group.key)).toEqual(['常温']);
   });
 
   it('builds summary metrics and action labels', () => {

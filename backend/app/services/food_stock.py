@@ -72,6 +72,7 @@ def apply_food_stock_restock(
     unit: str | None,
     expiry_date: date | None,
     purchase_source: str | None,
+    storage_location: str | None,
     note: str = "",
 ) -> Food:
     _require_food_stock_managed(food)
@@ -86,6 +87,8 @@ def apply_food_stock_restock(
         food.expiry_date = expiry_date
     if purchase_source is not None:
         food.purchase_source = purchase_source.strip()
+    if storage_location is not None:
+        food.storage_location = storage_location.strip()
     detail = f"补充食物库存 {food.name} {_format_quantity(quantity, normalized_unit)}"
     if note.strip():
         detail = f"{detail}：{note.strip()}"

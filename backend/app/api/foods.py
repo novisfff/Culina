@@ -38,7 +38,7 @@ router = APIRouter(tags=["foods"])
 
 
 SYNCED_SELF_MADE_MESSAGE = "家常菜由菜谱自动同步"
-READY_LIKE_TYPES = {FoodType.READY_MADE.value, FoodType.INSTANT.value}
+READY_LIKE_TYPES = {FoodType.READY_MADE.value, FoodType.INSTANT.value, FoodType.PACKAGED.value}
 OUTSIDE_TYPES = {FoodType.TAKEOUT.value, FoodType.DINING_OUT.value}
 POSITIVE_REASON_LABELS = {
     "target_meal": "适合{meal}",
@@ -300,6 +300,7 @@ def _apply_food_payload(food: Food, payload: CreateFoodRequest | UpdateFoodReque
     food.expiry_date = payload.expiry_date
     food.stock_quantity = payload.stock_quantity
     food.stock_unit = payload.stock_unit
+    food.storage_location = payload.storage_location
     food.favorite = payload.favorite
     food.recipe_id = payload.recipe_id
 
@@ -585,6 +586,7 @@ def restock_food_stock(
             unit=payload.unit,
             expiry_date=payload.expiry_date,
             purchase_source=payload.purchase_source,
+            storage_location=payload.storage_location,
             note=payload.note,
         )
     except ValueError as exc:

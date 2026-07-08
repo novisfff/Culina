@@ -172,6 +172,7 @@ def _food_rows(
             continue
         days = _days_until(food.expiry_date, today)
         tone = _tone_for_stock(quantity, food.expiry_date, today)
+        storage_location = food.storage_location or "常温"
         row = {
             "id": f"food:{food.id}",
             "source_type": "food",
@@ -188,7 +189,7 @@ def _food_rows(
             "tone": tone,
             "expiry_date": food.expiry_date,
             "days_until_expiry": days,
-            "storage_location": "食物库",
+            "storage_location": storage_location,
             "purchase_source": food.purchase_source or food.source_name or None,
             "updated_at": food.updated_at.isoformat(),
             "primary_action": "edit_food_stock" if tone == "danger" else "record_meal",
@@ -196,6 +197,7 @@ def _food_rows(
                 [
                     food.name,
                     food.category,
+                    storage_location,
                     food.source_name,
                     food.purchase_source,
                     food.notes,

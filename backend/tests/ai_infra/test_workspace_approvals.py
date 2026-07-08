@@ -2229,6 +2229,7 @@ class AIWorkspaceApprovalsTestCase(AIAgentInfraTestCase):
                     scene="早餐",
                     notes="旧备注",
                     routine_note="",
+                    storage_location="冷藏",
                     favorite=False,
                     created_by=self.user.id,
                     updated_by=self.user.id,
@@ -2310,6 +2311,7 @@ class AIWorkspaceApprovalsTestCase(AIAgentInfraTestCase):
                 self.assertEqual(food.category, "乳品")
                 self.assertTrue(food.favorite)
                 self.assertEqual(food.source_name, "新品牌")
+                self.assertEqual(food.storage_location, "冷藏")
 
         def test_food_profile_set_favorite_operation_updates_existing_food(self) -> None:
             with self.SessionLocal() as db:
