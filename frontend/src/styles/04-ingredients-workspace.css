@@ -18,6 +18,13 @@
   align-items: stretch;
 }
 
+.ingredients-unified-inventory-card-source-food {
+  border-color: rgba(191, 132, 73, 0.2);
+  box-shadow:
+    inset 3px 0 0 rgba(210, 107, 51, 0.28),
+    0 10px 24px rgba(74, 54, 40, 0.035);
+}
+
 .ingredients-unified-inventory-card.tone-warning {
   border-color: rgba(212, 161, 77, 0.22);
 }
@@ -33,6 +40,25 @@
 .ingredients-unified-inventory-card .ingredient-visual-pill-flex {
   color: #526455;
   background: rgba(234, 243, 236, 0.9);
+}
+
+.ingredients-unified-inventory-source-badge {
+  flex: 0 0 auto;
+  max-width: 74px;
+  min-height: 24px;
+  padding: 4px 8px;
+  border-radius: 999px;
+  border: 1px solid rgba(210, 107, 51, 0.16);
+  background: rgba(255, 244, 235, 0.92);
+  color: #8a4d25;
+  font-size: 0.72rem;
+  font-weight: 850;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.ingredients-inventory-mixed-group {
+  background: rgba(255, 255, 255, 0.96);
 }
 
 .ingredients-unified-inventory-card.tone-warning .ingredient-visual-pill-flex {

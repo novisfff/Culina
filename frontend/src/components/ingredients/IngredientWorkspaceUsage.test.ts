@@ -45,6 +45,14 @@ describe('IngredientWorkspace shared overlay usage', () => {
     expect(workspaceSource).toContain('queryKeys.inventoryOverview');
   });
 
+  it('mixes unified food stock cards into the ingredient grid without storage section headers', () => {
+    const panelsSource = readFileSync(resolve(__dirname, 'IngredientWorkspacePanels.tsx'), 'utf8');
+
+    expect(panelsSource).not.toContain('位置分区');
+    expect(panelsSource).toContain('ingredients-inventory-mixed-grid');
+    expect(panelsSource).toContain('ingredients-unified-inventory-source-badge');
+  });
+
   it('routes unified food-stock actions into existing food workspace flows', () => {
     const workspaceSource = readFileSync(sourcePath, 'utf8');
     const panelsSource = readFileSync(resolve(__dirname, 'IngredientWorkspacePanels.tsx'), 'utf8');

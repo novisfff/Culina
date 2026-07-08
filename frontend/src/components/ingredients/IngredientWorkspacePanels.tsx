@@ -302,6 +302,10 @@ type CombinedInventoryGroup = {
   unifiedGroup: UnifiedInventoryGroup | null;
 };
 
+type MixedInventoryCard =
+  | { key: string; type: 'food'; item: InventoryOverviewItem }
+  | { key: string; type: 'ingredient'; summary: IngredientSummaryViewModel };
+
 type UnifiedInventoryPanelContextValue = {
   inventorySourceFilter: InventorySourceFilter;
   onInventorySourceFilterChange: (value: InventorySourceFilter) => void;
@@ -368,7 +372,7 @@ function UnifiedInventoryFoodCard(props: {
       ? '建议先核对到期和剩余数量，再决定是否记餐。'
       : '记到今天时可以同步扣减这份成品库存。';
   const cardClassName = [
-    'ingredient-card ingredient-card-interactive ingredient-visual-card ingredient-visual-card-summary ingredient-visual-card-inventory ingredient-work-card inventory-ingredient-card ingredients-unified-inventory-card',
+    'ingredient-card ingredient-card-interactive ingredient-visual-card ingredient-visual-card-summary ingredient-visual-card-inventory ingredient-work-card inventory-ingredient-card ingredients-unified-inventory-card ingredients-unified-inventory-card-source-food',
     `tone-${props.item.tone}`,
     props.item.tone === 'danger' ? 'ingredient-work-card-has-danger' : '',
     props.item.tone === 'warning' ? 'ingredient-work-card-has-warning' : '',
@@ -417,6 +421,7 @@ function UnifiedInventoryFoodCard(props: {
           <div className="ingredient-visual-body inventory-ingredient-card-body">
             <div className="ingredient-visual-title-row inventory-ingredient-card-title-row">
               <h3>{props.item.title}</h3>
+              <span className="ingredients-unified-inventory-source-badge">{sourceLabel}</span>
             </div>
             <p className="ingredient-visual-meta" title={metaLine}>
               {metaLine}
@@ -531,6 +536,26 @@ export function IngredientInventoryPanel(props: InventoryPanelProps) {
     }
     return groups;
   }, [props.inventoryGroups, sourceFilter, unifiedGroups]);
+  const mixedInventoryCards = useMemo<MixedInventoryCard[]>(() => {
+    const cards: MixedInventoryCard[] = [];
+    for (const group of combinedInventoryGroups) {
+      const ingredientGroup = sourceFilter === 'food' ? null : group.ingredientGroup;
+      const ingredientItems = ingredientGroup?.items ?? [];
+      const foodItems = (group.unifiedGroup?.items ?? [])
+        .filter((item) => item.source_type === 'food')
+        .filter((item) =>
+          props.inventoryQuickFilter === 'alerted' ? item.tone === 'warning' || item.tone === 'danger' : true
+        );
+
+      for (const summary of ingredientItems) {
+        cards.push({ key: `ingredient:${summary.ingredient.id}`, type: 'ingredient', summary });
+      }
+      for (const item of foodItems) {
+        cards.push({ key: item.id, type: 'food', item });
+      }
+    }
+    return cards;
+  }, [combinedInventoryGroups, props.inventoryQuickFilter, sourceFilter]);
 
   return (
     <div className="ingredients-panel-stack ingredients-inventory-stack">
@@ -588,6 +613,20 @@ export function IngredientInventoryPanel(props: InventoryPanelProps) {
               <small>{unifiedSummary.alertCount}</small>
             </button>
             <button
+              className={
+                props.inventorySortMode === 'expiry'
+                  ? 'chip ingredients-inventory-filter-chip active ingredients-inventory-filter-chip-icon'
+                  : 'chip ingredients-inventory-filter-chip ingredients-inventory-filter-chip-icon'
+              }
+              type="button"
+              onClick={() =>
+                props.onInventorySortModeChange((current) => (current === 'expiry' ? 'default' : 'expiry'))
+              }
+            >
+              <props.IngredientWorkspaceIcon name="sort" />
+              按到期
+            </button>
+            <button
               className="chip ingredients-inventory-filter-chip ingredients-inventory-clear-filter"
               type="button"
               onClick={props.onResetFilters}
@@ -634,98 +673,31 @@ export function IngredientInventoryPanel(props: InventoryPanelProps) {
       </section>
 
       <div className="ingredients-storage-groups ingredients-inventory-groups">
-        {combinedInventoryGroups.length > 0 ? (
-          combinedInventoryGroups.map((group) => {
-            const foodItems = (group.unifiedGroup?.items ?? [])
-              .filter((item) => item.source_type === 'food')
-              .filter((item) =>
-                props.inventoryQuickFilter === 'alerted' ? item.tone === 'warning' || item.tone === 'danger' : true
-              );
-            const ingredientGroup = sourceFilter === 'food' ? null : group.ingredientGroup;
-            const ingredientCount = group.unifiedGroup?.ingredientCount ?? ingredientGroup?.items.length ?? 0;
-            const foodCount = group.unifiedGroup?.foodCount ?? 0;
-            const alertCount = group.unifiedGroup?.alertCount ?? ingredientGroup?.alertCount ?? 0;
-            const totalBatches = ingredientGroup?.totalBatches ?? 0;
-            const ingredientItems = ingredientGroup?.items ?? [];
-
-            if (foodItems.length === 0 && ingredientItems.length === 0) {
-              return null;
-            }
-
-            return (
-              <section
-                key={group.key}
-                className={`ingredients-storage-group ingredients-inventory-storage-group storage-${group.key}`}
-              >
-                <div className="ingredients-storage-head ingredients-inventory-storage-head">
-                  <div className="ingredients-inventory-storage-titleblock">
-                    <h3>
-                      <span>位置分区</span>
-                      <small>/</small>
-                      {group.label}
-                    </h3>
-                    <p className="subtle">
-                      {ingredientCount} 种食材
-                      {foodCount > 0 ? ` · ${foodCount} 个成品速食` : ''}
-                      {totalBatches > 0 ? ` · ${totalBatches} 条批次` : ''}
-                      · {alertCount} 条提醒
-                    </p>
-                  </div>
-                  <div className="ingredients-inventory-storage-head-side" aria-label="库存分区筛选和排序">
-                    <button
-                      className={
-                        props.inventoryQuickFilter === 'alerted'
-                          ? 'chip ingredients-inventory-filter-chip active ingredients-inventory-filter-chip-icon'
-                          : 'chip ingredients-inventory-filter-chip ingredients-inventory-filter-chip-icon'
-                      }
-                      type="button"
-                      onClick={() =>
-                        props.onInventoryQuickFilterChange((current) => (current === 'alerted' ? 'all' : 'alerted'))
-                      }
-                    >
-                      <props.IngredientWorkspaceIcon name="bell" />
-                      仅看提醒
-                    </button>
-                    <button
-                      className={
-                        props.inventorySortMode === 'expiry'
-                          ? 'chip ingredients-inventory-filter-chip active ingredients-inventory-filter-chip-icon'
-                          : 'chip ingredients-inventory-filter-chip ingredients-inventory-filter-chip-icon'
-                      }
-                      type="button"
-                      onClick={() =>
-                        props.onInventorySortModeChange((current) => (current === 'expiry' ? 'default' : 'expiry'))
-                      }
-                    >
-                      <props.IngredientWorkspaceIcon name="sort" />
-                      按到期时间排序
-                    </button>
-                  </div>
-                </div>
-                <div className="ingredients-inventory-grid ingredients-storage-workbench-density-compact">
-                  {foodItems.map((item) => (
+        {mixedInventoryCards.length > 0 ? (
+          <section className="ingredients-storage-group ingredients-inventory-storage-group ingredients-inventory-mixed-group">
+            <div className="ingredients-inventory-grid ingredients-inventory-mixed-grid ingredients-storage-workbench-density-compact">
+              {mixedInventoryCards.map((card) =>
+                card.type === 'food' ? (
                     <UnifiedInventoryFoodCard
-                      key={item.id}
-                      item={item}
-                      onRecordMeal={() => unifiedContext?.onRecordFoodStockMeal(item.source_id)}
-                      onEditStock={() => unifiedContext?.onOpenFoodStock(item.source_id)}
+                      key={card.key}
+                      item={card.item}
+                      onRecordMeal={() => unifiedContext?.onRecordFoodStockMeal(card.item.source_id)}
+                      onEditStock={() => unifiedContext?.onOpenFoodStock(card.item.source_id)}
                     />
-                  ))}
-                  {ingredientItems.map((summary) => (
+                  ) : (
                     <props.InventoryIngredientCard
-                      key={summary.ingredient.id}
-                      summary={summary}
-                      onRestock={() => props.onOpenInventoryOverlay(summary.ingredient.id)}
-                      onConsume={() => props.onOpenConsumeOverlay(summary.ingredient.id)}
-                      onAddShopping={() => props.onOpenShoppingForSummary(summary)}
-                      onDetail={() => props.onOpenDetailView(summary)}
-                      onDestroyExpired={() => props.onOpenDestroyExpiredOverlay(summary.ingredient.id)}
+                      key={card.key}
+                      summary={card.summary}
+                      onRestock={() => props.onOpenInventoryOverlay(card.summary.ingredient.id)}
+                      onConsume={() => props.onOpenConsumeOverlay(card.summary.ingredient.id)}
+                      onAddShopping={() => props.onOpenShoppingForSummary(card.summary)}
+                      onDetail={() => props.onOpenDetailView(card.summary)}
+                      onDestroyExpired={() => props.onOpenDestroyExpiredOverlay(card.summary.ingredient.id)}
                     />
-                  ))}
-                </div>
-              </section>
-            );
-          })
+                  )
+              )}
+            </div>
+          </section>
         ) : (
           <EmptyState
             title={
