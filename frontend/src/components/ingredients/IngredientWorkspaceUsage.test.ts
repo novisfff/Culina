@@ -33,9 +33,11 @@ describe('IngredientWorkspace shared overlay usage', () => {
 
   it('renders unified inventory source filters and food stock copy', () => {
     const panelsSource = readFileSync(resolve(__dirname, 'IngredientWorkspacePanels.tsx'), 'utf8');
-    expect(panelsSource).toContain('全部库存');
-    expect(panelsSource).toContain('食材库存');
-    expect(panelsSource).toContain('成品速食');
+    expect(panelsSource).toContain("label: '全部'");
+    expect(panelsSource).toContain("label: '食材'");
+    expect(panelsSource).toContain("label: '成品'");
+    expect(panelsSource).toContain('<span>提醒</span>');
+    expect(panelsSource).toContain('inventorySummaryText');
     expect(panelsSource).toContain('getUnifiedInventoryActionLabel');
 
     const workspaceSource = readFileSync(sourcePath, 'utf8');

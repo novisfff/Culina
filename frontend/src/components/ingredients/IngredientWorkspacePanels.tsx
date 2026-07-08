@@ -387,6 +387,11 @@ export function IngredientInventoryPanel(props: InventoryPanelProps) {
     foodCount: 0,
     alertCount: 0,
   };
+  const inventorySummaryText = [
+    `${unifiedSummary.totalCount}项`,
+    unifiedSummary.foodCount > 0 ? `成品${unifiedSummary.foodCount}` : null,
+    props.inventoryStorageFocus !== 'all' ? props.inventoryStorageFocus : null,
+  ].filter(Boolean).join(' · ');
   const combinedInventoryGroups = useMemo(() => {
     if (sourceFilter === 'food') {
       return unifiedGroups.map<CombinedInventoryGroup>((group) => ({
@@ -453,24 +458,29 @@ export function IngredientInventoryPanel(props: InventoryPanelProps) {
                 ariaLabel="库存来源筛选"
                 value={unifiedContext.inventorySourceFilter}
                 options={[
-                  { value: 'all', label: '全部库存', description: String(unifiedSummary.totalCount) },
-                  { value: 'ingredient', label: '食材库存', description: String(unifiedSummary.ingredientCount) },
-                  { value: 'food', label: '成品速食', description: String(unifiedSummary.foodCount) },
+                  { value: 'all', label: '全部', description: String(unifiedSummary.totalCount) },
+                  { value: 'ingredient', label: '食材', description: String(unifiedSummary.ingredientCount) },
+                  { value: 'food', label: '成品', description: String(unifiedSummary.foodCount) },
                 ]}
                 className="ingredients-inventory-source-chip-group"
                 onChange={unifiedContext.onInventorySourceFilterChange}
               />
             ) : null}
-            <OptionChipGroup
-              ariaLabel="库存快捷筛选"
-              value={props.inventoryQuickFilter}
-              options={[
-                { value: 'all', label: '全部库存' },
-                { value: 'alerted', label: '仅看提醒' },
-              ]}
-              className="ingredients-inventory-filter-chip-group"
-              onChange={props.onInventoryQuickFilterChange}
-            />
+            <button
+              className={
+                props.inventoryQuickFilter === 'alerted'
+                  ? 'ui-option-chip is-selected ingredients-inventory-alert-toggle'
+                  : 'ui-option-chip ingredients-inventory-alert-toggle'
+              }
+              type="button"
+              aria-pressed={props.inventoryQuickFilter === 'alerted'}
+              onClick={() =>
+                props.onInventoryQuickFilterChange((current) => (current === 'alerted' ? 'all' : 'alerted'))
+              }
+            >
+              <span>提醒</span>
+              <small>{unifiedSummary.alertCount}</small>
+            </button>
             <button
               className="chip ingredients-inventory-filter-chip ingredients-inventory-clear-filter"
               type="button"
@@ -482,9 +492,7 @@ export function IngredientInventoryPanel(props: InventoryPanelProps) {
         </div>
         <div className="ingredients-panel-toolbar-actions ingredients-inventory-toolbar-actions">
           <p className="ingredients-toolbar-summary">
-            当前显示 {unifiedSummary.totalCount} 项库存
-            {unifiedSummary.foodCount > 0 ? ` · 含 ${unifiedSummary.foodCount} 个成品速食` : ''}
-            {props.inventoryStorageFocus !== 'all' ? ` · ${props.inventoryStorageFocus}` : ''}
+            {inventorySummaryText}
           </p>
         </div>
       </div>

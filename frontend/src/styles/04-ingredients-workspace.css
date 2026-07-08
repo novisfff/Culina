@@ -6,8 +6,10 @@
 
 .ingredients-inventory-source-chip-group {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: 8px;
+  overflow: visible;
+  padding-bottom: 0;
 }
 
 .ingredients-unified-inventory-card {
@@ -2075,6 +2077,7 @@
 
 .ingredients-inventory-filter-row {
   display: flex;
+  align-items: center;
   gap: 8px;
   flex-wrap: nowrap;
   min-width: 0;
@@ -2090,6 +2093,10 @@
   flex: 0 0 auto;
   min-height: 32px;
   padding-inline: 12px;
+}
+
+.ingredients-inventory-alert-toggle {
+  flex: 0 0 auto;
 }
 
 .ingredients-restock-quantity-row {
