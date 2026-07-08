@@ -13,97 +13,38 @@
 }
 
 .ingredients-unified-inventory-card {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 14px;
-  align-items: center;
-  padding: 18px;
-  border: 1px solid rgba(92, 67, 48, 0.12);
-  border-radius: 20px;
-  background: #fffdf9;
-  box-shadow: 0 4px 12px rgba(74, 54, 40, 0.06);
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0;
+  align-items: stretch;
 }
 
 .ingredients-unified-inventory-card.tone-warning {
-  border-color: rgba(230, 154, 46, 0.28);
-  background: #fff9eb;
+  border-color: rgba(212, 161, 77, 0.22);
 }
 
 .ingredients-unified-inventory-card.tone-danger {
-  border-color: rgba(217, 75, 61, 0.28);
-  background: #fff3f1;
+  border-color: rgba(203, 118, 115, 0.24);
 }
 
-.ingredients-unified-inventory-main {
-  display: flex;
-  min-width: 0;
-  gap: 14px;
-  align-items: center;
+.ingredients-unified-inventory-card-media .media-placeholder-label {
+  display: none;
 }
 
-.ingredients-unified-inventory-media {
-  display: grid;
-  width: 58px;
-  height: 58px;
-  flex: 0 0 auto;
-  place-items: center;
-  border-radius: 18px;
-  background: #f6efe7;
-  color: #7a4d2d;
-  font-weight: 700;
+.ingredients-unified-inventory-card .ingredient-visual-pill-flex {
+  color: #526455;
+  background: rgba(234, 243, 236, 0.9);
 }
 
-.ingredients-unified-inventory-copy {
-  min-width: 0;
+.ingredients-unified-inventory-card.tone-warning .ingredient-visual-pill-flex {
+  color: #875319;
+  background: rgba(253, 243, 223, 0.96);
+  border-color: rgba(212, 161, 77, 0.22);
 }
 
-.ingredients-unified-inventory-head {
-  display: flex;
-  min-width: 0;
-  gap: 8px;
-  align-items: center;
-}
-
-.ingredients-unified-inventory-head h3 {
-  margin: 0;
-  min-width: 0;
-  overflow: hidden;
-  color: var(--text);
-  font-size: 1rem;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.ingredients-unified-inventory-head span {
-  flex: 0 0 auto;
-  padding: 4px 8px;
-  border-radius: 999px;
-  background: #eaf6ea;
-  color: #4f7d45;
-  font-size: 0.75rem;
-  font-weight: 600;
-}
-
-.ingredients-unified-inventory-copy p,
-.ingredients-unified-inventory-copy small {
-  display: block;
-  margin: 4px 0 0;
-  color: var(--text-soft);
-  font-size: 0.8125rem;
-}
-
-.ingredients-unified-inventory-copy strong {
-  display: block;
-  margin-top: 6px;
-  color: var(--text);
-  font-size: 1.125rem;
-}
-
-.ingredients-unified-inventory-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  justify-content: flex-end;
+.ingredients-unified-inventory-card.tone-danger .ingredient-visual-pill-flex {
+  color: #9d4e55;
+  background: rgba(251, 234, 236, 0.96);
+  border-color: rgba(203, 118, 115, 0.24);
 }
 
 .ingredients-desktop-view {

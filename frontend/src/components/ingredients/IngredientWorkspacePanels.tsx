@@ -9,6 +9,8 @@ import {
   type RefObject,
 } from 'react';
 import type { InventoryOverviewItem, ShoppingListItem } from '../../api/types';
+import { buildMediaSizes, buildMediaSrcSet, resolveMediaUrl } from '../../lib/assets';
+import { MediaWithPlaceholder } from '../MediaPlaceholder';
 import {
   ActionButton,
   Badge,
@@ -339,6 +341,9 @@ function UnifiedInventoryFoodCard(props: {
       ? props.onEditStock
       : props.onRecordMeal;
   const sourceLabel = getUnifiedInventorySourceLabel(props.item);
+  const imageUrl = resolveMediaUrl(props.item.image, 'card');
+  const hasCustomImage = Boolean(props.item.image?.url);
+  const metaLine = [props.item.category || '未分类', props.item.storage_location || '食物库'].join(' · ');
   const expiryLabel =
     props.item.days_until_expiry == null
       ? '未记录到期'
@@ -347,30 +352,130 @@ function UnifiedInventoryFoodCard(props: {
         : props.item.days_until_expiry === 0
           ? '今天到期'
           : `${props.item.days_until_expiry} 天后到期`;
+  const expiryTone = props.item.tone === 'danger' ? 'danger' : props.item.tone === 'warning' ? 'warning' : 'neutral';
+  const statusLabel =
+    props.item.tone === 'danger'
+      ? '需处理'
+      : props.item.tone === 'warning'
+        ? '临期提醒'
+        : props.item.tone === 'empty'
+          ? '未登记'
+          : '平稳';
+  const purchaseLine = props.item.purchase_source ? `最近来源 ${props.item.purchase_source}` : '未记录购买来源';
+  const footerNote =
+    props.item.primary_action === 'edit_food_stock'
+      ? '建议先核对到期和剩余数量，再决定是否记餐。'
+      : '记到今天时可以同步扣减这份成品库存。';
+  const cardClassName = [
+    'ingredient-card ingredient-card-interactive ingredient-visual-card ingredient-visual-card-summary ingredient-visual-card-inventory ingredient-work-card inventory-ingredient-card ingredients-unified-inventory-card',
+    `tone-${props.item.tone}`,
+    props.item.tone === 'danger' ? 'ingredient-work-card-has-danger' : '',
+    props.item.tone === 'warning' ? 'ingredient-work-card-has-warning' : '',
+  ]
+    .filter(Boolean)
+    .join(' ');
 
   return (
-    <article className={`ingredients-unified-inventory-card source-food tone-${props.item.tone}`}>
-      <div className="ingredients-unified-inventory-main">
-        <div className="ingredients-unified-inventory-media">
-          <span>{props.item.title.slice(0, 1)}</span>
-        </div>
-        <div className="ingredients-unified-inventory-copy">
-          <div className="ingredients-unified-inventory-head">
-            <h3>{props.item.title}</h3>
-            <span>{sourceLabel}</span>
+    <article className={cardClassName}>
+      <div className="ingredient-work-card-primary">
+        <div className="ingredient-work-card-toggle">
+          <button
+            type="button"
+            className="ingredient-visual-media ingredient-visual-media-button inventory-ingredient-card-media ingredients-unified-inventory-card-media"
+            onClick={props.onEditStock}
+            aria-label={`编辑 ${props.item.title} 库存资料`}
+          >
+            <div
+              className={
+                hasCustomImage
+                  ? 'ingredient-visual-canvas'
+                  : 'ingredient-visual-canvas ingredient-visual-canvas-placeholder'
+              }
+            >
+              <MediaWithPlaceholder
+                className="ingredient-visual-cover-frame"
+                imageClassName="ingredient-visual-cover"
+                src={imageUrl}
+                srcSet={buildMediaSrcSet(props.item.image)}
+                sizes={buildMediaSizes('card')}
+                alt={props.item.title}
+                emptyLabel="成品图片"
+                showLabel={false}
+              />
+            </div>
+            <span className="ingredient-visual-entry-hint" aria-hidden="true">
+              <span>↗</span>
+            </span>
+            {(props.item.tone === 'warning' || props.item.tone === 'danger') && (
+              <span className={`ingredient-visual-corner ingredient-visual-corner-${props.item.tone}`}>
+                {expiryLabel}
+              </span>
+            )}
+          </button>
+
+          <div className="ingredient-visual-body inventory-ingredient-card-body">
+            <div className="ingredient-visual-title-row inventory-ingredient-card-title-row">
+              <h3>{props.item.title}</h3>
+            </div>
+            <p className="ingredient-visual-meta" title={metaLine}>
+              {metaLine}
+            </p>
+            <div className="inventory-ingredient-card-stockline">
+              <div className="inventory-ingredient-card-stockline-head">
+                <span className="inventory-ingredient-card-stockline-label">剩余库存</span>
+                <span
+                  className={`inventory-ingredient-card-expiry-badge tone-${expiryTone}`}
+                  title={props.item.expiry_date ? `到期日 ${props.item.expiry_date}` : '未记录到期日'}
+                >
+                  {expiryLabel}
+                </span>
+              </div>
+              <strong>{props.item.quantity_label}</strong>
+              <p title={purchaseLine}>{purchaseLine}</p>
+              <div className="inventory-ingredient-card-data-row">
+                <span>库存 {props.item.quantity_label}</span>
+                <span>成品记录</span>
+                <span>{props.item.tone === 'warning' || props.item.tone === 'danger' ? '1 条提醒' : '0 条提醒'}</span>
+              </div>
+            </div>
+
+            <div className="ingredient-visual-tag-row inventory-ingredient-card-tag-row">
+              <span className="ingredient-visual-pill inventory-ingredient-card-pill-location">
+                {props.item.storage_location || '食物库'}
+              </span>
+              <span className="ingredient-visual-pill ingredient-work-card-stable-pill ingredient-visual-pill-flex">
+                {sourceLabel} · {statusLabel}
+              </span>
+            </div>
           </div>
-          <p>{props.item.category} · {props.item.purchase_source || '未记录来源'}</p>
-          <strong>{props.item.quantity_label}</strong>
-          <small>{expiryLabel}</small>
         </div>
-      </div>
-      <div className="ingredients-unified-inventory-actions">
-        <ActionButton tone="secondary" size="compact" type="button" onClick={primaryAction}>
-          {actionLabel}
-        </ActionButton>
-        <ActionButton tone="tertiary" size="compact" type="button" onClick={props.onEditStock}>
-          编辑资料
-        </ActionButton>
+
+        <div className="ingredient-work-card-actions inventory-ingredient-card-actions">
+          <ActionButton
+            tone="secondary"
+            size="compact"
+            type="button"
+            className="ingredient-work-card-action-button ingredient-work-card-action-button-primary"
+            onClick={primaryAction}
+          >
+            {actionLabel}
+          </ActionButton>
+          <ActionButton
+            tone="secondary"
+            size="compact"
+            type="button"
+            className="ingredient-work-card-action-button ingredient-work-card-action-button-secondary"
+            onClick={props.onEditStock}
+          >
+            编辑资料
+          </ActionButton>
+        </div>
+
+        <div className="ingredient-work-card-footer inventory-ingredient-card-footer">
+          <span className="ingredient-work-card-footer-note inventory-ingredient-card-footer-note">
+            {footerNote}
+          </span>
+        </div>
       </div>
     </article>
   );
