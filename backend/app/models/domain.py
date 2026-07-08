@@ -222,6 +222,7 @@ class ShoppingListItem(AuditMixin, Base):
     id: Mapped[str] = mapped_column(String(64), primary_key=True, default=lambda: create_id("shopping"))
     family_id: Mapped[str] = mapped_column(ForeignKey("families.id", ondelete="CASCADE"), nullable=False, index=True)
     ingredient_id: Mapped[str | None] = mapped_column(ForeignKey("ingredients.id", ondelete="SET NULL"), nullable=True, index=True)
+    food_id: Mapped[str | None] = mapped_column(ForeignKey("foods.id", ondelete="SET NULL"), nullable=True, index=True)
     title: Mapped[str] = mapped_column(String(120), nullable=False)
     quantity: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
     unit: Mapped[str] = mapped_column(String(32), nullable=False)
@@ -236,6 +237,7 @@ class ShoppingListItem(AuditMixin, Base):
 
     family: Mapped["Family"] = relationship(back_populates="shopping_items")
     ingredient: Mapped["Ingredient | None"] = relationship(back_populates="shopping_items")
+    food: Mapped["Food | None"] = relationship(back_populates="shopping_items")
 
 
 class Recipe(AuditMixin, Base):
@@ -392,6 +394,7 @@ class Food(AuditMixin, Base):
     expiry_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     stock_quantity: Mapped[Decimal | None] = mapped_column(Numeric(10, 2), nullable=True)
     stock_unit: Mapped[str] = mapped_column(String(32), default="", nullable=False)
+    storage_location: Mapped[str] = mapped_column(String(120), default="", nullable=False)
     favorite: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     recipe_id: Mapped[str | None] = mapped_column(ForeignKey("recipes.id", ondelete="SET NULL"), nullable=True)
 
@@ -399,6 +402,7 @@ class Food(AuditMixin, Base):
     recipe: Mapped["Recipe | None"] = relationship(back_populates="foods")
     meal_entries: Mapped[list["MealLogFood"]] = relationship(back_populates="food", cascade="all, delete-orphan")
     plan_items: Mapped[list["FoodPlanItem"]] = relationship(back_populates="food", cascade="all, delete-orphan")
+    shopping_items: Mapped[list["ShoppingListItem"]] = relationship(back_populates="food")
 
 
 class MealLog(AuditMixin, Base):

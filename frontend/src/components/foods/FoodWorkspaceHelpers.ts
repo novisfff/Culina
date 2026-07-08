@@ -1,5 +1,6 @@
 import type { Food, FoodType, Ingredient, InventoryItem, MealLog, MealType, Recipe } from '../../api/types';
 import { todayKey } from '../../lib/date';
+import { formatFoodStockAmount } from '../../lib/foodStockQuantity';
 import { MEAL_TYPE_LABELS, formatDate, getFoodCover } from '../../lib/ui';
 import { buildRecipeCards, type RecipeCardViewModel } from '../recipes/workspaceModel';
 import { FOOD_GOVERNANCE_ISSUE_OPTIONS, type FoodGovernanceIssue } from './FoodWorkspaceOptions';
@@ -76,7 +77,7 @@ export function getFoodGovernanceIssues(food: Food, recipes: Recipe[] = []): Foo
   if (food.suitable_meal_types.length === 0) issues.push('meal');
   if (!food.routine_note.trim() && !food.notes.trim() && !food.scene.trim() && getFoodSceneTags(food).length === 0) issues.push('note');
   if (normalizeFoodType(food) !== 'selfMade' && !food.source_name.trim() && !food.purchase_source.trim()) issues.push('source');
-  if (isReadyLikeFood(food) && (food.stock_quantity == null || !food.stock_unit.trim() || !food.expiry_date)) issues.push('stock');
+  if (isReadyLikeFood(food) && (food.stock_quantity == null || !food.stock_unit.trim() || !food.expiry_date || !food.storage_location.trim())) issues.push('stock');
   return issues;
 }
 
@@ -157,7 +158,8 @@ export function getFoodFactRows(food: Food, usage: ReturnType<typeof getMealUsag
     ];
   }
   return [
-    { label: '库存', value: food.stock_quantity == null ? '未记录' : `${food.stock_quantity}${food.stock_unit}` },
+    { label: '库存', value: formatFoodStockQuantity(food) },
+    { label: '存放', value: food.storage_location || '常温' },
     { label: '到期', value: expiry ?? '未记录' },
     { label: '渠道', value: food.purchase_source || food.source_name || '待补充' },
   ];
@@ -233,7 +235,7 @@ export function buildFoodRelationViewModelFromRecipeCards(
     };
   }
 
-  const stockValue = food.stock_quantity == null ? '未记录' : `${food.stock_quantity}${food.stock_unit || '份'}`;
+  const stockValue = formatFoodStockQuantity(food);
   return {
     linkedRecipeCard: null,
     usage,
@@ -250,6 +252,10 @@ export function buildFoodRelationViewModelFromRecipeCards(
       ? '库存未记录，补齐后会更适合做备用餐判断。'
       : `${food.purchase_source || food.source_name || '未记录来源'} · ${describeExpiry(food) ?? '未记录到期'}`,
   };
+}
+
+export function formatFoodStockQuantity(food: Pick<Food, 'stock_quantity' | 'stock_unit'>) {
+  return formatFoodStockAmount(food.stock_quantity, food.stock_unit);
 }
 
 export function buildFoodCookingSummaryFromRecipeCards(

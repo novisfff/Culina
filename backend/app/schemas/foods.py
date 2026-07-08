@@ -31,12 +31,27 @@ class FoodOut(BaseModel):
     expiry_date: date_type | None = None
     stock_quantity: float | None = None
     stock_unit: str
+    storage_location: str
     favorite: bool
     recipe_id: str | None = None
     created_at: datetime
     updated_at: datetime
     created_by: str | None = None
     updated_by: str | None = None
+
+
+class FoodStockChangeRequest(BaseModel):
+    quantity: float = Field(gt=0)
+    unit: str | None = Field(default=None, max_length=32)
+    expiry_date: date_type | None = None
+    purchase_source: str | None = Field(default=None, max_length=120)
+    storage_location: str | None = Field(default=None, max_length=120)
+    note: str = Field(default="", max_length=255)
+    reason: str = Field(default="", max_length=255)
+
+
+class FoodStockChangeOut(FoodOut):
+    pass
 
 
 class FoodRecommendationRecipeAvailabilityOut(BaseModel):
@@ -80,6 +95,7 @@ class CreateFoodRequest(BaseModel):
     expiry_date: date_type | None = None
     stock_quantity: float | None = None
     stock_unit: str = ""
+    storage_location: str = ""
     favorite: bool = False
     recipe_id: str | None = None
     media_ids: list[str] = Field(default_factory=list)

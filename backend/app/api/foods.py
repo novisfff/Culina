@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime, time, timedelta
+from decimal import Decimal
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
@@ -13,9 +14,19 @@ from app.db.session import get_db
 from app.db.transactions import commit_session
 from app.models.domain import Food, MealLog, Recipe
 from app.repos.media import build_media_map, get_media_assets_for_entities
-from app.schemas.foods import CreateFoodRequest, FoodOut, FoodRecommendationsOut, UpdateFoodFavoriteRequest, UpdateFoodRequest
+from app.schemas.foods import (
+    CreateFoodRequest,
+    FoodOut,
+    FoodRecommendationsOut,
+    FoodStockChangeOut,
+    FoodStockChangeRequest,
+    UpdateFoodFavoriteRequest,
+    UpdateFoodRequest,
+)
 from app.services.activity import log_activity
 from app.services.clock import now_for_family
+from app.services.food_stock import apply_food_stock_consume, apply_food_stock_dispose, apply_food_stock_restock
+from app.services.food_stock_quantity import normalize_food_stock_quantity, validate_food_stock_quantity_precision
 from app.services.ingredient_units import UnitConversionError
 from app.services.inventory_usage import load_available_inventory_by_ingredient, recipe_availability_summary
 from app.services.media import bind_media_assets, replace_media_assets
@@ -28,7 +39,7 @@ router = APIRouter(tags=["foods"])
 
 
 SYNCED_SELF_MADE_MESSAGE = "家常菜由菜谱自动同步"
-READY_LIKE_TYPES = {FoodType.READY_MADE.value, FoodType.INSTANT.value}
+READY_LIKE_TYPES = {FoodType.READY_MADE.value, FoodType.INSTANT.value, FoodType.PACKAGED.value}
 OUTSIDE_TYPES = {FoodType.TAKEOUT.value, FoodType.DINING_OUT.value}
 POSITIVE_REASON_LABELS = {
     "target_meal": "适合{meal}",
@@ -272,6 +283,17 @@ def _reject_synced_food_payload(payload: CreateFoodRequest | UpdateFoodRequest) 
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="普通食物不能关联菜谱")
 
 
+def _resolve_payload_stock_quantity(value: float | None) -> Decimal | None:
+    if value is None:
+        return None
+    quantity = Decimal(str(value))
+    try:
+        validate_food_stock_quantity_precision(quantity, field_label="剩余数量")
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    return normalize_food_stock_quantity(quantity)
+
+
 def _apply_food_payload(food: Food, payload: CreateFoodRequest | UpdateFoodRequest) -> None:
     food.name = payload.name
     food.type = payload.type.value
@@ -288,8 +310,9 @@ def _apply_food_payload(food: Food, payload: CreateFoodRequest | UpdateFoodReque
     food.rating = payload.rating
     food.repurchase = payload.repurchase
     food.expiry_date = payload.expiry_date
-    food.stock_quantity = payload.stock_quantity
+    food.stock_quantity = _resolve_payload_stock_quantity(payload.stock_quantity)
     food.stock_unit = payload.stock_unit
+    food.storage_location = payload.storage_location
     food.favorite = payload.favorite
     food.recipe_id = payload.recipe_id
 
@@ -544,6 +567,94 @@ def update_food_favorite(
         summary=f"{food.name}已{'加入' if food.favorite else '移出'}收藏",
     )
     enqueue_search_index_job(db, family_id=membership.family_id, user_id=user.id, entity_type="food", entity_id=food.id, target_name=food.name)
+    commit_session(db)
+    media_map = build_media_map(get_media_assets_for_entities(db, family_id=membership.family_id, entity_type="food", entity_ids=[food.id]))
+    return serialize_food(food, media_map)
+
+
+def _require_food_for_stock(db: Session, *, family_id: str, food_id: str) -> Food:
+    food = db.scalar(select(Food).where(Food.id == food_id, Food.family_id == family_id).with_for_update())
+    if food is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Food not found")
+    return food
+
+
+@router.post("/api/foods/{food_id}/stock/restock", response_model=FoodStockChangeOut)
+def restock_food_stock(
+    food_id: str,
+    payload: FoodStockChangeRequest,
+    auth: tuple = Depends(get_current_auth),
+    db: Session = Depends(get_db),
+) -> dict:
+    user, membership = auth
+    food = _require_food_for_stock(db, family_id=membership.family_id, food_id=food_id)
+    try:
+        apply_food_stock_restock(
+            db,
+            family_id=membership.family_id,
+            user_id=user.id,
+            food=food,
+            quantity=Decimal(str(payload.quantity)),
+            unit=payload.unit,
+            expiry_date=payload.expiry_date,
+            purchase_source=payload.purchase_source,
+            storage_location=payload.storage_location,
+            note=payload.note,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    commit_session(db)
+    media_map = build_media_map(get_media_assets_for_entities(db, family_id=membership.family_id, entity_type="food", entity_ids=[food.id]))
+    return serialize_food(food, media_map)
+
+
+@router.post("/api/foods/{food_id}/stock/consume", response_model=FoodStockChangeOut)
+def consume_food_stock(
+    food_id: str,
+    payload: FoodStockChangeRequest,
+    auth: tuple = Depends(get_current_auth),
+    db: Session = Depends(get_db),
+) -> dict:
+    user, membership = auth
+    food = _require_food_for_stock(db, family_id=membership.family_id, food_id=food_id)
+    try:
+        apply_food_stock_consume(
+            db,
+            family_id=membership.family_id,
+            user_id=user.id,
+            food=food,
+            quantity=Decimal(str(payload.quantity)),
+            unit=payload.unit,
+            note=payload.note,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    commit_session(db)
+    media_map = build_media_map(get_media_assets_for_entities(db, family_id=membership.family_id, entity_type="food", entity_ids=[food.id]))
+    return serialize_food(food, media_map)
+
+
+@router.post("/api/foods/{food_id}/stock/dispose", response_model=FoodStockChangeOut)
+def dispose_food_stock(
+    food_id: str,
+    payload: FoodStockChangeRequest,
+    auth: tuple = Depends(get_current_auth),
+    db: Session = Depends(get_db),
+) -> dict:
+    user, membership = auth
+    food = _require_food_for_stock(db, family_id=membership.family_id, food_id=food_id)
+    try:
+        apply_food_stock_dispose(
+            db,
+            family_id=membership.family_id,
+            user_id=user.id,
+            food=food,
+            quantity=Decimal(str(payload.quantity)),
+            unit=payload.unit,
+            reason=payload.reason,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     commit_session(db)
     media_map = build_media_map(get_media_assets_for_entities(db, family_id=membership.family_id, entity_type="food", entity_ids=[food.id]))
     return serialize_food(food, media_map)

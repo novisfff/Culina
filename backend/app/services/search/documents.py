@@ -113,6 +113,7 @@ def build_food_search_document(
         "favorite": food.favorite,
         "rating": food.rating,
         "repurchase": food.repurchase,
+        "storage_location": food.storage_location,
         "recipe_id": food.recipe_id,
     }
     title_text = _normalize_text(food.name)
@@ -125,6 +126,7 @@ def build_food_search_document(
         *[_value(item) for item in food.suitable_meal_types or []],
         food.source_name,
         food.purchase_source,
+        food.storage_location,
         food.scene,
     )
     detail_text = _join_text(
@@ -139,6 +141,7 @@ def build_food_search_document(
         ("场景", "、".join(_clean_list([*(food.scene_tags or []), food.scene]))),
         ("适合餐别", "、".join(_value(item) for item in food.suitable_meal_types or [])),
         ("来源", _join_text(food.source_name, food.purchase_source)),
+        ("存放位置", food.storage_location),
         ("日常说明", _truncate(food.routine_note, MAX_NOTE_CHARS)),
         ("备注", _truncate(food.notes, MAX_NOTE_CHARS)),
     )

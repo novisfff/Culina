@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import type { Ingredient, InventoryItem, Recipe, ShoppingListItem } from '../../api/types';
+import type { Food, Ingredient, InventoryItem, Recipe, ShoppingListItem } from '../../api/types';
 import {
   buildInventoryCardStatus,
   buildInventoryStorageOverview,
@@ -18,6 +18,7 @@ import {
   type ShoppingOverviewViewModel,
 } from './workspaceModel';
 import type { InventoryStorageFocus } from './ingredientWorkspaceForms';
+import type { InventoryEntryFilter } from './inventoryOverviewModel';
 import type {
   CatalogStatusFilter,
   InventoryQuickFilter,
@@ -28,6 +29,7 @@ type UseIngredientWorkspaceDataArgs = {
   ingredients: Ingredient[];
   inventoryItems: InventoryItem[];
   recipes: Recipe[];
+  foods: Food[];
   shoppingItems: ShoppingListItem[];
   ingredientOptions: Ingredient[];
   selectedIngredientId: string | null;
@@ -43,6 +45,7 @@ type UseIngredientWorkspaceDataArgs = {
   shoppingSearch: string;
   shoppingFocus: ShoppingOverviewViewModel['key'];
   mobileIngredientFilter: MobileIngredientFilter;
+  mobileInventoryEntryFilter: InventoryEntryFilter;
   mobileStorageFocus: InventoryStorageFocus;
   filterIngredientSummariesByCatalogStatus: (
     summaries: IngredientSummaryViewModel[],
@@ -56,6 +59,7 @@ export function filterMobileCatalogSummaries(args: {
   catalogSearch: string;
   catalogSearchMatchedIngredientIds?: readonly string[];
   mobileIngredientFilter: MobileIngredientFilter;
+  mobileInventoryEntryFilter: InventoryEntryFilter;
   mobileStorageFocus: InventoryStorageFocus;
 }) {
   return filterIngredientSummaries(
@@ -67,20 +71,37 @@ export function filterMobileCatalogSummaries(args: {
     if (args.mobileStorageFocus !== 'all' && summary.primaryStorage !== args.mobileStorageFocus) {
       return false;
     }
-    if (args.mobileIngredientFilter === 'alerted') {
-      return summary.alerts.length > 0;
-    }
-    if (args.mobileIngredientFilter === 'seasoning') {
-      return isSeasoningIngredient(summary.ingredient);
-    }
-    if (args.mobileIngredientFilter === 'empty') {
-      return summary.quantitySummaries.length === 0;
-    }
-    if (args.mobileIngredientFilter === 'stocked') {
-      return summary.quantitySummaries.length > 0;
-    }
-    return true;
+    const quickMatches =
+      args.mobileIngredientFilter === 'all' ||
+      args.mobileIngredientFilter === 'ingredient' ||
+      (args.mobileIngredientFilter === 'alerted' && summary.alerts.length > 0) ||
+      (args.mobileIngredientFilter === 'expiring' && summary.alerts.some((alert) => alert.kind === 'expiry')) ||
+      (args.mobileIngredientFilter === 'seasoning' && isSeasoningIngredient(summary.ingredient));
+    const entryMatches =
+      args.mobileInventoryEntryFilter === 'all' ||
+      (args.mobileInventoryEntryFilter === 'pending' && summary.quantitySummaries.length === 0) ||
+      (args.mobileInventoryEntryFilter === 'stocked' && summary.quantitySummaries.length > 0);
+    return quickMatches && entryMatches;
   });
+}
+
+function filterInventorySummariesByQuickFilter(
+  summaries: IngredientSummaryViewModel[],
+  quickFilter: InventoryQuickFilter
+) {
+  if (quickFilter === 'alerted') {
+    return summaries.filter((item) => item.alerts.length > 0);
+  }
+  if (quickFilter === 'food') {
+    return [];
+  }
+  if (quickFilter === 'expiring') {
+    return summaries.filter((item) => item.alerts.some((alert) => alert.kind === 'expiry'));
+  }
+  if (quickFilter === 'seasoning') {
+    return summaries.filter((item) => isSeasoningIngredient(item.ingredient));
+  }
+  return summaries;
 }
 
 export function useIngredientWorkspaceData(args: UseIngredientWorkspaceDataArgs) {
@@ -110,8 +131,7 @@ export function useIngredientWorkspaceData(args: UseIngredientWorkspaceDataArgs)
       lowStock: args.filterIngredientSummariesByCatalogStatus(catalogBaseSummaries, 'lowStock').length,
       stable: args.filterIngredientSummariesByCatalogStatus(catalogBaseSummaries, 'stable').length,
     } as const;
-    const inventorySourceSummaries =
-      args.inventoryQuickFilter === 'alerted' ? summaries.filter((item) => item.alerts.length > 0) : summaries;
+    const inventorySourceSummaries = filterInventorySummariesByQuickFilter(summaries, args.inventoryQuickFilter);
     const filteredInventorySummaries = filterIngredientSummariesForInventory(
       inventorySourceSummaries,
       args.inventorySearch,
@@ -131,8 +151,8 @@ export function useIngredientWorkspaceData(args: UseIngredientWorkspaceDataArgs)
     const allAlerts = summaries.flatMap((item) => item.alerts);
     const pendingShopping = args.shoppingItems.filter(args.isPendingShopping);
     const completedShopping = args.shoppingItems.filter((item) => item.done);
-    const pendingShoppingCards = buildShoppingCards(pendingShopping, summaries);
-    const completedShoppingCards = buildShoppingCards(completedShopping, summaries, { completed: true });
+    const pendingShoppingCards = buildShoppingCards(pendingShopping, summaries, { foods: args.foods });
+    const completedShoppingCards = buildShoppingCards(completedShopping, summaries, { completed: true, foods: args.foods });
     const shoppingOverview = buildShoppingOverview(pendingShoppingCards);
     const visiblePendingShoppingCards = filterShoppingCards(pendingShoppingCards, args.shoppingSearch, args.shoppingFocus);
     const visibleCompletedShoppingCards = filterShoppingCards(completedShoppingCards, args.shoppingSearch, 'all');
@@ -166,12 +186,16 @@ export function useIngredientWorkspaceData(args: UseIngredientWorkspaceDataArgs)
       catalogSearch: args.catalogSearch,
       catalogSearchMatchedIngredientIds: args.catalogSearchMatchedIngredientIds,
       mobileIngredientFilter: args.mobileIngredientFilter,
+      mobileInventoryEntryFilter: args.mobileInventoryEntryFilter,
       mobileStorageFocus: args.mobileStorageFocus,
     });
     const mobileShoppingCards = pendingShoppingCards.slice(0, 4);
     const mobileShoppingGroups = buildShoppingCardGroups(mobileShoppingCards);
     const mobileHasCatalogFilters =
-      Boolean(args.catalogSearch.trim()) || args.mobileIngredientFilter !== 'all' || args.mobileStorageFocus !== 'all';
+      Boolean(args.catalogSearch.trim()) ||
+      args.mobileIngredientFilter !== 'all' ||
+      args.mobileInventoryEntryFilter !== 'all' ||
+      args.mobileStorageFocus !== 'all';
     const quickRestockIngredients = (
       summaries
         .filter((item) => item.inventoryItems.length > 0 || item.latestPurchaseDate)
@@ -233,6 +257,7 @@ export function useIngredientWorkspaceData(args: UseIngredientWorkspaceDataArgs)
     args.inventoryStorageFocus,
     args.isPendingShopping,
     args.mobileIngredientFilter,
+    args.mobileInventoryEntryFilter,
     args.mobileStorageFocus,
     args.recipes,
     args.selectedIngredientId,

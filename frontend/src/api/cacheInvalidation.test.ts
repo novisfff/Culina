@@ -3,7 +3,10 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   invalidateAfterAiApprovalSettled,
   invalidateAfterAiImageJobChanged,
+  invalidateAfterFoodChanged,
+  invalidateAfterInventoryChanged,
   invalidateAfterRecipeCooked,
+  invalidateAfterQuickMealAdded,
   invalidateAfterSearchIndexJobChanged,
 } from './cacheInvalidation';
 
@@ -42,12 +45,50 @@ describe('cacheInvalidation', () => {
 
     expect(invalidatedKeys(queryClient)).toEqual([
       ['inventory'],
+      ['inventory', 'overview'],
       ['recipe-discovery'],
       ['food-recommendations'],
       ['recipe-stats'],
       ['foods'],
       ['meal-logs'],
       ['food-plan'],
+      ['activity-logs'],
+    ]);
+  });
+
+  it('invalidates the inventory overview root for food and quick meal changes', () => {
+    const foodQueryClient = fakeQueryClient();
+    invalidateAfterFoodChanged(foodQueryClient);
+
+    expect(invalidatedKeys(foodQueryClient)).toEqual([
+      ['foods'],
+      ['inventory', 'overview'],
+      ['food-recommendations'],
+      ['activity-logs'],
+    ]);
+
+    const mealQueryClient = fakeQueryClient();
+    invalidateAfterQuickMealAdded(mealQueryClient);
+
+    expect(invalidatedKeys(mealQueryClient)).toEqual([
+      ['meal-logs'],
+      ['food-plan'],
+      ['foods'],
+      ['inventory', 'overview'],
+      ['food-recommendations'],
+      ['activity-logs'],
+    ]);
+  });
+
+  it('invalidates the inventory overview root after inventory changes', () => {
+    const queryClient = fakeQueryClient();
+
+    invalidateAfterInventoryChanged(queryClient);
+
+    expect(invalidatedKeys(queryClient)).toEqual([
+      ['inventory'],
+      ['inventory', 'overview'],
+      ['food-recommendations'],
       ['activity-logs'],
     ]);
   });
@@ -63,6 +104,7 @@ describe('cacheInvalidation', () => {
       ['ai-conversations'],
       ['ai-quality-metrics'],
       ['inventory'],
+      ['inventory', 'overview'],
       ['recipes'],
       ['shopping-list'],
       ['food-plan'],

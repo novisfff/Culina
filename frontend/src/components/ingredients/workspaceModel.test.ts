@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { Ingredient, InventoryItem, Recipe, ShoppingListItem } from '../../api/types';
+import type { Food, Ingredient, InventoryItem, Recipe, ShoppingListItem } from '../../api/types';
 import { formatDate } from '../../lib/ui';
 import {
   buildShoppingCards,
@@ -209,6 +209,7 @@ describe('ingredient workspace model', () => {
       summaries,
       catalogSearch: '',
       mobileIngredientFilter: 'all',
+      mobileInventoryEntryFilter: 'all',
       mobileStorageFocus: 'all',
     });
 
@@ -242,9 +243,47 @@ describe('ingredient workspace model', () => {
         summaries,
         catalogSearch: '',
         mobileIngredientFilter: 'seasoning',
+        mobileInventoryEntryFilter: 'all',
         mobileStorageFocus: 'all',
       }).map((item) => item.ingredient.name)
     ).toEqual(['蚝油', '盐']);
+  });
+
+  it('keeps mobile quick filters separate from entry status filters', () => {
+    const summaries = buildIngredientSummaries({
+      ingredients,
+      inventoryItems,
+      recipes,
+      today: '2026-03-20',
+    });
+
+    expect(
+      filterMobileCatalogSummaries({
+        summaries,
+        catalogSearch: '',
+        mobileIngredientFilter: 'alerted',
+        mobileInventoryEntryFilter: 'all',
+        mobileStorageFocus: 'all',
+      }).map((item) => item.ingredient.name)
+    ).toEqual(['番茄']);
+    expect(
+      filterMobileCatalogSummaries({
+        summaries,
+        catalogSearch: '',
+        mobileIngredientFilter: 'expiring',
+        mobileInventoryEntryFilter: 'all',
+        mobileStorageFocus: 'all',
+      }).map((item) => item.ingredient.name)
+    ).toEqual(['番茄']);
+    expect(
+      filterMobileCatalogSummaries({
+        summaries,
+        catalogSearch: '',
+        mobileIngredientFilter: 'all',
+        mobileInventoryEntryFilter: 'stocked',
+        mobileStorageFocus: 'all',
+      }).map((item) => item.ingredient.name)
+    ).toEqual(['番茄', '面粉']);
   });
 
   it('builds low-stock alerts by ingredient total and keeps expiry per batch', () => {
@@ -642,7 +681,7 @@ describe('ingredient workspace model', () => {
     expect(buildInventoryCardPresentation(flour!, '2026-03-20')).toMatchObject({
       headline: '2500g',
       secondary: `最近补货 ${restockDate} · 未设保质期`,
-      footerNote: `最近补货于 ${restockDate}，当前库存状态平稳。`,
+      footerNote: `最近补货 ${restockDate}，库存平稳。`,
       hasExpiryInfo: false,
       expiryLabel: null,
       expiryDateLabel: null,
@@ -1079,6 +1118,72 @@ describe('ingredient workspace model', () => {
       inventoryLabel: '未关联档案',
       contextTags: ['自由项', '未关联档案', '买完后可补录'],
     });
+  });
+
+  it('builds food-linked shopping cards and makes them searchable by category and storage', () => {
+    const summaries = buildIngredientSummaries({
+      ingredients,
+      inventoryItems,
+      recipes,
+      today: '2026-03-20',
+    });
+    const yogurt: Food = {
+      id: 'food-yogurt',
+      family_id: 'family-1',
+      name: '希腊酸奶',
+      type: 'readyMade',
+      category: '乳品',
+      flavor_tags: [],
+      scene_tags: [],
+      suitable_meal_types: ['breakfast'],
+      source_name: '',
+      purchase_source: '超市',
+      scene: '',
+      images: [],
+      notes: '',
+      routine_note: '',
+      price: null,
+      rating: null,
+      repurchase: null,
+      expiry_date: null,
+      stock_quantity: 0,
+      stock_unit: '盒',
+      storage_location: '冷藏',
+      favorite: false,
+      recipe_id: null,
+      created_at: '2026-03-20T10:00:00Z',
+      updated_at: '2026-03-20T10:00:00Z',
+    };
+    const item: ShoppingListItem = {
+      id: 'shopping-yogurt',
+      family_id: 'family-1',
+      ingredient_id: null,
+      food_id: yogurt.id,
+      target_type: 'food',
+      title: '希腊酸奶',
+      quantity: 3,
+      unit: '盒',
+      quantity_mode: 'track_quantity',
+      display_label: null,
+      reason: '补充成品库存',
+      done: false,
+      created_at: '2026-03-20T10:00:00Z',
+      updated_at: '2026-03-20T10:00:00Z',
+    };
+
+    const cards = buildShoppingCards([item], summaries, { foods: [yogurt] });
+
+    expect(cards[0]).toMatchObject({
+      title: '希腊酸奶',
+      isLinked: true,
+      linkedFood: yogurt,
+      sourceLabel: '食物档案',
+      inventoryLabel: '未入库',
+      contextTags: ['乳品', '冷藏', '库存 未入库'],
+      statusLabel: '待补库存',
+    });
+    expect(filterShoppingCards(cards, '乳品', 'linked').map((card) => card.shoppingItem.id)).toEqual(['shopping-yogurt']);
+    expect(filterShoppingCards(cards, '冷藏', 'linked').map((card) => card.shoppingItem.id)).toEqual(['shopping-yogurt']);
   });
 
   it('builds shopping overview counts and combines focus with search filtering', () => {

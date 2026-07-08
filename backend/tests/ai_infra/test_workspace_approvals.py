@@ -1331,6 +1331,48 @@ class AIWorkspaceApprovalsTestCase(AIAgentInfraTestCase):
                         db.scalar(select(ActivityLog).where(ActivityLog.entity_type == "ShoppingListItem", ActivityLog.entity_id == shopping.id))
                     )
 
+                with self.subTest("shopping.create_food_target"):
+                    yogurt = Food(
+                        id="food-shopping-approval-yogurt",
+                        family_id=self.family.id,
+                        name="希腊酸奶",
+                        type=FoodType.READY_MADE.value,
+                        category="乳品",
+                        stock_unit="盒",
+                        storage_location="冷藏",
+                        created_by=self.user.id,
+                        updated_by=self.user.id,
+                    )
+                    db.add(yogurt)
+                    db.flush()
+                    result = approve_case(
+                        suffix="shopping-create-food",
+                        draft_type="shopping_list",
+                        payload={
+                            "draftType": "shopping_list",
+                            "schemaVersion": "shopping_list_operation.v1",
+                            "operations": [
+                                {
+                                    "action": "create",
+                                    "payload": {
+                                        "foodId": yogurt.id,
+                                        "title": "酸奶",
+                                        "quantity": 3,
+                                        "reason": "补充成品库存",
+                                    },
+                                }
+                            ],
+                        },
+                    )
+                    shopping_id = result["business_entity"]["operations"][0]["item"]["id"]
+                    shopping = db.get(ShoppingListItem, shopping_id)
+                    assert shopping is not None
+                    self.assertIsNone(shopping.ingredient_id)
+                    self.assertEqual(shopping.food_id, yogurt.id)
+                    self.assertEqual(shopping.title, "希腊酸奶")
+                    self.assertEqual(shopping.quantity_mode, IngredientQuantityTrackingMode.TRACK_QUANTITY)
+                    self.assertEqual(shopping.unit, "盒")
+
                 with self.subTest("meal_log.create"):
                     result = approve_case(
                         suffix="meal-log-create",
@@ -2229,6 +2271,7 @@ class AIWorkspaceApprovalsTestCase(AIAgentInfraTestCase):
                     scene="早餐",
                     notes="旧备注",
                     routine_note="",
+                    storage_location="冷藏",
                     favorite=False,
                     created_by=self.user.id,
                     updated_by=self.user.id,
@@ -2310,6 +2353,7 @@ class AIWorkspaceApprovalsTestCase(AIAgentInfraTestCase):
                 self.assertEqual(food.category, "乳品")
                 self.assertTrue(food.favorite)
                 self.assertEqual(food.source_name, "新品牌")
+                self.assertEqual(food.storage_location, "冷藏")
 
         def test_food_profile_set_favorite_operation_updates_existing_food(self) -> None:
             with self.SessionLocal() as db:

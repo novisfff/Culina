@@ -45,7 +45,7 @@ export function invalidateAfterIngredientChanged(queryClient: QueryClient) {
 }
 
 export function invalidateAfterInventoryChanged(queryClient: QueryClient) {
-  invalidateMany(queryClient, [queryKeys.inventory, queryKeys.foodRecommendations, queryKeys.activityLogs]);
+  invalidateMany(queryClient, [queryKeys.inventory, queryKeys.inventoryOverviewRoot, queryKeys.foodRecommendations, queryKeys.activityLogs]);
 }
 
 export function invalidateAfterShoppingChanged(queryClient: QueryClient) {
@@ -79,6 +79,7 @@ export function invalidateAfterRecipeDeleted(queryClient: QueryClient) {
 export function invalidateAfterRecipeCooked(queryClient: QueryClient) {
   invalidateMany(queryClient, [
     queryKeys.inventory,
+    queryKeys.inventoryOverviewRoot,
     queryKeys.recipeDiscovery,
     queryKeys.foodRecommendations,
     queryKeys.recipeStats,
@@ -102,7 +103,7 @@ export function invalidateAfterFoodSceneChanged(queryClient: QueryClient) {
 }
 
 export function invalidateAfterFoodChanged(queryClient: QueryClient) {
-  invalidateMany(queryClient, [queryKeys.foods, queryKeys.foodRecommendations, queryKeys.activityLogs]);
+  invalidateMany(queryClient, [queryKeys.foods, queryKeys.inventoryOverviewRoot, queryKeys.foodRecommendations, queryKeys.activityLogs]);
 }
 
 export function invalidateAfterMealLogChanged(queryClient: QueryClient) {
@@ -110,7 +111,14 @@ export function invalidateAfterMealLogChanged(queryClient: QueryClient) {
 }
 
 export function invalidateAfterQuickMealAdded(queryClient: QueryClient) {
-  invalidateMany(queryClient, [queryKeys.mealLogs, queryKeys.foodPlanRoot, queryKeys.foodRecommendations, queryKeys.activityLogs]);
+  invalidateMany(queryClient, [
+    queryKeys.mealLogs,
+    queryKeys.foodPlanRoot,
+    queryKeys.foods,
+    queryKeys.inventoryOverviewRoot,
+    queryKeys.foodRecommendations,
+    queryKeys.activityLogs,
+  ]);
 }
 
 export function invalidateAfterAiApprovalSettled(queryClient: QueryClient, conversationId: string) {
@@ -120,6 +128,7 @@ export function invalidateAfterAiApprovalSettled(queryClient: QueryClient, conve
     queryKeys.aiConversations,
     queryKeys.aiQualityMetrics,
     queryKeys.inventory,
+    queryKeys.inventoryOverviewRoot,
     queryKeys.recipes,
     queryKeys.shoppingList,
     queryKeys.foodPlanRoot,

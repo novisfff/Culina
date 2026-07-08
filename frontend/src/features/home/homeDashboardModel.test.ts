@@ -150,6 +150,7 @@ describe('homeDashboardModel', () => {
       category: '家常菜',
       flavor_tags: [],
       scene_tags: [],
+      storage_location: '',
       suitable_meal_types: ['dinner'],
       source_name: '',
       purchase_source: '',

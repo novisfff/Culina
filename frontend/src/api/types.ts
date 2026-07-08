@@ -129,10 +129,64 @@ export interface InventoryItem {
   updated_by?: string | null;
 }
 
+export type InventoryOverviewScope = 'all' | 'ingredient' | 'food';
+export type InventoryOverviewSourceType = 'ingredient' | 'food';
+export type InventoryOverviewTone = 'stable' | 'warning' | 'danger' | 'empty';
+export type InventoryOverviewPrimaryAction = 'restock' | 'consume' | 'dispose' | 'record_meal' | 'edit_food_stock';
+
+export interface InventoryOverviewItem {
+  id: string;
+  source_type: InventoryOverviewSourceType;
+  source_id: string;
+  inventory_item_id?: string | null;
+  title: string;
+  category: string;
+  image?: MediaAsset | null;
+  quantity?: number | null;
+  unit: string;
+  quantity_label: string;
+  quantity_tracking_mode: IngredientQuantityTrackingMode;
+  status?: InventoryStatus | null;
+  tone: InventoryOverviewTone;
+  expiry_date?: string | null;
+  days_until_expiry?: number | null;
+  storage_location: string;
+  purchase_source?: string | null;
+  updated_at: string;
+  primary_action: InventoryOverviewPrimaryAction;
+  search_text: string;
+}
+
+export interface InventoryOverview {
+  scope: InventoryOverviewScope;
+  query: string;
+  summary: {
+    total_count: number;
+    ingredient_count: number;
+    food_count: number;
+    alert_count: number;
+    expiring_count: number;
+    empty_count: number;
+  };
+  items: InventoryOverviewItem[];
+}
+
+export interface FoodStockChangePayload {
+  quantity: number;
+  unit?: string | null;
+  expiry_date?: string | null;
+  purchase_source?: string | null;
+  storage_location?: string | null;
+  note?: string;
+  reason?: string;
+}
+
 export interface ShoppingListItem {
   id: string;
   family_id: string;
   ingredient_id?: string | null;
+  food_id?: string | null;
+  target_type?: 'ingredient' | 'food';
   title: string;
   quantity: number;
   unit: string;
@@ -468,6 +522,7 @@ export interface Food {
   expiry_date?: string | null;
   stock_quantity?: number | null;
   stock_unit: string;
+  storage_location: string;
   favorite: boolean;
   recipe_id?: string | null;
   created_at: string;
@@ -494,6 +549,7 @@ export interface FoodPayload {
   expiry_date?: string | null;
   stock_quantity?: number | null;
   stock_unit: string;
+  storage_location: string;
   favorite: boolean;
   recipe_id?: string | null;
   media_ids: string[];
@@ -566,6 +622,9 @@ export interface QuickAddMealLogPayload {
   servings: number;
   note: string;
   food_plan_item_id?: string;
+  deduct_food_stock?: boolean;
+  stock_quantity?: number | null;
+  stock_unit?: string | null;
 }
 
 export interface UpdateMealLogPayload {

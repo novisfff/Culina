@@ -43,6 +43,7 @@ const food: Food = {
   scene: '',
   images: [],
   notes: '',
+  storage_location: '',
   routine_note: '快手',
   stock_unit: '份',
   favorite: false,

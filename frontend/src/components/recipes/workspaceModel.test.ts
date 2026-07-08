@@ -126,6 +126,7 @@ const foods: Food[] = [
     notes: '',
     routine_note: '',
     stock_unit: '',
+    storage_location: '',
     favorite: true,
     recipe_id: 'recipe-ready',
     created_at: '2026-05-01T10:00:00Z',

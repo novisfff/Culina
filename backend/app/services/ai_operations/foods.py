@@ -10,17 +10,27 @@ from sqlalchemy.orm import Session
 
 from app.ai.errors import AIConflictError
 from app.ai.images.jobs import attach_image_generation_job_to_entity
-from app.core.enums import ActivityAction
+from app.core.enums import ActivityAction, FoodType
 from app.core.utils import create_id
 from app.models.domain import Food
 from app.schemas.foods import CreateFoodRequest, UpdateFoodRequest
 from app.services.activity import log_activity
 from app.services.ai_operations.image_jobs import build_food_image_request, enqueue_ai_entity_image_generation
+from app.services.food_stock_quantity import normalize_food_stock_quantity, validate_food_stock_quantity_precision
 from app.services.media import bind_media_assets, replace_media_assets
 from app.services.search.jobs import enqueue_search_index_job
 
 
 UpdatedAtValidator = Callable[[datetime | None, str, str], None]
+READY_LIKE_TYPES = {FoodType.READY_MADE.value, FoodType.INSTANT.value, FoodType.PACKAGED.value}
+
+
+def _resolve_food_stock_quantity(value: float | None) -> Decimal | None:
+    if value is None:
+        return None
+    quantity = Decimal(str(value))
+    validate_food_stock_quantity_precision(quantity, field_label="剩余数量")
+    return normalize_food_stock_quantity(quantity)
 
 
 def execute_food_profile_draft(
@@ -58,7 +68,8 @@ def execute_food_profile_draft(
         enqueue_search_index_job(db, family_id=family_id, user_id=user_id, entity_type="food", entity_id=food.id, target_name=food.name)
         return food
 
-    food_in = UpdateFoodRequest.model_validate(payload.get("payload") or {})
+    update_payload = payload.get("payload") or {}
+    food_in = UpdateFoodRequest.model_validate(update_payload)
     if food.recipe_id:
         food.flavor_tags = list(food_in.flavor_tags)
         food.scene_tags = list(dict.fromkeys([*food_in.scene_tags, *(food_in.scene.split("、") if food_in.scene else []), *food_in.flavor_tags]))
@@ -83,8 +94,11 @@ def execute_food_profile_draft(
         food.rating = food_in.rating
         food.repurchase = food_in.repurchase
         food.expiry_date = food_in.expiry_date
-        food.stock_quantity = Decimal(str(food_in.stock_quantity)) if food_in.stock_quantity is not None else None
+        food.stock_quantity = _resolve_food_stock_quantity(food_in.stock_quantity)
         food.stock_unit = food_in.stock_unit
+        next_type = food_in.type.value if hasattr(food_in.type, "value") else str(food_in.type)
+        if not (next_type in READY_LIKE_TYPES and not food_in.storage_location and food.storage_location):
+            food.storage_location = food_in.storage_location
         food.favorite = food_in.favorite
     food.updated_by = user_id
     if not food.recipe_id:
@@ -124,8 +138,9 @@ def _create_food_from_profile(db: Session, *, family_id: str, user_id: str, payl
         rating=food_in.rating,
         repurchase=food_in.repurchase,
         expiry_date=food_in.expiry_date,
-        stock_quantity=Decimal(str(food_in.stock_quantity)) if food_in.stock_quantity is not None else None,
+        stock_quantity=_resolve_food_stock_quantity(food_in.stock_quantity),
         stock_unit=food_in.stock_unit,
+        storage_location=food_in.storage_location,
         favorite=food_in.favorite,
         recipe_id=food_in.recipe_id,
         created_by=user_id,

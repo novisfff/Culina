@@ -283,6 +283,7 @@ Script 约束：
 9. 后端和前端卡片、草稿类型契约保持一致。
 10. 库存查询不创建草稿；入库、消耗和销毁必须生成 `inventory_operation` 草稿并等待确认。
 11. 库存操作只能引用当前家庭真实食材和库存批次，消费量与销毁量分开记录。
+12. 家庭库存查询可以同时展示食材库存和成品/速食食物库存；食材库存写操作仍走 `inventory_operation`，成品/速食库存字段属于 `food_profile`，包括 `stock_quantity`、`stock_unit`、`expiry_date` 和 `storage_location`，不能把食物库存伪装成食材库存批次。
 
 推荐命令：
 

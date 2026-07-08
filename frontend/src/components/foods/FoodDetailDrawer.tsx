@@ -4,6 +4,7 @@ import { FOOD_TYPE_LABELS, MEAL_TYPE_LABELS, formatDate } from '../../lib/ui';
 import { MediaWithPlaceholder } from '../MediaPlaceholder';
 import type { RecipeCardViewModel } from '../recipes/workspaceModel';
 import { ActionButton, Badge, FormActions, WorkspaceDrawer, WorkspaceOverlayFrame } from '../ui-kit';
+import { formatFoodStockQuantity } from './FoodWorkspaceHelpers';
 import { FoodIconName, FoodUiIcon } from './FoodWorkspacePrimitives';
 
 type FoodFactRow = {
@@ -372,12 +373,12 @@ export function FoodDetailDrawer(props: Props) {
             </div>
             <div className="food-fact-grid">
               <div className="food-fact-item">
-                <div className={`fact-icon-wrapper tone-${getFactTone('剩余库存', props.food.stock_quantity == null ? '未记录' : `${props.food.stock_quantity}${props.food.stock_unit}`)}`}>
+                <div className={`fact-icon-wrapper tone-${getFactTone('剩余库存', formatFoodStockQuantity(props.food))}`}>
                   <FoodUiIcon name={getFactIcon('剩余库存')} className="fact-icon" />
                 </div>
                 <div className="fact-info">
                   <span className="fact-label">剩余库存</span>
-                  <strong className="fact-value">{props.food.stock_quantity == null ? '未记录' : `${props.food.stock_quantity}${props.food.stock_unit}`}</strong>
+                  <strong className="fact-value">{formatFoodStockQuantity(props.food)}</strong>
                 </div>
               </div>
               <div className="food-fact-item">

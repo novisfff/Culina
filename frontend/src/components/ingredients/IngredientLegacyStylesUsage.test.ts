@@ -46,6 +46,9 @@ const staleShoppingAndStorageClasses = [
   'ingredients-shopping-quantity-row',
   'ingredients-compact-unit-field',
   'ingredients-inventory-storage-kicker',
+  'ingredients-inventory-storage-head',
+  'ingredients-inventory-storage-head-side',
+  'ingredients-inventory-storage-titleblock',
   'ingredients-inventory-storage-tip',
   'ingredients-shopping-history-row',
 ];
@@ -150,7 +153,8 @@ describe('Ingredient legacy style cleanup', () => {
 
     expect(shoppingOverlaySource).toContain('QuantityUnitField');
     expect(shoppingOverlaySource).toContain('ingredients-restock-quantity-row');
-    expect(workspacePanelsSource).toContain('ingredients-inventory-storage-titleblock');
+    expect(workspacePanelsSource).toContain('ingredients-inventory-mixed-group');
+    expect(workspacePanelsSource).toContain('ingredients-inventory-mixed-grid');
     expect(workspaceSource).toContain('shopping-history-row');
     expect(ingredientsStyleSource).toContain('.ingredients-restock-quantity-row');
 

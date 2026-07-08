@@ -1,5 +1,6 @@
 import type {
   ImageInputValue,
+  Food,
   Ingredient,
   IngredientExpiryMode,
   IngredientQuantityTrackingMode,
@@ -60,6 +61,9 @@ export type InventoryDrawerFormState = {
 };
 
 export type ShoppingDialogFormState = {
+  targetType: 'ingredient' | 'food' | '';
+  ingredientId: string;
+  foodId: string;
   title: string;
   quantity: string;
   unit: string;
@@ -171,20 +175,34 @@ export function buildInventoryForm(
   };
 }
 
-export function buildShoppingForm(ingredient?: Ingredient, reason = ''): ShoppingDialogFormState {
+export function buildShoppingForm(ingredient?: Ingredient, reason = '', food?: Food): ShoppingDialogFormState {
   return {
-    title: ingredient?.name ?? '',
+    targetType: food ? 'food' : ingredient ? 'ingredient' : '',
+    ingredientId: ingredient?.id ?? '',
+    foodId: food?.id ?? '',
+    title: food?.name ?? ingredient?.name ?? '',
     quantity: '1',
-    unit: resolvePreferredIngredientUnit(ingredient, ingredient?.default_unit) || '个',
-    reason,
+    unit: food ? food.stock_unit || '份' : resolvePreferredIngredientUnit(ingredient, ingredient?.default_unit) || '个',
+    reason: reason || (food ? '补充成品库存' : ''),
   };
 }
 
-export function buildShoppingFormFromItem(item: ShoppingListItem, ingredient?: Ingredient | null): ShoppingDialogFormState {
+export function buildShoppingFormFromItem(
+  item: ShoppingListItem,
+  ingredient?: Ingredient | null,
+  food?: Food | null
+): ShoppingDialogFormState {
+  const targetType = item.target_type === 'food' || item.food_id ? 'food' : 'ingredient';
   return {
+    targetType,
+    ingredientId: item.ingredient_id ?? ingredient?.id ?? '',
+    foodId: item.food_id ?? food?.id ?? '',
     title: item.title,
     quantity: formatNumericString(item.quantity),
-    unit: resolvePreferredIngredientUnit(ingredient ?? undefined, item.unit) || item.unit || ingredient?.default_unit || '个',
+    unit:
+      targetType === 'food'
+        ? item.unit || food?.stock_unit || '份'
+        : resolvePreferredIngredientUnit(ingredient ?? undefined, item.unit) || item.unit || ingredient?.default_unit || '个',
     reason: item.reason,
   };
 }

@@ -8,7 +8,7 @@ from fastapi.encoders import jsonable_encoder
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
-from app.core.enums import IngredientExpiryMode, IngredientQuantityTrackingMode, InventoryStatus, MealType
+from app.core.enums import FoodType, IngredientExpiryMode, IngredientQuantityTrackingMode, InventoryStatus, MealType
 from app.core.utils import create_id
 from app.models.domain import AITaskDraft, Food, FoodPlanItem, Ingredient, InventoryItem, MealLog, MealLogFood, Recipe, RecipeFavorite, ShoppingListItem
 from app.schemas.foods import CreateFoodRequest
@@ -27,6 +27,9 @@ from app.services.ingredient_units import (
 from app.services.inventory_usage import build_cook_inventory_plan, expiry_sort_key, inventory_remaining_in_default, serialize_cook_preview_item, tracks_quantity
 from app.services.recipe_ingredient_refs import normalize_recipe_ingredient_items
 from app.services.serializers import serialize_food, serialize_food_plan_item, serialize_ingredient, serialize_meal_log, serialize_media, serialize_recipe, serialize_shopping_item
+
+
+READY_LIKE_FOOD_TYPES = {FoodType.READY_MADE.value, FoodType.INSTANT.value, FoodType.PACKAGED.value}
 
 
 def normalize_shopping_list_draft(db: Session, *, family_id: str, conversation_id: str, payload: Any) -> dict[str, Any]:
@@ -72,14 +75,31 @@ def _normalize_shopping_item_payload(
         raise ValueError("购物清单项目格式不正确")
     normalized = dict(payload)
     ingredient_id = normalized.get("ingredient_id") or normalized.get("ingredientId")
-    if not isinstance(ingredient_id, str) or not ingredient_id.strip():
-        raise ValueError("购物清单项目必须引用真实食材")
-    ingredient = db.scalar(select(Ingredient).where(Ingredient.family_id == family_id, Ingredient.id == ingredient_id.strip()))
-    if ingredient is None:
-        raise ValueError("购物清单项目引用了不存在的食材")
-    normalized["ingredient_id"] = ingredient.id
-    normalized["title"] = ingredient.name
-    normalized["quantity_mode"] = ingredient.quantity_tracking_mode.value if hasattr(ingredient.quantity_tracking_mode, "value") else ingredient.quantity_tracking_mode
+    food_id = normalized.get("food_id") or normalized.get("foodId")
+    has_ingredient = isinstance(ingredient_id, str) and bool(ingredient_id.strip())
+    has_food = isinstance(food_id, str) and bool(food_id.strip())
+    if has_ingredient == has_food:
+        raise ValueError("购物清单项目必须引用真实食材或成品采购对象")
+    if has_ingredient:
+        ingredient = db.scalar(select(Ingredient).where(Ingredient.family_id == family_id, Ingredient.id == ingredient_id.strip()))
+        if ingredient is None:
+            raise ValueError("购物清单项目引用了不存在的食材")
+        normalized["ingredient_id"] = ingredient.id
+        normalized["food_id"] = None
+        normalized["title"] = ingredient.name
+        normalized["quantity_mode"] = ingredient.quantity_tracking_mode.value if hasattr(ingredient.quantity_tracking_mode, "value") else ingredient.quantity_tracking_mode
+    else:
+        food = db.scalar(select(Food).where(Food.family_id == family_id, Food.id == food_id.strip()))
+        if food is None:
+            raise ValueError("购物清单项目引用了不存在的食物")
+        if food.type not in READY_LIKE_FOOD_TYPES:
+            raise ValueError("只有成品、速食或包装食品可以加入采购清单")
+        normalized["food_id"] = food.id
+        normalized["ingredient_id"] = None
+        normalized["title"] = food.name
+        normalized["quantity_mode"] = IngredientQuantityTrackingMode.TRACK_QUANTITY.value
+        normalized["unit"] = normalized.get("unit") or food.stock_unit or "份"
+        normalized["display_label"] = None
     if normalized["quantity_mode"] == IngredientQuantityTrackingMode.NOT_TRACK_QUANTITY.value:
         normalized.setdefault("quantity", 1)
         normalized.setdefault("unit", ingredient.default_unit or "份")
@@ -657,14 +677,18 @@ def _normalize_food_profile_operation_draft(db: Session, *, family_id: str, payl
             "before": _serialize_food_before(food),
             "payload": {"favorite": favorite},
         }
-    normalized = normalize_food_profile_draft_for_tools(db, family_id=family_id, payload=payload.get("payload") or {})
+    incoming_payload = payload.get("payload") or {}
+    before = _serialize_food_before(food)
+    normalized = normalize_food_profile_draft_for_tools(db, family_id=family_id, payload=incoming_payload)
+    if isinstance(incoming_payload, dict) and "storage_location" not in incoming_payload and "storageLocation" not in incoming_payload:
+        normalized["storage_location"] = before.get("storage_location", "")
     return {
         "draftType": "food_profile",
         "schemaVersion": "food_profile_operation.v1",
         "action": "update",
         "targetId": food.id,
         "baseUpdatedAt": base_updated_at,
-        "before": _serialize_food_before(food),
+        "before": before,
         "payload": {key: value for key, value in normalized.items() if key not in {"draftType", "schemaVersion"}},
     }
 
@@ -1092,6 +1116,8 @@ def _serialize_shopping_before(item: ShoppingListItem) -> dict[str, Any]:
     return {
         "id": record["id"],
         "ingredientId": record["ingredient_id"],
+        "foodId": record.get("food_id"),
+        "targetType": record.get("target_type"),
         "title": record["title"],
         "quantity": record["quantity"],
         "unit": record["unit"],

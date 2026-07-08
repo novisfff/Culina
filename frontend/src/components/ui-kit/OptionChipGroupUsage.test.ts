@@ -87,8 +87,10 @@ describe('OptionChipGroup usages', () => {
     expect(foodSource).toContain('ariaLabel="食物分类"');
     expect(foodSource).toContain('className="mobile-food-chip-group"');
     expect(ingredientSource).toContain('<OptionChipGroup');
-    expect(ingredientSource).toContain('ariaLabel="食材筛选"');
+    expect(ingredientSource).toContain('ariaLabel="库存筛选"');
+    expect(ingredientSource).toContain('ariaLabel="库存快捷筛选"');
     expect(ingredientSource).toContain('className="mobile-ingredient-chip-group"');
+    expect(ingredientSource).toContain('className="mobile-ingredient-chip-group mobile-ingredient-inventory-quick-filter"');
     expect(foodSource).not.toContain('mobile-food-tabs');
     expect(ingredientSource).not.toContain('mobile-ingredient-tabs');
     expect(mobileStyles).not.toContain('.mobile-food-tabs');

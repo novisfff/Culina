@@ -1,5 +1,6 @@
 import type { Food, FoodPayload, FoodType, ImageInputValue, MealType, Recipe } from '../../api/types';
 import type { AiRenderPayload } from '../../lib/aiImages';
+import { formatFoodStockNumber } from '../../lib/foodStockQuantity';
 import { FOOD_TYPE_LABELS, emptyImages, getFoodCover, splitTags } from '../../lib/ui';
 
 export type FoodFormState = {
@@ -19,10 +20,15 @@ export type FoodFormState = {
   expiryDate: string;
   stockQuantity: string;
   stockUnit: string;
+  storageLocation: string;
   favorite: boolean;
   recipeId: string;
   images: ImageInputValue;
 };
+
+function isReadyLikeFoodType(type: FoodType) {
+  return type === 'readyMade' || type === 'instant' || type === 'packaged';
+}
 
 function normalizeNumber(value: string): number | null {
   const trimmed = value.trim();
@@ -49,6 +55,7 @@ export function makeBlankFoodForm(type: FoodType = 'takeout'): FoodFormState {
     expiryDate: '',
     stockQuantity: '',
     stockUnit: '',
+    storageLocation: isReadyLikeFoodType(type) ? '常温' : '',
     favorite: false,
     recipeId: '',
     images: emptyImages(),
@@ -72,8 +79,9 @@ export function foodToForm(food: Food): FoodFormState {
     rating: food.rating == null ? '' : String(food.rating),
     repurchase: food.repurchase == null ? 'unknown' : food.repurchase ? 'yes' : 'no',
     expiryDate: food.expiry_date ?? '',
-    stockQuantity: food.stock_quantity == null ? '' : String(food.stock_quantity),
+    stockQuantity: food.stock_quantity == null ? '' : formatFoodStockNumber(food.stock_quantity),
     stockUnit: food.stock_unit,
+    storageLocation: food.storage_location || (isReadyLikeFoodType(food.type) ? '常温' : ''),
     favorite: food.favorite,
     recipeId: food.recipe_id ?? '',
     images: emptyImages(),
@@ -133,6 +141,7 @@ export function getFoodFormCompletionItems(form: FoodFormState, editingFood: Foo
     items.push(
       { label: '购买渠道', done: Boolean(form.purchaseSource.trim() || form.sourceName.trim()) },
       { label: '剩余库存', done: Boolean(form.stockQuantity.trim() && form.stockUnit.trim()) },
+      { label: '存放位置', done: Boolean(form.storageLocation.trim()) },
       { label: '到期日期', done: Boolean(form.expiryDate) }
     );
   }
@@ -158,6 +167,7 @@ export function buildFoodPayloadFromForm(form: FoodFormState, recipes: Recipe[],
     expiry_date: form.expiryDate || null,
     stock_quantity: normalizeNumber(form.stockQuantity),
     stock_unit: form.stockUnit.trim(),
+    storage_location: isReadyLikeFoodType(form.type) ? form.storageLocation.trim() || '常温' : '',
     favorite: form.favorite,
     recipe_id: form.recipeId || null,
     media_ids: mediaIds,

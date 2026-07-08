@@ -9,29 +9,74 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.ai.errors import AIConflictError
-from app.core.enums import ActivityAction
+from app.core.enums import ActivityAction, FoodType, IngredientQuantityTrackingMode
 from app.core.utils import create_id
-from app.models.domain import Ingredient, ShoppingListItem
+from app.models.domain import Food, Ingredient, ShoppingListItem
 from app.schemas.shopping import CreateShoppingListItemRequest
 from app.services.activity import log_activity
 from app.services.serializers import serialize_shopping_item
 
 
 UpdatedAtValidator = Callable[[datetime | None, str, str], None]
+READY_LIKE_FOOD_TYPES = {FoodType.READY_MADE.value, FoodType.INSTANT.value, FoodType.PACKAGED.value}
 
 
-def _require_shopping_ingredient(db: Session, *, family_id: str, item_in: CreateShoppingListItemRequest) -> Ingredient:
-    if not item_in.ingredient_id:
-        raise ValueError("购物清单项目必须引用真实食材")
-    ingredient = db.scalar(
-        select(Ingredient).where(
-            Ingredient.family_id == family_id,
-            Ingredient.id == item_in.ingredient_id,
+def _require_shopping_target(
+    db: Session,
+    *,
+    family_id: str,
+    item_in: CreateShoppingListItemRequest,
+) -> tuple[Ingredient | None, Food | None]:
+    if bool(item_in.ingredient_id) == bool(item_in.food_id):
+        raise ValueError("购物清单项目必须引用真实食材或成品采购对象")
+    if item_in.ingredient_id:
+        ingredient = db.scalar(
+            select(Ingredient).where(
+                Ingredient.family_id == family_id,
+                Ingredient.id == item_in.ingredient_id,
+            )
         )
-    )
-    if ingredient is None:
-        raise ValueError("购物清单项目引用了不存在的食材")
-    return ingredient
+        if ingredient is None:
+            raise ValueError("购物清单项目引用了不存在的食材")
+        return ingredient, None
+    food = db.scalar(select(Food).where(Food.family_id == family_id, Food.id == item_in.food_id))
+    if food is None:
+        raise ValueError("购物清单项目引用了不存在的食物")
+    if food.type not in READY_LIKE_FOOD_TYPES:
+        raise ValueError("只有成品、速食或包装食品可以加入采购清单")
+    return None, food
+
+
+def _shopping_values_for_target(
+    item_in: CreateShoppingListItemRequest,
+    ingredient: Ingredient | None,
+    food: Food | None,
+) -> dict[str, Any]:
+    if ingredient is not None:
+        quantity_mode = ingredient.quantity_tracking_mode
+        unit = item_in.unit or ingredient.default_unit or "份"
+        display_label = item_in.display_label
+        if quantity_mode == IngredientQuantityTrackingMode.NOT_TRACK_QUANTITY:
+            display_label = display_label or "需要补充"
+        else:
+            display_label = None
+        return {
+            "ingredient_id": ingredient.id,
+            "food_id": None,
+            "title": ingredient.name,
+            "quantity_mode": quantity_mode,
+            "unit": unit,
+            "display_label": display_label,
+        }
+    assert food is not None
+    return {
+        "ingredient_id": None,
+        "food_id": food.id,
+        "title": food.name,
+        "quantity_mode": IngredientQuantityTrackingMode.TRACK_QUANTITY,
+        "unit": item_in.unit or food.stock_unit or "份",
+        "display_label": None,
+    }
 
 
 def execute_shopping_list_draft(
@@ -67,16 +112,18 @@ def _apply_shopping_item_operations(
         action = str(operation.get("action") or "")
         if action == "create":
             item_in = CreateShoppingListItemRequest.model_validate(operation.get("payload") or {})
-            ingredient = _require_shopping_ingredient(db, family_id=family_id, item_in=item_in)
+            ingredient, food = _require_shopping_target(db, family_id=family_id, item_in=item_in)
+            target_values = _shopping_values_for_target(item_in, ingredient, food)
             item = ShoppingListItem(
                 id=create_id("shopping"),
                 family_id=family_id,
-                ingredient_id=ingredient.id,
-                title=ingredient.name,
+                ingredient_id=target_values["ingredient_id"],
+                food_id=target_values["food_id"],
+                title=target_values["title"],
                 quantity=Decimal(str(item_in.quantity or 1)),
-                unit=item_in.unit or "份",
-                quantity_mode=item_in.quantity_mode,
-                display_label=item_in.display_label,
+                unit=target_values["unit"],
+                quantity_mode=target_values["quantity_mode"],
+                display_label=target_values["display_label"],
                 reason=item_in.reason,
                 done=False,
                 created_by=user_id,
@@ -141,13 +188,15 @@ def _apply_shopping_item_operations(
             entity_ids.append(item.id)
             continue
         item_in = CreateShoppingListItemRequest.model_validate(operation.get("payload") or {})
-        ingredient = _require_shopping_ingredient(db, family_id=family_id, item_in=item_in)
-        item.ingredient_id = ingredient.id
-        item.title = ingredient.name
+        ingredient, food = _require_shopping_target(db, family_id=family_id, item_in=item_in)
+        target_values = _shopping_values_for_target(item_in, ingredient, food)
+        item.ingredient_id = target_values["ingredient_id"]
+        item.food_id = target_values["food_id"]
+        item.title = target_values["title"]
         item.quantity = Decimal(str(item_in.quantity or 1))
-        item.unit = item_in.unit or "份"
-        item.quantity_mode = item_in.quantity_mode
-        item.display_label = item_in.display_label
+        item.unit = target_values["unit"]
+        item.quantity_mode = target_values["quantity_mode"]
+        item.display_label = target_values["display_label"]
         item.reason = item_in.reason
         item.updated_by = user_id
         db.flush()
@@ -175,16 +224,18 @@ def _create_shopping_items_from_payload(
     created: list[ShoppingListItem] = []
     for item_payload in payload.get("items") or []:
         item_in = CreateShoppingListItemRequest.model_validate(item_payload)
-        ingredient = _require_shopping_ingredient(db, family_id=family_id, item_in=item_in)
+        ingredient, food = _require_shopping_target(db, family_id=family_id, item_in=item_in)
+        target_values = _shopping_values_for_target(item_in, ingredient, food)
         item = ShoppingListItem(
             id=create_id("shopping"),
             family_id=family_id,
-            ingredient_id=ingredient.id,
-            title=ingredient.name,
+            ingredient_id=target_values["ingredient_id"],
+            food_id=target_values["food_id"],
+            title=target_values["title"],
             quantity=Decimal(str(item_in.quantity or 1)),
-            unit=item_in.unit or "份",
-            quantity_mode=item_in.quantity_mode,
-            display_label=item_in.display_label,
+            unit=target_values["unit"],
+            quantity_mode=target_values["quantity_mode"],
+            display_label=target_values["display_label"],
             reason=item_in.reason,
             done=False,
             created_by=user_id,

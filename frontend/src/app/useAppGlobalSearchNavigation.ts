@@ -12,6 +12,8 @@ export type IngredientNavigationRequest = {
 export type FoodNavigationRequest = {
   foodId: string;
   requestId: number;
+  target?: 'detail' | 'edit' | 'quickMeal';
+  quickMealAction?: 'eat' | 'cook';
 };
 
 export type RecipeNavigationRequest = {
@@ -109,6 +111,8 @@ export function useAppGlobalSearchNavigation(args: UseAppGlobalSearchNavigationA
     setIngredientNavigationRequest,
     ingredientNavigationRequestIdRef,
     foodNavigationRequest,
+    setFoodNavigationRequest,
+    foodNavigationRequestIdRef,
     foodPlanNavigationRequest,
     recipeNavigationRequest,
     globalSearchOpen,

@@ -1,4 +1,4 @@
-import type { Ingredient, InventoryItem, Recipe, ShoppingListItem } from '../../api/types';
+import type { Food, Ingredient, InventoryItem, Recipe, ShoppingListItem } from '../../api/types';
 import { formatDate, todayKey } from '../../lib/ui';
 import {
   getIngredientAvailableQuantityInDefault,
@@ -134,6 +134,7 @@ export type ShoppingOverviewTone = 'stable' | 'warning' | 'linked' | 'freeform' 
 export type ShoppingCardViewModel = {
   shoppingItem: ShoppingListItem;
   linkedSummary: IngredientSummaryViewModel | null;
+  linkedFood: Food | null;
   title: string;
   headline: string;
   quantityLabel: string;
@@ -146,7 +147,7 @@ export type ShoppingCardViewModel = {
   footerNote: string;
   statusLabel: string;
   statusTone: ShoppingCardStatusTone;
-  sourceLabel: '档案关联' | '自由项';
+  sourceLabel: '档案关联' | '食物档案' | '自由项';
   tone: ShoppingCardTone;
   isLinked: boolean;
   hasAttention: boolean;
@@ -551,8 +552,8 @@ export function buildInventoryCardStatus(summary: IngredientSummaryViewModel): I
     label: '平稳',
     tone: 'stable',
     detail: summary.latestPurchaseDate
-      ? `最近补货于 ${formatDate(summary.latestPurchaseDate)}，当前库存状态平稳。`
-      : '当前库存状态平稳，可以继续按正常节奏使用。',
+      ? `最近补货 ${formatDate(summary.latestPurchaseDate)}，库存平稳。`
+      : '库存平稳，可正常使用。',
     priority: 0,
   };
 }
@@ -940,7 +941,7 @@ export function filterIngredientSummariesForInventory(
 export function buildShoppingCards(
   shoppingItems: ShoppingListItem[],
   summaries: IngredientSummaryViewModel[],
-  options?: { completed?: boolean }
+  options?: { completed?: boolean; foods?: Food[] }
 ): ShoppingCardViewModel[] {
   const summaryByName = new Map(
     summaries.map((summary) => [summary.ingredient.name.trim(), summary] satisfies [string, IngredientSummaryViewModel])
@@ -948,62 +949,92 @@ export function buildShoppingCards(
   const summaryById = new Map(
     summaries.map((summary) => [summary.ingredient.id, summary] satisfies [string, IngredientSummaryViewModel])
   );
+  const foodById = new Map((options?.foods ?? []).map((food) => [food.id, food] satisfies [string, Food]));
 
   return [...shoppingItems]
     .map((shoppingItem) => {
       const normalizedTitle = shoppingItem.title.trim();
       const linkedSummary =
         (shoppingItem.ingredient_id ? summaryById.get(shoppingItem.ingredient_id) ?? null : null) ??
-        summaryByName.get(normalizedTitle) ??
+        (shoppingItem.target_type === 'food' || shoppingItem.food_id ? null : summaryByName.get(normalizedTitle)) ??
         null;
+      const linkedFood = shoppingItem.food_id ? foodById.get(shoppingItem.food_id) ?? null : null;
       const hasAttention = Boolean(linkedSummary && linkedSummary.alerts.length > 0);
       const status = linkedSummary ? buildInventoryCardStatus(linkedSummary) : null;
       const reasonLabel = shoppingItem.reason.trim() || (linkedSummary ? '纳入近期采购计划' : '待补货');
-      const inventoryLabel = linkedSummary ? buildSummaryQuantityLabel(linkedSummary) : '未关联档案';
+      const inventoryLabel = linkedFood
+        ? linkedFood.stock_quantity && linkedFood.stock_quantity > 0
+          ? `${formatQuantityValue(linkedFood.stock_quantity)}${linkedFood.stock_unit || shoppingItem.unit || '份'}`
+          : '未入库'
+        : linkedSummary ? buildSummaryQuantityLabel(linkedSummary) : '未关联档案';
       const inventoryNote = linkedSummary
         ? linkedSummary.alerts.length > 0
           ? linkedSummary.alerts[0]!.title
           : linkedSummary.latestPurchaseDate
             ? `最近补货 ${formatDate(linkedSummary.latestPurchaseDate)}`
             : `常放 ${linkedSummary.primaryStorage || linkedSummary.ingredient.default_storage || '常温'}`
-        : '自由采购项，买完后可直接补录入库。';
+        : linkedFood
+          ? `成品存放位置 ${linkedFood.storage_location || '常温'}，买回后补库存。`
+          : '自由采购项，买完后可直接补录入库。';
       const footerNote = linkedSummary
         ? linkedSummary.alerts.length > 0
           ? linkedSummary.alerts[0]!.detail
           : linkedSummary.latestPurchaseDate
             ? `最近补货 ${formatDate(linkedSummary.latestPurchaseDate)}，当前库存 ${inventoryLabel}。`
             : `当前库存 ${inventoryLabel}，默认放在 ${linkedSummary.primaryStorage || linkedSummary.ingredient.default_storage || '常温'}。`
-        : shoppingItem.reason.trim()
+        : linkedFood
+          ? `买回后为 ${linkedFood.name} 补库存，默认单位 ${linkedFood.stock_unit || shoppingItem.unit || '份'}。`
+          : shoppingItem.reason.trim()
           ? `采购备注：${shoppingItem.reason.trim()}`
           : '这是一个未关联档案的自由采购项，买完后可以直接补录入库。';
-      const contextTags = linkedSummary
+      const contextTags = linkedFood
+        ? [
+            linkedFood.category || '成品速食',
+            linkedFood.storage_location || '常温',
+            `库存 ${inventoryLabel}`,
+          ]
+        : linkedSummary
         ? [
             linkedSummary.ingredient.category || '未分类',
             linkedSummary.primaryStorage || linkedSummary.ingredient.default_storage || '常温',
             `库存 ${inventoryLabel}`,
           ]
         : ['自由项', '未关联档案', '买完后可补录'];
-      const contextLine = linkedSummary
+      const contextLine = linkedFood
+        ? [
+            linkedFood.category || '成品速食',
+            linkedFood.storage_location || '常温',
+          ].join(' · ')
+        : linkedSummary
         ? [
             linkedSummary.ingredient.category || '未分类',
             linkedSummary.primaryStorage || linkedSummary.ingredient.default_storage || '常温',
           ].join(' · ')
         : '自由项 · 未关联档案';
-      const statusLabel = linkedSummary
+      const statusLabel = linkedFood
+        ? linkedFood.stock_quantity && linkedFood.stock_quantity > 0
+          ? '成品在库'
+          : '待补库存'
+        : linkedSummary
         ? linkedSummary.alerts[0]?.title ?? '库存平稳'
         : '暂不读取库存';
-      const statusTone: ShoppingCardStatusTone = linkedSummary
+      const statusTone: ShoppingCardStatusTone = linkedFood
+        ? linkedFood.stock_quantity && linkedFood.stock_quantity > 0 ? 'stable' : 'muted'
+        : linkedSummary
         ? linkedSummary.alerts.length > 0
           ? linkedSummary.alerts[0]!.tone
           : 'stable'
         : 'muted';
-      const tone: ShoppingCardTone = hasAttention ? 'attention' : linkedSummary ? 'linked' : 'freeform';
-      const sourceLabel: ShoppingCardViewModel['sourceLabel'] = linkedSummary ? '档案关联' : '自由项';
+      const tone: ShoppingCardTone = hasAttention ? 'attention' : (linkedSummary || linkedFood) ? 'linked' : 'freeform';
+      const sourceLabel: ShoppingCardViewModel['sourceLabel'] = linkedFood ? '食物档案' : linkedSummary ? '档案关联' : '自由项';
       const searchText = [
         shoppingItem.title,
         shoppingItem.reason,
         linkedSummary?.ingredient.name,
         linkedSummary?.ingredient.category,
+        linkedFood?.name,
+        linkedFood?.category,
+        linkedFood?.storage_location,
       ]
         .filter(Boolean)
         .join(' ');
@@ -1017,6 +1048,7 @@ export function buildShoppingCards(
       return {
         shoppingItem,
         linkedSummary,
+        linkedFood,
         title: normalizedTitle || shoppingItem.title,
         headline: usesPresenceQuantity
           ? shoppingQuantityLabel
@@ -1035,7 +1067,7 @@ export function buildShoppingCards(
         statusTone,
         sourceLabel,
         tone,
-        isLinked: Boolean(linkedSummary),
+        isLinked: Boolean(linkedSummary || linkedFood),
         hasAttention,
         updatedAt: shoppingItem.updated_at,
         searchText,

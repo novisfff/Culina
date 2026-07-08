@@ -44,13 +44,14 @@ function buildForm(): FoodFormState {
     expiryDate: '',
     stockQuantity: '',
     stockUnit: '份',
+    storageLocation: '',
     favorite: false,
     recipeId: '',
     images: {},
   };
 }
 
-function renderForm(options: { completionPercent?: number; isSavingFood?: boolean } = {}) {
+function renderForm(options: { completionPercent?: number; isSavingFood?: boolean; form?: FoodFormState } = {}) {
   const view = attachRoot();
   act(() => {
     root?.render(
@@ -64,7 +65,7 @@ function renderForm(options: { completionPercent?: number; isSavingFood?: boolea
         editorFoodTitle="番茄炒蛋"
         editorProfile={{ title: '补充食物资料', description: '补充来源和备注。' }}
         editorRecipeMeta="未绑定菜谱"
-        form={buildForm()}
+        form={options.form ?? buildForm()}
         imageState={IDLE_IMAGE_GENERATION_STATE}
         isSavingFood={options.isSavingFood}
         isSceneTagPickerOpen={false}
@@ -124,5 +125,21 @@ describe('FoodEditorForm', () => {
     expect(bar?.getAttribute('aria-valuenow')).toBe('72');
     expect(bar?.style.getPropertyValue('--food-editor-completion')).toBe('72%');
     expect(fill?.style.width).toBe('');
+  });
+
+  it('shows storage location choices for ready-like stock only', () => {
+    const readyView = renderForm({ form: { ...buildForm(), type: 'instant', storageLocation: '常温' } });
+    expect(readyView.textContent).toContain('存放位置');
+    expect(findButton(readyView, '冷藏')).not.toBeUndefined();
+    expect(findButton(readyView, '冷冻')).not.toBeUndefined();
+    expect(findButton(readyView, '常温')).not.toBeUndefined();
+
+    act(() => root?.unmount());
+    readyView.remove();
+    root = null;
+    container = null;
+
+    const takeoutView = renderForm({ form: { ...buildForm(), type: 'takeout' } });
+    expect(takeoutView.textContent).not.toContain('存放位置');
   });
 });

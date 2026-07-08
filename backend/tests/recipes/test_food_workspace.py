@@ -22,6 +22,7 @@ class RecipeFoodWorkspaceTestCase(RecipeApiTestCase):
                     "expiry_date": "2026-06-01",
                     "stock_quantity": 2,
                     "stock_unit": "盒",
+                    "storage_location": "冷冻",
                     "favorite": True,
                     "media_ids": [],
                 },
@@ -33,6 +34,19 @@ class RecipeFoodWorkspaceTestCase(RecipeApiTestCase):
             self.assertEqual(food["purchase_source"], "楼下便利店")
             self.assertEqual(food["price"], 18.9)
             self.assertEqual(food["stock_quantity"], 2)
+            self.assertEqual(food["storage_location"], "冷冻")
+
+            invalid_stock_response = self.client.post(
+                "/api/foods",
+                json={
+                    **food,
+                    "name": "库存小数过多",
+                    "stock_quantity": 2.25,
+                    "media_ids": [],
+                },
+            )
+            self.assertEqual(invalid_stock_response.status_code, 400)
+            self.assertEqual(invalid_stock_response.json()["detail"], "剩余数量最多保留 1 位小数")
 
             update_response = self.client.patch(
                 f"/api/foods/{food['id']}",
@@ -41,6 +55,7 @@ class RecipeFoodWorkspaceTestCase(RecipeApiTestCase):
                     "name": "冷冻牛肉饭 Pro",
                     "rating": 5,
                     "repurchase": False,
+                    "storage_location": "冷藏",
                     "media_ids": [],
                 },
             )
@@ -48,6 +63,7 @@ class RecipeFoodWorkspaceTestCase(RecipeApiTestCase):
             self.assertEqual(update_response.json()["name"], "冷冻牛肉饭 Pro")
             self.assertEqual(update_response.json()["rating"], 5)
             self.assertFalse(update_response.json()["repurchase"])
+            self.assertEqual(update_response.json()["storage_location"], "冷藏")
 
             create_self_made = self.client.post(
                 "/api/foods",

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { api } from '../../api/client';
 import { queryKeys } from '../../api/queryKeys';
@@ -15,12 +15,14 @@ import type {
   MealLog,
   MealType,
   MediaAsset,
+  QuickAddMealLogPayload,
   Recipe,
   RecipePayload,
 } from '../../api/types';
 import { buildMediaSizes, buildMediaSrcSet, resolveAssetUrl, resolveMediaUrl } from '../../lib/assets';
 import { getMediaIds, getPendingImageJobId } from '../../lib/aiImages';
 import { addDateKeyDays } from '../../lib/date';
+import { parseFoodStockQuantity, parseOptionalFoodStockQuantity, resolveFoodStockDeductQuantity } from '../../lib/foodStockQuantity';
 import { MediaWithPlaceholder } from '../MediaPlaceholder';
 import {
   ActionButton,
@@ -100,6 +102,7 @@ import {
   isFoodMissingDecisionInfo,
   buildFoodRelationViewModelFromRecipeCards,
   buildFoodCookingSummaryFromRecipeCards,
+  formatFoodStockQuantity,
   type FoodCookingSummary,
 } from './FoodWorkspaceHelpers';
 
@@ -112,6 +115,38 @@ export type TodayFoodRecommendation = {
   score: number;
   reasons: string[];
 };
+
+type FoodWorkspaceNavigationRequest = NonNullable<Props['navigationRequest']>;
+
+type FoodNavigationRequestAction =
+  | { kind: 'idle' }
+  | { kind: 'pending' }
+  | { kind: 'edit'; food: Food; requestId: number }
+  | { kind: 'quickMeal'; food: Food; requestId: number; quickMealAction: 'eat' | 'cook' };
+
+export function resolveFoodNavigationRequestAction(args: {
+  foods: Food[];
+  navigationRequest?: FoodWorkspaceNavigationRequest | null;
+  handledRequestId: number | null;
+}): FoodNavigationRequestAction {
+  const { foods, navigationRequest, handledRequestId } = args;
+  if (!navigationRequest || navigationRequest.target === 'detail' || handledRequestId === navigationRequest.requestId) {
+    return { kind: 'idle' };
+  }
+  const food = foods.find((item) => item.id === navigationRequest.foodId);
+  if (!food) {
+    return { kind: 'pending' };
+  }
+  if (navigationRequest.target === 'edit') {
+    return { kind: 'edit', food, requestId: navigationRequest.requestId };
+  }
+  return {
+    kind: 'quickMeal',
+    food,
+    requestId: navigationRequest.requestId,
+    quickMealAction: navigationRequest.quickMealAction ?? 'eat',
+  };
+}
 
 type Props = {
   foods: Food[];
@@ -127,6 +162,8 @@ type Props = {
   navigationRequest?: {
     foodId: string;
     requestId: number;
+    target?: 'detail' | 'edit' | 'quickMeal';
+    quickMealAction?: 'eat' | 'cook';
   } | null;
   foodPlanNavigationRequest?: {
     itemId: string;
@@ -138,7 +175,15 @@ type Props = {
   updateFoodFavorite: (foodId: string, favorite: boolean) => Promise<Food>;
   createRecipe: (payload: RecipePayload) => Promise<Recipe>;
   updateRecipe: (recipeId: string, payload: RecipePayload) => Promise<Recipe>;
-  quickAddMeal: (payload: { food_id: string; date: string; meal_type: MealType; servings: number; note: string; food_plan_item_id?: string }) => Promise<MealLog>;
+  quickAddMeal: (payload: QuickAddMealLogPayload) => Promise<MealLog>;
+  createShoppingItem: (payload: {
+    title: string;
+    quantity?: number | null;
+    unit?: string | null;
+    ingredient_id?: string | null;
+    food_id?: string | null;
+    reason: string;
+  }) => Promise<unknown>;
   createFoodPlanItem: (payload: { food_id: string; plan_date: string; meal_type: MealType; note: string }) => Promise<FoodPlanItem>;
   updateFoodPlanItem: (itemId: string, payload: { food_id?: string; plan_date?: string; meal_type?: MealType; note?: string; status?: 'planned' | 'cooked' | 'skipped' }) => Promise<FoodPlanItem>;
   deleteFoodPlanItem: (itemId: string) => Promise<void>;
@@ -275,8 +320,7 @@ function getRecommendationPrimaryActionLabel(item: RecommendationCardViewModel) 
 }
 
 function formatFoodStock(food: Food) {
-  if (food.stock_quantity == null) return '未记录';
-  return `${food.stock_quantity}${food.stock_unit || '份'}`;
+  return formatFoodStockQuantity(food);
 }
 
 export function buildTodayFoodRecommendations(
@@ -522,7 +566,6 @@ export function FoodWorkspace(props: Props) {
     removeSceneTag,
     addSceneTag,
     createAndAddSceneTag,
-    quickAdd,
     clearFoodFilters,
     openGovernanceIssue,
   } = useFoodWorkspaceState({
@@ -723,6 +766,7 @@ export function FoodWorkspace(props: Props) {
   const hasFoodFilters = Boolean(search.trim()) || typeFilter !== 'all' || mealFilter !== 'all' || lensFilter !== 'all' || sceneFilter !== 'all' || governanceIssueFilter !== 'all';
   const todayDate = todayKey();
   const [quickMealDialog, setQuickMealDialog] = useState<FoodQuickMealDialogState | null>(null);
+  const [quickMealStockError, setQuickMealStockError] = useState<string | null>(null);
   const [isFoodRecipeEditorOpen, setIsFoodRecipeEditorOpen] = useState(false);
   const [mobileCookingFilter, setMobileCookingFilter] = useState<MobileCookingFilter>('all');
   const quickMealDateOptions = useMemo(
@@ -970,6 +1014,13 @@ export function FoodWorkspace(props: Props) {
   async function handleSubmitFood(event: Parameters<typeof submitFood>[0]) {
     event.preventDefault();
     if (!canSubmit) return;
+    if (isReadyLikeType(form.type)) {
+      const stockQuantity = parseOptionalFoodStockQuantity(form.stockQuantity, '剩余数量');
+      if (stockQuantity.error) {
+        showNotice({ tone: 'warning', title: '库存数量格式不对', message: stockQuantity.error });
+        return;
+      }
+    }
     if (isSelfMade) {
       const recipePayload = buildRecipePayload(
         recipeEditor.form,
@@ -1042,16 +1093,60 @@ export function FoodWorkspace(props: Props) {
   }
 
   function openQuickMealDialog(food: Food, mealType: MealType, action: FoodQuickMealDialogState['action']) {
+    const shouldDeductStock =
+      action === 'eat' &&
+      isReadyLikeFood(food) &&
+      food.stock_quantity !== null &&
+      food.stock_quantity !== undefined &&
+      food.stock_quantity > 0;
     setQuickMealDialog({
       action,
       date: todayKey(),
       food,
       mealType,
       recipeId: action === 'cook' ? food.recipe_id ?? undefined : undefined,
+      deductStock: shouldDeductStock,
+      stockQuantity: shouldDeductStock ? '1' : '',
     });
+    setQuickMealStockError(null);
   }
 
-  function updateQuickMealDialog(patch: Partial<Pick<FoodQuickMealDialogState, 'date' | 'mealType'>>) {
+  async function quickAdd(
+    food: Food,
+    mealType: MealType,
+    date: string,
+    stockPatch: Pick<QuickAddMealLogPayload, 'deduct_food_stock' | 'stock_quantity' | 'stock_unit'> = {}
+  ) {
+    await props.quickAddMeal({
+      food_id: food.id,
+      date,
+      meal_type: mealType,
+      servings: 1,
+      note: '',
+      ...stockPatch,
+    });
+    setFeedback(`${food.name} 已记录到${date === todayKey() ? '今天' : formatDate(date)}${MEAL_TYPE_LABELS[mealType]}`);
+  }
+
+  async function addFoodToShopping(food: Food) {
+    if (!isReadyLikeFood(food)) return;
+    try {
+      await props.createShoppingItem({
+        title: food.name,
+        quantity: 1,
+        unit: food.stock_unit || '份',
+        ingredient_id: null,
+        food_id: food.id,
+        reason: '补充成品库存',
+      });
+      showNotice({ tone: 'success', title: '已加入采购', message: `${food.name} 已加入采购清单。` });
+    } catch (reason) {
+      showNotice({ tone: 'danger', title: '加入采购失败', message: resolveErrorMessage(reason, '加入采购失败') });
+    }
+  }
+
+  function updateQuickMealDialog(patch: Partial<Pick<FoodQuickMealDialogState, 'date' | 'mealType' | 'deductStock' | 'stockQuantity'>>) {
+    setQuickMealStockError(null);
     setQuickMealDialog((current) => (current ? { ...current, ...patch } : current));
   }
 
@@ -1071,8 +1166,40 @@ export function FoodWorkspace(props: Props) {
       props.onStartRecipe(current.recipeId, planItem.id);
       return;
     }
-    await quickAdd(current.food, current.mealType, current.date);
-    setQuickMealDialog(null);
+    let stockQuantity: number | null = null;
+    if (current.deductStock) {
+      const parsedStockQuantity = parseFoodStockQuantity(current.stockQuantity ?? '', '扣减数量');
+      if (parsedStockQuantity.error || parsedStockQuantity.quantity === null) {
+        setQuickMealStockError(parsedStockQuantity.error ?? '请输入大于 0 的扣减数量。');
+        return;
+      }
+      const resolvedStockQuantity = resolveFoodStockDeductQuantity(
+        parsedStockQuantity.quantity,
+        current.food.stock_quantity,
+        current.food.stock_unit || '份'
+      );
+      if (resolvedStockQuantity.error || resolvedStockQuantity.quantity === null) {
+        setQuickMealStockError(resolvedStockQuantity.error ?? '当前库存不足。');
+        return;
+      }
+      stockQuantity = resolvedStockQuantity.quantity;
+    }
+
+    try {
+      await quickAdd(current.food, current.mealType, current.date, {
+        deduct_food_stock: Boolean(current.deductStock),
+        stock_quantity: current.deductStock ? stockQuantity : null,
+        stock_unit: current.deductStock ? current.food.stock_unit || '份' : null,
+      });
+      setQuickMealStockError(null);
+      setQuickMealDialog(null);
+    } catch (reason) {
+      showNotice({
+        tone: 'danger',
+        title: '记录这一餐失败',
+        message: resolveErrorMessage(reason, '记录这一餐失败，请稍后再试。'),
+      });
+    }
   }
 
   function handleRecommendationPrimaryAction(item: RecommendationCardViewModel) {
@@ -1101,6 +1228,25 @@ export function FoodWorkspace(props: Props) {
     if (!nextFood) return;
     handleOpenEdit(nextFood);
   }
+
+  const handledNavigationRequestIdRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    const action = resolveFoodNavigationRequestAction({
+      foods: props.foods,
+      navigationRequest: props.navigationRequest,
+      handledRequestId: handledNavigationRequestIdRef.current,
+    });
+    if (action.kind === 'edit') {
+      handledNavigationRequestIdRef.current = action.requestId;
+      handleOpenEdit(action.food);
+      return;
+    }
+    if (action.kind === 'quickMeal') {
+      handledNavigationRequestIdRef.current = action.requestId;
+      openQuickMealDialog(action.food, getDefaultMealType(action.food), action.quickMealAction);
+    }
+  }, [props.foods, props.navigationRequest]);
 
   return (
     <main className="food-workspace">
@@ -1405,6 +1551,11 @@ export function FoodWorkspace(props: Props) {
                     <button className="food-card-detail-button" type="button" aria-label={`查看详情：${food.name}`} title="查看详情" onClick={() => openDetail(food)}>
                       <FoodUiIcon name="list" />
                     </button>
+                    {isReadyLikeFood(food) && (
+                      <button className="food-card-detail-button" type="button" aria-label={`加入采购：${food.name}`} title="加入采购" onClick={() => void addFoodToShopping(food)}>
+                        <FoodUiIcon name="clipboard" />
+                      </button>
+                    )}
                     <button className="food-card-detail-button" type="button" aria-label={`加入菜单：${food.name}`} title="加入菜单" onClick={() => openPlanDialog(food)}>
                       <FoodUiIcon name="calendar" />
                     </button>
@@ -1702,12 +1853,15 @@ export function FoodWorkspace(props: Props) {
 
         return (
           <FoodQuickMealDialog
-            dialog={quickMealDialog}
+            dialog={{ ...quickMealDialog, stockQuantityError: quickMealStockError }}
             dateOptions={quickMealDateOptions}
             isSubmitting={isSubmitting}
             recipes={props.recipes}
             onChange={updateQuickMealDialog}
-            onClose={() => setQuickMealDialog(null)}
+            onClose={() => {
+              setQuickMealStockError(null);
+              setQuickMealDialog(null);
+            }}
             onSubmit={submitQuickMealDialog}
           />
         );

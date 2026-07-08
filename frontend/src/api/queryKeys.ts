@@ -1,3 +1,5 @@
+const inventoryOverviewRoot = ['inventory', 'overview'] as const;
+
 export const queryKeys = {
   authMe: ['auth', 'me'] as const,
   family: ['family'] as const,
@@ -7,6 +9,8 @@ export const queryKeys = {
   ingredientPickerSearch: (query: string) => ['ingredients', 'picker-search', query.trim()] as const,
   inventory: ['inventory'] as const,
   inventorySearch: (query: string) => ['inventory', 'search', query.trim()] as const,
+  inventoryOverviewRoot,
+  inventoryOverview: (scope = 'all', query = '') => [...inventoryOverviewRoot, scope, query.trim()] as const,
   shoppingList: ['shopping-list'] as const,
   recipes: ['recipes'] as const,
   recipeSearch: (query: string) => ['recipes', 'search', query.trim()] as const,

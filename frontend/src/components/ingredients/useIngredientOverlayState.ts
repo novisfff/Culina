@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import type { Ingredient, ShoppingListItem } from '../../api/types';
+import type { Food, Ingredient, ShoppingListItem } from '../../api/types';
 import { resolvePreferredIngredientUnit } from '../../lib/ingredientUnits';
 import type { PendingShoppingCompletion } from './IngredientWorkspaceOverlayTypes';
 import {
@@ -20,8 +20,10 @@ import { resolveInitialConsumeQuantity } from './consumeQuickHelpers';
 
 type UseIngredientOverlayStateArgs = {
   ingredientOptions: Ingredient[];
+  foodOptions: Food[];
   summaries: IngredientSummaryViewModel[];
   onRequireCreate: () => void;
+  onOpenFoodStockFromShopping?: (item: ShoppingListItem) => void;
 };
 
 export function useIngredientOverlayState(args: UseIngredientOverlayStateArgs) {
@@ -127,6 +129,10 @@ export function useIngredientOverlayState(args: UseIngredientOverlayStateArgs) {
   }
 
   function openInventoryFromShopping(item: ShoppingListItem) {
+    if (item.target_type === 'food' || item.food_id) {
+      args.onOpenFoodStockFromShopping?.(item);
+      return;
+    }
     if (args.ingredientOptions.length === 0) {
       setPendingShoppingToComplete(null);
       setDestroyExpiredIngredientId(null);
@@ -159,7 +165,7 @@ export function useIngredientOverlayState(args: UseIngredientOverlayStateArgs) {
     setOverlayMode('inventory');
   }
 
-  function openShoppingOverlay(options?: { ingredient?: Ingredient; reason?: string; shoppingItem?: ShoppingListItem }) {
+  function openShoppingOverlay(options?: { ingredient?: Ingredient; food?: Food; reason?: string; shoppingItem?: ShoppingListItem }) {
     setPendingShoppingToComplete(null);
     setDestroyExpiredIngredientId(null);
     if (options?.shoppingItem) {
@@ -169,11 +175,15 @@ export function useIngredientOverlayState(args: UseIngredientOverlayStateArgs) {
           : null) ??
         args.ingredientOptions.find((ingredient) => ingredient.name === options.shoppingItem?.title.trim()) ??
         null;
+      const matchedFood =
+        options.shoppingItem.food_id
+          ? args.foodOptions.find((food) => food.id === options.shoppingItem?.food_id) ?? null
+          : null;
       setEditingShoppingItemId(options.shoppingItem.id);
-      setShoppingForm(buildShoppingFormFromItem(options.shoppingItem, matchedIngredient));
+      setShoppingForm(buildShoppingFormFromItem(options.shoppingItem, matchedIngredient, matchedFood));
     } else {
       setEditingShoppingItemId(null);
-      setShoppingForm(buildShoppingForm(options?.ingredient, options?.reason));
+      setShoppingForm(buildShoppingForm(options?.ingredient, options?.reason, options?.food));
     }
     setOverlayMode('shopping');
   }

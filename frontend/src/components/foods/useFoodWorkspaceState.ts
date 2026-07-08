@@ -12,6 +12,8 @@ type UseFoodWorkspaceStateArgs = {
   navigationRequest?: {
     foodId: string;
     requestId: number;
+    target?: 'detail' | 'edit' | 'quickMeal';
+    quickMealAction?: 'eat' | 'cook';
   } | null;
   createFood: (payload: FoodPayload) => Promise<Food>;
   updateFood: (foodId: string, payload: FoodPayload) => Promise<Food>;
@@ -48,6 +50,7 @@ export function useFoodWorkspaceState(args: UseFoodWorkspaceStateArgs) {
 
   useEffect(() => {
     if (!args.navigationRequest) return;
+    if (args.navigationRequest?.target === 'edit' || args.navigationRequest?.target === 'quickMeal') return;
     setEditingFood(null);
     setDetailFoodId(args.navigationRequest.foodId);
     setView('list');

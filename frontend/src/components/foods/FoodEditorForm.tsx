@@ -1,6 +1,7 @@
 import type { CSSProperties, Dispatch, FormEventHandler, SetStateAction } from 'react';
 import type { FoodType, MealType, Recipe } from '../../api/types';
 import { FOOD_TYPE_LABELS } from '../../lib/ui';
+import { INVENTORY_STORAGE_PRESETS } from '../ingredients/ingredientWorkspaceForms';
 import { ActionButton, Badge, ImageComposer, WorkspaceSubpageHeader, WorkspaceSubpageShell } from '../ui-kit';
 import {
   FOOD_CREATE_TYPE_DETAILS,
@@ -73,6 +74,10 @@ function isReadyLikeType(foodType: FoodType) {
   return normalizedType === 'readyMade' || normalizedType === 'instant';
 }
 
+function storageLocationForType(foodType: FoodType, currentValue: string) {
+  return isReadyLikeType(foodType) ? currentValue || '常温' : '';
+}
+
 export function FoodEditorForm(props: Props) {
   const completionPercent = Math.min(100, Math.max(0, props.completionPercent));
   const completionBarStyle = {
@@ -113,7 +118,12 @@ export function FoodEditorForm(props: Props) {
                         key={item.value}
                         className={props.form.type === item.value ? 'food-type-card active' : 'food-type-card'}
                         type="button"
-                        onClick={() => props.onFormChange({ ...props.form, type: item.value, category: '' })}
+                        onClick={() => props.onFormChange({
+                          ...props.form,
+                          type: item.value,
+                          category: '',
+                          storageLocation: storageLocationForType(item.value, props.form.storageLocation),
+                        })}
                       >
                         <span className="food-type-card-icon">{detail && <FoodUiIcon name={detail.icon} />}</span>
                         <span className="food-type-card-copy">
@@ -237,12 +247,29 @@ export function FoodEditorForm(props: Props) {
                         </label>
                         <label>
                           <span>剩余数量</span>
-                          <input className="text-input" type="number" min="0" step="0.5" value={props.form.stockQuantity} onChange={(event) => props.onFormChange({ ...props.form, stockQuantity: event.target.value })} />
+                          <input className="text-input" type="number" min="0" step="0.1" value={props.form.stockQuantity} onChange={(event) => props.onFormChange({ ...props.form, stockQuantity: event.target.value })} />
                         </label>
                         <label>
                           <span>数量单位</span>
                           <input className="text-input" value={props.form.stockUnit} onChange={(event) => props.onFormChange({ ...props.form, stockUnit: event.target.value })} />
                         </label>
+                        <div className="food-repurchase-choice-field food-storage-choice-field">
+                          <span>存放位置</span>
+                          <div className="food-repurchase-choice-group" role="radiogroup" aria-label="存放位置">
+                            {INVENTORY_STORAGE_PRESETS.map((storage) => (
+                              <button
+                                key={storage}
+                                className={(props.form.storageLocation || '常温') === storage ? 'active' : ''}
+                                type="button"
+                                role="radio"
+                                aria-checked={(props.form.storageLocation || '常温') === storage}
+                                onClick={() => props.onFormChange((current) => ({ ...current, storageLocation: storage }))}
+                              >
+                                {storage}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
                       </>
                     )}
                   </div>

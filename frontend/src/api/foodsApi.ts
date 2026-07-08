@@ -4,6 +4,7 @@ import type {
   ActivityLogQuery,
   CreateFoodPlanItemPayload,
   Food,
+  FoodStockChangePayload,
   FoodPlanItem,
   FoodPayload,
   FoodRecommendations,
@@ -102,6 +103,21 @@ export const foodsApi = {
     request<Food>(`/api/foods/${foodId}/favorite`, {
       method: 'PATCH',
       body: JSON.stringify({ favorite }),
+    }),
+  restockFoodStock: (foodId: string, payload: FoodStockChangePayload) =>
+    request<Food>(`/api/foods/${foodId}/stock/restock`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+  consumeFoodStock: (foodId: string, payload: FoodStockChangePayload) =>
+    request<Food>(`/api/foods/${foodId}/stock/consume`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+  disposeFoodStock: (foodId: string, payload: FoodStockChangePayload) =>
+    request<Food>(`/api/foods/${foodId}/stock/dispose`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
     }),
   getMealLogs: () => request<MealLog[]>('/api/meal-logs'),
   updateMealLog: (mealLogId: string, payload: UpdateMealLogPayload) =>

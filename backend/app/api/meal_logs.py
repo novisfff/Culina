@@ -17,6 +17,7 @@ from app.repos.media import build_media_map, get_media_assets_for_entities
 from app.schemas.meal_logs import CreateMealLogRequest, MealLogOut, QuickAddMealLogRequest, UpdateMealLogRequest
 from app.services.activity import log_activity
 from app.services.clock import today_for_family
+from app.services.food_stock import apply_food_stock_consume
 from app.services.media import bind_media_assets, replace_media_assets
 from app.services.search.jobs import enqueue_search_index_job
 from app.services.serializers import serialize_meal_log
@@ -29,6 +30,13 @@ MEAL_TYPE_LABELS = {
     "dinner": "晚餐",
     "snack": "加餐/夜宵",
 }
+
+
+def _select_food_for_quick_add(*, food_id: str, family_id: str, deduct_food_stock: bool):
+    statement = select(Food).where(Food.id == food_id, Food.family_id == family_id)
+    if deduct_food_stock:
+        statement = statement.with_for_update()
+    return statement
 
 
 def _build_deduction_suggestions(db: Session, food_entries: list[MealLogFood]) -> list[InventoryDeductionSuggestion]:
@@ -220,7 +228,13 @@ def quick_add_meal_log(
     db: Session = Depends(get_db),
 ) -> dict:
     user, membership = auth
-    food = db.scalar(select(Food).where(Food.id == payload.food_id, Food.family_id == membership.family_id))
+    food = db.scalar(
+        _select_food_for_quick_add(
+            food_id=payload.food_id,
+            family_id=membership.family_id,
+            deduct_food_stock=payload.deduct_food_stock,
+        )
+    )
     if food is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Food not found")
 
@@ -284,7 +298,8 @@ def quick_add_meal_log(
     entry = None
     if plan_item is not None:
         entry = next((item for item in meal_log.food_entries if item.food_id == food.id and item.note == payload.note), None)
-    if entry is None:
+    entry_created = entry is None
+    if entry_created:
         entry = MealLogFood(
             id=create_id("meal-food"),
             meal_log_id=meal_log.id,
@@ -312,6 +327,20 @@ def quick_add_meal_log(
             entity_id=plan_item.id,
             target_name=food.name,
         )
+
+    if payload.deduct_food_stock and entry_created:
+        try:
+            apply_food_stock_consume(
+                db,
+                family_id=membership.family_id,
+                user_id=user.id,
+                food=food,
+                quantity=Decimal(str(payload.stock_quantity or payload.servings)),
+                unit=payload.stock_unit or food.stock_unit or "份",
+                note="随餐食记录扣减",
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
     log_activity(
         db,

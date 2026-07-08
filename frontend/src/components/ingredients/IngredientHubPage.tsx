@@ -7,7 +7,7 @@ import type {
   RefObject,
   SetStateAction,
 } from 'react';
-import type { ShoppingListItem } from '../../api/types';
+import type { InventoryOverviewItem, ShoppingListItem } from '../../api/types';
 import type { OverlayLayerProps } from './IngredientWorkspaceOverlayTypes';
 import { IngredientHubView } from './IngredientHubView';
 import { IngredientMobileView } from './IngredientMobileView';
@@ -18,6 +18,7 @@ import {
 } from './IngredientWorkspacePanels';
 import { IngredientWorkspaceFrame } from './IngredientWorkspaceFrame';
 import type { InventoryStorageFocus, InventorySortMode } from './ingredientWorkspaceForms';
+import type { InventoryEntryFilter } from './inventoryOverviewModel';
 import type {
   IngredientSummaryViewModel,
   InventoryCardStatusViewModel,
@@ -109,9 +110,12 @@ type IngredientHubPageProps = {
   setCatalogSearch: (value: string) => void;
   mobileIngredientFilter: MobileIngredientFilter;
   setMobileIngredientFilter: (value: MobileIngredientFilter) => void;
+  mobileInventoryEntryFilter: InventoryEntryFilter;
+  setMobileInventoryEntryFilter: (value: InventoryEntryFilter) => void;
   mobileStorageFocus: InventoryStorageFocus;
   setMobileStorageFocus: (value: InventoryStorageFocus | ((current: InventoryStorageFocus) => InventoryStorageFocus)) => void;
   mobilePrioritySummaries: IngredientSummaryViewModel[];
+  mobileFoodStockItems: InventoryOverviewItem[];
   mobileStorageCards: InventoryStorageOverviewViewModel[];
   mobileCatalogSummaries: IngredientSummaryViewModel[];
   mobileCatalogResetKey: string;
@@ -126,6 +130,9 @@ type IngredientHubPageProps = {
   openDestroyExpiredOverlay: (ingredientId: string) => void;
   openCreateView: () => void;
   openInventoryFromShopping: (item: ShoppingListItem) => void;
+  openFoodStockMeal: (foodId: string) => void;
+  openFoodStockEditor: (foodId: string) => void;
+  openFoodShopping: (foodId: string) => void;
   buildPriorityStatus: (summary: IngredientSummaryViewModel) => InventoryCardStatusViewModel;
   buildCatalogStatus: (summary: IngredientSummaryViewModel) => {
     label: string;
@@ -158,7 +165,7 @@ type IngredientHubPageProps = {
   catalogGridStyle: CSSProperties | undefined;
   setCatalogCategoryFilter: (value: string) => void;
   setCatalogStatusFilter: (value: CatalogStatusFilter) => void;
-  openInventoryPanel: (focus?: 'all' | 'alerted') => void;
+  openInventoryPanel: (focus?: InventoryQuickFilter) => void;
   toggleCatalogCard: (ingredientId: string) => void;
   catalogMeasureRef: RefObject<HTMLDivElement>;
   ScrollableChipRail: ComponentType<{
@@ -173,7 +180,7 @@ type IngredientHubPageProps = {
   onInventorySearchCompositionEnd?: CompositionEventHandler<HTMLInputElement>;
   setInventorySearch: (value: string) => void;
   inventoryQuickFilter: InventoryQuickFilter;
-  setInventoryQuickFilter: Dispatch<SetStateAction<InventoryQuickFilter>>;
+  setInventoryQuickFilter: (value: InventoryQuickFilter) => void;
   inventoryStorageFocus: InventoryStorageFocus;
   setInventoryStorageFocus: Dispatch<SetStateAction<InventoryStorageFocus>>;
   inventorySortMode: InventorySortMode;
@@ -292,7 +299,7 @@ export function IngredientHubPage(props: IngredientHubPageProps) {
         onResetFilters={() => {
           props.setInventorySearch('');
           props.setInventoryQuickFilter('all');
-          props.setInventoryStorageFocus('冷藏');
+          props.setInventoryStorageFocus('all');
           props.setInventorySortMode('default');
         }}
         onOpenInventoryOverlay={props.openInventoryOverlay}
@@ -364,9 +371,12 @@ export function IngredientHubPage(props: IngredientHubPageProps) {
               setCatalogSearch={props.setCatalogSearch}
               mobileIngredientFilter={props.mobileIngredientFilter}
               setMobileIngredientFilter={props.setMobileIngredientFilter}
+              mobileInventoryEntryFilter={props.mobileInventoryEntryFilter}
+              setMobileInventoryEntryFilter={props.setMobileInventoryEntryFilter}
               mobileStorageFocus={props.mobileStorageFocus}
               setMobileStorageFocus={props.setMobileStorageFocus}
               mobilePrioritySummaries={props.mobilePrioritySummaries}
+              mobileFoodStockItems={props.mobileFoodStockItems}
               mobileStorageCards={props.mobileStorageCards}
               mobileCatalogSummaries={props.mobileCatalogSummaries}
               mobileCatalogResetKey={props.mobileCatalogResetKey}
@@ -381,6 +391,9 @@ export function IngredientHubPage(props: IngredientHubPageProps) {
               openDestroyExpiredOverlay={props.openDestroyExpiredOverlay}
               openCreateView={props.openCreateView}
               openInventoryFromShopping={props.openInventoryFromShopping}
+              openFoodStockMeal={props.openFoodStockMeal}
+              openFoodStockEditor={props.openFoodStockEditor}
+              openFoodShopping={props.openFoodShopping}
               onDeleteShoppingItem={props.onDeleteShoppingItem}
               buildPriorityStatus={props.buildPriorityStatus}
               buildCatalogStatus={props.buildCatalogStatus}

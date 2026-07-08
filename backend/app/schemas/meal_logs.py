@@ -77,6 +77,9 @@ class QuickAddMealLogRequest(BaseModel):
     servings: float = 1
     note: str = ""
     food_plan_item_id: str | None = None
+    deduct_food_stock: bool = False
+    stock_quantity: float | None = Field(default=None, gt=0)
+    stock_unit: str | None = Field(default=None, max_length=32)
 
     @field_validator("servings")
     @classmethod

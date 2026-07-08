@@ -5,33 +5,40 @@ import {
   useRef,
   useState,
   type CSSProperties,
+  type FormEvent,
   type KeyboardEvent,
   type ReactNode,
 } from 'react';
-import { keepPreviousData, useQuery } from '@tanstack/react-query';
+import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query';
 import { AppLogoIcon } from '../../app/shellIcons';
 import { api } from '../../api/client';
 import { queryKeys } from '../../api/queryKeys';
+import { invalidateAfterFoodChanged, invalidateAfterQuickMealAdded } from '../../api/cacheInvalidation';
 import type {
   ConsumeInventoryResponse,
   DisposeExpiredInventoryResponse,
+  Food,
   Ingredient,
   IngredientExpiryMode,
   IngredientUnitConversion,
   InventoryItem,
+  InventoryOverviewItem,
   InventoryStatus,
+  MealType,
   Recipe,
   ShoppingListItem,
 } from '../../api/types';
 import { buildMediaSizes, buildMediaSrcSet, resolveAssetUrl, resolveMediaUrl } from '../../lib/assets';
 import { MediaWithPlaceholder } from '../MediaPlaceholder';
-import { formatDate } from '../../lib/ui';
+import { formatDate, todayKey } from '../../lib/ui';
+import { addDateKeyDays } from '../../lib/date';
 import type { AiRenderPayload } from '../../lib/aiImages';
 import { useDebouncedSearchValue, useSearchCompositionState } from '../../hooks/useDebouncedValue';
 import { usePagedList } from '../../hooks/usePagedList';
 import { useNotice } from '../../hooks/useNotice';
 import {
   ActionButton,
+  FormActions,
   WorkspaceDrawer,
   WorkspaceModal,
   WorkspaceOverlayFrame,
@@ -56,6 +63,15 @@ import { IngredientDetailView } from './IngredientDetailView';
 import { IngredientDetailPage } from './IngredientDetailPage';
 import { IngredientEditorView } from './IngredientEditorView';
 import { IngredientHubPage } from './IngredientHubPage';
+import { IngredientInventoryPanelContextProvider } from './IngredientWorkspacePanels';
+import {
+  buildUnifiedInventoryGroups,
+  buildUnifiedInventorySummary,
+  filterUnifiedInventoryItems,
+  parseUnifiedFoodStockQuantity,
+  resolveUnifiedFoodStockDeductQuantity,
+  type InventoryEntryFilter,
+} from './inventoryOverviewModel';
 import { useIngredientWorkspaceEffects } from './useIngredientWorkspaceEffects';
 import { useIngredientWorkspaceData } from './useIngredientWorkspaceData';
 import { useIngredientEditorState } from './useIngredientEditorState';
@@ -66,6 +82,8 @@ import {
   STORAGE_SHELF_IDEAL_WIDTH,
   STORAGE_SHELF_MAX_DISPLAY_COLUMNS,
   type CatalogStatusFilter,
+  type InventoryQuickFilter,
+  type InventorySourceFilter,
   type PersistedIngredientWorkspaceState,
   useIngredientWorkspaceState,
 } from './useIngredientWorkspaceState';
@@ -78,6 +96,7 @@ type ScrollableChipRailProps = {
 
 type IngredientWorkspaceProps = {
   ingredients: Ingredient[];
+  foods: Food[];
   inventoryItems: InventoryItem[];
   recipes: Recipe[];
   shoppingItems: ShoppingListItem[];
@@ -140,7 +159,8 @@ type IngredientWorkspaceProps = {
     title: string;
     quantity?: number | null;
     unit?: string | null;
-    ingredient_id: string;
+    ingredient_id?: string | null;
+    food_id?: string | null;
     quantity_mode?: ShoppingListItem['quantity_mode'];
     display_label?: string | null;
     reason: string;
@@ -152,6 +172,7 @@ type IngredientWorkspaceProps = {
       quantity?: number | null;
       unit?: string | null;
       ingredient_id?: string | null;
+      food_id?: string | null;
       quantity_mode?: ShoppingListItem['quantity_mode'];
       display_label?: string | null;
       reason?: string;
@@ -167,6 +188,55 @@ type IngredientWorkspaceProps = {
   isCreatingShopping?: boolean;
   isUpdatingShopping?: boolean;
 };
+
+type FoodStockMealDialogState = {
+  item: InventoryOverviewItem;
+  date: string | null;
+  mealType: MealType;
+  stockQuantity: string;
+  error: string | null;
+};
+
+type FoodStockAdjustDialogState = {
+  item: InventoryOverviewItem;
+  shoppingItemId?: string;
+  quantity: string;
+  unit: string;
+  expiryDate: string;
+  purchaseSource: string;
+  error: string | null;
+};
+
+const FOOD_STOCK_MEAL_OPTIONS: Array<{ value: MealType; label: string }> = [
+  { value: 'breakfast', label: '早餐' },
+  { value: 'lunch', label: '午餐' },
+  { value: 'dinner', label: '晚餐' },
+  { value: 'snack', label: '加餐' },
+];
+const FOOD_STOCK_RESTOCK_QUANTITY_PRESETS = ['1', '2', '5', '10'];
+const FOOD_STOCK_RESTOCK_EXPIRY_PRESETS = [
+  { value: 7, label: '7天' },
+  { value: 30, label: '30天' },
+  { value: 90, label: '90天' },
+];
+const FOOD_STOCK_RESTOCK_SOURCE_PRESETS = ['超市', '便利店', '网购', '盒马'];
+
+function getFoodStockDateParts(dateKey: string) {
+  const [year, month, day] = dateKey.split('-').map(Number);
+  const date = new Date(year, (month || 1) - 1, day || 1);
+  return {
+    day: String(day || 1),
+    month: String(month || 1),
+    weekday: new Intl.DateTimeFormat('zh-CN', { weekday: 'short' }).format(date),
+  };
+}
+
+function getDefaultFoodStockMealType(hour = new Date().getHours()): MealType {
+  if (hour >= 5 && hour < 10) return 'breakfast';
+  if (hour >= 10 && hour < 15) return 'lunch';
+  if (hour >= 15 && hour < 21) return 'dinner';
+  return 'snack';
+}
 
 function resolveErrorMessage(reason: unknown, fallback: string) {
   return reason instanceof Error && reason.message.trim() ? reason.message : fallback;
@@ -891,8 +961,8 @@ type ShoppingWorkRowProps = {
 function ShoppingWorkRow(props: ShoppingWorkRowProps) {
   const { card } = props;
   const linkedSummary = card.linkedSummary;
-  const imageUrl = resolveAssetUrl(linkedSummary?.ingredient.image?.url);
-  const hasCustomImage = Boolean(linkedSummary?.ingredient.image?.url);
+  const imageUrl = resolveAssetUrl(linkedSummary?.ingredient.image?.url ?? card.linkedFood?.images?.[0]?.url);
+  const hasCustomImage = Boolean(linkedSummary?.ingredient.image?.url ?? card.linkedFood?.images?.[0]?.url);
   const footerNote =
     card.statusTone === 'danger'
       ? '已过期，建议优先补充并入库。'
@@ -960,7 +1030,9 @@ function ShoppingWorkRow(props: ShoppingWorkRowProps) {
               查看档案
             </ActionButton>
           ) : (
-            <div className="shopping-work-row-action-note">自由项会按当前标题进入补库存流程。</div>
+            <div className="shopping-work-row-action-note">
+              {card.linkedFood ? '买回后会进入成品补库存流程。' : '自由项会按当前标题进入补库存流程。'}
+            </div>
           )}
         </div>
       </div>
@@ -1111,23 +1183,6 @@ function InventoryIngredientCard(props: InventoryIngredientCardProps) {
                 <span>{summary.inventoryItems.length} 批次</span>
                 <span>{summary.alerts.length} 条提醒</span>
               </div>
-            </div>
-
-            <div className="ingredient-visual-tag-row inventory-ingredient-card-tag-row">
-              <span className="ingredient-visual-pill inventory-ingredient-card-pill-location">
-                {summary.primaryStorage}
-              </span>
-              {summary.alerts.length > 0 ? (
-                <span
-                  className={`ingredient-visual-pill ingredient-visual-pill-${alertTone} ingredient-visual-pill-flex`}
-                >
-                  {summary.alerts.length} 条提醒
-                </span>
-              ) : (
-                <span className="ingredient-visual-pill ingredient-work-card-stable-pill ingredient-visual-pill-flex">
-                  {status.label}
-                </span>
-              )}
             </div>
           </div>
         </div>
@@ -1539,8 +1594,18 @@ function IngredientCatalogCard(props: IngredientCatalogCardProps) {
 }
 
 export function IngredientWorkspace(props: IngredientWorkspaceProps) {
+  const queryClient = useQueryClient();
+  const todayDate = todayKey();
+  const foodStockDeductDateOptions = useMemo(
+    () => Array.from({ length: 7 }, (_, index) => addDateKeyDays(todayDate, index)),
+    [todayDate]
+  );
   const [persistedWorkspaceState] = useState<PersistedIngredientWorkspaceState>(readPersistedIngredientWorkspaceState);
   const [transientIngredient, setTransientIngredient] = useState<Ingredient | null>(null);
+  const [transientShoppingFood, setTransientShoppingFood] = useState<Food | null>(null);
+  const [foodStockMealDialog, setFoodStockMealDialog] = useState<FoodStockMealDialogState | null>(null);
+  const [foodStockAdjustDialog, setFoodStockAdjustDialog] = useState<FoodStockAdjustDialogState | null>(null);
+  const [foodStockSubmitting, setFoodStockSubmitting] = useState<'meal' | 'adjust' | null>(null);
   const [editingIngredientId, setEditingIngredientId] = useState<string | null>(
     persistedWorkspaceState.editingIngredientId ?? null
   );
@@ -1551,6 +1616,16 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
     transientIngredient && !props.ingredients.some((item) => item.id === transientIngredient.id)
       ? [transientIngredient, ...props.ingredients]
       : props.ingredients;
+  const readyFoodOptions = useMemo(
+    () => {
+      const sourceFoods =
+        transientShoppingFood && !props.foods.some((food) => food.id === transientShoppingFood.id)
+          ? [transientShoppingFood, ...props.foods]
+          : props.foods;
+      return sourceFoods.filter((food) => ['readyMade', 'instant', 'packaged'].includes(food.type));
+    },
+    [props.foods, transientShoppingFood]
+  );
   const { notice, showNotice, clearNotice } = useNotice();
   const {
     workspaceView,
@@ -1569,6 +1644,10 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
     setCatalogStatusFilter,
     inventorySearch,
     setInventorySearch,
+    inventorySourceFilter,
+    setInventorySourceFilter,
+    inventoryEntryFilter,
+    setInventoryEntryFilter,
     inventoryQuickFilter,
     setInventoryQuickFilter,
     inventoryStorageFocus,
@@ -1581,6 +1660,8 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
     setShoppingFocus,
     mobileIngredientFilter,
     setMobileIngredientFilter,
+    mobileInventoryEntryFilter,
+    setMobileInventoryEntryFilter,
     mobileStorageFocus,
     setMobileStorageFocus,
     showCompletedShopping,
@@ -1620,6 +1701,11 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
     queryFn: () => api.getInventory({ q: inventorySearchValue }),
     enabled: Boolean(inventorySearchValue),
     placeholderData: keepPreviousData,
+  });
+  const inventoryOverviewQuery = useQuery({
+    queryKey: queryKeys.inventoryOverview(inventorySourceFilter, inventorySearchValue),
+    queryFn: () => api.getInventoryOverview({ scope: inventorySourceFilter, q: inventorySearchValue }),
+    placeholderData: (previous) => previous,
   });
   const [appliedCatalogSearch, setAppliedCatalogSearch] = useState('');
   const [appliedCatalogResults, setAppliedCatalogResults] = useState<Ingredient[]>([]);
@@ -1661,6 +1747,45 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
   const searchAwareIngredients = appliedCatalogSearch ? appliedCatalogResults : props.ingredients;
   const searchAwareInventoryItems =
     appliedInventorySearch ? appliedInventoryResults : props.inventoryItems;
+  const unifiedInventoryItems = inventoryOverviewQuery.data?.items ?? [];
+  const entryFilterBaseUnifiedInventoryItems = useMemo(
+    () =>
+      filterUnifiedInventoryItems(unifiedInventoryItems, {
+        source: inventorySourceFilter,
+        entry: 'all',
+        quick: inventoryQuickFilter,
+        storage: inventoryStorageFocus,
+        search: appliedInventorySearch,
+      }),
+    [appliedInventorySearch, inventoryQuickFilter, inventorySourceFilter, inventoryStorageFocus, unifiedInventoryItems]
+  );
+  const filteredUnifiedInventoryItems = useMemo(
+    () =>
+      filterUnifiedInventoryItems(entryFilterBaseUnifiedInventoryItems, {
+        source: inventorySourceFilter,
+        entry: inventoryEntryFilter,
+        quick: inventoryQuickFilter,
+        storage: inventoryStorageFocus,
+        search: appliedInventorySearch,
+      }),
+    [appliedInventorySearch, entryFilterBaseUnifiedInventoryItems, inventoryEntryFilter, inventoryQuickFilter, inventorySourceFilter, inventoryStorageFocus]
+  );
+  const unifiedInventoryGroups = useMemo(
+    () => buildUnifiedInventoryGroups(filteredUnifiedInventoryItems),
+    [filteredUnifiedInventoryItems]
+  );
+  const unifiedInventorySummary = useMemo(
+    () => buildUnifiedInventorySummary(filteredUnifiedInventoryItems),
+    [filteredUnifiedInventoryItems]
+  );
+  const unifiedInventoryEntrySummary = useMemo(
+    () => buildUnifiedInventorySummary(entryFilterBaseUnifiedInventoryItems),
+    [entryFilterBaseUnifiedInventoryItems]
+  );
+  const mobileFoodStockItems = useMemo(
+    () => unifiedInventoryItems.filter((item) => item.source_type === 'food'),
+    [unifiedInventoryItems]
+  );
   const isCatalogSearchFetching =
     Boolean(normalizedCatalogSearch) &&
     !catalogSearchComposition.isComposing &&
@@ -1702,6 +1827,7 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
     ingredients: searchAwareIngredients,
     inventoryItems: searchAwareInventoryItems,
     recipes: props.recipes,
+    foods: readyFoodOptions,
     shoppingItems: props.shoppingItems,
     ingredientOptions,
     selectedIngredientId,
@@ -1717,11 +1843,17 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
     shoppingSearch,
     shoppingFocus,
     mobileIngredientFilter,
+    mobileInventoryEntryFilter,
     mobileStorageFocus,
     filterIngredientSummariesByCatalogStatus,
     isPendingShopping,
   });
-  const mobileCatalogResetKey = [appliedCatalogSearch, mobileIngredientFilter, mobileStorageFocus].join('|');
+  const mobileCatalogResetKey = [
+    appliedCatalogSearch,
+    mobileIngredientFilter,
+    mobileInventoryEntryFilter,
+    mobileStorageFocus,
+  ].join('|');
   const mobileHasCatalogFiltersForUi =
     Boolean(catalogSearch.trim()) || mobileHasCatalogFilters;
   const catalogCardPager = usePagedList({
@@ -1778,11 +1910,13 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
     closeOverlay,
   } = useIngredientOverlayState({
     ingredientOptions,
+    foodOptions: readyFoodOptions,
     summaries,
     onRequireCreate: () => {
       setActivePanel('catalog');
       editorState.openCreateView();
     },
+    onOpenFoodStockFromShopping: (item) => handleOpenFoodStockFromInventory(item.food_id || item.title, item),
   });
   const selectedInventoryIngredient =
     ingredientOptions.find((item) => item.id === inventoryForm.ingredientId) ?? null;
@@ -1819,6 +1953,7 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
 
   const { submitInventory, submitShopping, submitConsume, submitDestroyExpired } = useIngredientActionState({
     ingredientOptions,
+    foodOptions: readyFoodOptions,
     summaries,
     inventoryForm,
     setInventoryForm,
@@ -1869,7 +2004,7 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
   const noticeToast = notice ? (
     <div className={`recipe-notice-toast tone-${notice.tone}`} role={notice.tone === 'danger' ? 'alert' : 'status'} aria-live="polite">
       <span className="recipe-notice-icon">
-        <IngredientWorkspaceIcon name={notice.tone === 'success' ? 'check' : 'alert'} />
+        <IngredientWorkspaceIcon name={notice.tone === 'success' ? 'check' : 'exclamation'} />
       </span>
       <span className="recipe-notice-copy">
         <strong>{notice.title}</strong>
@@ -1926,6 +2061,7 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
     setShoppingForm,
     destroyExpiredIngredientId,
     ingredients: ingredientOptions,
+    foods: readyFoodOptions,
     ingredientSummaries: summaries,
     quickRestockIngredients,
     submitInventory,
@@ -1939,110 +2075,349 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
     isCreatingShopping: props.isCreatingShopping,
   } as const;
 
+  function findUnifiedInventoryItemBySourceId(sourceId: string) {
+    return unifiedInventoryItems.find((item) => item.source_id === sourceId);
+  }
+
+  function handleOpenFoodStockFromInventory(foodId: string, shoppingItem?: ShoppingListItem) {
+    const item = findUnifiedInventoryItemBySourceId(foodId);
+    if (item) {
+      setFoodStockAdjustDialog({
+        item,
+        shoppingItemId: shoppingItem?.id,
+        quantity: '1',
+        unit: item.unit || '份',
+        expiryDate: item.expiry_date ?? '',
+        purchaseSource: item.purchase_source ?? '',
+        error: null,
+      });
+      return;
+    }
+    showNotice({
+      tone: 'warning',
+      title: '暂时无法补库存',
+      message: '这项成品库存还没有加载完成，请稍后再试。',
+    });
+  }
+
+  function handleRecordFoodStockMeal(foodId: string) {
+    const item = findUnifiedInventoryItemBySourceId(foodId);
+    if (item) {
+      setFoodStockMealDialog({
+        item,
+        date: todayDate,
+        mealType: getDefaultFoodStockMealType(),
+        stockQuantity: item.quantity && item.quantity > 0 ? '1' : '',
+        error: null,
+      });
+      return;
+    }
+    showNotice({
+      tone: 'warning',
+      title: '暂时无法打开减扣流程',
+      message: '这项成品库存还没有加载完成，请稍后再试。',
+    });
+  }
+
+  async function handleAddFoodShopping(foodId: string) {
+    let food = readyFoodOptions.find((item) => item.id === foodId) ?? null;
+    if (!food) {
+      const item = findUnifiedInventoryItemBySourceId(foodId);
+      if (!item) {
+        showNotice({ tone: 'warning', title: '暂时无法加入采购', message: '这项成品资料还没有加载完成，请稍后再试。' });
+        return;
+      }
+      try {
+        const candidates = await api.getFoods({ q: item.title, limit: 20 });
+        food = candidates.find((candidate) => candidate.id === foodId) ?? null;
+      } catch (error) {
+        showNotice({
+          tone: 'warning',
+          title: '暂时无法加入采购',
+          message: resolveErrorMessage(error, '这项成品资料暂时没有查到，请稍后再试。'),
+        });
+        return;
+      }
+      if (food) {
+        setTransientShoppingFood(food);
+      }
+    }
+    if (!food) {
+      showNotice({ tone: 'warning', title: '暂时无法加入采购', message: '这项成品资料暂时没有查到，请稍后再试。' });
+      return;
+    }
+    openShoppingOverlay({ food, reason: '补充成品库存' });
+  }
+
+  function handleInventoryEntryFilterChange(nextFilter: InventoryEntryFilter) {
+    setInventoryEntryFilter(nextFilter);
+    if (nextFilter === 'pending') {
+      setInventoryQuickFilter('all');
+    }
+  }
+
+  function handleInventoryQuickFilterChange(nextFilter: InventoryQuickFilter) {
+    setInventoryQuickFilter(nextFilter);
+    setInventoryStorageFocus('all');
+    handleInventoryEntryFilterChange('all');
+    setInventorySourceFilter('all');
+  }
+
+  function setFoodStockRestockQuantity(quantity: string) {
+    if (!foodStockAdjustDialog) {
+      return;
+    }
+    setFoodStockAdjustDialog({ ...foodStockAdjustDialog, quantity, error: null });
+  }
+
+  function setFoodStockRestockExpiryDays(days: number | null) {
+    if (!foodStockAdjustDialog) {
+      return;
+    }
+    setFoodStockAdjustDialog({
+      ...foodStockAdjustDialog,
+      expiryDate: days === null ? '' : addDateKeyDays(todayDate, days),
+      error: null,
+    });
+  }
+
+  function setFoodStockRestockSource(source: string) {
+    if (!foodStockAdjustDialog) {
+      return;
+    }
+    setFoodStockAdjustDialog({ ...foodStockAdjustDialog, purchaseSource: source, error: null });
+  }
+
+  async function submitFoodStockMealDialog(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!foodStockMealDialog || foodStockSubmitting) {
+      return;
+    }
+    const parsedQuantity = parseUnifiedFoodStockQuantity(foodStockMealDialog.stockQuantity, '减扣数量');
+    if (parsedQuantity.error || parsedQuantity.quantity === null) {
+      setFoodStockMealDialog({ ...foodStockMealDialog, error: parsedQuantity.error ?? '请输入大于 0 的减扣数量。' });
+      return;
+    }
+    const resolvedQuantity = resolveUnifiedFoodStockDeductQuantity(
+      parsedQuantity.quantity,
+      foodStockMealDialog.item.quantity,
+      foodStockMealDialog.item.unit || '份'
+    );
+    if (resolvedQuantity.error || resolvedQuantity.quantity === null) {
+      setFoodStockMealDialog({ ...foodStockMealDialog, error: resolvedQuantity.error ?? '当前库存不足。' });
+      return;
+    }
+    setFoodStockSubmitting('meal');
+    try {
+      if (foodStockMealDialog.date) {
+        await api.quickAddMealLog({
+          food_id: foodStockMealDialog.item.source_id,
+          date: foodStockMealDialog.date,
+          meal_type: foodStockMealDialog.mealType,
+          servings: 1,
+          note: '',
+          deduct_food_stock: true,
+          stock_quantity: resolvedQuantity.quantity,
+          stock_unit: foodStockMealDialog.item.unit || '份',
+        });
+        invalidateAfterQuickMealAdded(queryClient);
+      } else {
+        await api.consumeFoodStock(foodStockMealDialog.item.source_id, {
+          quantity: resolvedQuantity.quantity,
+          unit: foodStockMealDialog.item.unit || '份',
+          note: '从库存页减扣成品库存',
+        });
+        invalidateAfterFoodChanged(queryClient);
+      }
+      setFoodStockMealDialog(null);
+      showNotice({
+        tone: 'success',
+        title: foodStockMealDialog.date ? '已记餐并减扣库存' : '已减扣库存',
+        message: foodStockMealDialog.date
+          ? `${foodStockMealDialog.item.title} 已记录到${foodStockMealDialog.date === todayDate ? '今天' : formatDate(foodStockMealDialog.date)}。`
+          : `${foodStockMealDialog.item.title} 已减扣 ${resolvedQuantity.quantity}${foodStockMealDialog.item.unit || '份'}。`,
+      });
+    } catch (error) {
+      setFoodStockMealDialog({
+        ...foodStockMealDialog,
+        error: error instanceof Error ? error.message : '记餐失败，请稍后再试。',
+      });
+    } finally {
+      setFoodStockSubmitting(null);
+    }
+  }
+
+  async function submitFoodStockAdjustDialog(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!foodStockAdjustDialog || foodStockSubmitting) {
+      return;
+    }
+    const parsedQuantity = parseUnifiedFoodStockQuantity(foodStockAdjustDialog.quantity);
+    if (parsedQuantity.error || parsedQuantity.quantity === null) {
+      setFoodStockAdjustDialog({ ...foodStockAdjustDialog, error: parsedQuantity.error ?? '请输入大于 0 的数量。' });
+      return;
+    }
+    const payload = {
+      quantity: parsedQuantity.quantity,
+      unit: foodStockAdjustDialog.unit || foodStockAdjustDialog.item.unit || '份',
+      expiry_date: foodStockAdjustDialog.expiryDate || null,
+      purchase_source: foodStockAdjustDialog.purchaseSource || null,
+      note: '从库存页补充成品库存',
+    };
+    setFoodStockSubmitting('adjust');
+    try {
+      await api.restockFoodStock(foodStockAdjustDialog.item.source_id, payload);
+      invalidateAfterFoodChanged(queryClient);
+      if (foodStockAdjustDialog.shoppingItemId) {
+        await props.updateShoppingItem({
+          itemId: foodStockAdjustDialog.shoppingItemId,
+          payload: { done: true },
+        });
+      }
+      setFoodStockAdjustDialog(null);
+      showNotice({
+        tone: 'success',
+        title: foodStockAdjustDialog.shoppingItemId ? '已补库存并完成采购' : '已补库存',
+        message: `${foodStockAdjustDialog.item.title} 已补入 ${parsedQuantity.quantity}${payload.unit}。`,
+      });
+    } catch (error) {
+      setFoodStockAdjustDialog({
+        ...foodStockAdjustDialog,
+        error: error instanceof Error ? error.message : '库存调整失败，请稍后再试。',
+      });
+    } finally {
+      setFoodStockSubmitting(null);
+    }
+  }
+
   const renderIngredientHubPage = (mobileDetailPopover?: ReactNode) => (
-    <IngredientHubPage
-      noticeToast={noticeToast}
-      overlays={overlayLayerProps}
-      workspaceMetrics={workspaceMetrics}
-      desktopActions={desktopActions}
-      panelItems={PANEL_ITEMS.map((item) => ({
-        ...item,
-        icon: <IngredientWorkspaceIcon name={item.icon} />,
-      }))}
-      activePanel={activePanel}
-      openWorkspacePanel={openWorkspacePanel}
-      allAlertsCount={allAlerts.length}
-      stockedIngredientCount={stockedIngredientCount}
-      pendingShoppingCount={pendingShopping.length}
-      summariesCount={summaries.length}
-      catalogSearch={catalogSearch}
-      setCatalogSearch={setCatalogSearch}
-      mobileIngredientFilter={mobileIngredientFilter}
-      setMobileIngredientFilter={setMobileIngredientFilter}
-      mobileStorageFocus={mobileStorageFocus}
-      setMobileStorageFocus={setMobileStorageFocus}
-      mobilePrioritySummaries={mobilePrioritySummaries}
-      mobileStorageCards={mobileStorageCards}
-      mobileCatalogSummaries={mobileCatalogSummaries}
-      mobileCatalogResetKey={mobileCatalogResetKey}
-      mobileShoppingCards={mobileShoppingCards}
-      mobileShoppingGroups={mobileShoppingGroups}
-      mobileHasCatalogFilters={mobileHasCatalogFiltersForUi}
-      notificationCenter={props.notificationCenter}
-      openDetailView={openDetailView}
-      openInventoryOverlay={openInventoryOverlay}
-      openConsumeOverlay={openConsumeOverlay}
-      openShoppingOverlay={openShoppingOverlay}
-      openDestroyExpiredOverlay={openDestroyExpiredOverlay}
-      openCreateView={openCreateView}
-      openInventoryFromShopping={openInventoryFromShopping}
-      buildPriorityStatus={buildInventoryCardStatus}
-      buildCatalogStatus={buildCatalogCardStatus}
-      buildInventorySummaryLine={buildInventorySummaryLine}
-      buildShoppingReason={resolveShoppingReason}
-      countDisposableExpiredItems={countDisposableExpiredInventoryItems}
-      renderStorageIllustration={InventoryStorageIllustration}
-      renderIcon={(name) => <IngredientWorkspaceIcon name={name as IngredientWorkspaceIconName} />}
-      isUpdatingShopping={props.isUpdatingShopping}
-      isCreatingInventory={props.isCreatingInventory}
-      isCatalogSearchFetching={isCatalogSearchFetching}
-      onCatalogSearchCompositionStart={catalogSearchComposition.onCompositionStart}
-      onCatalogSearchCompositionEnd={catalogSearchComposition.onCompositionEnd}
-      catalogCountLabel={catalogCountLabel}
-      catalogCategoryFilter={catalogCategoryFilter}
-      catalogStatusFilter={catalogStatusFilter}
-      catalogCategories={catalogCategories}
-      catalogStatusItems={CATALOG_STATUS_FILTERS}
-      catalogStatusCounts={catalogStatusCounts}
-      filteredSummaries={filteredSummaries}
-      visibleFilteredSummaries={visibleFilteredSummaries}
-      hasMoreCatalogSummaries={catalogCardPager.hasMore}
-      onLoadMoreCatalogSummaries={catalogCardPager.loadMore}
-      catalogLoadMoreRef={catalogCardPager.sentinelRef}
-      expandedCatalogIngredientId={expandedCatalogIngredientId}
-      catalogGridStyle={catalogGridStyle}
-      setCatalogCategoryFilter={setCatalogCategoryFilter}
-      setCatalogStatusFilter={setCatalogStatusFilter}
-      openInventoryPanel={openInventoryPanel}
-      toggleCatalogCard={toggleCatalogCard}
-      catalogMeasureRef={catalogMeasureRef}
-      ScrollableChipRail={ScrollableChipRail}
-      IngredientCatalogCard={IngredientCatalogCard}
-      inventorySearch={inventorySearch}
-      isInventorySearchFetching={isInventorySearchFetching}
-      onInventorySearchCompositionStart={inventorySearchComposition.onCompositionStart}
-      onInventorySearchCompositionEnd={inventorySearchComposition.onCompositionEnd}
-      setInventorySearch={setInventorySearch}
-      inventoryQuickFilter={inventoryQuickFilter}
-      setInventoryQuickFilter={setInventoryQuickFilter}
-      inventoryStorageFocus={inventoryStorageFocus}
-      setInventoryStorageFocus={setInventoryStorageFocus}
-      inventorySortMode={inventorySortMode}
-      setInventorySortMode={setInventorySortMode}
-      focusedInventorySummaries={focusedInventorySummaries}
-      inventoryStorageOverview={inventoryStorageOverview}
-      inventoryGroups={inventoryGroups}
-      InventoryStorageOverviewCard={InventoryStorageOverviewCard}
-      InventoryIngredientCard={InventoryIngredientCard}
-      shoppingOverview={shoppingOverview}
-      shoppingFocus={shoppingFocus}
-      setShoppingFocus={setShoppingFocus}
-      shoppingSearch={shoppingSearch}
-      setShoppingSearch={setShoppingSearch}
-      pendingShoppingCards={pendingShoppingCards}
-      visiblePendingShoppingCards={visiblePendingShoppingCards}
-      visiblePendingShoppingGroups={visiblePendingShoppingGroups}
-      completedShoppingCards={completedShoppingCards}
-      visibleCompletedShoppingCards={visibleCompletedShoppingCards}
-      activeShoppingOverview={activeShoppingOverview}
-      showCompletedShopping={showCompletedShopping}
-      setShowCompletedShopping={setShowCompletedShopping}
-      onUpdateShoppingItem={props.updateShoppingItem}
-      onDeleteShoppingItem={props.deleteShoppingItem}
-      ShoppingWorkRow={ShoppingWorkRow}
-      ShoppingHistoryRow={ShoppingHistoryRow}
-      mobileDetailPopover={mobileDetailPopover}
-    />
+    <IngredientInventoryPanelContextProvider
+      value={{
+        inventorySourceFilter,
+        onInventorySourceFilterChange: setInventorySourceFilter,
+        inventoryEntryFilter,
+        onInventoryEntryFilterChange: handleInventoryEntryFilterChange,
+        unifiedInventoryItems: filteredUnifiedInventoryItems,
+        unifiedInventoryEntryItems: entryFilterBaseUnifiedInventoryItems,
+        unifiedInventoryGroups,
+        unifiedInventorySummary,
+        unifiedInventoryEntrySummary,
+        isInventoryOverviewFetching: inventoryOverviewQuery.isFetching,
+        onOpenFoodStock: handleOpenFoodStockFromInventory,
+        onRecordFoodStockMeal: handleRecordFoodStockMeal,
+        onAddFoodShopping: handleAddFoodShopping,
+      }}
+    >
+      <IngredientHubPage
+        noticeToast={noticeToast}
+        overlays={overlayLayerProps}
+        workspaceMetrics={workspaceMetrics}
+        desktopActions={desktopActions}
+        panelItems={PANEL_ITEMS.map((item) => ({
+          ...item,
+          icon: <IngredientWorkspaceIcon name={item.icon} />,
+        }))}
+        activePanel={activePanel}
+        openWorkspacePanel={openWorkspacePanel}
+        allAlertsCount={allAlerts.length}
+        stockedIngredientCount={stockedIngredientCount}
+        pendingShoppingCount={pendingShopping.length}
+        summariesCount={summaries.length}
+        catalogSearch={catalogSearch}
+        setCatalogSearch={setCatalogSearch}
+        mobileIngredientFilter={mobileIngredientFilter}
+        setMobileIngredientFilter={setMobileIngredientFilter}
+        mobileInventoryEntryFilter={mobileInventoryEntryFilter}
+        setMobileInventoryEntryFilter={setMobileInventoryEntryFilter}
+        mobileStorageFocus={mobileStorageFocus}
+        setMobileStorageFocus={setMobileStorageFocus}
+        mobilePrioritySummaries={mobilePrioritySummaries}
+        mobileFoodStockItems={mobileFoodStockItems}
+        mobileStorageCards={mobileStorageCards}
+        mobileCatalogSummaries={mobileCatalogSummaries}
+        mobileCatalogResetKey={mobileCatalogResetKey}
+        mobileShoppingCards={mobileShoppingCards}
+        mobileShoppingGroups={mobileShoppingGroups}
+        mobileHasCatalogFilters={mobileHasCatalogFiltersForUi}
+        notificationCenter={props.notificationCenter}
+        openDetailView={openDetailView}
+        openInventoryOverlay={openInventoryOverlay}
+        openConsumeOverlay={openConsumeOverlay}
+        openShoppingOverlay={openShoppingOverlay}
+        openDestroyExpiredOverlay={openDestroyExpiredOverlay}
+        openCreateView={openCreateView}
+        openInventoryFromShopping={openInventoryFromShopping}
+        openFoodStockMeal={handleRecordFoodStockMeal}
+        openFoodStockEditor={handleOpenFoodStockFromInventory}
+        openFoodShopping={handleAddFoodShopping}
+        buildPriorityStatus={buildInventoryCardStatus}
+        buildCatalogStatus={buildCatalogCardStatus}
+        buildInventorySummaryLine={buildInventorySummaryLine}
+        buildShoppingReason={resolveShoppingReason}
+        countDisposableExpiredItems={countDisposableExpiredInventoryItems}
+        renderStorageIllustration={InventoryStorageIllustration}
+        renderIcon={(name) => <IngredientWorkspaceIcon name={name as IngredientWorkspaceIconName} />}
+        isUpdatingShopping={props.isUpdatingShopping}
+        isCreatingInventory={props.isCreatingInventory}
+        isCatalogSearchFetching={isCatalogSearchFetching}
+        onCatalogSearchCompositionStart={catalogSearchComposition.onCompositionStart}
+        onCatalogSearchCompositionEnd={catalogSearchComposition.onCompositionEnd}
+        catalogCountLabel={catalogCountLabel}
+        catalogCategoryFilter={catalogCategoryFilter}
+        catalogStatusFilter={catalogStatusFilter}
+        catalogCategories={catalogCategories}
+        catalogStatusItems={CATALOG_STATUS_FILTERS}
+        catalogStatusCounts={catalogStatusCounts}
+        filteredSummaries={filteredSummaries}
+        visibleFilteredSummaries={visibleFilteredSummaries}
+        hasMoreCatalogSummaries={catalogCardPager.hasMore}
+        onLoadMoreCatalogSummaries={catalogCardPager.loadMore}
+        catalogLoadMoreRef={catalogCardPager.sentinelRef}
+        expandedCatalogIngredientId={expandedCatalogIngredientId}
+        catalogGridStyle={catalogGridStyle}
+        setCatalogCategoryFilter={setCatalogCategoryFilter}
+        setCatalogStatusFilter={setCatalogStatusFilter}
+        openInventoryPanel={openInventoryPanel}
+        toggleCatalogCard={toggleCatalogCard}
+        catalogMeasureRef={catalogMeasureRef}
+        ScrollableChipRail={ScrollableChipRail}
+        IngredientCatalogCard={IngredientCatalogCard}
+        inventorySearch={inventorySearch}
+        isInventorySearchFetching={isInventorySearchFetching}
+        onInventorySearchCompositionStart={inventorySearchComposition.onCompositionStart}
+        onInventorySearchCompositionEnd={inventorySearchComposition.onCompositionEnd}
+        setInventorySearch={setInventorySearch}
+        inventoryQuickFilter={inventoryQuickFilter}
+        setInventoryQuickFilter={handleInventoryQuickFilterChange}
+        inventoryStorageFocus={inventoryStorageFocus}
+        setInventoryStorageFocus={setInventoryStorageFocus}
+        inventorySortMode={inventorySortMode}
+        setInventorySortMode={setInventorySortMode}
+        focusedInventorySummaries={focusedInventorySummaries}
+        inventoryStorageOverview={inventoryStorageOverview}
+        inventoryGroups={inventoryGroups}
+        InventoryStorageOverviewCard={InventoryStorageOverviewCard}
+        InventoryIngredientCard={InventoryIngredientCard}
+        shoppingOverview={shoppingOverview}
+        shoppingFocus={shoppingFocus}
+        setShoppingFocus={setShoppingFocus}
+        shoppingSearch={shoppingSearch}
+        setShoppingSearch={setShoppingSearch}
+        pendingShoppingCards={pendingShoppingCards}
+        visiblePendingShoppingCards={visiblePendingShoppingCards}
+        visiblePendingShoppingGroups={visiblePendingShoppingGroups}
+        completedShoppingCards={completedShoppingCards}
+        visibleCompletedShoppingCards={visibleCompletedShoppingCards}
+        activeShoppingOverview={activeShoppingOverview}
+        showCompletedShopping={showCompletedShopping}
+        setShowCompletedShopping={setShowCompletedShopping}
+        onUpdateShoppingItem={props.updateShoppingItem}
+        onDeleteShoppingItem={props.deleteShoppingItem}
+        ShoppingWorkRow={ShoppingWorkRow}
+        ShoppingHistoryRow={ShoppingHistoryRow}
+        mobileDetailPopover={mobileDetailPopover}
+      />
+    </IngredientInventoryPanelContextProvider>
   );
 
   if (workspaceView === 'detail' && selectedIngredient) {
@@ -2183,6 +2558,336 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
               renderStorageIcon={(storage) => <InventoryStorageIcon storage={storage} />}
               ScrollableChipRail={ScrollableChipRail}
             />
+          </WorkspaceModal>
+        </WorkspaceOverlayFrame>
+      )}
+
+      {foodStockMealDialog && (
+        <WorkspaceOverlayFrame
+          rootClassName="ingredient-workspace-overlay-root ingredients-food-stock-overlay-root"
+          closeOnBackdrop={foodStockSubmitting !== 'meal'}
+          onClose={() => {
+            if (foodStockSubmitting !== 'meal') {
+              setFoodStockMealDialog(null);
+            }
+          }}
+        >
+          <WorkspaceModal
+            eyebrow="成品库存"
+            title="减扣"
+            description="选日期会记一餐并扣库存；选不记录则只扣库存。"
+            className="ingredients-food-stock-modal ingredients-food-stock-quick-modal"
+            closeLabel="关闭"
+            onClose={() => {
+              if (foodStockSubmitting !== 'meal') {
+                setFoodStockMealDialog(null);
+              }
+            }}
+            footerActions={
+              <FormActions
+                primaryLabel="确认减扣"
+                primaryType="submit"
+                primaryForm="ingredients-food-stock-meal-form"
+                isSubmitting={foodStockSubmitting === 'meal'}
+                secondaryLabel="取消"
+                onSecondary={() => setFoodStockMealDialog(null)}
+              />
+            }
+          >
+            <form id="ingredients-food-stock-meal-form" className="ingredients-food-stock-form ingredients-food-stock-quick-form" onSubmit={submitFoodStockMealDialog}>
+              <div className="ingredients-food-stock-quick-hero">
+                <span className="ingredients-food-stock-quick-cover">
+                  <MediaWithPlaceholder
+                    src={resolveMediaUrl(foodStockMealDialog.item.image, 'card')}
+                    srcSet={buildMediaSrcSet(foodStockMealDialog.item.image)}
+                    sizes={buildMediaSizes('thumb')}
+                    alt=""
+                    emptyLabel="成品图片"
+                    showLabel={false}
+                  />
+                </span>
+                <span className="ingredients-food-stock-quick-copy">
+                  <strong>{foodStockMealDialog.item.title}</strong>
+                  <small>
+                    {[foodStockMealDialog.item.category || '成品', foodStockMealDialog.item.storage_location || '常温', `库存 ${foodStockMealDialog.item.quantity_label}`].join(' · ')}
+                  </small>
+                </span>
+              </div>
+              <div className="ingredients-food-stock-field">
+                <span>记录方式</span>
+                <div className="ingredients-food-stock-date-strip" role="listbox" aria-label="选择记录日期">
+                  <button
+                    type="button"
+                    className={foodStockMealDialog.date === null ? 'active' : ''}
+                    disabled={foodStockSubmitting === 'meal'}
+                    onClick={() =>
+                      setFoodStockMealDialog({ ...foodStockMealDialog, date: null, error: null })
+                    }
+                  >
+                    <span>不记录</span>
+                    <strong>只扣库存</strong>
+                  </button>
+                  {foodStockDeductDateOptions.map((dateKey, index) => {
+                    const parts = getFoodStockDateParts(dateKey);
+                    const label = index === 0 ? '今天' : index === 1 ? '明天' : parts.weekday;
+                    return (
+                      <button
+                        key={dateKey}
+                        type="button"
+                        className={foodStockMealDialog.date === dateKey ? 'active' : ''}
+                        disabled={foodStockSubmitting === 'meal'}
+                        onClick={() =>
+                          setFoodStockMealDialog({ ...foodStockMealDialog, date: dateKey, error: null })
+                        }
+                      >
+                        <span>{label}</span>
+                        <strong>{parts.month}/{parts.day}</strong>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+              {foodStockMealDialog.date ? (
+                <div className="ingredients-food-stock-field">
+                  <span>餐次</span>
+                  <div className="ingredients-food-stock-segments ingredients-food-stock-meal-segments" role="radiogroup" aria-label="选择餐次">
+                    {FOOD_STOCK_MEAL_OPTIONS.map((meal) => (
+                      <button
+                        key={meal.value}
+                        type="button"
+                        className={foodStockMealDialog.mealType === meal.value ? 'active' : ''}
+                        disabled={foodStockSubmitting === 'meal'}
+                        onClick={() =>
+                          setFoodStockMealDialog({ ...foodStockMealDialog, mealType: meal.value, error: null })
+                        }
+                      >
+                        {meal.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                <div className="ingredients-food-stock-no-record-note">
+                  <strong>不写入餐食记录</strong>
+                  <span>这次只从成品库存里扣掉数量，适合清点、丢失或已经记录过的情况。</span>
+                </div>
+              )}
+              <label className="ingredients-food-stock-field">
+                <span>减扣数量</span>
+                <div className="ingredients-food-stock-inline-input">
+                  <input
+                    className="text-input"
+                    type="number"
+                    min="0.1"
+                    step="0.1"
+                    value={foodStockMealDialog.stockQuantity}
+                    disabled={foodStockSubmitting === 'meal'}
+                    onChange={(event) =>
+                      setFoodStockMealDialog({ ...foodStockMealDialog, stockQuantity: event.target.value, error: null })
+                    }
+                  />
+                  <em>{foodStockMealDialog.item.unit || '份'}</em>
+                </div>
+              </label>
+              {foodStockMealDialog.error ? (
+                <p className="form-error ingredients-food-stock-error" role="alert">
+                  {foodStockMealDialog.error}
+                </p>
+              ) : null}
+            </form>
+          </WorkspaceModal>
+        </WorkspaceOverlayFrame>
+      )}
+
+      {foodStockAdjustDialog && (
+        <WorkspaceOverlayFrame
+          rootClassName="ingredient-workspace-overlay-root ingredients-food-stock-overlay-root"
+          closeOnBackdrop={foodStockSubmitting !== 'adjust'}
+          onClose={() => {
+            if (foodStockSubmitting !== 'adjust') {
+              setFoodStockAdjustDialog(null);
+            }
+          }}
+        >
+          <WorkspaceModal
+            eyebrow="成品库存"
+            title="补库存"
+            description="补入数量和到期信息；存放位置在食物资料里统一维护。"
+            className="ingredients-food-stock-modal ingredients-food-stock-restock-modal"
+            closeLabel="关闭"
+            onClose={() => {
+              if (foodStockSubmitting !== 'adjust') {
+                setFoodStockAdjustDialog(null);
+              }
+            }}
+            footerActions={
+              <FormActions
+                primaryLabel="确认补入"
+                primaryType="submit"
+                primaryForm="ingredients-food-stock-adjust-form"
+                isSubmitting={foodStockSubmitting === 'adjust'}
+                secondaryLabel="取消"
+                onSecondary={() => setFoodStockAdjustDialog(null)}
+              />
+            }
+          >
+            <form id="ingredients-food-stock-adjust-form" className="ingredients-food-stock-form ingredients-food-stock-restock-form" onSubmit={submitFoodStockAdjustDialog}>
+              <div className="ingredients-food-stock-quick-hero ingredients-food-stock-restock-hero">
+                <span className="ingredients-food-stock-quick-cover">
+                  <MediaWithPlaceholder
+                    src={resolveMediaUrl(foodStockAdjustDialog.item.image, 'card')}
+                    srcSet={buildMediaSrcSet(foodStockAdjustDialog.item.image)}
+                    sizes={buildMediaSizes('thumb')}
+                    alt=""
+                    emptyLabel="成品图片"
+                    showLabel={false}
+                  />
+                </span>
+                <span className="ingredients-food-stock-quick-copy">
+                  <strong>{foodStockAdjustDialog.item.title}</strong>
+                  <small>
+                    {[foodStockAdjustDialog.item.category || '成品', foodStockAdjustDialog.item.storage_location || '常温', `当前 ${foodStockAdjustDialog.item.quantity_label}`].join(' · ')}
+                  </small>
+                </span>
+              </div>
+
+              <div className="ingredients-food-stock-summary ingredients-food-stock-restock-summary">
+                <strong>补入后更新成品库存</strong>
+                <span>
+                  存放位置：{foodStockAdjustDialog.item.storage_location || '常温'}，如需调整请到食物资料修改。
+                </span>
+              </div>
+
+              <section className="ingredients-food-stock-restock-section">
+                <div className="ingredients-food-stock-restock-section-head">
+                  <strong>补入数量</strong>
+                  <span>常用数量点一下就填好</span>
+                </div>
+                <div className="ingredients-food-stock-restock-unit-row">
+                  <label className="ingredients-food-stock-field">
+                    <span>数量</span>
+                    <input
+                      className="text-input"
+                      type="number"
+                      min="0.1"
+                      step="0.1"
+                      value={foodStockAdjustDialog.quantity}
+                      disabled={foodStockSubmitting === 'adjust'}
+                      onChange={(event) =>
+                        setFoodStockAdjustDialog({ ...foodStockAdjustDialog, quantity: event.target.value, error: null })
+                      }
+                    />
+                  </label>
+                  <label className="ingredients-food-stock-field">
+                    <span>单位</span>
+                    <input
+                      className="text-input"
+                      value={foodStockAdjustDialog.unit}
+                      disabled={foodStockSubmitting === 'adjust'}
+                      onChange={(event) =>
+                        setFoodStockAdjustDialog({ ...foodStockAdjustDialog, unit: event.target.value, error: null })
+                      }
+                    />
+                  </label>
+                </div>
+                <div className="ingredients-food-stock-restock-presets ingredients-food-stock-quantity-presets" aria-label="常用补入数量">
+                  {FOOD_STOCK_RESTOCK_QUANTITY_PRESETS.map((quantity) => (
+                    <button
+                      key={quantity}
+                      type="button"
+                      className={foodStockAdjustDialog.quantity === quantity ? 'active' : ''}
+                      disabled={foodStockSubmitting === 'adjust'}
+                      onClick={() => setFoodStockRestockQuantity(quantity)}
+                    >
+                      +{quantity}
+                      <span>{foodStockAdjustDialog.unit || foodStockAdjustDialog.item.unit || '份'}</span>
+                    </button>
+                  ))}
+                </div>
+              </section>
+
+              <section className="ingredients-food-stock-restock-section">
+                <div className="ingredients-food-stock-restock-section-head">
+                  <strong>到期信息</strong>
+                  <span>不确定可以先不填</span>
+                </div>
+                <label className="ingredients-food-stock-field">
+                  <span>到期日</span>
+                  <input
+                    className="text-input"
+                    type="date"
+                    value={foodStockAdjustDialog.expiryDate}
+                    disabled={foodStockSubmitting === 'adjust'}
+                    onChange={(event) =>
+                      setFoodStockAdjustDialog({ ...foodStockAdjustDialog, expiryDate: event.target.value, error: null })
+                    }
+                  />
+                </label>
+                <div className="ingredients-food-stock-restock-presets ingredients-food-stock-expiry-presets" aria-label="常用到期时间">
+                  <button
+                    type="button"
+                    className={foodStockAdjustDialog.expiryDate ? '' : 'active'}
+                    disabled={foodStockSubmitting === 'adjust'}
+                    onClick={() => setFoodStockRestockExpiryDays(null)}
+                  >
+                    不填到期
+                  </button>
+                  {FOOD_STOCK_RESTOCK_EXPIRY_PRESETS.map((preset) => {
+                    const presetDate = addDateKeyDays(todayDate, preset.value);
+                    return (
+                      <button
+                        key={preset.value}
+                        type="button"
+                        className={foodStockAdjustDialog.expiryDate === presetDate ? 'active' : ''}
+                        disabled={foodStockSubmitting === 'adjust'}
+                        onClick={() => setFoodStockRestockExpiryDays(preset.value)}
+                      >
+                        {preset.label}
+                        <span>{formatDate(presetDate)}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+                <p className="ingredients-food-stock-restock-helper">包装没有明确日期时可以留空，之后在食物资料或库存补充时再维护。</p>
+              </section>
+
+              <section className="ingredients-food-stock-restock-section">
+                <div className="ingredients-food-stock-restock-section-head">
+                  <strong>购买来源</strong>
+                  <span>{foodStockAdjustDialog.shoppingItemId ? '补入成功后会完成这条采购' : '方便下次复购和回看'}</span>
+                </div>
+                <label className="ingredients-food-stock-field">
+                  <span>购买来源</span>
+                  <input
+                    className="text-input"
+                    placeholder="例如：楼下超市、京东、盒马"
+                    value={foodStockAdjustDialog.purchaseSource}
+                    disabled={foodStockSubmitting === 'adjust'}
+                    onChange={(event) =>
+                      setFoodStockAdjustDialog({ ...foodStockAdjustDialog, purchaseSource: event.target.value, error: null })
+                    }
+                  />
+                </label>
+                <div className="ingredients-food-stock-restock-presets ingredients-food-stock-source-presets" aria-label="常用购买来源">
+                  {FOOD_STOCK_RESTOCK_SOURCE_PRESETS.map((source) => (
+                    <button
+                      key={source}
+                      type="button"
+                      className={foodStockAdjustDialog.purchaseSource === source ? 'active' : ''}
+                      disabled={foodStockSubmitting === 'adjust'}
+                      onClick={() => setFoodStockRestockSource(source)}
+                    >
+                      {source}
+                    </button>
+                  ))}
+                </div>
+              </section>
+              {foodStockAdjustDialog.error ? (
+                <p className="form-error ingredients-food-stock-error" role="alert">
+                  {foodStockAdjustDialog.error}
+                </p>
+              ) : null}
+            </form>
           </WorkspaceModal>
         </WorkspaceOverlayFrame>
       )}

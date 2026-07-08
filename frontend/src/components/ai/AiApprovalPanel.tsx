@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { AiApprovalRequest, AiGeneratedRecipeDraft, Difficulty, Food, Ingredient } from '../../api/types';
 import { FoodRatingInput } from '../foods/FoodWorkspacePrimitives';
 import { resolveMediaUrl } from '../../lib/assets';
+import { formatFoodStockAmount } from '../../lib/foodStockQuantity';
 import { tracksIngredientQuantity } from '../../lib/ingredientTracking';
 import { RECIPE_STEP_ICON_OPTIONS } from '../recipes/RecipeWorkspaceOptions';
 import { INVENTORY_STORAGE_PRESETS, buildUnitPresetOptions } from '../ingredients/ingredientWorkspaceForms';
@@ -743,8 +744,20 @@ function foodProfileRecord(value: Record<string, unknown>, fallback: Record<stri
     flavorTags: uniqueTextList(value.flavor_tags ?? value.flavorTags ?? fallback.flavor_tags ?? fallback.flavorTags),
     sourceName: asText(value.source_name) || asText(value.sourceName) || asText(fallback.source_name) || asText(fallback.sourceName),
     notes: asText(value.notes) || asText(fallback.notes),
+    stockQuantity: value.stock_quantity ?? value.stockQuantity ?? fallback.stock_quantity ?? fallback.stockQuantity ?? null,
+    stockUnit: asText(value.stock_unit) || asText(value.stockUnit) || asText(fallback.stock_unit) || asText(fallback.stockUnit),
+    storageLocation: asText(value.storage_location) || asText(value.storageLocation) || asText(fallback.storage_location) || asText(fallback.storageLocation),
     favorite: Boolean(value.favorite ?? fallback.favorite),
   };
+}
+
+function isReadyLikeFoodProfileType(value: string) {
+  return value === 'readyMade' || value === 'instant' || value === 'packaged';
+}
+
+function foodProfileStockLabel(record: ReturnType<typeof foodProfileRecord>) {
+  const quantity = draftNumberInputValue(record.stockQuantity, '');
+  return typeof quantity === 'number' ? formatFoodStockAmount(quantity, record.stockUnit || '份') : '未填写';
 }
 
 function foodProfileSummaryItems(record: ReturnType<typeof foodProfileRecord>) {
@@ -755,6 +768,12 @@ function foodProfileSummaryItems(record: ReturnType<typeof foodProfileRecord>) {
     { label: '适合餐别', value: record.suitableMealTypes.map(mealTypeLabel).filter(Boolean).join('、') || '未设置' },
     { label: '口味标签', value: record.flavorTags.join('、') || '未设置' },
     { label: '来源', value: record.sourceName || '未填写' },
+    ...(isReadyLikeFoodProfileType(record.type)
+      ? [
+          { label: '库存', value: foodProfileStockLabel(record) },
+          { label: '存放位置', value: record.storageLocation || '常温' },
+        ]
+      : []),
   ];
 }
 
@@ -2729,6 +2748,16 @@ export function ApprovalPanel({
                 <span>备注</span>
                 <textarea className="text-input" rows={3} value={record.notes} disabled={readonly} placeholder="补充食用场景或偏好" onChange={(event) => updateFoodPayload({ notes: event.target.value })} />
               </label>
+              {isReadyLikeFoodProfileType(record.type) && (
+                <ApprovalSelectField
+                  label="存放位置"
+                  value={record.storageLocation || '常温'}
+                  disabled={readonly}
+                  options={INGREDIENT_STORAGE_OPTIONS}
+                  icon="type"
+                  onChange={(storageLocation) => updateFoodPayload({ storage_location: storageLocation })}
+                />
+              )}
             </div>
           </section>
         </>

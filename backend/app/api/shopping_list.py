@@ -5,16 +5,40 @@ from sqlalchemy.orm import Session
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 
 from app.core.deps import get_current_auth
-from app.core.enums import ActivityAction, IngredientQuantityTrackingMode
+from app.core.enums import ActivityAction, FoodType, IngredientQuantityTrackingMode
 from app.core.utils import create_id
 from app.db.session import get_db
 from app.db.transactions import commit_session
-from app.models.domain import Ingredient, ShoppingListItem
+from app.models.domain import Food, Ingredient, ShoppingListItem
 from app.schemas.shopping import CreateShoppingListItemRequest, ShoppingListItemOut, UpdateShoppingListItemRequest
 from app.services.activity import log_activity
 from app.services.serializers import serialize_shopping_item
 
 router = APIRouter(tags=["shopping-list"])
+
+READY_LIKE_FOOD_TYPES = {FoodType.READY_MADE.value, FoodType.INSTANT.value, FoodType.PACKAGED.value}
+
+
+def _resolve_shopping_target(
+    *,
+    ingredient_id: str | None,
+    food_id: str | None,
+    family_id: str,
+    db: Session,
+) -> tuple[Ingredient | None, Food | None]:
+    if bool(ingredient_id) == bool(food_id):
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="采购项必须且只能选择一个采购对象")
+    if ingredient_id:
+        ingredient = db.scalar(select(Ingredient).where(Ingredient.id == ingredient_id, Ingredient.family_id == family_id))
+        if ingredient is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Ingredient not found")
+        return ingredient, None
+    food = db.scalar(select(Food).where(Food.id == food_id, Food.family_id == family_id))
+    if food is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Food not found")
+    if food.type not in READY_LIKE_FOOD_TYPES:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="只有成品、速食或包装食品可以加入采购")
+    return None, food
 
 
 @router.get("/api/shopping-list", response_model=list[ShoppingListItemOut])
@@ -37,16 +61,21 @@ def create_shopping_item(
     db: Session = Depends(get_db),
 ) -> dict:
     user, membership = auth
-    if not payload.ingredient_id:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="采购项必须选择已有食材")
-    ingredient = db.scalar(
-        select(Ingredient).where(Ingredient.id == payload.ingredient_id, Ingredient.family_id == membership.family_id)
+    ingredient, food = _resolve_shopping_target(
+        ingredient_id=payload.ingredient_id,
+        food_id=payload.food_id,
+        family_id=membership.family_id,
+        db=db,
     )
-    if ingredient is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Ingredient not found")
-    payload.title = ingredient.name
-    payload.quantity_mode = ingredient.quantity_tracking_mode
-    payload.unit = payload.unit or ingredient.default_unit
+    if ingredient is not None:
+        payload.title = ingredient.name
+        payload.quantity_mode = ingredient.quantity_tracking_mode
+        payload.unit = payload.unit or ingredient.default_unit
+    elif food is not None:
+        payload.title = food.name
+        payload.quantity_mode = IngredientQuantityTrackingMode.TRACK_QUANTITY
+        payload.unit = payload.unit or food.stock_unit or "份"
+        payload.display_label = None
     if payload.quantity_mode.value == "not_track_quantity":
         payload.display_label = payload.display_label or "需要补充"
         payload.quantity = payload.quantity or 1
@@ -57,7 +86,8 @@ def create_shopping_item(
     item = ShoppingListItem(
         id=create_id("shopping"),
         family_id=membership.family_id,
-        ingredient_id=ingredient.id,
+        ingredient_id=ingredient.id if ingredient is not None else None,
+        food_id=food.id if food is not None else None,
         title=payload.title,
         quantity=payload.quantity or 1,
         unit=payload.unit or "份",
@@ -94,28 +124,40 @@ def update_shopping_item(
     if item is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Shopping item not found")
     ingredient = None
+    food = None
     content_fields = payload.model_fields_set - {"done"}
-    if content_fields and "ingredient_id" in payload.model_fields_set and not payload.ingredient_id:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="采购项必须选择已有食材")
-    ingredient_id = payload.ingredient_id if "ingredient_id" in payload.model_fields_set else item.ingredient_id
-    if content_fields and not ingredient_id:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="采购项必须选择已有食材")
-    if content_fields and ingredient_id:
-        ingredient = db.scalar(
-            select(Ingredient).where(Ingredient.id == ingredient_id, Ingredient.family_id == membership.family_id)
+    target_changed = False
+    if content_fields:
+        has_target_field = "ingredient_id" in payload.model_fields_set or "food_id" in payload.model_fields_set
+        ingredient_id = payload.ingredient_id if "ingredient_id" in payload.model_fields_set else (None if has_target_field else item.ingredient_id)
+        food_id = payload.food_id if "food_id" in payload.model_fields_set else (None if has_target_field else item.food_id)
+        ingredient, food = _resolve_shopping_target(
+            ingredient_id=ingredient_id,
+            food_id=food_id,
+            family_id=membership.family_id,
+            db=db,
         )
-        if ingredient is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Ingredient not found")
+        target_changed = ingredient_id != item.ingredient_id or food_id != item.food_id
 
     if ingredient is not None:
         item.title = ingredient.name
+    elif food is not None:
+        item.title = food.name
     elif "title" in payload.model_fields_set and payload.title is not None:
         item.title = payload.title
-    if "ingredient_id" in payload.model_fields_set:
+    if ingredient is not None:
         item.ingredient_id = ingredient.id
+        item.food_id = None
+    elif food is not None:
+        item.food_id = food.id
+        item.ingredient_id = None
     if ingredient is not None:
         item.quantity_mode = ingredient.quantity_tracking_mode
-        item.unit = payload.unit or item.unit or ingredient.default_unit
+        item.unit = payload.unit or (item.unit if not target_changed else None) or ingredient.default_unit
+    elif food is not None:
+        item.quantity_mode = IngredientQuantityTrackingMode.TRACK_QUANTITY
+        item.unit = payload.unit or (item.unit if not target_changed else None) or food.stock_unit or "份"
+        item.display_label = None
     elif "quantity_mode" in payload.model_fields_set and payload.quantity_mode is not None:
         item.quantity_mode = payload.quantity_mode
     if "quantity" in payload.model_fields_set and payload.quantity is not None:

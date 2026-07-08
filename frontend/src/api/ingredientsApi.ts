@@ -5,6 +5,8 @@ import type {
   DisposeInventoryResponse,
   DisposeExpiredInventoryResponse,
   Ingredient,
+  InventoryOverview,
+  InventoryOverviewScope,
   InventoryItem,
   ShoppingListItem,
 } from './types';
@@ -14,6 +16,7 @@ export type UpdateShoppingItemPayload = {
   quantity?: number | null;
   unit?: string | null;
   ingredient_id?: string | null;
+  food_id?: string | null;
   quantity_mode?: ShoppingListItem['quantity_mode'];
   display_label?: string | null;
   reason?: string;
@@ -74,6 +77,13 @@ export const ingredientsApi = {
     const suffix = search.size > 0 ? `?${search.toString()}` : '';
     return request<InventoryItem[]>(`/api/inventory${suffix}`);
   },
+  getInventoryOverview: (params: { scope?: InventoryOverviewScope; q?: string } = {}) => {
+    const search = new URLSearchParams();
+    if (params.scope && params.scope !== 'all') search.set('scope', params.scope);
+    if (params.q?.trim()) search.set('q', params.q.trim());
+    const suffix = search.size > 0 ? `?${search.toString()}` : '';
+    return request<InventoryOverview>(`/api/inventory/overview${suffix}`);
+  },
   createInventory: (payload: {
     ingredient_id: string;
     quantity?: number | null;
@@ -109,7 +119,8 @@ export const ingredientsApi = {
     title: string;
     quantity?: number | null;
     unit?: string | null;
-    ingredient_id: string;
+    ingredient_id?: string | null;
+    food_id?: string | null;
     quantity_mode?: ShoppingListItem['quantity_mode'];
     display_label?: string | null;
     reason: string;

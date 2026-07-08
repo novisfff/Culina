@@ -217,6 +217,8 @@ function App() {
     setIngredientNavigationRequest,
     ingredientNavigationRequestIdRef,
     foodNavigationRequest,
+    setFoodNavigationRequest,
+    foodNavigationRequestIdRef,
     foodPlanNavigationRequest,
     recipeNavigationRequest,
     globalSearchOpen,
@@ -646,9 +648,9 @@ function App() {
         {activeTab === 'foods' && (
           <Suspense fallback={<WorkspaceLoadingFallback />}>
             <FoodWorkspace
-              foods={foods}
               recipes={recipes}
               ingredients={ingredients}
+              foods={foods}
               inventoryItems={inventoryItems}
               mealLogs={mealLogs}
               foodRecommendations={foodRecommendations}
@@ -664,6 +666,7 @@ function App() {
               createRecipe={(payload) => createRecipeMutation.mutateAsync(payload)}
               updateRecipe={(recipeId, payload) => updateRecipeMutation.mutateAsync({ recipeId, payload })}
               quickAddMeal={(payload) => quickAddMealMutation.mutateAsync(payload)}
+              createShoppingItem={(payload) => createShoppingMutation.mutateAsync(payload)}
               createFoodPlanItem={(payload) => createFoodPlanItemMutation.mutateAsync(payload)}
               updateFoodPlanItem={(itemId, payload) => updateFoodPlanItemMutation.mutateAsync({ itemId, payload })}
               deleteFoodPlanItem={(itemId) => deleteFoodPlanItemMutation.mutateAsync(itemId)}
@@ -776,6 +779,7 @@ function App() {
           <Suspense fallback={<WorkspaceLoadingFallback />}>
             <IngredientWorkspace
               ingredients={ingredients}
+              foods={foods}
               inventoryItems={inventoryItems}
               shoppingItems={shoppingItems}
               recipes={recipes}
