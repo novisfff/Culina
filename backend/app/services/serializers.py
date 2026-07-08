@@ -30,6 +30,7 @@ from app.models.domain import (
     ShoppingListItem,
     User,
 )
+from app.services.food_stock_quantity import normalize_food_stock_quantity
 from app.services.ingredient_units import serialize_unit_conversions
 
 
@@ -199,6 +200,8 @@ def serialize_shopping_item(item: ShoppingListItem) -> dict:
         "id": item.id,
         "family_id": item.family_id,
         "ingredient_id": item.ingredient_id,
+        "food_id": item.food_id,
+        "target_type": "food" if item.food_id else "ingredient",
         "title": item.title,
         "quantity": _to_float(item.quantity),
         "unit": item.unit,
@@ -351,7 +354,7 @@ def serialize_food(food: Food, media_map: dict[tuple[str, str], list[MediaAsset]
         "rating": food.rating,
         "repurchase": food.repurchase,
         "expiry_date": food.expiry_date,
-        "stock_quantity": float(food.stock_quantity) if food.stock_quantity is not None else None,
+        "stock_quantity": float(normalize_food_stock_quantity(food.stock_quantity)) if food.stock_quantity is not None else None,
         "stock_unit": food.stock_unit,
         "storage_location": food.storage_location,
         "favorite": food.favorite,

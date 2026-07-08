@@ -5,7 +5,7 @@ import { FOOD_TYPE_LABELS, getFoodCoverAsset } from '../../lib/ui';
 import { MediaWithPlaceholder } from '../MediaPlaceholder';
 import { FormActions, WorkspaceModal, WorkspaceOverlayFrame } from '../ui-kit';
 import { MEAL_OPTIONS } from './FoodWorkspaceOptions';
-import { getPrimaryFoodActionLabel, isReadyLikeFood, normalizeFoodType } from './FoodWorkspaceHelpers';
+import { formatFoodStockQuantity, getPrimaryFoodActionLabel, isReadyLikeFood, normalizeFoodType } from './FoodWorkspaceHelpers';
 
 export type FoodQuickMealDialogState = {
   action: 'cook' | 'eat';
@@ -146,7 +146,7 @@ export function FoodQuickMealDialog(props: FoodQuickMealDialogProps) {
                 />
                 <span>
                   <strong>同步扣减库存</strong>
-                  <small>当前剩余 {props.dialog.food.stock_quantity}{props.dialog.food.stock_unit || '份'}</small>
+                  <small>当前剩余 {formatFoodStockQuantity(props.dialog.food)}</small>
                 </span>
               </label>
               {(props.dialog.deductStock ?? true) && (
@@ -156,7 +156,7 @@ export function FoodQuickMealDialog(props: FoodQuickMealDialogProps) {
                     className="text-input"
                     type="number"
                     min="0.1"
-                    step="0.5"
+                    step="0.1"
                     value={props.dialog.stockQuantity ?? '1'}
                     disabled={isSubmitting}
                     aria-invalid={props.dialog.stockQuantityError ? 'true' : undefined}

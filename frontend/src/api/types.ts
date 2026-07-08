@@ -185,6 +185,8 @@ export interface ShoppingListItem {
   id: string;
   family_id: string;
   ingredient_id?: string | null;
+  food_id?: string | null;
+  target_type?: 'ingredient' | 'food';
   title: string;
   quantity: number;
   unit: string;

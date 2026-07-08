@@ -247,7 +247,7 @@ export function FoodEditorForm(props: Props) {
                         </label>
                         <label>
                           <span>剩余数量</span>
-                          <input className="text-input" type="number" min="0" step="0.5" value={props.form.stockQuantity} onChange={(event) => props.onFormChange({ ...props.form, stockQuantity: event.target.value })} />
+                          <input className="text-input" type="number" min="0" step="0.1" value={props.form.stockQuantity} onChange={(event) => props.onFormChange({ ...props.form, stockQuantity: event.target.value })} />
                         </label>
                         <label>
                           <span>数量单位</span>

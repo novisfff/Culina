@@ -1,5 +1,6 @@
 import type { Food, FoodPayload, FoodType, ImageInputValue, MealType, Recipe } from '../../api/types';
 import type { AiRenderPayload } from '../../lib/aiImages';
+import { formatFoodStockNumber } from '../../lib/foodStockQuantity';
 import { FOOD_TYPE_LABELS, emptyImages, getFoodCover, splitTags } from '../../lib/ui';
 
 export type FoodFormState = {
@@ -78,7 +79,7 @@ export function foodToForm(food: Food): FoodFormState {
     rating: food.rating == null ? '' : String(food.rating),
     repurchase: food.repurchase == null ? 'unknown' : food.repurchase ? 'yes' : 'no',
     expiryDate: food.expiry_date ?? '',
-    stockQuantity: food.stock_quantity == null ? '' : String(food.stock_quantity),
+    stockQuantity: food.stock_quantity == null ? '' : formatFoodStockNumber(food.stock_quantity),
     stockUnit: food.stock_unit,
     storageLocation: food.storage_location || (isReadyLikeFoodType(food.type) ? '常温' : ''),
     favorite: food.favorite,

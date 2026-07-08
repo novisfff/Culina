@@ -142,7 +142,7 @@ def test_inventory_overview_returns_ingredient_and_ready_food_stock(
             scene="",
             notes="",
             routine_note="早餐备用",
-            stock_quantity=Decimal("2"),
+            stock_quantity=Decimal("13.991"),
             stock_unit="盒",
             storage_location="冷藏",
             expiry_date=date(2026, 7, 8),
@@ -184,7 +184,7 @@ def test_inventory_overview_returns_ingredient_and_ready_food_stock(
     assert [item["source_type"] for item in payload["items"]] == ["food", "ingredient"]
     assert payload["items"][0]["source_id"] == "food-overview-yogurt"
     assert payload["items"][0]["title"] == "蓝莓酸奶"
-    assert payload["items"][0]["quantity_label"] == "2盒"
+    assert payload["items"][0]["quantity_label"] == "13.9盒"
     assert payload["items"][0]["storage_location"] == "冷藏"
     assert payload["items"][0]["primary_action"] == "record_meal"
     assert payload["items"][1]["source_id"] == "ingredient-overview-tomato"
@@ -258,6 +258,134 @@ def test_inventory_overview_filters_scope_and_query(
     assert freezer_payload["summary"]["total_count"] == 1
     assert freezer_payload["items"][0]["source_id"] == "food-overview-query-dumpling"
     assert freezer_payload["items"][0]["storage_location"] == "冷冻"
+
+
+def test_inventory_overview_includes_pending_ready_food_without_stock(
+    inventory_overview_api_context: InventoryOverviewApiContext,
+) -> None:
+    from app.models.domain import Food
+
+    with inventory_overview_api_context.SessionLocal() as db:
+        freezer_meal = Food(
+            id="food-overview-pending-freezer",
+            family_id=inventory_overview_api_context.family_id,
+            name="冷冻牛肉饭",
+            type="readyMade",
+            category="成品便当",
+            flavor_tags=[],
+            scene_tags=["备餐"],
+            suitable_meal_types=["lunch"],
+            source_name="山姆",
+            purchase_source="山姆会员店",
+            scene="",
+            notes="先补一批",
+            routine_note="午餐备用",
+            stock_quantity=None,
+            stock_unit="盒",
+            storage_location="冷冻",
+            expiry_date=None,
+            favorite=False,
+            created_by=inventory_overview_api_context.user_id,
+            updated_by=inventory_overview_api_context.user_id,
+        )
+        room_temperature_noodle = Food(
+            id="food-overview-pending-noodle",
+            family_id=inventory_overview_api_context.family_id,
+            name="番茄方便面",
+            type="instant",
+            category="速食",
+            flavor_tags=[],
+            scene_tags=[],
+            suitable_meal_types=["dinner"],
+            source_name="便利店",
+            purchase_source="罗森",
+            scene="",
+            notes="",
+            routine_note="",
+            stock_quantity=Decimal("0"),
+            stock_unit="包",
+            storage_location="",
+            expiry_date=None,
+            favorite=False,
+            created_by=inventory_overview_api_context.user_id,
+            updated_by=inventory_overview_api_context.user_id,
+        )
+        takeout = Food(
+            id="food-overview-pending-takeout",
+            family_id=inventory_overview_api_context.family_id,
+            name="外卖牛肉饭",
+            type="takeout",
+            category="外卖",
+            flavor_tags=[],
+            scene_tags=[],
+            suitable_meal_types=["lunch"],
+            source_name="楼下店",
+            purchase_source="美团",
+            scene="",
+            notes="",
+            routine_note="",
+            stock_quantity=Decimal("0"),
+            stock_unit="份",
+            storage_location="常温",
+            expiry_date=None,
+            favorite=False,
+            created_by=inventory_overview_api_context.user_id,
+            updated_by=inventory_overview_api_context.user_id,
+        )
+        self_made = Food(
+            id="food-overview-pending-self-made",
+            family_id=inventory_overview_api_context.family_id,
+            name="自制三明治",
+            type="selfMade",
+            category="自制",
+            flavor_tags=[],
+            scene_tags=[],
+            suitable_meal_types=["breakfast"],
+            source_name="",
+            purchase_source="",
+            scene="",
+            notes="",
+            routine_note="",
+            stock_quantity=Decimal("0"),
+            stock_unit="份",
+            storage_location="冷藏",
+            expiry_date=None,
+            favorite=False,
+            created_by=inventory_overview_api_context.user_id,
+            updated_by=inventory_overview_api_context.user_id,
+        )
+        db.add_all([freezer_meal, room_temperature_noodle, takeout, self_made])
+        db.commit()
+
+    response = inventory_overview_api_context.client.get("/api/inventory/overview?scope=all")
+
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["summary"]["total_count"] == 2
+    assert payload["summary"]["food_count"] == 2
+    assert payload["summary"]["empty_count"] == 2
+    food_by_id = {item["source_id"]: item for item in payload["items"]}
+    assert set(food_by_id) == {"food-overview-pending-freezer", "food-overview-pending-noodle"}
+    freezer_item = food_by_id["food-overview-pending-freezer"]
+    assert freezer_item["quantity"] in (None, 0)
+    assert freezer_item["quantity_label"] == "未入库"
+    assert freezer_item["tone"] == "empty"
+    assert freezer_item["primary_action"] == "edit_food_stock"
+    assert freezer_item["storage_location"] == "冷冻"
+    assert freezer_item["unit"] == "盒"
+    assert food_by_id["food-overview-pending-noodle"]["storage_location"] == "常温"
+
+    freezer_response = inventory_overview_api_context.client.get("/api/inventory/overview?scope=food&q=冷冻")
+    assert freezer_response.status_code == 200, freezer_response.text
+    freezer_payload = freezer_response.json()
+    assert freezer_payload["summary"]["total_count"] == 1
+    assert freezer_payload["items"][0]["source_id"] == "food-overview-pending-freezer"
+
+    tag_response = inventory_overview_api_context.client.get("/api/inventory/overview?scope=food&q=备餐")
+    assert tag_response.status_code == 200, tag_response.text
+    tag_payload = tag_response.json()
+    assert tag_payload["summary"]["total_count"] == 1
+    assert tag_payload["items"][0]["source_id"] == "food-overview-pending-freezer"
 
 
 def test_inventory_overview_excludes_other_family_rows(

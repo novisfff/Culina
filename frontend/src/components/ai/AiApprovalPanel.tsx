@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { AiApprovalRequest, AiGeneratedRecipeDraft, Difficulty, Food, Ingredient } from '../../api/types';
 import { FoodRatingInput } from '../foods/FoodWorkspacePrimitives';
 import { resolveMediaUrl } from '../../lib/assets';
+import { formatFoodStockAmount } from '../../lib/foodStockQuantity';
 import { tracksIngredientQuantity } from '../../lib/ingredientTracking';
 import { RECIPE_STEP_ICON_OPTIONS } from '../recipes/RecipeWorkspaceOptions';
 import { INVENTORY_STORAGE_PRESETS, buildUnitPresetOptions } from '../ingredients/ingredientWorkspaceForms';
@@ -754,6 +755,11 @@ function isReadyLikeFoodProfileType(value: string) {
   return value === 'readyMade' || value === 'instant' || value === 'packaged';
 }
 
+function foodProfileStockLabel(record: ReturnType<typeof foodProfileRecord>) {
+  const quantity = draftNumberInputValue(record.stockQuantity, '');
+  return typeof quantity === 'number' ? formatFoodStockAmount(quantity, record.stockUnit || '份') : '未填写';
+}
+
 function foodProfileSummaryItems(record: ReturnType<typeof foodProfileRecord>) {
   return [
     { label: '食物名', value: record.name || '未命名食物' },
@@ -764,7 +770,7 @@ function foodProfileSummaryItems(record: ReturnType<typeof foodProfileRecord>) {
     { label: '来源', value: record.sourceName || '未填写' },
     ...(isReadyLikeFoodProfileType(record.type)
       ? [
-          { label: '库存', value: record.stockQuantity == null ? '未填写' : `${record.stockQuantity}${record.stockUnit || '份'}` },
+          { label: '库存', value: foodProfileStockLabel(record) },
           { label: '存放位置', value: record.storageLocation || '常温' },
         ]
       : []),

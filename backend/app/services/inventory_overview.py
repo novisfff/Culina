@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.core.enums import FoodType, IngredientQuantityTrackingMode
 from app.models.domain import Food, Ingredient, InventoryItem
+from app.services.food_stock_quantity import format_food_stock_quantity
 from app.repos.media import build_media_map, get_media_assets_for_entities
 from app.services.inventory_usage import remaining_quantity, tracks_quantity
 from app.services.serializers import serialize_media
@@ -26,10 +27,7 @@ def is_ready_like_food(food: Food) -> bool:
 
 
 def _format_quantity(value: Decimal | None, unit: str, fallback: str) -> str:
-    if value is None:
-        return fallback
-    normalized = f"{float(value):g}"
-    return f"{normalized}{unit or '份'}"
+    return format_food_stock_quantity(value, unit, fallback=fallback)
 
 
 def _days_until(value: date | None, today: date) -> int | None:
@@ -168,11 +166,11 @@ def _food_rows(
         if not is_ready_like_food(food):
             continue
         quantity = food.stock_quantity
-        if quantity is None or quantity <= 0:
-            continue
+        is_pending = quantity is None or quantity <= 0
         days = _days_until(food.expiry_date, today)
-        tone = _tone_for_stock(quantity, food.expiry_date, today)
+        tone = "empty" if is_pending else _tone_for_stock(quantity, food.expiry_date, today)
         storage_location = food.storage_location or "常温"
+        unit = food.stock_unit or "份"
         row = {
             "id": f"food:{food.id}",
             "source_type": "food",
@@ -181,9 +179,9 @@ def _food_rows(
             "title": food.name,
             "category": food.category,
             "image": _serialize_first_media(media_map, "food", food.id),
-            "quantity": float(quantity),
-            "unit": food.stock_unit or "份",
-            "quantity_label": _format_quantity(quantity, food.stock_unit or "份", "未记录"),
+            "quantity": float(quantity) if quantity is not None else None,
+            "unit": unit,
+            "quantity_label": "未入库" if is_pending else _format_quantity(quantity, unit, "未记录"),
             "quantity_tracking_mode": IngredientQuantityTrackingMode.TRACK_QUANTITY.value,
             "status": None,
             "tone": tone,
@@ -192,7 +190,7 @@ def _food_rows(
             "storage_location": storage_location,
             "purchase_source": food.purchase_source or food.source_name or None,
             "updated_at": food.updated_at.isoformat(),
-            "primary_action": "edit_food_stock" if tone == "danger" else "record_meal",
+            "primary_action": "edit_food_stock" if is_pending or tone == "danger" else "record_meal",
             "search_text": " ".join(
                 [
                     food.name,

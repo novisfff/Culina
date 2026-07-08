@@ -26,6 +26,7 @@ from app.schemas.foods import (
 from app.services.activity import log_activity
 from app.services.clock import now_for_family
 from app.services.food_stock import apply_food_stock_consume, apply_food_stock_dispose, apply_food_stock_restock
+from app.services.food_stock_quantity import normalize_food_stock_quantity, validate_food_stock_quantity_precision
 from app.services.ingredient_units import UnitConversionError
 from app.services.inventory_usage import load_available_inventory_by_ingredient, recipe_availability_summary
 from app.services.media import bind_media_assets, replace_media_assets
@@ -282,6 +283,17 @@ def _reject_synced_food_payload(payload: CreateFoodRequest | UpdateFoodRequest) 
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="普通食物不能关联菜谱")
 
 
+def _resolve_payload_stock_quantity(value: float | None) -> Decimal | None:
+    if value is None:
+        return None
+    quantity = Decimal(str(value))
+    try:
+        validate_food_stock_quantity_precision(quantity, field_label="剩余数量")
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    return normalize_food_stock_quantity(quantity)
+
+
 def _apply_food_payload(food: Food, payload: CreateFoodRequest | UpdateFoodRequest) -> None:
     food.name = payload.name
     food.type = payload.type.value
@@ -298,7 +310,7 @@ def _apply_food_payload(food: Food, payload: CreateFoodRequest | UpdateFoodReque
     food.rating = payload.rating
     food.repurchase = payload.repurchase
     food.expiry_date = payload.expiry_date
-    food.stock_quantity = payload.stock_quantity
+    food.stock_quantity = _resolve_payload_stock_quantity(payload.stock_quantity)
     food.stock_unit = payload.stock_unit
     food.storage_location = payload.storage_location
     food.favorite = payload.favorite

@@ -2,6 +2,7 @@ import type { Dispatch, FormEvent, SetStateAction } from 'react';
 import type {
   ConsumeInventoryResponse,
   DisposeExpiredInventoryResponse,
+  Food,
   Ingredient,
   InventoryItem,
   ShoppingListItem,
@@ -23,6 +24,7 @@ import { tracksIngredientQuantity } from '../../lib/ingredientTracking';
 
 type UseIngredientActionStateArgs = {
   ingredientOptions: Ingredient[];
+  foodOptions: Food[];
   summaries: IngredientSummaryViewModel[];
   inventoryForm: InventoryDrawerFormState;
   setInventoryForm: Dispatch<SetStateAction<InventoryDrawerFormState>>;
@@ -60,7 +62,8 @@ type UseIngredientActionStateArgs = {
     title: string;
     quantity?: number | null;
     unit?: string | null;
-    ingredient_id: string;
+    ingredient_id?: string | null;
+    food_id?: string | null;
     quantity_mode?: ShoppingListItem['quantity_mode'];
     display_label?: string | null;
     reason: string;
@@ -71,7 +74,8 @@ type UseIngredientActionStateArgs = {
       title?: string;
       quantity?: number | null;
       unit?: string | null;
-      ingredient_id?: string;
+      ingredient_id?: string | null;
+      food_id?: string | null;
       quantity_mode?: ShoppingListItem['quantity_mode'];
       display_label?: string | null;
       reason?: string;
@@ -155,14 +159,21 @@ export function useIngredientActionState(args: UseIngredientActionStateArgs) {
     if (!args.shoppingForm.title.trim()) {
       return;
     }
-    const selectedShoppingIngredient = args.shoppingForm.title.trim()
-      ? args.ingredientOptions.find((item) => item.name === args.shoppingForm.title.trim()) ?? null
-      : null;
-    if (!selectedShoppingIngredient) {
-      args.showNotice({ tone: 'warning', title: '先选择食材档案', message: '采购清单只能从已有食材创建。没有这个食材时，请先创建食材档案。' });
+    const selectedShoppingIngredient =
+      args.shoppingForm.targetType === 'ingredient'
+        ? args.ingredientOptions.find((item) => item.id === args.shoppingForm.ingredientId) ??
+          args.ingredientOptions.find((item) => item.name === args.shoppingForm.title.trim()) ??
+          null
+        : null;
+    const selectedShoppingFood =
+      args.shoppingForm.targetType === 'food'
+        ? args.foodOptions.find((item) => item.id === args.shoppingForm.foodId) ?? null
+        : null;
+    if (!selectedShoppingIngredient && !selectedShoppingFood) {
+      args.showNotice({ tone: 'warning', title: '先选择采购对象', message: '采购清单只能从已有食材或成品速食档案创建。' });
       return;
     }
-    const tracksQuantity = tracksIngredientQuantity(selectedShoppingIngredient);
+    const tracksQuantity = selectedShoppingFood ? true : tracksIngredientQuantity(selectedShoppingIngredient);
     const quantity = tracksQuantity ? parsePositiveNumber(args.shoppingForm.quantity) : 1;
     if (tracksQuantity && quantity === null) {
       args.showNotice({ tone: 'warning', title: '待买数量无效', message: '请确认待买数量，至少要大于 0。' });
@@ -171,13 +182,16 @@ export function useIngredientActionState(args: UseIngredientActionStateArgs) {
     const shoppingQuantity = quantity ?? 1;
     try {
       const payload = {
-        title: args.shoppingForm.title.trim(),
+        title: selectedShoppingFood?.name ?? selectedShoppingIngredient?.name ?? args.shoppingForm.title.trim(),
         quantity: tracksQuantity ? shoppingQuantity : null,
-        unit: tracksQuantity ? args.shoppingForm.unit.trim() || '个' : null,
-        ingredient_id: selectedShoppingIngredient.id,
+        unit: tracksQuantity
+          ? args.shoppingForm.unit.trim() || selectedShoppingFood?.stock_unit || selectedShoppingIngredient?.default_unit || '份'
+          : null,
+        ingredient_id: selectedShoppingIngredient?.id ?? null,
+        food_id: selectedShoppingFood?.id ?? null,
         quantity_mode: tracksQuantity ? 'track_quantity' : 'not_track_quantity',
         display_label: tracksQuantity ? null : '需要补充',
-        reason: args.shoppingForm.reason.trim() || (!tracksQuantity ? '需要补充' : ''),
+        reason: args.shoppingForm.reason.trim() || (selectedShoppingFood ? '补充成品库存' : !tracksQuantity ? '需要补充' : ''),
       } satisfies Parameters<typeof args.createShoppingItem>[0];
       if (args.editingShoppingItemId) {
         await args.updateShoppingItem({

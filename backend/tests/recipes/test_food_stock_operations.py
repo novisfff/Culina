@@ -111,6 +111,46 @@ class RecipeFoodStockOperationsTestCase(RecipeApiTestCase):
         self.assertEqual(overconsume.status_code, 400)
         self.assertEqual(overconsume.json()["detail"], "当前最多只能处理 1盒")
 
+    def test_food_stock_operations_reject_more_than_one_decimal(self) -> None:
+        with self.SessionLocal() as db:
+            db.add(self._ready_food(id="food-stock-decimal", stock_quantity=Decimal("2")))
+            db.commit()
+
+        restock = self.client.post(
+            "/api/foods/food-stock-decimal/stock/restock",
+            json={"quantity": 1.25, "unit": "盒"},
+        )
+        self.assertEqual(restock.status_code, 400)
+        self.assertEqual(restock.json()["detail"], "库存数量最多保留 1 位小数")
+
+        quick_add = self.client.post(
+            "/api/meal-logs/quick-add",
+            json={
+                "food_id": "food-stock-decimal",
+                "date": "2026-07-07",
+                "meal_type": "breakfast",
+                "servings": 1,
+                "note": "",
+                "deduct_food_stock": True,
+                "stock_quantity": 1.25,
+            },
+        )
+        self.assertEqual(quick_add.status_code, 400)
+        self.assertEqual(quick_add.json()["detail"], "库存数量最多保留 1 位小数")
+
+    def test_food_stock_overconsume_uses_one_decimal_safe_max(self) -> None:
+        with self.SessionLocal() as db:
+            db.add(self._ready_food(id="food-stock-hidden-decimal", stock_quantity=Decimal("140.95")))
+            db.commit()
+
+        response = self.client.post(
+            "/api/foods/food-stock-hidden-decimal/stock/consume",
+            json={"quantity": 141, "unit": "盒"},
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["detail"], "当前最多只能处理 140.9盒")
+
     def test_quick_add_ready_food_can_deduct_stock_in_same_request(self) -> None:
         food = self._ready_food(id="food-stock-quick", stock_quantity=Decimal("2"))
         with self.SessionLocal() as db:

@@ -7,10 +7,11 @@ import {
   type InventoryStorageFocus,
 } from './ingredientWorkspaceForms';
 import type { IngredientWorkspacePanel, IngredientWorkspaceView, ShoppingCardFocus } from './workspaceModel';
+import type { InventoryEntryFilter } from './inventoryOverviewModel';
 
 export type CatalogStatusFilter = 'all' | 'expired' | 'expiring' | 'lowStock' | 'stable';
-export type MobileIngredientFilter = 'all' | 'seasoning' | 'alerted' | 'empty' | 'stocked';
-export type InventoryQuickFilter = 'all' | 'alerted';
+export type MobileIngredientFilter = 'all' | 'ingredient' | 'food' | 'seasoning' | 'alerted' | 'expiring';
+export type InventoryQuickFilter = 'all' | 'ingredient' | 'food' | 'seasoning' | 'alerted' | 'expiring';
 export type InventorySourceFilter = 'all' | 'ingredient' | 'food';
 
 export const STORAGE_SHELF_IDEAL_WIDTH = 260;
@@ -29,6 +30,7 @@ export type PersistedIngredientWorkspaceState = {
   catalogCategoryFilter?: 'all' | string;
   inventorySearch?: string;
   inventorySourceFilter?: InventorySourceFilter;
+  inventoryEntryFilter?: InventoryEntryFilter;
   ingredientForm?: IngredientCreateFormState;
 };
 
@@ -58,6 +60,10 @@ function isInventorySourceFilter(value: unknown): value is InventorySourceFilter
   return value === 'all' || value === 'ingredient' || value === 'food';
 }
 
+function isInventoryEntryFilter(value: unknown): value is InventoryEntryFilter {
+  return value === 'all' || value === 'stocked' || value === 'pending';
+}
+
 export function readPersistedIngredientWorkspaceState(): PersistedIngredientWorkspaceState {
   const parsed = readJsonStorage<PersistedIngredientWorkspaceState>(INGREDIENT_WORKSPACE_STATE_KEY, {});
   const rawActivePanel = (parsed as { activePanel?: string }).activePanel;
@@ -78,6 +84,9 @@ export function readPersistedIngredientWorkspaceState(): PersistedIngredientWork
     inventorySearch: typeof parsed.inventorySearch === 'string' ? parsed.inventorySearch : undefined,
     inventorySourceFilter: isInventorySourceFilter(parsed.inventorySourceFilter)
       ? parsed.inventorySourceFilter
+      : undefined,
+    inventoryEntryFilter: isInventoryEntryFilter(parsed.inventoryEntryFilter)
+      ? parsed.inventoryEntryFilter
       : undefined,
     ingredientForm: parsed.ingredientForm ? restoreIngredientForm(parsed.ingredientForm) : undefined,
   };
@@ -100,9 +109,10 @@ export function useIngredientWorkspaceState(args: UseIngredientWorkspaceStateArg
   );
   const [catalogStatusFilter, setCatalogStatusFilter] = useState<CatalogStatusFilter>('all');
   const [inventorySearch, setInventorySearch] = useState(args.persistedWorkspaceState.inventorySearch ?? '');
-  const [inventorySourceFilter, setInventorySourceFilter] = useState<InventorySourceFilter>(
-    isInventorySourceFilter(args.persistedWorkspaceState.inventorySourceFilter)
-      ? args.persistedWorkspaceState.inventorySourceFilter
+  const [inventorySourceFilter, setInventorySourceFilter] = useState<InventorySourceFilter>('all');
+  const [inventoryEntryFilter, setInventoryEntryFilter] = useState<InventoryEntryFilter>(
+    isInventoryEntryFilter(args.persistedWorkspaceState.inventoryEntryFilter)
+      ? args.persistedWorkspaceState.inventoryEntryFilter
       : 'all'
   );
   const [inventoryQuickFilter, setInventoryQuickFilter] = useState<InventoryQuickFilter>('all');
@@ -111,6 +121,7 @@ export function useIngredientWorkspaceState(args: UseIngredientWorkspaceStateArg
   const [shoppingSearch, setShoppingSearch] = useState('');
   const [shoppingFocus, setShoppingFocus] = useState<ShoppingCardFocus>('all');
   const [mobileIngredientFilter, setMobileIngredientFilter] = useState<MobileIngredientFilter>('all');
+  const [mobileInventoryEntryFilter, setMobileInventoryEntryFilter] = useState<InventoryEntryFilter>('all');
   const [mobileStorageFocus, setMobileStorageFocus] = useState<InventoryStorageFocus>('all');
   const [showCompletedShopping, setShowCompletedShopping] = useState(false);
   const [catalogColumns, setCatalogColumns] = useState(1);
@@ -151,6 +162,7 @@ export function useIngredientWorkspaceState(args: UseIngredientWorkspaceStateArg
       catalogCategoryFilter,
       inventorySearch,
       inventorySourceFilter,
+      inventoryEntryFilter,
       ingredientForm: args.ingredientForm,
     };
     writeJsonStorage(INGREDIENT_WORKSPACE_STATE_KEY, snapshot);
@@ -163,12 +175,15 @@ export function useIngredientWorkspaceState(args: UseIngredientWorkspaceStateArg
     catalogCategoryFilter,
     inventorySearch,
     inventorySourceFilter,
+    inventoryEntryFilter,
     args.ingredientForm,
   ]);
 
   function openWorkspacePanel(panel: IngredientWorkspacePanel) {
     if (panel === 'inventory') {
       setInventoryQuickFilter('all');
+      setInventoryEntryFilter('all');
+      setInventorySourceFilter('all');
       setInventoryStorageFocus('冷藏');
     }
     if (panel === 'catalog') {
@@ -181,6 +196,8 @@ export function useIngredientWorkspaceState(args: UseIngredientWorkspaceStateArg
   function openInventoryPanel(filter: InventoryQuickFilter = 'all') {
     setInventorySearch('');
     setInventoryQuickFilter(filter);
+    setInventoryEntryFilter('all');
+    setInventorySourceFilter('all');
     setInventoryStorageFocus('冷藏');
     setActivePanel('inventory');
     setWorkspaceView('hub');
@@ -232,6 +249,8 @@ export function useIngredientWorkspaceState(args: UseIngredientWorkspaceStateArg
     setInventorySearch,
     inventorySourceFilter,
     setInventorySourceFilter,
+    inventoryEntryFilter,
+    setInventoryEntryFilter,
     inventoryQuickFilter,
     setInventoryQuickFilter,
     inventoryStorageFocus,
@@ -244,6 +263,8 @@ export function useIngredientWorkspaceState(args: UseIngredientWorkspaceStateArg
     setShoppingFocus,
     mobileIngredientFilter,
     setMobileIngredientFilter,
+    mobileInventoryEntryFilter,
+    setMobileInventoryEntryFilter,
     mobileStorageFocus,
     setMobileStorageFocus,
     showCompletedShopping,

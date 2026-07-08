@@ -23,6 +23,7 @@ import {
 import {
   buildFoodCookingSummaryFromRecipeCards,
   buildFoodRelationViewModel,
+  formatFoodStockQuantity,
   getFoodGovernanceIssues,
 } from './FoodWorkspaceHelpers';
 import { foodToForm, getFoodFormCompletionItems, makeBlankFoodForm } from './FoodWorkspaceModel';
@@ -245,6 +246,7 @@ function renderWorkspace(options: {
           createRecipe: vi.fn(),
           updateRecipe: vi.fn(),
           quickAddMeal,
+          createShoppingItem: vi.fn(),
           createFoodPlanItem: vi.fn(),
           updateFoodPlanItem: vi.fn(),
           deleteFoodPlanItem: vi.fn(),
@@ -265,6 +267,12 @@ function renderWorkspace(options: {
 }
 
 describe('food workspace helpers', () => {
+  it('formats food stock display with at most one decimal place', () => {
+    expect(formatFoodStockQuantity({ stock_quantity: 13.991, stock_unit: '盒' })).toBe('13.9盒');
+    expect(formatFoodStockQuantity({ stock_quantity: 13.94, stock_unit: '盒' })).toBe('13.9盒');
+    expect(formatFoodStockQuantity({ stock_quantity: null, stock_unit: '盒' })).toBe('未记录');
+  });
+
   it('quick meal dialog exposes ready food stock deduction controls', () => {
     const dialogSource = readFileSync('src/components/foods/FoodQuickMealDialog.tsx', 'utf8');
     expect(dialogSource).toContain('同步扣减库存');
@@ -298,6 +306,31 @@ describe('food workspace helpers', () => {
 
     expect(quickAddMeal).not.toHaveBeenCalled();
     expect(view.textContent).toContain('请输入大于 0 的扣减数量。');
+    expect(view.querySelector('.food-quick-meal-modal')).not.toBeNull();
+  });
+
+  it('blocks quick meal submit when stock deduction quantity has too many decimals', async () => {
+    const { quickAddMeal, view } = renderWorkspace();
+    const quantityInput = view.querySelector<HTMLInputElement>('.food-quick-meal-stock-quantity input');
+    const form = view.querySelector<HTMLFormElement>('#food-workspace-quick-meal-form');
+
+    expect(quantityInput).not.toBeNull();
+    expect(form).not.toBeNull();
+
+    act(() => {
+      if (!quantityInput) return;
+      const valueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set;
+      valueSetter?.call(quantityInput, '1.25');
+      quantityInput.dispatchEvent(new Event('input', { bubbles: true }));
+      quantityInput.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+
+    await act(async () => {
+      form?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    });
+
+    expect(quickAddMeal).not.toHaveBeenCalled();
+    expect(view.textContent).toContain('扣减数量最多保留 1 位小数。');
     expect(view.querySelector('.food-quick-meal-modal')).not.toBeNull();
   });
 

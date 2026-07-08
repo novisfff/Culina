@@ -19,9 +19,10 @@ import {
   SearchField,
 } from '../ui-kit';
 import {
-  getUnifiedInventoryActionLabel,
-  getUnifiedInventoryFoodPrimaryActionKind,
   getUnifiedInventorySourceLabel,
+  isPendingInventoryOverviewItem,
+  type InventoryEntryFilter,
+  type UnifiedInventoryQuickFilter,
   type UnifiedInventoryGroup,
 } from './inventoryOverviewModel';
 import type {
@@ -266,14 +267,14 @@ type InventoryPanelProps = {
   isInventorySearchFetching?: boolean;
   onInventorySearchCompositionStart?: CompositionEventHandler<HTMLInputElement>;
   onInventorySearchCompositionEnd?: CompositionEventHandler<HTMLInputElement>;
-  inventoryQuickFilter: 'all' | 'alerted';
+  inventoryQuickFilter: UnifiedInventoryQuickFilter;
   inventoryStorageFocus: InventoryStorageFocus;
   inventorySortMode: InventorySortMode;
   focusedInventorySummaries: IngredientSummaryViewModel[];
   inventoryStorageOverview: InventoryStorageOverviewViewModel[];
   inventoryGroups: StorageGroupViewModel[];
   onInventorySearchChange: (value: string) => void;
-  onInventoryQuickFilterChange: (next: 'all' | 'alerted' | ((current: 'all' | 'alerted') => 'all' | 'alerted')) => void;
+  onInventoryQuickFilterChange: (next: UnifiedInventoryQuickFilter) => void;
   onInventoryStorageFocusChange: (next: InventoryStorageFocus | ((current: InventoryStorageFocus) => InventoryStorageFocus)) => void;
   onInventorySortModeChange: (next: InventorySortMode | ((current: InventorySortMode) => InventorySortMode)) => void;
   onResetFilters: () => void;
@@ -293,6 +294,8 @@ type UnifiedInventorySummary = {
   ingredientCount: number;
   foodCount: number;
   alertCount: number;
+  pendingCount: number;
+  stockedCount: number;
 };
 
 type CombinedInventoryGroup = {
@@ -309,12 +312,17 @@ type MixedInventoryCard =
 type UnifiedInventoryPanelContextValue = {
   inventorySourceFilter: InventorySourceFilter;
   onInventorySourceFilterChange: (value: InventorySourceFilter) => void;
+  inventoryEntryFilter: InventoryEntryFilter;
+  onInventoryEntryFilterChange: (value: InventoryEntryFilter) => void;
   unifiedInventoryItems: InventoryOverviewItem[];
+  unifiedInventoryEntryItems: InventoryOverviewItem[];
   unifiedInventoryGroups: UnifiedInventoryGroup[];
   unifiedInventorySummary: UnifiedInventorySummary;
+  unifiedInventoryEntrySummary: UnifiedInventorySummary;
   isInventoryOverviewFetching?: boolean;
   onOpenFoodStock: (foodId: string) => void;
   onRecordFoodStockMeal: (foodId: string) => void;
+  onAddFoodShopping: (foodId: string) => void;
 };
 
 const UnifiedInventoryPanelContext = createContext<UnifiedInventoryPanelContextValue | null>(null);
@@ -338,19 +346,18 @@ function UnifiedInventoryFoodCard(props: {
   item: InventoryOverviewItem;
   onRecordMeal: () => void;
   onEditStock: () => void;
+  onAddShopping: () => void;
 }) {
-  const actionLabel = getUnifiedInventoryActionLabel(props.item);
-  const primaryAction =
-    getUnifiedInventoryFoodPrimaryActionKind(props.item) === 'editStock'
-      ? props.onEditStock
-      : props.onRecordMeal;
+  const isPending = isPendingFoodStockItem(props.item);
   const sourceLabel = getUnifiedInventorySourceLabel(props.item);
   const imageUrl = resolveMediaUrl(props.item.image, 'card');
   const hasCustomImage = Boolean(props.item.image?.url);
   const storageLocation = props.item.storage_location || '常温';
   const metaLine = [props.item.category || '未分类', storageLocation].join(' · ');
   const expiryLabel =
-    props.item.days_until_expiry == null
+    isPending
+      ? '待补库存'
+      : props.item.days_until_expiry == null
       ? '未记录到期'
       : props.item.days_until_expiry < 0
         ? `已过期 ${Math.abs(props.item.days_until_expiry)} 天`
@@ -359,7 +366,9 @@ function UnifiedInventoryFoodCard(props: {
           : `${props.item.days_until_expiry} 天后到期`;
   const expiryTone = props.item.tone === 'danger' ? 'danger' : props.item.tone === 'warning' ? 'warning' : 'neutral';
   const statusLabel =
-    props.item.tone === 'danger'
+    isPending
+      ? '待补库存'
+      : props.item.tone === 'danger'
       ? '需处理'
       : props.item.tone === 'warning'
         ? '临期提醒'
@@ -367,13 +376,13 @@ function UnifiedInventoryFoodCard(props: {
           ? '未登记'
           : '平稳';
   const purchaseLine = props.item.purchase_source ? `最近来源 ${props.item.purchase_source}` : '未记录购买来源';
-  const footerNote =
-    props.item.primary_action === 'edit_food_stock'
-      ? '建议先核对到期和剩余数量，再决定是否记餐。'
-      : '记到今天时可以同步扣减这份成品库存。';
+  const footerNote = isPending ? '先补库存后，就能在这里减扣或记餐。' : '减扣时可选择是否记餐。';
+  const foodSourceLabel = '成品';
+  const shouldShowShoppingAction = isPending;
   const cardClassName = [
     'ingredient-card ingredient-card-interactive ingredient-visual-card ingredient-visual-card-summary ingredient-visual-card-inventory ingredient-work-card inventory-ingredient-card ingredients-unified-inventory-card ingredients-unified-inventory-card-source-food',
     `tone-${props.item.tone}`,
+    isPending ? 'ingredients-unified-inventory-card-pending' : '',
     props.item.tone === 'danger' ? 'ingredient-work-card-has-danger' : '',
     props.item.tone === 'warning' ? 'ingredient-work-card-has-warning' : '',
   ]
@@ -440,8 +449,8 @@ function UnifiedInventoryFoodCard(props: {
               <p title={purchaseLine}>{purchaseLine}</p>
               <div className="inventory-ingredient-card-data-row">
                 <span>库存 {props.item.quantity_label}</span>
-                <span>成品记录</span>
-                <span>{props.item.tone === 'warning' || props.item.tone === 'danger' ? '1 条提醒' : '0 条提醒'}</span>
+                <span>成品</span>
+                <span>{props.item.tone === 'warning' || props.item.tone === 'danger' ? '1 提醒' : '0 提醒'}</span>
               </div>
             </div>
 
@@ -450,31 +459,46 @@ function UnifiedInventoryFoodCard(props: {
                 {storageLocation}
               </span>
               <span className="ingredient-visual-pill ingredient-work-card-stable-pill ingredient-visual-pill-flex">
-                {sourceLabel} · {statusLabel}
+                {foodSourceLabel} · {statusLabel}
               </span>
             </div>
           </div>
         </div>
 
         <div className="ingredient-work-card-actions inventory-ingredient-card-actions">
+          {!isPending ? (
+            <ActionButton
+              tone="primary"
+              size="compact"
+              type="button"
+              className="ingredient-work-card-action-button ingredient-work-card-action-button-primary"
+              onClick={props.onRecordMeal}
+            >
+              减扣
+            </ActionButton>
+          ) : null}
           <ActionButton
-            tone="secondary"
+            tone={isPending ? 'primary' : 'secondary'}
             size="compact"
             type="button"
-            className="ingredient-work-card-action-button ingredient-work-card-action-button-primary"
-            onClick={primaryAction}
-          >
-            {actionLabel}
-          </ActionButton>
-          <ActionButton
-            tone="secondary"
-            size="compact"
-            type="button"
-            className="ingredient-work-card-action-button ingredient-work-card-action-button-secondary"
+            className={`ingredient-work-card-action-button ${
+              isPending ? 'ingredient-work-card-action-button-primary' : 'ingredient-work-card-action-button-secondary'
+            }`}
             onClick={props.onEditStock}
           >
-            编辑资料
+            补库存
           </ActionButton>
+          {shouldShowShoppingAction ? (
+            <ActionButton
+              tone="secondary"
+              size="compact"
+              type="button"
+              className="ingredient-work-card-action-button ingredient-work-card-action-button-secondary"
+              onClick={props.onAddShopping}
+            >
+              加采购
+            </ActionButton>
+          ) : null}
         </div>
 
         <div className="ingredient-work-card-footer inventory-ingredient-card-footer">
@@ -487,22 +511,42 @@ function UnifiedInventoryFoodCard(props: {
   );
 }
 
+function isPendingFoodStockItem(item: InventoryOverviewItem) {
+  return isPendingInventoryOverviewItem(item);
+}
+
+function isPendingIngredientSummary(summary: IngredientSummaryViewModel) {
+  return summary.quantitySummaries.length === 0;
+}
+
 export function IngredientInventoryPanel(props: InventoryPanelProps) {
   const unifiedContext = useUnifiedInventoryPanelContext();
   const unifiedGroups = unifiedContext?.unifiedInventoryGroups ?? [];
   const sourceFilter = unifiedContext?.inventorySourceFilter ?? 'ingredient';
+  const entryFilter = unifiedContext?.inventoryEntryFilter ?? 'all';
   const hasInventorySearch = props.inventorySearch.trim().length > 0;
   const unifiedSummary = unifiedContext?.unifiedInventorySummary ?? {
     totalCount: props.focusedInventorySummaries.length,
     ingredientCount: props.focusedInventorySummaries.length,
     foodCount: 0,
     alertCount: 0,
+    pendingCount: 0,
+    stockedCount: props.focusedInventorySummaries.length,
   };
-  const inventorySummaryText = [
-    `${unifiedSummary.totalCount}项`,
-    unifiedSummary.foodCount > 0 ? `成品${unifiedSummary.foodCount}` : null,
-    props.inventoryStorageFocus !== 'all' ? props.inventoryStorageFocus : null,
-  ].filter(Boolean).join(' · ');
+  const entryBaseFoodItems =
+    sourceFilter === 'ingredient'
+      ? []
+      : (unifiedContext?.unifiedInventoryEntryItems ?? []).filter((item) => item.source_type === 'food');
+  const entryBaseIngredientSummaries = sourceFilter === 'food' ? [] : props.focusedInventorySummaries;
+  const ingredientPendingCount = entryBaseIngredientSummaries.filter(isPendingIngredientSummary).length;
+  const ingredientStockedCount = entryBaseIngredientSummaries.length - ingredientPendingCount;
+  const foodPendingCount = entryBaseFoodItems.filter(isPendingFoodStockItem).length;
+  const foodStockedCount = entryBaseFoodItems.length - foodPendingCount;
+  const entryOptionCounts = {
+    total: entryBaseIngredientSummaries.length + entryBaseFoodItems.length,
+    stocked: ingredientStockedCount + foodStockedCount,
+    pending: ingredientPendingCount + foodPendingCount,
+  };
   const combinedInventoryGroups = useMemo(() => {
     if (sourceFilter === 'food') {
       return unifiedGroups.map<CombinedInventoryGroup>((group) => ({
@@ -540,12 +584,17 @@ export function IngredientInventoryPanel(props: InventoryPanelProps) {
     const cards: MixedInventoryCard[] = [];
     for (const group of combinedInventoryGroups) {
       const ingredientGroup = sourceFilter === 'food' ? null : group.ingredientGroup;
-      const ingredientItems = ingredientGroup?.items ?? [];
+      const ingredientItems = (ingredientGroup?.items ?? []).filter((summary) => {
+        if (entryFilter === 'pending') {
+          return isPendingIngredientSummary(summary);
+        }
+        if (entryFilter === 'stocked') {
+          return !isPendingIngredientSummary(summary);
+        }
+        return true;
+      });
       const foodItems = (group.unifiedGroup?.items ?? [])
-        .filter((item) => item.source_type === 'food')
-        .filter((item) =>
-          props.inventoryQuickFilter === 'alerted' ? item.tone === 'warning' || item.tone === 'danger' : true
-        );
+        .filter((item) => item.source_type === 'food');
 
       for (const summary of ingredientItems) {
         cards.push({ key: `ingredient:${summary.ingredient.id}`, type: 'ingredient', summary });
@@ -555,7 +604,17 @@ export function IngredientInventoryPanel(props: InventoryPanelProps) {
       }
     }
     return cards;
-  }, [combinedInventoryGroups, props.inventoryQuickFilter, sourceFilter]);
+  }, [combinedInventoryGroups, entryFilter, props.inventoryQuickFilter, sourceFilter]);
+  const pendingCardCount = mixedInventoryCards.filter((card) =>
+    card.type === 'food' ? isPendingFoodStockItem(card.item) : isPendingIngredientSummary(card.summary)
+  ).length;
+  const inventorySummaryText = [
+    `${mixedInventoryCards.length} 项`,
+    entryFilter === 'pending' ? `${pendingCardCount} 待录入` : null,
+    entryFilter === 'stocked' ? '仅在库' : null,
+    unifiedSummary.foodCount > 0 ? `成品 ${unifiedSummary.foodCount}` : null,
+    props.inventoryStorageFocus !== 'all' ? props.inventoryStorageFocus : null,
+  ].filter(Boolean).join(' · ');
 
   return (
     <div className="ingredients-panel-stack ingredients-inventory-stack">
@@ -569,7 +628,7 @@ export function IngredientInventoryPanel(props: InventoryPanelProps) {
             <SearchField
               className="ingredients-inventory-search-input-shell"
               ariaLabel="搜索库存"
-              placeholder="搜索食材名称、分类、位置或提醒"
+              placeholder="搜索食材、成品、分类或位置"
               value={props.inventorySearch}
               loading={
                 (Boolean(props.inventorySearch.trim()) && Boolean(props.isInventorySearchFetching)) ||
@@ -584,34 +643,20 @@ export function IngredientInventoryPanel(props: InventoryPanelProps) {
             />
           </label>
           <div className="ingredients-inventory-filter-row">
-            {unifiedContext ? (
-              <OptionChipGroup
-                ariaLabel="库存来源筛选"
-                value={unifiedContext.inventorySourceFilter}
-                options={[
-                  { value: 'all', label: '全部', description: String(unifiedSummary.totalCount) },
-                  { value: 'ingredient', label: '食材', description: String(unifiedSummary.ingredientCount) },
-                  { value: 'food', label: '成品', description: String(unifiedSummary.foodCount) },
-                ]}
-                className="ingredients-inventory-source-chip-group"
-                onChange={unifiedContext.onInventorySourceFilterChange}
-              />
-            ) : null}
-            <button
-              className={
-                props.inventoryQuickFilter === 'alerted'
-                  ? 'ui-option-chip is-selected ingredients-inventory-alert-toggle'
-                  : 'ui-option-chip ingredients-inventory-alert-toggle'
-              }
-              type="button"
-              aria-pressed={props.inventoryQuickFilter === 'alerted'}
-              onClick={() =>
-                props.onInventoryQuickFilterChange((current) => (current === 'alerted' ? 'all' : 'alerted'))
-              }
-            >
-              <span>提醒</span>
-              <small>{unifiedSummary.alertCount}</small>
-            </button>
+            <OptionChipGroup
+              ariaLabel="库存快捷筛选"
+              value={props.inventoryQuickFilter}
+              options={[
+                { value: 'all', label: '全部' },
+                { value: 'ingredient', label: '食材' },
+                { value: 'food', label: '食物' },
+                { value: 'seasoning', label: '调料' },
+                { value: 'alerted', label: '提醒' },
+                { value: 'expiring', label: '临期' },
+              ]}
+              className="ingredients-inventory-quick-chip-group"
+              onChange={props.onInventoryQuickFilterChange}
+            />
             <button
               className={
                 props.inventorySortMode === 'expiry'
@@ -629,7 +674,11 @@ export function IngredientInventoryPanel(props: InventoryPanelProps) {
             <button
               className="chip ingredients-inventory-filter-chip ingredients-inventory-clear-filter"
               type="button"
-              onClick={props.onResetFilters}
+              onClick={() => {
+                unifiedContext?.onInventoryEntryFilterChange('all');
+                unifiedContext?.onInventorySourceFilterChange('all');
+                props.onResetFilters();
+              }}
             >
               清空筛选
             </button>
@@ -653,8 +702,21 @@ export function IngredientInventoryPanel(props: InventoryPanelProps) {
             </p>
           </div>
           <p className="ingredients-inventory-overview-tip subtle">
-            先看各位置库存压力，再进入对应卡片直接处理。
+            位置和待录入会一起参与筛选。
           </p>
+          {unifiedContext ? (
+            <OptionChipGroup
+              ariaLabel="库存录入状态筛选"
+              value={unifiedContext.inventoryEntryFilter}
+              options={[
+                { value: 'all', label: '全部', description: String(entryOptionCounts.total) },
+                { value: 'stocked', label: '在库', description: String(entryOptionCounts.stocked) },
+                { value: 'pending', label: '待录入', description: String(entryOptionCounts.pending) },
+              ]}
+              className="ingredients-inventory-entry-chip-group"
+              onChange={unifiedContext.onInventoryEntryFilterChange}
+            />
+          ) : null}
         </div>
         <div className="ingredients-inventory-overview-strip">
           {props.inventoryStorageOverview.map((item) => (
@@ -683,6 +745,7 @@ export function IngredientInventoryPanel(props: InventoryPanelProps) {
                       item={card.item}
                       onRecordMeal={() => unifiedContext?.onRecordFoodStockMeal(card.item.source_id)}
                       onEditStock={() => unifiedContext?.onOpenFoodStock(card.item.source_id)}
+                      onAddShopping={() => unifiedContext?.onAddFoodShopping(card.item.source_id)}
                     />
                   ) : (
                     <props.InventoryIngredientCard
@@ -722,8 +785,8 @@ export function IngredientInventoryPanel(props: InventoryPanelProps) {
                     : sourceFilter === 'ingredient'
                       ? '换个关键词试试，或者先为常用食材登记一批库存。'
                       : '换个关键词试试，或者切换到食材库存 / 成品速食继续看。'
-                : sourceFilter === 'food'
-                  ? '成品速食的库存、到期和记餐入口会统一显示在这里。'
+                   : sourceFilter === 'food'
+                     ? '成品速食的库存、到期和减扣入口会统一显示在这里。'
                   : sourceFilter === 'ingredient'
                     ? '先新增常用食材并登记库存，后面就能在这里集中处理提醒。'
                     : '食材库存和成品速食库存会一起汇总在这里，方便统一查看和处理。'

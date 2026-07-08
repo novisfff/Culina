@@ -36,6 +36,18 @@ class RecipeFoodWorkspaceTestCase(RecipeApiTestCase):
             self.assertEqual(food["stock_quantity"], 2)
             self.assertEqual(food["storage_location"], "冷冻")
 
+            invalid_stock_response = self.client.post(
+                "/api/foods",
+                json={
+                    **food,
+                    "name": "库存小数过多",
+                    "stock_quantity": 2.25,
+                    "media_ids": [],
+                },
+            )
+            self.assertEqual(invalid_stock_response.status_code, 400)
+            self.assertEqual(invalid_stock_response.json()["detail"], "剩余数量最多保留 1 位小数")
+
             update_response = self.client.patch(
                 f"/api/foods/{food['id']}",
                 json={

@@ -165,6 +165,7 @@ describe('FoodQuickMealDialog', () => {
 
     expect(checkbox?.checked).toBe(true);
     expect(quantityInput?.value).toBe('1.5');
+    expect(quantityInput?.step).toBe('0.1');
 
     act(() => {
       checkbox?.dispatchEvent(new MouseEvent('click', { bubbles: true }));

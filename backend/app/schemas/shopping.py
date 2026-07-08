@@ -11,6 +11,8 @@ class ShoppingListItemOut(BaseModel):
     id: str
     family_id: str
     ingredient_id: str | None = None
+    food_id: str | None = None
+    target_type: str = "ingredient"
     title: str
     quantity: float
     unit: str
@@ -29,6 +31,7 @@ class CreateShoppingListItemRequest(BaseModel):
     quantity: float | None = None
     unit: str | None = None
     ingredient_id: str | None = None
+    food_id: str | None = None
     quantity_mode: IngredientQuantityTrackingMode = IngredientQuantityTrackingMode.TRACK_QUANTITY
     display_label: str | None = None
     reason: str = ""
@@ -48,7 +51,7 @@ class CreateShoppingListItemRequest(BaseModel):
             return self
         if self.quantity is None or self.quantity <= 0:
             raise ValueError("采购数量必须大于 0")
-        if not self.unit:
+        if not self.unit and not (self.ingredient_id or self.food_id):
             raise ValueError("采购单位不能为空")
         self.display_label = self.display_label or None
         return self
@@ -59,6 +62,7 @@ class UpdateShoppingListItemRequest(BaseModel):
     quantity: float | None = None
     unit: str | None = None
     ingredient_id: str | None = None
+    food_id: str | None = None
     quantity_mode: IngredientQuantityTrackingMode | None = None
     display_label: str | None = None
     reason: str | None = None

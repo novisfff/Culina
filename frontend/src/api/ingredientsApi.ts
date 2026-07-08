@@ -16,6 +16,7 @@ export type UpdateShoppingItemPayload = {
   quantity?: number | null;
   unit?: string | null;
   ingredient_id?: string | null;
+  food_id?: string | null;
   quantity_mode?: ShoppingListItem['quantity_mode'];
   display_label?: string | null;
   reason?: string;
@@ -118,7 +119,8 @@ export const ingredientsApi = {
     title: string;
     quantity?: number | null;
     unit?: string | null;
-    ingredient_id: string;
+    ingredient_id?: string | null;
+    food_id?: string | null;
     quantity_mode?: ShoppingListItem['quantity_mode'];
     display_label?: string | null;
     reason: string;

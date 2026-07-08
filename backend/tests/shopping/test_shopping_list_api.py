@@ -11,10 +11,10 @@ from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.core.deps import get_current_auth
-from app.core.enums import ActivityAction, IngredientExpiryMode, IngredientQuantityTrackingMode, MembershipStatus, UserRole
+from app.core.enums import ActivityAction, FoodType, IngredientExpiryMode, IngredientQuantityTrackingMode, MembershipStatus, UserRole
 from app.db.session import get_db
 from app.main import app
-from app.models.domain import ActivityLog, Base, Family, Ingredient, Membership, ShoppingListItem, User
+from app.models.domain import ActivityLog, Base, Family, Food, Ingredient, Membership, ShoppingListItem, User
 from tests._transaction_failure import fail_next_commit
 
 
@@ -29,6 +29,10 @@ class ShoppingApiContext:
     membership_id: str
     ingredient_id: str
     other_ingredient_id: str
+    ready_food_id: str
+    packaged_food_id: str
+    self_made_food_id: str
+    other_ready_food_id: str
     item_id: str
     other_item_id: str
 
@@ -96,6 +100,50 @@ def shopping_api_context() -> Iterator[ShoppingApiContext]:
             created_by=other_user.id,
             updated_by=other_user.id,
         )
+        ready_food = Food(
+            id="food-ready-yogurt",
+            family_id=family.id,
+            name="希腊酸奶",
+            type=FoodType.READY_MADE.value,
+            category="乳品",
+            stock_unit="盒",
+            storage_location="冷藏",
+            created_by=user.id,
+            updated_by=user.id,
+        )
+        packaged_food = Food(
+            id="food-packaged-cereal",
+            family_id=family.id,
+            name="燕麦杯",
+            type=FoodType.PACKAGED.value,
+            category="早餐",
+            stock_unit="",
+            storage_location="常温",
+            created_by=user.id,
+            updated_by=user.id,
+        )
+        self_made_food = Food(
+            id="food-self-made-soup",
+            family_id=family.id,
+            name="自制南瓜汤",
+            type=FoodType.SELF_MADE.value,
+            category="汤",
+            stock_unit="份",
+            storage_location="冷藏",
+            created_by=user.id,
+            updated_by=user.id,
+        )
+        other_ready_food = Food(
+            id="food-other-ready",
+            family_id=other_family.id,
+            name="其他家庭酸奶",
+            type=FoodType.READY_MADE.value,
+            category="乳品",
+            stock_unit="盒",
+            storage_location="冷藏",
+            created_by=other_user.id,
+            updated_by=other_user.id,
+        )
         own_item = ShoppingListItem(
             id="shopping-own",
             family_id=family.id,
@@ -132,6 +180,10 @@ def shopping_api_context() -> Iterator[ShoppingApiContext]:
                 other_membership,
                 ingredient,
                 other_ingredient,
+                ready_food,
+                packaged_food,
+                self_made_food,
+                other_ready_food,
                 own_item,
                 other_item,
             ]
@@ -167,6 +219,10 @@ def shopping_api_context() -> Iterator[ShoppingApiContext]:
             membership_id="membership-shopping",
             ingredient_id="ingredient-own",
             other_ingredient_id="ingredient-other",
+            ready_food_id="food-ready-yogurt",
+            packaged_food_id="food-packaged-cereal",
+            self_made_food_id="food-self-made-soup",
+            other_ready_food_id="food-other-ready",
             item_id="shopping-own",
             other_item_id="shopping-other",
         )
@@ -242,7 +298,7 @@ def test_create_shopping_item_requires_current_family_ingredient_without_side_ef
     )
 
     assert response.status_code == 422
-    assert response.json()["detail"] == "采购项必须选择已有食材"
+    assert response.json()["detail"] == "采购项必须且只能选择一个采购对象"
 
     with shopping_api_context.SessionLocal() as db:
         leaked_item = db.scalar(
@@ -253,6 +309,118 @@ def test_create_shopping_item_requires_current_family_ingredient_without_side_ef
         )
         assert leaked_item is None
         assert db.scalar(select(ActivityLog).where(ActivityLog.summary == "加入购物清单 临时牛奶")) is None
+
+
+def test_create_shopping_item_with_ready_food_uses_food_target_and_stock_unit(
+    shopping_api_context: ShoppingApiContext,
+) -> None:
+    response = shopping_api_context.client.post(
+        "/api/shopping-list",
+        json={
+            "title": "买酸奶",
+            "quantity": 4,
+            "food_id": shopping_api_context.ready_food_id,
+            "reason": "补充成品库存",
+        },
+    )
+
+    assert response.status_code == 201, response.text
+    payload = response.json()
+    assert payload["family_id"] == shopping_api_context.family_id
+    assert payload["target_type"] == "food"
+    assert payload["food_id"] == shopping_api_context.ready_food_id
+    assert payload["ingredient_id"] is None
+    assert payload["title"] == "希腊酸奶"
+    assert payload["quantity"] == 4
+    assert payload["unit"] == "盒"
+    assert payload["quantity_mode"] == IngredientQuantityTrackingMode.TRACK_QUANTITY.value
+    assert payload["reason"] == "补充成品库存"
+
+    with shopping_api_context.SessionLocal() as db:
+        item = db.get(ShoppingListItem, payload["id"])
+        assert item is not None
+        assert item.food_id == shopping_api_context.ready_food_id
+        assert item.ingredient_id is None
+        assert item.title == "希腊酸奶"
+
+
+def test_create_shopping_item_with_packaged_food_defaults_unit_to_serving(
+    shopping_api_context: ShoppingApiContext,
+) -> None:
+    response = shopping_api_context.client.post(
+        "/api/shopping-list",
+        json={
+            "title": "买燕麦杯",
+            "quantity": 2,
+            "food_id": shopping_api_context.packaged_food_id,
+        },
+    )
+
+    assert response.status_code == 201, response.text
+    payload = response.json()
+    assert payload["target_type"] == "food"
+    assert payload["food_id"] == shopping_api_context.packaged_food_id
+    assert payload["title"] == "燕麦杯"
+    assert payload["unit"] == "份"
+
+
+def test_create_shopping_item_rejects_both_ingredient_and_food_targets(
+    shopping_api_context: ShoppingApiContext,
+) -> None:
+    response = shopping_api_context.client.post(
+        "/api/shopping-list",
+        json={
+            "title": "重复绑定",
+            "quantity": 1,
+            "unit": "份",
+            "ingredient_id": shopping_api_context.ingredient_id,
+            "food_id": shopping_api_context.ready_food_id,
+        },
+    )
+
+    assert response.status_code == 422
+    assert response.json()["detail"] == "采购项必须且只能选择一个采购对象"
+
+
+def test_create_shopping_item_rejects_non_ready_food_target(
+    shopping_api_context: ShoppingApiContext,
+) -> None:
+    response = shopping_api_context.client.post(
+        "/api/shopping-list",
+        json={
+            "title": "自制汤",
+            "quantity": 1,
+            "food_id": shopping_api_context.self_made_food_id,
+        },
+    )
+
+    assert response.status_code == 422
+    assert response.json()["detail"] == "只有成品、速食或包装食品可以加入采购"
+
+
+def test_create_shopping_item_rejects_other_family_food_target_without_side_effects(
+    shopping_api_context: ShoppingApiContext,
+) -> None:
+    response = shopping_api_context.client.post(
+        "/api/shopping-list",
+        json={
+            "title": "跨家庭酸奶",
+            "quantity": 1,
+            "food_id": shopping_api_context.other_ready_food_id,
+        },
+    )
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Food not found"
+
+    with shopping_api_context.SessionLocal() as db:
+        leaked_item = db.scalar(
+            select(ShoppingListItem).where(
+                ShoppingListItem.family_id == shopping_api_context.family_id,
+                ShoppingListItem.title == "跨家庭酸奶",
+            )
+        )
+        assert leaked_item is None
 
 
 def test_create_shopping_item_rejects_other_family_ingredient_without_side_effects(
@@ -353,6 +521,65 @@ def test_patch_shopping_item_updates_fields_and_relinks_ingredient(shopping_api_
         assert log is not None
 
 
+def test_patch_shopping_item_relinks_to_ready_food_and_clears_ingredient(
+    shopping_api_context: ShoppingApiContext,
+) -> None:
+    response = shopping_api_context.client.patch(
+        f"/api/shopping-list/{shopping_api_context.item_id}",
+        json={
+            "quantity": 5,
+            "food_id": shopping_api_context.ready_food_id,
+            "reason": "换成补酸奶",
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["target_type"] == "food"
+    assert payload["food_id"] == shopping_api_context.ready_food_id
+    assert payload["ingredient_id"] is None
+    assert payload["title"] == "希腊酸奶"
+    assert payload["quantity"] == 5
+    assert payload["unit"] == "盒"
+    assert payload["reason"] == "换成补酸奶"
+
+    with shopping_api_context.SessionLocal() as db:
+        item = db.get(ShoppingListItem, shopping_api_context.item_id)
+        assert item is not None
+        assert item.food_id == shopping_api_context.ready_food_id
+        assert item.ingredient_id is None
+        assert item.title == "希腊酸奶"
+
+
+def test_patch_shopping_item_done_only_preserves_food_binding(
+    shopping_api_context: ShoppingApiContext,
+) -> None:
+    with shopping_api_context.SessionLocal() as db:
+        item = db.get(ShoppingListItem, shopping_api_context.item_id)
+        assert item is not None
+        item.ingredient_id = None
+        item.food_id = shopping_api_context.ready_food_id
+        item.title = "希腊酸奶"
+        item.unit = "盒"
+        db.commit()
+
+    response = shopping_api_context.client.patch(f"/api/shopping-list/{shopping_api_context.item_id}", json={"done": True})
+
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["done"] is True
+    assert payload["target_type"] == "food"
+    assert payload["food_id"] == shopping_api_context.ready_food_id
+    assert payload["ingredient_id"] is None
+
+    with shopping_api_context.SessionLocal() as db:
+        item = db.get(ShoppingListItem, shopping_api_context.item_id)
+        assert item is not None
+        assert item.done is True
+        assert item.food_id == shopping_api_context.ready_food_id
+        assert item.ingredient_id is None
+
+
 def test_patch_shopping_item_rejects_clearing_ingredient_on_content_update(
     shopping_api_context: ShoppingApiContext,
 ) -> None:
@@ -368,7 +595,7 @@ def test_patch_shopping_item_rejects_clearing_ingredient_on_content_update(
     )
 
     assert response.status_code == 422
-    assert response.json()["detail"] == "采购项必须选择已有食材"
+    assert response.json()["detail"] == "采购项必须且只能选择一个采购对象"
 
     with shopping_api_context.SessionLocal() as db:
         item = db.get(ShoppingListItem, shopping_api_context.item_id)

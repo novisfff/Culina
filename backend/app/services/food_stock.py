@@ -8,6 +8,11 @@ from sqlalchemy.orm import Session
 from app.core.enums import ActivityAction
 from app.models.domain import Food
 from app.services.activity import log_activity
+from app.services.food_stock_quantity import (
+    format_food_stock_quantity,
+    normalize_food_stock_quantity,
+    validate_food_stock_quantity_precision,
+)
 from app.services.inventory_overview import is_ready_like_food
 from app.services.search.jobs import enqueue_search_index_job
 
@@ -25,11 +30,11 @@ def _require_food_stock_managed(food: Food) -> None:
 
 
 def _current_quantity(food: Food) -> Decimal:
-    return Decimal(str(food.stock_quantity or 0))
+    return normalize_food_stock_quantity(Decimal(str(food.stock_quantity or 0)))
 
 
 def _format_quantity(value: Decimal, unit: str) -> str:
-    return f"{float(value):g}{unit}"
+    return format_food_stock_quantity(value, unit, fallback=f"0{unit or '份'}")
 
 
 def _touch_food_stock(
@@ -78,11 +83,12 @@ def apply_food_stock_restock(
     _require_food_stock_managed(food)
     if quantity <= 0:
         raise ValueError("库存数量必须大于 0")
+    validate_food_stock_quantity_precision(quantity)
     normalized_unit = _normalize_unit(unit, food.stock_unit)
     if food.stock_unit and food.stock_unit != normalized_unit and _current_quantity(food) > 0:
         raise ValueError(f"当前库存单位是 {food.stock_unit}，请先清空或使用相同单位")
     food.stock_unit = normalized_unit
-    food.stock_quantity = _current_quantity(food) + quantity
+    food.stock_quantity = normalize_food_stock_quantity(_current_quantity(food) + quantity)
     if expiry_date is not None:
         food.expiry_date = expiry_date
     if purchase_source is not None:
@@ -108,6 +114,7 @@ def apply_food_stock_consume(
     _require_food_stock_managed(food)
     if quantity <= 0:
         raise ValueError("库存数量必须大于 0")
+    validate_food_stock_quantity_precision(quantity)
     normalized_unit = _normalize_unit(unit, food.stock_unit)
     if food.stock_unit and food.stock_unit != normalized_unit:
         raise ValueError(f"当前库存单位是 {food.stock_unit}，不能按 {normalized_unit} 扣减")
@@ -115,7 +122,7 @@ def apply_food_stock_consume(
     if quantity > current:
         raise ValueError(f"当前最多只能处理 {_format_quantity(current, food.stock_unit or normalized_unit)}")
     food.stock_unit = normalized_unit
-    food.stock_quantity = current - quantity
+    food.stock_quantity = normalize_food_stock_quantity(current - quantity)
     detail = f"记录食用 {food.name} {_format_quantity(quantity, normalized_unit)}"
     if note.strip():
         detail = f"{detail}：{note.strip()}"
@@ -137,6 +144,7 @@ def apply_food_stock_dispose(
         raise ValueError("请填写处理原因")
     if quantity <= 0:
         raise ValueError("库存数量必须大于 0")
+    validate_food_stock_quantity_precision(quantity)
     normalized_unit = _normalize_unit(unit, food.stock_unit)
     if food.stock_unit and food.stock_unit != normalized_unit:
         raise ValueError(f"当前库存单位是 {food.stock_unit}，不能按 {normalized_unit} 处理")
@@ -144,7 +152,7 @@ def apply_food_stock_dispose(
     if quantity > current:
         raise ValueError(f"当前最多只能处理 {_format_quantity(current, food.stock_unit or normalized_unit)}")
     food.stock_unit = normalized_unit
-    food.stock_quantity = current - quantity
+    food.stock_quantity = normalize_food_stock_quantity(current - quantity)
     return _touch_food_stock(
         db,
         family_id=family_id,

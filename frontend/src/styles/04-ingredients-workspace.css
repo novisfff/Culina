@@ -4,10 +4,25 @@
   }
 }
 
-.ingredients-inventory-source-chip-group {
+.ingredients-inventory-source-chip-group,
+.ingredients-inventory-quick-chip-group {
   display: flex;
   flex-wrap: nowrap;
   gap: 8px;
+  overflow: visible;
+  padding-bottom: 0;
+}
+
+.ingredients-inventory-quick-chip-group .ui-option-chip {
+  flex: 0 0 auto;
+}
+
+.ingredients-inventory-entry-chip-group {
+  justify-self: end;
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 8px;
+  min-width: 0;
   overflow: visible;
   padding-bottom: 0;
 }
@@ -16,6 +31,8 @@
   grid-template-columns: minmax(0, 1fr);
   gap: 0;
   align-items: stretch;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .ingredients-unified-inventory-card-source-food {
@@ -33,6 +50,27 @@
   border-color: rgba(203, 118, 115, 0.24);
 }
 
+.ingredients-unified-inventory-card-pending {
+  border-color: rgba(168, 145, 125, 0.2);
+  box-shadow:
+    inset 3px 0 0 rgba(139, 120, 101, 0.18),
+    0 8px 20px rgba(74, 54, 40, 0.03);
+}
+
+.ingredients-unified-inventory-card-pending .ingredients-unified-inventory-source-badge {
+  color: #7a654f;
+  background: rgba(245, 241, 236, 0.94);
+  border-color: rgba(147, 96, 63, 0.12);
+}
+
+.ingredients-unified-inventory-card-pending .ingredient-work-card-action-button-secondary {
+  box-shadow: 0 8px 18px rgba(210, 107, 51, 0.14);
+}
+
+.ingredients-unified-inventory-card-pending .inventory-ingredient-card-actions {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
 .ingredients-unified-inventory-card-media .media-placeholder-label {
   display: none;
 }
@@ -45,6 +83,7 @@
 .ingredients-unified-inventory-source-badge {
   flex: 0 0 auto;
   max-width: 74px;
+  min-width: 0;
   min-height: 24px;
   padding: 4px 8px;
   border-radius: 999px;
@@ -54,6 +93,8 @@
   font-size: 0.72rem;
   font-weight: 850;
   line-height: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
@@ -71,6 +112,488 @@
   color: #9d4e55;
   background: rgba(251, 234, 236, 0.96);
   border-color: rgba(203, 118, 115, 0.24);
+}
+
+.ingredients-inventory-mixed-grid {
+  align-items: stretch;
+  grid-auto-rows: 1fr;
+}
+
+.ingredients-inventory-mixed-grid > .inventory-ingredient-card {
+  height: 100%;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.ingredients-inventory-mixed-grid > .inventory-ingredient-card .ingredient-work-card-primary {
+  height: 100%;
+  grid-template-rows: 1fr auto auto;
+  align-content: stretch;
+  min-width: 0;
+}
+
+.ingredients-inventory-mixed-grid > .inventory-ingredient-card .ingredient-work-card-toggle,
+.ingredients-inventory-mixed-grid > .inventory-ingredient-card .inventory-ingredient-card-body,
+.ingredients-inventory-mixed-grid > .inventory-ingredient-card .inventory-ingredient-card-stockline,
+.ingredients-inventory-mixed-grid > .inventory-ingredient-card .inventory-ingredient-card-stockline-head,
+.ingredients-inventory-mixed-grid > .inventory-ingredient-card .inventory-ingredient-card-tag-row,
+.ingredients-inventory-mixed-grid > .inventory-ingredient-card .inventory-ingredient-card-actions {
+  min-width: 0;
+}
+
+.ingredients-inventory-mixed-grid .inventory-ingredient-card-title-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.ingredients-inventory-mixed-grid .inventory-ingredient-card-title-row h3 {
+  display: block;
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  -webkit-line-clamp: unset;
+  line-clamp: unset;
+  -webkit-box-orient: initial;
+}
+
+.ingredients-inventory-mixed-grid .inventory-ingredient-card-stockline-label,
+.ingredients-inventory-mixed-grid .inventory-ingredient-card-expiry-badge,
+.ingredients-inventory-mixed-grid .ingredient-visual-pill,
+.ingredients-inventory-mixed-grid .ingredient-work-card-action-button {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ingredients-inventory-mixed-grid .inventory-ingredient-card-expiry-badge {
+  flex-shrink: 1;
+}
+
+.ingredients-inventory-mixed-grid .inventory-ingredient-card-actions .ingredient-work-card-action-button {
+  justify-content: center;
+}
+
+.ingredients-inventory-mixed-grid .inventory-ingredient-card-footer {
+  display: flex;
+  align-items: center;
+  min-height: 34px;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.ingredients-inventory-mixed-grid .inventory-ingredient-card-footer-note {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  -webkit-line-clamp: unset;
+  line-clamp: unset;
+  -webkit-box-orient: initial;
+}
+
+.ingredients-food-stock-modal {
+  width: min(520px, calc(100vw - 32px));
+  background: linear-gradient(180deg, rgba(255, 254, 252, 0.99), rgba(255, 249, 243, 0.98));
+  border: 1px solid rgba(147, 96, 63, 0.14);
+  box-shadow: 0 20px 48px rgba(74, 54, 40, 0.12);
+}
+
+.ingredients-food-stock-form {
+  display: grid;
+  gap: 14px;
+}
+
+.ingredients-food-stock-quick-hero {
+  display: grid;
+  grid-template-columns: 58px minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid rgba(92, 67, 48, 0.08);
+  border-radius: 16px;
+  background: #fffdfa;
+}
+
+.ingredients-food-stock-quick-cover {
+  display: grid;
+  width: 58px;
+  height: 58px;
+  overflow: hidden;
+  place-items: center;
+  border-radius: 14px;
+  background: #f4e7db;
+  color: #9a5b2f;
+  font-size: 0.95rem;
+  font-weight: 920;
+}
+
+.ingredients-food-stock-quick-cover img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.ingredients-food-stock-quick-copy {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+}
+
+.ingredients-food-stock-quick-copy strong,
+.ingredients-food-stock-quick-copy small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ingredients-food-stock-quick-copy strong {
+  color: #33241d;
+  font-size: 1rem;
+  font-weight: 920;
+}
+
+.ingredients-food-stock-quick-copy small {
+  color: #8b7d72;
+  font-size: 0.8rem;
+  font-weight: 760;
+}
+
+.ingredients-food-stock-summary {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  padding: 14px 16px;
+  border: 1px solid rgba(92, 67, 48, 0.08);
+  border-radius: 14px;
+  background: rgba(255, 252, 248, 0.82);
+}
+
+.ingredients-food-stock-summary strong,
+.ingredients-food-stock-summary span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ingredients-food-stock-summary strong {
+  color: #2f251e;
+  font-size: 1rem;
+  font-weight: 900;
+}
+
+.ingredients-food-stock-summary span {
+  color: #7a6a5d;
+  font-size: 0.84rem;
+  font-weight: 760;
+}
+
+.ingredients-food-stock-field,
+.ingredients-food-stock-field-grid {
+  min-width: 0;
+}
+
+.ingredients-food-stock-field {
+  display: grid;
+  gap: 7px;
+}
+
+.ingredients-food-stock-field > span {
+  color: #7a6658;
+  font-size: 0.84rem;
+  font-weight: 850;
+}
+
+.ingredients-food-stock-field-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.ingredients-food-stock-segments {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.ingredients-food-stock-segments button {
+  min-width: 0;
+  min-height: 42px;
+  padding: 8px 10px;
+  border: 1px solid rgba(92, 67, 48, 0.1);
+  border-radius: 12px;
+  background: #fffdfa;
+  color: #6f5d50;
+  font-weight: 900;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ingredients-food-stock-segments button.active {
+  border-color: rgba(210, 107, 51, 0.28);
+  background: rgba(255, 244, 235, 0.95);
+  color: #8a4d25;
+}
+
+.ingredients-food-stock-date-strip {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.ingredients-food-stock-date-strip button {
+  display: grid;
+  min-width: 0;
+  min-height: 56px;
+  align-content: center;
+  gap: 3px;
+  padding: 7px 4px;
+  border: 1px solid rgba(92, 67, 48, 0.1);
+  border-radius: 12px;
+  background: #fffdfa;
+  color: #7a6a5f;
+  font-weight: 860;
+  transition: background 0.18s ease, border-color 0.18s ease, color 0.18s ease, transform 0.18s ease;
+}
+
+.ingredients-food-stock-date-strip button:hover:not(.active) {
+  border-color: rgba(210, 107, 51, 0.22);
+  background: rgba(255, 249, 244, 0.85);
+  transform: translateY(-1px);
+}
+
+.ingredients-food-stock-date-strip button.active {
+  border-color: rgba(209, 105, 51, 0.44);
+  background: #fff1e6;
+  color: #b35122;
+  box-shadow:
+    inset 0 0 0 1px rgba(209, 105, 51, 0.14),
+    0 4px 12px rgba(210, 107, 51, 0.18);
+}
+
+.ingredients-food-stock-date-strip span {
+  overflow: hidden;
+  font-size: 0.72rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ingredients-food-stock-date-strip strong {
+  overflow: hidden;
+  font-size: 0.78rem;
+  font-weight: 920;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ingredients-food-stock-meal-segments {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.ingredients-food-stock-no-record-note {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  padding: 12px 14px;
+  border: 1px solid rgba(92, 67, 48, 0.08);
+  border-radius: 14px;
+  background: rgba(246, 240, 234, 0.66);
+}
+
+.ingredients-food-stock-no-record-note strong,
+.ingredients-food-stock-no-record-note span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ingredients-food-stock-no-record-note strong {
+  color: #4f4036;
+  font-size: 0.9rem;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.ingredients-food-stock-no-record-note span {
+  color: #7a6a5d;
+  font-size: 0.8125rem;
+  line-height: 1.4;
+}
+
+.ingredients-food-stock-inline-input {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+}
+
+.ingredients-food-stock-inline-input em {
+  color: #7a6658;
+  font-style: normal;
+  font-weight: 850;
+}
+
+.ingredients-food-stock-restock-section {
+  display: grid;
+  min-width: 0;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid rgba(92, 67, 48, 0.08);
+  border-radius: 16px;
+  background: rgba(255, 252, 248, 0.72);
+}
+
+.ingredients-food-stock-restock-section-head {
+  display: flex;
+  min-width: 0;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.ingredients-food-stock-restock-section-head strong,
+.ingredients-food-stock-restock-section-head span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ingredients-food-stock-restock-section-head strong {
+  color: #33241d;
+  font-size: 0.95rem;
+  font-weight: 920;
+  white-space: nowrap;
+}
+
+.ingredients-food-stock-restock-section-head span {
+  color: #8a7a6e;
+  font-size: 0.8125rem;
+  font-weight: 760;
+  text-align: right;
+}
+
+.ingredients-food-stock-restock-unit-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(96px, 0.85fr);
+  gap: 10px;
+  min-width: 0;
+}
+
+.ingredients-food-stock-restock-presets {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  min-width: 0;
+}
+
+.ingredients-food-stock-restock-presets button {
+  display: grid;
+  min-width: 0;
+  min-height: 42px;
+  align-content: center;
+  gap: 2px;
+  padding: 8px 10px;
+  border: 1px solid rgba(92, 67, 48, 0.1);
+  border-radius: 12px;
+  background: #fffdfa;
+  color: #6f5d50;
+  font-size: 0.875rem;
+  font-weight: 900;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  transition: background 0.18s ease, border-color 0.18s ease, color 0.18s ease, transform 0.18s ease;
+}
+
+.ingredients-food-stock-restock-presets button span {
+  min-width: 0;
+  overflow: hidden;
+  color: #9a8d83;
+  font-size: 0.72rem;
+  font-weight: 760;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ingredients-food-stock-restock-presets button:hover:not(.active) {
+  border-color: rgba(210, 107, 51, 0.22);
+  background: rgba(255, 249, 244, 0.88);
+  transform: translateY(-1px);
+}
+
+.ingredients-food-stock-restock-presets button.active {
+  border-color: rgba(209, 105, 51, 0.42);
+  background: #fff1e6;
+  color: #b35122;
+  box-shadow: inset 0 0 0 1px rgba(209, 105, 51, 0.12);
+}
+
+.ingredients-food-stock-restock-presets button.active span {
+  color: #b35122;
+}
+
+.ingredients-food-stock-expiry-presets button {
+  min-height: 48px;
+}
+
+.ingredients-food-stock-source-presets button {
+  min-height: 40px;
+}
+
+.ingredients-food-stock-restock-helper {
+  margin: 0;
+  color: #8a7a6e;
+  font-size: 0.8125rem;
+  font-weight: 650;
+  line-height: 1.4;
+}
+
+.ingredients-food-stock-error {
+  margin: 0;
+}
+
+@media (max-width: 767px) {
+  .ingredients-food-stock-modal {
+    width: min(100%, calc(100vw - 18px));
+  }
+
+  .ingredients-food-stock-field-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .ingredients-food-stock-date-strip {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .ingredients-food-stock-restock-section {
+    padding: 12px;
+  }
+
+  .ingredients-food-stock-restock-section-head {
+    display: grid;
+    gap: 3px;
+  }
+
+  .ingredients-food-stock-restock-section-head span {
+    text-align: left;
+    white-space: normal;
+  }
+
+  .ingredients-food-stock-restock-unit-row {
+    grid-template-columns: minmax(0, 1fr) minmax(86px, 0.65fr);
+  }
+
+  .ingredients-food-stock-restock-presets {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 .ingredients-desktop-view {
@@ -3345,7 +3868,9 @@
 
 .ingredients-inventory-overview-head {
   display: grid;
-  gap: 4px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px 12px;
 }
 
 .ingredients-inventory-overview-headline {
@@ -3353,6 +3878,7 @@
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+  min-width: 0;
 }
 
 .ingredients-inventory-overview-head h3,
@@ -3376,6 +3902,7 @@
 
 .ingredients-inventory-overview-tip {
   display: none;
+  grid-column: 1 / -1;
   color: var(--text-soft);
   font-size: 0.76rem;
   line-height: 1.35;
@@ -3967,6 +4494,14 @@
   text-overflow: ellipsis;
 }
 
+.inventory-ingredient-card-data-row span:not(:last-child)::after {
+  content: " ·";
+  margin-left: 5px;
+  margin-right: 2px;
+  opacity: 0.5;
+  font-weight: normal;
+}
+
 .inventory-ingredient-card-tag-row {
   gap: 6px;
 }
@@ -3984,7 +4519,7 @@
 .inventory-ingredient-card-actions .ingredient-work-card-action-button {
   min-height: 38px;
   padding: 8px 10px;
-  border-radius: 14px;
+  border-radius: 14px !important;
   font-size: 0.92rem;
 }
 
@@ -6586,19 +7121,38 @@
   width: 44px;
   height: 44px;
   place-items: center;
-  border-radius: 14px;
-  background: #fff0e4;
-  color: #e57526;
+  border-radius: 16px;
+  background: linear-gradient(135deg, #fff2e7, #ffe6d2);
+  color: #bc5b21;
+  box-shadow: inset 0 0 0 1px rgba(210, 107, 51, 0.08);
 }
 
 .recipe-notice-toast.tone-success .recipe-notice-icon {
-  background: #edf8ef;
+  background: linear-gradient(135deg, #edf8ef, #e0f2e4);
   color: #4d9360;
+  box-shadow: inset 0 0 0 1px rgba(77, 147, 96, 0.1);
+}
+
+.recipe-notice-toast.tone-warning .recipe-notice-icon {
+  background: linear-gradient(135deg, #fff3e8, #ffe4ce);
+  color: #b85a22;
+  box-shadow: inset 0 0 0 1px rgba(210, 107, 51, 0.12);
 }
 
 .recipe-notice-toast.tone-danger .recipe-notice-icon {
-  background: #fff0ef;
+  background: linear-gradient(135deg, #fff0ef, #ffe3df);
   color: #d85f52;
+  box-shadow: inset 0 0 0 1px rgba(216, 95, 82, 0.12);
+}
+
+.recipe-notice-icon svg {
+  width: 21px;
+  height: 21px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2.6;
 }
 
 .recipe-notice-icon .recipe-ui-icon {
@@ -7675,7 +8229,7 @@
 .ingredients-workspace .ingredient-work-card-action-button.ingredient-work-card-action-button-secondary {
   min-height: 36px;
   border: 1px solid rgba(92, 67, 48, 0.1);
-  border-radius: 10px;
+  border-radius: 14px !important;
   background: #fffdfa;
   color: #6f5d50;
   font-size: 0.82rem;
@@ -7685,6 +8239,7 @@
 
 .ingredients-workspace .ingredient-work-card-action-button.ingredient-work-card-action-button-primary {
   border: 0;
+  border-radius: 14px !important;
   background: var(--brand-button-bg);
   color: #fff;
   box-shadow: var(--brand-button-shadow);
@@ -7773,6 +8328,7 @@
 .ingredient-visual-card-catalog .ingredient-work-card-actions,
 .inventory-ingredient-card-actions {
   padding-inline: 16px;
+  margin-bottom: 12px;
 }
 
 .ingredient-visual-card-catalog .ingredient-work-card-footer,
@@ -7891,4 +8447,71 @@
   .ingredients-unified-inventory-actions button {
     min-height: 44px;
   }
+}
+
+/* Cards action buttons and footer spacing refinements */
+.ingredients-workspace .ingredient-work-card-actions,
+.ingredients-workspace .inventory-ingredient-card-actions {
+  margin-bottom: 6px !important;
+  gap: 8px !important;
+}
+
+.ingredients-workspace .ingredient-work-card-actions .ingredient-work-card-action-button,
+.ingredients-workspace .inventory-ingredient-card-actions .ingredient-work-card-action-button {
+  min-height: 38px !important;
+  border-radius: 12px !important;
+  font-size: 0.88rem !important;
+  font-weight: 850 !important;
+  padding: 8px 10px !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+}
+
+/* Primary Button Styling */
+.ingredients-workspace .ingredient-work-card-actions .ingredient-work-card-action-button.ingredient-work-card-action-button-primary,
+.ingredients-workspace .inventory-ingredient-card-actions .ingredient-work-card-action-button.ingredient-work-card-action-button-primary {
+  border: 0 !important;
+  border-radius: 12px !important;
+  background: var(--brand-button-bg) !important;
+  color: #fff !important;
+  box-shadow: var(--brand-button-shadow) !important;
+}
+
+.ingredients-workspace .ingredient-work-card-actions .ingredient-work-card-action-button.ingredient-work-card-action-button-primary:hover,
+.ingredients-workspace .inventory-ingredient-card-actions .ingredient-work-card-action-button.ingredient-work-card-action-button-primary:hover {
+  background: var(--brand-button-bg-hover) !important;
+}
+
+/* Secondary Button Styling */
+.ingredients-workspace .ingredient-work-card-actions .ingredient-work-card-action-button.ingredient-work-card-action-button-secondary,
+.ingredients-workspace .inventory-ingredient-card-actions .ingredient-work-card-action-button.ingredient-work-card-action-button-secondary {
+  border: 1px solid rgba(92, 67, 48, 0.12) !important;
+  border-radius: 12px !important;
+  background: rgba(255, 255, 255, 0.72) !important;
+  color: #7a6658 !important;
+  box-shadow: none !important;
+}
+
+.ingredients-workspace .ingredient-work-card-actions .ingredient-work-card-action-button.ingredient-work-card-action-button-secondary:hover,
+.ingredients-workspace .inventory-ingredient-card-actions .ingredient-work-card-action-button.ingredient-work-card-action-button-secondary:hover {
+  background: #fff8f1 !important;
+  color: var(--ingredient-brand-strong) !important;
+  border-color: var(--ingredient-brand-border) !important;
+}
+
+/* Footer note spacing and style */
+.ingredients-workspace .ingredient-work-card-footer,
+.ingredients-workspace .inventory-ingredient-card-footer {
+  padding: 0 16px 4px !important;
+  border-top: 0 !important;
+}
+
+.ingredients-workspace .ingredient-work-card-footer-note,
+.ingredients-workspace .inventory-ingredient-card-footer-note {
+  color: #8c7e74 !important;
+  font-size: 0.72rem !important;
+  line-height: 1.3 !important;
+  font-weight: 600 !important;
+  opacity: 0.85 !important;
 }

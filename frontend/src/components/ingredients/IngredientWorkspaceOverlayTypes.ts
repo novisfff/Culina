@@ -1,5 +1,5 @@
 import type { FormEvent } from 'react';
-import type { Ingredient } from '../../api/types';
+import type { Food, Ingredient } from '../../api/types';
 import type { IngredientOverlayMode, IngredientSummaryViewModel } from './workspaceModel';
 import type {
   ConsumeDialogFormState,
@@ -25,6 +25,7 @@ export type OverlayLayerProps = {
   setShoppingForm: (next: ShoppingDialogFormState) => void;
   destroyExpiredIngredientId: string | null;
   ingredients: Ingredient[];
+  foods: Food[];
   ingredientSummaries: IngredientSummaryViewModel[];
   quickRestockIngredients: Ingredient[];
   submitInventory: (event: FormEvent<HTMLFormElement>) => Promise<void>;

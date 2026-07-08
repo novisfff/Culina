@@ -22,6 +22,7 @@ import type {
 import { buildMediaSizes, buildMediaSrcSet, resolveAssetUrl, resolveMediaUrl } from '../../lib/assets';
 import { getMediaIds, getPendingImageJobId } from '../../lib/aiImages';
 import { addDateKeyDays } from '../../lib/date';
+import { parseFoodStockQuantity, parseOptionalFoodStockQuantity, resolveFoodStockDeductQuantity } from '../../lib/foodStockQuantity';
 import { MediaWithPlaceholder } from '../MediaPlaceholder';
 import {
   ActionButton,
@@ -101,6 +102,7 @@ import {
   isFoodMissingDecisionInfo,
   buildFoodRelationViewModelFromRecipeCards,
   buildFoodCookingSummaryFromRecipeCards,
+  formatFoodStockQuantity,
   type FoodCookingSummary,
 } from './FoodWorkspaceHelpers';
 
@@ -174,6 +176,14 @@ type Props = {
   createRecipe: (payload: RecipePayload) => Promise<Recipe>;
   updateRecipe: (recipeId: string, payload: RecipePayload) => Promise<Recipe>;
   quickAddMeal: (payload: QuickAddMealLogPayload) => Promise<MealLog>;
+  createShoppingItem: (payload: {
+    title: string;
+    quantity?: number | null;
+    unit?: string | null;
+    ingredient_id?: string | null;
+    food_id?: string | null;
+    reason: string;
+  }) => Promise<unknown>;
   createFoodPlanItem: (payload: { food_id: string; plan_date: string; meal_type: MealType; note: string }) => Promise<FoodPlanItem>;
   updateFoodPlanItem: (itemId: string, payload: { food_id?: string; plan_date?: string; meal_type?: MealType; note?: string; status?: 'planned' | 'cooked' | 'skipped' }) => Promise<FoodPlanItem>;
   deleteFoodPlanItem: (itemId: string) => Promise<void>;
@@ -310,8 +320,7 @@ function getRecommendationPrimaryActionLabel(item: RecommendationCardViewModel) 
 }
 
 function formatFoodStock(food: Food) {
-  if (food.stock_quantity == null) return '未记录';
-  return `${food.stock_quantity}${food.stock_unit || '份'}`;
+  return formatFoodStockQuantity(food);
 }
 
 export function buildTodayFoodRecommendations(
@@ -1005,6 +1014,13 @@ export function FoodWorkspace(props: Props) {
   async function handleSubmitFood(event: Parameters<typeof submitFood>[0]) {
     event.preventDefault();
     if (!canSubmit) return;
+    if (isReadyLikeType(form.type)) {
+      const stockQuantity = parseOptionalFoodStockQuantity(form.stockQuantity, '剩余数量');
+      if (stockQuantity.error) {
+        showNotice({ tone: 'warning', title: '库存数量格式不对', message: stockQuantity.error });
+        return;
+      }
+    }
     if (isSelfMade) {
       const recipePayload = buildRecipePayload(
         recipeEditor.form,
@@ -1112,6 +1128,23 @@ export function FoodWorkspace(props: Props) {
     setFeedback(`${food.name} 已记录到${date === todayKey() ? '今天' : formatDate(date)}${MEAL_TYPE_LABELS[mealType]}`);
   }
 
+  async function addFoodToShopping(food: Food) {
+    if (!isReadyLikeFood(food)) return;
+    try {
+      await props.createShoppingItem({
+        title: food.name,
+        quantity: 1,
+        unit: food.stock_unit || '份',
+        ingredient_id: null,
+        food_id: food.id,
+        reason: '补充成品库存',
+      });
+      showNotice({ tone: 'success', title: '已加入采购', message: `${food.name} 已加入采购清单。` });
+    } catch (reason) {
+      showNotice({ tone: 'danger', title: '加入采购失败', message: resolveErrorMessage(reason, '加入采购失败') });
+    }
+  }
+
   function updateQuickMealDialog(patch: Partial<Pick<FoodQuickMealDialogState, 'date' | 'mealType' | 'deductStock' | 'stockQuantity'>>) {
     setQuickMealStockError(null);
     setQuickMealDialog((current) => (current ? { ...current, ...patch } : current));
@@ -1135,13 +1168,21 @@ export function FoodWorkspace(props: Props) {
     }
     let stockQuantity: number | null = null;
     if (current.deductStock) {
-      const stockQuantityText = current.stockQuantity?.trim() ?? '';
-      const parsedStockQuantity = Number(stockQuantityText);
-      if (!stockQuantityText || !Number.isFinite(parsedStockQuantity) || parsedStockQuantity <= 0) {
-        setQuickMealStockError('请输入大于 0 的扣减数量。');
+      const parsedStockQuantity = parseFoodStockQuantity(current.stockQuantity ?? '', '扣减数量');
+      if (parsedStockQuantity.error || parsedStockQuantity.quantity === null) {
+        setQuickMealStockError(parsedStockQuantity.error ?? '请输入大于 0 的扣减数量。');
         return;
       }
-      stockQuantity = parsedStockQuantity;
+      const resolvedStockQuantity = resolveFoodStockDeductQuantity(
+        parsedStockQuantity.quantity,
+        current.food.stock_quantity,
+        current.food.stock_unit || '份'
+      );
+      if (resolvedStockQuantity.error || resolvedStockQuantity.quantity === null) {
+        setQuickMealStockError(resolvedStockQuantity.error ?? '当前库存不足。');
+        return;
+      }
+      stockQuantity = resolvedStockQuantity.quantity;
     }
 
     try {
@@ -1510,6 +1551,11 @@ export function FoodWorkspace(props: Props) {
                     <button className="food-card-detail-button" type="button" aria-label={`查看详情：${food.name}`} title="查看详情" onClick={() => openDetail(food)}>
                       <FoodUiIcon name="list" />
                     </button>
+                    {isReadyLikeFood(food) && (
+                      <button className="food-card-detail-button" type="button" aria-label={`加入采购：${food.name}`} title="加入采购" onClick={() => void addFoodToShopping(food)}>
+                        <FoodUiIcon name="clipboard" />
+                      </button>
+                    )}
                     <button className="food-card-detail-button" type="button" aria-label={`加入菜单：${food.name}`} title="加入菜单" onClick={() => openPlanDialog(food)}>
                       <FoodUiIcon name="calendar" />
                     </button>

@@ -2040,22 +2040,53 @@
     text-shadow: 0 1px 0 rgba(255, 255, 255, 0.56);
   }
 
+  .mobile-ingredient-inventory-status-filter {
+    min-width: 0;
+    padding: 0 2px;
+  }
+
+  .mobile-ingredient-inventory-status-filter .mobile-ingredient-chip-group {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 7px;
+    padding-bottom: 0;
+  }
+
+  .mobile-ingredient-inventory-status-filter .ui-option-chip {
+    min-width: 0;
+    min-height: 42px;
+    justify-content: center;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
   .mobile-ingredient-library-filters {
     display: grid;
     gap: 12px;
   }
 
-
-
-  .mobile-ingredient-library-filters .mobile-ingredient-chip-group {
-    gap: 7px;
-    padding-bottom: 4px;
+  .mobile-ingredient-inventory-quick-filter {
+    display: flex;
+    flex-wrap: nowrap;
+    gap: 8px;
+    min-width: 0;
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding: 1px 1px 4px;
+    scrollbar-width: none;
   }
 
-  .mobile-ingredient-library-filters .mobile-ingredient-chip-group .ui-option-chip {
-    min-width: 84px;
-    overflow: hidden;
-    text-overflow: ellipsis;
+  .mobile-ingredient-inventory-quick-filter::-webkit-scrollbar {
+    display: none;
+  }
+
+  .mobile-ingredient-inventory-quick-filter .ui-option-chip {
+    flex: 0 0 auto;
+    min-width: 64px;
+    min-height: 40px;
+    justify-content: center;
+    white-space: nowrap;
   }
 
   .mobile-ingredient-library-grid {
@@ -2112,9 +2143,44 @@
     background: rgba(255, 255, 255, 0.9);
   }
 
+  .mobile-ingredient-food-card {
+    border-color: rgba(210, 107, 51, 0.18);
+    background:
+      radial-gradient(circle at top right, rgba(252, 225, 212, 0.34), rgba(255, 255, 255, 0) 46%),
+      rgba(255, 255, 255, 0.94);
+  }
+
+  .mobile-ingredient-food-card.is-pending {
+    border-color: rgba(168, 145, 125, 0.2);
+    background:
+      radial-gradient(circle at top right, rgba(232, 224, 214, 0.24), rgba(255, 255, 255, 0) 46%),
+      rgba(252, 249, 245, 0.94);
+  }
+
+  .mobile-ingredient-food-card.is-pending .mobile-ingredient-library-actions {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .mobile-ingredient-food-action-primary {
+    border-color: transparent;
+    background: linear-gradient(180deg, #df7838, #d96a2f);
+    color: #fff;
+    box-shadow: 0 12px 24px rgba(211, 101, 43, 0.2);
+  }
+
+  .mobile-ingredient-food-action-secondary {
+    border-color: rgba(226, 205, 189, 0.88);
+    background: rgba(255, 255, 255, 0.78);
+    color: #6d5b4e;
+  }
+
   .mobile-ingredient-library-cover {
     width: 100%;
     aspect-ratio: 1.46 / 1;
+  }
+
+  .mobile-ingredient-food-card .mobile-ingredient-library-cover {
+    background: linear-gradient(180deg, rgba(255, 244, 235, 0.9), rgba(246, 238, 229, 0.76));
   }
 
   .mobile-ingredient-library-cover > span:not(.media-with-placeholder) {
