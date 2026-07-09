@@ -23,6 +23,143 @@ class AIWorkspacePhaseFlowsTestCase(AIAgentInfraTestCase):
                 self.assertIn("meal_plan.create_draft", tool_names)
                 self.assertEqual(run.context_summary["routing"]["skills"], ["meal_plan"])
 
+        def test_takeout_dinner_plan_creates_food_profile_before_meal_plan(self) -> None:
+            response = self.client.post("/api/ai/chat", json={"message": "把棒约翰意面安排为今天晚餐"})
+            self.assertEqual(response.status_code, 200, response.text)
+            data = response.json()
+            self.assertEqual(data["run"]["agent_key"], "workspace_orchestrator")
+            self.assertEqual([draft["draft_type"] for draft in data["included"]["drafts"]], ["food_profile"])
+            self.assertEqual([approval["approval_type"] for approval in data["included"]["approvals"]], ["food_profile.create"])
+            food_draft = data["included"]["drafts"][0]["payload"]
+            self.assertEqual(food_draft["name"], "棒约翰意面")
+            self.assertEqual(food_draft["type"], "takeout")
+            self.assertEqual(food_draft["category"], "外卖")
+            self.assertEqual(food_draft["suitable_meal_types"], ["dinner"])
+
+            with self.SessionLocal() as db:
+                run = db.get(AIAgentRun, data["run"]["id"])
+                draft = db.get(AITaskDraft, data["included"]["drafts"][0]["id"])
+                self.assertIsNotNone(run)
+                self.assertIsNotNone(draft)
+                assert run is not None and draft is not None
+                self.assertEqual(run.context_summary["routing"]["skills"], ["food_profile"])
+                self.assertEqual(draft.ai_metadata["afterApproval"]["nextDraftType"], "meal_plan")
+                self.assertIn("餐食计划", draft.ai_metadata["afterApproval"]["instruction"])
+
+            food_approval = data["included"]["approvals"][0]
+            with self.client.stream(
+                "POST",
+                f"/api/ai/conversations/{data['conversation_id']}/approvals/{food_approval['id']}/decision/stream",
+                json={
+                    "decision": "approved",
+                    "draft_version": food_approval["draft_version"],
+                    "values": food_approval["initial_values"],
+                },
+            ) as stream_response:
+                self.assertEqual(stream_response.status_code, 200)
+                stream_body = "".join(stream_response.iter_text())
+            self.assertIn("meal_plan.create", stream_body)
+
+            pending_response = self.client.get(f"/api/ai/conversations/{data['conversation_id']}/approvals/pending")
+            self.assertEqual(pending_response.status_code, 200, pending_response.text)
+            pending = pending_response.json()
+            self.assertEqual([approval["approval_type"] for approval in pending], ["meal_plan.create"])
+            plan_values = pending[0]["initial_values"]["draft"]
+            self.assertEqual(plan_values["items"][0]["title"], "棒约翰意面")
+            self.assertTrue(plan_values["items"][0]["foodId"])
+
+        def test_takeout_dinner_plan_and_record_preserves_meal_log_followup(self) -> None:
+            response = self.client.post("/api/ai/chat", json={"message": "把棒约翰意面安排为今天晚餐并记录已吃"})
+            self.assertEqual(response.status_code, 200, response.text)
+            data = response.json()
+            self.assertEqual([draft["draft_type"] for draft in data["included"]["drafts"]], ["food_profile"])
+            food_draft = data["included"]["drafts"][0]["payload"]
+            self.assertEqual(food_draft["name"], "棒约翰意面")
+            self.assertEqual(food_draft["type"], "takeout")
+            self.assertEqual(food_draft["category"], "外卖")
+
+            with self.SessionLocal() as db:
+                draft = db.get(AITaskDraft, data["included"]["drafts"][0]["id"])
+                self.assertIsNotNone(draft)
+                assert draft is not None
+                after_approval = draft.ai_metadata["afterApproval"]
+                self.assertEqual(after_approval["nextDraftType"], "meal_plan")
+                self.assertIn("餐食计划", after_approval["instruction"])
+                self.assertIn("用餐记录", after_approval["instruction"])
+                self.assertEqual(after_approval["taskState"]["finalDraftType"], "meal_log")
+
+            food_approval = data["included"]["approvals"][0]
+            with self.client.stream(
+                "POST",
+                f"/api/ai/conversations/{data['conversation_id']}/approvals/{food_approval['id']}/decision/stream",
+                json={
+                    "decision": "approved",
+                    "draft_version": food_approval["draft_version"],
+                    "values": food_approval["initial_values"],
+                },
+            ) as stream_response:
+                self.assertEqual(stream_response.status_code, 200)
+                food_stream_body = "".join(stream_response.iter_text())
+            self.assertIn("meal_plan.create", food_stream_body)
+
+            pending_plan_response = self.client.get(f"/api/ai/conversations/{data['conversation_id']}/approvals/pending")
+            self.assertEqual(pending_plan_response.status_code, 200, pending_plan_response.text)
+            pending_plan = pending_plan_response.json()
+            self.assertEqual([approval["approval_type"] for approval in pending_plan], ["meal_plan.create"])
+            meal_plan_approval = pending_plan[0]
+            self.assertEqual(meal_plan_approval["initial_values"]["draft"]["items"][0]["title"], "棒约翰意面")
+
+            with self.client.stream(
+                "POST",
+                f"/api/ai/conversations/{data['conversation_id']}/approvals/{meal_plan_approval['id']}/decision/stream",
+                json={
+                    "decision": "approved",
+                    "draft_version": meal_plan_approval["draft_version"],
+                    "values": meal_plan_approval["initial_values"],
+                },
+            ) as stream_response:
+                self.assertEqual(stream_response.status_code, 200)
+                plan_stream_body = "".join(stream_response.iter_text())
+            self.assertIn("meal_log.create", plan_stream_body)
+
+            with self.SessionLocal() as db:
+                plan_item = db.scalar(
+                    select(FoodPlanItem)
+                    .join(FoodPlanItem.food)
+                    .where(FoodPlanItem.family_id == self.family.id, Food.name == "棒约翰意面")
+                )
+                self.assertIsNotNone(plan_item)
+                assert plan_item is not None
+                plan_item_id = plan_item.id
+                planned_food_id = plan_item.food_id
+
+            pending_log_response = self.client.get(f"/api/ai/conversations/{data['conversation_id']}/approvals/pending")
+            self.assertEqual(pending_log_response.status_code, 200, pending_log_response.text)
+            pending_log = pending_log_response.json()
+            self.assertEqual([approval["approval_type"] for approval in pending_log], ["meal_log.create"])
+            meal_log_approval = pending_log[0]
+            meal_log_draft = meal_log_approval["initial_values"]["draft"]
+            self.assertEqual(meal_log_draft["planItemId"], plan_item_id)
+            self.assertEqual(meal_log_draft["foods"][0]["foodId"], planned_food_id)
+
+            meal_log_decision_response = self.client.post(
+                f"/api/ai/conversations/{data['conversation_id']}/approvals/{meal_log_approval['id']}/decision",
+                json={
+                    "decision": "approved",
+                    "draft_version": meal_log_approval["draft_version"],
+                    "values": meal_log_approval["initial_values"],
+                },
+            )
+            self.assertEqual(meal_log_decision_response.status_code, 200, meal_log_decision_response.text)
+            self.assertEqual(meal_log_decision_response.json()["operation"]["business_entity_type"], "MealLog")
+
+            with self.SessionLocal() as db:
+                refreshed_plan = db.get(FoodPlanItem, plan_item_id)
+                self.assertIsNotNone(refreshed_plan)
+                assert refreshed_plan is not None
+                self.assertEqual(refreshed_plan.status, "cooked")
+                self.assertTrue(refreshed_plan.meal_log_id)
+
         def test_ai_workspace_phase_a_runs_composite_meal_plan_and_shopping_skills(self) -> None:
             response = self.client.post("/api/ai/chat", json={"message": "用快过期食材安排三天晚餐，顺便生成购物清单"})
             self.assertEqual(response.status_code, 200, response.text)

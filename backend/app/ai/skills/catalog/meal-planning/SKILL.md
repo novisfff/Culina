@@ -38,6 +38,7 @@ description: 处理“今天/今晚吃什么”的即时餐食推荐，以及未
 ### 正式计划模式
 
 - 适用于“安排、制定、生成、修改餐食计划”，或用户给出日期、天数、餐别等计划范围的请求。
+- “把某个外卖/食物安排/作为今天晚餐”“放到今晚菜单”是正式餐食计划，不是用餐记录；除非用户同时说“吃了/已吃/记录”，否则不要创建 `meal_log`。
 - 创建或修改时必须调用 `meal_plan.create_draft`。
 - 新增可以生成创建型草稿；修改、删除和状态变更必须生成带 `action`、`targetId` 和 `baseUpdatedAt` 的操作草稿。
 - 修改计划必须先通过 `meal_plan.read_by_id` 或明确的列表读取拿到真实目标，不能只靠名称猜测。
@@ -50,7 +51,8 @@ description: 处理“今天/今晚吃什么”的即时餐食推荐，以及未
 - 所有推荐和计划都应参考当前库存、临期食材与最近餐食。
 - 正式计划的 `foodId` 必须来自 `food.search` 或 `food.read_by_id`，且标题必须使用对应食物名称。
 - `recipeId` 只能使用所选食物已关联的真实菜谱；没有关联时填 `null`。
-- 如果正式计划需要的食物不在食物库中，说明需要先补充食物资料，不得创建无效草稿，也不要在本 Skill 中调用或伪造 `food_profile` 草稿；由 Orchestrator 注入食物资料流程。
+- 如果正式计划需要的食物不在食物库中，必须先转入食物资料流程，不得创建无效草稿，也不要在本 Skill 中调用或伪造 `food_profile` 草稿；由 Orchestrator 注入食物资料流程。典型例子：“把棒约翰意面安排为今天晚餐”应先补 Food，再在 Food 确认后创建今天晚餐的 `meal_plan`。
+- 如果用户要求“安排并记录/已吃”，本 Skill 在创建餐食计划草稿时应通过 `afterApproval.nextDraftType=meal_log` 保留后续用餐记录目标；计划确认后再创建 `meal_log`，并尽量使用已确认计划项的真实 `planItemId` 关联。
 - 从历史计划草稿继续修改时，必须先用 `workspace.read_artifact` 读取完整 `items`；不要根据摘要补全日期、餐别、食物 ID 或菜谱 ID。
 - 创建草稿前调用 `script.validate_meal_plan` 做确定性结构检查；需要文本预览时可调用 `script.render_plan_preview`。
 - `FoodPlanItem` 读取范围以当前用户和家庭时区为准，不得越过当前用户读取其他成员的个人计划。
