@@ -96,6 +96,7 @@ def test_inventory_overview_returns_ingredient_and_ready_food_stock(
     from app.models.domain import Food, Ingredient, InventoryItem
 
     with inventory_overview_api_context.SessionLocal() as db:
+        today = today_for_family(inventory_overview_api_context.family_id)
         tomato = Ingredient(
             id="ingredient-overview-tomato",
             family_id=inventory_overview_api_context.family_id,
@@ -120,8 +121,8 @@ def test_inventory_overview_returns_ingredient_and_ready_food_stock(
             entered_quantity=Decimal("3"),
             entered_unit="个",
             status=InventoryStatus.FRESH,
-            purchase_date=date(2026, 7, 1),
-            expiry_date=date(2026, 7, 10),
+            purchase_date=today - timedelta(days=8),
+            expiry_date=today + timedelta(days=1),
             storage_location="冷藏",
             notes="",
             low_stock_threshold=Decimal("1"),
@@ -145,7 +146,7 @@ def test_inventory_overview_returns_ingredient_and_ready_food_stock(
             stock_quantity=Decimal("13.991"),
             stock_unit="盒",
             storage_location="冷藏",
-            expiry_date=date(2026, 7, 8),
+            expiry_date=today + timedelta(days=3),
             favorite=False,
             created_by=inventory_overview_api_context.user_id,
             updated_by=inventory_overview_api_context.user_id,
