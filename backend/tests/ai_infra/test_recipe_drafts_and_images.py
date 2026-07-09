@@ -448,6 +448,40 @@ class AIRecipeDraftsAndImagesTestCase(AIAgentInfraTestCase):
             self.assertIn("参考图仅作为主体识别补充", prompt)
             self.assertIn("统一为约 4:3 卡片比例", prompt)
 
+        def test_culinary_image_prompt_can_preserve_reference_packaging_branding(self) -> None:
+            prompt = build_ai_image_prompt(
+                ImageGenerationRequest(
+                    entity_type=MediaEntityType.FOOD,
+                    mode=ImageGenerationMode.REFERENCE,
+                    title="盒装零食",
+                    category="包装食品",
+                    notes="适合加餐",
+                    reference_image_bytes=b"fake",
+                    reference_filename="packaged-food.jpg",
+                )
+            )
+
+            self.assertIn("包装、容器、外壳", prompt)
+            self.assertIn("如果是识别主体的重要特征，应保留", prompt)
+            self.assertIn("可以保留包装的形状、材质、主色、文字、标识和整体视觉节奏", prompt)
+            self.assertIn("文字和品牌信息应以参考图为准", prompt)
+            self.assertIn("参考图中已有的可读文字、真实 logo、商标、条码或说明文字", prompt)
+            self.assertIn("不要新增、替换或臆造参考图中没有的信息", prompt)
+
+        def test_culinary_image_prompt_does_not_default_everything_to_plate(self) -> None:
+            prompt = build_ai_image_prompt(
+                ImageGenerationRequest(
+                    entity_type=MediaEntityType.INGREDIENT,
+                    mode=ImageGenerationMode.TEXT,
+                    title="黄瓜",
+                    category="蔬菜",
+                )
+            )
+
+            self.assertIn("不要默认把所有主体放进盘子里", prompt)
+            self.assertIn("根据主体自然选择无容器、原包装、存储容器、烹饪器具或餐具", prompt)
+            self.assertIn("千篇一律的盘装摆拍", prompt)
+
         def test_family_and_user_image_prompts_do_not_request_round_avatar_rendering(self) -> None:
             family_prompt = build_ai_image_prompt(
                 ImageGenerationRequest(
@@ -471,6 +505,27 @@ class AIRecipeDraftsAndImagesTestCase(AIAgentInfraTestCase):
             self.assertNotIn("适合圆形裁切", family_prompt)
             self.assertNotIn("适合圆形裁切", user_prompt)
             self.assertIn("前端展示时可再做圆形遮罩", user_prompt)
+
+        def test_family_and_user_image_prompts_use_profile_style_not_food_still_life_base(self) -> None:
+            family_prompt = build_ai_image_prompt(
+                ImageGenerationRequest(
+                    entity_type=MediaEntityType.FAMILY,
+                    mode=ImageGenerationMode.TEXT,
+                    title="三餐四季",
+                )
+            )
+            user_prompt = build_ai_image_prompt(
+                ImageGenerationRequest(
+                    entity_type=MediaEntityType.USER,
+                    mode=ImageGenerationMode.TEXT,
+                    title="小雨",
+                )
+            )
+
+            self.assertIn("资料图的视觉设计师", family_prompt)
+            self.assertIn("资料图的视觉设计师", user_prompt)
+            self.assertNotIn("美食静物摄影师", family_prompt)
+            self.assertNotIn("美食静物摄影师", user_prompt)
 
         def test_image_generation_normalizes_all_modes_to_standard_card_size(self) -> None:
             calls: list[dict] = []
