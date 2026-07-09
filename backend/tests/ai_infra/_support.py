@@ -380,8 +380,10 @@ class FakeChatProvider(BaseChatProvider):
             and not any(term in message for term in ["安排", "计划", "菜单", "制定", "修改", "第二天", "三天"])
         )
 
+        resume_next_draft_type = ""
         if is_orchestrator:
-            skills = self._orchestrator_skills_for_message(message, quick_task)
+            resume_next_draft_type = self._resume_next_draft_type(payload)
+            skills = [resume_next_draft_type] if resume_next_draft_type else self._orchestrator_skills_for_message(message, quick_task)
             if skills:
                 tool_handler("skill.inject", {"skills": skills, "reason": "根据用户请求选择需要的 Culina 能力"})
                 available_tool_names = {tool.name for tool in (tools())}
@@ -405,12 +407,12 @@ class FakeChatProvider(BaseChatProvider):
         if "shopping.create_draft" in available_tool_names and self._should_create_downstream_shopping(payload):
             return self._shopping_tool_result(payload, message, call, emit_visible, tool_names)
 
-        if "meal_plan.create_draft" in available_tool_names and not recommendation_mode:
+        if "meal_plan.create_draft" in available_tool_names and not recommendation_mode and resume_next_draft_type != "meal_log":
             emit_visible("我先看一下临期食材和最近餐食。")
             inventory = call("inventory.read_expiring_items", {"days": 7})
             call("inventory.read_available_items", {"limit": 80})
             call("meal_log.read_recent", {"limit": 8})
-            call("food.search", {"limit": 24})
+            foods = call("food.search", {"limit": 24}).get("items", [])
             call("recipe.search", {"limit": 24})
             call("meal_plan.read_existing", {"limit": 20})
             artifacts = [artifact for artifact in payload.get("artifacts", []) if artifact.get("type") == "meal_plan"]
@@ -433,16 +435,20 @@ class FakeChatProvider(BaseChatProvider):
                     tool_names,
                 )
             days = 3 if "三天" in message or operation == "modify" else 1
+            target_food_name = self._takeout_food_name(message) if self._is_takeout_arrangement_message(message) else ""
+            matched_food = next((food for food in foods if food.get("name") == target_food_name), None)
+            planned_food_id = matched_food["id"] if matched_food else "food-tomato"
+            planned_food_name = matched_food["name"] if matched_food else "番茄小炒"
             items = [
                 {
                     "date": (date.today() + timedelta(days=index)).isoformat(),
                     "mealType": "dinner",
-                    "title": "番茄小炒",
-                    "foodId": "food-tomato",
+                    "title": planned_food_name,
+                    "foodId": planned_food_id,
                     "recipeId": None,
-                    "reason": "优先使用临期番茄；按清淡口味安排",
-                    "usedInventory": ["番茄"],
-                    "missingIngredients": ["鸡蛋"] if index == 0 else [],
+                    "reason": "按用户指定安排为今天晚餐" if matched_food else "优先使用临期番茄；按清淡口味安排",
+                    "usedInventory": [] if matched_food else ["番茄"],
+                    "missingIngredients": [] if matched_food else (["鸡蛋"] if index == 0 else []),
                 }
                 for index in range(days)
             ]
@@ -482,6 +488,12 @@ class FakeChatProvider(BaseChatProvider):
                     "continue": True,
                     "instruction": "确认餐食计划后，继续根据计划生成购物清单草稿。",
                     "nextDraftType": "shopping_list",
+                }
+            if self._wants_meal_log_after_plan(message) or self._resume_final_draft_type(payload) == "meal_log":
+                draft_args["afterApproval"] = {
+                    "instruction": "确认餐食计划后，继续创建用餐记录；如确认结果里有真实计划项 ID，优先把 meal_log 关联到 planItemId。",
+                    "nextDraftType": "meal_log",
+                    "taskState": {"finalDraftType": "meal_log", "targetFoodName": planned_food_name},
                 }
             call("meal_plan.create_draft", draft_args)
             return self._tool_result(
@@ -531,9 +543,33 @@ class FakeChatProvider(BaseChatProvider):
             emit_visible("我先匹配家庭食物资料和最近记录。")
             foods = call("food.search", {"limit": 24}).get("items", [])
             call("meal_log.read_recent", {"limit": 8})
-            matched = next((food for food in foods if food.get("name") and food["name"] in message), None)
-            name = matched["name"] if matched else message.replace("今晚吃了", "").replace("今天吃了", "").strip(" ，。")
-            draft = {"draftType": "meal_log", "schemaVersion": "meal_log.v1", "date": date.today().isoformat(), "mealType": "dinner", "foods": [{"foodId": matched["id"] if matched else None, "name": name, "servings": 1, "note": "从用户描述中整理"}], "notes": message}
+            plan_artifact = self._latest_confirmed_meal_plan_artifact(payload)
+            plan_payload = plan_artifact.get("payload") if isinstance(plan_artifact.get("payload"), dict) else {}
+            planned_food_id = str(plan_payload.get("food_id") or plan_payload.get("foodId") or "")
+            planned_food_name = str(plan_payload.get("food_name") or plan_payload.get("foodName") or plan_artifact.get("summary") or "")
+            matched = next((food for food in foods if planned_food_id and food.get("id") == planned_food_id), None)
+            if matched is None:
+                matched = next((food for food in foods if planned_food_name and food.get("name") == planned_food_name), None)
+            if matched is None and planned_food_name:
+                matched = next((food for food in call("food.search", {"query": planned_food_name, "exact": True, "limit": 1}).get("items", [])), None)
+            if matched is None:
+                matched = next((food for food in foods if food.get("name") and food["name"] in message), None)
+            name = planned_food_name or (matched["name"] if matched else message.replace("今晚吃了", "").replace("今天吃了", "").strip(" ，。"))
+            food_id = planned_food_id or (matched["id"] if matched else None)
+            draft = {
+                "draftType": "meal_log",
+                "schemaVersion": "meal_log.v1",
+                "date": str(plan_payload.get("plan_date") or date.today().isoformat()),
+                "mealType": str(plan_payload.get("meal_type") or "dinner"),
+                "foods": [{"foodId": food_id, "name": name, "servings": 1, "note": "从用户描述中整理"}],
+                "notes": message,
+            }
+            plan_item_id = str(plan_artifact.get("entityId") or plan_payload.get("id") or "")
+            if plan_item_id:
+                draft["planItemId"] = plan_item_id
+            plan_updated_at = plan_payload.get("updated_at") or plan_payload.get("updatedAt") or plan_artifact.get("updatedAt")
+            if plan_updated_at:
+                draft["planItemBaseUpdatedAt"] = str(plan_updated_at)
             call("meal_log.create_draft", {"draft": draft})
             return self._tool_result(
                 {"text": "我先匹配家庭食物资料和最近记录。", "cards": [], "events": [], "context_summary": {"draftType": "meal_log"}, "state_patch": {}, "requires_clarification": False, "status": "completed", "error": None, "operation": "create"},
@@ -548,20 +584,27 @@ class FakeChatProvider(BaseChatProvider):
                 name = name.replace(marker, "")
             name = name.strip(" ，。")
             matched = next((food for food in foods if food.get("name") == name), None)
+            is_takeout_arrangement = self._is_takeout_arrangement_message(message)
+            if is_takeout_arrangement:
+                name = self._takeout_food_name(message)
+                matched = next((food for food in foods if food.get("name") == name), None)
+            suitable_meal_types = matched.get("suitableMealTypes", []) if matched else ["breakfast", "lunch", "dinner"]
+            if not matched and is_takeout_arrangement and any(term in message for term in ["晚餐", "晚饭", "今晚"]):
+                suitable_meal_types = ["dinner"]
             draft = {
                 "draftType": "food_profile",
                 "schemaVersion": "food_profile.v1",
                 "name": matched["name"] if matched else name,
-                "type": matched["type"] if matched else "readyMade",
-                "category": matched.get("category") if matched else "AI整理",
+                "type": matched["type"] if matched else ("takeout" if is_takeout_arrangement else "readyMade"),
+                "category": matched.get("category") if matched else ("外卖" if is_takeout_arrangement else "AI整理"),
                 "flavor_tags": matched.get("flavorTags", []) if matched else [],
-                "scene_tags": matched.get("sceneTags", []) if matched else ["AI整理"],
-                "suitable_meal_types": matched.get("suitableMealTypes", []) if matched else ["breakfast", "lunch", "dinner"],
+                "scene_tags": matched.get("sceneTags", []) if matched else (["晚餐", "外卖"] if is_takeout_arrangement else ["AI整理"]),
+                "suitable_meal_types": suitable_meal_types,
                 "source_name": "",
                 "purchase_source": "",
                 "scene": matched.get("scene", "") if matched else "",
                 "notes": message,
-                "routine_note": matched.get("routineNote", "") if matched else "由 AI 工作台整理，确认前可继续编辑。",
+                "routine_note": matched.get("routineNote", "") if matched else ("先补充为可安排的食物资料，确认后继续创建餐食计划。" if is_takeout_arrangement else "由 AI 工作台整理，确认前可继续编辑。"),
                 "price": None,
                 "rating": None,
                 "repurchase": None,
@@ -571,7 +614,19 @@ class FakeChatProvider(BaseChatProvider):
                 "favorite": False,
                 "recipe_id": matched.get("recipeId") if matched else None,
             }
-            call("food_profile.create_draft", {"draft": draft})
+            draft_args = {"draft": draft}
+            if is_takeout_arrangement:
+                instruction = "确认食物资料后，继续用该食物创建今天晚餐的餐食计划。"
+                task_state = {"targetFoodName": name, "targetMealType": "dinner"}
+                if self._wants_meal_log_after_plan(message):
+                    instruction = "确认食物资料后，继续用该食物创建今天晚餐的餐食计划；计划确认后再创建用餐记录并尽量关联计划项。"
+                    task_state["finalDraftType"] = "meal_log"
+                draft_args["afterApproval"] = {
+                    "instruction": instruction,
+                    "nextDraftType": "meal_plan",
+                    "taskState": task_state,
+                }
+            call("food_profile.create_draft", draft_args)
             return self._tool_result(
                 {"text": "我先查一下已有食物资料。", "cards": [], "events": [], "context_summary": {"draftType": "food_profile"}, "state_patch": {}, "requires_clarification": False, "status": "completed", "error": None, "operation": "create"},
                 tool_names,
@@ -678,6 +733,8 @@ class FakeChatProvider(BaseChatProvider):
             return ["recipe_draft"]
         if quick_task == "today_recommendation":
             return ["meal_plan"]
+        if self._is_takeout_arrangement_message(message):
+            return ["food_profile"]
         if "购物" in message or "采购" in message or "补货" in message:
             return ["meal_plan", "shopping_list"] if any(term in message for term in ["安排", "三天", "晚餐"]) else ["shopping_list"]
         if any(term in message for term in ["菜单", "安排", "三天", "晚餐", "第二天", "清淡"]):
@@ -695,6 +752,65 @@ class FakeChatProvider(BaseChatProvider):
         if any(term in message for term in ["今日吃什么", "今天吃什么", "今晚吃什么", "中午吃啥", "早餐思路", "推荐一餐"]):
             return ["meal_plan"]
         return []
+
+    def _resume_next_draft_type(self, payload: dict) -> str:
+        artifacts = self._resume_artifacts(payload)
+        for artifact in reversed(artifacts):
+            next_draft_type = artifact.get("nextDraftType")
+            if isinstance(next_draft_type, str) and next_draft_type in {"meal_plan", "meal_log", "shopping_list"}:
+                return next_draft_type
+        return ""
+
+    def _resume_final_draft_type(self, payload: dict) -> str:
+        for artifact in reversed(self._resume_artifacts(payload)):
+            task_state = artifact.get("taskState") if isinstance(artifact.get("taskState"), dict) else {}
+            final_draft_type = task_state.get("finalDraftType")
+            if isinstance(final_draft_type, str):
+                return final_draft_type
+        return ""
+
+    def _resume_artifacts(self, payload: dict) -> list[dict]:
+        return [
+            artifact.get("payload") or {}
+            for key in ("artifacts", "currentRunArtifacts")
+            for artifact in (payload.get(key) if isinstance(payload.get(key), list) else [])
+            if isinstance(artifact, dict)
+            and artifact.get("type") == "draft_after_approval"
+            and isinstance(artifact.get("payload"), dict)
+        ]
+
+    def _latest_confirmed_meal_plan_artifact(self, payload: dict) -> dict:
+        artifacts = [
+            artifact
+            for key in ("artifacts", "currentRunArtifacts")
+            for artifact in (payload.get(key) if isinstance(payload.get(key), list) else [])
+            if isinstance(artifact, dict)
+            and artifact.get("type") == "meal_plan"
+            and artifact.get("kind") == "business_entity"
+            and artifact.get("status") == "confirmed"
+        ]
+        return artifacts[-1] if artifacts else {}
+
+    def _is_takeout_arrangement_message(self, message: str) -> bool:
+        has_plan_intent = any(term in message for term in ["安排", "作为", "当作", "当今天", "放到", "加入"])
+        has_meal_slot = any(term in message for term in ["今天晚餐", "今晚", "晚餐", "晚饭", "菜单"])
+        has_outside_food = any(term in message for term in ["外卖", "棒约翰", "披萨", "意面", "汉堡", "麦当劳", "肯德基"])
+        return has_plan_intent and has_meal_slot and has_outside_food
+
+    def _wants_meal_log_after_plan(self, message: str) -> bool:
+        return any(term in message for term in ["并记录", "记录已吃", "记录吃了", "已吃", "吃了"])
+
+    def _takeout_food_name(self, message: str) -> str:
+        name = message.strip(" ，。")
+        for prefix in ["请帮我", "帮我", "把", "将"]:
+            if name.startswith(prefix):
+                name = name[len(prefix) :]
+        for marker in ["安排为", "安排到", "安排进", "作为", "当作", "放到", "加入"]:
+            if marker in name:
+                name = name.split(marker, 1)[0]
+                break
+        name = name.replace("外卖", "").strip(" ，。的")
+        return name or "外卖晚餐"
 
     def _should_create_downstream_shopping(self, payload: dict) -> bool:
         artifacts = [

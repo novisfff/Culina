@@ -96,6 +96,43 @@ class AISkillLoaderTestCase(AIAgentInfraTestCase):
             self.assertIsInstance(skill_registry.get("meal_plan"), CatalogSkill)
             self.assertFalse(any(BACKEND_DIR.glob("app/ai/skills/catalog/*/skill.py")))
 
+        def test_takeout_dinner_flow_instructions_chain_food_plan_and_log_skills(self) -> None:
+            food_profile = (BACKEND_DIR / "app" / "ai" / "skills" / "catalog" / "food-profile" / "SKILL.md").read_text(
+                encoding="utf-8"
+            )
+            meal_planning = (BACKEND_DIR / "app" / "ai" / "skills" / "catalog" / "meal-planning" / "SKILL.md").read_text(
+                encoding="utf-8"
+            )
+            meal_workflows = (
+                BACKEND_DIR
+                / "app"
+                / "ai"
+                / "skills"
+                / "catalog"
+                / "meal-planning"
+                / "references"
+                / "workflows.md"
+            ).read_text(encoding="utf-8")
+            meal_record = (BACKEND_DIR / "app" / "ai" / "skills" / "catalog" / "meal-record" / "SKILL.md").read_text(
+                encoding="utf-8"
+            )
+
+            self.assertIn("安排为今天晚餐", food_profile)
+            self.assertIn("afterApproval", food_profile)
+            self.assertIn("nextDraftType=meal_plan", food_profile)
+            self.assertIn("安排并记录", food_profile)
+            self.assertIn("meal_log", food_profile)
+            self.assertIn("安排/作为今天晚餐", meal_planning)
+            self.assertIn("必须先转入食物资料流程", meal_planning)
+            self.assertIn("不是用餐记录", meal_workflows)
+            self.assertIn("安排为今天晚餐", meal_record)
+            self.assertIn("转交给餐食计划", meal_record)
+
+            food_profile_record = build_workspace_skill_registry().get("food_profile").manifest.to_catalog_record()
+            self.assertIn("外卖安排", food_profile_record["description"])
+            self.assertIn("安排外卖晚餐", food_profile_record["routeHints"])
+            self.assertIn("把棒约翰意面安排为今天晚餐", food_profile_record["examples"])
+
         def test_skill_loader_rejects_skill_without_runtime_contract(self) -> None:
             with tempfile.TemporaryDirectory() as tmp_dir:
                 catalog_dir = Path(tmp_dir)
