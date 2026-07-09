@@ -663,6 +663,42 @@ async function runOrientationLockSmoke(browser, baseUrl, viewport, label, expect
   await context.close();
 }
 
+async function runTouchTabletLandscapeSmoke(browser, baseUrl) {
+  const label = '1024x744 touch iPad 横屏';
+  const { context, page, assertClean } = await createPage(
+    browser,
+    { width: 1024, height: 744 },
+    true,
+    { isMobile: true, hasTouch: true }
+  );
+  await page.goto(baseUrl, { waitUntil: 'domcontentloaded' });
+  await expectVisible(page.getByRole('heading', { name: '首页' }), `${label} 首页标题`);
+  await expectNoHorizontalOverflow(page, label);
+
+  const lockState = await page.evaluate(() => {
+    const landscapeLock = document.querySelector('.app-orientation-lock-landscape');
+    const portraitLock = document.querySelector('.app-orientation-lock-portrait');
+    const appFrame = document.querySelector('.app-frame');
+    return {
+      landscapeDisplay: landscapeLock ? getComputedStyle(landscapeLock).display : 'missing',
+      portraitDisplay: portraitLock ? getComputedStyle(portraitLock).display : 'missing',
+      appFrameDisplay: appFrame ? getComputedStyle(appFrame).display : 'missing',
+    };
+  });
+  if (
+    lockState.landscapeDisplay !== 'none' ||
+    lockState.portraitDisplay !== 'none' ||
+    lockState.appFrameDisplay === 'none'
+  ) {
+    throw new Error(
+      `${label} 不应显示方向提示：landscape=${lockState.landscapeDisplay} portrait=${lockState.portraitDisplay} appFrame=${lockState.appFrameDisplay}`
+    );
+  }
+
+  assertClean();
+  await context.close();
+}
+
 async function runTabletLandscapeSmoke(browser, baseUrl) {
   const { context, page, assertClean } = await createPage(browser, { width: 1112, height: 834 });
   await page.goto(baseUrl, { waitUntil: 'domcontentloaded' });
@@ -947,10 +983,11 @@ async function main() {
       '手机端需要竖屏查看',
       { isMobile: true, hasTouch: true }
     );
+    await runTouchTabletLandscapeSmoke(browser, preview.url);
     await runTabletLandscapeSmoke(browser, preview.url);
     await runTabletAirWorkspaceSmoke(browser, preview.url);
     console.log(
-      'Smoke passed: login, desktop workspace tabs, 390x844, 768x1024 orientation lock, 844x390 mobile orientation lock, 1112x834 and 1180x820 responsive checks.'
+      'Smoke passed: login, desktop workspace tabs, 390x844, 768x1024 orientation lock, 844x390 mobile orientation lock, 1024x744 touch iPad landscape, 1112x834 and 1180x820 responsive checks.'
     );
   } finally {
     try {
