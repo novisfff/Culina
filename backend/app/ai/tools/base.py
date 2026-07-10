@@ -21,6 +21,7 @@ class ToolContext:
     user_id: str
     conversation_id: str
     run_id: str
+    current_message_attachments: list[dict[str, Any]] = field(default_factory=list)
     stream_writer: Callable[[dict[str, Any]], None] | None = None
     cancel_check: Callable[[], bool] | None = None
     tracer: Any | None = None

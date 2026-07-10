@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping, Sequence
 from typing import Any
 
 from sqlalchemy import select
@@ -10,6 +10,48 @@ from app.ai.runtime.provider import ProviderImageInput
 from app.core.utils import create_id
 from app.models.domain import MediaAsset
 from app.services.serializers import serialize_media
+
+
+def validate_current_attachment_ids(
+    db: Session,
+    *,
+    family_id: str,
+    requested_media_ids: Sequence[str],
+    current_attachments: Sequence[Mapping[str, Any]],
+) -> list[str]:
+    allowed_ids = {
+        str(item.get("mediaId") or item.get("media_id") or "").strip()
+        for item in current_attachments
+        if isinstance(item, Mapping)
+    }
+    allowed_ids.discard("")
+    normalized = list(dict.fromkeys(str(media_id).strip() for media_id in requested_media_ids if str(media_id).strip()))
+    if any(media_id not in allowed_ids for media_id in normalized):
+        raise ValueError("invalid_current_attachment")
+    if not normalized:
+        return []
+    owned_ids = set(
+        db.scalars(
+            select(MediaAsset.id).where(
+                MediaAsset.family_id == family_id,
+                MediaAsset.id.in_(normalized),
+            )
+        )
+    )
+    if owned_ids != set(normalized):
+        raise ValueError("invalid_current_attachment")
+    return normalized
+
+
+def validate_submitted_attachment_subset(
+    *,
+    original_media_ids: Sequence[str],
+    submitted_media_ids: Sequence[str],
+) -> None:
+    allowed_ids = {str(media_id).strip() for media_id in original_media_ids if str(media_id).strip()}
+    submitted_ids = {str(media_id).strip() for media_id in submitted_media_ids if str(media_id).strip()}
+    if not submitted_ids.issubset(allowed_ids):
+        raise ValueError("invalid_current_attachment")
 
 
 def normalize_chat_attachments(attachments: list[dict[str, Any]] | None) -> list[dict[str, Any]]:

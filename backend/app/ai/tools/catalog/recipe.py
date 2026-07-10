@@ -16,6 +16,7 @@ from app.ai.tools.schemas import READ_BY_ID_INPUT, RECIPE_COOK_DRAFT_INPUT_SCHEM
 from app.ai.workflows.orchestrator.continuation import normalize_continuation
 from app.ai.workflows.orchestrator.product_continuations import ContinuationBuildError, build_recipe_shortage_continuation
 from app.ai.workflows.orchestrator.profiles import MAIN_WORKSPACE_PROFILE
+from app.ai.workflows.runner_support.attachments import validate_current_attachment_ids
 from app.models.domain import Food, FoodPlanItem, Recipe, RecipeFavorite
 from app.repos.media import build_media_map, get_media_assets_for_entities
 from app.services.clock import today_for_family
@@ -306,6 +307,14 @@ def recipe_read_by_id(context: ToolContext, payload: dict[str, Any]) -> dict[str
 def recipe_create_draft(context: ToolContext, payload: dict[str, Any]) -> dict[str, Any]:
     draft = payload.get("draft") if isinstance(payload.get("draft"), dict) else {}
     normalized = normalize_recipe_draft_for_tools(context.db, family_id=context.family_id, payload=draft)
+    recipe_payload = normalized.get("payload") if normalized.get("action") in {"create", "update"} else normalized
+    if isinstance(recipe_payload, dict):
+        recipe_payload["media_ids"] = validate_current_attachment_ids(
+            context.db,
+            family_id=context.family_id,
+            requested_media_ids=recipe_payload.get("media_ids") or [],
+            current_attachments=context.current_message_attachments,
+        )
     return {"draft": normalized, "itemCount": len(normalized.get("ingredient_items", []) or [])}
 
 

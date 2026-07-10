@@ -9,6 +9,7 @@ from app.ai.tools.base import ToolContext
 from app.ai.tools.catalog.common import register_tool
 from app.ai.tools.draft_validation import normalize_meal_log_draft
 from app.ai.tools.registry import ToolRegistry
+from app.ai.workflows.runner_support.attachments import validate_current_attachment_ids
 from app.ai.tools.schemas import MEAL_LOG_DRAFT_SCHEMA, READ_BY_ID_INPUT, SEARCH_INPUT, draft_input_schema, draft_output_schema
 from app.models.domain import Food, MealLog, MealLogFood
 from app.repos.media import build_media_map, get_media_assets_for_entities
@@ -182,6 +183,18 @@ def meal_log_read_by_id(context: ToolContext, payload: dict[str, Any]) -> dict[s
 def meal_log_create_draft(context: ToolContext, payload: dict[str, Any]) -> dict[str, Any]:
     draft = payload.get("draft") if isinstance(payload.get("draft"), dict) else {}
     normalized = normalize_meal_log_draft(context.db, family_id=context.family_id, user_id=context.user_id, payload=draft)
+    meal_payload = (
+        normalized.get("payload")
+        if normalized.get("action") in {"create", "update_details"}
+        else normalized
+    )
+    if isinstance(meal_payload, dict):
+        meal_payload["mediaIds"] = validate_current_attachment_ids(
+            context.db,
+            family_id=context.family_id,
+            requested_media_ids=meal_payload.get("mediaIds") or [],
+            current_attachments=context.current_message_attachments,
+        )
     item_count = len(normalized.get("foods") or [])
     if not item_count and isinstance(normalized.get("payload"), dict):
         item_count = len((normalized["payload"].get("foodEntryRatings") or [])) or 1

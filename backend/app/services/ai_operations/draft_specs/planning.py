@@ -27,6 +27,23 @@ from app.services.ai_operations.draft_specs.common import (
     _spec,
     _validate_operation_list_value,
 )
+from app.ai.workflows.runner_support.attachments import validate_submitted_attachment_subset
+
+
+def _meal_log_media_ids(payload: Any) -> list[str]:
+    if not isinstance(payload, dict):
+        return []
+    meal_payload = payload.get("payload") if payload.get("action") in {"create", "update_details"} else payload
+    if not isinstance(meal_payload, dict):
+        return []
+    return [str(media_id) for media_id in meal_payload.get("mediaIds") or []]
+
+
+def _validate_meal_log_approval_value(original: Any, submitted: Any) -> None:
+    validate_submitted_attachment_subset(
+        original_media_ids=_meal_log_media_ids(original),
+        submitted_media_ids=_meal_log_media_ids(submitted),
+    )
 
 
 def _approval_config_for_meal_plan(payload: dict[str, Any]) -> dict[str, str]:
@@ -225,6 +242,7 @@ def planning_operation_specs() -> list[DraftOperationSpec]:
             execute=_execute_meal_log,
             approval_config=_approval_config_for_meal_log,
             preview_summary=_preview_meal_log,
+            validate_approval_value=_validate_meal_log_approval_value,
             result_metadata=DraftResultMetadata(
                 workspace_label="餐食记录",
                 count_noun="条餐食记录",

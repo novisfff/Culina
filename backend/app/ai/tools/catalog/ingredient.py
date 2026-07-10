@@ -8,6 +8,7 @@ from app.ai.tools.base import ToolContext
 from app.ai.tools.catalog.common import decimal_text, register_tool
 from app.ai.tools.draft_validation import normalize_ingredient_profile_draft
 from app.ai.tools.registry import ToolRegistry
+from app.ai.workflows.runner_support.attachments import validate_current_attachment_ids
 from app.ai.tools.schemas import INGREDIENT_PROFILE_DRAFT_SCHEMA, READ_BY_ID_INPUT, SEARCH_INPUT, draft_input_schema, draft_output_schema
 from app.models.domain import Ingredient
 from app.repos.media import build_media_map, get_media_assets_for_entities
@@ -192,6 +193,14 @@ def ingredient_read_by_id(context: ToolContext, payload: dict[str, Any]) -> dict
 def ingredient_profile_create_draft(context: ToolContext, payload: dict[str, Any]) -> dict[str, Any]:
     draft = payload.get("draft") if isinstance(payload.get("draft"), dict) else {}
     normalized = normalize_ingredient_profile_draft(context.db, family_id=context.family_id, payload=draft)
+    ingredient_payload = normalized.get("payload") if normalized.get("action") in {"create", "update"} else normalized
+    if isinstance(ingredient_payload, dict):
+        ingredient_payload["media_ids"] = validate_current_attachment_ids(
+            context.db,
+            family_id=context.family_id,
+            requested_media_ids=ingredient_payload.get("media_ids") or [],
+            current_attachments=context.current_message_attachments,
+        )
     item_count = len(normalized.get("operations") or []) or 1
     return {"draft": normalized, "itemCount": item_count}
 

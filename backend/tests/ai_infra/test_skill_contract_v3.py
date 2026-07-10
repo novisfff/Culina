@@ -232,6 +232,27 @@ def test_meal_log_skill_requires_explicit_ready_food_stock_deduction_contract() 
         assert required_text in skill_text
 
 
+def test_recipe_and_meal_skills_distinguish_saved_media_from_context_images() -> None:
+    registry = build_workspace_skill_registry()
+    catalog_dir = Path(__file__).resolve().parents[2] / "app" / "ai" / "skills" / "catalog"
+    cases = {
+        "recipe_draft": (catalog_dir / "recipe-draft" / "SKILL.md", "media_ids"),
+        "meal_log": (catalog_dir / "meal-record" / "SKILL.md", "mediaIds"),
+    }
+
+    for skill_key, (skill_path, field_name) in cases.items():
+        manifest = registry.get(skill_key).manifest
+        skill_text = skill_path.read_text(encoding="utf-8")
+        assert manifest.attachment_policy.current_message_only is True
+        assert manifest.attachment_policy.explicit_user_intent_required is True
+        assert manifest.attachment_policy.bindable_fields == (field_name,)
+        assert any(
+            ("图片" in example or "照片" in example) and ("保存" in example or "作为" in example)
+            for example in manifest.routing.include_examples
+        )
+        assert "仅用于识别或理解的图片不写入" in skill_text
+
+
 def test_routing_record_excludes_execution_only_contracts() -> None:
     manifest = build_workspace_skill_registry().get("shopping_list").manifest
 
