@@ -8,6 +8,7 @@ from typing import Any
 from sqlalchemy.orm import Session
 
 from app.ai.runtime.provider import BaseChatProvider, ProviderImageInput
+from app.ai.skills.contracts import SkillAttachmentPolicy, SkillHandoffPolicy, SkillRoutingPolicy
 from app.ai.tools.executor import ToolExecutor
 from app.core.utils import create_id, utcnow
 
@@ -48,22 +49,44 @@ class SkillManifest:
     approval_policy: str = "none"
     intent: str = ""
     agent_key: str = ""
+    contract_version: int = 2
+    routing: SkillRoutingPolicy = field(default_factory=SkillRoutingPolicy)
+    handoffs: dict[str, SkillHandoffPolicy] = field(default_factory=dict)
+    attachment_policy: SkillAttachmentPolicy = field(default_factory=SkillAttachmentPolicy)
 
-    def to_catalog_record(self) -> dict[str, Any]:
+    def handoffs_record(self) -> dict[str, dict[str, str]]:
+        return {reason: policy.to_record() for reason, policy in self.handoffs.items()}
+
+    def to_routing_record(self) -> dict[str, Any]:
         return {
             "key": self.key,
             "displayName": self.name,
             "description": self.description,
             "examples": self.examples,
             "contextPolicy": self.context_policy,
+            "routing": self.routing.to_record(),
             "outputs": self.output_types,
             "draftTypes": self.draft_types,
             "routeHints": self.route_hints,
+            "requiresApproval": self.approval_policy == "draft_then_confirm",
+        }
+
+    def to_execution_record(self) -> dict[str, Any]:
+        return {
+            **self.to_routing_record(),
+            "contractVersion": self.contract_version,
+            "allowedTools": self.tools,
+            "scriptFiles": self.script_files,
             "toolBudget": self.tool_budget,
             "completionPolicy": self.completion_policy.to_catalog_record(),
             "draftContract": self.draft_contract,
             "approvalPolicy": self.approval_policy,
+            "handoffs": self.handoffs_record(),
+            "attachmentPolicy": self.attachment_policy.to_record(),
         }
+
+    def to_catalog_record(self) -> dict[str, Any]:
+        return self.to_execution_record()
 
 
 @dataclass(slots=True)
