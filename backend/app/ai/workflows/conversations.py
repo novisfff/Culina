@@ -6,7 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.ai.errors import AIConflictError
-from app.ai.workflows.conversation_access import require_ai_conversation_access
+from app.ai.workflows.conversation_access import ConversationCapability, require_ai_conversation_access
 from app.core.enums import AiMode, AIConversationVisibility
 from app.core.utils import create_id, utcnow
 from app.models.domain import AIAgentRun, AIConversation, AIMessage, Food, Ingredient, Recipe
@@ -70,6 +70,7 @@ def find_idempotent_run(
     db: Session,
     *,
     family_id: str,
+    user_id: str,
     client_message_id: str | None,
     client_run_id: str | None,
 ) -> AIAgentRun | None:
@@ -101,7 +102,16 @@ def find_idempotent_run(
         return None
     if len({item.id for item in candidates}) != 1:
         raise AIConflictError("消息标识与运行标识指向不同任务")
-    return candidates[0]
+    run = candidates[0]
+    if run.conversation_id is not None:
+        require_ai_conversation_access(
+            db,
+            family_id=family_id,
+            user_id=user_id,
+            conversation_id=run.conversation_id,
+            capability="contribute",
+        )
+    return run
 
 
 def find_active_conversation_run(db: Session, *, family_id: str, conversation_id: str) -> AIAgentRun | None:
@@ -155,11 +165,21 @@ def get_or_create_conversation(
     return conversation
 
 
-def require_conversation(db: Session, *, family_id: str, conversation_id: str) -> AIConversation:
-    conversation = db.scalar(select(AIConversation).where(AIConversation.id == conversation_id, AIConversation.family_id == family_id))
-    if conversation is None:
-        raise LookupError("会话不存在")
-    return conversation
+def require_conversation(
+    db: Session,
+    *,
+    family_id: str,
+    user_id: str,
+    conversation_id: str,
+    capability: ConversationCapability = "view",
+) -> AIConversation:
+    return require_ai_conversation_access(
+        db,
+        family_id=family_id,
+        user_id=user_id,
+        conversation_id=conversation_id,
+        capability=capability,
+    )
 
 
 def resolve_conversation_user_id(db: Session, conversation_id: str) -> str | None:

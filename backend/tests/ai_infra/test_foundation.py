@@ -5147,9 +5147,15 @@ class AIFoundationTestCase(AIAgentInfraTestCase):
                 self.assertEqual(len(request_parts), 1)
                 request_id = request_parts[0]["request"]["id"]
 
+                other_user, other_membership = self.create_family_member()
+                conversation = db.get(AIConversation, response["conversation_id"])
+                assert conversation is not None
+                conversation.visibility = AIConversationVisibility.FAMILY
+                db.commit()
+
                 resumed = service.respond_human_input(
                     family_id=self.family.id,
-                    user_id=self.user.id,
+                    user_id=other_user.id,
                     conversation_id=response["conversation_id"],
                     request_id=request_id,
                     selected_option_ids=["three-days"],
@@ -5189,6 +5195,7 @@ class AIFoundationTestCase(AIAgentInfraTestCase):
             self.assertEqual(human_input_parts[0].get("response", {}).get("selectedOptionIds"), ["three-days"])
             self.assertEqual(human_input_parts[0].get("response", {}).get("text"), "三天")
             self.assertEqual(human_input_parts[0].get("response", {}).get("summary"), "三天")
+            self.assertEqual(human_input_parts[0].get("response", {}).get("actor"), other_user.id)
 
         def test_human_input_response_api_accepts_path_request_id_only(self) -> None:
             class HumanInputApiProvider(BaseChatProvider):

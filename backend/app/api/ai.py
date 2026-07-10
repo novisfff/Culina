@@ -54,7 +54,11 @@ from app.ai.skills import build_workspace_skill_registry
 from app.ai.tools import build_workspace_tool_registry
 from app.ai.workspace_service import AIApplicationService
 from app.ai.workflows.checkpoint import SQLAlchemyCheckpointSaver
-from app.ai.workflows.conversation_access import accessible_ai_conversation_clause, require_ai_conversation_access
+from app.ai.workflows.conversation_access import (
+    accessible_ai_conversation_clause,
+    require_ai_conversation_access,
+    require_ai_run_access,
+)
 from app.ai.workflows.conversations import find_active_conversation_run
 from app.ai.workflows.live_stream_cache import live_ai_stream_cache
 from app.ai.workflows.orchestrator.profiles import ORCHESTRATOR_PROFILE_REGISTRY, OrchestratorProfile, profile_with_skill_route_hints
@@ -575,12 +579,17 @@ def list_ai_messages(
     auth: tuple = Depends(get_current_auth),
     db: Session = Depends(get_db),
 ) -> list[dict]:
-    _, membership = auth
-    conversation = db.scalar(
-        select(AIConversation).where(AIConversation.id == conversation_id, AIConversation.family_id == membership.family_id)
-    )
-    if conversation is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="会话不存在")
+    user, membership = auth
+    try:
+        require_ai_conversation_access(
+            db,
+            family_id=membership.family_id,
+            user_id=user.id,
+            conversation_id=conversation_id,
+            capability="view",
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     messages = list(
         db.scalars(
             select(AIMessage)
@@ -654,7 +663,17 @@ def list_ai_run_events(
     auth: tuple = Depends(get_current_auth),
     db: Session = Depends(get_db),
 ) -> list[dict]:
-    _, membership = auth
+    user, membership = auth
+    try:
+        require_ai_run_access(
+            db,
+            family_id=membership.family_id,
+            user_id=user.id,
+            run_id=run_id,
+            capability="view",
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     events = list(
         db.scalars(
             select(AIRunEvent)
@@ -671,9 +690,23 @@ def stream_ai_run_events(
     auth: tuple = Depends(get_current_auth),
     db: Session = Depends(get_db),
 ) -> StreamingResponse:
-    _, membership = auth
+    user, membership = auth
+
+    def encode(event: str, data: dict) -> str:
+        return f"event: {event}\ndata: {json.dumps(jsonable_encoder(data), ensure_ascii=False)}\n\n"
 
     def generate():
+        try:
+            require_ai_run_access(
+                db,
+                family_id=membership.family_id,
+                user_id=user.id,
+                run_id=run_id,
+                capability="view",
+            )
+        except LookupError as exc:
+            yield encode("error", {"detail": str(exc), "status": 404})
+            return
         events = list(
             db.scalars(
                 select(AIRunEvent)
@@ -864,10 +897,11 @@ def list_pending_ai_approvals(
     auth: tuple = Depends(get_current_auth),
     db: Session = Depends(get_db),
 ) -> list[dict]:
-    _, membership = auth
+    user, membership = auth
     try:
         return AIApplicationService(db).pending_approvals(
             family_id=membership.family_id,
+            user_id=user.id,
             conversation_id=conversation_id,
         )
     except LookupError as exc:

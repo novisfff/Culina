@@ -190,6 +190,14 @@ class AIWorkspaceApprovalsTestCase(AIAgentInfraTestCase):
             self.assertEqual(pending_response.status_code, 200, pending_response.text)
             self.assertEqual(pending_response.json()[0]["id"], approval["id"])
 
+            other_user, other_membership = self.create_family_member()
+            with self.SessionLocal() as db:
+                conversation = db.get(AIConversation, data["conversation_id"])
+                assert conversation is not None
+                conversation.visibility = AIConversationVisibility.FAMILY
+                db.commit()
+            self.authenticate_as(other_user.id, other_membership.id)
+
             recipe_payload = draft["payload"]
             recipe_payload["title"] = "番茄鸡蛋面（确认版）"
             decision_response = self.client.post(
@@ -206,6 +214,10 @@ class AIWorkspaceApprovalsTestCase(AIAgentInfraTestCase):
             self.assertEqual(decision_data["draft"]["status"], "confirmed")
             self.assertEqual(decision_data["operation"]["status"], "succeeded")
             self.assertEqual(decision_data["business_entity"]["title"], "番茄鸡蛋面（确认版）")
+            with self.SessionLocal() as db:
+                stored_approval = db.get(AIApprovalRequest, approval["id"])
+                assert stored_approval is not None
+                self.assertEqual(stored_approval.updated_by, other_user.id)
 
             repeat_response = self.client.post(
                 f"/api/ai/conversations/{data['conversation_id']}/approvals/{approval['id']}/decision",

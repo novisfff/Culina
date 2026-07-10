@@ -45,7 +45,13 @@ class HumanInputResumePreparer:
         text: str | None,
         stream: bool,
     ) -> PreparedHumanInputResume:
-        require_conversation(self.db, family_id=family_id, conversation_id=conversation_id)
+        require_conversation(
+            self.db,
+            family_id=family_id,
+            user_id=user_id,
+            conversation_id=conversation_id,
+            capability="contribute",
+        )
         config = self.config_for_conversation(conversation_id)
         snapshot = self.graph.get_state(config)
         if not snapshot.values or not snapshot.next:

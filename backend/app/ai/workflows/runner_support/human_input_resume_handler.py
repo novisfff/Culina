@@ -46,6 +46,9 @@ class HumanInputResumeHandler:
             text=text,
             answer_summary=answer_summary,
         )
+        actor_id = str(resume.get("userId") or state.get("user_id") or "").strip()
+        if actor_id:
+            response_payload = {**response_payload, "actor": actor_id}
         result_artifact = human_input_result_artifact(
             pending=pending,
             response_payload=response_payload,
