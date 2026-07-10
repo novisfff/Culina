@@ -280,6 +280,76 @@ class AIWorkspaceChatTestCase(AIAgentInfraTestCase):
             self.assertEqual(response.status_code, 200, response.text)
             self.assertEqual(len(response.json()), 2)
 
+        def test_ai_workspace_messages_normalize_legacy_inventory_cards(self) -> None:
+            with self.SessionLocal() as db:
+                conversation = AIConversation(
+                    id="conversation-legacy-inventory-card",
+                    family_id=self.family.id,
+                    mode=AiMode.INVENTORY_QA,
+                    prompt="库存怎么样",
+                    response="库存概览",
+                    context={},
+                    title="库存概览",
+                    summary="",
+                    status="completed",
+                    created_by=self.user.id,
+                )
+                message = AIMessage(
+                    id="message-legacy-inventory-card",
+                    family_id=self.family.id,
+                    conversation_id=conversation.id,
+                    role="assistant",
+                    content="库存概览",
+                    content_type="parts",
+                    parts=[
+                        {
+                            "id": "part-legacy-inventory-card",
+                            "type": "result_card",
+                            "card": {
+                                "id": "card-legacy-inventory",
+                                "type": "inventory_summary",
+                                "title": "库存概览",
+                                "data": {
+                                    "availableCount": 1,
+                                    "expiringCount": 1,
+                                    "lowStockCount": 0,
+                                    "items": [
+                                        {
+                                            "id": "inventory-tomato",
+                                            "ingredientId": "ingredient-tomato",
+                                            "name": "番茄",
+                                            "quantity": "3",
+                                            "unit": "个",
+                                            "status": "fresh",
+                                            "displayStatus": "expiring",
+                                        }
+                                    ],
+                                },
+                            },
+                        }
+                    ],
+                    status="completed",
+                    message_metadata={},
+                    created_by=self.user.id,
+                )
+                db.add_all([conversation, message])
+                db.commit()
+
+            response = self.client.get(
+                "/api/ai/conversations/conversation-legacy-inventory-card/messages"
+            )
+
+            self.assertEqual(response.status_code, 200, response.text)
+            card = response.json()[0]["parts"][0]["card"]
+            self.assertEqual(card["data"]["queryFocus"], "overview")
+            self.assertEqual(card["data"]["expiredCount"], 0)
+            self.assertEqual(card["data"]["foodStockCount"], 0)
+            item = card["data"]["items"][0]
+            self.assertEqual(item["sourceType"], "ingredient")
+            self.assertEqual(item["inventoryItemId"], "inventory-tomato")
+            self.assertIsNone(item["foodId"])
+            self.assertEqual(item["quantityTrackingMode"], "track_quantity")
+
         def test_ai_workspace_general_chat_does_not_persist_task_progress(self) -> None:
             response = self.client.post("/api/ai/chat", json={"message": "随便聊聊"})
             self.assertEqual(response.status_code, 200, response.text)
