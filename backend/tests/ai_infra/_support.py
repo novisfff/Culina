@@ -1384,6 +1384,29 @@ class AIAgentInfraTestCase(unittest.TestCase):
         app.dependency_overrides.clear()
         self.workspace_provider_patcher.stop()
 
+    def create_family_member(self, *, user_id: str = "user-ai-two") -> tuple[User, Membership]:
+        with self.SessionLocal() as db:
+            user = User(id=user_id, username=f"{user_id}-login", display_name="家庭成员", avatar_seed="", is_active=True)
+            membership = Membership(
+                id=f"membership-{user_id}",
+                family_id=self.family.id,
+                user_id=user.id,
+                role=UserRole.MEMBER,
+                status=MembershipStatus.ACTIVE,
+            )
+            db.add_all([user, membership])
+            db.commit()
+            return user, membership
+
+    def authenticate_as(self, user_id: str, membership_id: str) -> None:
+        def override_auth():
+            with self.SessionLocal() as db:
+                user = db.get(User, user_id)
+                membership = db.get(Membership, membership_id)
+                assert user is not None and membership is not None
+                return user, membership
+        app.dependency_overrides[get_current_auth] = override_auth
+
     def _generate_recipe_draft(
         self,
         db: Session,

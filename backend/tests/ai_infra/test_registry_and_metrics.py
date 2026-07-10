@@ -54,6 +54,8 @@ def _add_quality_approval_fixture(
             AIConversation(
                 id=conversation_id,
                 family_id=family_id,
+                owner_user_id=user_id,
+                visibility=AIConversationVisibility.PRIVATE,
                 mode=AiMode.RECIPE_DRAFT,
                 prompt="质量窗口",
                 response="",
@@ -770,8 +772,8 @@ class AIRegistryAndMetricsTestCase(AIAgentInfraTestCase):
                 )
                 db.flush()
                 conversations = [
-                    AIConversation(id="quality-conversation", family_id=self.family.id, mode=AiMode.RECIPE_DRAFT, prompt="质量", response="", context={}),
-                    AIConversation(id="quality-conversation-other", family_id=self.other_family.id, mode=AiMode.RECIPE_DRAFT, prompt="质量", response="", context={}),
+                    AIConversation(id="quality-conversation", family_id=self.family.id, owner_user_id=self.user.id, visibility=AIConversationVisibility.PRIVATE, mode=AiMode.RECIPE_DRAFT, prompt="质量", response="", context={}, created_by=self.user.id),
+                    AIConversation(id="quality-conversation-other", family_id=self.other_family.id, owner_user_id=self.user.id, visibility=AIConversationVisibility.PRIVATE, mode=AiMode.RECIPE_DRAFT, prompt="质量", response="", context={}, created_by=self.user.id),
                 ]
                 drafts = [
                     AITaskDraft(id="quality-draft-unedited", family_id=self.family.id, conversation_id="quality-conversation", source_run_id="agent-run-quality-plan", draft_type="recipe", payload={}, idempotency_key="quality-unedited"),

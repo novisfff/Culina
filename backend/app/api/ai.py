@@ -24,6 +24,7 @@ from app.models.domain import (
     AIRunTraceSpan,
     AITaskDraft,
     AIUserApproval,
+    User,
 )
 from app.schemas.ai import (
     AIApprovalDecisionRequest,
@@ -52,6 +53,7 @@ from app.ai.skills import build_workspace_skill_registry
 from app.ai.tools import build_workspace_tool_registry
 from app.ai.workspace_service import AIApplicationService
 from app.ai.workflows.checkpoint import SQLAlchemyCheckpointSaver
+from app.ai.workflows.conversation_access import accessible_ai_conversation_clause
 from app.ai.workflows.live_stream_cache import live_ai_stream_cache
 from app.ai.workflows.orchestrator.profiles import ORCHESTRATOR_PROFILE_REGISTRY, OrchestratorProfile, profile_with_skill_route_hints
 from app.ai.observability.serializers import serialize_ai_run_llm_exchange, serialize_ai_run_trace_span
@@ -195,16 +197,23 @@ def get_ai_status(auth: tuple = Depends(get_current_auth)) -> dict:
 
 @router.get("/api/ai/conversations", response_model=list[AIConversationOut])
 def list_ai_conversations(auth: tuple = Depends(get_current_auth), db: Session = Depends(get_db)) -> list[dict]:
-    _, membership = auth
-    conversations = list(
-        db.scalars(
-            select(AIConversation)
-            .where(AIConversation.family_id == membership.family_id)
+    user, membership = auth
+    rows = list(
+        db.execute(
+            select(AIConversation, User.display_name)
+            .join(User, User.id == AIConversation.owner_user_id)
+            .where(
+                AIConversation.family_id == membership.family_id,
+                accessible_ai_conversation_clause(user.id),
+            )
             .order_by(func.coalesce(AIConversation.last_message_at, AIConversation.created_at).desc(), AIConversation.created_at.desc())
             .limit(20)
         )
     )
-    return [serialize_ai_conversation(item) for item in conversations]
+    return [
+        serialize_ai_conversation(item, owner_display_name=display_name or "", current_user_id=user.id)
+        for item, display_name in rows
+    ]
 
 
 @router.get("/api/ai/registry", response_model=AIRegistryResponse)

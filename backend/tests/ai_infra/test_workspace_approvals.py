@@ -2756,6 +2756,8 @@ class AIWorkspaceApprovalsTestCase(AIAgentInfraTestCase):
                 conversation = AIConversation(
                     id="conversation-operation-result",
                     family_id=self.family.id,
+                    owner_user_id=self.user.id,
+                    visibility=AIConversationVisibility.PRIVATE,
                     mode=AiMode.RECIPE_DRAFT,
                     prompt="调整计划",
                     response="",

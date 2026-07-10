@@ -381,6 +381,8 @@ class AIInventoryOperationsTestCase(AIAgentInfraTestCase):
                 conversation = AIConversation(
                     id="conversation-unit-mismatch-save",
                     family_id=self.family.id,
+                    owner_user_id=self.user.id,
+                    visibility=AIConversationVisibility.PRIVATE,
                     mode=AiMode.RECOMMENDATION,
                     prompt="保存副单位",
                     response="",
@@ -592,6 +594,8 @@ class AIInventoryOperationsTestCase(AIAgentInfraTestCase):
                 conversation = AIConversation(
                     id="conversation-unit-mismatch-topic-change",
                     family_id=self.family.id,
+                    owner_user_id=self.user.id,
+                    visibility=AIConversationVisibility.PRIVATE,
                     mode=AiMode.RECOMMENDATION,
                     prompt="把鸡蛋 2 盒入库",
                     response="",
@@ -1102,6 +1106,8 @@ class AIInventoryOperationsTestCase(AIAgentInfraTestCase):
                 conversation = AIConversation(
                     id="conversation-inventory-quick",
                     family_id=self.family.id,
+                    owner_user_id=self.user.id,
+                    visibility=AIConversationVisibility.PRIVATE,
                     mode=AiMode.INVENTORY_QA,
                     prompt="库存处理",
                     response="库存概览",
@@ -1214,6 +1220,8 @@ class AIInventoryOperationsTestCase(AIAgentInfraTestCase):
                 conversation = AIConversation(
                     id="conversation-depleted-inventory-quick",
                     family_id=self.family.id,
+                    owner_user_id=self.user.id,
+                    visibility=AIConversationVisibility.PRIVATE,
                     mode=AiMode.INVENTORY_QA,
                     prompt="低库存",
                     response="低库存提醒",

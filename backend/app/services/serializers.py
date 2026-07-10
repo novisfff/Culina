@@ -421,10 +421,14 @@ def serialize_activity(log: ActivityLog, actor_name: str | None = None) -> dict:
     }
 
 
-def serialize_ai_conversation(item: AIConversation) -> dict:
+def serialize_ai_conversation(item: AIConversation, *, owner_display_name: str, current_user_id: str) -> dict:
     return {
         "id": item.id,
         "family_id": item.family_id,
+        "owner_user_id": item.owner_user_id,
+        "owner_display_name": owner_display_name,
+        "visibility": item.visibility,
+        "is_owner": item.owner_user_id == current_user_id,
         "mode": item.mode,
         "prompt": item.prompt,
         "response": item.response,

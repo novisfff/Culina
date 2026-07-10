@@ -285,6 +285,8 @@ class AIWorkspaceChatTestCase(AIAgentInfraTestCase):
                 conversation = AIConversation(
                     id="conversation-legacy-inventory-card",
                     family_id=self.family.id,
+                    owner_user_id=self.user.id,
+                    visibility=AIConversationVisibility.PRIVATE,
                     mode=AiMode.INVENTORY_QA,
                     prompt="库存怎么样",
                     response="库存概览",
@@ -436,6 +438,8 @@ class AIWorkspaceChatTestCase(AIAgentInfraTestCase):
                 conversation = AIConversation(
                     id="conversation-running-idempotency",
                     family_id=self.family.id,
+                    owner_user_id=self.user.id,
+                    visibility=AIConversationVisibility.PRIVATE,
                     mode=AiMode.RECOMMENDATION,
                     prompt="处理中",
                     response="",
@@ -478,6 +482,8 @@ class AIWorkspaceChatTestCase(AIAgentInfraTestCase):
                         conversation = AIConversation(
                             id=conversation_id,
                             family_id=self.family.id,
+                            owner_user_id=self.user.id,
+                            visibility=AIConversationVisibility.PRIVATE,
                             mode=AiMode.RECOMMENDATION,
                             prompt="处理中",
                             response="",

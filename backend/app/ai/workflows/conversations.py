@@ -6,7 +6,8 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.ai.errors import AIConflictError
-from app.core.enums import AiMode
+from app.ai.workflows.conversation_access import require_ai_conversation_access
+from app.core.enums import AiMode, AIConversationVisibility
 from app.core.utils import create_id, utcnow
 from app.models.domain import AIAgentRun, AIConversation, AIMessage, Food, Ingredient, Recipe
 
@@ -125,18 +126,20 @@ def get_or_create_conversation(
     quick_task: str | None,
 ) -> AIConversation:
     if conversation_id:
-        conversation = db.scalar(
-            select(AIConversation)
-            .where(AIConversation.id == conversation_id, AIConversation.family_id == family_id)
-            .with_for_update()
+        return require_ai_conversation_access(
+            db,
+            family_id=family_id,
+            user_id=user_id,
+            conversation_id=conversation_id,
+            capability="contribute",
+            for_update=True,
         )
-        if conversation is None:
-            raise LookupError("会话不存在")
-        return conversation
     title = "今日吃什么" if quick_task == "today_recommendation" else prompt[:24]
     conversation = AIConversation(
         id=create_id("conversation"),
         family_id=family_id,
+        owner_user_id=user_id,
+        visibility=AIConversationVisibility.PRIVATE,
         mode=AiMode.RECOMMENDATION,
         prompt=prompt,
         response="",

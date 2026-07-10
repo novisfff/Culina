@@ -5011,6 +5011,8 @@ class AIFoundationTestCase(AIAgentInfraTestCase):
                 conversation = AIConversation(
                     id="conversation-round-limit",
                     family_id=self.family.id,
+                    owner_user_id=self.user.id,
+                    visibility=AIConversationVisibility.PRIVATE,
                     mode=AiMode.RECOMMENDATION,
                     prompt="继续运行",
                     response="",

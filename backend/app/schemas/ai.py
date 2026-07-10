@@ -5,7 +5,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from app.core.enums import AiMode, Difficulty
+from app.core.enums import AiMode, AIConversationVisibility, Difficulty
 from app.schemas.media import MediaAssetOut
 from app.schemas.recipes import RecipeIngredientIn, RecipeStepIn
 
@@ -13,6 +13,10 @@ from app.schemas.recipes import RecipeIngredientIn, RecipeStepIn
 class AIConversationOut(BaseModel):
     id: str
     family_id: str
+    owner_user_id: str
+    owner_display_name: str
+    visibility: AIConversationVisibility
+    is_owner: bool
     mode: AiMode
     prompt: str
     response: str

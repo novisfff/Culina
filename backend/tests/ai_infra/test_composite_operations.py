@@ -215,6 +215,8 @@ class AICompositeOperationsTestCase(AIAgentInfraTestCase):
                 conversation = AIConversation(
                     id="conversation-composite-approval",
                     family_id=self.family.id,
+                    owner_user_id=self.user.id,
+                    visibility=AIConversationVisibility.PRIVATE,
                     mode=AiMode.RECOMMENDATION,
                     prompt="新增鸡胸肉并入库",
                     response="",
@@ -327,6 +329,8 @@ class AICompositeOperationsTestCase(AIAgentInfraTestCase):
                 conversation = AIConversation(
                     id="conversation-composite-food-plan",
                     family_id=self.family.id,
+                    owner_user_id=self.user.id,
+                    visibility=AIConversationVisibility.PRIVATE,
                     mode=AiMode.RECOMMENDATION,
                     prompt="创建食物并安排晚餐",
                     response="",
