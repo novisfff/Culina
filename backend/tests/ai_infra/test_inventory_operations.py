@@ -736,6 +736,40 @@ class AIInventoryOperationsTestCase(AIAgentInfraTestCase):
                 self.assertEqual(expired["items"][0]["suggestedAction"], "dispose")
                 self.assertEqual(expiring_with_expired["items"], [])
 
+        def test_expiring_inventory_query_applies_limit_to_payload_and_card(self) -> None:
+            with self.SessionLocal() as db:
+                ingredient = self._add_egg_ingredient(db)
+                today = today_for_family(self.family.id)
+                for index in range(4):
+                    create_inventory_batch(
+                        db,
+                        family_id=self.family.id,
+                        user_id=self.user.id,
+                        ingredient=ingredient,
+                        quantity=Decimal("1"),
+                        unit="个",
+                        status=InventoryStatus.FRESH,
+                        purchase_date=today,
+                        expiry_date=today + timedelta(days=index + 1),
+                        storage_location="冷藏",
+                    )
+                executor = ToolExecutor(
+                    build_workspace_tool_registry(),
+                    ToolContext(
+                        db=db,
+                        family_id=self.family.id,
+                        user_id=self.user.id,
+                        conversation_id="conversation-expiring-limit",
+                        run_id="run-expiring-limit",
+                    ),
+                )
+
+                output = executor.call("inventory.read_expiring_items", {"days": 7, "limit": 3})
+
+            self.assertEqual(output["count"], 3)
+            self.assertEqual(len(output["items"]), 3)
+            self.assertEqual(len(output["card"]["data"]["items"]), 3)
+
         def test_inventory_summary_includes_ready_food_stock(self) -> None:
             with self.SessionLocal() as db:
                 db.add(

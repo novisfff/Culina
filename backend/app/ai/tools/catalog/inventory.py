@@ -13,6 +13,7 @@ from app.ai.tools.draft_validation import normalize_inventory_operation_draft
 from app.ai.tools.registry import ToolRegistry
 from app.ai.tools.schemas import (
     DAYS_INPUT,
+    DAYS_LIMIT_INPUT,
     INVENTORY_OPERATION_DRAFT_SCHEMA,
     LIMIT_INPUT,
     draft_input_schema,
@@ -333,6 +334,7 @@ def inventory_read_available_items(context: ToolContext, payload: dict[str, Any]
 def inventory_read_expiring_items(context: ToolContext, payload: dict[str, Any]) -> dict[str, Any]:
     today = today_for_family(context.family_id)
     days = int(payload.get("days") or 7)
+    limit = int(payload.get("limit") or 80)
     items = list(
         context.db.scalars(
             select(InventoryItem)
@@ -345,6 +347,7 @@ def inventory_read_expiring_items(context: ToolContext, payload: dict[str, Any])
                 InventoryItem.expiry_date <= today + timedelta(days=days),
             )
             .order_by(InventoryItem.expiry_date.asc(), InventoryItem.purchase_date.asc(), InventoryItem.id.asc())
+            .limit(limit)
         )
     )
     media_map = entity_media_map(context.db, family_id=context.family_id, entity_types={"ingredient"}, entity_ids=[item.ingredient_id for item in items])
@@ -360,10 +363,10 @@ def inventory_read_expiring_items(context: ToolContext, payload: dict[str, Any])
     food_records = _food_contextual_records(
         context,
         today=today,
-        limit=10_000,
+        limit=limit,
         predicate=lambda row: row.get("days_until_expiry") is not None and 0 <= row["days_until_expiry"] <= days,
     )
-    records = sorted([*ingredient_records, *food_records], key=_contextual_record_sort_key)
+    records = sorted([*ingredient_records, *food_records], key=_contextual_record_sort_key)[:limit]
     return _with_inventory_card(
         {"queryFocus": "expiring", "items": records, "count": len(records)},
         title="临期库存",
@@ -637,7 +640,7 @@ def register_inventory_tools(registry: ToolRegistry) -> None:
             name="inventory.read_expiring_items",
             display_name="临期食材",
             description="读取当前家庭临期食材。",
-            input_schema=DAYS_INPUT,
+            input_schema=DAYS_LIMIT_INPUT,
             output_schema=inventory_items_output_schema("expiring"),
             permission="family:read",
             side_effect="read",
