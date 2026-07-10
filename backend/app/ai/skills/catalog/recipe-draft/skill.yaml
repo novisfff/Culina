@@ -1,4 +1,4 @@
-version: 2
+version: 3
 key: recipe_draft
 display_name: 菜谱整理
 intent: recipe_draft
@@ -46,3 +46,35 @@ examples:
 - 删除这份菜谱。
 - 收藏番茄炒蛋菜谱。
 - 用鸡胸肉和西兰花设计一个低油菜谱。
+routing:
+  modes: [query, create, update]
+  include_examples:
+  - 帮我生成一份番茄鸡蛋面的菜谱。
+  - 把这个菜谱补全步骤和用量。
+  - 更新红烧牛肉菜谱，改成 3 人份。
+  - 删除这份菜谱。
+  - 收藏番茄炒蛋菜谱。
+  - 用鸡胸肉和西兰花设计一个低油菜谱。
+  exclude_examples:
+  - 按这个菜谱做 3 份并扣减库存。
+  - 这一步要煎到什么程度？
+  - 把番茄默认保质期改成 7 天。
+  conflict_rules:
+  - with: recipe_cook
+    when: 用户要执行现有菜谱并处理库存或计划
+    route_to: recipe_cook
+  - with: ingredient_profile
+    when: 用户只要维护食材档案而非菜谱
+    route_to: ingredient_profile
+handoffs:
+  missing_ingredient:
+    target_skill: ingredient_profile
+    required_draft_type: ingredient_profile
+    resume_skill: recipe_draft
+    state_schema: recipe_missing_ingredient.v1
+attachment_policy:
+  accepted_kinds: [image]
+  usages: [draft_media_binding, image_generation_reference]
+  bindable_fields: [media_ids]
+  current_message_only: true
+  explicit_user_intent_required: true

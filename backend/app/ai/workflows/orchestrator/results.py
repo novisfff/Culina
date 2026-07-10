@@ -214,7 +214,6 @@ class OrchestratorResultAssembler:
                     "schema_version": str(draft.get("schema_version") or f"{draft_type}.v1"),
                     "tool": draft.get("tool"),
                     "continuation": draft.get("continuation") if isinstance(draft.get("continuation"), dict) else {},
-                    "after_approval": draft.get("after_approval") if isinstance(draft.get("after_approval"), dict) else {},
                     **(
                         {
                             "draft_id": draft["draft_id"],

@@ -1,4 +1,4 @@
-version: 2
+version: 3
 key: inventory_analysis
 display_name: 库存查看与处理
 intent: inventory
@@ -54,3 +54,45 @@ examples:
 - 鸡蛋入库 12 个，冷藏。
 - 做饭用了 2 个番茄，帮我扣库存。
 - 把过期的牛奶销毁掉。
+routing:
+  modes: [query, restock, consume, dispose]
+  include_examples:
+  - 快过期食材有哪些？
+  - 库存怎么样？
+  - 还有哪些菜能用的食材？
+  - 鸡蛋入库 12 个，冷藏。
+  - 做饭用了 2 个番茄，帮我扣库存。
+  - 把过期的牛奶销毁掉。
+  exclude_examples:
+  - 新增鸡蛋食材档案。
+  - 新增盒装牛奶食物资料并记录剩余数量。
+  - 把低库存食材加入购物清单。
+  conflict_rules:
+  - with: ingredient_profile
+    when: 用户要管理食材定义、单位换算或低库存规则而非库存批次
+    route_to: ingredient_profile
+  - with: food_profile
+    when: 用户操作成品、速食或包装食品自身的库存字段
+    route_to: food_profile
+handoffs:
+  missing_ingredient:
+    target_skill: ingredient_profile
+    required_draft_type: ingredient_profile
+    resume_skill: inventory_analysis
+    state_schema: inventory_missing_ingredient.v1
+  save_unit_conversion:
+    target_skill: ingredient_profile
+    required_draft_type: ingredient_profile
+    resume_skill: inventory_analysis
+    state_schema: inventory_unit_conversion.v1
+  ready_food_stock:
+    target_skill: food_profile
+    required_draft_type: food_profile
+    resume_skill: food_profile
+    state_schema: ready_food_stock.v1
+attachment_policy:
+  accepted_kinds: []
+  usages: []
+  bindable_fields: []
+  current_message_only: true
+  explicit_user_intent_required: true

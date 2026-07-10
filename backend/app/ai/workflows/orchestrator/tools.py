@@ -178,7 +178,6 @@ class OrchestratorToolGateway:
             prepared_payload.payload,
             output,
             prepared_payload.continuation,
-            prepared_payload.after_approval,
             definition=runtime_definition,
         )
         return output
@@ -229,7 +228,6 @@ class OrchestratorToolGateway:
         tool_payload: dict[str, Any],
         output: dict[str, Any],
         continuation: dict[str, Any],
-        after_approval: dict[str, Any],
         *,
         definition: ToolDefinition | None = None,
     ) -> None:
@@ -259,7 +257,6 @@ class OrchestratorToolGateway:
             tool_payload=tool_payload,
             output=output,
             continuation=continuation,
-            after_approval=after_approval,
             progressive_draft_publisher=self.context.progressive_draft_publisher,
         )
 

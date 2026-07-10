@@ -45,7 +45,7 @@ class AISkillLoaderTestCase(AIAgentInfraTestCase):
                 runtime_path = skill_dir / "skill.yaml"
                 self.assertTrue(runtime_path.exists(), f"{skill_dir.name} missing skill.yaml")
                 runtime = yaml.safe_load(runtime_path.read_text(encoding="utf-8"))
-                self.assertEqual(runtime["version"], 2)
+                self.assertEqual(runtime["version"], 3)
                 slug = frontmatter["name"]
                 key = runtime.get("key") or slug.replace("-", "_")
                 records.append((key, runtime))
@@ -120,15 +120,17 @@ class AISkillLoaderTestCase(AIAgentInfraTestCase):
             )
 
             self.assertIn("安排为今天晚餐", food_profile)
-            self.assertIn("afterApproval", food_profile)
-            self.assertIn("nextDraftType=meal_plan", food_profile)
+            self.assertIn("typed `continuation`", food_profile)
+            self.assertIn("nextSkillKey=meal_plan", food_profile)
+            self.assertIn("stateSchema=food_to_meal_plan.v1", food_profile)
             self.assertIn("安排并记录", food_profile)
             self.assertIn("meal_log", food_profile)
             self.assertIn("安排/作为今天晚餐", meal_planning)
-            self.assertIn("必须先转入食物资料流程", meal_planning)
+            self.assertIn("`missing_food` handoff", meal_planning)
+            self.assertIn("state 使用 `meal_missing_food.v1`", meal_planning)
             self.assertIn("不是用餐记录", meal_workflows)
             self.assertIn("安排为今天晚餐", meal_record)
-            self.assertIn("转交给餐食计划", meal_record)
+            self.assertIn("未来安排交给 `meal_plan`", meal_record)
 
             food_profile_record = build_workspace_skill_registry().get("food_profile").manifest.to_catalog_record()
             self.assertIn("外卖安排", food_profile_record["description"])

@@ -5,55 +5,52 @@ description: 处理“今天/今晚吃什么”的即时餐食推荐，以及未
 
 # 餐食计划 Skill
 
-## 自主决策空间
+## 用户目标
 
-- 可以根据用户意图在即时推荐和正式计划之间选择模式；没有明确计划范围时优先即时推荐，有日期、天数、餐别或“安排/制定/生成/修改”语义时进入正式计划。
-- 可以自主选择读取库存、临期食材、最近餐食、食物和菜谱的顺序；不需要机械调用全部工具，但推荐和计划必须能追溯到真实工具结果。
-- 推荐理由、口味解释、避免重复的说明和可编辑备注可以自由组织；正式计划里的 `foodId`、`recipeId`、日期和餐别必须可校验。
-- 用户目标唯一且工具结果明确时，不要重复追问；计划范围、修改目标或同日同餐候选不明确时才请求澄清。
-- 需要把“从明天开始三天晚餐”“周末午晚餐”等范围展开为具体日期/餐别时，可调用 `script.expand_meal_slots` 做确定性展开。
+- 回答“今天/今晚吃什么”的即时推荐，或创建、修改、删除和更新未来/指定日期的餐食计划。
+- 推荐和正式计划参考当前库存、临期食材与最近餐食，并绑定当前家庭真实 Food 或 Recipe。
 
-## 字段取值规则
+## 不适用范围
 
-- `mealType` 只能从 `breakfast`、`lunch`、`dinner`、`snack` 中选择；早饭/早餐=`breakfast`，午饭/午餐=`lunch`，晚饭/晚餐=`dinner`，夜宵/加餐/下午茶优先映射为 `snack`。
-- `set_status.payload.status` 只能是 `planned`、`cooked`、`skipped`；已做/完成/吃过映射为 `cooked`，不吃/跳过/取消这餐映射为 `skipped`，恢复计划映射为 `planned`。
-- 正式计划项必须优先使用当前家庭已有食物。食物库没有匹配时停止计划草稿，说明需要进入食物资料流程，不要提交自由标题或虚构 `foodId`。
-- `recipeId` 只能使用所选食物已经关联的真实菜谱；没有关联菜谱时填 `null`，不要把同名菜谱或历史摘要里的菜谱 ID 直接绑定。
-- 缺失食材提醒里的 `ingredientId` 能明确匹配当前家庭已有食材时必须绑定；不能匹配时可以保留名称作为计划缺料提醒，但不能假装已创建食材档案。
+- 已经发生的用餐记录交给 `meal_log`；按菜谱实际做菜并扣库存交给 `recipe_cook`。
+- 不生成购物清单、菜谱正文或自由 Food 标题。
+- “安排/作为今天晚餐/放到今晚菜单”是餐食计划，不是已吃记录；只有“吃了/已吃/记录”才涉及 `meal_log`。
 
-## 模式选择
+## 工作模式
 
-### 即时推荐模式
+- `query`：无明确计划范围的“今天吃什么/推荐一餐”使用即时推荐。读取库存、临期、最近餐食并调用 `meal_plan.recommend_today` 返回 1 到 3 个真实候选，不创建审批。
+- `create`：有日期、天数、餐别或“安排/制定/生成”语义时进入正式计划，调用 `meal_plan.create_draft`。
+- `update`：修改、删除和状态变更前读取真实目标，草稿带 `action`、`targetId`、`baseUpdatedAt`；状态只能是 `planned`、`cooked`、`skipped`。
+- `mealType` 只能是 `breakfast`、`lunch`、`dinner`、`snack`。范围展开可调用 `script.expand_meal_slots`，草稿前调用 `script.validate_meal_plan`。
 
-- 适用于“今天吃什么”“今晚吃什么”“推荐一餐”等没有明确计划范围的请求。
-- `quickTask=today_recommendation` 时必须使用此模式。
-- 读取库存、临期食材、最近餐食，并按需查询食物和菜谱。
-- 优先临期库存，尽量避免最近重复，返回 1–3 个当前家庭已有食物或菜谱候选。
-- 调用 `meal_plan.recommend_today` 返回 `today_recommendation` 卡片，不调用 `meal_plan.create_draft`，不创建审批。
-- 每个推荐项必须提供工具返回的真实 `foodId` 或 `recipeId`，不得只返回自由文本标题。
-- `meal_plan.recommend_today` 的 `recommendations[]` 参数只传真实 ID、理由和证据；不要自造卡片 JSON。
-- 如果用户询问中包含日期或餐次，必须传入 `targetDate` 和 `mealType`：`targetDate` 使用 `YYYY-MM-DD`，`mealType` 使用 `breakfast`、`lunch`、`dinner` 或 `snack`。
-- 推荐项名称、图片、分类、制作时间、份量等展示字段由 `meal_plan.recommend_today` 根据真实 ID 补齐，不得编造。
+## 前置条件
 
-### 正式计划模式
+- 推荐项必须有工具返回的真实 `foodId` 或 `recipeId`；名称、图片、分类、制作时间等由工具按真实 ID 补齐。
+- 正式计划的 `foodId` 来自 `food.search` 或 `food.read_by_id`，标题与 Food 名称一致；`recipeId` 只使用该 Food 已关联的真实菜谱，否则为 `null`。
+- 修改计划用 `meal_plan.read_by_id` 或明确列表定位；历史 artifact 只有摘要时先调用 `workspace.read_artifact` 读取完整 `items`。
+- `FoodPlanItem` 读取按当前用户和家庭时区隔离，不越权读取其他成员个人计划。
 
-- 适用于“安排、制定、生成、修改餐食计划”，或用户给出日期、天数、餐别等计划范围的请求。
-- “把某个外卖/食物安排/作为今天晚餐”“放到今晚菜单”是正式餐食计划，不是用餐记录；除非用户同时说“吃了/已吃/记录”，否则不要创建 `meal_log`。
-- 创建或修改时必须调用 `meal_plan.create_draft`。
-- 新增可以生成创建型草稿；修改、删除和状态变更必须生成带 `action`、`targetId` 和 `baseUpdatedAt` 的操作草稿。
-- 修改计划必须先通过 `meal_plan.read_by_id` 或明确的列表读取拿到真实目标，不能只靠名称猜测。
-- 历史 artifact 默认只提供摘要和 ID；如果要复用或修改历史 AI 草稿的完整 `items`，先调用 `workspace.read_artifact` 按 ID 读取，不要根据摘要补全计划项。
-- 同一天同餐别存在多条计划、用户未说明计划范围或要修改哪条计划时，调用 `human.request_input`，并提供候选摘要。
-- 状态变更使用 `set_status`，仅允许 `planned`、`cooked` 和 `skipped`。
+## 候选处理
 
-## 共同规则
+- `food.search` 和 `recipe.search` 只做候选召回；同日同餐多条计划、计划范围或修改目标不明确时调用 `human.request_input`。
+- 正式计划需要的 Food 不存在时不得提交自由标题或虚构 ID，进入 `missing_food` handoff；不要在本 Skill 中调用或伪造 `food_profile` 草稿。
+- 缺失食材提醒能匹配真实 Ingredient 时绑定真实 ID；不能匹配时可保留名称作为提醒，但不能假装已建档。
+- 即时推荐优先临期库存并避免近期重复；候选理由必须能追溯到工具结果。
 
-- 所有推荐和计划都应参考当前库存、临期食材与最近餐食。
-- 正式计划的 `foodId` 必须来自 `food.search` 或 `food.read_by_id`，且标题必须使用对应食物名称。
-- `recipeId` 只能使用所选食物已关联的真实菜谱；没有关联时填 `null`。
-- 如果正式计划需要的食物不在食物库中，必须先转入食物资料流程，不得创建无效草稿，也不要在本 Skill 中调用或伪造 `food_profile` 草稿；由 Orchestrator 注入食物资料流程。典型例子：“把棒约翰意面安排为今天晚餐”应先补 Food，再在 Food 确认后创建今天晚餐的 `meal_plan`。
-- 如果用户要求“安排并记录/已吃”，本 Skill 在创建餐食计划草稿时应通过 `afterApproval.nextDraftType=meal_log` 保留后续用餐记录目标；计划确认后再创建 `meal_log`，并尽量使用已确认计划项的真实 `planItemId` 关联。
-- 从历史计划草稿继续修改时，必须先用 `workspace.read_artifact` 读取完整 `items`；不要根据摘要补全日期、餐别、食物 ID 或菜谱 ID。
-- 创建草稿前调用 `script.validate_meal_plan` 做确定性结构检查；需要文本预览时可调用 `script.render_plan_preview`。
-- `FoodPlanItem` 读取范围以当前用户和家庭时区为准，不得越过当前用户读取其他成员的个人计划。
-- 不直接写入正式 `FoodPlanItem`，草稿确认后由后端根据操作类型完成写入。
+## Handoff
+
+- `missing_food`：正式计划所需 Food 不存在时，typed `continuation` 指向 `food_profile`，`requiredDraftType=food_profile`，审批后恢复 `meal_plan`，state 使用 `meal_missing_food.v1`。
+- continuation state 只保存目标名称、日期、餐别和简短 instruction；Food 审批成功后恢复本 Skill，再由模型基于真实 Food 生成餐食计划草稿。
+- 用户目标是“安排并记录”时保留原始完整目标；计划审批完成后由 Orchestrator 基于审批 artifact 和原始目标决定是否注入 `meal_log`，不能在本草稿中藏自由格式后续指令，也不能自动生成下一草稿。
+
+## 审批规则
+
+- 即时推荐是只读终态，不生成草稿。
+- 正式计划仅通过 `meal_plan.create_draft`，遵循 `draft -> approval -> commit`；确认前不写正式 `FoodPlanItem`。
+- continuation 只负责恢复能力；运行时不得在审批成功后自动生成或提交下一个草稿。
+
+## 用户反馈
+
+- 即时推荐说明库存、临期和避重依据；正式计划草稿前说明日期范围、餐别和候选来源。
+- Food 缺失时说明先补真实 Food，再恢复当前计划，不声称已经安排成功。
+- “安排并记录”按顺序反馈：先确认计划，之后再处理用餐记录，并尽量使用已确认计划项的真实 `planItemId`。

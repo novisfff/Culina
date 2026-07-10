@@ -34,10 +34,40 @@ class FoodToMealPlanState(ContinuationStateModel):
     instruction: Instruction
 
 
+class MealMissingFoodState(ContinuationStateModel):
+    targetName: ShortText
+    targetDate: IsoDate
+    mealType: Literal["breakfast", "lunch", "dinner", "snack"]
+    instruction: Instruction
+
+
+class InventoryMissingIngredientState(ContinuationStateModel):
+    targetName: ShortText
+    operation: Literal["restock", "consume", "dispose"]
+    instruction: Instruction
+
+
+class InventoryUnitConversionState(ContinuationStateModel):
+    ingredientName: ShortText
+    unitName: ShortText
+    baseQuantity: Annotated[float, Field(gt=0)]
+    baseUnit: ShortText
+    instruction: Instruction
+
+
+class ReadyFoodStockState(ContinuationStateModel):
+    targetName: ShortText
+    instruction: Instruction
+
+
 CONTINUATION_STATE_ADAPTERS: dict[str, TypeAdapter[Any]] = {
     "recipe_missing_ingredient.v1": TypeAdapter(RecipeMissingIngredientState),
     "shopping_missing_target.v1": TypeAdapter(ShoppingMissingTargetState),
     "food_to_meal_plan.v1": TypeAdapter(FoodToMealPlanState),
+    "meal_missing_food.v1": TypeAdapter(MealMissingFoodState),
+    "inventory_missing_ingredient.v1": TypeAdapter(InventoryMissingIngredientState),
+    "inventory_unit_conversion.v1": TypeAdapter(InventoryUnitConversionState),
+    "ready_food_stock.v1": TypeAdapter(ReadyFoodStockState),
 }
 
 CONTINUATION_STATE_SCHEMAS: dict[str, dict[str, Any]] = {

@@ -1,4 +1,4 @@
-version: 2
+version: 3
 key: meal_plan
 display_name: 餐食安排
 intent: meal_plan
@@ -70,3 +70,37 @@ examples:
 - 把周五晚餐改成番茄炒蛋。
 - 删除明天午餐计划。
 - 这周末午晚餐都安排清淡一点。
+routing:
+  modes: [query, create, update]
+  include_examples:
+  - 今晚吃什么？
+  - 今天用现有食材推荐一下。
+  - 安排三天晚餐。
+  - 第二天不要鸡肉。
+  - 明天早餐和晚餐帮我排一下。
+  - 把周五晚餐改成番茄炒蛋。
+  - 删除明天午餐计划。
+  - 这周末午晚餐都安排清淡一点。
+  exclude_examples:
+  - 记录昨晚吃了番茄炒蛋。
+  - 新增盒装牛奶食物资料。
+  - 按今晚计划正式做番茄炒蛋并扣库存。
+  conflict_rules:
+  - with: meal_log
+    when: 用户描述的是已经吃过的一餐
+    route_to: meal_log
+  - with: recipe_cook
+    when: 用户要执行计划中的菜并产生库存扣减
+    route_to: recipe_cook
+handoffs:
+  missing_food:
+    target_skill: food_profile
+    required_draft_type: food_profile
+    resume_skill: meal_plan
+    state_schema: meal_missing_food.v1
+attachment_policy:
+  accepted_kinds: []
+  usages: []
+  bindable_fields: []
+  current_message_only: true
+  explicit_user_intent_required: true

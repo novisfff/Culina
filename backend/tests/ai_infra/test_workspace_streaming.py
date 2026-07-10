@@ -154,10 +154,12 @@ class ProgressiveMultiDraftProvider(BaseChatProvider):
         assert "meal_plan.create_draft" in tool_names
         assert "shopping.create_draft" in tool_names
         current_artifacts = payload.get("currentRunArtifacts") if isinstance(payload.get("currentRunArtifacts"), list) else []
-        resume_artifacts = [
+        approval_artifacts = [
             artifact
             for artifact in current_artifacts
-            if isinstance(artifact, dict) and artifact.get("type") == "draft_after_approval"
+            if isinstance(artifact, dict)
+            and artifact.get("type") == "approval_decision"
+            and artifact.get("status") == "approved"
         ]
         meal_plan_draft = {
             "draftType": "meal_plan",
@@ -187,23 +189,16 @@ class ProgressiveMultiDraftProvider(BaseChatProvider):
             _emit_text(message_handler, text)
             tool_handler(
                 "meal_plan.create_draft",
-                {
-                    "draft": meal_plan_draft,
-                    "afterApproval": {
-                        "continue": False,
-                        "instruction": "确认餐食计划后，继续生成购物清单草稿。",
-                        "nextDraftType": "shopping_list",
-                    },
-                },
+                {"draft": meal_plan_draft},
             )
             return ChatProviderResult(
                 text=text,
                 status="waiting_approval",
                 model=self.model_name,
             )
-        assert resume_artifacts
-        assert "购物清单" in str(resume_artifacts[-1].get("payload", {}))
-        assert "continue" not in resume_artifacts[-1].get("payload", {})
+        assert approval_artifacts
+        decision_payload = approval_artifacts[-1].get("payload", {})
+        assert decision_payload.get("draft", {}).get("draft_type") == "meal_plan"
         text = "已确认餐食计划。接下来我根据已确认的餐食计划生成购物清单草稿。"
         _emit_text(message_handler, text)
         tool_handler("shopping.create_draft", {"draft": shopping_draft})
@@ -458,13 +453,7 @@ class CommitGatedRecipeProvider(BaseChatProvider):
         _emit_text(message_handler, text)
         tool_handler(
             "recipe.create_draft",
-            {
-                "draft": recipe_draft,
-                "afterApproval": {
-                    "instruction": "确认菜谱后，继续把这道菜安排到明天晚餐。",
-                    "nextDraftType": "meal_plan",
-                },
-            },
+            {"draft": recipe_draft},
         )
         return ChatProviderResult(
             text=text,
@@ -1331,7 +1320,8 @@ class AIWorkspaceStreamingTestCase(AIAgentInfraTestCase):
                 conversation = db.get(AIConversation, response_event["conversation_id"])
                 self.assertIsNotNone(conversation)
                 assert conversation is not None
-                self.assertEqual(drafts[0].ai_metadata["afterApproval"]["nextDraftType"], "shopping_list")
+                self.assertNotIn("afterApproval", drafts[0].ai_metadata)
+                self.assertNotIn("continuation", drafts[0].ai_metadata)
 
         def test_ai_workspace_approval_resume_generates_next_draft(self) -> None:
             provider = ProgressiveMultiDraftProvider()

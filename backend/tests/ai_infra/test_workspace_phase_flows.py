@@ -42,9 +42,13 @@ class AIWorkspacePhaseFlowsTestCase(AIAgentInfraTestCase):
                 self.assertIsNotNone(run)
                 self.assertIsNotNone(draft)
                 assert run is not None and draft is not None
-                self.assertEqual(run.context_summary["routing"]["skills"], ["food_profile"])
-                self.assertEqual(draft.ai_metadata["afterApproval"]["nextDraftType"], "meal_plan")
-                self.assertIn("餐食计划", draft.ai_metadata["afterApproval"]["instruction"])
+                self.assertEqual(run.context_summary["routing"]["skills"], ["meal_plan", "food_profile"])
+                continuation = draft.ai_metadata["continuation"]
+                self.assertEqual(continuation["reasonCode"], "missing_food")
+                self.assertEqual(continuation["nextSkillKey"], "food_profile")
+                self.assertEqual(continuation["resumeSkillKey"], "meal_plan")
+                self.assertEqual(continuation["stateSchema"], "meal_missing_food.v1")
+                self.assertIn("餐食计划", continuation["state"]["instruction"])
 
             food_approval = data["included"]["approvals"][0]
             with self.client.stream(
@@ -82,11 +86,11 @@ class AIWorkspacePhaseFlowsTestCase(AIAgentInfraTestCase):
                 draft = db.get(AITaskDraft, data["included"]["drafts"][0]["id"])
                 self.assertIsNotNone(draft)
                 assert draft is not None
-                after_approval = draft.ai_metadata["afterApproval"]
-                self.assertEqual(after_approval["nextDraftType"], "meal_plan")
-                self.assertIn("餐食计划", after_approval["instruction"])
-                self.assertIn("用餐记录", after_approval["instruction"])
-                self.assertEqual(after_approval["taskState"]["finalDraftType"], "meal_log")
+                continuation = draft.ai_metadata["continuation"]
+                self.assertEqual(continuation["nextSkillKey"], "food_profile")
+                self.assertEqual(continuation["resumeSkillKey"], "meal_plan")
+                self.assertIn("餐食计划", continuation["state"]["instruction"])
+                self.assertIn("用餐记录", continuation["state"]["instruction"])
 
             food_approval = data["included"]["approvals"][0]
             with self.client.stream(

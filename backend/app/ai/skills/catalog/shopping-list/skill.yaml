@@ -1,4 +1,4 @@
-version: 2
+version: 3
 key: shopping_list
 display_name: 购物清单整理
 intent: shopping
@@ -54,3 +54,40 @@ examples:
 - 鸡蛋已经买到了，帮我标记完成。
 - 删除购物清单里的香菜。
 - 看看低库存还需要买什么。
+routing:
+  modes: [query, create, update]
+  include_examples:
+  - 生成购物清单。
+  - 基于这个计划生成采购清单。
+  - 把牛奶加入购物清单，买 2 盒。
+  - 鸡蛋已经买到了，帮我标记完成。
+  - 删除购物清单里的香菜。
+  - 看看低库存还需要买什么。
+  exclude_examples:
+  - 鸡蛋入库 12 个，冷藏。
+  - 新增鸡蛋食材档案。
+  - 安排明天晚餐。
+  conflict_rules:
+  - with: inventory_analysis
+    when: 用户在处理已经买到或已有的库存批次数量
+    route_to: inventory_analysis
+  - with: ingredient_profile
+    when: 用户只要创建或修改食材定义
+    route_to: ingredient_profile
+handoffs:
+  missing_ingredient:
+    target_skill: ingredient_profile
+    required_draft_type: ingredient_profile
+    resume_skill: shopping_list
+    state_schema: shopping_missing_target.v1
+  missing_ready_food:
+    target_skill: food_profile
+    required_draft_type: food_profile
+    resume_skill: shopping_list
+    state_schema: shopping_missing_target.v1
+attachment_policy:
+  accepted_kinds: []
+  usages: []
+  bindable_fields: []
+  current_message_only: true
+  explicit_user_intent_required: true

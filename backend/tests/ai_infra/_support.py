@@ -380,10 +380,19 @@ class FakeChatProvider(BaseChatProvider):
             and not any(term in message for term in ["安排", "计划", "菜单", "制定", "修改", "第二天", "三天"])
         )
 
-        resume_next_draft_type = ""
+        resume_skill_key = ""
+        approved_draft_type = self._latest_approved_draft_type(payload)
         if is_orchestrator:
-            resume_next_draft_type = self._resume_next_draft_type(payload)
-            skills = [resume_next_draft_type] if resume_next_draft_type else self._orchestrator_skills_for_message(message, quick_task)
+            resume_skill_key = self._resume_skill_key(payload)
+            if approved_draft_type == "meal_plan":
+                if self._wants_meal_log_after_plan(message):
+                    skills = ["meal_log"]
+                elif any(term in message for term in ["购物", "采购", "补货"]):
+                    skills = ["shopping_list"]
+                else:
+                    skills = []
+            else:
+                skills = [resume_skill_key] if resume_skill_key else self._orchestrator_skills_for_message(message, quick_task)
             if skills:
                 tool_handler("skill.inject", {"skills": skills, "reason": "根据用户请求选择需要的 Culina 能力"})
                 available_tool_names = {tool.name for tool in (tools())}
@@ -407,7 +416,13 @@ class FakeChatProvider(BaseChatProvider):
         if "shopping.create_draft" in available_tool_names and self._should_create_downstream_shopping(payload):
             return self._shopping_tool_result(payload, message, call, emit_visible, tool_names)
 
-        if "meal_plan.create_draft" in available_tool_names and not recommendation_mode and resume_next_draft_type != "meal_log":
+        takeout_needs_food = self._is_takeout_arrangement_message(message) and resume_skill_key != "meal_plan"
+        if (
+            "meal_plan.create_draft" in available_tool_names
+            and not recommendation_mode
+            and not takeout_needs_food
+            and approved_draft_type != "meal_plan"
+        ):
             emit_visible("我先看一下临期食材和最近餐食。")
             inventory = call("inventory.read_expiring_items", {"days": 7})
             call("inventory.read_available_items", {"limit": 80})
@@ -483,18 +498,6 @@ class FakeChatProvider(BaseChatProvider):
             }
             draft_args = {"draft": draft}
             state_patch = {"activeTask": "meal_plan", "activeDraftType": "meal_plan"}
-            if any(term in message for term in ["购物", "采购", "补货"]):
-                draft_args["afterApproval"] = {
-                    "continue": True,
-                    "instruction": "确认餐食计划后，继续根据计划生成购物清单草稿。",
-                    "nextDraftType": "shopping_list",
-                }
-            if self._wants_meal_log_after_plan(message) or self._resume_final_draft_type(payload) == "meal_log":
-                draft_args["afterApproval"] = {
-                    "instruction": "确认餐食计划后，继续创建用餐记录；如确认结果里有真实计划项 ID，优先把 meal_log 关联到 planItemId。",
-                    "nextDraftType": "meal_log",
-                    "taskState": {"finalDraftType": "meal_log", "targetFoodName": planned_food_name},
-                }
             call("meal_plan.create_draft", draft_args)
             return self._tool_result(
                 {
@@ -617,14 +620,22 @@ class FakeChatProvider(BaseChatProvider):
             draft_args = {"draft": draft}
             if is_takeout_arrangement:
                 instruction = "确认食物资料后，继续用该食物创建今天晚餐的餐食计划。"
-                task_state = {"targetFoodName": name, "targetMealType": "dinner"}
                 if self._wants_meal_log_after_plan(message):
                     instruction = "确认食物资料后，继续用该食物创建今天晚餐的餐食计划；计划确认后再创建用餐记录并尽量关联计划项。"
-                    task_state["finalDraftType"] = "meal_log"
-                draft_args["afterApproval"] = {
-                    "instruction": instruction,
-                    "nextDraftType": "meal_plan",
-                    "taskState": task_state,
+                draft_args["continuation"] = {
+                    "workflowId": f"takeout-dinner:{name}",
+                    "stepKey": "create-food-profile",
+                    "reasonCode": "missing_food",
+                    "nextSkillKey": "food_profile",
+                    "resumeSkillKey": "meal_plan",
+                    "requiredDraftType": "food_profile",
+                    "stateSchema": "meal_missing_food.v1",
+                    "state": {
+                        "targetName": name,
+                        "targetDate": date.today().isoformat(),
+                        "mealType": "dinner",
+                        "instruction": instruction,
+                    },
                 }
             call("food_profile.create_draft", draft_args)
             return self._tool_result(
@@ -734,7 +745,7 @@ class FakeChatProvider(BaseChatProvider):
         if quick_task == "today_recommendation":
             return ["meal_plan"]
         if self._is_takeout_arrangement_message(message):
-            return ["food_profile"]
+            return ["meal_plan", "food_profile"]
         if "购物" in message or "采购" in message or "补货" in message:
             return ["meal_plan", "shopping_list"] if any(term in message for term in ["安排", "三天", "晚餐"]) else ["shopping_list"]
         if any(term in message for term in ["菜单", "安排", "三天", "晚餐", "第二天", "清淡"]):
@@ -753,31 +764,36 @@ class FakeChatProvider(BaseChatProvider):
             return ["meal_plan"]
         return []
 
-    def _resume_next_draft_type(self, payload: dict) -> str:
-        artifacts = self._resume_artifacts(payload)
-        for artifact in reversed(artifacts):
-            next_draft_type = artifact.get("nextDraftType")
-            if isinstance(next_draft_type, str) and next_draft_type in {"meal_plan", "meal_log", "shopping_list"}:
-                return next_draft_type
-        return ""
-
-    def _resume_final_draft_type(self, payload: dict) -> str:
-        for artifact in reversed(self._resume_artifacts(payload)):
-            task_state = artifact.get("taskState") if isinstance(artifact.get("taskState"), dict) else {}
-            final_draft_type = task_state.get("finalDraftType")
-            if isinstance(final_draft_type, str):
-                return final_draft_type
-        return ""
-
-    def _resume_artifacts(self, payload: dict) -> list[dict]:
-        return [
-            artifact.get("payload") or {}
+    def _resume_skill_key(self, payload: dict) -> str:
+        artifacts = [
+            artifact
             for key in ("artifacts", "currentRunArtifacts")
             for artifact in (payload.get(key) if isinstance(payload.get(key), list) else [])
             if isinstance(artifact, dict)
-            and artifact.get("type") == "draft_after_approval"
-            and isinstance(artifact.get("payload"), dict)
+            and artifact.get("type") == "workflow.continuation"
+            and artifact.get("status") == "ready"
         ]
+        for artifact in reversed(artifacts):
+            continuation = artifact.get("payload") if isinstance(artifact.get("payload"), dict) else {}
+            resume_skill_key = continuation.get("resumeSkillKey")
+            if isinstance(resume_skill_key, str):
+                return resume_skill_key
+        return ""
+
+    def _latest_approved_draft_type(self, payload: dict) -> str:
+        artifacts = [
+            artifact
+            for key in ("artifacts", "currentRunArtifacts")
+            for artifact in (payload.get(key) if isinstance(payload.get(key), list) else [])
+            if isinstance(artifact, dict)
+            and artifact.get("type") == "approval_decision"
+            and artifact.get("status") == "approved"
+        ]
+        if not artifacts:
+            return ""
+        decision_payload = artifacts[-1].get("payload") if isinstance(artifacts[-1].get("payload"), dict) else {}
+        draft = decision_payload.get("draft") if isinstance(decision_payload.get("draft"), dict) else {}
+        return str(draft.get("draft_type") or "")
 
     def _latest_confirmed_meal_plan_artifact(self, payload: dict) -> dict:
         artifacts = [
@@ -826,13 +842,8 @@ class FakeChatProvider(BaseChatProvider):
             and artifact["payload"]["draft"].get("draft_type") == "meal_plan"
             for artifact in artifacts
         )
-        has_resume_after_approval = any(
-            artifact.get("type") == "draft_after_approval"
-            and "购物" in str(artifact.get("payload") or {})
-            for artifact in artifacts
-        )
         has_shopping_output = any(artifact.get("type") == "shopping_list" for artifact in artifacts)
-        return has_resume_after_approval and has_meal_plan_decision and not has_shopping_output
+        return has_meal_plan_decision and not has_shopping_output
 
     def _shopping_tool_result(self, payload: dict, message: str, call, emit_visible, tool_names: list[str]) -> ChatProviderResult:
         del message

@@ -16,6 +16,7 @@ from app.ai.tools.registry import build_workspace_tool_registry
 from app.ai.runtime.tooling import chat_tool_definition_to_model_tool
 from app.ai.workflows.orchestrator import SkillInjectionManager
 from app.ai.workflows.orchestrator.continuation import ContinuationValidationError, normalize_continuation
+from app.ai.workflows.orchestrator.draft_capture import prepare_tool_payload
 from app.ai.workflows.orchestrator.payloads import OrchestratorPromptPayloadBuilder
 from app.ai.workflows.orchestrator.profiles import OrchestratorBudgetConfig, OrchestratorCapabilityPolicy
 from app.ai.workflows.compact_context import compact_artifacts
@@ -26,6 +27,169 @@ from app.ai.workflows.runner_support.approval_resume import (
     continuation_resume_state,
 )
 from app.ai.workflows.runner import WorkspaceGraphRunner
+
+
+EXPECTED_SKILL_MODES = {
+    "cooking_assistant": ("answer", "ui_action"),
+    "food_profile": ("query", "create", "update"),
+    "ingredient_profile": ("query", "create", "update"),
+    "inventory_analysis": ("query", "restock", "consume", "dispose"),
+    "meal_plan": ("query", "create", "update"),
+    "meal_log": ("query", "create", "update"),
+    "recipe_cook": ("preview", "execute"),
+    "recipe_draft": ("query", "create", "update"),
+    "shopping_list": ("query", "create", "update"),
+}
+
+EXPECTED_HANDOFFS = {
+    "recipe_draft": {
+        "missing_ingredient": (
+            "ingredient_profile",
+            "ingredient_profile",
+            "recipe_draft",
+            "recipe_missing_ingredient.v1",
+        ),
+    },
+    "meal_plan": {
+        "missing_food": (
+            "food_profile",
+            "food_profile",
+            "meal_plan",
+            "meal_missing_food.v1",
+        ),
+    },
+    "shopping_list": {
+        "missing_ingredient": (
+            "ingredient_profile",
+            "ingredient_profile",
+            "shopping_list",
+            "shopping_missing_target.v1",
+        ),
+        "missing_ready_food": (
+            "food_profile",
+            "food_profile",
+            "shopping_list",
+            "shopping_missing_target.v1",
+        ),
+    },
+    "inventory_analysis": {
+        "missing_ingredient": (
+            "ingredient_profile",
+            "ingredient_profile",
+            "inventory_analysis",
+            "inventory_missing_ingredient.v1",
+        ),
+        "save_unit_conversion": (
+            "ingredient_profile",
+            "ingredient_profile",
+            "inventory_analysis",
+            "inventory_unit_conversion.v1",
+        ),
+        "ready_food_stock": (
+            "food_profile",
+            "food_profile",
+            "food_profile",
+            "ready_food_stock.v1",
+        ),
+    },
+    "meal_log": {
+        "missing_food": (
+            "food_profile",
+            "food_profile",
+            "meal_log",
+            "meal_missing_food.v1",
+        ),
+    },
+    "food_profile": {
+        "plan_after_create": (
+            "meal_plan",
+            "meal_plan",
+            "meal_plan",
+            "food_to_meal_plan.v1",
+        ),
+    },
+}
+
+EXPECTED_SKILL_SECTIONS = [
+    "## 用户目标",
+    "## 不适用范围",
+    "## 工作模式",
+    "## 前置条件",
+    "## 候选处理",
+    "## Handoff",
+    "## 审批规则",
+    "## 用户反馈",
+]
+
+
+def test_all_catalog_skills_use_complete_v3_routing_contracts() -> None:
+    registry = build_workspace_skill_registry()
+
+    assert set(EXPECTED_SKILL_MODES) == registry.keys()
+    for key, expected_modes in EXPECTED_SKILL_MODES.items():
+        manifest = registry.get(key).manifest
+        assert manifest.contract_version == 3, key
+        assert manifest.routing.modes == expected_modes, key
+        assert manifest.routing.include_examples, key
+        assert len(manifest.routing.exclude_examples) >= 3, key
+        assert set(manifest.routing.include_examples).isdisjoint(manifest.routing.exclude_examples), key
+        assert manifest.routing.conflict_rules, key
+
+
+def test_catalog_v3_handoff_matrix_is_complete_and_typed() -> None:
+    registry = build_workspace_skill_registry()
+    actual = {
+        manifest.key: {
+            reason: (
+                policy.target_skill,
+                policy.required_draft_type,
+                policy.resume_skill,
+                policy.state_schema,
+            )
+            for reason, policy in manifest.handoffs.items()
+        }
+        for manifest in registry.list_manifests()
+        if manifest.handoffs
+    }
+
+    assert actual == EXPECTED_HANDOFFS
+
+
+def test_catalog_v3_attachment_policies_only_bind_current_message_images() -> None:
+    registry = build_workspace_skill_registry()
+    expected_fields = {
+        "food_profile": ("media_ids",),
+        "ingredient_profile": ("media_ids",),
+        "recipe_draft": ("media_ids",),
+        "meal_log": ("mediaIds",),
+    }
+
+    for manifest in registry.list_manifests():
+        policy = manifest.attachment_policy
+        if manifest.key in expected_fields:
+            assert policy.accepted_kinds == ("image",), manifest.key
+            assert policy.usages, manifest.key
+            assert policy.bindable_fields == expected_fields[manifest.key], manifest.key
+            assert policy.current_message_only is True, manifest.key
+            assert policy.explicit_user_intent_required is True, manifest.key
+        else:
+            assert policy.accepted_kinds == (), manifest.key
+            assert policy.usages == (), manifest.key
+            assert policy.bindable_fields == (), manifest.key
+
+
+def test_catalog_skill_docs_use_v3_sections_and_typed_continuation_language() -> None:
+    catalog_dir = Path(__file__).resolve().parents[2] / "app" / "ai" / "skills" / "catalog"
+    documents = sorted(catalog_dir.glob("*/SKILL.md")) + sorted(catalog_dir.glob("*/references/workflows.md"))
+
+    for path in sorted(catalog_dir.glob("*/SKILL.md")):
+        headings = [line for line in path.read_text(encoding="utf-8").splitlines() if line.startswith("## ")]
+        assert headings == EXPECTED_SKILL_SECTIONS, path
+
+    for path in documents:
+        text = path.read_text(encoding="utf-8")
+        assert "afterApproval" not in text, path
+        assert "nextDraftType" not in text, path
 
 
 def test_routing_record_excludes_execution_only_contracts() -> None:
@@ -81,6 +245,9 @@ def test_prompt_uses_routing_records_before_injection_and_execution_records_afte
     assert '"toolBudget"' not in prompt
     assert '"allowedTools"' in injected_prompt
     assert '"handoffs"' in injected_prompt
+    assert "continuation" in injected_prompt
+    assert "type=workflow.continuation" in prompt + injected_prompt
+    assert "afterApproval" not in prompt + injected_prompt
 
 
 def _write_skill(tmp_path: Path, slug: str, runtime: dict) -> None:
@@ -370,6 +537,29 @@ def test_draft_model_tool_schema_exposes_continuation_not_after_approval() -> No
 
     assert "continuation" in parameters["properties"]
     assert "afterApproval" not in parameters["properties"]
+
+
+def test_new_draft_payload_does_not_capture_legacy_after_approval() -> None:
+    definition = build_workspace_tool_registry().get("recipe.create_draft")
+    draft = {
+        "draftType": "recipe",
+        "schemaVersion": "recipe.v1",
+        "title": "番茄炒蛋",
+    }
+
+    prepared = prepare_tool_payload(
+        payload={
+            "draft": draft,
+            "afterApproval": {
+                "nextDraftType": "shopping_list",
+                "instruction": "legacy model input",
+            },
+        },
+        execution_definition=definition,
+    )
+
+    assert prepared.payload == {"draft": draft}
+    assert not hasattr(prepared, "after_approval")
 
 
 def test_resolution_tools_are_authorized_by_their_business_skills() -> None:

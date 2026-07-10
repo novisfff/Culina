@@ -1,4 +1,4 @@
-version: 2
+version: 3
 key: recipe_cook
 display_name: 按菜谱做菜
 intent: recipe_cook
@@ -47,3 +47,30 @@ examples:
 - 预览一下红烧牛肉做 2 人份够不够。
 - 按今晚计划做番茄炒蛋并记录餐食。
 - 这道菜库存够的话帮我生成做菜确认。
+routing:
+  modes: [preview, execute]
+  include_examples:
+  - 做一份番茄炒蛋，顺便扣减库存。
+  - 今晚按这个菜谱做 3 份。
+  - 把明天晚餐那条番茄炒蛋计划做掉。
+  - 预览一下红烧牛肉做 2 人份够不够。
+  - 按今晚计划做番茄炒蛋并记录餐食。
+  - 这道菜库存够的话帮我生成做菜确认。
+  exclude_examples:
+  - 帮我创建一份番茄炒蛋菜谱。
+  - 这一步要煎到什么程度？
+  - 安排明天晚餐吃番茄炒蛋。
+  conflict_rules:
+  - with: cooking_assistant
+    when: 用户正在做菜页内问步骤或控制页面计时器
+    route_to: cooking_assistant
+  - with: recipe_draft
+    when: 用户要创建或修改菜谱本身
+    route_to: recipe_draft
+handoffs: {}
+attachment_policy:
+  accepted_kinds: []
+  usages: []
+  bindable_fields: []
+  current_message_only: true
+  explicit_user_intent_required: true
