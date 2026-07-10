@@ -271,6 +271,29 @@ class SkillInjectionManager:
             if tool_name in self.skill_registry.get(key).manifest.tools
         ]
 
+    def continuation_source_skill_key(
+        self,
+        continuation: dict[str, Any],
+        active_skill_keys: list[str],
+    ) -> str:
+        reason_code = str(continuation.get("reasonCode") or "").strip()
+        matches: list[str] = []
+        for key in active_skill_keys:
+            handoff = self.skill_registry.get(key).manifest.handoffs.get(reason_code)
+            if handoff is None:
+                continue
+            if (
+                handoff.target_skill == str(continuation.get("nextSkillKey") or "").strip()
+                and handoff.resume_skill == str(continuation.get("resumeSkillKey") or "").strip()
+                and handoff.required_draft_type
+                == str(continuation.get("requiredDraftType") or "").strip()
+                and handoff.state_schema == str(continuation.get("stateSchema") or "").strip()
+            ):
+                matches.append(key)
+        if len(matches) != 1:
+            raise ValueError("continuation must match exactly one active Skill handoff")
+        return matches[0]
+
     def draft_type_from_tool_output(self, tool_name: str, draft: dict[str, Any], active_skill_keys: list[str]) -> str:
         draft_type = str(draft.get("draftType") or draft.get("draft_type") or "").strip()
         if draft_type:

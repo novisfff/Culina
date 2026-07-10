@@ -7,19 +7,24 @@ from typing import Any
 from app.ai.errors import ApprovalRequired
 from app.ai.tools.base import ToolDefinition
 from app.ai.workflows.orchestrator.skill_injection import SkillInjectionManager
+from app.ai.workflows.orchestrator.continuation import normalize_continuation
+from app.ai.workflows.orchestrator.profiles import OrchestratorCapabilityPolicy
 from app.ai.workflows.orchestrator.state import OrchestratorRunState
 
 
 @dataclass(frozen=True, slots=True)
 class PreparedToolPayload:
     payload: dict[str, Any]
-    after_approval: dict[str, Any] = field(default_factory=dict)
+    continuation: dict[str, Any] = field(default_factory=dict)
 
 
 def prepare_tool_payload(
     *,
     payload: dict[str, Any],
     execution_definition: ToolDefinition,
+    source_skill_key: str | None = None,
+    injection_manager: SkillInjectionManager | None = None,
+    capability_policy: OrchestratorCapabilityPolicy | None = None,
 ) -> PreparedToolPayload:
     if execution_definition.side_effect != "draft" or not isinstance(payload.get("draft"), dict):
         return PreparedToolPayload(payload=payload)
@@ -33,8 +38,20 @@ def prepare_tool_payload(
         if isinstance(input_properties, dict) and "draft" in input_properties
         else payload["draft"]
     )
-    after_approval = payload.get("afterApproval") if isinstance(payload.get("afterApproval"), dict) else {}
-    return PreparedToolPayload(payload=tool_payload, after_approval=after_approval)
+    raw_continuation = payload.get("continuation")
+    if raw_continuation is None:
+        return PreparedToolPayload(payload=tool_payload)
+    if not isinstance(raw_continuation, dict):
+        raise ValueError("continuation must be an object")
+    if not source_skill_key or injection_manager is None or capability_policy is None:
+        raise ValueError("continuation requires one owning Skill and active capability policy")
+    continuation = normalize_continuation(
+        payload=raw_continuation,
+        source_skill_key=source_skill_key,
+        skill_registry=injection_manager.skill_registry,
+        capability_policy=capability_policy,
+    )
+    return PreparedToolPayload(payload=tool_payload, continuation=continuation)
 
 
 def enforce_single_draft_per_call(
@@ -69,7 +86,7 @@ def capture_draft_output(
     tool_name: str,
     tool_payload: dict[str, Any],
     output: dict[str, Any],
-    after_approval: dict[str, Any],
+    continuation: dict[str, Any],
     progressive_draft_publisher,
 ) -> None:
     state.draft_created_this_call = True
@@ -93,7 +110,7 @@ def capture_draft_output(
             "payload": draft,
             "schema_version": str(draft.get("schemaVersion") or f"{draft_type}.v1"),
             "tool": tool_name,
-            "after_approval": after_approval,
+            "continuation": continuation,
         }
         draft_key = (
             draft_type,

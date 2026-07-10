@@ -12,8 +12,11 @@ from app.ai.skills.registry import SkillRegistry
 from app.ai.skills.registry import build_workspace_skill_registry
 from app.ai.tools import ToolContext, ToolExecutor
 from app.ai.tools.registry import build_workspace_tool_registry
+from app.ai.runtime.tooling import chat_tool_definition_to_model_tool
 from app.ai.workflows.orchestrator import SkillInjectionManager
+from app.ai.workflows.orchestrator.continuation import ContinuationValidationError, normalize_continuation
 from app.ai.workflows.orchestrator.payloads import OrchestratorPromptPayloadBuilder
+from app.ai.workflows.orchestrator.profiles import OrchestratorCapabilityPolicy
 
 
 def test_routing_record_excludes_execution_only_contracts() -> None:
@@ -237,3 +240,124 @@ def test_v3_loader_rejects_handoff_draft_type_not_declared_by_target(tmp_path: P
             handoffs=_valid_handoff(required_draft_type="ingredient_profile"),
             target_draft_type="recipe",
         )
+
+
+def _continuation_payload(**overrides) -> dict:
+    payload = {
+        "workflowId": "workflow-recipe-1",
+        "stepKey": "ingredient-1",
+        "reasonCode": "missing_item",
+        "nextSkillKey": "target_skill",
+        "resumeSkillKey": "source_skill",
+        "requiredDraftType": "ingredient_profile",
+        "stateSchema": "recipe_missing_ingredient.v1",
+        "state": {
+            "recipeTitle": "番茄鸡蛋面",
+            "currentIngredient": "碱水面",
+            "pendingIngredientNames": ["碱水面"],
+            "completedIngredientIds": [],
+        },
+    }
+    payload.update(overrides)
+    return payload
+
+
+def test_normalize_continuation_validates_declared_handoff_and_state(tmp_path: Path) -> None:
+    registry = load_v3_registry(tmp_path, handoffs=_valid_handoff())
+
+    normalized = normalize_continuation(
+        payload=_continuation_payload(),
+        source_skill_key="source_skill",
+        skill_registry=registry,
+        capability_policy=OrchestratorCapabilityPolicy(),
+    )
+
+    assert normalized["status"] == "pending"
+    assert normalized["version"] == 1
+    assert normalized["state"]["currentIngredient"] == "碱水面"
+
+
+def test_continuation_source_is_resolved_from_the_declared_active_handoff(tmp_path: Path) -> None:
+    registry = load_v3_registry(tmp_path, handoffs=_valid_handoff())
+    manager = SkillInjectionManager(registry)
+
+    source_skill_key = manager.continuation_source_skill_key(
+        _continuation_payload(),
+        ["target_skill", "source_skill"],
+    )
+
+    assert source_skill_key == "source_skill"
+
+
+@pytest.mark.parametrize(
+    ("overrides", "code"),
+    [
+        ({"reasonCode": "unknown"}, "unknown_continuation_reason"),
+        ({"nextSkillKey": "source_skill"}, "continuation_target_mismatch"),
+        ({"requiredDraftType": "recipe"}, "continuation_draft_type_mismatch"),
+        ({"stateSchema": "shopping_missing_target.v1"}, "continuation_state_schema_mismatch"),
+    ],
+)
+def test_normalize_continuation_rejects_contract_mismatches(
+    tmp_path: Path,
+    overrides: dict,
+    code: str,
+) -> None:
+    registry = load_v3_registry(tmp_path, handoffs=_valid_handoff())
+
+    with pytest.raises(ContinuationValidationError) as exc_info:
+        normalize_continuation(
+            payload=_continuation_payload(**overrides),
+            source_skill_key="source_skill",
+            skill_registry=registry,
+            capability_policy=OrchestratorCapabilityPolicy(),
+        )
+
+    assert exc_info.value.code == code
+
+
+def test_normalize_continuation_rejects_invalid_typed_state(tmp_path: Path) -> None:
+    registry = load_v3_registry(tmp_path, handoffs=_valid_handoff())
+
+    with pytest.raises(ContinuationValidationError) as exc_info:
+        normalize_continuation(
+            payload=_continuation_payload(
+                state={
+                    "recipeTitle": "番茄鸡蛋面",
+                    "currentIngredient": "碱水面",
+                    "pendingIngredientNames": [],
+                }
+            ),
+            source_skill_key="source_skill",
+            skill_registry=registry,
+            capability_policy=OrchestratorCapabilityPolicy(),
+        )
+
+    assert exc_info.value.code == "invalid_continuation_state"
+    assert any(detail["path"] == "completedIngredientIds" for detail in exc_info.value.details)
+
+
+def test_normalize_continuation_rejects_disallowed_resume_skill(tmp_path: Path) -> None:
+    registry = load_v3_registry(tmp_path, handoffs=_valid_handoff())
+
+    with pytest.raises(ContinuationValidationError) as exc_info:
+        normalize_continuation(
+            payload=_continuation_payload(),
+            source_skill_key="source_skill",
+            skill_registry=registry,
+            capability_policy=OrchestratorCapabilityPolicy(
+                skill_injection="fixed",
+                allowed_skill_keys=("target_skill",),
+            ),
+        )
+
+    assert exc_info.value.code == "continuation_skill_not_allowed"
+
+
+def test_draft_model_tool_schema_exposes_continuation_not_after_approval() -> None:
+    definition = build_workspace_tool_registry().get("recipe.create_draft")
+
+    parameters = chat_tool_definition_to_model_tool(definition)["function"]["parameters"]
+
+    assert "continuation" in parameters["properties"]
+    assert "afterApproval" not in parameters["properties"]

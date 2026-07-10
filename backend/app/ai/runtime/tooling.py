@@ -57,6 +57,8 @@ def chat_tool_definition_to_model_tool(definition: ToolDefinition) -> dict[str, 
     description = f"{definition.display_name}: {definition.description} original_name={definition.name} side_effect={definition.side_effect}"
     parameters = definition.input_schema
     if definition.side_effect == "draft":
+        from app.ai.workflows.orchestrator.continuation import CONTINUATION_INPUT_SCHEMA
+
         draft_schema = definition.input_schema
         if isinstance(definition.input_schema.get("properties"), dict) and isinstance(
             definition.input_schema["properties"].get("draft"),
@@ -65,22 +67,14 @@ def chat_tool_definition_to_model_tool(definition: ToolDefinition) -> dict[str, 
             draft_schema = definition.input_schema["properties"]["draft"]
         description = (
             f"{description}. Use arguments.draft for the business draft payload. "
-            "Use arguments.afterApproval only for optional resume instructions after user approval."
+            "Use arguments.continuation only for a declared typed Skill handoff after user approval."
         )
         parameters = {
             "type": "object",
             "additionalProperties": False,
             "properties": {
                 "draft": draft_schema,
-                "afterApproval": {
-                    "type": "object",
-                    "additionalProperties": False,
-                    "properties": {
-                        "instruction": {"type": "string"},
-                        "nextDraftType": {"type": "string"},
-                        "taskState": {"type": "object"},
-                    },
-                },
+                "continuation": CONTINUATION_INPUT_SCHEMA,
             },
             "required": ["draft"],
         }
