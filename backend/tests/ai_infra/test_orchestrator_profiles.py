@@ -1,4 +1,7 @@
 from ._support import *
+from datetime import datetime
+from unittest.mock import patch
+
 from app.ai.workflows.orchestrator.profiles import (
     COOKING_ASSISTANT_PROFILE,
     DEFAULT_ORCHESTRATOR_PROFILE,
@@ -688,6 +691,47 @@ class OrchestratorProfileTestCase(AIAgentInfraTestCase):
             self.assertEqual(metadata["capabilityPolicy"]["artifactContext"], "without_drafts")
             self.assertIn("外部做菜助手 profile。", prompt)
 
+        def test_orchestrator_payload_contains_family_local_time(self) -> None:
+            builder = OrchestratorPromptPayloadBuilder(
+                SkillInjectionManager(build_workspace_skill_registry())
+            )
+            context = SkillContext(
+                db=MagicMock(),
+                family_id=self.family.id,
+                user_id=self.user.id,
+                conversation_id="conversation-time-context",
+                run_id="run-time-context",
+                conversation=[],
+                current_message="今晚吃什么？",
+                subject={},
+                tool_executor=ToolExecutor(
+                    build_workspace_tool_registry(),
+                    ToolContext(
+                        db=MagicMock(),
+                        family_id=self.family.id,
+                        user_id=self.user.id,
+                        conversation_id="conversation-time-context",
+                        run_id="run-time-context",
+                    ),
+                ),
+            )
+
+            with patch(
+                "app.ai.workflows.orchestrator.payloads.now_for_family",
+                return_value=datetime.fromisoformat("2026-07-10T18:30:00+08:00"),
+            ):
+                payload = builder.user_payload(context, [], [])
+
+            self.assertEqual(
+                payload["timeContext"],
+                {
+                    "timezone": "Asia/Shanghai",
+                    "localDate": "2026-07-10",
+                    "localDateTime": "2026-07-10T18:30:00+08:00",
+                    "suggestedMealType": "dinner",
+                },
+            )
+
         def test_dynamic_profile_catalog_records_respect_allowed_skill_keys(self) -> None:
             builder = OrchestratorPromptPayloadBuilder(
                 SkillInjectionManager(build_workspace_skill_registry())
@@ -800,6 +844,12 @@ class OrchestratorProfileTestCase(AIAgentInfraTestCase):
             self.assertEqual(result.status, "completed")
             self.assertEqual(result.context_summary["orchestrator"]["injectedSkills"], [])
             self.assertEqual(provider.user_payload["injectedSkills"], [])
+            self.assertEqual(provider.user_payload["timeContext"]["timezone"], "Asia/Shanghai")
+            self.assertRegex(provider.user_payload["timeContext"]["localDate"], r"^\d{4}-\d{2}-\d{2}$")
+            self.assertIn(
+                provider.user_payload["timeContext"]["suggestedMealType"],
+                {"breakfast", "lunch", "dinner", "snack"},
+            )
             self.assertEqual(provider.tool_names, ["human.request_input"])
             self.assertNotIn("skill.inject", provider.tool_names)
             self.assertNotIn("meal_plan.create_draft", provider.tool_names)

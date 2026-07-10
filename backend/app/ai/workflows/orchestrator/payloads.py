@@ -15,6 +15,27 @@ from app.ai.workflows.orchestrator.profiles import (
 )
 from app.ai.workflows.orchestrator.prompts import DEFAULT_ORCHESTRATOR_PROMPT, build_orchestrator_system_prompt
 from app.ai.workflows.orchestrator.tools import SkillInjectionManager
+from app.services.clock import DEFAULT_FAMILY_TIMEZONE, now_for_family
+
+
+def _suggested_meal_type(local_hour: int) -> str:
+    if 5 <= local_hour < 10:
+        return "breakfast"
+    if 10 <= local_hour < 15:
+        return "lunch"
+    if 17 <= local_hour < 22:
+        return "dinner"
+    return "snack"
+
+
+def _time_context(family_id: str) -> dict[str, str]:
+    local_now = now_for_family(family_id)
+    return {
+        "timezone": DEFAULT_FAMILY_TIMEZONE,
+        "localDate": local_now.date().isoformat(),
+        "localDateTime": local_now.isoformat(),
+        "suggestedMealType": _suggested_meal_type(local_now.hour),
+    }
 
 
 class OrchestratorPromptPayloadBuilder:
@@ -78,6 +99,7 @@ class OrchestratorPromptPayloadBuilder:
         payload = {
             "currentMessage": context.current_message,
             "currentAttachments": context.current_message_attachments,
+            "timeContext": _time_context(context.family_id),
             "quickTask": context.quick_task,
             "subject": context.subject,
             "conversation": compact_conversation(
