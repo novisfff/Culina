@@ -154,6 +154,37 @@ export function qualityMetrics(overrides: Partial<AiQualityMetrics> = {}): AiQua
       toolBudgetExhaustedCount: 1,
       continuationRejectedCount: 1,
     },
+    token_usage: {
+      windows: {
+        '24h': {
+          hours: 24,
+          exchangeCount: 4,
+          inputTokens: 12000,
+          outputTokens: 3200,
+          totalTokens: 15200,
+          cachedTokens: 1800,
+          estimatedCostUsd: 0.042,
+        },
+        '7d': {
+          hours: 168,
+          exchangeCount: 18,
+          inputTokens: 64000,
+          outputTokens: 15000,
+          totalTokens: 79000,
+          cachedTokens: 9200,
+          estimatedCostUsd: 0.21,
+        },
+        '30d': {
+          hours: 720,
+          exchangeCount: 61,
+          inputTokens: 210000,
+          outputTokens: 52000,
+          totalTokens: 262000,
+          cachedTokens: 31000,
+          estimatedCostUsd: 0.74,
+        },
+      },
+    },
     trace_metrics: {
       traceSpanCount: 4,
       llmExchangeCount: 2,

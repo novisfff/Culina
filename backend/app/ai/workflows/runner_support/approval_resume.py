@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from hashlib import sha256
 from typing import Any
 
 from app.ai.workflows.orchestrator.profiles import (
@@ -8,6 +9,7 @@ from app.ai.workflows.orchestrator.profiles import (
     profile_state_value,
 )
 from app.ai.workflows.state import WorkspaceGraphState
+from app.core.utils import utcnow
 
 
 class ContinuationResumeError(ValueError):
@@ -111,6 +113,31 @@ def continuation_resume_state(
             }
         )
     return injected_skill_keys, injection_history
+
+
+def continuation_skill_start_event(
+    *,
+    run_id: str,
+    artifact: dict[str, Any],
+    skill_key: str,
+    display_name: str,
+) -> dict[str, Any]:
+    artifact_id = str(artifact.get("id") or "")
+    event_fingerprint = sha256(
+        f"{run_id}:{artifact_id}:{skill_key}".encode("utf-8")
+    ).hexdigest()[:32]
+    return {
+        "event": "progress",
+        "data": {
+            "id": f"ai_run_event_{event_fingerprint}",
+            "run_id": run_id,
+            "type": "skill",
+            "internal_code": f"{skill_key}.start",
+            "user_message": f"调用「{display_name}」技能",
+            "status": "completed",
+            "created_at": utcnow(),
+        },
+    }
 
 
 def continuation_from_metadata(metadata: dict[str, Any]) -> dict[str, Any] | None:

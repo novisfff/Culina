@@ -25,6 +25,7 @@ from app.ai.workflows.runner_support.approval_resume import (
     approval_resolved_state_patch,
     continuation_artifact,
     continuation_resume_state,
+    continuation_skill_start_event,
 )
 from app.ai.workflows.runner import WorkspaceGraphRunner
 
@@ -973,6 +974,34 @@ def test_continuation_resume_injects_allowed_skill_exactly_once() -> None:
     assert replay_keys == keys
     assert len(history) == 1
     assert replay_history == history
+
+
+def test_continuation_skill_start_event_uses_stable_id() -> None:
+    artifact = continuation_artifact(
+        run_id="run-1",
+        approval_id="approval-1",
+        continuation=_continuation_payload(),
+        decision_status="approved",
+        business_entity_ids=["ingredient-1"],
+    )
+
+    first = continuation_skill_start_event(
+        run_id="run-1",
+        artifact=artifact,
+        skill_key="source_skill",
+        display_name="来源技能",
+    )
+    replay = continuation_skill_start_event(
+        run_id="run-1",
+        artifact=artifact,
+        skill_key="source_skill",
+        display_name="来源技能",
+    )
+
+    assert first["data"]["id"] == replay["data"]["id"]
+    assert first["data"]["type"] == "skill"
+    assert first["data"]["internal_code"] == "source_skill.start"
+    assert first["data"]["status"] == "completed"
 
 
 def test_continuation_resume_rejects_disallowed_skill() -> None:

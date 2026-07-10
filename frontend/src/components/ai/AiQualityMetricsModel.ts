@@ -68,3 +68,34 @@ export function formatAiDuration(ms?: number | null) {
   if (value < 1000) return `${Math.round(value)} 毫秒`;
   return `${(value / 1000).toFixed(value < 10_000 ? 1 : 0)} 秒`;
 }
+
+export const AI_TOKEN_USAGE_WINDOWS = [
+  { key: '24h', label: '24 小时' },
+  { key: '7d', label: '7 天' },
+  { key: '30d', label: '30 天' },
+] as const;
+
+export type AiTokenUsageWindowKey = (typeof AI_TOKEN_USAGE_WINDOWS)[number]['key'];
+
+export function formatAiTokenCount(value?: number | null) {
+  const amount = Number(value ?? 0);
+  if (!Number.isFinite(amount) || amount <= 0) return '0';
+  if (amount < 1000) return `${Math.round(amount)}`;
+  if (amount < 1_000_000) {
+    const thousands = amount / 1000;
+    if (amount < 100_000 && !Number.isInteger(thousands)) {
+      return `${thousands.toFixed(1)}K`;
+    }
+    return `${Math.round(thousands)}K`;
+  }
+  const millions = amount / 1_000_000;
+  return `${millions.toFixed(amount < 10_000_000 && !Number.isInteger(millions) ? 1 : 0)}M`;
+}
+
+export function formatAiTokenCost(value?: number | null) {
+  const amount = Number(value ?? 0);
+  if (!Number.isFinite(amount) || amount <= 0) return '—';
+  if (amount < 0.01) return `$${amount.toFixed(4)}`;
+  return `$${amount.toFixed(2)}`;
+}
+

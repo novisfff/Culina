@@ -853,6 +853,11 @@ class AIRegistryAndMetricsTestCase(AIAgentInfraTestCase):
                             stream_chunks=[],
                             response_digest="response-digest-plan",
                             response_bytes=30,
+                            input_tokens=1200,
+                            output_tokens=300,
+                            total_tokens=1500,
+                            cached_tokens=200,
+                            estimated_cost_usd=0.004,
                             status="completed",
                             duration_ms=500,
                             started_at=utcnow() - timedelta(minutes=2),
@@ -876,10 +881,43 @@ class AIRegistryAndMetricsTestCase(AIAgentInfraTestCase):
                             stream_chunks=[],
                             response_digest="response-digest-recipe",
                             response_bytes=32,
+                            input_tokens=800,
+                            output_tokens=200,
+                            total_tokens=1000,
+                            cached_tokens=50,
+                            estimated_cost_usd=0.003,
                             status="failed",
                             error_code="provider_stream_failed",
                             duration_ms=700,
                             started_at=utcnow() - timedelta(minutes=1),
+                        ),
+                        AIRunLLMExchange(
+                            id="ai-exchange-quality-old",
+                            family_id=self.family.id,
+                            run_id="agent-run-token-only-old",
+                            trace_id="ai-trace-quality-old",
+                            provider_round=2,
+                            attempt_index=1,
+                            mode="stream",
+                            model="fake-model",
+                            request_messages=[],
+                            request_tools=[],
+                            request_options={},
+                            request_digest="request-digest-old",
+                            request_bytes=18,
+                            response_message={},
+                            response_tool_calls=[],
+                            stream_chunks=[],
+                            response_digest="response-digest-old",
+                            response_bytes=28,
+                            input_tokens=5000,
+                            output_tokens=1000,
+                            total_tokens=6000,
+                            cached_tokens=400,
+                            estimated_cost_usd=0.02,
+                            status="completed",
+                            duration_ms=400,
+                            started_at=utcnow() - timedelta(days=10),
                         ),
                     ]
                 )
@@ -917,6 +955,14 @@ class AIRegistryAndMetricsTestCase(AIAgentInfraTestCase):
             self.assertEqual(data["trace_metrics"]["averageToolDurationMs"], 120)
             self.assertEqual(data["trace_metrics"]["averageScriptDurationMs"], 40)
             self.assertEqual(data["trace_metrics"]["averageProviderRounds"], 1)
+            self.assertEqual(data["token_usage"]["windows"]["24h"]["exchangeCount"], 2)
+            self.assertEqual(data["token_usage"]["windows"]["24h"]["inputTokens"], 2000)
+            self.assertEqual(data["token_usage"]["windows"]["24h"]["outputTokens"], 500)
+            self.assertEqual(data["token_usage"]["windows"]["24h"]["totalTokens"], 2500)
+            self.assertEqual(data["token_usage"]["windows"]["24h"]["cachedTokens"], 250)
+            self.assertEqual(data["token_usage"]["windows"]["7d"]["exchangeCount"], 2)
+            self.assertEqual(data["token_usage"]["windows"]["30d"]["exchangeCount"], 3)
+            self.assertEqual(data["token_usage"]["windows"]["30d"]["totalTokens"], 8500)
             self.assertEqual(data["trace_metrics"]["errorCodes"]["skill_failed"], 1)
             self.assertEqual(data["trace_metrics"]["errorCodes"]["tool_input_validation_failed"], 1)
             self.assertEqual(data["trace_metrics"]["errorCodes"]["provider_stream_failed"], 1)

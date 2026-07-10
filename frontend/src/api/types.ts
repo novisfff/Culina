@@ -1234,6 +1234,9 @@ export interface AiQualityMetrics {
     toolBudgetExhaustedCount: number;
     continuationRejectedCount: number;
   };
+  token_usage: {
+    windows: Record<string, AiTokenUsageWindow>;
+  };
   trace_metrics: {
     traceSpanCount: number;
     llmExchangeCount: number;
@@ -1263,6 +1266,16 @@ export interface AiQualityMetrics {
     approval_approved_count: number;
     approval_rejected_count: number;
   }>;
+}
+
+export interface AiTokenUsageWindow {
+  hours: number;
+  exchangeCount: number;
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+  cachedTokens: number;
+  estimatedCostUsd: number;
 }
 
 export interface AiRateMetric {

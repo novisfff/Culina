@@ -185,6 +185,7 @@ def build_ai_quality_metrics(
         for approval in resolved_approved
     )
     trace_metrics = _build_trace_quality_metrics(db, family_id=family_id, run_ids=[run.id for run in runs], run_error_codes=run_error_codes)
+    token_usage = _build_token_usage_metrics(db, family_id=family_id)
     return {
         "family_id": family_id,
         "window": {"limit": normalized_limit, "days": days},
@@ -223,8 +224,100 @@ def build_ai_quality_metrics(
             "toolBudgetExhaustedCount": totals["toolBudgetExhaustedCount"],
             "continuationRejectedCount": totals["continuationRejectedCount"],
         },
+        "token_usage": token_usage,
         "recent_runs": recent_runs,
     }
+
+
+
+TOKEN_USAGE_WINDOWS = (
+    ("24h", 24),
+    ("7d", 24 * 7),
+    ("30d", 24 * 30),
+)
+
+
+def _as_non_negative_int(value: Any) -> int:
+    try:
+        return max(0, int(value or 0))
+    except (TypeError, ValueError):
+        return 0
+
+
+def _as_non_negative_float(value: Any) -> float:
+    try:
+        number = float(value or 0)
+    except (TypeError, ValueError):
+        return 0.0
+    if number != number:  # NaN
+        return 0.0
+    return max(0.0, number)
+
+
+def _empty_token_usage_window(*, hours: int) -> dict[str, Any]:
+    return {
+        "hours": hours,
+        "exchangeCount": 0,
+        "inputTokens": 0,
+        "outputTokens": 0,
+        "totalTokens": 0,
+        "cachedTokens": 0,
+        "estimatedCostUsd": 0.0,
+    }
+
+
+def _coerce_aware_utc(value: Any):
+    if value is None:
+        return None
+    if getattr(value, "tzinfo", None) is None:
+        from datetime import timezone
+
+        return value.replace(tzinfo=timezone.utc)
+    return value
+
+
+def _build_token_usage_metrics(db: Session, *, family_id: str) -> dict[str, Any]:
+    """Aggregate provider token usage across fixed rolling windows."""
+
+    now = _coerce_aware_utc(utcnow())
+    windows = {
+        key: _empty_token_usage_window(hours=hours)
+        for key, hours in TOKEN_USAGE_WINDOWS
+    }
+    max_hours = max(hours for _, hours in TOKEN_USAGE_WINDOWS)
+    exchanges = list(
+        db.scalars(
+            select(AIRunLLMExchange).where(
+                AIRunLLMExchange.family_id == family_id,
+                AIRunLLMExchange.started_at >= now - timedelta(hours=max_hours),
+            )
+        )
+    )
+    for exchange in exchanges:
+        started_at = _coerce_aware_utc(exchange.started_at)
+        if started_at is None:
+            continue
+        age = now - started_at
+        age_hours = age.total_seconds() / 3600
+        input_tokens = _as_non_negative_int(exchange.input_tokens)
+        output_tokens = _as_non_negative_int(exchange.output_tokens)
+        total_tokens = _as_non_negative_int(exchange.total_tokens)
+        if total_tokens <= 0:
+            total_tokens = input_tokens + output_tokens
+        cached_tokens = _as_non_negative_int(exchange.cached_tokens)
+        estimated_cost = _as_non_negative_float(exchange.estimated_cost_usd)
+        for key, hours in TOKEN_USAGE_WINDOWS:
+            if age_hours > hours:
+                continue
+            bucket = windows[key]
+            bucket["exchangeCount"] += 1
+            bucket["inputTokens"] += input_tokens
+            bucket["outputTokens"] += output_tokens
+            bucket["totalTokens"] += total_tokens
+            bucket["cachedTokens"] += cached_tokens
+            bucket["estimatedCostUsd"] = round(bucket["estimatedCostUsd"] + estimated_cost, 6)
+    return {"windows": windows}
+
 
 
 def _average_duration(items: list[int]) -> int:

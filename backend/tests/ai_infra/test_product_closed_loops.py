@@ -1561,6 +1561,17 @@ class AIProductClosedLoopsTestCase(AIAgentInfraTestCase):
             )
             self.assertEqual(len(approvals), 1)
             self.assertEqual(approvals[0].approval_type, "inventory.operation")
+            continuation_skill_events = list(
+                db.scalars(
+                    select(AIRunEvent).where(
+                        AIRunEvent.run_id == data["run"]["id"],
+                        AIRunEvent.type == "skill",
+                        AIRunEvent.internal_code == "inventory_analysis.start",
+                        AIRunEvent.status == "completed",
+                    )
+                )
+            )
+            self.assertEqual(len(continuation_skill_events), 1)
 
     def test_completed_food_item_resumes_separate_food_stock_approval(self) -> None:
         with self.SessionLocal() as db:
