@@ -1,3 +1,4 @@
+from app.services.clock import today_for_family
 from ._support import *
 
 
@@ -169,7 +170,7 @@ class RecipeRecipeDiscoveryTestCase(RecipeApiTestCase):
             self.assertEqual(stats.json()["frequent"][0]["count"], 1)
 
         def test_recipe_discovery_recommendation_ranking_uses_household_context(self) -> None:
-            today = date.today()
+            today = today_for_family(self.family.id)
             favorite = self.create_recipe(title="收藏番茄", ingredient_items=[
                 {"ingredient_id": self.tomato.id, "ingredient_name": "番茄", "quantity": 2, "unit": "个", "note": ""}
             ])
