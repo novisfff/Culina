@@ -185,6 +185,7 @@ class AssistantResultPersister:
                 draft_count=len(drafts),
                 approval_count=len(approvals),
                 conversation_context=dict(conversation.context or {}) if conversation is not None else None,
+                current_run_artifacts=list(state.get("run_artifacts") or []),
             )
             run.status = assistant_status
             if skill_key is None and injected_skill_keys:

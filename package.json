@@ -30,6 +30,8 @@
     "backend:test": "cd backend && .venv/bin/python -m pytest tests",
     "backend:test:service": "cd backend && .venv/bin/python -m pytest tests/account tests/activity tests/core tests/family tests/inventory tests/media tests/recipes tests/shopping",
     "backend:test:ai": "cd backend && .venv/bin/python -m pytest tests/ai_infra",
+    "backend:test:ai-evals": "cd backend && .venv/bin/python -m pytest tests/ai_evals",
+    "backend:check:ai-evals": "cd backend && .venv/bin/python scripts/check_ai_skill_eval_report.py --report .artifacts/ai-skill-eval-report.json --thresholds ai_eval_thresholds.json --cases tests/ai_evals/cases/core.jsonl",
     "backend:test:search": "cd backend && .venv/bin/python -m pytest tests/search",
     "backend:test:coverage": "cd backend && .venv/bin/python -m pytest tests --cov=app --cov-report=term --cov-report=json:coverage.json",
     "backend:typecheck": "cd backend && PYTHONPATH=. .venv/bin/python -m compileall -q app tests",

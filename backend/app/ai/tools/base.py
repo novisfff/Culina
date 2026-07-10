@@ -58,6 +58,7 @@ class ToolResult:
     status: str = "completed"
     duration_ms: int = 0
     error: str | None = None
+    error_code: str | None = None
 
     def to_record(self) -> dict[str, Any]:
         record: dict[str, Any] = {
@@ -71,6 +72,8 @@ class ToolResult:
         }
         if self.error:
             record["error"] = self.error
+        if self.error_code:
+            record["error_code"] = self.error_code
         return record
 
     def _summarize(self, value: dict[str, Any]) -> dict[str, Any]:
@@ -109,4 +112,5 @@ def timed_call(definition: ToolDefinition, context: ToolContext, payload: dict[s
             status="failed",
             duration_ms=int((perf_counter() - started_at) * 1000),
             error=str(exc),
+            error_code=str(getattr(exc, "code", "") or "") or None,
         )

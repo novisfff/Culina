@@ -4,6 +4,7 @@ from typing import Any
 
 from sqlalchemy import select
 
+from app.ai.errors import ToolExecutionError
 from app.ai.tools.base import ToolContext
 from app.ai.tools.catalog.common import entity_media_map, first_entity_media, register_tool
 from app.ai.tools.draft_validation import normalize_food_profile_draft_for_tools
@@ -120,9 +121,14 @@ def _food_search_response(context: ToolContext, foods: list[Food], *, limit: int
 
 
 def food_read_by_id(context: ToolContext, payload: dict[str, Any]) -> dict[str, Any]:
-    food = context.db.scalar(select(Food).where(Food.family_id == context.family_id, Food.id == str(payload["id"])))
+    food_id = str(payload["id"])
+    food = context.db.scalar(select(Food).where(Food.family_id == context.family_id, Food.id == food_id))
     if food is None:
-        raise ValueError("食物不存在或不属于当前家庭")
+        owner_family_id = context.db.scalar(select(Food.family_id).where(Food.id == food_id))
+        raise ToolExecutionError(
+            "食物不存在或不属于当前家庭",
+            code="unknown_entity_id" if owner_family_id is None else "family_scope_violation",
+        )
     media_map = build_media_map(
         get_media_assets_for_entities(
             context.db,

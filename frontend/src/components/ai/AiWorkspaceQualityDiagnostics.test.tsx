@@ -41,8 +41,13 @@ describe('AiWorkspace quality diagnostics', () => {
 
     expect(rendered.container.textContent).toContain('质量诊断');
     expect(rendered.container.textContent).toContain('最近 3 次运行');
-    expect(rendered.container.textContent).toContain('完成率');
+    expect(rendered.container.textContent).toContain('运行成功率');
     expect(rendered.container.textContent).toContain('67%');
+    expect(rendered.container.textContent).toContain('草稿一次通过');
+    expect(rendered.container.textContent).toContain('80%（4/5）');
+    expect(rendered.container.textContent).toContain('跨步骤完成');
+    expect(rendered.container.textContent).toContain('确认时未修改');
+    expect(rendered.container.textContent).toContain('工具预算耗尽1 次');
     expect(rendered.container.textContent).toContain('常用 Skill');
     expect(rendered.container.textContent).toContain('餐食计划 · 2');
     expect(rendered.container.textContent).toContain('待关注');

@@ -8,7 +8,8 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.utils import utcnow
-from app.models.domain import AIAgentRun, AIRunLLMExchange, AIRunTraceSpan
+from app.ai.evals.scoring import build_rate
+from app.models.domain import AIAgentRun, AIApprovalRequest, AIRunLLMExchange, AIRunTraceSpan
 
 
 QUALITY_METRIC_KEYS = (
@@ -20,7 +21,30 @@ QUALITY_METRIC_KEYS = (
     "clarificationCount",
     "approvalApprovedCount",
     "approvalRejectedCount",
+    "routeSelectionCount",
+    "draftValidationCandidateCount",
+    "draftValidationAttemptCount",
+    "draftFirstPassSuccessCount",
+    "invalidIdentityRejectedCount",
+    "toolBudgetExhaustedCount",
+    "continuationStartedCount",
+    "continuationCompletedCount",
+    "continuationRejectedCount",
 )
+
+
+def canonicalize_approval_value(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {
+            key: canonicalize_approval_value(value[key])
+            for key in sorted(value)
+            if key not in {"comment", "clientOnly"}
+        }
+    if isinstance(value, list):
+        return [canonicalize_approval_value(item) for item in value]
+    if isinstance(value, str):
+        return value.strip()
+    return value
 
 
 def _as_dict(value: Any) -> dict[str, Any]:
@@ -141,6 +165,25 @@ def build_ai_quality_metrics(
         )
 
     run_count = len(runs)
+    approved_approvals = (
+        list(
+            db.scalars(
+                select(AIApprovalRequest).where(
+                    AIApprovalRequest.family_id == family_id,
+                    AIApprovalRequest.run_id.in_(run_ids),
+                    AIApprovalRequest.status == "approved",
+                )
+            )
+        )
+        if run_ids
+        else []
+    )
+    resolved_approved = [approval for approval in approved_approvals if approval.submitted_values]
+    unedited_approvals = sum(
+        canonicalize_approval_value(approval.initial_values)
+        == canonicalize_approval_value(approval.submitted_values)
+        for approval in resolved_approved
+    )
     trace_metrics = _build_trace_quality_metrics(db, family_id=family_id, run_ids=[run.id for run in runs], run_error_codes=run_error_codes)
     return {
         "family_id": family_id,
@@ -160,6 +203,26 @@ def build_ai_quality_metrics(
             "averageDurationMs": int(total_duration_ms / run_count) if run_count else 0,
         },
         "trace_metrics": trace_metrics,
+        "operational_metrics": {
+            "draftFirstPassRate": build_rate(
+                totals["draftFirstPassSuccessCount"],
+                totals["draftValidationCandidateCount"],
+            ).model_dump(),
+            "continuationCompletionRate": build_rate(
+                totals["continuationCompletedCount"],
+                max(
+                    totals["continuationStartedCount"],
+                    totals["continuationCompletedCount"],
+                ),
+            ).model_dump(),
+            "approvalUneditedRate": build_rate(
+                unedited_approvals,
+                len(resolved_approved),
+            ).model_dump(),
+            "invalidIdentityRejectedCount": totals["invalidIdentityRejectedCount"],
+            "toolBudgetExhaustedCount": totals["toolBudgetExhaustedCount"],
+            "continuationRejectedCount": totals["continuationRejectedCount"],
+        },
         "recent_runs": recent_runs,
     }
 

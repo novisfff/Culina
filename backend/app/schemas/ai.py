@@ -662,6 +662,15 @@ class AIQualityTotalsDTO(BaseModel):
     clarificationCount: int = 0
     approvalApprovedCount: int = 0
     approvalRejectedCount: int = 0
+    routeSelectionCount: int = 0
+    draftValidationCandidateCount: int = 0
+    draftValidationAttemptCount: int = 0
+    draftFirstPassSuccessCount: int = 0
+    invalidIdentityRejectedCount: int = 0
+    toolBudgetExhaustedCount: int = 0
+    continuationStartedCount: int = 0
+    continuationCompletedCount: int = 0
+    continuationRejectedCount: int = 0
     totalDurationMs: int = 0
     averageDurationMs: int = 0
 
@@ -679,6 +688,21 @@ class AITraceQualityMetricsDTO(BaseModel):
     spanTypeCounts: dict[str, int] = Field(default_factory=dict)
     spanStatusCounts: dict[str, int] = Field(default_factory=dict)
     exchangeStatusCounts: dict[str, int] = Field(default_factory=dict)
+
+
+class AIQualityRateMetricDTO(BaseModel):
+    numerator: int = 0
+    denominator: int = 0
+    rate: float | None = None
+
+
+class AIOperationalQualityMetricsDTO(BaseModel):
+    draftFirstPassRate: AIQualityRateMetricDTO = Field(default_factory=AIQualityRateMetricDTO)
+    continuationCompletionRate: AIQualityRateMetricDTO = Field(default_factory=AIQualityRateMetricDTO)
+    approvalUneditedRate: AIQualityRateMetricDTO = Field(default_factory=AIQualityRateMetricDTO)
+    invalidIdentityRejectedCount: int = 0
+    toolBudgetExhaustedCount: int = 0
+    continuationRejectedCount: int = 0
 
 
 class AIQualityRecentRunDTO(BaseModel):
@@ -711,6 +735,7 @@ class AIQualityMetricsResponse(BaseModel):
     skill_status_counts: dict[str, int] = Field(default_factory=dict)
     totals: AIQualityTotalsDTO
     trace_metrics: AITraceQualityMetricsDTO = Field(default_factory=AITraceQualityMetricsDTO)
+    operational_metrics: AIOperationalQualityMetricsDTO = Field(default_factory=AIOperationalQualityMetricsDTO)
     recent_runs: list[AIQualityRecentRunDTO] = Field(default_factory=list)
 
 

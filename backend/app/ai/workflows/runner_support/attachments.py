@@ -12,6 +12,12 @@ from app.models.domain import MediaAsset
 from app.services.serializers import serialize_media
 
 
+class InvalidCurrentAttachmentError(ValueError):
+    def __init__(self, code: str) -> None:
+        super().__init__("invalid_current_attachment")
+        self.code = code
+
+
 def validate_current_attachment_ids(
     db: Session,
     *,
@@ -38,8 +44,15 @@ def validate_current_attachment_ids(
             )
         )
     normalized = list(dict.fromkeys(str(media_id).strip() for media_id in requested_media_ids if str(media_id).strip()))
-    if any(media_id not in allowed_ids for media_id in normalized):
-        raise ValueError("invalid_current_attachment")
+    for media_id in normalized:
+        if media_id in allowed_ids:
+            continue
+        asset = db.get(MediaAsset, media_id)
+        if asset is None:
+            raise InvalidCurrentAttachmentError("unknown_media")
+        if asset.family_id != family_id:
+            raise InvalidCurrentAttachmentError("family_scope_violation")
+        raise InvalidCurrentAttachmentError("stale_attachment")
     if not normalized:
         return []
     owned_ids = set(
@@ -51,7 +64,11 @@ def validate_current_attachment_ids(
         )
     )
     if owned_ids != set(normalized):
-        raise ValueError("invalid_current_attachment")
+        missing_id = next(media_id for media_id in normalized if media_id not in owned_ids)
+        asset = db.get(MediaAsset, missing_id)
+        raise InvalidCurrentAttachmentError(
+            "family_scope_violation" if asset is not None else "unknown_media"
+        )
     return normalized
 
 

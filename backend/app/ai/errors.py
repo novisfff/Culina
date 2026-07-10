@@ -24,3 +24,11 @@ class ToolBudgetHardStop(Exception):
     def __init__(self, output: dict) -> None:
         super().__init__("tool budget hard stop")
         self.output = output
+
+
+class ToolExecutionError(ValueError):
+    """A Tool handler failure with an optional stable machine-readable code."""
+
+    def __init__(self, message: str, *, code: str | None = None) -> None:
+        super().__init__(message)
+        self.code = code

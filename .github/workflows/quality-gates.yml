@@ -39,6 +39,32 @@ jobs:
       - name: Run backend AI tests
         run: npm run backend:test:ai
 
+  ai-skill-evals:
+    name: AI Skill Evaluation Gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install backend dependencies
+        run: |
+          python -m venv backend/.venv
+          backend/.venv/bin/python -m pip install --upgrade pip
+          backend/.venv/bin/python -m pip install -r backend/requirements.txt
+      - name: Run deterministic AI skill evaluations
+        env:
+          CULINA_AI_EVAL_REPORT_PATH: .artifacts/ai-skill-eval-report.json
+        run: npm run backend:test:ai-evals
+      - name: Check AI skill thresholds
+        run: npm run backend:check:ai-evals
+      - name: Upload AI skill report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ai-skill-eval-report
+          path: backend/.artifacts/ai-skill-eval-report.json
+
   backend-search:
     name: Backend Search Tests
     runs-on: ubuntu-latest
