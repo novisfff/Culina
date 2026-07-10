@@ -1047,11 +1047,15 @@ export function AiWorkspace({
     setIsStartingNewConversation(false);
     setIsMobileHistoryOpen(false);
   }
-  async function submitComposerMessage(textOverride?: string) {
+  async function submitComposerMessage(
+    textOverride?: string,
+    options?: { includeAttachments?: boolean; preserveDraft?: boolean },
+  ) {
     if (effectiveComposerPaused || isAssistantBusy || isLocalAssistantBusy) return;
     const text = (textOverride ?? draft).trim();
-    const sendableAttachments = readyAttachments.filter((item) => item.asset);
-    if ((!text && sendableAttachments.length === 0) || isAttachmentSendBlocked) return;
+    const includeAttachments = options?.includeAttachments !== false;
+    const sendableAttachments = includeAttachments ? readyAttachments.filter((item) => item.asset) : [];
+    if ((!text && sendableAttachments.length === 0) || (includeAttachments && isAttachmentSendBlocked)) return;
     const clientMessageId = `client-${Date.now()}-${Math.random().toString(36).slice(2)}`;
     const clientRunId = `agent_run-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
     const conversationKey = activeConversationId ?? createPendingConversationKey(clientRunId);
@@ -1099,7 +1103,7 @@ export function AiWorkspace({
     setActiveStreamRunIdsByConversationKey((current) => ({ ...current, [conversationKey]: clientRunId }));
     setActiveConversationKey(conversationKey);
     setIsStartingNewConversation(false);
-    setDraft('');
+    if (!options?.preserveDraft) setDraft('');
     attachmentState.hideAttachments(sendableAttachments.map((attachment) => attachment.clientAttachmentId));
     try {
       await chatMutation.mutateAsync({
@@ -1346,6 +1350,7 @@ export function AiWorkspace({
         onAddRecommendationToPlan={openRecommendationPlan}
         onInventoryAction={createInventoryOperationDraft}
         isInventoryActionPending={inventoryDraftAction.isPending}
+        onPromptAction={(prompt) => void submitComposerMessage(prompt, { includeAttachments: false, preserveDraft: true })}
         onCancelSending={cancelStreamingChat}
         onOpenRunDebug={setDebugRunId}
       />
@@ -1435,6 +1440,8 @@ export function AiWorkspace({
                     onAddRecommendationToPlan={openRecommendationPlan}
                     onInventoryAction={createInventoryOperationDraft}
                     isInventoryActionPending={inventoryDraftAction.isPending}
+                    onPromptAction={(prompt) => void submitComposerMessage(prompt, { includeAttachments: false, preserveDraft: true })}
+                    isPromptActionPending={isAssistantBusy || isLocalAssistantBusy}
                     onOpenRunDebug={setDebugRunId}
                   />
                 ))}

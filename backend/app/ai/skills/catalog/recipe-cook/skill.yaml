@@ -18,7 +18,8 @@ allowed_tools:
 - inventory.read_available_items
 - meal_plan.read_existing
 script_files: []
-output_types: []
+output_types:
+- recipe_shortage
 draft_types:
 - recipe_cook
 draft_contract:
@@ -69,7 +70,12 @@ routing:
   - with: recipe_draft
     when: 用户要创建或修改菜谱本身
     route_to: recipe_draft
-handoffs: {}
+handoffs:
+  recipe_shortage:
+    target_skill: shopping_list
+    required_draft_type: shopping_list
+    resume_skill: shopping_list
+    state_schema: recipe_shortage_to_shopping.v1
 attachment_policy:
   accepted_kinds: []
   usages: []

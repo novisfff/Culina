@@ -13,12 +13,20 @@ async function renderCard(
   card: AiResultCard,
   onAddToPlan?: Parameters<typeof ResultCard>[0]['onAddToPlan'],
   onInventoryAction?: Parameters<typeof ResultCard>[0]['onInventoryAction'],
+  onPromptAction?: (prompt: string) => void,
 ) {
   container = document.createElement('div');
   document.body.appendChild(container);
   root = createRoot(container);
   await act(async () => {
-    root?.render(<ResultCard card={card} onAddToPlan={onAddToPlan} onInventoryAction={onInventoryAction} />);
+    root?.render(
+      <ResultCard
+        card={card}
+        onAddToPlan={onAddToPlan}
+        onInventoryAction={onInventoryAction}
+        onPromptAction={onPromptAction}
+      />,
+    );
   });
   return container;
 }
@@ -380,5 +388,43 @@ describe('AI query result cards', () => {
     expect(view.textContent).toContain('库存处理');
     expect(view.textContent).toContain('补货');
     expect(view.textContent).not.toContain('inventory_operation');
+  });
+
+  it('renders recipe shortages and sends a normal shopping prompt', async () => {
+    const prompts: string[] = [];
+    const view = await renderCard({
+      id: 'recipe-shortage:recipe-1',
+      type: 'recipe_shortage',
+      title: '番茄香菜汤缺少 2 项食材',
+      data: {
+        recipeId: 'recipe-1',
+        recipeTitle: '番茄香菜汤',
+        actionPrompt: '把缺少的食材加入购物清单',
+        shortages: [
+          {
+            ingredientId: 'ingredient-tomato',
+            ingredientName: '番茄',
+            shortageType: 'quantity',
+            quantity: '2',
+            unit: '个',
+          },
+          {
+            ingredientId: 'ingredient-herb',
+            ingredientName: '香菜',
+            shortageType: 'presence',
+          },
+        ],
+      },
+    }, undefined, undefined, (prompt) => prompts.push(prompt));
+
+    expect(view.textContent).toContain('番茄香菜汤');
+    expect(view.textContent).toContain('番茄');
+    expect(view.textContent).toContain('缺少 2个');
+    expect(view.textContent).toContain('香菜');
+    expect(view.textContent).toContain('需要补充');
+    const button = view.querySelector<HTMLButtonElement>('button');
+    expect(button?.textContent).toContain('加入购物清单');
+    await act(async () => button?.click());
+    expect(prompts).toEqual(['把缺少的食材加入购物清单']);
   });
 });

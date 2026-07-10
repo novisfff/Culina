@@ -19,6 +19,7 @@ from app.ai.workflows.runner_support.run_status import (
 from app.ai.workflows.state import WorkspaceGraphState
 from app.core.utils import create_id, utcnow
 from app.models.domain import AIAgentRun, AIConversation, AIMessage
+from app.services.ai_operations.messages import persist_message_artifacts
 
 if TYPE_CHECKING:
     from app.ai.workflows.runner import WorkspaceGraphRunner
@@ -57,6 +58,17 @@ class RunFinalizer:
         if message is None:
             message = self._create_fallback_message(state, run=run, status=status)
         terminal_text = self._finalize_message(state, message, status=status)
+        persist_message_artifacts(
+            runner.db,
+            message_id=message.id,
+            artifacts=[
+                artifact
+                for artifact in state.get("run_artifacts") or []
+                if isinstance(artifact, dict)
+                and artifact.get("kind") == "result_card"
+                and artifact.get("type") == "recipe_shortage"
+            ],
+        )
         if run is not None and run.status != WAITING_APPROVAL:
             run.status = status
             run.error = state.get("error")

@@ -98,6 +98,7 @@ AIResultCardType = Literal[
     "meal_log_draft",
     "food_profile_draft",
     "ui_actions",
+    "recipe_shortage",
 ]
 AIRunEventStatus = Literal["pending", "running", "waiting", "completed", "failed"]
 AITaskDraftType = Literal[

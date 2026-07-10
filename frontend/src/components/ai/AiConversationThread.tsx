@@ -622,6 +622,8 @@ export function MessageBubble({
   onAddRecommendationToPlan,
   onInventoryAction,
   isInventoryActionPending,
+  onPromptAction,
+  isPromptActionPending,
   onHumanInputResponse,
   onOpenRunDebug,
 }: {
@@ -646,6 +648,8 @@ export function MessageBubble({
     partId: string,
   ) => void;
   isInventoryActionPending?: boolean;
+  onPromptAction?: (prompt: string) => void;
+  isPromptActionPending?: boolean;
   onHumanInputResponse?: AiHumanInputResponseSubmit;
   onOpenRunDebug?: (runId: string) => void;
 }) {
@@ -750,6 +754,8 @@ export function MessageBubble({
                     onAddToPlan={(item, card) => onAddRecommendationToPlan?.(item, card, message.id, part.id)}
                     onInventoryAction={(item, action, card) => onInventoryAction?.(item, action, card, message.id, part.id)}
                     isInventoryActionPending={isInventoryActionPending}
+                    onPromptAction={onPromptAction}
+                    isPromptActionPending={isPromptActionPending}
                   />
                 </div>
               );

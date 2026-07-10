@@ -1,3 +1,5 @@
+from sqlalchemy import func
+
 from ._support import *
 
 
@@ -233,7 +235,331 @@ class ShoppingFoodStockContinuationProvider(BaseChatProvider):
         )
 
 
+class RecipeShortageShoppingProvider(BaseChatProvider):
+    model_name = "recipe-shortage-shopping"
+
+    def __init__(self, *, recipe_id: str) -> None:
+        self.recipe_id = recipe_id
+        self.calls = 0
+        self.read_ingredient_ids: list[str] = []
+
+    def generate(self, *, system: str, user: str) -> ChatProviderResult:
+        raise AssertionError("workspace orchestrator should use generate_with_tools")
+
+    def generate_with_tools(
+        self,
+        *,
+        system: str,
+        user: str,
+        tools,
+        tool_handler,
+        message_handler=None,
+        max_rounds: int = 8,
+    ) -> ChatProviderResult:
+        del system, max_rounds
+        payload = json.loads(user)
+        self.calls += 1
+        if self.calls == 1:
+            tool_handler("skill.inject", {"skills": ["recipe_cook"], "reason": "预览菜谱缺料"})
+            available = {tool.name for tool in (tools() if callable(tools) else tools)}
+            assert "recipe.preview_cook" in available
+            result = tool_handler(
+                "recipe.preview_cook",
+                {"recipeId": self.recipe_id, "servings": 2},
+            )
+            assert result.get("card", {}).get("type") == "recipe_shortage", result
+            return ChatProviderResult(
+                text="这道菜有缺料，可以先加入购物清单。",
+                status="completed",
+                model=self.model_name,
+            )
+
+        if self.calls == 2:
+            artifact = next(
+                item
+                for item in reversed(payload.get("artifacts") or [])
+                if item.get("type") == "recipe_shortage"
+            )
+            continuation = artifact["payload"]["continuation"]
+            tool_handler("skill.inject", {"skills": ["shopping_list"], "reason": "生成缺料购物建议"})
+            available = {tool.name for tool in (tools() if callable(tools) else tools)}
+            assert "shopping.create_draft" in available
+            pending = tool_handler("shopping.read_pending", {"limit": 50})
+            pending_ids = {
+                item.get("ingredientId")
+                for item in pending.get("items") or []
+                if isinstance(item, dict)
+            }
+            items = []
+            for shortage in continuation["state"]["shortages"]:
+                ingredient_id = shortage["ingredientId"]
+                ingredient = tool_handler("ingredient.read_by_id", {"id": ingredient_id})["item"]
+                self.read_ingredient_ids.append(ingredient["id"])
+                if ingredient_id in pending_ids:
+                    continue
+                item = {
+                    "ingredientId": ingredient["id"],
+                    "title": ingredient["name"],
+                    "reason": "菜谱缺料",
+                    "sourceMeals": [],
+                    "alreadyPending": False,
+                }
+                if shortage["shortageType"] == "presence":
+                    item.update(
+                        {
+                            "quantityMode": "not_track_quantity",
+                            "displayLabel": "需要补充",
+                        }
+                    )
+                else:
+                    item.update(
+                        {
+                            "quantity": float(shortage["quantity"]),
+                            "unit": shortage["unit"],
+                        }
+                    )
+                items.append(item)
+            tool_handler(
+                "shopping.create_draft",
+                {
+                    "draft": {
+                        "draftType": "shopping_list",
+                        "schemaVersion": "shopping_list.v1",
+                        "items": items,
+                    }
+                },
+            )
+            return ChatProviderResult(
+                text="已整理缺料购物清单，确认后才会加入待采购。",
+                status="waiting_approval",
+                model=self.model_name,
+            )
+
+        return ChatProviderResult(
+            text="购物清单已确认，本次不会自动重试做菜。",
+            status="completed",
+            model=self.model_name,
+        )
+
+
 class AIProductClosedLoopsTestCase(AIAgentInfraTestCase):
+    def test_recipe_shortage_card_preserves_quantitative_and_presence_ids(self) -> None:
+        from app.ai.tools.catalog.recipe import recipe_preview_cook
+        from app.ai.workflows.compact_context import compact_artifacts
+
+        with self.SessionLocal() as db:
+            herb = Ingredient(
+                id="ingredient-presence-herb",
+                family_id=self.family.id,
+                name="香菜",
+                category="调味",
+                default_unit="份",
+                unit_conversions=[],
+                quantity_tracking_mode=IngredientQuantityTrackingMode.NOT_TRACK_QUANTITY,
+                default_storage="冷藏",
+                default_expiry_mode=IngredientExpiryMode.NONE,
+                notes="",
+            )
+            recipe = Recipe(
+                id="recipe-shortage-shopping",
+                family_id=self.family.id,
+                title="番茄香菜汤",
+                servings=2,
+                prep_minutes=15,
+                difficulty=Difficulty.EASY,
+                tips="",
+                scene_tags=["家常菜"],
+                created_by=self.user.id,
+                updated_by=self.user.id,
+            )
+            db.add_all([herb, recipe])
+            db.flush()
+            db.add_all(
+                [
+                    RecipeIngredient(
+                        id="recipe-shortage-tomato",
+                        recipe_id=recipe.id,
+                        ingredient_id="ingredient-tomato",
+                        ingredient_name="番茄",
+                        quantity=Decimal("5"),
+                        unit="个",
+                        note="",
+                        sort_order=0,
+                    ),
+                    RecipeIngredient(
+                        id="recipe-shortage-herb",
+                        recipe_id=recipe.id,
+                        ingredient_id=herb.id,
+                        ingredient_name=herb.name,
+                        quantity=Decimal("1"),
+                        unit="份",
+                        note="少许",
+                        sort_order=1,
+                    ),
+                ]
+            )
+            db.flush()
+            result = recipe_preview_cook(
+                ToolContext(
+                    db=db,
+                    family_id=self.family.id,
+                    user_id=self.user.id,
+                    conversation_id=None,
+                    run_id="run-recipe-shortage",
+                ),
+                {"recipeId": recipe.id, "servings": 2},
+            )
+
+        card = result["card"]
+        self.assertEqual(card["type"], "recipe_shortage")
+        continuation = card["data"]["continuation"]
+        self.assertEqual(continuation["stateSchema"], "recipe_shortage_to_shopping.v1")
+        self.assertEqual(continuation["nextSkillKey"], "shopping_list")
+        self.assertEqual(continuation["state"]["recipeId"], recipe.id)
+        shortages = continuation["state"]["shortages"]
+        self.assertEqual(
+            {row["ingredientId"] for row in shortages},
+            {"ingredient-tomato", herb.id},
+        )
+        tomato = next(row for row in shortages if row["ingredientId"] == "ingredient-tomato")
+        self.assertEqual(tomato["shortageType"], "quantity")
+        self.assertEqual(tomato["quantity"], "2")
+        self.assertEqual(tomato["unit"], "个")
+        presence = next(row for row in shortages if row["ingredientId"] == herb.id)
+        self.assertEqual(presence["shortageType"], "presence")
+        self.assertNotIn("quantity", presence)
+        self.assertNotIn("unit", presence)
+
+        compacted = compact_artifacts(
+            [
+                {
+                    "id": card["id"],
+                    "type": card["type"],
+                    "kind": "result_card",
+                    "status": "proposed",
+                    "payload": card["data"],
+                }
+            ]
+        )[0]
+        compact_continuation = compacted["payload"]["continuation"]
+        self.assertEqual(compact_continuation["stateSchema"], "recipe_shortage_to_shopping.v1")
+        self.assertEqual(compact_continuation["state"], continuation["state"])
+
+    def test_recipe_shortage_normal_turn_creates_shopping_only_after_approval(self) -> None:
+        with self.SessionLocal() as db:
+            herb = Ingredient(
+                id="ingredient-e2e-presence-herb",
+                family_id=self.family.id,
+                name="香菜",
+                category="调味",
+                default_unit="份",
+                unit_conversions=[],
+                quantity_tracking_mode=IngredientQuantityTrackingMode.NOT_TRACK_QUANTITY,
+                default_storage="冷藏",
+                default_expiry_mode=IngredientExpiryMode.NONE,
+                notes="",
+            )
+            recipe = Recipe(
+                id="recipe-e2e-shortage-shopping",
+                family_id=self.family.id,
+                title="番茄香菜汤",
+                servings=2,
+                prep_minutes=15,
+                difficulty=Difficulty.EASY,
+                tips="",
+                scene_tags=["家常菜"],
+                created_by=self.user.id,
+                updated_by=self.user.id,
+            )
+            db.add_all([herb, recipe])
+            db.flush()
+            db.add_all(
+                [
+                    RecipeIngredient(
+                        id="recipe-e2e-shortage-tomato",
+                        recipe_id=recipe.id,
+                        ingredient_id="ingredient-tomato",
+                        ingredient_name="番茄",
+                        quantity=Decimal("5"),
+                        unit="个",
+                        note="",
+                        sort_order=0,
+                    ),
+                    RecipeIngredient(
+                        id="recipe-e2e-shortage-herb",
+                        recipe_id=recipe.id,
+                        ingredient_id=herb.id,
+                        ingredient_name=herb.name,
+                        quantity=Decimal("1"),
+                        unit="份",
+                        note="少许",
+                        sort_order=1,
+                    ),
+                ]
+            )
+            db.commit()
+            provider = RecipeShortageShoppingProvider(recipe_id=recipe.id)
+
+        with patch("app.ai.workspace_service.get_chat_provider", return_value=provider):
+            preview_response = self.client.post(
+                "/api/ai/chat",
+                json={"message": "预览番茄香菜汤够不够做"},
+            )
+            self.assertEqual(preview_response.status_code, 200, preview_response.text)
+            preview_data = preview_response.json()
+            self.assertEqual(
+                [card["type"] for card in preview_data["included"]["result_cards"]],
+                ["recipe_shortage"],
+            )
+            shopping_response = self.client.post(
+                "/api/ai/chat",
+                json={
+                    "message": "把缺少的食材加入购物清单",
+                    "conversation_id": preview_data["conversation_id"],
+                },
+            )
+            self.assertEqual(shopping_response.status_code, 200, shopping_response.text)
+            shopping_data = shopping_response.json()
+            approval = shopping_data["included"]["approvals"][0]
+
+            with self.SessionLocal() as db:
+                self.assertEqual(db.scalar(select(func.count()).select_from(ShoppingListItem)), 0)
+                self.assertEqual(db.scalar(select(func.count()).select_from(RecipeCookLog)), 0)
+                inventory = db.get(InventoryItem, "inventory-tomato")
+                assert inventory is not None
+                self.assertEqual(inventory.consumed_quantity, Decimal("0"))
+
+            with self.client.stream(
+                "POST",
+                f"/api/ai/conversations/{shopping_data['conversation_id']}/approvals/{approval['id']}/decision/stream",
+                json={
+                    "decision": "approved",
+                    "draft_version": approval["draft_version"],
+                    "values": approval["initial_values"],
+                },
+            ) as stream_response:
+                self.assertEqual(stream_response.status_code, 200)
+                "".join(stream_response.iter_text())
+
+        self.assertEqual(provider.calls, 3)
+        self.assertEqual(
+            set(provider.read_ingredient_ids),
+            {"ingredient-tomato", herb.id},
+        )
+        with self.SessionLocal() as db:
+            shopping_items = list(db.scalars(select(ShoppingListItem).order_by(ShoppingListItem.title)))
+            self.assertEqual(len(shopping_items), 2)
+            presence = next(item for item in shopping_items if item.ingredient_id == herb.id)
+            self.assertEqual(
+                presence.quantity_mode,
+                IngredientQuantityTrackingMode.NOT_TRACK_QUANTITY,
+            )
+            self.assertEqual(presence.display_label, "需要补充")
+            self.assertEqual(db.scalar(select(func.count()).select_from(RecipeCookLog)), 0)
+            inventory = db.get(InventoryItem, "inventory-tomato")
+            assert inventory is not None
+            self.assertEqual(inventory.consumed_quantity, Decimal("0"))
+
     def test_completed_ingredient_item_builds_stock_continuation_from_committed_row(self) -> None:
         from app.ai.workflows.orchestrator.product_continuations import (
             build_shopping_to_stock_continuation,

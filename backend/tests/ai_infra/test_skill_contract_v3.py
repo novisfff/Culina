@@ -42,6 +42,14 @@ EXPECTED_SKILL_MODES = {
 }
 
 EXPECTED_HANDOFFS = {
+    "recipe_cook": {
+        "recipe_shortage": (
+            "shopping_list",
+            "shopping_list",
+            "shopping_list",
+            "recipe_shortage_to_shopping.v1",
+        ),
+    },
     "recipe_draft": {
         "missing_ingredient": (
             "ingredient_profile",

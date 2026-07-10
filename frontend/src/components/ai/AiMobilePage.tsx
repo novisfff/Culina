@@ -72,6 +72,7 @@ type Props = {
     partId: string,
   ) => void;
   isInventoryActionPending: boolean;
+  onPromptAction: (prompt: string) => void;
   onCancelSending: () => void;
   onOpenRunDebug?: (runId: string) => void;
 };
@@ -251,6 +252,8 @@ export function AiMobilePage(props: Props) {
                 onAddRecommendationToPlan={props.onAddRecommendationToPlan}
                 onInventoryAction={props.onInventoryAction}
                 isInventoryActionPending={props.isInventoryActionPending}
+                onPromptAction={props.onPromptAction}
+                isPromptActionPending={props.isSending}
                 onOpenRunDebug={props.onOpenRunDebug}
               />
             ))}

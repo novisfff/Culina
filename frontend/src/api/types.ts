@@ -718,7 +718,8 @@ export type AiResultCardType =
   | 'shopping_list_draft'
   | 'meal_log_draft'
   | 'food_profile_draft'
-  | 'ui_actions';
+  | 'ui_actions'
+  | 'recipe_shortage';
 export type AiTaskDraftType = 'recipe' | 'recipe_cook' | 'ingredient_profile' | 'shopping_list' | 'meal_plan' | 'meal_log' | 'food_profile' | 'inventory_operation' | 'composite_operation';
 export type AiApprovalDecision = 'approved' | 'rejected';
 

@@ -81,6 +81,29 @@ class ShoppingToStockState(ContinuationStateModel):
         return self
 
 
+class RecipeShoppingShortage(ContinuationStateModel):
+    ingredientId: EntityId
+    ingredientName: ShortText
+    shortageType: Literal["quantity", "presence"]
+    quantity: QuantityText | None = None
+    unit: ShortText | None = None
+
+    @model_validator(mode="after")
+    def validate_shortage_payload(self) -> "RecipeShoppingShortage":
+        if self.shortageType == "quantity":
+            valid = self.quantity is not None and self.unit is not None
+        else:
+            valid = self.quantity is None and self.unit is None
+        if not valid:
+            raise ValueError("quantity fields must match shortageType")
+        return self
+
+
+class RecipeShortageToShoppingState(ContinuationStateModel):
+    recipeId: EntityId
+    shortages: Annotated[list[RecipeShoppingShortage], Field(min_length=1, max_length=50)]
+
+
 CONTINUATION_STATE_ADAPTERS: dict[str, TypeAdapter[Any]] = {
     "recipe_missing_ingredient.v1": TypeAdapter(RecipeMissingIngredientState),
     "shopping_missing_target.v1": TypeAdapter(ShoppingMissingTargetState),
@@ -90,6 +113,7 @@ CONTINUATION_STATE_ADAPTERS: dict[str, TypeAdapter[Any]] = {
     "inventory_unit_conversion.v1": TypeAdapter(InventoryUnitConversionState),
     "ready_food_stock.v1": TypeAdapter(ReadyFoodStockState),
     "shopping_to_stock.v1": TypeAdapter(ShoppingToStockState),
+    "recipe_shortage_to_shopping.v1": TypeAdapter(RecipeShortageToShoppingState),
 }
 
 CONTINUATION_STATE_SCHEMAS: dict[str, dict[str, Any]] = {
@@ -102,4 +126,7 @@ def validate_continuation_state(schema_key: str, state: dict[str, Any]) -> dict[
     if adapter is None:
         raise ValueError(f"Unknown continuation state schema: {schema_key}")
     validated = adapter.validate_python(state, strict=True)
-    return validated.model_dump(mode="json")
+    return validated.model_dump(
+        mode="json",
+        exclude_none=schema_key == "recipe_shortage_to_shopping.v1",
+    )
