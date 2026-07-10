@@ -13,6 +13,7 @@ from app.ai.workflows.runner_support.approval_resume import (
     approval_waiting_state_patch,
     continuation_resume_state,
     continuation_artifact,
+    continuation_skill_start_event,
 )
 from app.ai.workflows.orchestrator.continuation import normalize_continuation
 from app.ai.workflows.orchestrator.product_continuations import (
@@ -27,7 +28,7 @@ from app.ai.workflows.runner_support.run_summary import (
     record_continuation_rejected,
 )
 from app.ai.workflows.state import WorkspaceGraphState
-from app.models.domain import AIAgentRun, AIApprovalRequest, AIConversation
+from app.models.domain import AIAgentRun, AIApprovalRequest, AIConversation, AIRunEvent
 
 if TYPE_CHECKING:
     from app.ai.workflows.runner import WorkspaceGraphRunner
@@ -189,6 +190,12 @@ class ApprovalResumeHandler:
             )
             if not should_continue and run is not None:
                 self._record_continuation_rejection(run, resolved_artifact)
+            if should_continue:
+                self._publish_resumed_skill_start(
+                    state=state,
+                    artifact=resolved_artifact,
+                    injected_skill_keys=injected_skill_keys,
+                )
             next_status = "running" if should_continue else "completed"
             if run is not None:
                 run.status = next_status
@@ -426,6 +433,12 @@ class ApprovalResumeHandler:
             )
             if not should_continue and run is not None:
                 self._record_continuation_rejection(run, resolved_artifact)
+            if should_continue:
+                self._publish_resumed_skill_start(
+                    state=state,
+                    artifact=resolved_artifact,
+                    injected_skill_keys=injected_skill_keys,
+                )
             next_status = "running" if should_continue else "completed"
             if not should_continue:
                 if run is not None:
@@ -479,6 +492,34 @@ class ApprovalResumeHandler:
         summary = dict(run.context_summary or {})
         record_continuation_rejected(summary, workflow_id=workflow_id)
         run.context_summary = summary
+
+    def _publish_resumed_skill_start(
+        self,
+        *,
+        state: WorkspaceGraphState,
+        artifact: dict[str, Any],
+        injected_skill_keys: list[str],
+    ) -> None:
+        payload = artifact.get("payload") if isinstance(artifact.get("payload"), dict) else {}
+        skill_key = str(payload.get("resumeSkillKey") or "").strip()
+        existing_keys = set(state.get("injected_skill_keys") or [])
+        if not skill_key or skill_key in existing_keys or skill_key not in injected_skill_keys:
+            return
+        display_name = self.runner.skill_registry.get(skill_key).manifest.name
+        update = continuation_skill_start_event(
+            run_id=state["run_id"],
+            artifact=artifact,
+            skill_key=skill_key,
+            display_name=display_name,
+        )
+        event_id = str(update["data"]["id"])
+        if self.runner.db.get(AIRunEvent, event_id) is not None:
+            return
+        writer = self.runner._persistent_progress_writer(
+            self.runner._optional_stream_writer(),
+            state,
+        )
+        writer(update)
 
     def _consume_resume_artifact(
         self,

@@ -705,6 +705,20 @@ class AIOperationalQualityMetricsDTO(BaseModel):
     continuationRejectedCount: int = 0
 
 
+class AITokenUsageWindowDTO(BaseModel):
+    hours: int = 0
+    exchangeCount: int = 0
+    inputTokens: int = 0
+    outputTokens: int = 0
+    totalTokens: int = 0
+    cachedTokens: int = 0
+    estimatedCostUsd: float = 0.0
+
+
+class AITokenUsageMetricsDTO(BaseModel):
+    windows: dict[str, AITokenUsageWindowDTO] = Field(default_factory=dict)
+
+
 class AIQualityRecentRunDTO(BaseModel):
     id: str
     agent_key: str
@@ -736,6 +750,7 @@ class AIQualityMetricsResponse(BaseModel):
     totals: AIQualityTotalsDTO
     trace_metrics: AITraceQualityMetricsDTO = Field(default_factory=AITraceQualityMetricsDTO)
     operational_metrics: AIOperationalQualityMetricsDTO = Field(default_factory=AIOperationalQualityMetricsDTO)
+    token_usage: AITokenUsageMetricsDTO = Field(default_factory=AITokenUsageMetricsDTO)
     recent_runs: list[AIQualityRecentRunDTO] = Field(default_factory=list)
 
 
