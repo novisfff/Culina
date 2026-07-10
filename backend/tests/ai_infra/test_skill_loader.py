@@ -4,6 +4,22 @@ from app.services.ai_operations.registry import draft_operation_registry
 BACKEND_DIR = Path(__file__).resolve().parents[2]
 
 
+def test_ai_assistant_standard_documents_phase3_product_loop_terminals() -> None:
+    text = (BACKEND_DIR.parent / "docs" / "ai-assistant-standards.md").read_text(encoding="utf-8")
+
+    assert "## 9. 产品闭环终止条件" in text
+    for required_text in (
+        "shopping_to_stock.v1",
+        "recipe_shortage_to_shopping.v1",
+        "餐食记录与所选成品库存扣减在同一事务中",
+        "当前消息、当前家庭",
+        "inventory_intake_candidates",
+        "meal_idea_subject.v1",
+        "拒绝、取消或失败不得自动生成下一份草稿",
+    ):
+        assert required_text in text
+
+
 class AISkillLoaderTestCase(AIAgentInfraTestCase):
         def test_skill_catalog_scans_skill_markdown_and_enforces_platform_contracts(self) -> None:
             import yaml
