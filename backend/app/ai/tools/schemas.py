@@ -373,10 +373,25 @@ MEAL_LOG_DRAFT_SCHEMA: dict[str, Any] = {
                 "properties": {
                     "foodId": {"type": "string", "minLength": 1},
                     "name": {"type": "string", "maxLength": 80},
+                    "foodType": {"type": "string", "enum": ["selfMade", "takeout", "diningOut", "readyMade", "instant", "packaged"]},
                     "servings": {"type": "number", "exclusiveMinimum": 0},
                     "note": {"type": "string", "maxLength": 255},
                     "rating": {"type": ["number", "null"], "minimum": 0.5, "maximum": 5},
+                    "deductStock": {"type": "boolean", "default": False},
+                    "stockQuantity": {"type": "string", "pattern": "^[0-9]+(?:\\.[0-9]+)?$"},
+                    "stockUnit": {"type": "string", "minLength": 1, "maxLength": 32},
+                    "stockCurrentQuantity": {"type": "string", "pattern": "^[0-9]+(?:\\.[0-9]+)?$"},
+                    "stockAfterQuantity": {"type": "string", "pattern": "^[0-9]+(?:\\.[0-9]+)?$"},
                 },
+                "allOf": [
+                    {
+                        "if": {
+                            "required": ["deductStock"],
+                            "properties": {"deductStock": {"const": True}},
+                        },
+                        "then": {"required": ["stockQuantity", "stockUnit"]},
+                    }
+                ],
             },
         },
         "notes": {"type": "string", "maxLength": 1000},

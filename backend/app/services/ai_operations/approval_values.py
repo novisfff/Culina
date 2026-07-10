@@ -51,6 +51,7 @@ def validate_approval_values(
             user_id=resolve_user_id(draft.conversation_id),
             conversation_id=draft.conversation_id,
             payload=draft_value,
+            phase="approval",
         )
     }
 

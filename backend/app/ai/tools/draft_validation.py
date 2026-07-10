@@ -18,6 +18,7 @@ from app.schemas.recipes import CookRecipeRequest, CreateRecipeRequest, UpdateRe
 from app.schemas.shopping import CreateShoppingListItemRequest
 from app.repos.media import build_media_map, get_media_assets_for_entities
 from app.services.clock import today_for_family
+from app.services.food_stock_quantity import normalize_food_stock_quantity, validate_food_stock_quantity_precision
 from app.services.ingredient_units import (
     UnitConversionError,
     convert_quantity_from_default_unit,
@@ -30,6 +31,10 @@ from app.services.serializers import serialize_food, serialize_food_plan_item, s
 
 
 READY_LIKE_FOOD_TYPES = {FoodType.READY_MADE.value, FoodType.INSTANT.value, FoodType.PACKAGED.value}
+
+
+def _decimal_text(value: Decimal) -> str:
+    return format(value.normalize(), "f")
 
 
 def normalize_shopping_list_draft(db: Session, *, family_id: str, conversation_id: str, payload: Any) -> dict[str, Any]:
@@ -381,7 +386,14 @@ def _normalize_operation_id(value: Any) -> str:
     return text[:64] if text else create_id("ai_op_item")
 
 
-def normalize_meal_log_draft(db: Session, *, family_id: str, user_id: str | None = None, payload: Any) -> dict[str, Any]:
+def normalize_meal_log_draft(
+    db: Session,
+    *,
+    family_id: str,
+    user_id: str | None = None,
+    payload: Any,
+    phase: str = "proposal",
+) -> dict[str, Any]:
     if not isinstance(payload, dict):
         raise ValueError("餐食记录草稿格式不正确")
     if payload.get("action"):
@@ -401,15 +413,49 @@ def normalize_meal_log_draft(db: Session, *, family_id: str, user_id: str | None
             raise ValueError("餐食记录食物项格式不正确")
         food_id = str(item.get("foodId") or item.get("food_id") or "")
         food = foods_by_id[food_id]
-        normalized_foods.append(
-            {
-                "foodId": food.id,
-                "name": food.name,
-                "servings": max(float(item.get("servings") or 1), 0.1),
-                "note": str(item.get("note") or ""),
-                "rating": item.get("rating"),
-            }
-        )
+        food_type = food.type.value if hasattr(food.type, "value") else str(food.type)
+        current_quantity = normalize_food_stock_quantity(Decimal(str(food.stock_quantity or 0)))
+        normalized_food = {
+            "foodId": food.id,
+            "name": food.name,
+            "foodType": food_type,
+            "servings": max(float(item.get("servings") or 1), 0.1),
+            "note": str(item.get("note") or ""),
+            "rating": item.get("rating"),
+            "deductStock": False,
+        }
+        if food_type in READY_LIKE_FOOD_TYPES:
+            normalized_food["stockCurrentQuantity"] = _decimal_text(current_quantity)
+            if food.stock_unit:
+                normalized_food["stockUnit"] = food.stock_unit
+        if item.get("deductStock") is True:
+            if food_type not in READY_LIKE_FOOD_TYPES:
+                raise ValueError("只有成品、速食或包装食品支持随餐食记录扣减库存")
+            stock_unit = str(item.get("stockUnit") or "").strip()
+            if not food.stock_unit:
+                raise ValueError(f"{food.name}尚未设置库存单位")
+            if stock_unit != food.stock_unit:
+                raise ValueError(f"{food.name}当前库存单位是 {food.stock_unit}，不能按 {stock_unit or '空单位'} 扣减")
+            try:
+                stock_quantity = Decimal(str(item.get("stockQuantity") or ""))
+            except Exception as exc:
+                raise ValueError(f"{food.name}扣减数量格式不正确") from exc
+            if stock_quantity <= 0:
+                raise ValueError(f"{food.name}扣减数量必须大于 0")
+            validate_food_stock_quantity_precision(stock_quantity, field_label=f"{food.name}扣减数量")
+            stock_quantity = normalize_food_stock_quantity(stock_quantity)
+            if phase == "proposal" and stock_quantity > current_quantity:
+                raise ValueError(f"{food.name}当前库存不足，最多可扣减 {_decimal_text(current_quantity)}{food.stock_unit}")
+            normalized_food.update(
+                {
+                    "deductStock": True,
+                    "stockQuantity": _decimal_text(stock_quantity),
+                    "stockUnit": food.stock_unit,
+                    "stockCurrentQuantity": _decimal_text(current_quantity),
+                    "stockAfterQuantity": _decimal_text(current_quantity - stock_quantity),
+                }
+            )
+        normalized_foods.append(normalized_food)
 
     plan_item_id = str(payload.get("planItemId") or payload.get("plan_item_id") or "") or None
     plan_item = None

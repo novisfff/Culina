@@ -3,12 +3,13 @@ from __future__ import annotations
 from collections import Counter
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Literal
 
 from sqlalchemy.orm import Session
 
 
 AssertUpdatedAt = Callable[..., None]
+DraftNormalizePhase = Literal["proposal", "approval"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -19,6 +20,7 @@ class DraftNormalizeContext:
     user_id: str
     conversation_id: str
     payload: dict[str, Any]
+    phase: DraftNormalizePhase = "proposal"
 
 
 @dataclass(frozen=True, slots=True)
@@ -275,4 +277,3 @@ def default_business_entity_records(entity_payload: Any, entity_type: str) -> li
     if isinstance(entity_payload.get("items"), list):
         return [item for item in entity_payload.get("items") or [] if isinstance(item, dict)]
     return [entity_payload]
-

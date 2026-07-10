@@ -343,6 +343,209 @@ class RecipeShortageShoppingProvider(BaseChatProvider):
 
 
 class AIProductClosedLoopsTestCase(AIAgentInfraTestCase):
+    @staticmethod
+    def _meal_log_stock_payload(food: Food, *, quantity: str = "1", unit: str = "份") -> dict:
+        return {
+            "draftType": "meal_log",
+            "schemaVersion": "meal_log.v1",
+            "date": date.today().isoformat(),
+            "mealType": "dinner",
+            "participantUserIds": [],
+            "foods": [
+                {
+                    "foodId": food.id,
+                    "name": food.name,
+                    "servings": 1,
+                    "note": "",
+                    "deductStock": True,
+                    "stockQuantity": quantity,
+                    "stockUnit": unit,
+                }
+            ],
+            "notes": "AI 餐食记录",
+            "mood": "",
+            "mediaIds": [],
+        }
+
+    def test_approved_meal_log_can_consume_ready_food_stock(self) -> None:
+        with self.SessionLocal() as db:
+            food = Food(
+                id="food-meal-stock-ready",
+                family_id=self.family.id,
+                name="即食鸡胸",
+                type=FoodType.READY_MADE,
+                category="即食",
+                flavor_tags=[],
+                scene_tags=["晚餐"],
+                suitable_meal_types=["dinner"],
+                scene="晚餐",
+                notes="",
+                routine_note="",
+                stock_quantity=Decimal("3"),
+                stock_unit="份",
+                storage_location="冷藏",
+                favorite=False,
+                created_by=self.user.id,
+                updated_by=self.user.id,
+            )
+            db.add(food)
+            db.flush()
+            service, draft, approval = self._create_ai_approval_for_test(
+                db,
+                draft_type="meal_log",
+                payload=self._meal_log_stock_payload(food),
+                suffix="meal-stock-success",
+            )
+            self.assertEqual(
+                draft.payload["foods"][0],
+                {
+                    "foodId": food.id,
+                    "name": food.name,
+                    "foodType": "readyMade",
+                    "servings": 1.0,
+                    "note": "",
+                    "rating": None,
+                    "deductStock": True,
+                    "stockQuantity": "1",
+                    "stockUnit": "份",
+                    "stockCurrentQuantity": "3",
+                    "stockAfterQuantity": "2",
+                },
+            )
+
+            result = self._approve_ai_approval_for_test(service, draft=draft, approval=approval)
+
+            self.assertEqual(result["operation"]["status"], "succeeded")
+            db.refresh(food)
+            self.assertEqual(food.stock_quantity, Decimal("2"))
+            self.assertEqual(db.scalar(select(func.count()).select_from(MealLog)), 1)
+
+    def test_ready_food_in_meal_log_does_not_consume_stock_by_default(self) -> None:
+        with self.SessionLocal() as db:
+            food = Food(
+                id="food-meal-stock-default-off",
+                family_id=self.family.id,
+                name="常温牛奶",
+                type=FoodType.PACKAGED,
+                category="乳品",
+                flavor_tags=[],
+                scene_tags=["早餐"],
+                suitable_meal_types=["breakfast"],
+                scene="早餐",
+                notes="",
+                routine_note="",
+                stock_quantity=Decimal("6"),
+                stock_unit="盒",
+                storage_location="常温",
+                favorite=False,
+                created_by=self.user.id,
+                updated_by=self.user.id,
+            )
+            db.add(food)
+            db.flush()
+            payload = self._meal_log_stock_payload(food, unit="盒")
+            payload["foods"][0].pop("deductStock")
+            payload["foods"][0].pop("stockQuantity")
+            payload["foods"][0].pop("stockUnit")
+            service, draft, approval = self._create_ai_approval_for_test(
+                db,
+                draft_type="meal_log",
+                payload=payload,
+                suffix="meal-stock-default-off",
+            )
+
+            result = self._approve_ai_approval_for_test(service, draft=draft, approval=approval)
+
+            self.assertEqual(result["operation"]["status"], "succeeded")
+            db.refresh(food)
+            self.assertEqual(food.stock_quantity, Decimal("6"))
+            self.assertFalse(draft.payload["foods"][0]["deductStock"])
+
+    def test_meal_log_rejects_ready_food_stock_unit_mismatch(self) -> None:
+        with self.SessionLocal() as db:
+            food = Food(
+                id="food-meal-stock-unit",
+                family_id=self.family.id,
+                name="速食燕麦杯",
+                type=FoodType.INSTANT,
+                category="早餐",
+                flavor_tags=[],
+                scene_tags=["早餐"],
+                suitable_meal_types=["breakfast"],
+                scene="早餐",
+                notes="",
+                routine_note="",
+                stock_quantity=Decimal("2"),
+                stock_unit="杯",
+                storage_location="常温",
+                favorite=False,
+                created_by=self.user.id,
+                updated_by=self.user.id,
+            )
+            db.add(food)
+            db.flush()
+
+            with self.assertRaisesRegex(ValueError, "当前库存单位是 杯"):
+                self._create_ai_approval_for_test(
+                    db,
+                    draft_type="meal_log",
+                    payload=self._meal_log_stock_payload(food, unit="份"),
+                    suffix="meal-stock-unit",
+                )
+
+    def test_meal_log_rejects_stock_deduction_for_recipe_food(self) -> None:
+        with self.SessionLocal() as db:
+            food = db.get(Food, "food-tomato")
+            assert food is not None
+
+            with self.assertRaisesRegex(ValueError, "只有成品、速食或包装食品"):
+                self._create_ai_approval_for_test(
+                    db,
+                    draft_type="meal_log",
+                    payload=self._meal_log_stock_payload(food),
+                    suffix="meal-stock-recipe-food",
+                )
+
+    def test_meal_log_and_ready_food_deduction_roll_back_together(self) -> None:
+        with self.SessionLocal() as db:
+            food = Food(
+                id="food-meal-stock-race",
+                family_id=self.family.id,
+                name="盒装酸奶",
+                type=FoodType.READY_MADE,
+                category="乳品",
+                flavor_tags=[],
+                scene_tags=["早餐"],
+                suitable_meal_types=["breakfast"],
+                scene="早餐",
+                notes="",
+                routine_note="",
+                stock_quantity=Decimal("3"),
+                stock_unit="盒",
+                storage_location="冷藏",
+                favorite=False,
+                created_by=self.user.id,
+                updated_by=self.user.id,
+            )
+            db.add(food)
+            db.flush()
+            service, draft, approval = self._create_ai_approval_for_test(
+                db,
+                draft_type="meal_log",
+                payload=self._meal_log_stock_payload(food, unit="盒"),
+                suffix="meal-stock-rollback",
+            )
+            food.stock_quantity = Decimal("0")
+            db.flush()
+
+            result = self._approve_ai_approval_for_test(service, draft=draft, approval=approval)
+
+            self.assertEqual(result["operation"]["status"], "failed")
+            self.assertEqual(db.scalar(select(func.count()).select_from(MealLog)), 0)
+            db.refresh(food)
+            self.assertEqual(food.stock_quantity, Decimal("0"))
+            self.assertEqual(result["draft"]["status"], "pending_retry")
+
     def test_recipe_shortage_card_preserves_quantitative_and_presence_ids(self) -> None:
         from app.ai.tools.catalog.recipe import recipe_preview_cook
         from app.ai.workflows.compact_context import compact_artifacts

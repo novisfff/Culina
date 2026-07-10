@@ -15,6 +15,7 @@ from app.models.domain import Food, FoodPlanItem, MealLog, MealLogFood
 from app.repos.media import build_media_map, get_media_assets_for_entities
 from app.schemas.meal_logs import CreateMealLogRequest, UpdateMealLogRequest
 from app.services.activity import log_activity
+from app.services.food_stock import apply_food_stock_consume
 from app.services.media import bind_media_assets, replace_media_assets
 from app.services.serializers import serialize_meal_log
 
@@ -101,12 +102,30 @@ def execute_meal_log_draft(
         return serialize_meal_log(refreshed, media_map), [refreshed.id]
 
     effective_payload = payload.get("payload") if action == "create" and isinstance(payload.get("payload"), dict) else payload
+    effective_foods = [item for item in effective_payload.get("foods") or [] if isinstance(item, dict)]
+    deducting_ids = {
+        str(item.get("foodId") or "")
+        for item in effective_foods
+        if item.get("deductStock") is True and str(item.get("foodId") or "")
+    }
+    locked_foods = {
+        food.id: food
+        for food in db.scalars(
+            select(Food)
+            .where(Food.family_id == family_id, Food.id.in_(deducting_ids))
+            .with_for_update()
+        )
+    } if deducting_ids else {}
+    if set(locked_foods) != deducting_ids:
+        raise ValueError("餐食记录扣减项包含不存在或不属于当前家庭的食物")
     food_entries = []
-    for item in effective_payload.get("foods") or []:
+    for item in effective_foods:
         food_id = item.get("foodId")
         if not food_id:
             raise ValueError("餐食记录草稿必须引用食物库里的食物")
-        food = db.scalar(select(Food).where(Food.id == food_id, Food.family_id == family_id))
+        food = locked_foods.get(str(food_id)) or db.scalar(
+            select(Food).where(Food.id == food_id, Food.family_id == family_id)
+        )
         if food is None:
             raise ValueError("草稿包含不属于当前家庭的食物")
         food_entries.append((food, item))
@@ -149,6 +168,18 @@ def execute_meal_log_draft(
             )
         )
     db.flush()
+    for food, item in food_entries:
+        if item.get("deductStock") is not True:
+            continue
+        apply_food_stock_consume(
+            db,
+            family_id=family_id,
+            user_id=user_id,
+            food=food,
+            quantity=Decimal(str(item["stockQuantity"])),
+            unit=str(item["stockUnit"]),
+            note=f"AI 餐食记录 {meal_log.id}",
+        )
     if request.media_ids:
         bind_media_assets(
             db,

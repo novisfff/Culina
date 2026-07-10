@@ -212,6 +212,26 @@ def test_catalog_skill_docs_use_v3_sections_and_typed_continuation_language() ->
         assert "nextDraftType" not in text, path
 
 
+def test_meal_log_skill_requires_explicit_ready_food_stock_deduction_contract() -> None:
+    registry = build_workspace_skill_registry()
+    manifest = registry.get("meal_log").manifest
+    skill_path = Path(__file__).resolve().parents[2] / "app" / "ai" / "skills" / "catalog" / "meal-record" / "SKILL.md"
+    skill_text = skill_path.read_text(encoding="utf-8")
+
+    assert any("扣减" in example and "库存" in example for example in manifest.routing.include_examples)
+    for required_text in (
+        "deductStock",
+        "stockQuantity",
+        "stockUnit",
+        "readyMade",
+        "instant",
+        "packaged",
+        "不得仅因 Food 出现在餐食记录中推断扣库存",
+        "MealLog 创建和所有已选择的库存扣减必须在同一事务中",
+    ):
+        assert required_text in skill_text
+
+
 def test_routing_record_excludes_execution_only_contracts() -> None:
     manifest = build_workspace_skill_registry().get("shopping_list").manifest
 

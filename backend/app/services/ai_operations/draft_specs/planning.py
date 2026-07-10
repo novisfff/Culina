@@ -131,6 +131,7 @@ def _normalize_meal_log(context: DraftNormalizeContext) -> dict[str, Any]:
         family_id=context.family_id,
         user_id=context.user_id,
         payload=context.payload,
+        phase=context.phase,
     )
 
 

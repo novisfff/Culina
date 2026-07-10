@@ -490,6 +490,9 @@ export function AiWorkspace({
         label: food.name,
         description: [food.category, FOOD_TYPE_LABELS[food.type] ?? food.type].filter(Boolean).join(' · '),
         imageUrl: resolveMediaUrl(food.images?.[0], 'thumb') ?? '/assets/ai-food-ingredient-placeholder.png',
+        unit: food.stock_unit,
+        foodType: food.type,
+        stockQuantity: food.stock_quantity,
       }));
     }
     const items = await api.getIngredients({ q: params.query, limit: params.limit, offset: params.offset });

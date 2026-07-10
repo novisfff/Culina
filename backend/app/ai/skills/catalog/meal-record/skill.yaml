@@ -44,6 +44,7 @@ examples:
 - 把那顿番茄小炒打 4 分。
 - 昨天早餐吃了盒装牛奶和面包。
 - 刚才加餐吃了蓝莓酸奶。
+- 刚才加餐吃了一盒蓝莓酸奶，记录并扣减 1 盒库存。
 routing:
   modes: [query, create, update]
   include_examples:
@@ -53,6 +54,7 @@ routing:
   - 把那顿番茄小炒打 4 分。
   - 昨天早餐吃了盒装牛奶和面包。
   - 刚才加餐吃了蓝莓酸奶。
+  - 刚才加餐吃了一盒蓝莓酸奶，记录并扣减 1 盒库存。
   exclude_examples:
   - 安排明天晚餐吃番茄炒蛋。
   - 新增蓝莓酸奶食物资料。
@@ -64,6 +66,9 @@ routing:
   - with: food_profile
     when: 用户要维护 Food 资料而不是记录一次用餐事件
     route_to: food_profile
+  - with: recipe_cook
+    when: 用户要按菜谱做菜并联动食材库存，而不是记录成品、速食或包装食品的已发生用餐
+    route_to: recipe_cook
 handoffs:
   missing_food:
     target_skill: food_profile

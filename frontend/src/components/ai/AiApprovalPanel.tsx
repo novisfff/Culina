@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { AiApprovalRequest, AiGeneratedRecipeDraft, Difficulty, Food, Ingredient } from '../../api/types';
 import { FoodRatingInput } from '../foods/FoodWorkspacePrimitives';
 import { resolveMediaUrl } from '../../lib/assets';
-import { formatFoodStockAmount } from '../../lib/foodStockQuantity';
+import { formatFoodStockAmount, parseFoodStockQuantity } from '../../lib/foodStockQuantity';
 import { tracksIngredientQuantity } from '../../lib/ingredientTracking';
 import { RECIPE_STEP_ICON_OPTIONS } from '../recipes/RecipeWorkspaceOptions';
 import { INVENTORY_STORAGE_PRESETS, buildUnitPresetOptions } from '../ingredients/ingredientWorkspaceForms';
@@ -54,6 +54,7 @@ const MEAL_LOG_MOOD_OPTIONS = [
   { value: '聚餐', label: '聚餐' },
   { value: '孩子喜欢', label: '孩子喜欢' },
 ];
+const READY_LIKE_FOOD_TYPES = new Set(['readyMade', 'instant', 'packaged']);
 const INVENTORY_ACTION_OPTIONS = [
   { value: 'restock', label: '补货' },
   { value: 'consume', label: '消耗' },
@@ -831,6 +832,12 @@ function mealLogFoodsFromDraft(value: unknown) {
     name: asText(item.name) || asText(item.foodName),
     servings: asNumber(item.servings, 1),
     note: asText(item.note),
+    foodType: asText(item.foodType),
+    deductStock: item.deductStock === true,
+    stockQuantity: asText(item.stockQuantity),
+    stockUnit: asText(item.stockUnit),
+    stockCurrentQuantity: asText(item.stockCurrentQuantity),
+    stockAfterQuantity: asText(item.stockAfterQuantity),
   }));
 }
 
@@ -882,6 +889,17 @@ function validateMealLogDraftForSubmit(draft: Record<string, unknown>) {
   if (invalidFood) return '餐食记录里的食物必须从食物库选择；新食物请先创建食物资料';
   const invalidServing = foods.find((food) => typeof food.servings !== 'number' || !Number.isFinite(food.servings) || food.servings <= 0);
   if (invalidServing) return '每个食物项份数需要大于 0';
+  for (const food of foods) {
+    if (!food.deductStock) continue;
+    if (!READY_LIKE_FOOD_TYPES.has(food.foodType)) return '只有成品、速食或包装食品支持随餐食记录扣减库存';
+    if (!food.stockUnit) return `${food.name}尚未设置库存单位`;
+    const parsed = parseFoodStockQuantity(food.stockQuantity, `${food.name}扣减数量`);
+    if (parsed.error) return parsed.error;
+    const currentQuantity = Number(food.stockCurrentQuantity);
+    if (parsed.quantity !== null && Number.isFinite(currentQuantity) && parsed.quantity > currentQuantity) {
+      return `${food.name}当前最多只能扣减 ${food.stockCurrentQuantity}${food.stockUnit}`;
+    }
+  }
   return '';
 }
 
@@ -1084,6 +1102,9 @@ export function ApprovalPanel({
     label: food.name,
     description: [food.category, foodTypeText(food.type)].filter(Boolean).join(' · '),
     imageUrl: resolveMediaUrl(food.images?.[0], 'thumb') ?? AI_RESOURCE_IMAGE_FALLBACK,
+    unit: food.stock_unit,
+    foodType: food.type,
+    stockQuantity: food.stock_quantity,
   })), [foods]);
   const staticIngredientOptions = useMemo<AiResourceOption[]>(() => ingredients.map((ingredient) => ({
     id: ingredient.id,
@@ -2252,6 +2273,16 @@ export function ApprovalPanel({
                   </div>
                   {editableFoods.map((food, index) => {
                     const selectedFood = foodOptions.find((option) => option.id === asText(food.foodId) || option.label === asText(food.name)) ?? null;
+                    const foodType = asText(food.foodType) || selectedFood?.foodType || '';
+                    const isReadyLike = READY_LIKE_FOOD_TYPES.has(foodType);
+                    const stockUnit = asText(food.stockUnit) || selectedFood?.unit || '';
+                    const stockCurrentQuantity = asText(food.stockCurrentQuantity)
+                      || (selectedFood?.stockQuantity !== null && selectedFood?.stockQuantity !== undefined ? String(selectedFood.stockQuantity) : '');
+                    const currentStock = Number(stockCurrentQuantity);
+                    const requestedStock = Number(asText(food.stockQuantity));
+                    const afterStock = Number.isFinite(currentStock) && Number.isFinite(requestedStock)
+                      ? String(Number(Math.max(0, currentStock - requestedStock).toFixed(1)))
+                      : '';
                     return (
                       <div className="ai-meal-log-food-item" key={`${asText(food.name)}-${index}`}>
                         <div className="ai-meal-log-food-head">
@@ -2271,7 +2302,17 @@ export function ApprovalPanel({
                           disabled={readonly}
                           selectedOption={selectedFood}
                           loadOptions={loadApprovalResourceOptions}
-                          onSelect={(option) => updateMealLogFood(index, { foodId: option.id, food_id: option.id, name: option.label })}
+                          onSelect={(option) => updateMealLogFood(index, {
+                            foodId: option.id,
+                            food_id: option.id,
+                            name: option.label,
+                            foodType: option.foodType || '',
+                            deductStock: false,
+                            stockQuantity: undefined,
+                            stockUnit: option.unit || '',
+                            stockCurrentQuantity: option.stockQuantity !== null && option.stockQuantity !== undefined ? String(option.stockQuantity) : '',
+                            stockAfterQuantity: undefined,
+                          })}
                         />
                         <label className="ai-resource-field">
                           <span>份数</span>
@@ -2281,6 +2322,67 @@ export function ApprovalPanel({
                           <span>食物备注</span>
                           <textarea className="text-input" rows={2} value={asText(food.note)} disabled={readonly} placeholder="这份食物的补充说明" onChange={(event) => updateMealLogFood(index, { note: event.target.value })} />
                         </label>
+                        {isReadyLike && (
+                          <div className="ai-meal-log-stock-control">
+                            <label className="ai-meal-log-stock-toggle">
+                              <input
+                                type="checkbox"
+                                checked={food.deductStock}
+                                disabled={readonly || !stockUnit || !Number.isFinite(currentStock) || currentStock <= 0}
+                                onChange={(event) => {
+                                  const enabled = event.target.checked;
+                                  const defaultQuantity = asText(food.stockQuantity) || '1';
+                                  updateMealLogFood(index, {
+                                    deductStock: enabled,
+                                    stockQuantity: enabled ? defaultQuantity : undefined,
+                                    stockUnit,
+                                    stockCurrentQuantity,
+                                    stockAfterQuantity: enabled
+                                      ? String(Number(Math.max(0, currentStock - Number(defaultQuantity)).toFixed(1)))
+                                      : undefined,
+                                  });
+                                }}
+                              />
+                              <span>同时扣减库存</span>
+                            </label>
+                            <p>
+                              {stockUnit && stockCurrentQuantity
+                                ? `当前库存 ${stockCurrentQuantity} ${stockUnit}`
+                                : '当前食物尚未设置可扣减库存'}
+                            </p>
+                            {food.deductStock && (
+                              <div className="ai-meal-log-stock-fields">
+                                <label className="ai-resource-field">
+                                  <span>扣减数量</span>
+                                  <input
+                                    className="text-input"
+                                    type="number"
+                                    min={0.1}
+                                    max={Number.isFinite(currentStock) ? currentStock : undefined}
+                                    step={0.1}
+                                    value={asText(food.stockQuantity, '1')}
+                                    disabled={readonly}
+                                    onChange={(event) => {
+                                      const stockQuantity = event.target.value;
+                                      const quantity = Number(stockQuantity);
+                                      updateMealLogFood(index, {
+                                        stockQuantity,
+                                        stockAfterQuantity: Number.isFinite(currentStock) && Number.isFinite(quantity)
+                                          ? String(Number(Math.max(0, currentStock - quantity).toFixed(1)))
+                                          : '',
+                                      });
+                                    }}
+                                  />
+                                </label>
+                                <div className="ai-meal-log-stock-unit">
+                                  <span>库存单位</span>
+                                  <strong>{stockUnit}</strong>
+                                </div>
+                                <p>确认后预计剩余 {afterStock || asText(food.stockAfterQuantity)} {stockUnit}</p>
+                              </div>
+                            )}
+                          </div>
+                        )}
                         {!readonly && editableFoods.length > 1 && (
                           <button className="ghost-button ai-draft-remove-button" type="button" onClick={() => removeMealLogFood(index)}>
                             删除食物

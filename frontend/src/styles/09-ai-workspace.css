@@ -4360,6 +4360,81 @@
   white-space: nowrap;
 }
 
+.ai-meal-log-stock-control {
+  display: grid;
+  gap: 10px;
+  padding: 11px 12px;
+  border: 1px solid rgba(195, 143, 74, 0.2);
+  border-radius: var(--radius-sm);
+  background: rgba(255, 248, 224, 0.48);
+}
+
+.ai-meal-log-stock-toggle {
+  display: flex;
+  gap: 9px;
+  align-items: center;
+  color: var(--text);
+  font-size: 0.875rem;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.ai-meal-log-stock-toggle input {
+  width: 17px;
+  height: 17px;
+  margin: 0;
+  accent-color: var(--brand);
+}
+
+.ai-meal-log-stock-toggle:has(input:disabled) {
+  cursor: default;
+  opacity: 0.62;
+}
+
+.ai-meal-log-stock-control > p,
+.ai-meal-log-stock-fields > p {
+  margin: 0;
+  color: var(--text-soft);
+  font-size: 0.8125rem;
+  line-height: 1.45;
+}
+
+.ai-meal-log-stock-fields {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(100px, 0.6fr);
+  gap: 10px;
+  align-items: end;
+}
+
+.ai-meal-log-stock-fields > p {
+  grid-column: 1 / -1;
+  color: #8d6636;
+  font-weight: 700;
+}
+
+.ai-meal-log-stock-unit {
+  display: grid;
+  gap: 7px;
+}
+
+.ai-meal-log-stock-unit span {
+  color: var(--text-soft);
+  font-size: 0.8125rem;
+  font-weight: 700;
+}
+
+.ai-meal-log-stock-unit strong {
+  display: flex;
+  align-items: center;
+  min-height: 42px;
+  padding: 0 12px;
+  border: 1px solid rgba(147, 96, 63, 0.12);
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.7);
+  color: var(--text);
+  font-size: 0.875rem;
+}
+
 .ai-meal-log-reference-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -4826,6 +4901,14 @@
 
   .ai-meal-log-reference-grid {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .ai-meal-log-stock-fields {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .ai-meal-log-stock-fields > p {
+    grid-column: auto;
   }
 }
 

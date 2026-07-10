@@ -5,7 +5,7 @@ from typing import Any
 from sqlalchemy.orm import Session
 
 from app.services.ai_operations.registry import draft_operation_registry
-from app.services.ai_operations.registry_types import DraftNormalizeContext
+from app.services.ai_operations.registry_types import DraftNormalizeContext, DraftNormalizePhase
 
 
 def normalize_ai_draft_payload(
@@ -16,6 +16,7 @@ def normalize_ai_draft_payload(
     user_id: str,
     conversation_id: str,
     payload: Any,
+    phase: DraftNormalizePhase = "proposal",
 ) -> dict[str, Any]:
     if not isinstance(payload, dict):
         raise ValueError("草稿内容格式不正确")
@@ -27,6 +28,7 @@ def normalize_ai_draft_payload(
             user_id=user_id,
             conversation_id=conversation_id,
             payload=payload,
+            phase=phase,
         )
     )
 
