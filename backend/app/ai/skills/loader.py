@@ -187,6 +187,7 @@ class SkillDirectoryLoader:
                 output_type
                 for definition in definitions
                 for output_type in definition.output_types
+                if definition.name not in manifest.completion_policy.followup_required_tools
                 if output_type not in manifest.output_types
             }
         )

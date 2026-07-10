@@ -58,6 +58,9 @@ Skill catalog：
 
 ```text
 backend/app/ai/skills/catalog/
+  cooking-assistant/
+    SKILL.md
+    skill.yaml
   food-profile/
     SKILL.md
     skill.yaml
@@ -69,6 +72,8 @@ backend/app/ai/skills/catalog/
   recipe-draft/
   shopping-list/
 ```
+
+`cooking_assistant` 只在 `recipe_cook_page` 固定 Profile 中使用，不属于主工作台允许动态注入的 8 个业务 Skill；它只读取做菜现场并提出 `ui.propose_actions`，不生成业务草稿。
 
 存在真实分支复杂度的 Skill 可以使用 `references/workflows.md`。简单 Skill 的流程、确认规则和边界直接写在 `SKILL.md` 中。
 

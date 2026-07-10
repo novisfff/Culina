@@ -39,6 +39,14 @@ DAYS_INPUT: dict[str, Any] = {
     "additionalProperties": False,
     "properties": {"days": {"type": "integer", "minimum": 1, "maximum": 30}},
 }
+DAYS_LIMIT_INPUT: dict[str, Any] = {
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {
+        "days": {"type": "integer", "minimum": 1, "maximum": 30},
+        "limit": {"type": "integer", "minimum": 1, "maximum": 100},
+    },
+}
 DRAFT_INPUT: dict[str, Any] = {
     "type": "object",
     "additionalProperties": False,

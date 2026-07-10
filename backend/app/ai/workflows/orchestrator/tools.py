@@ -219,7 +219,16 @@ class OrchestratorToolGateway:
             self.state.read_outputs.setdefault(name, []).append(output)
         card = output.get("card") if isinstance(output.get("card"), dict) else None
         if card is not None:
-            self.state.result_card_outputs.append(card)
+            card_type = str(card.get("type") or "")
+            if self.injection_manager.allows_tool_output_type(
+                skill_keys=self.state.active_skill_keys,
+                tool_name=name,
+                output_type=card_type,
+                capability_policy=self.state.capability_policy,
+            ):
+                self.state.result_card_outputs.append(card)
+            elif definition is not None and definition.terminal_output:
+                raise ValueError(f"Orchestrator returned undeclared card type: {card_type}")
         if name == "human.request_input":
             raise_human_input_request(state=self.state, output=output)
         if side_effect != "draft":

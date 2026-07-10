@@ -4,7 +4,7 @@ from datetime import date, timedelta
 from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import selectinload
 
 from app.ai.tools.base import ToolContext, ToolDefinition
@@ -13,6 +13,7 @@ from app.ai.tools.draft_validation import normalize_inventory_operation_draft
 from app.ai.tools.registry import ToolRegistry
 from app.ai.tools.schemas import (
     DAYS_INPUT,
+    DAYS_LIMIT_INPUT,
     INVENTORY_OPERATION_DRAFT_SCHEMA,
     LIMIT_INPUT,
     draft_input_schema,
@@ -24,7 +25,8 @@ from app.ai.tools.catalog.inventory_unit_conversion import (
     unit_mismatch_from_tool_payload,
 )
 from app.core.utils import create_id
-from app.models.domain import InventoryItem
+from app.core.enums import IngredientQuantityTrackingMode
+from app.models.domain import Ingredient, InventoryItem
 from app.services.clock import today_for_family
 from app.services.inventory_overview import build_inventory_overview
 from app.services.inventory_usage import remaining_quantity, tracks_quantity
@@ -32,12 +34,13 @@ from app.services.inventory_usage import remaining_quantity, tracks_quantity
 
 INVENTORY_SUMMARY_OUTPUT = {
     "type": "object",
-    "required": ["queryFocus", "availableCount", "expiringCount", "lowStockCount", "foodStockCount", "items", "card"],
+    "required": ["queryFocus", "availableCount", "expiringCount", "expiredCount", "lowStockCount", "foodStockCount", "items", "card"],
     "additionalProperties": False,
     "properties": {
         "queryFocus": {"type": "string", "enum": ["overview"]},
         "availableCount": {"type": "integer", "minimum": 0},
         "expiringCount": {"type": "integer", "minimum": 0},
+        "expiredCount": {"type": "integer", "minimum": 0},
         "lowStockCount": {"type": "integer", "minimum": 0},
         "foodStockCount": {"type": "integer", "minimum": 0},
         "items": {"type": "array", "items": {"type": "object"}},
@@ -83,11 +86,12 @@ INVENTORY_ITEM_OUTPUT = {
 def inventory_items_output_schema(query_focus: str) -> dict[str, Any]:
     return {
         "type": "object",
-        "required": ["queryFocus", "count", "items"],
+        "required": ["queryFocus", "count", "items", "card"],
         "properties": {
             "queryFocus": {"type": "string", "enum": [query_focus]},
             "count": {"type": "integer", "minimum": 0},
             "items": {"type": "array", "items": INVENTORY_ITEM_OUTPUT},
+            "card": INVENTORY_SUMMARY_OUTPUT["properties"]["card"],
         },
     }
 
@@ -199,6 +203,51 @@ def _with_suggested_action(record: dict[str, Any], suggested_action: str | None)
     return {**record, "suggestedAction": suggested_action}
 
 
+def _inventory_summary_card(data: dict[str, Any], *, title: str) -> dict[str, Any]:
+    focus = str(data["queryFocus"])
+    items = list(data.get("items") or [])
+    count = int(data.get("count") or len(items))
+    card_data = {
+        "queryFocus": focus,
+        "availableCount": (
+            int(data["availableCount"])
+            if focus == "overview"
+            else count if focus == "available" else 0
+        ),
+        "expiringCount": (
+            int(data["expiringCount"])
+            if focus == "overview"
+            else count if focus == "expiring" else 0
+        ),
+        "expiredCount": (
+            int(data["expiredCount"])
+            if focus == "overview"
+            else count if focus == "expired" else 0
+        ),
+        "lowStockCount": (
+            int(data["lowStockCount"])
+            if focus == "overview"
+            else count if focus == "low_stock" else 0
+        ),
+        "foodStockCount": (
+            int(data["foodStockCount"])
+            if focus == "overview"
+            else sum(item.get("sourceType") == "food" for item in items)
+        ),
+        "items": items,
+    }
+    return {
+        "id": create_id("ai_card"),
+        "type": "inventory_summary",
+        "title": title,
+        "data": card_data,
+    }
+
+
+def _with_inventory_card(data: dict[str, Any], *, title: str) -> dict[str, Any]:
+    return {**data, "card": _inventory_summary_card(data, title=title)}
+
+
 def _contextual_record_sort_key(record: dict[str, Any]) -> tuple[bool, str, str, str]:
     expiry_date = record.get("expiryDate")
     purchase_date = record.get("purchaseDate") or "9999-12-31"
@@ -276,16 +325,16 @@ def inventory_read_available_items(context: ToolContext, payload: dict[str, Any]
         predicate=lambda row: True,
     )
     records = sorted([*ingredient_records, *food_records], key=_contextual_record_sort_key)[:limit]
-    return {
-        "queryFocus": "available",
-        "items": records,
-        "count": len(records),
-    }
+    return _with_inventory_card(
+        {"queryFocus": "available", "items": records, "count": len(records)},
+        title="可用库存",
+    )
 
 
 def inventory_read_expiring_items(context: ToolContext, payload: dict[str, Any]) -> dict[str, Any]:
     today = today_for_family(context.family_id)
     days = int(payload.get("days") or 7)
+    limit = int(payload.get("limit") or 80)
     items = list(
         context.db.scalars(
             select(InventoryItem)
@@ -298,6 +347,7 @@ def inventory_read_expiring_items(context: ToolContext, payload: dict[str, Any])
                 InventoryItem.expiry_date <= today + timedelta(days=days),
             )
             .order_by(InventoryItem.expiry_date.asc(), InventoryItem.purchase_date.asc(), InventoryItem.id.asc())
+            .limit(limit)
         )
     )
     media_map = entity_media_map(context.db, family_id=context.family_id, entity_types={"ingredient"}, entity_ids=[item.ingredient_id for item in items])
@@ -313,12 +363,14 @@ def inventory_read_expiring_items(context: ToolContext, payload: dict[str, Any])
     food_records = _food_contextual_records(
         context,
         today=today,
-        limit=10_000,
+        limit=limit,
         predicate=lambda row: row.get("days_until_expiry") is not None and 0 <= row["days_until_expiry"] <= days,
-        suggested_action="consume",
     )
-    records = sorted([*ingredient_records, *food_records], key=_contextual_record_sort_key)
-    return {"queryFocus": "expiring", "items": records, "count": len(records)}
+    records = sorted([*ingredient_records, *food_records], key=_contextual_record_sort_key)[:limit]
+    return _with_inventory_card(
+        {"queryFocus": "expiring", "items": records, "count": len(records)},
+        title="临期库存",
+    )
 
 
 def inventory_read_expired_items(context: ToolContext, payload: dict[str, Any]) -> dict[str, Any]:
@@ -353,10 +405,12 @@ def inventory_read_expired_items(context: ToolContext, payload: dict[str, Any]) 
         today=today,
         limit=limit,
         predicate=lambda row: row.get("days_until_expiry") is not None and row["days_until_expiry"] < 0,
-        suggested_action="dispose",
     )
     records = sorted([*ingredient_records, *food_records], key=_contextual_record_sort_key)[:limit]
-    return {"queryFocus": "expired", "items": records, "count": len(records)}
+    return _with_inventory_card(
+        {"queryFocus": "expired", "items": records, "count": len(records)},
+        title="过期库存",
+    )
 
 
 def inventory_read_low_stock_items(context: ToolContext, payload: dict[str, Any]) -> dict[str, Any]:
@@ -374,24 +428,76 @@ def inventory_read_low_stock_items(context: ToolContext, payload: dict[str, Any]
                 remaining <= InventoryItem.low_stock_threshold,
             )
             .order_by(remaining.asc(), InventoryItem.purchase_date.asc(), InventoryItem.id.asc())
-            .limit(limit)
         )
     )
+    configured_ingredients = list(
+        context.db.scalars(
+            select(Ingredient)
+            .where(
+                Ingredient.family_id == context.family_id,
+                Ingredient.quantity_tracking_mode == IngredientQuantityTrackingMode.TRACK_QUANTITY,
+                Ingredient.default_low_stock_threshold.is_not(None),
+                Ingredient.default_low_stock_threshold > 0,
+            )
+            .order_by(Ingredient.name.asc(), Ingredient.id.asc())
+        )
+    )
+    remaining_by_ingredient = {
+        ingredient_id: Decimal(str(total or 0))
+        for ingredient_id, total in context.db.execute(
+            select(
+                InventoryItem.ingredient_id,
+                func.coalesce(func.sum(remaining), 0),
+            )
+            .where(InventoryItem.family_id == context.family_id)
+            .group_by(InventoryItem.ingredient_id)
+        ).all()
+    }
     media_map = entity_media_map(
         context.db,
         family_id=context.family_id,
         entity_types={"ingredient"},
-        entity_ids=[item.ingredient_id for item in items],
+        entity_ids=[
+            *[item.ingredient_id for item in items],
+            *[ingredient.id for ingredient in configured_ingredients],
+        ],
     )
     today = today_for_family(context.family_id)
-    return {
-        "queryFocus": "low_stock",
-        "items": [
-            inventory_record(item, media_map, today=today, suggested_action="restock")
-            for item in items
-        ],
-        "count": len(items),
-    }
+    records = [
+        inventory_record(item, media_map, today=today, suggested_action="restock")
+        for item in items
+    ]
+    represented_ingredient_ids = {str(item.ingredient_id) for item in items}
+    depleted_records = [
+        {
+            "id": f"ingredient:{ingredient.id}",
+            "sourceType": "ingredient",
+            "inventoryItemId": None,
+            "ingredientId": ingredient.id,
+            "foodId": None,
+            "name": ingredient.name,
+            "image": first_entity_media(media_map, "ingredient", ingredient.id),
+            "quantity": "0",
+            "unit": ingredient.default_unit,
+            "quantityTrackingMode": "track_quantity",
+            "status": "out_of_stock",
+            "displayStatus": "low_stock",
+            "expiryDate": None,
+            "daysUntilExpiry": None,
+            "lowStockThreshold": decimal_text(ingredient.default_low_stock_threshold),
+            "purchaseDate": "",
+            "storageLocation": ingredient.default_storage,
+            "suggestedAction": "restock",
+        }
+        for ingredient in configured_ingredients
+        if ingredient.id not in represented_ingredient_ids
+        and remaining_by_ingredient.get(ingredient.id, Decimal("0")) <= 0
+    ]
+    records = [*depleted_records, *records][:limit]
+    return _with_inventory_card(
+        {"queryFocus": "low_stock", "items": records, "count": len(records)},
+        title="低库存提醒",
+    )
 
 
 def inventory_read_summary(context: ToolContext, payload: dict[str, Any]) -> dict[str, Any]:
@@ -472,19 +578,15 @@ def inventory_read_summary(context: ToolContext, payload: dict[str, Any]) -> dic
         "queryFocus": "overview",
         "availableCount": overview["summary"]["total_count"],
         "expiringCount": len(expiring),
+        "expiredCount": sum(
+            row.get("days_until_expiry") is not None and row["days_until_expiry"] < 0
+            for row in rows
+        ),
         "lowStockCount": len(low_stock_items),
         "foodStockCount": overview["summary"]["food_count"],
         "items": records,
     }
-    return {
-        **data,
-        "card": {
-            "id": create_id("ai_card"),
-            "type": "inventory_summary",
-            "title": "库存概览",
-            "data": data,
-        },
-    }
+    return {**data, "card": _inventory_summary_card(data, title="库存概览")}
 
 
 def inventory_create_operation_draft(context: ToolContext, payload: dict[str, Any]) -> dict[str, Any]:
@@ -538,13 +640,14 @@ def register_inventory_tools(registry: ToolRegistry) -> None:
             name="inventory.read_expiring_items",
             display_name="临期食材",
             description="读取当前家庭临期食材。",
-            input_schema=DAYS_INPUT,
+            input_schema=DAYS_LIMIT_INPUT,
             output_schema=inventory_items_output_schema("expiring"),
             permission="family:read",
             side_effect="read",
             handler=inventory_read_expiring_items,
-            requires_followup=True,
-            followup_hint="临期列表读取后必须总结重点、请求补充信息，或生成库存处理草稿。",
+            terminal_output=True,
+            followup_hint="临期库存卡可作为临期查询的终态输出。",
+            output_types=["inventory_summary"],
         )
     )
     registry.register(
@@ -557,8 +660,9 @@ def register_inventory_tools(registry: ToolRegistry) -> None:
             permission="family:read",
             side_effect="read",
             handler=inventory_read_expired_items,
-            requires_followup=True,
-            followup_hint="过期列表读取后必须总结风险、请求补充信息，或生成库存处理草稿。",
+            terminal_output=True,
+            followup_hint="过期库存卡可作为过期查询的终态输出。",
+            output_types=["inventory_summary"],
         )
     )
     registry.register(
@@ -571,8 +675,9 @@ def register_inventory_tools(registry: ToolRegistry) -> None:
             permission="family:read",
             side_effect="read",
             handler=inventory_read_low_stock_items,
-            requires_followup=True,
-            followup_hint="低库存列表读取后必须总结补货重点、请求补充信息，或生成库存处理草稿。",
+            terminal_output=True,
+            followup_hint="低库存卡可作为补货查询的终态输出。",
+            output_types=["inventory_summary"],
         )
     )
     register_tool(
@@ -610,7 +715,8 @@ def register_inventory_tools(registry: ToolRegistry) -> None:
             permission="family:read",
             side_effect="read",
             handler=inventory_read_available_items,
-            requires_followup=True,
-            followup_hint="可用库存读取后必须总结可用食材、请求补充信息，或生成库存处理草稿。",
+            terminal_output=True,
+            followup_hint="可用库存卡可作为库存查询的终态输出。",
+            output_types=["inventory_summary"],
         )
     )

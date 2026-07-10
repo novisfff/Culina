@@ -14,10 +14,12 @@ from app.models.domain import ShoppingListItem
 
 SHOPPING_ITEM_OUTPUT = {
     "type": "object",
-    "required": ["id", "title", "quantity", "unit", "quantityMode", "done"],
+    "required": ["id", "ingredientId", "foodId", "targetType", "title", "quantity", "unit", "quantityMode", "done"],
     "properties": {
         "id": {"type": "string"},
         "ingredientId": {"type": ["string", "null"]},
+        "foodId": {"type": ["string", "null"]},
+        "targetType": {"type": "string", "enum": ["ingredient", "food"]},
         "title": {"type": "string"},
         "quantity": {"type": "number"},
         "unit": {"type": "string"},
@@ -82,6 +84,8 @@ def serialize_shopping_tool_item(item: ShoppingListItem) -> dict[str, Any]:
     return {
         "id": item.id,
         "ingredientId": item.ingredient_id,
+        "foodId": item.food_id,
+        "targetType": "food" if item.food_id else "ingredient",
         "title": item.title,
         "quantity": float(item.quantity),
         "unit": item.unit,

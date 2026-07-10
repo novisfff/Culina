@@ -4200,11 +4200,11 @@ class AIFoundationTestCase(AIAgentInfraTestCase):
             assert provider.artifact_definition is not None
             self.assertTrue(provider.summary_definition.terminal_output)
             self.assertEqual(provider.summary_definition.followup_hint, "库存概览卡可作为库存查询的终态输出。")
-            self.assertTrue(provider.available_definition.requires_followup)
-            self.assertFalse(provider.available_definition.terminal_output)
+            self.assertFalse(provider.available_definition.requires_followup)
+            self.assertTrue(provider.available_definition.terminal_output)
             self.assertEqual(
                 provider.available_definition.followup_hint,
-                "可用库存读取后必须总结可用食材、请求补充信息，或生成库存处理草稿。",
+                "可用库存卡可作为库存查询的终态输出。",
             )
             self.assertTrue(provider.ingredient_search_definition.requires_followup)
             self.assertFalse(provider.ingredient_search_definition.terminal_output)
@@ -4217,6 +4217,85 @@ class AIFoundationTestCase(AIAgentInfraTestCase):
                 provider.artifact_definition.followup_hint,
                 "读取历史 artifact 后必须说明可复用内容、请求补充信息，或继续生成/调整库存处理草稿。",
             )
+
+        def test_shared_inventory_tool_policy_is_order_independent_and_hides_intermediate_card(self) -> None:
+            class MultiSkillInventoryProvider(BaseChatProvider):
+                model_name = "multi-skill-inventory-policy-model"
+
+                def __init__(self, skill_order: list[str]) -> None:
+                    self.skill_order = skill_order
+                    self.available_definition: ToolDefinition | None = None
+
+                def generate(self, *, system: str, user: str) -> ChatProviderResult:
+                    raise AssertionError("orchestrator should use generate_with_tools")
+
+                def generate_with_tools(
+                    self,
+                    *,
+                    system: str,
+                    user: str,
+                    tools,
+                    tool_handler,
+                    message_handler=None,
+                    max_rounds: int = 8,
+                ) -> ChatProviderResult:
+                    del system, user, max_rounds
+                    tool_handler(
+                        "skill.inject",
+                        {"skills": self.skill_order, "reason": "先读库存再安排餐食"},
+                    )
+                    current_tools = {definition.name: definition for definition in tools()}
+                    self.available_definition = current_tools["inventory.read_available_items"]
+                    tool_handler("inventory.read_available_items", {"limit": 20})
+                    text = "我已经读取库存，接下来可以继续安排餐食。"
+                    if message_handler is not None:
+                        message_handler(text)
+                    return ChatProviderResult(
+                        text=text,
+                        status="completed",
+                        model=self.model_name,
+                    )
+
+            for index, skill_order in enumerate(
+                (["meal_plan", "inventory_analysis"], ["inventory_analysis", "meal_plan"])
+            ):
+                with self.subTest(skill_order=skill_order), self.SessionLocal() as db:
+                    provider = MultiSkillInventoryProvider(skill_order)
+                    result = WorkspaceOrchestratorAgent(
+                        provider=provider,
+                        skill_registry=build_workspace_skill_registry(),
+                    ).run(
+                        SkillContext(
+                            db=db,
+                            family_id=self.family.id,
+                            user_id=self.user.id,
+                            conversation_id=f"conversation-multi-skill-inventory-{index}",
+                            run_id=f"run-multi-skill-inventory-{index}",
+                            conversation=[],
+                            current_message="根据库存安排一餐",
+                            tool_executor=ToolExecutor(
+                                build_workspace_tool_registry(),
+                                ToolContext(
+                                    db=db,
+                                    family_id=self.family.id,
+                                    user_id=self.user.id,
+                                    conversation_id=f"conversation-multi-skill-inventory-{index}",
+                                    run_id=f"run-multi-skill-inventory-{index}",
+                                ),
+                            ),
+                        )
+                    )
+
+                    self.assertEqual(result.status, "completed")
+                    self.assertEqual(result.cards, [])
+                    self.assertIsNotNone(provider.available_definition)
+                    assert provider.available_definition is not None
+                    self.assertTrue(provider.available_definition.requires_followup)
+                    self.assertFalse(provider.available_definition.terminal_output)
+                    self.assertEqual(
+                        provider.available_definition.followup_hint,
+                        "可用库存读取后必须说明可安排方向、请求补充信息，或生成推荐/计划草稿。",
+                    )
 
         def test_catalog_completion_policy_applies_to_business_read_tools(self) -> None:
             class BusinessReadPolicyProvider(BaseChatProvider):

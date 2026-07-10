@@ -48,11 +48,15 @@ describe('AI query result cards', () => {
         items: [
           {
             id: 'inventory-tomato',
+            sourceType: 'ingredient',
             ingredientId: 'ingredient-tomato',
+            foodId: null,
+            inventoryItemId: 'inventory-tomato',
             name: '番茄',
             image: null,
             quantity: '3',
             unit: '个',
+            quantityTrackingMode: 'track_quantity',
             status: 'fresh',
             displayStatus: 'expiring',
             expiryDate: '2026-06-16',
@@ -86,10 +90,14 @@ describe('AI query result cards', () => {
         items: [
           {
             id: 'inventory-tomato',
+            sourceType: 'ingredient',
             ingredientId: 'ingredient-tomato',
+            foodId: null,
+            inventoryItemId: 'inventory-tomato',
             name: '番茄',
             quantity: '2',
             unit: '个',
+            quantityTrackingMode: 'track_quantity',
             status: 'fresh',
             displayStatus: 'available',
             suggestedAction: 'consume',
@@ -111,6 +119,58 @@ describe('AI query result cards', () => {
     expect(actions).toEqual(['consume']);
   });
 
+  it('allows depleted ingredient restock without exposing ingredient actions for Food rows', async () => {
+    const actions: string[] = [];
+    const view = await renderCard({
+      id: 'depleted-inventory-card',
+      type: 'inventory_summary',
+      title: '低库存提醒',
+      data: {
+        queryFocus: 'low_stock',
+        availableCount: 0,
+        expiringCount: 0,
+        expiredCount: 0,
+        lowStockCount: 1,
+        foodStockCount: 1,
+        items: [
+          {
+            id: 'ingredient:ingredient-onion',
+            sourceType: 'ingredient',
+            ingredientId: 'ingredient-onion',
+            foodId: null,
+            inventoryItemId: null,
+            name: '洋葱',
+            quantity: '0',
+            unit: '个',
+            quantityTrackingMode: 'track_quantity',
+            status: 'out_of_stock',
+            displayStatus: 'low_stock',
+            suggestedAction: 'restock',
+          },
+          {
+            id: 'food:food-yogurt',
+            sourceType: 'food',
+            ingredientId: null,
+            foodId: 'food-yogurt',
+            inventoryItemId: null,
+            name: '蓝莓酸奶',
+            quantity: '1盒',
+            unit: '盒',
+            quantityTrackingMode: 'track_quantity',
+            status: 'food_stock',
+            displayStatus: 'expiring',
+            suggestedAction: 'consume',
+          },
+        ],
+      },
+    }, undefined, (item, action) => actions.push(`${item.id}:${action}`));
+
+    const buttons = Array.from(view.querySelectorAll<HTMLButtonElement>('.ai-query-inventory-actions button'));
+    expect(buttons.map((button) => button.textContent)).toEqual(['补货']);
+    await act(async () => buttons[0]?.click());
+    expect(actions).toEqual(['ingredient:ingredient-onion:restock']);
+  });
+
   it('does not expose processing actions for an overview query', async () => {
     const view = await renderCard({
       id: 'inventory-overview-card',
@@ -123,10 +183,14 @@ describe('AI query result cards', () => {
         lowStockCount: 0,
         items: [{
           id: 'inventory-tomato',
+          sourceType: 'ingredient',
           ingredientId: 'ingredient-tomato',
+          foodId: null,
+          inventoryItemId: 'inventory-tomato',
           name: '番茄',
           quantity: '2',
           unit: '个',
+          quantityTrackingMode: 'track_quantity',
           status: 'fresh',
           displayStatus: 'expiring',
           expiryDate: '2026-06-16',

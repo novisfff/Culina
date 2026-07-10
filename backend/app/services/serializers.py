@@ -447,12 +447,72 @@ def serialize_ai_recommendation(item: AIRecommendation) -> dict:
     }
 
 
+def _normalize_legacy_inventory_item(item: dict) -> dict:
+    normalized = dict(item)
+    source_type = str(normalized.get("sourceType") or "").strip()
+    if source_type not in {"ingredient", "food"}:
+        source_type = "food" if normalized.get("foodId") else "ingredient"
+    normalized["sourceType"] = source_type
+    normalized.setdefault("ingredientId", None)
+    normalized.setdefault("foodId", None)
+    if "inventoryItemId" not in normalized:
+        item_id = str(normalized.get("id") or "").strip()
+        normalized["inventoryItemId"] = (
+            item_id
+            if source_type == "ingredient" and item_id and not item_id.startswith("ingredient:")
+            else None
+        )
+    if "quantityTrackingMode" not in normalized:
+        normalized["quantityTrackingMode"] = (
+            "not_track_quantity"
+            if str(normalized.get("quantity") or "").strip() == "已有"
+            else "track_quantity"
+        )
+    return normalized
+
+
+def _normalize_legacy_inventory_card(card: dict) -> dict:
+    if card.get("type") != "inventory_summary" or not isinstance(card.get("data"), dict):
+        return dict(card)
+    normalized = dict(card)
+    data = dict(card["data"])
+    items = [
+        _normalize_legacy_inventory_item(item)
+        for item in data.get("items") or []
+        if isinstance(item, dict)
+    ]
+    data.setdefault("queryFocus", "overview")
+    data.setdefault("availableCount", len(items))
+    data.setdefault(
+        "expiringCount",
+        sum(item.get("displayStatus") == "expiring" for item in items),
+    )
+    data.setdefault(
+        "expiredCount",
+        sum(item.get("displayStatus") == "expired" for item in items),
+    )
+    data.setdefault(
+        "lowStockCount",
+        sum(item.get("displayStatus") == "low_stock" for item in items),
+    )
+    data.setdefault(
+        "foodStockCount",
+        sum(item.get("sourceType") == "food" for item in items),
+    )
+    data["items"] = items
+    normalized["data"] = data
+    return normalized
+
+
 def _normalize_ai_message_parts(parts: list[dict] | None) -> list[dict]:
     normalized: list[dict] = []
     for part in parts or []:
         if not isinstance(part, dict):
             continue
-        normalized.append(dict(part))
+        next_part = dict(part)
+        if isinstance(part.get("card"), dict):
+            next_part["card"] = _normalize_legacy_inventory_card(part["card"])
+        normalized.append(next_part)
     return normalized
 
 

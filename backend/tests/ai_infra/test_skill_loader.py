@@ -89,6 +89,8 @@ class AISkillLoaderTestCase(AIAgentInfraTestCase):
             self.assertNotIn("name", catalog_record)
             self.assertIn("ingredient.search", skill_registry.get("shopping_list").manifest.tools)
             self.assertIn("ingredient.read_by_id", skill_registry.get("shopping_list").manifest.tools)
+            self.assertIn("food.search", skill_registry.get("shopping_list").manifest.tools)
+            self.assertIn("food.read_by_id", skill_registry.get("shopping_list").manifest.tools)
 
         def test_skill_loader_uses_unified_toolcall_runner_without_skill_python_entrypoint(self) -> None:
             skill_registry = build_workspace_skill_registry()
@@ -829,7 +831,13 @@ class AISkillLoaderTestCase(AIAgentInfraTestCase):
             )
             self.assertEqual(
                 skill_registry.get("inventory_analysis").manifest.completion_policy.terminal_tools,
-                {"inventory.read_summary": "库存概览卡可作为库存查询的终态输出。"},
+                {
+                    "inventory.read_summary": "库存概览卡可作为库存查询的终态输出。",
+                    "inventory.read_expiring_items": "临期库存卡可作为临期查询的终态输出。",
+                    "inventory.read_expired_items": "过期库存卡可作为过期查询的终态输出。",
+                    "inventory.read_low_stock_items": "低库存卡可作为补货查询的终态输出。",
+                    "inventory.read_available_items": "可用库存卡可作为库存查询的终态输出。",
+                },
             )
             self.assertEqual(
                 skill_registry.get("meal_log").manifest.tool_budget,
@@ -885,6 +893,15 @@ class AISkillLoaderTestCase(AIAgentInfraTestCase):
                 "shopping.read_pending",
                 skill_registry.get("shopping_list").manifest.completion_policy.followup_required_tools,
             )
+            inventory_completion = skill_registry.get("inventory_analysis").manifest.completion_policy
+            for tool_name in {
+                "inventory.read_available_items",
+                "inventory.read_expiring_items",
+                "inventory.read_expired_items",
+                "inventory.read_low_stock_items",
+            }:
+                self.assertIn(tool_name, inventory_completion.terminal_tools)
+                self.assertNotIn(tool_name, inventory_completion.followup_required_tools)
             for manifest in skill_registry.list_manifests():
                 for draft_type in manifest.draft_types:
                     with self.subTest(skill=manifest.key, draft_type=draft_type):
