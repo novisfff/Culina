@@ -95,6 +95,22 @@ class SkillInjectionManager:
             values.update(self.skill_registry.get(key).manifest.output_types)
         return values
 
+    def allows_tool_output_type(
+        self,
+        *,
+        skill_keys: list[str],
+        tool_name: str,
+        output_type: str,
+        capability_policy: OrchestratorCapabilityPolicy,
+    ) -> bool:
+        owners = [
+            self.skill_registry.get(key).manifest
+            for key in skill_keys
+            if capability_policy.allows_skill(key)
+            and tool_name in self.skill_registry.get(key).manifest.tools
+        ]
+        return bool(owners) and all(output_type in manifest.output_types for manifest in owners)
+
     def allowed_draft_types(self, skill_keys: list[str]) -> set[str]:
         values: set[str] = set()
         for key in skill_keys:
@@ -183,21 +199,33 @@ class SkillInjectionManager:
         skill_keys: list[str],
         capability_policy: OrchestratorCapabilityPolicy,
     ) -> ToolDefinition:
+        policies = [
+            self.skill_registry.get(key).manifest.completion_policy
+            for key in sorted(set(skill_keys))
+            if capability_policy.allows_skill(key)
+            and definition.name in self.skill_registry.get(key).manifest.tools
+        ]
+        followup_hints = [
+            policy.followup_required_tools[definition.name]
+            for policy in policies
+            if definition.name in policy.followup_required_tools
+        ]
+        terminal_hints = [
+            policy.terminal_tools[definition.name]
+            for policy in policies
+            if definition.name in policy.terminal_tools
+        ]
         requires_followup = definition.requires_followup
         terminal_output = definition.terminal_output
         followup_hint = definition.followup_hint
-        for key in skill_keys:
-            if not capability_policy.allows_skill(key):
-                continue
-            policy = self.skill_registry.get(key).manifest.completion_policy
-            if definition.name in policy.terminal_tools:
-                terminal_output = True
-                if not followup_hint:
-                    followup_hint = policy.terminal_tools[definition.name]
-            if definition.name in policy.followup_required_tools:
-                requires_followup = True
-                terminal_output = False
-                followup_hint = policy.followup_required_tools[definition.name] or followup_hint
+        if followup_hints:
+            requires_followup = True
+            terminal_output = False
+            followup_hint = followup_hints[0] or followup_hint
+        elif terminal_hints:
+            requires_followup = False
+            terminal_output = True
+            followup_hint = terminal_hints[0] or followup_hint
         if (
             requires_followup == definition.requires_followup
             and terminal_output == definition.terminal_output
