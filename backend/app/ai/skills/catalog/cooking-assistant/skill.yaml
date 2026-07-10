@@ -13,7 +13,6 @@ allowed_tools:
 script_files: []
 output_types:
 - ui_actions
-- inventory_summary
 draft_types: []
 approval_policy: none
 tool_budget:

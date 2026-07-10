@@ -421,17 +421,19 @@ class AIRegistryAndMetricsTestCase(AIAgentInfraTestCase):
             self.assertIn("inventory_operation", skills["inventory_analysis"]["route_hints"])
             self.assertEqual(
                 skills["inventory_analysis"]["completion_policy"]["terminalTools"],
-                {"inventory.read_summary": "库存概览卡可作为库存查询的终态输出。"},
+                {
+                    "inventory.read_summary": "库存概览卡可作为库存查询的终态输出。",
+                    "inventory.read_expiring_items": "临期库存卡可作为临期查询的终态输出。",
+                    "inventory.read_expired_items": "过期库存卡可作为过期查询的终态输出。",
+                    "inventory.read_low_stock_items": "低库存卡可作为补货查询的终态输出。",
+                    "inventory.read_available_items": "可用库存卡可作为库存查询的终态输出。",
+                },
             )
             self.assertEqual(
                 skills["inventory_analysis"]["completion_policy"]["followupRequiredTools"],
                 {
                     "ingredient.search": "食材检索后必须说明候选库存处理对象、请求用户选择，或继续读取食材/库存并生成库存处理草稿。",
                     "ingredient.read_by_id": "读取食材档案后必须说明当前库存处理依据、请求补充信息，或生成库存处理草稿。",
-                    "inventory.read_expiring_items": "临期列表读取后必须总结重点、请求补充信息，或生成库存处理草稿。",
-                    "inventory.read_expired_items": "过期列表读取后必须总结风险、请求补充信息，或生成库存处理草稿。",
-                    "inventory.read_low_stock_items": "低库存列表读取后必须总结补货重点、请求补充信息，或生成库存处理草稿。",
-                    "inventory.read_available_items": "可用库存读取后必须总结可用食材、请求补充信息，或生成库存处理草稿。",
                     "workspace.read_artifact": "读取历史 artifact 后必须说明可复用内容、请求补充信息，或继续生成/调整库存处理草稿。",
                 },
             )
@@ -516,10 +518,6 @@ class AIRegistryAndMetricsTestCase(AIAgentInfraTestCase):
             self.assertEqual(recommend_today["output_types"], ["today_recommendation"])
 
             for tool_name in (
-                "inventory.read_expiring_items",
-                "inventory.read_expired_items",
-                "inventory.read_low_stock_items",
-                "inventory.read_available_items",
                 "workspace.read_artifact",
                 "ingredient.search",
                 "ingredient.read_by_id",
@@ -539,6 +537,19 @@ class AIRegistryAndMetricsTestCase(AIAgentInfraTestCase):
                     tool_payload = tools[tool_name]
                     self.assertTrue(tool_payload["requires_followup"])
                     self.assertFalse(tool_payload["terminal_output"])
+                    self.assertTrue(tool_payload["followup_hint"])
+
+            for tool_name in (
+                "inventory.read_expiring_items",
+                "inventory.read_expired_items",
+                "inventory.read_low_stock_items",
+                "inventory.read_available_items",
+            ):
+                with self.subTest(tool_name=tool_name):
+                    tool_payload = tools[tool_name]
+                    self.assertFalse(tool_payload["requires_followup"])
+                    self.assertTrue(tool_payload["terminal_output"])
+                    self.assertEqual(tool_payload["output_types"], ["inventory_summary"])
                     self.assertTrue(tool_payload["followup_hint"])
             self.assertEqual(tools["skill.inject"]["side_effect"], "control")
             self.assertFalse(tools["skill.inject"]["requires_followup"])

@@ -4200,11 +4200,11 @@ class AIFoundationTestCase(AIAgentInfraTestCase):
             assert provider.artifact_definition is not None
             self.assertTrue(provider.summary_definition.terminal_output)
             self.assertEqual(provider.summary_definition.followup_hint, "库存概览卡可作为库存查询的终态输出。")
-            self.assertTrue(provider.available_definition.requires_followup)
-            self.assertFalse(provider.available_definition.terminal_output)
+            self.assertFalse(provider.available_definition.requires_followup)
+            self.assertTrue(provider.available_definition.terminal_output)
             self.assertEqual(
                 provider.available_definition.followup_hint,
-                "可用库存读取后必须总结可用食材、请求补充信息，或生成库存处理草稿。",
+                "可用库存卡可作为库存查询的终态输出。",
             )
             self.assertTrue(provider.ingredient_search_definition.requires_followup)
             self.assertFalse(provider.ingredient_search_definition.terminal_output)
