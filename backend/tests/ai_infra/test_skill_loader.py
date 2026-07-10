@@ -89,6 +89,8 @@ class AISkillLoaderTestCase(AIAgentInfraTestCase):
             self.assertNotIn("name", catalog_record)
             self.assertIn("ingredient.search", skill_registry.get("shopping_list").manifest.tools)
             self.assertIn("ingredient.read_by_id", skill_registry.get("shopping_list").manifest.tools)
+            self.assertIn("food.search", skill_registry.get("shopping_list").manifest.tools)
+            self.assertIn("food.read_by_id", skill_registry.get("shopping_list").manifest.tools)
 
         def test_skill_loader_uses_unified_toolcall_runner_without_skill_python_entrypoint(self) -> None:
             skill_registry = build_workspace_skill_registry()
