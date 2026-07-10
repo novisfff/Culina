@@ -202,14 +202,15 @@ describe('AI legacy style cleanup', () => {
     expect(aiStyles).toContain('.ai-side-head');
     expect(aiStyles).toContain('.ai-quality-card');
     expect(aiStyles).toContain('.ai-history-waiting-icon');
-    expect(aiStyles).toContain('.ai-conversation-delete');
+    expect(aiStyles).toContain('.ai-conversation-manage');
+    expect(aiStyles).toContain('.ai-history-shared-badge');
     expect(aiStyles).toContain('.ai-thread-follow-button');
     expect(aiStyles).toContain('.ai-message-avatar');
     expect(aiStyles).toContain('.ai-draft-generating-cue');
     expect(foodStyles).not.toContain('ai-quality-card');
     expect(foodStyles).not.toContain('ai-side-head');
     expect(foodStyles).not.toContain('ai-history-waiting-icon');
-    expect(foodStyles).not.toContain('ai-conversation-delete');
+    expect(foodStyles).not.toContain('ai-conversation-manage');
     expect(foodStyles).not.toContain('\n.ai-thread-follow-button {');
     expect(foodStyles).not.toContain('\n.ai-message-avatar {');
     expect(foodStyles).not.toContain('ai-draft-generating-cue');

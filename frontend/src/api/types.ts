@@ -660,9 +660,15 @@ export interface ActivityLogQuery {
   offset?: number;
 }
 
+export type AiConversationVisibility = 'private' | 'family';
+
 export interface AiConversation {
   id: string;
   family_id: string;
+  owner_user_id: string;
+  owner_display_name: string;
+  visibility: AiConversationVisibility;
+  is_owner: boolean;
   mode: AiMode;
   prompt: string;
   response: string;

@@ -6,6 +6,7 @@ import type {
   AiChatResponse,
   AiRunEvent,
   AiConversation,
+  AiConversationVisibility,
   AiMessage,
   AiMessagePart,
   AiQualityMetrics,
@@ -157,6 +158,11 @@ export const aiApi = {
   deleteAiConversation: (conversationId: string) =>
     request<void>(`/api/ai/conversations/${conversationId}`, {
       method: 'DELETE',
+    }),
+  updateAiConversationVisibility: (conversationId: string, visibility: AiConversationVisibility) =>
+    request<AiConversation>(`/api/ai/conversations/${conversationId}/visibility`, {
+      method: 'PATCH',
+      body: JSON.stringify({ visibility }),
     }),
   chatAi: (payload: AiChatPayload) =>
     request<AiChatResponse>('/api/ai/chat', {

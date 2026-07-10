@@ -1,13 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ClipboardEvent, type DragEvent, type FormEvent } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { invalidateAfterAiApprovalSettled, invalidateAfterAiMessageSent } from '../../api/cacheInvalidation';
-import { api } from '../../api/client';
+import { api, isApiError } from '../../api/client';
 import { queryKeys } from '../../api/queryKeys';
 import type {
   AiApprovalRequest,
   AiChatAttachment,
   AiChatResponse,
   AiConversation,
+  AiConversationVisibility,
   AiInventoryOperationAction,
   AiInventoryResultItem,
   AiMessage,
@@ -213,6 +214,10 @@ export function AiWorkspace({
       .map(([key, messages]) => ({
         id: key,
         family_id: 'local',
+        owner_user_id: currentUser?.id ?? 'local-user',
+        owner_display_name: currentUser?.display_name ?? '我',
+        visibility: 'private' as const,
+        is_owner: true,
         mode: 'recommendation' as const,
         prompt: getConversationTitleFromMessages(messages),
         response: 'AI 正在后台回复',
@@ -225,7 +230,7 @@ export function AiWorkspace({
         last_message_at: messages[messages.length - 1]?.created_at ?? messages[0]?.created_at ?? new Date().toISOString(),
         last_run_status: 'running',
       }));
-  }, [currentUser?.id, localMessagesByConversationKey]);
+  }, [currentUser?.display_name, currentUser?.id, localMessagesByConversationKey]);
   const historyConversations = useMemo(
     () => [...localPendingConversations, ...conversations],
     [conversations, localPendingConversations],
@@ -902,6 +907,22 @@ export function AiWorkspace({
     },
     onSettled: () => setDeletingConversationId(null),
   });
+  const visibilityMutation = useMutation({
+    mutationFn: ({ conversationId, visibility }: { conversationId: string; visibility: AiConversationVisibility }) =>
+      api.updateAiConversationVisibility(conversationId, visibility),
+    onSuccess: (updated) => {
+      queryClient.setQueryData<AiConversation[]>(queryKeys.aiConversations, (items = []) =>
+        items.map((item) => (item.id === updated.id ? updated : item)));
+    },
+    onError: (error) => {
+      setPlanFeedback(isApiError(error) && error.status === 409
+        ? '会话正在生成回复，请先等待完成或取消当前任务'
+        : error instanceof Error ? error.message : '更新公开状态失败');
+    },
+  });
+  const updatingConversationId = visibilityMutation.isPending
+    ? visibilityMutation.variables?.conversationId ?? null
+    : deletingConversationId;
   const chatMutationConversationKey = chatMutation.isPending ? chatMutation.variables?.conversationKey ?? null : null;
   const chatMutationRunId = chatMutation.isPending ? chatMutation.variables?.client_run_id ?? null : null;
   const approvalMutationConversationKey = approvalStreamMutation.isPending
@@ -1034,6 +1055,10 @@ export function AiWorkspace({
   function deleteConversation(conversation: AiConversation) {
     if (deleteConversationMutation.isPending) return;
     setPendingDeleteConversation(conversation);
+  }
+  function changeConversationVisibility(conversation: AiConversation, visibility: AiConversationVisibility) {
+    if (visibilityMutation.isPending) return;
+    visibilityMutation.mutate({ conversationId: conversation.id, visibility });
   }
   function confirmDeleteConversation() {
     if (!pendingDeleteConversation || deleteConversationMutation.isPending) return;
@@ -1304,12 +1329,21 @@ export function AiWorkspace({
         }}
         onSubmit={submitRecommendationPlan}
       />
+      {pendingDeleteConversation && (
+        <AiDeleteConversationDialog
+          conversation={pendingDeleteConversation}
+          isDeleting={deleteConversationMutation.isPending}
+          onCancel={() => setPendingDeleteConversation(null)}
+          onConfirm={confirmDeleteConversation}
+        />
+      )}
       <AiMobilePage
         conversations={historyConversations}
         isLoading={isLoading}
         activeConversationKey={activeConversationKey}
         runningConversationKeys={runningConversationKeys}
         waitingConversationKeys={effectiveWaitingConversationKeys}
+        updatingConversationId={updatingConversationId}
         isMobileHistoryOpen={isMobileHistoryOpen}
         currentUser={currentUser}
         resourceOptionLoader={loadResourceOptions}
@@ -1344,6 +1378,8 @@ export function AiWorkspace({
         onCloseMobileHistory={() => setIsMobileHistoryOpen(false)}
         onStartNewConversation={startNewConversation}
         onSelectConversation={selectConversation}
+        onChangeVisibility={changeConversationVisibility}
+        onDeleteConversation={deleteConversation}
         onDraftChange={setDraft}
         onAttachmentFiles={addAttachmentFiles}
         onRemoveAttachment={attachmentState.removeAttachment}
@@ -1378,20 +1414,13 @@ export function AiWorkspace({
           activeConversationKey={activeConversationKey}
           runningConversationKeys={runningConversationKeys}
           waitingConversationKeys={effectiveWaitingConversationKeys}
-          deletingConversationId={deletingConversationId}
+          updatingConversationId={updatingConversationId}
           onToggleSidebar={toggleSidebar}
           onStartNewConversation={startNewConversation}
           onSelectConversation={selectConversation}
+          onChangeVisibility={changeConversationVisibility}
           onDeleteConversation={deleteConversation}
         />
-        {pendingDeleteConversation && (
-          <AiDeleteConversationDialog
-            conversation={pendingDeleteConversation}
-            isDeleting={deleteConversationMutation.isPending}
-            onCancel={() => setPendingDeleteConversation(null)}
-            onConfirm={confirmDeleteConversation}
-          />
-        )}
         <section className="ai-main-panel">
           <div className="ai-main-head">
             <div className="ai-hero-bar">

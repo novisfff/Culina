@@ -46,6 +46,7 @@ describe('AiMobilePage viewport', () => {
           activeConversationKey={null}
           runningConversationKeys={new Set()}
           waitingConversationKeys={new Set()}
+          updatingConversationId={null}
           isMobileHistoryOpen={false}
           currentUser={null}
           resourceOptionLoader={async () => []}
@@ -71,6 +72,8 @@ describe('AiMobilePage viewport', () => {
           onCloseMobileHistory={() => undefined}
           onStartNewConversation={() => undefined}
           onSelectConversation={() => undefined}
+          onChangeVisibility={() => undefined}
+          onDeleteConversation={() => undefined}
           onDraftChange={() => undefined}
           onAttachmentFiles={() => undefined}
           onRemoveAttachment={() => undefined}

@@ -1,6 +1,7 @@
 import { useRef, useEffect, useLayoutEffect, type ClipboardEventHandler, type DragEventHandler, type FormEventHandler, type RefObject } from 'react';
 import type {
   AiConversation,
+  AiConversationVisibility,
   AiInventoryOperationAction,
   AiInventoryResultItem,
   AiMessage,
@@ -24,6 +25,7 @@ type Props = {
   activeConversationKey: string | null;
   runningConversationKeys: Set<string>;
   waitingConversationKeys: Set<string>;
+  updatingConversationId: string | null;
   isMobileHistoryOpen: boolean;
   currentUser: UserSummary | null;
   resourceOptionLoader: AiResourceOptionLoader;
@@ -52,6 +54,8 @@ type Props = {
   onCloseMobileHistory: () => void;
   onStartNewConversation: () => void;
   onSelectConversation: (conversationId: string) => void;
+  onChangeVisibility: (conversation: AiConversation, visibility: AiConversationVisibility) => void;
+  onDeleteConversation: (conversation: AiConversation) => void;
   onDraftChange: (value: string) => void;
   onAttachmentFiles: (files: File[]) => void;
   onRemoveAttachment: (clientAttachmentId: string) => void;
@@ -204,12 +208,15 @@ export function AiMobilePage(props: Props) {
         activeConversationKey={props.activeConversationKey}
         runningConversationKeys={props.runningConversationKeys}
         waitingConversationKeys={props.waitingConversationKeys}
+        updatingConversationId={props.updatingConversationId}
         isMobileHistoryOpen={props.isMobileHistoryOpen}
         onBackHome={props.onBackHome}
         onOpenMobileHistory={props.onOpenMobileHistory}
         onCloseMobileHistory={props.onCloseMobileHistory}
         onStartNewConversation={props.onStartNewConversation}
         onSelectConversation={props.onSelectConversation}
+        onChangeVisibility={props.onChangeVisibility}
+        onDeleteConversation={props.onDeleteConversation}
       />
 
       <div className="ai-thread-scroll" ref={threadAutoScroll.threadScrollRef}>
