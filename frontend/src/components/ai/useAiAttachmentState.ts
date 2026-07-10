@@ -167,15 +167,32 @@ export function useAiAttachmentState(scopeKey: string) {
     });
   }, [updateAttachmentsByScope]);
 
-  const restoreHiddenAttachments = useCallback((items: AiComposerAttachment[]) => {
+  const restoreHiddenAttachments = useCallback((items: AiComposerAttachment[], scopeKey?: string) => {
     if (items.length === 0) return;
-    const targetScope = scopeKeyRef.current;
+    const preferredScope = scopeKey ?? scopeKeyRef.current;
     const itemIds = new Set(items.map((item) => item.clientAttachmentId));
-    const existingHidden = hiddenAttachmentsByScopeRef.current[targetScope] ?? [];
-    hiddenAttachmentsByScopeRef.current = {
-      ...hiddenAttachmentsByScopeRef.current,
-      [targetScope]: existingHidden.filter((item) => !itemIds.has(item.clientAttachmentId)),
-    };
+    // After pending→server remaps, hidden items live under the remapped key. Prefer that owner.
+    let targetScope = preferredScope;
+    if (!(preferredScope in hiddenAttachmentsByScopeRef.current)
+      || !(hiddenAttachmentsByScopeRef.current[preferredScope] ?? []).some((item) => itemIds.has(item.clientAttachmentId))) {
+      for (const key of Object.keys(hiddenAttachmentsByScopeRef.current)) {
+        if ((hiddenAttachmentsByScopeRef.current[key] ?? []).some((item) => itemIds.has(item.clientAttachmentId))) {
+          targetScope = key;
+          break;
+        }
+      }
+    }
+    // Remove matching hidden items from every scope (handles post-send scope remaps).
+    const nextHidden = { ...hiddenAttachmentsByScopeRef.current };
+    for (const key of Object.keys(nextHidden)) {
+      const remaining = (nextHidden[key] ?? []).filter((item) => !itemIds.has(item.clientAttachmentId));
+      if (remaining.length === 0) {
+        delete nextHidden[key];
+      } else {
+        nextHidden[key] = remaining;
+      }
+    }
+    hiddenAttachmentsByScopeRef.current = nextHidden;
     updateScopeAttachments(targetScope, (current) => {
       const currentIds = new Set(current.map((item) => item.clientAttachmentId));
       return [
@@ -185,55 +202,78 @@ export function useAiAttachmentState(scopeKey: string) {
     });
   }, [updateScopeAttachments]);
 
-  const discardHiddenAttachments = useCallback((items: AiComposerAttachment[]) => {
+  const discardHiddenAttachments = useCallback((items: AiComposerAttachment[], scopeKey?: string) => {
     if (items.length === 0) return;
-    const targetScope = scopeKeyRef.current;
     const itemIds = new Set(items.map((item) => item.clientAttachmentId));
-    const existingHidden = hiddenAttachmentsByScopeRef.current[targetScope] ?? [];
-    hiddenAttachmentsByScopeRef.current = {
-      ...hiddenAttachmentsByScopeRef.current,
-      [targetScope]: existingHidden.filter((item) => {
+    const preferredScope = scopeKey ?? scopeKeyRef.current;
+    const nextHidden = { ...hiddenAttachmentsByScopeRef.current };
+    // Prefer the send scope, then fall back across scopes so remaps / conversation switches still revoke.
+    const scopes = preferredScope in nextHidden
+      ? [preferredScope, ...Object.keys(nextHidden).filter((key) => key !== preferredScope)]
+      : Object.keys(nextHidden);
+    for (const key of scopes) {
+      const existingHidden = nextHidden[key] ?? [];
+      if (!existingHidden.some((item) => itemIds.has(item.clientAttachmentId))) continue;
+      const remaining = existingHidden.filter((item) => {
         if (!itemIds.has(item.clientAttachmentId)) return true;
         revokePreview(item.previewUrl);
         return false;
-      }),
-    };
+      });
+      if (remaining.length === 0) {
+        delete nextHidden[key];
+      } else {
+        nextHidden[key] = remaining;
+      }
+    }
+    hiddenAttachmentsByScopeRef.current = nextHidden;
   }, []);
 
   const moveScope = useCallback((from: string, to: string) => {
     if (from === to) return;
+    // Remap active scope key even when data already moved (e.g. double pending→server).
     if (scopeKeyRef.current === from) {
       scopeKeyRef.current = to;
     }
 
-    updateAttachmentsByScope((current) => {
-      if (!(from in current) && !(to in current)) return current;
-      const next = { ...current };
-      const moving = next[from] ?? [];
-      const superseded = next[to] ?? [];
-      if (superseded.length > 0) {
-        revokeAttachments(superseded);
-      }
-      delete next[from];
-      if (moving.length > 0 || to in current) {
-        next[to] = moving;
-      }
-      return next;
-    });
+    const hasFromVisible = from in attachmentsByScopeRef.current;
+    const hasFromHidden = from in hiddenAttachmentsByScopeRef.current;
+    // Mirror draft moveScope: no-op when `from` has no data so we never revoke `to`.
+    if (!hasFromVisible && !hasFromHidden) {
+      return;
+    }
 
-    const hiddenFrom = hiddenAttachmentsByScopeRef.current[from] ?? [];
-    const hiddenTo = hiddenAttachmentsByScopeRef.current[to] ?? [];
-    if (hiddenTo.length > 0) {
-      revokeAttachments(hiddenTo);
+    if (hasFromVisible) {
+      updateAttachmentsByScope((current) => {
+        if (!(from in current)) return current;
+        const next = { ...current };
+        const moving = next[from] ?? [];
+        const superseded = next[to] ?? [];
+        if (superseded.length > 0) {
+          revokeAttachments(superseded);
+        }
+        delete next[from];
+        if (moving.length > 0 || to in current) {
+          next[to] = moving;
+        }
+        return next;
+      });
     }
-    const nextHidden = { ...hiddenAttachmentsByScopeRef.current };
-    delete nextHidden[from];
-    if (hiddenFrom.length > 0 || to in hiddenAttachmentsByScopeRef.current) {
-      nextHidden[to] = hiddenFrom;
-    } else {
-      delete nextHidden[to];
+
+    if (hasFromHidden) {
+      const hiddenFrom = hiddenAttachmentsByScopeRef.current[from] ?? [];
+      const hiddenTo = hiddenAttachmentsByScopeRef.current[to] ?? [];
+      if (hiddenTo.length > 0) {
+        revokeAttachments(hiddenTo);
+      }
+      const nextHidden = { ...hiddenAttachmentsByScopeRef.current };
+      delete nextHidden[from];
+      if (hiddenFrom.length > 0 || to in hiddenAttachmentsByScopeRef.current) {
+        nextHidden[to] = hiddenFrom;
+      } else {
+        delete nextHidden[to];
+      }
+      hiddenAttachmentsByScopeRef.current = nextHidden;
     }
-    hiddenAttachmentsByScopeRef.current = nextHidden;
   }, [updateAttachmentsByScope]);
 
   const clearScope = useCallback((key: string) => {

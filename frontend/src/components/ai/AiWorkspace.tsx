@@ -1166,6 +1166,7 @@ export function AiWorkspace({
     setActiveConversationKey(conversationKey);
     setIsStartingNewConversation(false);
     if (!options?.preserveDraft) setDraft('');
+    const sendAttachmentScope = conversationKey;
     attachmentState.hideAttachments(sendableAttachments.map((attachment) => attachment.clientAttachmentId));
     try {
       await chatMutation.mutateAsync({
@@ -1178,9 +1179,9 @@ export function AiWorkspace({
         subject: options?.subject,
         attachments: requestAttachments,
       });
-      attachmentState.discardHiddenAttachments(sendableAttachments);
+      attachmentState.discardHiddenAttachments(sendableAttachments, sendAttachmentScope);
     } catch {
-      attachmentState.restoreHiddenAttachments(sendableAttachments);
+      attachmentState.restoreHiddenAttachments(sendableAttachments, sendAttachmentScope);
       // Keep request failures out of the form event promise; message-level state already carries visible run feedback.
     }
   }

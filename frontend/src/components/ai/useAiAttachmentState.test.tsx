@@ -184,4 +184,134 @@ describe('useAiAttachmentState', () => {
 
     rendered.unmount();
   });
+
+
+  it('keeps hidden attachments intact across a double pending→server moveScope', async () => {
+    let state: ReturnType<typeof useAiAttachmentState> | null = null;
+    let hiddenSnapshot: AiComposerAttachment[] = [];
+    let scopeKey = 'pending-conversation-a';
+
+    function Harness({ scope }: { scope: string }) {
+      state = useAiAttachmentState(scope);
+      return (
+        <div>
+          <span data-testid="count">{state.attachments.length}</span>
+          <span data-testid="previews">{state.attachments.map((item) => item.previewUrl).join(',')}</span>
+        </div>
+      );
+    }
+
+    const rendered = await renderWithQuery(<Harness scope={scopeKey} />);
+    await act(async () => {
+      state?.uploadFiles([new File(['a'], 'hidden.png', { type: 'image/png' })]);
+    });
+    await flushAsync();
+
+    hiddenSnapshot = state?.readyAttachments ?? [];
+    expect(hiddenSnapshot).toHaveLength(1);
+    const previewUrl = hiddenSnapshot[0]?.previewUrl;
+    expect(previewUrl).toBe('blob:ai-preview-1');
+
+    act(() => {
+      state?.hideAttachments(hiddenSnapshot.map((item) => item.clientAttachmentId));
+    });
+    expect(rendered.container.querySelector('[data-testid="count"]')?.textContent).toBe('0');
+
+    act(() => {
+      state?.moveScope('pending-conversation-a', 'conversation-server-a');
+    });
+    // Second move: from is already gone (migration + applyChatResponse race). Must not revoke `to`.
+    act(() => {
+      state?.moveScope('pending-conversation-a', 'conversation-server-a');
+    });
+
+    expect(revokeObjectURLSpy).not.toHaveBeenCalled();
+
+    scopeKey = 'conversation-server-a';
+    await rendered.rerender(<Harness scope={scopeKey} />);
+    expect(rendered.container.querySelector('[data-testid="count"]')?.textContent).toBe('0');
+
+    act(() => {
+      state?.restoreHiddenAttachments(hiddenSnapshot, 'conversation-server-a');
+    });
+    expect(rendered.container.querySelector('[data-testid="count"]')?.textContent).toBe('1');
+    expect(rendered.container.querySelector('[data-testid="previews"]')?.textContent).toBe(previewUrl);
+    expect(revokeObjectURLSpy).not.toHaveBeenCalled();
+
+    act(() => {
+      state?.hideAttachments(hiddenSnapshot.map((item) => item.clientAttachmentId));
+      state?.discardHiddenAttachments(hiddenSnapshot, 'conversation-server-a');
+    });
+    expect(rendered.container.querySelector('[data-testid="count"]')?.textContent).toBe('0');
+    expect(revokeObjectURLSpy).toHaveBeenCalledTimes(1);
+    expect(revokeObjectURLSpy).toHaveBeenCalledWith(previewUrl);
+
+    rendered.unmount();
+  });
+
+  it('discards and restores using the captured send scope after switching conversations', async () => {
+    let state: ReturnType<typeof useAiAttachmentState> | null = null;
+    let hiddenSnapshot: AiComposerAttachment[] = [];
+    let scopeKey = 'conversation-send';
+
+    function Harness({ scope }: { scope: string }) {
+      state = useAiAttachmentState(scope);
+      return <span data-testid="count">{state.attachments.length}</span>;
+    }
+
+    const rendered = await renderWithQuery(<Harness scope={scopeKey} />);
+    await act(async () => {
+      state?.uploadFiles([new File(['a'], 'send.png', { type: 'image/png' })]);
+    });
+    await flushAsync();
+
+    hiddenSnapshot = state?.readyAttachments ?? [];
+    expect(hiddenSnapshot).toHaveLength(1);
+    const sendScope = 'conversation-send';
+
+    act(() => {
+      state?.hideAttachments(hiddenSnapshot.map((item) => item.clientAttachmentId));
+    });
+
+    // User switches conversations before the send settles.
+    scopeKey = 'conversation-other';
+    await rendered.rerender(<Harness scope={scopeKey} />);
+    expect(rendered.container.querySelector('[data-testid="count"]')?.textContent).toBe('0');
+
+    act(() => {
+      state?.discardHiddenAttachments(hiddenSnapshot, sendScope);
+    });
+    expect(revokeObjectURLSpy).toHaveBeenCalledWith('blob:ai-preview-1');
+
+    // Restore path after a failed send should target the captured send scope, not the active one.
+    revokeObjectURLSpy.mockClear();
+    scopeKey = 'conversation-send-b';
+    await rendered.rerender(<Harness scope={scopeKey} />);
+    await act(async () => {
+      state?.uploadFiles([new File(['b'], 'retry.png', { type: 'image/png' })]);
+    });
+    await flushAsync();
+    hiddenSnapshot = state?.readyAttachments ?? [];
+    const restoreScope = 'conversation-send-b';
+
+    act(() => {
+      state?.hideAttachments(hiddenSnapshot.map((item) => item.clientAttachmentId));
+    });
+
+    scopeKey = 'conversation-other';
+    await rendered.rerender(<Harness scope={scopeKey} />);
+
+    act(() => {
+      state?.restoreHiddenAttachments(hiddenSnapshot, restoreScope);
+    });
+    expect(rendered.container.querySelector('[data-testid="count"]')?.textContent).toBe('0');
+
+    scopeKey = restoreScope;
+    await rendered.rerender(<Harness scope={scopeKey} />);
+    expect(rendered.container.querySelector('[data-testid="count"]')?.textContent).toBe('1');
+    expect(revokeObjectURLSpy).not.toHaveBeenCalled();
+
+    rendered.unmount();
+  });
+
 });
