@@ -63,6 +63,11 @@ class AiMode(str, Enum):
     RECIPE_DRAFT = "recipeDraft"
 
 
+class AIConversationVisibility(str, Enum):
+    PRIVATE = "private"
+    FAMILY = "family"
+
+
 class ActivityAction(str, Enum):
     CREATE = "create"
     UPDATE = "update"
