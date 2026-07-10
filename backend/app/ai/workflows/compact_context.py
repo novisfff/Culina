@@ -172,15 +172,31 @@ def _compact_artifact(artifact: dict[str, Any]) -> dict[str, Any]:
     _copy_source_ids(compact, artifact, payload)
 
     if artifact_type == "workflow.continuation":
+        compact["payload"] = _compact_workflow_continuation(payload)
+        return compact
+    if artifact_type == "recipe_shortage":
+        continuation = _as_dict(payload.get("continuation"))
+        compact_continuation = _compact_workflow_continuation(continuation)
+        compact_continuation["requiredDraftType"] = continuation.get("requiredDraftType")
+        state = _as_dict(continuation.get("state"))
+        shortages = state.get("shortages") if isinstance(state.get("shortages"), list) else []
+        compact_continuation["state"] = {
+            "recipeId": state.get("recipeId"),
+            "shortages": [
+                {
+                    key: row[key]
+                    for key in ("ingredientId", "ingredientName", "shortageType", "quantity", "unit")
+                    if key in row and row[key] is not None
+                }
+                for row in shortages[:50]
+                if isinstance(row, dict)
+            ],
+        }
+        compact["summary"] = _truncate(artifact.get("summary") or payload.get("recipeTitle") or "菜谱缺料")
         compact["payload"] = {
-            "workflowId": payload.get("workflowId"),
-            "stepKey": payload.get("stepKey"),
-            "reasonCode": payload.get("reasonCode"),
-            "nextSkillKey": payload.get("nextSkillKey"),
-            "resumeSkillKey": payload.get("resumeSkillKey"),
-            "stateSchema": payload.get("stateSchema"),
-            "state": _compact_plain_dict(payload.get("state") or {}),
-            "businessEntityIds": list(payload.get("businessEntityIds") or [])[:20],
+            "recipeId": payload.get("recipeId"),
+            "actionPrompt": _truncate(payload.get("actionPrompt")),
+            "continuation": compact_continuation,
         }
         return compact
 
@@ -213,6 +229,19 @@ def _compact_artifact(artifact: dict[str, Any]) -> dict[str, Any]:
     if schema_version:
         compact["schemaVersion"] = schema_version
     return compact
+
+
+def _compact_workflow_continuation(payload: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "workflowId": payload.get("workflowId"),
+        "stepKey": payload.get("stepKey"),
+        "reasonCode": payload.get("reasonCode"),
+        "nextSkillKey": payload.get("nextSkillKey"),
+        "resumeSkillKey": payload.get("resumeSkillKey"),
+        "stateSchema": payload.get("stateSchema"),
+        "state": _compact_plain_dict(payload.get("state") or {}),
+        "businessEntityIds": list(payload.get("businessEntityIds") or [])[:20],
+    }
 
 
 def _compact_approval_decision(

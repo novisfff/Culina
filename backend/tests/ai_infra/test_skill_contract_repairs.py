@@ -50,6 +50,37 @@ def test_food_profile_does_not_default_unknown_stock_to_room_temperature() -> No
     assert "保存位置不明确时留空或追问" in text
 
 
+def test_shopping_to_stock_skills_preserve_separate_approval_boundary() -> None:
+    catalog_dir = BACKEND_DIR / "app/ai/skills/catalog"
+    shopping = (catalog_dir / "shopping-list/SKILL.md").read_text(encoding="utf-8")
+    workflows = (catalog_dir / "shopping-list/references/workflows.md").read_text(encoding="utf-8")
+    inventory = (catalog_dir / "inventory-analysis/SKILL.md").read_text(encoding="utf-8")
+    food = (catalog_dir / "food-profile/SKILL.md").read_text(encoding="utf-8")
+
+    assert "`shopping_to_stock.v1`" in shopping
+    assert "第二份" in shopping
+    assert "二次审批前" in shopping
+    assert "购物完成后的入库" in workflows
+    assert "`ingredient.read_by_id`" in inventory
+    assert "第二份 `inventory_operation` 草稿" in inventory
+    assert "`food.read_by_id`" in food
+    assert "现有库存数量 + 本次采购数量" in food
+    assert "第二份 `food_profile` 更新草稿" in food
+
+
+def test_recipe_shortage_skills_preserve_real_id_shopping_boundary() -> None:
+    catalog_dir = BACKEND_DIR / "app/ai/skills/catalog"
+    recipe_cook = (catalog_dir / "recipe-cook/SKILL.md").read_text(encoding="utf-8")
+    shopping = (catalog_dir / "shopping-list/SKILL.md").read_text(encoding="utf-8")
+
+    assert "`recipe_shortage_to_shopping.v1`" in recipe_cook
+    assert "普通用户消息" in recipe_cook
+    assert "不自动重试做菜" in recipe_cook
+    assert "`recipe_shortage` artifact" in shopping
+    assert "逐个调用 `ingredient.read_by_id`" in shopping
+    assert "省略 `quantity` 和 `unit`" in shopping
+
+
 def test_ai_standards_lists_fixed_cooking_assistant_skill() -> None:
     text = (ROOT_DIR / "docs/ai-assistant-standards.md").read_text(encoding="utf-8")
 

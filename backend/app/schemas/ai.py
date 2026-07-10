@@ -98,6 +98,9 @@ AIResultCardType = Literal[
     "meal_log_draft",
     "food_profile_draft",
     "ui_actions",
+    "recipe_shortage",
+    "inventory_intake_candidates",
+    "meal_idea_proposal",
 ]
 AIRunEventStatus = Literal["pending", "running", "waiting", "completed", "failed"]
 AITaskDraftType = Literal[
@@ -114,6 +117,24 @@ AITaskDraftType = Literal[
 AITaskDraftStatus = Literal["pending", "confirmed", "rejected", "confirmation_failed", "pending_retry"]
 AIApprovalStatus = Literal["pending", "approved", "rejected", "cancelled", "expired"]
 AIApprovalDecision = Literal["approved", "rejected"]
+
+
+class AIMealIdeaSubjectDTO(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    schemaVersion: Literal["meal_idea_subject.v1"]
+    title: str = Field(min_length=1, max_length=120)
+    ingredientIds: list[str] = Field(min_length=1, max_length=30)
+    reason: str = Field(min_length=1, max_length=500)
+    preparationSummary: str | None = Field(default=None, max_length=500)
+
+
+class AIInventoryIntakeSubjectCandidateDTO(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    ingredientId: str = Field(min_length=1, max_length=64)
+    quantity: str | None = Field(default=None, pattern=r"^[0-9]+(?:\.[0-9]+)?$")
+    unit: str | None = Field(default=None, max_length=32)
 
 
 class AISubjectIn(BaseModel):
@@ -142,6 +163,43 @@ class AISubjectIn(BaseModel):
             if source in normalized and target not in normalized:
                 normalized[target] = normalized[source]
         return normalized
+
+    @model_validator(mode="after")
+    def validate_product_loop_subject(self) -> "AISubjectIn":
+        if self.source == "meal_idea_proposal":
+            meal_idea = AIMealIdeaSubjectDTO.model_validate(self.extra.get("mealIdea"), strict=True)
+            if self.ingredient_ids != meal_idea.ingredientIds:
+                raise ValueError("meal idea ingredient_ids must match")
+            self.extra = {**self.extra, "mealIdea": meal_idea.model_dump(mode="json")}
+        elif self.source == "inventory_intake_candidates":
+            raw_candidates = self.extra.get("intakeCandidates")
+            if not isinstance(raw_candidates, list) or not raw_candidates:
+                raise ValueError("intakeCandidates must be a non-empty list")
+            if len(raw_candidates) > 30:
+                raise ValueError("intakeCandidates must contain at most 30 items")
+            candidates = [
+                AIInventoryIntakeSubjectCandidateDTO.model_validate(item, strict=True)
+                for item in raw_candidates
+            ]
+            raw_unresolved_labels = self.extra.get("unresolvedLabels") or []
+            if not isinstance(raw_unresolved_labels, list):
+                raise ValueError("unresolvedLabels must be a list")
+            if len(raw_unresolved_labels) > 30:
+                raise ValueError("unresolvedLabels must contain at most 30 items")
+            unresolved_labels = [
+                str(label).strip()
+                for label in raw_unresolved_labels
+                if str(label).strip()
+            ]
+            if any(len(label) > 120 for label in unresolved_labels):
+                raise ValueError("unresolved label is too long")
+            self.ingredient_ids = list(dict.fromkeys(item.ingredientId for item in candidates))
+            self.extra = {
+                **self.extra,
+                "intakeCandidates": [item.model_dump(mode="json") for item in candidates],
+                "unresolvedLabels": list(dict.fromkeys(unresolved_labels)),
+            }
+        return self
 
 
 class AIChatAttachmentIn(BaseModel):
@@ -280,6 +338,54 @@ class AIUiActionsCardDataDTO(BaseModel):
     requiresConfirmation: bool = False
 
 
+class AIInventoryIntakeCandidateDTO(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    ingredientId: str = Field(min_length=1, max_length=64)
+    name: str = Field(min_length=1, max_length=120)
+    quantityMode: Literal["track_quantity", "not_track_quantity"]
+    quantity: str | None = Field(default=None, pattern=r"^[0-9]+(?:\.[0-9]+)?$")
+    unit: str | None = Field(default=None, max_length=32)
+    selected: bool
+    warnings: list[str] = Field(default_factory=list, max_length=20)
+    confidence: float | None = Field(default=None, ge=0, le=1)
+    sourceLabel: str | None = Field(default=None, max_length=120)
+
+
+class AIInventoryIntakeCandidatesCardDataDTO(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    items: list[AIInventoryIntakeCandidateDTO] = Field(min_length=1, max_length=30)
+    unresolvedLabels: list[str] = Field(default_factory=list, max_length=30)
+
+
+class AIMealIdeaIngredientDTO(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    ingredientId: str = Field(min_length=1, max_length=64)
+    name: str = Field(min_length=1, max_length=120)
+    quantityMode: Literal["track_quantity", "not_track_quantity"]
+    availableQuantity: str | None = Field(default=None, pattern=r"^[0-9]+(?:\.[0-9]+)?$")
+    unit: str | None = Field(default=None, max_length=32)
+    available: bool
+
+
+class AIMealIdeaProposalCardDataDTO(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    title: str = Field(min_length=1, max_length=120)
+    reason: str = Field(min_length=1, max_length=500)
+    ingredientIds: list[str] = Field(min_length=1, max_length=30)
+    ingredients: list[AIMealIdeaIngredientDTO] = Field(min_length=1, max_length=30)
+    preparationSummary: str | None = Field(default=None, max_length=500)
+
+    @model_validator(mode="after")
+    def validate_ingredient_identity(self) -> "AIMealIdeaProposalCardDataDTO":
+        if self.ingredientIds != [item.ingredientId for item in self.ingredients]:
+            raise ValueError("ingredientIds must match ingredient summaries")
+        return self
+
+
 class AIResultCardDTO(BaseModel):
     id: str
     type: AIResultCardType
@@ -296,6 +402,10 @@ class AIResultCardDTO(BaseModel):
             AIOperationResultCardDataDTO.model_validate(self.data)
         elif self.type == "ui_actions":
             AIUiActionsCardDataDTO.model_validate(self.data)
+        elif self.type == "inventory_intake_candidates":
+            AIInventoryIntakeCandidatesCardDataDTO.model_validate(self.data)
+        elif self.type == "meal_idea_proposal":
+            AIMealIdeaProposalCardDataDTO.model_validate(self.data)
         return self
 
 

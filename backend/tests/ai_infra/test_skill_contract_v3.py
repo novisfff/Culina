@@ -42,6 +42,14 @@ EXPECTED_SKILL_MODES = {
 }
 
 EXPECTED_HANDOFFS = {
+    "recipe_cook": {
+        "recipe_shortage": (
+            "shopping_list",
+            "shopping_list",
+            "shopping_list",
+            "recipe_shortage_to_shopping.v1",
+        ),
+    },
     "recipe_draft": {
         "missing_ingredient": (
             "ingredient_profile",
@@ -59,6 +67,18 @@ EXPECTED_HANDOFFS = {
         ),
     },
     "shopping_list": {
+        "shopping_completed_ingredient": (
+            "inventory_analysis",
+            "inventory_operation",
+            "inventory_analysis",
+            "shopping_to_stock.v1",
+        ),
+        "shopping_completed_food": (
+            "food_profile",
+            "food_profile",
+            "food_profile",
+            "shopping_to_stock.v1",
+        ),
         "missing_ingredient": (
             "ingredient_profile",
             "ingredient_profile",
@@ -190,6 +210,123 @@ def test_catalog_skill_docs_use_v3_sections_and_typed_continuation_language() ->
         text = path.read_text(encoding="utf-8")
         assert "afterApproval" not in text, path
         assert "nextDraftType" not in text, path
+
+
+def test_meal_log_skill_requires_explicit_ready_food_stock_deduction_contract() -> None:
+    registry = build_workspace_skill_registry()
+    manifest = registry.get("meal_log").manifest
+    skill_path = Path(__file__).resolve().parents[2] / "app" / "ai" / "skills" / "catalog" / "meal-record" / "SKILL.md"
+    skill_text = skill_path.read_text(encoding="utf-8")
+
+    assert any("扣减" in example and "库存" in example for example in manifest.routing.include_examples)
+    for required_text in (
+        "deductStock",
+        "stockQuantity",
+        "stockUnit",
+        "readyMade",
+        "instant",
+        "packaged",
+        "不得仅因 Food 出现在餐食记录中推断扣库存",
+        "MealLog 创建和所有已选择的库存扣减必须在同一事务中",
+    ):
+        assert required_text in skill_text
+
+
+def test_recipe_and_meal_skills_distinguish_saved_media_from_context_images() -> None:
+    registry = build_workspace_skill_registry()
+    catalog_dir = Path(__file__).resolve().parents[2] / "app" / "ai" / "skills" / "catalog"
+    cases = {
+        "recipe_draft": (catalog_dir / "recipe-draft" / "SKILL.md", "media_ids"),
+        "meal_log": (catalog_dir / "meal-record" / "SKILL.md", "mediaIds"),
+    }
+
+    for skill_key, (skill_path, field_name) in cases.items():
+        manifest = registry.get(skill_key).manifest
+        skill_text = skill_path.read_text(encoding="utf-8")
+        assert manifest.attachment_policy.current_message_only is True
+        assert manifest.attachment_policy.explicit_user_intent_required is True
+        assert manifest.attachment_policy.bindable_fields == (field_name,)
+        assert any(
+            ("图片" in example or "照片" in example) and ("保存" in example or "作为" in example)
+            for example in manifest.routing.include_examples
+        )
+        assert "仅用于识别或理解的图片不写入" in skill_text
+
+
+def test_inventory_skill_declares_reviewable_intake_candidate_terminal_contract() -> None:
+    manifest = build_workspace_skill_registry().get("inventory_analysis").manifest
+    skill_path = Path(__file__).resolve().parents[2] / "app" / "ai" / "skills" / "catalog" / "inventory-analysis" / "SKILL.md"
+    skill_text = skill_path.read_text(encoding="utf-8")
+
+    assert "inventory.preview_intake_candidates" in manifest.tools
+    assert "inventory_intake_candidates" in manifest.output_types
+    assert "inventory.preview_intake_candidates" in manifest.completion_policy.terminal_tools
+    assert "候选卡本身不写库存" in skill_text
+    assert "intakeCandidates" in skill_text
+
+
+def test_meal_plan_and_recipe_skills_declare_inventory_idea_product_loop() -> None:
+    registry = build_workspace_skill_registry()
+    catalog_dir = Path(__file__).resolve().parents[2] / "app" / "ai" / "skills" / "catalog"
+    meal_plan = registry.get("meal_plan").manifest
+    meal_plan_text = (catalog_dir / "meal-planning" / "SKILL.md").read_text(encoding="utf-8")
+    recipe_text = (catalog_dir / "recipe-draft" / "SKILL.md").read_text(encoding="utf-8")
+
+    assert "meal_plan.propose_from_inventory" in meal_plan.tools
+    assert "meal_idea_proposal" in meal_plan.output_types
+    assert "meal_plan.propose_from_inventory" in meal_plan.completion_policy.terminal_tools
+    assert "`food.search` 和 `recipe.search` 都实际返回空结果" in meal_plan_text
+    assert "不能生成虚假的 Food ID、Recipe ID 或餐食计划项" in meal_plan_text
+    assert "meal_idea_subject.v1" in recipe_text
+    assert "重新读取每个 `ingredientId`" in recipe_text
+
+
+def test_phase3_product_loop_edges_are_declared_and_never_commit_directly() -> None:
+    registry = build_workspace_skill_registry()
+    expected_edges = {
+        ("shopping_list", "shopping_completed_ingredient"): (
+            "inventory_analysis",
+            "inventory_operation",
+            "shopping_to_stock.v1",
+        ),
+        ("shopping_list", "shopping_completed_food"): (
+            "food_profile",
+            "food_profile",
+            "shopping_to_stock.v1",
+        ),
+        ("recipe_cook", "recipe_shortage"): (
+            "shopping_list",
+            "shopping_list",
+            "recipe_shortage_to_shopping.v1",
+        ),
+        ("inventory_analysis", "missing_ingredient"): (
+            "ingredient_profile",
+            "ingredient_profile",
+            "inventory_missing_ingredient.v1",
+        ),
+    }
+
+    for (source_key, reason), (target_key, draft_type, state_schema) in expected_edges.items():
+        policy = registry.get(source_key).manifest.handoffs[reason]
+        assert (policy.target_skill, policy.required_draft_type, policy.state_schema) == (
+            target_key,
+            draft_type,
+            state_schema,
+        )
+        assert registry.get(target_key).manifest.approval_policy == "draft_then_confirm"
+        assert set(policy.to_record()) == {
+            "reasonCode",
+            "targetSkill",
+            "requiredDraftType",
+            "resumeSkill",
+            "stateSchema",
+        }
+
+    meal_idea_tool = build_workspace_tool_registry().get("meal_plan.propose_from_inventory")
+    assert meal_idea_tool.side_effect == "read"
+    assert meal_idea_tool.terminal_output is True
+    assert meal_idea_tool.output_types == ["meal_idea_proposal"]
+    assert "recipe" in registry.get("recipe_draft").manifest.draft_types
 
 
 def test_routing_record_excludes_execution_only_contracts() -> None:

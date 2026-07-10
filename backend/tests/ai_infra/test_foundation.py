@@ -200,6 +200,7 @@ def _recipe_cook_policy_tool_registry() -> ToolRegistry:
     register_fake_tool("skill.inject", side_effect="control", handler=read_handler)
     register_fake_tool("human.request_input", side_effect="control", handler=read_handler)
     register_fake_tool("workspace.read_artifact", side_effect="read", handler=read_handler)
+    register_fake_tool("family.read_context", side_effect="read", handler=read_handler)
     register_fake_tool("recipe.search", side_effect="read", handler=read_handler)
     register_fake_tool("recipe.read_by_id", side_effect="read", handler=read_handler)
     register_fake_tool("recipe.preview_cook", side_effect="read", handler=preview_handler)

@@ -203,6 +203,111 @@ def test_update_family_sets_audit_fields_and_activity_log(family_api_context: Fa
         assert log.summary == "更新家庭信息 新的家庭"
 
 
+def test_owner_can_update_food_context(family_api_context: FamilyApiContext) -> None:
+    response = family_api_context.client.patch(
+        "/api/family",
+        json={
+            "name": "主家庭",
+            "motto": "认真吃饭",
+            "location": "上海",
+            "food_preferences": ["少油", " 清淡 ", "少油"],
+            "food_avoidances": ["花生"],
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["food_preferences"] == ["少油", "清淡"]
+    assert response.json()["food_avoidances"] == ["花生"]
+
+
+def test_legacy_family_update_preserves_existing_food_context(family_api_context: FamilyApiContext) -> None:
+    with family_api_context.SessionLocal() as db:
+        family = db.get(Family, family_api_context.family_id)
+        assert family is not None
+        family.food_preferences = ["少油", "清淡"]
+        family.food_avoidances = ["花生"]
+        db.commit()
+
+    response = family_api_context.client.patch(
+        "/api/family",
+        json={"name": "主家庭", "motto": "继续认真吃饭", "location": "上海"},
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["food_preferences"] == ["少油", "清淡"]
+    assert response.json()["food_avoidances"] == ["花生"]
+
+
+def test_family_update_can_explicitly_clear_food_context(family_api_context: FamilyApiContext) -> None:
+    with family_api_context.SessionLocal() as db:
+        family = db.get(Family, family_api_context.family_id)
+        assert family is not None
+        family.food_preferences = ["少油"]
+        family.food_avoidances = ["花生"]
+        db.commit()
+
+    response = family_api_context.client.patch(
+        "/api/family",
+        json={
+            "name": "主家庭",
+            "motto": "认真吃饭",
+            "location": "上海",
+            "food_preferences": [],
+            "food_avoidances": [],
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["food_preferences"] == []
+    assert response.json()["food_avoidances"] == []
+
+
+def test_non_owner_cannot_update_food_context(family_api_context: FamilyApiContext) -> None:
+    family_api_context.use_auth(
+        family_api_context.member_id,
+        family_api_context.member_membership_id,
+    )
+
+    response = family_api_context.client.patch(
+        "/api/family",
+        json={
+            "name": "主家庭",
+            "motto": "认真吃饭",
+            "location": "上海",
+            "food_preferences": ["清淡"],
+        },
+    )
+
+    assert response.status_code == 403
+
+
+@pytest.mark.parametrize(
+    ("field", "values", "message"),
+    [
+        ("food_preferences", [f"偏好{index}" for index in range(21)], "每类最多填写 20 项"),
+        ("food_avoidances", ["忌" * 41], "单项不能超过 40 个字符"),
+    ],
+)
+def test_food_context_rejects_invalid_limits(
+    family_api_context: FamilyApiContext,
+    field: str,
+    values: list[str],
+    message: str,
+) -> None:
+    response = family_api_context.client.patch(
+        "/api/family",
+        json={
+            "name": "主家庭",
+            "motto": "认真吃饭",
+            "location": "上海",
+            field: values,
+        },
+    )
+
+    assert response.status_code == 422
+    assert message in response.text
+
+
 def test_update_family_media_binding_rolls_back_when_commit_fails(family_api_context: FamilyApiContext) -> None:
     with fail_next_commit("family media commit failed"):
         with pytest.raises(RuntimeError, match="family media commit failed"):

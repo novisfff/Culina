@@ -7,11 +7,16 @@ from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
 from app.ai.kitchen.recipe_drafts import RECIPE_DRAFT_JSON_SCHEMA
+from app.ai.skills.registry import build_workspace_skill_registry
 from app.ai.tools.base import ToolContext
 from app.ai.tools.catalog.common import entity_media_map, first_entity_media, register_tool
 from app.ai.tools.draft_validation import normalize_recipe_cook_draft, normalize_recipe_draft_for_tools
 from app.ai.tools.registry import ToolRegistry
 from app.ai.tools.schemas import READ_BY_ID_INPUT, RECIPE_COOK_DRAFT_INPUT_SCHEMA, RECIPE_COOK_DRAFT_SCHEMA, SEARCH_INPUT, draft_input_schema, draft_output_schema
+from app.ai.workflows.orchestrator.continuation import normalize_continuation
+from app.ai.workflows.orchestrator.product_continuations import ContinuationBuildError, build_recipe_shortage_continuation
+from app.ai.workflows.orchestrator.profiles import MAIN_WORKSPACE_PROFILE
+from app.ai.workflows.runner_support.attachments import validate_current_attachment_ids
 from app.models.domain import Food, FoodPlanItem, Recipe, RecipeFavorite
 from app.repos.media import build_media_map, get_media_assets_for_entities
 from app.services.clock import today_for_family
@@ -302,6 +307,16 @@ def recipe_read_by_id(context: ToolContext, payload: dict[str, Any]) -> dict[str
 def recipe_create_draft(context: ToolContext, payload: dict[str, Any]) -> dict[str, Any]:
     draft = payload.get("draft") if isinstance(payload.get("draft"), dict) else {}
     normalized = normalize_recipe_draft_for_tools(context.db, family_id=context.family_id, payload=draft)
+    recipe_payload = normalized.get("payload") if normalized.get("action") in {"create", "update"} else normalized
+    if isinstance(recipe_payload, dict):
+        recipe_payload["media_ids"] = validate_current_attachment_ids(
+            context.db,
+            family_id=context.family_id,
+            requested_media_ids=recipe_payload.get("media_ids") or [],
+            current_attachments=context.current_message_attachments,
+            existing_entity_type="recipe" if normalized.get("action") == "update" else None,
+            existing_entity_id=str(normalized.get("targetId") or "") or None,
+        )
     return {"draft": normalized, "itemCount": len(normalized.get("ingredient_items", []) or [])}
 
 
@@ -347,7 +362,7 @@ def recipe_preview_cook(context: ToolContext, payload: dict[str, Any]) -> dict[s
                 "planItemId": plan_item_id,
             }
             plan_item = None
-    return {
+    result = {
         "recipe": {
             "id": recipe.id,
             "title": recipe.title,
@@ -368,6 +383,33 @@ def recipe_preview_cook(context: ToolContext, payload: dict[str, Any]) -> dict[s
         else None,
         "planItemWarning": plan_item_warning,
     }
+    if shortages:
+        try:
+            continuation = normalize_continuation(
+                payload=build_recipe_shortage_continuation(
+                    recipe_id=recipe.id,
+                    shortages=shortages,
+                ),
+                source_skill_key="recipe_cook",
+                skill_registry=build_workspace_skill_registry(),
+                capability_policy=MAIN_WORKSPACE_PROFILE.capability_policy,
+            )
+        except ContinuationBuildError:
+            continuation = None
+        if continuation is not None:
+            result["card"] = {
+                "id": f"recipe-shortage:{recipe.id}",
+                "type": "recipe_shortage",
+                "title": f"{recipe.title}缺少 {len(shortages)} 项食材",
+                "data": {
+                    "recipeId": recipe.id,
+                    "recipeTitle": recipe.title,
+                    "shortages": continuation["state"]["shortages"],
+                    "continuation": continuation,
+                    "actionPrompt": "把缺少的食材加入购物清单",
+                },
+            }
+    return result
 
 
 def recipe_create_cook_draft(context: ToolContext, payload: dict[str, Any]) -> dict[str, Any]:
@@ -444,8 +486,19 @@ def register_recipe_tools(registry: ToolRegistry) -> None:
                 "recipe": {"type": "object"},
                 "preview": {"type": "object"},
                 "planItem": {"type": ["object", "null"]},
+                "card": {
+                    "type": "object",
+                    "required": ["id", "type", "title", "data"],
+                    "properties": {
+                        "id": {"type": "string"},
+                        "type": {"type": "string", "enum": ["recipe_shortage"]},
+                        "title": {"type": "string"},
+                        "data": {"type": "object"},
+                    },
+                },
             },
         },
+        output_types=["recipe_shortage"],
         requires_followup=True,
         followup_hint="做菜预览后必须说明库存扣减和缺料情况、请求补充信息，或生成 recipe_cook 草稿。",
     )

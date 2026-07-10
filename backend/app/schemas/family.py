@@ -43,7 +43,30 @@ class UpdateMemberRequest(BaseModel):
     pending_image_job_id: str | None = None
 
 
-class UpdateFamilyRequest(BaseModel):
+class FamilyFoodContext(BaseModel):
+    food_preferences: list[str] = Field(default_factory=list)
+    food_avoidances: list[str] = Field(default_factory=list)
+
+    @field_validator("food_preferences", "food_avoidances")
+    @classmethod
+    def normalize_food_context(cls, value: list[str] | None) -> list[str] | None:
+        if value is None:
+            return None
+        normalized: list[str] = []
+        for raw in value:
+            item = raw.strip()
+            if item and item not in normalized:
+                normalized.append(item)
+        if len(normalized) > 20:
+            raise ValueError("每类最多填写 20 项")
+        if any(len(item) > 40 for item in normalized):
+            raise ValueError("单项不能超过 40 个字符")
+        return normalized
+
+
+class UpdateFamilyRequest(FamilyFoodContext):
+    food_preferences: list[str] | None = None
+    food_avoidances: list[str] | None = None
     name: str
     motto: str = ""
     location: str = ""
@@ -51,7 +74,7 @@ class UpdateFamilyRequest(BaseModel):
     pending_image_job_id: str | None = None
 
 
-class FamilyDetailOut(BaseModel):
+class FamilyDetailOut(FamilyFoodContext):
     id: str
     name: str
     motto: str

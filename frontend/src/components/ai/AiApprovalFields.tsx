@@ -24,6 +24,8 @@ export type AiResourceOption = {
   description?: string;
   imageUrl?: string;
   unit?: string;
+  foodType?: string;
+  stockQuantity?: number | null;
 };
 
 export type AiResourceOptionLoader = (

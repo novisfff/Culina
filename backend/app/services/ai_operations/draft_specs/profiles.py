@@ -5,6 +5,7 @@ from typing import Any
 from pydantic import ValidationError
 
 from app.ai.tools.draft_validation import normalize_food_profile_draft_for_tools, normalize_ingredient_profile_draft
+from app.ai.workflows.runner_support.attachments import validate_submitted_attachment_subset
 from app.repos.media import build_media_map, get_media_assets_for_entities
 from app.services.ai_operations.foods import execute_food_profile_draft
 from app.services.ai_operations.ingredients import execute_ingredient_profile_draft
@@ -24,6 +25,38 @@ from app.services.ai_operations.draft_specs.common import (
     _spec,
     _validate_ingredient_profile_value,
 )
+
+
+def _profile_media_ids(payload: Any) -> list[str]:
+    if not isinstance(payload, dict):
+        return []
+    if isinstance(payload.get("operations"), list):
+        return [
+            str(media_id)
+            for operation in payload.get("operations") or []
+            if isinstance(operation, dict)
+            for media_id in (
+                (operation.get("payload") or {}).get("media_ids")
+                if isinstance(operation.get("payload"), dict)
+                else []
+            ) or []
+        ]
+    profile_payload = payload.get("payload") if payload.get("action") in {"create", "update"} else payload
+    if not isinstance(profile_payload, dict):
+        return []
+    return [str(media_id) for media_id in profile_payload.get("media_ids") or []]
+
+
+def _validate_profile_attachment_value(original: Any, submitted: Any) -> None:
+    validate_submitted_attachment_subset(
+        original_media_ids=_profile_media_ids(original),
+        submitted_media_ids=_profile_media_ids(submitted),
+    )
+
+
+def _validate_ingredient_profile_approval_value(original: Any, submitted: Any) -> None:
+    _validate_ingredient_profile_value(original, submitted)
+    _validate_profile_attachment_value(original, submitted)
 
 
 def _approval_config_for_ingredient_profile(payload: dict[str, Any]) -> dict[str, str]:
@@ -183,6 +216,7 @@ def profile_operation_specs() -> list[DraftOperationSpec]:
             execute=_execute_food_profile,
             approval_config=_approval_config_for_food_profile,
             preview_summary=_preview_food_profile,
+            validate_approval_value=_validate_profile_attachment_value,
             result_metadata=DraftResultMetadata(
                 workspace_label="食物库",
                 count_noun="个食物",
@@ -196,7 +230,7 @@ def profile_operation_specs() -> list[DraftOperationSpec]:
             execute=_execute_ingredient_profile,
             approval_config=_approval_config_for_ingredient_profile,
             preview_summary=_preview_ingredient_profile,
-            validate_approval_value=_validate_ingredient_profile_value,
+            validate_approval_value=_validate_ingredient_profile_approval_value,
             result_metadata=DraftResultMetadata(
                 workspace_label="食材库",
                 count_noun="个食材",

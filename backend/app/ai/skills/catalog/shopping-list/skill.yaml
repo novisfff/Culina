@@ -54,6 +54,7 @@ examples:
 - 鸡蛋已经买到了，帮我标记完成。
 - 删除购物清单里的香菜。
 - 看看低库存还需要买什么。
+- 这些都买到了，先让我选一个完成并入库。
 routing:
   modes: [query, create, update]
   include_examples:
@@ -75,6 +76,16 @@ routing:
     when: 用户只要创建或修改食材定义
     route_to: ingredient_profile
 handoffs:
+  shopping_completed_ingredient:
+    target_skill: inventory_analysis
+    required_draft_type: inventory_operation
+    resume_skill: inventory_analysis
+    state_schema: shopping_to_stock.v1
+  shopping_completed_food:
+    target_skill: food_profile
+    required_draft_type: food_profile
+    resume_skill: food_profile
+    state_schema: shopping_to_stock.v1
   missing_ingredient:
     target_skill: ingredient_profile
     required_draft_type: ingredient_profile

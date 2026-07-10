@@ -35,6 +35,8 @@ const family = {
   name: 'Smoke 家庭厨房',
   motto: '固定前端 smoke fixture',
   location: '上海',
+  food_preferences: [],
+  food_avoidances: [],
   image: null,
   created_at: now,
   updated_at: now,

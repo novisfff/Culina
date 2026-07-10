@@ -2,6 +2,7 @@ import type {
   AiGeneratedRecipeDraft,
   AiInventoryOperationAction,
   AiInventoryResultItem,
+  AiProductLoopPrompt,
   AiResultCard,
   AiTodayRecommendationItem,
   AiUiActionsCardData,
@@ -11,6 +12,8 @@ import { buildMediaSizes, buildMediaSrcSet, resolveMediaUrl } from '../../lib/as
 import { MEAL_TYPE_LABELS } from '../../lib/ui';
 import { MediaWithPlaceholder } from '../MediaPlaceholder';
 import { approvalStatusText } from './AiApprovalPanel';
+import { AiInventoryIntakeCandidates } from './AiInventoryIntakeCandidates';
+import { AiMealIdeaProposal } from './AiMealIdeaProposal';
 import {
   AI_RESULT_PLACEHOLDER,
   evidenceText,
@@ -321,16 +324,76 @@ function UiActionsCard({ card }: { card: AiResultCard }) {
   );
 }
 
+function RecipeShortageCard({
+  card,
+  onPromptAction,
+  isPromptActionPending,
+}: {
+  card: AiResultCard;
+  onPromptAction?: (prompt: string) => void;
+  isPromptActionPending?: boolean;
+}) {
+  const shortages = Array.isArray(card.data.shortages)
+    ? card.data.shortages.filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === 'object')
+    : [];
+  const actionPrompt = typeof card.data.actionPrompt === 'string'
+    ? card.data.actionPrompt
+    : '把缺少的食材加入购物清单';
+  return (
+    <article className="ai-result-card ai-query-result-card ai-recipe-shortage-card">
+      <header className="ai-query-card-head">
+        <div className="ai-query-card-head-main">
+          <span className="ai-query-card-eyebrow">做菜缺料</span>
+          <h3>{card.title}</h3>
+        </div>
+        <div className="ai-query-card-context-badges">
+          <span className="ai-query-context-badge">缺少 <strong>{shortages.length}</strong> 项</span>
+        </div>
+      </header>
+      <div className="ai-query-recommendation-list" aria-label="缺少的食材">
+        {shortages.map((item, index) => {
+          const name = typeof item.ingredientName === 'string' ? item.ingredientName : '未命名食材';
+          const isPresence = item.shortageType === 'presence';
+          const quantity = typeof item.quantity === 'string' || typeof item.quantity === 'number' ? String(item.quantity) : '';
+          const unit = typeof item.unit === 'string' ? item.unit : '';
+          return (
+            <section className="ai-recommendation-item" key={`${String(item.ingredientId ?? name)}-${index}`}>
+              <strong>{name}</strong>
+              <p>{isPresence ? '需要补充' : `缺少 ${quantity}${unit}`}</p>
+            </section>
+          );
+        })}
+      </div>
+      <div className="ai-query-item-action">
+        <button
+          className="solid-button"
+          type="button"
+          disabled={!onPromptAction || isPromptActionPending}
+          onClick={() => onPromptAction?.(actionPrompt)}
+        >
+          加入购物清单
+        </button>
+      </div>
+    </article>
+  );
+}
+
 export function ResultCard({
   card,
   onAddToPlan,
   onInventoryAction,
   isInventoryActionPending,
+  onPromptAction,
+  isPromptActionPending,
+  onProductLoopPrompt,
 }: {
   card: AiResultCard;
   onAddToPlan?: (item: AiTodayRecommendationItem, card: AiResultCard) => void;
   onInventoryAction?: (item: AiInventoryResultItem, action: AiInventoryOperationAction, card: AiResultCard) => void;
   isInventoryActionPending?: boolean;
+  onPromptAction?: (prompt: string) => void;
+  isPromptActionPending?: boolean;
+  onProductLoopPrompt?: (prompt: AiProductLoopPrompt) => void;
 }) {
   if (card.type === 'inventory_summary') {
     return (
@@ -345,6 +408,33 @@ export function ResultCard({
   if ((card.type as string) === 'clarification_request') return <ClarificationCard card={card} />;
   if (card.type === 'operation_result') return <OperationResultCard card={card} />;
   if (card.type === 'ui_actions') return <UiActionsCard card={card} />;
+  if (card.type === 'recipe_shortage') {
+    return (
+      <RecipeShortageCard
+        card={card}
+        onPromptAction={onPromptAction}
+        isPromptActionPending={isPromptActionPending}
+      />
+    );
+  }
+  if (card.type === 'inventory_intake_candidates') {
+    return (
+      <AiInventoryIntakeCandidates
+        card={card}
+        onProductLoopPrompt={onProductLoopPrompt}
+        disabled={isPromptActionPending}
+      />
+    );
+  }
+  if (card.type === 'meal_idea_proposal') {
+    return (
+      <AiMealIdeaProposal
+        card={card}
+        onProductLoopPrompt={onProductLoopPrompt}
+        disabled={isPromptActionPending}
+      />
+    );
+  }
 
   if (card.type === 'recipe_draft') {
     const draft = card.data.draft as AiGeneratedRecipeDraft | undefined;

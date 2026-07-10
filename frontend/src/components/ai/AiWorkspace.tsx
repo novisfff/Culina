@@ -12,6 +12,7 @@ import type {
   AiInventoryResultItem,
   AiMessage,
   AiMessagePart,
+  AiProductLoopPrompt,
   AiResultCard,
   AiRunEvent,
   AiTodayRecommendationItem,
@@ -490,6 +491,9 @@ export function AiWorkspace({
         label: food.name,
         description: [food.category, FOOD_TYPE_LABELS[food.type] ?? food.type].filter(Boolean).join(' · '),
         imageUrl: resolveMediaUrl(food.images?.[0], 'thumb') ?? '/assets/ai-food-ingredient-placeholder.png',
+        unit: food.stock_unit,
+        foodType: food.type,
+        stockQuantity: food.stock_quantity,
       }));
     }
     const items = await api.getIngredients({ q: params.query, limit: params.limit, offset: params.offset });
@@ -1047,11 +1051,20 @@ export function AiWorkspace({
     setIsStartingNewConversation(false);
     setIsMobileHistoryOpen(false);
   }
-  async function submitComposerMessage(textOverride?: string) {
+  async function submitComposerMessage(
+    textOverride?: string,
+    options?: {
+      includeAttachments?: boolean;
+      preserveDraft?: boolean;
+      quick_task?: AiProductLoopPrompt['quick_task'];
+      subject?: Record<string, unknown>;
+    },
+  ) {
     if (effectiveComposerPaused || isAssistantBusy || isLocalAssistantBusy) return;
     const text = (textOverride ?? draft).trim();
-    const sendableAttachments = readyAttachments.filter((item) => item.asset);
-    if ((!text && sendableAttachments.length === 0) || isAttachmentSendBlocked) return;
+    const includeAttachments = options?.includeAttachments !== false;
+    const sendableAttachments = includeAttachments ? readyAttachments.filter((item) => item.asset) : [];
+    if ((!text && sendableAttachments.length === 0) || (includeAttachments && isAttachmentSendBlocked)) return;
     const clientMessageId = `client-${Date.now()}-${Math.random().toString(36).slice(2)}`;
     const clientRunId = `agent_run-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
     const conversationKey = activeConversationId ?? createPendingConversationKey(clientRunId);
@@ -1099,7 +1112,7 @@ export function AiWorkspace({
     setActiveStreamRunIdsByConversationKey((current) => ({ ...current, [conversationKey]: clientRunId }));
     setActiveConversationKey(conversationKey);
     setIsStartingNewConversation(false);
-    setDraft('');
+    if (!options?.preserveDraft) setDraft('');
     attachmentState.hideAttachments(sendableAttachments.map((attachment) => attachment.clientAttachmentId));
     try {
       await chatMutation.mutateAsync({
@@ -1108,6 +1121,8 @@ export function AiWorkspace({
         conversation_id: activeConversationId ?? undefined,
         client_message_id: clientMessageId,
         client_run_id: clientRunId,
+        quick_task: options?.quick_task,
+        subject: options?.subject,
         attachments: requestAttachments,
       });
       attachmentState.discardHiddenAttachments(sendableAttachments);
@@ -1346,6 +1361,13 @@ export function AiWorkspace({
         onAddRecommendationToPlan={openRecommendationPlan}
         onInventoryAction={createInventoryOperationDraft}
         isInventoryActionPending={inventoryDraftAction.isPending}
+        onPromptAction={(prompt) => void submitComposerMessage(prompt, { includeAttachments: false, preserveDraft: true })}
+        onProductLoopPrompt={(prompt) => void submitComposerMessage(prompt.message, {
+          includeAttachments: false,
+          preserveDraft: true,
+          quick_task: prompt.quick_task,
+          subject: prompt.subject,
+        })}
         onCancelSending={cancelStreamingChat}
         onOpenRunDebug={setDebugRunId}
       />
@@ -1435,6 +1457,14 @@ export function AiWorkspace({
                     onAddRecommendationToPlan={openRecommendationPlan}
                     onInventoryAction={createInventoryOperationDraft}
                     isInventoryActionPending={inventoryDraftAction.isPending}
+                    onPromptAction={(prompt) => void submitComposerMessage(prompt, { includeAttachments: false, preserveDraft: true })}
+                    onProductLoopPrompt={(prompt) => void submitComposerMessage(prompt.message, {
+                      includeAttachments: false,
+                      preserveDraft: true,
+                      quick_task: prompt.quick_task,
+                      subject: prompt.subject,
+                    })}
+                    isPromptActionPending={isAssistantBusy || isLocalAssistantBusy}
                     onOpenRunDebug={setDebugRunId}
                   />
                 ))}

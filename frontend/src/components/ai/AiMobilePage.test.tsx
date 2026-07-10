@@ -82,6 +82,7 @@ describe('AiMobilePage viewport', () => {
           onAddRecommendationToPlan={() => undefined}
           onInventoryAction={() => undefined}
           isInventoryActionPending={false}
+          onPromptAction={() => undefined}
           onCancelSending={() => undefined}
         />,
       );

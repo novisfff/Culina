@@ -36,6 +36,8 @@ export type FamilyFormState = {
   name: string;
   motto: string;
   location: string;
+  foodPreferences: string;
+  foodAvoidances: string;
   imagePrompt: string;
   images: ImageInputValue;
 };
@@ -481,6 +483,7 @@ export function FamilyEditModal(props: {
   form: FamilyFormState;
   family?: FamilyDetail | null;
   isSubmitting: boolean;
+  validationError?: string | null;
   imageControls: ImageComposerControls;
   resolveAssetUrl: (url?: string) => string | undefined;
   onChange: (form: FamilyFormState) => void;
@@ -561,6 +564,37 @@ export function FamilyEditModal(props: {
                   onChange={(event) => props.onChange({ ...props.form, motto: event.target.value })}
                 />
               </label>
+              <label className="family-edit-wide-field">
+                <span>饮食偏好</span>
+                <textarea
+                  className="text-input"
+                  name="foodPreferences"
+                  rows={3}
+                  value={props.form.foodPreferences}
+                  aria-invalid={Boolean(props.validationError)}
+                  aria-describedby={props.validationError ? 'family-food-context-error' : undefined}
+                  placeholder="例如：少油、清淡；支持逗号或换行分隔"
+                  onChange={(event) => props.onChange({ ...props.form, foodPreferences: event.target.value })}
+                />
+              </label>
+              <label className="family-edit-wide-field">
+                <span>忌口与规避</span>
+                <textarea
+                  className="text-input"
+                  name="foodAvoidances"
+                  rows={3}
+                  value={props.form.foodAvoidances}
+                  aria-invalid={Boolean(props.validationError)}
+                  aria-describedby={props.validationError ? 'family-food-context-error' : undefined}
+                  placeholder="例如：花生、香菜；支持逗号或换行分隔"
+                  onChange={(event) => props.onChange({ ...props.form, foodAvoidances: event.target.value })}
+                />
+              </label>
+              {props.validationError ? (
+                <p id="family-food-context-error" className="image-composer-error family-edit-wide-field" role="alert">
+                  {props.validationError}
+                </p>
+              ) : null}
             </div>
           </section>
           <section className="family-image-card">

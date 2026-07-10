@@ -293,6 +293,7 @@ function App() {
     setPasswordForm,
     familyForm,
     setFamilyForm,
+    familyFormError,
     openMemberEdit,
     submitInvite,
     submitProfile,
@@ -833,6 +834,8 @@ function App() {
           <Suspense fallback={<WorkspaceLoadingFallback />}>
             <FamilySettings
               family={family}
+              isLoading={familyQuery.isLoading}
+              errorMessage={familyQuery.error instanceof Error ? familyQuery.error.message : null}
               members={members}
               currentUser={currentUser}
               membership={membership}
@@ -856,6 +859,7 @@ function App() {
               isUpdatingMember={isUpdatingMember}
               isUpdatingPassword={isUpdatingPassword}
               isUpdatingFamily={isUpdatingFamily}
+              familyFormError={familyFormError}
               profileImageControls={profileImageControls}
               familyImageControls={familyImageControls}
               resolveAssetUrl={resolveDashboardAssetUrl}

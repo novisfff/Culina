@@ -4,6 +4,22 @@ from app.services.ai_operations.registry import draft_operation_registry
 BACKEND_DIR = Path(__file__).resolve().parents[2]
 
 
+def test_ai_assistant_standard_documents_phase3_product_loop_terminals() -> None:
+    text = (BACKEND_DIR.parent / "docs" / "ai-assistant-standards.md").read_text(encoding="utf-8")
+
+    assert "## 9. 产品闭环终止条件" in text
+    for required_text in (
+        "shopping_to_stock.v1",
+        "recipe_shortage_to_shopping.v1",
+        "餐食记录与所选成品库存扣减在同一事务中",
+        "当前消息、当前家庭",
+        "inventory_intake_candidates",
+        "meal_idea_subject.v1",
+        "拒绝、取消或失败不得自动生成下一份草稿",
+    ):
+        assert required_text in text
+
+
 class AISkillLoaderTestCase(AIAgentInfraTestCase):
         def test_skill_catalog_scans_skill_markdown_and_enforces_platform_contracts(self) -> None:
             import yaml
@@ -839,6 +855,7 @@ class AISkillLoaderTestCase(AIAgentInfraTestCase):
                     "inventory.read_expired_items": "过期库存卡可作为过期查询的终态输出。",
                     "inventory.read_low_stock_items": "低库存卡可作为补货查询的终态输出。",
                     "inventory.read_available_items": "可用库存卡可作为库存查询的终态输出。",
+                    "inventory.preview_intake_candidates": "冰箱照片或小票解析出的可审阅入库候选卡可作为当前轮终态输出，卡片本身不写库存。",
                 },
             )
             self.assertEqual(
@@ -851,7 +868,10 @@ class AISkillLoaderTestCase(AIAgentInfraTestCase):
             )
             self.assertEqual(
                 skill_registry.get("meal_plan").manifest.completion_policy.terminal_tools,
-                {"meal_plan.recommend_today": "即时餐食推荐卡可作为今日推荐模式的终态输出。"},
+                {
+                    "meal_plan.recommend_today": "即时餐食推荐卡可作为今日推荐模式的终态输出。",
+                "meal_plan.propose_from_inventory": "当本轮 Food 和 Recipe 搜索都返回空结果时，库存餐食想法卡可作为当前轮终态输出。",
+                },
             )
             self.assertIn(
                 "meal_plan.read_existing",

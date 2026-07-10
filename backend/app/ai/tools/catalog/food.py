@@ -8,6 +8,7 @@ from app.ai.tools.base import ToolContext
 from app.ai.tools.catalog.common import entity_media_map, first_entity_media, register_tool
 from app.ai.tools.draft_validation import normalize_food_profile_draft_for_tools
 from app.ai.tools.registry import ToolRegistry
+from app.ai.workflows.runner_support.attachments import validate_current_attachment_ids
 from app.ai.tools.schemas import FOOD_PROFILE_DRAFT_SCHEMA, READ_BY_ID_INPUT, SEARCH_INPUT, draft_input_schema, draft_output_schema
 from app.models.domain import Food
 from app.repos.media import build_media_map, get_media_assets_for_entities
@@ -136,6 +137,16 @@ def food_read_by_id(context: ToolContext, payload: dict[str, Any]) -> dict[str, 
 def food_profile_create_draft(context: ToolContext, payload: dict[str, Any]) -> dict[str, Any]:
     draft = payload.get("draft") if isinstance(payload.get("draft"), dict) else {}
     normalized = normalize_food_profile_draft_for_tools(context.db, family_id=context.family_id, payload=draft)
+    food_payload = normalized.get("payload") if normalized.get("action") in {"create", "update"} else normalized
+    if isinstance(food_payload, dict):
+        food_payload["media_ids"] = validate_current_attachment_ids(
+            context.db,
+            family_id=context.family_id,
+            requested_media_ids=food_payload.get("media_ids") or [],
+            current_attachments=context.current_message_attachments,
+            existing_entity_type="food" if normalized.get("action") == "update" else None,
+            existing_entity_id=str(normalized.get("targetId") or "") or None,
+        )
     return {"draft": normalized, "itemCount": 1}
 
 

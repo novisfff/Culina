@@ -19,6 +19,23 @@ from app.services.ai_operations.registry_types import (
 )
 from app.services.serializers import serialize_recipe
 from app.services.ai_operations.draft_specs.common import _base_config, _spec
+from app.ai.workflows.runner_support.attachments import validate_submitted_attachment_subset
+
+
+def _recipe_media_ids(payload: Any) -> list[str]:
+    if not isinstance(payload, dict):
+        return []
+    recipe_payload = payload.get("payload") if payload.get("action") in {"create", "update"} else payload
+    if not isinstance(recipe_payload, dict):
+        return []
+    return [str(media_id) for media_id in recipe_payload.get("media_ids") or []]
+
+
+def _validate_recipe_approval_value(original: Any, submitted: Any) -> None:
+    validate_submitted_attachment_subset(
+        original_media_ids=_recipe_media_ids(original),
+        submitted_media_ids=_recipe_media_ids(submitted),
+    )
 
 
 def _approval_config_for_recipe(payload: dict[str, Any]) -> dict[str, str]:
@@ -163,6 +180,7 @@ def recipe_operation_specs() -> list[DraftOperationSpec]:
             execute=_execute_recipe,
             approval_config=_approval_config_for_recipe,
             preview_summary=_preview_recipe,
+            validate_approval_value=_validate_recipe_approval_value,
             result_metadata=DraftResultMetadata(
                 workspace_label="菜谱库",
                 count_noun="个菜谱",

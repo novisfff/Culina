@@ -7,6 +7,7 @@ context_policy:
 - foods
 - meal_logs
 allowed_tools:
+- family.read_context
 - food.search
 - human.request_input
 - workspace.read_artifact
@@ -31,6 +32,7 @@ tool_budget:
   max_same_read_calls: 2
 completion_policy:
   followup_required_tools:
+    family.read_context: 读取家庭饮食偏好后必须继续结合当前任务生成用餐记录草稿或请求补充信息。
     food.search: 食物检索后必须说明候选、请求用户选择，或生成 meal_log 草稿。
     meal_log.read_recent: 近期用餐读取后必须说明可参考记录、请求补充信息，或生成 meal_log 草稿。
     meal_log.read_by_id: 读取用餐记录后必须总结现有内容、请求补充信息，或生成更新草稿。
@@ -42,6 +44,8 @@ examples:
 - 把那顿番茄小炒打 4 分。
 - 昨天早餐吃了盒装牛奶和面包。
 - 刚才加餐吃了蓝莓酸奶。
+- 刚才加餐吃了一盒蓝莓酸奶，记录并扣减 1 盒库存。
+- 记录今晚的番茄小炒，并把这张照片作为本餐照片保存。
 routing:
   modes: [query, create, update]
   include_examples:
@@ -51,6 +55,8 @@ routing:
   - 把那顿番茄小炒打 4 分。
   - 昨天早餐吃了盒装牛奶和面包。
   - 刚才加餐吃了蓝莓酸奶。
+  - 刚才加餐吃了一盒蓝莓酸奶，记录并扣减 1 盒库存。
+  - 记录今晚的番茄小炒，并把这张照片作为本餐照片保存。
   exclude_examples:
   - 安排明天晚餐吃番茄炒蛋。
   - 新增蓝莓酸奶食物资料。
@@ -62,6 +68,9 @@ routing:
   - with: food_profile
     when: 用户要维护 Food 资料而不是记录一次用餐事件
     route_to: food_profile
+  - with: recipe_cook
+    when: 用户要按菜谱做菜并联动食材库存，而不是记录成品、速食或包装食品的已发生用餐
+    route_to: recipe_cook
 handoffs:
   missing_food:
     target_skill: food_profile

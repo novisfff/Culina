@@ -64,6 +64,8 @@ export interface FamilyDetail {
   name: string;
   motto: string;
   location: string;
+  food_preferences: string[];
+  food_avoidances: string[];
   image?: MediaAsset | null;
   created_at: string;
   updated_at: string;
@@ -716,7 +718,37 @@ export type AiResultCardType =
   | 'shopping_list_draft'
   | 'meal_log_draft'
   | 'food_profile_draft'
-  | 'ui_actions';
+  | 'ui_actions'
+  | 'recipe_shortage'
+  | 'inventory_intake_candidates'
+  | 'meal_idea_proposal';
+
+export interface AiProductLoopPrompt {
+  message: string;
+  quick_task: 'inventory_analysis' | 'recipe_draft';
+  subject: Record<string, unknown>;
+}
+
+export interface AiInventoryIntakeCandidate {
+  ingredientId: string;
+  name: string;
+  quantityMode: 'track_quantity' | 'not_track_quantity';
+  quantity: string | null;
+  unit: string | null;
+  selected: boolean;
+  warnings: string[];
+  confidence?: number | null;
+  sourceLabel?: string | null;
+}
+
+export interface AiMealIdeaIngredient {
+  ingredientId: string;
+  name: string;
+  quantityMode: 'track_quantity' | 'not_track_quantity';
+  availableQuantity: string | null;
+  unit: string | null;
+  available: boolean;
+}
 export type AiTaskDraftType = 'recipe' | 'recipe_cook' | 'ingredient_profile' | 'shopping_list' | 'meal_plan' | 'meal_log' | 'food_profile' | 'inventory_operation' | 'composite_operation';
 export type AiApprovalDecision = 'approved' | 'rejected';
 
@@ -897,7 +929,7 @@ export interface AiResultCard {
     targetDate?: string | null;
     mealType?: MealType | null;
     contextSummary?: AiTodayRecommendationCardData['contextSummary'];
-    items?: AiInventoryResultItem[];
+    items?: AiInventoryResultItem[] | AiInventoryIntakeCandidate[];
     queryFocus?: AiInventoryQueryFocus;
     availableCount?: number;
     expiringCount?: number;

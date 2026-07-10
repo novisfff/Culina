@@ -42,6 +42,11 @@ describe('AI workspace contract coverage', () => {
     const backendTypes = readBackendLiteralValues('AIResultCardType');
     expect([...AI_RESULT_CARD_TYPES].sort()).toEqual(backendTypes);
     expect(Object.keys(AI_RESULT_CARD_RENDERERS).sort()).toEqual(backendTypes);
+    expect(AI_RESULT_CARD_TYPES).toEqual(expect.arrayContaining([
+      'recipe_shortage',
+      'inventory_intake_candidates',
+      'meal_idea_proposal',
+    ]));
   });
 
   it('keeps frontend and backend draft types aligned', () => {

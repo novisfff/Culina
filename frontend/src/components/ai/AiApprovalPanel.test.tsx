@@ -1655,6 +1655,74 @@ describe('ApprovalPanel', () => {
     rendered.unmount();
   });
 
+  it('offers opt-in stock deduction only for ready-like meal log foods', async () => {
+    const pending = mealLogApproval({
+      foods: [
+        {
+          foodId: 'food-yogurt',
+          name: '蓝莓酸奶',
+          foodType: 'readyMade',
+          servings: 1,
+          note: '',
+          deductStock: false,
+          stockCurrentQuantity: '3',
+          stockUnit: '盒',
+        },
+        {
+          foodId: 'food-noodle',
+          name: '牛肉面',
+          foodType: 'selfMade',
+          servings: 1,
+          note: '',
+          deductStock: false,
+        },
+      ],
+    });
+    const decideSpy = vi.fn().mockResolvedValue(undefined);
+    const foods = [
+      { id: 'food-yogurt', name: '蓝莓酸奶', category: '早餐', type: 'readyMade', stock_quantity: 3, stock_unit: '盒', images: [] },
+      { id: 'food-noodle', name: '牛肉面', category: '主食', type: 'selfMade', stock_quantity: null, stock_unit: '', images: [] },
+    ] as unknown as Food[];
+    const rendered = await renderWithQuery(<ApprovalPanel approval={pending} foods={foods} onDecision={decideSpy} />);
+
+    const stockToggles = rendered.container.querySelectorAll<HTMLInputElement>('.ai-meal-log-stock-toggle input[type="checkbox"]');
+    expect(stockToggles).toHaveLength(1);
+    expect(rendered.container.textContent).toContain('当前库存 3 盒');
+    expect(rendered.container.querySelector('.ai-meal-log-stock-fields')).toBeNull();
+
+    await act(async () => {
+      stockToggles[0]?.click();
+    });
+    const quantityInput = rendered.container.querySelector<HTMLInputElement>('.ai-meal-log-stock-fields input[type="number"]');
+    expect(quantityInput?.value).toBe('1');
+    expect(rendered.container.textContent).toContain('确认后预计剩余 2 盒');
+    changeInput(quantityInput as HTMLInputElement, '1.5');
+
+    await act(async () => {
+      rendered.container.querySelector<HTMLButtonElement>('.ai-approval-actions .solid-button')?.click();
+    });
+    await flushAsync();
+    expect(decideSpy).toHaveBeenCalledWith(
+      pending,
+      'approved',
+      {
+        draft: expect.objectContaining({
+          foods: [
+            expect.objectContaining({
+              foodId: 'food-yogurt',
+              deductStock: true,
+              stockQuantity: '1.5',
+              stockUnit: '盒',
+            }),
+            expect.objectContaining({ foodId: 'food-noodle', deductStock: false }),
+          ],
+        }),
+      },
+      '',
+    );
+    rendered.unmount();
+  });
+
   it('edits operation-create meal log drafts with the same structured sections', async () => {
     const pending = mealLogOperationCreateApproval();
     const decideSpy = vi.fn().mockResolvedValue(undefined);

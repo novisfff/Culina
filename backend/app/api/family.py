@@ -51,6 +51,10 @@ def update_family(
     family.name = name
     family.motto = payload.motto.strip()
     family.location = payload.location.strip()
+    if "food_preferences" in payload.model_fields_set and payload.food_preferences is not None:
+        family.food_preferences = payload.food_preferences
+    if "food_avoidances" in payload.model_fields_set and payload.food_avoidances is not None:
+        family.food_avoidances = payload.food_avoidances
     family.updated_by = user.id
     if "image_media_id" in payload.model_fields_set:
         replace_media_assets(

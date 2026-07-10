@@ -84,6 +84,7 @@ class OrchestratorContextBuilder:
                 user_id=state["user_id"],
                 conversation_id=state["conversation_id"],
                 run_id=state["run_id"],
+                current_message_attachments=list(state.get("current_message_attachments") or []),
                 stream_writer=stream_writer,
                 cancel_check=lambda: runner._cancel_requested(state["run_id"]),
                 tracer=trace_context.tracer,

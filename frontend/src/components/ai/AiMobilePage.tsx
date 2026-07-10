@@ -4,6 +4,7 @@ import type {
   AiInventoryOperationAction,
   AiInventoryResultItem,
   AiMessage,
+  AiProductLoopPrompt,
   AiResultCard,
   AiRunEvent,
   AiTodayRecommendationItem,
@@ -72,6 +73,8 @@ type Props = {
     partId: string,
   ) => void;
   isInventoryActionPending: boolean;
+  onPromptAction: (prompt: string) => void;
+  onProductLoopPrompt?: (prompt: AiProductLoopPrompt) => void;
   onCancelSending: () => void;
   onOpenRunDebug?: (runId: string) => void;
 };
@@ -251,6 +254,9 @@ export function AiMobilePage(props: Props) {
                 onAddRecommendationToPlan={props.onAddRecommendationToPlan}
                 onInventoryAction={props.onInventoryAction}
                 isInventoryActionPending={props.isInventoryActionPending}
+                onPromptAction={props.onPromptAction}
+                onProductLoopPrompt={props.onProductLoopPrompt}
+                isPromptActionPending={props.isSending}
                 onOpenRunDebug={props.onOpenRunDebug}
               />
             ))}
