@@ -1407,6 +1407,62 @@ class AIAgentInfraTestCase(unittest.TestCase):
                 return user, membership
         app.dependency_overrides[get_current_auth] = override_auth
 
+    def _seed_visibility_run(
+        self,
+        run_id: str,
+        *,
+        owner_user_id: str,
+        visibility: AIConversationVisibility,
+    ) -> AIAgentRun:
+        with self.SessionLocal() as db:
+            if db.get(User, owner_user_id) is None:
+                db.add_all([
+                    User(id=owner_user_id, username=owner_user_id, display_name="另一位成员", avatar_seed="", is_active=True),
+                    Membership(
+                        id=f"membership-{owner_user_id}",
+                        family_id=self.family.id,
+                        user_id=owner_user_id,
+                        role=UserRole.MEMBER,
+                        status=MembershipStatus.ACTIVE,
+                    ),
+                ])
+                db.flush()
+            conversation = AIConversation(
+                id=f"conversation-{run_id}",
+                family_id=self.family.id,
+                owner_user_id=owner_user_id,
+                visibility=visibility,
+                mode=AiMode.RECOMMENDATION,
+                prompt=run_id,
+                response="",
+                context={"workspace": True},
+                title=run_id,
+                summary="",
+                status="active",
+                created_by=owner_user_id,
+            )
+            run = AIAgentRun(
+                id=run_id,
+                family_id=self.family.id,
+                conversation_id=conversation.id,
+                agent_key="workspace_orchestrator",
+                feature_key="ai_workspace_chat",
+                intent="general_chat",
+                input_summary=run_id,
+                context_summary={"runMetrics": {}},
+                output_summary="",
+                status="completed",
+                model="fake-model",
+                input={},
+                output={},
+                tool_calls=[],
+                created_by=owner_user_id,
+            )
+            db.add_all([conversation, run])
+            db.commit()
+            db.refresh(run)
+            return run
+
     def _generate_recipe_draft(
         self,
         db: Session,

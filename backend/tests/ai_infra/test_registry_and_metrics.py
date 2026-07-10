@@ -768,6 +768,20 @@ class AIRegistryAndMetricsTestCase(AIAgentInfraTestCase):
                             duration_ms=999,
                             created_at=utcnow(),
                         ),
+                        AIAgentRun(
+                            id="agent-run-token-only-old",
+                            family_id=self.family.id,
+                            agent_key="workspace",
+                            feature_key="ai_workspace",
+                            intent="token_usage",
+                            input_summary="历史 token",
+                            context_summary={},
+                            status="completed",
+                            model="fake-model",
+                            duration_ms=400,
+                            created_at=utcnow() - timedelta(days=10),
+                            created_by=self.user.id,
+                        ),
                     ]
                 )
                 db.flush()
@@ -931,9 +945,9 @@ class AIRegistryAndMetricsTestCase(AIAgentInfraTestCase):
 
             self.assertEqual(data["family_id"], self.family.id)
             self.assertEqual(data["window"], {"limit": 10, "days": None})
-            self.assertEqual(data["run_count"], 2)
-            self.assertEqual(data["status_counts"], {"failed": 1, "completed": 1})
-            self.assertEqual(data["intent_counts"], {"recipe_draft": 1, "meal_plan": 1})
+            self.assertEqual(data["run_count"], 3)
+            self.assertEqual(data["status_counts"], {"failed": 1, "completed": 2})
+            self.assertEqual(data["intent_counts"], {"recipe_draft": 1, "meal_plan": 1, "token_usage": 1})
             self.assertEqual(data["routing_skill_counts"], {"recipe_draft": 1, "meal_plan": 1, "shopping_list": 1})
             self.assertEqual(data["clarification_reasons"], {"missing_date": 1})
             self.assertEqual(data["clarification_by_skill"], {"meal_plan": 1})
@@ -942,18 +956,18 @@ class AIRegistryAndMetricsTestCase(AIAgentInfraTestCase):
             self.assertEqual(data["skill_diagnostics"]["recipe_draft:invalid recipe steps"], 1)
             self.assertEqual(data["skill_status_counts"]["shopping_list:failed"], 1)
             self.assertEqual(data["totals"]["toolCallCount"], 5)
-            self.assertEqual(data["totals"]["totalDurationMs"], 2000)
-            self.assertEqual(data["totals"]["averageDurationMs"], 1000)
+            self.assertEqual(data["totals"]["totalDurationMs"], 2400)
+            self.assertEqual(data["totals"]["averageDurationMs"], 800)
             self.assertEqual(data["operational_metrics"]["draftFirstPassRate"], {"numerator": 4, "denominator": 5, "rate": 0.8})
             self.assertEqual(data["operational_metrics"]["continuationCompletionRate"], {"numerator": 2, "denominator": 3, "rate": 0.6667})
             self.assertEqual(data["operational_metrics"]["approvalUneditedRate"], {"numerator": 1, "denominator": 2, "rate": 0.5})
             self.assertEqual(data["operational_metrics"]["invalidIdentityRejectedCount"], 1)
             self.assertEqual(data["operational_metrics"]["toolBudgetExhaustedCount"], 1)
             self.assertEqual(data["trace_metrics"]["traceSpanCount"], 2)
-            self.assertEqual(data["trace_metrics"]["llmExchangeCount"], 2)
+            self.assertEqual(data["trace_metrics"]["llmExchangeCount"], 3)
             self.assertEqual(data["trace_metrics"]["failedSpanCount"], 1)
             self.assertEqual(data["trace_metrics"]["failedExchangeCount"], 1)
-            self.assertEqual(data["trace_metrics"]["averageProviderDurationMs"], 600)
+            self.assertEqual(data["trace_metrics"]["averageProviderDurationMs"], 533)
             self.assertEqual(data["trace_metrics"]["averageToolDurationMs"], 120)
             self.assertEqual(data["trace_metrics"]["averageScriptDurationMs"], 40)
             self.assertEqual(data["trace_metrics"]["averageProviderRounds"], 1)
@@ -969,7 +983,10 @@ class AIRegistryAndMetricsTestCase(AIAgentInfraTestCase):
             self.assertEqual(data["trace_metrics"]["errorCodes"]["tool_input_validation_failed"], 1)
             self.assertEqual(data["trace_metrics"]["errorCodes"]["provider_stream_failed"], 1)
             self.assertNotIn("other_family_error", data["trace_metrics"]["errorCodes"])
-            self.assertEqual([item["id"] for item in data["recent_runs"]], ["agent-run-quality-recipe", "agent-run-quality-plan"])
+            self.assertEqual(
+                [item["id"] for item in data["recent_runs"]],
+                ["agent-run-quality-recipe", "agent-run-quality-plan", "agent-run-token-only-old"],
+            )
             self.assertEqual(data["recent_runs"][0]["error_code"], "skill_failed")
             self.assertNotIn("agent-run-quality-other-family", [item["id"] for item in data["recent_runs"]])
 
@@ -1086,6 +1103,14 @@ class AIRegistryAndMetricsTestCase(AIAgentInfraTestCase):
                 response.json()["operational_metrics"]["continuationCompletionRate"],
                 {"numerator": 1, "denominator": 1, "rate": 1.0},
             )
+
+        def test_quality_metrics_exclude_other_members_private_runs(self) -> None:
+            self._seed_visibility_run("mine", owner_user_id=self.user.id, visibility=AIConversationVisibility.PRIVATE)
+            self._seed_visibility_run("other-private", owner_user_id="user-ai-two", visibility=AIConversationVisibility.PRIVATE)
+            self._seed_visibility_run("other-public", owner_user_id="user-ai-two", visibility=AIConversationVisibility.FAMILY)
+            response = self.client.get("/api/ai/quality-metrics?limit=50")
+            self.assertEqual(response.status_code, 200, response.text)
+            self.assertEqual({item["id"] for item in response.json()["recent_runs"]}, {"mine", "other-public"})
 
         def test_approval_config_matrix_maps_supported_actions_to_real_approval_types(self) -> None:
             cases = [

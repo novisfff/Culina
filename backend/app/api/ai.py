@@ -289,8 +289,8 @@ def get_ai_quality_metrics(
     limit: int = Query(default=50, ge=1, le=200),
     days: int | None = Query(default=None, ge=1, le=365),
 ) -> dict:
-    _, membership = auth
-    return build_ai_quality_metrics(db, family_id=membership.family_id, limit=limit, days=days)
+    user, membership = auth
+    return build_ai_quality_metrics(db, family_id=membership.family_id, user_id=user.id, limit=limit, days=days)
 
 
 @router.patch("/api/ai/conversations/{conversation_id}/visibility", response_model=AIConversationOut)
@@ -726,10 +726,17 @@ def get_ai_run_trace(
     auth: tuple = Depends(require_owner),
     db: Session = Depends(get_db),
 ) -> dict:
-    _, membership = auth
-    run = db.scalar(select(AIAgentRun).where(AIAgentRun.id == run_id, AIAgentRun.family_id == membership.family_id))
-    if run is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="AI run not found")
+    user, membership = auth
+    try:
+        run = require_ai_run_access(
+            db,
+            family_id=membership.family_id,
+            user_id=user.id,
+            run_id=run_id,
+            capability="view",
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     spans = list(
         db.scalars(
             select(AIRunTraceSpan)
@@ -752,10 +759,17 @@ def get_ai_run_trace_tree(
     auth: tuple = Depends(require_owner),
     db: Session = Depends(get_db),
 ) -> dict:
-    _, membership = auth
-    run = db.scalar(select(AIAgentRun).where(AIAgentRun.id == run_id, AIAgentRun.family_id == membership.family_id))
-    if run is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="AI run not found")
+    user, membership = auth
+    try:
+        run = require_ai_run_access(
+            db,
+            family_id=membership.family_id,
+            user_id=user.id,
+            run_id=run_id,
+            capability="view",
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     spans = list(
         db.scalars(
             select(AIRunTraceSpan)
@@ -782,10 +796,17 @@ def list_ai_run_llm_exchanges(
     auth: tuple = Depends(require_owner),
     db: Session = Depends(get_db),
 ) -> dict:
-    _, membership = auth
-    run = db.scalar(select(AIAgentRun).where(AIAgentRun.id == run_id, AIAgentRun.family_id == membership.family_id))
-    if run is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="AI run not found")
+    user, membership = auth
+    try:
+        run = require_ai_run_access(
+            db,
+            family_id=membership.family_id,
+            user_id=user.id,
+            run_id=run_id,
+            capability="view",
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     exchange_ids = list(
         db.scalars(
             select(AIRunLLMExchange.id)
@@ -815,7 +836,17 @@ def get_ai_run_llm_exchange(
     auth: tuple = Depends(require_owner),
     db: Session = Depends(get_db),
 ) -> dict:
-    _, membership = auth
+    user, membership = auth
+    try:
+        require_ai_run_access(
+            db,
+            family_id=membership.family_id,
+            user_id=user.id,
+            run_id=run_id,
+            capability="view",
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     exchange = db.scalar(
         select(AIRunLLMExchange).where(
             AIRunLLMExchange.id == exchange_id,
