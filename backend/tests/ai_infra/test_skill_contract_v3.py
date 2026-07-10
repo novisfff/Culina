@@ -59,6 +59,18 @@ EXPECTED_HANDOFFS = {
         ),
     },
     "shopping_list": {
+        "shopping_completed_ingredient": (
+            "inventory_analysis",
+            "inventory_operation",
+            "inventory_analysis",
+            "shopping_to_stock.v1",
+        ),
+        "shopping_completed_food": (
+            "food_profile",
+            "food_profile",
+            "food_profile",
+            "shopping_to_stock.v1",
+        ),
         "missing_ingredient": (
             "ingredient_profile",
             "ingredient_profile",
