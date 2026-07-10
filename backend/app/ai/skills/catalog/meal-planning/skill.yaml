@@ -29,6 +29,7 @@ script_files:
 - scripts/render_plan_preview.py
 output_types:
 - today_recommendation
+- inventory_summary
 draft_types:
 - meal_plan
 draft_contract:

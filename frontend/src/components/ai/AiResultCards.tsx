@@ -90,7 +90,7 @@ function InventoryCard({
                   </p>
                 )}
               </div>
-              {item.suggestedAction && (
+              {item.sourceType === 'ingredient' && item.suggestedAction && (
                 <div className="ai-query-inventory-actions" aria-label={`${item.name}建议操作`}>
                   <button
                     className={`ghost-button action-${item.suggestedAction}`}

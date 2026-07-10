@@ -673,6 +673,22 @@ class AIInventoryOperationsTestCase(AIAgentInfraTestCase):
                 item = db.get(InventoryItem, "inventory-tomato")
                 assert item is not None
                 item.low_stock_threshold = Decimal("4")
+                depleted = Ingredient(
+                    id="ingredient-depleted-garlic",
+                    family_id=self.family.id,
+                    name="大蒜",
+                    category="蔬菜",
+                    default_unit="头",
+                    unit_conversions=[],
+                    quantity_tracking_mode=IngredientQuantityTrackingMode.TRACK_QUANTITY,
+                    default_storage="常温",
+                    default_expiry_mode=IngredientExpiryMode.NONE,
+                    default_low_stock_threshold=Decimal("2"),
+                    notes="",
+                    created_by=self.user.id,
+                    updated_by=self.user.id,
+                )
+                db.add(depleted)
                 db.flush()
                 executor = ToolExecutor(
                     build_workspace_tool_registry(),
@@ -696,8 +712,19 @@ class AIInventoryOperationsTestCase(AIAgentInfraTestCase):
                 self.assertNotIn("suggestedAction", available["items"][0])
                 self.assertEqual(expiring["queryFocus"], "expiring")
                 self.assertEqual(expiring["items"][0]["suggestedAction"], "consume")
+                self.assertEqual(expiring["card"]["type"], "inventory_summary")
+                self.assertEqual(expiring["card"]["data"]["queryFocus"], "expiring")
+                self.assertEqual(expiring["card"]["data"]["expiringCount"], expiring["count"])
                 self.assertEqual(low_stock["queryFocus"], "low_stock")
                 self.assertEqual(low_stock["items"][0]["suggestedAction"], "restock")
+                self.assertEqual(low_stock["card"]["type"], "inventory_summary")
+                self.assertEqual(low_stock["card"]["data"]["queryFocus"], "low_stock")
+                self.assertTrue(
+                    any(
+                        record["ingredientId"] == depleted.id and record["quantity"] == "0"
+                        for record in low_stock["items"]
+                    )
+                )
                 low_stock_ids = [record["id"] for record in low_stock["items"]]
                 self.assertEqual(len(low_stock_ids), len(set(low_stock_ids)))
 
@@ -854,12 +881,12 @@ class AIInventoryOperationsTestCase(AIAgentInfraTestCase):
                 expiring_food = next(item for item in expiring["items"] if item["foodId"] == "food-ai-stock-expiring")
                 self.assertEqual(expiring_food["sourceType"], "food")
                 self.assertEqual(expiring_food["displayStatus"], "expiring")
-                self.assertEqual(expiring_food["suggestedAction"], "consume")
+                self.assertNotIn("suggestedAction", expiring_food)
 
                 expired_food = next(item for item in expired["items"] if item["foodId"] == "food-ai-stock-expired")
                 self.assertEqual(expired_food["sourceType"], "food")
                 self.assertEqual(expired_food["displayStatus"], "expired")
-                self.assertEqual(expired_food["suggestedAction"], "dispose")
+                self.assertNotIn("suggestedAction", expired_food)
 
                 self.assertFalse(any(item["sourceType"] == "food" for item in low_stock["items"]))
 
@@ -1066,16 +1093,23 @@ class AIInventoryOperationsTestCase(AIAgentInfraTestCase):
                                 "type": "inventory_summary",
                                 "title": "库存概览",
                                 "data": {
+                                    "queryFocus": "expiring",
                                     "availableCount": 1,
                                     "expiringCount": 1,
+                                    "expiredCount": 0,
                                     "lowStockCount": 0,
+                                    "foodStockCount": 0,
                                     "items": [
                                         {
                                             "id": "inventory-tomato",
+                                            "sourceType": "ingredient",
+                                            "inventoryItemId": "inventory-tomato",
                                             "ingredientId": "ingredient-tomato",
+                                            "foodId": None,
                                             "name": "番茄",
                                             "quantity": "3",
                                             "unit": "个",
+                                            "quantityTrackingMode": "track_quantity",
                                             "status": "fresh",
                                             "displayStatus": "expiring",
                                         }
@@ -1125,3 +1159,104 @@ class AIInventoryOperationsTestCase(AIAgentInfraTestCase):
                 card_item = stored_message.parts[0]["card"]["data"]["items"][0]
                 self.assertEqual(card_item["quantity"], "0")
                 self.assertEqual(card_item["lastOperation"]["action"], "dispose")
+
+        def test_depleted_ingredient_card_quick_action_creates_restock_draft_without_batch(self) -> None:
+            with self.SessionLocal() as db:
+                depleted = Ingredient(
+                    id="ingredient-depleted-onion",
+                    family_id=self.family.id,
+                    name="洋葱",
+                    category="蔬菜",
+                    default_unit="个",
+                    unit_conversions=[],
+                    quantity_tracking_mode=IngredientQuantityTrackingMode.TRACK_QUANTITY,
+                    default_storage="常温",
+                    default_expiry_mode=IngredientExpiryMode.NONE,
+                    default_low_stock_threshold=Decimal("2"),
+                    notes="",
+                    created_by=self.user.id,
+                    updated_by=self.user.id,
+                )
+                conversation = AIConversation(
+                    id="conversation-depleted-inventory-quick",
+                    family_id=self.family.id,
+                    mode=AiMode.INVENTORY_QA,
+                    prompt="低库存",
+                    response="低库存提醒",
+                    context={},
+                    title="低库存",
+                    summary="",
+                    status="active",
+                    created_by=self.user.id,
+                )
+                message = AIMessage(
+                    id="message-depleted-inventory-quick",
+                    family_id=self.family.id,
+                    conversation_id=conversation.id,
+                    role="assistant",
+                    content="低库存提醒",
+                    content_type="parts",
+                    parts=[
+                        {
+                            "id": "part-depleted-inventory-card",
+                            "type": "result_card",
+                            "card": {
+                                "id": "card-depleted-inventory",
+                                "type": "inventory_summary",
+                                "title": "低库存提醒",
+                                "data": {
+                                    "queryFocus": "low_stock",
+                                    "availableCount": 0,
+                                    "expiringCount": 0,
+                                    "expiredCount": 0,
+                                    "lowStockCount": 1,
+                                    "foodStockCount": 0,
+                                    "items": [
+                                        {
+                                            "id": f"ingredient:{depleted.id}",
+                                            "sourceType": "ingredient",
+                                            "inventoryItemId": None,
+                                            "ingredientId": depleted.id,
+                                            "foodId": None,
+                                            "name": depleted.name,
+                                            "image": None,
+                                            "quantity": "0",
+                                            "unit": depleted.default_unit,
+                                            "quantityTrackingMode": "track_quantity",
+                                            "status": "out_of_stock",
+                                            "displayStatus": "low_stock",
+                                            "expiryDate": None,
+                                            "daysUntilExpiry": None,
+                                            "lowStockThreshold": "2",
+                                            "purchaseDate": "",
+                                            "storageLocation": depleted.default_storage,
+                                            "suggestedAction": "restock",
+                                        }
+                                    ],
+                                },
+                            },
+                        }
+                    ],
+                    status="completed",
+                    message_metadata={},
+                    created_by=self.user.id,
+                )
+                db.add_all([depleted, conversation, message])
+                db.commit()
+
+            response = self.client.post(
+                "/api/ai/messages/message-depleted-inventory-quick/inventory-operation-draft",
+                json={
+                    "part_id": "part-depleted-inventory-card",
+                    "card_id": "card-depleted-inventory",
+                    "item_id": "ingredient:ingredient-depleted-onion",
+                    "action": "restock",
+                },
+            )
+
+            self.assertEqual(response.status_code, 200, response.text)
+            data = response.json()
+            approval = next(part for part in data["parts"] if part["type"] == "approval_request")["approval"]
+            operation = approval["initial_values"]["draft"]["operations"][0]
+            self.assertEqual(operation["ingredientId"], "ingredient-depleted-onion")
+            self.assertIsNone(operation["inventoryItemId"])

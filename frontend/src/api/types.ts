@@ -767,11 +767,15 @@ export interface AiInventoryOperationResult {
 
 export interface AiInventoryResultItem {
   id: string;
-  ingredientId: string;
+  sourceType: 'ingredient' | 'food';
+  ingredientId: string | null;
+  foodId: string | null;
+  inventoryItemId: string | null;
   name: string;
   image?: MediaAsset | null;
   quantity: string;
   unit: string;
+  quantityTrackingMode: 'track_quantity' | 'not_track_quantity';
   status: string;
   displayStatus: AiInventoryDisplayStatus;
   expiryDate?: string | null;
@@ -850,7 +854,9 @@ export interface AiInventorySummaryCardData {
   queryFocus: AiInventoryQueryFocus;
   availableCount: number;
   expiringCount: number;
+  expiredCount: number;
   lowStockCount: number;
+  foodStockCount: number;
   items: AiInventoryResultItem[];
 }
 
@@ -895,7 +901,9 @@ export interface AiResultCard {
     queryFocus?: AiInventoryQueryFocus;
     availableCount?: number;
     expiringCount?: number;
+    expiredCount?: number;
     lowStockCount?: number;
+    foodStockCount?: number;
     question?: string;
     questionType?: string;
     missingFields?: string[];

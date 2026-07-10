@@ -20,7 +20,8 @@ allowed_tools:
 - inventory.read_available_items
 - shopping.create_draft
 script_files: []
-output_types: []
+output_types:
+- inventory_summary
 draft_types:
 - shopping_list
 draft_contract:

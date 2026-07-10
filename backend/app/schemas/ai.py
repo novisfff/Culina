@@ -185,22 +185,32 @@ class AIChatRequest(BaseModel):
 
 class AIInventoryResultItemDTO(BaseModel):
     id: str
-    ingredientId: str
+    sourceType: Literal["ingredient", "food"]
+    ingredientId: str | None
+    foodId: str | None
+    inventoryItemId: str | None
     name: str
     image: dict | None = None
     quantity: str
     unit: str
+    quantityTrackingMode: Literal["track_quantity", "not_track_quantity"]
     status: str
     displayStatus: Literal["available", "low_stock", "expiring", "expired"]
     expiryDate: str | None = None
     daysUntilExpiry: int | None = None
     lowStockThreshold: str | None = None
+    purchaseDate: str = ""
+    storageLocation: str | None = None
+    suggestedAction: Literal["restock", "consume", "dispose"] | None = None
 
 
 class AIInventorySummaryCardDataDTO(BaseModel):
+    queryFocus: Literal["overview", "available", "expiring", "expired", "low_stock"]
     availableCount: int = Field(ge=0)
     expiringCount: int = Field(ge=0)
+    expiredCount: int = Field(ge=0)
     lowStockCount: int = Field(ge=0)
+    foodStockCount: int = Field(ge=0)
     items: list[AIInventoryResultItemDTO] = Field(default_factory=list)
 
 

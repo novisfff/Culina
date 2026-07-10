@@ -17,7 +17,8 @@ allowed_tools:
 - inventory.read_available_items
 - meal_plan.read_existing
 script_files: []
-output_types: []
+output_types:
+- inventory_summary
 draft_types:
 - recipe_cook
 draft_contract:
