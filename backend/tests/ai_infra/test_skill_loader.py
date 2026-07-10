@@ -839,6 +839,7 @@ class AISkillLoaderTestCase(AIAgentInfraTestCase):
                     "inventory.read_expired_items": "过期库存卡可作为过期查询的终态输出。",
                     "inventory.read_low_stock_items": "低库存卡可作为补货查询的终态输出。",
                     "inventory.read_available_items": "可用库存卡可作为库存查询的终态输出。",
+                    "inventory.preview_intake_candidates": "冰箱照片或小票解析出的可审阅入库候选卡可作为当前轮终态输出，卡片本身不写库存。",
                 },
             )
             self.assertEqual(

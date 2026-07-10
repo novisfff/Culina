@@ -42,10 +42,22 @@ class MealMissingFoodState(ContinuationStateModel):
     instruction: Instruction
 
 
-class InventoryMissingIngredientState(ContinuationStateModel):
+class InventoryOperationMissingIngredientState(ContinuationStateModel):
     targetName: ShortText
     operation: Literal["restock", "consume", "dispose"]
     instruction: Instruction
+
+
+class InventoryIntakeResolvedItem(ContinuationStateModel):
+    ingredientId: EntityId
+    quantity: QuantityText | None = None
+    unit: ShortText | None = None
+
+
+class InventoryMissingIngredientState(ContinuationStateModel):
+    currentLabel: ShortText
+    pendingLabels: Annotated[list[ShortText], Field(max_length=30)]
+    resolvedItems: Annotated[list[InventoryIntakeResolvedItem], Field(max_length=30)]
 
 
 class InventoryUnitConversionState(ContinuationStateModel):
@@ -109,7 +121,9 @@ CONTINUATION_STATE_ADAPTERS: dict[str, TypeAdapter[Any]] = {
     "shopping_missing_target.v1": TypeAdapter(ShoppingMissingTargetState),
     "food_to_meal_plan.v1": TypeAdapter(FoodToMealPlanState),
     "meal_missing_food.v1": TypeAdapter(MealMissingFoodState),
-    "inventory_missing_ingredient.v1": TypeAdapter(InventoryMissingIngredientState),
+    "inventory_missing_ingredient.v1": TypeAdapter(
+        InventoryOperationMissingIngredientState | InventoryMissingIngredientState
+    ),
     "inventory_unit_conversion.v1": TypeAdapter(InventoryUnitConversionState),
     "ready_food_stock.v1": TypeAdapter(ReadyFoodStockState),
     "shopping_to_stock.v1": TypeAdapter(ShoppingToStockState),

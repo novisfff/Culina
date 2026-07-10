@@ -253,6 +253,18 @@ def test_recipe_and_meal_skills_distinguish_saved_media_from_context_images() ->
         assert "仅用于识别或理解的图片不写入" in skill_text
 
 
+def test_inventory_skill_declares_reviewable_intake_candidate_terminal_contract() -> None:
+    manifest = build_workspace_skill_registry().get("inventory_analysis").manifest
+    skill_path = Path(__file__).resolve().parents[2] / "app" / "ai" / "skills" / "catalog" / "inventory-analysis" / "SKILL.md"
+    skill_text = skill_path.read_text(encoding="utf-8")
+
+    assert "inventory.preview_intake_candidates" in manifest.tools
+    assert "inventory_intake_candidates" in manifest.output_types
+    assert "inventory.preview_intake_candidates" in manifest.completion_policy.terminal_tools
+    assert "候选卡本身不写库存" in skill_text
+    assert "intakeCandidates" in skill_text
+
+
 def test_routing_record_excludes_execution_only_contracts() -> None:
     manifest = build_workspace_skill_registry().get("shopping_list").manifest
 

@@ -99,6 +99,7 @@ AIResultCardType = Literal[
     "food_profile_draft",
     "ui_actions",
     "recipe_shortage",
+    "inventory_intake_candidates",
 ]
 AIRunEventStatus = Literal["pending", "running", "waiting", "completed", "failed"]
 AITaskDraftType = Literal[
@@ -281,6 +282,27 @@ class AIUiActionsCardDataDTO(BaseModel):
     requiresConfirmation: bool = False
 
 
+class AIInventoryIntakeCandidateDTO(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    ingredientId: str = Field(min_length=1, max_length=64)
+    name: str = Field(min_length=1, max_length=120)
+    quantityMode: Literal["track_quantity", "not_track_quantity"]
+    quantity: str | None = Field(default=None, pattern=r"^[0-9]+(?:\.[0-9]+)?$")
+    unit: str | None = Field(default=None, max_length=32)
+    selected: bool
+    warnings: list[str] = Field(default_factory=list, max_length=20)
+    confidence: float | None = Field(default=None, ge=0, le=1)
+    sourceLabel: str | None = Field(default=None, max_length=120)
+
+
+class AIInventoryIntakeCandidatesCardDataDTO(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    items: list[AIInventoryIntakeCandidateDTO] = Field(min_length=1, max_length=30)
+    unresolvedLabels: list[str] = Field(default_factory=list, max_length=30)
+
+
 class AIResultCardDTO(BaseModel):
     id: str
     type: AIResultCardType
@@ -297,6 +319,8 @@ class AIResultCardDTO(BaseModel):
             AIOperationResultCardDataDTO.model_validate(self.data)
         elif self.type == "ui_actions":
             AIUiActionsCardDataDTO.model_validate(self.data)
+        elif self.type == "inventory_intake_candidates":
+            AIInventoryIntakeCandidatesCardDataDTO.model_validate(self.data)
         return self
 
 

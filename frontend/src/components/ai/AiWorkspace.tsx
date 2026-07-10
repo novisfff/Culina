@@ -12,6 +12,7 @@ import type {
   AiInventoryResultItem,
   AiMessage,
   AiMessagePart,
+  AiProductLoopPrompt,
   AiResultCard,
   AiRunEvent,
   AiTodayRecommendationItem,
@@ -1052,7 +1053,12 @@ export function AiWorkspace({
   }
   async function submitComposerMessage(
     textOverride?: string,
-    options?: { includeAttachments?: boolean; preserveDraft?: boolean },
+    options?: {
+      includeAttachments?: boolean;
+      preserveDraft?: boolean;
+      quick_task?: AiProductLoopPrompt['quick_task'];
+      subject?: Record<string, unknown>;
+    },
   ) {
     if (effectiveComposerPaused || isAssistantBusy || isLocalAssistantBusy) return;
     const text = (textOverride ?? draft).trim();
@@ -1115,6 +1121,8 @@ export function AiWorkspace({
         conversation_id: activeConversationId ?? undefined,
         client_message_id: clientMessageId,
         client_run_id: clientRunId,
+        quick_task: options?.quick_task,
+        subject: options?.subject,
         attachments: requestAttachments,
       });
       attachmentState.discardHiddenAttachments(sendableAttachments);
@@ -1354,6 +1362,12 @@ export function AiWorkspace({
         onInventoryAction={createInventoryOperationDraft}
         isInventoryActionPending={inventoryDraftAction.isPending}
         onPromptAction={(prompt) => void submitComposerMessage(prompt, { includeAttachments: false, preserveDraft: true })}
+        onProductLoopPrompt={(prompt) => void submitComposerMessage(prompt.message, {
+          includeAttachments: false,
+          preserveDraft: true,
+          quick_task: prompt.quick_task,
+          subject: prompt.subject,
+        })}
         onCancelSending={cancelStreamingChat}
         onOpenRunDebug={setDebugRunId}
       />
@@ -1444,6 +1458,12 @@ export function AiWorkspace({
                     onInventoryAction={createInventoryOperationDraft}
                     isInventoryActionPending={inventoryDraftAction.isPending}
                     onPromptAction={(prompt) => void submitComposerMessage(prompt, { includeAttachments: false, preserveDraft: true })}
+                    onProductLoopPrompt={(prompt) => void submitComposerMessage(prompt.message, {
+                      includeAttachments: false,
+                      preserveDraft: true,
+                      quick_task: prompt.quick_task,
+                      subject: prompt.subject,
+                    })}
                     isPromptActionPending={isAssistantBusy || isLocalAssistantBusy}
                     onOpenRunDebug={setDebugRunId}
                   />

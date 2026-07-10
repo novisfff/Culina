@@ -7881,6 +7881,106 @@
   color: var(--text-faint);
 }
 
+.ai-inventory-intake-list {
+  display: grid;
+  gap: 10px;
+}
+
+.ai-inventory-intake-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(150px, 0.55fr);
+  gap: 10px 14px;
+  align-items: center;
+  padding: 12px;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-sm);
+  background: #fff;
+}
+
+.ai-inventory-intake-select {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  min-width: 0;
+  cursor: pointer;
+}
+
+.ai-inventory-intake-select input {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  accent-color: var(--accent);
+}
+
+.ai-inventory-intake-select > span {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.ai-inventory-intake-select strong {
+  color: var(--text);
+  font-size: 0.9375rem;
+}
+
+.ai-inventory-intake-select small,
+.ai-inventory-intake-warning {
+  color: var(--text-soft);
+  font-size: 0.75rem;
+}
+
+.ai-inventory-intake-quantity {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: end;
+}
+
+.ai-inventory-intake-quantity label {
+  display: grid;
+  gap: 5px;
+  color: var(--text-soft);
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.ai-inventory-intake-quantity input {
+  min-height: 38px;
+}
+
+.ai-inventory-intake-unit {
+  display: inline-flex;
+  align-items: center;
+  min-height: 38px;
+  padding: 0 10px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-warm);
+  color: var(--text-soft);
+  font-size: 0.8125rem;
+  font-weight: 700;
+}
+
+.ai-inventory-intake-warning {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: #a66a33;
+}
+
+.ai-inventory-intake-unresolved {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--butter-soft);
+  color: var(--text-soft);
+  font-size: 0.8125rem;
+}
+
+.ai-inventory-intake-unresolved strong {
+  color: #8d6636;
+}
+
 .ai-query-inventory-actions {
   display: flex;
   align-items: center;
@@ -8567,6 +8667,10 @@ button.ai-clarification-option:hover:not(:disabled) .ai-clarification-option-ind
 
   .ai-query-inventory-list .ai-query-item {
     grid-template-columns: 64px minmax(0, 1fr);
+  }
+
+  .ai-inventory-intake-item {
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .ai-query-inventory-actions {

@@ -719,7 +719,26 @@ export type AiResultCardType =
   | 'meal_log_draft'
   | 'food_profile_draft'
   | 'ui_actions'
-  | 'recipe_shortage';
+  | 'recipe_shortage'
+  | 'inventory_intake_candidates';
+
+export interface AiProductLoopPrompt {
+  message: string;
+  quick_task: 'inventory_analysis' | 'recipe_draft';
+  subject: Record<string, unknown>;
+}
+
+export interface AiInventoryIntakeCandidate {
+  ingredientId: string;
+  name: string;
+  quantityMode: 'track_quantity' | 'not_track_quantity';
+  quantity: string | null;
+  unit: string | null;
+  selected: boolean;
+  warnings: string[];
+  confidence?: number | null;
+  sourceLabel?: string | null;
+}
 export type AiTaskDraftType = 'recipe' | 'recipe_cook' | 'ingredient_profile' | 'shopping_list' | 'meal_plan' | 'meal_log' | 'food_profile' | 'inventory_operation' | 'composite_operation';
 export type AiApprovalDecision = 'approved' | 'rejected';
 
@@ -900,7 +919,7 @@ export interface AiResultCard {
     targetDate?: string | null;
     mealType?: MealType | null;
     contextSummary?: AiTodayRecommendationCardData['contextSummary'];
-    items?: AiInventoryResultItem[];
+    items?: AiInventoryResultItem[] | AiInventoryIntakeCandidate[];
     queryFocus?: AiInventoryQueryFocus;
     availableCount?: number;
     expiringCount?: number;

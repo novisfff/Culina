@@ -11,7 +11,9 @@ import { MEAL_TYPE_LABELS } from '../../lib/ui';
 export const AI_RESULT_PLACEHOLDER = '/assets/ai-food-ingredient-placeholder.png';
 
 export function inventoryItems(card: AiResultCard): AiInventoryResultItem[] {
-  return Array.isArray(card.data.items) ? card.data.items : [];
+  return Array.isArray(card.data.items)
+    ? card.data.items.filter((item): item is AiInventoryResultItem => 'id' in item && 'sourceType' in item)
+    : [];
 }
 
 export function recommendationItems(card: AiResultCard): AiTodayRecommendationItem[] {

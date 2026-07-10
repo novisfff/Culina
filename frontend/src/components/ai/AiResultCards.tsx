@@ -2,6 +2,7 @@ import type {
   AiGeneratedRecipeDraft,
   AiInventoryOperationAction,
   AiInventoryResultItem,
+  AiProductLoopPrompt,
   AiResultCard,
   AiTodayRecommendationItem,
   AiUiActionsCardData,
@@ -11,6 +12,7 @@ import { buildMediaSizes, buildMediaSrcSet, resolveMediaUrl } from '../../lib/as
 import { MEAL_TYPE_LABELS } from '../../lib/ui';
 import { MediaWithPlaceholder } from '../MediaPlaceholder';
 import { approvalStatusText } from './AiApprovalPanel';
+import { AiInventoryIntakeCandidates } from './AiInventoryIntakeCandidates';
 import {
   AI_RESULT_PLACEHOLDER,
   evidenceText,
@@ -382,6 +384,7 @@ export function ResultCard({
   isInventoryActionPending,
   onPromptAction,
   isPromptActionPending,
+  onProductLoopPrompt,
 }: {
   card: AiResultCard;
   onAddToPlan?: (item: AiTodayRecommendationItem, card: AiResultCard) => void;
@@ -389,6 +392,7 @@ export function ResultCard({
   isInventoryActionPending?: boolean;
   onPromptAction?: (prompt: string) => void;
   isPromptActionPending?: boolean;
+  onProductLoopPrompt?: (prompt: AiProductLoopPrompt) => void;
 }) {
   if (card.type === 'inventory_summary') {
     return (
@@ -409,6 +413,15 @@ export function ResultCard({
         card={card}
         onPromptAction={onPromptAction}
         isPromptActionPending={isPromptActionPending}
+      />
+    );
+  }
+  if (card.type === 'inventory_intake_candidates') {
+    return (
+      <AiInventoryIntakeCandidates
+        card={card}
+        onProductLoopPrompt={onProductLoopPrompt}
+        disabled={isPromptActionPending}
       />
     );
   }

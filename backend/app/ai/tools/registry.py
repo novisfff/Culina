@@ -63,6 +63,7 @@ def build_workspace_tool_registry() -> ToolRegistry:
         register_ingredient_tools,
         register_intent_tools,
         register_inventory_tools,
+        register_inventory_intake_tools,
         register_meal_log_tools,
         register_meal_plan_tools,
         register_recipe_tools,
@@ -79,6 +80,7 @@ def build_workspace_tool_registry() -> ToolRegistry:
     register_family_context_tools(registry)
     register_ingredient_tools(registry)
     register_inventory_tools(registry)
+    register_inventory_intake_tools(registry)
     register_meal_log_tools(registry)
     register_food_tools(registry)
     register_recipe_tools(registry)
