@@ -220,6 +220,48 @@ def test_owner_can_update_food_context(family_api_context: FamilyApiContext) -> 
     assert response.json()["food_avoidances"] == ["花生"]
 
 
+def test_legacy_family_update_preserves_existing_food_context(family_api_context: FamilyApiContext) -> None:
+    with family_api_context.SessionLocal() as db:
+        family = db.get(Family, family_api_context.family_id)
+        assert family is not None
+        family.food_preferences = ["少油", "清淡"]
+        family.food_avoidances = ["花生"]
+        db.commit()
+
+    response = family_api_context.client.patch(
+        "/api/family",
+        json={"name": "主家庭", "motto": "继续认真吃饭", "location": "上海"},
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["food_preferences"] == ["少油", "清淡"]
+    assert response.json()["food_avoidances"] == ["花生"]
+
+
+def test_family_update_can_explicitly_clear_food_context(family_api_context: FamilyApiContext) -> None:
+    with family_api_context.SessionLocal() as db:
+        family = db.get(Family, family_api_context.family_id)
+        assert family is not None
+        family.food_preferences = ["少油"]
+        family.food_avoidances = ["花生"]
+        db.commit()
+
+    response = family_api_context.client.patch(
+        "/api/family",
+        json={
+            "name": "主家庭",
+            "motto": "认真吃饭",
+            "location": "上海",
+            "food_preferences": [],
+            "food_avoidances": [],
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["food_preferences"] == []
+    assert response.json()["food_avoidances"] == []
+
+
 def test_non_owner_cannot_update_food_context(family_api_context: FamilyApiContext) -> None:
     family_api_context.use_auth(
         family_api_context.member_id,

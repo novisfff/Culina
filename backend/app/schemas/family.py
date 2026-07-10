@@ -49,7 +49,9 @@ class FamilyFoodContext(BaseModel):
 
     @field_validator("food_preferences", "food_avoidances")
     @classmethod
-    def normalize_food_context(cls, value: list[str]) -> list[str]:
+    def normalize_food_context(cls, value: list[str] | None) -> list[str] | None:
+        if value is None:
+            return None
         normalized: list[str] = []
         for raw in value:
             item = raw.strip()
@@ -63,6 +65,8 @@ class FamilyFoodContext(BaseModel):
 
 
 class UpdateFamilyRequest(FamilyFoodContext):
+    food_preferences: list[str] | None = None
+    food_avoidances: list[str] | None = None
     name: str
     motto: str = ""
     location: str = ""

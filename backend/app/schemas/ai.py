@@ -175,19 +175,29 @@ class AISubjectIn(BaseModel):
             raw_candidates = self.extra.get("intakeCandidates")
             if not isinstance(raw_candidates, list) or not raw_candidates:
                 raise ValueError("intakeCandidates must be a non-empty list")
+            if len(raw_candidates) > 30:
+                raise ValueError("intakeCandidates must contain at most 30 items")
             candidates = [
                 AIInventoryIntakeSubjectCandidateDTO.model_validate(item, strict=True)
                 for item in raw_candidates
             ]
+            raw_unresolved_labels = self.extra.get("unresolvedLabels") or []
+            if not isinstance(raw_unresolved_labels, list):
+                raise ValueError("unresolvedLabels must be a list")
+            if len(raw_unresolved_labels) > 30:
+                raise ValueError("unresolvedLabels must contain at most 30 items")
             unresolved_labels = [
                 str(label).strip()
-                for label in self.extra.get("unresolvedLabels") or []
+                for label in raw_unresolved_labels
                 if str(label).strip()
             ]
+            if any(len(label) > 120 for label in unresolved_labels):
+                raise ValueError("unresolved label is too long")
+            self.ingredient_ids = list(dict.fromkeys(item.ingredientId for item in candidates))
             self.extra = {
                 **self.extra,
                 "intakeCandidates": [item.model_dump(mode="json") for item in candidates],
-                "unresolvedLabels": list(dict.fromkeys(unresolved_labels))[:30],
+                "unresolvedLabels": list(dict.fromkeys(unresolved_labels)),
             }
         return self
 

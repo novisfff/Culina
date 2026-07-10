@@ -870,7 +870,7 @@ class AISkillLoaderTestCase(AIAgentInfraTestCase):
                 skill_registry.get("meal_plan").manifest.completion_policy.terminal_tools,
                 {
                     "meal_plan.recommend_today": "即时餐食推荐卡可作为今日推荐模式的终态输出。",
-                    "meal_plan.propose_from_inventory": "当 Food 和 Recipe 库都没有合适真实候选时，库存餐食想法卡可作为当前轮终态输出。",
+                "meal_plan.propose_from_inventory": "当本轮 Food 和 Recipe 搜索都返回空结果时，库存餐食想法卡可作为当前轮终态输出。",
                 },
             )
             self.assertIn(

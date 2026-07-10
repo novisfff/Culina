@@ -194,6 +194,8 @@ def meal_log_create_draft(context: ToolContext, payload: dict[str, Any]) -> dict
             family_id=context.family_id,
             requested_media_ids=meal_payload.get("mediaIds") or [],
             current_attachments=context.current_message_attachments,
+            existing_entity_type="meal_log" if normalized.get("action") == "update_details" else None,
+            existing_entity_id=str(normalized.get("targetId") or "") or None,
         )
     item_count = len(normalized.get("foods") or [])
     if not item_count and isinstance(normalized.get("payload"), dict):

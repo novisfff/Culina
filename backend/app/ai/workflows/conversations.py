@@ -16,6 +16,23 @@ ACTIVE_CONVERSATION_RUN_STATUSES = {"pending", "running", "waiting_input"}
 
 def normalize_workspace_subject(db: Session, *, family_id: str, subject: dict[str, Any] | None) -> dict[str, Any]:
     value = dict(subject or {})
+    if value.get("source") == "inventory_intake_candidates":
+        extra = value.get("extra") if isinstance(value.get("extra"), dict) else {}
+        candidates = extra.get("intakeCandidates")
+        if not isinstance(candidates, list) or not candidates:
+            raise ValueError("入库候选列表格式不正确")
+        if len(candidates) > 30:
+            raise ValueError("入库候选一次不能超过 30 项")
+        candidate_ids = list(
+            dict.fromkeys(
+                str(item.get("ingredientId") or "").strip()
+                for item in candidates
+                if isinstance(item, dict) and str(item.get("ingredientId") or "").strip()
+            )
+        )
+        if any(not isinstance(item, dict) or not str(item.get("ingredientId") or "").strip() for item in candidates):
+            raise ValueError("入库候选必须引用真实食材")
+        value["ingredient_ids"] = candidate_ids
     recipe_id = value.get("recipe_id") or value.get("recipeId")
     food_id = value.get("food_id") or value.get("foodId")
     ingredient_ids = value.get("ingredient_ids") or value.get("ingredientIds") or []

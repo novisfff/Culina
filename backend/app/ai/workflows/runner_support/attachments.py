@@ -18,6 +18,8 @@ def validate_current_attachment_ids(
     family_id: str,
     requested_media_ids: Sequence[str],
     current_attachments: Sequence[Mapping[str, Any]],
+    existing_entity_type: str | None = None,
+    existing_entity_id: str | None = None,
 ) -> list[str]:
     allowed_ids = {
         str(item.get("mediaId") or item.get("media_id") or "").strip()
@@ -25,6 +27,16 @@ def validate_current_attachment_ids(
         if isinstance(item, Mapping)
     }
     allowed_ids.discard("")
+    if existing_entity_type and existing_entity_id:
+        allowed_ids.update(
+            db.scalars(
+                select(MediaAsset.id).where(
+                    MediaAsset.family_id == family_id,
+                    MediaAsset.entity_type == existing_entity_type,
+                    MediaAsset.entity_id == existing_entity_id,
+                )
+            )
+        )
     normalized = list(dict.fromkeys(str(media_id).strip() for media_id in requested_media_ids if str(media_id).strip()))
     if any(media_id not in allowed_ids for media_id in normalized):
         raise ValueError("invalid_current_attachment")

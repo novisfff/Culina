@@ -37,6 +37,18 @@ def _decimal_text(value: Decimal) -> str:
     return format(value.normalize(), "f")
 
 
+def _bound_media_ids(db: Session, *, family_id: str, entity_type: str, entity_id: str) -> list[str]:
+    return [
+        asset.id
+        for asset in get_media_assets_for_entities(
+            db,
+            family_id=family_id,
+            entity_type=entity_type,
+            entity_ids=[entity_id],
+        )
+    ]
+
+
 def normalize_shopping_list_draft(db: Session, *, family_id: str, conversation_id: str, payload: Any) -> dict[str, Any]:
     if not isinstance(payload, dict):
         raise ValueError("购物清单草稿格式不正确")
@@ -120,6 +132,16 @@ def _normalize_shopping_list_operation_draft(db: Session, *, family_id: str, pay
         raise ValueError("购物清单操作草稿不能为空")
     if len(operations) > 100:
         raise ValueError("购物清单操作一次不能超过 100 项")
+    completed_count = sum(
+        1
+        for operation in operations
+        if isinstance(operation, dict)
+        and str(operation.get("action") or "") == "set_done"
+        and isinstance(operation.get("payload"), dict)
+        and operation["payload"].get("done") is True
+    )
+    if completed_count > 1:
+        raise ValueError("一次只能完成一个需要入库的购物项，请按顺序逐项确认")
     target_ids = _string_ids(
         operation.get("targetId") or operation.get("target_id")
         for operation in operations
@@ -499,6 +521,7 @@ def _normalize_meal_log_operation_draft(db: Session, *, family_id: str, user_id:
     base_updated_at = _normalize_base_updated_at(payload.get("baseUpdatedAt") or payload.get("base_updated_at"))
     before = _serialize_meal_log_before(meal_log)
     if action == "update_details":
+        incoming_payload = payload.get("payload") or {}
         normalized = UpdateMealLogRequest.model_validate(
             {
                 "participant_user_ids": payload.get("payload", {}).get("participantUserIds") or payload.get("payload", {}).get("participant_user_ids"),
@@ -507,6 +530,13 @@ def _normalize_meal_log_operation_draft(db: Session, *, family_id: str, user_id:
                 "media_ids": (payload.get("payload") or {}).get("mediaIds") or (payload.get("payload") or {}).get("media_ids"),
             }
         ).model_dump(mode="json", exclude_none=True)
+        if "mediaIds" not in incoming_payload and "media_ids" not in incoming_payload:
+            normalized["media_ids"] = _bound_media_ids(
+                db,
+                family_id=family_id,
+                entity_type="meal_log",
+                entity_id=meal_log.id,
+            )
         return {
             "draftType": "meal_log",
             "schemaVersion": "meal_log_operation.v1",
@@ -658,8 +688,16 @@ def _normalize_recipe_operation_draft(db: Session, *, family_id: str, payload: d
             "before": before,
             "payload": {"reason": str((payload.get("payload") or {}).get("reason") or "")},
         }
-    normalized = _strip_transport_fields(UpdateRecipeRequest.model_validate(payload.get("payload") or {}).model_dump(mode="json"))
+    incoming_payload = payload.get("payload") or {}
+    normalized = _strip_transport_fields(UpdateRecipeRequest.model_validate(incoming_payload).model_dump(mode="json"))
     normalized = normalize_recipe_draft_for_tools(db, family_id=family_id, payload=normalized)
+    if "media_ids" not in incoming_payload and "mediaIds" not in incoming_payload:
+        normalized["media_ids"] = _bound_media_ids(
+            db,
+            family_id=family_id,
+            entity_type="recipe",
+            entity_id=recipe.id,
+        )
     return {
         "draftType": "recipe",
         "schemaVersion": "recipe_operation.v1",
@@ -726,6 +764,13 @@ def _normalize_food_profile_operation_draft(db: Session, *, family_id: str, payl
     incoming_payload = payload.get("payload") or {}
     before = _serialize_food_before(food)
     normalized = normalize_food_profile_draft_for_tools(db, family_id=family_id, payload=incoming_payload)
+    if "media_ids" not in incoming_payload and "mediaIds" not in incoming_payload:
+        normalized["media_ids"] = _bound_media_ids(
+            db,
+            family_id=family_id,
+            entity_type="food",
+            entity_id=food.id,
+        )
     if isinstance(incoming_payload, dict) and "storage_location" not in incoming_payload and "storageLocation" not in incoming_payload:
         normalized["storage_location"] = before.get("storage_location", "")
     return {
@@ -779,7 +824,8 @@ def normalize_ingredient_profile_draft(db: Session, *, family_id: str, payload: 
     if action not in {"create", "update"}:
         raise ValueError("食材档案操作类型不正确")
     request_model = CreateIngredientRequest if action == "create" else UpdateIngredientRequest
-    ingredient_payload = _strip_transport_fields(request_model.model_validate(payload.get("payload") or {}).model_dump(mode="json"))
+    incoming_payload = payload.get("payload") or {}
+    ingredient_payload = _strip_transport_fields(request_model.model_validate(incoming_payload).model_dump(mode="json"))
     if action == "create":
         return {
             "draftType": "ingredient_profile",
@@ -791,6 +837,13 @@ def normalize_ingredient_profile_draft(db: Session, *, family_id: str, payload: 
     if not target_id:
         raise ValueError("更新食材档案必须引用真实食材")
     ingredient = _load_by_id(db, Ingredient, family_id=family_id, ids=[target_id], label="食材")[target_id]
+    if "media_ids" not in incoming_payload and "mediaIds" not in incoming_payload:
+        ingredient_payload["media_ids"] = _bound_media_ids(
+            db,
+            family_id=family_id,
+            entity_type="ingredient",
+            entity_id=ingredient.id,
+        )
     return {
         "draftType": "ingredient_profile",
         "schemaVersion": payload.get("schemaVersion") or "ingredient_profile.v1",

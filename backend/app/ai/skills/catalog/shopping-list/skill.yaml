@@ -54,6 +54,7 @@ examples:
 - 鸡蛋已经买到了，帮我标记完成。
 - 删除购物清单里的香菜。
 - 看看低库存还需要买什么。
+- 这些都买到了，先让我选一个完成并入库。
 routing:
   modes: [query, create, update]
   include_examples:

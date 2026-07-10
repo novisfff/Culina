@@ -314,6 +314,8 @@ def recipe_create_draft(context: ToolContext, payload: dict[str, Any]) -> dict[s
             family_id=context.family_id,
             requested_media_ids=recipe_payload.get("media_ids") or [],
             current_attachments=context.current_message_attachments,
+            existing_entity_type="recipe" if normalized.get("action") == "update" else None,
+            existing_entity_id=str(normalized.get("targetId") or "") or None,
         )
     return {"draft": normalized, "itemCount": len(normalized.get("ingredient_items", []) or [])}
 

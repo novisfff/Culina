@@ -1,19 +1,25 @@
 from __future__ import annotations
 
 import json
+from datetime import date
 from unittest.mock import patch
 
 from sqlalchemy import select
 
 from app.ai.runtime.provider import ChatProviderResult, ProviderUserInput
+from app.ai.tools.base import ToolContext
+from app.ai.tools.catalog.food import food_profile_create_draft
+from app.ai.tools.catalog.ingredient import ingredient_profile_create_draft
+from app.ai.tools.catalog.meal_log import meal_log_create_draft
+from app.ai.tools.catalog.recipe import recipe_create_draft
 from app.ai.workspace_service import AIApplicationService
 from app.ai.workflows.runner_support.attachments import (
     provider_images_for_attachments,
     validate_current_attachment_ids,
 )
 from app.ai.workflows.runner import WorkspaceGraphRunner
-from app.core.enums import MediaSource
-from app.models.domain import AIMessage, AITaskDraft, MediaAsset
+from app.core.enums import Difficulty, MealType, MediaSource
+from app.models.domain import AIMessage, AITaskDraft, Food, Ingredient, MealLog, MediaAsset, Recipe, RecipeIngredient, RecipeStep
 from app.services.ai_operations.registry import draft_operation_registry
 
 from ._support import AIAgentInfraTestCase, FakeChatProvider
@@ -256,6 +262,209 @@ class AIWorkspaceMultimodalAttachmentTestCase(AIAgentInfraTestCase):
             )
             db.add(asset)
             db.commit()
+
+    def test_update_drafts_preserve_bound_media_when_media_field_is_omitted(self) -> None:
+        with self.SessionLocal() as db:
+            recipe = Recipe(
+                id="recipe-media-preserve",
+                family_id=self.family.id,
+                title="番茄小炒",
+                servings=2,
+                prep_minutes=15,
+                difficulty=Difficulty.EASY,
+                tips="",
+                scene_tags=["家常"],
+                created_by=self.user.id,
+                updated_by=self.user.id,
+            )
+            meal_log = MealLog(
+                id="meal-media-preserve",
+                family_id=self.family.id,
+                date=date.today(),
+                meal_type=MealType.DINNER,
+                participant_user_ids=[self.user.id],
+                notes="原记录",
+                mood="",
+                created_by=self.user.id,
+                updated_by=self.user.id,
+            )
+            db.add_all([recipe, meal_log])
+            db.flush()
+            db.add_all(
+                [
+                    RecipeIngredient(
+                        id="recipe-media-preserve-ingredient",
+                        recipe_id=recipe.id,
+                        ingredient_id="ingredient-tomato",
+                        ingredient_name="番茄",
+                        quantity=2,
+                        unit="个",
+                        note="切块",
+                        sort_order=0,
+                    ),
+                    RecipeStep(
+                        id="recipe-media-preserve-step",
+                        recipe_id=recipe.id,
+                        title="炒制",
+                        text="翻炒至出汁。",
+                        icon="pan",
+                        summary="炒番茄",
+                        estimated_minutes=8,
+                        tip="",
+                        key_points=[],
+                        sort_order=0,
+                    ),
+                    MediaAsset(
+                        id="media-recipe-preserve",
+                        family_id=self.family.id,
+                        name="菜谱旧图",
+                        url="/media/family-ai/recipe-preserve.jpg",
+                        file_path="family-ai/recipe-preserve.jpg",
+                        source=MediaSource.UPLOAD,
+                        alt="菜谱旧图",
+                        entity_type="recipe",
+                        entity_id=recipe.id,
+                        created_by=self.user.id,
+                    ),
+                    MediaAsset(
+                        id="media-meal-preserve",
+                        family_id=self.family.id,
+                        name="餐食旧图",
+                        url="/media/family-ai/meal-preserve.jpg",
+                        file_path="family-ai/meal-preserve.jpg",
+                        source=MediaSource.UPLOAD,
+                        alt="餐食旧图",
+                        entity_type="meal_log",
+                        entity_id=meal_log.id,
+                        created_by=self.user.id,
+                    ),
+                ]
+            )
+            db.flush()
+            context = ToolContext(
+                db=db,
+                family_id=self.family.id,
+                user_id=self.user.id,
+                conversation_id="conversation-media-preserve",
+                run_id="run-media-preserve",
+            )
+
+            food = db.get(Food, "food-tomato")
+            assert food is not None
+            food_result = food_profile_create_draft(
+                context,
+                {
+                    "draft": {
+                        "action": "update",
+                        "targetId": "food-tomato",
+                        "baseUpdatedAt": food.updated_at.isoformat(),
+                        "payload": {
+                            "name": food.name,
+                            "type": "selfMade",
+                            "category": food.category,
+                            "flavor_tags": [],
+                            "scene_tags": [],
+                            "suitable_meal_types": [],
+                            "source_name": "",
+                            "purchase_source": "",
+                            "scene": food.scene,
+                            "notes": "只更新备注",
+                            "routine_note": "",
+                            "price": None,
+                            "rating": None,
+                            "repurchase": None,
+                            "expiry_date": None,
+                            "stock_quantity": None,
+                            "stock_unit": "",
+                            "storage_location": "",
+                            "favorite": False,
+                            "recipe_id": None,
+                        },
+                    }
+                },
+            )
+            ingredient = db.get(Ingredient, "ingredient-tomato")
+            assert ingredient is not None
+            ingredient_result = ingredient_profile_create_draft(
+                context,
+                {
+                    "draft": {
+                        "action": "update",
+                        "targetId": ingredient.id,
+                        "baseUpdatedAt": ingredient.updated_at.isoformat(),
+                        "payload": {
+                            "name": ingredient.name,
+                            "category": ingredient.category,
+                            "default_unit": ingredient.default_unit,
+                            "unit_conversions": [],
+                            "quantity_tracking_mode": "track_quantity",
+                            "default_storage": ingredient.default_storage,
+                            "default_expiry_mode": "none",
+                            "default_expiry_days": None,
+                            "default_low_stock_threshold": None,
+                            "notes": "只更新备注",
+                        },
+                    }
+                },
+            )
+            recipe_result = recipe_create_draft(
+                context,
+                {
+                    "draft": {
+                        "action": "update",
+                        "targetId": recipe.id,
+                        "baseUpdatedAt": recipe.updated_at.isoformat(),
+                        "payload": {
+                            "title": recipe.title,
+                            "servings": recipe.servings,
+                            "prep_minutes": recipe.prep_minutes,
+                            "difficulty": "easy",
+                            "ingredient_items": [
+                                {
+                                    "ingredient_id": "ingredient-tomato",
+                                    "ingredient_name": "番茄",
+                                    "quantity": 2,
+                                    "unit": "个",
+                                    "note": "切块",
+                                }
+                            ],
+                            "steps": [
+                                {
+                                    "title": "炒制",
+                                    "text": "翻炒至充分出汁。",
+                                    "icon": "pan",
+                                    "summary": "炒番茄",
+                                    "estimated_minutes": 8,
+                                    "tip": "",
+                                    "key_points": [],
+                                }
+                            ],
+                            "tips": "只更新技巧",
+                            "scene_tags": ["家常"],
+                        },
+                    }
+                },
+            )
+            meal_result = meal_log_create_draft(
+                context,
+                {
+                    "draft": {
+                        "action": "update_details",
+                        "targetId": meal_log.id,
+                        "baseUpdatedAt": meal_log.updated_at.isoformat(),
+                        "payload": {
+                            "participantUserIds": [self.user.id],
+                            "notes": "只更新备注",
+                            "mood": "满足",
+                        },
+                    }
+                },
+            )
+
+            self.assertEqual(food_result["draft"]["payload"]["media_ids"], ["media-food-tomato"])
+            self.assertEqual(ingredient_result["draft"]["payload"]["media_ids"], ["media-ingredient-tomato"])
+            self.assertEqual(recipe_result["draft"]["payload"]["media_ids"], ["media-recipe-preserve"])
+            self.assertEqual(meal_result["draft"]["payload"]["mediaIds"], ["media-meal-preserve"])
 
     def test_prepare_user_message_binds_images_and_persists_image_parts(self) -> None:
         with self.SessionLocal() as db:

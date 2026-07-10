@@ -30,6 +30,7 @@ class ToolExecutor:
         self.forbidden_tools = forbidden_tools or set()
         self.allowed_side_effects = allowed_side_effects
         self.results = results if results is not None else []
+        self.context.tool_results = self.results
 
     def call(self, name: str, payload: dict[str, Any] | None = None, *, progress_event_id: str | None = None) -> dict[str, Any]:
         if self.context.cancel_check is not None and self.context.cancel_check():

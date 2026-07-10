@@ -144,6 +144,8 @@ def food_profile_create_draft(context: ToolContext, payload: dict[str, Any]) -> 
             family_id=context.family_id,
             requested_media_ids=food_payload.get("media_ids") or [],
             current_attachments=context.current_message_attachments,
+            existing_entity_type="food" if normalized.get("action") == "update" else None,
+            existing_entity_id=str(normalized.get("targetId") or "") or None,
         )
     return {"draft": normalized, "itemCount": 1}
 

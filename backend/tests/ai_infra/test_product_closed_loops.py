@@ -1,5 +1,7 @@
 from sqlalchemy import func
 
+from app.ai.tools.base import ToolResult
+
 from ._support import *
 
 
@@ -447,6 +449,12 @@ class AIProductClosedLoopsTestCase(AIAgentInfraTestCase):
     def test_inventory_backed_meal_idea_card_uses_only_real_ingredient_ids(self) -> None:
         with self.SessionLocal() as db:
             executor = self._inventory_intake_executor(db)
+            food = db.get(Food, "food-tomato")
+            assert food is not None
+            db.delete(food)
+            db.flush()
+            self.assertEqual(executor.call("food.search", {"limit": 24})["count"], 0)
+            self.assertEqual(executor.call("recipe.search", {"limit": 24})["count"], 0)
 
             result = executor.call(
                 "meal_plan.propose_from_inventory",
@@ -477,6 +485,50 @@ class AIProductClosedLoopsTestCase(AIAgentInfraTestCase):
                     ]
                 )
 
+    def test_inventory_backed_meal_idea_rejects_when_library_search_found_candidates(self) -> None:
+        with self.SessionLocal() as db:
+            executor = self._inventory_intake_executor(db)
+            self.assertGreater(executor.call("food.search", {"limit": 24})["count"], 0)
+            self.assertEqual(executor.call("recipe.search", {"limit": 24})["count"], 0)
+
+            with self.assertRaisesRegex(ValueError, "library_candidates_available"):
+                executor.call(
+                    "meal_plan.propose_from_inventory",
+                    {
+                        "title": "番茄清汤",
+                        "ingredientIds": ["ingredient-tomato"],
+                        "reason": "使用现有库存",
+                    },
+                )
+
+    def test_inventory_backed_meal_idea_rejects_failed_library_search_results(self) -> None:
+        with self.SessionLocal() as db:
+            executor = self._inventory_intake_executor(db)
+            executor.results.extend(
+                [
+                    ToolResult(
+                        name=name,
+                        input={"limit": 24},
+                        permission="read",
+                        side_effect="read",
+                        output={},
+                        status="failed",
+                        error="search_failed",
+                    )
+                    for name in ("food.search", "recipe.search")
+                ]
+            )
+
+            with self.assertRaisesRegex(ValueError, "library_search_required"):
+                executor.call(
+                    "meal_plan.propose_from_inventory",
+                    {
+                        "title": "番茄清汤",
+                        "ingredientIds": ["ingredient-tomato"],
+                        "reason": "使用现有库存",
+                    },
+                )
+
     def test_inventory_backed_meal_idea_rejects_unknown_ingredient_id(self) -> None:
         with self.SessionLocal() as db:
             executor = self._inventory_intake_executor(db)
@@ -490,6 +542,45 @@ class AIProductClosedLoopsTestCase(AIAgentInfraTestCase):
                         "reason": "不应跨家庭读取",
                     },
                 )
+
+    def test_inventory_backed_meal_idea_rejects_when_no_selected_ingredient_is_available(self) -> None:
+        with self.SessionLocal() as db:
+            food = db.get(Food, "food-tomato")
+            assert food is not None
+            db.delete(food)
+            inventory_item = db.get(InventoryItem, "inventory-tomato")
+            assert inventory_item is not None
+            inventory_item.consumed_quantity = inventory_item.quantity
+            db.flush()
+            executor = self._inventory_intake_executor(db)
+            self.assertEqual(executor.call("food.search", {"limit": 24})["count"], 0)
+            self.assertEqual(executor.call("recipe.search", {"limit": 24})["count"], 0)
+
+            with self.assertRaisesRegex(ValueError, "inventory_not_available"):
+                executor.call(
+                    "meal_plan.propose_from_inventory",
+                    {
+                        "title": "番茄清汤",
+                        "ingredientIds": ["ingredient-tomato"],
+                        "reason": "尝试使用当前库存",
+                    },
+                )
+
+    def test_meal_plan_prefers_real_library_candidate_over_inventory_idea(self) -> None:
+        response = self.client.post(
+            "/api/ai/chat",
+            json={"message": "今晚吃什么？", "quick_task": "today_recommendation"},
+        )
+
+        self.assertEqual(response.status_code, 200, response.text)
+        with self.SessionLocal() as db:
+            run = db.get(AIAgentRun, response.json()["run"]["id"])
+            assert run is not None
+            tool_names = [item["name"] for item in run.tool_calls]
+        self.assertIn("food.search", tool_names)
+        self.assertIn("recipe.search", tool_names)
+        self.assertIn("meal_plan.recommend_today", tool_names)
+        self.assertNotIn("meal_plan.propose_from_inventory", tool_names)
 
     def test_product_loop_subjects_reject_tampered_shapes(self) -> None:
         from app.schemas.ai import AISubjectIn
@@ -523,6 +614,63 @@ class AIProductClosedLoopsTestCase(AIAgentInfraTestCase):
                             "ingredientIds": ["ingredient-tomato"],
                             "reason": "使用当前库存",
                         }
+                    },
+                }
+            )
+
+    def test_inventory_intake_subject_rejects_untrusted_candidate_ids_at_api_boundary(self) -> None:
+        for ingredient_id in ("ingredient-secret", "ingredient-deleted"):
+            with self.subTest(ingredient_id=ingredient_id):
+                response = self.client.post(
+                    "/api/ai/chat",
+                    json={
+                        "message": "把选中的采购项加入库存",
+                        "subject": {
+                            "source": "inventory_intake_candidates",
+                            "extra": {
+                                "intakeCandidates": [
+                                    {
+                                        "ingredientId": ingredient_id,
+                                        "quantity": "1",
+                                        "unit": "个",
+                                    }
+                                ],
+                                "unresolvedLabels": [],
+                            },
+                        },
+                    },
+                )
+
+                self.assertEqual(response.status_code, 400, response.text)
+                self.assertIn("食材不属于当前家庭或不存在", response.json()["detail"])
+
+    def test_inventory_intake_subject_rejects_overlong_unresolved_label(self) -> None:
+        from app.schemas.ai import AISubjectIn
+
+        with self.assertRaisesRegex(Exception, "unresolved label is too long"):
+            AISubjectIn.model_validate(
+                {
+                    "source": "inventory_intake_candidates",
+                    "extra": {
+                        "intakeCandidates": [{"ingredientId": "ingredient-tomato"}],
+                        "unresolvedLabels": ["紫" * 121],
+                    },
+                }
+            )
+
+    def test_inventory_intake_subject_rejects_more_than_card_limit(self) -> None:
+        from app.schemas.ai import AISubjectIn
+
+        with self.assertRaisesRegex(Exception, "at most 30|too_long"):
+            AISubjectIn.model_validate(
+                {
+                    "source": "inventory_intake_candidates",
+                    "extra": {
+                        "intakeCandidates": [
+                            {"ingredientId": f"ingredient-{index}"}
+                            for index in range(31)
+                        ],
+                        "unresolvedLabels": [],
                     },
                 }
             )
@@ -1176,6 +1324,56 @@ class AIProductClosedLoopsTestCase(AIAgentInfraTestCase):
                         family_id=self.family.id,
                         decision_result=decision,
                     )
+                )
+
+    def test_shopping_draft_rejects_completing_multiple_stock_targets_at_once(self) -> None:
+        with self.SessionLocal() as db:
+            first = ShoppingListItem(
+                id="shopping-batch-done-first",
+                family_id=self.family.id,
+                ingredient_id="ingredient-tomato",
+                title="番茄",
+                quantity=Decimal("2"),
+                unit="个",
+                reason="",
+                done=False,
+                created_by=self.user.id,
+                updated_by=self.user.id,
+            )
+            second = ShoppingListItem(
+                id="shopping-batch-done-second",
+                family_id=self.family.id,
+                ingredient_id="ingredient-tomato",
+                title="备用番茄",
+                quantity=Decimal("1"),
+                unit="盒",
+                reason="",
+                done=False,
+                created_by=self.user.id,
+                updated_by=self.user.id,
+            )
+            db.add_all([first, second])
+            db.flush()
+            executor = self._inventory_intake_executor(db)
+
+            with self.assertRaisesRegex(ValueError, "一次只能完成一个需要入库的购物项"):
+                executor.call(
+                    "shopping.create_draft",
+                    {
+                        "draft": {
+                            "draftType": "shopping_list",
+                            "schemaVersion": "shopping_list_operation.v1",
+                            "operations": [
+                                {
+                                    "action": "set_done",
+                                    "targetId": item.id,
+                                    "baseUpdatedAt": item.updated_at.isoformat(),
+                                    "payload": {"done": True},
+                                }
+                                for item in (first, second)
+                            ],
+                        }
+                    },
                 )
 
     def test_invalid_completed_target_does_not_fail_committed_approval_resume(self) -> None:

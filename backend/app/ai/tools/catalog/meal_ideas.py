@@ -84,6 +84,24 @@ def _decimal_text(value: Decimal) -> str:
     return format(value.normalize(), "f")
 
 
+def _require_empty_library_searches(context: ToolContext) -> None:
+    latest_results = {}
+    for result in reversed(context.tool_results):
+        if result.name in {"food.search", "recipe.search"} and result.name not in latest_results:
+            latest_results[result.name] = result
+    if set(latest_results) != {"food.search", "recipe.search"}:
+        raise ValueError("library_search_required")
+    if any(
+        result.status != "completed"
+        or type(result.output.get("count")) is not int
+        or result.output["count"] < 0
+        for result in latest_results.values()
+    ):
+        raise ValueError("library_search_required")
+    if any(result.output["count"] > 0 for result in latest_results.values()):
+        raise ValueError("library_candidates_available")
+
+
 def execute_propose_meal_idea(context: ToolContext, payload: dict[str, Any]) -> dict[str, Any]:
     ingredient_ids = list(
         dict.fromkeys(str(ingredient_id).strip() for ingredient_id in payload.get("ingredientIds") or [] if str(ingredient_id).strip())
@@ -99,6 +117,7 @@ def execute_propose_meal_idea(context: ToolContext, payload: dict[str, Any]) -> 
     ingredients_by_id = {ingredient.id: ingredient for ingredient in ingredients}
     if set(ingredients_by_id) != set(ingredient_ids):
         raise ValueError("ingredient_not_found")
+    _require_empty_library_searches(context)
     inventory_by_ingredient = load_available_inventory_by_ingredient(
         context.db,
         family_id=context.family_id,
@@ -128,6 +147,8 @@ def execute_propose_meal_idea(context: ToolContext, payload: dict[str, Any]) -> 
                 "available": bool(available_items) and (available_quantity is None or available_quantity > 0),
             }
         )
+    if not any(summary["available"] for summary in summaries):
+        raise ValueError("inventory_not_available")
     title = str(payload.get("title") or "").strip()
     return {
         "card": {
@@ -150,7 +171,7 @@ def register_meal_idea_tools(registry: ToolRegistry) -> None:
         registry,
         name="meal_plan.propose_from_inventory",
         display_name="库存餐食想法",
-        description="当 Food 和 Recipe 库没有合适候选时，基于当前家庭真实 Ingredient ID 返回餐食想法卡，不创建 Food、Recipe 或计划。",
+        description="仅当本轮 food.search 和 recipe.search 都返回空结果时，基于当前家庭真实 Ingredient ID 返回餐食想法卡，不创建 Food、Recipe 或计划。",
         side_effect="read",
         handler=execute_propose_meal_idea,
         input_schema=MEAL_IDEA_INPUT,

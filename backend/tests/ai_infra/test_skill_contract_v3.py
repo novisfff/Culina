@@ -275,7 +275,7 @@ def test_meal_plan_and_recipe_skills_declare_inventory_idea_product_loop() -> No
     assert "meal_plan.propose_from_inventory" in meal_plan.tools
     assert "meal_idea_proposal" in meal_plan.output_types
     assert "meal_plan.propose_from_inventory" in meal_plan.completion_policy.terminal_tools
-    assert "Food 和 Recipe 搜索都没有合适真实候选" in meal_plan_text
+    assert "`food.search` 和 `recipe.search` 都实际返回空结果" in meal_plan_text
     assert "不能生成虚假的 Food ID、Recipe ID 或餐食计划项" in meal_plan_text
     assert "meal_idea_subject.v1" in recipe_text
     assert "重新读取每个 `ingredientId`" in recipe_text
