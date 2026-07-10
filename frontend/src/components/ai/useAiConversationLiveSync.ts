@@ -1,6 +1,7 @@
-import { useEffect, useMemo, type Dispatch, type SetStateAction } from 'react';
-import { api } from '../../api/client';
+import { useEffect, useMemo, useRef, type Dispatch, type SetStateAction } from 'react';
+import { api, isApiError } from '../../api/client';
 import type { AiConversation, AiRunEvent } from '../../api/types';
+import { isPendingConversationKey } from './AiConversationHistory';
 
 const SERVER_RUNNING_STATUSES = new Set(['pending', 'running']);
 const UNFINISHED_CONVERSATION_STATUSES = new Set(['pending', 'running', 'waiting_approval', 'waiting_input']);
@@ -25,6 +26,8 @@ export function useAiConversationLiveSync(args: {
   historyConversations: AiConversation[];
   activeStreamRunIdsByConversationKey: Record<string, string>;
   setRunEventsById: Dispatch<SetStateAction<Record<string, AiRunEvent[]>>>;
+  isLoadingConversations?: boolean;
+  onInaccessibleConversation?: (conversationId: string) => void;
 }) {
   const activeConversation = useMemo(
     () => args.historyConversations.find((conversation) => conversation.id === args.activeConversationKey) ?? null,
@@ -64,6 +67,9 @@ export function useAiConversationLiveSync(args: {
     }
     return keys;
   }, [args.conversations]);
+  const onInaccessibleConversationRef = useRef(args.onInaccessibleConversation);
+  onInaccessibleConversationRef.current = args.onInaccessibleConversation;
+  const verifyingMissingConversationRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (!serverActiveRunId || !isActiveConversationServerRunning) return undefined;
@@ -85,6 +91,40 @@ export function useAiConversationLiveSync(args: {
       window.clearInterval(timer);
     };
   }, [args.setRunEventsById, isActiveConversationServerRunning, serverActiveRunId]);
+
+  useEffect(() => {
+    const conversationId = args.activeConversationId;
+    if (!conversationId || isPendingConversationKey(conversationId)) return undefined;
+    if (args.isLoadingConversations) return undefined;
+    if (args.conversations.some((conversation) => conversation.id === conversationId)) {
+      verifyingMissingConversationRef.current = null;
+      return undefined;
+    }
+    // Active conversation fell out of the polled list. Verify access with one message refetch
+    // so a 20-item list limit cannot clear a still-accessible conversation.
+    if (verifyingMissingConversationRef.current === conversationId) return undefined;
+    verifyingMissingConversationRef.current = conversationId;
+    let isCancelled = false;
+    void (async () => {
+      try {
+        await api.getAiMessages(conversationId);
+        if (isCancelled) return;
+        // Still accessible; keep selection despite list eviction.
+      } catch (error) {
+        if (isCancelled) return;
+        if (isApiError(error) && error.status === 404) {
+          onInaccessibleConversationRef.current?.(conversationId);
+        }
+      } finally {
+        if (verifyingMissingConversationRef.current === conversationId) {
+          verifyingMissingConversationRef.current = null;
+        }
+      }
+    })();
+    return () => {
+      isCancelled = true;
+    };
+  }, [args.activeConversationId, args.conversations, args.isLoadingConversations]);
 
   return {
     serverActiveRunId,

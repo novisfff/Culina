@@ -1,5 +1,5 @@
 import { useCallback, useState, type Dispatch, type MutableRefObject, type SetStateAction } from 'react';
-import { api } from '../../api/client';
+import { api, isApiError } from '../../api/client';
 import type {
   AiChatAttachment,
   AiChatResponse,
@@ -60,6 +60,7 @@ type StreamMutationContext = {
   applyChatResponse: (response: AiChatResponse, conversationKey: string, runId: string) => void;
   streamFailureMessage: (error: unknown) => string;
   markStreamingAssistantStopped: (runId: string | null, text?: string) => void;
+  clearInaccessibleConversation: (conversationId: string) => void;
   refreshAfterApprovalSettled: () => Promise<void>;
   isApprovalDecisionSettledPart: (part: AiMessagePart, approvalId: string) => boolean;
 };
@@ -106,6 +107,16 @@ function clearActiveStreamRun(
   });
 }
 
+function handleInaccessibleStreamError(
+  context: Pick<StreamMutationContext, 'clearInaccessibleConversation'>,
+  error: unknown,
+  conversationId: string | null | undefined,
+) {
+  if (!conversationId || !isApiError(error) || error.status !== 404) return false;
+  context.clearInaccessibleConversation(conversationId);
+  return true;
+}
+
 export function useAiConversationStreams(context: StreamMutationContext): AiConversationStreams {
   const [submittingApprovalIds, setSubmittingApprovalIds] = useState<Set<string>>(() => new Set());
   const [submittingHumanInputRequestIds, setSubmittingHumanInputRequestIds] = useState<Set<string>>(() => new Set());
@@ -143,6 +154,10 @@ export function useAiConversationStreams(context: StreamMutationContext): AiConv
         || (error instanceof DOMException && error.name === 'AbortError')
         || (error instanceof Error && /aborted/i.test(error.message));
       if (!isAbort) {
+        const conversationId = payload.conversation_id ?? conversationKey;
+        if (handleInaccessibleStreamError(context, error, conversationId)) {
+          throw error;
+        }
         const message = context.streamFailureMessage(error);
         context.stopThinking(payload.client_run_id);
         context.markStreamingAssistantStopped(
@@ -243,9 +258,11 @@ export function useAiConversationStreams(context: StreamMutationContext): AiConv
         context.applyChatResponse(response, payload.approval.conversation_id, runId ?? response.run.id);
         settleDecisionVisible();
       }).catch((error) => {
-        const message = context.streamFailureMessage(error);
-        context.stopThinking(runId);
-        context.markStreamingAssistantStopped(runId ?? null, `AI 后续处理失败：${message}`);
+        if (!handleInaccessibleStreamError(context, error, payload.approval.conversation_id)) {
+          const message = context.streamFailureMessage(error);
+          context.stopThinking(runId);
+          context.markStreamingAssistantStopped(runId ?? null, `AI 后续处理失败：${message}`);
+        }
         void context.refreshAfterApprovalSettled();
         rejectDecisionVisible(error);
       }).finally(() => {
@@ -312,9 +329,11 @@ export function useAiConversationStreams(context: StreamMutationContext): AiConv
       context.applyChatResponse(response, payload.message.conversation_id, runId ?? response.run.id);
       return response;
     } catch (error) {
-      const message = context.streamFailureMessage(error);
-      context.stopThinking(runId);
-      context.markStreamingAssistantStopped(runId ?? null, `AI 后续处理失败：${message}`);
+      if (!handleInaccessibleStreamError(context, error, conversationKey)) {
+        const message = context.streamFailureMessage(error);
+        context.stopThinking(runId);
+        context.markStreamingAssistantStopped(runId ?? null, `AI 后续处理失败：${message}`);
+      }
       throw error;
     } finally {
       if (runId) {

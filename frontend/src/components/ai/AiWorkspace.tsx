@@ -290,6 +290,7 @@ export function AiWorkspace({
   const requestedRunEventsRef = useRef<Set<string>>(new Set());
   const [activeStreamRunIdsByConversationKey, setActiveStreamRunIdsByConversationKey] = useState<Record<string, string>>({});
   const chatAbortByRunIdRef = useRef<Record<string, AbortController>>({});
+  const clearingInaccessibleConversationRef = useRef<string | null>(null);
   const { thinkingRunIds, startThinking, stopThinking } = useAiThinkingState();
   const [deletingConversationId, setDeletingConversationId] = useState<string | null>(null);
   const [pendingDeleteConversation, setPendingDeleteConversation] = useState<AiConversation | null>(null);
@@ -364,6 +365,50 @@ export function AiWorkspace({
       moveAttachmentScope(migration.pendingKey, migration.conversationId);
     }
   }, [conversations, localMessagesByConversationKey, moveAttachmentScope, moveComposerScope]);
+  function clearInaccessibleConversation(conversationId: string) {
+    if (clearingInaccessibleConversationRef.current === conversationId) return;
+    clearingInaccessibleConversationRef.current = conversationId;
+    const inaccessibleRunId = activeStreamRunIdsByConversationKey[conversationId];
+    queryClient.removeQueries({ queryKey: queryKeys.aiMessages(conversationId) });
+    queryClient.removeQueries({ queryKey: queryKeys.aiPendingApprovals(conversationId) });
+    setLocalMessagesByConversationKey((current) => {
+      const next = { ...current };
+      delete next[conversationId];
+      return next;
+    });
+    clearComposerScope(conversationId);
+    clearAttachmentScope(conversationId);
+    setActiveStreamRunIdsByConversationKey((current) => {
+      const next = { ...current };
+      delete next[conversationId];
+      return next;
+    });
+    if (inaccessibleRunId) {
+      stopThinking(inaccessibleRunId);
+      setStreamProgressByRunId((current) => {
+        const next = { ...current };
+        delete next[inaccessibleRunId];
+        return next;
+      });
+      setRunEventsById((current) => {
+        const next = { ...current };
+        delete next[inaccessibleRunId];
+        return next;
+      });
+      delete streamMessageTargetRef.current[inaccessibleRunId];
+      delete chatAbortByRunIdRef.current[inaccessibleRunId];
+    }
+    const fallbackConversation = conversations.find((item) => item.id !== conversationId) ?? null;
+    setActiveConversationKey(fallbackConversation?.id ?? null);
+    setIsStartingNewConversation(fallbackConversation === null);
+    setPlanFeedback('该会话已取消公开');
+    window.setTimeout(() => {
+      if (clearingInaccessibleConversationRef.current === conversationId) {
+        clearingInaccessibleConversationRef.current = null;
+      }
+    }, 0);
+  }
+
   const {
     serverActiveRunId,
     isActiveConversationServerRunning,
@@ -376,6 +421,8 @@ export function AiWorkspace({
     historyConversations,
     activeStreamRunIdsByConversationKey,
     setRunEventsById,
+    isLoadingConversations: isLoading,
+    onInaccessibleConversation: clearInaccessibleConversation,
   });
   const shouldRefreshActiveConversation = Boolean(
     isActiveConversationServerRunning
@@ -408,6 +455,18 @@ export function AiWorkspace({
     enabled: Boolean(activeConversationId),
     refetchInterval: shouldRefreshActiveConversation ? 1800 : false,
   });
+  useEffect(() => {
+    if (!activeConversationId || !messagesQuery.isError) return;
+    if (isApiError(messagesQuery.error) && messagesQuery.error.status === 404) {
+      clearInaccessibleConversation(activeConversationId);
+    }
+  }, [activeConversationId, messagesQuery.error, messagesQuery.isError]);
+  useEffect(() => {
+    if (!activeConversationId || !pendingApprovalsQuery.isError) return;
+    if (isApiError(pendingApprovalsQuery.error) && pendingApprovalsQuery.error.status === 404) {
+      clearInaccessibleConversation(activeConversationId);
+    }
+  }, [activeConversationId, pendingApprovalsQuery.error, pendingApprovalsQuery.isError]);
   const messages = useMemo(() => {
     const remote = messagesQuery.data ?? [];
     if (activeLocalMessages.length === 0) return remote;
@@ -907,6 +966,7 @@ export function AiWorkspace({
     applyChatResponse,
     streamFailureMessage,
     markStreamingAssistantStopped,
+    clearInaccessibleConversation,
     refreshAfterApprovalSettled,
     isApprovalDecisionSettledPart,
   });

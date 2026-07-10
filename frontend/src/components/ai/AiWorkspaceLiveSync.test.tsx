@@ -1,6 +1,6 @@
 import React, { act } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { api } from '../../api/client';
+import { api, ApiError } from '../../api/client';
 import { queryKeys } from '../../api/queryKeys';
 import type { AiApprovalRequest, AiChatResponse, AiConversation, AiMessage, AiResultCard, AiRunEvent, AiTaskDraft } from '../../api/types';
 import { cleanupTestDomAndMocks, flushAsync, renderWithQuery, waitForAsync } from '../../test/renderWithQuery';
@@ -1668,6 +1668,24 @@ describe('AiWorkspace live sync and conversation migration', () => {
     expect(desktopView.textContent).toContain('AI 后续处理失败：AI 服务暂时不可用，请稍后重试。');
     expect(desktopView.querySelectorAll('.ai-conversation-item.is-running')).toHaveLength(0);
     expect(desktopView.querySelector<HTMLButtonElement>('.ai-send-button')?.getAttribute('aria-label')).toBe('发送消息');
+    rendered.unmount();
+  });
+
+  it('clears only an unpublished shared conversation after a 404', async () => {
+    const shared = conversation({ id: 'shared', visibility: 'family', is_owner: false, owner_display_name: '家人' });
+    const mine = conversation({ id: 'mine', visibility: 'private', is_owner: true });
+    vi.spyOn(api, 'getAiMessages').mockImplementation(async (conversationId) => {
+      if (conversationId === 'shared') {
+        throw new ApiError({ status: 404, detail: '会话不存在', path: `/api/ai/conversations/${conversationId}/messages`, payload: {} });
+      }
+      return [];
+    });
+    vi.spyOn(api, 'getPendingAiApprovals').mockResolvedValue([]);
+    const rendered = await renderWithQuery(<AiWorkspace conversations={[shared, mine]} isLoading={false} />);
+    await flushAsync();
+    expect(rendered.container.textContent).toContain('该会话已取消公开');
+    expect(rendered.container.querySelector('.ai-conversation-item.active')?.textContent).toContain('帮我生成菜谱');
+    expect(rendered.queryClient.getQueryData(queryKeys.aiMessages('shared'))).toBeUndefined();
     rendered.unmount();
   });
 });

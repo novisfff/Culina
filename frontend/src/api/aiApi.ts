@@ -1,4 +1,4 @@
-import { API_BASE_URL, getAccessToken, request } from './request';
+import { API_BASE_URL, ApiError, getAccessToken, request } from './request';
 import type {
   AiApprovalDecisionResponse,
   AiApprovalRequest,
@@ -122,8 +122,13 @@ async function streamAiResponse(url: string, payload: unknown, handlers: AiChatS
     } else if (event === 'assistant_audio_trace') {
       handlers.onAssistantAudioTrace?.(data as AssistantAudioTraceEvent);
     } else if (event === 'error') {
-      const detail = typeof data === 'object' && data && 'detail' in data ? String((data as { detail: unknown }).detail) : '流式请求失败';
-      throw new Error(detail);
+      const errorPayload = data && typeof data === 'object' ? data as { detail?: unknown; status?: unknown } : {};
+      throw new ApiError({
+        status: Number(errorPayload.status) || 500,
+        detail: typeof errorPayload.detail === 'string' ? errorPayload.detail : '流式请求失败',
+        path: url,
+        payload: data,
+      });
     }
   };
   while (true) {
