@@ -136,6 +136,21 @@ export function useAiConversationStreams(context: StreamMutationContext): AiConv
       });
       context.applyChatResponse(response, conversationKey, payload.client_run_id);
       return response;
+    } catch (error) {
+      // cancelStreamingChat already marks the assistant stopped before aborting.
+      // Do not overwrite cancel UX with a failure surface for abort errors.
+      const isAbort = controller.signal.aborted
+        || (error instanceof DOMException && error.name === 'AbortError')
+        || (error instanceof Error && /aborted/i.test(error.message));
+      if (!isAbort) {
+        const message = context.streamFailureMessage(error);
+        context.stopThinking(payload.client_run_id);
+        context.markStreamingAssistantStopped(
+          payload.client_run_id,
+          `AI 后续处理失败：${message}`,
+        );
+      }
+      throw error;
     } finally {
       context.stopThinking(payload.client_run_id);
       delete context.chatAbortByRunIdRef.current[payload.client_run_id];

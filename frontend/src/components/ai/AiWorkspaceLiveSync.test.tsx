@@ -1576,4 +1576,98 @@ describe('AiWorkspace live sync and conversation migration', () => {
     expect(rendered.container.querySelectorAll('.ai-conversation-item.is-running')).toHaveLength(0);
     rendered.unmount();
   });
+
+  it('does not treat another conversation\'s submitting approval as active while streaming', async () => {
+    const pendingB = approval({
+      id: 'approval-b',
+      conversation_id: 'conversation-b',
+      message_id: 'message-b-approval',
+      run_id: 'run-b-approval',
+      title: '确认创建菜谱 B',
+    });
+    vi.spyOn(api, 'getAiMessages').mockImplementation(async (conversationId) => {
+      if (conversationId === 'conversation-b') {
+        return [
+          {
+            id: 'message-b-approval',
+            conversation_id: 'conversation-b',
+            role: 'assistant',
+            content: '菜谱草稿 B 已生成，请确认。',
+            content_type: 'parts',
+            parts: [
+              { id: 'text-b', type: 'text', text: '菜谱草稿 B 已生成，请确认。' },
+              { id: 'approval-part-b', type: 'approval_request', approval: pendingB },
+            ],
+            run_id: 'run-b-approval',
+            status: 'waiting_approval',
+            metadata: {},
+            created_at: '2026-07-11T12:00:00Z',
+          },
+        ];
+      }
+      return [];
+    });
+    vi.spyOn(api, 'getPendingAiApprovals').mockImplementation(async (conversationId) => {
+      if (conversationId === 'conversation-b') return [pendingB];
+      return [];
+    });
+    vi.spyOn(api, 'streamChatAi').mockImplementation(() => new Promise(() => undefined));
+    vi.spyOn(api, 'streamAiApprovalDecision').mockImplementation(() => new Promise(() => undefined));
+
+    const rendered = await renderWithQuery(
+      <AiWorkspace
+        conversations={[
+          conversation({ id: 'conversation-a', title: '会话 A', prompt: '会话 A' }),
+          conversation({
+            id: 'conversation-b',
+            title: '会话 B',
+            prompt: '会话 B',
+            last_run_status: 'waiting_approval',
+          }),
+        ]}
+        isLoading={false}
+      />,
+    );
+    await flushAsync();
+
+    // Start submitting B's approval.
+    await act(async () => {
+      const historyButton = Array.from(
+        rendered.container.querySelectorAll<HTMLButtonElement>('.ai-desktop-view .ai-conversation-main'),
+      ).find((button) => button.closest('.ai-conversation-item')?.getAttribute('data-conversation-id') === 'conversation-b');
+      historyButton?.click();
+    });
+    await flushAsync();
+    await act(async () => {
+      rendered.container.querySelector<HTMLButtonElement>('.ai-desktop-view .ai-approval-actions .solid-button')?.click();
+    });
+    await flushAsync();
+    expect(api.streamAiApprovalDecision).toHaveBeenCalled();
+    expect(rendered.container.textContent).toContain('正在提交确认结果，AI 会接着处理当前任务。');
+
+    // Switch to A and start a stream. A must not inherit B's submitting approval UI.
+    await sendInConversation(rendered, 'conversation-a', '问题 A');
+    const desktopView = rendered.container.querySelector('.ai-desktop-view') as HTMLElement;
+    expect(desktopView.textContent).not.toContain('正在提交确认结果，AI 会接着处理当前任务。');
+    expect(desktopView.querySelector<HTMLButtonElement>('.ai-send-button')?.getAttribute('aria-label')).toBe('中止生成');
+    rendered.unmount();
+  });
+
+  it('marks the local assistant failed when startChat rejects with a non-abort error', async () => {
+    vi.spyOn(api, 'getAiMessages').mockResolvedValue([]);
+    vi.spyOn(api, 'getPendingAiApprovals').mockResolvedValue([]);
+    vi.spyOn(api, 'streamChatAi').mockRejectedValue(new Error('AI 服务暂时不可用，请稍后重试。'));
+
+    const rendered = await renderWithQuery(
+      <AiWorkspace conversations={[conversation({ id: 'conversation-a' })]} isLoading={false} />,
+    );
+    await sendInConversation(rendered, 'conversation-a', '问题 A');
+    await flushAsync();
+
+    const desktopView = rendered.container.querySelector('.ai-desktop-view') as HTMLElement;
+    expect(desktopView.textContent).toContain('AI 后续处理失败：AI 服务暂时不可用，请稍后重试。');
+    expect(desktopView.querySelectorAll('.ai-conversation-item.is-running')).toHaveLength(0);
+    expect(desktopView.querySelector<HTMLButtonElement>('.ai-send-button')?.getAttribute('aria-label')).toBe('发送消息');
+    rendered.unmount();
+  });
 });

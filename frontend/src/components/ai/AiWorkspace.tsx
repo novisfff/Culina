@@ -989,10 +989,9 @@ export function AiWorkspace({
           .flatMap((message) => message.parts)
           .map((part) => part.approval)
           .find((item) => item?.id === approvalId);
-      if (!approval) {
-        if (activeStreamRunId) return approvalId;
-        continue;
-      }
+      // Only attribute approvals that belong to the active conversation's visible data.
+      // Never fall back to "any sole submitting id" or "any id while a stream is active".
+      if (!approval) continue;
       if (
         approval.conversation_id === activeConversationKey
         || (approval.run_id && (
@@ -1004,9 +1003,6 @@ export function AiWorkspace({
         return approvalId;
       }
     }
-    if (submittingApprovalIds.size === 1 && isCurrentConversationBusy) {
-      return submittingApprovalIds.values().next().value ?? null;
-    }
     return null;
   }, [
     activeApprovalRunId,
@@ -1015,7 +1011,6 @@ export function AiWorkspace({
     activeStreamRunId,
     displayedMessages,
     effectivePendingApprovals,
-    isCurrentConversationBusy,
     submittingApprovalIds,
   ]);
   const isSubmittingActiveApproval = Boolean(submittingApprovalId);
