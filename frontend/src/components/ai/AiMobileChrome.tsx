@@ -117,6 +117,7 @@ export function AiMobileChrome(props: {
                             <AiConversationActions
                               conversation={conversation}
                               isUpdating={props.updatingConversationId === conversation.id}
+                              activeConversationKey={props.activeConversationKey}
                               onChangeVisibility={props.onChangeVisibility}
                               onDelete={props.onDeleteConversation}
                             />

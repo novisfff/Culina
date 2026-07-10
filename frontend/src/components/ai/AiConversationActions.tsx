@@ -1,17 +1,35 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { AiConversation, AiConversationVisibility } from '../../api/types';
 
 export function AiConversationActions(props: {
   conversation: AiConversation;
   isUpdating: boolean;
+  activeConversationKey: string | null;
   onChangeVisibility: (conversation: AiConversation, visibility: AiConversationVisibility) => void;
   onDelete: (conversation: AiConversation) => void;
 }) {
   const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    setOpen(false);
+  }, [props.activeConversationKey]);
+
+  useEffect(() => {
+    if (!open) return;
+    function handlePointerDown(event: MouseEvent) {
+      if (rootRef.current && !rootRef.current.contains(event.target as Node)) {
+        setOpen(false);
+      }
+    }
+    document.addEventListener('mousedown', handlePointerDown);
+    return () => document.removeEventListener('mousedown', handlePointerDown);
+  }, [open]);
+
   if (!props.conversation.is_owner) return null;
   const nextVisibility = props.conversation.visibility === 'family' ? 'private' : 'family';
   return (
-    <div className="ai-conversation-actions">
+    <div className="ai-conversation-actions" ref={rootRef}>
       <button
         type="button"
         className="ai-conversation-manage"
