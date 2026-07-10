@@ -32,12 +32,12 @@ class SkillInjectionManager:
     def __init__(self, skill_registry: SkillRegistry) -> None:
         self.skill_registry = skill_registry
 
-    def catalog_records(
+    def routing_records(
         self,
         capability_policy: OrchestratorCapabilityPolicy | None = None,
     ) -> list[dict[str, Any]]:
         return [
-            manifest.to_catalog_record()
+            manifest.to_routing_record()
             for manifest in self.skill_registry.list_manifests()
             if capability_policy is None or capability_policy.allows_skill(manifest.key)
         ]
@@ -68,7 +68,7 @@ class SkillInjectionManager:
             key=manifest.key,
             display_name=manifest.name,
             instructions=str(getattr(skill, "instructions", "") or ""),
-            manifest_record=manifest.to_catalog_record(),
+            manifest_record=manifest.to_execution_record(),
             allowed_tools=list(manifest.tools),
             output_types=list(manifest.output_types),
             draft_types=list(manifest.draft_types),
@@ -270,6 +270,29 @@ class SkillInjectionManager:
             for key in skill_keys
             if tool_name in self.skill_registry.get(key).manifest.tools
         ]
+
+    def continuation_source_skill_key(
+        self,
+        continuation: dict[str, Any],
+        active_skill_keys: list[str],
+    ) -> str:
+        reason_code = str(continuation.get("reasonCode") or "").strip()
+        matches: list[str] = []
+        for key in active_skill_keys:
+            handoff = self.skill_registry.get(key).manifest.handoffs.get(reason_code)
+            if handoff is None:
+                continue
+            if (
+                handoff.target_skill == str(continuation.get("nextSkillKey") or "").strip()
+                and handoff.resume_skill == str(continuation.get("resumeSkillKey") or "").strip()
+                and handoff.required_draft_type
+                == str(continuation.get("requiredDraftType") or "").strip()
+                and handoff.state_schema == str(continuation.get("stateSchema") or "").strip()
+            ):
+                matches.append(key)
+        if len(matches) != 1:
+            raise ValueError("continuation must match exactly one active Skill handoff")
+        return matches[0]
 
     def draft_type_from_tool_output(self, tool_name: str, draft: dict[str, Any], active_skill_keys: list[str]) -> str:
         draft_type = str(draft.get("draftType") or draft.get("draft_type") or "").strip()

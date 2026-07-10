@@ -28,6 +28,8 @@ from app.ai.workflows.runner_support.approval_resume import (
     approval_resume_draft_id,
     approval_resume_artifact,
     approval_resume_payload_from_metadata,
+    continuation_artifact,
+    continuation_from_metadata,
 )
 from app.ai.workflows.runner_support.approval_followup_streamer import ApprovalFollowupStreamer
 from app.ai.workflows.runner_support.human_input_resume_handler import HumanInputResumeHandler
@@ -1168,10 +1170,28 @@ class WorkspaceGraphRunner:
         state: WorkspaceGraphState,
         decision_result: dict[str, Any],
     ) -> dict[str, Any] | None:
+        draft_id = approval_resume_draft_id(decision_result)
+        draft = self.db.get(AITaskDraft, draft_id) if draft_id else None
+        metadata = draft.ai_metadata if draft is not None and isinstance(draft.ai_metadata, dict) else {}
+        continuation = continuation_from_metadata(metadata)
+        approval = decision_result.get("approval") if isinstance(decision_result.get("approval"), dict) else {}
+        if continuation is not None:
+            operation = decision_result.get("operation") if isinstance(decision_result.get("operation"), dict) else {}
+            entity_ids = operation.get("business_entity_ids")
+            return continuation_artifact(
+                run_id=state["run_id"],
+                approval_id=str(approval.get("id") or ""),
+                continuation=continuation,
+                decision_status=str(approval.get("decision") or approval.get("status") or ""),
+                business_entity_ids=(
+                    [str(item) for item in entity_ids if str(item).strip()]
+                    if isinstance(entity_ids, list)
+                    else []
+                ),
+            )
         resume_payload = self._approval_resume_payload_from_decision(decision_result)
         if resume_payload is None:
             return None
-        approval = decision_result.get("approval") if isinstance(decision_result.get("approval"), dict) else {}
         return approval_resume_artifact(
             run_id=state["run_id"],
             approval_id=str(approval.get("id") or ""),

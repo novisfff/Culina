@@ -1,4 +1,4 @@
-version: 2
+version: 3
 key: food_profile
 display_name: 食物资料整理
 intent: food_profile
@@ -42,3 +42,36 @@ examples:
 - 把盒装牛奶改成适合早餐并收藏。
 - 取消收藏这个食物。
 - 查询蓝莓酸奶的食物资料。
+routing:
+  modes: [query, create, update]
+  include_examples:
+  - 新增食物资料：盒装牛奶，类型成品，适合早餐。
+  - 整理蓝莓酸奶的食物资料。
+  - 把棒约翰意面安排为今天晚餐
+  - 把这个外卖安排为今天晚餐并记录已吃
+  - 把盒装牛奶改成适合早餐并收藏。
+  - 取消收藏这个食物。
+  - 查询蓝莓酸奶的食物资料。
+  exclude_examples:
+  - 新增鸡胸肉食材档案，默认单位克。
+  - 安排三天晚餐。
+  - 记录昨晚吃了番茄炒蛋。
+  conflict_rules:
+  - with: ingredient_profile
+    when: 用户管理的是可计量原料、调料或食材单位
+    route_to: ingredient_profile
+  - with: meal_plan
+    when: 目标 Food 已存在且用户只要求安排餐食
+    route_to: meal_plan
+handoffs:
+  plan_after_create:
+    target_skill: meal_plan
+    required_draft_type: meal_plan
+    resume_skill: meal_plan
+    state_schema: food_to_meal_plan.v1
+attachment_policy:
+  accepted_kinds: [image]
+  usages: [draft_media_binding, image_generation_reference]
+  bindable_fields: [media_ids]
+  current_message_only: true
+  explicit_user_intent_required: true

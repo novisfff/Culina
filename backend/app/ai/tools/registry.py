@@ -65,6 +65,7 @@ def build_workspace_tool_registry() -> ToolRegistry:
         register_meal_log_tools,
         register_meal_plan_tools,
         register_recipe_tools,
+        register_resolution_tools,
         register_shopping_tools,
         register_ui_tools,
         register_workspace_tools,
@@ -79,6 +80,7 @@ def build_workspace_tool_registry() -> ToolRegistry:
     register_meal_log_tools(registry)
     register_food_tools(registry)
     register_recipe_tools(registry)
+    register_resolution_tools(registry)
     register_shopping_tools(registry)
     register_meal_plan_tools(registry)
     return registry

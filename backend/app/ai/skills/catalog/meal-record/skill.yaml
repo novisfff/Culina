@@ -1,4 +1,4 @@
-version: 2
+version: 3
 key: meal_log
 display_name: 用餐记录
 intent: meal_log
@@ -42,3 +42,35 @@ examples:
 - 把那顿番茄小炒打 4 分。
 - 昨天早餐吃了盒装牛奶和面包。
 - 刚才加餐吃了蓝莓酸奶。
+routing:
+  modes: [query, create, update]
+  include_examples:
+  - 今晚吃了番茄小炒。
+  - 记录一餐。
+  - 给昨天的晚餐补充一下心情和照片。
+  - 把那顿番茄小炒打 4 分。
+  - 昨天早餐吃了盒装牛奶和面包。
+  - 刚才加餐吃了蓝莓酸奶。
+  exclude_examples:
+  - 安排明天晚餐吃番茄炒蛋。
+  - 新增蓝莓酸奶食物资料。
+  - 按菜谱做番茄炒蛋并扣库存。
+  conflict_rules:
+  - with: meal_plan
+    when: 用户说的是未来安排而不是已经发生的用餐
+    route_to: meal_plan
+  - with: food_profile
+    when: 用户要维护 Food 资料而不是记录一次用餐事件
+    route_to: food_profile
+handoffs:
+  missing_food:
+    target_skill: food_profile
+    required_draft_type: food_profile
+    resume_skill: meal_log
+    state_schema: meal_missing_food.v1
+attachment_policy:
+  accepted_kinds: [image]
+  usages: [draft_media_binding]
+  bindable_fields: [mediaIds]
+  current_message_only: true
+  explicit_user_intent_required: true

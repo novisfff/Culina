@@ -1,6 +1,6 @@
 # AI 助手规范
 
-更新时间：2026-06-18
+更新时间：2026-07-10
 
 本文档定义 Culina AI 助手、Skill 机制、Tool 权限、草稿审批和前后端稳定协议。AI 助手是家庭饮食管理的受控辅助能力，不是拥有直接写权限的自由代理。
 
@@ -79,7 +79,7 @@ backend/app/ai/skills/catalog/
 
 ## 4. Skill 包格式
 
-每个 Skill 目录使用 v2 包格式：
+每个 catalog Skill 目录使用 v3 包格式；Loader 仍可读取 v2 包，用于分阶段升级和存量测试，但当前九个正式 Skill 都必须声明 `version: 3`：
 
 ```text
 <skill-slug>/
@@ -101,7 +101,7 @@ description: 处理即时餐食推荐以及餐食计划的创建和修改。
 `skill.yaml` 承载 Culina 运行时字段：
 
 ```yaml
-version: 2
+version: 3
 key: meal_plan
 display_name: 餐食安排
 allowed_tools:
@@ -122,13 +122,38 @@ agent_key: meal_plan_agent
 examples:
   - 今晚吃什么？
   - 安排三天晚餐。
+routing:
+  modes: [query, create, update]
+  include_examples:
+    - 今晚吃什么？
+    - 安排三天晚餐。
+  exclude_examples:
+    - 记录昨晚吃了番茄炒蛋。
+    - 按菜谱做菜并扣库存。
+    - 新增盒装牛奶食物资料。
+  conflict_rules:
+    - with: meal_log
+      when: 用户描述已经发生的用餐
+      route_to: meal_log
+handoffs:
+  missing_food:
+    target_skill: food_profile
+    required_draft_type: food_profile
+    resume_skill: meal_plan
+    state_schema: meal_missing_food.v1
+attachment_policy:
+  accepted_kinds: []
+  usages: []
+  bindable_fields: []
+  current_message_only: true
+  explicit_user_intent_required: true
 ```
 
 字段要求：
 
 - `SKILL.md:name`：目录 slug，必须与目录名一致。
 - `SKILL.md:description`：Orchestrator catalog 使用的路由摘要，必须明确适用和不适用范围。
-- `skill.yaml:version`：当前为 `2`。
+- `skill.yaml:version`：正式 catalog 当前为 `3`；Loader 兼容 `2` 和 `3`，v2 只使用默认 routing 且不声明 handoff。
 - `skill.yaml:key`：Orchestrator 和 Runtime 使用的稳定 Skill key。
 - `skill.yaml:display_name`：进度事件中的用户可见名称。
 - `skill.yaml:allowed_tools`：模型可以调用的工具白名单。
@@ -138,11 +163,23 @@ examples:
 - `skill.yaml:draft_types`：允许返回的草稿类型。
 - `skill.yaml:approval_policy`：`none` 或 `draft_then_confirm`。
 - `skill.yaml:intent`、`skill.yaml:agent_key`：兼容诊断标识；默认 run 的 `agent_key` 为 `workspace_orchestrator`，`intent` 由注入 Skill 推导。
-- `skill.yaml:examples`：Orchestrator catalog 路由示例。
+- `skill.yaml:examples`：保留的用户示例；v3 的机器路由边界以 `routing` 为准。
+- `skill.yaml:routing`：必须提供非空 `modes`、`include_examples`、至少三个 `exclude_examples` 和 `conflict_rules`；include/exclude 不得重叠。
+- `skill.yaml:handoffs`：按 reason code 声明 `target_skill`、`required_draft_type`、`resume_skill` 和 `state_schema`。Registry 构建时校验目标/恢复 Skill、目标草稿类型和 continuation state schema，任一引用无效都启动失败。
+- `skill.yaml:attachment_policy`：声明可接受附件类型、用途和可绑定字段。只有 `food_profile`、`ingredient_profile`、`recipe_draft`、`meal_log` 可以绑定图片；绑定必须限定当前消息并要求用户有明确意图。
 
 `SKILL.md` frontmatter 不放 Culina runtime 字段，例如 `allowed_tools`、`script_files`、`output_types`、`draft_types`、`approval_policy`、`intent`、`agent_key`。这些字段必须进入 `skill.yaml`。
 
 Runner 固定为 `toolcall`。确认要求由 `approval_policy`、`draft_types` 和 draft tool 的 `requires_confirmation` 联合确定。
+
+### Routing Record 与 Execution Record
+
+Skill manifest 对模型提供两种记录，不能混用：
+
+- Routing Record 只用于初始 catalog，包含 Skill key、展示名、description、routing modes/examples/conflicts、输出/草稿类型、route hints 和是否需要审批；不得包含工具白名单、预算、draft contract 或 handoff 执行细节。
+- Execution Record 只在 Skill 注入后提供，在 Routing Record 基础上增加 `contractVersion`、`allowedTools`、`scriptFiles`、`toolBudget`、`completionPolicy`、`draftContract`、`approvalPolicy`、`handoffs` 和 `attachmentPolicy`。
+
+初始 prompt 使用 Routing Record 控制体积和路由泄漏；注入后的同一 Orchestrator tool loop 使用完整 Execution Record 执行。`to_catalog_record()` 只保留为兼容 alias，新代码应显式选择 record 类型。
 
 ## 5. Skill 职责矩阵
 
@@ -170,12 +207,12 @@ Runner 固定为 `toolcall`。确认要求由 `approval_policy`、`draft_types` 
 
 默认主路径位于 `backend/app/ai/workflows/orchestrator/` 包入口，`WorkspaceOrchestratorAgent` 的当前实现位于 `backend/app/ai/workflows/orchestrator/agent.py`，并由 `WorkspaceGraphRunner` 调用。
 
-Orchestrator 输入完整对话、catalog records、已注入 Skill 和当前 run artifacts。它可以直接输出普通 assistant 文本，也可以调用工具。需要新能力时，主 agent 调用 `skill.inject` control tool 注入一个或多个 Skill；注入后，同一个 provider tool loop 的下一轮获得该 Skill 的 `SKILL.md` instructions、`allowed_tools`、`script_files`、`output_types`、`draft_types` 和 `approval_policy`，并继续由同一个主 agent 调用工具。
+Orchestrator 输入完整对话、Routing Records、已注入 Skill 的 Execution Records 和当前 run artifacts。它可以直接输出普通 assistant 文本，也可以调用工具。需要新能力时，主 agent 调用 `skill.inject` control tool 注入一个或多个 Skill；注入后，同一个 provider tool loop 的下一轮获得该 Skill 的 `SKILL.md` instructions 和完整执行契约，并继续由同一个主 agent 调用工具。
 
 Runtime 加载流程：
 
 1. `SkillDirectoryLoader` 扫描 `catalog/*/SKILL.md`。
-2. 同目录必须存在 `skill.yaml`，并按 v2 runtime contract 解析；缺失时启动失败。
+2. 同目录必须存在 `skill.yaml`，并按 v2/v3 runtime contract 解析；正式 v3 catalog 的 routing、handoff 和 attachment 引用在 registry 构建完成后统一校验，缺失或无效时启动失败。
 3. 加载 `SKILL.md` 正文。
 4. 如果同目录存在 `references/workflows.md`，按约定自动追加；根目录 `workflows.md` 不再读取。
 5. 校验 `script_files`，从公开函数签名生成模型 Tool Schema。
@@ -258,6 +295,26 @@ Script 约束：
 用户确认后由 Service 执行正式写入，模型不参与 commit 决策。HITL 规则由 `SKILL.md`、`skill.yaml`、draft tool、Orchestrator scoped runtime 和 LangGraph 共同约束：`SKILL.md` 描述何时生成草稿，draft tool 负责校验草稿，Orchestrator 和 LangGraph 负责审批中断与恢复。
 
 审批失败或 stale `baseUpdatedAt` 冲突时，应返回结构化 `currentValue` 和 `recoveryHint` 供前端恢复。不要在审批链路末端静默重建草稿或自动改写用户提交值；需要恢复时必须保留原始失败原因，并让用户重新确认。
+
+### Typed continuation 与审批恢复
+
+新 draft tool 的模型 schema 只暴露 `continuation`，字段固定为：
+
+- `workflowId`、`stepKey`：工作流和当前步骤的稳定幂等标识。
+- `reasonCode`：必须匹配某个已注入来源 Skill 的 handoff。
+- `nextSkillKey`、`resumeSkillKey`、`requiredDraftType`、`stateSchema`：必须与 handoff 声明完全一致。
+- `state`：由 `backend/app/ai/skills/state_schemas.py` 中注册的严格 Pydantic model 校验，只保存恢复所需的紧凑编排状态，不复制完整菜谱、计划或购物 payload。
+
+Runtime 在 draft capture 时确定唯一来源 Skill，校验 Profile 允许的目标/恢复 Skill，并归一化 state。合法 continuation 存入 `AITaskDraft.ai_metadata["continuation"]`。审批结果生成稳定的 `workflow.continuation` artifact：
+
+- 审批成功且业务 commit 成功后为 `status=ready`，携带去重后的 `businessEntityIds`，再按 Profile 和 Skill budget 恢复 `resumeSkillKey`。
+- 拒绝为 `status=rejected`，不注入恢复 Skill，也不推进下一草稿。
+- commit 冲突不产生 ready continuation；恢复权限或预算失败时保留已经成功的业务 commit，把 artifact 标为 failed 并停止新的模型 round。
+- 同一 approval 重放时 artifact、注入 key 和注入历史都必须去重，保证 exactly-once resume。
+
+continuation 只恢复能力和上下文，Runtime 不得自动生成或提交下一个草稿。旧数据库中已经持久化的 `afterApproval` metadata 仍由 approval resume 兼容读取，以便部署前创建的待审批草稿完成；新的模型 tool schema、Skill 文档、provider payload 和草稿持久化路径不得再写入该字段。
+
+字段合法性的最终真相源是 draft tool JSON Schema 和 continuation state Pydantic model。Skill Markdown 负责流程、候选和审批语义，不得自行扩展或覆盖字段约束。
 
 ## 9. 稳定接口
 

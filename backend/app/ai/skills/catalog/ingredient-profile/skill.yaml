@@ -1,4 +1,4 @@
-version: 2
+version: 3
 key: ingredient_profile
 display_name: 食材档案整理
 intent: ingredient_profile
@@ -38,3 +38,29 @@ examples:
 - 查询鸡蛋支持哪些单位。
 - 把刚才鸡胸肉 1 袋等于 500 克保存成副单位。
 - 设置牛奶低库存提醒为 2 盒。
+routing:
+  modes: [query, create, update]
+  include_examples:
+  - 新增鸡胸肉食材，默认单位克，冷冻保存。
+  - 把番茄默认保质期改成 7 天。
+  - 查询鸡蛋支持哪些单位。
+  - 把刚才鸡胸肉 1 袋等于 500 克保存成副单位。
+  - 设置牛奶低库存提醒为 2 盒。
+  exclude_examples:
+  - 鸡蛋入库 12 个，冷藏。
+  - 新增盒装牛奶食物资料。
+  - 把牛奶加入购物清单。
+  conflict_rules:
+  - with: inventory_analysis
+    when: 用户操作的是已有食材的库存批次数量
+    route_to: inventory_analysis
+  - with: food_profile
+    when: 用户管理的是成品、速食、包装食品或外卖资料
+    route_to: food_profile
+handoffs: {}
+attachment_policy:
+  accepted_kinds: [image]
+  usages: [draft_media_binding, image_generation_reference]
+  bindable_fields: [media_ids]
+  current_message_only: true
+  explicit_user_intent_required: true

@@ -14,8 +14,8 @@
 2. 确认天数、日期、餐别和约束；关键范围缺失时追问。
 3. 把餐别映射为 `breakfast`、`lunch`、`dinner` 或 `snack`；不要使用自由餐别值。
 4. “安排/作为今天晚餐/放到今晚菜单”创建的是 `FoodPlanItem` 餐食计划，不是用餐记录；只有用户明确说“吃了/已吃/记录”才把 `meal_log` 作为计划确认后的后续步骤。
-5. 使用真实 `foodId` 和匹配的 `recipeId` 生成完整计划；如果食物不在食物库中，停止当前计划草稿并提示先进入食物资料流程。
-6. 如果用户同时要求“安排并记录/已吃”，创建计划草稿时带 `afterApproval.nextDraftType=meal_log`，计划确认后再生成用餐记录并尽量关联真实 `planItemId`。
+5. 使用真实 `foodId` 和匹配的 `recipeId` 生成完整计划；如果食物不在食物库中，停止当前计划草稿，并按 `missing_food` handoff 创建指向 `food_profile` 的 typed `continuation`。Food 审批成功后只恢复 `meal_plan`，再基于真实 Food 生成计划草稿。
+6. 如果用户同时要求“安排并记录/已吃”，保留原始完整目标；计划确认后由 Orchestrator 根据审批 artifact 再注入 `meal_log`，用餐记录尽量关联真实 `planItemId`。不要在计划草稿里携带自由格式后续指令，也不要自动生成下一草稿。
 7. 缺失食材提醒中有真实食材匹配时绑定 `ingredientId`；没有匹配时只保留名称和数量，不假装已创建食材档案。
 8. 调用 `meal_plan.create_draft`。
 9. 返回待确认草稿。

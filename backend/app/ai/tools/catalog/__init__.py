@@ -5,6 +5,7 @@ from app.ai.tools.catalog.inventory import register_inventory_tools
 from app.ai.tools.catalog.meal_log import register_meal_log_tools
 from app.ai.tools.catalog.meal_plan import register_meal_plan_tools
 from app.ai.tools.catalog.recipe import register_recipe_tools
+from app.ai.tools.catalog.resolution import register_resolution_tools
 from app.ai.tools.catalog.shopping import register_shopping_tools
 from app.ai.tools.catalog.ui import register_ui_tools
 from app.ai.tools.catalog.workspace import register_workspace_tools
@@ -17,6 +18,7 @@ __all__ = [
     "register_meal_log_tools",
     "register_meal_plan_tools",
     "register_recipe_tools",
+    "register_resolution_tools",
     "register_shopping_tools",
     "register_ui_tools",
     "register_workspace_tools",

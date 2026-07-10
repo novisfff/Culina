@@ -1,7 +1,448 @@
 from ._support import *
 
 
+class SourceOwnedFoodPlanContinuationProvider(BaseChatProvider):
+    model_name = "source-owned-food-plan-continuation"
+
+    def __init__(
+        self,
+        *,
+        initial_skills: list[str] | None = None,
+        food_draft: dict | None = None,
+    ) -> None:
+        self.active_calls = 0
+        self.continuation_artifacts: list[dict] = []
+        self.resume_skill_available = False
+        self.observed_resume_skill_availability: list[bool] = []
+        self.initial_skills = initial_skills or ["food_profile"]
+        self.food_draft = food_draft or {
+            "draftType": "food_profile",
+            "schemaVersion": "food_profile.v1",
+            "name": "盒装牛奶",
+            "type": "readyMade",
+            "category": "饮品",
+            "suitable_meal_types": ["dinner"],
+        }
+
+    def generate(self, *, system: str, user: str) -> ChatProviderResult:
+        raise AssertionError("workspace orchestrator should use generate_with_tools")
+
+    def generate_with_tools(
+        self,
+        *,
+        system: str,
+        user: str,
+        tools,
+        tool_handler,
+        message_handler=None,
+        max_rounds: int = 8,
+    ) -> ChatProviderResult:
+        del system, max_rounds
+        payload = json.loads(user)
+        self.active_calls += 1
+        if self.active_calls == 1:
+            tool_handler(
+                "skill.inject",
+                {"skills": self.initial_skills, "reason": "先创建 Food，再安排晚餐"},
+            )
+            tool_definitions = tools() if callable(tools) else tools
+            assert "food_profile.create_draft" in {tool.name for tool in tool_definitions}
+            text = "我先创建食物资料草稿，确认后继续安排晚餐。"
+            if message_handler is not None:
+                message_handler(text)
+            draft_output = tool_handler(
+                "food_profile.create_draft",
+                {
+                    "draft": self.food_draft,
+                    "continuation": {
+                        "workflowId": "food-plan-after-create",
+                        "stepKey": "create-food",
+                        "reasonCode": "plan_after_create",
+                        "nextSkillKey": "meal_plan",
+                        "resumeSkillKey": "meal_plan",
+                        "requiredDraftType": "meal_plan",
+                        "stateSchema": "food_to_meal_plan.v1",
+                        "state": {
+                            "targetDate": date.today().isoformat(),
+                            "mealType": "dinner",
+                            "instruction": "用刚确认的盒装牛奶创建今天晚餐计划。",
+                        },
+                    },
+                },
+            )
+            assert "draft" in draft_output, draft_output
+            return ChatProviderResult(
+                text=text,
+                status="waiting_approval",
+                model=self.model_name,
+            )
+
+        current_artifacts = payload.get("currentRunArtifacts") or []
+        continuation_artifacts = [
+            artifact
+            for artifact in current_artifacts
+            if isinstance(artifact, dict) and artifact.get("type") == "workflow.continuation"
+        ]
+        self.continuation_artifacts.extend(continuation_artifacts)
+        tool_definitions = tools() if callable(tools) else tools
+        self.resume_skill_available = "meal_plan.create_draft" in {
+            tool.name for tool in tool_definitions
+        }
+        self.observed_resume_skill_availability.append(self.resume_skill_available)
+        latest_decision = next(
+            (
+                artifact
+                for artifact in reversed(current_artifacts)
+                if isinstance(artifact, dict) and artifact.get("type") == "approval_decision"
+            ),
+            {},
+        )
+        if latest_decision.get("status") == "rejected":
+            return ChatProviderResult(
+                text="已取消创建，不继续安排晚餐。",
+                status="completed",
+                model=self.model_name,
+            )
+
+        continuation = next(
+            artifact for artifact in reversed(continuation_artifacts) if artifact.get("status") == "ready"
+        )
+        food_id = continuation["payload"]["businessEntityIds"][0]
+        assert self.resume_skill_available
+        text = "食物资料已确认，接下来创建晚餐计划草稿。"
+        if message_handler is not None:
+            message_handler(text)
+        tool_handler(
+            "meal_plan.create_draft",
+            {
+                "draft": {
+                    "draftType": "meal_plan",
+                    "schemaVersion": "meal_plan.v1",
+                    "items": [
+                        {
+                            "date": date.today().isoformat(),
+                            "mealType": "dinner",
+                            "title": "盒装牛奶",
+                            "foodId": food_id,
+                            "recipeId": None,
+                            "reason": "按已确认的 Food 安排",
+                            "usedInventory": [],
+                            "missingIngredients": [],
+                        }
+                    ],
+                    "source": {"days": 1, "mealTypes": ["dinner"]},
+                }
+            },
+        )
+        return ChatProviderResult(
+            text=text,
+            status="waiting_approval",
+            model=self.model_name,
+        )
+
+
 class AIWorkspacePhaseFlowsTestCase(AIAgentInfraTestCase):
+        def _latest_checkpoint_state(self, conversation_id: str) -> dict:
+            with self.SessionLocal() as db:
+                checkpoint = SQLAlchemyCheckpointSaver(db).get_tuple(
+                    {"configurable": {"thread_id": conversation_id}}
+                )
+            self.assertIsNotNone(checkpoint)
+            assert checkpoint is not None
+            return checkpoint.checkpoint["channel_values"]
+
+        def test_food_profile_source_owned_handoff_resumes_meal_plan(self) -> None:
+            provider = SourceOwnedFoodPlanContinuationProvider()
+            with patch("app.ai.workspace_service.get_chat_provider", return_value=provider):
+                response = self.client.post(
+                    "/api/ai/chat",
+                    json={"message": "新增盒装牛奶并安排为今天晚餐"},
+                )
+                self.assertEqual(response.status_code, 200, response.text)
+                data = response.json()
+                self.assertEqual(data["run"]["status"], "waiting_approval")
+                self.assertEqual(
+                    [approval["approval_type"] for approval in data["included"]["approvals"]],
+                    ["food_profile.create"],
+                )
+                approval = data["included"]["approvals"][0]
+
+                with self.SessionLocal() as db:
+                    draft = db.get(AITaskDraft, data["included"]["drafts"][0]["id"])
+                    assert draft is not None
+                    self.assertEqual(
+                        draft.ai_metadata["continuation"]["reasonCode"],
+                        "plan_after_create",
+                    )
+
+                with self.client.stream(
+                    "POST",
+                    f"/api/ai/conversations/{data['conversation_id']}/approvals/{approval['id']}/decision/stream",
+                    json={
+                        "decision": "approved",
+                        "draft_version": approval["draft_version"],
+                        "values": approval["initial_values"],
+                    },
+                ) as stream_response:
+                    self.assertEqual(stream_response.status_code, 200)
+                    body = "".join(stream_response.iter_text())
+
+            self.assertEqual(provider.active_calls, 2)
+            self.assertIn("meal_plan.create", body)
+            self.assertTrue(provider.resume_skill_available)
+            self.assertEqual(len(provider.continuation_artifacts), 1)
+            continuation = provider.continuation_artifacts[0]
+            self.assertEqual(continuation["status"], "ready")
+            self.assertEqual(continuation["payload"]["resumeSkillKey"], "meal_plan")
+
+            with self.SessionLocal() as db:
+                food_id = continuation["payload"]["businessEntityIds"][0]
+                food = db.get(Food, food_id)
+                self.assertIsNotNone(food)
+                assert food is not None
+                self.assertEqual(food.family_id, self.family.id)
+                meal_plan_draft = db.scalar(
+                    select(AITaskDraft).where(
+                        AITaskDraft.source_run_id == data["run"]["id"],
+                        AITaskDraft.draft_type == "meal_plan",
+                    )
+                )
+                self.assertIsNotNone(meal_plan_draft)
+                assert meal_plan_draft is not None
+                self.assertEqual(meal_plan_draft.payload["items"][0]["foodId"], food.id)
+
+        def test_food_profile_continuation_rejection_never_advances(self) -> None:
+            provider = SourceOwnedFoodPlanContinuationProvider()
+            with patch("app.ai.workspace_service.get_chat_provider", return_value=provider):
+                response = self.client.post(
+                    "/api/ai/chat",
+                    json={"message": "新增盒装牛奶并安排为今天晚餐"},
+                )
+                self.assertEqual(response.status_code, 200, response.text)
+                data = response.json()
+                approval = data["included"]["approvals"][0]
+                with self.client.stream(
+                    "POST",
+                    f"/api/ai/conversations/{data['conversation_id']}/approvals/{approval['id']}/decision/stream",
+                    json={
+                        "decision": "rejected",
+                        "draft_version": approval["draft_version"],
+                        "values": {},
+                    },
+                ) as stream_response:
+                    self.assertEqual(stream_response.status_code, 200)
+                    "".join(stream_response.iter_text())
+
+            self.assertEqual(provider.active_calls, 2)
+            self.assertEqual([item["status"] for item in provider.continuation_artifacts], ["rejected"])
+            self.assertEqual(provider.observed_resume_skill_availability, [False])
+            self.assertFalse(provider.resume_skill_available)
+            with self.SessionLocal() as db:
+                self.assertIsNone(db.scalar(select(Food).where(Food.name == "盒装牛奶")))
+                self.assertEqual(
+                    len(list(db.scalars(
+                        select(AITaskDraft).where(
+                            AITaskDraft.source_run_id == data["run"]["id"],
+                            AITaskDraft.draft_type == "meal_plan",
+                        )
+                    ))),
+                    0,
+                )
+
+        def test_food_profile_continuation_budget_failure_keeps_business_commit(self) -> None:
+            provider = SourceOwnedFoodPlanContinuationProvider(
+                initial_skills=[
+                    "food_profile",
+                    "ingredient_profile",
+                    "inventory_analysis",
+                    "shopping_list",
+                ]
+            )
+            with patch("app.ai.workspace_service.get_chat_provider", return_value=provider):
+                response = self.client.post(
+                    "/api/ai/chat",
+                    json={"message": "新增盒装牛奶并安排为今天晚餐"},
+                )
+                self.assertEqual(response.status_code, 200, response.text)
+                data = response.json()
+                approval = data["included"]["approvals"][0]
+                with self.client.stream(
+                    "POST",
+                    f"/api/ai/conversations/{data['conversation_id']}/approvals/{approval['id']}/decision/stream",
+                    json={
+                        "decision": "approved",
+                        "draft_version": approval["draft_version"],
+                        "values": approval["initial_values"],
+                    },
+                ) as stream_response:
+                    self.assertEqual(stream_response.status_code, 200)
+                    "".join(stream_response.iter_text())
+
+            self.assertEqual(provider.active_calls, 1)
+            checkpoint_state = self._latest_checkpoint_state(data["conversation_id"])
+            continuation = next(
+                artifact
+                for artifact in checkpoint_state["run_artifacts"]
+                if artifact.get("type") == "workflow.continuation"
+            )
+            self.assertEqual(continuation["status"], "failed")
+            self.assertEqual(
+                continuation["payload"]["errorCode"],
+                "continuation_skill_budget_exhausted",
+            )
+            with self.SessionLocal() as db:
+                food = db.scalar(select(Food).where(Food.name == "盒装牛奶"))
+                self.assertIsNotNone(food)
+                assert food is not None
+                self.assertEqual(food.family_id, self.family.id)
+                self.assertEqual(
+                    len(list(db.scalars(
+                        select(AITaskDraft).where(
+                            AITaskDraft.source_run_id == data["run"]["id"],
+                            AITaskDraft.draft_type == "meal_plan",
+                        )
+                    ))),
+                    0,
+                )
+
+        def test_food_profile_continuation_replay_is_exactly_once(self) -> None:
+            provider = SourceOwnedFoodPlanContinuationProvider()
+            with patch("app.ai.workspace_service.get_chat_provider", return_value=provider):
+                response = self.client.post(
+                    "/api/ai/chat",
+                    json={"message": "新增盒装牛奶并安排为今天晚餐"},
+                )
+                self.assertEqual(response.status_code, 200, response.text)
+                data = response.json()
+                approval = data["included"]["approvals"][0]
+                decision_payload = {
+                    "decision": "approved",
+                    "draft_version": approval["draft_version"],
+                    "values": approval["initial_values"],
+                }
+                for _ in range(2):
+                    with self.client.stream(
+                        "POST",
+                        f"/api/ai/conversations/{data['conversation_id']}/approvals/{approval['id']}/decision/stream",
+                        json=decision_payload,
+                    ) as stream_response:
+                        self.assertEqual(stream_response.status_code, 200)
+                        "".join(stream_response.iter_text())
+
+            self.assertEqual(provider.active_calls, 2)
+            self.assertEqual(len(provider.continuation_artifacts), 1)
+            checkpoint_state = self._latest_checkpoint_state(data["conversation_id"])
+            continuation_ids = [
+                artifact["id"]
+                for artifact in checkpoint_state["run_artifacts"]
+                if artifact.get("type") == "workflow.continuation"
+            ]
+            self.assertEqual(len(continuation_ids), 1)
+            with self.SessionLocal() as db:
+                self.assertEqual(
+                    len(list(db.scalars(select(Food).where(Food.name == "盒装牛奶")))),
+                    1,
+                )
+                self.assertEqual(
+                    len(list(db.scalars(select(AIOperation).where(
+                        AIOperation.approval_request_id == approval["id"]
+                    )))),
+                    1,
+                )
+                self.assertEqual(
+                    len(list(db.scalars(select(AITaskDraft).where(
+                        AITaskDraft.source_run_id == data["run"]["id"],
+                        AITaskDraft.draft_type == "meal_plan",
+                    )))),
+                    1,
+                )
+
+        def test_food_profile_continuation_commit_conflict_never_advances(self) -> None:
+            with self.SessionLocal() as db:
+                existing_food = db.get(Food, "food-tomato")
+                self.assertIsNotNone(existing_food)
+                assert existing_food is not None
+                original_name = existing_food.name
+
+            provider = SourceOwnedFoodPlanContinuationProvider(
+                food_draft={
+                    "draftType": "food_profile",
+                    "schemaVersion": "food_profile_operation.v1",
+                    "action": "update",
+                    "targetId": "food-tomato",
+                    "baseUpdatedAt": "2026-01-01T00:00:00Z",
+                    "payload": {
+                        "name": "冲突后的番茄",
+                        "type": "selfMade",
+                        "category": "家常菜",
+                        "flavor_tags": [],
+                        "scene_tags": [],
+                        "suitable_meal_types": ["dinner"],
+                        "source_name": "",
+                        "purchase_source": "",
+                        "scene": "",
+                        "notes": "冲突测试",
+                        "routine_note": "",
+                        "price": None,
+                        "rating": None,
+                        "repurchase": None,
+                        "expiry_date": None,
+                        "stock_quantity": None,
+                        "stock_unit": "",
+                        "storage_location": "",
+                        "favorite": False,
+                        "recipe_id": None,
+                        "media_ids": [],
+                    },
+                }
+            )
+            with patch("app.ai.workspace_service.get_chat_provider", return_value=provider):
+                response = self.client.post(
+                    "/api/ai/chat",
+                    json={"message": "更新番茄资料后安排为今天晚餐"},
+                )
+                self.assertEqual(response.status_code, 200, response.text)
+                data = response.json()
+                approval = data["included"]["approvals"][0]
+                with self.client.stream(
+                    "POST",
+                    f"/api/ai/conversations/{data['conversation_id']}/approvals/{approval['id']}/decision/stream",
+                    json={
+                        "decision": "approved",
+                        "draft_version": approval["draft_version"],
+                        "values": approval["initial_values"],
+                    },
+                ) as stream_response:
+                    self.assertEqual(stream_response.status_code, 200)
+                    "".join(stream_response.iter_text())
+
+            self.assertEqual(provider.active_calls, 1)
+            checkpoint_state = self._latest_checkpoint_state(data["conversation_id"])
+            self.assertFalse(
+                any(
+                    artifact.get("type") == "workflow.continuation"
+                    and artifact.get("status") == "ready"
+                    for artifact in checkpoint_state["run_artifacts"]
+                )
+            )
+            with self.SessionLocal() as db:
+                food = db.get(Food, "food-tomato")
+                self.assertIsNotNone(food)
+                assert food is not None
+                self.assertEqual(food.name, original_name)
+                operation = db.scalar(
+                    select(AIOperation).where(AIOperation.approval_request_id == approval["id"])
+                )
+                self.assertIsNotNone(operation)
+                assert operation is not None
+                self.assertEqual(operation.status, "failed")
+                pending_approvals = list(db.scalars(select(AIApprovalRequest).where(
+                    AIApprovalRequest.conversation_id == data["conversation_id"],
+                    AIApprovalRequest.status == "pending",
+                )))
+                self.assertEqual(len(pending_approvals), 1)
+                self.assertTrue(pending_approvals[0].approval_type.endswith(".retry"))
+
         def test_ai_workspace_phase2_routes_meal_plan_without_mode_and_records_tools(self) -> None:
             response = self.client.post("/api/ai/chat", json={"message": "用快过期食材安排三天晚餐"})
             self.assertEqual(response.status_code, 200, response.text)
@@ -42,9 +483,13 @@ class AIWorkspacePhaseFlowsTestCase(AIAgentInfraTestCase):
                 self.assertIsNotNone(run)
                 self.assertIsNotNone(draft)
                 assert run is not None and draft is not None
-                self.assertEqual(run.context_summary["routing"]["skills"], ["food_profile"])
-                self.assertEqual(draft.ai_metadata["afterApproval"]["nextDraftType"], "meal_plan")
-                self.assertIn("餐食计划", draft.ai_metadata["afterApproval"]["instruction"])
+                self.assertEqual(run.context_summary["routing"]["skills"], ["meal_plan", "food_profile"])
+                continuation = draft.ai_metadata["continuation"]
+                self.assertEqual(continuation["reasonCode"], "missing_food")
+                self.assertEqual(continuation["nextSkillKey"], "food_profile")
+                self.assertEqual(continuation["resumeSkillKey"], "meal_plan")
+                self.assertEqual(continuation["stateSchema"], "meal_missing_food.v1")
+                self.assertIn("餐食计划", continuation["state"]["instruction"])
 
             food_approval = data["included"]["approvals"][0]
             with self.client.stream(
@@ -82,11 +527,11 @@ class AIWorkspacePhaseFlowsTestCase(AIAgentInfraTestCase):
                 draft = db.get(AITaskDraft, data["included"]["drafts"][0]["id"])
                 self.assertIsNotNone(draft)
                 assert draft is not None
-                after_approval = draft.ai_metadata["afterApproval"]
-                self.assertEqual(after_approval["nextDraftType"], "meal_plan")
-                self.assertIn("餐食计划", after_approval["instruction"])
-                self.assertIn("用餐记录", after_approval["instruction"])
-                self.assertEqual(after_approval["taskState"]["finalDraftType"], "meal_log")
+                continuation = draft.ai_metadata["continuation"]
+                self.assertEqual(continuation["nextSkillKey"], "food_profile")
+                self.assertEqual(continuation["resumeSkillKey"], "meal_plan")
+                self.assertIn("餐食计划", continuation["state"]["instruction"])
+                self.assertIn("用餐记录", continuation["state"]["instruction"])
 
             food_approval = data["included"]["approvals"][0]
             with self.client.stream(

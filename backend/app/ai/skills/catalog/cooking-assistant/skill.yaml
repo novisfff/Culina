@@ -1,4 +1,4 @@
-version: 2
+version: 3
 key: cooking_assistant
 display_name: 做菜助手
 intent: cooking_assistant
@@ -29,3 +29,29 @@ examples:
 - 这个计时器暂停一下。
 - 没有葱可以不放吗？
 - 焖煮帮我计时 3 分钟。
+routing:
+  modes: [answer, ui_action]
+  include_examples:
+  - 这一步做到什么程度？
+  - 帮我进入下一步。
+  - 这个计时器暂停一下。
+  - 没有葱可以不放吗？
+  - 焖煮帮我计时 3 分钟。
+  exclude_examples:
+  - 帮我创建一份番茄炒蛋菜谱。
+  - 把今晚这道菜正式扣减库存并记录用餐。
+  - 安排明天晚餐吃红烧牛肉。
+  conflict_rules:
+  - with: recipe_cook
+    when: 用户要预览或正式确认按菜谱做菜并扣库存
+    route_to: recipe_cook
+  - with: recipe_draft
+    when: 用户要创建或修改菜谱内容
+    route_to: recipe_draft
+handoffs: {}
+attachment_policy:
+  accepted_kinds: []
+  usages: []
+  bindable_fields: []
+  current_message_only: true
+  explicit_user_intent_required: true
