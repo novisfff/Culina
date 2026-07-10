@@ -4,6 +4,8 @@ import { api } from '../../api/client';
 import { cleanupTestDomAndMocks, flushAsync, renderWithQuery } from '../../test/renderWithQuery';
 import { useAiAttachmentState, type AiComposerAttachment } from './useAiAttachmentState';
 
+type AiAttachmentState = ReturnType<typeof useAiAttachmentState>;
+
 afterEach(() => {
   cleanupTestDomAndMocks();
 });
@@ -59,17 +61,17 @@ describe('useAiAttachmentState', () => {
   });
 
   it('keeps attachments isolated and remaps only the requested conversation', async () => {
-    let state: ReturnType<typeof useAiAttachmentState> | null = null;
+    const stateBox: { current: AiAttachmentState | null } = { current: null };
     let scopeKey = 'conversation-a';
 
     function Harness({ scope }: { scope: string }) {
-      state = useAiAttachmentState(scope);
+      stateBox.current = useAiAttachmentState(scope);
       return (
         <div>
-          <span data-testid="count">{state.attachments.length}</span>
-          <span data-testid="names">{state.attachments.map((item) => item.fileName).join(',')}</span>
-          <span data-testid="ready">{state.readyAttachments.map((item) => item.asset?.id).join(',')}</span>
-          <span data-testid="previews">{state.attachments.map((item) => item.previewUrl).join(',')}</span>
+          <span data-testid="count">{stateBox.current.attachments.length}</span>
+          <span data-testid="names">{stateBox.current.attachments.map((item) => item.fileName).join(',')}</span>
+          <span data-testid="ready">{stateBox.current.readyAttachments.map((item) => item.asset?.id).join(',')}</span>
+          <span data-testid="previews">{stateBox.current.attachments.map((item) => item.previewUrl).join(',')}</span>
         </div>
       );
     }
@@ -78,7 +80,7 @@ describe('useAiAttachmentState', () => {
     const imageFile = new File(['image'], 'fridge-a.png', { type: 'image/png' });
 
     await act(async () => {
-      state?.uploadFiles([imageFile]);
+      stateBox.current?.uploadFiles([imageFile]);
     });
     await flushAsync();
 
@@ -93,7 +95,7 @@ describe('useAiAttachmentState', () => {
     expect(rendered.container.querySelector('[data-testid="ready"]')?.textContent).toBe('');
 
     act(() => {
-      state?.moveScope('conversation-a', 'conversation-server-a');
+      stateBox.current?.moveScope('conversation-a', 'conversation-server-a');
     });
     scopeKey = 'conversation-server-a';
     await rendered.rerender(<Harness scope={scopeKey} />);
@@ -112,30 +114,30 @@ describe('useAiAttachmentState', () => {
   });
 
   it('revokes superseded blob URLs exactly once when moving onto an occupied scope', async () => {
-    let state: ReturnType<typeof useAiAttachmentState> | null = null;
+    const stateBox: { current: AiAttachmentState | null } = { current: null };
     let scopeKey = 'conversation-a';
 
     function Harness({ scope }: { scope: string }) {
-      state = useAiAttachmentState(scope);
-      return <span data-testid="previews">{state.attachments.map((item) => item.previewUrl).join(',')}</span>;
+      stateBox.current = useAiAttachmentState(scope);
+      return <span data-testid="previews">{stateBox.current.attachments.map((item) => item.previewUrl).join(',')}</span>;
     }
 
     const rendered = await renderWithQuery(<Harness scope={scopeKey} />);
 
     await act(async () => {
-      state?.uploadFiles([new File(['a'], 'a.png', { type: 'image/png' })]);
+      stateBox.current?.uploadFiles([new File(['a'], 'a.png', { type: 'image/png' })]);
     });
     await flushAsync();
 
     scopeKey = 'conversation-b';
     await rendered.rerender(<Harness scope={scopeKey} />);
     await act(async () => {
-      state?.uploadFiles([new File(['b'], 'b.png', { type: 'image/png' })]);
+      stateBox.current?.uploadFiles([new File(['b'], 'b.png', { type: 'image/png' })]);
     });
     await flushAsync();
 
     act(() => {
-      state?.moveScope('conversation-a', 'conversation-b');
+      stateBox.current?.moveScope('conversation-a', 'conversation-b');
     });
     await rendered.rerender(<Harness scope={scopeKey} />);
 
@@ -147,37 +149,37 @@ describe('useAiAttachmentState', () => {
   });
 
   it('hides restores and discards attachments only for the active scope', async () => {
-    let state: ReturnType<typeof useAiAttachmentState> | null = null;
+    const stateBox: { current: AiAttachmentState | null } = { current: null };
     let hiddenSnapshot: AiComposerAttachment[] = [];
 
     function Harness({ scope }: { scope: string }) {
-      state = useAiAttachmentState(scope);
-      return <span data-testid="count">{state.attachments.length}</span>;
+      stateBox.current = useAiAttachmentState(scope);
+      return <span data-testid="count">{stateBox.current.attachments.length}</span>;
     }
 
     const rendered = await renderWithQuery(<Harness scope="conversation-a" />);
     await act(async () => {
-      state?.uploadFiles([new File(['a'], 'a.png', { type: 'image/png' })]);
+      stateBox.current?.uploadFiles([new File(['a'], 'a.png', { type: 'image/png' })]);
     });
     await flushAsync();
 
-    const ready = state?.readyAttachments ?? [];
+    const ready: AiComposerAttachment[] = stateBox.current?.readyAttachments ?? [];
     expect(ready).toHaveLength(1);
     hiddenSnapshot = ready;
 
     act(() => {
-      state?.hideAttachments(ready.map((item) => item.clientAttachmentId));
+      stateBox.current?.hideAttachments(ready.map((item) => item.clientAttachmentId));
     });
     expect(rendered.container.querySelector('[data-testid="count"]')?.textContent).toBe('0');
 
     act(() => {
-      state?.restoreHiddenAttachments(hiddenSnapshot);
+      stateBox.current?.restoreHiddenAttachments(hiddenSnapshot);
     });
     expect(rendered.container.querySelector('[data-testid="count"]')?.textContent).toBe('1');
 
     act(() => {
-      state?.hideAttachments(hiddenSnapshot.map((item) => item.clientAttachmentId));
-      state?.discardHiddenAttachments(hiddenSnapshot);
+      stateBox.current?.hideAttachments(hiddenSnapshot.map((item) => item.clientAttachmentId));
+      stateBox.current?.discardHiddenAttachments(hiddenSnapshot);
     });
     expect(rendered.container.querySelector('[data-testid="count"]')?.textContent).toBe('0');
     expect(revokeObjectURLSpy).toHaveBeenCalledWith('blob:ai-preview-1');
@@ -187,42 +189,42 @@ describe('useAiAttachmentState', () => {
 
 
   it('keeps hidden attachments intact across a double pending→server moveScope', async () => {
-    let state: ReturnType<typeof useAiAttachmentState> | null = null;
+    const stateBox: { current: AiAttachmentState | null } = { current: null };
     let hiddenSnapshot: AiComposerAttachment[] = [];
     let scopeKey = 'pending-conversation-a';
 
     function Harness({ scope }: { scope: string }) {
-      state = useAiAttachmentState(scope);
+      stateBox.current = useAiAttachmentState(scope);
       return (
         <div>
-          <span data-testid="count">{state.attachments.length}</span>
-          <span data-testid="previews">{state.attachments.map((item) => item.previewUrl).join(',')}</span>
+          <span data-testid="count">{stateBox.current.attachments.length}</span>
+          <span data-testid="previews">{stateBox.current.attachments.map((item) => item.previewUrl).join(',')}</span>
         </div>
       );
     }
 
     const rendered = await renderWithQuery(<Harness scope={scopeKey} />);
     await act(async () => {
-      state?.uploadFiles([new File(['a'], 'hidden.png', { type: 'image/png' })]);
+      stateBox.current?.uploadFiles([new File(['a'], 'hidden.png', { type: 'image/png' })]);
     });
     await flushAsync();
 
-    hiddenSnapshot = state?.readyAttachments ?? [];
+    hiddenSnapshot = [...(stateBox.current?.readyAttachments ?? [])];
     expect(hiddenSnapshot).toHaveLength(1);
     const previewUrl = hiddenSnapshot[0]?.previewUrl;
     expect(previewUrl).toBe('blob:ai-preview-1');
 
     act(() => {
-      state?.hideAttachments(hiddenSnapshot.map((item) => item.clientAttachmentId));
+      stateBox.current?.hideAttachments(hiddenSnapshot.map((item) => item.clientAttachmentId));
     });
     expect(rendered.container.querySelector('[data-testid="count"]')?.textContent).toBe('0');
 
     act(() => {
-      state?.moveScope('pending-conversation-a', 'conversation-server-a');
+      stateBox.current?.moveScope('pending-conversation-a', 'conversation-server-a');
     });
     // Second move: from is already gone (migration + applyChatResponse race). Must not revoke `to`.
     act(() => {
-      state?.moveScope('pending-conversation-a', 'conversation-server-a');
+      stateBox.current?.moveScope('pending-conversation-a', 'conversation-server-a');
     });
 
     expect(revokeObjectURLSpy).not.toHaveBeenCalled();
@@ -232,15 +234,15 @@ describe('useAiAttachmentState', () => {
     expect(rendered.container.querySelector('[data-testid="count"]')?.textContent).toBe('0');
 
     act(() => {
-      state?.restoreHiddenAttachments(hiddenSnapshot, 'conversation-server-a');
+      stateBox.current?.restoreHiddenAttachments(hiddenSnapshot, 'conversation-server-a');
     });
     expect(rendered.container.querySelector('[data-testid="count"]')?.textContent).toBe('1');
     expect(rendered.container.querySelector('[data-testid="previews"]')?.textContent).toBe(previewUrl);
     expect(revokeObjectURLSpy).not.toHaveBeenCalled();
 
     act(() => {
-      state?.hideAttachments(hiddenSnapshot.map((item) => item.clientAttachmentId));
-      state?.discardHiddenAttachments(hiddenSnapshot, 'conversation-server-a');
+      stateBox.current?.hideAttachments(hiddenSnapshot.map((item) => item.clientAttachmentId));
+      stateBox.current?.discardHiddenAttachments(hiddenSnapshot, 'conversation-server-a');
     });
     expect(rendered.container.querySelector('[data-testid="count"]')?.textContent).toBe('0');
     expect(revokeObjectURLSpy).toHaveBeenCalledTimes(1);
@@ -250,27 +252,27 @@ describe('useAiAttachmentState', () => {
   });
 
   it('discards and restores using the captured send scope after switching conversations', async () => {
-    let state: ReturnType<typeof useAiAttachmentState> | null = null;
+    const stateBox: { current: AiAttachmentState | null } = { current: null };
     let hiddenSnapshot: AiComposerAttachment[] = [];
     let scopeKey = 'conversation-send';
 
     function Harness({ scope }: { scope: string }) {
-      state = useAiAttachmentState(scope);
-      return <span data-testid="count">{state.attachments.length}</span>;
+      stateBox.current = useAiAttachmentState(scope);
+      return <span data-testid="count">{stateBox.current.attachments.length}</span>;
     }
 
     const rendered = await renderWithQuery(<Harness scope={scopeKey} />);
     await act(async () => {
-      state?.uploadFiles([new File(['a'], 'send.png', { type: 'image/png' })]);
+      stateBox.current?.uploadFiles([new File(['a'], 'send.png', { type: 'image/png' })]);
     });
     await flushAsync();
 
-    hiddenSnapshot = state?.readyAttachments ?? [];
+    hiddenSnapshot = [...(stateBox.current?.readyAttachments ?? [])];
     expect(hiddenSnapshot).toHaveLength(1);
     const sendScope = 'conversation-send';
 
     act(() => {
-      state?.hideAttachments(hiddenSnapshot.map((item) => item.clientAttachmentId));
+      stateBox.current?.hideAttachments(hiddenSnapshot.map((item) => item.clientAttachmentId));
     });
 
     // User switches conversations before the send settles.
@@ -279,7 +281,7 @@ describe('useAiAttachmentState', () => {
     expect(rendered.container.querySelector('[data-testid="count"]')?.textContent).toBe('0');
 
     act(() => {
-      state?.discardHiddenAttachments(hiddenSnapshot, sendScope);
+      stateBox.current?.discardHiddenAttachments(hiddenSnapshot, sendScope);
     });
     expect(revokeObjectURLSpy).toHaveBeenCalledWith('blob:ai-preview-1');
 
@@ -288,21 +290,21 @@ describe('useAiAttachmentState', () => {
     scopeKey = 'conversation-send-b';
     await rendered.rerender(<Harness scope={scopeKey} />);
     await act(async () => {
-      state?.uploadFiles([new File(['b'], 'retry.png', { type: 'image/png' })]);
+      stateBox.current?.uploadFiles([new File(['b'], 'retry.png', { type: 'image/png' })]);
     });
     await flushAsync();
-    hiddenSnapshot = state?.readyAttachments ?? [];
+    hiddenSnapshot = [...(stateBox.current?.readyAttachments ?? [])];
     const restoreScope = 'conversation-send-b';
 
     act(() => {
-      state?.hideAttachments(hiddenSnapshot.map((item) => item.clientAttachmentId));
+      stateBox.current?.hideAttachments(hiddenSnapshot.map((item) => item.clientAttachmentId));
     });
 
     scopeKey = 'conversation-other';
     await rendered.rerender(<Harness scope={scopeKey} />);
 
     act(() => {
-      state?.restoreHiddenAttachments(hiddenSnapshot, restoreScope);
+      stateBox.current?.restoreHiddenAttachments(hiddenSnapshot, restoreScope);
     });
     expect(rendered.container.querySelector('[data-testid="count"]')?.textContent).toBe('0');
 

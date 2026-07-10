@@ -95,6 +95,7 @@ export function AiMobileChrome(props: {
                         return (
                           <div
                             key={conversation.id}
+                            data-conversation-id={conversation.id}
                             className={[
                               'ai-mobile-conversation',
                               conversation.id === props.activeConversationKey ? 'active' : '',

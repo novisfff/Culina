@@ -114,6 +114,7 @@ export function AiDesktopConversationHistory(props: {
                   return (
                     <div
                       key={conversation.id}
+                      data-conversation-id={conversation.id}
                       className={[
                         'ai-conversation-item',
                         conversation.id === props.activeConversationKey ? 'active' : '',

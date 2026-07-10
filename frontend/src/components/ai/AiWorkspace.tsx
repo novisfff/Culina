@@ -57,7 +57,7 @@ import { useAiConversationLiveSync } from './useAiConversationLiveSync';
 import { useAiAttachmentState } from './useAiAttachmentState';
 import { NEW_AI_CONVERSATION_SCOPE, useAiConversationComposerState } from './useAiConversationComposerState';
 import { useAiInventoryDraftAction } from './useAiInventoryDraftAction';
-import { useAiStreamMutations } from './useAiStreamMutations';
+import { useAiConversationStreams } from './useAiConversationStreams';
 import { useAiThinkingState } from './useAiThinkingState';
 import { aiThreadAutoScrollKey, latestUserMessageScrollKey, useAiThreadAutoScroll } from './useAiThreadAutoScroll';
 type AiWorkspaceProps = {
@@ -885,10 +885,13 @@ export function AiWorkspace({
     }
   }
   const {
-    chatMutation,
-    approvalStreamMutation,
-    humanInputMutation,
-  } = useAiStreamMutations({
+    startChat,
+    startApproval,
+    startHumanInput,
+    submittingApprovalIds,
+    submittingHumanInputRequestIds,
+    submittingHumanInputByRequestId,
+  } = useAiConversationStreams({
     activeStreamRunIdsByConversationKey,
     chatAbortByRunIdRef,
     streamMessageTargetRef,
@@ -946,29 +949,15 @@ export function AiWorkspace({
   const updatingConversationId = visibilityMutation.isPending
     ? visibilityMutation.variables?.conversationId ?? null
     : deletingConversationId;
-  const chatMutationConversationKey = chatMutation.isPending ? chatMutation.variables?.conversationKey ?? null : null;
-  const chatMutationRunId = chatMutation.isPending ? chatMutation.variables?.client_run_id ?? null : null;
-  const approvalMutationConversationKey = approvalStreamMutation.isPending
-    ? approvalStreamMutation.variables?.approval.conversation_id ?? null
-    : null;
-  const approvalMutationRunId = approvalStreamMutation.isPending
-    ? approvalStreamMutation.variables?.approval.run_id ?? null
-    : null;
-  const submittingApprovalId = approvalStreamMutation.isPending
-    ? approvalStreamMutation.variables?.approval.id ?? null
-    : null;
-  const humanInputMutationConversationKey = humanInputMutation.isPending
-    ? humanInputMutation.variables?.message.conversation_id ?? null
-    : null;
-  const humanInputMutationRunId = humanInputMutation.isPending
-    ? humanInputMutation.variables?.message.run_id ?? null
-    : null;
-  const humanInputMutationMessageId = humanInputMutation.isPending
-    ? humanInputMutation.variables?.message.id ?? null
-    : null;
-  const humanInputMutationRequestId = humanInputMutation.isPending
-    ? humanInputMutation.variables?.request.id ?? null
-    : null;
+  const isCurrentConversationBusy = Boolean(
+    activeConversationKey
+    && (
+      activeStreamRunIdsByConversationKey[activeConversationKey]
+      || isActiveConversationServerRunning
+      || activeApprovalRunId
+      || activeHumanInputRunId
+    ),
+  );
   const activeLocalBusyRunIds = new Set(
     [
       activeStreamRunId,
@@ -977,25 +966,60 @@ export function AiWorkspace({
       activeHumanInputRunId,
     ].filter((runId): runId is string => Boolean(runId)),
   );
-  const localBusyEntries = [
-    ...Object.entries(activeStreamRunIdsByConversationKey).map(([conversationKey, runId]) => ({ conversationKey, runId })),
-    { conversationKey: chatMutationConversationKey, runId: chatMutationRunId },
-    { conversationKey: approvalMutationConversationKey, runId: approvalMutationRunId },
-    { conversationKey: humanInputMutationConversationKey, runId: humanInputMutationRunId },
-  ].filter((entry): entry is { conversationKey: string; runId: string | null } => Boolean(entry.conversationKey));
-  const isCurrentConversationBusyEntry = (entry: { conversationKey: string; runId: string | null }) =>
-    entry.conversationKey === activeConversationKey || Boolean(entry.runId && activeLocalBusyRunIds.has(entry.runId));
-  const isLocalAssistantBusy = localBusyEntries.some(isCurrentConversationBusyEntry);
-  const isSubmittingActiveApproval = Boolean(
-    approvalStreamMutation.isPending
-    && approvalMutationConversationKey
-    && isCurrentConversationBusyEntry({ conversationKey: approvalMutationConversationKey, runId: approvalMutationRunId }),
-  );
-  const isSubmittingActiveHumanInput = Boolean(
-    humanInputMutation.isPending
-    && humanInputMutationConversationKey
-    && isCurrentConversationBusyEntry({ conversationKey: humanInputMutationConversationKey, runId: humanInputMutationRunId }),
-  );
+  const activeSubmittingHumanInput = useMemo(() => {
+    if (!activeConversationKey) return null;
+    for (const [requestId, meta] of Object.entries(submittingHumanInputByRequestId)) {
+      if (
+        meta.conversationId === activeConversationKey
+        || (meta.runId && activeLocalBusyRunIds.has(meta.runId))
+      ) {
+        return { requestId, ...meta };
+      }
+    }
+    return null;
+  }, [activeConversationKey, activeLocalBusyRunIds, submittingHumanInputByRequestId]);
+  const isSubmittingActiveHumanInput = Boolean(activeSubmittingHumanInput);
+  const humanInputMutationMessageId = activeSubmittingHumanInput?.messageId ?? null;
+  const humanInputMutationRequestId = activeSubmittingHumanInput?.requestId ?? null;
+  const submittingApprovalId = useMemo(() => {
+    if (!activeConversationKey || submittingApprovalIds.size === 0) return null;
+    for (const approvalId of submittingApprovalIds) {
+      const approval = effectivePendingApprovals.find((item) => item.id === approvalId)
+        ?? displayedMessages
+          .flatMap((message) => message.parts)
+          .map((part) => part.approval)
+          .find((item) => item?.id === approvalId);
+      if (!approval) {
+        if (activeStreamRunId) return approvalId;
+        continue;
+      }
+      if (
+        approval.conversation_id === activeConversationKey
+        || (approval.run_id && (
+          approval.run_id === activeStreamRunId
+          || approval.run_id === activeApprovalRunId
+          || activeLocalBusyRunIds.has(approval.run_id)
+        ))
+      ) {
+        return approvalId;
+      }
+    }
+    if (submittingApprovalIds.size === 1 && isCurrentConversationBusy) {
+      return submittingApprovalIds.values().next().value ?? null;
+    }
+    return null;
+  }, [
+    activeApprovalRunId,
+    activeConversationKey,
+    activeLocalBusyRunIds,
+    activeStreamRunId,
+    displayedMessages,
+    effectivePendingApprovals,
+    isCurrentConversationBusy,
+    submittingApprovalIds,
+  ]);
+  const isSubmittingActiveApproval = Boolean(submittingApprovalId);
+  const isLocalAssistantBusy = isCurrentConversationBusy;
   const effectiveWaitingConversationKeys = useMemo(() => {
     const keys = new Set(waitingConversationKeys);
     if (!activeConversationKey) return keys;
@@ -1015,8 +1039,8 @@ export function AiWorkspace({
     isSubmittingActiveHumanInput,
     waitingConversationKeys,
   ]);
-  const isAnotherConversationRunning = localBusyEntries.some((entry) => !isCurrentConversationBusyEntry(entry));
-  const isAssistantBusy = Boolean(activeVisibleRunId) || Boolean(activeApprovalRunId) || Boolean(activeHumanInputRunId);
+  const effectiveComposerPaused = isComposerPaused;
+  const isAssistantBusy = isCurrentConversationBusy;
   const thinkingMessageIds = useMemo(() => {
     if (!isSubmittingActiveHumanInput || !humanInputMutationMessageId || !humanInputMutationRequestId) {
       return new Set<string>();
@@ -1036,14 +1060,11 @@ export function AiWorkspace({
     () => new Set([...thinkingRunIds, ...thinkingMessageIds]),
     [thinkingMessageIds, thinkingRunIds],
   );
-  const effectiveComposerPaused = isComposerPaused || isAnotherConversationRunning;
   const effectiveComposerPauseMessage = isSubmittingActiveHumanInput
     ? '正在提交你的回答，AI 会接着处理当前任务。'
     : isSubmittingActiveApproval
       ? '正在提交确认结果，AI 会接着处理当前任务。'
-      : isAnotherConversationRunning
-        ? '另一个会话正在后台回复，可以切回历史查看进度。'
-        : composerPauseMessage;
+      : composerPauseMessage;
   const activeCancellableRunId = activeStreamRunId ?? activeApprovalRunId ?? activeHumanInputRunId ?? (isActiveConversationServerRunning ? serverActiveRunId : null);
   const readyAttachments = attachmentState.readyAttachments;
   const hasReadyAttachments = readyAttachments.length > 0;
@@ -1156,7 +1177,6 @@ export function AiWorkspace({
     const assistantMessage = createLocalAssistantMessage(clientRunId, conversationKey);
     updateLocalMessages(conversationKey, (items) => [...items, tempMessage, assistantMessage]);
     streamProgressRef.current = { ...streamProgressRef.current, [clientRunId]: [] };
-    streamMessageTargetRef.current = {};
     setStreamProgressByRunId((current) => ({ ...current, [clientRunId]: [] }));
     setActiveStreamRunIdsByConversationKey((current) => ({ ...current, [conversationKey]: clientRunId }));
     if (sourceComposerScope !== conversationKey) {
@@ -1169,7 +1189,7 @@ export function AiWorkspace({
     const sendAttachmentScope = conversationKey;
     attachmentState.hideAttachments(sendableAttachments.map((attachment) => attachment.clientAttachmentId));
     try {
-      await chatMutation.mutateAsync({
+      await startChat({
         message: text,
         conversationKey,
         conversation_id: activeConversationId ?? undefined,
@@ -1203,22 +1223,20 @@ export function AiWorkspace({
     await submitComposerMessage();
   }
   const submitApprovalDecision: AiApprovalDecisionSubmit = async (approval, decision, values, comment) => {
-    if (approvalStreamMutation.isPending) return;
+    if (submittingApprovalIds.has(approval.id)) return;
     if (approval.run_id) {
       streamProgressRef.current = { ...streamProgressRef.current, [approval.run_id]: [] };
-    }
-    if (approval.run_id) {
       setStreamProgressByRunId((current) => ({ ...current, [approval.run_id as string]: [] }));
     }
-    await approvalStreamMutation.mutateAsync({ approval, decision, values, comment });
+    await startApproval({ approval, decision, values, comment });
   };
   const submitHumanInputResponse: AiHumanInputResponseSubmit = async (message, request, response) => {
-    if (humanInputMutation.isPending) return;
+    if (submittingHumanInputRequestIds.has(request.id)) return;
     if (message.run_id) {
       streamProgressRef.current = { ...streamProgressRef.current, [message.run_id]: [] };
       setStreamProgressByRunId((current) => ({ ...current, [message.run_id as string]: [] }));
     }
-    await humanInputMutation.mutateAsync({ message, request, response });
+    await startHumanInput({ message, request, response });
   };
   function openRecommendationPlan(item: AiTodayRecommendationItem, card: AiResultCard, messageId: string, partId: string) {
     if (!item.foodId || !createFoodPlanItem) return;
@@ -1333,9 +1351,8 @@ export function AiWorkspace({
   const activeThreadOutputKey =
     activeStreamRunId
     ?? (isActiveConversationServerRunning ? serverActiveRunId : null)
-    ?? (chatMutation.isPending ? chatMutationRunId : null)
-    ?? (approvalStreamMutation.isPending ? approvalMutationRunId : null)
-    ?? (humanInputMutation.isPending ? humanInputMutationRunId : null);
+    ?? (isSubmittingActiveApproval ? activeApprovalRunId : null)
+    ?? (isSubmittingActiveHumanInput ? activeSubmittingHumanInput?.runId ?? null : null);
   const threadAutoScroll = useAiThreadAutoScroll({
     contentKey: aiThreadAutoScrollKey(displayedMessages, streamProgress, threadThinkingKeys),
     resetKey: activeConversationKey,

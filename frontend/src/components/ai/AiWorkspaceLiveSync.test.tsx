@@ -1444,4 +1444,136 @@ describe('AiWorkspace live sync and conversation migration', () => {
     expect(textBlock.compareDocumentPosition(scriptActivities[0] as HTMLElement) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     rendered.unmount();
   });
+
+  async function sendInConversation(
+    rendered: Awaited<ReturnType<typeof renderWithQuery>>,
+    conversationId: string,
+    message: string,
+  ) {
+    const historyButton = Array.from(
+      rendered.container.querySelectorAll<HTMLButtonElement>('.ai-desktop-view .ai-conversation-main'),
+    ).find((button) => button.closest('.ai-conversation-item')?.getAttribute('data-conversation-id') === conversationId);
+    await act(async () => historyButton?.click());
+    const textarea = rendered.container.querySelector<HTMLTextAreaElement>('.ai-desktop-view textarea.text-input');
+    if (!textarea) throw new Error(`missing composer for ${conversationId}`);
+    changeInput(textarea, message);
+    await act(async () => {
+      rendered.container.querySelector<HTMLFormElement>('.ai-desktop-view form.ai-composer')
+        ?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    });
+    await flushAsync();
+  }
+
+  function concurrentResponse(conversationId: string, text: string): AiChatResponse {
+    return {
+      conversation_id: conversationId,
+      message: {
+        id: `message-${conversationId}`,
+        conversation_id: conversationId,
+        role: 'assistant',
+        content: text,
+        content_type: 'parts',
+        parts: [{ id: `part-${conversationId}`, type: 'text', text }],
+        run_id: `run-${conversationId}`,
+        status: 'completed',
+        metadata: {},
+        created_at: '2026-07-11T12:00:00Z',
+      },
+      run: {
+        id: `run-${conversationId}`,
+        agent_key: 'workspace_orchestrator',
+        intent: 'general_chat',
+        status: 'completed',
+        model: 'fake-model',
+        created_at: '2026-07-11T12:00:00Z',
+      },
+      events: [],
+      included: { result_cards: [], drafts: [], approvals: [] },
+    };
+  }
+
+  async function resolveConversationStream(
+    pending: Map<string, (response: AiChatResponse) => void>,
+    conversationId: string,
+    text: string,
+  ) {
+    await act(async () => pending.get(conversationId)?.(concurrentResponse(conversationId, text)));
+    await flushAsync();
+  }
+
+  it('sends and completes two different conversations concurrently', async () => {
+    vi.spyOn(api, 'getAiMessages').mockResolvedValue([]);
+    vi.spyOn(api, 'getPendingAiApprovals').mockResolvedValue([]);
+    const pending = new Map<string, (response: AiChatResponse) => void>();
+    vi.spyOn(api, 'streamChatAi').mockImplementation((payload) => new Promise((resolve) => {
+      pending.set(payload.conversation_id as string, resolve);
+    }));
+    const rendered = await renderWithQuery(
+      <AiWorkspace
+        conversations={[conversation({ id: 'conversation-a' }), conversation({ id: 'conversation-b' })]}
+        isLoading={false}
+      />,
+    );
+    await sendInConversation(rendered, 'conversation-a', '问题 A');
+    await sendInConversation(rendered, 'conversation-b', '问题 B');
+    expect(api.streamChatAi).toHaveBeenCalledTimes(2);
+    expect(rendered.container.querySelectorAll('.ai-conversation-item.is-running')).toHaveLength(2);
+    await resolveConversationStream(pending, 'conversation-b', '回答 B');
+    expect(rendered.container.querySelectorAll('.ai-conversation-item.is-running')).toHaveLength(1);
+    await resolveConversationStream(pending, 'conversation-a', '回答 A');
+    expect(rendered.container.querySelectorAll('.ai-conversation-item.is-running')).toHaveLength(0);
+    rendered.unmount();
+  });
+
+  it('cancels one conversation stream without aborting another concurrent stream', async () => {
+    vi.spyOn(api, 'getAiMessages').mockResolvedValue([]);
+    vi.spyOn(api, 'getPendingAiApprovals').mockResolvedValue([]);
+    const signals = new Map<string, AbortSignal>();
+    const pending = new Map<string, (response: AiChatResponse) => void>();
+    vi.spyOn(api, 'streamChatAi').mockImplementation((payload, handlers) => new Promise((resolve, reject) => {
+      const conversationId = payload.conversation_id as string;
+      if (handlers?.signal) {
+        signals.set(conversationId, handlers.signal);
+        handlers.signal.addEventListener('abort', () => {
+          reject(new Error('BodyStreamBuffer was aborted'));
+        });
+      }
+      pending.set(conversationId, resolve);
+    }));
+    vi.spyOn(api, 'cancelAiRun').mockResolvedValue({
+      run: { id: 'run-cancelled', status: 'cancelled' },
+      events: [],
+    });
+
+    const rendered = await renderWithQuery(
+      <AiWorkspace
+        conversations={[conversation({ id: 'conversation-a' }), conversation({ id: 'conversation-b' })]}
+        isLoading={false}
+      />,
+    );
+    await sendInConversation(rendered, 'conversation-a', '问题 A');
+    await sendInConversation(rendered, 'conversation-b', '问题 B');
+    expect(api.streamChatAi).toHaveBeenCalledTimes(2);
+    expect(rendered.container.querySelectorAll('.ai-conversation-item.is-running')).toHaveLength(2);
+
+    await act(async () => {
+      const historyButton = Array.from(
+        rendered.container.querySelectorAll<HTMLButtonElement>('.ai-desktop-view .ai-conversation-main'),
+      ).find((button) => button.closest('.ai-conversation-item')?.getAttribute('data-conversation-id') === 'conversation-a');
+      historyButton?.click();
+    });
+    await flushAsync();
+    await act(async () => {
+      rendered.container.querySelector<HTMLButtonElement>('.ai-desktop-view .ai-send-button')?.click();
+    });
+    await flushAsync();
+
+    expect(signals.get('conversation-a')?.aborted).toBe(true);
+    expect(signals.get('conversation-b')?.aborted).toBe(false);
+    expect(rendered.container.querySelectorAll('.ai-conversation-item.is-running')).toHaveLength(1);
+
+    await resolveConversationStream(pending, 'conversation-b', '回答 B');
+    expect(rendered.container.querySelectorAll('.ai-conversation-item.is-running')).toHaveLength(0);
+    rendered.unmount();
+  });
 });
