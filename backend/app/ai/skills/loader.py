@@ -6,6 +6,7 @@ from typing import Any
 import yaml
 
 from app.ai.skills.base import BaseSkill, CatalogSkill, SkillCompletionPolicy, SkillManifest
+from app.ai.skills.contracts import SkillAttachmentPolicy, SkillHandoffPolicy, SkillRoutingPolicy
 from app.ai.tools.registry import ToolRegistry
 
 
@@ -34,6 +35,9 @@ SKILL_RUNTIME_FRONTMATTER_KEYS = {
     "tool_budget",
     "toolBudget",
     "tools",
+    "routing",
+    "handoffs",
+    "attachment_policy",
 }
 
 
@@ -94,7 +98,7 @@ class SkillDirectoryLoader:
         frontmatter: dict[str, Any],
         runtime: dict[str, Any],
     ) -> SkillManifest:
-        self._validate_v2_runtime(skill_dir, frontmatter, runtime)
+        version = self._validate_runtime_version(skill_dir, frontmatter, runtime)
         slug = self._required_text(frontmatter, "name")
         description = self._required_text(frontmatter, "description")
         key = self._text(runtime.get("key")) or slug.replace("-", "_")
@@ -123,21 +127,135 @@ class SkillDirectoryLoader:
             approval_policy=approval_policy,
             intent=self._text(runtime.get("intent")) or key,
             agent_key=self._text(runtime.get("agent_key")) or f"{key}_agent",
+            contract_version=version,
+            routing=self._routing_policy(
+                runtime.get("routing"),
+                version=version,
+                examples=self._runtime_list(runtime, "examples"),
+            ),
+            handoffs=self._handoff_policies(runtime.get("handoffs"), version=version),
+            attachment_policy=self._attachment_policy(runtime.get("attachment_policy"), version=version),
         )
         self._validate_manifest(manifest)
         self._validate_manifest_tools(manifest)
         return manifest
 
-    def _validate_v2_runtime(self, skill_dir: Path, frontmatter: dict[str, Any], runtime: dict[str, Any]) -> None:
+    def _validate_runtime_version(
+        self,
+        skill_dir: Path,
+        frontmatter: dict[str, Any],
+        runtime: dict[str, Any],
+    ) -> int:
         version = runtime.get("version")
-        if version not in {2, "2"}:
-            raise ValueError(f"Skill {skill_dir.name} skill.yaml must declare version: 2")
+        if version not in {2, 3, "2", "3"}:
+            raise ValueError(f"Skill {skill_dir.name} skill.yaml must declare version: 2 or 3")
         runtime_keys = sorted(set(frontmatter).intersection(SKILL_RUNTIME_FRONTMATTER_KEYS))
         if runtime_keys:
             raise ValueError(
                 f"Skill {skill_dir.name} SKILL.md must not include Culina runtime fields when skill.yaml is present: "
                 f"{', '.join(runtime_keys)}"
             )
+        return int(version)
+
+    def _routing_policy(
+        self,
+        value: Any,
+        *,
+        version: int,
+        examples: list[str],
+    ) -> SkillRoutingPolicy:
+        if version == 2:
+            return SkillRoutingPolicy(modes=("default",), include_examples=tuple(examples))
+        if not isinstance(value, dict):
+            raise ValueError("skill.yaml routing must be a mapping for version 3")
+        modes = tuple(self._list(value.get("modes"), field_name="skill.yaml routing.modes"))
+        includes = tuple(
+            self._list(value.get("include_examples"), field_name="skill.yaml routing.include_examples")
+        )
+        excludes = tuple(
+            self._list(value.get("exclude_examples"), field_name="skill.yaml routing.exclude_examples")
+        )
+        if not modes:
+            raise ValueError("skill.yaml routing.modes must not be empty")
+        overlap = sorted(set(includes).intersection(excludes))
+        if overlap:
+            raise ValueError(f"routing include/exclude examples overlap: {', '.join(overlap)}")
+        raw_conflicts = value.get("conflict_rules") or []
+        if not isinstance(raw_conflicts, list) or not all(isinstance(item, dict) for item in raw_conflicts):
+            raise ValueError("skill.yaml routing.conflict_rules must be a list of mappings")
+        return SkillRoutingPolicy(
+            modes=modes,
+            include_examples=includes,
+            exclude_examples=excludes,
+            conflict_rules=tuple(
+                {str(key): str(item[key]) for key in item}
+                for item in raw_conflicts
+            ),
+        )
+
+    def _handoff_policies(self, value: Any, *, version: int) -> dict[str, SkillHandoffPolicy]:
+        if version == 2:
+            return {}
+        if value is None:
+            return {}
+        if not isinstance(value, dict):
+            raise ValueError("skill.yaml handoffs must be a mapping")
+        policies: dict[str, SkillHandoffPolicy] = {}
+        for raw_reason, raw_policy in value.items():
+            reason = self._text(raw_reason)
+            if not reason:
+                raise ValueError("skill.yaml handoffs contains an empty reason code")
+            if not isinstance(raw_policy, dict):
+                raise ValueError(f"skill.yaml handoffs.{reason} must be a mapping")
+            values = {
+                field: self._text(raw_policy.get(field))
+                for field in (
+                    "target_skill",
+                    "required_draft_type",
+                    "resume_skill",
+                    "state_schema",
+                )
+            }
+            missing = [field for field, text in values.items() if not text]
+            if missing:
+                raise ValueError(
+                    f"skill.yaml handoffs.{reason} missing required fields: {', '.join(missing)}"
+                )
+            policies[reason] = SkillHandoffPolicy(
+                reason_code=reason,
+                target_skill=values["target_skill"],
+                required_draft_type=values["required_draft_type"],
+                resume_skill=values["resume_skill"],
+                state_schema=values["state_schema"],
+            )
+        return policies
+
+    def _attachment_policy(self, value: Any, *, version: int) -> SkillAttachmentPolicy:
+        if version == 2 or value is None:
+            return SkillAttachmentPolicy()
+        if not isinstance(value, dict):
+            raise ValueError("skill.yaml attachment_policy must be a mapping")
+        return SkillAttachmentPolicy(
+            accepted_kinds=tuple(
+                self._list(value.get("accepted_kinds"), field_name="skill.yaml attachment_policy.accepted_kinds")
+            ),
+            usages=tuple(
+                self._list(value.get("usages"), field_name="skill.yaml attachment_policy.usages")
+            ),
+            bindable_fields=tuple(
+                self._list(value.get("bindable_fields"), field_name="skill.yaml attachment_policy.bindable_fields")
+            ),
+            current_message_only=self._required_bool(
+                value.get("current_message_only"),
+                fallback=True,
+                field_name="attachment_policy.current_message_only",
+            ),
+            explicit_user_intent_required=self._required_bool(
+                value.get("explicit_user_intent_required"),
+                fallback=True,
+                field_name="attachment_policy.explicit_user_intent_required",
+            ),
+        )
 
     def _validate_manifest(self, manifest: SkillManifest) -> None:
         if manifest.approval_policy not in {"none", "draft_then_confirm"}:
