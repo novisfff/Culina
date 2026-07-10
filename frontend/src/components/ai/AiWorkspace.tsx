@@ -55,6 +55,7 @@ import {
 } from './aiWorkspaceHelpers';
 import { useAiConversationLiveSync } from './useAiConversationLiveSync';
 import { useAiAttachmentState } from './useAiAttachmentState';
+import { NEW_AI_CONVERSATION_SCOPE, useAiConversationComposerState } from './useAiConversationComposerState';
 import { useAiInventoryDraftAction } from './useAiInventoryDraftAction';
 import { useAiStreamMutations } from './useAiStreamMutations';
 import { useAiThinkingState } from './useAiThinkingState';
@@ -170,7 +171,14 @@ export function AiWorkspace({
   const queryClient = useQueryClient();
   const [activeConversationKey, setActiveConversationKey] = useState<string | null>(conversations[0]?.id ?? null);
   const [isStartingNewConversation, setIsStartingNewConversation] = useState(false);
-  const [draft, setDraft] = useState('');
+  const composerScopeKey = activeConversationKey ?? NEW_AI_CONVERSATION_SCOPE;
+  const {
+    draft,
+    setDraft,
+    selectScope: selectComposerScope,
+    moveScope: moveComposerScope,
+    clearScope: clearComposerScope,
+  } = useAiConversationComposerState(composerScopeKey);
   const draftRef = useRef('');
   const submitAfterVoiceRecognitionRef = useRef(false);
   const [voiceInputStatusByComposer, setVoiceInputStatusByComposer] = useState<{
@@ -178,7 +186,9 @@ export function AiWorkspace({
     mobile: 'idle' | 'recording' | 'recognizing';
   }>({ desktop: 'idle', mobile: 'idle' });
   const voiceInputStatus = voiceInputStatusByComposer.desktop !== 'idle' ? voiceInputStatusByComposer.desktop : voiceInputStatusByComposer.mobile;
-  const attachmentState = useAiAttachmentState();
+  const attachmentState = useAiAttachmentState(composerScopeKey);
+  const moveAttachmentScope = attachmentState.moveScope;
+  const clearAttachmentScope = attachmentState.clearScope;
   const [localMessagesByConversationKey, setLocalMessagesByConversationKey] = useState<Record<string, AiMessage[]>>({});
   const [runEventsById, setRunEventsById] = useState<Record<string, AiRunEvent[]>>({});
   const [recommendationPlanRequest, setRecommendationPlanRequest] = useState<AiRecommendationPlanRequest | null>(null);
@@ -238,6 +248,9 @@ export function AiWorkspace({
   useEffect(() => {
     draftRef.current = draft;
   }, [draft]);
+  useEffect(() => {
+    selectComposerScope(composerScopeKey);
+  }, [composerScopeKey, selectComposerScope]);
   useEffect(() => {
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto';
@@ -346,7 +359,11 @@ export function AiWorkspace({
       const matched = migrations.find((migration) => migration.pendingKey === current);
       return matched ? matched.conversationId : current;
     });
-  }, [conversations, localMessagesByConversationKey]);
+    for (const migration of migrations) {
+      moveComposerScope(migration.pendingKey, migration.conversationId);
+      moveAttachmentScope(migration.pendingKey, migration.conversationId);
+    }
+  }, [conversations, localMessagesByConversationKey, moveAttachmentScope, moveComposerScope]);
   const {
     serverActiveRunId,
     isActiveConversationServerRunning,
@@ -612,6 +629,10 @@ export function AiWorkspace({
     };
     setActiveConversationKey((current) => (current === conversationKey ? response.conversation_id : current));
     setIsStartingNewConversation(false);
+    if (conversationKey !== response.conversation_id) {
+      moveComposerScope(conversationKey, response.conversation_id);
+      moveAttachmentScope(conversationKey, response.conversation_id);
+    }
     setLocalMessagesByConversationKey((current) => {
       const currentItems = current[conversationKey] ?? [];
       const localStreamMessage = currentItems.find((item) => item.id === messageWithIncludedApprovals.id || item.id === response.message.id || item.run_id === response.run.id);
@@ -900,6 +921,8 @@ export function AiWorkspace({
           return next;
         });
       }
+      clearComposerScope(conversationId);
+      clearAttachmentScope(conversationId);
       await queryClient.invalidateQueries({ queryKey: queryKeys.aiConversations });
       queryClient.removeQueries({ queryKey: queryKeys.aiMessages(conversationId) });
       queryClient.removeQueries({ queryKey: queryKeys.aiPendingApprovals(conversationId) });
@@ -1093,6 +1116,7 @@ export function AiWorkspace({
     const clientMessageId = `client-${Date.now()}-${Math.random().toString(36).slice(2)}`;
     const clientRunId = `agent_run-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
     const conversationKey = activeConversationId ?? createPendingConversationKey(clientRunId);
+    const sourceComposerScope = activeConversationId ?? NEW_AI_CONVERSATION_SCOPE;
     const messageSummary = text || `上传了 ${sendableAttachments.length} 张图片`;
     const localParts: AiMessagePart[] = [];
     if (text) {
@@ -1135,6 +1159,10 @@ export function AiWorkspace({
     streamMessageTargetRef.current = {};
     setStreamProgressByRunId((current) => ({ ...current, [clientRunId]: [] }));
     setActiveStreamRunIdsByConversationKey((current) => ({ ...current, [conversationKey]: clientRunId }));
+    if (sourceComposerScope !== conversationKey) {
+      moveComposerScope(sourceComposerScope, conversationKey);
+      moveAttachmentScope(sourceComposerScope, conversationKey);
+    }
     setActiveConversationKey(conversationKey);
     setIsStartingNewConversation(false);
     if (!options?.preserveDraft) setDraft('');
