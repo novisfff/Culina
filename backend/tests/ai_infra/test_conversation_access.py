@@ -81,3 +81,56 @@ class AIConversationAccessTestCase(AIAgentInfraTestCase):
         self.assertEqual([item["id"] for item in response.json()], ["other-public", "mine-private"])
         self.assertTrue(response.json()[1]["is_owner"])
         self.assertEqual(response.json()[0]["owner_display_name"], other_user.display_name)
+    def test_only_owner_can_publish_unpublish_and_delete(self) -> None:
+        other_user, other_membership = self.create_family_member()
+        conversation = self._persist_conversation("conversation-manage", self.user.id, AIConversationVisibility.PRIVATE)
+        published = self.client.patch(
+            f"/api/ai/conversations/{conversation.id}/visibility",
+            json={"visibility": "family"},
+        )
+        self.assertEqual(published.status_code, 200, published.text)
+        self.assertEqual(published.json()["visibility"], "family")
+        self.authenticate_as(other_user.id, other_membership.id)
+        self.assertEqual(
+            self.client.patch(f"/api/ai/conversations/{conversation.id}/visibility", json={"visibility": "private"}).status_code,
+            404,
+        )
+        self.assertEqual(self.client.delete(f"/api/ai/conversations/{conversation.id}").status_code, 404)
+
+    def test_owner_cannot_publish_or_delete_while_run_is_active(self) -> None:
+        conversation = self._persist_conversation(
+            "conversation-active-manage",
+            self.user.id,
+            AIConversationVisibility.PRIVATE,
+        )
+        with self.SessionLocal() as db:
+            db.add(
+                AIAgentRun(
+                    id="run-active-manage",
+                    family_id=self.family.id,
+                    conversation_id=conversation.id,
+                    message_id=None,
+                    agent_key="workspace_orchestrator",
+                    feature_key="ai_workspace_chat",
+                    intent="general_chat",
+                    input_summary="处理中",
+                    context_summary={},
+                    output_summary="",
+                    status="running",
+                    model="fake-model",
+                    input={"prompt": "处理中", "subject": {}},
+                    output={},
+                    tool_calls=[],
+                    duration_ms=0,
+                    created_by=self.user.id,
+                )
+            )
+            db.commit()
+
+        visibility_response = self.client.patch(
+            f"/api/ai/conversations/{conversation.id}/visibility",
+            json={"visibility": "family"},
+        )
+        self.assertEqual(visibility_response.status_code, 409, visibility_response.text)
+        delete_response = self.client.delete(f"/api/ai/conversations/{conversation.id}")
+        self.assertEqual(delete_response.status_code, 409, delete_response.text)

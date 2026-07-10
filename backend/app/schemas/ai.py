@@ -30,6 +30,10 @@ class AIConversationOut(BaseModel):
     last_run_status: str = ""
 
 
+class AIConversationVisibilityRequest(BaseModel):
+    visibility: AIConversationVisibility
+
+
 class AIRecommendationOut(BaseModel):
     id: str
     family_id: str

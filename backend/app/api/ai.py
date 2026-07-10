@@ -33,6 +33,7 @@ from app.schemas.ai import (
     AIChatRequest,
     AIChatResponse,
     AIConversationOut,
+    AIConversationVisibilityRequest,
     AIMessageDTO,
     AIInventoryQuickDraftRequest,
     AIHumanInputResponseRequest,
@@ -53,7 +54,8 @@ from app.ai.skills import build_workspace_skill_registry
 from app.ai.tools import build_workspace_tool_registry
 from app.ai.workspace_service import AIApplicationService
 from app.ai.workflows.checkpoint import SQLAlchemyCheckpointSaver
-from app.ai.workflows.conversation_access import accessible_ai_conversation_clause
+from app.ai.workflows.conversation_access import accessible_ai_conversation_clause, require_ai_conversation_access
+from app.ai.workflows.conversations import find_active_conversation_run
 from app.ai.workflows.live_stream_cache import live_ai_stream_cache
 from app.ai.workflows.orchestrator.profiles import ORCHESTRATOR_PROFILE_REGISTRY, OrchestratorProfile, profile_with_skill_route_hints
 from app.ai.observability.serializers import serialize_ai_run_llm_exchange, serialize_ai_run_trace_span
@@ -287,18 +289,58 @@ def get_ai_quality_metrics(
     return build_ai_quality_metrics(db, family_id=membership.family_id, limit=limit, days=days)
 
 
+@router.patch("/api/ai/conversations/{conversation_id}/visibility", response_model=AIConversationOut)
+def update_ai_conversation_visibility(
+    conversation_id: str,
+    payload: AIConversationVisibilityRequest,
+    auth: tuple = Depends(get_current_auth),
+    db: Session = Depends(get_db),
+) -> dict:
+    user, membership = auth
+    try:
+        conversation = require_ai_conversation_access(
+            db,
+            family_id=membership.family_id,
+            user_id=user.id,
+            conversation_id=conversation_id,
+            capability="manage",
+            for_update=True,
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    active = find_active_conversation_run(db, family_id=membership.family_id, conversation_id=conversation.id)
+    if active is not None and active.status in {"pending", "running"}:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="会话正在生成回复，请先等待完成或取消当前任务")
+    conversation.visibility = payload.visibility
+    commit_session(db)
+    return serialize_ai_conversation(
+        conversation,
+        owner_display_name=user.display_name,
+        current_user_id=user.id,
+    )
+
+
 @router.delete("/api/ai/conversations/{conversation_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_ai_conversation(
     conversation_id: str,
     auth: tuple = Depends(get_current_auth),
     db: Session = Depends(get_db),
 ) -> Response:
-    _, membership = auth
-    conversation = db.scalar(
-        select(AIConversation).where(AIConversation.id == conversation_id, AIConversation.family_id == membership.family_id)
-    )
-    if conversation is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="会话不存在")
+    user, membership = auth
+    try:
+        conversation = require_ai_conversation_access(
+            db,
+            family_id=membership.family_id,
+            user_id=user.id,
+            conversation_id=conversation_id,
+            capability="manage",
+            for_update=True,
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    active = find_active_conversation_run(db, family_id=membership.family_id, conversation_id=conversation.id)
+    if active is not None and active.status in {"pending", "running"}:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="会话正在生成回复，请先等待完成或取消当前任务")
 
     approval_ids = list(
         db.scalars(
