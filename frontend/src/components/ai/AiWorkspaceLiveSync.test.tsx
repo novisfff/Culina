@@ -1688,4 +1688,55 @@ describe('AiWorkspace live sync and conversation migration', () => {
     expect(rendered.queryClient.getQueryData(queryKeys.aiMessages('shared'))).toBeUndefined();
     rendered.unmount();
   });
+
+  it('aborts an in-flight stream when conversation access is revoked via 404', async () => {
+    const shared = conversation({
+      id: 'shared',
+      visibility: 'family',
+      is_owner: false,
+      owner_display_name: '家人',
+      title: '共享会话',
+      prompt: '共享会话',
+    });
+    const mine = conversation({ id: 'mine', visibility: 'private', is_owner: true });
+    let sharedMessageCalls = 0;
+    let streamSignal: AbortSignal | undefined;
+    vi.spyOn(api, 'getAiMessages').mockImplementation(async (conversationId) => {
+      if (conversationId === 'shared') {
+        sharedMessageCalls += 1;
+        if (sharedMessageCalls > 1) {
+          throw new ApiError({
+            status: 404,
+            detail: '会话不存在',
+            path: `/api/ai/conversations/${conversationId}/messages`,
+            payload: {},
+          });
+        }
+      }
+      return [];
+    });
+    vi.spyOn(api, 'getPendingAiApprovals').mockResolvedValue([]);
+    vi.spyOn(api, 'streamChatAi').mockImplementation((_payload, handlers) => new Promise((_resolve, reject) => {
+      streamSignal = handlers?.signal;
+      handlers?.signal?.addEventListener('abort', () => {
+        reject(new Error('BodyStreamBuffer was aborted'));
+      });
+    }));
+
+    const rendered = await renderWithQuery(<AiWorkspace conversations={[shared, mine]} isLoading={false} />);
+    await flushAsync();
+    await sendInConversation(rendered, 'shared', '继续处理共享会话');
+    expect(streamSignal).toBeDefined();
+    expect(streamSignal?.aborted).toBe(false);
+
+    await act(async () => {
+      await rendered.queryClient.invalidateQueries({ queryKey: queryKeys.aiMessages('shared') });
+    });
+    await flushAsync();
+
+    expect(streamSignal?.aborted).toBe(true);
+    expect(rendered.container.textContent).toContain('该会话已取消公开');
+    expect(rendered.queryClient.getQueryData(queryKeys.aiMessages('shared'))).toBeUndefined();
+    rendered.unmount();
+  });
 });

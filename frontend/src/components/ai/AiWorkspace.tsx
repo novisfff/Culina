@@ -396,6 +396,9 @@ export function AiWorkspace({
         return next;
       });
       delete streamMessageTargetRef.current[inaccessibleRunId];
+      // Abort before delete so an in-flight approval/chat stream cannot settle
+      // after access is revoked and rehydrate local messages via applyChatResponse.
+      chatAbortByRunIdRef.current[inaccessibleRunId]?.abort();
       delete chatAbortByRunIdRef.current[inaccessibleRunId];
     }
     const fallbackConversation = conversations.find((item) => item.id !== conversationId) ?? null;
