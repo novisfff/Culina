@@ -16,6 +16,7 @@ from app.ai.workflows.orchestrator.state import OrchestratorRunState
 class PreparedToolPayload:
     payload: dict[str, Any]
     continuation: dict[str, Any] = field(default_factory=dict)
+    after_approval: dict[str, Any] = field(default_factory=dict)
 
 
 def prepare_tool_payload(
@@ -40,7 +41,8 @@ def prepare_tool_payload(
     )
     raw_continuation = payload.get("continuation")
     if raw_continuation is None:
-        return PreparedToolPayload(payload=tool_payload)
+        after_approval = payload.get("afterApproval") if isinstance(payload.get("afterApproval"), dict) else {}
+        return PreparedToolPayload(payload=tool_payload, after_approval=after_approval)
     if not isinstance(raw_continuation, dict):
         raise ValueError("continuation must be an object")
     if not source_skill_key or injection_manager is None or capability_policy is None:
@@ -87,6 +89,7 @@ def capture_draft_output(
     tool_payload: dict[str, Any],
     output: dict[str, Any],
     continuation: dict[str, Any],
+    after_approval: dict[str, Any],
     progressive_draft_publisher,
 ) -> None:
     state.draft_created_this_call = True
@@ -111,6 +114,7 @@ def capture_draft_output(
             "schema_version": str(draft.get("schemaVersion") or f"{draft_type}.v1"),
             "tool": tool_name,
             "continuation": continuation,
+            "after_approval": after_approval,
         }
         draft_key = (
             draft_type,

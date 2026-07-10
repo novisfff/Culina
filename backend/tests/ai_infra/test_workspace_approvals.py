@@ -5,6 +5,75 @@ from app.ai.workflows.runner_support.run_summary import record_approval_outcome_
 
 
 class AIWorkspaceApprovalsTestCase(AIAgentInfraTestCase):
+        def test_progressive_draft_persists_typed_continuation_metadata(self) -> None:
+            continuation = {
+                "workflowId": "workflow-recipe-1",
+                "stepKey": "ingredient-1",
+                "reasonCode": "missing_ingredient",
+                "nextSkillKey": "ingredient_profile",
+                "resumeSkillKey": "recipe_draft",
+                "requiredDraftType": "ingredient_profile",
+                "stateSchema": "recipe_missing_ingredient.v1",
+                "state": {
+                    "recipeTitle": "番茄鸡蛋面",
+                    "currentIngredient": "碱水面",
+                    "pendingIngredientNames": ["碱水面"],
+                    "completedIngredientIds": [],
+                },
+                "status": "pending",
+                "version": 1,
+            }
+            with self.SessionLocal() as db:
+                service = AIApplicationService(db, provider=FakeChatProvider())
+                conversation = service._get_or_create_conversation(
+                    family_id=self.family.id,
+                    user_id=self.user.id,
+                    conversation_id=None,
+                    prompt="补齐菜谱缺失食材",
+                    quick_task=None,
+                )
+                message = AIMessage(
+                    id="ai-message-continuation-metadata",
+                    family_id=self.family.id,
+                    conversation_id=conversation.id,
+                    role="assistant",
+                    content="",
+                    parts=[],
+                    created_by=self.user.id,
+                )
+                db.add(message)
+                db.flush()
+
+                draft, _approval = service._create_draft_approval(
+                    family_id=self.family.id,
+                    user_id=self.user.id,
+                    conversation_id=conversation.id,
+                    message_id=message.id,
+                    run_id=None,
+                    draft_payload={
+                        "draft_type": "ingredient_profile",
+                        "payload": {
+                            "draftType": "ingredient_profile",
+                            "schemaVersion": "ingredient_profile.v1",
+                            "action": "create",
+                            "payload": {
+                                "name": "碱水面",
+                                "category": "主食",
+                                "default_unit": "克",
+                                "unit_conversions": [],
+                                "default_storage": "常温",
+                                "default_expiry_mode": "none",
+                                "notes": "",
+                                "media_ids": [],
+                            },
+                        },
+                        "tool": "ingredient_profile.create_draft",
+                        "continuation": continuation,
+                    },
+                )
+
+            self.assertEqual(draft.ai_metadata["continuation"], continuation)
+
         def test_approval_decision_lock_timeout_returns_conflict(self) -> None:
             from sqlalchemy.exc import OperationalError
 

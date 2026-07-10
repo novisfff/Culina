@@ -16,7 +16,12 @@ COMPACT_METADATA_EXCLUDE_KEYS = {
     "progressiveApprovalIds",
 }
 DRAFT_TYPES = set(draft_operation_registry.keys())
-DRAFT_CONTEXT_ARTIFACT_TYPES = {"approval_decision", "draft_after_approval", "resume_after_approval"}
+DRAFT_CONTEXT_ARTIFACT_TYPES = {
+    "approval_decision",
+    "draft_after_approval",
+    "resume_after_approval",
+    "workflow.continuation",
+}
 
 
 def compact_conversation(
@@ -165,6 +170,19 @@ def _compact_artifact(artifact: dict[str, Any]) -> dict[str, Any]:
         if artifact.get(key) is not None:
             compact[key] = artifact.get(key)
     _copy_source_ids(compact, artifact, payload)
+
+    if artifact_type == "workflow.continuation":
+        compact["payload"] = {
+            "workflowId": payload.get("workflowId"),
+            "stepKey": payload.get("stepKey"),
+            "reasonCode": payload.get("reasonCode"),
+            "nextSkillKey": payload.get("nextSkillKey"),
+            "resumeSkillKey": payload.get("resumeSkillKey"),
+            "stateSchema": payload.get("stateSchema"),
+            "state": _compact_plain_dict(payload.get("state") or {}),
+            "businessEntityIds": list(payload.get("businessEntityIds") or [])[:20],
+        }
+        return compact
 
     if artifact_type in {"draft_after_approval", "resume_after_approval"}:
         compact["summary"] = _truncate(payload.get("instruction") or artifact.get("summary") or "确认后继续任务")

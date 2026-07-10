@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
@@ -16,7 +17,15 @@ from app.ai.runtime.tooling import chat_tool_definition_to_model_tool
 from app.ai.workflows.orchestrator import SkillInjectionManager
 from app.ai.workflows.orchestrator.continuation import ContinuationValidationError, normalize_continuation
 from app.ai.workflows.orchestrator.payloads import OrchestratorPromptPayloadBuilder
-from app.ai.workflows.orchestrator.profiles import OrchestratorCapabilityPolicy
+from app.ai.workflows.orchestrator.profiles import OrchestratorBudgetConfig, OrchestratorCapabilityPolicy
+from app.ai.workflows.compact_context import compact_artifacts
+from app.ai.workflows.runner_support.approval_resume import (
+    ContinuationResumeError,
+    approval_resolved_state_patch,
+    continuation_artifact,
+    continuation_resume_state,
+)
+from app.ai.workflows.runner import WorkspaceGraphRunner
 
 
 def test_routing_record_excludes_execution_only_contracts() -> None:
@@ -361,3 +370,161 @@ def test_draft_model_tool_schema_exposes_continuation_not_after_approval() -> No
 
     assert "continuation" in parameters["properties"]
     assert "afterApproval" not in parameters["properties"]
+
+
+def test_continuation_artifact_is_typed_and_deduplicates_business_ids() -> None:
+    artifact = continuation_artifact(
+        run_id="run-1",
+        approval_id="approval-1",
+        continuation=_continuation_payload(),
+        decision_status="approved",
+        business_entity_ids=["ingredient-1", "ingredient-1"],
+    )
+
+    assert artifact["id"] == "workflow_continuation:workflow-recipe-1:ingredient-1:approval-1"
+    assert artifact["type"] == "workflow.continuation"
+    assert artifact["status"] == "ready"
+    assert artifact["payload"]["businessEntityIds"] == ["ingredient-1"]
+
+
+def test_compact_context_keeps_only_typed_continuation_state() -> None:
+    artifact = continuation_artifact(
+        run_id="run-1",
+        approval_id="approval-1",
+        continuation=_continuation_payload(extraIgnored="large-payload"),
+        decision_status="approved",
+        business_entity_ids=["ingredient-1"],
+    )
+
+    compact = compact_artifacts([artifact])[0]
+
+    assert compact["payload"] == {
+        "workflowId": "workflow-recipe-1",
+        "stepKey": "ingredient-1",
+        "reasonCode": "missing_item",
+        "nextSkillKey": "target_skill",
+        "resumeSkillKey": "source_skill",
+        "stateSchema": "recipe_missing_ingredient.v1",
+        "state": {
+            "recipeTitle": "番茄鸡蛋面",
+            "currentIngredient": "碱水面",
+            "pendingIngredientNames": {"count": 1, "preview": ["碱水面"]},
+            "completedIngredientIds": {"count": 0, "preview": []},
+        },
+        "businessEntityIds": ["ingredient-1"],
+    }
+
+
+def test_continuation_resume_injects_allowed_skill_exactly_once() -> None:
+    state = {
+        "orchestrator_profile": {
+            "capabilityPolicy": OrchestratorCapabilityPolicy(
+                allowed_skill_keys=("source_skill", "target_skill"),
+            ).to_state(),
+            "budgetConfig": OrchestratorBudgetConfig(
+                max_business_skills_per_run=2,
+                max_total_tool_calls_per_run=10,
+                max_same_read_tool_calls_per_run=2,
+            ).to_state(),
+        },
+        "injected_skill_keys": ["target_skill"],
+        "injection_history": [],
+    }
+    artifact = continuation_artifact(
+        run_id="run-1",
+        approval_id="approval-1",
+        continuation=_continuation_payload(),
+        decision_status="approved",
+        business_entity_ids=["ingredient-1"],
+    )
+
+    keys, history = continuation_resume_state(state=state, artifact=artifact)
+    replay_keys, replay_history = continuation_resume_state(
+        state={**state, "injected_skill_keys": keys, "injection_history": history},
+        artifact=artifact,
+    )
+
+    assert keys == ["target_skill", "source_skill"]
+    assert replay_keys == keys
+    assert len(history) == 1
+    assert replay_history == history
+
+
+def test_continuation_resume_rejects_disallowed_skill() -> None:
+    artifact = continuation_artifact(
+        run_id="run-1",
+        approval_id="approval-1",
+        continuation=_continuation_payload(),
+        decision_status="approved",
+        business_entity_ids=["ingredient-1"],
+    )
+    state = {
+        "orchestrator_profile": {
+            "capabilityPolicy": OrchestratorCapabilityPolicy(
+                skill_injection="fixed",
+                allowed_skill_keys=("target_skill",),
+            ).to_state(),
+            "budgetConfig": OrchestratorBudgetConfig().to_state(),
+        },
+        "injected_skill_keys": ["target_skill"],
+        "injection_history": [],
+    }
+
+    with pytest.raises(ContinuationResumeError) as exc_info:
+        continuation_resume_state(state=state, artifact=artifact)
+
+    assert exc_info.value.code == "continuation_skill_not_allowed"
+
+
+def test_approval_resolved_patch_deduplicates_replayed_continuation_artifact() -> None:
+    artifact = continuation_artifact(
+        run_id="run-1",
+        approval_id="approval-1",
+        continuation=_continuation_payload(),
+        decision_status="approved",
+        business_entity_ids=["ingredient-1"],
+    )
+
+    patch = approval_resolved_state_patch(
+        state={"injected_skill_keys": [], "injection_history": []},
+        serialized={"approval": {"status": "approved"}},
+        status="running",
+        run_artifacts=[artifact],
+        approval_artifacts=[],
+        resume_artifact=artifact,
+    )
+
+    assert [item["id"] for item in patch["run_artifacts"]].count(artifact["id"]) == 1
+
+
+@pytest.mark.parametrize(
+    ("decision", "expected_status"),
+    [("approved", "ready"), ("rejected", "rejected")],
+)
+def test_runner_builds_typed_continuation_artifact_from_persisted_draft(
+    decision: str,
+    expected_status: str,
+) -> None:
+    draft = SimpleNamespace(ai_metadata={"continuation": _continuation_payload()})
+    fake_runner = SimpleNamespace(db=MagicMock())
+    fake_runner.db.get.return_value = draft
+    decision_result = {
+        "draft": {"id": "draft-1"},
+        "approval": {"id": "approval-1", "status": decision, "decision": decision},
+        "operation": {
+            "status": "succeeded" if decision == "approved" else "skipped",
+            "business_entity_ids": ["ingredient-1"] if decision == "approved" else [],
+        },
+    }
+
+    artifact = WorkspaceGraphRunner._consume_resume_after_approval(
+        fake_runner,
+        {"run_id": "run-1"},
+        decision_result,
+    )
+
+    assert artifact is not None
+    assert artifact["status"] == expected_status
+    assert artifact["payload"]["businessEntityIds"] == (
+        ["ingredient-1"] if decision == "approved" else []
+    )

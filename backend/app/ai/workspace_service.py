@@ -524,9 +524,11 @@ class AIApplicationService:
         )
         summary = self._draft_preview_summary(draft_type, payload)
         after_approval = draft_payload.get("after_approval") if isinstance(draft_payload.get("after_approval"), dict) else {}
+        continuation = draft_payload.get("continuation") if isinstance(draft_payload.get("continuation"), dict) else {}
         ai_metadata = {
             "toolName": str(draft_payload.get("tool") or ""),
             **({"afterApproval": after_approval} if after_approval else {}),
+            **({"continuation": continuation} if continuation else {}),
         }
         return create_ai_draft_approval(
             self.db,

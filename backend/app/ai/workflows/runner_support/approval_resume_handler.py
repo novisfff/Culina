@@ -7,9 +7,11 @@ from typing import TYPE_CHECKING, Any
 from fastapi.encoders import jsonable_encoder
 
 from app.ai.workflows.runner_support.approval_resume import (
+    ContinuationResumeError,
     approval_failed_state_patch,
     approval_resolved_state_patch,
     approval_waiting_state_patch,
+    continuation_resume_state,
 )
 from app.ai.workflows.runner_support.run_summary import record_approval_outcome_summary
 from app.ai.workflows.state import WorkspaceGraphState
@@ -162,6 +164,26 @@ class ApprovalResumeHandler:
                 approval_artifacts=approval_artifacts,
             )
         resume_artifact = self.runner._consume_resume_after_approval(state, serialized)
+        if self._is_typed_continuation(resume_artifact):
+            resolved_artifact, injected_skill_keys, injection_history, should_continue = (
+                self._resolve_typed_continuation(state=state, artifact=resume_artifact)
+            )
+            next_status = "running" if should_continue else "completed"
+            if run is not None:
+                run.status = next_status
+            if conversation is not None:
+                conversation.last_run_status = next_status
+            self.runner.db.flush()
+            return approval_resolved_state_patch(
+                state=state,
+                serialized=serialized,
+                status=next_status,
+                run_artifacts=run_artifacts,
+                approval_artifacts=approval_artifacts,
+                resume_artifact=resolved_artifact,
+                injected_skill_keys=injected_skill_keys,
+                injection_history=injection_history,
+            )
         if resume_artifact is None:
             self.runner.approval_followup_streamer.stream_followup(state, serialized, terminal_status="completed")
             if run is not None:
@@ -370,6 +392,27 @@ class ApprovalResumeHandler:
         if not self.runner._commit_stream_checkpoint(state, run_status="running"):
             raise RuntimeError("确认结果持久化失败，请稍后重试")
         resume_artifact = self.runner._consume_resume_after_approval(state, serialized)
+        if self._is_typed_continuation(resume_artifact):
+            resolved_artifact, injected_skill_keys, injection_history, should_continue = (
+                self._resolve_typed_continuation(state=state, artifact=resume_artifact)
+            )
+            next_status = "running" if should_continue else "completed"
+            if not should_continue:
+                if run is not None:
+                    run.status = next_status
+                if conversation is not None:
+                    conversation.last_run_status = next_status
+                self.runner.db.flush()
+            return approval_resolved_state_patch(
+                state=state,
+                serialized=serialized,
+                status=next_status,
+                run_artifacts=run_artifacts,
+                approval_artifacts=approval_artifacts,
+                resume_artifact=resolved_artifact,
+                injected_skill_keys=injected_skill_keys,
+                injection_history=injection_history,
+            )
         if resume_artifact is None:
             self.runner.approval_followup_streamer.stream_followup(state, serialized, terminal_status="completed")
             if run is not None:
@@ -392,3 +435,40 @@ class ApprovalResumeHandler:
             approval_artifacts=approval_artifacts,
             resume_artifact=resume_artifact,
         )
+
+    @staticmethod
+    def _is_typed_continuation(artifact: dict[str, Any] | None) -> bool:
+        return isinstance(artifact, dict) and artifact.get("type") == "workflow.continuation"
+
+    @staticmethod
+    def _resolve_typed_continuation(
+        *,
+        state: WorkspaceGraphState,
+        artifact: dict[str, Any],
+    ) -> tuple[dict[str, Any], list[str], list[dict[str, Any]], bool]:
+        try:
+            injected_skill_keys, injection_history = continuation_resume_state(
+                state=state,
+                artifact=artifact,
+            )
+        except ContinuationResumeError as exc:
+            failed_artifact = {
+                **artifact,
+                "status": "failed",
+                "payload": {
+                    **(
+                        artifact.get("payload")
+                        if isinstance(artifact.get("payload"), dict)
+                        else {}
+                    ),
+                    "status": "failed",
+                    "errorCode": exc.code,
+                },
+            }
+            return (
+                failed_artifact,
+                list(state.get("injected_skill_keys") or []),
+                list(state.get("injection_history") or []),
+                False,
+            )
+        return artifact, injected_skill_keys, injection_history, True
