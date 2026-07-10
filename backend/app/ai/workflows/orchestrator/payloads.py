@@ -68,7 +68,7 @@ class OrchestratorPromptPayloadBuilder:
         return build_orchestrator_system_prompt(
             config=DEFAULT_ORCHESTRATOR_PROMPT,
             context=context,
-            catalog_records=self.injection_manager.catalog_records(capability_policy) if capability_policy.exposes_catalog_records() else [],
+            catalog_records=self.injection_manager.routing_records(capability_policy) if capability_policy.exposes_catalog_records() else [],
             injected_skill_records=[bundle.manifest_record for bundle in bundles],
             injected_skill_instruction_sections=[
                 f"# {bundle.display_name} ({bundle.key})\n\n{bundle.instructions}"

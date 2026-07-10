@@ -1,14 +1,19 @@
 from __future__ import annotations
 
 from pathlib import Path
+from unittest.mock import MagicMock
 
 import pytest
 import yaml
 
 from app.ai.skills.loader import SkillDirectoryLoader
+from app.ai.skills.base import SkillContext
 from app.ai.skills.registry import SkillRegistry
 from app.ai.skills.registry import build_workspace_skill_registry
+from app.ai.tools import ToolContext, ToolExecutor
 from app.ai.tools.registry import build_workspace_tool_registry
+from app.ai.workflows.orchestrator import SkillInjectionManager
+from app.ai.workflows.orchestrator.payloads import OrchestratorPromptPayloadBuilder
 
 
 def test_routing_record_excludes_execution_only_contracts() -> None:
@@ -32,6 +37,38 @@ def test_execution_record_contains_machine_contracts() -> None:
     assert record["allowedTools"] == manifest.tools
     assert record["draftContract"] == manifest.draft_contract
     assert record["handoffs"] == manifest.handoffs_record()
+
+
+def test_prompt_uses_routing_records_before_injection_and_execution_records_after() -> None:
+    registry = build_workspace_skill_registry()
+    builder = OrchestratorPromptPayloadBuilder(SkillInjectionManager(registry))
+    context = SkillContext(
+        db=MagicMock(),
+        family_id="family-contract-v3",
+        user_id="user-contract-v3",
+        conversation_id="conversation-contract-v3",
+        run_id="run-contract-v3",
+        conversation=[],
+        current_message="整理购物清单",
+        tool_executor=ToolExecutor(
+            build_workspace_tool_registry(),
+            ToolContext(
+                db=MagicMock(),
+                family_id="family-contract-v3",
+                user_id="user-contract-v3",
+                conversation_id="conversation-contract-v3",
+                run_id="run-contract-v3",
+            ),
+        ),
+    )
+
+    prompt = builder.system_prompt(context, [])
+    injected_prompt = builder.system_prompt(context, ["shopping_list"])
+
+    assert '"routing"' in prompt
+    assert '"toolBudget"' not in prompt
+    assert '"allowedTools"' in injected_prompt
+    assert '"handoffs"' in injected_prompt
 
 
 def _write_skill(tmp_path: Path, slug: str, runtime: dict) -> None:

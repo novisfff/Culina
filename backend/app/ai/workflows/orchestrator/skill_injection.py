@@ -32,12 +32,12 @@ class SkillInjectionManager:
     def __init__(self, skill_registry: SkillRegistry) -> None:
         self.skill_registry = skill_registry
 
-    def catalog_records(
+    def routing_records(
         self,
         capability_policy: OrchestratorCapabilityPolicy | None = None,
     ) -> list[dict[str, Any]]:
         return [
-            manifest.to_catalog_record()
+            manifest.to_routing_record()
             for manifest in self.skill_registry.list_manifests()
             if capability_policy is None or capability_policy.allows_skill(manifest.key)
         ]
@@ -68,7 +68,7 @@ class SkillInjectionManager:
             key=manifest.key,
             display_name=manifest.name,
             instructions=str(getattr(skill, "instructions", "") or ""),
-            manifest_record=manifest.to_catalog_record(),
+            manifest_record=manifest.to_execution_record(),
             allowed_tools=list(manifest.tools),
             output_types=list(manifest.output_types),
             draft_types=list(manifest.draft_types),
