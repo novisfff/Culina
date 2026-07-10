@@ -6,11 +6,27 @@ from app.ai.skills.state_schemas import CONTINUATION_STATE_SCHEMAS
 from app.ai.tools.registry import build_workspace_tool_registry
 
 
-_ATTACHMENT_BINDING_FIELDS = {
-    "food_profile": ("media_ids",),
-    "ingredient_profile": ("media_ids",),
-    "recipe_draft": ("media_ids",),
-    "meal_log": ("mediaIds",),
+_ATTACHMENT_BINDING_POLICIES = {
+    "food_profile": (
+        ("image",),
+        ("draft_media_binding", "image_generation_reference"),
+        ("media_ids",),
+    ),
+    "ingredient_profile": (
+        ("image",),
+        ("draft_media_binding", "image_generation_reference"),
+        ("media_ids",),
+    ),
+    "recipe_draft": (
+        ("image",),
+        ("draft_media_binding", "image_generation_reference"),
+        ("media_ids",),
+    ),
+    "meal_log": (
+        ("image",),
+        ("draft_media_binding",),
+        ("mediaIds",),
+    ),
 }
 _ATTACHMENT_USAGES = {"draft_media_binding", "image_generation_reference"}
 
@@ -73,7 +89,7 @@ class SkillRegistry:
                 f"Skill {manifest.key} attachment policy must be current-message-only and explicit user intent"
             )
 
-        allowed_fields = _ATTACHMENT_BINDING_FIELDS.get(manifest.key)
+        expected_policy = _ATTACHMENT_BINDING_POLICIES.get(manifest.key)
         declared_groups = (
             bool(policy.accepted_kinds),
             bool(policy.usages),
@@ -85,21 +101,26 @@ class SkillRegistry:
             )
         if not any(declared_groups):
             return
-        if allowed_fields is None:
+        if expected_policy is None:
             raise ValueError(
                 f"Skill {manifest.key} cannot declare attachment kinds, usages, or binding fields"
             )
 
-        if policy.bindable_fields != allowed_fields:
+        expected_kinds, expected_usages, expected_fields = expected_policy
+        if policy.bindable_fields != expected_fields:
             raise ValueError(
                 f"Skill {manifest.key} cannot bind attachment fields: {', '.join(policy.bindable_fields)}"
             )
-        if policy.accepted_kinds != ("image",):
+        if policy.accepted_kinds != expected_kinds:
             raise ValueError(f"Skill {manifest.key} may accept only image attachments for binding")
         unknown_usages = sorted(set(policy.usages) - _ATTACHMENT_USAGES)
         if unknown_usages:
             raise ValueError(
                 f"Skill {manifest.key} has unsupported attachment usages: {', '.join(unknown_usages)}"
+            )
+        if policy.usages != expected_usages:
+            raise ValueError(
+                f"Skill {manifest.key} attachment policy must exactly match its declared contract"
             )
 
 

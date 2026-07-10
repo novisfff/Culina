@@ -13,6 +13,7 @@ class SourceOwnedFoodPlanContinuationProvider(BaseChatProvider):
         self.active_calls = 0
         self.continuation_artifacts: list[dict] = []
         self.resume_skill_available = False
+        self.observed_resume_skill_availability: list[bool] = []
         self.initial_skills = initial_skills or ["food_profile"]
         self.food_draft = food_draft or {
             "draftType": "food_profile",
@@ -83,6 +84,11 @@ class SourceOwnedFoodPlanContinuationProvider(BaseChatProvider):
             if isinstance(artifact, dict) and artifact.get("type") == "workflow.continuation"
         ]
         self.continuation_artifacts.extend(continuation_artifacts)
+        tool_definitions = tools() if callable(tools) else tools
+        self.resume_skill_available = "meal_plan.create_draft" in {
+            tool.name for tool in tool_definitions
+        }
+        self.observed_resume_skill_availability.append(self.resume_skill_available)
         latest_decision = next(
             (
                 artifact
@@ -102,10 +108,6 @@ class SourceOwnedFoodPlanContinuationProvider(BaseChatProvider):
             artifact for artifact in reversed(continuation_artifacts) if artifact.get("status") == "ready"
         )
         food_id = continuation["payload"]["businessEntityIds"][0]
-        tool_definitions = tools() if callable(tools) else tools
-        self.resume_skill_available = "meal_plan.create_draft" in {
-            tool.name for tool in tool_definitions
-        }
         assert self.resume_skill_available
         text = "食物资料已确认，接下来创建晚餐计划草稿。"
         if message_handler is not None:
@@ -233,6 +235,7 @@ class AIWorkspacePhaseFlowsTestCase(AIAgentInfraTestCase):
 
             self.assertEqual(provider.active_calls, 2)
             self.assertEqual([item["status"] for item in provider.continuation_artifacts], ["rejected"])
+            self.assertEqual(provider.observed_resume_skill_availability, [False])
             self.assertFalse(provider.resume_skill_available)
             with self.SessionLocal() as db:
                 self.assertIsNone(db.scalar(select(Food).where(Food.name == "盒装牛奶")))

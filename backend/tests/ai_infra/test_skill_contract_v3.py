@@ -471,6 +471,74 @@ def test_v3_registry_rejects_unknown_attachment_usage(tmp_path: Path) -> None:
         )
 
 
+@pytest.mark.parametrize(
+    ("skill_key", "policy", "expected_error"),
+    [
+        (
+            "meal_log",
+            {
+                "accepted_kinds": ["image"],
+                "usages": ["draft_media_binding", "image_generation_reference"],
+                "bindable_fields": ["mediaIds"],
+                "current_message_only": True,
+                "explicit_user_intent_required": True,
+            },
+            "attachment policy must exactly match",
+        ),
+        (
+            "food_profile",
+            {
+                "accepted_kinds": ["image"],
+                "usages": ["draft_media_binding"],
+                "bindable_fields": ["media_ids"],
+                "current_message_only": True,
+                "explicit_user_intent_required": True,
+            },
+            "attachment policy must exactly match",
+        ),
+        (
+            "food_profile",
+            {
+                "accepted_kinds": ["image"],
+                "usages": [
+                    "draft_media_binding",
+                    "image_generation_reference",
+                    "image_generation_reference",
+                ],
+                "bindable_fields": ["media_ids"],
+                "current_message_only": True,
+                "explicit_user_intent_required": True,
+            },
+            "contains duplicate values",
+        ),
+        (
+            "food_profile",
+            {
+                "accepted_kinds": ["image"],
+                "usages": ["image_generation_reference", "draft_media_binding"],
+                "bindable_fields": ["media_ids"],
+                "current_message_only": True,
+                "explicit_user_intent_required": True,
+            },
+            "attachment policy must exactly match",
+        ),
+    ],
+)
+def test_v3_registry_requires_exact_skill_attachment_policy(
+    tmp_path: Path,
+    skill_key: str,
+    policy: dict,
+    expected_error: str,
+) -> None:
+    with pytest.raises(ValueError, match=expected_error):
+        load_v3_registry(
+            tmp_path,
+            handoffs={},
+            source_skill_key=skill_key,
+            source_attachment_policy=policy,
+        )
+
+
 def test_v3_registry_requires_empty_attachment_policy_for_non_bindable_skill(tmp_path: Path) -> None:
     policy = {
         "accepted_kinds": ["image"],
