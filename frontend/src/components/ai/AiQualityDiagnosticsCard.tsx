@@ -4,6 +4,7 @@ import {
   AI_SKILL_LABELS,
   aiRunSuccessRate,
   formatAiDuration,
+  formatAiRate,
   formatAiMetricLabel,
   sumAiNestedStatus,
   topAiMetricEntry,
@@ -72,27 +73,27 @@ export function AiQualityDiagnosticsCard({ metrics, isLoading, isError, onRetry 
       </div>
       <div className="ai-quality-metrics">
         <div>
-          <span>完成率</span>
+          <span>运行成功率</span>
           <strong>{aiRunSuccessRate(metrics)}</strong>
         </div>
-        <div className={failedRuns > 0 ? 'needs-attention' : ''}>
-          <span>失败</span>
-          <strong>{failedRuns}</strong>
+        <div>
+          <span>草稿一次通过</span>
+          <strong>{formatAiRate(metrics.operational_metrics.draftFirstPassRate)}</strong>
         </div>
         <div>
-          <span>澄清</span>
-          <strong>{metrics.totals.clarificationCount}</strong>
+          <span>跨步骤完成</span>
+          <strong>{formatAiRate(metrics.operational_metrics.continuationCompletionRate)}</strong>
         </div>
         <div>
-          <span>审批</span>
-          <strong>{metrics.totals.approvalRequestCount}</strong>
-        </div>
-        <div className={failedTraceItems > 0 ? 'needs-attention' : ''}>
-          <span>Trace 失败</span>
-          <strong>{failedTraceItems}</strong>
+          <span>确认时未修改</span>
+          <strong>{formatAiRate(metrics.operational_metrics.approvalUneditedRate)}</strong>
         </div>
       </div>
       <div className="ai-quality-lines">
+        <p>
+          <span>运行提醒</span>
+          <strong>{failedRuns > 0 || failedTraceItems > 0 ? `失败 ${failedRuns} 次 · Trace ${failedTraceItems} 项` : '状态平稳'}</strong>
+        </p>
         <p>
           <span>高频意图</span>
           <strong>{topIntent ? `${formatAiMetricLabel(topIntent.key, AI_INTENT_LABELS)} · ${topIntent.count}` : '暂无'}</strong>

@@ -5,6 +5,127 @@ from typing import Any
 from app.ai.skills import SkillResult
 
 
+QUALITY_METRIC_KEYS = (
+    "routeSelectionCount",
+    "draftValidationCandidateCount",
+    "draftValidationAttemptCount",
+    "draftFirstPassSuccessCount",
+    "invalidIdentityRejectedCount",
+    "toolBudgetExhaustedCount",
+    "continuationStartedCount",
+    "continuationCompletedCount",
+    "continuationRejectedCount",
+)
+_DEDUP_LIMIT = 20
+
+
+def _metrics(summary: dict[str, Any]) -> dict[str, Any]:
+    metrics = dict(summary.get("runMetrics") or {})
+    summary["runMetrics"] = metrics
+    return metrics
+
+
+def _record_once(summary: dict[str, Any], *, bucket: str, identifier: str, metric: str) -> bool:
+    dedup = dict(summary.get("qualityDedup") or {})
+    seen = [str(value) for value in dedup.get(bucket, []) if str(value)]
+    if identifier in seen:
+        return False
+    seen.append(identifier)
+    dedup[bucket] = seen[-_DEDUP_LIMIT:]
+    summary["qualityDedup"] = dedup
+    metrics = _metrics(summary)
+    metrics[metric] = int(metrics.get(metric) or 0) + 1
+    return True
+
+
+def record_route_selection(summary: dict[str, Any], *, selection_key: str) -> None:
+    _record_once(summary, bucket="routeSelections", identifier=selection_key, metric="routeSelectionCount")
+
+
+def record_draft_validation(
+    summary: dict[str, Any],
+    *,
+    candidate_key: str,
+    succeeded: bool,
+    attempt: int,
+) -> None:
+    is_new = _record_once(
+        summary,
+        bucket="draftCandidates",
+        identifier=candidate_key,
+        metric="draftValidationCandidateCount",
+    )
+    dedup = dict(summary.get("qualityDedup") or {})
+    attempt_key = f"{candidate_key}:{attempt}"
+    attempts = [str(value) for value in dedup.get("draftAttempts", []) if str(value)]
+    if attempt_key not in attempts:
+        attempts.append(attempt_key)
+        dedup["draftAttempts"] = attempts[-_DEDUP_LIMIT:]
+        summary["qualityDedup"] = dedup
+        metrics = _metrics(summary)
+        metrics["draftValidationAttemptCount"] = int(metrics.get("draftValidationAttemptCount") or 0) + 1
+    if succeeded and attempt == 1:
+        _record_once(
+            summary,
+            bucket="draftFirstPassSuccesses",
+            identifier=candidate_key,
+            metric="draftFirstPassSuccessCount",
+        )
+
+
+def next_draft_validation_attempt(summary: dict[str, Any], *, candidate_key: str) -> int:
+    dedup = summary.get("qualityDedup") if isinstance(summary.get("qualityDedup"), dict) else {}
+    prefix = candidate_key + ":"
+    attempts = [str(value) for value in dedup.get("draftAttempts", []) if str(value).startswith(prefix)]
+    return len(attempts) + 1
+
+
+def record_invalid_identity_rejected(summary: dict[str, Any], *, rejection_key: str) -> None:
+    _record_once(
+        summary,
+        bucket="identityRejections",
+        identifier=rejection_key,
+        metric="invalidIdentityRejectedCount",
+    )
+
+
+def record_tool_budget_exhausted(summary: dict[str, Any], *, budget_key: str) -> None:
+    _record_once(
+        summary,
+        bucket="toolBudgetExhaustions",
+        identifier=budget_key,
+        metric="toolBudgetExhaustedCount",
+    )
+
+
+def record_continuation_started(summary: dict[str, Any], *, workflow_id: str) -> None:
+    _record_once(
+        summary,
+        bucket="continuationStarted",
+        identifier=workflow_id,
+        metric="continuationStartedCount",
+    )
+
+
+def record_continuation_completed(summary: dict[str, Any], *, workflow_id: str) -> None:
+    record_continuation_started(summary, workflow_id=workflow_id)
+    _record_once(
+        summary,
+        bucket="continuationCompleted",
+        identifier=workflow_id,
+        metric="continuationCompletedCount",
+    )
+
+
+def record_continuation_rejected(summary: dict[str, Any], *, workflow_id: str) -> None:
+    _record_once(
+        summary,
+        bucket="continuationRejected",
+        identifier=workflow_id,
+        metric="continuationRejectedCount",
+    )
+
+
 def human_input_question_types(result: SkillResult) -> list[str]:
     if not isinstance(result.context_summary, dict):
         return []
@@ -64,7 +185,7 @@ def record_skill_observation(
     draft_count: int,
     approval_count: int,
 ) -> None:
-    metrics = dict(context_summary.get("runMetrics") or {})
+    metrics = _metrics(context_summary)
     if skill_key:
         metrics["skillExecutionCount"] = int(metrics.get("skillExecutionCount") or 0) + 1
     if result.status == "completed":
@@ -100,9 +221,40 @@ def result_context_summary(
     draft_count: int,
     approval_count: int,
     conversation_context: dict[str, Any] | None,
+    current_run_artifacts: list[dict[str, Any]] | None = None,
 ) -> tuple[dict[str, Any], list[str]]:
     context_summary = dict(existing_context_summary or {})
-    context_summary.update(result.context_summary)
+    result_summary = dict(result.context_summary or {})
+    result_metrics = dict(result_summary.pop("runMetrics", {}) or {})
+    result_dedup = dict(result_summary.pop("qualityDedup", {}) or {})
+    context_summary.update(result_summary)
+    if result_metrics:
+        metrics = _metrics(context_summary)
+        existing_dedup = dict(context_summary.get("qualityDedup") or {})
+        bucket_metrics = {
+            "routeSelections": "routeSelectionCount",
+            "draftCandidates": "draftValidationCandidateCount",
+            "draftAttempts": "draftValidationAttemptCount",
+            "draftFirstPassSuccesses": "draftFirstPassSuccessCount",
+            "identityRejections": "invalidIdentityRejectedCount",
+            "toolBudgetExhaustions": "toolBudgetExhaustedCount",
+            "continuationStarted": "continuationStartedCount",
+            "continuationCompleted": "continuationCompletedCount",
+            "continuationRejected": "continuationRejectedCount",
+        }
+        handled_metrics: set[str] = set()
+        for bucket, metric in bucket_metrics.items():
+            previous = [str(value) for value in existing_dedup.get(bucket, []) if str(value)]
+            incoming = [str(value) for value in result_dedup.get(bucket, []) if str(value)]
+            new_values = [value for value in incoming if value not in previous]
+            if new_values:
+                metrics[metric] = int(metrics.get(metric) or 0) + len(new_values)
+            existing_dedup[bucket] = list(dict.fromkeys(previous + incoming))[-_DEDUP_LIMIT:]
+            handled_metrics.add(metric)
+        for metric, value in result_metrics.items():
+            if metric not in handled_metrics:
+                metrics[metric] = int(metrics.get(metric) or 0) + int(value or 0)
+        context_summary["qualityDedup"] = existing_dedup
     skill_executions = list(context_summary.get("skillExecutions") or [])
     if skill_key:
         skill_executions.append(
@@ -124,6 +276,30 @@ def result_context_summary(
         draft_count=draft_count,
         approval_count=approval_count,
     )
+
+    if isinstance(conversation_context, dict):
+        artifacts = current_run_artifacts or conversation_context.get("currentRunArtifacts")
+        if not isinstance(artifacts, list):
+            task_state = conversation_context.get("taskState")
+            artifacts = task_state.get("currentRunArtifacts") if isinstance(task_state, dict) else []
+        if result.status in {"completed", "waiting_approval"}:
+            for artifact in artifacts if isinstance(artifacts, list) else []:
+                if not isinstance(artifact, dict) or artifact.get("type") != "workflow.continuation":
+                    continue
+                payload = artifact.get("payload") if isinstance(artifact.get("payload"), dict) else artifact
+                workflow_id = str(payload.get("workflowId") or "").strip()
+                resume_skill_key = str(payload.get("resumeSkillKey") or "").strip()
+                continuation_status = str(payload.get("status") or artifact.get("status") or "")
+                if workflow_id and continuation_status in {"rejected", "failed"}:
+                    record_continuation_rejected(context_summary, workflow_id=workflow_id)
+                has_terminal_output = bool(draft_count or result.cards or (result.text or "").strip())
+                if (
+                    workflow_id
+                    and continuation_status == "ready"
+                    and resume_skill_key in injected_skill_keys
+                    and has_terminal_output
+                ):
+                    record_continuation_completed(context_summary, workflow_id=workflow_id)
 
     if injected_skill_keys:
         routing = dict(context_summary.get("routing") or {})

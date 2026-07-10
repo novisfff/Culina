@@ -2,7 +2,7 @@ from ._support import *
 
 from typing import Any
 
-from app.ai.errors import ApprovalRequired, HumanInputRequired
+from app.ai.errors import ApprovalRequired, HumanInputRequired, ToolExecutionError
 from app.ai.runtime.provider import OpenAIResponsesChatProvider, ProviderImageInput, get_chat_provider
 from app.ai.tools import ToolRegistry
 from app.ai.tools.base import ToolDefinition
@@ -25,6 +25,10 @@ from app.ai.workflows.runner_support.message_parts import (
 )
 from app.ai.workflows.runner_support.run_summary import (
     record_approval_outcome_summary,
+    record_continuation_completed,
+    record_continuation_rejected,
+    record_continuation_started,
+    record_draft_validation,
     result_context_summary,
 )
 from app.ai.runtime.tool_loop import max_rounds_finalization_round
@@ -35,6 +39,7 @@ from app.ai.workflows.orchestrator.profiles import (
     MAIN_WORKSPACE_PROFILE,
     OrchestratorBudgetConfig,
 )
+from app.ai.workflows.orchestrator import tools as orchestrator_tools
 from app.schemas.ai import AIResultCardDTO
 
 
@@ -392,6 +397,271 @@ class AIFoundationTestCase(AIAgentInfraTestCase):
             self.assertEqual(summary["approvalStats"]["byDraftType"]["recipe"], {"approved": 1})
             self.assertEqual(summary["approvalStats"]["lastDecision"], {"status": "approved", "draftType": "recipe"})
 
+        def test_quality_counters_record_first_pass_and_continuation_idempotently(self) -> None:
+            summary: dict[str, Any] = {}
+            record_draft_validation(summary, candidate_key="tool-call-1", succeeded=True, attempt=1)
+            record_continuation_started(summary, workflow_id="flow-1")
+            record_continuation_started(summary, workflow_id="flow-1")
+            record_continuation_completed(summary, workflow_id="flow-1")
+            self.assertEqual(
+                summary["runMetrics"],
+                {
+                    "draftValidationCandidateCount": 1,
+                    "draftValidationAttemptCount": 1,
+                    "draftFirstPassSuccessCount": 1,
+                    "continuationStartedCount": 1,
+                    "continuationCompletedCount": 1,
+                },
+            )
+
+        def test_draft_quality_counter_treats_repair_as_same_candidate(self) -> None:
+            summary: dict[str, Any] = {}
+            record_draft_validation(summary, candidate_key="run-1:recipe.create_draft", succeeded=False, attempt=1)
+            record_draft_validation(summary, candidate_key="run-1:recipe.create_draft", succeeded=True, attempt=2)
+            self.assertEqual(summary["runMetrics"]["draftValidationCandidateCount"], 1)
+            self.assertEqual(summary["runMetrics"]["draftValidationAttemptCount"], 2)
+            self.assertEqual(summary["runMetrics"].get("draftFirstPassSuccessCount", 0), 0)
+
+        def test_result_summary_completes_ready_continuation_once_for_receiving_skill_terminal_output(self) -> None:
+            artifact = {
+                "type": "workflow.continuation",
+                "status": "ready",
+                "payload": {
+                    "workflowId": "flow-ready",
+                    "resumeSkillKey": "meal_plan",
+                    "status": "ready",
+                },
+            }
+            result = SkillResult(
+                text="已生成后续计划。",
+                status="completed",
+                context_summary={"orchestrator": {"injectedSkills": ["meal_plan"]}},
+            )
+
+            summary, _ = result_context_summary(
+                existing_context_summary={},
+                result=result,
+                skill_key=None,
+                draft_count=0,
+                approval_count=0,
+                conversation_context={},
+                current_run_artifacts=[artifact],
+            )
+            summary, _ = result_context_summary(
+                existing_context_summary=summary,
+                result=result,
+                skill_key=None,
+                draft_count=0,
+                approval_count=0,
+                conversation_context={},
+                current_run_artifacts=[artifact],
+            )
+
+            self.assertEqual(summary["runMetrics"]["continuationCompletedCount"], 1)
+            self.assertEqual(summary["runMetrics"]["continuationStartedCount"], 1)
+
+        def test_result_summary_does_not_complete_continuation_for_wrong_skill_or_missing_output(self) -> None:
+            artifact = {
+                "type": "workflow.continuation",
+                "status": "ready",
+                "payload": {
+                    "workflowId": "flow-not-complete",
+                    "resumeSkillKey": "meal_plan",
+                    "status": "ready",
+                },
+            }
+            wrong_skill, _ = result_context_summary(
+                existing_context_summary={},
+                result=SkillResult(
+                    text="处理完成。",
+                    status="completed",
+                    context_summary={"orchestrator": {"injectedSkills": ["shopping_list"]}},
+                ),
+                skill_key=None,
+                draft_count=0,
+                approval_count=0,
+                conversation_context={},
+                current_run_artifacts=[artifact],
+            )
+            missing_output, _ = result_context_summary(
+                existing_context_summary={},
+                result=SkillResult(
+                    text="",
+                    status="completed",
+                    context_summary={"orchestrator": {"injectedSkills": ["meal_plan"]}},
+                ),
+                skill_key=None,
+                draft_count=0,
+                approval_count=0,
+                conversation_context={},
+                current_run_artifacts=[artifact],
+            )
+
+            self.assertEqual(wrong_skill.get("runMetrics", {}).get("continuationCompletedCount", 0), 0)
+            self.assertEqual(missing_output.get("runMetrics", {}).get("continuationCompletedCount", 0), 0)
+
+        def test_result_summary_deduplicates_checkpointed_quality_counters(self) -> None:
+            result_summary: dict[str, Any] = {}
+            record_draft_validation(result_summary, candidate_key="call-checkpoint", succeeded=True, attempt=1)
+            result = SkillResult(text="完成。", status="completed", context_summary=result_summary)
+
+            persisted, _ = result_context_summary(
+                existing_context_summary={},
+                result=result,
+                skill_key=None,
+                draft_count=0,
+                approval_count=0,
+                conversation_context=None,
+            )
+            replayed, _ = result_context_summary(
+                existing_context_summary=persisted,
+                result=result,
+                skill_key=None,
+                draft_count=0,
+                approval_count=0,
+                conversation_context=None,
+            )
+
+            self.assertEqual(replayed["runMetrics"]["draftValidationCandidateCount"], 1)
+            self.assertEqual(replayed["runMetrics"]["draftValidationAttemptCount"], 1)
+            self.assertEqual(replayed["runMetrics"]["draftFirstPassSuccessCount"], 1)
+
+        def test_draft_candidate_metrics_use_provider_tool_call_identity(self) -> None:
+            class RepairingDraftProvider(BaseChatProvider):
+                model_name = "draft-candidate-identity"
+
+                def generate(self, *, system: str, user: str) -> ChatProviderResult:
+                    raise AssertionError("orchestrator should use generate_with_tools")
+
+                def generate_with_tools(self, *, system, user, tools, tool_handler, **kwargs):
+                    del system, user, kwargs
+                    tool_handler("skill.inject", {"skills": ["ingredient_profile"], "reason": "评估草稿修复"})
+                    tools()
+                    try:
+                        tool_handler("ingredient_profile.create_draft", {}, None, "call-draft-repair")
+                    except ValueError:
+                        pass
+                    tool_handler(
+                        "ingredient_profile.create_draft",
+                        {
+                            "draft": {
+                                "draftType": "ingredient_profile",
+                                "schemaVersion": "ingredient_profile.v1",
+                                "action": "create",
+                                "payload": {
+                                    "name": "评估青菜",
+                                    "category": "蔬菜",
+                                    "default_unit": "棵",
+                                    "default_storage": "冷藏",
+                                    "default_expiry_mode": "none",
+                                },
+                            }
+                        },
+                        None,
+                        "call-draft-repair",
+                    )
+                    raise AssertionError("successful draft call must pause for approval")
+
+            with patch("app.ai.workspace_service.get_chat_provider", return_value=RepairingDraftProvider()):
+                response = self.client.post("/api/ai/chat", json={"message": "新增评估青菜"})
+            self.assertEqual(response.status_code, 200, response.text)
+            run_id = response.json()["run"]["id"]
+            with self.SessionLocal() as db:
+                run = db.get(AIAgentRun, run_id)
+                assert run is not None
+                metrics = run.context_summary["runMetrics"]
+            self.assertEqual(metrics["draftValidationCandidateCount"], 1)
+            self.assertEqual(metrics["draftValidationAttemptCount"], 2)
+            self.assertEqual(metrics.get("draftFirstPassSuccessCount", 0), 0)
+
+        def test_draft_candidate_metrics_count_new_call_ids_and_deduplicate_replayed_id(self) -> None:
+            class ReplayedDraftProvider(BaseChatProvider):
+                model_name = "draft-candidate-replay"
+
+                def generate(self, *, system: str, user: str) -> ChatProviderResult:
+                    raise AssertionError("orchestrator should use generate_with_tools")
+
+                def generate_with_tools(self, *, system, user, tools, tool_handler, **kwargs):
+                    del system, user, kwargs
+                    tool_handler("skill.inject", {"skills": ["ingredient_profile"], "reason": "评估草稿候选"})
+                    tools()
+                    for call_id in ("call-draft-a", "call-draft-b", "call-draft-a"):
+                        try:
+                            tool_handler("ingredient_profile.create_draft", {}, None, call_id)
+                        except ValueError:
+                            pass
+                    return ChatProviderResult(text="草稿输入需要修复。", status="completed", model=self.model_name)
+
+            with patch("app.ai.workspace_service.get_chat_provider", return_value=ReplayedDraftProvider()):
+                response = self.client.post("/api/ai/chat", json={"message": "新增食材"})
+            self.assertEqual(response.status_code, 200, response.text)
+            run_id = response.json()["run"]["id"]
+            with self.SessionLocal() as db:
+                run = db.get(AIAgentRun, run_id)
+                assert run is not None
+                metrics = run.context_summary["runMetrics"]
+            self.assertEqual(metrics["draftValidationCandidateCount"], 2)
+            self.assertEqual(metrics["draftValidationAttemptCount"], 3)
+
+        def test_invalid_continuation_attempts_are_counted_per_tool_call_and_replays_are_idempotent(self) -> None:
+            class InvalidContinuationProvider(BaseChatProvider):
+                model_name = "invalid-continuation-lifecycle"
+
+                def generate(self, *, system: str, user: str) -> ChatProviderResult:
+                    raise AssertionError("orchestrator should use generate_with_tools")
+
+                def generate_with_tools(self, *, system, user, tools, tool_handler, **kwargs):
+                    del system, user, kwargs
+                    tool_handler("skill.inject", {"skills": ["food_profile"], "reason": "评估 continuation"})
+                    tools()
+                    invalid_values = [
+                        ("call-continuation-object", []),
+                        ("call-continuation-missing-id", {"reasonCode": "plan_after_create"}),
+                        (
+                            "call-continuation-state",
+                            {
+                                "workflowId": "flow-invalid-state",
+                                "stepKey": "create-food",
+                                "reasonCode": "plan_after_create",
+                                "nextSkillKey": "meal_plan",
+                                "resumeSkillKey": "meal_plan",
+                                "requiredDraftType": "meal_plan",
+                                "stateSchema": "food_to_meal_plan.v1",
+                                "state": {},
+                            },
+                        ),
+                    ]
+                    for call_id, continuation in [*invalid_values, invalid_values[0]]:
+                        try:
+                            tool_handler(
+                                "food_profile.create_draft",
+                                {
+                                    "draft": {
+                                        "draftType": "food_profile",
+                                        "schemaVersion": "food_profile.v1",
+                                        "name": "评估饮品",
+                                        "type": "readyMade",
+                                        "category": "饮品",
+                                    },
+                                    "continuation": continuation,
+                                },
+                                None,
+                                call_id,
+                            )
+                        except ValueError:
+                            pass
+                    return ChatProviderResult(text="continuation 输入已拒绝。", status="completed", model=self.model_name)
+
+            with patch("app.ai.workspace_service.get_chat_provider", return_value=InvalidContinuationProvider()):
+                response = self.client.post("/api/ai/chat", json={"message": "新增饮品后安排晚餐"})
+            self.assertEqual(response.status_code, 200, response.text)
+            run_id = response.json()["run"]["id"]
+            with self.SessionLocal() as db:
+                run = db.get(AIAgentRun, run_id)
+                assert run is not None
+                metrics = run.context_summary["runMetrics"]
+            self.assertEqual(metrics["continuationRejectedCount"], 3)
+
         def test_orchestrator_message_part_helpers_build_stable_payloads(self) -> None:
             self.assertEqual(
                 result_card_message_part(
@@ -667,6 +937,48 @@ class AIFoundationTestCase(AIAgentInfraTestCase):
                 self.assertEqual(run.tool_calls, [])
                 self.assertEqual(run.error, "provider unavailable")
                 self.assertIn("orchestrator", run.context_summary)
+
+        def test_provider_failure_preserves_quality_metrics_recorded_before_failure(self) -> None:
+            class FailedAfterInjectionProvider(BaseChatProvider):
+                model_name = "failed-after-injection"
+
+                def generate(self, *, system: str, user: str) -> ChatProviderResult:
+                    raise AssertionError("orchestrator should use generate_with_tools")
+
+                def generate_with_tools(self, *, system, user, tools, tool_handler, **kwargs):
+                    del system, user, kwargs
+                    tool_handler("skill.inject", {"skills": ["inventory_analysis"], "reason": "测试失败计数"})
+                    tools()
+                    return ChatProviderResult(
+                        text=None,
+                        status="failed",
+                        model=self.model_name,
+                        error="provider failed after routing",
+                    )
+
+            with patch(
+                "app.ai.workspace_service.get_chat_provider",
+                return_value=FailedAfterInjectionProvider(),
+            ):
+                response = self.client.post("/api/ai/chat", json={"message": "查库存后失败"})
+            self.assertEqual(response.status_code, 200, response.text)
+            with self.SessionLocal() as db:
+                run = db.get(AIAgentRun, response.json()["run"]["id"])
+                assert run is not None
+                metrics = run.context_summary["runMetrics"]
+            self.assertEqual(metrics["routeSelectionCount"], 1)
+
+        def test_identity_rejection_metrics_require_a_stable_error_code(self) -> None:
+            self.assertFalse(
+                orchestrator_tools.is_identity_rejection_error(
+                    ValueError("食材不存在或不属于当前家庭")
+                )
+            )
+            self.assertTrue(
+                orchestrator_tools.is_identity_rejection_error(
+                    ToolExecutionError("食材不存在或不属于当前家庭", code="family_scope_violation")
+                )
+            )
 
         def test_context_tools_are_family_scoped(self) -> None:
             with self.SessionLocal() as db:

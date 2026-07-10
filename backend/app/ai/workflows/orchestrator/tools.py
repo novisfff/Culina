@@ -22,6 +22,29 @@ from app.ai.workflows.orchestrator.state import OrchestratorRunState
 from app.ai.workflows.orchestrator.tool_budget import evaluate_tool_budget
 from app.ai.workflows.orchestrator.tool_outputs import capture_tool_contract_metadata
 from app.ai.workflows.orchestrator.tool_schemas import provider_visible_tools
+from app.ai.workflows.runner_support.run_summary import (
+    record_continuation_started,
+    record_continuation_rejected,
+    record_draft_validation,
+    record_invalid_identity_rejected,
+    next_draft_validation_attempt,
+    record_route_selection,
+    record_tool_budget_exhausted,
+)
+
+
+_IDENTITY_REJECTION_CODES = {
+    "cross_family_reference",
+    "family_scope_violation",
+    "invalid_entity_id",
+    "resource_not_found",
+    "unknown_media",
+    "unknown_entity_id",
+}
+
+
+def is_identity_rejection_error(exc: Exception) -> bool:
+    return str(getattr(exc, "code", "") or "") in _IDENTITY_REJECTION_CODES
 
 
 class OrchestratorToolGateway:
@@ -68,7 +91,13 @@ class OrchestratorToolGateway:
             status=status,
         )
 
-    def call_tool(self, name: str, payload: dict[str, Any], progress_event_id: str | None = None) -> dict[str, Any]:
+    def call_tool(
+        self,
+        name: str,
+        payload: dict[str, Any],
+        progress_event_id: str | None = None,
+        tool_call_id: str | None = None,
+    ) -> dict[str, Any]:
         self.context.ensure_active()
         if name == "skill.inject":
             if not self.state.capability_policy.allows_dynamic_skill_injection():
@@ -88,6 +117,14 @@ class OrchestratorToolGateway:
                 injection_manager=self.injection_manager,
                 state=self.state,
             )
+            for injected in output.get("injectedSkills", []):
+                skill_key = str(injected.get("key") or "") if isinstance(injected, dict) else str(injected)
+                if not skill_key:
+                    continue
+                record_route_selection(
+                    self.state.quality_summary,
+                    selection_key=f"dynamic:{skill_key}",
+                )
             self._capture_tool_contract_metadata(name, "control", output)
             return output
         if name not in self.state.current_tool_names:
@@ -110,22 +147,38 @@ class OrchestratorToolGateway:
         runtime_payload = self._with_contextual_tool_payload(name, payload)
         raw_continuation = runtime_payload.get("continuation")
         source_skill_key = None
-        if isinstance(raw_continuation, dict):
-            source_skill_key = self.injection_manager.continuation_source_skill_key(
-                raw_continuation,
-                self.state.active_skill_keys,
+        try:
+            if isinstance(raw_continuation, dict):
+                source_skill_key = self.injection_manager.continuation_source_skill_key(
+                    raw_continuation,
+                    self.state.active_skill_keys,
+                )
+                owner_keys = self.injection_manager.skill_keys_for_tool(name, self.state.active_skill_keys)
+                target_skill_key = str(raw_continuation.get("nextSkillKey") or "").strip()
+                if source_skill_key not in owner_keys and target_skill_key not in owner_keys:
+                    raise ValueError("continuation source or target Skill does not own the draft tool")
+            prepared_payload = prepare_tool_payload(
+                payload=runtime_payload,
+                execution_definition=execution_definition,
+                source_skill_key=source_skill_key,
+                injection_manager=self.injection_manager,
+                capability_policy=self.state.capability_policy,
             )
-            owner_keys = self.injection_manager.skill_keys_for_tool(name, self.state.active_skill_keys)
-            target_skill_key = str(raw_continuation.get("nextSkillKey") or "").strip()
-            if source_skill_key not in owner_keys and target_skill_key not in owner_keys:
-                raise ValueError("continuation source or target Skill does not own the draft tool")
-        prepared_payload = prepare_tool_payload(
-            payload=runtime_payload,
-            execution_definition=execution_definition,
-            source_skill_key=source_skill_key,
-            injection_manager=self.injection_manager,
-            capability_policy=self.state.capability_policy,
-        )
+        except Exception:
+            if "continuation" in runtime_payload:
+                workflow_id = (
+                    str(raw_continuation.get("workflowId") or "").strip()
+                    if isinstance(raw_continuation, dict)
+                    else ""
+                )
+                record_continuation_rejected(
+                    self.state.quality_summary,
+                    workflow_id=(
+                        workflow_id
+                        or f"invalid:{tool_call_id or f'{self.context.run_id}:{name}'}"
+                    ),
+                )
+            raise
         budget_decision = evaluate_tool_budget(
             state=self.state,
             historical_record_count=len(self.context.tool_executor.records()),
@@ -136,6 +189,10 @@ class OrchestratorToolGateway:
         if not budget_decision.allowed:
             output = budget_decision.output or {}
             if output.get("code") == "tool_budget_exhausted":
+                record_tool_budget_exhausted(
+                    self.state.quality_summary,
+                    budget_key=f"{self.context.run_id}:tool-budget",
+                )
                 self.state.tool_budget_exhausted_attempts += 1
                 self.state.tool_budget_last_output = dict(output)
                 if budget_decision.hard_stop:
@@ -165,11 +222,51 @@ class OrchestratorToolGateway:
                 definition=runtime_definition,
             )
             return output
-        output = self.state.current_scoped_executor.call(
-            name,
-            prepared_payload.payload,
-            progress_event_id=progress_event_id,
+        candidate_key = tool_call_id or f"{self.context.run_id}:{name}:{budget_decision.signature}"
+        draft_attempt = (
+            next_draft_validation_attempt(self.state.quality_summary, candidate_key=candidate_key)
+            if execution_definition.side_effect == "draft"
+            else 0
         )
+        try:
+            output = self.state.current_scoped_executor.call(
+                name,
+                prepared_payload.payload,
+                progress_event_id=progress_event_id,
+            )
+        except Exception as exc:
+            if execution_definition.side_effect == "draft":
+                record_draft_validation(
+                    self.state.quality_summary,
+                    candidate_key=candidate_key,
+                    succeeded=False,
+                    attempt=draft_attempt,
+                )
+            error_text = str(exc)
+            if is_identity_rejection_error(exc):
+                record_invalid_identity_rejected(
+                    self.state.quality_summary,
+                    rejection_key=f"{name}:{candidate_key}:{error_text}",
+                )
+            raise
+        if execution_definition.side_effect == "draft":
+            record_draft_validation(
+                self.state.quality_summary,
+                candidate_key=candidate_key,
+                succeeded=not bool(output.get("error")),
+                attempt=draft_attempt,
+            )
+        error_code = str(output.get("code") or "")
+        if error_code in _IDENTITY_REJECTION_CODES:
+            record_invalid_identity_rejected(
+                self.state.quality_summary,
+                rejection_key=f"{name}:{candidate_key}:{error_code}",
+            )
+        if prepared_payload.continuation:
+            record_continuation_started(
+                self.state.quality_summary,
+                workflow_id=str(prepared_payload.continuation["workflowId"]),
+            )
         self.state.tool_signatures_this_call.append(budget_decision.signature)
         self.context.ensure_active()
         self._capture_tool_output(

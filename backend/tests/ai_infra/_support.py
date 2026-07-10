@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+from contextlib import ExitStack
 import json
 import tempfile
 import unittest
@@ -13,7 +14,7 @@ from unittest.mock import MagicMock, patch
 import httpx
 from fastapi.testclient import TestClient
 from langgraph.checkpoint.base import empty_checkpoint
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload, sessionmaker
 from sqlalchemy.pool import StaticPool
 from sqlalchemy import create_engine
@@ -57,6 +58,7 @@ from app.models.domain import (
     AIMessage,
     AIOperation,
     AIRunEvent,
+    AIRunTraceSpan,
     AITaskDraft,
     AIUserApproval,
     Base,
@@ -64,6 +66,7 @@ from app.models.domain import (
     Food,
     FoodPlanItem,
     Ingredient,
+    InventoryDeductionSuggestion,
     InventoryItem,
     MealLog,
     MealLogFood,
@@ -73,6 +76,7 @@ from app.models.domain import (
     RecipeCookLog,
     RecipeFavorite,
     RecipeIngredient,
+    RecipeStep,
     SearchIndexJob,
     ShoppingListItem,
     User,
@@ -1472,3 +1476,677 @@ class AIAgentInfraTestCase(unittest.TestCase):
         )
         Base.metadata.drop_all(self.engine)
         self.engine.dispose()
+
+
+class AIEvalContext:
+    """Runs deterministic eval cases through the real API, graph runner, and tool registry."""
+
+    EVAL_TODAY = date(2026, 7, 10)
+    CLOCK_PATCH_TARGETS = (
+        "app.ai.tools.catalog.inventory.today_for_family",
+        "app.ai.tools.catalog.meal_ideas.today_for_family",
+        "app.ai.tools.catalog.meal_plan.today_for_family",
+        "app.ai.tools.catalog.recipe.today_for_family",
+        "app.ai.tools.draft_validation.today_for_family",
+        "app.services.ai_operations.experience.today_for_family",
+        "app.services.ai_operations.inventory.today_for_family",
+        "app.services.ai_operations.recipe_cook.today_for_family",
+    )
+
+    BUSINESS_MODELS = (
+        Ingredient,
+        Food,
+        Recipe,
+        InventoryItem,
+        ShoppingListItem,
+        FoodPlanItem,
+        MealLog,
+        RecipeCookLog,
+        MediaAsset,
+    )
+    RELATED_BUSINESS_MODELS = (
+        (RecipeIngredient, Recipe, RecipeIngredient.recipe_id),
+        (RecipeStep, Recipe, RecipeStep.recipe_id),
+        (MealLogFood, MealLog, MealLogFood.meal_log_id),
+        (InventoryDeductionSuggestion, MealLog, InventoryDeductionSuggestion.meal_log_id),
+    )
+
+    def __init__(self, owner: AIAgentInfraTestCase) -> None:
+        self.owner = owner
+        self.aliases: dict[str, str] = {}
+        self._install_fixtures()
+
+    def _install_fixtures(self) -> None:
+        with self.owner.SessionLocal() as db:
+            egg = Ingredient(
+                id="ingredient-egg-eval",
+                family_id=self.owner.family.id,
+                name="鸡蛋",
+                category="蛋类",
+                default_unit="个",
+                unit_conversions=[],
+                default_storage="冷藏",
+                default_expiry_mode=IngredientExpiryMode.NONE,
+                notes="",
+                created_by=self.owner.user.id,
+                updated_by=self.owner.user.id,
+            )
+            salt = Ingredient(
+                id="ingredient-salt-eval",
+                family_id=self.owner.family.id,
+                name="盐",
+                category="调味",
+                default_unit="克",
+                unit_conversions=[],
+                quantity_tracking_mode=IngredientQuantityTrackingMode.NOT_TRACK_QUANTITY,
+                default_storage="常温",
+                default_expiry_mode=IngredientExpiryMode.NONE,
+                notes="",
+                created_by=self.owner.user.id,
+                updated_by=self.owner.user.id,
+            )
+            lettuce = Ingredient(
+                id="ingredient-lettuce-depleted-eval",
+                family_id=self.owner.family.id,
+                name="生菜",
+                category="蔬菜",
+                default_unit="棵",
+                unit_conversions=[],
+                quantity_tracking_mode=IngredientQuantityTrackingMode.TRACK_QUANTITY,
+                default_low_stock_threshold=Decimal("1"),
+                default_storage="冷藏",
+                default_expiry_mode=IngredientExpiryMode.NONE,
+                notes="",
+                created_by=self.owner.user.id,
+                updated_by=self.owner.user.id,
+            )
+            dumpling = Food(
+                id="food-dumpling-eval",
+                family_id=self.owner.family.id,
+                name="速冻饺子",
+                type=FoodType.INSTANT,
+                category="速食",
+                flavor_tags=[],
+                scene="晚餐",
+                notes="",
+                stock_quantity=Decimal("2"),
+                stock_unit="袋",
+                created_by=self.owner.user.id,
+                updated_by=self.owner.user.id,
+            )
+            other_food = Food(
+                id="food-other-eval",
+                family_id=self.owner.other_family.id,
+                name="其他家庭食物",
+                type=FoodType.READY_MADE,
+                category="其他",
+                flavor_tags=[],
+                scene="",
+                notes="",
+            )
+            recipe = Recipe(
+                id="recipe-tomato-egg-eval",
+                family_id=self.owner.family.id,
+                title="番茄炒蛋",
+                servings=2,
+                prep_minutes=15,
+                difficulty=Difficulty.EASY,
+                tips="",
+                scene_tags=["家常菜"],
+                created_by=self.owner.user.id,
+                updated_by=self.owner.user.id,
+            )
+            other_recipe = Recipe(
+                id="recipe-other-eval",
+                family_id=self.owner.other_family.id,
+                title="其他家庭菜谱",
+                servings=2,
+                prep_minutes=15,
+                difficulty=Difficulty.EASY,
+                tips="",
+                scene_tags=[],
+            )
+            shopping = ShoppingListItem(
+                id="shopping-item-eval",
+                family_id=self.owner.family.id,
+                ingredient_id="ingredient-tomato",
+                title="番茄",
+                quantity=Decimal("2"),
+                unit="个",
+                reason="评估",
+                done=False,
+                created_by=self.owner.user.id,
+                updated_by=self.owner.user.id,
+            )
+            shopping_food = ShoppingListItem(
+                id="shopping-food-item-eval",
+                family_id=self.owner.family.id,
+                food_id=dumpling.id,
+                title="速冻饺子",
+                quantity=Decimal("1"),
+                unit="袋",
+                reason="评估",
+                done=False,
+                created_by=self.owner.user.id,
+                updated_by=self.owner.user.id,
+            )
+            current_media = MediaAsset(
+                id="media-current-eval",
+                family_id=self.owner.family.id,
+                name="当前图片",
+                url="/media/eval/current.png",
+                file_path="family-ai/eval-current.png",
+                source=MediaSource.UPLOAD,
+                alt="当前图片",
+                created_by=self.owner.user.id,
+            )
+            stale_media = MediaAsset(
+                id="media-stale-eval",
+                family_id=self.owner.family.id,
+                name="历史图片",
+                url="/media/eval/stale.png",
+                file_path="family-ai/eval-stale.png",
+                source=MediaSource.UPLOAD,
+                alt="历史图片",
+                created_by=self.owner.user.id,
+            )
+            other_media = MediaAsset(
+                id="media-other-eval",
+                family_id=self.owner.other_family.id,
+                name="其他家庭图片",
+                url="/media/eval/other.png",
+                file_path="family-other/eval-other.png",
+                source=MediaSource.UPLOAD,
+                alt="其他家庭图片",
+            )
+            db.add_all([egg, salt, lettuce, dumpling, other_food, recipe, other_recipe, shopping, shopping_food, current_media, stale_media, other_media])
+            db.flush()
+            tomato_food = db.get(Food, "food-tomato")
+            assert tomato_food is not None
+            tomato_food.recipe_id = recipe.id
+            db.add_all([
+                InventoryItem(id="inventory-egg-eval", family_id=self.owner.family.id, ingredient_id=egg.id, quantity=Decimal("4"), consumed_quantity=Decimal("0"), unit="个", status=InventoryStatus.FRESH, purchase_date=self.EVAL_TODAY, storage_location="冷藏", low_stock_threshold=Decimal("0")),
+                RecipeIngredient(id="recipe-eval-tomato", recipe_id=recipe.id, ingredient_id="ingredient-tomato", ingredient_name="番茄", quantity=Decimal("2"), unit="个", note="", sort_order=0),
+                RecipeIngredient(id="recipe-eval-egg", recipe_id=recipe.id, ingredient_id=egg.id, ingredient_name="鸡蛋", quantity=Decimal("2"), unit="个", note="", sort_order=1),
+            ])
+            db.commit()
+            self.aliases = {
+                "tomato": "ingredient-tomato",
+                "egg": egg.id,
+                "salt": salt.id,
+                "depleted_lettuce": lettuce.id,
+                "dumpling": dumpling.id,
+                "tomato_egg_food": "food-tomato",
+                "tomato_egg_recipe": recipe.id,
+                "shopping_item": shopping.id,
+                "shopping_food_item": shopping_food.id,
+                "current_media": current_media.id,
+                "stale_media": stale_media.id,
+                "other_family_ingredient": "ingredient-secret",
+                "other_family_food": other_food.id,
+                "other_family_recipe": other_recipe.id,
+                "other_family_media": other_media.id,
+                "unknown_media": "media-unknown-eval",
+                "fabricated_id": "ingredient-unknown-eval",
+            }
+
+    def resolve_aliases(self, value: Any) -> Any:
+        if isinstance(value, dict):
+            return {key: self.resolve_aliases(item) for key, item in value.items()}
+        if isinstance(value, list):
+            return [self.resolve_aliases(item) for item in value]
+        if isinstance(value, str) and value.startswith("alias:"):
+            alias = value.removeprefix("alias:")
+            if alias not in self.aliases:
+                raise AssertionError(f"unresolved eval alias: {value}")
+            return self.aliases[alias]
+        return value
+
+    def _business_snapshot(self, db: Session) -> dict[str, dict[str, tuple[tuple[str, str], ...]]]:
+        snapshot: dict[str, dict[str, tuple[tuple[str, str], ...]]] = {}
+        for model in self.BUSINESS_MODELS:
+            rows = db.scalars(
+                select(model).where(
+                    model.family_id.in_((self.owner.family.id, self.owner.other_family.id))
+                )
+            ).all()
+            snapshot[model.__tablename__] = {
+                str(row.id): tuple(
+                    (column.key, repr(getattr(row, column.key)))
+                    for column in model.__table__.columns
+                )
+                for row in rows
+            }
+        for model, parent_model, foreign_key in self.RELATED_BUSINESS_MODELS:
+            rows = db.scalars(
+                select(model)
+                .join(parent_model, foreign_key == parent_model.id)
+                .where(parent_model.family_id.in_((self.owner.family.id, self.owner.other_family.id)))
+            ).all()
+            snapshot[model.__tablename__] = {
+                str(row.id): tuple(
+                    (column.key, repr(getattr(row, column.key)))
+                    for column in model.__table__.columns
+                )
+                for row in rows
+            }
+        return snapshot
+
+    @staticmethod
+    def _unexpected_business_write_count(
+        before: dict[str, dict[str, tuple[tuple[str, str], ...]]],
+        after: dict[str, dict[str, tuple[tuple[str, str], ...]]],
+    ) -> int:
+        changed = 0
+        for table_name in set(before) | set(after):
+            before_rows = before.get(table_name, {})
+            after_rows = after.get(table_name, {})
+            changed += sum(
+                before_rows.get(row_id) != after_rows.get(row_id)
+                for row_id in set(before_rows) | set(after_rows)
+            )
+        return changed
+
+    def _error_code_from_runtime(
+        self,
+        case,
+        *,
+        runtime_error: str,
+        runtime_error_code: str | None = None,
+    ) -> str:
+        if runtime_error_code:
+            return runtime_error_code
+        del case, runtime_error
+        return "unexpected_runtime_error"
+
+    def arguments_for(self, case, name: str) -> dict[str, Any]:
+        subject = self.resolve_aliases(case.subject)
+        today = self.EVAL_TODAY.isoformat()
+        common = {
+            "inventory.read_available_items": {"limit": 80},
+            "inventory.read_low_stock_items": {"limit": 80},
+            "inventory.read_expiring_items": {"days": 7},
+            "ingredient.search": {"query": "番茄", "limit": 10},
+            "ingredient.resolve_candidates": {"items": [{"clientKey": "tomato", "name": "番茄"}], "limitPerItem": 5},
+            "food.search": {"query": "速冻饺子", "limit": 10},
+            "recipe.read_by_id": {"id": subject.get("recipeId") or self.aliases["tomato_egg_recipe"]},
+            "food.read_by_id": {"id": subject.get("foodId") or self.aliases["dumpling"]},
+            "ingredient.read_by_id": {"id": subject.get("ingredientId") or self.aliases["tomato"]},
+            "recipe.preview_cook": {"recipeId": subject.get("recipeId") or self.aliases["tomato_egg_recipe"], "servings": 2},
+            "inventory.preview_intake_candidates": {"items": [{"ingredientId": self.aliases["tomato"], "quantity": "2", "unit": "个"}], "unresolvedLabels": []},
+            "human.request_input": {"question": "请选择具体食物", "inputMode": "choice", "options": [{"id": self.aliases["dumpling"], "label": "速冻饺子"}], "required": True},
+            "meal_plan.propose_from_inventory": {"title": "番茄清汤", "ingredientIds": [self.aliases["tomato"]], "reason": "使用现有库存"},
+        }
+        if name in common:
+            return common[name]
+        continuation_tool = {
+            "recipe.cook_shortage": "shopping.create_draft",
+            "food.create_to_meal_plan": "food_profile.create_draft",
+            "continuation.missing_ingredient_resume": "ingredient_profile.create_draft",
+        }.get(case.id)
+        continuation = self._continuation_for(case) if name == continuation_tool else None
+        if name == "shopping.create_draft":
+            if case.id.startswith("shopping.complete_to_"):
+                shopping_item_id = str(subject.get("shoppingItemId") or self.aliases["shopping_item"])
+                with self.owner.SessionLocal() as db:
+                    shopping_item = db.get(ShoppingListItem, shopping_item_id)
+                if shopping_item is None:
+                    raise AssertionError(f"{case.id}: shopping fixture is missing")
+                payload = {
+                    "draft": {
+                        "draftType": "shopping_list",
+                        "schemaVersion": "shopping_list_operation.v1",
+                        "operations": [
+                            {
+                                "action": "set_done",
+                                "targetId": shopping_item.id,
+                                "baseUpdatedAt": shopping_item.updated_at.isoformat(),
+                                "payload": {"done": True, "reason": "已采购"},
+                            }
+                        ],
+                    }
+                }
+            else:
+                payload = {"draft": {"draftType": "shopping_list", "schemaVersion": "shopping_list.v1", "items": [{"title": "番茄", "ingredientId": self.aliases["tomato"], "quantity": 1, "unit": "个"}]}}
+        elif name == "recipe.create_draft":
+            step = {"title": "烹饪", "text": "中火烹饪并观察成熟状态，确认熟透后盛出。", "icon": "pan", "summary": "烹饪", "estimated_minutes": 5, "tip": "注意火候", "key_points": ["熟透"]}
+            ingredient_items = [{"ingredient_id": self.aliases["tomato"], "ingredient_name": "番茄", "quantity": 2, "unit": "个", "note": ""}]
+            if case.id == "continuation.missing_ingredient_resume":
+                with self.owner.SessionLocal() as db:
+                    created_ingredient = db.scalar(
+                        select(Ingredient)
+                        .where(
+                            Ingredient.family_id == self.owner.family.id,
+                            Ingredient.name == f"评估食材-{case.id}",
+                        )
+                        .order_by(Ingredient.created_at.desc())
+                    )
+                if created_ingredient is None:
+                    raise AssertionError(f"{case.id}: approved Ingredient was not persisted before resume")
+                ingredient_items.append(
+                    {
+                        "ingredient_id": created_ingredient.id,
+                        "ingredient_name": created_ingredient.name,
+                        "quantity": 1,
+                        "unit": created_ingredient.default_unit,
+                        "note": "审批后恢复",
+                    }
+                )
+            payload = {"draft": {"title": "番茄炒蛋评估", "servings": 2, "prep_minutes": 15, "difficulty": "easy", "ingredient_items": ingredient_items, "steps": [step, {**step, "title": "翻炒"}, {**step, "title": "装盘"}], "media_ids": [subject["mediaId"]] if subject.get("mediaId") else []}}
+        elif name == "meal_plan.create_draft":
+            recipe_id = subject.get("recipeId")
+            planned_food_id = subject.get("foodId")
+            if case.id == "food.create_to_meal_plan":
+                with self.owner.SessionLocal() as db:
+                    created_food = db.scalar(
+                        select(Food)
+                        .where(
+                            Food.family_id == self.owner.family.id,
+                            Food.name == f"评估食物-{case.id}",
+                        )
+                        .order_by(Food.created_at.desc())
+                    )
+                if created_food is None:
+                    raise AssertionError(f"{case.id}: approved Food was not persisted before resume")
+                planned_food_id = created_food.id
+            planned_item = {
+                "date": today,
+                "mealType": "dinner",
+                "title": "番茄小炒",
+                "reason": "评估",
+                "usedInventory": [],
+                "missingIngredients": [],
+            }
+            if recipe_id:
+                planned_item["foodId"] = self.aliases["tomato_egg_food"]
+                planned_item["recipeId"] = recipe_id
+            else:
+                planned_item["foodId"] = planned_food_id or "food-tomato"
+            payload = {
+                "draft": {
+                    "draftType": "meal_plan",
+                    "schemaVersion": "meal_plan.v1",
+                    "items": [planned_item],
+                    "source": {"days": 1, "mealTypes": ["dinner"]},
+                }
+            }
+        elif name == "meal_log.create_draft":
+            food_id = subject.get("foodId") or "food-tomato"
+            deduct_stock = case.id == "meal.log_ready_food_deduct"
+            food_entry = {
+                "foodId": food_id,
+                "name": "速冻饺子" if food_id == self.aliases["dumpling"] else "番茄小炒",
+                "servings": 1,
+                "note": "",
+                "deductStock": deduct_stock,
+            }
+            if deduct_stock:
+                food_entry.update({"stockQuantity": "1", "stockUnit": "袋"})
+            payload = {"draft": {"draftType": "meal_log", "schemaVersion": "meal_log.v1", "date": today, "mealType": "dinner", "foods": [food_entry], "notes": "评估"}}
+        elif name == "food_profile.create_draft":
+            if case.id == "shopping.complete_to_food_stock":
+                with self.owner.SessionLocal() as db:
+                    food = db.get(Food, self.aliases["dumpling"])
+                if food is None:
+                    raise AssertionError(f"{case.id}: food fixture is missing")
+                payload = {
+                    "draft": {
+                        "draftType": "food_profile",
+                        "schemaVersion": "food_profile_operation.v1",
+                        "action": "update",
+                        "targetId": food.id,
+                        "baseUpdatedAt": food.updated_at.isoformat(),
+                        "payload": {
+                            "name": food.name,
+                            "type": food.type.value if hasattr(food.type, "value") else str(food.type),
+                            "category": food.category,
+                            "stock_quantity": float(Decimal(str(food.stock_quantity or 0)) + Decimal("1")),
+                            "stock_unit": "袋",
+                        },
+                    }
+                }
+            else:
+                payload = {"draft": {"draftType": "food_profile", "schemaVersion": "food_profile.v1", "name": f"评估食物-{case.id}", "type": "readyMade", "category": "速食"}}
+        elif name == "ingredient_profile.create_draft":
+            payload = {"draft": {"draftType": "ingredient_profile", "schemaVersion": "ingredient_profile.v1", "action": "create", "payload": {"name": f"评估食材-{case.id}", "category": "蔬菜", "default_unit": "个", "default_storage": "冷藏", "default_expiry_mode": "none"}}}
+        elif name == "recipe.create_cook_draft":
+            payload = {"draft": {"draftType": "recipe_cook", "schemaVersion": "recipe_cook_operation.v1", "recipeId": self.aliases["tomato_egg_recipe"], "servings": 2}}
+        elif name == "ui.propose_actions":
+            return {"surface": "recipe_cook_page", "recipeId": self.aliases["tomato_egg_recipe"], "actions": [{"type": "go_next_step"}]}
+        elif name == "inventory.create_operation_draft":
+            payload = {
+                "draft": {
+                    "draftType": "inventory_operation",
+                    "schemaVersion": "inventory_operation.v1",
+                    "source": {"shoppingItemId": self.aliases["shopping_item"]},
+                    "operations": [
+                        {
+                            "action": "restock",
+                            "ingredientId": self.aliases["tomato"],
+                            "ingredientName": "番茄",
+                            "quantity": 2,
+                            "unit": "个",
+                            "purchaseDate": self.EVAL_TODAY.isoformat(),
+                            "storageLocation": "冷藏",
+                            "status": "fresh",
+                            "reason": "购物完成后入库",
+                        }
+                    ],
+                }
+            }
+        else:
+            raise AssertionError(f"missing eval arguments for {case.id}: {name}")
+        if continuation:
+            payload["continuation"] = continuation
+        return payload
+
+    def _continuation_for(self, case) -> dict[str, Any] | None:
+        schema = case.expectedContinuationSchema
+        if not schema:
+            return None
+        mapping = {
+            "shopping_to_stock.v1": ("shopping_completed_ingredient", "inventory_analysis", "inventory_analysis", "inventory_operation", {"shoppingItemId": self.aliases["shopping_item"], "targetType": "ingredient", "ingredientId": self.aliases["tomato"], "quantity": "2", "unit": "个", "stockAction": "restock"}),
+            "recipe_shortage_to_shopping.v1": ("recipe_shortage", "shopping_list", "shopping_list", "shopping_list", {"recipeId": self.aliases["tomato_egg_recipe"], "shortages": [{"ingredientId": self.aliases["egg"], "ingredientName": "鸡蛋", "shortageType": "quantity", "quantity": "2", "unit": "个"}]}),
+            "food_to_meal_plan.v1": ("plan_after_create", "meal_plan", "meal_plan", "meal_plan", {"targetDate": self.EVAL_TODAY.isoformat(), "mealType": "dinner", "instruction": "安排晚餐"}),
+            "recipe_missing_ingredient.v1": ("missing_ingredient", "ingredient_profile", "recipe_draft", "ingredient_profile", {"recipeTitle": "番茄炒蛋", "currentIngredient": "鸡蛋", "pendingIngredientNames": [], "completedIngredientIds": [self.aliases["tomato"]]}),
+        }
+        reason, next_skill, resume_skill, draft_type, state = mapping[schema]
+        if case.id == "shopping.complete_to_food_stock":
+            reason, next_skill, resume_skill, draft_type = "shopping_completed_food", "food_profile", "food_profile", "food_profile"
+            state = {"shoppingItemId": self.aliases["shopping_item"], "targetType": "food", "foodId": self.aliases["dumpling"], "quantity": "1", "unit": "袋", "stockAction": "restock"}
+        return {"workflowId": f"eval-{case.id}", "stepKey": "draft", "reasonCode": reason, "nextSkillKey": next_skill, "resumeSkillKey": resume_skill, "requiredDraftType": draft_type, "stateSchema": schema, "state": state}
+
+    def run_case(self, case):
+        from app.ai.evals.models import SkillEvalObservation
+        from app.ai.evals.scripted_provider import ScriptedEvalProvider
+
+        if case.id in {"recipe.image_create", "attachment.current_recipe"}:
+            with self.owner.SessionLocal() as db:
+                fresh_id = f"media-current-{case.id.replace('.', '-')}-eval"
+                db.add(MediaAsset(id=fresh_id, family_id=self.owner.family.id, name="当前评估图片", url=f"/media/eval/{fresh_id}.png", file_path=f"family-ai/{fresh_id}.png", source=MediaSource.UPLOAD, alt="当前图片", created_by=self.owner.user.id))
+                db.commit()
+                self.aliases["current_media"] = fresh_id
+        script = list(case.script)
+        if case.id == "continuation.missing_ingredient_resume":
+            script = [{"inject": "recipe_draft"}, *script]
+        if case.id == "cooking.next_step":
+            script = [entry for entry in script if entry.get("inject") != "cooking_assistant"]
+        provider = ScriptedEvalProvider(script, argument_resolver=lambda name: self.arguments_for(case, name))
+        provider.supports_vision = True
+        request: dict[str, Any] = {"message": case.message, "quick_task": case.quickTask}
+        if case.id == "cooking.next_step":
+            subject = self.resolve_aliases(case.subject)
+            subject["extra"] = {
+                "surface": "recipe_cook_page",
+                "cookSessionId": "cook-session-eval",
+                "sessionRevision": 1,
+            }
+            request["subject"] = subject
+            request["quick_task"] = "cooking_assistant"
+        if case.id in {"recipe.image_create", "attachment.current_recipe"}:
+            request["quick_task"] = "recipe_draft"
+        if case.id in {"recipe.image_create", "attachment.current_recipe"}:
+            request["attachments"] = [{"type": "image", "media_id": self.aliases["current_media"], "client_attachment_id": case.id}]
+        with self.owner.SessionLocal() as db:
+            before = self._business_snapshot(db)
+        egg_inventory = None
+        if case.id == "recipe.cook_shortage":
+            with self.owner.SessionLocal() as db:
+                egg_inventory = db.get(InventoryItem, "inventory-egg-eval")
+                assert egg_inventory is not None
+                egg_inventory.consumed_quantity = egg_inventory.quantity
+                db.commit()
+        with ExitStack() as stack:
+            stack.enter_context(patch("app.ai.workspace_service.get_chat_provider", return_value=provider))
+            stack.enter_context(
+                patch(
+                    "app.ai.workflows.runner_support.orchestrator_context.read_media_object_for_ai",
+                    return_value=(b"eval-image", "image/png"),
+                )
+            )
+            for target in self.CLOCK_PATCH_TARGETS:
+                stack.enter_context(patch(target, return_value=self.EVAL_TODAY))
+            response = self.owner.client.post("/api/ai/chat", json=request)
+            if any(entry.get("resume") is True for entry in script):
+                initial_payload = response.json()
+                approvals = initial_payload.get("included", {}).get("approvals", [])
+                if len(approvals) != 1:
+                    raise AssertionError(f"{case.id}: expected one approval before continuation resume")
+                approval = approvals[0]
+                with self.owner.client.stream(
+                    "POST",
+                    (
+                        f"/api/ai/conversations/{initial_payload['conversation_id']}"
+                        f"/approvals/{approval['id']}/decision/stream"
+                    ),
+                    json={
+                        "decision": "approved",
+                        "draft_version": approval["draft_version"],
+                        "values": approval["initial_values"],
+                    },
+                ) as stream_response:
+                    if stream_response.status_code != 200:
+                        raise AssertionError(
+                            f"{case.id}: continuation approval failed: "
+                            f"{stream_response.status_code} {''.join(stream_response.iter_text())}"
+                        )
+                    "".join(stream_response.iter_text())
+        provider.assert_consumed()
+        if case.id == "recipe.cook_shortage":
+            with self.owner.SessionLocal() as db:
+                restored = db.get(InventoryItem, "inventory-egg-eval")
+                assert restored is not None
+                restored.consumed_quantity = Decimal("0")
+                db.commit()
+        if response.status_code != 200:
+            raise AssertionError(f"{case.id}: runtime request failed: {response.status_code} {response.text}")
+        payload = response.json()
+        run_id = payload["run"]["id"]
+        with self.owner.SessionLocal() as db:
+            run = db.get(AIAgentRun, run_id)
+            assert run is not None
+            drafts = list(db.scalars(select(AITaskDraft).where(AITaskDraft.source_run_id == run_id).order_by(AITaskDraft.created_at)))
+            messages = list(
+                db.scalars(
+                    select(AIMessage)
+                    .where(AIMessage.run_id == run_id)
+                    .order_by(AIMessage.created_at, AIMessage.id)
+                )
+            )
+            after = self._business_snapshot(db)
+            spans = list(db.scalars(select(AIRunTraceSpan).where(AIRunTraceSpan.run_id == run_id).order_by(AIRunTraceSpan.started_at, AIRunTraceSpan.id)))
+            checkpoint = SQLAlchemyCheckpointSaver(db).get_tuple(
+                {"configurable": {"thread_id": payload["conversation_id"]}}
+            )
+            checkpoint_values = checkpoint.checkpoint["channel_values"] if checkpoint is not None else {}
+            run_artifacts = checkpoint_values.get("run_artifacts") if isinstance(checkpoint_values, dict) else []
+        summary = run.context_summary if isinstance(run.context_summary, dict) else {}
+        routing = summary.get("routing") if isinstance(summary.get("routing"), dict) else {}
+        orchestrator = summary.get("orchestrator") if isinstance(summary.get("orchestrator"), dict) else {}
+        skills = [str(item) for item in routing.get("skills", [])]
+        if not skills:
+            skills = [str(item) for item in orchestrator.get("injectedSkills", [])]
+        if not skills:
+            traced_skills: list[str] = []
+            for span in spans:
+                if span.span_type != "skill_injection" or not isinstance(span.payload, dict):
+                    continue
+                for key in ("added", "alreadyInjected", "requested"):
+                    values = span.payload.get(key)
+                    if not isinstance(values, list):
+                        continue
+                    for value in values:
+                        skill_key = str(value).strip()
+                        if skill_key and skill_key not in traced_skills:
+                            traced_skills.append(skill_key)
+            skills = traced_skills
+        tools = [span.name for span in spans if span.span_type == "tool_call"]
+        if not tools:
+            tools = [str(item.get("name") or "") for item in run.tool_calls if isinstance(item, dict)]
+        draft = drafts[-1] if drafts else None
+        continuation = draft.ai_metadata.get("continuation") if draft and isinstance(draft.ai_metadata, dict) else None
+        if not isinstance(continuation, dict) and isinstance(run_artifacts, list):
+            continuation_artifact = next(
+                (
+                    artifact
+                    for artifact in reversed(run_artifacts)
+                    if isinstance(artifact, dict) and artifact.get("type") == "workflow.continuation"
+                ),
+                None,
+            )
+            continuation = (
+                continuation_artifact.get("payload")
+                if isinstance(continuation_artifact, dict)
+                and isinstance(continuation_artifact.get("payload"), dict)
+                else None
+            )
+        terminal = str(run.status)
+        if terminal == "waiting_input":
+            terminal = "waiting_human_input"
+        error_code = None
+        if provider.last_error is not None:
+            terminal = "rejected"
+            error_code = self._error_code_from_runtime(
+                case,
+                runtime_error=str(run.error or provider.last_error),
+                runtime_error_code=str(getattr(provider.last_error, "code", "") or "") or None,
+            )
+        unexpected_writes = self._unexpected_business_write_count(before, after)
+        card_types = [
+            str(part["card"]["type"])
+            for message in messages
+            for part in (message.parts or [])
+            if isinstance(part, dict)
+            and part.get("type") == "result_card"
+            and isinstance(part.get("card"), dict)
+            and part["card"].get("type")
+        ]
+        return SkillEvalObservation(
+            schemaVersion="skill_eval_observation.v1",
+            caseId=case.id,
+            source="scripted",
+            skills=skills,
+            tools=tools,
+            toolOutputs=provider.tool_outputs,
+            cardTypes=list(dict.fromkeys(card_types)),
+            draftType=draft.draft_type if draft else None,
+            draftPayload=draft.payload if draft and isinstance(draft.payload, dict) else {},
+            continuationSchema=str(continuation.get("stateSchema")) if isinstance(continuation, dict) else None,
+            continuationCompleted=int((summary.get("runMetrics") or {}).get("continuationCompletedCount") or 0) > 0,
+            terminalStatus=terminal,
+            draftValidationAttempts=(
+                1
+                if int((summary.get("runMetrics") or {}).get("draftValidationCandidateCount") or 0) > 0
+                and int((summary.get("runMetrics") or {}).get("draftValidationAttemptCount") or 0)
+                == int((summary.get("runMetrics") or {}).get("draftValidationCandidateCount") or 0)
+                and int((summary.get("runMetrics") or {}).get("draftFirstPassSuccessCount") or 0)
+                == int((summary.get("runMetrics") or {}).get("draftValidationCandidateCount") or 0)
+                else int((summary.get("runMetrics") or {}).get("draftValidationAttemptCount") or 0)
+            ),
+            invalidIdentityWriteCount=(
+                unexpected_writes
+                if case.expectsIdentityRejection or case.expectedErrorCode is not None
+                else 0
+            ),
+            errorCode=error_code,
+        )

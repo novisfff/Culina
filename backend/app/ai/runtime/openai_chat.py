@@ -375,7 +375,7 @@ class OpenAICompatibleChatProvider(BaseChatProvider):
                     sorted(args.keys()),
                 )
                 try:
-                    output = self._invoke_tool_handler(tool_handler, name, args, progress_event_id)
+                    output = self._invoke_tool_handler(tool_handler, name, args, progress_event_id, call_id)
                 except (AIExecutionCancelled, ApprovalRequired, HumanInputRequired, ToolBudgetHardStop):
                     raise
                 except Exception as exc:
@@ -557,8 +557,9 @@ class OpenAICompatibleChatProvider(BaseChatProvider):
         name: str,
         args: dict[str, Any],
         progress_event_id: str | None,
+        tool_call_id: str | None = None,
     ) -> dict[str, Any]:
-        return invoke_tool_handler(tool_handler, name, args, progress_event_id)
+        return invoke_tool_handler(tool_handler, name, args, progress_event_id, tool_call_id)
 
     def _latest_token_usage(
         self,

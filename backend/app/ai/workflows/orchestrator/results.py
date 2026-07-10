@@ -106,18 +106,7 @@ class OrchestratorResultAssembler:
             model=provider_result.model or model_name(context),
             error=provider_result.error or error,
             diagnostic=provider_result.error or error,
-            context_summary={
-                "orchestrator": {
-                    "profileKey": state.profile_key,
-                    "responseStyle": state.response_style,
-                    "capabilityPolicy": state.capability_policy.to_state(),
-                    "injectedSkills": state.active_skill_keys,
-                    "injectionHistory": state.injection_history,
-                    "readTools": sorted(state.read_outputs.keys()),
-                    "budget": state.budget_config.to_state(),
-                    "budgetUsage": self.budget_usage(state),
-                },
-            },
+            context_summary=self.orchestrator_context_summary(state),
         )
 
     def tool_budget_hard_stop_result(
@@ -162,6 +151,7 @@ class OrchestratorResultAssembler:
                 "budget": state.budget_config.to_state(),
                 "budgetUsage": self.budget_usage(state),
             },
+            **state.quality_summary,
             **self.program_context_summary(state.read_outputs),
         }
 

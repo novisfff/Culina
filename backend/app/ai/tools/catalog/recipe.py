@@ -6,6 +6,7 @@ from fastapi.encoders import jsonable_encoder
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
+from app.ai.errors import ToolExecutionError
 from app.ai.kitchen.recipe_drafts import RECIPE_DRAFT_JSON_SCHEMA
 from app.ai.skills.registry import build_workspace_skill_registry
 from app.ai.tools.base import ToolContext
@@ -266,13 +267,18 @@ def _recipe_search_response(context: ToolContext, recipes: list[Recipe], *, limi
 
 
 def recipe_read_by_id(context: ToolContext, payload: dict[str, Any]) -> dict[str, Any]:
+    recipe_id = str(payload["id"])
     recipe = context.db.scalar(
         select(Recipe)
         .options(selectinload(Recipe.ingredient_items), selectinload(Recipe.steps), selectinload(Recipe.cook_logs), selectinload(Recipe.foods))
-        .where(Recipe.family_id == context.family_id, Recipe.id == str(payload["id"]))
+        .where(Recipe.family_id == context.family_id, Recipe.id == recipe_id)
     )
     if recipe is None:
-        raise ValueError("菜谱不存在或不属于当前家庭")
+        owner_family_id = context.db.scalar(select(Recipe.family_id).where(Recipe.id == recipe_id))
+        raise ToolExecutionError(
+            "菜谱不存在或不属于当前家庭",
+            code="unknown_entity_id" if owner_family_id is None else "family_scope_violation",
+        )
     media_map = build_media_map(
         get_media_assets_for_entities(
             context.db,

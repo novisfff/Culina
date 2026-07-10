@@ -210,6 +210,12 @@ class AIWorkspacePhaseFlowsTestCase(AIAgentInfraTestCase):
                 self.assertIsNotNone(meal_plan_draft)
                 assert meal_plan_draft is not None
                 self.assertEqual(meal_plan_draft.payload["items"][0]["foodId"], food.id)
+                run = db.get(AIAgentRun, data["run"]["id"])
+                assert run is not None
+                metrics = run.context_summary["runMetrics"]
+                self.assertEqual(metrics["continuationStartedCount"], 1)
+                self.assertEqual(metrics["continuationCompletedCount"], 1)
+                self.assertEqual(metrics.get("continuationRejectedCount", 0), 0)
 
         def test_food_profile_continuation_rejection_never_advances(self) -> None:
             provider = SourceOwnedFoodPlanContinuationProvider()
@@ -221,17 +227,19 @@ class AIWorkspacePhaseFlowsTestCase(AIAgentInfraTestCase):
                 self.assertEqual(response.status_code, 200, response.text)
                 data = response.json()
                 approval = data["included"]["approvals"][0]
-                with self.client.stream(
-                    "POST",
-                    f"/api/ai/conversations/{data['conversation_id']}/approvals/{approval['id']}/decision/stream",
-                    json={
-                        "decision": "rejected",
-                        "draft_version": approval["draft_version"],
-                        "values": {},
-                    },
-                ) as stream_response:
-                    self.assertEqual(stream_response.status_code, 200)
-                    "".join(stream_response.iter_text())
+                decision_payload = {
+                    "decision": "rejected",
+                    "draft_version": approval["draft_version"],
+                    "values": {},
+                }
+                for _ in range(2):
+                    with self.client.stream(
+                        "POST",
+                        f"/api/ai/conversations/{data['conversation_id']}/approvals/{approval['id']}/decision/stream",
+                        json=decision_payload,
+                    ) as stream_response:
+                        self.assertEqual(stream_response.status_code, 200)
+                        "".join(stream_response.iter_text())
 
             self.assertEqual(provider.active_calls, 2)
             self.assertEqual([item["status"] for item in provider.continuation_artifacts], ["rejected"])
@@ -248,6 +256,12 @@ class AIWorkspacePhaseFlowsTestCase(AIAgentInfraTestCase):
                     ))),
                     0,
                 )
+                run = db.get(AIAgentRun, data["run"]["id"])
+                assert run is not None
+                metrics = run.context_summary["runMetrics"]
+                self.assertEqual(metrics["continuationStartedCount"], 1)
+                self.assertEqual(metrics["continuationRejectedCount"], 1)
+                self.assertEqual(metrics.get("continuationCompletedCount", 0), 0)
 
         def test_food_profile_continuation_budget_failure_keeps_business_commit(self) -> None:
             provider = SourceOwnedFoodPlanContinuationProvider(
@@ -304,6 +318,9 @@ class AIWorkspacePhaseFlowsTestCase(AIAgentInfraTestCase):
                     ))),
                     0,
                 )
+                run = db.get(AIAgentRun, data["run"]["id"])
+                assert run is not None
+                self.assertEqual(run.context_summary["runMetrics"]["continuationRejectedCount"], 1)
 
         def test_food_profile_continuation_replay_is_exactly_once(self) -> None:
             provider = SourceOwnedFoodPlanContinuationProvider()
@@ -356,6 +373,11 @@ class AIWorkspacePhaseFlowsTestCase(AIAgentInfraTestCase):
                     )))),
                     1,
                 )
+                run = db.get(AIAgentRun, data["run"]["id"])
+                assert run is not None
+                metrics = run.context_summary["runMetrics"]
+                self.assertEqual(metrics["continuationStartedCount"], 1)
+                self.assertEqual(metrics["continuationCompletedCount"], 1)
 
         def test_food_profile_continuation_commit_conflict_never_advances(self) -> None:
             with self.SessionLocal() as db:

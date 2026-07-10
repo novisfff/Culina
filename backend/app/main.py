@@ -33,6 +33,39 @@ def cors_allowed_origins(current_settings: Settings) -> list[str]:
     return list(dict.fromkeys(origins))
 
 
+class UnhandledApiExceptionMiddleware:
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send) -> None:
+        response_started = False
+
+        async def tracked_send(message) -> None:
+            nonlocal response_started
+            if message.get("type") == "http.response.start":
+                response_started = True
+            await send(message)
+
+        try:
+            await self.app(scope, receive, tracked_send)
+        except Exception as exc:
+            if scope["type"] != "http":
+                raise
+            request = Request(scope)
+            logger.exception(
+                "Unhandled API exception method=%s path=%s client=%s",
+                request.method,
+                request.url.path,
+                request.client.host if request.client else None,
+                exc_info=(type(exc), exc, exc.__traceback__),
+            )
+            if response_started:
+                raise
+            response = JSONResponse(status_code=500, content={"detail": "Internal Server Error"})
+            await response(scope, receive, tracked_send)
+            raise
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     _ = app
@@ -53,19 +86,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Culina API", version="0.1.0", lifespan=lifespan)
 
-
-@app.exception_handler(Exception)
-async def log_unhandled_exception(request: Request, exc: Exception) -> JSONResponse:
-    logger.exception(
-        "Unhandled API exception method=%s path=%s client=%s",
-        request.method,
-        request.url.path,
-        request.client.host if request.client else None,
-        exc_info=(type(exc), exc, exc.__traceback__),
-    )
-    return JSONResponse(status_code=500, content={"detail": "Internal Server Error"})
-
-
+app.add_middleware(UnhandledApiExceptionMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=cors_allowed_origins(settings),

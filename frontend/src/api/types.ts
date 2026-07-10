@@ -1214,8 +1214,25 @@ export interface AiQualityMetrics {
     clarificationCount: number;
     approvalApprovedCount: number;
     approvalRejectedCount: number;
+    routeSelectionCount: number;
+    draftValidationCandidateCount: number;
+    draftValidationAttemptCount: number;
+    draftFirstPassSuccessCount: number;
+    invalidIdentityRejectedCount: number;
+    toolBudgetExhaustedCount: number;
+    continuationStartedCount: number;
+    continuationCompletedCount: number;
+    continuationRejectedCount: number;
     totalDurationMs: number;
     averageDurationMs: number;
+  };
+  operational_metrics: {
+    draftFirstPassRate: AiRateMetric;
+    continuationCompletionRate: AiRateMetric;
+    approvalUneditedRate: AiRateMetric;
+    invalidIdentityRejectedCount: number;
+    toolBudgetExhaustedCount: number;
+    continuationRejectedCount: number;
   };
   trace_metrics: {
     traceSpanCount: number;
@@ -1246,6 +1263,12 @@ export interface AiQualityMetrics {
     approval_approved_count: number;
     approval_rejected_count: number;
   }>;
+}
+
+export interface AiRateMetric {
+  numerator: number;
+  denominator: number;
+  rate: number | null;
 }
 
 export interface AiChatResponse {

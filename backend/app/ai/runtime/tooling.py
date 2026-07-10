@@ -27,18 +27,21 @@ def invoke_tool_handler(
     name: str,
     args: dict[str, Any],
     progress_event_id: str | None,
+    tool_call_id: str | None = None,
 ) -> dict[str, Any]:
     try:
         parameters = inspect.signature(tool_handler).parameters
     except (TypeError, ValueError):
-        return tool_handler(name, args, progress_event_id)
+        return tool_handler(name, args, progress_event_id, tool_call_id)
     positional = [
         parameter
         for parameter in parameters.values()
         if parameter.kind in {inspect.Parameter.POSITIONAL_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD}
     ]
     has_varargs = any(parameter.kind == inspect.Parameter.VAR_POSITIONAL for parameter in parameters.values())
-    if has_varargs or len(positional) >= 3:
+    if has_varargs or len(positional) >= 4:
+        return tool_handler(name, args, progress_event_id, tool_call_id)
+    if len(positional) >= 3:
         return tool_handler(name, args, progress_event_id)
     return tool_handler(name, args)
 

@@ -23,6 +23,7 @@ from app.ai.workflows.orchestrator.tools import (
     SkillInjectionBundle,
     SkillInjectionManager,
 )
+from app.ai.workflows.runner_support.run_summary import record_route_selection
 from app.core.utils import create_id
 
 logger = logging.getLogger(__name__)
@@ -123,6 +124,11 @@ class WorkspaceOrchestratorAgent:
             requires_terminal_output=requires_terminal_output,
             terminal_text_allowed=terminal_text_allowed,
         )
+        if active_skill_keys:
+            record_route_selection(
+                state.quality_summary,
+                selection_key="initial:" + ",".join(sorted(active_skill_keys)),
+            )
         provider_prefix_message_count = 0
         provider_stable_prefix_chars = 0
         provider_runtime_payload_chars = 0
@@ -259,6 +265,8 @@ class WorkspaceOrchestratorAgent:
                 model=model_name(context),
                 error=str(exc),
                 diagnostic=str(exc),
+                context_summary=self.result_assembler.orchestrator_context_summary(state),
+                tool_calls=context.tool_executor.records(),
             )
             log_turn_completed(result)
             return finish_orchestrator_span(result)

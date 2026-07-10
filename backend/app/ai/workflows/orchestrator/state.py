@@ -44,3 +44,4 @@ class OrchestratorRunState:
     current_tool_names: set[str] = field(default_factory=set)
     current_tool_definitions: dict[str, ToolDefinition] = field(default_factory=dict)
     preview_event_ids_by_key: dict[str, str] = field(default_factory=dict)
+    quality_summary: dict[str, Any] = field(default_factory=dict)

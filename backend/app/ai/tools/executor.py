@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from app.ai.errors import ToolExecutionError
 from app.ai.observability import error_codes
 from app.ai.tools.base import ToolContext, ToolResult, ToolSideEffect, timed_call
 from app.ai.tools.registry import ToolRegistry
@@ -211,7 +212,10 @@ class ToolExecutor:
                 result.duration_ms,
                 result.error,
             )
-            raise ValueError(result.error or f"工具 {name} 执行失败")
+            raise ToolExecutionError(
+                result.error or f"工具 {name} 执行失败",
+                code=result.error_code,
+            )
         try:
             validate_json_value(result.output, definition.output_schema, location=f"{name} output")
         except Exception:

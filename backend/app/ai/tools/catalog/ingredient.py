@@ -4,6 +4,7 @@ from typing import Any
 
 from sqlalchemy import select
 
+from app.ai.errors import ToolExecutionError
 from app.ai.tools.base import ToolContext
 from app.ai.tools.catalog.common import decimal_text, register_tool
 from app.ai.tools.draft_validation import normalize_ingredient_profile_draft
@@ -162,14 +163,21 @@ def _ingredient_search_meta(search_meta_by_id: dict[str, Any] | None, ingredient
 
 
 def ingredient_read_by_id(context: ToolContext, payload: dict[str, Any]) -> dict[str, Any]:
+    ingredient_id = str(payload["id"])
     ingredient = context.db.scalar(
         select(Ingredient).where(
             Ingredient.family_id == context.family_id,
-            Ingredient.id == str(payload["id"]),
+            Ingredient.id == ingredient_id,
         )
     )
     if ingredient is None:
-        raise ValueError("食材不存在或不属于当前家庭")
+        owner_family_id = context.db.scalar(
+            select(Ingredient.family_id).where(Ingredient.id == ingredient_id)
+        )
+        raise ToolExecutionError(
+            "食材不存在或不属于当前家庭",
+            code="unknown_entity_id" if owner_family_id is None else "family_scope_violation",
+        )
     media_map = build_media_map(
         get_media_assets_for_entities(
             context.db,

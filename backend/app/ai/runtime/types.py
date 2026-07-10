@@ -31,7 +31,7 @@ class ProviderUserInput:
     prefix_messages: list[str] = field(default_factory=list)
 
 
-ToolCallHandler = Callable[[str, dict[str, Any], str | None], dict[str, Any]]
+ToolCallHandler = Callable[..., dict[str, Any]]
 AssistantMessageHandler = Callable[[str], None]
 ToolPreviewHandler = Callable[[str, str, str], str | None]
 ToolProvider = Callable[[], list[ToolDefinition]]

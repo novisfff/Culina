@@ -22,7 +22,10 @@ from app.ai.workflows.orchestrator.profiles import (
     OrchestratorCapabilityPolicy,
     profile_state_value,
 )
-from app.ai.workflows.runner_support.run_summary import record_approval_outcome_summary
+from app.ai.workflows.runner_support.run_summary import (
+    record_approval_outcome_summary,
+    record_continuation_rejected,
+)
 from app.ai.workflows.state import WorkspaceGraphState
 from app.models.domain import AIAgentRun, AIApprovalRequest, AIConversation
 
@@ -153,6 +156,13 @@ class ApprovalResumeHandler:
                 conversation.last_run_status = "running"
             self.runner.db.flush()
             resume_artifact = self._consume_resume_artifact(state=state, serialized=serialized)
+            if run is not None and self._is_typed_continuation(resume_artifact):
+                payload = resume_artifact.get("payload") if isinstance(resume_artifact.get("payload"), dict) else {}
+                workflow_id = str(payload.get("workflowId") or "").strip()
+                if workflow_id:
+                    summary = dict(run.context_summary or {})
+                    record_continuation_rejected(summary, workflow_id=workflow_id)
+                    run.context_summary = summary
             return approval_resolved_state_patch(
                 state=state,
                 serialized=serialized,
@@ -177,6 +187,8 @@ class ApprovalResumeHandler:
             resolved_artifact, injected_skill_keys, injection_history, should_continue = (
                 self._resolve_typed_continuation(state=state, artifact=resume_artifact)
             )
+            if not should_continue and run is not None:
+                self._record_continuation_rejection(run, resolved_artifact)
             next_status = "running" if should_continue else "completed"
             if run is not None:
                 run.status = next_status
@@ -337,6 +349,13 @@ class ApprovalResumeHandler:
             conversation.last_run_status = "running"
         self.runner.db.flush()
         resume_artifact = self._consume_resume_artifact(state=state, serialized=serialized)
+        if run is not None and self._is_typed_continuation(resume_artifact):
+            payload = resume_artifact.get("payload") if isinstance(resume_artifact.get("payload"), dict) else {}
+            workflow_id = str(payload.get("workflowId") or "").strip()
+            if workflow_id:
+                summary = dict(run.context_summary or {})
+                record_continuation_rejected(summary, workflow_id=workflow_id)
+                run.context_summary = summary
         return approval_resolved_state_patch(
             state=state,
             serialized=serialized,
@@ -405,6 +424,8 @@ class ApprovalResumeHandler:
             resolved_artifact, injected_skill_keys, injection_history, should_continue = (
                 self._resolve_typed_continuation(state=state, artifact=resume_artifact)
             )
+            if not should_continue and run is not None:
+                self._record_continuation_rejection(run, resolved_artifact)
             next_status = "running" if should_continue else "completed"
             if not should_continue:
                 if run is not None:
@@ -448,6 +469,16 @@ class ApprovalResumeHandler:
     @staticmethod
     def _is_typed_continuation(artifact: dict[str, Any] | None) -> bool:
         return isinstance(artifact, dict) and artifact.get("type") == "workflow.continuation"
+
+    @staticmethod
+    def _record_continuation_rejection(run: AIAgentRun, artifact: dict[str, Any]) -> None:
+        payload = artifact.get("payload") if isinstance(artifact.get("payload"), dict) else {}
+        workflow_id = str(payload.get("workflowId") or "").strip()
+        if not workflow_id:
+            return
+        summary = dict(run.context_summary or {})
+        record_continuation_rejected(summary, workflow_id=workflow_id)
+        run.context_summary = summary
 
     def _consume_resume_artifact(
         self,

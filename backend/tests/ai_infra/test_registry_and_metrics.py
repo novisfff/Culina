@@ -2,6 +2,8 @@ from typing import Any
 
 from ._support import *
 
+from app.services.ai_quality import canonicalize_approval_value
+
 from app.ai.tools.base import ToolDefinition
 from app.ai.tools.registry import ToolRegistry
 from app.models.domain import AIRunLLMExchange, AIRunTraceSpan
@@ -22,7 +24,81 @@ from app.services.ai_operations.registry_types import (
 )
 
 
+def _add_quality_approval_fixture(
+    db,
+    *,
+    family_id: str,
+    user_id: str,
+    suffix: str,
+    created_at,
+    edited: bool,
+) -> None:
+    run_id = f"agent-run-quality-window-{suffix}"
+    conversation_id = f"quality-conversation-window-{suffix}"
+    draft_id = f"quality-draft-window-{suffix}"
+    db.add_all(
+        [
+            AIAgentRun(
+                id=run_id,
+                family_id=family_id,
+                agent_key="workspace",
+                feature_key="ai_workspace",
+                intent="recipe_draft",
+                input_summary="质量窗口",
+                context_summary={},
+                status="completed",
+                model="fake-model",
+                created_at=created_at,
+                created_by=user_id,
+            ),
+            AIConversation(
+                id=conversation_id,
+                family_id=family_id,
+                mode=AiMode.RECIPE_DRAFT,
+                prompt="质量窗口",
+                response="",
+                context={},
+                created_by=user_id,
+            ),
+        ]
+    )
+    db.flush()
+    db.add(
+        AITaskDraft(
+            id=draft_id,
+            family_id=family_id,
+            conversation_id=conversation_id,
+            source_run_id=run_id,
+            draft_type="recipe",
+            payload={},
+            idempotency_key=f"quality-window-{suffix}",
+        )
+    )
+    db.flush()
+    db.add(
+        AIApprovalRequest(
+            id=f"quality-approval-window-{suffix}",
+            family_id=family_id,
+            conversation_id=conversation_id,
+            run_id=run_id,
+            draft_id=draft_id,
+            draft_version=1,
+            draft_schema_version="recipe.v1",
+            approval_type="recipe",
+            status="approved",
+            initial_values={"recipe": {"name": "番茄"}},
+            submitted_values={"recipe": {"name": "鸡蛋" if edited else "番茄"}},
+        )
+    )
+
+
 class AIRegistryAndMetricsTestCase(AIAgentInfraTestCase):
+        def test_approval_value_canonicalization_ignores_ui_only_fields(self) -> None:
+            self.assertEqual(
+                canonicalize_approval_value({"name": " 番茄 ", "clientOnly": True, "nested": {"comment": "x", "value": 1}}),
+                {"name": "番茄", "nested": {"value": 1}},
+            )
+
         def test_tool_registry_requires_draft_and_card_contract_metadata(self) -> None:
             def handler(_context, _payload: dict[str, Any]) -> dict[str, Any]:
                 return {}
@@ -618,6 +694,12 @@ class AIRegistryAndMetricsTestCase(AIAgentInfraTestCase):
                                     "approvalRequestCount": 2,
                                     "clarificationCount": 1,
                                     "approvalApprovedCount": 1,
+                                    "draftValidationCandidateCount": 5,
+                                    "draftFirstPassSuccessCount": 4,
+                                    "continuationStartedCount": 3,
+                                    "continuationCompletedCount": 2,
+                                    "invalidIdentityRejectedCount": 1,
+                                    "toolBudgetExhaustedCount": 1,
                                 },
                                 "clarificationStats": {
                                     "reasons": {"missing_date": 1},
@@ -686,6 +768,23 @@ class AIRegistryAndMetricsTestCase(AIAgentInfraTestCase):
                         ),
                     ]
                 )
+                db.flush()
+                conversations = [
+                    AIConversation(id="quality-conversation", family_id=self.family.id, mode=AiMode.RECIPE_DRAFT, prompt="质量", response="", context={}),
+                    AIConversation(id="quality-conversation-other", family_id=self.other_family.id, mode=AiMode.RECIPE_DRAFT, prompt="质量", response="", context={}),
+                ]
+                drafts = [
+                    AITaskDraft(id="quality-draft-unedited", family_id=self.family.id, conversation_id="quality-conversation", source_run_id="agent-run-quality-plan", draft_type="recipe", payload={}, idempotency_key="quality-unedited"),
+                    AITaskDraft(id="quality-draft-edited", family_id=self.family.id, conversation_id="quality-conversation", source_run_id="agent-run-quality-plan", draft_type="recipe", payload={}, idempotency_key="quality-edited"),
+                    AITaskDraft(id="quality-draft-other", family_id=self.other_family.id, conversation_id="quality-conversation-other", source_run_id="agent-run-quality-other-family", draft_type="recipe", payload={}, idempotency_key="quality-other"),
+                ]
+                db.add_all([*conversations, *drafts])
+                db.flush()
+                db.add_all([
+                    AIApprovalRequest(id="quality-approval-unedited", family_id=self.family.id, conversation_id="quality-conversation", run_id="agent-run-quality-plan", draft_id="quality-draft-unedited", draft_version=1, draft_schema_version="recipe.v1", approval_type="recipe", status="approved", initial_values={"recipe": {"name": "番茄"}}, submitted_values={"recipe": {"name": " 番茄 "}}),
+                    AIApprovalRequest(id="quality-approval-edited", family_id=self.family.id, conversation_id="quality-conversation", run_id="agent-run-quality-plan", draft_id="quality-draft-edited", draft_version=1, draft_schema_version="recipe.v1", approval_type="recipe", status="approved", initial_values={"recipe": {"name": "番茄"}}, submitted_values={"recipe": {"name": "鸡蛋"}}),
+                    AIApprovalRequest(id="quality-approval-other", family_id=self.other_family.id, conversation_id="quality-conversation-other", run_id="agent-run-quality-other-family", draft_id="quality-draft-other", draft_version=1, draft_schema_version="recipe.v1", approval_type="recipe", status="approved", initial_values={"recipe": {"name": "其他"}}, submitted_values={"recipe": {"name": "其他"}}),
+                ])
                 db.add_all(
                     [
                         AIRunTraceSpan(
@@ -805,6 +904,11 @@ class AIRegistryAndMetricsTestCase(AIAgentInfraTestCase):
             self.assertEqual(data["totals"]["toolCallCount"], 5)
             self.assertEqual(data["totals"]["totalDurationMs"], 2000)
             self.assertEqual(data["totals"]["averageDurationMs"], 1000)
+            self.assertEqual(data["operational_metrics"]["draftFirstPassRate"], {"numerator": 4, "denominator": 5, "rate": 0.8})
+            self.assertEqual(data["operational_metrics"]["continuationCompletionRate"], {"numerator": 2, "denominator": 3, "rate": 0.6667})
+            self.assertEqual(data["operational_metrics"]["approvalUneditedRate"], {"numerator": 1, "denominator": 2, "rate": 0.5})
+            self.assertEqual(data["operational_metrics"]["invalidIdentityRejectedCount"], 1)
+            self.assertEqual(data["operational_metrics"]["toolBudgetExhaustedCount"], 1)
             self.assertEqual(data["trace_metrics"]["traceSpanCount"], 2)
             self.assertEqual(data["trace_metrics"]["llmExchangeCount"], 2)
             self.assertEqual(data["trace_metrics"]["failedSpanCount"], 1)
@@ -850,6 +954,89 @@ class AIRegistryAndMetricsTestCase(AIAgentInfraTestCase):
             self.assertEqual(
                 [item["id"] for item in data["recent_runs"]],
                 ["agent-run-quality-limit-2", "agent-run-quality-limit-1"],
+            )
+
+        def test_approval_unedited_rate_respects_selected_run_limit(self) -> None:
+            with self.SessionLocal() as db:
+                _add_quality_approval_fixture(
+                    db,
+                    family_id=self.family.id,
+                    user_id=self.user.id,
+                    suffix="older-edited",
+                    created_at=utcnow() - timedelta(minutes=2),
+                    edited=True,
+                )
+                _add_quality_approval_fixture(
+                    db,
+                    family_id=self.family.id,
+                    user_id=self.user.id,
+                    suffix="newer-unedited",
+                    created_at=utcnow() - timedelta(minutes=1),
+                    edited=False,
+                )
+                db.commit()
+
+            response = self.client.get("/api/ai/quality-metrics?limit=1")
+            self.assertEqual(response.status_code, 200, response.text)
+            self.assertEqual(
+                response.json()["operational_metrics"]["approvalUneditedRate"],
+                {"numerator": 1, "denominator": 1, "rate": 1.0},
+            )
+
+        def test_approval_unedited_rate_respects_selected_run_days(self) -> None:
+            with self.SessionLocal() as db:
+                _add_quality_approval_fixture(
+                    db,
+                    family_id=self.family.id,
+                    user_id=self.user.id,
+                    suffix="old-edited",
+                    created_at=utcnow() - timedelta(days=3),
+                    edited=True,
+                )
+                _add_quality_approval_fixture(
+                    db,
+                    family_id=self.family.id,
+                    user_id=self.user.id,
+                    suffix="recent-unedited",
+                    created_at=utcnow() - timedelta(hours=1),
+                    edited=False,
+                )
+                db.commit()
+
+            response = self.client.get("/api/ai/quality-metrics?limit=10&days=1")
+            self.assertEqual(response.status_code, 200, response.text)
+            self.assertEqual(
+                response.json()["operational_metrics"]["approvalUneditedRate"],
+                {"numerator": 1, "denominator": 1, "rate": 1.0},
+            )
+
+        def test_continuation_completion_rate_normalizes_legacy_missing_started_counter(self) -> None:
+            with self.SessionLocal() as db:
+                db.add(
+                    AIAgentRun(
+                        id="agent-run-quality-legacy-continuation",
+                        family_id=self.family.id,
+                        agent_key="workspace",
+                        feature_key="ai_workspace",
+                        intent="meal_plan",
+                        input_summary="历史 continuation",
+                        context_summary={
+                            "runMetrics": {"continuationCompletedCount": 1}
+                        },
+                        status="completed",
+                        model="fake-model",
+                        created_at=utcnow(),
+                        created_by=self.user.id,
+                    )
+                )
+                db.commit()
+
+            response = self.client.get("/api/ai/quality-metrics?limit=1")
+
+            self.assertEqual(response.status_code, 200, response.text)
+            self.assertEqual(
+                response.json()["operational_metrics"]["continuationCompletionRate"],
+                {"numerator": 1, "denominator": 1, "rate": 1.0},
             )
 
         def test_approval_config_matrix_maps_supported_actions_to_real_approval_types(self) -> None:

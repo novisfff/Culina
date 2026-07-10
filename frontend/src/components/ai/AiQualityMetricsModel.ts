@@ -1,4 +1,4 @@
-import type { AiQualityMetrics } from '../../api/types';
+import type { AiQualityMetrics, AiRateMetric } from '../../api/types';
 
 export const AI_SKILL_LABELS: Record<string, string> = {
   inventory_analysis: '库存查看与处理',
@@ -55,6 +55,11 @@ export function aiRunSuccessRate(metrics: AiQualityMetrics) {
   const completed = metrics.status_counts.completed ?? 0;
   if (!metrics.run_count) return '0%';
   return `${Math.round((completed / metrics.run_count) * 100)}%`;
+}
+
+export function formatAiRate(metric?: AiRateMetric | null) {
+  if (!metric || !metric.denominator || metric.rate == null) return '暂无样本';
+  return `${Math.round(metric.rate * 100)}%（${metric.numerator}/${metric.denominator}）`;
 }
 
 export function formatAiDuration(ms?: number | null) {

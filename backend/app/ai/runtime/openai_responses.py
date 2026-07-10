@@ -252,7 +252,7 @@ class OpenAIResponsesChatProvider(BaseChatProvider):
                     progress_event_id = tool_preview_handler(name, preview_key, "running")
                 requested_calls.append({"id": call_id, "name": name, "args": args})
                 try:
-                    output = self._invoke_tool_handler(tool_handler, name, args, progress_event_id)
+                    output = self._invoke_tool_handler(tool_handler, name, args, progress_event_id, call_id)
                 except (AIExecutionCancelled, ApprovalRequired, HumanInputRequired, ToolBudgetHardStop):
                     raise
                 except Exception as exc:
@@ -343,8 +343,9 @@ class OpenAIResponsesChatProvider(BaseChatProvider):
         name: str,
         args: dict[str, Any],
         progress_event_id: str | None,
+        tool_call_id: str | None = None,
     ) -> dict[str, Any]:
-        return invoke_tool_handler(tool_handler, name, args, progress_event_id)
+        return invoke_tool_handler(tool_handler, name, args, progress_event_id, tool_call_id)
 
     def _tool_error_message(self, name: str, exc: Exception) -> dict[str, Any]:
         return tool_error_message(name, exc)

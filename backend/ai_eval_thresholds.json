@@ -1,0 +1,14 @@
+{
+  "schemaVersion": "skill_eval_thresholds.v1",
+  "minimumCaseCount": 32,
+  "minimumRates": {
+    "casePassRate": 1.0,
+    "routingContractRate": 1.0,
+    "toolContractRate": 1.0,
+    "terminalContractRate": 1.0,
+    "draftFirstPassRate": 0.95,
+    "continuationContractRate": 1.0,
+    "identityBoundaryRate": 1.0
+  },
+  "maximumInvalidIdentityWriteCount": 0
+}
