@@ -176,7 +176,13 @@ class SkillInjectionManager:
                 raise ValueError(f"Orchestrator base tools must be control tools: {name}")
             if definition.side_effect == "write":
                 raise ValueError(f"Injected skills must not expose write tool: {name}")
-            definitions.append(self._with_skill_completion_policy(definition, skill_keys, capability_policy))
+            owner_keys = [
+                key
+                for key in skill_keys
+                if capability_policy.allows_skill(key)
+                and name in self.skill_registry.get(key).manifest.tools
+            ]
+            definitions.append(self._with_skill_completion_policy(definition, owner_keys, capability_policy))
 
         for key in skill_keys:
             if not capability_policy.allows_skill(key):
@@ -203,7 +209,6 @@ class SkillInjectionManager:
             self.skill_registry.get(key).manifest.completion_policy
             for key in sorted(set(skill_keys))
             if capability_policy.allows_skill(key)
-            and definition.name in self.skill_registry.get(key).manifest.tools
         ]
         followup_hints = [
             policy.followup_required_tools[definition.name]
