@@ -44,6 +44,8 @@ class Family(AuditMixin, Base):
     name: Mapped[str] = mapped_column(String(120), nullable=False)
     motto: Mapped[str] = mapped_column(String(255), default="", nullable=False)
     location: Mapped[str] = mapped_column(String(120), default="", nullable=False)
+    food_preferences: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
+    food_avoidances: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
 
     memberships: Mapped[list["Membership"]] = relationship(back_populates="family", cascade="all, delete-orphan")
     ingredients: Mapped[list["Ingredient"]] = relationship(back_populates="family", cascade="all, delete-orphan")

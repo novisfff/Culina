@@ -124,6 +124,8 @@ def serialize_family(
         "name": family.name,
         "motto": family.motto,
         "location": family.location,
+        "food_preferences": list(family.food_preferences or []),
+        "food_avoidances": list(family.food_avoidances or []),
         "image": serialize_media(media[0]) if media else None,
         "created_at": _utc_datetime(family.created_at),
         "updated_at": _utc_datetime(family.updated_at),

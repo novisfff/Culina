@@ -7,6 +7,7 @@ context_policy:
 - ingredients
 - recipes
 allowed_tools:
+- family.read_context
 - ingredient.search
 - ingredient.resolve_candidates
 - human.request_input
@@ -33,6 +34,7 @@ tool_budget:
   max_same_read_calls: 2
 completion_policy:
   followup_required_tools:
+    family.read_context: 读取家庭饮食偏好后必须继续结合当前任务生成、调整菜谱草稿或请求补充信息。
     ingredient.search: 食材检索后必须说明候选绑定结果、请求补充信息，或继续生成 recipe 草稿。
     ingredient.resolve_candidates: 批量解析后必须对 ambiguous 请求用户选择，对 missing 进入食材档案 handoff，再继续 recipe 草稿。
     recipe.search: 菜谱检索后必须说明候选、请求用户选择，或继续生成/更新 recipe 草稿。

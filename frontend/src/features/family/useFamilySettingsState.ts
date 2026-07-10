@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../api/client';
+import { isApiError } from '../../api/request';
 import {
   invalidateAfterFamilyChanged,
   invalidateAfterMemberChanged,
@@ -62,9 +63,28 @@ function createFamilyForm(family?: FamilyDetail | null): FamilyFormState {
     name: family?.name ?? '',
     motto: family?.motto ?? '',
     location: family?.location ?? '',
+    foodPreferences: (family?.food_preferences ?? []).join('\n'),
+    foodAvoidances: (family?.food_avoidances ?? []).join('\n'),
     imagePrompt: '',
     images: family?.image ? { generatedAsset: family.image } : emptyImages(),
   };
+}
+
+export function tokenizeFamilyFoodContext(raw: string): string[] {
+  const normalized: string[] = [];
+  for (const part of raw.split(/[,，、\n]+/)) {
+    const item = part.trim();
+    if (item && !normalized.includes(item)) {
+      normalized.push(item);
+    }
+  }
+  return normalized;
+}
+
+function validateFamilyFoodContext(values: string[]): string | null {
+  if (values.length > 20) return '每类最多填写 20 项';
+  if (values.some((item) => item.length > 40)) return '单项不能超过 40 个字符';
+  return null;
 }
 
 function buildProfileImagePayload(form: ProfileFormState, role: string): AiRenderPayload {
@@ -106,6 +126,7 @@ export function useFamilySettingsState(input: {
   const [memberEditForm, setMemberEditForm] = useState<MemberEditFormState>(() => createMemberEditForm());
   const [passwordForm, setPasswordForm] = useState<PasswordFormState>(createPasswordForm);
   const [familyForm, setFamilyForm] = useState<FamilyFormState>(() => createFamilyForm(input.family));
+  const [familyFormError, setFamilyFormError] = useState<string | null>(null);
   const [isProfileAvatarPromptOpen, setIsProfileAvatarPromptOpen] = useState(false);
   const [isFamilyImagePromptOpen, setIsFamilyImagePromptOpen] = useState(false);
   const profileImagePayload = buildProfileImagePayload(profileForm, input.membershipRole ?? 'Member');
@@ -171,6 +192,8 @@ export function useFamilySettingsState(input: {
     input.family?.name,
     input.family?.motto,
     input.family?.location,
+    input.family?.food_preferences,
+    input.family?.food_avoidances,
     input.family?.image?.id,
   ]);
 
@@ -268,18 +291,39 @@ export function useFamilySettingsState(input: {
   async function submitFamily(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!familyForm.name.trim()) return;
+    const foodPreferences = tokenizeFamilyFoodContext(familyForm.foodPreferences);
+    const foodAvoidances = tokenizeFamilyFoodContext(familyForm.foodAvoidances);
+    const validationError = validateFamilyFoodContext(foodPreferences) ?? validateFamilyFoodContext(foodAvoidances);
+    if (validationError) {
+      setFamilyFormError(validationError);
+      return;
+    }
+    setFamilyFormError(null);
     try {
       await updateFamilyMutation.mutateAsync({
         name: familyForm.name.trim(),
         motto: familyForm.motto.trim(),
         location: familyForm.location.trim(),
+        food_preferences: foodPreferences,
+        food_avoidances: foodAvoidances,
         image_media_id: getMediaIds(familyForm.images)[0] ?? null,
         pending_image_job_id: getPendingImageJobId(familyForm.images),
       });
       closeOverlay();
     } catch (reason) {
-      input.showNotice({ tone: 'danger', title: '保存家庭信息失败', message: reason instanceof Error ? reason.message : '保存家庭信息失败' });
+      input.showNotice({
+        tone: 'danger',
+        title: '保存家庭信息失败',
+        message: isApiError(reason) && reason.status === 403
+          ? '只有主理人可以编辑家庭饮食偏好。'
+          : reason instanceof Error ? reason.message : '保存家庭信息失败',
+      });
     }
+  }
+
+  function updateFamilyForm(form: FamilyFormState) {
+    setFamilyFormError(null);
+    setFamilyForm(form);
   }
 
   return {
@@ -294,7 +338,8 @@ export function useFamilySettingsState(input: {
     passwordForm,
     setPasswordForm,
     familyForm,
-    setFamilyForm,
+    setFamilyForm: updateFamilyForm,
+    familyFormError,
     isProfileAvatarPromptOpen,
     setIsProfileAvatarPromptOpen,
     isFamilyImagePromptOpen,

@@ -64,6 +64,8 @@ export interface FamilyDetail {
   name: string;
   motto: string;
   location: string;
+  food_preferences: string[];
+  food_avoidances: string[];
   image?: MediaAsset | null;
   created_at: string;
   updated_at: string;

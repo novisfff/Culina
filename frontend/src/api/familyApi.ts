@@ -3,7 +3,15 @@ import type { FamilyDetail, Member } from './types';
 
 export const familyApi = {
   getFamily: () => request<FamilyDetail>('/api/family'),
-  updateFamily: (payload: { name: string; motto: string; location: string; image_media_id?: string | null; pending_image_job_id?: string | null }) =>
+  updateFamily: (payload: {
+    name: string;
+    motto: string;
+    location: string;
+    food_preferences: string[];
+    food_avoidances: string[];
+    image_media_id?: string | null;
+    pending_image_job_id?: string | null;
+  }) =>
     request<FamilyDetail>('/api/family', {
       method: 'PATCH',
       body: JSON.stringify(payload),

@@ -1,4 +1,5 @@
 from app.ai.tools.catalog.food import register_food_tools
+from app.ai.tools.catalog.family_context import register_family_context_tools
 from app.ai.tools.catalog.ingredient import register_ingredient_tools
 from app.ai.tools.catalog.intent import register_intent_tools
 from app.ai.tools.catalog.inventory import register_inventory_tools
@@ -12,6 +13,7 @@ from app.ai.tools.catalog.workspace import register_workspace_tools
 
 __all__ = [
     "register_food_tools",
+    "register_family_context_tools",
     "register_ingredient_tools",
     "register_intent_tools",
     "register_inventory_tools",

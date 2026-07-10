@@ -10,6 +10,7 @@ context_policy:
 - recipes
 - meal_plan
 allowed_tools:
+- family.read_context
 - inventory.read_expiring_items
 - inventory.read_available_items
 - human.request_input
@@ -48,6 +49,7 @@ completion_policy:
   terminal_tools:
     meal_plan.recommend_today: 即时餐食推荐卡可作为今日推荐模式的终态输出。
   followup_required_tools:
+    family.read_context: 读取家庭饮食偏好后必须继续结合当前任务生成推荐、请求补充信息或生成计划草稿。
     inventory.read_expiring_items: 临期库存读取后必须说明计划影响、请求补充信息，或生成 meal_plan 草稿。
     inventory.read_available_items: 可用库存读取后必须说明可安排方向、请求补充信息，或生成推荐/计划草稿。
     meal_log.read_recent: 近期用餐读取后必须说明避重/偏好依据、请求补充信息，或生成 meal_plan 草稿。

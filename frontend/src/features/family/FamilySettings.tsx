@@ -37,6 +37,8 @@ export type FamilySettingsProps = {
   currentUser: UserSummary | null;
   membership?: MembershipSummary | null;
   isOwner: boolean;
+  isLoading?: boolean;
+  errorMessage?: string | null;
   familyHeroImageUrl?: string;
   familyStatCards: FamilyStatCard[];
   currentUserRecentLogs: number;
@@ -56,6 +58,7 @@ export type FamilySettingsProps = {
   isUpdatingMember: boolean;
   isUpdatingPassword: boolean;
   isUpdatingFamily: boolean;
+  familyFormError?: string | null;
   profileImageControls: ImageComposerControls;
   familyImageControls: ImageComposerControls;
   resolveAssetUrl: (url?: string) => string | undefined;
@@ -78,6 +81,30 @@ export function FamilySettings(props: FamilySettingsProps) {
   const closeOverlay = () => props.onOverlayChange(null);
   const [isActivityModalOpen, setIsActivityModalOpen] = useState(false);
   const [isMobileActivityPageOpen, setIsMobileActivityPageOpen] = useState(false);
+
+  if (props.isLoading) {
+    return (
+      <main className="family-workspace">
+        <StateBlock status="loading" title="正在加载家庭资料" description="正在同步家庭成员与饮食偏好。" />
+      </main>
+    );
+  }
+
+  if (props.errorMessage) {
+    return (
+      <main className="family-workspace">
+        <StateBlock status="error" title="家庭资料加载失败" description={props.errorMessage} />
+      </main>
+    );
+  }
+
+  if (!props.family) {
+    return (
+      <main className="family-workspace">
+        <StateBlock status="empty" title="暂时没有家庭资料" description="加入或创建家庭后即可维护饮食偏好。" />
+      </main>
+    );
+  }
 
   const openActivityViewer = () => {
     if (props.isPhoneViewport) {
@@ -447,6 +474,7 @@ export function FamilySettings(props: FamilySettingsProps) {
           form={props.familyForm}
           family={props.family}
           isSubmitting={props.isUpdatingFamily}
+          validationError={props.familyFormError}
           imageControls={props.familyImageControls}
           resolveAssetUrl={props.resolveAssetUrl}
           onChange={props.onFamilyFormChange}

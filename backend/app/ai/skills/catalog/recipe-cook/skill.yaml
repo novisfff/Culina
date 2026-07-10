@@ -8,6 +8,7 @@ context_policy:
 - inventory
 - meal_plan
 allowed_tools:
+- family.read_context
 - human.request_input
 - workspace.read_artifact
 - recipe.search
@@ -34,6 +35,7 @@ tool_budget:
   max_same_read_calls: 2
 completion_policy:
   followup_required_tools:
+    family.read_context: 读取家庭饮食偏好后必须继续结合当前任务预览做菜、请求补充信息或生成做菜草稿。
     recipe.search: 菜谱检索后必须说明候选、请求用户选择，或继续读取/预览做菜。
     recipe.read_by_id: 读取菜谱后必须说明可做性、请求补充信息，或调用 recipe.preview_cook。
     recipe.preview_cook: 预览后必须继续说明缺料、请求补充信息，或在库存充足时生成 recipe_cook 草稿。
