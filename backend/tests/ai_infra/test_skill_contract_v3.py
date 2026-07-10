@@ -273,40 +273,41 @@ def load_v3_registry(
     handoffs: dict[str, dict[str, str]],
     routing: dict | None = None,
     target_draft_type: str = "ingredient_profile",
+    source_attachment_policy: dict | None = None,
+    include_source_attachment_policy: bool = True,
+    source_skill_key: str = "source_skill",
 ) -> SkillRegistry:
     target_tool = (
         "ingredient_profile.create_draft"
         if target_draft_type == "ingredient_profile"
         else "recipe.create_draft"
     )
-    _write_skill(
-        tmp_path,
-        "source-skill",
-        {
-            "version": 3,
-            "key": "source_skill",
-            "display_name": "Source Skill",
-            "approval_policy": "none",
-            "allowed_tools": [],
-            "draft_types": [],
-            "output_types": [],
-            "routing": routing
-            or {
-                "modes": ["default"],
-                "include_examples": ["source request"],
-                "exclude_examples": [],
-                "conflict_rules": [],
-            },
-            "handoffs": handoffs,
-            "attachment_policy": {
-                "accepted_kinds": [],
-                "usages": [],
-                "bindable_fields": [],
-                "current_message_only": True,
-                "explicit_user_intent_required": True,
-            },
+    source_runtime = {
+        "version": 3,
+        "key": source_skill_key,
+        "display_name": "Source Skill",
+        "approval_policy": "none",
+        "allowed_tools": [],
+        "draft_types": [],
+        "output_types": [],
+        "routing": routing
+        or {
+            "modes": ["default"],
+            "include_examples": ["source request"],
+            "exclude_examples": [],
+            "conflict_rules": [],
         },
-    )
+        "handoffs": handoffs,
+    }
+    if include_source_attachment_policy:
+        source_runtime["attachment_policy"] = source_attachment_policy or {
+            "accepted_kinds": [],
+            "usages": [],
+            "bindable_fields": [],
+            "current_message_only": True,
+            "explicit_user_intent_required": True,
+        }
+    _write_skill(tmp_path, source_skill_key.replace("_", "-"), source_runtime)
     _write_skill(
         tmp_path,
         "target-skill",
@@ -363,6 +364,128 @@ def test_v3_loader_parses_routing_handoffs_and_attachment_policy(tmp_path: Path)
     assert manifest.routing.modes == ("default",)
     assert manifest.handoffs["missing_item"].target_skill == "target_skill"
     assert manifest.attachment_policy.current_message_only is True
+
+
+def test_v3_loader_requires_attachment_policy(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="attachment_policy must be a mapping"):
+        load_v3_registry(
+            tmp_path,
+            handoffs={},
+            include_source_attachment_policy=False,
+        )
+
+
+def test_v3_registry_rejects_unsafe_attachment_flags(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="current-message-only and explicit user intent"):
+        load_v3_registry(
+            tmp_path,
+            handoffs={},
+            source_skill_key="food_profile",
+            source_attachment_policy={
+                "accepted_kinds": [],
+                "usages": [],
+                "bindable_fields": [],
+                "current_message_only": False,
+                "explicit_user_intent_required": False,
+            },
+        )
+
+
+def test_v3_registry_rejects_undeclared_attachment_binding_field(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="cannot bind attachment fields"):
+        load_v3_registry(
+            tmp_path,
+            handoffs={},
+            source_skill_key="food_profile",
+            source_attachment_policy={
+                "accepted_kinds": ["image"],
+                "usages": ["draft_media_binding"],
+                "bindable_fields": ["anything"],
+                "current_message_only": True,
+                "explicit_user_intent_required": True,
+            },
+        )
+
+
+def test_v3_registry_rejects_non_image_attachment_binding(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="may accept only image attachments"):
+        load_v3_registry(
+            tmp_path,
+            handoffs={},
+            source_skill_key="food_profile",
+            source_attachment_policy={
+                "accepted_kinds": ["video"],
+                "usages": ["draft_media_binding"],
+                "bindable_fields": ["media_ids"],
+                "current_message_only": True,
+                "explicit_user_intent_required": True,
+            },
+        )
+
+
+@pytest.mark.parametrize(
+    "policy",
+    [
+        {
+            "accepted_kinds": ["image"],
+            "usages": ["draft_media_binding"],
+            "bindable_fields": [],
+            "current_message_only": True,
+            "explicit_user_intent_required": True,
+        },
+        {
+            "accepted_kinds": ["image"],
+            "usages": [],
+            "bindable_fields": ["media_ids"],
+            "current_message_only": True,
+            "explicit_user_intent_required": True,
+        },
+    ],
+)
+def test_v3_registry_rejects_partially_declared_attachment_binding(
+    tmp_path: Path,
+    policy: dict,
+) -> None:
+    with pytest.raises(ValueError, match="must be all empty or all non-empty"):
+        load_v3_registry(
+            tmp_path,
+            handoffs={},
+            source_skill_key="food_profile",
+            source_attachment_policy=policy,
+        )
+
+
+def test_v3_registry_rejects_unknown_attachment_usage(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="unsupported attachment usages"):
+        load_v3_registry(
+            tmp_path,
+            handoffs={},
+            source_skill_key="food_profile",
+            source_attachment_policy={
+                "accepted_kinds": ["image"],
+                "usages": ["unknown_usage"],
+                "bindable_fields": ["media_ids"],
+                "current_message_only": True,
+                "explicit_user_intent_required": True,
+            },
+        )
+
+
+def test_v3_registry_requires_empty_attachment_policy_for_non_bindable_skill(tmp_path: Path) -> None:
+    policy = {
+        "accepted_kinds": ["image"],
+        "usages": ["draft_media_binding"],
+        "bindable_fields": ["anything"],
+        "current_message_only": True,
+        "explicit_user_intent_required": True,
+    }
+
+    with pytest.raises(ValueError, match="cannot declare attachment kinds, usages, or binding fields"):
+        load_v3_registry(
+            tmp_path,
+            handoffs={},
+            source_attachment_policy=policy,
+        )
 
 
 def test_v3_loader_rejects_unknown_handoff_target(tmp_path: Path) -> None:

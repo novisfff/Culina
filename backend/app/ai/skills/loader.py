@@ -231,10 +231,10 @@ class SkillDirectoryLoader:
         return policies
 
     def _attachment_policy(self, value: Any, *, version: int) -> SkillAttachmentPolicy:
-        if version == 2 or value is None:
+        if version == 2:
             return SkillAttachmentPolicy()
         if not isinstance(value, dict):
-            raise ValueError("skill.yaml attachment_policy must be a mapping")
+            raise ValueError("skill.yaml attachment_policy must be a mapping for version 3")
         return SkillAttachmentPolicy(
             accepted_kinds=tuple(
                 self._list(value.get("accepted_kinds"), field_name="skill.yaml attachment_policy.accepted_kinds")

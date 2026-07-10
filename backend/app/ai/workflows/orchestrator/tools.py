@@ -111,14 +111,14 @@ class OrchestratorToolGateway:
         raw_continuation = runtime_payload.get("continuation")
         source_skill_key = None
         if isinstance(raw_continuation, dict):
-            owner_keys = self.injection_manager.skill_keys_for_tool(name, self.state.active_skill_keys)
-            target_skill_key = str(raw_continuation.get("nextSkillKey") or "").strip()
-            if target_skill_key not in owner_keys:
-                raise ValueError("continuation target Skill does not own the draft tool")
             source_skill_key = self.injection_manager.continuation_source_skill_key(
                 raw_continuation,
                 self.state.active_skill_keys,
             )
+            owner_keys = self.injection_manager.skill_keys_for_tool(name, self.state.active_skill_keys)
+            target_skill_key = str(raw_continuation.get("nextSkillKey") or "").strip()
+            if source_skill_key not in owner_keys and target_skill_key not in owner_keys:
+                raise ValueError("continuation source or target Skill does not own the draft tool")
         prepared_payload = prepare_tool_payload(
             payload=runtime_payload,
             execution_definition=execution_definition,
