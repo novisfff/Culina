@@ -15,6 +15,7 @@ allowed_tools:
 - ingredient.read_by_id
 - food.search
 - food.read_by_id
+- purchasable.resolve_candidates
 - shopping.read_pending
 - shopping.read_by_id
 - inventory.read_available_items
@@ -41,6 +42,7 @@ completion_policy:
     ingredient.read_by_id: 读取食材档案后必须说明如何加入清单、请求补充信息，或生成 shopping_list 草稿。
     food.search: 食物检索后必须说明可采购的成品、速食或包装食品候选，请求用户选择，或生成 shopping_list 草稿。
     food.read_by_id: 读取食物资料后必须确认它属于 readyMade、instant 或 packaged，再说明如何加入清单、请求补充信息，或生成 shopping_list 草稿。
+    purchasable.resolve_candidates: 批量解析后必须对 ambiguous 请求用户选择，对 missing 进入对应资料 handoff，再继续 shopping_list 草稿。
     shopping.read_pending: 待读购物清单读取后必须总结待购重点、请求补充信息，或生成 shopping_list 草稿。
     shopping.read_by_id: 读取购物清单详情后必须说明可调整项、请求补充信息，或生成 shopping_list 草稿。
     inventory.read_available_items: 可用库存读取后必须说明缺口/不必购买项、请求补充信息，或生成 shopping_list 草稿。

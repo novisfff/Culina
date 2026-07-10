@@ -8,6 +8,7 @@ context_policy:
 - recipes
 allowed_tools:
 - ingredient.search
+- ingredient.resolve_candidates
 - human.request_input
 - workspace.read_artifact
 - recipe.search
@@ -33,6 +34,7 @@ tool_budget:
 completion_policy:
   followup_required_tools:
     ingredient.search: 食材检索后必须说明候选绑定结果、请求补充信息，或继续生成 recipe 草稿。
+    ingredient.resolve_candidates: 批量解析后必须对 ambiguous 请求用户选择，对 missing 进入食材档案 handoff，再继续 recipe 草稿。
     recipe.search: 菜谱检索后必须说明候选、请求用户选择，或继续生成/更新 recipe 草稿。
     recipe.read_by_id: 读取菜谱后必须说明可复用内容、请求补充信息，或继续生成/更新 recipe 草稿。
     workspace.read_artifact: 读取历史 artifact 后必须说明可复用内容、请求补充信息，或继续生成/更新 recipe 草稿。

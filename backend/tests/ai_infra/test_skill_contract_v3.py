@@ -372,6 +372,13 @@ def test_draft_model_tool_schema_exposes_continuation_not_after_approval() -> No
     assert "afterApproval" not in parameters["properties"]
 
 
+def test_resolution_tools_are_authorized_by_their_business_skills() -> None:
+    registry = build_workspace_skill_registry()
+
+    assert "ingredient.resolve_candidates" in registry.get("recipe_draft").manifest.tools
+    assert "purchasable.resolve_candidates" in registry.get("shopping_list").manifest.tools
+
+
 def test_continuation_artifact_is_typed_and_deduplicates_business_ids() -> None:
     artifact = continuation_artifact(
         run_id="run-1",

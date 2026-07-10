@@ -8,6 +8,177 @@ from app.services.search.indexing import upsert_search_document
 
 
 class AIToolRegistryTestCase(AIAgentInfraTestCase):
+        def test_batch_resolution_keeps_semantic_matches_as_candidates(self) -> None:
+            with self.SessionLocal() as db:
+                egg = self._add_egg_ingredient(db)
+                tofu = Ingredient(
+                    id="ingredient-resolution-tofu",
+                    family_id=self.family.id,
+                    name="北豆腐",
+                    category="豆制品",
+                    default_unit="块",
+                    unit_conversions=[],
+                    default_storage="冷藏",
+                    default_expiry_mode=IngredientExpiryMode.NONE,
+                    notes="",
+                    created_by=self.user.id,
+                    updated_by=self.user.id,
+                )
+                db.add(tofu)
+                db.flush()
+
+                def fake_hybrid_search(_db, *, query, **_kwargs):
+                    ids = [egg.id] if query == "蛋类候选" else [egg.id, tofu.id]
+                    return SimpleNamespace(
+                        items=[
+                            SimpleNamespace(
+                                entity_type="ingredient",
+                                entity_id=entity_id,
+                                match_reason=["语义召回"],
+                            )
+                            for entity_id in ids
+                        ]
+                    )
+
+                executor = ToolExecutor(
+                    build_workspace_tool_registry(),
+                    ToolContext(
+                        db=db,
+                        family_id=self.family.id,
+                        user_id=self.user.id,
+                        conversation_id="conversation-resolution-semantic",
+                        run_id="run-resolution-semantic",
+                    ),
+                )
+                with patch(
+                    "app.ai.tools.catalog.resolution.hybrid_search",
+                    side_effect=fake_hybrid_search,
+                ):
+                    output = executor.call(
+                        "ingredient.resolve_candidates",
+                        {
+                            "items": [
+                                {"clientKey": "one", "name": "蛋类候选"},
+                                {"clientKey": "many", "name": "早餐候选"},
+                            ]
+                        },
+                    )
+
+            self.assertEqual(output["results"][0]["status"], "candidate")
+            self.assertEqual(output["results"][0]["candidates"][0]["matchType"], "semantic")
+            self.assertEqual(output["results"][1]["status"], "ambiguous")
+
+        def test_batch_candidate_resolution_is_read_only_bounded_and_family_scoped(self) -> None:
+            with self.SessionLocal() as db:
+                ready_food = Food(
+                    id="food-resolution-yogurt",
+                    family_id=self.family.id,
+                    name="原味酸奶",
+                    type=FoodType.READY_MADE,
+                    category="乳制品",
+                    flavor_tags=[],
+                    scene_tags=[],
+                    suitable_meal_types=["breakfast"],
+                    source_name="",
+                    purchase_source="",
+                    scene="",
+                    notes="",
+                    routine_note="",
+                    stock_quantity=Decimal("2"),
+                    stock_unit="盒",
+                    storage_location="冷藏",
+                    created_by=self.user.id,
+                    updated_by=self.user.id,
+                )
+                other_ready_food = Food(
+                    id="food-resolution-secret",
+                    family_id=self.other_family.id,
+                    name="其他家庭酸奶",
+                    type=FoodType.READY_MADE,
+                    category="乳制品",
+                    flavor_tags=[],
+                    scene_tags=[],
+                    suitable_meal_types=["breakfast"],
+                    source_name="",
+                    purchase_source="",
+                    scene="",
+                    notes="",
+                    routine_note="",
+                    created_by=self.user.id,
+                    updated_by=self.user.id,
+                )
+                db.add_all([ready_food, other_ready_food])
+                db.flush()
+                registry = build_workspace_tool_registry()
+                executor = ToolExecutor(
+                    registry,
+                    ToolContext(
+                        db=db,
+                        family_id=self.family.id,
+                        user_id=self.user.id,
+                        conversation_id="conversation-resolution",
+                        run_id="run-resolution",
+                    ),
+                )
+
+                ingredient_result = executor.call(
+                    "ingredient.resolve_candidates",
+                    {
+                        "items": [
+                            {"clientKey": "tomato", "name": "番茄"},
+                            {"clientKey": "secret", "name": "其他家庭牛排"},
+                            {"clientKey": "missing", "name": "不存在食材"},
+                        ]
+                    },
+                )
+                purchasable_result = executor.call(
+                    "purchasable.resolve_candidates",
+                    {
+                        "items": [
+                            {"clientKey": "yogurt", "name": "原味酸奶"},
+                            {"clientKey": "tomato", "name": "番茄"},
+                            {"clientKey": "secret", "name": "其他家庭酸奶"},
+                        ]
+                    },
+                )
+
+                self.assertEqual(registry.get("ingredient.resolve_candidates").side_effect, "read")
+                self.assertEqual(registry.get("ingredient.resolve_candidates").draft_types, [])
+                self.assertEqual(registry.get("purchasable.resolve_candidates").side_effect, "read")
+                self.assertEqual(ingredient_result["results"][0]["status"], "exact")
+                self.assertEqual(ingredient_result["results"][0]["candidates"][0]["id"], "ingredient-tomato")
+                self.assertEqual(ingredient_result["results"][1]["status"], "missing")
+                self.assertEqual(ingredient_result["results"][2]["status"], "missing")
+                self.assertEqual(purchasable_result["results"][0]["status"], "exact")
+                self.assertEqual(purchasable_result["results"][0]["candidates"][0]["id"], ready_food.id)
+                self.assertEqual(purchasable_result["results"][1]["status"], "exact")
+                self.assertEqual(purchasable_result["results"][1]["candidates"][0]["id"], "ingredient-tomato")
+                self.assertEqual(purchasable_result["results"][2]["status"], "missing")
+                self.assertTrue(
+                    all(
+                        item["status"] in {"exact", "candidate", "ambiguous", "missing"}
+                        for item in [*ingredient_result["results"], *purchasable_result["results"]]
+                    )
+                )
+                returned_ids = {
+                    candidate["id"]
+                    for result in [*ingredient_result["results"], *purchasable_result["results"]]
+                    for candidate in result["candidates"]
+                }
+                self.assertNotIn("ingredient-secret", returned_ids)
+                self.assertNotIn(other_ready_food.id, returned_ids)
+
+                with self.assertRaisesRegex(ValueError, "at most 30 items"):
+                    executor.call(
+                        "ingredient.resolve_candidates",
+                        {
+                            "items": [
+                                {"clientKey": f"item-{index}", "name": f"食材 {index}"}
+                                for index in range(31)
+                            ]
+                        },
+                    )
+
         def test_catalog_search_tools_use_hybrid_search_documents_for_query(self) -> None:
             with self.SessionLocal() as db:
                 ingredient = Ingredient(
