@@ -97,4 +97,63 @@ describe('AI product loop cards', () => {
       },
     });
   });
+
+  it('continues an inventory-backed meal idea into recipe drafting without fake entity ids', async () => {
+    const onProductLoopPrompt = vi.fn();
+    container = document.createElement('div');
+    document.body.appendChild(container);
+    root = createRoot(container);
+    await act(async () => {
+      root?.render(
+        <ResultCard
+          card={{
+            id: 'meal-idea-1',
+            type: 'meal_idea_proposal',
+            title: '番茄清汤',
+            data: {
+              title: '番茄清汤',
+              reason: '现有番茄库存可以组合',
+              ingredientIds: ['ingredient-tomato'],
+              ingredients: [
+                {
+                  ingredientId: 'ingredient-tomato',
+                  name: '番茄',
+                  quantityMode: 'track_quantity',
+                  availableQuantity: '3',
+                  unit: '个',
+                  available: true,
+                },
+              ],
+              preparationSummary: '番茄切块后煮出汤汁。',
+            },
+          } as unknown as AiResultCard}
+          onProductLoopPrompt={onProductLoopPrompt}
+        />,
+      );
+    });
+
+    expect(container.textContent).toContain('现有番茄库存可以组合');
+    const action = Array.from(container.querySelectorAll<HTMLButtonElement>('button'))
+      .find((button) => button.textContent?.includes('整理成菜谱'));
+    expect(action?.disabled).toBe(false);
+    await act(async () => action?.click());
+
+    expect(onProductLoopPrompt).toHaveBeenCalledWith({
+      message: '把这个想法整理成菜谱',
+      quick_task: 'recipe_draft',
+      subject: {
+        source: 'meal_idea_proposal',
+        ingredient_ids: ['ingredient-tomato'],
+        extra: {
+          mealIdea: {
+            schemaVersion: 'meal_idea_subject.v1',
+            title: '番茄清汤',
+            ingredientIds: ['ingredient-tomato'],
+            reason: '现有番茄库存可以组合',
+            preparationSummary: '番茄切块后煮出汤汁。',
+          },
+        },
+      },
+    });
+  });
 });

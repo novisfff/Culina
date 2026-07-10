@@ -7981,6 +7981,56 @@
   color: #8d6636;
 }
 
+.ai-meal-idea-ingredients {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.ai-meal-idea-ingredient {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  justify-content: space-between;
+  min-width: 0;
+  padding: 11px 12px;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-sm);
+  background: #fff;
+}
+
+.ai-meal-idea-ingredient strong {
+  overflow: hidden;
+  color: var(--text);
+  font-size: 0.875rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ai-meal-idea-ingredient span {
+  flex: 0 0 auto;
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.ai-meal-idea-ingredient .is-available {
+  color: var(--success);
+}
+
+.ai-meal-idea-ingredient .is-missing {
+  color: var(--danger);
+}
+
+.ai-meal-idea-preparation {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-warm);
+  color: var(--text-soft);
+  font-size: 0.8125rem;
+  line-height: 1.5;
+}
+
 .ai-query-inventory-actions {
   display: flex;
   align-items: center;
@@ -8670,6 +8720,10 @@ button.ai-clarification-option:hover:not(:disabled) .ai-clarification-option-ind
   }
 
   .ai-inventory-intake-item {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .ai-meal-idea-ingredients {
     grid-template-columns: minmax(0, 1fr);
   }
 

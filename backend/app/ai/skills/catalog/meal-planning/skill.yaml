@@ -23,6 +23,7 @@ allowed_tools:
 - meal_plan.read_existing
 - meal_plan.read_by_id
 - meal_plan.recommend_today
+- meal_plan.propose_from_inventory
 - meal_plan.create_draft
 script_files:
 - scripts/expand_meal_slots.py
@@ -30,6 +31,7 @@ script_files:
 - scripts/render_plan_preview.py
 output_types:
 - today_recommendation
+- meal_idea_proposal
 draft_types:
 - meal_plan
 draft_contract:
@@ -48,6 +50,7 @@ tool_budget:
 completion_policy:
   terminal_tools:
     meal_plan.recommend_today: 即时餐食推荐卡可作为今日推荐模式的终态输出。
+    meal_plan.propose_from_inventory: 当 Food 和 Recipe 库都没有合适真实候选时，库存餐食想法卡可作为当前轮终态输出。
   followup_required_tools:
     family.read_context: 读取家庭饮食偏好后必须继续结合当前任务生成推荐、请求补充信息或生成计划草稿。
     inventory.read_expiring_items: 临期库存读取后必须说明计划影响、请求补充信息，或生成 meal_plan 草稿。
@@ -72,6 +75,7 @@ examples:
 - 把周五晚餐改成番茄炒蛋。
 - 删除明天午餐计划。
 - 这周末午晚餐都安排清淡一点。
+- 家里还没建菜谱，先按现有库存给一个可以整理成菜谱的想法。
 routing:
   modes: [query, create, update]
   include_examples:
@@ -83,6 +87,7 @@ routing:
   - 把周五晚餐改成番茄炒蛋。
   - 删除明天午餐计划。
   - 这周末午晚餐都安排清淡一点。
+  - 家里还没建菜谱，先按现有库存给一个可以整理成菜谱的想法。
   exclude_examples:
   - 记录昨晚吃了番茄炒蛋。
   - 新增盒装牛奶食物资料。

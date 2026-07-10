@@ -5,6 +5,7 @@ from app.ai.tools.catalog.intent import register_intent_tools
 from app.ai.tools.catalog.inventory import register_inventory_tools
 from app.ai.tools.catalog.inventory_intake import register_inventory_intake_tools
 from app.ai.tools.catalog.meal_log import register_meal_log_tools
+from app.ai.tools.catalog.meal_ideas import register_meal_idea_tools
 from app.ai.tools.catalog.meal_plan import register_meal_plan_tools
 from app.ai.tools.catalog.recipe import register_recipe_tools
 from app.ai.tools.catalog.resolution import register_resolution_tools
@@ -20,6 +21,7 @@ __all__ = [
     "register_inventory_tools",
     "register_inventory_intake_tools",
     "register_meal_log_tools",
+    "register_meal_idea_tools",
     "register_meal_plan_tools",
     "register_recipe_tools",
     "register_resolution_tools",

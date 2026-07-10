@@ -720,7 +720,8 @@ export type AiResultCardType =
   | 'food_profile_draft'
   | 'ui_actions'
   | 'recipe_shortage'
-  | 'inventory_intake_candidates';
+  | 'inventory_intake_candidates'
+  | 'meal_idea_proposal';
 
 export interface AiProductLoopPrompt {
   message: string;
@@ -738,6 +739,15 @@ export interface AiInventoryIntakeCandidate {
   warnings: string[];
   confidence?: number | null;
   sourceLabel?: string | null;
+}
+
+export interface AiMealIdeaIngredient {
+  ingredientId: string;
+  name: string;
+  quantityMode: 'track_quantity' | 'not_track_quantity';
+  availableQuantity: string | null;
+  unit: string | null;
+  available: boolean;
 }
 export type AiTaskDraftType = 'recipe' | 'recipe_cook' | 'ingredient_profile' | 'shopping_list' | 'meal_plan' | 'meal_log' | 'food_profile' | 'inventory_operation' | 'composite_operation';
 export type AiApprovalDecision = 'approved' | 'rejected';

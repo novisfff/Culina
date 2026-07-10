@@ -13,6 +13,7 @@ import { MEAL_TYPE_LABELS } from '../../lib/ui';
 import { MediaWithPlaceholder } from '../MediaPlaceholder';
 import { approvalStatusText } from './AiApprovalPanel';
 import { AiInventoryIntakeCandidates } from './AiInventoryIntakeCandidates';
+import { AiMealIdeaProposal } from './AiMealIdeaProposal';
 import {
   AI_RESULT_PLACEHOLDER,
   evidenceText,
@@ -419,6 +420,15 @@ export function ResultCard({
   if (card.type === 'inventory_intake_candidates') {
     return (
       <AiInventoryIntakeCandidates
+        card={card}
+        onProductLoopPrompt={onProductLoopPrompt}
+        disabled={isPromptActionPending}
+      />
+    );
+  }
+  if (card.type === 'meal_idea_proposal') {
+    return (
+      <AiMealIdeaProposal
         card={card}
         onProductLoopPrompt={onProductLoopPrompt}
         disabled={isPromptActionPending}

@@ -444,6 +444,89 @@ class AIProductClosedLoopsTestCase(AIAgentInfraTestCase):
         self.assertEqual(state["currentLabel"], "紫苏")
         self.assertEqual(state["resolvedItems"][0]["ingredientId"], "ingredient-tomato")
 
+    def test_inventory_backed_meal_idea_card_uses_only_real_ingredient_ids(self) -> None:
+        with self.SessionLocal() as db:
+            executor = self._inventory_intake_executor(db)
+
+            result = executor.call(
+                "meal_plan.propose_from_inventory",
+                {
+                    "title": "番茄清汤",
+                    "ingredientIds": ["ingredient-tomato", "ingredient-tomato"],
+                    "reason": "现有番茄库存可以先做一道清爽汤品",
+                    "preparationSummary": "番茄切块后煮出汤汁。",
+                },
+            )
+
+            card = result["card"]
+            self.assertEqual(card["type"], "meal_idea_proposal")
+            self.assertEqual(card["data"]["ingredientIds"], ["ingredient-tomato"])
+            self.assertNotIn("foodId", card["data"])
+            self.assertNotIn("recipeId", card["data"])
+            self.assertTrue(card["data"]["ingredients"][0]["available"])
+            from app.ai.workflows.result_cards import validate_result_cards
+
+            self.assertEqual(validate_result_cards([card])[0]["type"], "meal_idea_proposal")
+            with self.assertRaisesRegex(Exception, "extra_forbidden|Extra inputs"):
+                validate_result_cards(
+                    [
+                        {
+                            **card,
+                            "data": {**card["data"], "recipeId": "recipe-made-up"},
+                        }
+                    ]
+                )
+
+    def test_inventory_backed_meal_idea_rejects_unknown_ingredient_id(self) -> None:
+        with self.SessionLocal() as db:
+            executor = self._inventory_intake_executor(db)
+
+            with self.assertRaisesRegex(ValueError, "ingredient_not_found"):
+                executor.call(
+                    "meal_plan.propose_from_inventory",
+                    {
+                        "title": "不存在的菜",
+                        "ingredientIds": ["ingredient-secret"],
+                        "reason": "不应跨家庭读取",
+                    },
+                )
+
+    def test_product_loop_subjects_reject_tampered_shapes(self) -> None:
+        from app.schemas.ai import AISubjectIn
+
+        valid = AISubjectIn.model_validate(
+            {
+                "source": "meal_idea_proposal",
+                "ingredient_ids": ["ingredient-tomato"],
+                "extra": {
+                    "mealIdea": {
+                        "schemaVersion": "meal_idea_subject.v1",
+                        "title": "番茄清汤",
+                        "ingredientIds": ["ingredient-tomato"],
+                        "reason": "使用当前库存",
+                        "preparationSummary": "煮汤",
+                    }
+                },
+            }
+        )
+        self.assertEqual(valid.extra["mealIdea"]["ingredientIds"], ["ingredient-tomato"])
+
+        with self.assertRaisesRegex(Exception, "ingredient_ids must match"):
+            AISubjectIn.model_validate(
+                {
+                    "source": "meal_idea_proposal",
+                    "ingredient_ids": ["ingredient-secret"],
+                    "extra": {
+                        "mealIdea": {
+                            "schemaVersion": "meal_idea_subject.v1",
+                            "title": "番茄清汤",
+                            "ingredientIds": ["ingredient-tomato"],
+                            "reason": "使用当前库存",
+                        }
+                    },
+                }
+            )
+
     @staticmethod
     def _meal_log_stock_payload(food: Food, *, quantity: str = "1", unit: str = "份") -> dict:
         return {

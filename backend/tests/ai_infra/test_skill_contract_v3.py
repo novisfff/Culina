@@ -265,6 +265,22 @@ def test_inventory_skill_declares_reviewable_intake_candidate_terminal_contract(
     assert "intakeCandidates" in skill_text
 
 
+def test_meal_plan_and_recipe_skills_declare_inventory_idea_product_loop() -> None:
+    registry = build_workspace_skill_registry()
+    catalog_dir = Path(__file__).resolve().parents[2] / "app" / "ai" / "skills" / "catalog"
+    meal_plan = registry.get("meal_plan").manifest
+    meal_plan_text = (catalog_dir / "meal-planning" / "SKILL.md").read_text(encoding="utf-8")
+    recipe_text = (catalog_dir / "recipe-draft" / "SKILL.md").read_text(encoding="utf-8")
+
+    assert "meal_plan.propose_from_inventory" in meal_plan.tools
+    assert "meal_idea_proposal" in meal_plan.output_types
+    assert "meal_plan.propose_from_inventory" in meal_plan.completion_policy.terminal_tools
+    assert "Food 和 Recipe 搜索都没有合适真实候选" in meal_plan_text
+    assert "不能生成虚假的 Food ID、Recipe ID 或餐食计划项" in meal_plan_text
+    assert "meal_idea_subject.v1" in recipe_text
+    assert "重新读取每个 `ingredientId`" in recipe_text
+
+
 def test_routing_record_excludes_execution_only_contracts() -> None:
     manifest = build_workspace_skill_registry().get("shopping_list").manifest
 
