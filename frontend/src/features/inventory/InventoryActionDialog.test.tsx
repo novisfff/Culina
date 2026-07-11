@@ -28,6 +28,12 @@ function batch(overrides: Partial<InventoryActionBatch> & Pick<InventoryActionBa
     expiryAlertSnoozedUntil: overrides.expiryAlertSnoozedUntil ?? null,
     expiryReviewedAt: overrides.expiryReviewedAt ?? null,
     expiryReviewedBy: overrides.expiryReviewedBy ?? null,
+    presenceOnly: overrides.presenceOnly,
+    target: overrides.target ?? {
+      targetKind: 'inventory_item',
+      inventoryItemId: overrides.inventoryItemId,
+      expectedRowVersion: overrides.rowVersion ?? 1,
+    },
   };
 }
 
@@ -82,6 +88,7 @@ const mixedGroup: ExpiryInventoryActionGroup = {
   title: '番茄需要处理',
   detail: '2 批已过期，1 批 3 天内到期，1 批 7 天内到期',
   primaryAction: 'manage_expiry',
+  targetKind: 'inventory_item',
 };
 
 const upcomingOnlyGroup: ExpiryInventoryActionGroup = {
@@ -424,4 +431,64 @@ describe('InventoryActionDialog', () => {
     expect(view.querySelector('[aria-modal="true"][data-focus-trap="true"]')).toBeNull();
     expect(document.activeElement === document.body || view.contains(document.activeElement)).toBe(true);
   });
+
+  it('renders presence-only State row and absent confirmation copy', async () => {
+    const presenceGroup: ExpiryInventoryActionGroup = {
+      kind: 'expiry',
+      id: 'expiry:ingredient-salt',
+      ingredientId: 'ingredient-salt',
+      ingredientName: '盐',
+      severity: 'expired',
+      batches: [
+        batch({
+          inventoryItemId: 'state:inventory-state-salt',
+          daysLeft: -2,
+          expiryDate: '2026-07-09',
+          remainingQuantity: 1,
+          unit: '',
+          storageLocation: '常温',
+          presenceOnly: true,
+          target: {
+            targetKind: 'ingredient_inventory_state',
+            ingredientId: 'ingredient-salt',
+            stateId: 'inventory-state-salt',
+            expectedRowVersion: 2,
+          },
+        }),
+      ],
+      expiredBatchCount: 1,
+      todayBatchCount: 0,
+      soonBatchCount: 0,
+      laterBatchCount: 0,
+      totalBatchCount: 1,
+      quantityLabels: ['只记录整体有无'],
+      storageLocations: ['常温'],
+      earliestExpiryDate: '2026-07-09',
+      earliestDaysLeft: -2,
+      title: '盐需要处理',
+      detail: '只记录整体有无 · 已过期 · 常温',
+      primaryAction: 'manage_expiry',
+      targetKind: 'ingredient_inventory_state',
+    };
+    const onDispose = vi.fn(async () => undefined);
+    renderDialog({ group: presenceGroup, onDispose });
+    expect(container?.textContent).toContain('只记录整体有无');
+    expect(container?.textContent).toContain('标记为没有');
+    const disposeButton = Array.from(container?.querySelectorAll('button') ?? []).find((button) =>
+      button.textContent?.includes('标记为没有'),
+    );
+    expect(disposeButton).toBeTruthy();
+    await act(async () => {
+      disposeButton?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+    // First click focuses dispose; second click enters confirmation.
+    const focusedDispose = Array.from(container?.querySelectorAll('button') ?? []).find((button) =>
+      button.textContent?.includes('标记为没有'),
+    );
+    await act(async () => {
+      focusedDispose?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+    expect(container?.textContent).toContain('将把盐标记为已经没有');
+  });
+
 });

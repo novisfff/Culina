@@ -3,16 +3,18 @@ from __future__ import annotations
 from datetime import date, datetime, timedelta
 from typing import Literal, Sequence
 
-from sqlalchemy.orm import Session
+from sqlalchemy import select
+from sqlalchemy.orm import Session, selectinload
 from sqlalchemy.orm.exc import StaleDataError
 
-from app.core.enums import ActivityAction
+from app.core.enums import ActivityAction, InventoryAvailabilityLevel
 from app.core.utils import utcnow
-from app.models.domain import Ingredient, InventoryItem
+from app.models.domain import Ingredient, IngredientInventoryState, InventoryItem
 from app.services.activity import log_activity
+from app.services.ingredient_inventory_state import upsert_inventory_state
 from app.services.inventory_operation_locking import lock_inventory_targets
 from app.services.inventory_operations import dispose_inventory_quantity
-from app.services.inventory_usage import remaining_quantity
+from app.services.inventory_usage import remaining_quantity, tracks_quantity
 from app.services.inventory_versions import (
     InventoryConflictError,
     STALE_INVENTORY_DETAIL,
@@ -112,9 +114,36 @@ def lock_and_validate_versioned_items(
     return ingredient, ordered_items
 
 
-def _validate_snooze_window(*, today: date, snoozed_until: date) -> None:
+def validate_snooze_window(*, today: date, snoozed_until: date) -> None:
+    """Target-independent snooze date window: tomorrow..today+30 inclusive."""
     if not (today < snoozed_until <= today + timedelta(days=MAX_SNOOZE_DAYS)):
         raise ValueError("提醒日期必须晚于今天且不超过 30 天")
+
+
+# Keep private alias used by older call sites / tests that import the private name.
+_validate_snooze_window = validate_snooze_window
+
+
+def validate_expiry_action_eligibility(
+    *,
+    expiry_date: date | None,
+    expiry_alert_snoozed_until: date | None,
+    action: Literal["retain_expired", "snooze_upcoming"],
+    today: date,
+) -> None:
+    """Target-independent expiry/snooze eligibility for one dated inventory target."""
+    if expiry_date is None:
+        raise ValueError("缺少到期日")
+    actionable_cutoff = today + timedelta(days=MAX_ACTIONABLE_DAYS)
+    if expiry_date > actionable_cutoff:
+        raise ValueError("只能处理 7 天内到期的库存批次")
+    if expiry_alert_snoozed_until is not None and expiry_alert_snoozed_until > today:
+        raise ValueError("该库存批次提醒尚未到期，暂时不能再次延后")
+    is_expired = expiry_date < today
+    if action == "retain_expired" and not is_expired:
+        raise ValueError("暂时保留仅适用于已过期批次")
+    if action == "snooze_upcoming" and is_expired:
+        raise ValueError("稍后提醒仅适用于未过期批次")
 
 
 def _assert_snooze_eligibility(
@@ -123,20 +152,44 @@ def _assert_snooze_eligibility(
     action: Literal["retain_expired", "snooze_upcoming"],
     today: date,
 ) -> None:
-    actionable_cutoff = today + timedelta(days=MAX_ACTIONABLE_DAYS)
     for item in items:
-        expiry_date = item.expiry_date
-        if expiry_date is None:
-            raise ValueError("库存批次缺少到期日")
-        if expiry_date > actionable_cutoff:
-            raise ValueError("只能处理 7 天内到期的库存批次")
-        if item.expiry_alert_snoozed_until is not None and item.expiry_alert_snoozed_until > today:
-            raise ValueError("该库存批次提醒尚未到期，暂时不能再次延后")
-        is_expired = expiry_date < today
-        if action == "retain_expired" and not is_expired:
-            raise ValueError("暂时保留仅适用于已过期批次")
-        if action == "snooze_upcoming" and is_expired:
-            raise ValueError("稍后提醒仅适用于未过期批次")
+        validate_expiry_action_eligibility(
+            expiry_date=item.expiry_date,
+            expiry_alert_snoozed_until=item.expiry_alert_snoozed_until,
+            action=action,
+            today=today,
+        )
+
+
+def _lock_versioned_state(
+    db: Session,
+    *,
+    family_id: str,
+    ingredient_id: str,
+    state_id: str,
+    expected_row_version: int,
+) -> tuple[Ingredient, IngredientInventoryState]:
+    locked = lock_inventory_targets(
+        db,
+        family_id=family_id,
+        ingredient_ids=[ingredient_id],
+        state_ingredient_ids=[ingredient_id],
+    )
+    ingredient = locked.ingredients.get(ingredient_id)
+    state = locked.states_by_ingredient_id.get(ingredient_id)
+    if ingredient is None:
+        raise ValueError("食材不存在或不属于当前家庭")
+    if state is None or state.id != state_id:
+        raise ValueError("库存状态不存在或不属于当前食材")
+    if tracks_quantity(ingredient):
+        raise ValueError("精确计量食材请使用库存批次接口")
+    require_expected_version(
+        state,
+        expected_row_version,
+        entity_type="ingredient_inventory_state",
+        entity_id=state.id,
+    )
+    return ingredient, state
 
 
 def snooze_expiry_alerts(
@@ -152,7 +205,7 @@ def snooze_expiry_alerts(
     today: date,
     reviewed_at: datetime | None = None,
 ) -> dict:
-    _validate_snooze_window(today=today, snoozed_until=snoozed_until)
+    validate_snooze_window(today=today, snoozed_until=snoozed_until)
     ingredient, items = lock_and_validate_versioned_items(
         db,
         family_id=family_id,
@@ -214,9 +267,6 @@ def correct_inventory_expiry_date(
     expected_row_version: int,
 ) -> InventoryItem:
     # Discover ingredient_id first without taking locks out of order.
-    from sqlalchemy import select
-    from sqlalchemy.orm import selectinload
-
     provisional = db.scalar(
         select(InventoryItem)
         .where(
@@ -323,3 +373,170 @@ def dispose_expired_inventory_items(
         "disposed_item_ids": disposed_item_ids,
         "disposed_count": len(disposed_item_ids),
     }
+
+
+def snooze_state_expiry_alert(
+    db: Session,
+    *,
+    family_id: str,
+    user_id: str,
+    actor_display_name: str,
+    ingredient_id: str,
+    state_id: str,
+    expected_row_version: int,
+    action: Literal["retain_expired", "snooze_upcoming"],
+    snoozed_until: date,
+    today: date,
+    reviewed_at: datetime | None = None,
+) -> IngredientInventoryState:
+    validate_snooze_window(today=today, snoozed_until=snoozed_until)
+    ingredient, state = _lock_versioned_state(
+        db,
+        family_id=family_id,
+        ingredient_id=ingredient_id,
+        state_id=state_id,
+        expected_row_version=expected_row_version,
+    )
+    if state.availability_level is InventoryAvailabilityLevel.ABSENT:
+        raise ValueError("已标记为没有的食材不能处理到期提醒")
+    validate_expiry_action_eligibility(
+        expiry_date=state.expiry_date,
+        expiry_alert_snoozed_until=state.expiry_alert_snoozed_until,
+        action=action,
+        today=today,
+    )
+
+    original_expiry = state.expiry_date
+    review_timestamp = reviewed_at or utcnow()
+    state.expiry_alert_snoozed_until = snoozed_until
+    state.updated_by = user_id
+    if action == "retain_expired":
+        state.expiry_reviewed_at = review_timestamp
+        state.expiry_reviewed_by = user_id
+    # Retain must preserve the original expiry as evidence.
+    state.expiry_date = original_expiry
+    bump_ingredient_collection(ingredient, user_id=user_id)
+
+    if action == "retain_expired":
+        summary = (
+            f"{actor_display_name}确认{ingredient.name}暂时保留，"
+            f"{_format_month_day(snoozed_until)}再次提醒"
+        )
+    else:
+        summary = (
+            f"{actor_display_name}将{ingredient.name}临期提醒延后至"
+            f"{_format_month_day(snoozed_until)}"
+        )
+    log_activity(
+        db,
+        family_id=family_id,
+        actor_id=user_id,
+        action=ActivityAction.UPDATE,
+        entity_type="IngredientInventoryState",
+        entity_id=state.id,
+        summary=summary,
+    )
+    _flush_versioned_inventory(db)
+    return state
+
+
+def correct_state_expiry_date(
+    db: Session,
+    *,
+    family_id: str,
+    user_id: str,
+    actor_display_name: str,
+    ingredient_id: str,
+    state_id: str,
+    expected_row_version: int,
+    expiry_date: date,
+) -> IngredientInventoryState:
+    ingredient, state = _lock_versioned_state(
+        db,
+        family_id=family_id,
+        ingredient_id=ingredient_id,
+        state_id=state_id,
+        expected_row_version=expected_row_version,
+    )
+    if state.availability_level is InventoryAvailabilityLevel.ABSENT:
+        raise ValueError("已标记为没有的食材不能更正到期日")
+    if state.purchase_date is not None and expiry_date < state.purchase_date:
+        raise ValueError("到期日不能早于采购日")
+
+    old_expiry = state.expiry_date
+    state.expiry_date = expiry_date
+    state.expiry_alert_snoozed_until = None
+    state.expiry_reviewed_at = None
+    state.expiry_reviewed_by = None
+    state.updated_by = user_id
+    bump_ingredient_collection(ingredient, user_id=user_id)
+
+    old_label = old_expiry.isoformat() if old_expiry is not None else "未设置"
+    log_activity(
+        db,
+        family_id=family_id,
+        actor_id=user_id,
+        action=ActivityAction.UPDATE,
+        entity_type="IngredientInventoryState",
+        entity_id=state.id,
+        summary=f"{actor_display_name}将{ingredient.name}到期日从{old_label}更正为{expiry_date.isoformat()}",
+    )
+    _flush_versioned_inventory(db)
+    return state
+
+
+def set_inventory_state_absent(
+    db: Session,
+    *,
+    family_id: str,
+    user_id: str,
+    actor_display_name: str,
+    ingredient_id: str,
+    state_id: str,
+    expected_row_version: int,
+    today: date,
+) -> IngredientInventoryState:
+    ingredient, state = _lock_versioned_state(
+        db,
+        family_id=family_id,
+        ingredient_id=ingredient_id,
+        state_id=state_id,
+        expected_row_version=expected_row_version,
+    )
+    if state.availability_level is InventoryAvailabilityLevel.ABSENT:
+        raise ValueError("该食材已经标记为没有")
+    if state.expiry_date is None:
+        raise ValueError("缺少到期日")
+    if state.expiry_date >= today:
+        raise ValueError("只能将已过期的食材标记为没有")
+
+    # Reuse upsert semantics for atomic metadata clearing; do not claim confirmation.
+    # Ingredient was already locked above; upsert re-locks safely in the same transaction.
+    updated = upsert_inventory_state(
+        db,
+        family_id=family_id,
+        user_id=user_id,
+        ingredient=ingredient,
+        expected_ingredient_row_version=ingredient.row_version,
+        state_id=state.id,
+        expected_state_row_version=state.row_version,
+        availability_level=InventoryAvailabilityLevel.ABSENT,
+        inventory_status=state.inventory_status,
+        purchase_date=None,
+        expiry_date=None,
+        storage_location=None,
+        notes=state.notes or "",
+        confirmation_source=None,
+        record_activity=False,
+    )
+    log_activity(
+        db,
+        family_id=family_id,
+        actor_id=user_id,
+        action=ActivityAction.UPDATE,
+        entity_type="IngredientInventoryState",
+        entity_id=updated.id,
+        summary=f"{actor_display_name}确认{ingredient.name}已过期且不再保留",
+    )
+    _flush_versioned_inventory(db)
+    return updated

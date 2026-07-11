@@ -135,6 +135,61 @@ export interface InventoryItem {
   expiry_reviewed_by?: string | null;
 }
 
+
+export type InventoryAvailabilityLevel = 'present_unknown' | 'low' | 'sufficient' | 'absent';
+export type InventoryConfirmationSource = 'manual_entry' | 'reconciliation' | 'shopping_intake';
+
+export interface IngredientInventoryState {
+  id: string;
+  family_id: string;
+  ingredient_id: string;
+  availability_level: InventoryAvailabilityLevel;
+  inventory_status: InventoryStatus;
+  purchase_date: string | null;
+  expiry_date: string | null;
+  storage_location: string | null;
+  notes: string;
+  expiry_alert_snoozed_until: string | null;
+  expiry_reviewed_at: string | null;
+  expiry_reviewed_by: string | null;
+  last_confirmed_at: string | null;
+  last_confirmed_by: string | null;
+  last_confirmation_source: InventoryConfirmationSource | null;
+  row_version: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export type UpsertIngredientInventoryStateRequest = {
+  expected_ingredient_row_version: number;
+  state_id?: string | null;
+  expected_state_row_version?: number | null;
+  availability_level: InventoryAvailabilityLevel;
+  inventory_status: InventoryStatus;
+  purchase_date?: string | null;
+  expiry_date?: string | null;
+  storage_location?: string | null;
+  notes?: string;
+};
+
+export type SnoozeStateExpiryAlertRequest = {
+  action: 'retain_expired' | 'snooze_upcoming';
+  state_id: string;
+  expected_row_version: number;
+  snoozed_until: string;
+};
+
+export type CorrectStateExpiryDateRequest = {
+  state_id: string;
+  expected_row_version: number;
+  expiry_date: string;
+};
+
+export type SetInventoryStateAbsentRequest = {
+  state_id: string;
+  expected_row_version: number;
+};
+
 export type InventoryOverviewScope = 'all' | 'ingredient' | 'food';
 export type InventoryOverviewSourceType = 'ingredient' | 'food';
 export type InventoryOverviewTone = 'stable' | 'warning' | 'danger' | 'empty';

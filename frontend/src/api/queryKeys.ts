@@ -8,6 +8,7 @@ export const queryKeys = {
   ingredientSearch: (query: string) => ['ingredients', 'search', query.trim()] as const,
   ingredientPickerSearch: (query: string) => ['ingredients', 'picker-search', query.trim()] as const,
   inventory: ['inventory'] as const,
+  inventoryStates: ['inventory', 'states'] as const,
   inventorySearch: (query: string) => ['inventory', 'search', query.trim()] as const,
   inventoryOverviewRoot,
   inventoryOverview: (scope = 'all', query = '') => [...inventoryOverviewRoot, scope, query.trim()] as const,

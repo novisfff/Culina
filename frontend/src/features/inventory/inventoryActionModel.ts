@@ -1,10 +1,24 @@
-import type { Ingredient, InventoryItem, ShoppingListItem } from '../../api/types';
+import type {
+  Ingredient,
+  IngredientInventoryState,
+  InventoryItem,
+  ShoppingListItem,
+} from '../../api/types';
 import { calendarDaysBetweenDateKeys } from '../../lib/date';
 import {
   getIngredientAvailableQuantityInDefault,
   getInventoryRemainingQuantity,
 } from '../../lib/ingredientUnits';
 import { tracksIngredientQuantity } from '../../lib/ingredientTracking';
+
+export type InventoryExpiryTarget =
+  | { targetKind: 'inventory_item'; inventoryItemId: string; expectedRowVersion: number }
+  | {
+      targetKind: 'ingredient_inventory_state';
+      ingredientId: string;
+      stateId: string;
+      expectedRowVersion: number;
+    };
 
 export type InventoryActionBatch = {
   inventoryItemId: string;
@@ -18,6 +32,8 @@ export type InventoryActionBatch = {
   expiryAlertSnoozedUntil: string | null;
   expiryReviewedAt: string | null;
   expiryReviewedBy: string | null;
+  target: InventoryExpiryTarget;
+  presenceOnly?: boolean;
 };
 
 export type ExpiryInventoryActionGroup = {
@@ -39,6 +55,7 @@ export type ExpiryInventoryActionGroup = {
   title: string;
   detail: string;
   primaryAction: 'manage_expiry';
+  targetKind: InventoryExpiryTarget['targetKind'];
 };
 
 export type LowStockInventoryActionGroup = {
@@ -72,7 +89,10 @@ function formatQuantityValue(value: number) {
   return String(Number(value.toFixed(2))).replace(/\.0+$/, '');
 }
 
-function buildQuantityLabels(batches: Array<{ remainingQuantity: number; unit: string }>) {
+function buildQuantityLabels(batches: Array<{ remainingQuantity: number; unit: string; presenceOnly?: boolean }>) {
+  if (batches.some((batch) => batch.presenceOnly)) {
+    return ['只记录整体有无'];
+  }
   const totals = new Map<string, number>();
   const order: string[] = [];
   for (const batch of batches) {
@@ -103,6 +123,20 @@ export function isActionableInventoryBatch(item: InventoryItem, referenceDate: s
     return false;
   }
   return isActionableSnoozeState(item.expiry_alert_snoozed_until, referenceDate);
+}
+
+export function isActionableInventoryState(state: IngredientInventoryState, referenceDate: string) {
+  if (state.availability_level === 'absent') {
+    return false;
+  }
+  if (!state.expiry_date) {
+    return false;
+  }
+  const daysLeft = calendarDaysBetweenDateKeys(state.expiry_date.slice(0, 10), referenceDate);
+  if (daysLeft > 7) {
+    return false;
+  }
+  return isActionableSnoozeState(state.expiry_alert_snoozed_until, referenceDate);
 }
 
 export function getExpirySeverity(daysLeft: number): ExpiryInventoryActionGroup['severity'] | null {
@@ -184,6 +218,7 @@ function buildExpiryDetail(args: {
   quantityLabels: string[];
   storageLocations: string[];
   mixed: boolean;
+  presenceOnly: boolean;
 }) {
   const {
     severity,
@@ -194,7 +229,25 @@ function buildExpiryDetail(args: {
     quantityLabels,
     storageLocations,
     mixed,
+    presenceOnly,
   } = args;
+
+  if (presenceOnly) {
+    const storagePart = storageLocations[0] ?? '';
+    if (!mixed && severity === 'expires_today') {
+      return ['只记录整体有无', storagePart].filter(Boolean).join(' · ');
+    }
+    if (expiredBatchCount > 0) {
+      return ['只记录整体有无', '已过期', storagePart].filter(Boolean).join(' · ');
+    }
+    if (todayBatchCount > 0) {
+      return ['只记录整体有无', '今天到期', storagePart].filter(Boolean).join(' · ');
+    }
+    if (soonBatchCount > 0) {
+      return ['只记录整体有无', '3 天内到期', storagePart].filter(Boolean).join(' · ');
+    }
+    return ['只记录整体有无', '7 天内到期', storagePart].filter(Boolean).join(' · ');
+  }
 
   if (!mixed && severity === 'expires_today') {
     const quantityPart = quantityLabels.join('、') || '';
@@ -220,7 +273,8 @@ function buildExpiryDetail(args: {
 
 function buildExpiryGroup(
   ingredient: Ingredient,
-  batches: InventoryActionBatch[]
+  batches: InventoryActionBatch[],
+  targetKind: InventoryExpiryTarget['targetKind']
 ): ExpiryInventoryActionGroup {
   const expiredBatchCount = batches.filter((batch) => batch.daysLeft < 0).length;
   const todayBatchCount = batches.filter((batch) => batch.daysLeft === 0).length;
@@ -236,6 +290,7 @@ function buildExpiryGroup(
           : 'expires_later';
   const mixed =
     [expiredBatchCount > 0, todayBatchCount > 0, soonBatchCount > 0, laterBatchCount > 0].filter(Boolean).length > 1;
+  const presenceOnly = targetKind === 'ingredient_inventory_state';
   const quantityLabels = buildQuantityLabels(batches);
   const storageLocations = [...new Set(batches.map((batch) => batch.storageLocation).filter(Boolean))];
   const earliest = [...batches].sort(
@@ -255,6 +310,7 @@ function buildExpiryGroup(
     quantityLabels,
     storageLocations,
     mixed: mixed || severity !== 'expires_today',
+    presenceOnly,
   });
 
   return {
@@ -281,6 +337,7 @@ function buildExpiryGroup(
     title,
     detail,
     primaryAction: 'manage_expiry',
+    targetKind,
   };
 }
 
@@ -306,20 +363,29 @@ function buildLowStockGroup(
 
 export function buildInventoryActionGroups(args: {
   inventoryItems: InventoryItem[];
+  inventoryStates?: IngredientInventoryState[];
   ingredients: Ingredient[];
   shoppingItems: ShoppingListItem[];
   referenceDate: string;
 }): InventoryActionGroup[] {
-  const { inventoryItems, ingredients, shoppingItems, referenceDate } = args;
+  const {
+    inventoryItems,
+    inventoryStates = [],
+    ingredients,
+    shoppingItems,
+    referenceDate,
+  } = args;
   const ingredientById = new Map(ingredients.map((ingredient) => [ingredient.id, ingredient]));
   const batchesByIngredient = new Map<string, InventoryActionBatch[]>();
+  const stateTargetIngredientIds = new Set<string>();
 
   for (const item of inventoryItems) {
     if (!isActionableInventoryBatch(item, referenceDate)) {
       continue;
     }
     const ingredient = ingredientById.get(item.ingredient_id);
-    if (!ingredient) {
+    if (!ingredient || !tracksIngredientQuantity(ingredient)) {
+      // Presence placeholders must never invent batch expiry actions.
       continue;
     }
     const expiryDate = item.expiry_date!.slice(0, 10);
@@ -336,10 +402,50 @@ export function buildInventoryActionGroups(args: {
       expiryAlertSnoozedUntil: item.expiry_alert_snoozed_until ?? null,
       expiryReviewedAt: item.expiry_reviewed_at ?? null,
       expiryReviewedBy: item.expiry_reviewed_by ?? null,
+      target: {
+        targetKind: 'inventory_item',
+        inventoryItemId: item.id,
+        expectedRowVersion: item.row_version,
+      },
     };
     const current = batchesByIngredient.get(ingredient.id) ?? [];
     current.push(batch);
     batchesByIngredient.set(ingredient.id, current);
+  }
+
+  for (const state of inventoryStates) {
+    if (!isActionableInventoryState(state, referenceDate)) {
+      continue;
+    }
+    const ingredient = ingredientById.get(state.ingredient_id);
+    if (!ingredient || tracksIngredientQuantity(ingredient)) {
+      continue;
+    }
+    const expiryDate = state.expiry_date!.slice(0, 10);
+    const daysLeft = calendarDaysBetweenDateKeys(expiryDate, referenceDate);
+    const batch: InventoryActionBatch = {
+      // Stable selection id for dialog checkboxes only; never treat as InventoryItem id.
+      inventoryItemId: `state:${state.id}`,
+      rowVersion: state.row_version,
+      remainingQuantity: 1,
+      unit: '',
+      storageLocation: state.storage_location || ingredient.default_storage || '常温',
+      purchaseDate: state.purchase_date ?? '',
+      expiryDate,
+      daysLeft,
+      expiryAlertSnoozedUntil: state.expiry_alert_snoozed_until ?? null,
+      expiryReviewedAt: state.expiry_reviewed_at ?? null,
+      expiryReviewedBy: state.expiry_reviewed_by ?? null,
+      presenceOnly: true,
+      target: {
+        targetKind: 'ingredient_inventory_state',
+        ingredientId: state.ingredient_id,
+        stateId: state.id,
+        expectedRowVersion: state.row_version,
+      },
+    };
+    batchesByIngredient.set(ingredient.id, [batch]);
+    stateTargetIngredientIds.add(ingredient.id);
   }
 
   const groups: InventoryActionGroup[] = [];
@@ -350,7 +456,10 @@ export function buildInventoryActionGroups(args: {
     if (!ingredient || batches.length === 0) {
       continue;
     }
-    groups.push(buildExpiryGroup(ingredient, batches));
+    const targetKind = stateTargetIngredientIds.has(ingredientId)
+      ? 'ingredient_inventory_state'
+      : 'inventory_item';
+    groups.push(buildExpiryGroup(ingredient, batches, targetKind));
     expiryIngredientIds.add(ingredientId);
   }
 
@@ -387,6 +496,7 @@ export function selectHomeInventoryActionGroups(groups: InventoryActionGroup[], 
 
 export function countUniqueAvailableIngredients(args: {
   inventoryItems: InventoryItem[];
+  inventoryStates?: IngredientInventoryState[];
   referenceDate: string;
 }) {
   const ids = new Set<string>();
@@ -398,6 +508,15 @@ export function countUniqueAvailableIngredients(args: {
       continue;
     }
     ids.add(item.ingredient_id);
+  }
+  for (const state of args.inventoryStates ?? []) {
+    if (state.availability_level === 'absent') {
+      continue;
+    }
+    if (state.expiry_date && state.expiry_date.slice(0, 10) < args.referenceDate) {
+      continue;
+    }
+    ids.add(state.ingredient_id);
   }
   return ids.size;
 }

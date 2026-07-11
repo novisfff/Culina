@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { Ingredient, InventoryItem, ShoppingListItem } from '../../api/types';
+import type { Ingredient, IngredientInventoryState, InventoryItem, ShoppingListItem } from '../../api/types';
 import {
   buildInventoryActionGroups,
   countUniqueAvailableIngredients,
@@ -63,6 +63,31 @@ function makeShoppingItem(overrides: Partial<ShoppingListItem> & Pick<ShoppingLi
     updated_at: '2026-07-01T00:00:00.000Z',
     target_type: 'ingredient',
     ingredient_id: null,
+    ...overrides,
+  };
+}
+
+
+function makeInventoryState(
+  overrides: Partial<IngredientInventoryState> & Pick<IngredientInventoryState, 'id' | 'ingredient_id'>
+): IngredientInventoryState {
+  return {
+    family_id: 'family-1',
+    availability_level: 'present_unknown',
+    inventory_status: 'fresh',
+    purchase_date: '2026-06-01',
+    expiry_date: '2026-07-08',
+    storage_location: '常温',
+    notes: '',
+    expiry_alert_snoozed_until: null,
+    expiry_reviewed_at: null,
+    expiry_reviewed_by: null,
+    last_confirmed_at: null,
+    last_confirmed_by: null,
+    last_confirmation_source: null,
+    row_version: 1,
+    created_at: '2026-07-01T00:00:00.000Z',
+    updated_at: '2026-07-01T00:00:00.000Z',
     ...overrides,
   };
 }
@@ -701,6 +726,92 @@ describe('buildInventoryActionGroups', () => {
     if (groups[0]?.kind === 'expiry') {
       expect(groups[0].quantityLabels).toEqual(['3 盒', '500 克']);
     }
+  });
+
+
+  it('creates one State-target expiry group without inventing InventoryItem IDs', () => {
+    const salt = makeIngredient({
+      id: 'ingredient-salt',
+      name: '盐',
+      quantity_tracking_mode: 'not_track_quantity',
+      default_storage: '常温',
+    });
+    const state = makeInventoryState({
+      id: 'inventory-state-salt',
+      ingredient_id: salt.id,
+      expiry_date: '2026-07-08',
+      storage_location: '常温',
+    });
+    const groups = buildInventoryActionGroups({
+      inventoryItems: [
+        makeInventoryItem({
+          id: 'legacy-placeholder',
+          ingredient_id: salt.id,
+          ingredient_name: salt.name,
+          remaining_quantity: 1,
+          expiry_date: '2026-07-08',
+        }),
+      ],
+      inventoryStates: [state],
+      ingredients: [salt],
+      shoppingItems: [],
+      referenceDate: REFERENCE_DATE,
+    });
+    expect(groups).toHaveLength(1);
+    const group = groups[0];
+    expect(group).toMatchObject({
+      kind: 'expiry',
+      ingredientId: salt.id,
+      targetKind: 'ingredient_inventory_state',
+      severity: 'expired',
+      totalBatchCount: 1,
+    });
+    if (group?.kind === 'expiry') {
+      expect(group.detail).toContain('只记录整体有无');
+      expect(group.batches).toHaveLength(1);
+      expect(group.batches[0]?.target).toEqual({
+        targetKind: 'ingredient_inventory_state',
+        ingredientId: salt.id,
+        stateId: state.id,
+        expectedRowVersion: 1,
+      });
+      expect(group.batches[0]?.inventoryItemId.startsWith('state:')).toBe(true);
+      expect(group.batches[0]?.inventoryItemId).not.toBe('legacy-placeholder');
+    }
+  });
+
+  it('excludes absent and future-snoozed State by the same reference-date rules as batches', () => {
+    const salt = makeIngredient({
+      id: 'ingredient-salt',
+      name: '盐',
+      quantity_tracking_mode: 'not_track_quantity',
+    });
+    const pepper = makeIngredient({
+      id: 'ingredient-pepper',
+      name: '胡椒',
+      quantity_tracking_mode: 'not_track_quantity',
+    });
+    const groups = buildInventoryActionGroups({
+      inventoryItems: [],
+      inventoryStates: [
+        makeInventoryState({
+          id: 'state-absent',
+          ingredient_id: salt.id,
+          availability_level: 'absent',
+          expiry_date: '2026-07-08',
+        }),
+        makeInventoryState({
+          id: 'state-snoozed',
+          ingredient_id: pepper.id,
+          expiry_date: '2026-07-08',
+          expiry_alert_snoozed_until: '2026-07-15',
+        }),
+      ],
+      ingredients: [salt, pepper],
+      shoppingItems: [],
+      referenceDate: REFERENCE_DATE,
+    });
+    expect(groups).toEqual([]);
   });
 
   it('uses injected referenceDate and never device-local todayKey', () => {

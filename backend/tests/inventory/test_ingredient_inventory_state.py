@@ -30,6 +30,7 @@ from app.core.enums import (
 )
 from app.core.utils import utcnow
 from app.models.domain import (
+    ActivityLog,
     Base,
     Family,
     Food,
@@ -941,3 +942,368 @@ def test_state_is_usable_semantics() -> None:
     assert state_is_usable(expired, business_date=business) is False
     assert state_is_physically_present(absent) is False
     assert state_is_usable(absent, business_date=business) is False
+
+
+# ---------------------------------------------------------------------------
+# Task 4: State expiry action center
+# ---------------------------------------------------------------------------
+
+
+def _seed_actionable_state(
+    SessionLocal,
+    *,
+    expiry_date,
+    availability_level=InventoryAvailabilityLevel.PRESENT_UNKNOWN,
+    snoozed_until=None,
+    reviewed_at=None,
+    reviewed_by=None,
+    purchase_date=None,
+    row_version=1,
+    last_confirmed_at=None,
+    last_confirmed_by=None,
+    last_confirmation_source=None,
+):
+    with SessionLocal() as db:
+        state = db.get(IngredientInventoryState, "inventory-state-salt")
+        ingredient = db.get(Ingredient, "ingredient-salt")
+        assert state is not None and ingredient is not None
+        state.availability_level = availability_level
+        state.expiry_date = expiry_date
+        state.purchase_date = purchase_date or date(2026, 6, 1)
+        state.storage_location = "常温"
+        state.expiry_alert_snoozed_until = snoozed_until
+        state.expiry_reviewed_at = reviewed_at
+        state.expiry_reviewed_by = reviewed_by
+        state.last_confirmed_at = last_confirmed_at
+        state.last_confirmed_by = last_confirmed_by
+        state.last_confirmation_source = last_confirmation_source
+        db.commit()
+        state_id = state.id
+        ingredient_id = ingredient.id
+        if row_version != 1:
+            # Bypass version_id_col mutation rules so tests can seed stale versions.
+            db.execute(
+                IngredientInventoryState.__table__.update()
+                .where(IngredientInventoryState.id == state_id)
+                .values(row_version=row_version)
+            )
+            db.commit()
+        state = db.get(IngredientInventoryState, state_id)
+        ingredient = db.get(Ingredient, ingredient_id)
+        assert state is not None and ingredient is not None
+        return {
+            "state_id": state.id,
+            "state_row_version": state.row_version,
+            "ingredient_row_version": ingredient.row_version,
+            "expiry_date": state.expiry_date,
+        }
+
+
+def test_state_retain_expired_preserves_expiry_and_writes_review(state_api_context) -> None:
+    from app.services.clock import today_for_family
+
+    client, SessionLocal = state_api_context
+    today = today_for_family("family-1")
+    seed = _seed_actionable_state(SessionLocal, expiry_date=today - timedelta(days=2))
+    snoozed_until = today + timedelta(days=3)
+
+    response = client.post(
+        "/api/inventory/states/ingredient-salt/snooze-expiry-alert",
+        json={
+            "action": "retain_expired",
+            "state_id": seed["state_id"],
+            "expected_row_version": seed["state_row_version"],
+            "snoozed_until": snoozed_until.isoformat(),
+        },
+    )
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["expiry_date"] == seed["expiry_date"].isoformat()
+    assert payload["expiry_alert_snoozed_until"] == snoozed_until.isoformat()
+    assert payload["expiry_reviewed_by"] == "user-1"
+    assert payload["expiry_reviewed_at"] is not None
+    assert payload["last_confirmation_source"] is None
+    assert payload["row_version"] == seed["state_row_version"] + 1
+
+    with SessionLocal() as db:
+        ingredient = db.get(Ingredient, "ingredient-salt")
+        assert ingredient is not None
+        assert ingredient.row_version == seed["ingredient_row_version"] + 1
+        logs = list(
+            db.scalars(
+                select(ActivityLog).where(
+                    ActivityLog.family_id == "family-1",
+                    ActivityLog.entity_type == "IngredientInventoryState",
+                    ActivityLog.entity_id == seed["state_id"],
+                )
+            )
+        )
+        assert any("暂时保留" in log.summary for log in logs)
+
+
+def test_state_snooze_upcoming_without_review_attribution(state_api_context) -> None:
+    from app.services.clock import today_for_family
+
+    client, SessionLocal = state_api_context
+    today = today_for_family("family-1")
+    seed = _seed_actionable_state(SessionLocal, expiry_date=today + timedelta(days=2))
+    snoozed_until = today + timedelta(days=2)
+
+    response = client.post(
+        "/api/inventory/states/ingredient-salt/snooze-expiry-alert",
+        json={
+            "action": "snooze_upcoming",
+            "state_id": seed["state_id"],
+            "expected_row_version": seed["state_row_version"],
+            "snoozed_until": snoozed_until.isoformat(),
+        },
+    )
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["expiry_date"] == seed["expiry_date"].isoformat()
+    assert payload["expiry_alert_snoozed_until"] == snoozed_until.isoformat()
+    assert payload["expiry_reviewed_at"] is None
+    assert payload["expiry_reviewed_by"] is None
+    assert payload["row_version"] == seed["state_row_version"] + 1
+
+
+def test_state_correct_expiry_date_clears_review_and_snooze(state_api_context) -> None:
+    from app.services.clock import today_for_family
+
+    client, SessionLocal = state_api_context
+    today = today_for_family("family-1")
+    seed = _seed_actionable_state(
+        SessionLocal,
+        expiry_date=today - timedelta(days=1),
+        snoozed_until=today + timedelta(days=2),
+        reviewed_at=utcnow(),
+        reviewed_by="user-1",
+    )
+    corrected = today + timedelta(days=9)
+
+    response = client.patch(
+        "/api/inventory/states/ingredient-salt/expiry-date",
+        json={
+            "state_id": seed["state_id"],
+            "expected_row_version": seed["state_row_version"],
+            "expiry_date": corrected.isoformat(),
+        },
+    )
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["expiry_date"] == corrected.isoformat()
+    assert payload["expiry_alert_snoozed_until"] is None
+    assert payload["expiry_reviewed_at"] is None
+    assert payload["expiry_reviewed_by"] is None
+    assert payload["row_version"] == seed["state_row_version"] + 1
+
+    with SessionLocal() as db:
+        ingredient = db.get(Ingredient, "ingredient-salt")
+        assert ingredient is not None
+        assert ingredient.row_version == seed["ingredient_row_version"] + 1
+
+
+def test_state_set_absent_clears_expiry_fields(state_api_context) -> None:
+    from app.services.clock import today_for_family
+
+    client, SessionLocal = state_api_context
+    today = today_for_family("family-1")
+    seed = _seed_actionable_state(
+        SessionLocal,
+        expiry_date=today - timedelta(days=1),
+        snoozed_until=today + timedelta(days=2),
+        reviewed_at=utcnow(),
+        reviewed_by="user-1",
+        last_confirmed_at=utcnow(),
+        last_confirmed_by="user-1",
+        last_confirmation_source=InventoryConfirmationSource.MANUAL_ENTRY,
+    )
+
+    response = client.post(
+        "/api/inventory/states/ingredient-salt/set-absent",
+        json={
+            "state_id": seed["state_id"],
+            "expected_row_version": seed["state_row_version"],
+        },
+    )
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["availability_level"] == "absent"
+    assert payload["expiry_date"] is None
+    assert payload["purchase_date"] is None
+    assert payload["storage_location"] is None
+    assert payload["expiry_alert_snoozed_until"] is None
+    assert payload["expiry_reviewed_at"] is None
+    assert payload["expiry_reviewed_by"] is None
+    # Expiry disposal must not claim a fresh inventory confirmation.
+    assert payload["last_confirmation_source"] == "manual_entry"
+    assert payload["row_version"] == seed["state_row_version"] + 1
+
+    with SessionLocal() as db:
+        ingredient = db.get(Ingredient, "ingredient-salt")
+        assert ingredient is not None
+        assert ingredient.row_version == seed["ingredient_row_version"] + 1
+
+
+def test_state_expiry_actions_reject_stale_version_without_writes(state_api_context) -> None:
+    from app.services.clock import today_for_family
+
+    client, SessionLocal = state_api_context
+    today = today_for_family("family-1")
+    seed = _seed_actionable_state(
+        SessionLocal,
+        expiry_date=today - timedelta(days=1),
+        row_version=3,
+    )
+    snoozed_until = today + timedelta(days=2)
+
+    retain = client.post(
+        "/api/inventory/states/ingredient-salt/snooze-expiry-alert",
+        json={
+            "action": "retain_expired",
+            "state_id": seed["state_id"],
+            "expected_row_version": 1,
+            "snoozed_until": snoozed_until.isoformat(),
+        },
+    )
+    correct = client.patch(
+        "/api/inventory/states/ingredient-salt/expiry-date",
+        json={
+            "state_id": seed["state_id"],
+            "expected_row_version": 1,
+            "expiry_date": (today + timedelta(days=5)).isoformat(),
+        },
+    )
+    absent = client.post(
+        "/api/inventory/states/ingredient-salt/set-absent",
+        json={
+            "state_id": seed["state_id"],
+            "expected_row_version": 1,
+        },
+    )
+    assert retain.status_code == 409, retain.text
+    assert correct.status_code == 409, correct.text
+    assert absent.status_code == 409, absent.text
+    for response in (retain, correct, absent):
+        detail = response.json()["detail"]
+        assert detail["code"] == "stale_version"
+        assert detail["conflicts"][0]["entity_type"] == "ingredient_inventory_state"
+        assert detail["conflicts"][0]["current_row_version"] == 3
+
+    with SessionLocal() as db:
+        state = db.get(IngredientInventoryState, seed["state_id"])
+        ingredient = db.get(Ingredient, "ingredient-salt")
+        assert state is not None and ingredient is not None
+        assert state.row_version == 3
+        assert state.expiry_alert_snoozed_until is None
+        assert state.availability_level == InventoryAvailabilityLevel.PRESENT_UNKNOWN
+        assert ingredient.row_version == seed["ingredient_row_version"]
+
+
+def test_state_expiry_actions_reject_cross_family(state_api_context) -> None:
+    from app.services.clock import today_for_family
+
+    client, SessionLocal = state_api_context
+    today = today_for_family("family-1")
+    with SessionLocal() as db:
+        other_state = IngredientInventoryState(
+            id="inventory-state-other",
+            family_id="family-2",
+            ingredient_id="ingredient-other-salt",
+            availability_level=InventoryAvailabilityLevel.PRESENT_UNKNOWN,
+            inventory_status=InventoryStatus.FRESH,
+            storage_location="常温",
+            expiry_date=today - timedelta(days=1),
+            notes="",
+            row_version=1,
+            created_by="user-1",
+            updated_by="user-1",
+        )
+        db.add(other_state)
+        db.commit()
+
+    retain = client.post(
+        "/api/inventory/states/ingredient-other-salt/snooze-expiry-alert",
+        json={
+            "action": "retain_expired",
+            "state_id": "inventory-state-other",
+            "expected_row_version": 1,
+            "snoozed_until": (today + timedelta(days=2)).isoformat(),
+        },
+    )
+    absent = client.post(
+        "/api/inventory/states/ingredient-other-salt/set-absent",
+        json={
+            "state_id": "inventory-state-other",
+            "expected_row_version": 1,
+        },
+    )
+    assert retain.status_code == 400
+    assert absent.status_code == 400
+    with SessionLocal() as db:
+        other = db.get(IngredientInventoryState, "inventory-state-other")
+        assert other is not None
+        assert other.expiry_alert_snoozed_until is None
+        assert other.availability_level == InventoryAvailabilityLevel.PRESENT_UNKNOWN
+
+
+def test_state_upsert_confirmation_does_not_touch_expiry_review_fields(state_api_context) -> None:
+    """Manual confirmation / reconciliation-style confirmation must not rewrite expiry review metadata."""
+    from app.services.clock import today_for_family
+
+    client, SessionLocal = state_api_context
+    today = today_for_family("family-1")
+    reviewed_at = utcnow()
+    seed = _seed_actionable_state(
+        SessionLocal,
+        expiry_date=today + timedelta(days=10),
+        snoozed_until=today + timedelta(days=1),
+        reviewed_at=reviewed_at,
+        reviewed_by="user-1",
+    )
+
+    with SessionLocal() as db:
+        ingredient = db.get(Ingredient, "ingredient-salt")
+        state = db.get(IngredientInventoryState, seed["state_id"])
+        assert ingredient is not None and state is not None
+        response = client.put(
+            "/api/inventory/states/ingredient-salt",
+            json={
+                "expected_ingredient_row_version": ingredient.row_version,
+                "state_id": state.id,
+                "expected_state_row_version": state.row_version,
+                "availability_level": "sufficient",
+                "inventory_status": "opened",
+                "purchase_date": state.purchase_date.isoformat() if state.purchase_date else None,
+                "expiry_date": state.expiry_date.isoformat() if state.expiry_date else None,
+                "storage_location": state.storage_location,
+                "notes": "confirmed",
+            },
+        )
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["availability_level"] == "sufficient"
+    assert payload["last_confirmation_source"] == "manual_entry"
+    assert payload["expiry_alert_snoozed_until"] == (today + timedelta(days=1)).isoformat()
+    assert payload["expiry_reviewed_by"] == "user-1"
+    assert payload["expiry_reviewed_at"] is not None
+
+
+def test_state_set_absent_rejects_non_expired(state_api_context) -> None:
+    from app.services.clock import today_for_family
+
+    client, SessionLocal = state_api_context
+    today = today_for_family("family-1")
+    seed = _seed_actionable_state(SessionLocal, expiry_date=today + timedelta(days=1))
+    response = client.post(
+        "/api/inventory/states/ingredient-salt/set-absent",
+        json={
+            "state_id": seed["state_id"],
+            "expected_row_version": seed["state_row_version"],
+        },
+    )
+    assert response.status_code == 400
+    with SessionLocal() as db:
+        state = db.get(IngredientInventoryState, seed["state_id"])
+        assert state is not None
+        assert state.availability_level == InventoryAvailabilityLevel.PRESENT_UNKNOWN

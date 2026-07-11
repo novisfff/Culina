@@ -148,6 +148,7 @@ function App() {
     membersQuery,
     ingredientsQuery,
     inventoryQuery,
+    inventoryStatesQuery,
     shoppingQuery,
     recipeDiscoveryQuery,
     recipeStatsQuery,
@@ -162,6 +163,7 @@ function App() {
     members,
     ingredients,
     inventoryItems,
+    inventoryStates,
     shoppingItems,
     recipes,
     recipeDiscovery,
@@ -187,11 +189,12 @@ function App() {
     () =>
       buildInventoryActionGroups({
         inventoryItems,
+        inventoryStates,
         ingredients,
         shoppingItems,
         referenceDate: homeBusinessDateKey,
       }),
-    [homeBusinessDateKey, ingredients, inventoryItems, shoppingItems],
+    [homeBusinessDateKey, ingredients, inventoryItems, inventoryStates, shoppingItems],
   );
   const homeEligibleInventoryActionGroupsForState = useMemo(
     () => selectHomeEligibleInventoryActionGroups(homePreparedActionGroups),
@@ -426,6 +429,7 @@ function App() {
     memberEditMemberId: memberEditForm.memberId,
     ingredients,
     inventoryItems,
+    inventoryStates,
     shoppingItems,
     recipes,
     foods,
@@ -499,10 +503,14 @@ function App() {
     // never compute next-item or surviving groups from stale React Query data.
     await invalidateAfterInventoryChanged(queryClient);
     await queryClient.invalidateQueries({ queryKey: queryKeys.shoppingList });
-    const [freshInventory, freshIngredients, freshShopping] = await Promise.all([
+    const [freshInventory, freshStates, freshIngredients, freshShopping] = await Promise.all([
       queryClient.fetchQuery({
         queryKey: queryKeys.inventory,
         queryFn: () => api.getInventory(),
+      }),
+      queryClient.fetchQuery({
+        queryKey: queryKeys.inventoryStates,
+        queryFn: () => api.listInventoryStates(),
       }),
       queryClient.fetchQuery({
         queryKey: queryKeys.ingredients,
@@ -516,6 +524,7 @@ function App() {
     return selectHomeEligibleInventoryActionGroups(
       buildInventoryActionGroups({
         inventoryItems: freshInventory,
+        inventoryStates: freshStates,
         ingredients: freshIngredients,
         shoppingItems: freshShopping,
         referenceDate: homeBusinessDateKey,
@@ -549,6 +558,9 @@ function App() {
     snoozeInventoryExpiryAlerts: (payload) => snoozeInventoryExpiryAlertsMutation.mutateAsync(payload),
     correctInventoryExpiryDate: (inventoryItemId, payload) =>
       correctInventoryExpiryDateMutation.mutateAsync({ inventoryItemId, payload }),
+    snoozeStateExpiryAlert: (ingredientId, payload) => api.snoozeStateExpiryAlert(ingredientId, payload),
+    correctStateExpiryDate: (ingredientId, payload) => api.correctStateExpiryDate(ingredientId, payload),
+    setInventoryStateAbsent: (ingredientId, payload) => api.setInventoryStateAbsent(ingredientId, payload),
     refreshInventoryActions,
     completeActionGroup,
     closeActionGroup,

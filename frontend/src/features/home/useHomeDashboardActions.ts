@@ -1,6 +1,7 @@
 import type { FormEvent } from 'react';
 import type {
   CorrectInventoryExpiryDateRequest,
+  CorrectStateExpiryDateRequest,
   CreateFoodPlanItemPayload,
   DisposeExpiredInventoryRequest,
   Food,
@@ -9,8 +10,10 @@ import type {
   InventoryItem,
   MealLog,
   QuickAddMealLogPayload,
+  SetInventoryStateAbsentRequest,
   ShoppingListItem,
   SnoozeExpiryAlertsRequest,
+  SnoozeStateExpiryAlertRequest,
   UpdateFoodPlanItemPayload,
   VersionedInventoryItemRef,
 } from '../../api/types';
@@ -50,10 +53,10 @@ export type InventoryActionOutcome =
   | 'snooze_upcoming'
   | 'correct_date';
 
-function successMessageFor(outcome: InventoryActionOutcome): string {
+function successMessageFor(outcome: InventoryActionOutcome, presenceOnly = false): string {
   switch (outcome) {
     case 'dispose':
-      return '过期批次已销毁';
+      return presenceOnly ? '已标记为没有' : '过期批次已销毁';
     case 'retain_expired':
       return '已暂时保留，到提醒日会再出现';
     case 'snooze_upcoming':
@@ -68,13 +71,14 @@ function buildSuccessSummary(
   ingredientId: string,
   refreshedGroups: InventoryActionGroup[],
   outcome: InventoryActionOutcome,
+  presenceOnly = false,
 ): HomeActionCompletionSummary {
   const lowStock = refreshedGroups.find(
     (group) => group.kind === 'low_stock' && group.ingredientId === ingredientId,
   );
   return {
     title: `已处理${ingredientName}`,
-    message: successMessageFor(outcome),
+    message: successMessageFor(outcome, presenceOnly),
     ...(lowStock
       ? {
           secondaryActionLabel: `${ingredientName}库存已不足，加入采购`,
@@ -101,6 +105,18 @@ export function useHomeDashboardActions(input: {
   correctInventoryExpiryDate: (
     inventoryItemId: string,
     payload: CorrectInventoryExpiryDateRequest,
+  ) => Promise<unknown>;
+  snoozeStateExpiryAlert: (
+    ingredientId: string,
+    payload: SnoozeStateExpiryAlertRequest,
+  ) => Promise<unknown>;
+  correctStateExpiryDate: (
+    ingredientId: string,
+    payload: CorrectStateExpiryDateRequest,
+  ) => Promise<unknown>;
+  setInventoryStateAbsent: (
+    ingredientId: string,
+    payload: SetInventoryStateAbsentRequest,
   ) => Promise<unknown>;
   refreshInventoryActions: () => Promise<InventoryActionGroup[]>;
   completeActionGroup: (args: {
@@ -221,6 +237,7 @@ export function useHomeDashboardActions(input: {
     mutate: () => Promise<unknown>;
     failureTitle: string;
     outcome: InventoryActionOutcome;
+    presenceOnly?: boolean;
   }) {
     input.setActionDialogBusy(true);
     input.setActionDialogError(null);
@@ -256,6 +273,7 @@ export function useHomeDashboardActions(input: {
           args.ingredientId,
           refreshed,
           args.outcome,
+          Boolean(args.presenceOnly),
         ),
         refreshedGroups: refreshed,
       });
@@ -288,16 +306,29 @@ export function useHomeDashboardActions(input: {
       return;
     }
 
+    const presenceOnly = group.targetKind === 'ingredient_inventory_state';
     await runInventoryMutation({
       ingredientId: group.ingredientId,
       ingredientName: group.ingredientName,
-      failureTitle: '销毁过期批次失败',
+      failureTitle: presenceOnly ? '标记为没有失败' : '销毁过期批次失败',
       outcome: 'dispose',
-      mutate: () =>
-        input.disposeExpiredInventory({
+      presenceOnly,
+      mutate: () => {
+        if (presenceOnly) {
+          const target = group.batches[0]?.target;
+          if (!target || target.targetKind !== 'ingredient_inventory_state') {
+            throw new Error('库存状态不可用');
+          }
+          return input.setInventoryStateAbsent(group.ingredientId, {
+            state_id: target.stateId,
+            expected_row_version: target.expectedRowVersion,
+          });
+        }
+        return input.disposeExpiredInventory({
           ingredient_id: group.ingredientId,
           items,
-        }),
+        });
+      },
     });
   }
 
@@ -322,18 +353,33 @@ export function useHomeDashboardActions(input: {
       return;
     }
 
+    const presenceOnly = group.targetKind === 'ingredient_inventory_state';
     await runInventoryMutation({
       ingredientId: group.ingredientId,
       ingredientName: group.ingredientName,
       failureTitle: args.action === 'retain_expired' ? '暂时保留失败' : '稍后提醒失败',
       outcome: args.action,
-      mutate: () =>
-        input.snoozeInventoryExpiryAlerts({
+      presenceOnly,
+      mutate: () => {
+        if (presenceOnly) {
+          const target = group.batches[0]?.target;
+          if (!target || target.targetKind !== 'ingredient_inventory_state') {
+            throw new Error('库存状态不可用');
+          }
+          return input.snoozeStateExpiryAlert(group.ingredientId, {
+            action: args.action,
+            state_id: target.stateId,
+            expected_row_version: target.expectedRowVersion,
+            snoozed_until: args.snoozedUntil,
+          });
+        }
+        return input.snoozeInventoryExpiryAlerts({
           action: args.action,
           ingredient_id: group.ingredientId,
           items: args.items,
           snoozed_until: args.snoozedUntil,
-        }),
+        });
+      },
     });
   }
 
@@ -352,16 +398,31 @@ export function useHomeDashboardActions(input: {
       return;
     }
 
+    const presenceOnly = group.targetKind === 'ingredient_inventory_state';
     await runInventoryMutation({
       ingredientId: group.ingredientId,
       ingredientName: group.ingredientName,
       failureTitle: '更正到期日失败',
       outcome: 'correct_date',
-      mutate: () =>
-        input.correctInventoryExpiryDate(args.inventoryItemId, {
+      presenceOnly,
+      mutate: () => {
+        if (presenceOnly) {
+          const batch = group.batches.find((item) => item.inventoryItemId === args.inventoryItemId) ?? group.batches[0];
+          const target = batch?.target;
+          if (!target || target.targetKind !== 'ingredient_inventory_state') {
+            throw new Error('库存状态不可用');
+          }
+          return input.correctStateExpiryDate(group.ingredientId, {
+            state_id: target.stateId,
+            expected_row_version: target.expectedRowVersion,
+            expiry_date: args.expiryDate,
+          });
+        }
+        return input.correctInventoryExpiryDate(args.inventoryItemId, {
           expiry_date: args.expiryDate,
           expected_row_version: args.expectedRowVersion,
-        }),
+        });
+      },
     });
   }
 

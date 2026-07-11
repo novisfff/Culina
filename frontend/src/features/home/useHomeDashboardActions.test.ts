@@ -33,6 +33,11 @@ const tomatoGroup: ExpiryInventoryActionGroup = {
       expiryAlertSnoozedUntil: null,
       expiryReviewedAt: null,
       expiryReviewedBy: null,
+      target: {
+        targetKind: 'inventory_item',
+        inventoryItemId: 'inventory-expired-1',
+        expectedRowVersion: 7,
+      },
     },
     {
       inventoryItemId: 'inventory-expired-2',
@@ -46,6 +51,11 @@ const tomatoGroup: ExpiryInventoryActionGroup = {
       expiryAlertSnoozedUntil: null,
       expiryReviewedAt: null,
       expiryReviewedBy: null,
+      target: {
+        targetKind: 'inventory_item',
+        inventoryItemId: 'inventory-expired-2',
+        expectedRowVersion: 3,
+      },
     },
   ],
   expiredBatchCount: 2,
@@ -60,6 +70,7 @@ const tomatoGroup: ExpiryInventoryActionGroup = {
   title: '番茄需要处理',
   detail: '2 批已过期',
   primaryAction: 'manage_expiry',
+  targetKind: 'inventory_item',
 };
 
 const milkGroup: ExpiryInventoryActionGroup = {
@@ -107,6 +118,9 @@ function createActions(overrides: {
     inventoryItemId: string,
     payload: CorrectInventoryExpiryDateRequest,
   ) => Promise<unknown>;
+  snoozeStateExpiryAlert?: (ingredientId: string, payload: unknown) => Promise<unknown>;
+  correctStateExpiryDate?: (ingredientId: string, payload: unknown) => Promise<unknown>;
+  setInventoryStateAbsent?: (ingredientId: string, payload: unknown) => Promise<unknown>;
   refreshInventoryActions?: () => Promise<InventoryActionGroup[]>;
   completeActionGroup?: (args: {
     ingredientId: string;
@@ -130,6 +144,9 @@ function createActions(overrides: {
     overrides.snoozeInventoryExpiryAlerts ?? vi.fn(async () => undefined);
   const correctInventoryExpiryDate =
     overrides.correctInventoryExpiryDate ?? vi.fn(async () => undefined);
+  const snoozeStateExpiryAlert = overrides.snoozeStateExpiryAlert ?? vi.fn(async () => undefined);
+  const correctStateExpiryDate = overrides.correctStateExpiryDate ?? vi.fn(async () => undefined);
+  const setInventoryStateAbsent = overrides.setInventoryStateAbsent ?? vi.fn(async () => undefined);
   const setActionDialogBusy = overrides.setActionDialogBusy ?? vi.fn();
   const setActionDialogError = overrides.setActionDialogError ?? vi.fn();
   const setActionDialogConflict = overrides.setActionDialogConflict ?? vi.fn();
@@ -149,6 +166,9 @@ function createActions(overrides: {
     disposeExpiredInventory,
     snoozeInventoryExpiryAlerts,
     correctInventoryExpiryDate,
+    snoozeStateExpiryAlert,
+    correctStateExpiryDate,
+    setInventoryStateAbsent,
     refreshInventoryActions,
     completeActionGroup,
     closeActionGroup,

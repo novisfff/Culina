@@ -56,6 +56,10 @@ function isExpiredBatch(batch: InventoryActionBatch) {
   return batch.daysLeft < 0;
 }
 
+function isPresenceGroup(group: ExpiryInventoryActionGroup) {
+  return group.targetKind === 'ingredient_inventory_state' || group.batches.some((batch) => batch.presenceOnly);
+}
+
 function defaultSelectedIds(group: ExpiryInventoryActionGroup) {
   const expired = group.batches.filter(isExpiredBatch).map((batch) => batch.inventoryItemId);
   if (expired.length > 0) {
@@ -320,7 +324,7 @@ export function InventoryActionDialog(props: InventoryActionDialogProps) {
 
   const title =
     mode.kind === 'dispose_confirm'
-      ? `确认销毁${group.ingredientName}`
+      ? (isPresenceGroup(group) ? `确认${group.ingredientName}已经没有` : `确认销毁${group.ingredientName}`)
       : mode.kind === 'correct_date'
         ? `更正${group.ingredientName}到期日`
         : mode.kind === 'snooze'
@@ -331,7 +335,9 @@ export function InventoryActionDialog(props: InventoryActionDialogProps) {
 
   const description =
     mode.kind === 'dispose_confirm'
-      ? `将销毁 ${selectedValidCount} 个批次（${selectedQuantityLabels.join('、') || '无数量'}）。此操作不可撤销。`
+      ? isPresenceGroup(group)
+        ? `将把${group.ingredientName}标记为已经没有。此操作不可撤销。`
+        : `将销毁 ${selectedValidCount} 个批次（${selectedQuantityLabels.join('、') || '无数量'}）。此操作不可撤销。`
       : mode.kind === 'correct_date'
         ? '只会改这一批的到期日，并清空此前的延后提醒记录。'
         : mode.kind === 'snooze'
@@ -346,14 +352,22 @@ export function InventoryActionDialog(props: InventoryActionDialogProps) {
     <div className="inventory-action-footer-summary">
       <span>已选择</span>
       <strong>
-        <span>{selectedValidCount} 个批次</span>
-        {selectedQuantityLabels.length > 0 ? (
-          <span className="inventory-action-footer-quantity"> · {selectedQuantityLabels.join('、')}</span>
-        ) : null}
+        {isPresenceGroup(group) ? (
+          '家庭整体有无'
+        ) : (
+          <>
+            <span>{selectedValidCount} 个批次</span>
+            {selectedQuantityLabels.length > 0 ? (
+              <span className="inventory-action-footer-quantity"> · {selectedQuantityLabels.join('、')}</span>
+            ) : null}
+          </>
+        )}
       </strong>
       {mode.kind === 'dispose_confirm' ? (
         <p>
-          {group.ingredientName} · {selectedValidCount} 批 · {selectedQuantityLabels.join('、') || '无数量'}
+          {isPresenceGroup(group)
+            ? `${group.ingredientName} · 将标记为没有`
+            : `${group.ingredientName} · ${selectedValidCount} 批 · ${selectedQuantityLabels.join('、') || '无数量'}`}
         </p>
       ) : (
         <p>{group.ingredientName}</p>
@@ -367,7 +381,7 @@ export function InventoryActionDialog(props: InventoryActionDialogProps) {
     footerActions = (
       <FormActions
         className="inventory-action-actions"
-        primaryLabel="确认销毁"
+        primaryLabel={isPresenceGroup(group) ? '确认没有了' : '确认销毁'}
         primaryTone="danger"
         isSubmitting={busy}
         primaryDisabled={busy || selectedValidCount === 0}
@@ -419,7 +433,7 @@ export function InventoryActionDialog(props: InventoryActionDialogProps) {
     footerActions = (
       <FormActions
         className="inventory-action-actions"
-        primaryLabel={hasExpired ? '销毁所选批次' : '关闭'}
+        primaryLabel={hasExpired ? (isPresenceGroup(group) ? '标记为没有' : '销毁所选批次') : '关闭'}
         primaryTone={hasExpired ? 'danger' : 'primary'}
         isSubmitting={busy}
         primaryDisabled={busy || (hasExpired && selectedValidCount === 0)}
@@ -478,17 +492,17 @@ export function InventoryActionDialog(props: InventoryActionDialogProps) {
                   <article>
                     <span>已过期</span>
                     <strong>{expiredBatches.length}</strong>
-                    <em>批</em>
+                    <em>{isPresenceGroup(group) ? '项' : '批'}</em>
                   </article>
                   <article>
                     <span>即将到期</span>
                     <strong>{upcomingBatches.length}</strong>
-                    <em>批</em>
+                    <em>{isPresenceGroup(group) ? '项' : '批'}</em>
                   </article>
                   <article>
                     <span>已选</span>
                     <strong>{selectedValidCount}</strong>
-                    <em>批</em>
+                    <em>{isPresenceGroup(group) ? '项' : '批'}</em>
                   </article>
                 </div>
               </section>
@@ -508,7 +522,7 @@ export function InventoryActionDialog(props: InventoryActionDialogProps) {
                         disabled={busy}
                         onClick={handleDisposeIntent}
                       >
-                        销毁所选批次
+                        {isPresenceGroup(group) ? '标记为没有' : '销毁所选批次'}
                       </button>
                       <button
                         type="button"
@@ -607,7 +621,7 @@ export function InventoryActionDialog(props: InventoryActionDialogProps) {
                   <>
                     {expiredForList.length > 0 ? (
                       <BatchSection
-                        title="已过期批次"
+                        title={isPresenceGroup(group) ? "已过期" : "已过期批次"}
                         count={expiredForList.length}
                         batches={expiredForList}
                         selectedIds={selectedIds}
@@ -620,7 +634,7 @@ export function InventoryActionDialog(props: InventoryActionDialogProps) {
                     ) : null}
                     {upcomingForList.length > 0 ? (
                       <BatchSection
-                        title="即将到期批次"
+                        title={isPresenceGroup(group) ? "即将到期" : "即将到期批次"}
                         count={upcomingForList.length}
                         batches={upcomingForList}
                         selectedIds={selectedIds}
@@ -667,14 +681,16 @@ function BatchSection(props: {
     <section className="inventory-action-batch-section">
       <div className="inventory-action-field-head inventory-action-batch-section-head">
         <span>{props.title}</span>
-        <em>{props.count} 批</em>
+        <em>{props.count}{props.batches.some((b) => b.presenceOnly) ? " 项" : " 批"}</em>
       </div>
       <div className="inventory-action-batch-list">
         {props.batches.map((batch) => {
           const selectable = props.validIds.has(batch.inventoryItemId);
           const checked = props.selectedIds.includes(batch.inventoryItemId);
           const review = priorReviewCopy(batch);
-          const quantityLabel = `${formatQuantityValue(batch.remainingQuantity)} ${batch.unit}`.trim();
+          const quantityLabel = batch.presenceOnly
+            ? '只记录整体有无'
+            : `${formatQuantityValue(batch.remainingQuantity)} ${batch.unit}`.trim();
           return (
             <article
               key={batch.inventoryItemId}
@@ -710,8 +726,12 @@ function BatchSection(props: {
                     </span>
                   </div>
                   <div className="inventory-action-batch-meta">
-                    <span>购 {compactDateLabel(batch.purchaseDate)}</span>
-                    <span aria-hidden="true">·</span>
+                    {batch.purchaseDate ? (
+                      <>
+                        <span>购 {compactDateLabel(batch.purchaseDate)}</span>
+                        <span aria-hidden="true">·</span>
+                      </>
+                    ) : null}
                     <span>原到期 {compactDateLabel(batch.expiryDate)}</span>
                   </div>
                   {review ? (

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import date as date_type, datetime
+from typing import Literal
 
 from pydantic import BaseModel, Field, model_validator
 
@@ -58,3 +59,22 @@ class UpsertIngredientInventoryStateRequest(BaseModel):
         if self.purchase_date is not None and self.expiry_date is not None and self.expiry_date < self.purchase_date:
             raise ValueError("到期日不能早于采购日")
         return self
+
+
+class SnoozeStateExpiryAlertRequest(BaseModel):
+    action: Literal["retain_expired", "snooze_upcoming"]
+    state_id: str
+    expected_row_version: int = Field(ge=1)
+    snoozed_until: date_type
+
+
+class CorrectStateExpiryDateRequest(BaseModel):
+    state_id: str
+    expected_row_version: int = Field(ge=1)
+    expiry_date: date_type
+
+
+class SetInventoryStateAbsentRequest(BaseModel):
+    state_id: str
+    expected_row_version: int = Field(ge=1)
+

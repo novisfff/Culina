@@ -7,6 +7,7 @@ import type {
   FoodRecommendations,
   FoodScene,
   Ingredient,
+  IngredientInventoryState,
   MealLog,
   Recipe,
   RecipeDiscovery,
@@ -61,6 +62,11 @@ export function useAppWorkspaceQueries(args: {
   const inventoryQuery = useQuery({
     queryKey: queryKeys.inventory,
     queryFn: () => api.getInventory(),
+    enabled: args.isAuthenticated && needsInventory,
+  });
+  const inventoryStatesQuery = useQuery({
+    queryKey: queryKeys.inventoryStates,
+    queryFn: () => api.listInventoryStates(),
     enabled: args.isAuthenticated && needsInventory,
   });
   const shoppingQuery = useQuery({
@@ -130,7 +136,7 @@ export function useAppWorkspaceQueries(args: {
     familyQuery.isLoading ||
     (needsMembers && membersQuery.isLoading) ||
     (needsIngredients && ingredientsQuery.isLoading) ||
-    (needsInventory && inventoryQuery.isLoading) ||
+    (needsInventory && (inventoryQuery.isLoading || inventoryStatesQuery.isLoading)) ||
     (needsShopping && shoppingQuery.isLoading) ||
     (needsRecipes && recipesQuery.isLoading) ||
     (needsRecipeInsights && (recipeDiscoveryQuery.isLoading || recipeStatsQuery.isLoading || recipeFavoritesQuery.isLoading)) ||
@@ -147,6 +153,7 @@ export function useAppWorkspaceQueries(args: {
     membersQuery,
     ingredientsQuery,
     inventoryQuery,
+    inventoryStatesQuery,
     shoppingQuery,
     recipesQuery,
     recipeDiscoveryQuery,
@@ -163,6 +170,7 @@ export function useAppWorkspaceQueries(args: {
     members: membersQuery.data ?? [],
     ingredients: ingredientsQuery.data ?? ([] as Ingredient[]),
     inventoryItems: inventoryQuery.data ?? [],
+    inventoryStates: inventoryStatesQuery.data ?? ([] as IngredientInventoryState[]),
     shoppingItems: shoppingQuery.data ?? ([] as ShoppingListItem[]),
     recipes: recipesQuery.data ?? ([] as Recipe[]),
     recipeDiscovery: recipeDiscoveryQuery.data ?? (null as RecipeDiscovery | null),
