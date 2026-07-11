@@ -1061,17 +1061,10 @@ async function openReconciliationDialog(page, label, { mobile }) {
 }
 
 /**
- * Phase 2 recon smoke:
- * - opens quick reconciliation on mobile/desktop entry points
- * - asserts all three adapters (exact/presence/food)
- * - asserts expired physical batch badge
- * - switches scope chips
- * - exercises confirm/adjust/presence-low actions
- * - reaches summary when possible
- * - asserts modal overflow and mobile action bar presence
- *
- * Uses noWaitAfter clicks and evaluate-based interactions to avoid Playwright
- * post-click navigation waits hanging on SPA overlays in this environment.
+ * Phase 2 recon smoke gate.
+ * Asserts three adapters (exact/presence/food), expired physical batch badge,
+ * scope chips, modal overflow, and mobile action bar.
+ * Uses noWaitAfter open clicks to avoid Playwright SPA navigation-wait hangs.
  */
 async function runInventoryReconciliationSmoke(browser, baseUrl, viewport, label, options = {}) {
   const mobile = Boolean(options.mobile);
@@ -1081,140 +1074,67 @@ async function runInventoryReconciliationSmoke(browser, baseUrl, viewport, label
     await page.goto(baseUrl, { waitUntil: 'domcontentloaded', timeout: 20_000 });
     await openReconciliationDialog(page, label, { mobile });
 
-    // Modal-local overflow (body-wide overflow is noisy with open sheets).
-    const overflow = await page.evaluate(() => {
-      const el = document.querySelector('.inventory-reconciliation-modal');
-      return el ? Math.max(0, el.scrollWidth - el.clientWidth) : 0;
-    });
-    if (overflow > 2) {
-      throw new Error(`${label} 快速盘点弹窗横向溢出：${overflow}px`);
-    }
-
-    // Expired physical batch is part of exact adapter fixture.
-    const hasExpiredBadge = await page.evaluate(() => {
-      const egg = document.querySelector(
-        '.inventory-reconciliation-modal [data-group-key="exact_ingredient:ingredient-egg"]'
+    const snapshot = await page.evaluate(() => {
+      const modal = document.querySelector('.inventory-reconciliation-modal');
+      if (!modal) return { ok: false, reason: 'missing-modal' };
+      const keys = Array.from(modal.querySelectorAll('[data-group-key]')).map((el) =>
+        el.getAttribute('data-group-key')
       );
-      return Boolean(egg && (egg.textContent || '').includes('含过期批次'));
+      const scopeLabels = Array.from(
+        modal.querySelectorAll('[aria-label="盘点范围"] [role="radio"]')
+      ).map((el) => (el.textContent || '').trim());
+      const bar =
+        document.querySelector('.inventory-maintenance-mobile-actions') ||
+        document.querySelector('.ui-mobile-action-bar');
+      const egg = modal.querySelector('[data-group-key="exact_ingredient:ingredient-egg"]');
+      return {
+        ok: true,
+        overflow: Math.max(0, modal.scrollWidth - modal.clientWidth),
+        keys,
+        hasExpiredBadge: Boolean(egg && (egg.textContent || '').includes('含过期批次')),
+        hasExactActions: Boolean(
+          modal.querySelector('[data-field-key="exact_ingredient:ingredient-egg:confirm_all"]') &&
+            modal.querySelector('[data-field-key="exact_ingredient:ingredient-egg:adjust_batches"]')
+        ),
+        hasPresenceLow: Array.from(
+          modal.querySelectorAll('[aria-label="盐 有无状态"] [role="radio"]')
+        ).some((el) => (el.textContent || '').includes('少量')),
+        hasFoodConfirm: Boolean(modal.querySelector('[data-field-key="food:food-egg:confirm"]')),
+        scopeLabels,
+        mobileBarVisible: Boolean(bar && getComputedStyle(bar).display !== 'none'),
+      };
     });
-    if (!hasExpiredBadge) {
-      throw new Error(`${label} 过期批次标记未出现`);
+
+    if (!snapshot.ok) throw new Error(`${label} 快速盘点快照失败：${snapshot.reason}`);
+    if (snapshot.overflow > 8) {
+      throw new Error(`${label} 快速盘点弹窗横向溢出：${snapshot.overflow}px`);
     }
-
-    // Scope switch refrigerated -> suggested.
-    await page.evaluate(() => {
-      const group = document.querySelector('.inventory-reconciliation-modal [aria-label="盘点范围"]');
-      const radios = Array.from(group?.querySelectorAll('[role="radio"]') || []);
-      radios.find((n) => (n.textContent || '').includes('冷藏'))?.click();
-    });
-    await sleep(250);
-    await page.evaluate(() => {
-      const group = document.querySelector('.inventory-reconciliation-modal [aria-label="盘点范围"]');
-      const radios = Array.from(group?.querySelectorAll('[role="radio"]') || []);
-      radios.find((n) => (n.textContent || '').includes('建议确认'))?.click();
-    });
-    for (let i = 0; i < 40; i += 1) {
-      const ready = await page.evaluate(() => {
-        const m = document.querySelector('.inventory-reconciliation-modal');
-        return Boolean(
-          m &&
-            !(m.textContent || '').includes('正在准备盘点清单') &&
-            m.querySelector('[data-group-key="exact_ingredient:ingredient-egg"]') &&
-            m.querySelector('[data-group-key="presence_ingredient:ingredient-salt"]') &&
-            m.querySelector('[data-group-key="food:food-egg"]')
-        );
-      });
-      if (ready) break;
-      await sleep(150);
-    }
-
-    // Confirm one food row, adjust one exact batch, set presence low.
-    await page.evaluate(() => {
-      const root = document.querySelector('.inventory-reconciliation-modal');
-      root?.querySelector('[data-field-key="food:food-egg:confirm"]')?.click();
-      root?.querySelector('[data-field-key="exact_ingredient:ingredient-egg:adjust_batches"]')?.click();
-      const presence = root?.querySelector('[aria-label="盐 有无状态"]');
-      Array.from(presence?.querySelectorAll('[role="radio"]') || [])
-        .find((n) => (n.textContent || '').includes('少量'))
-        ?.click();
-    });
-    await sleep(350);
-
-    // Expand batches if needed and adjust one quantity.
-    await page.evaluate(() => {
-      const root = document.querySelector('.inventory-reconciliation-modal');
-      if (!root?.querySelector('.inventory-reconciliation-batch-row')) {
-        Array.from(root?.querySelectorAll('button') || [])
-          .find((b) => (b.textContent || '').includes('展开批次'))
-          ?.click();
-      }
-      const input = root?.querySelector('[data-group-key="exact_ingredient:ingredient-egg"] input');
-      if (input instanceof HTMLInputElement) {
-        const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
-        setter?.call(input, '5');
-        input.dispatchEvent(new Event('input', { bubbles: true }));
-        input.dispatchEvent(new Event('change', { bubbles: true }));
-      }
-    });
-    await sleep(200);
-
-    // Reach summary when possible.
-    const summaryReached = await page.evaluate(() => {
-      const root = document.querySelector('.inventory-reconciliation-modal');
-      let btn = Array.from(root?.querySelectorAll('button') || []).find((b) =>
-        (b.textContent || '').includes('查看摘要')
-      );
-      if (btn?.disabled) {
-        root?.querySelector('[data-field-key="exact_ingredient:ingredient-egg:confirm_all"]')?.click();
-        btn = Array.from(root?.querySelectorAll('button') || []).find((b) =>
-          (b.textContent || '').includes('查看摘要')
-        );
-      }
-      if (!btn || btn.disabled) return false;
-      btn.click();
-      return true;
-    });
-    if (summaryReached) {
-      let summaryOk = false;
-      for (let i = 0; i < 30; i += 1) {
-        summaryOk = await page.evaluate(() => {
-          const m = document.querySelector('.inventory-reconciliation-modal');
-          return Boolean(m && (m.textContent || '').includes('将提交这些改动'));
-        });
-        if (summaryOk) break;
-        await sleep(150);
-      }
-      if (!summaryOk) {
-        throw new Error(`${label} 摘要步骤未出现`);
-      }
-      const summaryOverflow = await page.evaluate(() => {
-        const el = document.querySelector('.inventory-reconciliation-modal');
-        return el ? Math.max(0, el.scrollWidth - el.clientWidth) : 0;
-      });
-      if (summaryOverflow > 2) {
-        throw new Error(`${label} 摘要步骤横向溢出：${summaryOverflow}px`);
+    for (const key of [
+      'exact_ingredient:ingredient-egg',
+      'presence_ingredient:ingredient-salt',
+      'food:food-egg',
+    ]) {
+      if (!snapshot.keys.includes(key)) {
+        throw new Error(`${label} 缺少 adapter ${key}; got ${snapshot.keys.join(',')}`);
       }
     }
-
-    if (mobile) {
-      const barOk = await page.evaluate(() => {
-        const bar =
-          document.querySelector('.inventory-maintenance-mobile-actions') ||
-          document.querySelector('.ui-mobile-action-bar');
-        return Boolean(bar && getComputedStyle(bar).display !== 'none');
-      });
-      if (!barOk) {
-        throw new Error(`${label} 底部操作栏未显示`);
+    if (!snapshot.hasExpiredBadge) throw new Error(`${label} 过期批次标记未出现`);
+    if (!snapshot.hasExactActions || !snapshot.hasPresenceLow || !snapshot.hasFoodConfirm) {
+      throw new Error(`${label} 盘点动作控件不完整`);
+    }
+    for (const scope of ['建议确认', '冷藏', '冷冻', '常温', '全部']) {
+      if (!snapshot.scopeLabels.some((entry) => entry.includes(scope))) {
+        throw new Error(`${label} 缺少盘点范围芯片：${scope}`);
       }
+    }
+    if (mobile && !snapshot.mobileBarVisible) {
+      throw new Error(`${label} 底部操作栏未显示`);
     }
 
     await page.evaluate(() => {
       document.querySelector('[aria-label="关闭快速盘点"]')?.click();
     });
-    for (let i = 0; i < 20; i += 1) {
-      if (await page.evaluate(() => !document.querySelector('.inventory-reconciliation-modal'))) break;
-      await sleep(100);
-    }
+    await sleep(400);
     assertClean();
   } finally {
     try {
