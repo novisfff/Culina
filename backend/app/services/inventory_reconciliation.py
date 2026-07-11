@@ -592,7 +592,14 @@ def apply_inventory_reconciliation(
     observed_scope_location = None if request.scope == "suggested" else scope_location
 
     ingredient_ids = list(dict.fromkeys([*exact_ids, *presence_ids]))
-    state_ingredient_ids = list(dict.fromkeys(presence_ids))
+    # Only lock existing states; first-create leaves state_id null (match shopping intake).
+    state_ingredient_ids = list(
+        dict.fromkeys(
+            group.ingredient_id
+            for group in request.groups
+            if isinstance(group, PresenceIngredientReconciliationRequest) and group.state_id is not None
+        )
+    )
     inventory_item_ids: list[str] = []
     for group in request.groups:
         if isinstance(group, ExactIngredientReconciliationRequest):
@@ -609,10 +616,16 @@ def apply_inventory_reconciliation(
             inventory_item_ids=inventory_item_ids,
         )
     except InventoryTargetNotFoundError as exc:
-        raise ReconciliationValidationError(
+        # Missing/deleted targets are concurrent conflicts (409), not request validation.
+        raise InventoryConflictError(
             str(exc),
-            code="invalid_target",
-            field_errors=[_field_error(field="groups", code="invalid_target", message=str(exc))],
+            code="missing_target",
+            conflicts=[
+                {
+                    "reason": "missing",
+                    "message": str(exc),
+                }
+            ],
         ) from exc
 
     prepared_exact: list[_PreparedExact] = []

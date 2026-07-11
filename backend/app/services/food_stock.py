@@ -303,14 +303,16 @@ def apply_food_inventory_set_stock(
         food.expiry_date = expiry_date
         summary = f"调整食物库存 {food.name} 为 {_format_quantity(stock_quantity, normalized_unit)}"
     else:
-        # Absent: zero stock; keep unit if provided else existing; clear location optional.
+        # Absent: zero stock; keep unit if provided else existing; clear location.
         if stock_unit:
             food.stock_unit = _normalize_unit(stock_unit, food.stock_unit)
         food.stock_quantity = normalize_food_stock_quantity(Decimal("0"))
-        if storage_location is not None:
-            food.storage_location = storage_location.strip()
+        # Zero means absent — always overwrite location (empty clears it; column is NOT NULL).
+        food.storage_location = (storage_location or "").strip()
         food.expiry_date = expiry_date
         summary = f"确认没有 {food.name}"
+
+
 
     food.inventory_last_confirmed_at = utcnow()
     food.inventory_last_confirmed_by = user_id

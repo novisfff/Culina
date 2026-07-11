@@ -530,21 +530,7 @@ class InventoryReconciliationRequest(BaseModel):
             elif self.storage_location != canonical:
                 raise ValueError(f"{self.scope} 范围的 storage_location 必须为 {canonical}")
 
-        seen_exact: set[str] = set()
-        seen_presence: set[str] = set()
-        seen_food: set[str] = set()
-        for group in self.groups:
-            if isinstance(group, ExactIngredientReconciliationRequest):
-                if group.ingredient_id in seen_exact:
-                    raise ValueError("请求中包含重复的精确食材目标")
-                seen_exact.add(group.ingredient_id)
-            elif isinstance(group, PresenceIngredientReconciliationRequest):
-                if group.ingredient_id in seen_presence:
-                    raise ValueError("请求中包含重复的非精确食材目标")
-                seen_presence.add(group.ingredient_id)
-            elif isinstance(group, FoodReconciliationRequest):
-                if group.food_id in seen_food:
-                    raise ValueError("请求中包含重复的食物目标")
-                seen_food.add(group.food_id)
+        # Duplicate target groups are enforced in the service as structured
+        # 422 duplicate_request_item so clients receive {code, message, ...}.
         return self
 

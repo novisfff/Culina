@@ -857,7 +857,6 @@ def test_tracking_mode_changed_409(recon_api_context: ReconApiContext) -> None:
 
 
 def test_missing_entity_409(recon_api_context: ReconApiContext) -> None:
-    versions = _versions(recon_api_context)
     payload = {
         "client_request_id": "recon-missing",
         "scope": "refrigerated",
@@ -872,7 +871,11 @@ def test_missing_entity_409(recon_api_context: ReconApiContext) -> None:
         ],
     }
     response = recon_api_context.client.post("/api/inventory/reconciliations", json=payload)
-    assert response.status_code in {409, 422}, response.text
+    assert response.status_code == 409, response.text
+    detail = response.json()["detail"]
+    assert detail["code"] == "missing_target"
+    with recon_api_context.SessionLocal() as db:
+        assert db.scalar(select(InventoryOperation)) is None
 
 
 def test_idempotent_replay(recon_api_context: ReconApiContext) -> None:
@@ -954,6 +957,95 @@ def test_duplicate_group_rejected(recon_api_context: ReconApiContext) -> None:
     }
     response = recon_api_context.client.post("/api/inventory/reconciliations", json=payload)
     assert response.status_code == 422, response.text
+    detail = response.json()["detail"]
+    assert detail["code"] == "duplicate_request_item"
+    assert "message" in detail
+    with recon_api_context.SessionLocal() as db:
+        assert db.scalar(select(InventoryOperation)) is None
+
+
+def test_presence_first_create_with_null_state_id(recon_api_context: ReconApiContext) -> None:
+    # Add a presence-tracked ingredient that has no state row yet.
+    with recon_api_context.SessionLocal() as db:
+        pepper = Ingredient(
+            id="ingredient-pepper",
+            family_id=recon_api_context.family_id,
+            name="胡椒",
+            category="调味",
+            default_unit="瓶",
+            default_storage="常温",
+            default_expiry_mode=IngredientExpiryMode.NONE,
+            unit_conversions=[],
+            quantity_tracking_mode=IngredientQuantityTrackingMode.NOT_TRACK_QUANTITY,
+            notes="",
+            created_by=recon_api_context.user_id,
+            updated_by=recon_api_context.user_id,
+        )
+        db.add(pepper)
+        db.commit()
+        db.refresh(pepper)
+        pepper_version = pepper.row_version
+
+    payload = {
+        "client_request_id": "recon-presence-create",
+        "scope": "all",
+        "groups": [
+            {
+                "kind": "presence_ingredient",
+                "ingredient_id": "ingredient-pepper",
+                "state_id": None,
+                "expected_ingredient_row_version": pepper_version,
+                "expected_state_row_version": None,
+                "availability_level": InventoryAvailabilityLevel.SUFFICIENT.value,
+                "inventory_status": InventoryStatus.FRESH.value,
+                "purchase_date": "2026-07-01",
+                "expiry_date": None,
+                "storage_location": "常温",
+                "notes": "首建",
+            }
+        ],
+    }
+    response = recon_api_context.client.post("/api/inventory/reconciliations", json=payload)
+    assert response.status_code == 200, response.text
+    with recon_api_context.SessionLocal() as db:
+        state = db.scalar(
+            select(IngredientInventoryState).where(
+                IngredientInventoryState.ingredient_id == "ingredient-pepper"
+            )
+        )
+        assert state is not None
+        assert state.availability_level == InventoryAvailabilityLevel.SUFFICIENT
+        assert state.storage_location == "常温"
+        assert state.last_confirmation_source == InventoryConfirmationSource.RECONCILIATION
+        ops = list(db.scalars(select(InventoryOperation)))
+        assert len(ops) == 1
+
+
+def test_food_set_stock_zero_clears_location(recon_api_context: ReconApiContext) -> None:
+    versions = _versions(recon_api_context)
+    payload = {
+        "client_request_id": "recon-food-zero",
+        "scope": "all",
+        "groups": [
+            {
+                "kind": "food",
+                "food_id": recon_api_context.food_id,
+                "expected_row_version": versions["food"],
+                "action": "set_stock",
+                "stock_quantity": "0",
+                "stock_unit": None,
+                "expiry_date": None,
+                "storage_location": None,
+            }
+        ],
+    }
+    response = recon_api_context.client.post("/api/inventory/reconciliations", json=payload)
+    assert response.status_code == 200, response.text
+    with recon_api_context.SessionLocal() as db:
+        food = db.get(Food, recon_api_context.food_id)
+        assert food is not None
+        assert food.stock_quantity == Decimal("0.00")
+        assert (food.storage_location or "") == ""
 
 
 def test_confirmation_status_helper_boundaries() -> None:
