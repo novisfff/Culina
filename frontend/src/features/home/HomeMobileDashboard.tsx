@@ -6,16 +6,52 @@ import { DashboardIcon, DashboardMealIcon, ShellIcon } from '../../app/shellIcon
 import { MediaWithPlaceholder } from '../../components/MediaPlaceholder';
 import { Badge, EmptyState } from '../../components/ui-kit';
 import { FOOD_TYPE_LABELS, getFoodCover, MEAL_TYPE_LABELS } from '../../lib/ui';
+import type { InventoryActionGroup } from '../inventory/inventoryActionModel';
 import {
   DASHBOARD_PLAN_MEAL_TYPES,
   findShoppingIngredient,
   type DashboardPlanDay,
   type DashboardRecommendation,
   type DashboardStat,
-  type DashboardTodoItem,
 } from './homeDashboardModel';
 
-export function HomeMobileDashboard(props: {
+function getHomeActionPrimaryLabel(group: InventoryActionGroup) {
+  if (group.kind === 'low_stock') {
+    return '加入采购';
+  }
+  if (group.severity === 'expired') {
+    return '集中处理';
+  }
+  return '查看处理';
+}
+
+function getHomeActionTone(group: InventoryActionGroup) {
+  if (group.kind === 'low_stock') {
+    return 'low-stock';
+  }
+  if (group.severity === 'expired') {
+    return 'expired';
+  }
+  if (group.severity === 'expires_today' || group.severity === 'expires_soon') {
+    return 'soon';
+  }
+  return 'later';
+}
+
+function getHomeActionEmptyCopy(hasLaterInventoryActionGroups: boolean) {
+  if (hasLaterInventoryActionGroups) {
+    return {
+      title: '今天没有急着处理的食材',
+      description: '4～7 天内的提醒仍可以在食材页查看。',
+    };
+  }
+  return {
+    title: '当前库存状态平稳',
+    description: '没有过期、临期或待补货的食材需要处理。',
+  };
+}
+
+export type HomeMobileDashboardProps = {
   sidebarFamilyName: string;
   sidebarMotto: string;
   sidebarLocation: string;
@@ -28,8 +64,9 @@ export function HomeMobileDashboard(props: {
   dashboardRecommendationPageCount: number;
   dashboardRecommendations: DashboardRecommendation[];
   foodRecommendations?: FoodRecommendations | null;
-  dashboardCompletedCount: number;
-  dashboardTodoItems: DashboardTodoItem[];
+  homeInventoryActionGroups: InventoryActionGroup[];
+  hasLaterInventoryActionGroups: boolean;
+  hasFullListInventoryActionGroups: boolean;
   activeFoodPlanItems: FoodPlanItem[];
   dashboardWeekMealCapacity: number;
   dashboardPlanDays: DashboardPlanDay[];
@@ -54,10 +91,14 @@ export function HomeMobileDashboard(props: {
   onHomePlanAddEmptyDialogOpen: (planDate: string, mealType: MealType) => void;
   onHomePlanDetailOpen: (item: FoodPlanItem) => void;
   onHomeRestockOpen: (item: ShoppingListItem) => void;
-  onDashboardTodoClick: (item: DashboardTodoItem) => void;
+  onOpenActionGroup: (group: InventoryActionGroup) => void;
+  onOpenIngredientShopping: (ingredientId: string) => void;
+  onOpenIngredientPriority: () => void;
   onOpenDetail: (food: Food) => void;
   onShowMorePlans?: (date: string, mealType: MealType, items: FoodPlanItem[]) => void;
-}) {
+};
+
+export function HomeMobileDashboard(props: HomeMobileDashboardProps) {
   function handleRecommendationCardKeyDown(event: KeyboardEvent<HTMLElement>, food: Food) {
     if (event.key !== 'Enter' && event.key !== ' ') {
       return;
@@ -65,6 +106,9 @@ export function HomeMobileDashboard(props: {
     event.preventDefault();
     props.onOpenDetail(food);
   }
+
+  const emptyCopy = getHomeActionEmptyCopy(props.hasLaterInventoryActionGroups);
+  const visibleGroups = props.homeInventoryActionGroups.slice(0, 3);
 
   return (
     <main className="mobile-dashboard-page" aria-label="手机首页">
@@ -217,41 +261,51 @@ export function HomeMobileDashboard(props: {
         )}
       </section>
 
-      <section className="mobile-dashboard-panel">
+      <section className="mobile-dashboard-panel mobile-dashboard-action-panel">
         <div className="mobile-dashboard-section-head">
-          <h2>今日待办</h2>
-          <Badge>{props.dashboardCompletedCount} / {props.dashboardTodoItems.length || 0}</Badge>
+          <h2>今天要处理</h2>
+          <button type="button" onClick={props.onOpenIngredientPriority}>
+            查看全部
+          </button>
         </div>
-        <div className="mobile-dashboard-todo-list">
-          {props.dashboardTodoItems.length > 0 ? (
-            props.dashboardTodoItems.slice(0, 4).map((item) => (
-              <button
-                key={item.id}
-                type="button"
-                className={item.done ? 'mobile-dashboard-todo-item done' : `mobile-dashboard-todo-item todo-${item.type} status-${item.status === '紧急' ? 'emergency' : 'normal'}`}
-                onClick={() => props.onDashboardTodoClick(item)}
-                aria-label={`${item.title}，${item.status}，点击处理`}
-              >
-                <span className="mobile-dashboard-todo-icon">
-                  <DashboardIcon name={item.icon} />
-                </span>
-                <span className="mobile-dashboard-todo-copy">
-                  <strong>{item.title}</strong>
-                  <small>{item.description}</small>
-                </span>
-                <span className="mobile-dashboard-todo-meta">
-                  <Badge className={item.done ? 'dashboard-done-badge' : item.status === '紧急' ? 'dashboard-danger-badge' : 'dashboard-wait-badge'}>
-                    {item.status}
-                  </Badge>
-                  <small>{item.dateLabel}</small>
-                </span>
-                <span className="mobile-dashboard-todo-arrow" aria-hidden="true">
-                  <DashboardIcon name="chevron" />
-                </span>
-              </button>
-            ))
+        <div className="mobile-dashboard-action-list">
+          {visibleGroups.length > 0 ? (
+            visibleGroups.map((group) => {
+              const tone = getHomeActionTone(group);
+              const primaryLabel = getHomeActionPrimaryLabel(group);
+              return (
+                <article
+                  key={group.id}
+                  data-testid="home-action-group"
+                  className={`mobile-dashboard-action-item action-${tone}`}
+                >
+                  <span className={`mobile-dashboard-action-icon tone-${tone}`}>
+                    <DashboardIcon name={group.kind === 'low_stock' ? 'cart' : 'bell'} />
+                  </span>
+                  <div className="mobile-dashboard-action-copy">
+                    <strong>{group.title}</strong>
+                    <small>{group.detail}</small>
+                  </div>
+                  <button
+                    type="button"
+                    data-testid="home-action-primary"
+                    className="mobile-dashboard-action-primary"
+                    onClick={() => {
+                      if (group.kind === 'low_stock') {
+                        props.onOpenIngredientShopping(group.ingredientId);
+                        return;
+                      }
+                      props.onOpenActionGroup(group);
+                    }}
+                    aria-label={`${primaryLabel}${group.ingredientName}`}
+                  >
+                    {primaryLabel}
+                  </button>
+                </article>
+              );
+            })
           ) : (
-            <EmptyState title="今日没有待办" description="新的临期、采购和餐食记录会自动出现在这里。" />
+            <EmptyState title={emptyCopy.title} description={emptyCopy.description} />
           )}
         </div>
       </section>

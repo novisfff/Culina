@@ -68,28 +68,112 @@ const ingredient = {
   updated_by: user.id,
 };
 
-const inventoryItem = {
-  id: 'inventory-egg',
+const tomatoIngredient = {
+  id: 'ingredient-tomato',
   family_id: family.id,
-  ingredient_id: ingredient.id,
-  ingredient_name: ingredient.name,
-  quantity: 6,
-  consumed_quantity: 0,
-  remaining_quantity: 6,
-  unit: '个',
-  entered_quantity: 6,
-  entered_unit: '个',
-  status: 'fresh',
-  purchase_date: today,
-  expiry_date: '2026-06-15',
-  storage_location: '冷藏',
-  notes: '',
-  low_stock_threshold: 4,
+  name: '番茄',
+  category: '蔬菜',
+  default_unit: '个',
+  unit_conversions: [],
+  default_storage: '冷藏',
+  default_expiry_mode: 'days',
+  default_expiry_days: 7,
+  default_low_stock_threshold: null,
+  notes: 'smoke fixture tomato',
+  image: null,
   created_at: now,
   updated_at: now,
   created_by: user.id,
   updated_by: user.id,
 };
+
+const milkIngredient = {
+  id: 'ingredient-milk',
+  family_id: family.id,
+  name: '牛奶',
+  category: '蛋奶',
+  default_unit: '盒',
+  unit_conversions: [],
+  default_storage: '冷藏',
+  default_expiry_mode: 'days',
+  default_expiry_days: 5,
+  default_low_stock_threshold: 2,
+  notes: 'smoke fixture milk',
+  image: null,
+  created_at: now,
+  updated_at: now,
+  created_by: user.id,
+  updated_by: user.id,
+};
+
+function inventoryFixture(overrides) {
+  return {
+    family_id: family.id,
+    consumed_quantity: 0,
+    entered_quantity: overrides.quantity ?? overrides.remaining_quantity ?? 1,
+    entered_unit: overrides.unit ?? '个',
+    status: 'fresh',
+    purchase_date: '2026-05-20',
+    storage_location: '冷藏',
+    notes: '',
+    low_stock_threshold: null,
+    created_at: now,
+    updated_at: now,
+    created_by: user.id,
+    updated_by: user.id,
+    row_version: 1,
+    expiry_alert_snoozed_until: null,
+    expiry_reviewed_at: null,
+    expiry_reviewed_by: null,
+    ...overrides,
+  };
+}
+
+const inventoryItem = inventoryFixture({
+  id: 'inventory-egg',
+  ingredient_id: ingredient.id,
+  ingredient_name: ingredient.name,
+  quantity: 6,
+  remaining_quantity: 6,
+  unit: '个',
+  expiry_date: '2026-06-15',
+  low_stock_threshold: 4,
+});
+
+const tomatoExpiredA = inventoryFixture({
+  id: 'inventory-tomato-a',
+  ingredient_id: tomatoIngredient.id,
+  ingredient_name: tomatoIngredient.name,
+  quantity: 3,
+  remaining_quantity: 3,
+  unit: '个',
+  expiry_date: '2026-05-28',
+  row_version: 2,
+});
+
+const tomatoExpiredB = inventoryFixture({
+  id: 'inventory-tomato-b',
+  ingredient_id: tomatoIngredient.id,
+  ingredient_name: tomatoIngredient.name,
+  quantity: 2,
+  remaining_quantity: 2,
+  unit: '个',
+  expiry_date: '2026-05-30',
+  row_version: 1,
+});
+
+const milkToday = inventoryFixture({
+  id: 'inventory-milk',
+  ingredient_id: milkIngredient.id,
+  ingredient_name: milkIngredient.name,
+  quantity: 2,
+  remaining_quantity: 2,
+  unit: '盒',
+  expiry_date: today,
+  row_version: 1,
+});
+
+const inventoryItems = [inventoryItem, tomatoExpiredA, tomatoExpiredB, milkToday];
 
 const recipe = {
   id: 'recipe-egg',
@@ -163,11 +247,11 @@ const inventoryOverview = {
   scope: 'all',
   query: '',
   summary: {
-    total_count: 2,
-    ingredient_count: 1,
+    total_count: 5,
+    ingredient_count: 3,
     food_count: 1,
-    alert_count: 1,
-    expiring_count: 1,
+    alert_count: 2,
+    expiring_count: 3,
     empty_count: 0,
   },
   items: [
@@ -192,6 +276,28 @@ const inventoryOverview = {
       updated_at: inventoryItem.updated_at,
       primary_action: 'consume',
       search_text: `${ingredient.name} ${ingredient.category} ${inventoryItem.storage_location}`,
+    },
+    {
+      id: 'ingredient:inventory-tomato-a',
+      source_type: 'ingredient',
+      source_id: tomatoIngredient.id,
+      inventory_item_id: tomatoExpiredA.id,
+      title: tomatoIngredient.name,
+      category: tomatoIngredient.category,
+      image: null,
+      quantity: tomatoExpiredA.remaining_quantity,
+      unit: tomatoExpiredA.unit,
+      quantity_label: `${tomatoExpiredA.remaining_quantity}${tomatoExpiredA.unit}`,
+      quantity_tracking_mode: 'track_quantity',
+      status: tomatoExpiredA.status,
+      tone: 'danger',
+      expiry_date: tomatoExpiredA.expiry_date,
+      days_until_expiry: -4,
+      storage_location: tomatoExpiredA.storage_location,
+      purchase_source: null,
+      updated_at: tomatoExpiredA.updated_at,
+      primary_action: 'consume',
+      search_text: `${tomatoIngredient.name} ${tomatoIngredient.category} ${tomatoExpiredA.storage_location}`,
     },
     {
       id: 'food:food-egg',
@@ -234,8 +340,8 @@ const fixtures = {
   '/api/auth/me': authResponse,
   '/api/family': family,
   '/api/members': [member],
-  '/api/ingredients': [ingredient],
-  '/api/inventory': [inventoryItem],
+  '/api/ingredients': [ingredient, tomatoIngredient, milkIngredient],
+  '/api/inventory': inventoryItems,
   '/api/inventory/overview': inventoryOverview,
   '/api/shopping-list': [],
   '/api/recipes': [recipe],
@@ -746,6 +852,7 @@ async function runTabletAirWorkspaceSmoke(browser, baseUrl) {
   await expectVisible(page.getByRole('heading', { name: '首页' }), '1180x820 首页标题');
   await expectVisible(page.locator('.dashboard-lower-grid'), '1180x820 首页摘要区');
   await expectNoHorizontalOverflow(page, '1180x820 首页');
+  await expectVisibleText(page, '今天要处理', '1180x820 今天要处理');
   const homeCompactLayout = await page.evaluate(() => {
     const styles = (selector) => {
       const element = document.querySelector(selector);
@@ -754,33 +861,33 @@ async function runTabletAirWorkspaceSmoke(browser, baseUrl) {
     const columnCount = (selector) => styles(selector)?.gridTemplateColumns.split(' ').length ?? 0;
     const columnWidths = (selector) =>
       styles(selector)?.gridTemplateColumns.split(' ').map((value) => Number.parseFloat(value)).filter(Number.isFinite) ?? [];
-    const expiryItems = Array.from(document.querySelectorAll('.dashboard-expiry-item'));
+    const actionItems = Array.from(document.querySelectorAll('.dashboard-action-item'));
     return {
       lowerColumns: columnCount('.dashboard-lower-grid'),
       lowerColumnWidths: columnWidths('.dashboard-lower-grid'),
-      expiryColumns: columnCount('.dashboard-expiry-list'),
-      todoColumns: columnCount('.dashboard-todo-list'),
+      actionColumns: columnCount('.dashboard-action-list'),
       activityColumns: columnCount('.dashboard-activity-list'),
-      expiryItemOverflow: expiryItems.map((item) => item.scrollWidth - item.clientWidth),
+      actionItemOverflow: actionItems.map((item) => item.scrollWidth - item.clientWidth),
+      actionGroupCount: actionItems.length,
+      tomatoGroupCount: actionItems.filter((item) => (item.textContent ?? '').includes('番茄')).length,
       weekOrder: styles('.dashboard-week-panel')?.order ?? 'missing',
-      expiryOrder: styles('.dashboard-expiry-panel')?.order ?? 'missing',
-      todoOrder: styles('.dashboard-todo-panel')?.order ?? 'missing',
+      actionOrder: styles('.dashboard-action-panel')?.order ?? 'missing',
     };
   });
   if (
     homeCompactLayout.lowerColumns !== 2 ||
-    homeCompactLayout.expiryColumns !== 1 ||
-    homeCompactLayout.todoColumns !== 1 ||
+    homeCompactLayout.actionColumns !== 1 ||
     homeCompactLayout.activityColumns !== 1 ||
     homeCompactLayout.lowerColumnWidths.length !== 2 ||
     Math.abs(homeCompactLayout.lowerColumnWidths[0] - homeCompactLayout.lowerColumnWidths[1]) > 2 ||
-    homeCompactLayout.expiryItemOverflow.some((overflow) => overflow > 1) ||
+    homeCompactLayout.actionItemOverflow.some((overflow) => overflow > 1) ||
     homeCompactLayout.weekOrder !== '1' ||
-    homeCompactLayout.expiryOrder !== '2' ||
-    homeCompactLayout.todoOrder !== '3'
+    homeCompactLayout.actionOrder !== '2' ||
+    homeCompactLayout.actionGroupCount < 1 ||
+    homeCompactLayout.tomatoGroupCount !== 1
   ) {
     throw new Error(
-      `1180x820 首页摘要布局异常：主区 ${homeCompactLayout.lowerColumns} 列/${homeCompactLayout.lowerColumnWidths.join(',')}，临期 ${homeCompactLayout.expiryColumns} 列，临期溢出 ${homeCompactLayout.expiryItemOverflow.join(',')}，待办 ${homeCompactLayout.todoColumns} 列，记录 ${homeCompactLayout.activityColumns} 列`
+      `1180x820 首页摘要布局异常：主区 ${homeCompactLayout.lowerColumns} 列/${homeCompactLayout.lowerColumnWidths.join(',')}，动作 ${homeCompactLayout.actionColumns} 列，动作溢出 ${homeCompactLayout.actionItemOverflow.join(',')}，番茄组 ${homeCompactLayout.tomatoGroupCount}，记录 ${homeCompactLayout.activityColumns} 列`
     );
   }
 
@@ -962,6 +1069,38 @@ async function runTabletAirWorkspaceSmoke(browser, baseUrl) {
   await context.close();
 }
 
+async function runHomeActionCenterSmoke(browser, baseUrl) {
+  const { context, page, assertClean } = await createPage(browser, { width: 1440, height: 960 });
+  await page.goto(baseUrl, { waitUntil: 'domcontentloaded' });
+  await expectVisibleText(page, '今天要处理', '桌面今天要处理');
+  const actionSummary = await page.evaluate(() => {
+    const items = Array.from(document.querySelectorAll('.dashboard-action-item'));
+    return {
+      count: items.length,
+      tomatoCount: items.filter((item) => (item.textContent ?? '').includes('番茄')).length,
+      hasLegacyExpiry: Boolean(document.querySelector('.dashboard-expiry-panel')),
+      hasLegacyTodo: Boolean(document.querySelector('.dashboard-todo-panel')),
+    };
+  });
+  if (actionSummary.hasLegacyExpiry || actionSummary.hasLegacyTodo) {
+    throw new Error('桌面首页仍渲染旧的临期/待办面板');
+  }
+  if (actionSummary.count < 2 || actionSummary.tomatoCount !== 1) {
+    throw new Error(
+      `桌面今天要处理分组异常：count=${actionSummary.count} tomato=${actionSummary.tomatoCount}`
+    );
+  }
+
+  const primary = page.locator('.dashboard-action-item').filter({ hasText: '番茄' }).locator('[data-testid="home-action-primary"]');
+  await primary.click();
+  await expectVisible(page.locator('.inventory-action-modal'), '库存处理弹窗');
+  await expectVisibleText(page, '已过期批次', '库存处理弹窗批次分区');
+  await page.getByLabel('关闭').last().click();
+  await page.locator('.inventory-action-modal').waitFor({ state: 'detached', timeout: 10_000 });
+  assertClean();
+  await context.close();
+}
+
 async function main() {
   assertDistExists();
   const preview = await startPreview();
@@ -969,7 +1108,10 @@ async function main() {
   try {
     await runLoginSmoke(browser, preview.url);
     await runDesktopSmoke(browser, preview.url);
+    await runHomeActionCenterSmoke(browser, preview.url);
+    await runResponsiveSmoke(browser, preview.url, { width: 375, height: 812 }, '375x812');
     await runResponsiveSmoke(browser, preview.url, { width: 390, height: 844 }, '390x844');
+    await runResponsiveSmoke(browser, preview.url, { width: 430, height: 932 }, '430x932');
     await runOrientationLockSmoke(
       browser,
       preview.url,
@@ -989,7 +1131,7 @@ async function main() {
     await runTabletLandscapeSmoke(browser, preview.url);
     await runTabletAirWorkspaceSmoke(browser, preview.url);
     console.log(
-      'Smoke passed: login, desktop workspace tabs, 390x844, 768x1024 orientation lock, 844x390 mobile orientation lock, 1024x744 touch iPad landscape, 1112x834 and 1180x820 responsive checks.'
+      'Smoke passed: login, desktop workspace tabs, home action center dialog, 375/390/430 mobile widths, 768x1024 orientation lock, 844x390 mobile orientation lock, 1024x744 touch iPad landscape, 1112x834 and 1180x820 responsive checks.'
     );
   } finally {
     try {

@@ -440,22 +440,23 @@ function App() {
     resolveDashboardAssetUrl,
   });
 
-  // Task 7A exposes prepared projection + continuous-processing state for Tasks 7B/7C.
+  // Task 7B consumes prepared groups in the home views; 7C will wire completion/next-item flows.
   void homeEligibleInventoryActionGroups;
-  void homeInventoryActionGroups;
   void homeInventoryActionCount;
-  void hasLaterInventoryActionGroups;
-  void hasFullListInventoryActionGroups;
   void availableInventoryCount;
-  void selectedActionGroupId;
   void completionSummary;
   void completedIngredientId;
   void nextGroupId;
-  void openActionGroup;
-  void closeActionGroup;
   void completeActionGroup;
   void openNextActionGroup;
   void dismissCompletionSummary;
+
+  const selectedActionGroup =
+    homeEligibleInventoryActionGroups.find((group) => group.id === selectedActionGroupId) ?? null;
+
+  function handleOpenActionGroup(group: (typeof homeInventoryActionGroups)[number]) {
+    openActionGroup(group.id);
+  }
 
   function resolveDashboardAssetUrl(url?: string) {
     return resolveAssetUrl(url, { passthroughPrefixes: ['/images/'] });
@@ -480,8 +481,14 @@ function App() {
     setHomeMealDetailId,
     ingredients,
   });
-  void openIngredientShopping;
-  void openIngredientPriority;
+  void openIngredientsCatalog;
+  void handleDashboardTodoClick;
+  void dashboardTodoItems;
+  void visibleDashboardTodoItems;
+  void hasMoreDashboardTodoItems;
+  void dashboardCompletedCount;
+  void expiringInventoryItems;
+  void visibleExpiringInventoryItems;
 
   // Temporary empty disposal binding until Task 7C wires InventoryActionDialog.
   const homeExpiredDisposalSummary = null;
@@ -631,10 +638,10 @@ function App() {
             dashboardRecommendationPageCount={dashboardRecommendationPageCount}
             dashboardRecommendations={dashboardRecommendations}
             foodRecommendations={foodRecommendations}
-            dashboardCompletedCount={dashboardCompletedCount}
-            dashboardTodoItems={dashboardTodoItems}
-            visibleDashboardTodoItems={visibleDashboardTodoItems}
-            hasMoreDashboardTodoItems={hasMoreDashboardTodoItems}
+            homeInventoryActionGroups={homeInventoryActionGroups}
+            hasLaterInventoryActionGroups={hasLaterInventoryActionGroups}
+            hasFullListInventoryActionGroups={hasFullListInventoryActionGroups}
+            selectedActionGroup={selectedActionGroup}
             activeFoodPlanItems={activeFoodPlanItems}
             foodPlanItems={foodPlanItems}
             dashboardWeekMealCapacity={dashboardWeekMealCapacity}
@@ -643,8 +650,6 @@ function App() {
             selectedDashboardPlanDateLabel={selectedDashboardPlanDateLabel}
             pendingShoppingCount={pendingShoppingCount}
             pendingShoppingPreview={pendingShoppingPreview}
-            visibleExpiringInventoryItems={visibleExpiringInventoryItems}
-            hasMoreExpiringInventoryItems={false}
             dashboardPlanSummary={dashboardPlanSummary}
             foodPlanWeekRange={foodPlanWeekRange}
             foods={foods}
@@ -657,6 +662,7 @@ function App() {
             recentMeals={recentMeals}
             isQuickAdding={quickAddMealMutation.isPending}
             isCreatingFoodPlanItem={createFoodPlanItemMutation.isPending}
+            businessDateKey={today}
             resolveAssetUrl={resolveDashboardAssetUrl}
             quickAddMeal={(payload) => quickAddMealMutation.mutateAsync(payload)}
             createFoodPlanItem={(payload) => createFoodPlanItemMutation.mutateAsync(payload)}
@@ -669,12 +675,10 @@ function App() {
             onHomePlanAddEmptyDialogOpen={openHomePlanAddEmptyDialog}
             onHomePlanDetailOpen={openHomePlanDetail}
             onHomeRestockOpen={openHomeRestock}
-            onIngredientsCatalogOpen={openIngredientsCatalog}
-            onIngredientExpiredDisposalOpen={(ingredientId) => openIngredientDetail(ingredientId)}
-            onIngredientDetailOpen={openIngredientDetail}
-            onDashboardTodoClick={handleDashboardTodoClick}
-            onExpiryListScroll={() => undefined}
-            onDashboardTodoListScroll={() => undefined}
+            onOpenActionGroup={handleOpenActionGroup}
+            onCloseActionGroup={closeActionGroup}
+            onOpenIngredientShopping={openIngredientShopping}
+            onOpenIngredientPriority={openIngredientPriority}
             onFoodPlanPreviousWeek={() => setSelectedRecipePlanDate(addDateKeyDays(foodPlanWeekRange.start, -7))}
             onFoodPlanCurrentWeek={() => setSelectedRecipePlanDate(todayKey())}
             onFoodPlanNextWeek={() => setSelectedRecipePlanDate(addDateKeyDays(foodPlanWeekRange.end, 1))}
