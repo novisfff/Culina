@@ -577,6 +577,13 @@ const reconciliationResult = {
   },
 };
 
+const inventoryOperations = [
+  {
+    ...reconciliationResult,
+    actor_display_name: 'Smoke User',
+  },
+];
+
 const authResponse = {
   access_token: 'smoke-token',
   user,
@@ -597,6 +604,7 @@ const fixtures = {
   '/api/inventory': inventoryItems,
   '/api/inventory/states': inventoryStates,
   '/api/inventory/overview': inventoryOverview,
+  '/api/inventory/operations': inventoryOperations,
   '/api/shopping-list': shoppingItems,
   '/api/recipes': [recipe],
   '/api/recipes/discovery': {
