@@ -48,6 +48,11 @@ function makeExpiryGroup(
         expiryAlertSnoozedUntil: null,
         expiryReviewedAt: null,
         expiryReviewedBy: null,
+        target: {
+          targetKind: 'inventory_item',
+          inventoryItemId: batchId,
+          expectedRowVersion: rowVersion,
+        },
       },
     ],
     expiredBatchCount: 1,
@@ -62,6 +67,7 @@ function makeExpiryGroup(
     title: `${name}需要处理`,
     detail: '1 批已过期',
     primaryAction: 'manage_expiry',
+    targetKind: 'inventory_item',
   };
 }
 

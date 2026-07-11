@@ -67,8 +67,14 @@ function buildDisposeOnlyExpiryGroup(
       expiryAlertSnoozedUntil: item.expiryAlertSnoozedUntil,
       expiryReviewedAt: item.expiryReviewedAt,
       expiryReviewedBy: item.expiryReviewedBy,
+      target: {
+        targetKind: 'inventory_item',
+        inventoryItemId: item.id,
+        expectedRowVersion: item.rowVersion,
+      },
     };
   });
+
 
   const quantityLabels = (() => {
     const totals = new Map<string, number>();
@@ -111,6 +117,7 @@ function buildDisposeOnlyExpiryGroup(
     title: `${summary.ingredient.name}需要处理`,
     detail: `${batches.length} 批已过期`,
     primaryAction: 'manage_expiry',
+    targetKind: 'inventory_item',
   };
 }
 

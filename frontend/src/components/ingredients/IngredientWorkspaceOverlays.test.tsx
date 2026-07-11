@@ -44,6 +44,11 @@ const tomatoGroup: ExpiryInventoryActionGroup = {
       expiryAlertSnoozedUntil: null,
       expiryReviewedAt: null,
       expiryReviewedBy: null,
+      target: {
+        targetKind: 'inventory_item',
+        inventoryItemId: 'inventory-expired-1',
+        expectedRowVersion: 7,
+      },
     },
     {
       inventoryItemId: 'inventory-upcoming-1',
@@ -57,6 +62,11 @@ const tomatoGroup: ExpiryInventoryActionGroup = {
       expiryAlertSnoozedUntil: null,
       expiryReviewedAt: null,
       expiryReviewedBy: null,
+      target: {
+        targetKind: 'inventory_item',
+        inventoryItemId: 'inventory-upcoming-1',
+        expectedRowVersion: 3,
+      },
     },
   ],
   expiredBatchCount: 1,
@@ -71,6 +81,7 @@ const tomatoGroup: ExpiryInventoryActionGroup = {
   title: '番茄需要处理',
   detail: '1 批已过期，1 批 3 天内到期',
   primaryAction: 'manage_expiry',
+  targetKind: 'inventory_item',
 };
 
 const versionedItems: VersionedInventoryItemRef[] = [
