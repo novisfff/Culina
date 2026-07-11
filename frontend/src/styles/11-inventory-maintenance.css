@@ -1,0 +1,475 @@
+/* Inventory maintenance dialogs — shopping intake (Task 9), reconciliation/history later. */
+
+.inventory-maintenance-overlay-root {
+  padding-top: max(12px, env(safe-area-inset-top, 0px));
+  padding-bottom: max(12px, env(safe-area-inset-bottom, 0px));
+}
+
+.inventory-maintenance-modal.workspace-modal {
+  display: flex;
+  flex-direction: column;
+  width: min(var(--modal-width-md), calc(100vw - 24px));
+  max-height: calc(100vh - 40px);
+  max-height: calc(100dvh - 40px);
+  padding: 20px 20px 0;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at top left, rgba(255, 255, 255, 0.96), transparent 36%),
+    radial-gradient(circle at top right, var(--accent-soft), transparent 34%),
+    linear-gradient(180deg, var(--surface-2), var(--surface-3));
+}
+
+.inventory-maintenance-modal .workspace-overlay-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  overflow: hidden;
+  padding-top: 2px;
+}
+
+.inventory-maintenance-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding: 0 2px 16px;
+  overscroll-behavior: contain;
+}
+
+.inventory-maintenance-live {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.inventory-maintenance-section {
+  display: grid;
+  gap: 10px;
+  padding: 12px 14px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--line-soft);
+  background: rgba(255, 255, 255, 0.72);
+  min-width: 0;
+}
+
+.inventory-maintenance-section-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.inventory-maintenance-section-head > span {
+  color: var(--text-soft);
+  font-size: 0.9rem;
+  font-weight: 700;
+}
+
+.inventory-maintenance-section-head em {
+  color: var(--text-faint);
+  font-size: 0.78rem;
+  font-style: normal;
+  font-weight: 700;
+}
+
+.inventory-maintenance-item-list {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+
+.inventory-maintenance-item-card {
+  display: grid;
+  gap: 10px;
+  padding: 12px 14px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--line-soft);
+  background:
+    linear-gradient(135deg, rgba(255, 251, 246, 0.98), rgba(248, 242, 235, 0.96));
+  box-shadow: var(--shadow-sm);
+  min-width: 0;
+}
+
+.inventory-maintenance-item-card.is-selected {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 35%, transparent);
+}
+
+.inventory-maintenance-item-card.has-error {
+  border-color: color-mix(in srgb, var(--danger, #c45c4a) 55%, var(--line-soft));
+}
+
+.inventory-maintenance-item-main {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
+  min-width: 0;
+  cursor: pointer;
+}
+
+.inventory-maintenance-item-main input[type='checkbox'] {
+  width: 22px;
+  height: 22px;
+  margin-top: 2px;
+  accent-color: var(--accent);
+}
+
+.inventory-maintenance-item-copy {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.inventory-maintenance-item-title-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.inventory-maintenance-item-title-row strong {
+  font-size: 1rem;
+  line-height: 1.3;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.inventory-maintenance-chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 0 10px;
+  border-radius: 999px;
+  border: 1px solid var(--line-soft);
+  background: var(--surface-2);
+  color: var(--text-soft);
+  font-size: 0.75rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.inventory-maintenance-chip-group .ui-option-chip {
+  min-height: 44px;
+}
+
+.inventory-maintenance-freetext-actions,
+.inventory-maintenance-link-candidates {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.inventory-maintenance-freetext-actions .solid-button,
+.inventory-maintenance-freetext-actions .ghost-button,
+.inventory-maintenance-freetext-actions .tertiary-button,
+.inventory-maintenance-item-title-row .tertiary-button,
+.inventory-maintenance-link-candidates .tertiary-button {
+  min-height: 44px;
+}
+
+.inventory-maintenance-editor {
+  display: grid;
+  gap: 12px;
+  padding-top: 4px;
+  min-width: 0;
+}
+
+.inventory-maintenance-field-head {
+  display: grid;
+  gap: 4px;
+}
+
+.inventory-maintenance-field-head > span {
+  color: var(--text-soft);
+  font-size: 0.9rem;
+  font-weight: 700;
+}
+
+.inventory-maintenance-date-field {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.inventory-maintenance-date-field > span {
+  color: var(--text-soft);
+  font-size: 0.88rem;
+  font-weight: 700;
+}
+
+.inventory-maintenance-date-field input[type='date'],
+.inventory-maintenance-date-field input[type='text'] {
+  min-height: 44px;
+  width: 100%;
+  max-width: 100%;
+  padding: 0 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--line-soft);
+  background: var(--surface-2);
+  color: var(--text);
+  box-sizing: border-box;
+}
+
+.inventory-maintenance-quantity {
+  min-width: 0;
+}
+
+.inventory-maintenance-quantity input,
+.inventory-maintenance-quantity button {
+  min-height: 44px;
+}
+
+.inventory-maintenance-diff-copy {
+  margin: 0;
+  color: var(--accent-strong, var(--accent));
+  font-size: 0.88rem;
+  font-weight: 700;
+}
+
+.inventory-maintenance-field-error {
+  margin: 0;
+  color: var(--danger, #c45c4a);
+  font-size: 0.84rem;
+  font-weight: 700;
+}
+
+.inventory-maintenance-summary-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.inventory-maintenance-summary-list li {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--line-soft);
+  background: var(--surface-2);
+  min-width: 0;
+}
+
+.inventory-maintenance-summary-list strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.inventory-maintenance-summary-list span {
+  color: var(--text-soft);
+  font-size: 0.88rem;
+}
+
+.inventory-maintenance-summary-card {
+  display: grid;
+  gap: 12px;
+  padding: 14px 16px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--line-soft);
+  background:
+    linear-gradient(135deg, rgba(255, 251, 246, 0.98), rgba(248, 242, 235, 0.96));
+  box-shadow: var(--shadow-sm);
+}
+
+.inventory-maintenance-summary-card h4,
+.inventory-maintenance-summary-card p {
+  margin: 0;
+}
+
+.inventory-maintenance-summary-card h4 {
+  font-size: 1.12rem;
+  line-height: 1.2;
+}
+
+.inventory-maintenance-summary-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.inventory-maintenance-summary-metrics article {
+  display: grid;
+  grid-template-columns: auto auto;
+  grid-template-rows: auto auto;
+  column-gap: 4px;
+  row-gap: 2px;
+  align-items: end;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--line-soft);
+  background: var(--surface-2);
+}
+
+.inventory-maintenance-summary-metrics span {
+  grid-column: 1 / -1;
+  color: var(--text-faint);
+  font-size: 0.74rem;
+  font-weight: 700;
+}
+
+.inventory-maintenance-summary-metrics strong {
+  color: var(--text);
+  font-size: 1.15rem;
+  line-height: 1;
+}
+
+.inventory-maintenance-summary-metrics em {
+  color: var(--text-soft);
+  font-size: 0.78rem;
+  font-style: normal;
+  font-weight: 700;
+  padding-bottom: 1px;
+}
+
+.inventory-maintenance-revert-copy {
+  margin: 0;
+  color: var(--text-soft);
+  font-size: 0.9rem;
+  font-weight: 700;
+}
+
+.inventory-maintenance-meta-value {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 700;
+}
+
+.inventory-maintenance-error,
+.inventory-maintenance-conflict {
+  display: grid;
+  gap: 8px;
+  padding: 12px 14px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--line-soft);
+  min-width: 0;
+}
+
+.inventory-maintenance-error {
+  background: color-mix(in srgb, var(--danger, #c45c4a) 10%, var(--surface-2));
+  color: var(--danger, #c45c4a);
+  font-weight: 700;
+}
+
+.inventory-maintenance-conflict {
+  background: color-mix(in srgb, var(--warning, #d2a24c) 14%, var(--surface-2));
+}
+
+.inventory-maintenance-conflict strong {
+  color: var(--text);
+}
+
+.inventory-maintenance-conflict p {
+  margin: 0;
+  color: var(--text-soft);
+}
+
+.inventory-maintenance-state {
+  min-height: 120px;
+}
+
+.inventory-maintenance-footer-summary {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.inventory-maintenance-footer-summary span {
+  color: var(--text-faint);
+  font-size: 0.74rem;
+  font-weight: 700;
+}
+
+.inventory-maintenance-footer-summary strong {
+  font-size: 0.98rem;
+}
+
+.inventory-maintenance-footer-summary p {
+  margin: 0;
+  color: var(--text-soft);
+  font-size: 0.82rem;
+}
+
+.inventory-maintenance-actions {
+  width: 100%;
+}
+
+.inventory-maintenance-actions .solid-button,
+.inventory-maintenance-actions .ghost-button {
+  min-height: 44px;
+}
+
+.inventory-maintenance-mobile-actions {
+  display: none;
+}
+
+.inventory-maintenance-desktop-actions {
+  display: block;
+  width: 100%;
+}
+
+.inventory-maintenance-review-layout {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+
+@media (min-width: 900px) {
+  .inventory-maintenance-review-layout {
+    grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
+    align-items: start;
+  }
+
+  .inventory-maintenance-review-meta {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 767px) {
+  .inventory-maintenance-modal.workspace-modal {
+    width: 100%;
+    max-height: calc(100dvh - 12px);
+    border-bottom-left-radius: 0;
+    border-bottom-right-radius: 0;
+    padding-bottom: 0;
+  }
+
+  .inventory-maintenance-scroll {
+    padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+  }
+
+  .inventory-maintenance-desktop-actions {
+    display: none;
+  }
+
+  .inventory-maintenance-mobile-actions {
+    display: block;
+    width: 100%;
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+
+  .inventory-maintenance-summary-metrics {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .inventory-maintenance-item-card,
+  .inventory-maintenance-modal.workspace-modal {
+    transition: none;
+  }
+}
