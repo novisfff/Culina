@@ -1,133 +1,386 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { FormEvent } from 'react';
-import type { DisposeExpiredInventoryRequest, Ingredient } from '../../api/types';
 import type {
-  DisposableExpiredInventoryItemViewModel,
-  IngredientSummaryViewModel,
-} from '../../components/ingredients/workspaceModel';
+  CorrectInventoryExpiryDateRequest,
+  DisposeExpiredInventoryRequest,
+  SnoozeExpiryAlertsRequest,
+  VersionedInventoryItemRef,
+} from '../../api/types';
+import { ApiError } from '../../api/request';
+import type {
+  ExpiryInventoryActionGroup,
+  InventoryActionGroup,
+  LowStockInventoryActionGroup,
+} from '../inventory/inventoryActionModel';
 import { useHomeDashboardActions } from './useHomeDashboardActions';
+import type { HomeActionCompletionSummary } from './useHomeDashboardState';
 
-const ingredient: Ingredient = {
-  id: 'ingredient-tomato',
-  family_id: 'family-1',
-  name: '番茄',
-  category: '蔬菜',
-  default_unit: '个',
-  unit_conversions: [],
-  default_storage: '冷藏',
-  default_expiry_mode: 'days',
-  default_expiry_days: 3,
-  default_low_stock_threshold: 1,
-  notes: '',
-  image: null,
-  created_at: '2026-07-01T00:00:00Z',
-  updated_at: '2026-07-01T00:00:00Z',
-};
-
-const summary: IngredientSummaryViewModel = {
-  ingredient,
-  inventoryItems: [],
-  availableInventoryItems: [],
-  alerts: [],
-  quantitySummaries: [{ unit: '个', total: 2, label: '2个' }],
-  hasMultipleUnits: false,
-  primaryStorage: '冷藏',
+const tomatoGroup: ExpiryInventoryActionGroup = {
+  kind: 'expiry',
+  id: 'expiry:ingredient-tomato',
+  ingredientId: 'ingredient-tomato',
+  ingredientName: '番茄',
+  severity: 'expired',
+  batches: [
+    {
+      inventoryItemId: 'inventory-expired-1',
+      rowVersion: 7,
+      remainingQuantity: 2,
+      unit: '个',
+      storageLocation: '冷藏',
+      purchaseDate: '2026-06-20',
+      expiryDate: '2026-06-25',
+      daysLeft: -16,
+      expiryAlertSnoozedUntil: null,
+      expiryReviewedAt: null,
+      expiryReviewedBy: null,
+    },
+    {
+      inventoryItemId: 'inventory-expired-2',
+      rowVersion: 3,
+      remainingQuantity: 1,
+      unit: '个',
+      storageLocation: '冷藏',
+      purchaseDate: '2026-06-18',
+      expiryDate: '2026-06-22',
+      daysLeft: -19,
+      expiryAlertSnoozedUntil: null,
+      expiryReviewedAt: null,
+      expiryReviewedBy: null,
+    },
+  ],
+  expiredBatchCount: 2,
+  todayBatchCount: 0,
+  soonBatchCount: 0,
+  laterBatchCount: 0,
+  totalBatchCount: 2,
+  quantityLabels: ['3 个'],
   storageLocations: ['冷藏'],
-  recipeReferences: [],
-  latestPurchaseDate: '2026-06-25',
-  latestUpdatedAt: '2026-07-01T00:00:00Z',
+  earliestExpiryDate: '2026-06-22',
+  earliestDaysLeft: -19,
+  title: '番茄需要处理',
+  detail: '2 批已过期',
+  primaryAction: 'manage_expiry',
 };
 
-const expiredItems: DisposableExpiredInventoryItemViewModel[] = [
-  {
-    id: 'inventory-expired-1',
-    ingredientId: 'ingredient-tomato',
-    ingredientName: '番茄',
-    remainingQuantity: 2,
-    remainingLabel: '2个',
-    unit: '个',
-    purchaseDate: '2026-06-20',
-    expiryDate: '2026-06-25',
-    storageLocation: '冷藏',
-    notes: '',
-    status: 'expiring',
-    createdAt: '2026-06-20T00:00:00Z',
-    rowVersion: 7,
-  },
-  {
-    id: 'inventory-expired-2',
-    ingredientId: 'ingredient-tomato',
-    ingredientName: '番茄',
-    remainingQuantity: 1,
-    remainingLabel: '1个',
-    unit: '个',
-    purchaseDate: '2026-06-18',
-    expiryDate: '2026-06-22',
-    storageLocation: '冷藏',
-    notes: '',
-    status: 'expiring',
-    createdAt: '2026-06-18T00:00:00Z',
-    rowVersion: 3,
-  },
+const milkGroup: ExpiryInventoryActionGroup = {
+  ...tomatoGroup,
+  id: 'expiry:ingredient-milk',
+  ingredientId: 'ingredient-milk',
+  ingredientName: '牛奶',
+  title: '牛奶需要处理',
+  detail: '1 批已过期',
+  batches: [
+    {
+      ...tomatoGroup.batches[0],
+      inventoryItemId: 'inventory-milk-1',
+      rowVersion: 1,
+    },
+  ],
+  expiredBatchCount: 1,
+  totalBatchCount: 1,
+  quantityLabels: ['2 个'],
+};
+
+const tomatoLowStock: LowStockInventoryActionGroup = {
+  kind: 'low_stock',
+  id: 'low_stock:ingredient-tomato',
+  ingredientId: 'ingredient-tomato',
+  ingredientName: '番茄',
+  availableQuantity: 1,
+  unit: '个',
+  threshold: 4,
+  title: '番茄库存不足',
+  detail: '现有 1 个，补货线 4 个',
+  primaryAction: 'add_shopping',
+};
+
+const versionedItems: VersionedInventoryItemRef[] = [
+  { inventory_item_id: 'inventory-expired-1', expected_row_version: 7 },
+  { inventory_item_id: 'inventory-expired-2', expected_row_version: 3 },
 ];
 
-function createActions(
-  disposeExpiredInventory: (payload: DisposeExpiredInventoryRequest) => Promise<unknown> = vi.fn(
-    async () => undefined,
-  ),
-) {
-  return {
+function createActions(overrides: {
+  selectedActionGroup?: InventoryActionGroup | null;
+  disposeExpiredInventory?: (payload: DisposeExpiredInventoryRequest) => Promise<unknown>;
+  snoozeInventoryExpiryAlerts?: (payload: SnoozeExpiryAlertsRequest) => Promise<unknown>;
+  correctInventoryExpiryDate?: (
+    inventoryItemId: string,
+    payload: CorrectInventoryExpiryDateRequest,
+  ) => Promise<unknown>;
+  refreshInventoryActions?: () => Promise<InventoryActionGroup[]>;
+  completeActionGroup?: (args: {
+    ingredientId: string;
+    summary: HomeActionCompletionSummary;
+  }) => void;
+  closeActionGroup?: () => void;
+  showNotice?: ReturnType<typeof vi.fn>;
+  setActionDialogBusy?: (busy: boolean) => void;
+  setActionDialogError?: (message: string | null) => void;
+  setActionDialogConflict?: (state: 'none' | 'review_again') => void;
+} = {}) {
+  const showNotice = overrides.showNotice ?? vi.fn();
+  const completeActionGroup = overrides.completeActionGroup ?? vi.fn();
+  const closeActionGroup = overrides.closeActionGroup ?? vi.fn();
+  const refreshInventoryActions =
+    overrides.refreshInventoryActions ?? vi.fn(async () => [] as InventoryActionGroup[]);
+  const disposeExpiredInventory =
+    overrides.disposeExpiredInventory ?? vi.fn(async () => undefined);
+  const snoozeInventoryExpiryAlerts =
+    overrides.snoozeInventoryExpiryAlerts ?? vi.fn(async () => undefined);
+  const correctInventoryExpiryDate =
+    overrides.correctInventoryExpiryDate ?? vi.fn(async () => undefined);
+  const setActionDialogBusy = overrides.setActionDialogBusy ?? vi.fn();
+  const setActionDialogError = overrides.setActionDialogError ?? vi.fn();
+  const setActionDialogConflict = overrides.setActionDialogConflict ?? vi.fn();
+
+  const actions = useHomeDashboardActions({
+    showNotice,
+    selectedActionGroup: overrides.selectedActionGroup === undefined ? tomatoGroup : overrides.selectedActionGroup,
+    homeRestockShoppingItem: null,
+    homeRestockForm: null,
+    homeRestockIngredient: null,
+    homePlanDetailItem: null,
+    homePlanDetailForm: { planDate: '2026-07-11', mealType: 'dinner', note: '' },
+    homePlanAddFood: null,
+    homePlanAddForm: { planDate: '2026-07-11', mealType: 'dinner', note: '' },
+    createInventory: vi.fn(async () => undefined),
+    updateShoppingDone: vi.fn(async () => undefined),
     disposeExpiredInventory,
-    actions: useHomeDashboardActions({
-      showNotice: vi.fn(),
-      homeExpiredDisposalSummary: summary,
-      homeExpiredDisposalItems: expiredItems,
-      homeRestockShoppingItem: null,
-      homeRestockForm: null,
-      homeRestockIngredient: null,
-      homePlanDetailItem: null,
-      homePlanDetailForm: { planDate: '2026-07-11', mealType: 'dinner', note: '' },
-      homePlanAddFood: null,
-      homePlanAddForm: { planDate: '2026-07-11', mealType: 'dinner', note: '' },
-      createInventory: vi.fn(async () => undefined),
-      updateShoppingDone: vi.fn(async () => undefined),
-      disposeExpiredInventory,
-      updateFoodPlanItem: vi.fn(async () => undefined),
-      deleteFoodPlanItem: vi.fn(async () => undefined),
-      createFoodPlanItem: vi.fn(async () => undefined),
-      quickAddMeal: vi.fn(async () => {
-        throw new Error('unused');
-      }),
-      closeHomeRestock: vi.fn(),
-      closeHomeExpiredDisposal: vi.fn(),
-      closeHomePlanDetail: vi.fn(),
-      closeHomePlanAddDialog: vi.fn(),
-      setIsHomePlanDetailEditing: vi.fn(),
-      startRecipeCook: vi.fn(),
-      openMealLogEnrichment: vi.fn(),
+    snoozeInventoryExpiryAlerts,
+    correctInventoryExpiryDate,
+    refreshInventoryActions,
+    completeActionGroup,
+    closeActionGroup,
+    setActionDialogBusy,
+    setActionDialogError,
+    setActionDialogConflict,
+    updateFoodPlanItem: vi.fn(async () => undefined),
+    deleteFoodPlanItem: vi.fn(async () => undefined),
+    createFoodPlanItem: vi.fn(async () => undefined),
+    quickAddMeal: vi.fn(async () => {
+      throw new Error('unused');
     }),
+    closeHomeRestock: vi.fn(),
+    closeHomePlanDetail: vi.fn(),
+    closeHomePlanAddDialog: vi.fn(),
+    setIsHomePlanDetailEditing: vi.fn(),
+    startRecipeCook: vi.fn(),
+    openMealLogEnrichment: vi.fn(),
+  });
+
+  return {
+    actions,
+    showNotice,
+    completeActionGroup,
+    closeActionGroup,
+    refreshInventoryActions,
+    disposeExpiredInventory,
+    snoozeInventoryExpiryAlerts,
+    correctInventoryExpiryDate,
+    setActionDialogBusy,
+    setActionDialogError,
+    setActionDialogConflict,
   };
 }
 
-describe('useHomeDashboardActions disposal payload', () => {
-  it('submits versioned inventory refs using each batch rowVersion', async () => {
+describe('useHomeDashboardActions inventory workflow', () => {
+  it('disposes selected batches with versioned payload and completes after awaited refresh', async () => {
     const disposeExpiredInventory = vi.fn(async (_payload: DisposeExpiredInventoryRequest) => undefined);
-    const { actions } = createActions(disposeExpiredInventory);
-    const event = {
-      preventDefault: vi.fn(),
-    } as unknown as FormEvent<HTMLFormElement>;
+    const refreshInventoryActions = vi.fn(async () => [milkGroup] as InventoryActionGroup[]);
+    const completeActionGroup = vi.fn();
+    const setActionDialogBusy = vi.fn();
+    const { actions } = createActions({
+      disposeExpiredInventory,
+      refreshInventoryActions,
+      completeActionGroup,
+      setActionDialogBusy,
+    });
 
-    await actions.submitHomeExpiredDisposal(event);
+    await actions.disposeSelectedInventoryBatches(versionedItems);
 
-    expect(event.preventDefault).toHaveBeenCalled();
     expect(disposeExpiredInventory).toHaveBeenCalledWith({
       ingredient_id: 'ingredient-tomato',
-      items: [
-        { inventory_item_id: 'inventory-expired-1', expected_row_version: 7 },
-        { inventory_item_id: 'inventory-expired-2', expected_row_version: 3 },
-      ],
+      items: versionedItems,
     });
-    const submitted = disposeExpiredInventory.mock.calls[0]?.[0];
-    expect(JSON.stringify(submitted)).not.toContain('inventory_item_ids');
+    expect(JSON.stringify(disposeExpiredInventory.mock.calls[0]?.[0])).not.toContain('inventory_item_ids');
+    expect(refreshInventoryActions).toHaveBeenCalledTimes(1);
+    expect(completeActionGroup).toHaveBeenCalledWith({
+      ingredientId: 'ingredient-tomato',
+      summary: {
+        title: '已处理番茄',
+        message: '过期批次已处理完成',
+      },
+    });
+    expect(setActionDialogBusy).toHaveBeenCalledWith(true);
+    expect(setActionDialogBusy).toHaveBeenLastCalledWith(false);
+  });
+
+  it('snoozes with explicit retain_expired action and versioned refs', async () => {
+    const snoozeInventoryExpiryAlerts = vi.fn(async (_payload: SnoozeExpiryAlertsRequest) => undefined);
+    const refreshInventoryActions = vi.fn(async () => [] as InventoryActionGroup[]);
+    const { actions } = createActions({
+      snoozeInventoryExpiryAlerts,
+      refreshInventoryActions,
+    });
+
+    await actions.snoozeSelectedInventoryAlerts({
+      action: 'retain_expired',
+      items: versionedItems,
+      snoozedUntil: '2026-07-12',
+    });
+
+    expect(snoozeInventoryExpiryAlerts).toHaveBeenCalledWith({
+      action: 'retain_expired',
+      ingredient_id: 'ingredient-tomato',
+      items: versionedItems,
+      snoozed_until: '2026-07-12',
+    });
+    expect(refreshInventoryActions).toHaveBeenCalledTimes(1);
+  });
+
+  it('corrects a single batch expiry date with expected row version', async () => {
+    const correctInventoryExpiryDate = vi.fn(
+      async (_id: string, _payload: CorrectInventoryExpiryDateRequest) => undefined,
+    );
+    const refreshInventoryActions = vi.fn(async () => [] as InventoryActionGroup[]);
+    const { actions } = createActions({
+      correctInventoryExpiryDate,
+      refreshInventoryActions,
+    });
+
+    await actions.correctSelectedInventoryExpiryDate({
+      inventoryItemId: 'inventory-expired-1',
+      expectedRowVersion: 7,
+      expiryDate: '2026-07-20',
+    });
+
+    expect(correctInventoryExpiryDate).toHaveBeenCalledWith('inventory-expired-1', {
+      expiry_date: '2026-07-20',
+      expected_row_version: 7,
+    });
+    expect(refreshInventoryActions).toHaveBeenCalledTimes(1);
+  });
+
+  it('on 409 with surviving group refreshes and requires review again without closing', async () => {
+    const disposeExpiredInventory = vi.fn(async () => {
+      throw new ApiError({
+        status: 409,
+        detail: 'stale',
+        path: '/api/inventory/dispose-expired',
+        payload: null,
+      });
+    });
+    const refreshInventoryActions = vi.fn(async () => [tomatoGroup] as InventoryActionGroup[]);
+    const closeActionGroup = vi.fn();
+    const completeActionGroup = vi.fn();
+    const setActionDialogConflict = vi.fn();
+    const setActionDialogError = vi.fn();
+    const showNotice = vi.fn();
+    const { actions } = createActions({
+      disposeExpiredInventory,
+      refreshInventoryActions,
+      closeActionGroup,
+      completeActionGroup,
+      setActionDialogConflict,
+      setActionDialogError,
+      showNotice,
+    });
+
+    await actions.disposeSelectedInventoryBatches(versionedItems);
+
+    expect(refreshInventoryActions).toHaveBeenCalledTimes(1);
+    expect(closeActionGroup).not.toHaveBeenCalled();
+    expect(completeActionGroup).not.toHaveBeenCalled();
+    expect(setActionDialogConflict).toHaveBeenCalledWith('review_again');
+    expect(setActionDialogError).toHaveBeenCalledWith(
+      expect.stringContaining('家人刚刚改动了这批库存'),
+    );
+    expect(showNotice).not.toHaveBeenCalledWith(
+      expect.objectContaining({ title: '这批库存已由家人处理' }),
+    );
+  });
+
+  it('on 409 with missing group closes and shows already-handled notice', async () => {
+    const disposeExpiredInventory = vi.fn(async () => {
+      throw new ApiError({
+        status: 409,
+        detail: 'stale',
+        path: '/api/inventory/dispose-expired',
+        payload: null,
+      });
+    });
+    const refreshInventoryActions = vi.fn(async () => [milkGroup] as InventoryActionGroup[]);
+    const closeActionGroup = vi.fn();
+    const showNotice = vi.fn();
+    const setActionDialogConflict = vi.fn();
+    const { actions } = createActions({
+      disposeExpiredInventory,
+      refreshInventoryActions,
+      closeActionGroup,
+      showNotice,
+      setActionDialogConflict,
+    });
+
+    await actions.disposeSelectedInventoryBatches(versionedItems);
+
+    expect(closeActionGroup).toHaveBeenCalledTimes(1);
+    expect(showNotice).toHaveBeenCalledWith({
+      tone: 'success',
+      title: '这批库存已由家人处理',
+      message: expect.stringContaining('番茄') as string,
+    });
+    expect(setActionDialogConflict).toHaveBeenCalledWith('none');
+  });
+
+  it('preserves dialog inputs on network errors without completing', async () => {
+    const disposeExpiredInventory = vi.fn(async () => {
+      throw new Error('network down');
+    });
+    const closeActionGroup = vi.fn();
+    const completeActionGroup = vi.fn();
+    const refreshInventoryActions = vi.fn(async () => [] as InventoryActionGroup[]);
+    const setActionDialogError = vi.fn();
+    const setActionDialogConflict = vi.fn();
+    const { actions } = createActions({
+      disposeExpiredInventory,
+      closeActionGroup,
+      completeActionGroup,
+      refreshInventoryActions,
+      setActionDialogError,
+      setActionDialogConflict,
+    });
+
+    await actions.disposeSelectedInventoryBatches(versionedItems);
+
+    expect(closeActionGroup).not.toHaveBeenCalled();
+    expect(completeActionGroup).not.toHaveBeenCalled();
+    expect(refreshInventoryActions).not.toHaveBeenCalled();
+    expect(setActionDialogConflict).not.toHaveBeenCalledWith('review_again');
+    expect(setActionDialogError).toHaveBeenCalledWith('network down');
+  });
+
+  it('exposes low-stock secondary action when the completed ingredient becomes low stock', async () => {
+    const disposeExpiredInventory = vi.fn(async () => undefined);
+    const refreshInventoryActions = vi.fn(
+      async () => [tomatoLowStock, milkGroup] as InventoryActionGroup[],
+    );
+    const completeActionGroup = vi.fn();
+    const { actions } = createActions({
+      disposeExpiredInventory,
+      refreshInventoryActions,
+      completeActionGroup,
+    });
+
+    await actions.disposeSelectedInventoryBatches(versionedItems);
+
+    expect(completeActionGroup).toHaveBeenCalledWith({
+      ingredientId: 'ingredient-tomato',
+      summary: {
+        title: '已处理番茄',
+        message: '过期批次已处理完成',
+        secondaryActionLabel: '番茄库存已不足，加入采购',
+        secondaryActionIngredientId: 'ingredient-tomato',
+      },
+    });
   });
 });

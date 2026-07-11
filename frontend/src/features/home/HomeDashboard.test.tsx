@@ -128,7 +128,6 @@ function buildProps(overrides: Partial<HomeDashboardProps> = {}): HomeDashboardP
     homeInventoryActionGroups: [tomato, milk, eggs],
     hasLaterInventoryActionGroups: false,
     hasFullListInventoryActionGroups: false,
-    selectedActionGroup: null,
     activeFoodPlanItems: [],
     foodPlanItems: [],
     dashboardWeekMealCapacity: 28,
@@ -149,7 +148,6 @@ function buildProps(overrides: Partial<HomeDashboardProps> = {}): HomeDashboardP
     recentMeals: [],
     isQuickAdding: false,
     isCreatingFoodPlanItem: false,
-    businessDateKey: '2026-07-11',
     resolveAssetUrl: (url) => url,
     quickAddMeal: async () => undefined,
     createFoodPlanItem: async () => {
@@ -165,7 +163,6 @@ function buildProps(overrides: Partial<HomeDashboardProps> = {}): HomeDashboardP
     onHomePlanDetailOpen: vi.fn(),
     onHomeRestockOpen: vi.fn(),
     onOpenActionGroup: vi.fn(),
-    onCloseActionGroup: vi.fn(),
     onOpenIngredientShopping: vi.fn(),
     onOpenIngredientPriority: vi.fn(),
     onFoodPlanPreviousWeek: vi.fn(),
@@ -282,12 +279,4 @@ describe('HomeDashboard action center', () => {
     expect(onOpenIngredientPriority).toHaveBeenCalledTimes(1);
   });
 
-  it('opens inventory action dialog for the selected expiry group', () => {
-    const view = renderDashboard({
-      homeInventoryActionGroups: [tomato],
-      selectedActionGroup: tomato,
-    });
-    expect(view.textContent).toContain('已过期批次');
-    expect(view.querySelector('.inventory-action-modal')).not.toBeNull();
-  });
 });

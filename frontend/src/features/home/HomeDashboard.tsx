@@ -33,11 +33,7 @@ import {
 } from '../../components/foods/FoodWorkspaceHelpers';
 import { addDateKeyDays } from '../../lib/date';
 import { FOOD_TYPE_LABELS, formatDate, formatDateTime, getFoodCover, getFoodCoverAsset, MEAL_TYPE_LABELS, todayKey } from '../../lib/ui';
-import {
-  InventoryActionDialog,
-} from '../inventory/InventoryActionDialog';
 import type {
-  ExpiryInventoryActionGroup,
   InventoryActionGroup,
 } from '../inventory/inventoryActionModel';
 import {
@@ -104,7 +100,6 @@ export type HomeDashboardProps = {
   homeInventoryActionGroups: InventoryActionGroup[];
   hasLaterInventoryActionGroups: boolean;
   hasFullListInventoryActionGroups: boolean;
-  selectedActionGroup: InventoryActionGroup | null;
   activeFoodPlanItems: FoodPlanItem[];
   foodPlanItems: FoodPlanItem[];
   dashboardWeekMealCapacity: number;
@@ -125,7 +120,6 @@ export type HomeDashboardProps = {
   recentMeals: MealLog[];
   isQuickAdding: boolean;
   isCreatingFoodPlanItem: boolean;
-  businessDateKey: string;
   resolveAssetUrl: (url?: string) => string | undefined;
   quickAddMeal: (payload: { food_id: string; date: string; meal_type: MealType; servings: number; note: string }) => Promise<unknown>;
   createFoodPlanItem: (payload: { food_id: string; plan_date: string; meal_type: MealType; note: string }) => Promise<FoodPlanItem>;
@@ -139,7 +133,6 @@ export type HomeDashboardProps = {
   onHomePlanDetailOpen: (item: FoodPlanItem) => void;
   onHomeRestockOpen: (item: ShoppingListItem) => void;
   onOpenActionGroup: (group: InventoryActionGroup) => void;
-  onCloseActionGroup: () => void;
   onOpenIngredientShopping: (ingredientId: string) => void;
   onOpenIngredientPriority: () => void;
   onFoodPlanPreviousWeek: () => void;
@@ -177,7 +170,6 @@ export function HomeDashboard(props: HomeDashboardProps) {
     homeInventoryActionGroups,
     hasLaterInventoryActionGroups,
     hasFullListInventoryActionGroups,
-    selectedActionGroup,
     activeFoodPlanItems,
     foodPlanItems,
     dashboardWeekMealCapacity,
@@ -198,7 +190,6 @@ export function HomeDashboard(props: HomeDashboardProps) {
     recentMeals,
     isQuickAdding,
     isCreatingFoodPlanItem,
-    businessDateKey,
     resolveAssetUrl,
     quickAddMeal,
     createFoodPlanItem,
@@ -212,7 +203,6 @@ export function HomeDashboard(props: HomeDashboardProps) {
     onHomePlanDetailOpen: openHomePlanDetail,
     onHomeRestockOpen: openHomeRestock,
     onOpenActionGroup,
-    onCloseActionGroup,
     onOpenIngredientShopping,
     onOpenIngredientPriority,
     onFoodPlanPreviousWeek,
@@ -221,10 +211,6 @@ export function HomeDashboard(props: HomeDashboardProps) {
   } = props;
   const visibleActionGroups = homeInventoryActionGroups.slice(0, 3);
   const emptyActionCopy = getHomeActionEmptyCopy(hasLaterInventoryActionGroups);
-  const selectedExpiryGroup =
-    selectedActionGroup && selectedActionGroup.kind === 'expiry'
-      ? (selectedActionGroup as ExpiryInventoryActionGroup)
-      : null;
   void hasFullListInventoryActionGroups;
   const [quickMealDialog, setQuickMealDialog] = useState<FoodQuickMealDialogState | null>(null);
   const [detailFood, setDetailFood] = useState<Food | null>(null);
@@ -472,18 +458,6 @@ export function HomeDashboard(props: HomeDashboardProps) {
                 </div>
               </WorkspaceModal>
             </WorkspaceOverlayFrame>
-          )}
-
-          {selectedExpiryGroup && (
-            <InventoryActionDialog
-              open
-              group={selectedExpiryGroup}
-              referenceDate={businessDateKey}
-              onClose={onCloseActionGroup}
-              onDispose={async () => undefined}
-              onSnooze={async () => undefined}
-              onCorrectExpiry={async () => undefined}
-            />
           )}
 
           <main className="dashboard-page">

@@ -18,6 +18,8 @@ export type HomeActionCompletionSummary = {
   secondaryActionIngredientId?: string;
 };
 
+export type ActionDialogConflictState = 'none' | 'review_again';
+
 function createDefaultPlanAddForm(): HomePlanAddFormState {
   return {
     planDate: todayKey(),
@@ -69,6 +71,9 @@ export function useHomeDashboardState(input: {
   const [completedIngredientId, setCompletedIngredientId] = useState<string | null>(null);
   const [nextGroupId, setNextGroupId] = useState<string | null>(null);
   const [groupsKeyAtCompletion, setGroupsKeyAtCompletion] = useState<string | null>(null);
+  const [actionDialogBusy, setActionDialogBusy] = useState(false);
+  const [actionDialogError, setActionDialogError] = useState<string | null>(null);
+  const [actionDialogConflict, setActionDialogConflict] = useState<ActionDialogConflictState>('none');
   const [homeRestockShoppingItemId, setHomeRestockShoppingItemId] = useState<string | null>(null);
   const [homeRestockForm, setHomeRestockForm] = useState<HomeRestockFormState | null>(null);
   const [homeMealDetailId, setHomeMealDetailId] = useState<string | null>(null);
@@ -100,10 +105,16 @@ export function useHomeDashboardState(input: {
 
   function openActionGroup(groupId: string) {
     setSelectedActionGroupId(groupId);
+    setActionDialogBusy(false);
+    setActionDialogError(null);
+    setActionDialogConflict('none');
   }
 
   function closeActionGroup() {
     setSelectedActionGroupId(null);
+    setActionDialogBusy(false);
+    setActionDialogError(null);
+    setActionDialogConflict('none');
   }
 
   function completeActionGroup(args: {
@@ -111,6 +122,9 @@ export function useHomeDashboardState(input: {
     summary: HomeActionCompletionSummary;
   }) {
     setSelectedActionGroupId(null);
+    setActionDialogBusy(false);
+    setActionDialogError(null);
+    setActionDialogConflict('none');
     setCompletedIngredientId(args.ingredientId);
     setCompletionSummary(args.summary);
     setGroupsKeyAtCompletion(groupsKey);
@@ -127,6 +141,9 @@ export function useHomeDashboardState(input: {
     setCompletedIngredientId(null);
     setGroupsKeyAtCompletion(null);
     setNextGroupId(null);
+    setActionDialogBusy(false);
+    setActionDialogError(null);
+    setActionDialogConflict('none');
   }
 
   function dismissCompletionSummary() {
@@ -207,6 +224,12 @@ export function useHomeDashboardState(input: {
     completionSummary,
     completedIngredientId,
     nextGroupId,
+    actionDialogBusy,
+    actionDialogError,
+    actionDialogConflict,
+    setActionDialogBusy,
+    setActionDialogError,
+    setActionDialogConflict,
     openActionGroup,
     closeActionGroup,
     completeActionGroup,
