@@ -11,9 +11,11 @@ from app.ai.tools.registry import ToolRegistry
 from app.core.utils import create_id
 from app.models.domain import Ingredient
 from app.services.clock import today_for_family
+from app.services.ingredient_inventory_state import state_is_usable
 from app.services.inventory_usage import (
     inventory_remaining_in_default,
     load_available_inventory_by_ingredient,
+    load_presence_states_for_ingredients,
     tracks_quantity,
 )
 
@@ -118,25 +120,37 @@ def execute_propose_meal_idea(context: ToolContext, payload: dict[str, Any]) -> 
     if set(ingredients_by_id) != set(ingredient_ids):
         raise ValueError("ingredient_not_found")
     _require_empty_library_searches(context)
+    today = today_for_family(context.family_id)
     inventory_by_ingredient = load_available_inventory_by_ingredient(
         context.db,
         family_id=context.family_id,
         ingredient_ids=ingredient_ids,
-        today=today_for_family(context.family_id),
+        today=today,
+    )
+    presence_states = load_presence_states_for_ingredients(
+        context.db,
+        family_id=context.family_id,
+        ingredient_ids=[
+            ingredient_id
+            for ingredient_id, ingredient in ingredients_by_id.items()
+            if not tracks_quantity(ingredient)
+        ],
     )
     summaries: list[dict[str, Any]] = []
     for ingredient_id in ingredient_ids:
         ingredient = ingredients_by_id[ingredient_id]
         available_items = inventory_by_ingredient.get(ingredient.id, [])
         is_tracked = tracks_quantity(ingredient)
-        available_quantity = (
-            sum(
+        if is_tracked:
+            available_quantity = sum(
                 (inventory_remaining_in_default(item, ingredient) for item in available_items),
                 Decimal("0"),
             )
-            if is_tracked
-            else None
-        )
+            available = bool(available_items) and available_quantity > 0
+        else:
+            state = presence_states.get(ingredient.id)
+            available_quantity = None
+            available = state is not None and state_is_usable(state, business_date=today)
         summaries.append(
             {
                 "ingredientId": ingredient.id,
@@ -144,7 +158,7 @@ def execute_propose_meal_idea(context: ToolContext, payload: dict[str, Any]) -> 
                 "quantityMode": "track_quantity" if is_tracked else "not_track_quantity",
                 "availableQuantity": _decimal_text(available_quantity) if available_quantity is not None else None,
                 "unit": ingredient.default_unit,
-                "available": bool(available_items) and (available_quantity is None or available_quantity > 0),
+                "available": available,
             }
         )
     if not any(summary["available"] for summary in summaries):

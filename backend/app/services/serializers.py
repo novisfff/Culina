@@ -18,6 +18,7 @@ from app.models.domain import (
     Food,
     FoodPlanItem,
     Ingredient,
+    IngredientInventoryState,
     InventoryDeductionSuggestion,
     InventoryItem,
     MealLog,
@@ -198,6 +199,29 @@ def serialize_inventory_item(item: InventoryItem) -> dict:
         "expiry_alert_snoozed_until": item.expiry_alert_snoozed_until,
         "expiry_reviewed_at": _utc_datetime(item.expiry_reviewed_at),
         "expiry_reviewed_by": item.expiry_reviewed_by,
+    }
+
+
+def serialize_ingredient_inventory_state(state: IngredientInventoryState) -> dict:
+    return {
+        "id": state.id,
+        "family_id": state.family_id,
+        "ingredient_id": state.ingredient_id,
+        "availability_level": state.availability_level,
+        "inventory_status": state.inventory_status,
+        "purchase_date": state.purchase_date,
+        "expiry_date": state.expiry_date,
+        "storage_location": state.storage_location,
+        "notes": state.notes,
+        "expiry_alert_snoozed_until": state.expiry_alert_snoozed_until,
+        "expiry_reviewed_at": _utc_datetime(state.expiry_reviewed_at),
+        "expiry_reviewed_by": state.expiry_reviewed_by,
+        "last_confirmed_at": _utc_datetime(state.last_confirmed_at),
+        "last_confirmed_by": state.last_confirmed_by,
+        "last_confirmation_source": state.last_confirmation_source,
+        "row_version": state.row_version,
+        "created_at": _utc_datetime(state.created_at),
+        "updated_at": _utc_datetime(state.updated_at),
     }
 
 

@@ -656,3 +656,288 @@ def test_backfill_ingredient_inventory_states_selection_rules() -> None:
     assert "ingredient-sugar" not in ingredient_ids
 
     engine.dispose()
+
+
+
+# ---------------------------------------------------------------------------
+# Task 3: IngredientInventoryState is the only presence truth
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture()
+def state_api_context():
+    from collections.abc import Iterator as _Iterator
+    from fastapi.testclient import TestClient
+
+    from app.core.deps import get_current_auth
+    from app.core.enums import MembershipStatus, UserRole
+    from app.db.session import get_db
+    from app.main import app
+    from app.models.domain import Membership
+
+    engine = create_engine(
+        "sqlite+pysqlite:///:memory:",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+        future=True,
+    )
+    Base.metadata.create_all(engine)
+    SessionLocal = sessionmaker(
+        bind=engine,
+        autoflush=False,
+        autocommit=False,
+        expire_on_commit=False,
+        future=True,
+        class_=Session,
+    )
+    with SessionLocal() as session:
+        family = Family(id="family-1", name="测试家庭", motto="", location="")
+        other_family = Family(id="family-2", name="其他家庭", motto="", location="")
+        user = User(id="user-1", username="state-user", display_name="状态用户", avatar_seed="", is_active=True)
+        membership = Membership(
+            id="membership-1",
+            family_id=family.id,
+            user_id=user.id,
+            role=UserRole.MEMBER,
+            status=MembershipStatus.ACTIVE,
+        )
+        salt = Ingredient(
+            id="ingredient-salt",
+            family_id=family.id,
+            name="盐",
+            category="调味",
+            default_unit="袋",
+            default_storage="常温",
+            default_expiry_mode=IngredientExpiryMode.NONE,
+            unit_conversions=[],
+            quantity_tracking_mode=IngredientQuantityTrackingMode.NOT_TRACK_QUANTITY,
+            notes="",
+            created_by=user.id,
+            updated_by=user.id,
+        )
+        other_salt = Ingredient(
+            id="ingredient-other-salt",
+            family_id=other_family.id,
+            name="其他盐",
+            category="调味",
+            default_unit="袋",
+            default_storage="常温",
+            default_expiry_mode=IngredientExpiryMode.NONE,
+            unit_conversions=[],
+            quantity_tracking_mode=IngredientQuantityTrackingMode.NOT_TRACK_QUANTITY,
+            notes="",
+            created_by=user.id,
+            updated_by=user.id,
+        )
+        legacy = InventoryItem(
+            id="inventory-salt-legacy",
+            family_id=family.id,
+            ingredient_id=salt.id,
+            quantity=Decimal("1"),
+            consumed_quantity=Decimal("0"),
+            disposed_quantity=Decimal("0"),
+            unit="袋",
+            status=InventoryStatus.FRESH,
+            purchase_date=date(2026, 7, 1),
+            storage_location="常温",
+            notes="legacy placeholder",
+            low_stock_threshold=Decimal("0"),
+            created_by=user.id,
+            updated_by=user.id,
+        )
+        state = IngredientInventoryState(
+            id="inventory-state-salt",
+            family_id=family.id,
+            ingredient_id=salt.id,
+            availability_level=InventoryAvailabilityLevel.PRESENT_UNKNOWN,
+            inventory_status=InventoryStatus.FRESH,
+            storage_location="常温",
+            notes="",
+            row_version=1,
+            created_by=user.id,
+            updated_by=user.id,
+        )
+        session.add_all([family, other_family, user, membership, salt, other_salt, legacy, state])
+        session.commit()
+
+    def override_db():
+        db = SessionLocal()
+        try:
+            yield db
+        finally:
+            db.close()
+
+    def override_auth():
+        with SessionLocal() as db:
+            user = db.get(User, "user-1")
+            membership = db.get(Membership, "membership-1")
+            assert user is not None and membership is not None
+            return user, membership
+
+    app.dependency_overrides[get_db] = override_db
+    app.dependency_overrides[get_current_auth] = override_auth
+    try:
+        yield TestClient(app), SessionLocal
+    finally:
+        app.dependency_overrides.clear()
+        Base.metadata.drop_all(engine)
+        engine.dispose()
+
+
+def test_list_inventory_excludes_legacy_presence_placeholder(state_api_context) -> None:
+    client, _ = state_api_context
+    assert client.get("/api/inventory").json() == []
+
+
+def test_list_states_returns_presence_state(state_api_context) -> None:
+    client, _ = state_api_context
+    payload = client.get("/api/inventory/states").json()
+    assert len(payload) == 1
+    assert payload[0]["availability_level"] == "present_unknown"
+    assert payload[0]["ingredient_id"] == "ingredient-salt"
+
+
+def test_post_inventory_presence_returns_422_without_creating_row(state_api_context) -> None:
+    client, SessionLocal = state_api_context
+    response = client.post(
+        "/api/inventory",
+        json={
+            "ingredient_id": "ingredient-salt",
+            "status": "fresh",
+            "purchase_date": "2026-07-12",
+            "storage_location": "常温",
+            "notes": "should fail",
+        },
+    )
+    assert response.status_code == 422, response.text
+    assert response.json()["detail"]["code"] == "presence_state_required"
+    with SessionLocal() as db:
+        count = db.scalar(
+            select(sa.func.count()).select_from(InventoryItem).where(
+                InventoryItem.family_id == "family-1",
+                InventoryItem.ingredient_id == "ingredient-salt",
+            )
+        )
+        assert count == 1
+
+
+def test_upsert_state_repeat_updates_one_row_and_absent_clears_metadata(state_api_context) -> None:
+    client, SessionLocal = state_api_context
+    with SessionLocal() as db:
+        ingredient = db.get(Ingredient, "ingredient-salt")
+        state = db.get(IngredientInventoryState, "inventory-state-salt")
+        assert ingredient is not None and state is not None
+        first = client.put(
+            "/api/inventory/states/ingredient-salt",
+            json={
+                "expected_ingredient_row_version": ingredient.row_version,
+                "state_id": state.id,
+                "expected_state_row_version": state.row_version,
+                "availability_level": "low",
+                "inventory_status": "opened",
+                "purchase_date": "2026-07-01",
+                "expiry_date": "2026-12-01",
+                "storage_location": "常温",
+                "notes": "开封",
+            },
+        )
+    assert first.status_code == 200, first.text
+    first_payload = first.json()
+    assert first_payload["availability_level"] == "low"
+    assert first_payload["last_confirmation_source"] == "manual_entry"
+
+    with SessionLocal() as db:
+        ingredient = db.get(Ingredient, "ingredient-salt")
+        state = db.get(IngredientInventoryState, "inventory-state-salt")
+        assert ingredient is not None and state is not None
+        second = client.put(
+            "/api/inventory/states/ingredient-salt",
+            json={
+                "expected_ingredient_row_version": ingredient.row_version,
+                "state_id": state.id,
+                "expected_state_row_version": state.row_version,
+                "availability_level": "absent",
+                "inventory_status": "fresh",
+                "notes": "",
+            },
+        )
+    assert second.status_code == 200, second.text
+    payload = second.json()
+    assert payload["availability_level"] == "absent"
+    assert payload["purchase_date"] is None
+    assert payload["expiry_date"] is None
+    assert payload["storage_location"] is None
+    assert payload["expiry_alert_snoozed_until"] is None
+    assert payload["expiry_reviewed_at"] is None
+    assert payload["expiry_reviewed_by"] is None
+    with SessionLocal() as db:
+        count = db.scalar(
+            select(sa.func.count()).select_from(IngredientInventoryState).where(
+                IngredientInventoryState.family_id == "family-1",
+                IngredientInventoryState.ingredient_id == "ingredient-salt",
+            )
+        )
+        assert count == 1
+
+
+def test_upsert_state_cross_family_404(state_api_context) -> None:
+    client, _ = state_api_context
+    response = client.put(
+        "/api/inventory/states/ingredient-other-salt",
+        json={
+            "expected_ingredient_row_version": 1,
+            "availability_level": "present_unknown",
+            "inventory_status": "fresh",
+            "storage_location": "常温",
+        },
+    )
+    assert response.status_code == 404
+
+
+def test_dispose_legacy_presence_inventory_item_returns_422(state_api_context) -> None:
+    client, _ = state_api_context
+    response = client.post(
+        "/api/inventory/dispose",
+        json={
+            "inventory_item_id": "inventory-salt-legacy",
+            "expected_row_version": 1,
+            "reason": "清理",
+        },
+    )
+    assert response.status_code == 422, response.text
+    assert response.json()["detail"]["code"] == "presence_state_required"
+
+
+def test_state_is_usable_semantics() -> None:
+    from app.services.ingredient_inventory_state import state_is_physically_present, state_is_usable
+
+    present = IngredientInventoryState(
+        id="s1",
+        family_id="f",
+        ingredient_id="i",
+        availability_level=InventoryAvailabilityLevel.SUFFICIENT,
+        inventory_status=InventoryStatus.FRESH,
+        expiry_date=date(2026, 7, 12),
+    )
+    expired = IngredientInventoryState(
+        id="s2",
+        family_id="f",
+        ingredient_id="i",
+        availability_level=InventoryAvailabilityLevel.SUFFICIENT,
+        inventory_status=InventoryStatus.FRESH,
+        expiry_date=date(2026, 7, 10),
+    )
+    absent = IngredientInventoryState(
+        id="s3",
+        family_id="f",
+        ingredient_id="i",
+        availability_level=InventoryAvailabilityLevel.ABSENT,
+        inventory_status=InventoryStatus.FRESH,
+    )
+    business = date(2026, 7, 12)
+    assert state_is_physically_present(present) is True
+    assert state_is_usable(present, business_date=business) is True
+    assert state_is_physically_present(expired) is True
+    assert state_is_usable(expired, business_date=business) is False
+    assert state_is_physically_present(absent) is False
+    assert state_is_usable(absent, business_date=business) is False

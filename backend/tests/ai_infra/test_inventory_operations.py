@@ -77,7 +77,12 @@ class AIInventoryOperationsTestCase(AIAgentInfraTestCase):
             self.assertEqual(operation["unit"], "瓶")
             self.assertEqual(operation["lowStockThreshold"], None)
 
-        def test_presence_inventory_operations_skip_quantity_deduction_and_dispose_whole_batch(self) -> None:
+        def test_presence_inventory_batch_helpers_reject_not_track_quantity(self) -> None:
+            from app.services.ingredient_inventory_state import PresenceStateRequiredError, upsert_inventory_state
+            from app.core.enums import InventoryAvailabilityLevel, InventoryConfirmationSource
+            from app.models.domain import IngredientInventoryState
+            from app.services.ai_operations.inventory import execute_inventory_operation_draft
+
             with self.SessionLocal() as db:
                 ingredient = Ingredient(
                     id="ingredient-soy-sauce",
@@ -96,55 +101,71 @@ class AIInventoryOperationsTestCase(AIAgentInfraTestCase):
                 db.add(ingredient)
                 db.flush()
 
-                item = create_inventory_batch(
-                    db,
-                    family_id=self.family.id,
-                    user_id=self.user.id,
-                    ingredient=ingredient,
-                    quantity=None,
-                    unit=None,
-                    status=InventoryStatus.FRESH,
-                    purchase_date=date.today(),
-                    expiry_date=None,
-                    storage_location="常温",
-                )
-                self.assertEqual(item.quantity, Decimal("1"))
-                self.assertEqual(item.consumed_quantity, Decimal("0"))
-
-                consume_result = consume_ingredient_inventory(
-                    db,
-                    family_id=self.family.id,
-                    user_id=self.user.id,
-                    ingredient=ingredient,
-                    quantity=None,
-                    unit=None,
-                    today=date.today(),
-                )
-                self.assertEqual(consume_result["affected_item_ids"], [])
-                self.assertEqual(item.consumed_quantity, Decimal("0"))
-
-                with self.assertRaisesRegex(ValueError, "只能整批移除"):
-                    dispose_inventory_quantity(
+                with self.assertRaises(PresenceStateRequiredError):
+                    create_inventory_batch(
                         db,
                         family_id=self.family.id,
                         user_id=self.user.id,
-                        item=item,
-                        quantity=Decimal("0.5"),
-                        unit="瓶",
-                        reason="测试",
+                        ingredient=ingredient,
+                        quantity=None,
+                        unit=None,
+                        status=InventoryStatus.FRESH,
+                        purchase_date=date.today(),
+                        expiry_date=None,
+                        storage_location="常温",
                     )
 
-                dispose_result = dispose_inventory_quantity(
+                with self.assertRaises(PresenceStateRequiredError):
+                    consume_ingredient_inventory(
+                        db,
+                        family_id=self.family.id,
+                        user_id=self.user.id,
+                        ingredient=ingredient,
+                        quantity=None,
+                        unit=None,
+                        today=date.today(),
+                    )
+
+                state = upsert_inventory_state(
                     db,
                     family_id=self.family.id,
                     user_id=self.user.id,
-                    item=item,
-                    quantity=None,
-                    unit=None,
-                    reason="用完",
+                    ingredient=ingredient,
+                    expected_ingredient_row_version=ingredient.row_version,
+                    state_id=None,
+                    expected_state_row_version=None,
+                    availability_level=InventoryAvailabilityLevel.PRESENT_UNKNOWN,
+                    inventory_status=InventoryStatus.FRESH,
+                    purchase_date=date.today(),
+                    expiry_date=None,
+                    storage_location="常温",
+                    notes="",
+                    confirmation_source=InventoryConfirmationSource.MANUAL_ENTRY,
                 )
-                self.assertEqual(dispose_result["remaining_quantity"], 0.0)
-                self.assertEqual(item.disposed_quantity, Decimal("1"))
+                self.assertEqual(state.availability_level, InventoryAvailabilityLevel.PRESENT_UNKNOWN)
+
+                result, entity_ids = execute_inventory_operation_draft(
+                    db,
+                    family_id=self.family.id,
+                    user_id=self.user.id,
+                    payload={
+                        "operations": [
+                            {
+                                "action": "restock",
+                                "ingredientId": ingredient.id,
+                                "status": "opened",
+                                "storageLocation": "常温",
+                                "availabilityLevel": "low",
+                            }
+                        ]
+                    },
+                )
+                self.assertEqual(entity_ids, [state.id])
+                self.assertEqual(result["operations"][0]["state_id"], state.id)
+                refreshed = db.get(IngredientInventoryState, state.id)
+                assert refreshed is not None
+                self.assertEqual(refreshed.availability_level, InventoryAvailabilityLevel.LOW)
+                self.assertEqual(refreshed.inventory_status, InventoryStatus.OPENED)
 
         def test_ingredient_tools_expose_supported_units_for_inventory_flow(self) -> None:
             with self.SessionLocal() as db:

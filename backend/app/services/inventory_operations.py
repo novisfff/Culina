@@ -17,6 +17,7 @@ from app.services.ingredient_units import (
     normalize_unit_label,
 )
 from app.services.inventory_operation_locking import lock_inventory_targets
+from app.services.ingredient_inventory_state import PresenceStateRequiredError
 from app.services.inventory_usage import (
     build_ingredient_consumption_plan,
     inventory_remaining_in_default,
@@ -95,43 +96,36 @@ def create_inventory_batch(
 ) -> InventoryItem:
     ingredient = _lock_parent_ingredient(db, family_id=family_id, ingredient=ingredient)
     if not tracks_quantity(ingredient):
-        normalized_unit = normalize_unit_label(unit or ingredient.default_unit)
-        normalized_quantity = Decimal("1")
-        entered_quantity = quantity
-        threshold = Decimal("0")
-    else:
-        if quantity is None:
-            raise ValueError("库存数量不能为空")
-        normalized_unit = normalize_unit_label(unit or "")
-        if not normalized_unit:
-            raise ValueError("单位不能为空")
+        raise PresenceStateRequiredError()
+    if quantity is None:
+        raise ValueError("库存数量不能为空")
+    normalized_unit = normalize_unit_label(unit or "")
+    if not normalized_unit:
+        raise ValueError("单位不能为空")
+    try:
+        normalized_quantity = convert_quantity_to_default_unit(
+            quantity,
+            ingredient.default_unit,
+            ingredient.unit_conversions,
+            normalized_unit,
+        )
+    except UnitConversionError as exc:
+        raise ValueError(str(exc)) from exc
+
+    threshold = low_stock_threshold
+    if ingredient.default_low_stock_threshold is not None:
+        threshold = ingredient.default_low_stock_threshold
+    elif threshold:
         try:
-            normalized_quantity = convert_quantity_to_default_unit(
-                quantity,
+            threshold = convert_quantity_to_default_unit(
+                threshold,
                 ingredient.default_unit,
                 ingredient.unit_conversions,
                 normalized_unit,
             )
         except UnitConversionError as exc:
             raise ValueError(str(exc)) from exc
-
-        threshold = low_stock_threshold
-        if ingredient.default_low_stock_threshold is not None:
-            threshold = ingredient.default_low_stock_threshold
-        elif threshold:
-            try:
-                threshold = convert_quantity_to_default_unit(
-                    threshold,
-                    ingredient.default_unit,
-                    ingredient.unit_conversions,
-                    normalized_unit,
-                )
-            except UnitConversionError as exc:
-                raise ValueError(str(exc)) from exc
-        entered_quantity = quantity
-
-    if not normalized_unit:
-        raise ValueError("单位不能为空")
+    entered_quantity = quantity
 
     item = InventoryItem(
         id=create_id("inventory"),
@@ -163,11 +157,7 @@ def create_inventory_batch(
         action=ActivityAction.CREATE,
         entity_type="InventoryItem",
         entity_id=item.id,
-        summary=(
-            f"确认已有 {ingredient.name}"
-            if not tracks_quantity(ingredient)
-            else f"录入库存 {ingredient.name} {float(quantity or 0):g}{normalized_unit}"
-        ),
+        summary=f"录入库存 {ingredient.name} {float(quantity or 0):g}{normalized_unit}",
     )
     return item
 
@@ -185,27 +175,7 @@ def consume_ingredient_inventory(
 ) -> dict:
     ingredient = _lock_parent_ingredient(db, family_id=family_id, ingredient=ingredient)
     if not tracks_quantity(ingredient):
-        normalized_unit = normalize_unit_label(unit or ingredient.default_unit)
-        if not normalized_unit:
-            raise ValueError("单位不能为空")
-        log_activity(
-            db,
-            family_id=family_id,
-            actor_id=user_id,
-            action=ActivityAction.UPDATE,
-            entity_type="Ingredient",
-            entity_id=ingredient.id,
-            summary=f"记录使用 {ingredient.name}（不扣减数量）",
-        )
-        return {
-            "operation": "consume",
-            "ingredient_id": ingredient.id,
-            "ingredient_name": ingredient.name,
-            "unit": normalized_unit,
-            "quantity": float(quantity or Decimal("0")),
-            "affected_item_ids": [],
-            "affected_items": [],
-        }
+        raise PresenceStateRequiredError()
 
     if quantity is None:
         raise ValueError("消费数量不能为空")
@@ -346,32 +316,7 @@ def dispose_inventory_quantity(
         )
 
     if not tracks_quantity(ingredient):
-        if quantity is not None:
-            raise ValueError("不记录数量的食材只能整批移除或重新补充")
-        item.disposed_quantity = item.quantity
-        item.updated_by = user_id
-        if bump_parent:
-            bump_ingredient_collection(ingredient, user_id=user_id)
-        if record_activity:
-            log_activity(
-                db,
-                family_id=family_id,
-                actor_id=user_id,
-                action=ActivityAction.UPDATE,
-                entity_type="InventoryItem",
-                entity_id=item.id,
-                summary=f"移除库存 {ingredient.name}：{reason}",
-            )
-        return {
-            "operation": "dispose",
-            "ingredient_id": ingredient.id,
-            "ingredient_name": ingredient.name,
-            "inventory_item_id": item.id,
-            "unit": item.unit,
-            "quantity": 0.0,
-            "reason": reason,
-            "remaining_quantity": 0.0,
-        }
+        raise PresenceStateRequiredError()
     available_in_default = inventory_remaining_in_default(item, ingredient)
     if available_in_default <= 0:
         raise ValueError("库存批次已无剩余数量")
