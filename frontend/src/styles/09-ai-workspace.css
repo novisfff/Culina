@@ -846,7 +846,7 @@
   right: 0;
   z-index: 20;
   display: grid;
-  min-width: 120px;
+  min-width: max-content;
   gap: 2px;
   padding: 6px;
   border: 1px solid rgba(147, 96, 63, 0.14);
@@ -868,6 +868,7 @@
   text-align: left;
   font-size: 0.8125rem;
   font-weight: 600;
+  white-space: nowrap;
   cursor: pointer;
 }
 
