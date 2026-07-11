@@ -31,6 +31,7 @@ import type {
   MealType,
   Recipe,
   ShoppingListItem,
+  UpsertIngredientInventoryStateRequest,
 } from '../../api/types';
 import { buildMediaSizes, buildMediaSrcSet, resolveAssetUrl, resolveMediaUrl } from '../../lib/assets';
 import { MediaWithPlaceholder } from '../MediaPlaceholder';
@@ -161,6 +162,10 @@ type IngredientWorkspaceProps = {
     notes: string;
     low_stock_threshold?: number;
   }) => Promise<InventoryItem>;
+  upsertInventoryState: (
+    ingredientId: string,
+    payload: UpsertIngredientInventoryStateRequest,
+  ) => Promise<IngredientInventoryState>;
   consumeInventory: (payload: {
     ingredient_id: string;
     quantity?: number | null;
@@ -2082,6 +2087,7 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
     setInventoryActionError,
     setInventoryActionConflict,
     createInventory: props.createInventory,
+    upsertInventoryState: props.upsertInventoryState,
     consumeInventory: props.consumeInventory,
     disposeExpiredInventory: props.disposeExpiredInventory,
     snoozeInventoryExpiryAlerts:

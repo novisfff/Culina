@@ -6,10 +6,12 @@ import type {
   DisposeExpiredInventoryResponse,
   Food,
   Ingredient,
+  IngredientInventoryState,
   InventoryItem,
   ShoppingListItem,
   SnoozeExpiryAlertsRequest,
   SnoozeExpiryAlertsResponse,
+  UpsertIngredientInventoryStateRequest,
   VersionedInventoryItemRef,
 } from '../../api/types';
 import { isApiError } from '../../api/request';
@@ -59,6 +61,11 @@ type UseIngredientActionStateArgs = {
     notes: string;
     low_stock_threshold?: number;
   }) => Promise<InventoryItem>;
+  /** Presence-only ordinary restock (State PUT). Not used for track_quantity. */
+  upsertInventoryState: (
+    ingredientId: string,
+    payload: UpsertIngredientInventoryStateRequest,
+  ) => Promise<IngredientInventoryState>;
   consumeInventory: (payload: {
     ingredient_id: string;
     quantity?: number | null;
@@ -210,18 +217,35 @@ export function useIngredientActionState(args: UseIngredientActionStateArgs) {
     }
     try {
       // Ordinary manual restock only. Shopping-origin writes must use shared shopping intake.
-      await args.createInventory({
-        ingredient_id: args.inventoryForm.ingredientId,
-        quantity,
-        unit: tracksQuantity
-          ? args.inventoryForm.unit.trim() || args.selectedInventoryIngredient?.default_unit || '个'
-          : args.selectedInventoryIngredient?.default_unit || args.inventoryForm.unit.trim() || '份',
-        status: args.inventoryForm.status,
-        purchase_date: args.inventoryForm.purchaseDate,
-        expiry_date: args.inventoryForm.expiryDate || undefined,
-        storage_location: args.inventoryForm.storageLocation.trim(),
-        notes: args.inventoryForm.notes.trim(),
-      });
+      // Presence ingredients use State PUT; exact ingredients keep InventoryItem POST.
+      if (!tracksQuantity) {
+        const existingState =
+          args.summaries.find((item) => item.ingredient.id === args.inventoryForm.ingredientId)?.inventoryState ?? null;
+        await args.upsertInventoryState(args.inventoryForm.ingredientId, {
+          expected_ingredient_row_version: args.selectedInventoryIngredient?.row_version ?? 1,
+          state_id: existingState?.id ?? null,
+          expected_state_row_version: existingState?.row_version ?? null,
+          // Manual restock confirms household still has the item; match shopping-intake default.
+          availability_level: 'sufficient',
+          inventory_status: args.inventoryForm.status,
+          purchase_date: args.inventoryForm.purchaseDate,
+          expiry_date: args.inventoryForm.expiryDate || null,
+          storage_location: args.inventoryForm.storageLocation.trim(),
+          notes: args.inventoryForm.notes.trim(),
+        });
+      } else {
+        await args.createInventory({
+          ingredient_id: args.inventoryForm.ingredientId,
+          quantity,
+          unit:
+            args.inventoryForm.unit.trim() || args.selectedInventoryIngredient?.default_unit || '个',
+          status: args.inventoryForm.status,
+          purchase_date: args.inventoryForm.purchaseDate,
+          expiry_date: args.inventoryForm.expiryDate || undefined,
+          storage_location: args.inventoryForm.storageLocation.trim(),
+          notes: args.inventoryForm.notes.trim(),
+        });
+      }
       args.setSelectedIngredientId(args.inventoryForm.ingredientId);
       args.setInventoryForm(buildInventoryForm(args.ingredientOptions, args.inventoryForm.ingredientId));
       args.setInventoryAdvancedOpen(false);

@@ -239,3 +239,18 @@ describe('IngredientWorkspace atomic shopping intake cutover', () => {
   });
 });
 
+describe('IngredientWorkspace ordinary presence restock', () => {
+  it('branches presence manual submit to upsertInventoryState instead of createInventory', () => {
+    const actionSource = readFileSync(resolve(__dirname, 'useIngredientActionState.ts'), 'utf8');
+    const workspaceSource = readFileSync(sourcePath, 'utf8');
+    const appSource = readFileSync(resolve(__dirname, '../../App.tsx'), 'utf8');
+
+    expect(actionSource).toContain('upsertInventoryState');
+    expect(actionSource).toContain("availability_level: 'sufficient'");
+    expect(actionSource).toMatch(/if \(!tracksQuantity\)[\s\S]*upsertInventoryState/);
+    expect(actionSource).toMatch(/else \{[\s\S]*createInventory/);
+    expect(workspaceSource).toContain('upsertInventoryState: props.upsertInventoryState');
+    expect(appSource).toContain('upsertInventoryStateMutation');
+    expect(appSource).toContain('upsertInventoryState={(ingredientId, payload)');
+  });
+});

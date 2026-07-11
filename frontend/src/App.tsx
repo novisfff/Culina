@@ -303,6 +303,7 @@ function App() {
     createIngredientMutation,
     updateIngredientMutation,
     createInventoryMutation,
+    upsertInventoryStateMutation,
     consumeInventoryMutation,
     disposeExpiredInventoryMutation,
     snoozeInventoryExpiryAlertsMutation,
@@ -944,6 +945,9 @@ function App() {
               createIngredient={(payload) => createIngredientMutation.mutateAsync(payload)}
               updateIngredient={(ingredientId, payload) => updateIngredientMutation.mutateAsync({ ingredientId, payload })}
               createInventory={(payload) => createInventoryMutation.mutateAsync(payload)}
+              upsertInventoryState={(ingredientId, payload) =>
+                upsertInventoryStateMutation.mutateAsync({ ingredientId, payload })
+              }
               consumeInventory={(payload) => consumeInventoryMutation.mutateAsync(payload)}
               disposeExpiredInventory={(payload) => disposeExpiredInventoryMutation.mutateAsync(payload)}
               snoozeInventoryExpiryAlerts={(payload) => snoozeInventoryExpiryAlertsMutation.mutateAsync(payload)}
@@ -955,7 +959,7 @@ function App() {
               deleteShoppingItem={(itemId) => deleteShoppingMutation.mutateAsync(itemId)}
               isCreatingIngredient={createIngredientMutation.isPending}
               isUpdatingIngredient={updateIngredientMutation.isPending}
-              isCreatingInventory={createInventoryMutation.isPending}
+              isCreatingInventory={createInventoryMutation.isPending || upsertInventoryStateMutation.isPending}
               isConsumingInventory={consumeInventoryMutation.isPending}
               isDisposingExpiredInventory={disposeExpiredInventoryMutation.isPending}
               isCreatingShopping={createShoppingMutation.isPending}
