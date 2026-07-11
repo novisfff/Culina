@@ -203,6 +203,10 @@ def test_list_inventory_returns_only_current_family_items(inventory_api_context:
     assert [item["id"] for item in payload] == [inventory_api_context.item_id]
     assert payload[0]["family_id"] == inventory_api_context.family_id
     assert payload[0]["ingredient_name"] == "番茄"
+    assert payload[0]["row_version"] == 1
+    assert payload[0]["expiry_alert_snoozed_until"] is None
+    assert payload[0]["expiry_reviewed_at"] is None
+    assert payload[0]["expiry_reviewed_by"] is None
 
 
 def test_create_inventory_item_sets_audit_fields_and_activity_log(inventory_api_context: InventoryApiContext) -> None:
@@ -227,6 +231,10 @@ def test_create_inventory_item_sets_audit_fields_and_activity_log(inventory_api_
     assert payload["ingredient_id"] == inventory_api_context.ingredient_id
     assert payload["created_by"] == inventory_api_context.user_id
     assert payload["updated_by"] == inventory_api_context.user_id
+    assert payload["row_version"] == 1
+    assert payload["expiry_alert_snoozed_until"] is None
+    assert payload["expiry_reviewed_at"] is None
+    assert payload["expiry_reviewed_by"] is None
 
     with inventory_api_context.SessionLocal() as db:
         item = db.get(InventoryItem, payload["id"])

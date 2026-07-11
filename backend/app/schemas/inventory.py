@@ -30,6 +30,10 @@ class InventoryItemOut(BaseModel):
     updated_at: datetime
     created_by: str | None = None
     updated_by: str | None = None
+    row_version: int
+    expiry_alert_snoozed_until: date_type | None = None
+    expiry_reviewed_at: datetime | None = None
+    expiry_reviewed_by: str | None = None
 
 
 class CreateInventoryItemRequest(BaseModel):

@@ -194,6 +194,10 @@ def serialize_inventory_item(item: InventoryItem) -> dict:
         "updated_at": _utc_datetime(item.updated_at),
         "created_by": item.created_by,
         "updated_by": item.updated_by,
+        "row_version": item.row_version,
+        "expiry_alert_snoozed_until": item.expiry_alert_snoozed_until,
+        "expiry_reviewed_at": _utc_datetime(item.expiry_reviewed_at),
+        "expiry_reviewed_by": item.expiry_reviewed_by,
     }
 
 
