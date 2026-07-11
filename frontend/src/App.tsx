@@ -103,6 +103,38 @@ function getIsPhoneViewport() {
   return window.matchMedia(PHONE_VIEWPORT_QUERY).matches;
 }
 
+/** Prefer structured 409/422 detail.message over ApiError.detail which may be "[object Object]". */
+function messageFromApiError(reason: unknown, fallback: string): string {
+  if (isApiError(reason)) {
+    const payload = reason.payload;
+    if (payload && typeof payload === 'object' && 'detail' in payload) {
+      const detail = (payload as { detail?: unknown }).detail;
+      if (detail && typeof detail === 'object' && !Array.isArray(detail)) {
+        const message = (detail as { message?: unknown }).message;
+        if (typeof message === 'string' && message.trim()) {
+          return message;
+        }
+      }
+      if (typeof detail === 'string' && detail.trim()) {
+        return detail;
+      }
+    }
+    if (reason.detail && reason.detail !== '[object Object]') {
+      return reason.detail;
+    }
+    return fallback;
+  }
+  if (reason instanceof Error && reason.message) {
+    return reason.message;
+  }
+  return fallback;
+}
+
+function queryErrorMessage(error: unknown, fallback: string): string | null {
+  if (!error) return null;
+  return messageFromApiError(error, fallback);
+}
+
 function useIsPhoneViewport() {
   const [isPhoneViewport, setIsPhoneViewport] = useState(getIsPhoneViewport);
 
@@ -167,6 +199,7 @@ function App() {
     inventoryQuery,
     inventoryStatesQuery,
     shoppingQuery,
+    inventoryOperationsQuery,
     recipeDiscoveryQuery,
     recipeStatsQuery,
     recipeFavoritesQuery,
@@ -491,11 +524,7 @@ function App() {
         message: result.summary.description || '库存已回退到操作前状态。',
       });
     } catch (reason) {
-      const message = isApiError(reason)
-        ? reason.detail || '撤销失败，请稍后重试'
-        : reason instanceof Error
-          ? reason.message
-          : '撤销失败，请稍后重试';
+      const message = messageFromApiError(reason, '撤销失败，请稍后重试');
       if (operationHistoryOpen) {
         setOperationHistoryConflict(message);
       } else {
@@ -1399,9 +1428,13 @@ function App() {
               ? {
                   open: operationHistoryOpen,
                   operations: inventoryOperations,
-                  loading: false,
+                  loading:
+                    inventoryOperationsQuery.isLoading ||
+                    (inventoryOperationsQuery.isFetching && !inventoryOperationsQuery.data),
                   busy: revertInventoryOperationMutation.isPending,
-                  errorMessage: operationHistoryError,
+                  errorMessage:
+                    operationHistoryError ??
+                    queryErrorMessage(inventoryOperationsQuery.error, '读取操作历史失败'),
                   selectedOperationId,
                   detail: operationDetail,
                   detailLoading: operationDetailLoading,
@@ -1417,6 +1450,7 @@ function App() {
                     void handleRevertInventoryOperation(operationId);
                   },
                   onRetry: () => {
+                    void inventoryOperationsQuery.refetch();
                     if (selectedOperationId) {
                       void loadOperationDetail(selectedOperationId);
                     }

@@ -108,7 +108,7 @@ export function InventoryOperationHistoryDialog(props: InventoryOperationHistory
     <FormActions
       className="inventory-maintenance-actions"
       primaryLabel="关闭"
-      isSubmitting={false}
+      isSubmitting={busy}
       onPrimary={closeIfAllowed}
       secondaryLabel={
         canRevertSelected

@@ -16,6 +16,7 @@ import {
   WorkspaceOverlayFrame,
 } from '../../components/ui-kit';
 import { formatDateTime } from '../../lib/ui';
+import { isOperationStillRevertible } from './InventoryOperationBanner';
 import {
   AVAILABILITY_LEVEL_LABELS,
   buildBatchCreateIntent,
@@ -185,11 +186,16 @@ export function InventoryReconciliationDialog(props: InventoryReconciliationDial
         : `范围：${scopeLabel(props.scope)} · 已检查 ${checkedCount}/${totalCount}`;
 
   const remainingErrorCount = fieldErrors.length;
+  const canRevertResult = isOperationStillRevertible(props.result, Date.now());
   const liveMessage =
     props.errorMessage ||
     (remainingErrorCount > 0 ? `还有 ${remainingErrorCount} 处需要确认` : null) ||
     (props.step === 'result' && props.result
-      ? `可在 ${compactTimeLabel(props.result.revertible_until)} 前撤销`
+      ? canRevertResult
+        ? `可在 ${compactTimeLabel(props.result.revertible_until)} 前撤销`
+        : props.result.status === 'reverted'
+          ? '这次操作已撤销'
+          : '撤销窗口已过或当前无权撤销'
       : `已检查 ${checkedCount} / ${totalCount}`);
 
   let footerActions: ReactNode = null;
@@ -227,16 +233,16 @@ export function InventoryReconciliationDialog(props: InventoryReconciliationDial
         isSubmitting={false}
         onPrimary={closeIfAllowed}
         secondaryLabel={
-          props.result?.can_revert && props.onRevertResult
+          canRevertResult && props.onRevertResult
             ? '撤销本次操作'
-            : props.result?.can_revert
+            : canRevertResult
               ? '稍后可撤销'
               : undefined
         }
         onSecondary={
-          props.result?.can_revert && props.onRevertResult
+          canRevertResult && props.onRevertResult
             ? () => props.onRevertResult?.(props.result!.operation_id)
-            : props.result?.can_revert
+            : canRevertResult
               ? closeIfAllowed
               : undefined
         }
@@ -252,7 +258,13 @@ export function InventoryReconciliationDialog(props: InventoryReconciliationDial
           <strong>
             确认 {props.result.summary.confirmed_count} · 调整 {props.result.summary.adjusted_count}
           </strong>
-          <p>可在 {compactTimeLabel(props.result.revertible_until)} 前撤销</p>
+          <p>
+            {canRevertResult
+              ? `可在 ${compactTimeLabel(props.result.revertible_until)} 前撤销`
+              : props.result.status === 'reverted'
+                ? '这次操作已撤销'
+                : '撤销窗口已过或当前无权撤销'}
+          </p>
         </>
       ) : (
         <>
@@ -1224,6 +1236,7 @@ function ResultStep(props: {
   onRevertResult?: (operationId: string) => void;
   onViewResult?: (operationId: string) => void;
 }) {
+  const canRevert = isOperationStillRevertible(props.result, Date.now());
   return (
     <section className="inventory-maintenance-result" aria-label="盘点结果">
       <div className="inventory-maintenance-summary-card">
@@ -1250,11 +1263,11 @@ function ResultStep(props: {
         <p className="inventory-maintenance-revert-copy" aria-live="polite">
           {props.result.status === 'reverted'
             ? '这次操作已撤销'
-            : props.result.can_revert
+            : canRevert
               ? `可在 ${compactTimeLabel(props.result.revertible_until)} 前撤销本次操作`
               : '撤销窗口已过或当前无权撤销'}
         </p>
-        {(props.onViewResult || (props.result.can_revert && props.onRevertResult)) ? (
+        {(props.onViewResult || (canRevert && props.onRevertResult)) ? (
           <div className="inventory-operation-result-actions">
             {props.onViewResult ? (
               <ActionButton
@@ -1267,7 +1280,7 @@ function ResultStep(props: {
                 查看详情
               </ActionButton>
             ) : null}
-            {props.result.can_revert && props.onRevertResult ? (
+            {canRevert && props.onRevertResult ? (
               <ActionButton
                 tone="primary"
                 size="compact"
