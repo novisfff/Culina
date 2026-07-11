@@ -145,6 +145,7 @@ export function useIngredientWorkspaceData(args: UseIngredientWorkspaceDataArgs)
       : `共 ${summaries.length} 项`;
     const catalogStatusCounts = {
       all: args.filterIngredientSummariesByCatalogStatus(catalogBaseSummaries, 'all').length,
+      actionNeeded: args.filterIngredientSummariesByCatalogStatus(catalogBaseSummaries, 'actionNeeded').length,
       expired: args.filterIngredientSummariesByCatalogStatus(catalogBaseSummaries, 'expired').length,
       expiring: args.filterIngredientSummariesByCatalogStatus(catalogBaseSummaries, 'expiring').length,
       lowStock: args.filterIngredientSummariesByCatalogStatus(catalogBaseSummaries, 'lowStock').length,

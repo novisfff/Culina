@@ -449,6 +449,70 @@ describe('ingredient workspace model', () => {
     ]);
   });
 
+  it('filters the shared 需处理 catalog status from InventoryActionGroup alerts', () => {
+    const tomato: Ingredient = {
+      ...ingredients[0]!,
+      id: 'ingredient-action-needed',
+      name: '需处理番茄',
+      default_low_stock_threshold: 5,
+    };
+    const stable: Ingredient = {
+      ...ingredients[0]!,
+      id: 'ingredient-stable-action',
+      name: '稳定土豆',
+      default_low_stock_threshold: null,
+    };
+    const summaries = buildIngredientSummaries({
+      ingredients: [tomato, stable],
+      inventoryItems: [
+        {
+          id: 'inventory-action-needed',
+          family_id: 'family-1',
+          ingredient_id: tomato.id,
+          ingredient_name: tomato.name,
+          quantity: 1,
+          remaining_quantity: 1,
+          unit: '个',
+          status: 'fresh',
+          purchase_date: '2026-03-18',
+          expiry_date: '2026-03-19',
+          storage_location: '冷藏',
+          notes: '',
+          low_stock_threshold: 0,
+          created_at: '2026-03-18T00:00:00Z',
+          updated_at: '2026-03-18T00:00:00Z',
+          row_version: 1,
+        },
+        {
+          id: 'inventory-stable-action',
+          family_id: 'family-1',
+          ingredient_id: stable.id,
+          ingredient_name: stable.name,
+          quantity: 4,
+          remaining_quantity: 4,
+          unit: '个',
+          status: 'fresh',
+          purchase_date: '2026-03-18',
+          expiry_date: '2026-04-18',
+          storage_location: '常温',
+          notes: '',
+          low_stock_threshold: 0,
+          created_at: '2026-03-18T00:00:00Z',
+          updated_at: '2026-03-18T00:00:00Z',
+          row_version: 1,
+        },
+      ],
+      recipes: [],
+      today: '2026-03-20',
+      shoppingItems: [],
+    });
+
+    expect(
+      filterIngredientSummariesByCatalogStatus(summaries, 'actionNeeded').map((item) => item.ingredient.name),
+    ).toEqual(['需处理番茄']);
+  });
+
+
   it('declares priorityActionCount before workspaceMetrics to avoid TDZ crash', () => {
     const sourcePath = path.resolve(path.dirname(fileURLToPath(import.meta.url)), 'useIngredientWorkspaceData.ts');
     const source = readFileSync(sourcePath, 'utf8');

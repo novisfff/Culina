@@ -302,7 +302,12 @@ export function IngredientMobileView(props: IngredientMobileViewProps) {
         </div>
       </header>
 
-      <section className="mobile-ingredient-panel">
+      <section
+        id="mobile-ingredient-priority"
+        className="mobile-ingredient-panel"
+        tabIndex={-1}
+        aria-label="今天先处理"
+      >
         <div className="mobile-ingredient-section-head">
           <h2>今天先处理 <span>{priorityItemCount} 项</span></h2>
         </div>

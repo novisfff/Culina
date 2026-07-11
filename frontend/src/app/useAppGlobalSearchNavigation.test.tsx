@@ -184,3 +184,43 @@ describe('IngredientNavigationRequest contract', () => {
     });
   });
 });
+
+describe('Ingredient navigation consumption contract', () => {
+  it('requires a real ingredient ID for shopping and none for priority', () => {
+    const shopping: IngredientNavigationRequest = {
+      target: 'shopping',
+      ingredientId: 'ingredient-egg',
+      requestId: 11,
+    };
+    const priority: IngredientNavigationRequest = {
+      target: 'priority',
+      requestId: 12,
+    };
+
+    expect(shopping.ingredientId.length).toBeGreaterThan(0);
+    expect('ingredientId' in priority).toBe(false);
+  });
+
+  it('documents once-by-requestId consumption for every discriminated target', () => {
+    const requests: IngredientNavigationRequest[] = [
+      { target: 'catalog', requestId: 1 },
+      { target: 'detail', ingredientId: 'a', requestId: 2 },
+      { target: 'shopping', ingredientId: 'b', requestId: 3 },
+      { target: 'priority', requestId: 4 },
+    ];
+    const handled = new Set<number>();
+    const consume = (request: IngredientNavigationRequest) => {
+      if (handled.has(request.requestId)) {
+        return false;
+      }
+      handled.add(request.requestId);
+      return true;
+    };
+
+    for (const request of requests) {
+      expect(consume(request)).toBe(true);
+      expect(consume(request)).toBe(false);
+    }
+    expect(handled.size).toBe(4);
+  });
+});

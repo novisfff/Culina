@@ -1037,10 +1037,14 @@ export function hasExpiringCatalogAlert(summary: IngredientSummaryViewModel) {
 
 export function matchesCatalogStatusFilter(
   summary: IngredientSummaryViewModel,
-  filter: 'all' | 'expired' | 'expiring' | 'lowStock' | 'stable'
+  filter: 'all' | 'actionNeeded' | 'expired' | 'expiring' | 'lowStock' | 'stable'
 ) {
   if (filter === 'all') {
     return true;
+  }
+  if (filter === 'actionNeeded') {
+    // Shared 需处理 projection: any ingredient present in InventoryActionGroup alerts.
+    return summary.alerts.length > 0;
   }
   if (filter === 'expired') {
     return hasExpiredCatalogAlert(summary);
@@ -1056,7 +1060,7 @@ export function matchesCatalogStatusFilter(
 
 export function filterIngredientSummariesByCatalogStatus(
   summaries: IngredientSummaryViewModel[],
-  filter: 'all' | 'expired' | 'expiring' | 'lowStock' | 'stable'
+  filter: 'all' | 'actionNeeded' | 'expired' | 'expiring' | 'lowStock' | 'stable'
 ) {
   return summaries.filter((summary) => matchesCatalogStatusFilter(summary, filter));
 }

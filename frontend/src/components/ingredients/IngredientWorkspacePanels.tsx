@@ -215,7 +215,7 @@ export function IngredientCatalogPanel(props: CatalogPanelProps) {
           </div>
         </div>
       </section>
-      <div ref={props.catalogMeasureRef} className="ingredient-grid ingredient-grid-catalog ingredients-catalog-grid" style={props.catalogGridStyle}>
+      <div id="ingredient-priority-list" ref={props.catalogMeasureRef} className="ingredient-grid ingredient-grid-catalog ingredients-catalog-grid" style={props.catalogGridStyle} tabIndex={-1}>
         {props.filteredSummaries.length > 0 ? (
           <>
           {props.visibleFilteredSummaries.map((summary) => (
