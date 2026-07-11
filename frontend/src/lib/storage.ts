@@ -28,3 +28,7 @@ export function writeStringStorage(key: string, value: string): void {
 export function removeStorage(key: string): void {
   localStorage.removeItem(key);
 }
+
+/** Local draft key for inventory reconciliation. Scoped to family + user only. */
+export const reconciliationDraftKey = (familyId: string, userId: string) =>
+  `culina:inventory-reconciliation-draft:${familyId}:${userId}`;
