@@ -301,8 +301,12 @@ def dispose_expired_inventory_items(
             unit=item.unit,
             reason="过期销毁",
             record_activity=False,
+            already_locked=True,
+            bump_parent=False,
         )
         disposed_item_ids.append(item.id)
+
+    bump_ingredient_collection(ingredient, user_id=user_id)
 
     log_activity(
         db,

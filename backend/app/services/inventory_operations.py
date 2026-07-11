@@ -23,7 +23,7 @@ from app.services.inventory_usage import (
     remaining_quantity,
     tracks_quantity,
 )
-from app.services.inventory_versions import bump_ingredient_collection
+from app.services.inventory_versions import bump_ingredient_collection, require_expected_version
 
 
 def require_ingredient(
@@ -60,31 +60,6 @@ def require_inventory_item(
     if item is None:
         raise ValueError("库存批次不存在或不属于当前家庭")
     return item
-
-
-def lock_inventory_items_by_ids(
-    db: Session,
-    *,
-    family_id: str,
-    item_ids: list[str] | set[str] | tuple[str, ...],
-) -> dict[str, InventoryItem]:
-    """Lock family-owned inventory rows in stable ID order for mutation."""
-    ordered_ids = sorted({item_id for item_id in item_ids if item_id})
-    if not ordered_ids:
-        return {}
-    locked_items = list(
-        db.scalars(
-            select(InventoryItem)
-            .where(
-                InventoryItem.family_id == family_id,
-                InventoryItem.id.in_(ordered_ids),
-            )
-            .options(selectinload(InventoryItem.ingredient))
-            .order_by(InventoryItem.id.asc())
-            .with_for_update()
-        )
-    )
-    return {item.id: item for item in locked_items}
 
 
 def _lock_parent_ingredient(
@@ -317,34 +292,66 @@ def dispose_inventory_quantity(
     unit: str | None,
     reason: str,
     record_activity: bool = True,
+    expected_row_version: int | None = None,
+    already_locked: bool = False,
+    bump_parent: bool = True,
 ) -> dict:
+    """Dispose quantity from a batch with parent-first locking.
+
+    Callers must not hold an InventoryItem row lock before this entrypoint unless
+    they already locked Ingredient first (set already_locked=True).
+    """
     reason = reason.strip()
     if not reason:
         raise ValueError("请填写销毁原因")
-    ingredient = item.ingredient
-    if ingredient is None or ingredient.id != item.ingredient_id:
-        ingredient = require_ingredient(
+
+    if already_locked:
+        ingredient = item.ingredient
+        if ingredient is None or ingredient.id != item.ingredient_id:
+            ingredient = require_ingredient(
+                db,
+                family_id=family_id,
+                ingredient_id=item.ingredient_id,
+            )
+            item.ingredient = ingredient
+    else:
+        # Discover ingredient_id without locking child first, then lock parent→child.
+        provisional = item
+        if provisional.ingredient_id is None:
+            provisional = require_inventory_item(
+                db,
+                family_id=family_id,
+                inventory_item_id=item.id,
+                for_update=False,
+            )
+        locked = lock_inventory_targets(
             db,
             family_id=family_id,
-            ingredient_id=item.ingredient_id,
+            ingredient_ids=[provisional.ingredient_id],
+            inventory_item_ids=[item.id],
         )
-    ingredient = _lock_parent_ingredient(db, family_id=family_id, ingredient=ingredient)
-    # Ensure the inventory row is locked after its parent.
-    locked_item = require_inventory_item(
-        db,
-        family_id=family_id,
-        inventory_item_id=item.id,
-        for_update=True,
-    )
-    item = locked_item
-    item.ingredient = ingredient
+        ingredient = locked.ingredients.get(provisional.ingredient_id)
+        locked_item = locked.inventory_items.get(item.id)
+        if ingredient is None or locked_item is None:
+            raise ValueError("库存批次不存在或不属于当前家庭")
+        item = locked_item
+        item.ingredient = ingredient
+
+    if expected_row_version is not None:
+        require_expected_version(
+            item,
+            expected_row_version,
+            entity_type="inventory_item",
+            entity_id=item.id,
+        )
 
     if not tracks_quantity(ingredient):
         if quantity is not None:
             raise ValueError("不记录数量的食材只能整批移除或重新补充")
         item.disposed_quantity = item.quantity
         item.updated_by = user_id
-        bump_ingredient_collection(ingredient, user_id=user_id)
+        if bump_parent:
+            bump_ingredient_collection(ingredient, user_id=user_id)
         if record_activity:
             log_activity(
                 db,
@@ -406,7 +413,8 @@ def dispose_inventory_quantity(
     )
     item.disposed_quantity += disposed_in_item_unit
     item.updated_by = user_id
-    bump_ingredient_collection(ingredient, user_id=user_id)
+    if bump_parent:
+        bump_ingredient_collection(ingredient, user_id=user_id)
     remaining = remaining_quantity(item)
     if record_activity:
         log_activity(

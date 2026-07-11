@@ -100,6 +100,7 @@ class CorrectInventoryExpiryDateRequest(BaseModel):
 
 class DisposeInventoryRequest(BaseModel):
     inventory_item_id: str
+    expected_row_version: int = Field(ge=1)
     quantity: float | None = Field(default=None, gt=0)
     unit: str | None = Field(default=None, min_length=1)
     reason: str = Field(min_length=1, max_length=255)

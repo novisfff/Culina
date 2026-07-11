@@ -4,6 +4,7 @@ from decimal import Decimal
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
+from sqlalchemy.orm.exc import StaleDataError
 from fastapi import APIRouter, Depends, HTTPException, status
 
 from app.core.deps import get_current_auth
@@ -19,6 +20,7 @@ from app.services.activity import log_activity
 from app.services.clock import today_for_family
 from app.services.food_stock import apply_food_stock_consume
 from app.services.inventory_operation_locking import InventoryTargetNotFoundError, lock_inventory_targets
+from app.services.inventory_versions import STALE_INVENTORY_DETAIL
 from app.services.media import bind_media_assets, replace_media_assets
 from app.services.search.jobs import enqueue_search_index_job
 from app.services.serializers import serialize_meal_log
@@ -31,6 +33,17 @@ MEAL_TYPE_LABELS = {
     "dinner": "晚餐",
     "snack": "加餐/夜宵",
 }
+
+
+def _commit_meal_log_session(db: Session) -> None:
+    try:
+        commit_session(db)
+    except StaleDataError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=STALE_INVENTORY_DETAIL,
+        ) from exc
 
 
 def _select_food_for_quick_add(*, food_id: str, family_id: str, deduct_food_stock: bool):
@@ -371,7 +384,7 @@ def quick_add_meal_log(
         entity_id=meal_log.id,
         summary=f"{'记录' if created else '追加'}了{MEAL_TYPE_LABELS.get(payload.meal_type.value, payload.meal_type.value)}：{food.name}",
     )
-    commit_session(db)
+    _commit_meal_log_session(db)
     db.refresh(meal_log)
     media_map = build_media_map(get_media_assets_for_entities(db, family_id=membership.family_id, entity_type="meal_log", entity_ids=[meal_log.id]))
     return serialize_meal_log(meal_log, media_map)

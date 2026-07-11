@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
+from sqlalchemy.orm.exc import StaleDataError
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 
 from app.core.deps import get_current_auth
@@ -13,11 +14,27 @@ from app.models.domain import Food, Ingredient, ShoppingListItem
 from app.schemas.shopping import CreateShoppingListItemRequest, ShoppingListItemOut, UpdateShoppingListItemRequest
 from app.services.activity import log_activity
 from app.services.inventory_operation_locking import InventoryTargetNotFoundError, lock_inventory_targets
+from app.services.inventory_versions import STALE_INVENTORY_DETAIL, InventoryConflictError, conflict_detail, require_expected_version
 from app.services.serializers import serialize_shopping_item
 
 router = APIRouter(tags=["shopping-list"])
 
 READY_LIKE_FOOD_TYPES = {FoodType.READY_MADE.value, FoodType.INSTANT.value, FoodType.PACKAGED.value}
+
+
+def _commit_shopping_session(db: Session) -> None:
+    try:
+        commit_session(db)
+    except StaleDataError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=STALE_INVENTORY_DETAIL,
+        ) from exc
+
+
+def _shopping_conflict_http(exc: InventoryConflictError) -> HTTPException:
+    return HTTPException(status_code=status.HTTP_409_CONFLICT, detail=conflict_detail(exc))
 
 
 def _resolve_shopping_target(
@@ -129,9 +146,18 @@ def update_shopping_item(
         ).shopping_items[item_id]
     except (InventoryTargetNotFoundError, KeyError):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Shopping item not found")
+    try:
+        require_expected_version(
+            item,
+            payload.expected_row_version,
+            entity_type="shopping_list_item",
+            entity_id=item.id,
+        )
+    except InventoryConflictError as exc:
+        raise _shopping_conflict_http(exc) from exc
     ingredient = None
     food = None
-    content_fields = payload.model_fields_set - {"done"}
+    content_fields = payload.model_fields_set - {"done", "expected_row_version"}
     target_changed = False
     if content_fields:
         has_target_field = "ingredient_id" in payload.model_fields_set or "food_id" in payload.model_fields_set
@@ -189,7 +215,8 @@ def update_shopping_item(
         item.display_label = None
 
     item.updated_by = user.id
-    if payload.model_fields_set == {"done"}:
+    mutation_fields = payload.model_fields_set - {"expected_row_version"}
+    if mutation_fields == {"done"}:
         summary = f"{item.title}已标记为{'完成' if item.done else '待办'}"
     else:
         summary = f"更新购物清单 {item.title}"
@@ -202,7 +229,7 @@ def update_shopping_item(
         entity_id=item.id,
         summary=summary,
     )
-    commit_session(db)
+    _commit_shopping_session(db)
     db.refresh(item)
     return serialize_shopping_item(item)
 
@@ -233,5 +260,5 @@ def delete_shopping_item(
         summary=f"删除购物清单 {item_title}",
     )
     db.delete(item)
-    commit_session(db)
+    _commit_shopping_session(db)
     return Response(status_code=status.HTTP_204_NO_CONTENT)

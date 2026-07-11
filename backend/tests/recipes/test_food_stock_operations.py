@@ -45,7 +45,7 @@ class RecipeFoodStockOperationsTestCase(RecipeApiTestCase):
 
         restock = self.client.post(
             "/api/foods/food-stock-yogurt/stock/restock",
-            json={"quantity": 3, "unit": "盒", "expiry_date": "2026-07-20", "purchase_source": "山姆", "storage_location": "冷冻", "note": "周末补货"},
+            json={"expected_row_version": 1, "quantity": 3, "unit": "盒", "expiry_date": "2026-07-20", "purchase_source": "山姆", "storage_location": "冷冻", "note": "周末补货"},
         )
         self.assertEqual(restock.status_code, 200, restock.text)
         self.assertEqual(restock.json()["stock_quantity"], 5)
@@ -56,7 +56,7 @@ class RecipeFoodStockOperationsTestCase(RecipeApiTestCase):
 
         consume = self.client.post(
             "/api/foods/food-stock-yogurt/stock/consume",
-            json={"quantity": 1, "unit": "盒", "note": "早餐吃掉"},
+            json={"expected_row_version": 2, "quantity": 1, "unit": "盒", "note": "早餐吃掉"},
         )
         self.assertEqual(consume.status_code, 200, consume.text)
         self.assertEqual(consume.json()["stock_quantity"], 4)
@@ -64,7 +64,7 @@ class RecipeFoodStockOperationsTestCase(RecipeApiTestCase):
 
         dispose = self.client.post(
             "/api/foods/food-stock-yogurt/stock/dispose",
-            json={"quantity": 2, "unit": "盒", "reason": "包装破损"},
+            json={"expected_row_version": 3, "quantity": 2, "unit": "盒", "reason": "包装破损"},
         )
         self.assertEqual(dispose.status_code, 200, dispose.text)
         self.assertEqual(dispose.json()["stock_quantity"], 2)
@@ -105,14 +105,14 @@ class RecipeFoodStockOperationsTestCase(RecipeApiTestCase):
 
         takeout_response = self.client.post(
             "/api/foods/food-stock-takeout/stock/consume",
-            json={"quantity": 1, "unit": "份"},
+            json={"expected_row_version": 1, "quantity": 1, "unit": "份"},
         )
         self.assertEqual(takeout_response.status_code, 400)
         self.assertEqual(takeout_response.json()["detail"], "只有成品、速食和包装食品支持食物库存操作")
 
         overconsume = self.client.post(
             "/api/foods/food-stock-low/stock/consume",
-            json={"quantity": 2, "unit": "盒"},
+            json={"expected_row_version": 1, "quantity": 2, "unit": "盒"},
         )
         self.assertEqual(overconsume.status_code, 400)
         self.assertEqual(overconsume.json()["detail"], "当前最多只能处理 1盒")
@@ -124,7 +124,7 @@ class RecipeFoodStockOperationsTestCase(RecipeApiTestCase):
 
         restock = self.client.post(
             "/api/foods/food-stock-decimal/stock/restock",
-            json={"quantity": 1.25, "unit": "盒"},
+            json={"expected_row_version": 1, "quantity": 1.25, "unit": "盒"},
         )
         self.assertEqual(restock.status_code, 400)
         self.assertEqual(restock.json()["detail"], "库存数量最多保留 1 位小数")
@@ -151,7 +151,7 @@ class RecipeFoodStockOperationsTestCase(RecipeApiTestCase):
 
         response = self.client.post(
             "/api/foods/food-stock-hidden-decimal/stock/consume",
-            json={"quantity": 141, "unit": "盒"},
+            json={"expected_row_version": 1, "quantity": 141, "unit": "盒"},
         )
 
         self.assertEqual(response.status_code, 400)

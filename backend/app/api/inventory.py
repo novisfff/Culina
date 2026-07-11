@@ -32,7 +32,7 @@ from app.services.inventory_expiry_actions import (
     dispose_expired_inventory_items,
     snooze_expiry_alerts,
 )
-from app.services.inventory_versions import STALE_INVENTORY_DETAIL
+from app.services.inventory_versions import STALE_INVENTORY_DETAIL, InventoryConflictError, conflict_detail
 
 from app.services.inventory_overview import build_inventory_overview
 from app.services.inventory_operations import (
@@ -45,6 +45,13 @@ from app.services.search.hybrid import hybrid_search
 from app.services.serializers import serialize_inventory_item
 
 router = APIRouter(tags=["inventory"])
+
+
+def _inventory_conflict_http(exc: InventoryConflictError) -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_409_CONFLICT,
+        detail=conflict_detail(exc),
+    )
 
 
 def _commit_inventory_session(db: Session) -> None:
@@ -208,11 +215,13 @@ def dispose_inventory(
 ) -> dict:
     user, membership = auth
     try:
+        # Unlocked provisional load only to discover the parent ingredient id;
+        # dispose_inventory_quantity locks Ingredient then InventoryItem.
         item = require_inventory_item(
             db,
             family_id=membership.family_id,
             inventory_item_id=payload.inventory_item_id,
-            for_update=True,
+            for_update=False,
         )
         result = dispose_inventory_quantity(
             db,
@@ -222,7 +231,10 @@ def dispose_inventory(
             quantity=Decimal(str(payload.quantity)) if payload.quantity is not None else None,
             unit=payload.unit,
             reason=payload.reason,
+            expected_row_version=payload.expected_row_version,
         )
+    except InventoryConflictError as exc:
+        raise _inventory_conflict_http(exc) from exc
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     _commit_inventory_session(db)
@@ -255,7 +267,7 @@ def snooze_inventory_expiry_alerts(
             today=today_for_family(membership.family_id),
         )
     except InventoryStaleVersionError as exc:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+        raise _inventory_conflict_http(exc) from exc
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     _commit_inventory_session(db)
@@ -281,7 +293,7 @@ def correct_inventory_item_expiry_date(
             expected_row_version=payload.expected_row_version,
         )
     except InventoryStaleVersionError as exc:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+        raise _inventory_conflict_http(exc) from exc
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     _commit_inventory_session(db)
@@ -308,7 +320,7 @@ def dispose_expired_inventory(
             today=today_for_family(membership.family_id),
         )
     except InventoryStaleVersionError as exc:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+        raise _inventory_conflict_http(exc) from exc
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     _commit_inventory_session(db)

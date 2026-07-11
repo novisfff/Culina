@@ -390,6 +390,7 @@ def test_dispose_inventory_updates_current_family_batch_and_activity_log(
         "/api/inventory/dispose",
         json={
             "inventory_item_id": inventory_api_context.item_id,
+            "expected_row_version": 1,
             "quantity": 2,
             "unit": "个",
             "reason": "坏掉",
@@ -432,6 +433,7 @@ def test_dispose_inventory_rejects_other_family_item_without_modifying_it(
         "/api/inventory/dispose",
         json={
             "inventory_item_id": inventory_api_context.other_item_id,
+            "expected_row_version": 1,
             "quantity": 2,
             "unit": "个",
             "reason": "坏掉",
@@ -1336,9 +1338,24 @@ def test_stale_version_with_exhausted_or_changed_expiry_returns_409(
     )
 
     assert exhausted_response.status_code == 409, exhausted_response.text
-    assert exhausted_response.json()["detail"] == STALE_INVENTORY_DETAIL
+    exhausted_detail = exhausted_response.json()["detail"]
+    assert isinstance(exhausted_detail, dict)
+    assert exhausted_detail["code"] == "stale_version"
+    assert exhausted_detail["message"] == STALE_INVENTORY_DETAIL
+    assert exhausted_detail["conflicts"] == [
+        {
+            "entity_type": "inventory_item",
+            "entity_id": "inventory-stale-exhausted",
+            "expected_row_version": 1,
+            "current_row_version": 4,
+        }
+    ]
     assert cleared_response.status_code == 409, cleared_response.text
-    assert cleared_response.json()["detail"] == STALE_INVENTORY_DETAIL
+    cleared_detail = cleared_response.json()["detail"]
+    assert isinstance(cleared_detail, dict)
+    assert cleared_detail["code"] == "stale_version"
+    assert cleared_detail["conflicts"][0]["entity_id"] == "inventory-stale-cleared-expiry"
+    assert cleared_detail["conflicts"][0]["current_row_version"] == 6
 
     exhausted = _reload_item(inventory_api_context, "inventory-stale-exhausted")
     cleared = _reload_item(inventory_api_context, "inventory-stale-cleared-expiry")
@@ -1409,6 +1426,7 @@ def test_consume_and_dispose_increment_row_version(
         "/api/inventory/dispose",
         json={
             "inventory_item_id": inventory_api_context.item_id,
+            "expected_row_version": after_consume.row_version,
             "quantity": 1,
             "unit": "个",
             "reason": "测试销毁",
@@ -1418,6 +1436,74 @@ def test_consume_and_dispose_increment_row_version(
     after_dispose = _reload_item(inventory_api_context, inventory_api_context.item_id)
     assert after_dispose.disposed_quantity == Decimal("1")
     assert after_dispose.row_version == 3
+
+
+def test_dispose_rejects_stale_expected_row_version_with_structured_409(
+    inventory_api_context: InventoryApiContext,
+) -> None:
+    response = inventory_api_context.client.post(
+        "/api/inventory/dispose",
+        json={
+            "inventory_item_id": inventory_api_context.item_id,
+            "expected_row_version": 99,
+            "quantity": 1,
+            "unit": "个",
+            "reason": "坏掉",
+        },
+    )
+    assert response.status_code == 409, response.text
+    detail = response.json()["detail"]
+    assert detail["code"] == "stale_version"
+    assert detail["message"] == STALE_INVENTORY_DETAIL
+    assert detail["conflicts"] == [
+        {
+            "entity_type": "inventory_item",
+            "entity_id": inventory_api_context.item_id,
+            "expected_row_version": 99,
+            "current_row_version": 1,
+        }
+    ]
+    item = _reload_item(inventory_api_context, inventory_api_context.item_id)
+    assert item.disposed_quantity == Decimal("0")
+    assert item.row_version == 1
+
+
+def test_dispose_locks_parent_before_child(
+    inventory_api_context: InventoryApiContext,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Ordinary dispose must request Ingredient then InventoryItem in one ordered lock."""
+    from app.services import inventory_operations
+
+    observed: list[tuple[list[str], list[str]]] = []
+    original = inventory_operations.lock_inventory_targets
+
+    def tracking_lock(*args, **kwargs):
+        observed.append(
+            (
+                list(kwargs.get("ingredient_ids") or []),
+                list(kwargs.get("inventory_item_ids") or []),
+            )
+        )
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(inventory_operations, "lock_inventory_targets", tracking_lock)
+
+    response = inventory_api_context.client.post(
+        "/api/inventory/dispose",
+        json={
+            "inventory_item_id": inventory_api_context.item_id,
+            "expected_row_version": 1,
+            "quantity": 1,
+            "unit": "个",
+            "reason": "锁顺序",
+        },
+    )
+    assert response.status_code == 200, response.text
+    assert observed
+    ingredient_ids, inventory_item_ids = observed[0]
+    assert ingredient_ids == [inventory_api_context.ingredient_id]
+    assert inventory_item_ids == [inventory_api_context.item_id]
 
 
 def test_expired_snoozed_batch_is_not_available_for_consumption(

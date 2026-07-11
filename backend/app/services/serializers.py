@@ -219,6 +219,7 @@ def serialize_shopping_item(item: ShoppingListItem) -> dict:
         "updated_at": _utc_datetime(item.updated_at),
         "created_by": item.created_by,
         "updated_by": item.updated_by,
+        "row_version": item.row_version,
     }
 
 
@@ -369,6 +370,7 @@ def serialize_food(food: Food, media_map: dict[tuple[str, str], list[MediaAsset]
         "updated_at": _utc_datetime(food.updated_at),
         "created_by": food.created_by,
         "updated_by": food.updated_by,
+        "row_version": food.row_version,
     }
 
 

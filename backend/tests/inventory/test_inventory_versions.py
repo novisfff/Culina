@@ -334,13 +334,18 @@ def test_stale_expected_version_on_locked_item_before_dispose(db: Session) -> No
     before_item = item.row_version
 
     with pytest.raises(InventoryConflictError) as raised:
-        require_expected_version(
-            item,
-            before_item + 5,
-            entity_type="inventory_item",
-            entity_id=item.id,
+        dispose_inventory_quantity(
+            db,
+            family_id="family-version",
+            user_id="user-version",
+            item=item,
+            quantity=Decimal("1"),
+            unit="个",
+            reason="测试销毁",
+            expected_row_version=before_item + 5,
         )
     assert raised.value.code == "stale_version"
+    assert raised.value.conflicts[0]["current_row_version"] == before_item
 
     # No mutation after failed version check.
     db.refresh(ingredient)
@@ -348,3 +353,52 @@ def test_stale_expected_version_on_locked_item_before_dispose(db: Session) -> No
     assert ingredient.row_version == before_ingredient
     assert item.row_version == before_item
     assert item.disposed_quantity == Decimal("0")
+
+
+def test_dispose_parent_first_lock_targets(db: Session, monkeypatch: pytest.MonkeyPatch) -> None:
+    ingredient = _reload_ingredient(db)
+    item = create_inventory_batch(
+        db,
+        family_id="family-version",
+        user_id="user-version",
+        ingredient=ingredient,
+        quantity=Decimal("3"),
+        unit="个",
+        status=InventoryStatus.FRESH,
+        purchase_date=date(2026, 7, 1),
+        expiry_date=None,
+        storage_location="冷藏",
+    )
+    db.flush()
+
+    from app.services import inventory_operations
+
+    observed: list[tuple[list[str], list[str]]] = []
+    original = inventory_operations.lock_inventory_targets
+
+    def tracking_lock(*args, **kwargs):
+        observed.append(
+            (
+                list(kwargs.get("ingredient_ids") or []),
+                list(kwargs.get("inventory_item_ids") or []),
+            )
+        )
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(inventory_operations, "lock_inventory_targets", tracking_lock)
+
+    dispose_inventory_quantity(
+        db,
+        family_id="family-version",
+        user_id="user-version",
+        item=item,
+        quantity=Decimal("1"),
+        unit="个",
+        reason="锁顺序",
+        expected_row_version=item.row_version,
+    )
+    dispose_calls = [call for call in observed if call[1]]
+    assert dispose_calls
+    ingredient_ids, inventory_item_ids = dispose_calls[0]
+    assert ingredient_ids == [ingredient.id]
+    assert inventory_item_ids == [item.id]

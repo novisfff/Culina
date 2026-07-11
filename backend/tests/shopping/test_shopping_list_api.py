@@ -454,7 +454,7 @@ def test_create_shopping_item_rejects_other_family_ingredient_without_side_effec
 def test_patch_shopping_item_updates_current_family_item_and_activity_log(
     shopping_api_context: ShoppingApiContext,
 ) -> None:
-    response = shopping_api_context.client.patch(f"/api/shopping-list/{shopping_api_context.item_id}", json={"done": True})
+    response = shopping_api_context.client.patch(f"/api/shopping-list/{shopping_api_context.item_id}", json={"done": True, "expected_row_version": 1})
 
     assert response.status_code == 200, response.text
     payload = response.json()
@@ -486,6 +486,7 @@ def test_patch_shopping_item_updates_fields_and_relinks_ingredient(shopping_api_
     response = shopping_api_context.client.patch(
         f"/api/shopping-list/{shopping_api_context.item_id}",
         json={
+            "expected_row_version": 1,
             "title": "番茄罐头",
             "quantity": 3,
             "unit": "罐",
@@ -528,6 +529,7 @@ def test_patch_shopping_item_relinks_to_ready_food_and_clears_ingredient(
     response = shopping_api_context.client.patch(
         f"/api/shopping-list/{shopping_api_context.item_id}",
         json={
+            "expected_row_version": 1,
             "quantity": 5,
             "food_id": shopping_api_context.ready_food_id,
             "reason": "换成补酸奶",
@@ -563,8 +565,13 @@ def test_patch_shopping_item_done_only_preserves_food_binding(
         item.title = "希腊酸奶"
         item.unit = "盒"
         db.commit()
+        db.refresh(item)
+        expected_version = item.row_version
 
-    response = shopping_api_context.client.patch(f"/api/shopping-list/{shopping_api_context.item_id}", json={"done": True})
+    response = shopping_api_context.client.patch(
+        f"/api/shopping-list/{shopping_api_context.item_id}",
+        json={"done": True, "expected_row_version": expected_version},
+    )
 
     assert response.status_code == 200, response.text
     payload = response.json()
@@ -587,6 +594,7 @@ def test_patch_shopping_item_rejects_clearing_ingredient_on_content_update(
     response = shopping_api_context.client.patch(
         f"/api/shopping-list/{shopping_api_context.item_id}",
         json={
+            "expected_row_version": 1,
             "title": "临时采购",
             "quantity": 1,
             "unit": "盒",
@@ -610,6 +618,7 @@ def test_patch_shopping_item_rejects_other_family_ingredient(shopping_api_contex
     response = shopping_api_context.client.patch(
         f"/api/shopping-list/{shopping_api_context.item_id}",
         json={
+            "expected_row_version": 1,
             "title": "跨家庭鸡蛋",
             "quantity": 2,
             "unit": "个",
@@ -630,7 +639,7 @@ def test_patch_shopping_item_rejects_other_family_ingredient(shopping_api_contex
 def test_patch_shopping_item_rolls_back_when_commit_fails(shopping_api_context: ShoppingApiContext) -> None:
     with fail_next_commit("shopping commit failed"):
         with pytest.raises(RuntimeError, match="shopping commit failed"):
-            shopping_api_context.client.patch(f"/api/shopping-list/{shopping_api_context.item_id}", json={"done": True})
+            shopping_api_context.client.patch(f"/api/shopping-list/{shopping_api_context.item_id}", json={"done": True, "expected_row_version": 1})
 
     with shopping_api_context.SessionLocal() as db:
         item = db.get(ShoppingListItem, shopping_api_context.item_id)
@@ -643,7 +652,7 @@ def test_patch_shopping_item_rolls_back_when_commit_fails(shopping_api_context: 
 def test_patch_shopping_item_rejects_other_family_item_without_modifying_it(
     shopping_api_context: ShoppingApiContext,
 ) -> None:
-    response = shopping_api_context.client.patch(f"/api/shopping-list/{shopping_api_context.other_item_id}", json={"done": True})
+    response = shopping_api_context.client.patch(f"/api/shopping-list/{shopping_api_context.other_item_id}", json={"done": True, "expected_row_version": 1})
 
     assert response.status_code == 404
     assert response.json()["detail"] == "Shopping item not found"

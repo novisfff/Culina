@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel, Field, model_validator
 
 from app.core.enums import IngredientQuantityTrackingMode
 
@@ -24,6 +24,7 @@ class ShoppingListItemOut(BaseModel):
     updated_at: datetime
     created_by: str | None = None
     updated_by: str | None = None
+    row_version: int = 1
 
 
 class CreateShoppingListItemRequest(BaseModel):
@@ -67,6 +68,7 @@ class UpdateShoppingListItemRequest(BaseModel):
     display_label: str | None = None
     reason: str | None = None
     done: bool | None = None
+    expected_row_version: int = Field(ge=1)
 
     @model_validator(mode="after")
     def normalize_update_fields(self) -> "UpdateShoppingListItemRequest":

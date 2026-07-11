@@ -81,11 +81,12 @@ def execute_inventory_operation_draft(
                 )
                 entity_ids.extend(result["affected_item_ids"])
             elif action == "dispose":
+                # Unlocked provisional load only; dispose locks parent-first.
                 item = require_inventory_item(
                     db,
                     family_id=family_id,
                     inventory_item_id=str(operation["inventoryItemId"]),
-                    for_update=True,
+                    for_update=False,
                 )
                 result = dispose_inventory_quantity(
                     db,
