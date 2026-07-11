@@ -249,3 +249,78 @@ def apply_food_stock_dispose(
         summary=f"处理食物库存 {food.name} {_format_quantity(quantity, normalized_unit)}：{reason.strip()}",
         record_activity=record_activity,
     )
+
+
+def apply_food_inventory_confirm(
+    db: Session,
+    *,
+    family_id: str,
+    user_id: str,
+    food: Food,
+    record_activity: bool = False,
+) -> Food:
+    """Touch only inventory confirmation fields for reconciliation confirm."""
+    _require_food_stock_managed(food)
+    food.inventory_last_confirmed_at = utcnow()
+    food.inventory_last_confirmed_by = user_id
+    food.inventory_confirmation_source = InventoryConfirmationSource.RECONCILIATION
+    return _touch_food_stock(
+        db,
+        family_id=family_id,
+        user_id=user_id,
+        food=food,
+        summary=f"确认食物库存 {food.name}",
+        record_activity=record_activity,
+    )
+
+
+def apply_food_inventory_set_stock(
+    db: Session,
+    *,
+    family_id: str,
+    user_id: str,
+    food: Food,
+    stock_quantity: Decimal,
+    stock_unit: str | None,
+    expiry_date: date | None,
+    storage_location: str | None,
+    record_activity: bool = False,
+) -> Food:
+    """Set absolute food stock for reconciliation. Zero means absent. Never merges expiry."""
+    _require_food_stock_managed(food)
+    if stock_quantity < 0:
+        raise ValueError("库存数量不能为负")
+    validate_food_stock_quantity_precision(stock_quantity)
+
+    if stock_quantity > 0:
+        normalized_unit = _normalize_unit(stock_unit, food.stock_unit)
+        location = (storage_location or "").strip()
+        if not location:
+            raise ValueError("存放位置不能为空")
+        food.stock_unit = normalized_unit
+        food.stock_quantity = normalize_food_stock_quantity(stock_quantity)
+        food.storage_location = location
+        food.expiry_date = expiry_date
+        summary = f"调整食物库存 {food.name} 为 {_format_quantity(stock_quantity, normalized_unit)}"
+    else:
+        # Absent: zero stock; keep unit if provided else existing; clear location optional.
+        if stock_unit:
+            food.stock_unit = _normalize_unit(stock_unit, food.stock_unit)
+        food.stock_quantity = normalize_food_stock_quantity(Decimal("0"))
+        if storage_location is not None:
+            food.storage_location = storage_location.strip()
+        food.expiry_date = expiry_date
+        summary = f"确认没有 {food.name}"
+
+    food.inventory_last_confirmed_at = utcnow()
+    food.inventory_last_confirmed_by = user_id
+    food.inventory_confirmation_source = InventoryConfirmationSource.RECONCILIATION
+    return _touch_food_stock(
+        db,
+        family_id=family_id,
+        user_id=user_id,
+        food=food,
+        summary=summary,
+        record_activity=record_activity,
+    )
+
