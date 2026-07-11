@@ -289,12 +289,46 @@ describe('ingredient workspace model', () => {
     ).toEqual(['番茄', '面粉']);
   });
 
-  it('builds low-stock alerts by ingredient total and keeps expiry per batch', () => {
+  it('builds shared inventory action alerts and lets expiry win over low stock', () => {
     const alerts = buildIngredientAlerts(inventoryItems, ingredients, '2026-03-20');
 
-    expect(alerts).toHaveLength(2);
-    expect(alerts.some((item) => item.kind === 'lowStock' && item.ingredientName === '番茄')).toBe(true);
     expect(alerts.some((item) => item.kind === 'expiry' && item.ingredientName === '番茄')).toBe(true);
+    expect(alerts.some((item) => item.kind === 'lowStock' && item.ingredientName === '番茄')).toBe(false);
+
+    const yogurt: Ingredient = {
+      ...ingredients[0]!,
+      id: 'ingredient-yogurt',
+      name: '酸奶',
+      default_unit: '瓶',
+      default_low_stock_threshold: 3,
+      default_expiry_mode: 'none',
+    };
+    const yogurtInventory: InventoryItem = {
+      id: 'inventory-yogurt',
+      family_id: 'family-1',
+      ingredient_id: yogurt.id,
+      ingredient_name: yogurt.name,
+      quantity: 1,
+      remaining_quantity: 1,
+      unit: '瓶',
+      status: 'fresh',
+      purchase_date: '2026-03-20',
+      expiry_date: null,
+      storage_location: '冷藏',
+      notes: '',
+      low_stock_threshold: 99,
+      created_at: '2026-03-20T10:00:00Z',
+      updated_at: '2026-03-20T10:00:00Z',
+      row_version: 1,
+    };
+    const lowStockAlerts = buildIngredientAlerts([yogurtInventory], [yogurt], '2026-03-20');
+    expect(lowStockAlerts).toEqual([
+      expect.objectContaining({
+        kind: 'lowStock',
+        ingredientName: '酸奶',
+        title: '酸奶库存不足',
+      }),
+    ]);
   });
 
   it('shows presence status instead of fake quantities for not-tracked ingredients', () => {
@@ -449,32 +483,59 @@ describe('ingredient workspace model', () => {
   });
 
   it('excludes expired batches when checking aggregated low-stock alerts', () => {
+    const yogurt: Ingredient = {
+      ...ingredients[0]!,
+      id: 'ingredient-yogurt',
+      name: '酸奶',
+      default_unit: '瓶',
+      default_low_stock_threshold: 5,
+    };
     const alerts = buildIngredientAlerts(
       [
-        ...inventoryItems,
         {
-          id: 'inventory-4',
+          id: 'inventory-yogurt-available',
           family_id: 'family-1',
-          ingredient_id: 'ingredient-tomato',
-          ingredient_name: '番茄',
+          ingredient_id: yogurt.id,
+          ingredient_name: yogurt.name,
+          quantity: 2,
+          remaining_quantity: 2,
+          unit: '瓶',
+          status: 'fresh',
+          purchase_date: '2026-03-20',
+          expiry_date: null,
+          storage_location: '冷藏',
+          notes: '',
+          low_stock_threshold: 99,
+          created_at: '2026-03-20T10:00:00Z',
+          updated_at: '2026-03-20T10:00:00Z',
+          row_version: 1,
+        },
+        {
+          id: 'inventory-yogurt-expired',
+          family_id: 'family-1',
+          ingredient_id: yogurt.id,
+          ingredient_name: yogurt.name,
           quantity: 8,
-          unit: '个',
+          remaining_quantity: 8,
+          unit: '瓶',
           status: 'fresh',
           purchase_date: '2026-03-15',
           expiry_date: '2026-03-18',
           storage_location: '冷藏',
           notes: '旧的一批',
-          low_stock_threshold: 3,
+          low_stock_threshold: 99,
           created_at: '2026-03-15T10:00:00Z',
           updated_at: '2026-03-15T10:00:00Z',
           row_version: 1,
+          expiry_alert_snoozed_until: '2026-03-25',
         },
       ],
-      ingredients,
+      [yogurt],
       '2026-03-20'
     );
 
-    expect(alerts.some((item) => item.kind === 'lowStock' && item.ingredientName === '番茄')).toBe(true);
+    expect(alerts.some((item) => item.kind === 'lowStock' && item.ingredientName === '酸奶')).toBe(true);
+    expect(alerts.some((item) => item.kind === 'expiry')).toBe(false);
   });
 
   it('aggregates multiple entered units into the default unit summary', () => {
@@ -579,7 +640,7 @@ describe('ingredient workspace model', () => {
     expect(overview[0]).toMatchObject({
       ingredientCount: 1,
       totalBatches: 1,
-      alertCount: 2,
+      alertCount: 1,
       tone: 'danger',
     });
     expect(overview[1]).toMatchObject({
@@ -696,7 +757,7 @@ describe('ingredient workspace model', () => {
     expect(buildInventoryCardPresentation(tomato!, '2026-03-20')).toMatchObject({
       headline: '2个',
       secondary: `最近补货 ${restockDate} · 最早 ${tomatoExpiryDate} 到期`,
-      footerNote: expect.stringContaining('当前有 2 条提醒'),
+      footerNote: expect.stringContaining('当前有 1 条提醒'),
       hasExpiryInfo: true,
       expiryLabel: '距到期 1 天',
       expiryDateLabel: tomatoExpiryDate,
@@ -1223,3 +1284,44 @@ describe('ingredient workspace model', () => {
     ]);
   });
 });
+
+  it('uses the shared seven-day action window instead of the old two-day rule', () => {
+    const milk: Ingredient = {
+      ...ingredients[0]!,
+      id: 'ingredient-milk',
+      name: '牛奶',
+      default_unit: '盒',
+      default_low_stock_threshold: null,
+    };
+    const alerts = buildIngredientAlerts(
+      [
+        {
+          id: 'inventory-milk-later',
+          family_id: 'family-1',
+          ingredient_id: milk.id,
+          ingredient_name: milk.name,
+          quantity: 1,
+          remaining_quantity: 1,
+          unit: '盒',
+          status: 'fresh',
+          purchase_date: '2026-03-20',
+          expiry_date: '2026-03-26',
+          storage_location: '冷藏',
+          notes: '',
+          low_stock_threshold: 0,
+          created_at: '2026-03-20T10:00:00Z',
+          updated_at: '2026-03-20T10:00:00Z',
+          row_version: 1,
+        },
+      ],
+      [milk],
+      '2026-03-20'
+    );
+
+    expect(alerts).toEqual([
+      expect.objectContaining({
+        kind: 'expiry',
+        ingredientName: '牛奶',
+      }),
+    ]);
+  });

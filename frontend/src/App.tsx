@@ -19,7 +19,6 @@ import {
 } from './components/ui-kit';
 import {
   FOOD_TYPE_LABELS,
-  buildInventoryAlerts,
   getFoodCover,
   todayKey,
 } from './lib/ui';

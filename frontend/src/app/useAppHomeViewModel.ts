@@ -13,7 +13,12 @@ import type {
   UserSummary,
 } from '../api/types';
 import { buildDisposableExpiredInventoryItems, buildIngredientSummaries } from '../components/ingredients/workspaceModel';
-import { buildInventoryAlerts, getFoodCover, todayKey } from '../lib/ui';
+import {
+  buildInventoryActionGroups,
+  countUniqueAvailableIngredients,
+} from '../features/inventory/inventoryActionModel';
+import { getFoodCover } from '../lib/ui';
+import { businessDateKey } from '../lib/date';
 import type { FamilyStatCard } from '../features/family/FamilySettings';
 import {
   buildHomeDashboardViewModel,
@@ -49,6 +54,7 @@ type UseAppHomeViewModelArgs = {
   homeRestockForm: HomeRestockFormState | null;
   homeExpiredDisposalIngredientId: string | null;
   resolveDashboardAssetUrl: (url?: string) => string | undefined;
+  now?: Date;
 };
 
 export function useAppHomeViewModel(args: UseAppHomeViewModelArgs) {
@@ -73,7 +79,17 @@ export function useAppHomeViewModel(args: UseAppHomeViewModelArgs) {
 
   const currentUser = args.user;
   const isOwner = args.membershipRole === 'Owner';
-  const inventoryAlerts = buildInventoryAlerts(args.inventoryItems, args.ingredients);
+  const businessDate = businessDateKey(args.now ?? new Date(), 'Asia/Shanghai');
+  const inventoryActionGroups = buildInventoryActionGroups({
+    inventoryItems: args.inventoryItems,
+    ingredients: args.ingredients,
+    shoppingItems: args.shoppingItems,
+    referenceDate: businessDate,
+  });
+  const availableIngredientCount = countUniqueAvailableIngredients({
+    inventoryItems: args.inventoryItems,
+    referenceDate: businessDate,
+  });
   const pendingShoppingCount = args.shoppingItems.filter((item) => !item.done).length;
   const aiRecommendationCount = (args.family?.ai_recommendations ?? []).length;
   const recentMeals = [...args.mealLogs].slice(0, 6);
@@ -136,11 +152,12 @@ export function useAppHomeViewModel(args: UseAppHomeViewModelArgs) {
   const sidebarUserNote = args.family?.location
     ? `${args.family.location} · ${sidebarFamilyName}`
     : sidebarFamilyName;
-  const today = todayKey();
+  const today = businessDate;
   const ingredientById = new Map(args.ingredients.map((ingredient) => [ingredient.id, ingredient]));
   const dashboardViewModel = buildHomeDashboardViewModel({
     inventoryItems: args.inventoryItems,
-    inventoryAlertCount: inventoryAlerts.length,
+    inventoryActionGroups,
+    availableIngredientCount,
     shoppingItems: args.shoppingItems,
     foodPlanItems: args.foodPlanItems,
     foodRecommendations: args.foodRecommendations,
@@ -183,13 +200,23 @@ export function useAppHomeViewModel(args: UseAppHomeViewModelArgs) {
         ingredients: [homeExpiredDisposalIngredient],
         inventoryItems: args.inventoryItems.filter((item) => item.ingredient_id === homeExpiredDisposalIngredient.id),
         recipes: args.recipes,
+        today: businessDate,
+        shoppingItems: args.shoppingItems,
       })
     : [];
   const homeExpiredDisposalSummary =
     ingredientSummaries[0] ?? null;
   const homeExpiredDisposalItems = homeExpiredDisposalSummary
-    ? buildDisposableExpiredInventoryItems(homeExpiredDisposalSummary)
+    ? buildDisposableExpiredInventoryItems(homeExpiredDisposalSummary, businessDate)
     : [];
+
+  // Temporary compatibility for pre-Task-7 home UI props; badge/count use grouped actions.
+  const inventoryAlerts = dashboardViewModel.homeEligibleInventoryActionGroups.map((group) => ({
+    id: group.id,
+    title: group.title,
+    detail: group.detail,
+    tone: group.kind === 'low_stock' ? ('warning' as const) : ('danger' as const),
+  }));
 
   return {
     homePlanDetailItem,
@@ -198,7 +225,9 @@ export function useAppHomeViewModel(args: UseAppHomeViewModelArgs) {
     homePlanAddFoodOptions,
     currentUser,
     isOwner,
+    inventoryActionGroups,
     inventoryAlerts,
+    businessDateKey: businessDate,
     aiRecommendationCount,
     recentMeals,
     currentUserRecentLogs,

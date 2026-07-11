@@ -11,8 +11,13 @@ import type {
   ShoppingListItem,
 } from '../../api/types';
 import type { DashboardIconName } from '../../app/shellIcons';
-import { addDateKeyDays, todayKey } from '../../lib/date';
-import { formatDate, formatRelativeDays, getFoodCover, INVENTORY_STATUS_LABELS, MEAL_TYPE_LABELS } from '../../lib/ui';
+import {
+  selectHomeEligibleInventoryActionGroups,
+  selectHomeInventoryActionGroups,
+  type InventoryActionGroup,
+} from '../inventory/inventoryActionModel';
+import { addDateKeyDays, calendarDaysBetweenDateKeys, todayKey } from '../../lib/date';
+import { formatDate, getFoodCover } from '../../lib/ui';
 
 export const DASHBOARD_PLAN_MEAL_TYPES: MealType[] = ['breakfast', 'lunch', 'dinner', 'snack'];
 export const DASHBOARD_TODO_PAGE_SIZE = 4;
@@ -106,11 +111,7 @@ export type DashboardTodoItem =
     };
 
 export function getExpiryDaysLeft(expiryDate: string, referenceDate: string) {
-  const [expiryYear, expiryMonth, expiryDay] = expiryDate.slice(0, 10).split('-').map(Number);
-  const [referenceYear, referenceMonth, referenceDay] = referenceDate.slice(0, 10).split('-').map(Number);
-  const expiryTime = new Date(expiryYear, (expiryMonth || 1) - 1, expiryDay || 1).getTime();
-  const referenceTime = new Date(referenceYear, (referenceMonth || 1) - 1, referenceDay || 1).getTime();
-  return Math.round((expiryTime - referenceTime) / (1000 * 60 * 60 * 24));
+  return calendarDaysBetweenDateKeys(expiryDate.slice(0, 10), referenceDate.slice(0, 10));
 }
 
 export function getDashboardExpiryBadge(daysLeft: number) {
@@ -152,12 +153,14 @@ export function parsePositiveNumber(value: string) {
 }
 
 export function findShoppingIngredient(item: ShoppingListItem, ingredients: Ingredient[]) {
+  if (item.ingredient_id) {
+    return ingredients.find((ingredient) => ingredient.id === item.ingredient_id) ?? null;
+  }
   const title = item.title.trim();
-  return (
-    ingredients.find((ingredient) => ingredient.name === title) ??
-    ingredients.find((ingredient) => title.includes(ingredient.name) || ingredient.name.includes(title)) ??
-    null
-  );
+  if (!title) {
+    return null;
+  }
+  return ingredients.find((ingredient) => ingredient.name.trim() === title) ?? null;
 }
 
 export function buildHomeRestockForm(item: ShoppingListItem, ingredients: Ingredient[]): HomeRestockFormState {
@@ -186,7 +189,8 @@ export function buildHomeRestockForm(item: ShoppingListItem, ingredients: Ingred
 
 export function buildHomeDashboardViewModel(input: {
   inventoryItems: InventoryItem[];
-  inventoryAlertCount: number;
+  inventoryActionGroups: InventoryActionGroup[];
+  availableIngredientCount: number;
   shoppingItems: ShoppingListItem[];
   foodPlanItems: FoodPlanItem[];
   foodRecommendations?: FoodRecommendations | null;
@@ -199,7 +203,15 @@ export function buildHomeDashboardViewModel(input: {
   selectedDashboardPlanDate: string;
   foodPlanWeekRange: { start: string; end: string };
 }) {
-  const availableInventoryCount = input.inventoryItems.filter((item) => (item.remaining_quantity ?? item.quantity) > 0).length;
+  const homeEligibleInventoryActionGroups = selectHomeEligibleInventoryActionGroups(input.inventoryActionGroups);
+  const homeInventoryActionGroups = selectHomeInventoryActionGroups(input.inventoryActionGroups, 3);
+  const homeInventoryActionCount = homeEligibleInventoryActionGroups.length;
+  const hasLaterInventoryActionGroups = input.inventoryActionGroups.some(
+    (group) => group.kind === 'expiry' && group.severity === 'expires_later'
+  );
+  const hasFullListInventoryActionGroups = input.inventoryActionGroups.length > homeInventoryActionGroups.length;
+  const availableInventoryCount = input.availableIngredientCount;
+  // Legacy raw lists retained for pre-Task-7 UI wiring; no longer feed home stats/action counts.
   const expiringInventoryItems = input.inventoryItems
     .filter((item) => (item.remaining_quantity ?? item.quantity) > 0 && item.expiry_date)
     .map((item) => ({
@@ -223,10 +235,10 @@ export function buildHomeDashboardViewModel(input: {
       tone: 'green',
     },
     {
-      label: '临期提醒',
-      value: `${input.inventoryAlertCount}`,
-      unit: '项',
-      detail: '已过期/7 天内到期',
+      label: '需处理食材',
+      value: `${homeInventoryActionCount}`,
+      unit: '种',
+      detail: '过期、临期或待补货',
       icon: 'bell',
       tone: 'coral',
     },
@@ -256,49 +268,11 @@ export function buildHomeDashboardViewModel(input: {
     (input.dashboardRecommendationPage % dashboardRecommendationPageCount) * 3,
     (input.dashboardRecommendationPage % dashboardRecommendationPageCount) * 3 + 3
   );
-  const dashboardTodoItems: DashboardTodoItem[] = [
-    ...expiringInventoryItems.map((item) => ({
-      type: 'expiry' as const,
-      id: `expiry-${item.id}`,
-      title: `处理临期${item.ingredient_name}`,
-      status: item.daysLeft <= 1 ? '紧急' : '待办',
-      done: false as const,
-      dateLabel: item.daysLeft <= 0 ? '今天' : formatRelativeDays(item.expiry_date ?? input.today),
-      description: `${item.storage_location || INVENTORY_STATUS_LABELS[item.status]} · ${
-        item.expiry_date ? formatDate(item.expiry_date) : '未记录到期日'
-      }到期`,
-      icon: 'bell' as const,
-      item,
-    })),
-    ...pendingShoppingPreview.map((item) => ({
-      type: 'shopping' as const,
-      id: `shopping-${item.id}`,
-      title: `补齐${item.title}`,
-      status: '待办',
-      done: false as const,
-      dateLabel: '今天',
-      description: `${item.quantity}${item.unit || ''}${item.reason ? ` · ${item.reason}` : ' · 采购后可快速入库'}`,
-      icon: 'cart' as const,
-      item,
-    })),
-    ...todaysMeals.map((meal) => ({
-      type: 'meal' as const,
-      id: `meal-${meal.id}`,
-      title: `记录${MEAL_TYPE_LABELS[meal.meal_type]}`,
-      status: '已完成',
-      done: true as const,
-      dateLabel: '今天',
-      description:
-        meal.food_entries.length > 0
-          ? meal.food_entries.map((entry) => entry.food_name).join('、')
-          : meal.notes || '查看这餐的记录详情',
-      icon: 'check' as const,
-      item: meal,
-    })),
-  ];
+  // Keep empty todo lists for legacy UI until Task 7 replaces rendering.
+  const dashboardTodoItems: DashboardTodoItem[] = [];
   const visibleDashboardTodoItems = dashboardTodoItems.slice(0, input.visibleDashboardTodoCount);
-  const hasMoreDashboardTodoItems = visibleDashboardTodoItems.length < dashboardTodoItems.length;
-  const dashboardCompletedCount = dashboardTodoItems.filter((item) => item.done).length;
+  const hasMoreDashboardTodoItems = false;
+  const dashboardCompletedCount = 0;
   const dashboardWeekMealCapacity = 7 * DASHBOARD_PLAN_MEAL_TYPES.length;
   const completedFoodPlanCount = activeFoodPlanItems.filter((item) => item.status === 'cooked').length;
   const pendingFoodPlanSlots = Math.max(0, dashboardWeekMealCapacity - activeFoodPlanItems.length);
@@ -333,6 +307,11 @@ export function buildHomeDashboardViewModel(input: {
     : '';
   return {
     availableInventoryCount,
+    homeEligibleInventoryActionGroups,
+    homeInventoryActionGroups,
+    homeInventoryActionCount,
+    hasLaterInventoryActionGroups,
+    hasFullListInventoryActionGroups,
     expiringInventoryItems,
     visibleExpiringInventoryItems,
     activeFoodPlanItems,

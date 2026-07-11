@@ -1,4 +1,8 @@
 import type { Food, Ingredient, InventoryItem, Recipe, ShoppingListItem } from '../../api/types';
+import {
+  buildInventoryActionGroups,
+  type InventoryActionGroup,
+} from '../../features/inventory/inventoryActionModel';
 import { formatDate, todayKey } from '../../lib/ui';
 import {
   getIngredientAvailableQuantityInDefault,
@@ -317,68 +321,70 @@ function isAvailableInventory(item: InventoryItem, todayTime: number) {
 export function buildIngredientAlerts(
   inventoryItems: InventoryItem[],
   ingredients: Ingredient[],
-  today = todayKey()
+  today = todayKey(),
+  shoppingItems: ShoppingListItem[] = []
 ) {
+  const groups = buildInventoryActionGroups({
+    inventoryItems,
+    ingredients,
+    shoppingItems,
+    referenceDate: today,
+  });
+  return inventoryActionGroupsToAlerts(groups, ingredients);
+}
+
+export function inventoryActionGroupsToAlerts(
+  groups: InventoryActionGroup[],
+  ingredients: Ingredient[]
+): IngredientAlertViewModel[] {
+  const ingredientById = new Map(ingredients.map((ingredient) => [ingredient.id, ingredient]));
   const alerts: IngredientAlertViewModel[] = [];
-  const todayTime = new Date(today).getTime();
 
-  for (const ingredient of ingredients) {
-    if (!tracksIngredientQuantity(ingredient)) {
-      continue;
-    }
-    if (ingredient.default_low_stock_threshold === null || ingredient.default_low_stock_threshold === undefined) {
-      continue;
-    }
-    const availableQuantity = getIngredientAvailableQuantityInDefault(
-      ingredient,
-      inventoryItems.filter((item) => item.ingredient_id === ingredient.id && isRemainingInventory(item)),
-      { excludeExpiredAt: today }
-    );
-
-    if (availableQuantity <= ingredient.default_low_stock_threshold) {
+  for (const group of groups) {
+    const ingredient = ingredientById.get(group.ingredientId);
+    if (group.kind === 'low_stock') {
       alerts.push({
-        id: `${ingredient.id}-low`,
-        ingredientId: ingredient.id,
-        ingredientName: ingredient.name,
-        title: `${ingredient.name} 快不够用了`,
-        detail: `当前可用 ${formatQuantityValue(availableQuantity)}${ingredient.default_unit}，已经低于默认提醒值 ${ingredient.default_low_stock_threshold}${ingredient.default_unit}。`,
+        id: `${group.ingredientId}-low`,
+        ingredientId: group.ingredientId,
+        ingredientName: group.ingredientName,
+        title: group.title,
+        detail: group.detail,
         tone: 'warning',
         kind: 'lowStock',
-        storageLocation: ingredient.default_storage,
+        storageLocation: ingredient?.default_storage || '',
+      });
+      continue;
+    }
+
+    for (const batch of group.batches) {
+      alerts.push({
+        id: `${batch.inventoryItemId}-expiry`,
+        ingredientId: group.ingredientId,
+        ingredientName: group.ingredientName,
+        title: group.title,
+        detail: group.detail,
+        tone: group.severity === 'expires_later' ? 'warning' : 'danger',
+        kind: 'expiry',
+        storageLocation: batch.storageLocation || ingredient?.default_storage || '',
       });
     }
   }
 
-  for (const item of inventoryItems) {
-    if (!isRemainingInventory(item)) {
-      continue;
-    }
-    const ingredient = ingredients.find((entry) => entry.id === item.ingredient_id);
-    if (!ingredient) {
-      continue;
-    }
-    if (item.expiry_date) {
-      const diffDays = Math.round(
-        (new Date(item.expiry_date).getTime() - todayTime) / (1000 * 60 * 60 * 24)
-      );
-      if (diffDays <= 2) {
-        alerts.push({
-          id: `${item.id}-expiry`,
-          ingredientId: ingredient.id,
-          ingredientName: ingredient.name,
-          title: `${ingredient.name} ${diffDays < 0 ? '已经过期' : '快到期了'}`,
-          detail: `${item.storage_location || ingredient.default_storage} 这批食材${diffDays < 0 ? '已经超过' : '将在'} ${formatDate(item.expiry_date)} ${
-            diffDays < 0 ? '到期' : '到期'
-          }，建议优先安排。`,
-          tone: 'danger',
-          kind: 'expiry',
-          storageLocation: item.storage_location,
-        });
-      }
-    }
-  }
-
   return alerts;
+}
+
+export function buildIngredientPriorityActionGroups(args: {
+  inventoryItems: InventoryItem[];
+  ingredients: Ingredient[];
+  shoppingItems?: ShoppingListItem[];
+  referenceDate: string;
+}) {
+  return buildInventoryActionGroups({
+    inventoryItems: args.inventoryItems,
+    ingredients: args.ingredients,
+    shoppingItems: args.shoppingItems ?? [],
+    referenceDate: args.referenceDate,
+  });
 }
 
 export function buildQuantitySummaries(inventoryItems: InventoryItem[]): QuantitySummaryViewModel[] {
@@ -419,10 +425,11 @@ export function buildIngredientSummaries(args: {
   inventoryItems: InventoryItem[];
   recipes: Recipe[];
   today?: string;
+  shoppingItems?: ShoppingListItem[];
 }) {
-  const { ingredients, inventoryItems, recipes, today = todayKey() } = args;
+  const { ingredients, inventoryItems, recipes, today = todayKey(), shoppingItems = [] } = args;
   const todayTime = new Date(today).getTime();
-  const alerts = buildIngredientAlerts(inventoryItems, ingredients, today);
+  const alerts = buildIngredientAlerts(inventoryItems, ingredients, today, shoppingItems);
 
   return ingredients
     .map<IngredientSummaryViewModel>((ingredient) => {
@@ -792,9 +799,10 @@ export function buildInventoryBatchGroups(args: {
   ingredients: Ingredient[];
   inventoryItems: InventoryItem[];
   today?: string;
+  shoppingItems?: ShoppingListItem[];
 }) {
-  const { ingredients, inventoryItems, today = todayKey() } = args;
-  const alerts = buildIngredientAlerts(inventoryItems, ingredients, today);
+  const { ingredients, inventoryItems, today = todayKey(), shoppingItems = [] } = args;
+  const alerts = buildIngredientAlerts(inventoryItems, ingredients, today, shoppingItems);
   const grouped = new Map<string, InventoryBatchItemViewModel[]>();
 
   for (const item of inventoryItems) {

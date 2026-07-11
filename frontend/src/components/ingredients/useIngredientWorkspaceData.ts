@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 import type { Food, Ingredient, InventoryItem, Recipe, ShoppingListItem } from '../../api/types';
 import {
+  buildIngredientPriorityActionGroups,
   buildInventoryCardStatus,
   buildInventoryStorageOverview,
   buildIngredientCategoryFilters,
@@ -17,6 +18,7 @@ import {
   type IngredientSummaryViewModel,
   type ShoppingOverviewViewModel,
 } from './workspaceModel';
+import { businessDateKey } from '../../lib/date';
 import type { InventoryStorageFocus } from './ingredientWorkspaceForms';
 import type { InventoryEntryFilter } from './inventoryOverviewModel';
 import type {
@@ -52,6 +54,7 @@ type UseIngredientWorkspaceDataArgs = {
     filter: CatalogStatusFilter
   ) => IngredientSummaryViewModel[];
   isPendingShopping: (item: ShoppingListItem) => boolean;
+  referenceDate?: string;
 };
 
 export function filterMobileCatalogSummaries(args: {
@@ -106,10 +109,20 @@ function filterInventorySummariesByQuickFilter(
 
 export function useIngredientWorkspaceData(args: UseIngredientWorkspaceDataArgs) {
   return useMemo(() => {
+    const referenceDate = args.referenceDate ?? businessDateKey();
+    const inventoryActionGroups = buildIngredientPriorityActionGroups({
+      ingredients: args.ingredients,
+      inventoryItems: args.inventoryItems,
+      shoppingItems: args.shoppingItems,
+      referenceDate,
+    });
+    const actionableIngredientIds = new Set(inventoryActionGroups.map((group) => group.ingredientId));
     const summaries = buildIngredientSummaries({
       ingredients: args.ingredients,
       inventoryItems: args.inventoryItems,
       recipes: args.recipes,
+      today: referenceDate,
+      shoppingItems: args.shoppingItems,
     });
     const catalogCategories = buildIngredientCategoryFilters(args.ingredients);
     const catalogBaseSummaries = filterIngredientSummaries(
@@ -161,23 +174,16 @@ export function useIngredientWorkspaceData(args: UseIngredientWorkspaceDataArgs)
       shoppingOverview.find((item) => item.key === args.shoppingFocus) ?? shoppingOverview[0] ?? null;
     const stockedIngredientCount = summaries.filter((item) => item.quantitySummaries.length > 0).length;
     const workspaceMetrics = [
-      { label: '提醒', value: `${allAlerts.length} 条`, detail: '低库存与临期需要优先处理' },
+      { label: '提醒', value: `${priorityActionCount} 种`, detail: '过期、临期或待补货需要优先处理' },
       { label: '待买', value: `${pendingShopping.length} 项`, detail: '购物清单中尚未完成的项目' },
       { label: '在库食材', value: `${stockedIngredientCount} 种`, detail: '已经登记过库存的食材' },
     ];
-    const mobilePrioritySummaries = [...summaries]
-      .filter((summary) => summary.alerts.length > 0 || summary.quantitySummaries.length === 0)
-      .sort((left, right) => {
-        const leftStatus = buildInventoryCardStatus(left);
-        const rightStatus = buildInventoryCardStatus(right);
-        return (
-          rightStatus.priority - leftStatus.priority ||
-          right.alerts.length - left.alerts.length ||
-          right.latestUpdatedAt.localeCompare(left.latestUpdatedAt) ||
-          left.ingredient.name.localeCompare(right.ingredient.name, 'zh-CN')
-        );
-      })
+    const summaryByIngredientId = new Map(summaries.map((summary) => [summary.ingredient.id, summary]));
+    const mobilePrioritySummaries = inventoryActionGroups
+      .map((group) => summaryByIngredientId.get(group.ingredientId))
+      .filter((summary): summary is IngredientSummaryViewModel => Boolean(summary))
       .slice(0, 6);
+    const priorityActionCount = inventoryActionGroups.length;
     const mobileStorageCards = buildInventoryStorageOverview(summaries).filter((item) =>
       ['冷藏', '冷冻', '常温'].includes(item.key)
     );
@@ -213,6 +219,9 @@ export function useIngredientWorkspaceData(args: UseIngredientWorkspaceDataArgs)
 
     return {
       summaries,
+      inventoryActionGroups,
+      priorityActionCount,
+      actionableIngredientIds,
       catalogCategories,
       filteredSummaries,
       catalogCountLabel,
@@ -260,6 +269,7 @@ export function useIngredientWorkspaceData(args: UseIngredientWorkspaceDataArgs)
     args.mobileInventoryEntryFilter,
     args.mobileStorageFocus,
     args.recipes,
+    args.referenceDate,
     args.selectedIngredientId,
     args.shoppingFocus,
     args.shoppingItems,
