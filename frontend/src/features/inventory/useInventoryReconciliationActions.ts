@@ -246,11 +246,14 @@ export function useInventoryReconciliationActions(
     const currentState = stateRef.current;
     if (!currentState.draft) {
       currentState.setErrorMessage('没有可提交的盘点草稿。');
+      currentState.recoverToReview();
       return;
     }
 
     const localErrors = currentState.applyLocalValidation();
     if (localErrors.length > 0) {
+      // Local validation may run from summary; force review so field controls are mounted.
+      currentState.recoverToReview();
       return;
     }
 
@@ -259,6 +262,7 @@ export function useInventoryReconciliationActions(
       payload = buildReconciliationPayload(stateRef.current.draft!);
     } catch (reason) {
       stateRef.current.setErrorMessage(messageOf(reason, '请检查盘点内容后再提交。'));
+      stateRef.current.recoverToReview();
       return;
     }
 
@@ -278,19 +282,25 @@ export function useInventoryReconciliationActions(
       if (isApiError(reason) && reason.status === 422) {
         const detail = extractStructuredDetail(reason);
         const fieldErrors = mapReconciliationFieldErrors(detail, stateRef.current.draft);
-        stateRef.current.setFieldErrors(fieldErrors);
         if (fieldErrors.length > 0) {
           const first = fieldErrors[0];
-          stateRef.current.setFocusFieldKey(
-            first.targetKey ? `${first.targetKey}:${first.field}` : first.field,
-          );
-          stateRef.current.setErrorMessage(
+          const focusFieldKey = first.targetKey ? `${first.targetKey}:${first.field}` : first.field;
+          const errorMessage =
             fieldErrors.length === 1
               ? first.message
-              : `还有 ${fieldErrors.length} 处需要确认后才能提交。`,
-          );
+              : `还有 ${fieldErrors.length} 处需要确认后才能提交。`;
+          // Force review so mapped field_errors attach to visible group controls.
+          stateRef.current.recoverToReview({
+            fieldErrors,
+            focusFieldKey,
+            errorMessage,
+          });
         } else {
-          stateRef.current.setErrorMessage(messageOf(reason, '提交内容无效，请检查后重试。'));
+          stateRef.current.recoverToReview({
+            fieldErrors: [],
+            focusFieldKey: null,
+            errorMessage: messageOf(reason, '提交内容无效，请检查后重试。'),
+          });
         }
         return;
       }
@@ -328,6 +338,7 @@ export function useInventoryReconciliationActions(
         } catch {
           // Keep current draft; conflict message already set.
         }
+        stateRef.current.recoverToReview();
         return;
       }
 

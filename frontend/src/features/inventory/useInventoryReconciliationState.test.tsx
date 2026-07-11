@@ -392,6 +392,63 @@ describe('useInventoryReconciliationState', () => {
     expect(latest!.open).toBe(true);
   });
 
+  it('goToReview preserves fieldErrors after failed recovery path', () => {
+    const state = renderHook();
+    const eggs = makeExactGroup();
+
+    act(() => {
+      state.beginOpen({
+        familyId: FAMILY_ID,
+        userId: USER_ID,
+        scope: 'all',
+        now: NOW,
+      });
+      latest!.applyLoadedGroups({
+        response: makeResponse([eggs]),
+        scope: 'all',
+      });
+      latest!.setIntent(buildExactConfirmAllIntent(eggs), NOW);
+    });
+
+    act(() => {
+      latest!.goToSummary();
+    });
+    expect(latest!.step).toBe('summary');
+
+    act(() => {
+      latest!.recoverToReview({
+        fieldErrors: [
+          {
+            targetKey: 'exact_ingredient:ing-egg',
+            field: 'batch:batch-1:actualRemainingQuantity',
+            code: 'invalid_quantity',
+            message: '请填写有效剩余量',
+          },
+        ],
+        focusFieldKey: 'exact_ingredient:ing-egg:batch:batch-1:actualRemainingQuantity',
+        errorMessage: '请填写有效剩余量',
+      });
+    });
+    expect(latest!.step).toBe('review');
+    expect(latest!.fieldErrors).toHaveLength(1);
+    expect(latest!.focusFieldKey).toBe(
+      'exact_ingredient:ing-egg:batch:batch-1:actualRemainingQuantity',
+    );
+    expect(latest!.expandedBatchGroupKeys).toContain('exact_ingredient:ing-egg');
+    expect(latest!.errorMessage).toBe('请填写有效剩余量');
+
+    // User cancel summary-style goToReview must not wipe recovered errors.
+    act(() => {
+      latest!.goToReview();
+    });
+    expect(latest!.step).toBe('review');
+    expect(latest!.fieldErrors).toHaveLength(1);
+    expect(latest!.focusFieldKey).toBe(
+      'exact_ingredient:ing-egg:batch:batch-1:actualRemainingQuantity',
+    );
+    expect(latest!.errorMessage).toBe('请填写有效剩余量');
+  });
+
   it('uses family/user scoped storage key and rejects mismatched draft shapes', () => {
     expect(reconciliationDraftKey(FAMILY_ID, USER_ID)).toBe(
       `culina:inventory-reconciliation-draft:${FAMILY_ID}:${USER_ID}`,

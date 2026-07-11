@@ -502,6 +502,114 @@ describe('useInventoryReconciliationActions', () => {
     expect(latest!.state.result).toBeNull();
   });
 
+  it('submit from summary 422 recovers onto review with fieldErrors and expanded batch controls', async () => {
+    const eggs = makeExactGroup();
+    const submit = vi.fn().mockRejectedValueOnce(
+      new ApiError({
+        status: 422,
+        detail: '数量无效',
+        path: '/api/inventory/reconciliations',
+        payload: {
+          detail: {
+            code: 'invalid_quantity',
+            message: '数量无效',
+            field_errors: [
+              {
+                path: 'groups.0.updates.0.actual_remaining_quantity',
+                message: '请填写有效剩余量',
+                code: 'invalid_quantity',
+              },
+            ],
+          },
+        },
+      }),
+    );
+
+    renderBundle({
+      fetchReconciliation: vi.fn(async () => makeResponse([eggs])),
+      submitReconciliation: submit,
+      invalidateAfterInventoryOperation: vi.fn(async () => undefined),
+    });
+
+    await act(async () => {
+      await latest!.actions.openReconciliation('all');
+    });
+    act(() => {
+      latest!.state.setIntent(
+        {
+          kind: 'exact_ingredient',
+          ingredientId: 'ing-egg',
+          expectedIngredientRowVersion: 4,
+          action: 'adjust_batches',
+          observedBatches: [{ inventory_item_id: 'batch-1', expected_row_version: 1 }],
+          updates: [
+            {
+              inventoryItemId: 'batch-1',
+              expectedRowVersion: 1,
+              actualRemainingQuantity: '2',
+              inventoryStatus: 'fresh',
+              purchaseDate: '2026-07-01',
+              expiryDate: '2026-07-20',
+              storageLocation: '冷藏',
+              notes: '',
+            },
+          ],
+          creates: [],
+        },
+        NOW,
+      );
+    });
+
+    let advanced = false;
+    act(() => {
+      advanced = latest!.state.goToSummary();
+    });
+    expect(advanced).toBe(true);
+    expect(latest!.state.step).toBe('summary');
+    expect(latest!.state.expandedBatchGroupKeys).toEqual([]);
+
+    await act(async () => {
+      await latest!.actions.submitDraft();
+    });
+
+    expect(submit).toHaveBeenCalledTimes(1);
+    expect(latest!.state.step).toBe('review');
+    expect(latest!.state.fieldErrors).toEqual([
+      expect.objectContaining({
+        targetKey: 'exact_ingredient:ing-egg',
+        field: 'batch:batch-1:actualRemainingQuantity',
+        message: '请填写有效剩余量',
+      }),
+    ]);
+    expect(latest!.state.focusFieldKey).toBe(
+      'exact_ingredient:ing-egg:batch:batch-1:actualRemainingQuantity',
+    );
+    expect(latest!.state.expandedBatchGroupKeys).toContain('exact_ingredient:ing-egg');
+    expect(latest!.state.errorMessage).toBe('请填写有效剩余量');
+
+    // Summary "返回检查" after 422 must not wipe recovered field errors.
+    act(() => {
+      latest!.state.goToSummary();
+    });
+    // goToSummary may fail validation or succeed; force summary then cancel back.
+    act(() => {
+      // ensure we're able to exercise goToReview from a summary-like state
+      // even if goToSummary re-validates and stays on review when errors exist
+      if (latest!.state.step !== 'summary') {
+        // recover path already left us on review with errors; re-enter summary by
+        // temporarily clearing then restoring is unnecessary — call goToReview directly.
+      }
+    });
+    const errorsAfter422 = latest!.state.fieldErrors;
+    const focusAfter422 = latest!.state.focusFieldKey;
+    act(() => {
+      latest!.state.goToReview();
+    });
+    expect(latest!.state.step).toBe('review');
+    expect(latest!.state.fieldErrors).toEqual(errorsAfter422);
+    expect(latest!.state.focusFieldKey).toBe(focusAfter422);
+  });
+
   it('network errors preserve draft and request id for retry', async () => {
     const eggs = makeExactGroup();
     const submit = vi

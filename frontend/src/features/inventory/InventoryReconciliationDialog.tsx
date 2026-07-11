@@ -899,7 +899,8 @@ function PresenceGroupActions(props: {
   onClearIntent: () => void;
 }) {
   const targetKey = reconciliationGroupTargetKey(props.group);
-  const level = props.intent?.availabilityLevel ?? props.group.state.availability_level;
+  // Unselected until explicit intent — avoid looking "already checked" from current state.
+  const selectedLevel = props.intent?.availabilityLevel ?? null;
   const storageError = fieldErrorFor(props.fieldErrors, targetKey, 'storageLocation');
 
   return (
@@ -910,7 +911,7 @@ function PresenceGroupActions(props: {
       </div>
       <OptionChipGroup
         ariaLabel={`${props.group.ingredient_name} 有无状态`}
-        value={level}
+        value={(selectedLevel ?? '') as InventoryAvailabilityLevel}
         size="large"
         className="inventory-maintenance-chip-group"
         onChange={(value) => {
@@ -929,7 +930,7 @@ function PresenceGroupActions(props: {
         }}
         options={PRESENCE_OPTIONS}
       />
-      {level !== 'absent' ? (
+      {selectedLevel && selectedLevel !== 'absent' ? (
         <div className="inventory-reconciliation-batch-fields">
           <label className="inventory-maintenance-date-field">
             <span>存放位置</span>
@@ -942,7 +943,7 @@ function PresenceGroupActions(props: {
                 props.onSetIntent(
                   buildPresenceIntent({
                     group: props.group,
-                    availabilityLevel: level,
+                    availabilityLevel: selectedLevel,
                     storageLocation: event.target.value,
                     purchaseDate: props.intent?.purchaseDate,
                     expiryDate: props.intent?.expiryDate,
@@ -963,7 +964,7 @@ function PresenceGroupActions(props: {
                 props.onSetIntent(
                   buildPresenceIntent({
                     group: props.group,
-                    availabilityLevel: level,
+                    availabilityLevel: selectedLevel,
                     expiryDate: event.target.value || null,
                     storageLocation: props.intent?.storageLocation,
                     purchaseDate: props.intent?.purchaseDate,
@@ -977,7 +978,7 @@ function PresenceGroupActions(props: {
       ) : null}
       {props.group.pending_shopping_item_id ? (
         <p className="subtle">已在采购清单</p>
-      ) : level === 'low' ? (
+      ) : selectedLevel === 'low' ? (
         <p className="subtle">标记少量后可一键加入采购（不会自动写入）。</p>
       ) : null}
       {storageError ? <p className="inventory-maintenance-field-error">{storageError.message}</p> : null}

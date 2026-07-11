@@ -84,7 +84,20 @@ export type UseInventoryReconciliationStateResult = {
   setIntent: (intent: ReconciliationIntent, now: string) => void;
   clearIntent: (targetKey: string, now: string) => void;
   goToSummary: () => boolean;
+  /**
+   * User cancel from summary → review.
+   * Does not wipe fieldErrors/focusFieldKey so a prior failed submit recovery survives.
+   */
   goToReview: () => void;
+  /**
+   * Error recovery path: force review, optionally set errors/focus, expand batch groups
+   * when focused field is a batch/create control.
+   */
+  recoverToReview: (args?: {
+    fieldErrors?: ReconciliationFieldError[];
+    focusFieldKey?: string | null;
+    errorMessage?: string | null;
+  }) => void;
   setBusy: (busy: boolean) => void;
   setLoading: (loading: boolean) => void;
   setErrorMessage: (message: string | null) => void;
@@ -144,6 +157,35 @@ function isDraftShape(value: unknown): value is InventoryReconciliationDraft {
   );
 }
 
+/** Target keys whose batch editor must be expanded for the given focus/errors. */
+export function batchGroupKeysNeedingExpansion(
+  focusFieldKey: string | null | undefined,
+  fieldErrors: ReconciliationFieldError[],
+): string[] {
+  const keys = new Set<string>();
+  for (const error of fieldErrors) {
+    if (!error.targetKey || !error.targetKey.startsWith('exact_ingredient:')) {
+      continue;
+    }
+    if (
+      error.field.startsWith('batch:') ||
+      error.field.startsWith('create:') ||
+      error.field === 'actualRemainingQuantity' ||
+      error.field === 'updates' ||
+      error.field === 'creates'
+    ) {
+      keys.add(error.targetKey);
+    }
+  }
+  if (focusFieldKey && (focusFieldKey.includes(':batch:') || focusFieldKey.includes(':create:'))) {
+    const match = focusFieldKey.match(/^(exact_ingredient:[^:]+)/);
+    if (match) {
+      keys.add(match[1]);
+    }
+  }
+  return [...keys];
+}
+
 export function readPersistedReconciliationDraft(
   familyId: string,
   userId: string,
@@ -199,6 +241,10 @@ export function useInventoryReconciliationState(): UseInventoryReconciliationSta
   groupsRef.current = groups;
   const replayConflictsRef = useRef<DraftReplayConflict[]>(EMPTY_CONFLICTS);
   replayConflictsRef.current = replayConflicts;
+  const fieldErrorsRef = useRef<ReconciliationFieldError[]>(EMPTY_ERRORS);
+  fieldErrorsRef.current = fieldErrors;
+  const focusFieldKeyRef = useRef<string | null>(null);
+  focusFieldKeyRef.current = focusFieldKey;
 
   const summary = useMemo(
     () =>
@@ -240,6 +286,25 @@ export function useInventoryReconciliationState(): UseInventoryReconciliationSta
     if (replayConflicts.length > 0) return false;
     return validateReconciliationDraft(draft, groups).length === 0;
   }, [draft, groups, replayConflicts]);
+
+  const expandBatchGroupsForFocus = useCallback(
+    (nextFocus: string | null | undefined, nextErrors: ReconciliationFieldError[]) => {
+      const keys = batchGroupKeysNeedingExpansion(nextFocus, nextErrors);
+      if (keys.length === 0) return;
+      setExpandedBatchGroupKeys((current) => {
+        const next = new Set(current);
+        let changed = false;
+        for (const key of keys) {
+          if (!next.has(key)) {
+            next.add(key);
+            changed = true;
+          }
+        }
+        return changed ? [...next] : current;
+      });
+    },
+    [],
+  );
 
   const beginOpen: UseInventoryReconciliationStateResult['beginOpen'] = useCallback((args) => {
     const draftKey = reconciliationDraftKey(args.familyId, args.userId);
@@ -399,7 +464,9 @@ export function useInventoryReconciliationState(): UseInventoryReconciliationSta
     setFieldErrors(errors);
     if (errors.length > 0) {
       const first = errors[0];
-      setFocusFieldKey(first.targetKey ? `${first.targetKey}:${first.field}` : first.field);
+      const nextFocus = first.targetKey ? `${first.targetKey}:${first.field}` : first.field;
+      setFocusFieldKey(nextFocus);
+      expandBatchGroupsForFocus(nextFocus, errors);
       if (replay.length > 0) {
         setErrorMessage(
           replay.length === 1
@@ -414,15 +481,38 @@ export function useInventoryReconciliationState(): UseInventoryReconciliationSta
     setErrorMessage(null);
     setStep('summary');
     return true;
-  }, []);
+  }, [expandBatchGroupsForFocus]);
 
   const goToReview = useCallback(() => {
     if (busyRef.current) return;
+    // User cancel from summary: return to review without wiping fieldErrors/focusFieldKey.
+    // Failed-submit recovery (422/local validation) relies on those surviving.
     setStep('review');
-    setErrorMessage(null);
-    setFieldErrors(EMPTY_ERRORS);
-    setFocusFieldKey(null);
   }, []);
+
+  const recoverToReview = useCallback(
+    (args?: {
+      fieldErrors?: ReconciliationFieldError[];
+      focusFieldKey?: string | null;
+      errorMessage?: string | null;
+    }) => {
+      const nextErrors = args?.fieldErrors ?? fieldErrorsRef.current;
+      const nextFocus =
+        args?.focusFieldKey !== undefined ? args.focusFieldKey : focusFieldKeyRef.current;
+      if (args?.fieldErrors) {
+        setFieldErrors(args.fieldErrors);
+      }
+      if (args?.focusFieldKey !== undefined) {
+        setFocusFieldKey(args.focusFieldKey);
+      }
+      if (args?.errorMessage !== undefined) {
+        setErrorMessage(args.errorMessage);
+      }
+      setStep('review');
+      expandBatchGroupsForFocus(nextFocus, nextErrors);
+    },
+    [expandBatchGroupsForFocus],
+  );
 
   const setResultAndClearDraft: UseInventoryReconciliationStateResult['setResultAndClearDraft'] =
     useCallback((args) => {
@@ -590,6 +680,7 @@ export function useInventoryReconciliationState(): UseInventoryReconciliationSta
     clearIntent,
     goToSummary,
     goToReview,
+    recoverToReview,
     setBusy,
     setLoading,
     setErrorMessage,

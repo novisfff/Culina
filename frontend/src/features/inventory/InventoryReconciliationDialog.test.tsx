@@ -258,6 +258,16 @@ describe('InventoryReconciliationDialog', () => {
     expect(container!.textContent).toContain('只记录整体状态');
     expect(container!.textContent).toContain('成品是聚合库存');
 
+    // Presence chips stay unselected until explicit intent (current state is sufficient).
+    const presenceGroupEl = Array.from(
+      container!.querySelectorAll('[data-group-key="presence_ingredient:ing-salt"]'),
+    )[0];
+    expect(presenceGroupEl).toBeTruthy();
+    const selectedInPresence = presenceGroupEl.querySelectorAll(
+      '.ui-option-chip.is-selected',
+    );
+    expect(selectedInPresence.length).toBe(0);
+
     const low = Array.from(container!.querySelectorAll('button')).find((button) => button.textContent === '少量');
     act(() => {
       low!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
@@ -274,6 +284,32 @@ describe('InventoryReconciliationDialog', () => {
     });
     expect(container!.textContent).toContain('已过期');
     expect(container!.textContent).toContain('增加漏记批次');
+  });
+
+  it('batch create click produces adjust intent with create line', () => {
+    const props = renderDialog({
+      expandedBatchGroupKeys: ['exact_ingredient:ing-egg'],
+      draft: makeDraft(),
+    });
+    const create = Array.from(container!.querySelectorAll('button')).find(
+      (button) => button.textContent === '增加漏记批次',
+    );
+    expect(create).toBeTruthy();
+    act(() => {
+      create!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+    expect(props.onSetIntent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: 'exact_ingredient',
+        action: 'adjust_batches',
+        creates: expect.arrayContaining([
+          expect.objectContaining({
+            actualRemainingQuantity: '1',
+            unit: '个',
+          }),
+        ]),
+      }),
+    );
   });
 
   it('renders submit summary, empty, loading, conflict and result states', () => {
