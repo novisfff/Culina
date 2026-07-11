@@ -652,7 +652,7 @@ export function buildDisposableExpiredInventoryItems(
         notes: item.notes,
         status: item.status,
         createdAt: item.created_at,
-        rowVersion: item.row_version ?? 1,
+        rowVersion: item.row_version,
       };
     });
 }

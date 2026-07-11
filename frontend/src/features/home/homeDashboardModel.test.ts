@@ -106,6 +106,7 @@ describe('homeDashboardModel', () => {
         low_stock_threshold: 1,
         created_at: '2026-05-20T00:00:00.000Z',
         updated_at: '2026-05-20T00:00:00.000Z',
+        row_version: 1,
       },
       {
         id: 'inventory-soon',
@@ -123,6 +124,7 @@ describe('homeDashboardModel', () => {
         low_stock_threshold: 1,
         created_at: '2026-05-30T00:00:00.000Z',
         updated_at: '2026-05-30T00:00:00.000Z',
+        row_version: 1,
       },
       {
         id: 'inventory-safe',
@@ -140,6 +142,7 @@ describe('homeDashboardModel', () => {
         low_stock_threshold: 1,
         created_at: '2026-05-30T00:00:00.000Z',
         updated_at: '2026-05-30T00:00:00.000Z',
+        row_version: 1,
       },
     ];
     const food: Food = {

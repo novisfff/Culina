@@ -30,7 +30,7 @@ describe('IngredientDestroyExpiredOverlay disposal contract', () => {
       'utf8',
     );
 
-    expect(workspaceModelSource).toContain('rowVersion: item.row_version ?? 1');
+    expect(workspaceModelSource).toContain('rowVersion: item.row_version');
     expect(actionStateSource).toContain('expected_row_version: item.rowVersion');
     expect(actionStateSource).not.toContain('inventory_item_ids');
     expect(homeActionsSource).toContain('expected_row_version: item.rowVersion');

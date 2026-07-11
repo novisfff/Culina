@@ -89,6 +89,7 @@ const inventoryItems: InventoryItem[] = [
     low_stock_threshold: 1,
     created_at: '2026-05-01T10:00:00Z',
     updated_at: '2026-05-01T10:00:00Z',
+    row_version: 1,
   },
   {
     id: 'inventory-expired-flour',
@@ -107,6 +108,7 @@ const inventoryItems: InventoryItem[] = [
     low_stock_threshold: 0,
     created_at: '2026-04-01T10:00:00Z',
     updated_at: '2026-04-01T10:00:00Z',
+    row_version: 1,
   },
 ];
 
@@ -268,6 +270,7 @@ describe('recipe workspace model', () => {
       low_stock_threshold: 0,
       created_at: '2026-05-01T10:00:00Z',
       updated_at: '2026-05-01T10:00:00Z',
+      row_version: 1,
     };
 
     const ready = buildRecipeCards([saltRecipe], [salt], [saltInventory], [], []);

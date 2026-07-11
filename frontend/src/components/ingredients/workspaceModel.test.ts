@@ -95,6 +95,7 @@ const inventoryItems: InventoryItem[] = [
     low_stock_threshold: 0,
     created_at: '2026-03-20T10:00:00Z',
     updated_at: '2026-03-20T11:00:00Z',
+    row_version: 1,
   },
   {
     id: 'inventory-3',
@@ -111,6 +112,7 @@ const inventoryItems: InventoryItem[] = [
     low_stock_threshold: 0,
     created_at: '2026-03-19T10:00:00Z',
     updated_at: '2026-03-20T09:00:00Z',
+    row_version: 1,
   },
 ];
 
@@ -331,6 +333,7 @@ describe('ingredient workspace model', () => {
       low_stock_threshold: 0,
       created_at: '2026-03-18T10:00:00Z',
       updated_at: '2026-03-20T09:00:00Z',
+      row_version: 1,
     };
     const saltShopping: ShoppingListItem = {
       id: 'shopping-salt',
@@ -464,6 +467,7 @@ describe('ingredient workspace model', () => {
           low_stock_threshold: 3,
           created_at: '2026-03-15T10:00:00Z',
           updated_at: '2026-03-15T10:00:00Z',
+          row_version: 1,
         },
       ],
       ingredients,
@@ -642,6 +646,7 @@ describe('ingredient workspace model', () => {
           low_stock_threshold: 2,
           created_at: '2026-03-20T10:00:00Z',
           updated_at: '2026-03-20T10:00:00Z',
+          row_version: 1,
         },
       ],
       recipes: [],
@@ -778,6 +783,7 @@ describe('ingredient workspace model', () => {
           low_stock_threshold: 0,
           created_at: '2026-03-18T10:00:00Z',
           updated_at: '2026-03-20T10:00:00Z',
+          row_version: 1,
         },
       ],
       recipes: [],
@@ -811,6 +817,7 @@ describe('ingredient workspace model', () => {
           low_stock_threshold: 0,
           created_at: '2026-03-20T10:00:00Z',
           updated_at: '2026-03-20T10:00:00Z',
+          row_version: 1,
         },
       ],
       recipes: [],
@@ -844,6 +851,7 @@ describe('ingredient workspace model', () => {
           low_stock_threshold: 0,
           created_at: '2026-03-20T10:00:00Z',
           updated_at: '2026-03-20T10:00:00Z',
+          row_version: 1,
         },
       ],
       recipes: [],

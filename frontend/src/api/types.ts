@@ -129,7 +129,7 @@ export interface InventoryItem {
   updated_at: string;
   created_by?: string | null;
   updated_by?: string | null;
-  row_version?: number;
+  row_version: number;
   expiry_alert_snoozed_until?: string | null;
   expiry_reviewed_at?: string | null;
   expiry_reviewed_by?: string | null;

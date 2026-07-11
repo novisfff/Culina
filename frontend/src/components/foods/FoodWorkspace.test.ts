@@ -145,6 +145,7 @@ const tomatoInventory: InventoryItem = {
   low_stock_threshold: 1,
   created_at: '2026-05-01T10:00:00Z',
   updated_at: '2026-05-01T10:00:00Z',
+  row_version: 1,
 };
 
 const form: FoodFormState = {
