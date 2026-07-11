@@ -168,6 +168,9 @@ describe('ShoppingIntakeDialog', () => {
     expect(container!.textContent).toContain('核对实际数量与例外');
     expect(container!.textContent).toContain('差异与例外');
     expect(container!.textContent).toContain('入库 2 盒，还差 4 盒');
+    // Default-sufficient presence rows remain reviewable.
+    expect(container!.textContent).toContain('盐');
+    expect(container!.textContent).toContain('默认充足');
     expect(container!.textContent).toContain('确认入库');
 
     const submit = Array.from(container!.querySelectorAll('button')).find((button) =>
@@ -178,6 +181,56 @@ describe('ShoppingIntakeDialog', () => {
       submit!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
     });
     expect(props.onSubmit).toHaveBeenCalled();
+  });
+
+  it('presence default is editable on review after expand', () => {
+    const props = renderDialog({
+      step: 'review',
+      draft: makeDraft([presenceItem]),
+      expandedExceptionIds: ['s-salt'],
+    });
+
+    expect(container!.textContent).toContain('默认充足');
+    expect(container!.textContent).toContain('买到后状态');
+    expect(container!.textContent).toContain('充足');
+    expect(container!.textContent).toContain('还在');
+    expect(container!.textContent).toContain('少量');
+
+    const lowChip = Array.from(container!.querySelectorAll('button')).find((button) =>
+      button.textContent?.includes('少量'),
+    );
+    expect(lowChip).toBeTruthy();
+    act(() => {
+      lowChip!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+    expect(props.onPatchItem).toHaveBeenCalledWith(
+      's-salt',
+      expect.objectContaining({ resultingAvailabilityLevel: 'low' }),
+    );
+  });
+
+  it('focuses real quantity input via data-field-key', () => {
+    renderDialog({
+      step: 'review',
+      draft: makeDraft([{ ...exactItem, actualQuantity: '0' }]),
+      focusFieldKey: 's-milk:actualQuantity',
+      expandedExceptionIds: ['s-milk'],
+      fieldErrors: [
+        {
+          shoppingItemId: 's-milk',
+          field: 'actualQuantity',
+          code: 'invalid_quantity',
+          message: '数量为 0',
+        },
+      ],
+    });
+
+    const quantityInput = container!.querySelector(
+      'input[data-field-key="s-milk:actualQuantity"]',
+    ) as HTMLInputElement | null;
+    expect(quantityInput).toBeTruthy();
+    expect(quantityInput!.type).toBe('number');
+    expect(document.activeElement).toBe(quantityInput);
   });
 
   it('renders result with applied/partial counts and revertible_until', () => {

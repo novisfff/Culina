@@ -822,7 +822,9 @@ export function buildShoppingIntakePayload(draft: ShoppingIntakeDraft): Shopping
 
 export function collectReviewExceptions(draft: ShoppingIntakeDraft): ShoppingIntakeDraftItem[] {
   return getSelectedDraftItems(draft).filter((item) => {
-    if (item.kind === 'free_text') {
+    // Presence defaults (sufficient) and free-text must stay reviewable so users can
+    // change availability or resolve linking without already being non-default.
+    if (item.kind === 'free_text' || item.kind === 'presence_ingredient') {
       return true;
     }
     if (item.kind === 'exact_ingredient' || item.kind === 'food') {
@@ -835,12 +837,7 @@ export function collectReviewExceptions(draft: ShoppingIntakeDraft): ShoppingInt
         return true;
       }
     }
-    if (item.kind === 'exact_ingredient' || item.kind === 'presence_ingredient') {
-      if (item.requiresManualExpiry) {
-        return true;
-      }
-    }
-    if (item.kind === 'presence_ingredient' && item.resultingAvailabilityLevel !== 'sufficient') {
+    if (item.kind === 'exact_ingredient' && item.requiresManualExpiry) {
       return true;
     }
     return false;

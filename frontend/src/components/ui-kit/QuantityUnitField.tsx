@@ -8,6 +8,8 @@ export type QuantityUnitFieldProps = {
   onUnitChange: (value: string) => void;
   quantityDisabled?: boolean;
   quantityDisabledReason?: string;
+  /** Optional focus target key attached to the quantity input. */
+  quantityFieldKey?: string;
   className?: string;
 };
 
@@ -19,6 +21,7 @@ export function QuantityUnitField({
   onUnitChange,
   quantityDisabled = false,
   quantityDisabledReason,
+  quantityFieldKey,
   className,
 }: QuantityUnitFieldProps) {
   return (
@@ -32,6 +35,7 @@ export function QuantityUnitField({
           step="0.01"
           value={quantity}
           disabled={quantityDisabled}
+          data-field-key={quantityFieldKey}
           onChange={(event) => onQuantityChange(event.target.value)}
         />
       </label>

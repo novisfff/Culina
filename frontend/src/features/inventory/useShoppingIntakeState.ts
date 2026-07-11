@@ -198,6 +198,16 @@ export function useShoppingIntakeState(): UseShoppingIntakeStateResult {
     );
   }, []);
 
+  const setFocusFieldKeyAndExpand = useCallback((key: string | null) => {
+    setFocusFieldKey(key);
+    if (!key) return;
+    const shoppingItemId = key.includes(':') ? key.split(':')[0] : '';
+    if (!shoppingItemId) return;
+    setExpandedExceptionIds((current) =>
+      current.includes(shoppingItemId) ? current : [...current, shoppingItemId],
+    );
+  }, []);
+
   const applyLocalValidation = useCallback(() => {
     const current = draftRef.current;
     if (!current) {
@@ -216,7 +226,13 @@ export function useShoppingIntakeState(): UseShoppingIntakeStateResult {
     setFieldErrors(errors);
     if (errors.length > 0) {
       const first = errors[0];
-      setFocusFieldKey(first.shoppingItemId ? `${first.shoppingItemId}:${first.field}` : first.field);
+      const focusKey = first.shoppingItemId ? `${first.shoppingItemId}:${first.field}` : first.field;
+      setFocusFieldKey(focusKey);
+      if (first.shoppingItemId) {
+        setExpandedExceptionIds((current) =>
+          current.includes(first.shoppingItemId) ? current : [...current, first.shoppingItemId],
+        );
+      }
       setErrorMessage(
         errors.length === 1 ? first.message : `还有 ${errors.length} 处需要确认后才能入库。`,
       );
@@ -268,7 +284,7 @@ export function useShoppingIntakeState(): UseShoppingIntakeStateResult {
     setBusy,
     setErrorMessage,
     setFieldErrors,
-    setFocusFieldKey,
+    setFocusFieldKey: setFocusFieldKeyAndExpand,
     setConflictState,
     setResult,
     replaceDraft: setDraft,

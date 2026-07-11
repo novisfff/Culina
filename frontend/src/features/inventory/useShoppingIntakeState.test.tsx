@@ -249,5 +249,27 @@ describe('useShoppingIntakeState', () => {
     expect(errors.length).toBeGreaterThan(0);
     expect(latest!.focusFieldKey).toBe('s-free:resolution');
     expect(latest!.errorMessage).toBeTruthy();
+    expect(latest!.expandedExceptionIds).toContain('s-free');
+  });
+
+  it('setFocusFieldKey auto-expands the owning exception row', () => {
+    const state = renderHook();
+    const milk = makeIngredient({ id: 'ing-milk', name: '牛奶' });
+
+    act(() => {
+      state.openIntake({
+        shoppingItems: [makeShoppingItem({ id: 's1', title: '牛奶' })],
+        ingredients: [milk],
+        foods: [],
+        referenceDate: '2026-07-11',
+        selectedItemId: 's1',
+      });
+    });
+
+    act(() => {
+      latest!.setFocusFieldKey('s1:actualQuantity');
+    });
+    expect(latest!.focusFieldKey).toBe('s1:actualQuantity');
+    expect(latest!.expandedExceptionIds).toContain('s1');
   });
 });

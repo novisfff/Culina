@@ -3,6 +3,8 @@ import { ApiError, isApiError } from '../../api/request';
 import type { ShoppingIntakeRequest, ShoppingIntakeResult } from '../../api/types';
 import {
   buildShoppingIntakePayload,
+  getSelectedDraftItems,
+  type ShoppingIntakeDraft,
   type ShoppingIntakeFieldError,
 } from './shoppingIntakeModel';
 import type { UseShoppingIntakeStateResult } from './useShoppingIntakeState';
@@ -59,19 +61,37 @@ function extractStructuredDetail(reason: unknown): StructuredDetail | null {
   return null;
 }
 
-function mapFieldErrors(detail: StructuredDetail | null): ShoppingIntakeFieldError[] {
+/** Normalize API snake_case field names to draft camelCase keys used by the dialog. */
+function normalizeFieldKey(field: string): string {
+  return field.replace(/_([a-z])/g, (_, letter: string) => letter.toUpperCase());
+}
+
+/**
+ * Map structured 422 field_errors onto draft rows.
+ * Paths like `items.0.actual_quantity` resolve index → selected payload order shoppingItemId.
+ */
+export function mapFieldErrors(
+  detail: StructuredDetail | null,
+  draft: ShoppingIntakeDraft | null,
+): ShoppingIntakeFieldError[] {
   if (!detail?.field_errors?.length) {
     return [];
   }
+  const selected = draft ? getSelectedDraftItems(draft) : [];
   return detail.field_errors.map((entry) => {
     const path = entry.path ?? entry.field ?? '';
-    const parts = path.split('.');
+    const parts = path.split(/[.[\]]+/).filter(Boolean);
     // paths like items.0.actual_quantity or items[0].actual_quantity
-    const shoppingItemIdMatch = path.match(/items(?:\.|\[)(\d+)/);
-    const field = parts[parts.length - 1] || entry.field || 'unknown';
+    const indexMatch = path.match(/items(?:\.|\[)(\d+)/);
+    const index = indexMatch ? Number(indexMatch[1]) : -1;
+    const shoppingItemId =
+      index >= 0 && index < selected.length ? selected[index].shoppingItemId : '';
+    const rawField = parts[parts.length - 1] || entry.field || 'unknown';
+    // Drop the bare index token if it was the last part (shouldn't happen with field present).
+    const fieldToken = /^\d+$/.test(rawField) ? entry.field || 'unknown' : rawField;
     return {
-      shoppingItemId: shoppingItemIdMatch?.[1] ?? '',
-      field,
+      shoppingItemId,
+      field: normalizeFieldKey(fieldToken),
       code: entry.code ?? detail.code ?? 'invalid_request',
       message: entry.message ?? detail.message ?? '请检查输入',
     };
@@ -141,7 +161,7 @@ export function useShoppingIntakeActions(args: UseShoppingIntakeActionsArgs): Sh
     } catch (reason) {
       if (isApiError(reason) && reason.status === 422) {
         const detail = extractStructuredDetail(reason);
-        const fieldErrors = mapFieldErrors(detail);
+        const fieldErrors = mapFieldErrors(detail, stateRef.current.draft);
         stateRef.current.setFieldErrors(fieldErrors);
         if (fieldErrors.length > 0) {
           const first = fieldErrors[0];

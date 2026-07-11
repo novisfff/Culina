@@ -236,8 +236,16 @@ describe('useShoppingIntakeActions', () => {
     expect(latest!.state.open).toBe(true);
     expect(latest!.state.step).toBe('review');
     expect(latest!.state.draft?.clientRequestId).toBe(requestId);
-    expect(latest!.state.fieldErrors.length).toBeGreaterThan(0);
-    expect(latest!.state.focusFieldKey).toContain('actual_quantity');
+    expect(latest!.state.fieldErrors).toEqual([
+      expect.objectContaining({
+        shoppingItemId: 's1',
+        field: 'actualQuantity',
+        code: 'invalid_quantity',
+        message: '请填写有效数量',
+      }),
+    ]);
+    expect(latest!.state.focusFieldKey).toBe('s1:actualQuantity');
+    expect(latest!.state.expandedExceptionIds).toContain('s1');
     expect(latest!.state.result).toBeNull();
 
     await act(async () => {

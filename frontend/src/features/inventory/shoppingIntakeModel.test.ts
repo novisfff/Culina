@@ -5,6 +5,7 @@ import {
   buildShoppingIntakePayload,
   canAdvanceToReview,
   canSubmitIntake,
+  collectReviewExceptions,
   completeFreeTextWithoutInventory,
   findExactTitleFood,
   findExactTitleIngredient,
@@ -475,5 +476,32 @@ describe('shoppingIntakeModel', () => {
     });
     expect(draft.items).toHaveLength(1);
     expect(draft.items[0].shoppingItemId).toBe('open');
+  });
+
+  it('always includes presence and free-text selected rows as review exceptions', () => {
+    let draft = buildShoppingIntakeDraft({
+      shoppingItems: [
+        makeShoppingItem({ id: 's1', title: '牛奶', ingredient_id: milk.id, quantity: 6, unit: '盒' }),
+        makeShoppingItem({ id: 's2', title: '盐', ingredient_id: salt.id }),
+        makeShoppingItem({ id: 's3', title: '厨房纸', target_type: 'free_text' }),
+      ],
+      ingredients: [milk, salt],
+      foods: [],
+      inventoryStates: [makeState({ id: 'state-salt', ingredient_id: salt.id })],
+      referenceDate: REFERENCE_DATE,
+      now: NOW,
+      clientRequestId: 'client-exceptions',
+    });
+    draft = setDraftItemSelected(draft, 's1', true);
+    draft = setDraftItemSelected(draft, 's2', true);
+    draft = setDraftItemSelected(draft, 's3', true);
+
+    const exceptions = collectReviewExceptions(draft);
+    const exceptionIds = exceptions.map((item) => item.shoppingItemId);
+    // Clean exact quantity stays out of exceptions.
+    expect(exceptionIds).not.toContain('s1');
+    // Default-sufficient presence and free-text stay reviewable/expandable.
+    expect(exceptionIds).toContain('s2');
+    expect(exceptionIds).toContain('s3');
   });
 });

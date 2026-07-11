@@ -107,11 +107,30 @@ export function ShoppingIntakeDialog(props: ShoppingIntakeDialogProps) {
     if (!props.open || !props.focusFieldKey) {
       return;
     }
-    const node = document.querySelector<HTMLElement>(`[data-field-key="${props.focusFieldKey}"]`);
-    if (node && 'focus' in node) {
-      (node as HTMLElement).focus();
+    // Auto-expand the exception card that owns the focused field so the control mounts.
+    const shoppingItemId = props.focusFieldKey.includes(':')
+      ? props.focusFieldKey.split(':')[0]
+      : null;
+    if (
+      shoppingItemId &&
+      props.step === 'review' &&
+      !(props.expandedExceptionIds ?? []).includes(shoppingItemId)
+    ) {
+      props.onToggleException(shoppingItemId);
+      return;
     }
-  }, [props.open, props.focusFieldKey, props.step, fieldErrors]);
+    const node = document.querySelector<HTMLElement>(`[data-field-key="${props.focusFieldKey}"]`);
+    if (node && typeof node.focus === 'function' && node.getAttribute('type') !== 'hidden') {
+      node.focus();
+    }
+  }, [
+    props.open,
+    props.focusFieldKey,
+    props.step,
+    props.expandedExceptionIds,
+    fieldErrors,
+    props.onToggleException,
+  ]);
 
   const selectedItems = useMemo(
     () => props.draft?.items.filter((item) => item.selected) ?? [],
@@ -612,20 +631,13 @@ function ExceptionEditor(props: {
         unit={item.unit}
         unitOptions={[{ value: item.unit, label: item.unit || '单位' }]}
         quantityDisabled={props.busy}
+        quantityFieldKey={`${item.shoppingItemId}:actualQuantity`}
         onQuantityChange={(value) => props.onPatchItem(item.shoppingItemId, { actualQuantity: value })}
         onUnitChange={(value) => props.onPatchItem(item.shoppingItemId, { unit: value })}
         className="inventory-maintenance-quantity"
       />
-      {/* data-field-key for focus targeting since QuantityUnitField input is nested */}
-      <input
-        type="hidden"
-        data-field-key={`${item.shoppingItemId}:actualQuantity`}
-        value={item.actualQuantity}
-        readOnly
-      />
       {summaryCopy ? <p className="inventory-maintenance-diff-copy">{summaryCopy}</p> : null}
       {quantityError ? <p className="inventory-maintenance-field-error">{quantityError.message}</p> : null}
-
       <label className="inventory-maintenance-date-field">
         <span>存放位置{item.kind === 'food' ? '（影响全部成品库存）' : ''}</span>
         <input
