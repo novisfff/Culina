@@ -79,6 +79,8 @@ export type InventoryReconciliationDialogProps = {
   onGoReview: () => void;
   onSubmit: () => void;
   onRetry?: () => void;
+  onRevertResult?: (operationId: string) => void;
+  onViewResult?: (operationId: string) => void;
 };
 
 const SCOPE_OPTIONS: InventoryReconciliationScope[] = [
@@ -224,8 +226,20 @@ export function InventoryReconciliationDialog(props: InventoryReconciliationDial
         primaryLabel="完成"
         isSubmitting={false}
         onPrimary={closeIfAllowed}
-        secondaryLabel={props.result?.can_revert ? '稍后可撤销' : undefined}
-        onSecondary={props.result?.can_revert ? closeIfAllowed : undefined}
+        secondaryLabel={
+          props.result?.can_revert && props.onRevertResult
+            ? '撤销本次操作'
+            : props.result?.can_revert
+              ? '稍后可撤销'
+              : undefined
+        }
+        onSecondary={
+          props.result?.can_revert && props.onRevertResult
+            ? () => props.onRevertResult?.(props.result!.operation_id)
+            : props.result?.can_revert
+              ? closeIfAllowed
+              : undefined
+        }
       />
     );
   }
@@ -365,7 +379,14 @@ export function InventoryReconciliationDialog(props: InventoryReconciliationDial
             <SummaryStep summary={summary} draft={props.draft} groups={props.groups} />
           ) : null}
 
-          {!loading && props.step === 'result' && props.result ? <ResultStep result={props.result} /> : null}
+          {!loading && props.step === 'result' && props.result ? (
+            <ResultStep
+              result={props.result}
+              busy={busy}
+              onRevertResult={props.onRevertResult}
+              onViewResult={props.onViewResult}
+            />
+          ) : null}
         </div>
       </WorkspaceModal>
     </WorkspaceOverlayFrame>
@@ -1197,7 +1218,12 @@ function intentTargetKeySafe(intent: ReconciliationIntent) {
   return `food:${intent.foodId}`;
 }
 
-function ResultStep(props: { result: InventoryOperationResult }) {
+function ResultStep(props: {
+  result: InventoryOperationResult;
+  busy?: boolean;
+  onRevertResult?: (operationId: string) => void;
+  onViewResult?: (operationId: string) => void;
+}) {
   return (
     <section className="inventory-maintenance-result" aria-label="盘点结果">
       <div className="inventory-maintenance-summary-card">
@@ -1222,8 +1248,38 @@ function ResultStep(props: { result: InventoryOperationResult }) {
           </article>
         </div>
         <p className="inventory-maintenance-revert-copy" aria-live="polite">
-          可在 {compactTimeLabel(props.result.revertible_until)} 前撤销本次操作
+          {props.result.status === 'reverted'
+            ? '这次操作已撤销'
+            : props.result.can_revert
+              ? `可在 ${compactTimeLabel(props.result.revertible_until)} 前撤销本次操作`
+              : '撤销窗口已过或当前无权撤销'}
         </p>
+        {(props.onViewResult || (props.result.can_revert && props.onRevertResult)) ? (
+          <div className="inventory-operation-result-actions">
+            {props.onViewResult ? (
+              <ActionButton
+                tone="secondary"
+                size="compact"
+                type="button"
+                disabled={Boolean(props.busy)}
+                onClick={() => props.onViewResult?.(props.result.operation_id)}
+              >
+                查看详情
+              </ActionButton>
+            ) : null}
+            {props.result.can_revert && props.onRevertResult ? (
+              <ActionButton
+                tone="primary"
+                size="compact"
+                type="button"
+                disabled={Boolean(props.busy)}
+                onClick={() => props.onRevertResult?.(props.result.operation_id)}
+              >
+                撤销本次操作
+              </ActionButton>
+            ) : null}
+          </div>
+        ) : null}
       </div>
     </section>
   );

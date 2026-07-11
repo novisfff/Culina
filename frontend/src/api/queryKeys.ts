@@ -12,6 +12,9 @@ export const queryKeys = {
   inventoryReconciliation: (scope: string, storageLocation?: string) =>
     ['inventory', 'reconciliation', scope, storageLocation ?? ''] as const,
   inventoryOperations: ['inventory', 'operations'] as const,
+  inventoryOperationList: (limit = 20) => ['inventory', 'operations', 'list', limit] as const,
+  inventoryOperationDetail: (operationId: string) =>
+    ['inventory', 'operations', 'detail', operationId] as const,
   inventorySearch: (query: string) => ['inventory', 'search', query.trim()] as const,
   inventoryOverviewRoot,
   inventoryOverview: (scope = 'all', query = '') => [...inventoryOverviewRoot, scope, query.trim()] as const,

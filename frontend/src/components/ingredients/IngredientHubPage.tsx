@@ -134,6 +134,7 @@ type IngredientHubPageProps = {
   openInventoryFromShopping: (item: ShoppingListItem) => void;
   openShoppingIntake?: (args?: { selectedItemId?: string }) => void;
   openReconciliation?: (args?: { scope?: 'suggested' | 'refrigerated' | 'frozen' | 'room_temperature' | 'all' }) => void;
+  operationBanner?: ReactNode;
   openFoodStockMeal: (foodId: string) => void;
   openFoodStockEditor: (foodId: string) => void;
   openFoodShopping: (foodId: string) => void;
@@ -285,6 +286,7 @@ export function IngredientHubPage(props: IngredientHubPageProps) {
       />
     ) : props.activePanel === 'inventory' ? (
       <IngredientInventoryPanel
+              operationBanner={props.operationBanner}
         summariesCount={props.summariesCount}
         inventorySearch={props.inventorySearch}
         isInventorySearchFetching={props.isInventorySearchFetching}
@@ -323,6 +325,7 @@ export function IngredientHubPage(props: IngredientHubPageProps) {
       />
     ) : (
       <IngredientShoppingPanel
+              operationBanner={props.operationBanner}
         shoppingOverview={props.shoppingOverview}
         shoppingFocus={props.shoppingFocus}
         shoppingSearch={props.shoppingSearch}

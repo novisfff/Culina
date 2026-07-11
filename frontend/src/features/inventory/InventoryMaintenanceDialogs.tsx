@@ -1,4 +1,5 @@
 import type { ComponentProps } from 'react';
+import { InventoryOperationHistoryDialog } from './InventoryOperationHistoryDialog';
 import { InventoryReconciliationDialog } from './InventoryReconciliationDialog';
 import { ShoppingIntakeDialog } from './ShoppingIntakeDialog';
 
@@ -9,6 +10,7 @@ import { ShoppingIntakeDialog } from './ShoppingIntakeDialog';
 export type InventoryMaintenanceDialogsProps = {
   shoppingIntake: ComponentProps<typeof ShoppingIntakeDialog> | null;
   reconciliation: ComponentProps<typeof InventoryReconciliationDialog> | null;
+  operationHistory: ComponentProps<typeof InventoryOperationHistoryDialog> | null;
 };
 
 export function InventoryMaintenanceDialogs(props: InventoryMaintenanceDialogsProps) {
@@ -16,6 +18,7 @@ export function InventoryMaintenanceDialogs(props: InventoryMaintenanceDialogsPr
     <>
       {props.shoppingIntake ? <ShoppingIntakeDialog {...props.shoppingIntake} /> : null}
       {props.reconciliation ? <InventoryReconciliationDialog {...props.reconciliation} /> : null}
+      {props.operationHistory ? <InventoryOperationHistoryDialog {...props.operationHistory} /> : null}
     </>
   );
 }

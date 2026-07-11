@@ -116,6 +116,8 @@ type IngredientWorkspaceProps = {
   /** Shared shopping intake entry. Shopping-origin restock must open this, not local create+done. */
   openShoppingIntake?: (args?: { selectedItemId?: string }) => void;
   openReconciliation?: (args?: { scope?: 'suggested' | 'refrigerated' | 'frozen' | 'room_temperature' | 'all' }) => void;
+  openOperationHistory?: (operationId?: string) => void;
+  operationBanner?: ReactNode;
   notificationCenter?: ReactNode;
   navigationRequest?:
     | { target: 'catalog'; requestId: number }
@@ -2123,6 +2125,11 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
           <ActionButton tone="secondary" type="button" onClick={() => openInventoryOverlay()}>
             快速入库
           </ActionButton>
+          {props.openOperationHistory ? (
+            <ActionButton tone="tertiary" type="button" onClick={() => props.openOperationHistory?.()}>
+              操作历史
+            </ActionButton>
+          ) : null}
         </>
       )}
       {activePanel === 'shopping' && (
@@ -2137,6 +2144,11 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
           <ActionButton tone="secondary" type="button" onClick={() => openShoppingOverlay()}>
             新增采购
           </ActionButton>
+          {props.openOperationHistory ? (
+            <ActionButton tone="tertiary" type="button" onClick={() => props.openOperationHistory?.()}>
+              操作历史
+            </ActionButton>
+          ) : null}
         </>
       )}
     </div>
@@ -2500,6 +2512,7 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
         }}
         openShoppingIntake={props.openShoppingIntake}
         openReconciliation={props.openReconciliation}
+        operationBanner={props.operationBanner}
         openFoodStockMeal={handleRecordFoodStockMeal}
         openFoodStockEditor={handleOpenFoodStockFromInventory}
         openFoodShopping={handleAddFoodShopping}

@@ -1,6 +1,7 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { api } from './api/client';
+import { isApiError } from './api/request';
 import { invalidateAfterInventoryChanged, invalidateAfterInventoryOperation } from './api/cacheInvalidation';
 import { queryKeys } from './api/queryKeys';
 import { AppNotificationCenter, AppShell, type TabKey } from './app/AppShell';
@@ -10,6 +11,8 @@ import { useAppHomeViewModel } from './app/useAppHomeViewModel';
 import { useAppMutations } from './app/useAppMutations';
 import { useAppWorkspaceQueries } from './app/useAppWorkspaceQueries';
 import type {
+  InventoryOperationDetail,
+  InventoryOperationResult,
   MealLog,
   UpdateMealLogPayload,
 } from './api/types';
@@ -37,6 +40,10 @@ import { useHomeDashboardState } from './features/home/useHomeDashboardState';
 import { useHomeDashboardActions } from './features/home/useHomeDashboardActions';
 import type { HomeMealEnrichmentOpenRequest } from './features/home/useHomeDashboardActions';
 import { InventoryMaintenanceDialogs } from './features/inventory/InventoryMaintenanceDialogs';
+import {
+  InventoryOperationBanner,
+  selectRecentBannerOperation,
+} from './features/inventory/InventoryOperationBanner';
 import { storageLocationForScope } from './features/inventory/inventoryReconciliationModel';
 import { useInventoryReconciliationActions } from './features/inventory/useInventoryReconciliationActions';
 import { useInventoryReconciliationState } from './features/inventory/useInventoryReconciliationState';
@@ -175,6 +182,7 @@ function App() {
     inventoryItems,
     inventoryStates,
     shoppingItems,
+    inventoryOperations,
     recipes,
     recipeDiscovery,
     recipeStats,
@@ -316,6 +324,7 @@ function App() {
     deleteShoppingMutation,
     submitShoppingIntakeMutation,
     submitInventoryReconciliationMutation,
+    revertInventoryOperationMutation,
     createRecipeMutation,
     updateRecipeMutation,
     deleteRecipeMutation,
@@ -376,6 +385,124 @@ function App() {
   function openReconciliation(args?: { scope?: 'suggested' | 'refrigerated' | 'frozen' | 'room_temperature' | 'all' }) {
     const scope = args?.scope ?? 'suggested';
     void reconciliationActions.openReconciliation(scope, storageLocationForScope(scope));
+  }
+
+  const [operationHistoryOpen, setOperationHistoryOpen] = useState(false);
+  const [selectedOperationId, setSelectedOperationId] = useState<string | null>(null);
+  const [operationHistoryInitialId, setOperationHistoryInitialId] = useState<string | null>(null);
+  const [operationDetail, setOperationDetail] = useState<InventoryOperationDetail | null>(null);
+  const [operationDetailLoading, setOperationDetailLoading] = useState(false);
+  const [operationDetailError, setOperationDetailError] = useState<string | null>(null);
+  const [operationHistoryError, setOperationHistoryError] = useState<string | null>(null);
+  const [operationHistoryConflict, setOperationHistoryConflict] = useState<string | null>(null);
+  const [recentBannerOverride, setRecentBannerOverride] = useState<InventoryOperationResult | null>(null);
+
+  const recentBannerOperation = useMemo(() => {
+    const nowMs = Date.now();
+    const fromList = selectRecentBannerOperation(inventoryOperations, nowMs);
+    if (recentBannerOverride && selectRecentBannerOperation([recentBannerOverride], nowMs)) {
+      if (!fromList || Date.parse(recentBannerOverride.applied_at) >= Date.parse(fromList.applied_at)) {
+        return recentBannerOverride;
+      }
+    }
+    return fromList;
+  }, [inventoryOperations, recentBannerOverride]);
+
+  function openOperationHistory(operationId?: string) {
+    setOperationHistoryOpen(true);
+    setOperationHistoryError(null);
+    setOperationHistoryConflict(null);
+    if (operationId) {
+      setOperationHistoryInitialId(operationId);
+      setSelectedOperationId(operationId);
+    } else {
+      setOperationHistoryInitialId(null);
+    }
+  }
+
+  function closeOperationHistory() {
+    if (revertInventoryOperationMutation.isPending) return;
+    setOperationHistoryOpen(false);
+    setOperationHistoryInitialId(null);
+    setOperationHistoryConflict(null);
+  }
+
+  async function loadOperationDetail(operationId: string) {
+    setOperationDetailLoading(true);
+    setOperationDetailError(null);
+    try {
+      const detail = await api.getInventoryOperation(operationId);
+      setOperationDetail(detail);
+    } catch (reason) {
+      setOperationDetail(null);
+      setOperationDetailError(
+        isApiError(reason)
+          ? reason.detail || '读取操作详情失败'
+          : reason instanceof Error
+            ? reason.message
+            : '读取操作详情失败',
+      );
+    } finally {
+      setOperationDetailLoading(false);
+    }
+  }
+
+  async function handleRevertInventoryOperation(operationId: string) {
+    setOperationHistoryConflict(null);
+    setOperationHistoryError(null);
+    try {
+      const result = await revertInventoryOperationMutation.mutateAsync(operationId);
+      setRecentBannerOverride(result);
+      if (shoppingIntakeState.result?.operation_id === operationId) {
+        shoppingIntakeState.setResult({
+          ...shoppingIntakeState.result,
+          ...result,
+          items: shoppingIntakeState.result.items,
+        });
+      }
+      if (reconciliationState.result?.operation_id === operationId) {
+        // reconciliation result is InventoryOperationResult
+        reconciliationState.setResultAndClearDraft({
+          result,
+          familyId: family?.id ?? '',
+          userId: user?.id ?? '',
+        });
+      }
+      if (selectedOperationId === operationId) {
+        try {
+          const detail = await api.getInventoryOperation(operationId);
+          setOperationDetail(detail);
+        } catch {
+          setOperationDetail((current) =>
+            current && current.operation_id === operationId
+              ? {
+                  ...current,
+                  ...result,
+                  actor_display_name: current.actor_display_name,
+                  lines: current.lines,
+                }
+              : current,
+          );
+        }
+      }
+      showNotice({
+        tone: 'success',
+        title: '已撤销本次操作',
+        message: result.summary.description || '库存已回退到操作前状态。',
+      });
+    } catch (reason) {
+      const message = isApiError(reason)
+        ? reason.detail || '撤销失败，请稍后重试'
+        : reason instanceof Error
+          ? reason.message
+          : '撤销失败，请稍后重试';
+      if (operationHistoryOpen) {
+        setOperationHistoryConflict(message);
+      } else {
+        showNotice({ tone: 'danger', title: '无法撤销', message });
+      }
+      // Keep dialogs open on conflict/expired.
+    }
   }
 
   function openShoppingIntake(args?: { selectedItemId?: string }) {
@@ -968,6 +1095,20 @@ function App() {
               recipes={recipes}
               openShoppingIntake={openShoppingIntake}
               openReconciliation={openReconciliation}
+              openOperationHistory={openOperationHistory}
+              operationBanner={
+                recentBannerOperation ? (
+                  <InventoryOperationBanner
+                    operation={recentBannerOperation}
+                    busy={revertInventoryOperationMutation.isPending}
+                    onView={(operationId) => openOperationHistory(operationId)}
+                    onRevert={(operationId) => {
+                      void handleRevertInventoryOperation(operationId);
+                    }}
+                    onOpenHistory={() => openOperationHistory()}
+                  />
+                ) : null
+              }
               notificationCenter={mobileNotificationCenter}
               navigationRequest={ingredientNavigationRequest}
               createIngredient={(payload) => createIngredientMutation.mutateAsync(payload)}
@@ -1145,7 +1286,7 @@ function App() {
                   open: shoppingIntakeState.open,
                   step: shoppingIntakeState.step,
                   draft: shoppingIntakeState.draft,
-                  busy: shoppingIntakeState.busy,
+                  busy: shoppingIntakeState.busy || revertInventoryOperationMutation.isPending,
                   errorMessage: shoppingIntakeState.errorMessage,
                   fieldErrors: shoppingIntakeState.fieldErrors,
                   focusFieldKey: shoppingIntakeState.focusFieldKey,
@@ -1153,7 +1294,12 @@ function App() {
                   result: shoppingIntakeState.result,
                   expandedExceptionIds: shoppingIntakeState.expandedExceptionIds,
                   freeTextCandidatesByItemId,
-                  onClose: shoppingIntakeState.closeIntake,
+                  onClose: () => {
+                    if (shoppingIntakeState.result) {
+                      setRecentBannerOverride(shoppingIntakeState.result);
+                    }
+                    shoppingIntakeState.closeIntake();
+                  },
                   onGoReview: () => {
                     shoppingIntakeState.goToReview();
                   },
@@ -1180,6 +1326,10 @@ function App() {
                   onRetry: () => {
                     void shoppingIntakeActions.retryLatest();
                   },
+                  onRevertResult: (operationId) => {
+                    void handleRevertInventoryOperation(operationId);
+                  },
+                  onViewResult: (operationId) => openOperationHistory(operationId),
                 }
               : null
           }
@@ -1194,7 +1344,7 @@ function App() {
                   orderedGroups: reconciliationState.orderedGroups,
                   referenceDate: homeBusinessDateKey,
                   loading: reconciliationState.loading,
-                  busy: reconciliationState.busy,
+                  busy: reconciliationState.busy || revertInventoryOperationMutation.isPending,
                   errorMessage: reconciliationState.errorMessage,
                   fieldErrors: reconciliationState.fieldErrors,
                   focusFieldKey: reconciliationState.focusFieldKey,
@@ -1206,6 +1356,9 @@ function App() {
                   canSubmit: reconciliationState.canSubmit,
                   expandedBatchGroupKeys: reconciliationState.expandedBatchGroupKeys,
                   onClose: () => {
+                    if (reconciliationState.result) {
+                      setRecentBannerOverride(reconciliationState.result);
+                    }
                     reconciliationState.closeReconciliation({
                       familyId: family?.id ?? '',
                       userId: user?.id ?? '',
@@ -1233,6 +1386,40 @@ function App() {
                   },
                   onRetry: () => {
                     void reconciliationActions.retryLatest();
+                  },
+                  onRevertResult: (operationId) => {
+                    void handleRevertInventoryOperation(operationId);
+                  },
+                  onViewResult: (operationId) => openOperationHistory(operationId),
+                }
+              : null
+          }
+          operationHistory={
+            operationHistoryOpen
+              ? {
+                  open: operationHistoryOpen,
+                  operations: inventoryOperations,
+                  loading: false,
+                  busy: revertInventoryOperationMutation.isPending,
+                  errorMessage: operationHistoryError,
+                  selectedOperationId,
+                  detail: operationDetail,
+                  detailLoading: operationDetailLoading,
+                  detailError: operationDetailError,
+                  conflictMessage: operationHistoryConflict,
+                  initialOperationId: operationHistoryInitialId,
+                  onClose: closeOperationHistory,
+                  onSelectOperation: setSelectedOperationId,
+                  onLoadDetail: (operationId) => {
+                    void loadOperationDetail(operationId);
+                  },
+                  onRevert: (operationId) => {
+                    void handleRevertInventoryOperation(operationId);
+                  },
+                  onRetry: () => {
+                    if (selectedOperationId) {
+                      void loadOperationDetail(selectedOperationId);
+                    }
                   },
                 }
               : null

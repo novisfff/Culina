@@ -20,6 +20,8 @@ describe('queryKeys', () => {
       '冷藏',
     ]);
     expect(queryKeys.inventoryOperations).toEqual(['inventory', 'operations']);
+    expect(queryKeys.inventoryOperationList(20)).toEqual(['inventory', 'operations', 'list', 20]);
+    expect(queryKeys.inventoryOperationDetail('op-1')).toEqual(['inventory', 'operations', 'detail', 'op-1']);
     expect(queryKeys.inventoryOverview('food', ' 酸奶 ')).toEqual(['inventory', 'overview', 'food', '酸奶']);
     expect(queryKeys.activityLogList({ actor_id: 'user-1', limit: 50, offset: 0 })).toEqual([
       'activity-logs',

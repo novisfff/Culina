@@ -598,3 +598,155 @@
     order: -1;
   }
 }
+
+
+.inventory-operation-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0 0 14px;
+  padding: 14px 16px;
+  border-radius: var(--radius-md, 16px);
+  border: 1px solid color-mix(in srgb, var(--accent, #c5855b) 28%, var(--line-soft));
+  background: color-mix(in srgb, var(--accent, #c5855b) 10%, var(--surface-1, #fffaf4));
+  min-width: 0;
+}
+
+.inventory-operation-banner-copy {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  flex: 1 1 220px;
+}
+
+.inventory-operation-banner-copy strong {
+  font-size: 0.98rem;
+  line-height: 1.35;
+}
+
+.inventory-operation-banner-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.inventory-operation-banner-actions .solid-button,
+.inventory-operation-banner-actions .ghost-button,
+.inventory-operation-banner-actions .tertiary-button,
+.inventory-operation-banner-actions .danger-button {
+  min-height: 44px;
+}
+
+.inventory-operation-history-layout {
+  display: grid;
+  gap: 14px;
+  min-width: 0;
+}
+
+.inventory-operation-history-columns {
+  display: grid;
+  gap: 14px;
+  min-width: 0;
+}
+
+.inventory-operation-history-list {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+
+.inventory-operation-history-item {
+  display: grid;
+  gap: 6px;
+  width: 100%;
+  text-align: left;
+  padding: 12px 14px;
+  border-radius: var(--radius-sm, 12px);
+  border: 1px solid var(--line-soft);
+  background: var(--surface-2, #fff);
+  color: inherit;
+  cursor: pointer;
+  min-height: 44px;
+}
+
+.inventory-operation-history-item.is-selected {
+  border-color: color-mix(in srgb, var(--accent, #c5855b) 45%, var(--line-soft));
+  background: color-mix(in srgb, var(--accent, #c5855b) 10%, var(--surface-2, #fff));
+}
+
+.inventory-operation-history-item.is-revertible {
+  box-shadow: inset 3px 0 0 color-mix(in srgb, var(--accent, #c5855b) 70%, transparent);
+}
+
+.inventory-operation-history-item-title {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.inventory-operation-history-item-title span,
+.inventory-operation-history-detail .eyebrow {
+  color: var(--text-soft);
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.inventory-operation-history-detail {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+
+.inventory-operation-history-confirm {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm, 12px);
+  border: 1px solid color-mix(in srgb, var(--danger, #c45b5b) 35%, var(--line-soft));
+  background: color-mix(in srgb, var(--danger, #c45b5b) 10%, var(--surface-2, #fff));
+  color: var(--text);
+  font-weight: 700;
+}
+
+.inventory-operation-result-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.inventory-operation-result-actions .solid-button,
+.inventory-operation-result-actions .ghost-button,
+.inventory-operation-result-actions .tertiary-button,
+.inventory-operation-result-actions .danger-button {
+  min-height: 44px;
+}
+
+@media (min-width: 900px) {
+  .inventory-operation-history-columns {
+    grid-template-columns: minmax(0, 0.95fr) minmax(0, 1.05fr);
+    align-items: start;
+  }
+
+  .inventory-operation-history-modal.workspace-modal {
+    width: min(960px, calc(100vw - 48px));
+  }
+}
+
+@media (max-width: 767px) {
+  .inventory-operation-banner {
+    padding: 12px;
+  }
+
+  .inventory-operation-history-modal.workspace-modal {
+    width: 100%;
+    max-height: calc(100dvh - 8px);
+    min-height: min(92dvh, calc(100dvh - 8px));
+    border-bottom-left-radius: 0;
+    border-bottom-right-radius: 0;
+  }
+}

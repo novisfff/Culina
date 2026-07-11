@@ -86,20 +86,47 @@ describe('inventoryOperationsApi', () => {
     expect(JSON.parse(String(fetchSpy.mock.calls[0]?.[1]?.body))).toEqual(payload);
   });
 
-  it('lists and reverts inventory operations', async () => {
-    const listSpy = mockJsonFetch([{ operation_id: 'op-1' }]);
-    await inventoryOperationsApi.listInventoryOperations({ limit: 20 });
+  it('lists, loads detail, and reverts inventory operations', async () => {
+    const listSpy = mockJsonFetch([
+      {
+        operation_id: 'op-1',
+        operation_type: 'shopping_intake',
+        status: 'applied',
+        actor_display_name: '小明',
+        can_revert: true,
+      },
+    ]);
+    const listed = await inventoryOperationsApi.listInventoryOperations({ limit: 20 });
     expect(String(listSpy.mock.calls[0]?.[0])).toContain('/api/inventory/operations');
     expect(String(listSpy.mock.calls[0]?.[0])).toContain('limit=20');
+    expect(listed[0]).toMatchObject({
+      operation_id: 'op-1',
+      actor_display_name: '小明',
+      can_revert: true,
+    });
 
-    const detailSpy = mockJsonFetch({ operation_id: 'op-1' });
-    await inventoryOperationsApi.getInventoryOperation('op-1');
+    const detailSpy = mockJsonFetch({
+      operation_id: 'op-1',
+      actor_display_name: '小明',
+      lines: [
+        {
+          sequence: 1,
+          entity_type: 'inventory_item',
+          change_type: 'create',
+          title: '牛奶',
+          description: '新增 6 盒',
+        },
+      ],
+    });
+    const detail = await inventoryOperationsApi.getInventoryOperation('op-1');
     expect(String(detailSpy.mock.calls[0]?.[0])).toContain('/api/inventory/operations/op-1');
+    expect(detail.lines[0]).toMatchObject({ title: '牛奶', change_type: 'create' });
 
-    const revertSpy = mockJsonFetch({ operation_id: 'op-1', status: 'reverted' });
-    await inventoryOperationsApi.revertInventoryOperation('op-1');
+    const revertSpy = mockJsonFetch({ operation_id: 'op-1', status: 'reverted', can_revert: false });
+    const reverted = await inventoryOperationsApi.revertInventoryOperation('op-1');
     expect(String(revertSpy.mock.calls[0]?.[0])).toContain('/api/inventory/operations/op-1/revert');
     expect(revertSpy.mock.calls[0]?.[1]).toMatchObject({ method: 'POST' });
+    expect(reverted).toMatchObject({ status: 'reverted', can_revert: false });
   });
 
   it('preserves structured 409 conflict detail for intake', async () => {
@@ -142,6 +169,28 @@ describe('inventoryOperationsApi', () => {
           detail: expect.objectContaining({ code: 'stale_version' }),
         });
       });
+  });
+
+  it('preserves structured 409 conflict detail for revert', async () => {
+    mockJsonFetch(
+      {
+        detail: {
+          code: 'operation_expired',
+          message: '撤销窗口已过，无法撤销本次操作',
+          conflicts: [],
+          field_errors: [],
+        },
+      },
+      409,
+    );
+    await inventoryOperationsApi.revertInventoryOperation('op-expired').catch((reason) => {
+      expect(reason).toBeInstanceOf(ApiError);
+      expect(isApiError(reason)).toBe(true);
+      expect(reason.status).toBe(409);
+      expect(reason.payload).toMatchObject({
+        detail: expect.objectContaining({ code: 'operation_expired' }),
+      });
+    });
   });
 
   it('preserves structured 422 validation detail for reconciliation', async () => {

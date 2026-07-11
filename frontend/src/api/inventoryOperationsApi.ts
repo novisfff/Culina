@@ -1,6 +1,8 @@
 import { request } from './request';
 import type {
+  InventoryOperationDetail,
   InventoryOperationResult,
+  InventoryOperationSummary,
   InventoryReconciliationRequest,
   InventoryReconciliationResponse,
   ShoppingIntakeRequest,
@@ -45,10 +47,10 @@ export const inventoryOperationsApi = {
       search.set('limit', String(params.limit));
     }
     const suffix = search.size > 0 ? `?${search.toString()}` : '';
-    return request<InventoryOperationResult[]>(`/api/inventory/operations${suffix}`);
+    return request<InventoryOperationSummary[]>(`/api/inventory/operations${suffix}`);
   },
   getInventoryOperation: (operationId: string) =>
-    request<InventoryOperationResult>(`/api/inventory/operations/${operationId}`),
+    request<InventoryOperationDetail>(`/api/inventory/operations/${operationId}`),
   revertInventoryOperation: (operationId: string) =>
     request<InventoryOperationResult>(`/api/inventory/operations/${operationId}/revert`, {
       method: 'POST',

@@ -279,6 +279,31 @@ export interface InventoryOperationResult {
   summary: InventoryOperationDisplaySummary;
 }
 
+export interface InventoryOperationSummary extends InventoryOperationResult {
+  actor_display_name: string;
+}
+
+export type InventoryOperationEntityType =
+  | 'ingredient'
+  | 'inventory_item'
+  | 'non_tracked_ingredient_state'
+  | 'food'
+  | 'shopping_list_item';
+
+export type InventoryOperationChangeType = 'create' | 'update' | 'delete';
+
+export interface InventoryOperationLineDisplay {
+  sequence: number;
+  entity_type: InventoryOperationEntityType;
+  change_type: InventoryOperationChangeType;
+  title: string;
+  description: string;
+}
+
+export interface InventoryOperationDetail extends InventoryOperationSummary {
+  lines: InventoryOperationLineDisplay[];
+}
+
 export interface ShoppingIntakeResult extends InventoryOperationResult {
   items: ShoppingIntakeItemResult[];
 }

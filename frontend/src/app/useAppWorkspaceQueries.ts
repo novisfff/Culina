@@ -8,6 +8,7 @@ import type {
   FoodScene,
   Ingredient,
   IngredientInventoryState,
+  InventoryOperationSummary,
   MealLog,
   Recipe,
   RecipeDiscovery,
@@ -34,6 +35,7 @@ export function useAppWorkspaceQueries(args: {
   const needsIngredients = matchesTabWindow(args.activeTab, ['home', 'foods', 'recipes', 'ingredients']);
   const needsInventory = matchesTabWindow(args.activeTab, ['home', 'foods', 'recipes', 'ingredients']);
   const needsShopping = matchesTabWindow(args.activeTab, ['home', 'recipes', 'ingredients']);
+  const needsInventoryOperations = matchesTabWindow(args.activeTab, ['ingredients']);
   const needsRecipes = matchesTabWindow(args.activeTab, ['home', 'foods', 'recipes', 'ingredients', 'family']);
   const needsRecipeInsights = args.activeTab === 'recipes';
   const needsFoodPlan = matchesTabWindow(args.activeTab, ['home', 'foods', 'recipes', 'logs']);
@@ -73,6 +75,11 @@ export function useAppWorkspaceQueries(args: {
     queryKey: queryKeys.shoppingList,
     queryFn: api.getShoppingList,
     enabled: args.isAuthenticated && needsShopping,
+  });
+  const inventoryOperationsQuery = useQuery({
+    queryKey: queryKeys.inventoryOperationList(20),
+    queryFn: () => api.listInventoryOperations({ limit: 20 }),
+    enabled: args.isAuthenticated && needsInventoryOperations,
   });
   const recipesQuery = useQuery({
     queryKey: queryKeys.recipes,
@@ -155,6 +162,7 @@ export function useAppWorkspaceQueries(args: {
     inventoryQuery,
     inventoryStatesQuery,
     shoppingQuery,
+    inventoryOperationsQuery,
     recipesQuery,
     recipeDiscoveryQuery,
     recipeStatsQuery,
@@ -172,6 +180,7 @@ export function useAppWorkspaceQueries(args: {
     inventoryItems: inventoryQuery.data ?? [],
     inventoryStates: inventoryStatesQuery.data ?? ([] as IngredientInventoryState[]),
     shoppingItems: shoppingQuery.data ?? ([] as ShoppingListItem[]),
+    inventoryOperations: inventoryOperationsQuery.data ?? ([] as InventoryOperationSummary[]),
     recipes: recipesQuery.data ?? ([] as Recipe[]),
     recipeDiscovery: recipeDiscoveryQuery.data ?? (null as RecipeDiscovery | null),
     recipeStats: recipeStatsQuery.data ?? (null as RecipeStats | null),
