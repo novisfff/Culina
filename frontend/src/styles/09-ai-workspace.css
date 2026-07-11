@@ -858,15 +858,16 @@
 .ai-conversation-action-menu button {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
   width: 100%;
+  min-height: 44px;
   border: 0;
-  border-radius: 8px;
+  border-radius: 10px;
   background: transparent;
   color: #4f4238;
-  padding: 8px 10px;
+  padding: 10px 12px;
   text-align: left;
-  font-size: 0.8125rem;
+  font-size: 0.875rem;
   font-weight: 600;
   white-space: nowrap;
   cursor: pointer;
@@ -874,8 +875,8 @@
 
 .ai-conversation-action-menu button svg {
   flex: 0 0 auto;
-  width: 14px;
-  height: 14px;
+  width: 16px;
+  height: 16px;
   opacity: 0.82;
 }
 
