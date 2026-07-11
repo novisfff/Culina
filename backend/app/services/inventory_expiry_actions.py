@@ -99,12 +99,15 @@ def lock_and_validate_versioned_items(
         item = items_by_id[item_id]
         if item.ingredient_id != ingredient_id:
             raise ValueError("库存批次不属于该食材")
+        # Version must win over mutable business state (remaining qty / expiry).
+        # Concurrent consume/dispose that exhausts a batch also bumps row_version;
+        # clients must get 409 so they refresh, not a 400 that leaves a stale dialog.
+        if item.row_version != expected_versions[item_id]:
+            raise InventoryStaleVersionError()
         if remaining_quantity(item) <= 0:
             raise ValueError("库存批次已无剩余数量")
         if item.expiry_date is None:
             raise ValueError("库存批次缺少到期日")
-        if item.row_version != expected_versions[item_id]:
-            raise InventoryStaleVersionError()
         ordered_items.append(item)
     return ordered_items
 

@@ -48,7 +48,22 @@ export function getDefaultHomePlanMealType(food: Food, fallback: MealType = 'din
 }
 
 function groupsKeyOf(groups: InventoryActionGroup[]) {
-  return groups.map((group) => group.id).join('\0');
+  // Fingerprint content, not just group ids, so partial batch handling still
+  // counts as a refreshed projection even when the same expiry:<ingredientId> remains.
+  return groups
+    .map((group) => {
+      if (group.kind === 'expiry') {
+        const batches = group.batches
+          .map(
+            (batch) =>
+              `${batch.inventoryItemId}:${batch.rowVersion}:${batch.daysLeft}:${batch.remainingQuantity}`,
+          )
+          .join(',');
+        return `${group.id}|${group.severity}|${batches}`;
+      }
+      return `${group.id}|${group.availableQuantity}|${group.threshold}`;
+    })
+    .join('\0');
 }
 
 const EMPTY_ACTION_GROUPS: InventoryActionGroup[] = [];
@@ -126,6 +141,8 @@ export function useHomeDashboardState(input: {
   function completeActionGroup(args: {
     ingredientId: string;
     summary: HomeActionCompletionSummary;
+    /** When provided, compute next immediately from the post-mutation projection. */
+    refreshedGroups?: InventoryActionGroup[];
   }) {
     setSelectedActionGroupId(null);
     setActionDialogBusy(false);
@@ -133,8 +150,16 @@ export function useHomeDashboardState(input: {
     setActionDialogConflict('none');
     setCompletedIngredientId(args.ingredientId);
     setCompletionSummary(args.summary);
+    if (args.refreshedGroups) {
+      const refreshedKey = groupsKeyOf(args.refreshedGroups);
+      setGroupsKeyAtCompletion(refreshedKey);
+      const next =
+        args.refreshedGroups.find((group) => group.ingredientId !== args.ingredientId) ?? null;
+      setNextGroupId(next?.id ?? null);
+      return;
+    }
     setGroupsKeyAtCompletion(groupsKey);
-    // nextGroupId is chosen only after eligible groups refresh via the effect above.
+    // nextGroupId is chosen only after query invalidation produces a refreshed projection.
     setNextGroupId(null);
   }
 

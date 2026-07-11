@@ -293,7 +293,14 @@ export function useIngredientActionState(args: UseIngredientActionStateArgs) {
     ingredientId: string;
     ingredientName: string;
   }) {
-    const surviving = await args.refreshInventoryActionGroup(argsLocal.ingredientId);
+    let surviving: ExpiryInventoryActionGroup | null;
+    try {
+      surviving = await args.refreshInventoryActionGroup(argsLocal.ingredientId);
+    } catch (reason) {
+      args.setInventoryActionConflict('review_again');
+      args.setInventoryActionError('家人可能改动了这批库存，但刷新失败，请稍后重试。');
+      return;
+    }
     if (surviving) {
       args.setInventoryActionConflict('review_again');
       args.setInventoryActionError('家人刚刚改动了这批库存，请重新选择后再提交。');
@@ -317,12 +324,10 @@ export function useIngredientActionState(args: UseIngredientActionStateArgs) {
   }) {
     args.setInventoryActionBusy(true);
     args.setInventoryActionError(null);
+    let writeSucceeded = false;
     try {
       await mutationArgs.mutate();
-      await args.refreshInventoryActionGroup(mutationArgs.ingredientId);
-      args.setInventoryActionConflict('none');
-      args.setSelectedIngredientId(mutationArgs.ingredientId);
-      args.closeOverlay();
+      writeSucceeded = true;
     } catch (reason) {
       if (isApiError(reason) && reason.status === 409) {
         await handleInventoryActionConflict({
@@ -332,6 +337,28 @@ export function useIngredientActionState(args: UseIngredientActionStateArgs) {
         return;
       }
       args.setInventoryActionError(messageOf(reason, mutationArgs.failureTitle));
+      return;
+    } finally {
+      if (!writeSucceeded) {
+        args.setInventoryActionBusy(false);
+      }
+    }
+
+    try {
+      await args.refreshInventoryActionGroup(mutationArgs.ingredientId);
+      args.setInventoryActionConflict('none');
+      args.setSelectedIngredientId(mutationArgs.ingredientId);
+      args.closeOverlay();
+    } catch (reason) {
+      args.setInventoryActionConflict('none');
+      args.setInventoryActionError(null);
+      args.setSelectedIngredientId(mutationArgs.ingredientId);
+      args.closeOverlay();
+      args.showNotice({
+        tone: 'warning',
+        title: '操作已完成，但数据刷新失败',
+        message: messageOf(reason, '请稍后刷新页面后再继续处理。'),
+      });
     } finally {
       args.setInventoryActionBusy(false);
     }

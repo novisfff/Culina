@@ -15,23 +15,50 @@ import {
 let root: Root | null = null;
 let container: HTMLDivElement | null = null;
 
-function makeExpiryGroup(ingredientId: string, name: string): InventoryActionGroup {
+function makeExpiryGroup(
+  ingredientId: string,
+  name: string,
+  options?: {
+    batchId?: string;
+    rowVersion?: number;
+    remainingQuantity?: number;
+    daysLeft?: number;
+  },
+): InventoryActionGroup {
+  const batchId = options?.batchId ?? `inventory-${ingredientId}-1`;
+  const rowVersion = options?.rowVersion ?? 1;
+  const remainingQuantity = options?.remainingQuantity ?? 1;
+  const daysLeft = options?.daysLeft ?? -1;
   return {
     kind: 'expiry',
     id: `expiry:${ingredientId}`,
     ingredientId,
     ingredientName: name,
     severity: 'expired',
-    batches: [],
+    batches: [
+      {
+        inventoryItemId: batchId,
+        rowVersion,
+        remainingQuantity,
+        unit: '个',
+        storageLocation: '冷藏',
+        purchaseDate: '2026-06-20',
+        expiryDate: '2026-07-01',
+        daysLeft,
+        expiryAlertSnoozedUntil: null,
+        expiryReviewedAt: null,
+        expiryReviewedBy: null,
+      },
+    ],
     expiredBatchCount: 1,
     todayBatchCount: 0,
     soonBatchCount: 0,
     laterBatchCount: 0,
     totalBatchCount: 1,
-    quantityLabels: ['1 个'],
+    quantityLabels: [`${remainingQuantity} 个`],
     storageLocations: ['冷藏'],
     earliestExpiryDate: '2026-07-01',
-    earliestDaysLeft: -1,
+    earliestDaysLeft: daysLeft,
     title: `${name}需要处理`,
     detail: '1 批已过期',
     primaryAction: 'manage_expiry',
@@ -239,5 +266,47 @@ describe('useHomeDashboardState', () => {
   it('uses injected businessDateKey for selectedDashboardPlanDate defaults', () => {
     const state = renderHarness([], '2026-07-11');
     expect(state!.selectedDashboardPlanDate).toBe('2026-07-11');
+  });
+
+  it('detects partial same-ingredient refresh via batch fingerprint, not only group id', () => {
+    const tomatoPartial = makeExpiryGroup('ingredient-tomato', '番茄', {
+      batchId: 'batch-a',
+      rowVersion: 1,
+      remainingQuantity: 2,
+    });
+    const milk = makeExpiryGroup('ingredient-milk', '牛奶');
+
+    let state = renderHarness([tomatoPartial, milk]);
+    act(() => {
+      state!.completeActionGroup({
+        ingredientId: tomatoPartial.ingredientId,
+        summary: { title: '已处理番茄', message: '过期批次已销毁' },
+      });
+    });
+    // Same group id still present (partial dispose left a batch), but batch fingerprint changed.
+    const tomatoRemaining = makeExpiryGroup('ingredient-tomato', '番茄', {
+      batchId: 'batch-b',
+      rowVersion: 1,
+      remainingQuantity: 1,
+    });
+    state = renderHarness([tomatoRemaining, milk]);
+    // completed ingredient excluded from next; milk is offered because fingerprint changed
+    expect(state!.nextGroupId).toBe(milk.id);
+  });
+
+  it('uses refreshedGroups from completeActionGroup to compute next immediately', () => {
+    const tomato = makeExpiryGroup('ingredient-tomato', '番茄');
+    const milk = makeExpiryGroup('ingredient-milk', '牛奶');
+    let state = renderHarness([tomato, milk]);
+    act(() => {
+      state!.completeActionGroup({
+        ingredientId: tomato.ingredientId,
+        summary: { title: '已处理番茄', message: '过期批次已销毁' },
+        refreshedGroups: [milk],
+      });
+    });
+    state = latest!;
+    expect(state.nextGroupId).toBe(milk.id);
+    expect(state.completionSummary?.title).toBe('已处理番茄');
   });
 });

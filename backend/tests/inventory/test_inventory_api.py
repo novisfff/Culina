@@ -1270,6 +1270,77 @@ def test_valid_plus_stale_row_leaves_both_unchanged(
     assert stale_item.row_version == 5
 
 
+
+def test_stale_version_with_exhausted_or_changed_expiry_returns_409(
+    inventory_api_context: InventoryApiContext,
+) -> None:
+    """Mutable business-state failures must not mask a stale expected_row_version.
+
+    Concurrent consume/dispose that exhausts a batch (or corrects expiry) bumps
+    row_version. A client still holding the old version must get 409 so the UI
+    can refresh, not 400 about remaining quantity / missing expiry.
+    """
+    today = _business_today()
+    snoozed_until = today + timedelta(days=2)
+    _add_inventory_item(
+        inventory_api_context,
+        item_id="inventory-stale-exhausted",
+        expiry_date=today - timedelta(days=1),
+        quantity="3",
+        disposed="3",
+        row_version=1,
+    )
+    _add_inventory_item(
+        inventory_api_context,
+        item_id="inventory-stale-cleared-expiry",
+        expiry_date=today - timedelta(days=1),
+        quantity="2",
+    )
+    with inventory_api_context.SessionLocal() as db:
+        # Simulate concurrent mutations: version advanced, mutable fields changed.
+        db.execute(
+            InventoryItem.__table__.update()
+            .where(InventoryItem.id == "inventory-stale-exhausted")
+            .values(row_version=4)
+        )
+        db.execute(
+            InventoryItem.__table__.update()
+            .where(InventoryItem.id == "inventory-stale-cleared-expiry")
+            .values(row_version=6, expiry_date=None)
+        )
+        db.commit()
+
+    exhausted_response = inventory_api_context.client.post(
+        "/api/inventory/snooze-expiry-alerts",
+        json={
+            "action": "retain_expired",
+            "ingredient_id": inventory_api_context.ingredient_id,
+            "items": [_versioned_item("inventory-stale-exhausted", 1)],
+            "snoozed_until": snoozed_until.isoformat(),
+        },
+    )
+    cleared_response = inventory_api_context.client.post(
+        "/api/inventory/dispose-expired",
+        json={
+            "ingredient_id": inventory_api_context.ingredient_id,
+            "items": [_versioned_item("inventory-stale-cleared-expiry", 1)],
+        },
+    )
+
+    assert exhausted_response.status_code == 409, exhausted_response.text
+    assert exhausted_response.json()["detail"] == STALE_INVENTORY_DETAIL
+    assert cleared_response.status_code == 409, cleared_response.text
+    assert cleared_response.json()["detail"] == STALE_INVENTORY_DETAIL
+
+    exhausted = _reload_item(inventory_api_context, "inventory-stale-exhausted")
+    cleared = _reload_item(inventory_api_context, "inventory-stale-cleared-expiry")
+    assert exhausted.row_version == 4
+    assert exhausted.expiry_alert_snoozed_until is None
+    assert cleared.row_version == 6
+    assert cleared.expiry_date is None
+    assert cleared.disposed_quantity == Decimal("0")
+
+
 def test_stale_data_error_on_service_flush_maps_to_409(
     inventory_api_context: InventoryApiContext,
 ) -> None:

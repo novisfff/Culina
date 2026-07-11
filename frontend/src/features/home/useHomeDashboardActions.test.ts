@@ -111,6 +111,7 @@ function createActions(overrides: {
   completeActionGroup?: (args: {
     ingredientId: string;
     summary: HomeActionCompletionSummary;
+    refreshedGroups?: InventoryActionGroup[];
   }) => void;
   closeActionGroup?: () => void;
   showNotice?: ReturnType<typeof vi.fn>;
@@ -208,8 +209,9 @@ describe('useHomeDashboardActions inventory workflow', () => {
       ingredientId: 'ingredient-tomato',
       summary: {
         title: '已处理番茄',
-        message: '过期批次已处理完成',
+        message: '过期批次已销毁',
       },
+      refreshedGroups: [milkGroup],
     });
     expect(setActionDialogBusy).toHaveBeenCalledWith(true);
     expect(setActionDialogBusy).toHaveBeenLastCalledWith(false);
@@ -377,10 +379,117 @@ describe('useHomeDashboardActions inventory workflow', () => {
       ingredientId: 'ingredient-tomato',
       summary: {
         title: '已处理番茄',
-        message: '过期批次已处理完成',
+        message: '过期批次已销毁',
         secondaryActionLabel: '番茄库存已不足，加入采购',
         secondaryActionIngredientId: 'ingredient-tomato',
       },
+      refreshedGroups: [tomatoLowStock, milkGroup],
     });
+  });
+
+  it('treats write success + refresh failure as completed work, not write failure', async () => {
+    const disposeExpiredInventory = vi.fn(async () => undefined);
+    const refreshInventoryActions = vi.fn(async () => {
+      throw new Error('refresh offline');
+    });
+    const completeActionGroup = vi.fn();
+    const closeActionGroup = vi.fn();
+    const setActionDialogError = vi.fn();
+    const showNotice = vi.fn();
+    const { actions } = createActions({
+      disposeExpiredInventory,
+      refreshInventoryActions,
+      completeActionGroup,
+      closeActionGroup,
+      setActionDialogError,
+      showNotice,
+    });
+
+    await actions.disposeSelectedInventoryBatches(versionedItems);
+
+    expect(disposeExpiredInventory).toHaveBeenCalledTimes(1);
+    expect(completeActionGroup).not.toHaveBeenCalled();
+    expect(closeActionGroup).toHaveBeenCalledTimes(1);
+    expect(setActionDialogError).not.toHaveBeenCalledWith('refresh offline');
+    expect(showNotice).toHaveBeenCalledWith({
+      tone: 'warning',
+      title: '操作已完成，但数据刷新失败',
+      message: 'refresh offline',
+    });
+  });
+
+  it('keeps dialog open with review guidance when 409 recovery refresh fails', async () => {
+    const disposeExpiredInventory = vi.fn(async () => {
+      throw new ApiError({
+        status: 409,
+        detail: 'stale',
+        path: '/api/inventory/dispose-expired',
+        payload: null,
+      });
+    });
+    const refreshInventoryActions = vi.fn(async () => {
+      throw new Error('conflict refresh failed');
+    });
+    const closeActionGroup = vi.fn();
+    const completeActionGroup = vi.fn();
+    const setActionDialogConflict = vi.fn();
+    const setActionDialogError = vi.fn();
+    const { actions } = createActions({
+      disposeExpiredInventory,
+      refreshInventoryActions,
+      closeActionGroup,
+      completeActionGroup,
+      setActionDialogConflict,
+      setActionDialogError,
+    });
+
+    await actions.disposeSelectedInventoryBatches(versionedItems);
+
+    expect(closeActionGroup).not.toHaveBeenCalled();
+    expect(completeActionGroup).not.toHaveBeenCalled();
+    expect(setActionDialogConflict).toHaveBeenCalledWith('review_again');
+    expect(setActionDialogError).toHaveBeenCalledWith(
+      '家人可能改动了这批库存，但刷新失败，请稍后重试。',
+    );
+  });
+
+  it('uses outcome-specific completion copy for snooze and correct', async () => {
+    const completeActionGroup = vi.fn();
+    const refreshInventoryActions = vi.fn(async () => [] as InventoryActionGroup[]);
+    const snoozeInventoryExpiryAlerts = vi.fn(async () => undefined);
+    const correctInventoryExpiryDate = vi.fn(async () => undefined);
+
+    const snoozeActions = createActions({
+      snoozeInventoryExpiryAlerts,
+      refreshInventoryActions,
+      completeActionGroup,
+    }).actions;
+    await snoozeActions.snoozeSelectedInventoryAlerts({
+      action: 'retain_expired',
+      items: versionedItems,
+      snoozedUntil: '2026-07-12',
+    });
+    expect(completeActionGroup).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        summary: expect.objectContaining({ message: '已暂时保留，到提醒日会再出现' }),
+      }),
+    );
+
+    completeActionGroup.mockClear();
+    const correctActions = createActions({
+      correctInventoryExpiryDate,
+      refreshInventoryActions,
+      completeActionGroup,
+    }).actions;
+    await correctActions.correctSelectedInventoryExpiryDate({
+      inventoryItemId: 'inventory-expired-1',
+      expectedRowVersion: 7,
+      expiryDate: '2026-07-20',
+    });
+    expect(completeActionGroup).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        summary: expect.objectContaining({ message: '到期日已更正' }),
+      }),
+    );
   });
 });

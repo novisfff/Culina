@@ -44,17 +44,37 @@ function messageOf(reason: unknown, fallback: string) {
   return fallback;
 }
 
+export type InventoryActionOutcome =
+  | 'dispose'
+  | 'retain_expired'
+  | 'snooze_upcoming'
+  | 'correct_date';
+
+function successMessageFor(outcome: InventoryActionOutcome): string {
+  switch (outcome) {
+    case 'dispose':
+      return '过期批次已销毁';
+    case 'retain_expired':
+      return '已暂时保留，到提醒日会再出现';
+    case 'snooze_upcoming':
+      return '临期提醒已延后';
+    case 'correct_date':
+      return '到期日已更正';
+  }
+}
+
 function buildSuccessSummary(
   ingredientName: string,
   ingredientId: string,
   refreshedGroups: InventoryActionGroup[],
+  outcome: InventoryActionOutcome,
 ): HomeActionCompletionSummary {
   const lowStock = refreshedGroups.find(
     (group) => group.kind === 'low_stock' && group.ingredientId === ingredientId,
   );
   return {
     title: `已处理${ingredientName}`,
-    message: '过期批次已处理完成',
+    message: successMessageFor(outcome),
     ...(lowStock
       ? {
           secondaryActionLabel: `${ingredientName}库存已不足，加入采购`,
@@ -86,6 +106,7 @@ export function useHomeDashboardActions(input: {
   completeActionGroup: (args: {
     ingredientId: string;
     summary: HomeActionCompletionSummary;
+    refreshedGroups?: InventoryActionGroup[];
   }) => void;
   closeActionGroup: () => void;
   setActionDialogBusy: (busy: boolean) => void;
@@ -166,7 +187,15 @@ export function useHomeDashboardActions(input: {
     ingredientId: string;
     ingredientName: string;
   }) {
-    const refreshed = await input.refreshInventoryActions();
+    let refreshed: InventoryActionGroup[];
+    try {
+      refreshed = await input.refreshInventoryActions();
+    } catch (reason) {
+      // Conflict is real; recovery refresh failed — keep dialog open with actionable guidance.
+      input.setActionDialogConflict('review_again');
+      input.setActionDialogError('家人可能改动了这批库存，但刷新失败，请稍后重试。');
+      return;
+    }
     const surviving = refreshed.find(
       (group) => group.kind === 'expiry' && group.ingredientId === args.ingredientId,
     );
@@ -191,17 +220,14 @@ export function useHomeDashboardActions(input: {
     ingredientName: string;
     mutate: () => Promise<unknown>;
     failureTitle: string;
+    outcome: InventoryActionOutcome;
   }) {
     input.setActionDialogBusy(true);
     input.setActionDialogError(null);
+    let writeSucceeded = false;
     try {
       await args.mutate();
-      const refreshed = await input.refreshInventoryActions();
-      input.setActionDialogConflict('none');
-      input.completeActionGroup({
-        ingredientId: args.ingredientId,
-        summary: buildSuccessSummary(args.ingredientName, args.ingredientId, refreshed),
-      });
+      writeSucceeded = true;
     } catch (reason) {
       if (isApiError(reason) && reason.status === 409) {
         await handleInventoryActionConflict({
@@ -212,6 +238,36 @@ export function useHomeDashboardActions(input: {
       }
       // Network/business errors preserve current dialog inputs.
       input.setActionDialogError(messageOf(reason, args.failureTitle));
+      return;
+    } finally {
+      if (!writeSucceeded) {
+        input.setActionDialogBusy(false);
+      }
+    }
+
+    // Write succeeded — never report as write failure if only the projection refresh fails.
+    try {
+      const refreshed = await input.refreshInventoryActions();
+      input.setActionDialogConflict('none');
+      input.completeActionGroup({
+        ingredientId: args.ingredientId,
+        summary: buildSuccessSummary(
+          args.ingredientName,
+          args.ingredientId,
+          refreshed,
+          args.outcome,
+        ),
+        refreshedGroups: refreshed,
+      });
+    } catch (reason) {
+      input.setActionDialogConflict('none');
+      input.setActionDialogError(null);
+      input.closeActionGroup();
+      input.showNotice({
+        tone: 'warning',
+        title: '操作已完成，但数据刷新失败',
+        message: messageOf(reason, '请下拉刷新首页后再继续处理。'),
+      });
     } finally {
       input.setActionDialogBusy(false);
     }
@@ -236,6 +292,7 @@ export function useHomeDashboardActions(input: {
       ingredientId: group.ingredientId,
       ingredientName: group.ingredientName,
       failureTitle: '销毁过期批次失败',
+      outcome: 'dispose',
       mutate: () =>
         input.disposeExpiredInventory({
           ingredient_id: group.ingredientId,
@@ -269,6 +326,7 @@ export function useHomeDashboardActions(input: {
       ingredientId: group.ingredientId,
       ingredientName: group.ingredientName,
       failureTitle: args.action === 'retain_expired' ? '暂时保留失败' : '稍后提醒失败',
+      outcome: args.action,
       mutate: () =>
         input.snoozeInventoryExpiryAlerts({
           action: args.action,
@@ -298,6 +356,7 @@ export function useHomeDashboardActions(input: {
       ingredientId: group.ingredientId,
       ingredientName: group.ingredientName,
       failureTitle: '更正到期日失败',
+      outcome: 'correct_date',
       mutate: () =>
         input.correctInventoryExpiryDate(args.inventoryItemId, {
           expiry_date: args.expiryDate,
