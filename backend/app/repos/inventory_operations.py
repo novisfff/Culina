@@ -87,11 +87,14 @@ def claim_inventory_operation(
         summary_json=summary.model_dump(mode="json"),
     )
 
+    db.add(operation)
     try:
-        with db.begin_nested():
-            db.add(operation)
-            db.flush()
+        db.flush()
     except IntegrityError:
+        # Claim is always the first write in inventory maintenance transactions.
+        # Rolling back the whole session is safe and avoids SQLite SAVEPOINT quirks
+        # that can leave released savepoint rows durable under StaticPool tests.
+        db.rollback()
         winner = find_idempotent_operation(
             db,
             family_id=family_id,

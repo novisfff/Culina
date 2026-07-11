@@ -241,3 +241,60 @@ class RecipeFoodStockOperationsTestCase(RecipeApiTestCase):
             deduct_food_stock=False,
         )
         self.assertIsNone(unlocked_statement._for_update_arg)
+
+
+    def test_food_stock_intake_uses_earliest_expiry_while_restock_overwrites(self) -> None:
+        from app.services.food_stock import apply_food_stock_intake, apply_food_stock_restock, merge_food_intake_expiry
+
+        self.assertEqual(
+            merge_food_intake_expiry(
+                current_quantity=Decimal("2"),
+                current_expiry=date(2026, 7, 10),
+                incoming_expiry=date(2026, 7, 20),
+            ),
+            date(2026, 7, 10),
+        )
+
+        with self.SessionLocal() as db:
+            food = self._ready_food(
+                id="food-stock-intake",
+                stock_quantity=Decimal("2"),
+                stock_unit="盒",
+                expiry_date=date(2026, 7, 10),
+                storage_location="冷藏",
+            )
+            db.add(food)
+            db.commit()
+
+            apply_food_stock_intake(
+                db,
+                family_id=self.family.id,
+                user_id=self.user.id,
+                food=food,
+                quantity=Decimal("1"),
+                unit="盒",
+                expiry_date=date(2026, 7, 20),
+                storage_location="冷冻",
+            )
+            db.commit()
+            db.refresh(food)
+            self.assertEqual(food.stock_quantity, Decimal("3.00"))
+            self.assertEqual(food.expiry_date, date(2026, 7, 10))
+            self.assertEqual(food.storage_location, "冷冻")
+
+            apply_food_stock_restock(
+                db,
+                family_id=self.family.id,
+                user_id=self.user.id,
+                food=food,
+                quantity=Decimal("1"),
+                unit="盒",
+                expiry_date=date(2026, 8, 1),
+                purchase_source=None,
+                storage_location="冷藏",
+            )
+            db.commit()
+            db.refresh(food)
+            self.assertEqual(food.expiry_date, date(2026, 8, 1))
+            self.assertEqual(food.storage_location, "冷藏")
+

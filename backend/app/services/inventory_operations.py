@@ -93,8 +93,11 @@ def create_inventory_batch(
     storage_location: str,
     notes: str = "",
     low_stock_threshold: Decimal | None = None,
+    record_activity: bool = True,
+    already_locked: bool = False,
 ) -> InventoryItem:
-    ingredient = _lock_parent_ingredient(db, family_id=family_id, ingredient=ingredient)
+    if not already_locked:
+        ingredient = _lock_parent_ingredient(db, family_id=family_id, ingredient=ingredient)
     if not tracks_quantity(ingredient):
         raise PresenceStateRequiredError()
     if quantity is None:
@@ -150,15 +153,16 @@ def create_inventory_batch(
     db.add(item)
     bump_ingredient_collection(ingredient, user_id=user_id)
     db.flush()
-    log_activity(
-        db,
-        family_id=family_id,
-        actor_id=user_id,
-        action=ActivityAction.CREATE,
-        entity_type="InventoryItem",
-        entity_id=item.id,
-        summary=f"录入库存 {ingredient.name} {float(quantity or 0):g}{normalized_unit}",
-    )
+    if record_activity:
+        log_activity(
+            db,
+            family_id=family_id,
+            actor_id=user_id,
+            action=ActivityAction.CREATE,
+            entity_type="InventoryItem",
+            entity_id=item.id,
+            summary=f"录入库存 {ingredient.name} {float(quantity or 0):g}{normalized_unit}",
+        )
     return item
 
 

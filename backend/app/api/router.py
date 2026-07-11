@@ -15,6 +15,7 @@ from app.api.recipe_meta import router as recipe_meta_router
 from app.api.recipes import router as recipes_router
 from app.api.search import router as search_router
 from app.api.shopping_list import router as shopping_list_router
+from app.api.shopping_intake import router as shopping_intake_router
 
 api_router = APIRouter()
 api_router.include_router(auth_router)
@@ -23,6 +24,7 @@ api_router.include_router(ingredients_router)
 api_router.include_router(inventory_router)
 api_router.include_router(inventory_states_router)
 api_router.include_router(shopping_list_router)
+api_router.include_router(shopping_intake_router)
 api_router.include_router(recipes_router)
 api_router.include_router(recipe_meta_router)
 api_router.include_router(foods_router)
