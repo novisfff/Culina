@@ -4,10 +4,13 @@ import type {
   InventoryReconciliationGroup,
   InventoryReconciliationResponse,
 } from '../../api/types';
+import { hoursBetweenInstants } from '../../lib/date';
 import { readJsonStorage, reconciliationDraftKey, removeStorage, writeJsonStorage } from '../../lib/storage';
 import {
   createEmptyDraft,
+  intentTargetKey,
   progressCounts,
+  RECONCILIATION_DRAFT_TTL_HOURS,
   removeIntent,
   replayReconciliationDraft,
   sortGroupsForDisplay,
@@ -108,6 +111,26 @@ const EMPTY_ERRORS: ReconciliationFieldError[] = [];
 const EMPTY_CONFLICTS: DraftReplayConflict[] = [];
 const EMPTY_GROUPS: InventoryReconciliationGroup[] = [];
 
+function isPersistedDraftExpired(draft: InventoryReconciliationDraft, now: string): boolean {
+  return hoursBetweenInstants(now, draft.savedAt) > RECONCILIATION_DRAFT_TTL_HOURS;
+}
+
+function withReplayConflictErrors(
+  fieldErrors: ReconciliationFieldError[],
+  conflicts: DraftReplayConflict[],
+): ReconciliationFieldError[] {
+  if (conflicts.length === 0) {
+    return fieldErrors;
+  }
+  const conflictErrors = conflicts.map((conflict) => ({
+    targetKey: conflict.targetKey,
+    field: 'target',
+    code: conflict.code,
+    message: conflict.message,
+  }));
+  return [...fieldErrors, ...conflictErrors];
+}
+
 function isDraftShape(value: unknown): value is InventoryReconciliationDraft {
   if (!value || typeof value !== 'object') return false;
   const draft = value as InventoryReconciliationDraft;
@@ -174,6 +197,8 @@ export function useInventoryReconciliationState(): UseInventoryReconciliationSta
   draftRef.current = draft;
   const groupsRef = useRef<InventoryReconciliationGroup[]>(EMPTY_GROUPS);
   groupsRef.current = groups;
+  const replayConflictsRef = useRef<DraftReplayConflict[]>(EMPTY_CONFLICTS);
+  replayConflictsRef.current = replayConflicts;
 
   const summary = useMemo(
     () =>
@@ -212,12 +237,18 @@ export function useInventoryReconciliationState(): UseInventoryReconciliationSta
 
   const canSubmit = useMemo(() => {
     if (!draft) return false;
+    if (replayConflicts.length > 0) return false;
     return validateReconciliationDraft(draft, groups).length === 0;
-  }, [draft, groups]);
+  }, [draft, groups, replayConflicts]);
 
   const beginOpen: UseInventoryReconciliationStateResult['beginOpen'] = useCallback((args) => {
     const draftKey = reconciliationDraftKey(args.familyId, args.userId);
-    const existing = readPersistedReconciliationDraft(args.familyId, args.userId);
+    let existing = readPersistedReconciliationDraft(args.familyId, args.userId);
+    // Discard expired drafts before offering a restore prompt.
+    if (existing && isPersistedDraftExpired(existing, args.now)) {
+      clearPersistedReconciliationDraft(args.familyId, args.userId);
+      existing = null;
+    }
     const fresh = createEmptyDraft({
       familyId: args.familyId,
       userId: args.userId,
@@ -315,14 +346,17 @@ export function useInventoryReconciliationState(): UseInventoryReconciliationSta
     [],
   );
 
+  const clearReplayConflictForTarget = useCallback((targetKey: string) => {
+    setReplayConflicts((current) => {
+      if (current.length === 0) return current;
+      const next = current.filter((conflict) => conflict.targetKey !== targetKey);
+      return next.length === current.length ? current : next.length === 0 ? EMPTY_CONFLICTS : next;
+    });
+  }, []);
+
   const setIntent = useCallback(
     (intent: ReconciliationIntent, now: string) => {
-      const targetKey =
-        intent.kind === 'food'
-          ? `food:${intent.foodId}`
-          : intent.kind === 'exact_ingredient'
-            ? `exact_ingredient:${intent.ingredientId}`
-            : `presence_ingredient:${intent.ingredientId}`;
+      const targetKey = intentTargetKey(intent);
       setDraft((current) => {
         if (!current) return current;
         const next = upsertIntent(current, intent, now);
@@ -331,8 +365,9 @@ export function useInventoryReconciliationState(): UseInventoryReconciliationSta
       });
       setErrorMessage(null);
       setFieldErrors((current) => current.filter((error) => error.targetKey !== targetKey));
+      clearReplayConflictForTarget(targetKey);
     },
-    [persistIfPossible],
+    [clearReplayConflictForTarget, persistIfPossible],
   );
 
   const clearIntent = useCallback(
@@ -345,8 +380,9 @@ export function useInventoryReconciliationState(): UseInventoryReconciliationSta
       });
       setErrorMessage(null);
       setFieldErrors((current) => current.filter((error) => error.targetKey !== targetKey));
+      clearReplayConflictForTarget(targetKey);
     },
-    [persistIfPossible],
+    [clearReplayConflictForTarget, persistIfPossible],
   );
 
   const goToSummary = useCallback(() => {
@@ -355,12 +391,24 @@ export function useInventoryReconciliationState(): UseInventoryReconciliationSta
       setErrorMessage('请先确认至少一项库存。');
       return false;
     }
-    const errors = validateReconciliationDraft(current, groupsRef.current);
+    const replay = replayConflictsRef.current;
+    const errors = withReplayConflictErrors(
+      validateReconciliationDraft(current, groupsRef.current),
+      replay,
+    );
     setFieldErrors(errors);
     if (errors.length > 0) {
       const first = errors[0];
       setFocusFieldKey(first.targetKey ? `${first.targetKey}:${first.field}` : first.field);
-      setErrorMessage(errors.length === 1 ? first.message : `还有 ${errors.length} 处需要确认后才能提交。`);
+      if (replay.length > 0) {
+        setErrorMessage(
+          replay.length === 1
+            ? first.message
+            : `还有 ${replay.length} 项版本已变化，请重新确认后再提交。`,
+        );
+      } else {
+        setErrorMessage(errors.length === 1 ? first.message : `还有 ${errors.length} 处需要确认后才能提交。`);
+      }
       return false;
     }
     setErrorMessage(null);
@@ -391,6 +439,7 @@ export function useInventoryReconciliationState(): UseInventoryReconciliationSta
             }
           : current,
       );
+      setReplayConflicts(EMPTY_CONFLICTS);
     }, []);
 
   const applyLocalValidation = useCallback(() => {
@@ -407,12 +456,24 @@ export function useInventoryReconciliationState(): UseInventoryReconciliationSta
       setFieldErrors(empty);
       return empty;
     }
-    const errors = validateReconciliationDraft(current, groupsRef.current);
+    const replay = replayConflictsRef.current;
+    const errors = withReplayConflictErrors(
+      validateReconciliationDraft(current, groupsRef.current),
+      replay,
+    );
     setFieldErrors(errors);
     if (errors.length > 0) {
       const first = errors[0];
       setFocusFieldKey(first.targetKey ? `${first.targetKey}:${first.field}` : first.field);
-      setErrorMessage(errors.length === 1 ? first.message : `还有 ${errors.length} 处需要确认后才能提交。`);
+      if (replay.length > 0) {
+        setErrorMessage(
+          replay.length === 1
+            ? first.message
+            : `还有 ${replay.length} 项版本已变化，请重新确认后再提交。`,
+        );
+      } else {
+        setErrorMessage(errors.length === 1 ? first.message : `还有 ${errors.length} 处需要确认后才能提交。`);
+      }
     } else {
       setFocusFieldKey(null);
       setErrorMessage(null);

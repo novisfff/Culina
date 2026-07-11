@@ -272,6 +272,107 @@ describe('useInventoryReconciliationState', () => {
     expect(latest!.restoredDraftPrompt).toBeNull();
   });
 
+  it('blocks submit until replay conflicts are reconfirmed', () => {
+    const eggs = makeExactGroup();
+    const staleEggs = makeExactGroup({
+      ingredient_id: 'ing-egg',
+      ingredient_name: '鸡蛋',
+      ingredient_row_version: 5,
+      batches: [makeBatch({ inventory_item_id: 'batch-1', remaining_quantity: 4, row_version: 2 })],
+    });
+    writePersistedReconciliationDraft(FAMILY_ID, USER_ID, {
+      ...createEmptyDraft({
+        familyId: FAMILY_ID,
+        userId: USER_ID,
+        scope: 'refrigerated',
+        now: NOW,
+        clientRequestId: 'req-stale',
+      }),
+      intents: [buildExactConfirmAllIntent(eggs)],
+    });
+
+    const state = renderHook();
+    act(() => {
+      state.beginOpen({
+        familyId: FAMILY_ID,
+        userId: USER_ID,
+        scope: 'refrigerated',
+        now: NOW,
+      });
+    });
+    expect(latest!.restoredDraftPrompt).not.toBeNull();
+
+    act(() => {
+      latest!.acceptRestoredDraft({
+        draft: latest!.restoredDraftPrompt!,
+        latest: makeResponse([staleEggs]),
+        familyId: FAMILY_ID,
+        userId: USER_ID,
+        referenceDate: '2026-07-11',
+        now: NOW,
+      });
+    });
+
+    expect(latest!.replayConflicts.length).toBeGreaterThan(0);
+    expect(latest!.draft?.intents).toHaveLength(1);
+    expect(latest!.canSubmit).toBe(false);
+
+    let advanced = true;
+    act(() => {
+      advanced = latest!.goToSummary();
+    });
+    expect(advanced).toBe(false);
+    expect(latest!.step).toBe('review');
+    expect(latest!.fieldErrors.length).toBeGreaterThan(0);
+
+    let validationErrorCount = 0;
+    act(() => {
+      validationErrorCount = latest!.applyLocalValidation().length;
+    });
+    expect(validationErrorCount).toBeGreaterThan(0);
+
+    act(() => {
+      latest!.setIntent(buildExactConfirmAllIntent(staleEggs), NOW);
+    });
+
+    expect(latest!.replayConflicts).toEqual([]);
+    expect(latest!.canSubmit).toBe(true);
+
+    act(() => {
+      advanced = latest!.goToSummary();
+    });
+    expect(advanced).toBe(true);
+    expect(latest!.step).toBe('summary');
+  });
+
+  it('discards expired drafts in beginOpen so restore prompt is not shown', () => {
+    const eggs = makeExactGroup();
+    writePersistedReconciliationDraft(FAMILY_ID, USER_ID, {
+      ...createEmptyDraft({
+        familyId: FAMILY_ID,
+        userId: USER_ID,
+        scope: 'refrigerated',
+        now: '2026-07-01T08:00:00.000Z',
+        clientRequestId: 'req-expired',
+      }),
+      savedAt: '2026-07-01T08:00:00.000Z',
+      intents: [buildExactConfirmAllIntent(eggs)],
+    });
+
+    const state = renderHook();
+    act(() => {
+      state.beginOpen({
+        familyId: FAMILY_ID,
+        userId: USER_ID,
+        scope: 'refrigerated',
+        now: NOW,
+      });
+    });
+
+    expect(latest!.restoredDraftPrompt).toBeNull();
+    expect(readPersistedReconciliationDraft(FAMILY_ID, USER_ID)).toBeNull();
+  });
+
   it('does not close while busy', () => {
     const state = renderHook();
     act(() => {
