@@ -68,7 +68,11 @@ export function AiConversationActions(props: {
         disabled={props.isUpdating}
         onClick={() => setOpen((value) => !value)}
       >
-        ···
+        <svg className="ai-conversation-manage-icon" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
+          <circle cx="3.5" cy="8" r="1.35" />
+          <circle cx="8" cy="8" r="1.35" />
+          <circle cx="12.5" cy="8" r="1.35" />
+        </svg>
       </button>
       {open && (
         <div className="ai-conversation-action-menu" role="menu">
