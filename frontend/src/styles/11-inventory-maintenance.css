@@ -473,3 +473,128 @@
     transition: none;
   }
 }
+
+
+/* Reconciliation-specific layout: mobile stack / desktop left-list right-summary */
+.inventory-maintenance-item-card.has-expired {
+  border-color: color-mix(in srgb, var(--warning, #d2a24c) 45%, var(--line-soft));
+}
+
+.inventory-maintenance-chip.is-action {
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--line-soft));
+  background: color-mix(in srgb, var(--accent-soft, var(--accent)) 35%, var(--surface-2));
+  color: var(--text);
+}
+
+.inventory-maintenance-chip.is-warning {
+  border-color: color-mix(in srgb, var(--warning, #d2a24c) 45%, var(--line-soft));
+  background: color-mix(in srgb, var(--warning, #d2a24c) 16%, var(--surface-2));
+  color: var(--text);
+}
+
+.inventory-reconciliation-layout {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+
+.inventory-reconciliation-progress {
+  margin: 0;
+  color: var(--text-soft);
+  font-size: 0.88rem;
+  font-weight: 700;
+}
+
+.inventory-reconciliation-group-actions {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+
+.inventory-reconciliation-action-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.inventory-reconciliation-action-row .solid-button,
+.inventory-reconciliation-action-row .ghost-button,
+.inventory-reconciliation-action-row .tertiary-button {
+  min-height: 44px;
+}
+
+.inventory-reconciliation-batch-list {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+
+.inventory-reconciliation-batch-row {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--line-soft);
+  background: var(--surface-2);
+  min-width: 0;
+}
+
+.inventory-reconciliation-batch-row.is-expired {
+  border-color: color-mix(in srgb, var(--warning, #d2a24c) 50%, var(--line-soft));
+  background: color-mix(in srgb, var(--warning, #d2a24c) 10%, var(--surface-2));
+}
+
+.inventory-reconciliation-batch-row.is-create {
+  border-style: dashed;
+}
+
+.inventory-reconciliation-batch-fields {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+
+.inventory-reconciliation-food-warning {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid color-mix(in srgb, var(--warning, #d2a24c) 40%, var(--line-soft));
+  background: color-mix(in srgb, var(--warning, #d2a24c) 12%, var(--surface-2));
+  color: var(--text);
+  font-size: 0.86rem;
+  font-weight: 700;
+}
+
+.inventory-reconciliation-side-summary {
+  align-self: start;
+}
+
+@media (min-width: 900px) {
+  .inventory-reconciliation-layout {
+    grid-template-columns: minmax(0, 1.35fr) minmax(240px, 0.8fr);
+    align-items: start;
+  }
+
+  .inventory-reconciliation-modal.workspace-modal {
+    width: min(960px, calc(100vw - 48px));
+  }
+
+  .inventory-reconciliation-batch-fields {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 767px) {
+  .inventory-reconciliation-modal.workspace-modal {
+    width: 100%;
+    max-height: calc(100dvh - 8px);
+    min-height: min(92dvh, calc(100dvh - 8px));
+    border-bottom-left-radius: 0;
+    border-bottom-right-radius: 0;
+    padding-bottom: 0;
+  }
+
+  .inventory-reconciliation-side-summary {
+    order: -1;
+  }
+}

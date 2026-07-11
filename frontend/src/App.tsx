@@ -37,6 +37,9 @@ import { useHomeDashboardState } from './features/home/useHomeDashboardState';
 import { useHomeDashboardActions } from './features/home/useHomeDashboardActions';
 import type { HomeMealEnrichmentOpenRequest } from './features/home/useHomeDashboardActions';
 import { InventoryMaintenanceDialogs } from './features/inventory/InventoryMaintenanceDialogs';
+import { storageLocationForScope } from './features/inventory/inventoryReconciliationModel';
+import { useInventoryReconciliationActions } from './features/inventory/useInventoryReconciliationActions';
+import { useInventoryReconciliationState } from './features/inventory/useInventoryReconciliationState';
 import { useShoppingIntakeState } from './features/inventory/useShoppingIntakeState';
 import { useShoppingIntakeActions } from './features/inventory/useShoppingIntakeActions';
 import {
@@ -312,6 +315,7 @@ function App() {
     updateShoppingMutation,
     deleteShoppingMutation,
     submitShoppingIntakeMutation,
+    submitInventoryReconciliationMutation,
     createRecipeMutation,
     updateRecipeMutation,
     deleteRecipeMutation,
@@ -350,6 +354,29 @@ function App() {
       ]);
     },
   });
+
+  const reconciliationState = useInventoryReconciliationState();
+  const reconciliationActions = useInventoryReconciliationActions({
+    familyId: family?.id ?? '',
+    userId: user?.id ?? '',
+    referenceDate: homeBusinessDateKey,
+    state: reconciliationState,
+    fetchReconciliation: async ({ scope, storageLocation }) =>
+      api.getInventoryReconciliation({
+        scope,
+        storage_location: storageLocation,
+      }),
+    submitReconciliation: (payload) => submitInventoryReconciliationMutation.mutateAsync(payload),
+    invalidateAfterInventoryOperation: async () => {
+      await invalidateAfterInventoryOperation(queryClient);
+    },
+    showNotice,
+  });
+
+  function openReconciliation(args?: { scope?: 'suggested' | 'refrigerated' | 'frozen' | 'room_temperature' | 'all' }) {
+    const scope = args?.scope ?? 'suggested';
+    void reconciliationActions.openReconciliation(scope, storageLocationForScope(scope));
+  }
 
   function openShoppingIntake(args?: { selectedItemId?: string }) {
     shoppingIntakeState.openIntake({
@@ -940,6 +967,7 @@ function App() {
               shoppingItems={shoppingItems}
               recipes={recipes}
               openShoppingIntake={openShoppingIntake}
+              openReconciliation={openReconciliation}
               notificationCenter={mobileNotificationCenter}
               navigationRequest={ingredientNavigationRequest}
               createIngredient={(payload) => createIngredientMutation.mutateAsync(payload)}
@@ -1151,6 +1179,60 @@ function App() {
                   },
                   onRetry: () => {
                     void shoppingIntakeActions.retryLatest();
+                  },
+                }
+              : null
+          }
+          reconciliation={
+            reconciliationState.open
+              ? {
+                  open: reconciliationState.open,
+                  step: reconciliationState.step,
+                  scope: reconciliationState.scope,
+                  draft: reconciliationState.draft,
+                  groups: reconciliationState.groups,
+                  orderedGroups: reconciliationState.orderedGroups,
+                  referenceDate: homeBusinessDateKey,
+                  loading: reconciliationState.loading,
+                  busy: reconciliationState.busy,
+                  errorMessage: reconciliationState.errorMessage,
+                  fieldErrors: reconciliationState.fieldErrors,
+                  focusFieldKey: reconciliationState.focusFieldKey,
+                  conflictState: reconciliationState.conflictState,
+                  result: reconciliationState.result,
+                  summary: reconciliationState.summary,
+                  checkedCount: reconciliationState.checkedCount,
+                  totalCount: reconciliationState.totalCount,
+                  canSubmit: reconciliationState.canSubmit,
+                  expandedBatchGroupKeys: reconciliationState.expandedBatchGroupKeys,
+                  onClose: () => {
+                    reconciliationState.closeReconciliation({
+                      familyId: family?.id ?? '',
+                      userId: user?.id ?? '',
+                    });
+                  },
+                  onChangeScope: (scope) => {
+                    void reconciliationActions.openReconciliation(
+                      scope,
+                      storageLocationForScope(scope),
+                    );
+                  },
+                  onToggleBatchDetails: reconciliationState.toggleBatchDetails,
+                  onSetIntent: (intent) => {
+                    reconciliationState.setIntent(intent, new Date().toISOString());
+                  },
+                  onClearIntent: (targetKey) => {
+                    reconciliationState.clearIntent(targetKey, new Date().toISOString());
+                  },
+                  onGoSummary: () => {
+                    reconciliationState.goToSummary();
+                  },
+                  onGoReview: reconciliationState.goToReview,
+                  onSubmit: () => {
+                    void reconciliationActions.submitDraft();
+                  },
+                  onRetry: () => {
+                    void reconciliationActions.retryLatest();
                   },
                 }
               : null

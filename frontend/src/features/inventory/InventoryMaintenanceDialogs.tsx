@@ -1,18 +1,21 @@
 import type { ComponentProps } from 'react';
+import { InventoryReconciliationDialog } from './InventoryReconciliationDialog';
 import { ShoppingIntakeDialog } from './ShoppingIntakeDialog';
 
 /**
  * Single composition shell for inventory maintenance overlays.
- * Task 9 starts with ShoppingIntakeDialog only; Tasks 13 and 16 extend this shell
- * with reconciliation and operation history.
+ * Task 9: shopping intake; Task 13: reconciliation; Task 16: operation history.
  */
 export type InventoryMaintenanceDialogsProps = {
   shoppingIntake: ComponentProps<typeof ShoppingIntakeDialog> | null;
+  reconciliation: ComponentProps<typeof InventoryReconciliationDialog> | null;
 };
 
 export function InventoryMaintenanceDialogs(props: InventoryMaintenanceDialogsProps) {
-  if (!props.shoppingIntake) {
-    return null;
-  }
-  return <ShoppingIntakeDialog {...props.shoppingIntake} />;
+  return (
+    <>
+      {props.shoppingIntake ? <ShoppingIntakeDialog {...props.shoppingIntake} /> : null}
+      {props.reconciliation ? <InventoryReconciliationDialog {...props.reconciliation} /> : null}
+    </>
+  );
 }

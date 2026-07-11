@@ -108,6 +108,7 @@ type IngredientMobileViewProps = {
   openCreateView: () => void;
   openInventoryFromShopping: (item: ShoppingListItem) => void;
   openShoppingIntake?: (args?: { selectedItemId?: string }) => void;
+  openReconciliation?: (args?: { scope?: 'suggested' | 'refrigerated' | 'frozen' | 'room_temperature' | 'all' }) => void;
   openFoodStockMeal: (foodId: string) => void;
   openFoodStockEditor: (foodId: string) => void;
   openFoodShopping: (foodId: string) => void;
@@ -292,7 +293,21 @@ export function IngredientMobileView(props: IngredientMobileViewProps) {
           </button>
         </div>
         <div className="mobile-ingredient-actions">
-          <button className="mobile-ingredient-primary" type="button" onClick={() => props.openInventoryOverlay()}>
+          {props.openReconciliation ? (
+            <button
+              className="mobile-ingredient-primary"
+              type="button"
+              onClick={() => props.openReconciliation?.({ scope: 'suggested' })}
+            >
+              {props.renderIcon('stocked')}
+              快速盘点
+            </button>
+          ) : null}
+          <button
+            className={props.openReconciliation ? 'mobile-ingredient-secondary' : 'mobile-ingredient-primary'}
+            type="button"
+            onClick={() => props.openInventoryOverlay()}
+          >
             {props.renderIcon('plus')}
             快速入库
           </button>

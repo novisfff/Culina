@@ -133,6 +133,7 @@ type IngredientHubPageProps = {
   openCreateView: () => void;
   openInventoryFromShopping: (item: ShoppingListItem) => void;
   openShoppingIntake?: (args?: { selectedItemId?: string }) => void;
+  openReconciliation?: (args?: { scope?: 'suggested' | 'refrigerated' | 'frozen' | 'room_temperature' | 'all' }) => void;
   openFoodStockMeal: (foodId: string) => void;
   openFoodStockEditor: (foodId: string) => void;
   openFoodShopping: (foodId: string) => void;
@@ -396,6 +397,7 @@ export function IngredientHubPage(props: IngredientHubPageProps) {
               openCreateView={props.openCreateView}
               openInventoryFromShopping={props.openInventoryFromShopping}
               openShoppingIntake={props.openShoppingIntake}
+              openReconciliation={props.openReconciliation}
               openFoodStockMeal={props.openFoodStockMeal}
               openFoodStockEditor={props.openFoodStockEditor}
               openFoodShopping={props.openFoodShopping}
