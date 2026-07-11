@@ -37,6 +37,7 @@ const shoppingItem: ShoppingListItem = {
   unit: '个',
   reason: '库存不足',
   done: false,
+  row_version: 1,
   created_at: '2026-06-01T00:00:00.000Z',
   updated_at: '2026-06-01T00:00:00.000Z',
   target_type: 'ingredient',
@@ -218,6 +219,7 @@ describe('homeDashboardModel', () => {
       stock_unit: '份',
       favorite: false,
       recipe_id: null,
+      row_version: 1,
       created_at: '2026-06-01T00:00:00.000Z',
       updated_at: '2026-06-01T00:00:00.000Z',
     };

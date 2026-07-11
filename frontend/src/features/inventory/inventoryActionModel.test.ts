@@ -63,6 +63,7 @@ function makeShoppingItem(overrides: Partial<ShoppingListItem> & Pick<ShoppingLi
     updated_at: '2026-07-01T00:00:00.000Z',
     target_type: 'ingredient',
     ingredient_id: null,
+    row_version: 1,
     ...overrides,
   };
 }

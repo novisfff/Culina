@@ -47,6 +47,7 @@ const food: Food = {
   routine_note: '快手',
   stock_unit: '份',
   favorite: false,
+  row_version: 1,
   created_at: '2026-06-01T00:00:00Z',
   updated_at: '2026-06-01T00:00:00Z',
 };

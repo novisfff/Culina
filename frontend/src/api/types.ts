@@ -488,7 +488,7 @@ export interface ShoppingListItem {
   updated_at: string;
   created_by?: string | null;
   updated_by?: string | null;
-  row_version?: number;
+  row_version: number;
 }
 
 export interface RecipeIngredient {
@@ -818,7 +818,7 @@ export interface Food {
   storage_location: string;
   favorite: boolean;
   recipe_id?: string | null;
-  row_version?: number;
+  row_version: number;
   inventory_last_confirmed_at?: string | null;
   inventory_last_confirmed_by?: string | null;
   inventory_confirmation_source?: InventoryConfirmationSource | null;
