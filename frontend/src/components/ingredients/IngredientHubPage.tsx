@@ -24,6 +24,7 @@ import type {
   InventoryCardStatusViewModel,
   IngredientWorkspacePanel,
   InventoryStorageOverviewViewModel,
+  PrioritySurfaceRow,
   ShoppingCardFocus,
   ShoppingCardGroupViewModel,
   ShoppingCardViewModel,
@@ -114,7 +115,8 @@ type IngredientHubPageProps = {
   setMobileInventoryEntryFilter: (value: InventoryEntryFilter) => void;
   mobileStorageFocus: InventoryStorageFocus;
   setMobileStorageFocus: (value: InventoryStorageFocus | ((current: InventoryStorageFocus) => InventoryStorageFocus)) => void;
-  mobilePrioritySummaries: IngredientSummaryViewModel[];
+  mobilePriorityRows: Array<PrioritySurfaceRow & { summary: IngredientSummaryViewModel | null }>;
+  mobilePrioritySummaries?: IngredientSummaryViewModel[];
   mobileFoodStockItems: InventoryOverviewItem[];
   mobileStorageCards: InventoryStorageOverviewViewModel[];
   mobileCatalogSummaries: IngredientSummaryViewModel[];
@@ -375,6 +377,7 @@ export function IngredientHubPage(props: IngredientHubPageProps) {
               setMobileInventoryEntryFilter={props.setMobileInventoryEntryFilter}
               mobileStorageFocus={props.mobileStorageFocus}
               setMobileStorageFocus={props.setMobileStorageFocus}
+              mobilePriorityRows={props.mobilePriorityRows}
               mobilePrioritySummaries={props.mobilePrioritySummaries}
               mobileFoodStockItems={props.mobileFoodStockItems}
               mobileStorageCards={props.mobileStorageCards}

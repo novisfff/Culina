@@ -347,7 +347,7 @@ export function inventoryActionGroupsToAlerts(
     const ingredient = ingredientById.get(group.ingredientId);
     if (group.kind === 'low_stock') {
       alerts.push({
-        id: `${group.ingredientId}-low`,
+        id: group.id,
         ingredientId: group.ingredientId,
         ingredientName: group.ingredientName,
         title: group.title,
@@ -359,19 +359,18 @@ export function inventoryActionGroupsToAlerts(
       continue;
     }
 
-    for (const batch of group.batches) {
-      alerts.push({
-        id: `${batch.inventoryItemId}-expiry`,
-        ingredientId: group.ingredientId,
-        ingredientName: group.ingredientName,
-        title: group.title,
-        detail: group.detail,
-        tone: group.severity === 'expires_later' ? 'warning' : 'danger',
-        kind: 'expiry',
-        severity: group.severity,
-        storageLocation: batch.storageLocation || ingredient?.default_storage || '',
-      });
-    }
+    // One alert per shared group so priority/action counts stay ingredient-level.
+    alerts.push({
+      id: group.id,
+      ingredientId: group.ingredientId,
+      ingredientName: group.ingredientName,
+      title: group.title,
+      detail: group.detail,
+      tone: group.severity === 'expires_later' ? 'warning' : 'danger',
+      kind: 'expiry',
+      severity: group.severity,
+      storageLocation: group.storageLocations[0] || ingredient?.default_storage || '',
+    });
   }
 
   return alerts;
@@ -389,6 +388,66 @@ export function buildIngredientPriorityActionGroups(args: {
     shoppingItems: args.shoppingItems ?? [],
     referenceDate: args.referenceDate,
   });
+}
+
+export type PrioritySurfaceShoppingBinding = {
+  ingredientId: string;
+  ingredientName: string;
+  reason: string;
+};
+
+export type PrioritySurfaceRow = {
+  group: InventoryActionGroup;
+  shoppingBinding: PrioritySurfaceShoppingBinding | null;
+};
+
+export function buildPrioritySurfaceRows(groups: InventoryActionGroup[]): PrioritySurfaceRow[] {
+  return groups.map((group) => ({
+    group,
+    shoppingBinding:
+      group.kind === 'low_stock'
+        ? {
+            ingredientId: group.ingredientId,
+            ingredientName: group.ingredientName,
+            reason: '库存不足',
+          }
+        : null,
+  }));
+}
+
+export function buildPriorityGroupStatus(group: InventoryActionGroup): InventoryCardStatusViewModel {
+  if (group.kind === 'low_stock') {
+    return {
+      label: '库存偏低',
+      tone: 'warning',
+      detail: group.detail,
+      priority: 2,
+    };
+  }
+  if (group.severity === 'expires_later') {
+    return {
+      label: '临期或过期',
+      tone: 'warning',
+      detail: group.detail,
+      priority: 2,
+    };
+  }
+  return {
+    label: '临期或过期',
+    tone: 'danger',
+    detail: group.detail,
+    priority: 3,
+  };
+}
+
+export function getPriorityGroupPrimaryLabel(group: InventoryActionGroup) {
+  if (group.kind === 'low_stock') {
+    return '加入采购';
+  }
+  if (group.severity === 'expired') {
+    return '处理';
+  }
+  return '查看处理';
 }
 
 export function buildQuantitySummaries(inventoryItems: InventoryItem[]): QuantitySummaryViewModel[] {
@@ -691,6 +750,22 @@ export function buildInventoryCardPresentation(
 ): InventoryCardPresentationViewModel {
   const status = buildInventoryCardStatus(summary);
   const expiry = buildInventoryCardExpiry(summary, referenceDate);
+  // Decorative date badge may keep its own day-window colors, but must never look calm
+  // when the shared action projection includes this ingredient.
+  const actionableTone: InventoryCardExpiryTone | null =
+    summary.alerts.length === 0
+      ? null
+      : summary.alerts.some((item) => item.tone === 'danger')
+        ? 'danger'
+        : 'warning';
+  const resolvedExpiryTone: InventoryCardExpiryTone | null =
+    expiry.hasExpiryInfo && actionableTone && expiry.expiryTone === 'neutral'
+      ? actionableTone
+      : expiry.expiryTone;
+  const resolvedExpiry = {
+    ...expiry,
+    expiryTone: resolvedExpiryTone,
+  };
   const latestRestockLabel = summary.latestPurchaseDate ? formatDate(summary.latestPurchaseDate) : null;
   const hasExpiredInventory = summary.alerts.some((item) => item.kind === 'expiry' && item.tone === 'danger');
   const footerNote =
@@ -702,13 +777,13 @@ export function buildInventoryCardPresentation(
 
   if (summary.quantitySummaries.length > 0) {
     const secondaryParts = latestRestockLabel ? [`最近补货 ${latestRestockLabel}`] : [];
-    secondaryParts.push(expiry.hasExpiryInfo ? `最早 ${expiry.expiryDateLabel} 到期` : '未设保质期');
+    secondaryParts.push(resolvedExpiry.hasExpiryInfo ? `最早 ${resolvedExpiry.expiryDateLabel} 到期` : '未设保质期');
 
     return {
       headline: buildInventoryCardSummaryLine(summary),
       secondary: secondaryParts.join(' · '),
       footerNote,
-      ...expiry,
+      ...resolvedExpiry,
     };
   }
 
@@ -717,7 +792,7 @@ export function buildInventoryCardPresentation(
       headline: '当前已空',
       secondary: latestRestockLabel ? `最近补货 ${latestRestockLabel} · 当前已空` : '当前已空',
       footerNote,
-      ...expiry,
+      ...resolvedExpiry,
     };
   }
 
@@ -725,7 +800,7 @@ export function buildInventoryCardPresentation(
     headline: '未登记',
     secondary: '还没有库存记录，适合先登记首批',
     footerNote,
-    ...expiry,
+    ...resolvedExpiry,
   };
 }
 
@@ -829,7 +904,7 @@ export function buildInventoryBatchGroups(args: {
       expiryDate: item.expiry_date,
       storageLocation: key,
       notes: item.notes,
-      alerts: alerts.filter((alert) => alert.id.startsWith(item.id)),
+      alerts: alerts.filter((alert) => alert.ingredientId === item.ingredient_id && alert.kind === 'expiry'),
     };
     grouped.set(key, [...(grouped.get(key) ?? []), batch]);
   }

@@ -1782,6 +1782,7 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
     inventoryGroups,
     selectedIngredient,
     allAlerts,
+    priorityActionCount,
     pendingShopping,
     completedShoppingCards,
     pendingShoppingCards,
@@ -1792,6 +1793,7 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
     activeShoppingOverview,
     stockedIngredientCount,
     workspaceMetrics,
+    mobilePriorityRows,
     mobilePrioritySummaries,
     mobileStorageCards,
     mobileCatalogSummaries,
@@ -2308,7 +2310,7 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
         }))}
         activePanel={activePanel}
         openWorkspacePanel={openWorkspacePanel}
-        allAlertsCount={allAlerts.length}
+        allAlertsCount={priorityActionCount}
         stockedIngredientCount={stockedIngredientCount}
         pendingShoppingCount={pendingShopping.length}
         summariesCount={summaries.length}
@@ -2320,6 +2322,7 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
         setMobileInventoryEntryFilter={setMobileInventoryEntryFilter}
         mobileStorageFocus={mobileStorageFocus}
         setMobileStorageFocus={setMobileStorageFocus}
+        mobilePriorityRows={mobilePriorityRows}
         mobilePrioritySummaries={mobilePrioritySummaries}
         mobileFoodStockItems={mobileFoodStockItems}
         mobileStorageCards={mobileStorageCards}

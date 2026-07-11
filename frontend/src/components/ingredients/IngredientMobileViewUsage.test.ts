@@ -55,9 +55,12 @@ describe('IngredientMobileView shared overlay usage', () => {
     expect(mobileSource).toContain('{!isPending ? (');
     expect(mobileSource).toContain('const shouldShowFoodShoppingAction = isPending;');
     expect(mobileSource).toContain('{shouldShowFoodShoppingAction ? (');
-    expect(mobileSource).toContain('const priorityItemCount = props.mobilePrioritySummaries.length;');
+    expect(mobileSource).toContain('const priorityRows = props.mobilePriorityRows;');
+    expect(mobileSource).toContain('const priorityItemCount = priorityRows.length;');
     expect(mobileSource).toContain('const hasPriorityItems = priorityItemCount > 0;');
     expect(mobileSource).toContain('<h2>今天先处理 <span>{priorityItemCount} 项</span></h2>');
+    expect(mobileSource).toContain('data-action-group-id={group.id}');
+    expect(mobileSource).toContain('buildPriorityGroupStatus(group)');
     expect(mobileSource).toContain('当前没有需要优先处理的食材');
     expect(mobileSource).not.toContain('mobile-food-stock-strip');
     expect(mobileSource).not.toContain('aria-label="成品速食库存"');

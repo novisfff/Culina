@@ -6,6 +6,7 @@ import {
   buildInventoryStorageOverview,
   buildIngredientCategoryFilters,
   buildIngredientSummaries,
+  buildPrioritySurfaceRows,
   buildShoppingCardGroups,
   buildShoppingCards,
   buildShoppingOverview,
@@ -188,10 +189,14 @@ export function useIngredientWorkspaceData(args: UseIngredientWorkspaceDataArgs)
       { label: '在库食材', value: `${stockedIngredientCount} 种`, detail: '已经登记过库存的食材' },
     ];
     const summaryByIngredientId = new Map(summaries.map((summary) => [summary.ingredient.id, summary]));
-    const mobilePrioritySummaries = inventoryActionGroups
-      .map((group) => summaryByIngredientId.get(group.ingredientId))
-      .filter((summary): summary is IngredientSummaryViewModel => Boolean(summary))
-      .slice(0, 6);
+    // Full priority surface keeps all shared groups, including 4-7 day later severity.
+    const mobilePriorityRows = buildPrioritySurfaceRows(inventoryActionGroups).map((row) => ({
+      ...row,
+      summary: summaryByIngredientId.get(row.group.ingredientId) ?? null,
+    }));
+    const mobilePrioritySummaries = mobilePriorityRows
+      .map((row) => row.summary)
+      .filter((summary): summary is IngredientSummaryViewModel => Boolean(summary));
     const mobileStorageCards = buildInventoryStorageOverview(summaries).filter((item) =>
       ['冷藏', '冷冻', '常温'].includes(item.key)
     );
@@ -251,6 +256,7 @@ export function useIngredientWorkspaceData(args: UseIngredientWorkspaceDataArgs)
       activeShoppingOverview,
       stockedIngredientCount,
       workspaceMetrics,
+      mobilePriorityRows,
       mobilePrioritySummaries,
       mobileStorageCards,
       mobileCatalogSummaries,
