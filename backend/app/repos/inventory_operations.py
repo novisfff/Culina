@@ -106,3 +106,60 @@ def claim_inventory_operation(
         return winner, False
 
     return operation, True
+
+def list_family_operations(
+    db: Session,
+    *,
+    family_id: str,
+    limit: int = 20,
+) -> list[InventoryOperation]:
+    """Return newest-first family operations, capped by limit."""
+    return list(
+        db.scalars(
+            select(InventoryOperation)
+            .where(InventoryOperation.family_id == family_id)
+            .order_by(InventoryOperation.applied_at.desc(), InventoryOperation.id.desc())
+            .limit(limit)
+        )
+    )
+
+
+def get_family_operation(
+    db: Session,
+    *,
+    family_id: str,
+    operation_id: str,
+    for_update: bool = False,
+) -> InventoryOperation | None:
+    """Load one family-scoped operation, optionally with FOR UPDATE."""
+    stmt = select(InventoryOperation).where(
+        InventoryOperation.family_id == family_id,
+        InventoryOperation.id == operation_id,
+    )
+    if for_update:
+        stmt = stmt.with_for_update()
+    return db.scalar(stmt)
+
+
+def get_family_operation_with_lines(
+    db: Session,
+    *,
+    family_id: str,
+    operation_id: str,
+    for_update: bool = False,
+) -> InventoryOperation | None:
+    """Load one family-scoped operation with lines, optionally locking the parent row."""
+    from sqlalchemy.orm import selectinload
+
+    stmt = (
+        select(InventoryOperation)
+        .where(
+            InventoryOperation.family_id == family_id,
+            InventoryOperation.id == operation_id,
+        )
+        .options(selectinload(InventoryOperation.lines))
+    )
+    if for_update:
+        stmt = stmt.with_for_update()
+    return db.scalar(stmt)
+

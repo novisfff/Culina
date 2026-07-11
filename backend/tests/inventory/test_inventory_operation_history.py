@@ -526,3 +526,236 @@ def test_record_operation_line_and_ingredient_guard(db: Session) -> None:
     ]
     guard_lines = [line for line in lines if line.entity_type == InventoryOperationEntityType.INGREDIENT]
     assert len(guard_lines) == 1
+
+
+def _seed_operation(
+    db: Session,
+    *,
+    operation_id: str,
+    actor_id: str = "user-ops",
+    family_id: str = "family-ops",
+    applied_at: datetime | None = None,
+    status: InventoryOperationStatus = InventoryOperationStatus.APPLIED,
+    title: str = "登记本次购买",
+    description: str = "完成 1 项",
+) -> InventoryOperation:
+    applied = applied_at or datetime(2026, 7, 12, 10, 0, tzinfo=timezone.utc)
+    operation = InventoryOperation(
+        id=operation_id,
+        family_id=family_id,
+        operation_type=InventoryOperationType.SHOPPING_INTAKE,
+        status=status,
+        client_request_id=f"req-{operation_id}",
+        request_hash=f"hash-{operation_id}",
+        actor_id=actor_id,
+        applied_at=applied,
+        revertible_until=applied + timedelta(minutes=15),
+        summary_json={
+            "title": title,
+            "description": description,
+            "completed_count": 1,
+            "partial_count": 0,
+            "confirmed_count": 1,
+            "adjusted_count": 0,
+        },
+    )
+    db.add(operation)
+    return operation
+
+
+def test_list_inventory_operations_family_scope_newest_first(db: Session) -> None:
+    from app.core.enums import UserRole
+    from app.services.inventory_operation_history import list_inventory_operations
+
+    other_family = Family(id="family-other-ops", name="其他家庭", motto="", location="")
+    other_user = User(
+        id="user-other-ops",
+        username="other-ops",
+        display_name="其他用户",
+        avatar_seed="",
+        is_active=True,
+    )
+    db.add_all([other_family, other_user])
+    base = datetime(2026, 7, 12, 10, 0, tzinfo=timezone.utc)
+    for index in range(3):
+        _seed_operation(
+            db,
+            operation_id=f"op-home-{index}",
+            applied_at=base + timedelta(minutes=index),
+            description=f"完成 {index + 1} 项",
+        )
+    _seed_operation(
+        db,
+        operation_id="op-other",
+        family_id="family-other-ops",
+        actor_id="user-other-ops",
+        applied_at=base + timedelta(minutes=10),
+    )
+    db.commit()
+
+    now = base + timedelta(minutes=5)
+    result = list_inventory_operations(
+        db,
+        family_id="family-ops",
+        user_id="user-ops",
+        user_role=UserRole.MEMBER,
+        now=now,
+        limit=20,
+    )
+    assert [item.operation_id for item in result] == ["op-home-2", "op-home-1", "op-home-0"]
+    assert all(item.actor_display_name == "操作用户" for item in result)
+    assert result[0].summary.description == "完成 3 项"
+    assert result[0].can_revert is True
+    assert result[0].status == InventoryOperationStatus.APPLIED
+    assert "actor_id" not in result[0].model_dump()
+
+
+def test_list_inventory_operations_default_limit_and_max_validation(db: Session) -> None:
+    from app.core.enums import UserRole
+    from app.services.inventory_operation_history import list_inventory_operations
+
+    base = datetime(2026, 7, 12, 8, 0, tzinfo=timezone.utc)
+    for index in range(25):
+        _seed_operation(
+            db,
+            operation_id=f"op-limit-{index:02d}",
+            applied_at=base + timedelta(minutes=index),
+        )
+    db.commit()
+    now = base + timedelta(hours=1)
+    default_list = list_inventory_operations(
+        db,
+        family_id="family-ops",
+        user_id="user-ops",
+        user_role=UserRole.MEMBER,
+        now=now,
+    )
+    assert len(default_list) == 20
+    capped = list_inventory_operations(
+        db,
+        family_id="family-ops",
+        user_id="user-ops",
+        user_role=UserRole.MEMBER,
+        now=now,
+        limit=50,
+    )
+    assert len(capped) == 25
+    with pytest.raises(ValueError, match="1 到 50"):
+        list_inventory_operations(
+            db,
+            family_id="family-ops",
+            user_id="user-ops",
+            user_role=UserRole.MEMBER,
+            now=now,
+            limit=51,
+        )
+
+
+def test_get_inventory_operation_detail_hides_guard_and_raw_snapshots(db: Session) -> None:
+    from app.core.enums import UserRole
+    from app.services.inventory_operation_history import get_inventory_operation_detail
+
+    operation = _seed_operation(db, operation_id="op-detail")
+    item = db.get(InventoryItem, "inventory-tomato-1")
+    ingredient = db.get(Ingredient, "ingredient-tomato")
+    assert item is not None and ingredient is not None
+    record_operation_line(
+        db,
+        operation=operation,
+        sequence=1,
+        entity_type=InventoryOperationEntityType.INVENTORY_ITEM,
+        entity_id=item.id,
+        change_type=InventoryOperationChangeType.UPDATE,
+        before_snapshot=snapshot_inventory_item(item),
+        after_snapshot={**snapshot_inventory_item(item), "quantity": "6", "row_version": item.row_version + 1},
+        before_row_version=item.row_version,
+        after_row_version=item.row_version + 1,
+    )
+    record_ingredient_collection_guard(
+        db,
+        operation=operation,
+        sequence=2,
+        ingredient=ingredient,
+        before_row_version=ingredient.row_version,
+        after_row_version=ingredient.row_version + 1,
+    )
+    db.commit()
+
+    detail = get_inventory_operation_detail(
+        db,
+        family_id="family-ops",
+        user_id="user-ops",
+        user_role=UserRole.MEMBER,
+        operation_id="op-detail",
+        now=datetime(2026, 7, 12, 10, 5, tzinfo=timezone.utc),
+    )
+    assert detail.operation_id == "op-detail"
+    assert detail.actor_display_name == "操作用户"
+    assert detail.summary.title == "登记本次购买"
+    assert len(detail.lines) == 1
+    line = detail.lines[0]
+    assert line.entity_type == InventoryOperationEntityType.INVENTORY_ITEM
+    assert line.title == "番茄"
+    assert "数量" in line.description
+    dumped = detail.model_dump()
+    assert "before_snapshot" not in dumped
+    assert "after_snapshot" not in dumped
+    assert "actor_id" not in dumped
+    assert "collection_version_guard" not in json.dumps(dumped, ensure_ascii=False, default=str)
+    assert all(item.entity_type != InventoryOperationEntityType.INGREDIENT for item in detail.lines)
+
+
+def test_can_revert_depends_on_role_deadline_and_ownership(db: Session) -> None:
+    from app.core.enums import UserRole
+    from app.services.inventory_operation_history import list_inventory_operations
+
+    owner = User(
+        id="user-owner-ops",
+        username="owner-ops",
+        display_name="管理员",
+        avatar_seed="",
+        is_active=True,
+    )
+    member_b = User(
+        id="user-member-b",
+        username="member-b",
+        display_name="成员乙",
+        avatar_seed="",
+        is_active=True,
+    )
+    db.add_all([owner, member_b])
+    applied = datetime(2026, 7, 12, 12, 0, tzinfo=timezone.utc)
+    _seed_operation(db, operation_id="op-member-a", actor_id="user-ops", applied_at=applied)
+    _seed_operation(db, operation_id="op-member-b", actor_id="user-member-b", applied_at=applied)
+    db.commit()
+
+    within = list_inventory_operations(
+        db,
+        family_id="family-ops",
+        user_id="user-ops",
+        user_role=UserRole.MEMBER,
+        now=applied + timedelta(minutes=5),
+    )
+    by_id = {item.operation_id: item for item in within}
+    assert by_id["op-member-a"].can_revert is True
+    assert by_id["op-member-b"].can_revert is False
+
+    owner_view = list_inventory_operations(
+        db,
+        family_id="family-ops",
+        user_id="user-owner-ops",
+        user_role=UserRole.OWNER,
+        now=applied + timedelta(minutes=5),
+    )
+    owner_by_id = {item.operation_id: item for item in owner_view}
+    assert owner_by_id["op-member-a"].can_revert is True
+    assert owner_by_id["op-member-b"].can_revert is True
+
+    expired = list_inventory_operations(
+        db,
+        family_id="family-ops",
+        user_id="user-ops",
+        user_role=UserRole.MEMBER,
+        now=applied + timedelta(minutes=16),
+    )
+    assert all(item.can_revert is False for item in expired)

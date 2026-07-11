@@ -9,6 +9,7 @@ from app.api.foods import router as foods_router
 from app.api.ingredients import router as ingredients_router
 from app.api.inventory import router as inventory_router
 from app.api.inventory_reconciliation import router as inventory_reconciliation_router
+from app.api.inventory_operations import router as inventory_operations_router
 from app.api.inventory_states import router as inventory_states_router
 from app.api.meal_logs import router as meal_logs_router
 from app.api.media import router as media_router
@@ -25,6 +26,7 @@ api_router.include_router(ingredients_router)
 api_router.include_router(inventory_router)
 api_router.include_router(inventory_states_router)
 api_router.include_router(inventory_reconciliation_router)
+api_router.include_router(inventory_operations_router)
 api_router.include_router(shopping_list_router)
 api_router.include_router(shopping_intake_router)
 api_router.include_router(recipes_router)

@@ -8,6 +8,8 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 
 from app.core.enums import (
     InventoryAvailabilityLevel,
+    InventoryOperationChangeType,
+    InventoryOperationEntityType,
     InventoryOperationStatus,
     InventoryOperationType,
     InventoryStatus,
@@ -44,6 +46,22 @@ class InventoryOperationResult(BaseModel):
     revertible_until: datetime
     can_revert: bool
     summary: InventoryOperationDisplaySummary
+
+
+class InventoryOperationLineDisplayOut(BaseModel):
+    sequence: int
+    entity_type: InventoryOperationEntityType
+    change_type: InventoryOperationChangeType
+    title: str
+    description: str
+
+
+class InventoryOperationSummaryOut(InventoryOperationResult):
+    actor_display_name: str
+
+
+class InventoryOperationDetailOut(InventoryOperationSummaryOut):
+    lines: list[InventoryOperationLineDisplayOut]
 
 
 class ExactIngredientShoppingIntakeItemRequest(BaseModel):
