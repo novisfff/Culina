@@ -856,7 +856,9 @@
 }
 
 .ai-conversation-action-menu button {
-  display: block;
+  display: flex;
+  align-items: center;
+  gap: 8px;
   width: 100%;
   border: 0;
   border-radius: 8px;
@@ -869,9 +871,20 @@
   cursor: pointer;
 }
 
+.ai-conversation-action-menu button svg {
+  flex: 0 0 auto;
+  width: 14px;
+  height: 14px;
+  opacity: 0.82;
+}
+
 .ai-conversation-action-menu button:hover {
   background: rgba(255, 241, 231, 0.96);
   color: var(--accent-strong);
+}
+
+.ai-conversation-action-menu button:hover svg {
+  opacity: 1;
 }
 
 .ai-history-sharing-meta {
