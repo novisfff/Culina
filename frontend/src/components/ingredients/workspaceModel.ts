@@ -13,7 +13,7 @@ import {
 import { tracksIngredientQuantity } from '../../lib/ingredientTracking';
 
 export type IngredientWorkspaceView = 'hub' | 'catalog' | 'detail' | 'create';
-export type IngredientOverlayMode = 'inventory' | 'shopping' | 'consume' | 'destroyExpired' | null;
+export type IngredientOverlayMode = 'inventory' | 'shopping' | 'consume' | 'inventoryAction' | null;
 export type IngredientWorkspacePanel = 'catalog' | 'inventory' | 'shopping';
 
 export type IngredientAlertViewModel = {

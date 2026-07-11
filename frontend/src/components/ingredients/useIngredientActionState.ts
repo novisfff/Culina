@@ -1,14 +1,21 @@
 import type { Dispatch, FormEvent, SetStateAction } from 'react';
 import type {
   ConsumeInventoryResponse,
+  CorrectInventoryExpiryDateRequest,
+  DisposeExpiredInventoryRequest,
   DisposeExpiredInventoryResponse,
   Food,
   Ingredient,
   InventoryItem,
   ShoppingListItem,
+  SnoozeExpiryAlertsRequest,
+  SnoozeExpiryAlertsResponse,
+  VersionedInventoryItemRef,
 } from '../../api/types';
+import { isApiError } from '../../api/request';
 import type { NoticeTone } from '../../hooks/useNotice';
-import { buildDisposableExpiredInventoryItems, type IngredientSummaryViewModel } from './workspaceModel';
+import type { ExpiryInventoryActionGroup } from '../../features/inventory/inventoryActionModel';
+import type { IngredientSummaryViewModel } from './workspaceModel';
 import {
   buildConsumeUnitOptions,
   buildInventoryForm,
@@ -19,7 +26,7 @@ import {
   type InventoryDrawerFormState,
   type ShoppingDialogFormState,
 } from './ingredientWorkspaceForms';
-import type { PendingShoppingCompletion } from './IngredientWorkspaceOverlayTypes';
+import type { InventoryActionConflictState, PendingShoppingCompletion } from './IngredientWorkspaceOverlayTypes';
 import { tracksIngredientQuantity } from '../../lib/ingredientTracking';
 
 type UseIngredientActionStateArgs = {
@@ -34,10 +41,14 @@ type UseIngredientActionStateArgs = {
   setShoppingForm: Dispatch<SetStateAction<ShoppingDialogFormState>>;
   editingShoppingItemId: string | null;
   pendingShoppingToComplete: PendingShoppingCompletion | null;
-  destroyExpiredIngredientId: string | null;
+  inventoryActionIngredientId: string | null;
+  inventoryActionGroup: ExpiryInventoryActionGroup | null;
   selectedInventoryIngredient: Ingredient | null;
   setSelectedIngredientId: Dispatch<SetStateAction<string | null>>;
   closeOverlay: () => void;
+  setInventoryActionBusy: (busy: boolean) => void;
+  setInventoryActionError: (message: string | null) => void;
+  setInventoryActionConflict: (state: InventoryActionConflictState) => void;
   createInventory: (payload: {
     ingredient_id: string;
     quantity?: number | null;
@@ -54,10 +65,13 @@ type UseIngredientActionStateArgs = {
     quantity?: number | null;
     unit?: string | null;
   }) => Promise<ConsumeInventoryResponse>;
-  disposeExpiredInventory: (payload: {
-    ingredient_id: string;
-    items: Array<{ inventory_item_id: string; expected_row_version: number }>;
-  }) => Promise<DisposeExpiredInventoryResponse>;
+  disposeExpiredInventory: (payload: DisposeExpiredInventoryRequest) => Promise<DisposeExpiredInventoryResponse | unknown>;
+  snoozeInventoryExpiryAlerts: (payload: SnoozeExpiryAlertsRequest) => Promise<SnoozeExpiryAlertsResponse | unknown>;
+  correctInventoryExpiryDate: (
+    inventoryItemId: string,
+    payload: CorrectInventoryExpiryDateRequest,
+  ) => Promise<unknown>;
+  refreshInventoryActionGroup: (ingredientId: string) => Promise<ExpiryInventoryActionGroup | null>;
   createShoppingItem: (payload: {
     title: string;
     quantity?: number | null;
@@ -85,6 +99,13 @@ type UseIngredientActionStateArgs = {
   showNotice: (notice: { tone: NoticeTone; title: string; message: string }) => void;
   resolveErrorMessage: (reason: unknown, fallback: string) => string;
 };
+
+function messageOf(reason: unknown, fallback: string) {
+  if (reason instanceof Error && reason.message.trim()) {
+    return reason.message;
+  }
+  return fallback;
+}
 
 export function useIngredientActionState(args: UseIngredientActionStateArgs) {
   async function submitInventory(event: FormEvent<HTMLFormElement>) {
@@ -268,45 +289,149 @@ export function useIngredientActionState(args: UseIngredientActionStateArgs) {
     }
   }
 
-  async function submitDestroyExpired(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!args.destroyExpiredIngredientId) {
-      args.showNotice({ tone: 'warning', title: '还不能销毁过期批次', message: '先确认要处理哪种食材。' });
+  async function handleInventoryActionConflict(argsLocal: {
+    ingredientId: string;
+    ingredientName: string;
+  }) {
+    const surviving = await args.refreshInventoryActionGroup(argsLocal.ingredientId);
+    if (surviving) {
+      args.setInventoryActionConflict('review_again');
+      args.setInventoryActionError('家人刚刚改动了这批库存，请重新选择后再提交。');
       return;
     }
+    args.setInventoryActionConflict('none');
+    args.setInventoryActionError(null);
+    args.closeOverlay();
+    args.showNotice({
+      tone: 'success',
+      title: '这批库存已由家人处理',
+      message: `${argsLocal.ingredientName} 已不在今天要处理列表中。`,
+    });
+  }
 
-    const selectedSummary =
-      args.summaries.find((item) => item.ingredient.id === args.destroyExpiredIngredientId) ?? null;
-    if (!selectedSummary) {
-      args.showNotice({ tone: 'warning', title: '食材不可用', message: '这份食材暂时不可用，请稍后再试。' });
-      return;
-    }
-
-    const expiredItems = buildDisposableExpiredInventoryItems(selectedSummary);
-    if (expiredItems.length === 0) {
-      args.showNotice({ tone: 'warning', title: '没有可销毁批次', message: '当前没有可销毁的过期批次。' });
-      return;
-    }
-
+  async function runInventoryMutation(mutationArgs: {
+    ingredientId: string;
+    ingredientName: string;
+    mutate: () => Promise<unknown>;
+    failureTitle: string;
+  }) {
+    args.setInventoryActionBusy(true);
+    args.setInventoryActionError(null);
     try {
-      await args.disposeExpiredInventory({
-        ingredient_id: selectedSummary.ingredient.id,
-        items: expiredItems.map((item) => ({
-          inventory_item_id: item.id,
-          expected_row_version: item.rowVersion,
-        })),
-      });
-      args.setSelectedIngredientId(selectedSummary.ingredient.id);
+      await mutationArgs.mutate();
+      await args.refreshInventoryActionGroup(mutationArgs.ingredientId);
+      args.setInventoryActionConflict('none');
+      args.setSelectedIngredientId(mutationArgs.ingredientId);
       args.closeOverlay();
     } catch (reason) {
-      args.showNotice({ tone: 'danger', title: '销毁过期批次失败', message: args.resolveErrorMessage(reason, '销毁过期批次失败') });
+      if (isApiError(reason) && reason.status === 409) {
+        await handleInventoryActionConflict({
+          ingredientId: mutationArgs.ingredientId,
+          ingredientName: mutationArgs.ingredientName,
+        });
+        return;
+      }
+      args.setInventoryActionError(messageOf(reason, mutationArgs.failureTitle));
+    } finally {
+      args.setInventoryActionBusy(false);
     }
+  }
+
+  async function disposeSelectedInventoryBatches(items: VersionedInventoryItemRef[]) {
+    const group = args.inventoryActionGroup;
+    if (!group || group.kind !== 'expiry') {
+      args.showNotice({
+        tone: 'warning',
+        title: '食材不可用',
+        message: '这份食材暂时不可用，请稍后再试。',
+      });
+      return;
+    }
+    if (items.length === 0) {
+      args.setInventoryActionError('请先选择要销毁的过期批次。');
+      return;
+    }
+
+    await runInventoryMutation({
+      ingredientId: group.ingredientId,
+      ingredientName: group.ingredientName,
+      failureTitle: '销毁过期批次失败',
+      mutate: () =>
+        args.disposeExpiredInventory({
+          ingredient_id: group.ingredientId,
+          items,
+        }),
+    });
+  }
+
+  async function snoozeSelectedInventoryAlerts(snoozeArgs: {
+    action: SnoozeExpiryAlertsRequest['action'];
+    items: VersionedInventoryItemRef[];
+    snoozedUntil: string;
+  }) {
+    const group = args.inventoryActionGroup;
+    if (!group || group.kind !== 'expiry') {
+      args.showNotice({
+        tone: 'warning',
+        title: '食材不可用',
+        message: '这份食材暂时不可用，请稍后再试。',
+      });
+      return;
+    }
+    if (snoozeArgs.items.length === 0) {
+      args.setInventoryActionError(
+        snoozeArgs.action === 'retain_expired' ? '请先选择要暂时保留的过期批次。' : '请先选择要稍后提醒的批次。',
+      );
+      return;
+    }
+
+    await runInventoryMutation({
+      ingredientId: group.ingredientId,
+      ingredientName: group.ingredientName,
+      failureTitle: snoozeArgs.action === 'retain_expired' ? '暂时保留失败' : '稍后提醒失败',
+      mutate: () =>
+        args.snoozeInventoryExpiryAlerts({
+          action: snoozeArgs.action,
+          ingredient_id: group.ingredientId,
+          items: snoozeArgs.items,
+          snoozed_until: snoozeArgs.snoozedUntil,
+        }),
+    });
+  }
+
+  async function correctSelectedInventoryExpiryDate(correctArgs: {
+    inventoryItemId: string;
+    expectedRowVersion: number;
+    expiryDate: string;
+  }) {
+    const group = args.inventoryActionGroup;
+    if (!group || group.kind !== 'expiry') {
+      args.showNotice({
+        tone: 'warning',
+        title: '食材不可用',
+        message: '这份食材暂时不可用，请稍后再试。',
+      });
+      return;
+    }
+
+    await runInventoryMutation({
+      ingredientId: group.ingredientId,
+      ingredientName: group.ingredientName,
+      failureTitle: '更正到期日失败',
+      mutate: () =>
+        args.correctInventoryExpiryDate(correctArgs.inventoryItemId, {
+          expiry_date: correctArgs.expiryDate,
+          expected_row_version: correctArgs.expectedRowVersion,
+        }),
+    });
   }
 
   return {
     submitInventory,
     submitShopping,
     submitConsume,
-    submitDestroyExpired,
+    disposeSelectedInventoryBatches,
+    snoozeSelectedInventoryAlerts,
+    correctSelectedInventoryExpiryDate,
   };
 }

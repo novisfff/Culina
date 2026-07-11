@@ -872,6 +872,10 @@ function App() {
               createInventory={(payload) => createInventoryMutation.mutateAsync(payload)}
               consumeInventory={(payload) => consumeInventoryMutation.mutateAsync(payload)}
               disposeExpiredInventory={(payload) => disposeExpiredInventoryMutation.mutateAsync(payload)}
+              snoozeInventoryExpiryAlerts={(payload) => snoozeInventoryExpiryAlertsMutation.mutateAsync(payload)}
+              correctInventoryExpiryDate={(inventoryItemId, payload) =>
+                correctInventoryExpiryDateMutation.mutateAsync({ inventoryItemId, payload })
+              }
               createShoppingItem={(payload) => createShoppingMutation.mutateAsync(payload)}
               updateShoppingItem={(payload) => updateShoppingMutation.mutateAsync(payload)}
               deleteShoppingItem={(itemId) => deleteShoppingMutation.mutateAsync(itemId)}

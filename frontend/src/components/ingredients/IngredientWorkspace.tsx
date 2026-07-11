@@ -13,10 +13,13 @@ import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-quer
 import { AppLogoIcon } from '../../app/shellIcons';
 import { api } from '../../api/client';
 import { queryKeys } from '../../api/queryKeys';
-import { invalidateAfterFoodChanged, invalidateAfterQuickMealAdded } from '../../api/cacheInvalidation';
+import { invalidateAfterFoodChanged, invalidateAfterInventoryChanged, invalidateAfterQuickMealAdded } from '../../api/cacheInvalidation';
 import type {
   ConsumeInventoryResponse,
+  CorrectInventoryExpiryDateRequest,
+  DisposeExpiredInventoryRequest,
   DisposeExpiredInventoryResponse,
+  SnoozeExpiryAlertsRequest,
   Food,
   Ingredient,
   IngredientExpiryMode,
@@ -31,7 +34,7 @@ import type {
 import { buildMediaSizes, buildMediaSrcSet, resolveAssetUrl, resolveMediaUrl } from '../../lib/assets';
 import { MediaWithPlaceholder } from '../MediaPlaceholder';
 import { formatDate, todayKey } from '../../lib/ui';
-import { addDateKeyDays } from '../../lib/date';
+import { addDateKeyDays, businessDateKey } from '../../lib/date';
 import type { AiRenderPayload } from '../../lib/aiImages';
 import { useDebouncedSearchValue, useSearchCompositionState } from '../../hooks/useDebouncedValue';
 import { usePagedList } from '../../hooks/usePagedList';
@@ -45,7 +48,9 @@ import {
 } from '../ui-kit';
 import { getIngredientAvailableQuantityInDefault } from '../../lib/ingredientUnits';
 import { tracksIngredientQuantity } from '../../lib/ingredientTracking';
+import type { ExpiryInventoryActionGroup } from '../../features/inventory/inventoryActionModel';
 import {
+  buildIngredientPriorityActionGroups,
   buildInventoryCardPresentation,
   buildInventoryCardStatus,
   countDisposableExpiredInventoryItems,
@@ -153,10 +158,12 @@ type IngredientWorkspaceProps = {
     quantity?: number | null;
     unit?: string | null;
   }) => Promise<ConsumeInventoryResponse>;
-  disposeExpiredInventory: (payload: {
-    ingredient_id: string;
-    items: Array<{ inventory_item_id: string; expected_row_version: number }>;
-  }) => Promise<DisposeExpiredInventoryResponse>;
+  disposeExpiredInventory: (payload: DisposeExpiredInventoryRequest) => Promise<DisposeExpiredInventoryResponse | unknown>;
+  snoozeInventoryExpiryAlerts?: (payload: SnoozeExpiryAlertsRequest) => Promise<unknown>;
+  correctInventoryExpiryDate?: (
+    inventoryItemId: string,
+    payload: CorrectInventoryExpiryDateRequest,
+  ) => Promise<unknown>;
   createShoppingItem: (payload: {
     title: string;
     quantity?: number | null;
@@ -1782,6 +1789,7 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
     inventoryGroups,
     selectedIngredient,
     allAlerts,
+    inventoryActionGroups,
     priorityActionCount,
     pendingShopping,
     completedShoppingCards,
@@ -1866,6 +1874,8 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
     resolveErrorMessage,
   });
 
+  const inventoryActionReferenceDate = businessDateKey();
+
   const {
     overlayMode,
     setOverlayMode,
@@ -1877,7 +1887,14 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
     setShoppingForm,
     editingShoppingItemId,
     pendingShoppingToComplete,
-    destroyExpiredIngredientId,
+    inventoryActionIngredientId,
+    inventoryActionGroup,
+    inventoryActionBusy,
+    setInventoryActionBusy,
+    inventoryActionError,
+    setInventoryActionError,
+    inventoryActionConflict,
+    setInventoryActionConflict,
     inventoryAdvancedOpen,
     setInventoryAdvancedOpen,
     openInventoryOverlay,
@@ -1890,6 +1907,8 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
     ingredientOptions,
     foodOptions: readyFoodOptions,
     summaries,
+    inventoryActionGroups,
+    referenceDate: inventoryActionReferenceDate,
     onRequireCreate: () => {
       setActivePanel('catalog');
       editorState.openCreateView();
@@ -1942,7 +1961,45 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
     storageShelfMaxDisplayColumns: STORAGE_SHELF_MAX_DISPLAY_COLUMNS,
   });
 
-  const { submitInventory, submitShopping, submitConsume, submitDestroyExpired } = useIngredientActionState({
+  async function refreshInventoryActionGroup(ingredientId: string): Promise<ExpiryInventoryActionGroup | null> {
+    await invalidateAfterInventoryChanged(queryClient);
+    await queryClient.invalidateQueries({ queryKey: queryKeys.shoppingList });
+    const [freshInventory, freshIngredients, freshShopping] = await Promise.all([
+      queryClient.fetchQuery({
+        queryKey: queryKeys.inventory,
+        queryFn: () => api.getInventory(),
+      }),
+      queryClient.fetchQuery({
+        queryKey: queryKeys.ingredients,
+        queryFn: () => api.getIngredients(),
+      }),
+      queryClient.fetchQuery({
+        queryKey: queryKeys.shoppingList,
+        queryFn: () => api.getShoppingList(),
+      }),
+    ]);
+    const groups = buildIngredientPriorityActionGroups({
+      inventoryItems: freshInventory,
+      ingredients: freshIngredients,
+      shoppingItems: freshShopping,
+      referenceDate: inventoryActionReferenceDate,
+    });
+    return (
+      groups.find(
+        (group): group is ExpiryInventoryActionGroup =>
+          group.kind === 'expiry' && group.ingredientId === ingredientId,
+      ) ?? null
+    );
+  }
+
+  const {
+    submitInventory,
+    submitShopping,
+    submitConsume,
+    disposeSelectedInventoryBatches,
+    snoozeSelectedInventoryAlerts,
+    correctSelectedInventoryExpiryDate,
+  } = useIngredientActionState({
     ingredientOptions,
     foodOptions: readyFoodOptions,
     summaries,
@@ -1954,13 +2011,24 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
     setShoppingForm,
     editingShoppingItemId,
     pendingShoppingToComplete,
-    destroyExpiredIngredientId,
+    inventoryActionIngredientId,
+    inventoryActionGroup,
     selectedInventoryIngredient,
     setSelectedIngredientId,
     closeOverlay,
+    setInventoryActionBusy,
+    setInventoryActionError,
+    setInventoryActionConflict,
     createInventory: props.createInventory,
     consumeInventory: props.consumeInventory,
     disposeExpiredInventory: props.disposeExpiredInventory,
+    snoozeInventoryExpiryAlerts:
+      props.snoozeInventoryExpiryAlerts ??
+      (async (payload) => api.snoozeInventoryExpiryAlerts(payload)),
+    correctInventoryExpiryDate:
+      props.correctInventoryExpiryDate ??
+      (async (inventoryItemId, payload) => api.correctInventoryExpiryDate(inventoryItemId, payload)),
+    refreshInventoryActionGroup,
     createShoppingItem: props.createShoppingItem,
     updateShoppingItem: props.updateShoppingItem,
     showNotice,
@@ -2050,7 +2118,12 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
     setConsumeForm,
     shoppingForm,
     setShoppingForm,
-    destroyExpiredIngredientId,
+    inventoryActionIngredientId,
+    inventoryActionGroup,
+    inventoryActionReferenceDate,
+    inventoryActionBusy: inventoryActionBusy || Boolean(props.isDisposingExpiredInventory),
+    inventoryActionError,
+    inventoryActionConflict,
     ingredients: ingredientOptions,
     foods: readyFoodOptions,
     ingredientSummaries: summaries,
@@ -2058,11 +2131,12 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
     submitInventory,
     submitConsume,
     submitShopping,
-    submitDestroyExpired,
+    disposeSelectedInventoryBatches,
+    snoozeSelectedInventoryAlerts,
+    correctSelectedInventoryExpiryDate,
     pendingShoppingToComplete,
     isCreatingInventory: props.isCreatingInventory,
     isConsumingInventory: props.isConsumingInventory,
-    isDisposingExpiredInventory: props.isDisposingExpiredInventory,
     isCreatingShopping: props.isCreatingShopping,
   } as const;
 

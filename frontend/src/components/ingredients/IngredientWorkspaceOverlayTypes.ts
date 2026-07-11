@@ -1,5 +1,13 @@
 import type { FormEvent } from 'react';
-import type { Food, Ingredient } from '../../api/types';
+import type {
+  CorrectInventoryExpiryDateRequest,
+  DisposeExpiredInventoryRequest,
+  Food,
+  Ingredient,
+  SnoozeExpiryAlertsRequest,
+  VersionedInventoryItemRef,
+} from '../../api/types';
+import type { ExpiryInventoryActionGroup } from '../../features/inventory/inventoryActionModel';
 import type { IngredientOverlayMode, IngredientSummaryViewModel } from './workspaceModel';
 import type {
   ConsumeDialogFormState,
@@ -12,6 +20,8 @@ export type PendingShoppingCompletion = {
   title: string;
 };
 
+export type InventoryActionConflictState = 'none' | 'review_again';
+
 export type OverlayLayerProps = {
   overlayMode: IngredientOverlayMode;
   closeOverlay: () => void;
@@ -23,7 +33,12 @@ export type OverlayLayerProps = {
   setConsumeForm: (next: ConsumeDialogFormState) => void;
   shoppingForm: ShoppingDialogFormState;
   setShoppingForm: (next: ShoppingDialogFormState) => void;
-  destroyExpiredIngredientId: string | null;
+  inventoryActionIngredientId: string | null;
+  inventoryActionGroup: ExpiryInventoryActionGroup | null;
+  inventoryActionReferenceDate: string;
+  inventoryActionBusy?: boolean;
+  inventoryActionError?: string | null;
+  inventoryActionConflict?: InventoryActionConflictState;
   ingredients: Ingredient[];
   foods: Food[];
   ingredientSummaries: IngredientSummaryViewModel[];
@@ -31,10 +46,19 @@ export type OverlayLayerProps = {
   submitInventory: (event: FormEvent<HTMLFormElement>) => Promise<void>;
   submitConsume: (event: FormEvent<HTMLFormElement>) => Promise<void>;
   submitShopping: (event: FormEvent<HTMLFormElement>) => Promise<void>;
-  submitDestroyExpired: (event: FormEvent<HTMLFormElement>) => Promise<void>;
+  disposeSelectedInventoryBatches: (items: VersionedInventoryItemRef[]) => Promise<void>;
+  snoozeSelectedInventoryAlerts: (args: {
+    action: SnoozeExpiryAlertsRequest['action'];
+    items: VersionedInventoryItemRef[];
+    snoozedUntil: string;
+  }) => Promise<void>;
+  correctSelectedInventoryExpiryDate: (args: {
+    inventoryItemId: string;
+    expectedRowVersion: number;
+    expiryDate: string;
+  }) => Promise<void>;
   pendingShoppingToComplete: PendingShoppingCompletion | null;
   isCreatingInventory?: boolean;
   isConsumingInventory?: boolean;
-  isDisposingExpiredInventory?: boolean;
   isCreatingShopping?: boolean;
 };

@@ -25,15 +25,20 @@ describe('IngredientDestroyExpiredOverlay disposal contract', () => {
   it('carries actual row versions through disposal callers and never sends inventory_item_ids', () => {
     const workspaceModelSource = readFileSync(resolve(__dirname, 'workspaceModel.ts'), 'utf8');
     const actionStateSource = readFileSync(resolve(__dirname, 'useIngredientActionState.ts'), 'utf8');
+    const dialogSource = readFileSync(
+      resolve(__dirname, '../../features/inventory/InventoryActionDialog.tsx'),
+      'utf8',
+    );
     const homeActionsSource = readFileSync(
       resolve(__dirname, '../../features/home/useHomeDashboardActions.ts'),
       'utf8',
     );
 
     expect(workspaceModelSource).toContain('rowVersion: item.row_version');
-    expect(actionStateSource).toContain('expected_row_version: item.rowVersion');
+    expect(dialogSource).toContain('expected_row_version: batch.rowVersion');
+    expect(actionStateSource).toContain('disposeExpiredInventory');
     expect(actionStateSource).not.toContain('inventory_item_ids');
-    expect(homeActionsSource).toContain('expected_row_version: item.rowVersion');
+    expect(homeActionsSource).toContain('disposeExpiredInventory');
     expect(homeActionsSource).not.toContain('inventory_item_ids');
   });
 });

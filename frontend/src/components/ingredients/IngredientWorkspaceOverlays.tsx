@@ -5,10 +5,6 @@ import { convertQuantityToDefaultUnit, getIngredientUnitOptions, resolvePreferre
 import { quantityTrackingLabel, tracksIngredientQuantity } from '../../lib/ingredientTracking';
 import { WorkspaceOverlayFrame } from '../ui-kit';
 import {
-  buildDisposableExpiredInventoryItems,
-  buildInventoryCardPresentation,
-} from './workspaceModel';
-import {
   buildConsumeQuickValues,
   clampConsumeQuantity,
   getConsumeRemainingQuantity,
@@ -31,7 +27,7 @@ import {
 } from './ingredientWorkspaceForms';
 import { IngredientInventoryOverlay } from './IngredientInventoryOverlay';
 import { IngredientConsumeOverlay } from './IngredientConsumeOverlay';
-import { IngredientDestroyExpiredOverlay } from './IngredientDestroyExpiredOverlay';
+import { InventoryActionDialog } from '../../features/inventory/InventoryActionDialog';
 import { IngredientShoppingOverlay } from './IngredientShoppingOverlay';
 import type { OverlayLayerProps, PendingShoppingCompletion } from './IngredientWorkspaceOverlayTypes';
 
@@ -46,7 +42,7 @@ export function IngredientWorkspaceOverlays(props: OverlayLayerProps) {
 
   const isInventoryOverlay = props.overlayMode === 'inventory';
   const isConsumeOverlay = props.overlayMode === 'consume';
-  const isDestroyExpiredOverlay = props.overlayMode === 'destroyExpired';
+  const isInventoryActionOverlay = props.overlayMode === 'inventoryAction';
   const isShoppingOverlay = props.overlayMode === 'shopping';
   const selectedInventoryIngredient =
     isInventoryOverlay
@@ -56,16 +52,8 @@ export function IngredientWorkspaceOverlays(props: OverlayLayerProps) {
     isConsumeOverlay
       ? props.ingredientSummaries.find((item) => item.ingredient.id === props.consumeForm.ingredientId) ?? null
       : null;
-  const selectedDestroyExpiredSummary =
-    isDestroyExpiredOverlay && props.destroyExpiredIngredientId
-      ? props.ingredientSummaries.find((item) => item.ingredient.id === props.destroyExpiredIngredientId) ?? null
-      : null;
-  const destroyExpiredItems = selectedDestroyExpiredSummary
-    ? buildDisposableExpiredInventoryItems(selectedDestroyExpiredSummary)
-    : [];
-  const destroyExpiredPresentation = selectedDestroyExpiredSummary
-    ? buildInventoryCardPresentation(selectedDestroyExpiredSummary)
-    : null;
+  const selectedInventoryActionGroup =
+    isInventoryActionOverlay ? props.inventoryActionGroup : null;
   const consumeUnitOptions = buildConsumeUnitOptions(
     selectedConsumeSummary?.ingredient,
     selectedConsumeSummary?.availableInventoryItems ?? [],
@@ -167,16 +155,7 @@ export function IngredientWorkspaceOverlays(props: OverlayLayerProps) {
         selectedConsumeSummary.primaryStorage || selectedConsumeSummary.ingredient.default_storage || '常温',
       ]
     : [];
-  const selectedDestroyExpiredPreview = resolveAssetUrl(selectedDestroyExpiredSummary?.ingredient.image?.url);
-  const selectedDestroyExpiredMeta = selectedDestroyExpiredSummary
-    ? [
-        selectedDestroyExpiredSummary.ingredient.category || '未分类',
-        `默认 ${selectedDestroyExpiredSummary.ingredient.default_unit || '个'}`,
-        selectedDestroyExpiredSummary.primaryStorage || selectedDestroyExpiredSummary.ingredient.default_storage || '常温',
-      ]
-    : [];
-
-  if (isDestroyExpiredOverlay && !selectedDestroyExpiredSummary) {
+  if (isInventoryActionOverlay && !selectedInventoryActionGroup) {
     return null;
   }
 
@@ -250,18 +229,20 @@ export function IngredientWorkspaceOverlays(props: OverlayLayerProps) {
     updateConsumeQuantity(parsedValue);
   }
 
-  if (isDestroyExpiredOverlay && selectedDestroyExpiredSummary) {
+  if (isInventoryActionOverlay && selectedInventoryActionGroup) {
     return (
-      <IngredientDestroyExpiredOverlay
-        closeOverlay={props.closeOverlay}
+      <InventoryActionDialog
+        open
+        group={selectedInventoryActionGroup}
+        referenceDate={props.inventoryActionReferenceDate}
+        busy={props.inventoryActionBusy}
+        errorMessage={props.inventoryActionError}
+        conflictState={props.inventoryActionConflict}
         overlayRootClassName={INGREDIENT_WORKSPACE_OVERLAY_ROOT_CLASS}
-        summary={selectedDestroyExpiredSummary}
-        previewUrl={selectedDestroyExpiredPreview}
-        meta={selectedDestroyExpiredMeta}
-        items={destroyExpiredItems}
-        headline={destroyExpiredPresentation?.headline ?? '未登记'}
-        submit={props.submitDestroyExpired}
-        isSubmitting={props.isDisposingExpiredInventory}
+        onClose={props.closeOverlay}
+        onDispose={props.disposeSelectedInventoryBatches}
+        onSnooze={props.snoozeSelectedInventoryAlerts}
+        onCorrectExpiry={props.correctSelectedInventoryExpiryDate}
       />
     );
   }
