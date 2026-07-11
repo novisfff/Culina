@@ -6190,7 +6190,7 @@
 
   .mobile-dashboard-action-item {
     width: 100%;
-    min-height: 64px;
+    min-height: 72px;
     display: grid;
     grid-template-columns: 40px minmax(0, 1fr) auto;
     align-items: center;
@@ -6258,13 +6258,14 @@
   }
 
   .mobile-dashboard-action-copy small {
+    display: -webkit-box;
     overflow: hidden;
     color: #87766a;
     font-size: 0.78rem;
     font-weight: 700;
     line-height: 1.22;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
   }
 
   .mobile-dashboard-action-primary {

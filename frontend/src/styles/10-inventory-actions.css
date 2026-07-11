@@ -466,6 +466,21 @@
     flex-basis: auto;
   }
 
+  .inventory-action-footer-summary p {
+    display: none;
+  }
+
+  /* The dialog title already names the ingredient. Keep the fixed action bar focused on selection and actions. */
+  .inventory-action-footer-summary > span {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
   .inventory-action-actions .ui-form-actions-row {
     display: flex;
     flex-direction: column-reverse;
