@@ -145,6 +145,8 @@ def _render_job_response(job: AIImageGenerationJob, *, db: Session, family_id: s
         "target_entity_id": job.target_entity_id,
         "target_entity_name": _resolve_job_target_name(job, db=db, family_id=family_id),
         "bind_status": job.bind_status,
+        "created_at": job.created_at,
+        "completed_at": job.completed_at,
     }
 
 
@@ -157,7 +159,7 @@ def render_ai_image(
     user, membership = auth
     if (payload.target_entity_type and not payload.target_entity_id) or (payload.target_entity_id and not payload.target_entity_type):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Image render target is incomplete")
-    request, reference_asset = _build_image_generation_request(payload=payload, family_id=membership.family_id, db=db)
+    request, _reference_asset = _build_image_generation_request(payload=payload, family_id=membership.family_id, db=db)
     job = enqueue_image_generation(
         db,
         family_id=membership.family_id,
@@ -181,20 +183,7 @@ def render_ai_image(
         except ValueError as exc:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     commit_session(db)
-    return {
-        "job_id": job.id,
-        "status": job.status,
-        "error": None,
-        "generated_asset": None,
-        "reference_asset": reference_asset,
-        "style_key": None,
-        "prompt_version": None,
-        "generation_mode": payload.mode.value,
-        "target_entity_type": job.target_entity_type,
-        "target_entity_id": job.target_entity_id,
-        "target_entity_name": _resolve_job_target_name(job, db=db, family_id=membership.family_id),
-        "bind_status": job.bind_status,
-    }
+    return _render_job_response(job, db=db, family_id=membership.family_id)
 
 
 @router.get("/api/media/ai-render/active", response_model=list[AiRenderResponse])

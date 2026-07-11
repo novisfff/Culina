@@ -39,13 +39,37 @@ export type AppNotificationJob = {
   description: string;
   can_retry: boolean;
   can_dismiss: boolean;
+  created_at?: string | null;
+  completed_at?: string | null;
 };
+
+const SUCCESSFUL_HISTORY_LIMIT = 5;
+
+function jobSortTimestamp(job: AppNotificationJob) {
+  return job.completed_at ?? job.created_at ?? '';
+}
+
+function compareJobsByRecency(left: AppNotificationJob, right: AppNotificationJob) {
+  const timestampDiff = jobSortTimestamp(right).localeCompare(jobSortTimestamp(left));
+  if (timestampDiff !== 0) return timestampDiff;
+  return right.notification_id.localeCompare(left.notification_id);
+}
+
+export function orderBackgroundTaskJobs(jobs: AppNotificationJob[]) {
+  const failed = jobs.filter((job) => job.status === 'failed').sort(compareJobsByRecency);
+  const active = jobs.filter((job) => job.status === 'queued' || job.status === 'running').sort(compareJobsByRecency);
+  const succeeded = jobs
+    .filter((job) => job.status === 'succeeded')
+    .sort(compareJobsByRecency)
+    .slice(0, SUCCESSFUL_HISTORY_LIMIT);
+  return [...failed, ...active, ...succeeded];
+}
 
 function notificationSummary(activeCount: number, failedCount: number, totalCount: number) {
   if (failedCount > 0) return `${failedCount} 条失败待处理`;
   if (activeCount > 0) return `${activeCount} 条任务正在处理`;
-  if (totalCount > 0) return `${totalCount} 条最近通知`;
-  return '暂无新通知';
+  if (totalCount > 0) return `${totalCount} 条最近任务`;
+  return '暂无后台任务';
 }
 
 function notificationSummaryTone(activeCount: number, failedCount: number) {
@@ -165,10 +189,12 @@ export function AppNotificationCenter(props: {
   const centerRef = useRef<HTMLDivElement | null>(null);
   const popoverRef = useRef<HTMLDivElement | null>(null);
   const variant = props.variant ?? 'desktop';
-  const activeCount = props.jobs.filter((job) => job.status === 'queued' || job.status === 'running').length;
-  const failedCount = props.jobs.filter((job) => job.status === 'failed').length;
-  const hasJobs = props.jobs.length > 0;
-  const totalCount = props.jobs.length;
+  const visibleJobs = orderBackgroundTaskJobs(props.jobs);
+  const activeCount = visibleJobs.filter((job) => job.status === 'queued' || job.status === 'running').length;
+  const failedCount = visibleJobs.filter((job) => job.status === 'failed').length;
+  const attentionCount = activeCount + failedCount;
+  const hasJobs = visibleJobs.length > 0;
+  const totalCount = visibleJobs.length;
   const summaryTone = notificationSummaryTone(activeCount, failedCount);
 
   useEffect(() => {
@@ -211,12 +237,12 @@ export function AppNotificationCenter(props: {
       ref={popoverRef}
       className={variant === 'mobileIcon' ? 'app-notification-popover mobile-notification-popover' : 'app-notification-popover'}
       role="dialog"
-      aria-label="通知"
+      aria-label="后台任务"
       aria-live="polite"
     >
       <div className="app-notification-popover-head">
         <span className="app-notification-head-copy">
-          <span>通知</span>
+          <span>进度</span>
           <strong>后台任务</strong>
         </span>
         <span className={`app-notification-summary tone-${summaryTone}`}>
@@ -224,10 +250,10 @@ export function AppNotificationCenter(props: {
         </span>
       </div>
       {props.isLoading ? (
-        <p className="app-notification-empty">正在读取通知...</p>
+        <p className="app-notification-empty">正在读取后台任务...</p>
       ) : hasJobs ? (
         <div className="app-notification-list">
-          {props.jobs.map((job) => {
+          {visibleJobs.map((job) => {
             const jobId = job.notification_id;
             const isRetrying = Boolean(jobId && props.retryingJobId === jobId);
             const canRetry = Boolean(jobId && job.can_retry && props.onRetryJob);
@@ -276,7 +302,7 @@ export function AppNotificationCenter(props: {
           })}
         </div>
       ) : (
-        <p className="app-notification-empty">当前没有通知。</p>
+        <p className="app-notification-empty">当前没有后台任务。</p>
       )}
     </div>
   );
@@ -297,13 +323,15 @@ export function AppNotificationCenter(props: {
         type="button"
         onClick={() => setIsOpen((current) => !current)}
         aria-expanded={isOpen}
-        aria-label="查看通知"
+        aria-label="查看后台任务"
       >
         <span className="app-notification-icon" aria-hidden="true">
           <DashboardIcon name="bell" />
-          {totalCount > 0 && <span className="app-notification-count">{totalCount > 99 ? '99+' : totalCount}</span>}
+          {attentionCount > 0 && (
+            <span className="app-notification-count">{attentionCount > 99 ? '99+' : attentionCount}</span>
+          )}
         </span>
-        {variant !== 'mobileIcon' && <strong>通知</strong>}
+        {variant !== 'mobileIcon' && <strong>后台任务</strong>}
       </button>
       {isOpen && (variant === 'mobileIcon' ? createPortal(popover, document.body) : popover)}
     </div>

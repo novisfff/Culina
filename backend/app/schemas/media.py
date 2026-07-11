@@ -81,3 +81,5 @@ class AiRenderResponse(BaseModel):
     target_entity_id: str | None = None
     target_entity_name: str | None = None
     bind_status: AiImageBindStatus | None = None
+    created_at: datetime | None = None
+    completed_at: datetime | None = None

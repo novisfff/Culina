@@ -444,6 +444,8 @@ export interface SearchIndexJobResponse {
   entity_id: string;
   target_name: string;
   vector_status: SearchIndexVectorStatus;
+  created_at: string;
+  completed_at?: string | null;
 }
 
 export interface RecipeFavorite {
@@ -1370,6 +1372,8 @@ export interface AiRenderResponse {
   target_entity_id?: string | null;
   target_entity_name?: string | null;
   bind_status?: AiImageBindStatus | null;
+  created_at?: string | null;
+  completed_at?: string | null;
 }
 
 export interface ConsumeInventoryResponse {

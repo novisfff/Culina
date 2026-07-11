@@ -128,6 +128,8 @@ function buildImageNotificationJob(job: AiRenderResponse): AppNotificationJob | 
     description,
     can_retry: job.status === 'failed',
     can_dismiss: isTerminalImageJob(job),
+    created_at: job.created_at ?? null,
+    completed_at: job.completed_at ?? null,
   };
 }
 
@@ -156,6 +158,8 @@ function buildSearchIndexNotificationJob(job: SearchIndexJobResponse): AppNotifi
     description,
     can_retry: job.status === 'failed',
     can_dismiss: isTerminalSearchIndexJob(job),
+    created_at: job.created_at,
+    completed_at: job.completed_at ?? null,
   };
 }
 
