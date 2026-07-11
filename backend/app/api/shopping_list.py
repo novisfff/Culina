@@ -12,6 +12,7 @@ from app.db.transactions import commit_session
 from app.models.domain import Food, Ingredient, ShoppingListItem
 from app.schemas.shopping import CreateShoppingListItemRequest, ShoppingListItemOut, UpdateShoppingListItemRequest
 from app.services.activity import log_activity
+from app.services.inventory_operation_locking import InventoryTargetNotFoundError, lock_inventory_targets
 from app.services.serializers import serialize_shopping_item
 
 router = APIRouter(tags=["shopping-list"])
@@ -120,8 +121,13 @@ def update_shopping_item(
     db: Session = Depends(get_db),
 ) -> dict:
     user, membership = auth
-    item = db.scalar(select(ShoppingListItem).where(ShoppingListItem.id == item_id, ShoppingListItem.family_id == membership.family_id))
-    if item is None:
+    try:
+        item = lock_inventory_targets(
+            db,
+            family_id=membership.family_id,
+            shopping_item_ids=[item_id],
+        ).shopping_items[item_id]
+    except (InventoryTargetNotFoundError, KeyError):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Shopping item not found")
     ingredient = None
     food = None
@@ -208,8 +214,13 @@ def delete_shopping_item(
     db: Session = Depends(get_db),
 ) -> Response:
     user, membership = auth
-    item = db.scalar(select(ShoppingListItem).where(ShoppingListItem.id == item_id, ShoppingListItem.family_id == membership.family_id))
-    if item is None:
+    try:
+        item = lock_inventory_targets(
+            db,
+            family_id=membership.family_id,
+            shopping_item_ids=[item_id],
+        ).shopping_items[item_id]
+    except (InventoryTargetNotFoundError, KeyError):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Shopping item not found")
     item_title = item.title
     log_activity(

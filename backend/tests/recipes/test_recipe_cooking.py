@@ -478,6 +478,11 @@ class RecipeRecipeCookingTestCase(RecipeApiTestCase):
                 self.assertEqual(egg.consumed_quantity, Decimal("3.00"))
                 self.assertEqual(tomato.row_version, 2)
                 self.assertEqual(egg.row_version, 2)
+                tomato_ingredient = db.get(Ingredient, self.tomato.id)
+                egg_ingredient = db.get(Ingredient, self.egg.id)
+                assert tomato_ingredient is not None and egg_ingredient is not None
+                self.assertEqual(tomato_ingredient.row_version, 2)
+                self.assertEqual(egg_ingredient.row_version, 2)
 
         def test_expired_snoozed_inventory_excluded_from_recipe_readiness_and_cook(self) -> None:
             recipe = self.create_recipe(auto_create_food=False)

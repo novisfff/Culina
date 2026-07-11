@@ -467,6 +467,7 @@ def test_patch_shopping_item_updates_current_family_item_and_activity_log(
         assert item is not None
         assert item.done is True
         assert item.updated_by == shopping_api_context.user_id
+        assert item.row_version == 2
 
         log = db.scalar(
             select(ActivityLog).where(

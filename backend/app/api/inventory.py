@@ -28,11 +28,12 @@ from app.schemas.inventory_overview import InventoryOverviewOut, InventoryOvervi
 from app.services.clock import today_for_family
 from app.services.inventory_expiry_actions import (
     InventoryStaleVersionError,
-    STALE_INVENTORY_DETAIL,
     correct_inventory_expiry_date,
     dispose_expired_inventory_items,
     snooze_expiry_alerts,
 )
+from app.services.inventory_versions import STALE_INVENTORY_DETAIL
+
 from app.services.inventory_overview import build_inventory_overview
 from app.services.inventory_operations import (
     consume_ingredient_inventory,

@@ -15,6 +15,7 @@ from app.core.utils import create_id
 from app.models.domain import Food
 from app.schemas.foods import CreateFoodRequest, UpdateFoodRequest
 from app.services.activity import log_activity
+from app.services.inventory_operation_locking import InventoryTargetNotFoundError, lock_inventory_targets
 from app.services.ai_operations.image_jobs import build_food_image_request, enqueue_ai_entity_image_generation
 from app.services.food_stock_quantity import normalize_food_stock_quantity, validate_food_stock_quantity_precision
 from app.services.media import bind_media_assets, replace_media_assets
@@ -45,10 +46,13 @@ def execute_food_profile_draft(
         effective_payload = payload.get("payload") if isinstance(payload.get("payload"), dict) else payload
         return _create_food_from_profile(db, family_id=family_id, user_id=user_id, payload=effective_payload)
 
-    food = db.scalar(
-        select(Food).where(Food.family_id == family_id, Food.id == str(payload.get("targetId"))).with_for_update()
-    )
-    if food is None:
+    try:
+        food = lock_inventory_targets(
+            db,
+            family_id=family_id,
+            food_ids=[str(payload.get("targetId"))],
+        ).foods[str(payload.get("targetId"))]
+    except (InventoryTargetNotFoundError, KeyError):
         raise AIConflictError("食物不存在或已被删除")
     assert_updated_at_matches(actual=food.updated_at, expected=str(payload.get("baseUpdatedAt")), label=f"食物 {food.name}")
     action = str(payload.get("action") or "")

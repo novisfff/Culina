@@ -71,6 +71,12 @@ class RecipeFoodStockOperationsTestCase(RecipeApiTestCase):
         self.assertEqual(dispose.json()["storage_location"], "冷冻")
 
         with self.SessionLocal() as db:
+            food = db.get(Food, "food-stock-yogurt")
+            assert food is not None
+            # create starts at 1; restock/consume/dispose each advance once
+            self.assertEqual(food.row_version, 4)
+
+        with self.SessionLocal() as db:
             logs = list(
                 db.scalars(
                     select(ActivityLog).where(

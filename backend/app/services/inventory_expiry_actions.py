@@ -3,28 +3,28 @@ from __future__ import annotations
 from datetime import date, datetime, timedelta
 from typing import Literal, Sequence
 
-from sqlalchemy import select
-from sqlalchemy.orm import Session, selectinload
+from sqlalchemy.orm import Session
 from sqlalchemy.orm.exc import StaleDataError
 
 from app.core.enums import ActivityAction
 from app.core.utils import utcnow
 from app.models.domain import Ingredient, InventoryItem
 from app.services.activity import log_activity
-from app.services.inventory_operations import dispose_inventory_quantity, require_ingredient
+from app.services.inventory_operation_locking import lock_inventory_targets
+from app.services.inventory_operations import dispose_inventory_quantity
 from app.services.inventory_usage import remaining_quantity
+from app.services.inventory_versions import (
+    InventoryConflictError,
+    STALE_INVENTORY_DETAIL,
+    bump_ingredient_collection,
+    require_expected_version,
+)
 
-STALE_INVENTORY_DETAIL = "库存批次已被其他成员更新，请刷新后重试"
+# Back-compat alias used by API routes and existing tests.
+InventoryStaleVersionError = InventoryConflictError
+
 MAX_SNOOZE_DAYS = 30
 MAX_ACTIONABLE_DAYS = 7
-
-
-class InventoryStaleVersionError(Exception):
-    """Raised when a submitted inventory row_version no longer matches locked state."""
-
-    def __init__(self, message: str = STALE_INVENTORY_DETAIL) -> None:
-        super().__init__(message)
-        self.message = message
 
 
 def _format_month_day(value: date) -> str:
@@ -60,7 +60,7 @@ def _flush_versioned_inventory(db: Session) -> None:
     try:
         db.flush()
     except StaleDataError as exc:
-        raise InventoryStaleVersionError() from exc
+        raise InventoryConflictError() from exc
 
 
 def lock_and_validate_versioned_items(
@@ -69,7 +69,7 @@ def lock_and_validate_versioned_items(
     family_id: str,
     ingredient_id: str,
     item_refs: Sequence[object],
-) -> list[InventoryItem]:
+) -> tuple[Ingredient, list[InventoryItem]]:
     submitted_ids = _submitted_item_ids(item_refs)
     if not submitted_ids:
         raise ValueError("库存批次不能为空")
@@ -77,21 +77,17 @@ def lock_and_validate_versioned_items(
         raise ValueError("不能提交重复的库存批次")
 
     expected_versions = _expected_versions(item_refs)
-    ordered_ids = sorted(submitted_ids)
-    locked_items = list(
-        db.scalars(
-            select(InventoryItem)
-            .where(
-                InventoryItem.family_id == family_id,
-                InventoryItem.id.in_(ordered_ids),
-            )
-            .options(selectinload(InventoryItem.ingredient))
-            .order_by(InventoryItem.id.asc())
-            .with_for_update()
-        )
+    locked = lock_inventory_targets(
+        db,
+        family_id=family_id,
+        ingredient_ids=[ingredient_id],
+        inventory_item_ids=submitted_ids,
     )
-    items_by_id = {item.id: item for item in locked_items}
-    if len(items_by_id) != len(submitted_ids):
+    ingredient = locked.ingredients.get(ingredient_id)
+    if ingredient is None:
+        raise ValueError("食材不存在或不属于当前家庭")
+    items_by_id = locked.inventory_items
+    if len(items_by_id) != len(set(submitted_ids)):
         raise ValueError("部分库存批次不存在或不属于当前家庭")
 
     ordered_items: list[InventoryItem] = []
@@ -102,14 +98,18 @@ def lock_and_validate_versioned_items(
         # Version must win over mutable business state (remaining qty / expiry).
         # Concurrent consume/dispose that exhausts a batch also bumps row_version;
         # clients must get 409 so they refresh, not a 400 that leaves a stale dialog.
-        if item.row_version != expected_versions[item_id]:
-            raise InventoryStaleVersionError()
+        require_expected_version(
+            item,
+            expected_versions[item_id],
+            entity_type="inventory_item",
+            entity_id=item.id,
+        )
         if remaining_quantity(item) <= 0:
             raise ValueError("库存批次已无剩余数量")
         if item.expiry_date is None:
             raise ValueError("库存批次缺少到期日")
         ordered_items.append(item)
-    return ordered_items
+    return ingredient, ordered_items
 
 
 def _validate_snooze_window(*, today: date, snoozed_until: date) -> None:
@@ -152,12 +152,11 @@ def snooze_expiry_alerts(
     today: date,
     reviewed_at: datetime | None = None,
 ) -> dict:
-    ingredient = require_ingredient(db, family_id=family_id, ingredient_id=ingredient_id)
     _validate_snooze_window(today=today, snoozed_until=snoozed_until)
-    items = lock_and_validate_versioned_items(
+    ingredient, items = lock_and_validate_versioned_items(
         db,
         family_id=family_id,
-        ingredient_id=ingredient.id,
+        ingredient_id=ingredient_id,
         item_refs=item_refs,
     )
     _assert_snooze_eligibility(items, action=action, today=today)
@@ -171,6 +170,8 @@ def snooze_expiry_alerts(
             item.expiry_reviewed_at = review_timestamp
             item.expiry_reviewed_by = user_id
             reviewed_expired_count += 1
+
+    bump_ingredient_collection(ingredient, user_id=user_id)
 
     if action == "retain_expired":
         summary = (
@@ -212,31 +213,45 @@ def correct_inventory_expiry_date(
     expiry_date: date,
     expected_row_version: int,
 ) -> InventoryItem:
-    item = db.scalar(
+    # Discover ingredient_id first without taking locks out of order.
+    from sqlalchemy import select
+    from sqlalchemy.orm import selectinload
+
+    provisional = db.scalar(
         select(InventoryItem)
         .where(
             InventoryItem.family_id == family_id,
             InventoryItem.id == inventory_item_id,
         )
         .options(selectinload(InventoryItem.ingredient))
-        .with_for_update()
     )
-    if item is None:
+    if provisional is None:
         raise ValueError("库存批次不存在或不属于当前家庭")
-    if item.row_version != expected_row_version:
-        raise InventoryStaleVersionError()
 
-    ingredient = item.ingredient or require_ingredient(
+    locked = lock_inventory_targets(
         db,
         family_id=family_id,
-        ingredient_id=item.ingredient_id,
+        ingredient_ids=[provisional.ingredient_id],
+        inventory_item_ids=[inventory_item_id],
     )
+    item = locked.inventory_items.get(inventory_item_id)
+    ingredient = locked.ingredients.get(provisional.ingredient_id)
+    if item is None or ingredient is None:
+        raise ValueError("库存批次不存在或不属于当前家庭")
+    require_expected_version(
+        item,
+        expected_row_version,
+        entity_type="inventory_item",
+        entity_id=item.id,
+    )
+
     old_expiry = item.expiry_date
     item.expiry_date = expiry_date
     item.expiry_alert_snoozed_until = None
     item.expiry_reviewed_at = None
     item.expiry_reviewed_by = None
     item.updated_by = user_id
+    bump_ingredient_collection(ingredient, user_id=user_id)
 
     old_label = old_expiry.isoformat() if old_expiry is not None else "未设置"
     log_activity(
@@ -262,11 +277,10 @@ def dispose_expired_inventory_items(
     item_refs: Sequence[object],
     today: date,
 ) -> dict:
-    ingredient = require_ingredient(db, family_id=family_id, ingredient_id=ingredient_id)
-    items = lock_and_validate_versioned_items(
+    ingredient, items = lock_and_validate_versioned_items(
         db,
         family_id=family_id,
-        ingredient_id=ingredient.id,
+        ingredient_id=ingredient_id,
         item_refs=item_refs,
     )
     for item in items:

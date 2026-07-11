@@ -26,6 +26,7 @@ from app.schemas.foods import (
 from app.services.activity import log_activity
 from app.services.clock import now_for_family
 from app.services.food_stock import apply_food_stock_consume, apply_food_stock_dispose, apply_food_stock_restock
+from app.services.inventory_operation_locking import InventoryTargetNotFoundError, lock_inventory_targets
 from app.services.food_stock_quantity import normalize_food_stock_quantity, validate_food_stock_quantity_precision
 from app.services.ingredient_units import UnitConversionError
 from app.services.inventory_usage import load_available_inventory_by_ingredient, recipe_availability_summary
@@ -505,8 +506,13 @@ def update_food(
     db: Session = Depends(get_db),
 ) -> dict:
     user, membership = auth
-    food = db.scalar(select(Food).where(Food.id == food_id, Food.family_id == membership.family_id))
-    if food is None:
+    try:
+        food = lock_inventory_targets(
+            db,
+            family_id=membership.family_id,
+            food_ids=[food_id],
+        ).foods[food_id]
+    except (InventoryTargetNotFoundError, KeyError):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Food not found")
     if food.type == FoodType.SELF_MADE.value or food.recipe_id is not None:
         if payload.type != FoodType.SELF_MADE or payload.recipe_id != food.recipe_id:
@@ -552,8 +558,13 @@ def update_food_favorite(
     db: Session = Depends(get_db),
 ) -> dict:
     user, membership = auth
-    food = db.scalar(select(Food).where(Food.id == food_id, Food.family_id == membership.family_id))
-    if food is None:
+    try:
+        food = lock_inventory_targets(
+            db,
+            family_id=membership.family_id,
+            food_ids=[food_id],
+        ).foods[food_id]
+    except (InventoryTargetNotFoundError, KeyError):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Food not found")
     food.favorite = payload.favorite
     food.updated_by = user.id
@@ -573,10 +584,14 @@ def update_food_favorite(
 
 
 def _require_food_for_stock(db: Session, *, family_id: str, food_id: str) -> Food:
-    food = db.scalar(select(Food).where(Food.id == food_id, Food.family_id == family_id).with_for_update())
-    if food is None:
+    try:
+        return lock_inventory_targets(
+            db,
+            family_id=family_id,
+            food_ids=[food_id],
+        ).foods[food_id]
+    except (InventoryTargetNotFoundError, KeyError):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Food not found")
-    return food
 
 
 @router.post("/api/foods/{food_id}/stock/restock", response_model=FoodStockChangeOut)

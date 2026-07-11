@@ -246,6 +246,10 @@ def test_create_inventory_item_sets_audit_fields_and_activity_log(inventory_api_
         assert item.family_id == inventory_api_context.family_id
         assert item.created_by == inventory_api_context.user_id
         assert item.updated_by == inventory_api_context.user_id
+        assert item.row_version == 1
+        ingredient = db.get(Ingredient, inventory_api_context.ingredient_id)
+        assert ingredient is not None
+        assert ingredient.row_version == 2
 
         log = db.scalar(
             select(ActivityLog).where(
@@ -318,6 +322,10 @@ def test_consume_inventory_updates_current_family_batch_and_activity_log(
         assert item is not None
         assert item.consumed_quantity == Decimal("3")
         assert item.updated_by == inventory_api_context.user_id
+        assert item.row_version == 2
+        ingredient = db.get(Ingredient, inventory_api_context.ingredient_id)
+        assert ingredient is not None
+        assert ingredient.row_version == 2
 
         log = db.scalar(
             select(ActivityLog).where(

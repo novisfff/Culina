@@ -16,7 +16,8 @@ from app.schemas.recipes import CookRecipeRequest
 from app.services.activity import log_activity
 from app.services.ai_operations.common import assert_updated_at_matches
 from app.services.inventory_expiry_actions import STALE_INVENTORY_DETAIL
-from app.services.inventory_operations import lock_inventory_items_by_ids
+from app.services.inventory_operation_locking import lock_inventory_targets
+from app.services.inventory_versions import bump_ingredient_collection
 from app.services.inventory_usage import build_cook_inventory_plan
 from app.services.recipe_food_sync import ensure_food_for_recipe
 from app.services.serializers import serialize_recipe_cook_log
@@ -70,14 +71,19 @@ def execute_recipe_cook_draft(
         for plan in consumption_plan
         for deduction in plan.deductions
     ]
-    locked_items = lock_inventory_items_by_ids(
+    planned_ingredient_ids = sorted({plan.ingredient.id for plan in consumption_plan if plan.ingredient is not None})
+    locked = lock_inventory_targets(
         db,
         family_id=family_id,
-        item_ids=planned_item_ids,
+        ingredient_ids=planned_ingredient_ids,
+        inventory_item_ids=planned_item_ids,
     )
+    locked_items = locked.inventory_items
+    locked_ingredients = locked.ingredients
 
     consumed_items: list[dict[str, Any]] = []
     try:
+        bumped_ingredient_ids: set[str] = set()
         for plan in consumption_plan:
             affected_item_ids: list[str] = []
             for deduction in plan.deductions:
@@ -87,6 +93,12 @@ def execute_recipe_cook_draft(
                 item.consumed_quantity = item.consumed_quantity + deduction.quantity
                 item.updated_by = user_id
                 affected_item_ids.append(item.id)
+            if affected_item_ids and plan.ingredient is not None and plan.ingredient.id not in bumped_ingredient_ids:
+                ingredient = locked_ingredients.get(plan.ingredient.id)
+                if ingredient is None:
+                    raise AIConflictError(STALE_INVENTORY_DETAIL)
+                bump_ingredient_collection(ingredient, user_id=user_id)
+                bumped_ingredient_ids.add(plan.ingredient.id)
             consumed_items.append(
                 {
                     "ingredient_id": plan.ingredient.id,

@@ -18,6 +18,7 @@ from app.schemas.meal_logs import CreateMealLogRequest, MealLogOut, QuickAddMeal
 from app.services.activity import log_activity
 from app.services.clock import today_for_family
 from app.services.food_stock import apply_food_stock_consume
+from app.services.inventory_operation_locking import InventoryTargetNotFoundError, lock_inventory_targets
 from app.services.media import bind_media_assets, replace_media_assets
 from app.services.search.jobs import enqueue_search_index_job
 from app.services.serializers import serialize_meal_log
@@ -35,8 +36,20 @@ MEAL_TYPE_LABELS = {
 def _select_food_for_quick_add(*, food_id: str, family_id: str, deduct_food_stock: bool):
     statement = select(Food).where(Food.id == food_id, Food.family_id == family_id)
     if deduct_food_stock:
+        # Prefer the shared inventory lock helper at call sites that already hold a Session.
         statement = statement.with_for_update()
     return statement
+
+
+def _require_food_locked_for_stock(db, *, family_id: str, food_id: str) -> Food:
+    try:
+        return lock_inventory_targets(
+            db,
+            family_id=family_id,
+            food_ids=[food_id],
+        ).foods[food_id]
+    except (InventoryTargetNotFoundError, KeyError) as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Food not found") from exc
 
 
 def _build_deduction_suggestions(db: Session, food_entries: list[MealLogFood]) -> list[InventoryDeductionSuggestion]:
@@ -228,15 +241,22 @@ def quick_add_meal_log(
     db: Session = Depends(get_db),
 ) -> dict:
     user, membership = auth
-    food = db.scalar(
-        _select_food_for_quick_add(
-            food_id=payload.food_id,
+    if payload.deduct_food_stock:
+        food = _require_food_locked_for_stock(
+            db,
             family_id=membership.family_id,
-            deduct_food_stock=payload.deduct_food_stock,
+            food_id=payload.food_id,
         )
-    )
-    if food is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Food not found")
+    else:
+        food = db.scalar(
+            _select_food_for_quick_add(
+                food_id=payload.food_id,
+                family_id=membership.family_id,
+                deduct_food_stock=False,
+            )
+        )
+        if food is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Food not found")
 
     plan_item: FoodPlanItem | None = None
     if payload.food_plan_item_id:

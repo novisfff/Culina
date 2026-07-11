@@ -1330,6 +1330,9 @@ class AIInventoryOperationsTestCase(AIAgentInfraTestCase):
                 assert item is not None
                 self.assertEqual(item.disposed_quantity, Decimal("1.00"))
                 self.assertEqual(item.row_version, 2)
+                ingredient = db.get(Ingredient, "ingredient-tomato")
+                assert ingredient is not None
+                self.assertEqual(ingredient.row_version, 2)
 
             with self.SessionLocal() as db:
                 from app.services.ai_operations.inventory import execute_inventory_operation_draft
@@ -1359,6 +1362,9 @@ class AIInventoryOperationsTestCase(AIAgentInfraTestCase):
                 assert item is not None
                 self.assertEqual(item.consumed_quantity, Decimal("1.00"))
                 self.assertEqual(item.row_version, 3)
+                ingredient = db.get(Ingredient, "ingredient-tomato")
+                assert ingredient is not None
+                self.assertEqual(ingredient.row_version, 3)
 
         def test_expired_snoozed_batch_remains_expired_in_ai_inventory_reads(self) -> None:
             with self.SessionLocal() as db:
