@@ -151,6 +151,16 @@ class AIWorkspacePhaseFlowsTestCase(AIAgentInfraTestCase):
             assert checkpoint is not None
             return checkpoint.checkpoint["channel_values"]
 
+        def _cancel_run_if_waiting(self, chat_response: dict) -> None:
+            """Release same-conversation lock after a draft/approval pause."""
+            run = chat_response.get("run") or {}
+            run_id = run.get("id")
+            if not run_id or run.get("status") != "waiting_approval":
+                return
+            cancel_response = self.client.post(f"/api/ai/runs/{run_id}/cancel")
+            self.assertEqual(cancel_response.status_code, 200, cancel_response.text)
+            self.assertEqual(cancel_response.json()["run"]["status"], "cancelled")
+
         def test_food_profile_source_owned_handoff_resumes_meal_plan(self) -> None:
             provider = SourceOwnedFoodPlanContinuationProvider()
             with patch("app.ai.workspace_service.get_chat_provider", return_value=provider):
@@ -959,7 +969,9 @@ class AIWorkspacePhaseFlowsTestCase(AIAgentInfraTestCase):
 
             plan_response = self.client.post("/api/ai/chat", json={"message": "用快过期食材安排三天晚餐"})
             self.assertEqual(plan_response.status_code, 200, plan_response.text)
-            conversation_id = plan_response.json()["conversation_id"]
+            plan_data = plan_response.json()
+            conversation_id = plan_data["conversation_id"]
+            self._cancel_run_if_waiting(plan_data)
 
             shopping_response = self.client.post(
                 "/api/ai/chat",
@@ -996,7 +1008,9 @@ class AIWorkspacePhaseFlowsTestCase(AIAgentInfraTestCase):
         def test_ai_workspace_phase2_modifies_existing_meal_plan_draft(self) -> None:
             plan_response = self.client.post("/api/ai/chat", json={"message": "安排三天晚餐"})
             self.assertEqual(plan_response.status_code, 200, plan_response.text)
-            conversation_id = plan_response.json()["conversation_id"]
+            plan_data = plan_response.json()
+            conversation_id = plan_data["conversation_id"]
+            self._cancel_run_if_waiting(plan_data)
 
             modify_response = self.client.post(
                 "/api/ai/chat",
@@ -1011,14 +1025,18 @@ class AIWorkspacePhaseFlowsTestCase(AIAgentInfraTestCase):
         def test_ai_workspace_modifies_plan_after_deriving_shopping_list(self) -> None:
             plan_response = self.client.post("/api/ai/chat", json={"message": "安排三天晚餐"})
             self.assertEqual(plan_response.status_code, 200, plan_response.text)
-            conversation_id = plan_response.json()["conversation_id"]
+            plan_data = plan_response.json()
+            conversation_id = plan_data["conversation_id"]
+            self._cancel_run_if_waiting(plan_data)
 
             shopping_response = self.client.post(
                 "/api/ai/chat",
                 json={"conversation_id": conversation_id, "message": "基于这个计划生成购物清单"},
             )
             self.assertEqual(shopping_response.status_code, 200, shopping_response.text)
-            self.assertEqual(shopping_response.json()["run"]["agent_key"], "workspace_orchestrator")
+            shopping_data = shopping_response.json()
+            self.assertEqual(shopping_data["run"]["agent_key"], "workspace_orchestrator")
+            self._cancel_run_if_waiting(shopping_data)
 
             modify_response = self.client.post(
                 "/api/ai/chat",
