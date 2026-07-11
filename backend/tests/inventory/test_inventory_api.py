@@ -24,6 +24,7 @@ from app.core.enums import (
     MembershipStatus,
     UserRole,
 )
+from app.core.utils import utcnow
 from app.db.session import get_db
 from app.main import app
 from app.models.domain import (
@@ -1897,6 +1898,9 @@ def test_presence_to_exact_creates_real_batch_and_clears_state(
             expiry_date=today_for_family(inventory_api_context.family_id) + timedelta(days=30),
             storage_location="常温",
             notes="presence",
+            last_confirmed_at=utcnow(),
+            last_confirmed_by=inventory_api_context.user_id,
+            last_confirmation_source=InventoryConfirmationSource.MANUAL_ENTRY,
             row_version=2,
             created_by=inventory_api_context.user_id,
             updated_by=inventory_api_context.user_id,
@@ -1948,6 +1952,9 @@ def test_presence_to_exact_creates_real_batch_and_clears_state(
         assert state.purchase_date is None
         assert state.expiry_date is None
         assert state.notes == ""
+        assert state.last_confirmed_at is None
+        assert state.last_confirmed_by is None
+        assert state.last_confirmation_source is None
         assert legacy.quantity == Decimal("1")
         assert len(new_items) == 1
         assert new_items[0].quantity == Decimal("500")

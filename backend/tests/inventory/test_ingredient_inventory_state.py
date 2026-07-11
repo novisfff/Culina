@@ -1412,6 +1412,9 @@ def test_transition_service_presence_to_exact_never_reuses_placeholder(db: Sessi
         inventory_status=InventoryStatus.FRESH,
         storage_location="常温",
         notes="presence",
+        last_confirmed_at=utcnow(),
+        last_confirmed_by="user-1",
+        last_confirmation_source=InventoryConfirmationSource.MANUAL_ENTRY,
         row_version=1,
         created_by="user-1",
         updated_by="user-1",
@@ -1461,3 +1464,6 @@ def test_transition_service_presence_to_exact_never_reuses_placeholder(db: Sessi
     assert new_items[0].quantity == Decimal("250")
     assert state.availability_level == InventoryAvailabilityLevel.ABSENT
     assert state.storage_location is None
+    assert state.last_confirmed_at is None
+    assert state.last_confirmed_by is None
+    assert state.last_confirmation_source is None

@@ -37,6 +37,7 @@ describe('IngredientEditorView tracking transition guard', () => {
   it('renders a blocking confirmation surface for tracking mode changes', () => {
     const editorSource = readFileSync(editorSourcePath, 'utf8');
     const editorStateSource = readFileSync(resolve(__dirname, 'useIngredientEditorState.ts'), 'utf8');
+    const mutationsSource = readFileSync(resolve(__dirname, '../../app/useAppMutations.ts'), 'utf8');
 
     expect(editorSource).toContain('ingredients-tracking-transition-modal');
     expect(editorSource).toContain('切换为只记录有无');
@@ -48,5 +49,11 @@ describe('IngredientEditorView tracking transition guard', () => {
     expect(editorStateSource).toContain('presence_resolution');
     expect(editorStateSource).toContain('exact_resolution');
     expect(editorStateSource).toContain('// Transition first; never silently submit the generic profile update for mode changes.');
+    // Dual-write recovery: transition success + profile failure must not re-run transition.
+    expect(editorStateSource).toContain('数量记录方式已切换，资料未全部保存');
+    expect(editorStateSource).toContain('setTrackingTransitionDraft(null)');
+    expect(editorStateSource).toContain('onTrackingTransitionSettled');
+    // Mutation must not invalidate inventory queries before the editor dual-write finishes.
+    expect(mutationsSource).toContain('Intentionally no onSuccess invalidation');
   });
 });

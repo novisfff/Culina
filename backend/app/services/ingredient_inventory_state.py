@@ -299,6 +299,9 @@ def _clear_state_for_exact_mode(state: IngredientInventoryState, *, user_id: str
     state.expiry_alert_snoozed_until = None
     state.expiry_reviewed_at = None
     state.expiry_reviewed_by = None
+    state.last_confirmed_at = None
+    state.last_confirmed_by = None
+    state.last_confirmation_source = None
     state.updated_by = user_id
 
 
@@ -397,17 +400,146 @@ def _transition_exact_to_presence(
         entity_id=ingredient.id,
     )
 
-    all_items = list(
+    # Global lock order: Ingredient (above) → State → InventoryItem.
+    # Discover child ids without locking, then re-lock parent-first via lock_inventory_targets.
+    existing_state = db.scalar(
+        select(IngredientInventoryState).where(
+            IngredientInventoryState.family_id == family_id,
+            IngredientInventoryState.ingredient_id == ingredient.id,
+        )
+    )
+    item_ids = list(
         db.scalars(
-            select(InventoryItem)
+            select(InventoryItem.id)
             .where(
                 InventoryItem.family_id == family_id,
                 InventoryItem.ingredient_id == ingredient.id,
             )
             .order_by(InventoryItem.id.asc())
-            .with_for_update()
         )
     )
+
+    try:
+        locked_children = lock_inventory_targets(
+            db,
+            family_id=family_id,
+            ingredient_ids=[ingredient.id],
+            state_ingredient_ids=[ingredient.id] if existing_state is not None else (),
+            inventory_item_ids=item_ids,
+        )
+    except InventoryTargetNotFoundError as exc:
+        raise InventoryConflictError(
+            "库存状态或批次已变化，请刷新后重试",
+            code="stale_version",
+            conflicts=[
+                {
+                    "entity_type": "ingredient",
+                    "entity_id": ingredient.id,
+                    "reason": "scope_changed",
+                }
+            ],
+        ) from exc
+
+    ingredient = locked_children.ingredients.get(ingredient.id) or ingredient
+    if not tracks_quantity(ingredient):
+        raise InventoryConflictError(
+            "食材跟踪模式已变更，请刷新后重试",
+            code="tracking_mode_changed",
+            conflicts=[
+                {
+                    "entity_type": "ingredient",
+                    "entity_id": ingredient.id,
+                    "expected_row_version": request.expected_ingredient_row_version,
+                    "current_row_version": ingredient.row_version,
+                    "reason": "tracking_mode_changed",
+                }
+            ],
+        )
+    require_expected_version(
+        ingredient,
+        request.expected_ingredient_row_version,
+        entity_type="ingredient",
+        entity_id=ingredient.id,
+    )
+
+    locked_state = locked_children.states_by_ingredient_id.get(ingredient.id)
+    if existing_state is not None:
+        if locked_state is None:
+            raise InventoryConflictError(
+                "库存状态已变化，请刷新后重试",
+                code="stale_version",
+                conflicts=[
+                    {
+                        "entity_type": "ingredient_inventory_state",
+                        "entity_id": existing_state.id,
+                        "reason": "missing",
+                    }
+                ],
+            )
+        if request.expected_state_row_version is None:
+            raise InventoryConflictError(
+                "库存状态已变化，请刷新后重试",
+                code="stale_version",
+                conflicts=[
+                    {
+                        "entity_type": "ingredient_inventory_state",
+                        "entity_id": locked_state.id,
+                        "reason": "missing_expected_version",
+                        "current_row_version": locked_state.row_version,
+                    }
+                ],
+            )
+        require_expected_version(
+            locked_state,
+            request.expected_state_row_version,
+            entity_type="ingredient_inventory_state",
+            entity_id=locked_state.id,
+        )
+        state = locked_state
+    else:
+        if request.expected_state_row_version is not None:
+            raise InventoryConflictError(
+                "库存状态不存在，请刷新后重试",
+                code="stale_version",
+                conflicts=[
+                    {
+                        "entity_type": "ingredient_inventory_state",
+                        "entity_id": ingredient.id,
+                        "reason": "missing",
+                        "expected_row_version": request.expected_state_row_version,
+                    }
+                ],
+            )
+        # Insert only after parent locks; no pre-existing State to lock.
+        state = IngredientInventoryState(
+            id=create_id("inventory-state"),
+            family_id=family_id,
+            ingredient_id=ingredient.id,
+            availability_level=resolution.availability_level,
+            inventory_status=resolution.inventory_status,
+            notes=resolution.notes or "",
+            created_by=user_id,
+            updated_by=user_id,
+        )
+        db.add(state)
+
+    all_items = list(locked_children.inventory_items.values())
+    all_items.sort(key=lambda item: item.id)
+    if len(all_items) != len(item_ids):
+        raise InventoryConflictError(
+            "当前精确库存批次集合已变化，请刷新后重试",
+            code="scope_changed",
+            conflicts=[
+                {
+                    "entity_type": "ingredient",
+                    "entity_id": ingredient.id,
+                    "expected_batch_ids": sorted(item_ids),
+                    "current_batch_ids": sorted(item.id for item in all_items),
+                    "reason": "scope_changed",
+                }
+            ],
+        )
+
     current_physical = _physical_remaining_batches(all_items)
     current_ids = {item.id for item in current_physical}
     submitted_ids = {batch.inventory_item_id for batch in request.observed_batches}
@@ -447,61 +579,6 @@ def _transition_exact_to_presence(
             entity_type="inventory_item",
             entity_id=item.id,
         )
-
-    existing_state = db.scalar(
-        select(IngredientInventoryState)
-        .where(
-            IngredientInventoryState.family_id == family_id,
-            IngredientInventoryState.ingredient_id == ingredient.id,
-        )
-        .with_for_update()
-    )
-    if existing_state is not None:
-        if request.expected_state_row_version is None:
-            raise InventoryConflictError(
-                "库存状态已变化，请刷新后重试",
-                code="stale_version",
-                conflicts=[
-                    {
-                        "entity_type": "ingredient_inventory_state",
-                        "entity_id": existing_state.id,
-                        "reason": "missing_expected_version",
-                        "current_row_version": existing_state.row_version,
-                    }
-                ],
-            )
-        require_expected_version(
-            existing_state,
-            request.expected_state_row_version,
-            entity_type="ingredient_inventory_state",
-            entity_id=existing_state.id,
-        )
-        state = existing_state
-    else:
-        if request.expected_state_row_version is not None:
-            raise InventoryConflictError(
-                "库存状态不存在，请刷新后重试",
-                code="stale_version",
-                conflicts=[
-                    {
-                        "entity_type": "ingredient_inventory_state",
-                        "entity_id": ingredient.id,
-                        "reason": "missing",
-                        "expected_row_version": request.expected_state_row_version,
-                    }
-                ],
-            )
-        state = IngredientInventoryState(
-            id=create_id("inventory-state"),
-            family_id=family_id,
-            ingredient_id=ingredient.id,
-            availability_level=resolution.availability_level,
-            inventory_status=resolution.inventory_status,
-            notes=resolution.notes or "",
-            created_by=user_id,
-            updated_by=user_id,
-        )
-        db.add(state)
 
     ingredient.quantity_tracking_mode = IngredientQuantityTrackingMode.NOT_TRACK_QUANTITY
     ingredient.default_low_stock_threshold = None

@@ -105,6 +105,8 @@ type UseIngredientEditorStateArgs = {
     ingredientId: string,
     payload: IngredientTrackingModeTransitionRequest
   ) => Promise<Ingredient>;
+  /** Optional: run after a successful dual-write (transition + profile) or recovered transition. */
+  onTrackingTransitionSettled?: (ingredient: Ingredient) => void | Promise<void>;
   showNotice: (notice: { tone: NoticeTone; title: string; message: string }) => void;
   resolveErrorMessage: (reason: unknown, fallback: string) => string;
 };
@@ -479,27 +481,90 @@ export function useIngredientEditorState(args: UseIngredientEditorStateArgs) {
 
     setTrackingTransitionBusy(true);
     setTrackingTransitionError(null);
+    let transitioned: Ingredient | null = null;
     try {
       // Transition first; never silently submit the generic profile update for mode changes.
-      const transitioned = await args.transitionIngredientTrackingMode(
+      transitioned = await args.transitionIngredientTrackingMode(
         args.editingIngredientId,
         transitionPayload
       );
+      const applied = transitioned;
+      // Transition already applied server-side. Align local editor to the new mode/version
+      // before attempting the profile dual-write so a profile failure cannot re-run transition.
+      args.setIngredientForm((current) => ({
+        ...current,
+        quantityTrackingMode: applied.quantity_tracking_mode ?? targetMode,
+      }));
+      args.setTransientIngredient(applied);
+      setTrackingTransitionDraft(null);
+      setTrackingTransitionError(null);
+
       const profilePayload = {
         ...draft.profilePayload,
-        quantity_tracking_mode: transitioned.quantity_tracking_mode ?? targetMode,
+        quantity_tracking_mode: applied.quantity_tracking_mode ?? targetMode,
       };
-      const saved = await args.updateIngredient(args.editingIngredientId, profilePayload);
-      finishIngredientSave(saved, draft.restockAfterSave);
-      args.showNotice({
-        tone: 'success',
-        title: '已切换数量记录方式',
-        message:
-          targetMode === 'not_track_quantity'
-            ? '之后会按家庭级有无状态维护这道食材。'
-            : '之后会按精确库存批次维护这道食材。',
-      });
+      try {
+        const saved = await args.updateIngredient(args.editingIngredientId, profilePayload);
+        finishIngredientSave(saved, draft.restockAfterSave);
+        if (args.onTrackingTransitionSettled) {
+          await args.onTrackingTransitionSettled(saved);
+        }
+        args.showNotice({
+          tone: 'success',
+          title: '已切换数量记录方式',
+          message:
+            targetMode === 'not_track_quantity'
+              ? '之后会按家庭级有无状态维护这道食材。'
+              : '之后会按精确库存批次维护这道食材。',
+        });
+      } catch (profileReason) {
+        // Mode/inventory already switched. Keep the editor open with the transitioned
+        // ingredient, clear the draft so retry is profile-only via normal save, and
+        // surface a non-blocking profile error (do not re-run transition).
+        args.setIngredientForm((current) => ({
+          ...buildIngredientForm(applied),
+          // Preserve in-progress profile edits the user just submitted.
+          name: draft.profilePayload.name || current.name,
+          category: draft.profilePayload.category || current.category,
+          defaultUnit: draft.profilePayload.default_unit || current.defaultUnit,
+          defaultStorage: draft.profilePayload.default_storage || current.defaultStorage,
+          defaultExpiryMode: draft.profilePayload.default_expiry_mode || current.defaultExpiryMode,
+          defaultExpiryDays:
+            draft.profilePayload.default_expiry_days === null ||
+            draft.profilePayload.default_expiry_days === undefined
+              ? ''
+              : String(draft.profilePayload.default_expiry_days),
+          defaultLowStockThreshold:
+            draft.profilePayload.default_low_stock_threshold === null ||
+            draft.profilePayload.default_low_stock_threshold === undefined
+              ? ''
+              : String(draft.profilePayload.default_low_stock_threshold),
+          notes: draft.profilePayload.notes ?? current.notes,
+          quantityTrackingMode: applied.quantity_tracking_mode ?? targetMode,
+        }));
+        if (args.onTrackingTransitionSettled) {
+          await args.onTrackingTransitionSettled(applied);
+        }
+        args.showNotice({
+          tone: 'warning',
+          title: '数量记录方式已切换，资料未全部保存',
+          message: args.resolveErrorMessage(
+            profileReason,
+            '跟踪方式已生效，但名称等资料保存失败。请直接再点保存，不会重复切换跟踪方式。'
+          ),
+        });
+      }
     } catch (reason) {
+      const recovered = transitioned;
+      if (recovered) {
+        // Transition completed but an unexpected post-transition failure escaped.
+        setTrackingTransitionDraft(null);
+        args.setTransientIngredient(recovered);
+        args.setIngredientForm((current) => ({
+          ...current,
+          quantityTrackingMode: recovered.quantity_tracking_mode ?? targetMode,
+        }));
+      }
       setTrackingTransitionError(
         args.resolveErrorMessage(reason, '切换数量记录方式失败，请刷新后重试。')
       );

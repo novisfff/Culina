@@ -13,7 +13,7 @@ import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-quer
 import { AppLogoIcon } from '../../app/shellIcons';
 import { api } from '../../api/client';
 import { queryKeys } from '../../api/queryKeys';
-import { invalidateAfterFoodChanged, invalidateAfterInventoryChanged, invalidateAfterQuickMealAdded } from '../../api/cacheInvalidation';
+import { invalidateAfterFoodChanged, invalidateAfterInventoryChanged, invalidateAfterInventoryOperation, invalidateAfterQuickMealAdded } from '../../api/cacheInvalidation';
 import type {
   ConsumeInventoryResponse,
   CorrectInventoryExpiryDateRequest,
@@ -1615,10 +1615,15 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
   const [ingredientForm, setIngredientForm] = useState<IngredientCreateFormState>(
     () => persistedWorkspaceState.ingredientForm ?? defaultIngredientForm()
   );
-  const ingredientOptions =
-    transientIngredient && !props.ingredients.some((item) => item.id === transientIngredient.id)
-      ? [transientIngredient, ...props.ingredients]
-      : props.ingredients;
+  const ingredientOptions = (() => {
+    if (!transientIngredient) {
+      return props.ingredients;
+    }
+    const others = props.ingredients.filter((item) => item.id !== transientIngredient.id);
+    // Prefer the local transitioned/saved snapshot so dual-write recovery can update mode/version
+    // before query invalidation lands.
+    return [transientIngredient, ...others];
+  })();
   const readyFoodOptions = useMemo(
     () => {
       const sourceFoods =
@@ -1894,6 +1899,11 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
     createIngredient: props.createIngredient,
     updateIngredient: props.updateIngredient,
     transitionIngredientTrackingMode: props.transitionIngredientTrackingMode,
+    onTrackingTransitionSettled: async () => {
+      // Invalidate only after the dual-write path finishes (success or recovered transition),
+      // so inventory/state refresh does not land under an open transition dialog.
+      await invalidateAfterInventoryOperation(queryClient);
+    },
     showNotice,
     resolveErrorMessage,
   });

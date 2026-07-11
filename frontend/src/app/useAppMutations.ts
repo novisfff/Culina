@@ -41,9 +41,9 @@ export function useAppMutations() {
       payload: Parameters<typeof api.transitionIngredientTrackingMode>[1];
     }) => api.transitionIngredientTrackingMode(ingredientId, payload),
     retry: false,
-    onSuccess: async () => {
-      await invalidateAfterInventoryOperation(queryClient);
-    },
+    // Intentionally no onSuccess invalidation: the editor dual-write path
+    // (transition + profile update) invalidates only after the full save finishes,
+    // so inventory/state refresh does not land under an open transition dialog.
   });
   const createInventoryMutation = useMutation({
     mutationFn: api.createInventory,

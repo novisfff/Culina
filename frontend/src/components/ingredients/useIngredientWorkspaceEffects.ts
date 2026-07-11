@@ -35,7 +35,17 @@ type UseIngredientWorkspaceEffectsArgs = {
 
 export function useIngredientWorkspaceEffects(args: UseIngredientWorkspaceEffectsArgs) {
   useEffect(() => {
-    if (args.transientIngredient && args.ingredients.some((item) => item.id === args.transientIngredient?.id)) {
+    if (!args.transientIngredient) {
+      return;
+    }
+    const server = args.ingredients.find((item) => item.id === args.transientIngredient?.id);
+    if (!server) {
+      return;
+    }
+    // Keep a local post-transition snapshot until the query cache catches up to its row_version.
+    const transientVersion = args.transientIngredient.row_version ?? 0;
+    const serverVersion = server.row_version ?? 0;
+    if (serverVersion >= transientVersion) {
       args.setTransientIngredient(null);
     }
   }, [args.ingredients, args.transientIngredient, args.setTransientIngredient]);
