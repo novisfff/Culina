@@ -2267,9 +2267,9 @@
   .ai-mobile-conversation {
     position: relative;
     display: grid;
-    grid-template-columns: minmax(0, 1fr) 32px;
+    grid-template-columns: minmax(0, 1fr) 44px;
     gap: 4px;
-    align-items: start;
+    align-items: center;
     border: 0;
     border-radius: 12px;
     background: transparent;
@@ -2291,11 +2291,20 @@
     cursor: pointer;
   }
 
+  .ai-mobile-conversation .ai-conversation-actions {
+    width: 44px;
+    height: 44px;
+  }
+
   .ai-mobile-conversation .ai-conversation-manage {
     opacity: 1;
     transform: scale(1);
-    width: 32px;
-    height: 32px;
+    width: 44px;
+    height: 44px;
+    min-width: 44px;
+    min-height: 44px;
+    border-radius: 12px;
+    font-size: 1.05rem;
   }
 
   .ai-mobile-conversation .ai-history-sharing-meta {
