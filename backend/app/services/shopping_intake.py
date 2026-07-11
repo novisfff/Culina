@@ -365,6 +365,9 @@ def apply_shopping_intake(
         ) from exc
 
     prepared: list[_PreparedItem] = []
+    seen_food_targets: dict[str, str] = {}
+    seen_presence_targets: dict[str, str] = {}
+
     for item in request.items:
         shopping = locked.shopping_items.get(item.shopping_item_id)
         if shopping is None:
@@ -487,6 +490,15 @@ def apply_shopping_intake(
                     shopping_item_id=item.shopping_item_id,
                     field="target_id",
                 )
+            prior_presence = seen_presence_targets.get(ingredient.id)
+            if prior_presence is not None:
+                _raise_validation(
+                    "请求中包含重复的非精确食材目标",
+                    code="duplicate_request_item",
+                    shopping_item_id=item.shopping_item_id,
+                    field="target_id",
+                )
+            seen_presence_targets[ingredient.id] = item.shopping_item_id
             require_expected_version(
                 ingredient,
                 item.expected_ingredient_row_version,
@@ -521,6 +533,20 @@ def apply_shopping_intake(
                         shopping_item_id=item.shopping_item_id,
                         field="state_id",
                     )
+                assert state is not None
+                if item.expected_state_row_version is None:
+                    _raise_validation(
+                        "更新库存状态时必须提供 expected_state_row_version",
+                        code="invalid_target",
+                        shopping_item_id=item.shopping_item_id,
+                        field="expected_state_row_version",
+                    )
+                require_expected_version(
+                    state,
+                    item.expected_state_row_version,
+                    entity_type="ingredient_inventory_state",
+                    entity_id=state.id,
+                )
             prepared_item.ingredient = ingredient
             prepared_item.state = state
             prepared_item.ingredient_before_version = ingredient.row_version
@@ -551,6 +577,15 @@ def apply_shopping_intake(
                     shopping_item_id=item.shopping_item_id,
                     field="target_id",
                 )
+            prior_food = seen_food_targets.get(food.id)
+            if prior_food is not None:
+                _raise_validation(
+                    "请求中包含重复的食物目标",
+                    code="duplicate_request_item",
+                    shopping_item_id=item.shopping_item_id,
+                    field="target_id",
+                )
+            seen_food_targets[food.id] = item.shopping_item_id
             require_expected_version(
                 food,
                 item.expected_food_row_version,
@@ -587,11 +622,10 @@ def apply_shopping_intake(
         if isinstance(item, ExactIngredientShoppingIntakeItemRequest):
             ingredient = prepared_item.ingredient
             assert ingredient is not None
-            if prepared_item.is_free_text:
-                _bind_free_text_to_ingredient(shopping, ingredient)
-                # Free-text may carry a non-ingredient unit; after explicit bind, stock in the
-                # submitted actual unit and complete against ingredient default/planned unit.
-                shopping.unit = normalize_unit_label(item.unit) or ingredient.default_unit
+
+            # Preserve original planned unit for remaining-quantity math before free-text bind.
+            planned_unit = normalize_unit_label(shopping.unit) or ingredient.default_unit
+            planned_quantity = Decimal(str(shopping.quantity or 0))
 
             inventory_item = create_inventory_batch(
                 db,
@@ -608,14 +642,19 @@ def apply_shopping_intake(
                 record_activity=False,
                 already_locked=True,
             )
-            planned_unit = normalize_unit_label(shopping.unit) or ingredient.default_unit
-            actual_in_planned = convert_actual_to_planned_unit(
-                ingredient=ingredient,
-                actual_quantity=item.actual_quantity,
-                actual_unit=item.unit,
-                planned_unit=planned_unit,
-            )
-            planned_quantity = Decimal(str(shopping.quantity or 0))
+            try:
+                actual_in_planned = convert_actual_to_planned_unit(
+                    ingredient=ingredient,
+                    actual_quantity=item.actual_quantity,
+                    actual_unit=item.unit,
+                    planned_unit=planned_unit,
+                )
+            except ShoppingIntakeValidationError:
+                if not prepared_item.is_free_text:
+                    raise
+                # Free-text planned unit is often ad-hoc; fall back to actual-unit comparison.
+                planned_unit = normalize_unit_label(item.unit) or ingredient.default_unit
+                actual_in_planned = item.actual_quantity
             if actual_in_planned < planned_quantity:
                 remaining = planned_quantity - actual_in_planned
                 shopping.quantity = remaining
@@ -626,6 +665,16 @@ def apply_shopping_intake(
                 shopping.done = True
                 result_label = "completed"
                 result_metadata["remaining_planned_quantity"] = None
+
+            if prepared_item.is_free_text:
+                # Bind metadata after remaining math so free-text planned unit is preserved.
+                _bind_free_text_to_ingredient(shopping, ingredient)
+                if result_label == "completed":
+                    shopping.unit = normalize_unit_label(item.unit) or ingredient.default_unit
+                else:
+                    # Keep planned unit used for remaining math on the open shopping row.
+                    shopping.unit = planned_unit
+
             shopping.updated_by = user_id
             result_metadata["result"] = result_label
             result_metadata["inventory_item_id"] = inventory_item.id

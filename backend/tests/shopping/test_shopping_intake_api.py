@@ -806,3 +806,226 @@ def test_operation_lines_include_shopping_replay_metadata(intake_api_context: In
         assert metadata["inventory_item_id"]
         guard_lines = [line for line in lines if line.entity_type.value == "ingredient"]
         assert len(guard_lines) == 1
+
+
+def test_duplicate_food_target_rejected(intake_api_context: IntakeApiContext) -> None:
+    with intake_api_context.SessionLocal() as db:
+        second_food_shopping = ShoppingListItem(
+            id="shopping-food-beef-2",
+            family_id=intake_api_context.family_id,
+            food_id=intake_api_context.food_id,
+            title="卤牛肉 加购",
+            quantity=Decimal("1"),
+            unit="份",
+            quantity_mode=IngredientQuantityTrackingMode.TRACK_QUANTITY,
+            reason="再买一份",
+            done=False,
+            created_by=intake_api_context.user_id,
+            updated_by=intake_api_context.user_id,
+        )
+        db.add(second_food_shopping)
+        db.commit()
+
+    payload = {
+        "client_request_id": "req-dup-food",
+        "purchase_date": "2026-07-12",
+        "items": [
+            {
+                "shopping_item_id": intake_api_context.food_shopping_id,
+                "expected_shopping_item_row_version": 1,
+                "action": "stock_and_fulfill",
+                "target_kind": "food",
+                "target_id": intake_api_context.food_id,
+                "expected_food_row_version": 1,
+                "actual_quantity": 1,
+                "unit": "份",
+                "expiry_date": "2026-07-18",
+                "storage_location": "冷藏",
+            },
+            {
+                "shopping_item_id": "shopping-food-beef-2",
+                "expected_shopping_item_row_version": 1,
+                "action": "stock_and_fulfill",
+                "target_kind": "food",
+                "target_id": intake_api_context.food_id,
+                "expected_food_row_version": 1,
+                "actual_quantity": 2,
+                "unit": "份",
+                "expiry_date": "2026-07-18",
+                "storage_location": "冷藏",
+            },
+        ],
+    }
+    response = intake_api_context.client.post("/api/shopping-list/intakes", json=payload)
+    assert response.status_code == 422, response.text
+    detail = response.json()["detail"]
+    assert detail["code"] == "duplicate_request_item"
+    with intake_api_context.SessionLocal() as db:
+        food = db.get(Food, intake_api_context.food_id)
+        assert food is not None
+        assert food.stock_quantity == Decimal("2.00")
+        shopping = db.get(ShoppingListItem, intake_api_context.food_shopping_id)
+        assert shopping is not None and shopping.done is False
+        assert db.scalar(select(InventoryOperation)) is None
+
+
+def test_duplicate_presence_target_rejected(intake_api_context: IntakeApiContext) -> None:
+    with intake_api_context.SessionLocal() as db:
+        second_presence_shopping = ShoppingListItem(
+            id="shopping-presence-salt-2",
+            family_id=intake_api_context.family_id,
+            ingredient_id=intake_api_context.presence_ingredient_id,
+            title="盐 加购",
+            quantity=Decimal("1"),
+            unit="份",
+            quantity_mode=IngredientQuantityTrackingMode.NOT_TRACK_QUANTITY,
+            display_label="需要补充",
+            reason="再买",
+            done=False,
+            created_by=intake_api_context.user_id,
+            updated_by=intake_api_context.user_id,
+        )
+        db.add(second_presence_shopping)
+        db.commit()
+
+    def _presence_item(shopping_id: str) -> dict:
+        return {
+            "shopping_item_id": shopping_id,
+            "expected_shopping_item_row_version": 1,
+            "action": "stock_and_fulfill",
+            "target_kind": "presence_ingredient",
+            "target_id": intake_api_context.presence_ingredient_id,
+            "expected_ingredient_row_version": 1,
+            "state_id": None,
+            "expected_state_row_version": None,
+            "resulting_availability_level": InventoryAvailabilityLevel.SUFFICIENT.value,
+            "inventory_status": InventoryStatus.FRESH.value,
+            "expiry_date": None,
+            "storage_location": "常温",
+            "notes": "",
+        }
+
+    payload = {
+        "client_request_id": "req-dup-presence",
+        "purchase_date": "2026-07-12",
+        "items": [
+            _presence_item(intake_api_context.presence_shopping_id),
+            _presence_item("shopping-presence-salt-2"),
+        ],
+    }
+    response = intake_api_context.client.post("/api/shopping-list/intakes", json=payload)
+    assert response.status_code == 422, response.text
+    detail = response.json()["detail"]
+    assert detail["code"] == "duplicate_request_item"
+    with intake_api_context.SessionLocal() as db:
+        assert db.scalar(select(IngredientInventoryState)) is None
+        shopping = db.get(ShoppingListItem, intake_api_context.presence_shopping_id)
+        assert shopping is not None and shopping.done is False
+        assert db.scalar(select(InventoryOperation)) is None
+
+
+def test_free_text_exact_partial_preserves_planned_unit(intake_api_context: IntakeApiContext) -> None:
+    with intake_api_context.SessionLocal() as db:
+        shopping = db.get(ShoppingListItem, intake_api_context.free_text_shopping_id)
+        assert shopping is not None
+        shopping.quantity = Decimal("6")
+        shopping.unit = "个"
+        shopping.title = "鸡蛋（手写）"
+        db.commit()
+        db.refresh(shopping)
+        shopping_version = shopping.row_version
+
+    payload = {
+        "client_request_id": "req-free-partial",
+        "purchase_date": "2026-07-12",
+        "items": [
+            {
+                "shopping_item_id": intake_api_context.free_text_shopping_id,
+                "expected_shopping_item_row_version": shopping_version,
+                "action": "stock_and_fulfill",
+                "target_kind": "exact_ingredient",
+                "target_id": intake_api_context.exact_ingredient_id,
+                "expected_ingredient_row_version": 1,
+                "actual_quantity": 2,
+                "unit": "个",
+                "inventory_status": InventoryStatus.FRESH.value,
+                "expiry_date": "2026-07-20",
+                "storage_location": "冷藏",
+                "notes": "",
+            }
+        ],
+    }
+    response = intake_api_context.client.post("/api/shopping-list/intakes", json=payload)
+    assert response.status_code == 200, response.text
+    item = response.json()["items"][0]
+    assert item["result"] == "partial"
+    assert Decimal(str(item["remaining_planned_quantity"])) == Decimal("4")
+
+    with intake_api_context.SessionLocal() as db:
+        shopping = db.get(ShoppingListItem, intake_api_context.free_text_shopping_id)
+        assert shopping is not None
+        assert shopping.done is False
+        assert shopping.quantity == Decimal("4.00")
+        assert shopping.unit == "个"
+        assert shopping.ingredient_id == intake_api_context.exact_ingredient_id
+        assert shopping.title == "鸡蛋"
+        batch = db.scalar(select(InventoryItem))
+        assert batch is not None
+        assert batch.quantity == Decimal("2.00")
+        assert batch.unit == "个"
+
+
+def test_stale_presence_state_version_fails(intake_api_context: IntakeApiContext) -> None:
+    with intake_api_context.SessionLocal() as db:
+        state = IngredientInventoryState(
+            id="state-salt",
+            family_id=intake_api_context.family_id,
+            ingredient_id=intake_api_context.presence_ingredient_id,
+            availability_level=InventoryAvailabilityLevel.LOW,
+            inventory_status=InventoryStatus.FRESH,
+            storage_location="常温",
+            notes="",
+            created_by=intake_api_context.user_id,
+            updated_by=intake_api_context.user_id,
+        )
+        db.add(state)
+        db.flush()
+        # Bump past the default so expected_state_row_version=1 is stale.
+        state.row_version = 3
+        db.commit()
+        db.refresh(state)
+        assert state.row_version == 3
+
+    payload = {
+        "client_request_id": "req-stale-state",
+        "purchase_date": "2026-07-12",
+        "items": [
+            {
+                "shopping_item_id": intake_api_context.presence_shopping_id,
+                "expected_shopping_item_row_version": 1,
+                "action": "stock_and_fulfill",
+                "target_kind": "presence_ingredient",
+                "target_id": intake_api_context.presence_ingredient_id,
+                "expected_ingredient_row_version": 1,
+                "state_id": "state-salt",
+                "expected_state_row_version": 1,
+                "resulting_availability_level": InventoryAvailabilityLevel.SUFFICIENT.value,
+                "inventory_status": InventoryStatus.FRESH.value,
+                "expiry_date": None,
+                "storage_location": "常温",
+                "notes": "",
+            }
+        ],
+    }
+    response = intake_api_context.client.post("/api/shopping-list/intakes", json=payload)
+    assert response.status_code == 409, response.text
+    detail = response.json()["detail"]
+    assert detail["code"] == "stale_version"
+    with intake_api_context.SessionLocal() as db:
+        state = db.get(IngredientInventoryState, "state-salt")
+        assert state is not None
+        assert state.availability_level == InventoryAvailabilityLevel.LOW
+        assert state.row_version == 3
+        shopping = db.get(ShoppingListItem, intake_api_context.presence_shopping_id)
+        assert shopping is not None and shopping.done is False
+        assert db.scalar(select(InventoryOperation)) is None
