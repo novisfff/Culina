@@ -97,13 +97,22 @@ function batchStatusCopy(batch: InventoryActionBatch) {
   return `${batch.daysLeft} 天后到期`;
 }
 
+function compactDateLabel(date: string) {
+  const key = date.slice(0, 10);
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(key);
+  if (!match) {
+    return formatDate(date);
+  }
+  return `${Number(match[2])}月${Number(match[3])}日`;
+}
+
 function priorReviewCopy(batch: InventoryActionBatch) {
   if (batch.expiryReviewedAt) {
     const when = formatDateTime(batch.expiryReviewedAt);
     if (batch.expiryAlertSnoozedUntil) {
       return {
         title: '此前已确认暂时保留',
-        detail: `原到期日仍保留，将于 ${formatDate(batch.expiryAlertSnoozedUntil)} 再次提醒 · ${when}`,
+        detail: `原到期日仍保留，将于 ${compactDateLabel(batch.expiryAlertSnoozedUntil)} 再次提醒 · ${when}`,
       };
     }
     return {
@@ -114,7 +123,7 @@ function priorReviewCopy(batch: InventoryActionBatch) {
   if (batch.expiryAlertSnoozedUntil) {
     return {
       title: '已设置稍后提醒',
-      detail: `将于 ${formatDate(batch.expiryAlertSnoozedUntil)} 再次提醒`,
+      detail: `将于 ${compactDateLabel(batch.expiryAlertSnoozedUntil)} 再次提醒`,
     };
   }
   return null;
@@ -127,7 +136,6 @@ function selectionAudienceForMode(
   if (mode.kind === 'dispose_confirm') return 'expired';
   if (mode.kind === 'review' && mode.focus === 'dispose') return 'expired';
   if (mode.kind === 'snooze') return mode.audience;
-  // Default review: only expired rows are actionable until the user chooses future snooze.
   return hasExpired ? 'expired' : 'upcoming';
 }
 
@@ -199,10 +207,6 @@ export function InventoryActionDialog(props: InventoryActionDialogProps) {
 
   function handleDisposeIntent() {
     if (busy) return;
-    if (!hasExpired) {
-      setLocalError('当前没有可销毁的过期批次。');
-      return;
-    }
     if (mode.kind === 'review' && mode.focus === 'dispose') {
       setMode({ kind: 'dispose_confirm' });
       return;
@@ -214,35 +218,33 @@ export function InventoryActionDialog(props: InventoryActionDialogProps) {
   function enterRetainExpired() {
     if (busy) return;
     applyAudienceSelection('expired');
-    setSnoozePreset('tomorrow');
-    setCustomSnoozeDate('');
     setMode({ kind: 'snooze', audience: 'expired' });
   }
 
   function enterSnoozeUpcoming() {
     if (busy) return;
     applyAudienceSelection('upcoming');
-    setSnoozePreset('tomorrow');
-    setCustomSnoozeDate('');
     setMode({ kind: 'snooze', audience: 'upcoming' });
   }
 
   function enterCorrectDate(inventoryItemId: string) {
     if (busy) return;
-    const target = group.batches.find((batch) => batch.inventoryItemId === inventoryItemId);
+    const batch = group.batches.find((item) => item.inventoryItemId === inventoryItemId);
+    setCorrectedExpiryDate(batch?.expiryDate ?? '');
     setMode({ kind: 'correct_date', inventoryItemId });
-    setCorrectedExpiryDate(target?.expiryDate.slice(0, 10) ?? props.referenceDate);
     setLocalError(null);
   }
 
   function toggleBatch(inventoryItemId: string) {
-    if (busy) return;
-    if (!validIds.has(inventoryItemId)) return;
+    if (busy || !validIds.has(inventoryItemId)) {
+      return;
+    }
     setSelectedIds((current) =>
       current.includes(inventoryItemId)
         ? current.filter((id) => id !== inventoryItemId)
         : [...current, inventoryItemId],
     );
+    setLocalError(null);
   }
 
   function resolveSnoozeDate() {
@@ -252,21 +254,19 @@ export function InventoryActionDialog(props: InventoryActionDialogProps) {
   }
 
   function isValidSnoozeDate(value: string) {
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+    if (!value) return false;
     return value > props.referenceDate && value <= maxSnoozeKey;
   }
 
   async function submitDispose() {
-    if (busy) return;
-    const allowed = new Set(validIdsForAudience(group, 'expired'));
-    const items = toVersionedRefs(group, selectedIds).filter((item) => allowed.has(item.inventory_item_id));
-    if (items.length === 0) {
+    if (busy || mode.kind !== 'dispose_confirm') return;
+    if (selectedValidCount === 0) {
       setLocalError('请先选择要销毁的过期批次。');
       return;
     }
     setLocalError(null);
     try {
-      await props.onDispose(items);
+      await props.onDispose(toVersionedRefs(group, selectedIds));
     } catch {
       // Parent retains dialog and surfaces conflict/error state.
     }
@@ -276,12 +276,10 @@ export function InventoryActionDialog(props: InventoryActionDialogProps) {
     if (busy || mode.kind !== 'snooze') return;
     const snoozedUntil = resolveSnoozeDate();
     if (!isValidSnoozeDate(snoozedUntil)) {
-      setLocalError(`提醒日期需晚于今天，且不超过 ${formatDate(maxSnoozeKey)}。`);
+      setLocalError('提醒日期必须晚于今天，且不超过 30 天。');
       return;
     }
-    const allowed = new Set(validIdsForAudience(group, mode.audience));
-    const items = toVersionedRefs(group, selectedIds).filter((item) => allowed.has(item.inventory_item_id));
-    if (items.length === 0) {
+    if (selectedValidCount === 0) {
       setLocalError(mode.audience === 'expired' ? '请先选择要暂时保留的过期批次。' : '请先选择要稍后提醒的批次。');
       return;
     }
@@ -289,7 +287,7 @@ export function InventoryActionDialog(props: InventoryActionDialogProps) {
     try {
       await props.onSnooze({
         action: mode.audience === 'expired' ? 'retain_expired' : 'snooze_upcoming',
-        items,
+        items: toVersionedRefs(group, selectedIds),
         snoozedUntil,
       });
     } catch {
@@ -299,20 +297,20 @@ export function InventoryActionDialog(props: InventoryActionDialogProps) {
 
   async function submitCorrection() {
     if (busy || mode.kind !== 'correct_date') return;
-    const target = group.batches.find((batch) => batch.inventoryItemId === mode.inventoryItemId);
-    if (!target) {
-      setLocalError('找不到要更正的批次。');
+    if (!correctedExpiryDate) {
+      setLocalError('请填写更正后的到期日。');
       return;
     }
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(correctedExpiryDate)) {
-      setLocalError('请填写有效的到期日。');
+    const batch = group.batches.find((item) => item.inventoryItemId === mode.inventoryItemId);
+    if (!batch) {
+      setLocalError('找不到要更正的批次。');
       return;
     }
     setLocalError(null);
     try {
       await props.onCorrectExpiry({
-        inventoryItemId: target.inventoryItemId,
-        expectedRowVersion: target.rowVersion,
+        inventoryItemId: batch.inventoryItemId,
+        expectedRowVersion: batch.rowVersion,
         expiryDate: correctedExpiryDate,
       });
     } catch {
@@ -322,31 +320,31 @@ export function InventoryActionDialog(props: InventoryActionDialogProps) {
 
   const title =
     mode.kind === 'dispose_confirm'
-      ? '确认销毁'
-      : mode.kind === 'snooze'
-        ? mode.audience === 'expired'
-          ? '暂时保留'
-          : '稍后提醒'
-        : mode.kind === 'correct_date'
-          ? '更正到期日'
+      ? `确认销毁${group.ingredientName}`
+      : mode.kind === 'correct_date'
+        ? `更正${group.ingredientName}到期日`
+        : mode.kind === 'snooze'
+          ? mode.audience === 'expired'
+            ? `暂时保留${group.ingredientName}`
+            : `稍后提醒${group.ingredientName}`
           : group.title;
 
   const description =
     mode.kind === 'dispose_confirm'
-      ? '销毁后剩余量会清零，历史记录会保留。'
-      : mode.kind === 'snooze' && mode.audience === 'expired'
-        ? '原到期日会继续保留。由你决定暂时可用，系统只负责再次提醒。'
+      ? `将销毁 ${selectedValidCount} 个批次（${selectedQuantityLabels.join('、') || '无数量'}）。此操作不可撤销。`
+      : mode.kind === 'correct_date'
+        ? '只会改这一批的到期日，并清空此前的延后提醒记录。'
         : mode.kind === 'snooze'
-          ? '仅推迟提醒，不会改写到期日或记为过期审核。'
-          : mode.kind === 'correct_date'
-            ? '更正录错的到期日。此前的暂时保留状态会一并清除。'
-            : group.detail;
+          ? mode.audience === 'expired'
+            ? '保留原到期日作为证据，并设置下次提醒。'
+            : '未过期批次只推迟提醒，不会改写为过期审核。'
+          : group.detail;
 
   const errorText = localError ?? props.errorMessage ?? null;
 
   const footerInfo = (
     <div className="inventory-action-footer-summary">
-      <span>{mode.kind === 'dispose_confirm' ? '将销毁' : '已选择'}</span>
+      <span>已选择</span>
       <strong>
         {selectedValidCount} 个批次
         {selectedQuantityLabels.length > 0 ? ` · ${selectedQuantityLabels.join('、')}` : ''}
@@ -469,7 +467,7 @@ export function InventoryActionDialog(props: InventoryActionDialogProps) {
           {showsBatchList ? (
             <>
               <section className="inventory-action-summary-card">
-                <div>
+                <div className="inventory-action-summary-copy">
                   <p className="eyebrow">处理中的食材</p>
                   <h4>{group.ingredientName}</h4>
                   <p className="subtle">{group.detail}</p>
@@ -477,11 +475,18 @@ export function InventoryActionDialog(props: InventoryActionDialogProps) {
                 <div className="inventory-action-summary-metrics">
                   <article>
                     <span>已过期</span>
-                    <strong>{expiredBatches.length} 批</strong>
+                    <strong>{expiredBatches.length}</strong>
+                    <em>批</em>
                   </article>
                   <article>
                     <span>即将到期</span>
-                    <strong>{upcomingBatches.length} 批</strong>
+                    <strong>{upcomingBatches.length}</strong>
+                    <em>批</em>
+                  </article>
+                  <article>
+                    <span>已选</span>
+                    <strong>{selectedValidCount}</strong>
+                    <em>批</em>
                   </article>
                 </div>
               </section>
@@ -576,8 +581,6 @@ export function InventoryActionDialog(props: InventoryActionDialogProps) {
                       />
                     </label>
                   ) : (
-                    // Keep the control present for bound checks even when preset is not custom;
-                    // hidden field still exposes min/max for tests and a11y tooling.
                     <input
                       type="date"
                       name="custom-snooze-date"
@@ -603,6 +606,7 @@ export function InventoryActionDialog(props: InventoryActionDialogProps) {
                     {expiredForList.length > 0 ? (
                       <BatchSection
                         title="已过期批次"
+                        count={expiredForList.length}
                         batches={expiredForList}
                         selectedIds={selectedIds}
                         validIds={validIds}
@@ -615,6 +619,7 @@ export function InventoryActionDialog(props: InventoryActionDialogProps) {
                     {upcomingForList.length > 0 ? (
                       <BatchSection
                         title="即将到期批次"
+                        count={upcomingForList.length}
                         batches={upcomingForList}
                         selectedIds={selectedIds}
                         validIds={validIds}
@@ -647,6 +652,7 @@ export function InventoryActionDialog(props: InventoryActionDialogProps) {
 
 function BatchSection(props: {
   title: string;
+  count: number;
   batches: InventoryActionBatch[];
   selectedIds: string[];
   validIds: Set<string>;
@@ -657,20 +663,23 @@ function BatchSection(props: {
 }) {
   return (
     <section className="inventory-action-batch-section">
-      <div className="inventory-action-field-head">
+      <div className="inventory-action-field-head inventory-action-batch-section-head">
         <span>{props.title}</span>
+        <em>{props.count} 批</em>
       </div>
       <div className="inventory-action-batch-list">
         {props.batches.map((batch) => {
           const selectable = props.validIds.has(batch.inventoryItemId);
           const checked = props.selectedIds.includes(batch.inventoryItemId);
           const review = priorReviewCopy(batch);
+          const quantityLabel = `${formatQuantityValue(batch.remainingQuantity)} ${batch.unit}`.trim();
           return (
             <article
               key={batch.inventoryItemId}
               className={[
                 'inventory-action-batch-row',
                 selectable ? '' : 'is-disabled',
+                checked && selectable ? 'is-selected' : '',
                 isExpiredBatch(batch) ? 'is-expired' : 'is-upcoming',
               ]
                 .filter(Boolean)
@@ -684,24 +693,33 @@ function BatchSection(props: {
                   disabled={props.busy || !selectable}
                   onChange={() => props.onToggle(batch.inventoryItemId)}
                 />
-                <div>
-                  <strong>
-                    {formatQuantityValue(batch.remainingQuantity)} {batch.unit}
-                  </strong>
-                  <span>{batch.storageLocation || '未标注位置'}</span>
+                <div className="inventory-action-batch-copy">
+                  <div className="inventory-action-batch-title-row">
+                    <strong>{quantityLabel || '数量未登记'}</strong>
+                    <span className="inventory-action-batch-location">{batch.storageLocation || '未标注位置'}</span>
+                    <span
+                      className={
+                        isExpiredBatch(batch)
+                          ? 'inventory-action-status is-danger'
+                          : 'inventory-action-status is-warning'
+                      }
+                    >
+                      {batchStatusCopy(batch)}
+                    </span>
+                  </div>
+                  <div className="inventory-action-batch-meta">
+                    <span>购 {compactDateLabel(batch.purchaseDate)}</span>
+                    <span aria-hidden="true">·</span>
+                    <span>原到期 {compactDateLabel(batch.expiryDate)}</span>
+                  </div>
+                  {review ? (
+                    <div className="inventory-action-batch-review">
+                      <strong>{review.title}</strong>
+                      <p>{review.detail}</p>
+                    </div>
+                  ) : null}
                 </div>
               </label>
-              <div className="inventory-action-batch-meta">
-                <span className={isExpiredBatch(batch) ? 'is-danger' : 'is-warning'}>{batchStatusCopy(batch)}</span>
-                <span>购 {formatDate(batch.purchaseDate)}</span>
-                <span>原到期日 {formatDate(batch.expiryDate)}</span>
-              </div>
-              {review ? (
-                <div className="inventory-action-batch-review">
-                  <strong>{review.title}</strong>
-                  <p>{review.detail}</p>
-                </div>
-              ) : null}
               {props.showCorrect ? (
                 <button
                   type="button"
@@ -747,7 +765,7 @@ function CorrectDatePanel(props: {
           </p>
         </div>
         <div className="inventory-action-batch-meta">
-          <span>原到期日 {formatDate(target.expiryDate)}</span>
+          <span>原到期日 {compactDateLabel(target.expiryDate)}</span>
         </div>
       </div>
       <label className="inventory-action-date-field">

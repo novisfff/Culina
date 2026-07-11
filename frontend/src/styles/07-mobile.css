@@ -6197,8 +6197,9 @@
     gap: 10px;
     padding: 10px 12px 10px 10px;
     border: 1px solid rgba(226, 206, 188, 0.86);
-    border-radius: 14px;
-    background: rgba(255, 252, 248, 0.94);
+    border-radius: 16px;
+    background: rgba(255, 252, 248, 0.96);
+    box-shadow: 0 4px 12px rgba(74, 54, 40, 0.04);
   }
 
   .mobile-dashboard-action-item.action-expired {

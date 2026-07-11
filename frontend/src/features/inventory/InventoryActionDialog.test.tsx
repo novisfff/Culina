@@ -250,7 +250,7 @@ describe('InventoryActionDialog', () => {
     expect(correctButtons).toHaveLength(4);
     act(() => correctButtons[0]?.click());
 
-    expect(view.textContent).toContain('更正到期日');
+    expect(view.textContent).toMatch(/更正.+到期日/);
     const dateInput = view.querySelector<HTMLInputElement>('input[type="date"][name="corrected-expiry-date"]');
     expect(dateInput).not.toBeNull();
     act(() => {
