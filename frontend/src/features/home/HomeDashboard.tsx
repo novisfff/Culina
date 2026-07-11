@@ -47,6 +47,7 @@ import {
 } from './homeDashboardModel';
 import { HomeMobileDashboard } from './HomeMobileDashboard';
 import { FamilyActivityModal } from '../family/FamilyActivityViewer';
+import { homeLongUnconfirmedReconciliationTarget } from './useHomeDashboardActions';
 
 function getHomeActionPrimaryLabel(group: InventoryActionGroup) {
   if (group.kind === 'low_stock') {
@@ -581,7 +582,7 @@ export function HomeDashboard(props: HomeDashboardProps) {
                               className="ghost-button button-compact"
                               type="button"
                               data-testid="home-open-reconciliation-suggested"
-                              onClick={() => onOpenReconciliation({ scope: 'suggested' })}
+                              onClick={() => onOpenReconciliation(homeLongUnconfirmedReconciliationTarget())}
                             >
                               建议再确认
                             </button>

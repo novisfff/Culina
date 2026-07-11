@@ -205,16 +205,85 @@ describe('WorkspaceOverlayFrame', () => {
     expect(background).not.toBeNull();
     expect(panel).not.toBeNull();
 
-    // Existing mounting pattern: dialog is modal; background is inert or aria-hidden for tab order.
-    const rootNode = view.querySelector('.workspace-overlay-root');
-    const backgroundInert =
-      background?.hasAttribute('inert') ||
-      background?.closest('[inert]') != null ||
-      background?.getAttribute('aria-hidden') === 'true' ||
-      background?.tabIndex === -1 ||
-      rootNode?.getAttribute('aria-modal') === 'true' ||
-      panel?.getAttribute('aria-modal') === 'true';
-    expect(backgroundInert).toBe(true);
+    // Assert real inert/non-tabbable background — not merely aria-modal on the panel.
+    const backgroundOrAncestorInert =
+      background?.hasAttribute('inert') === true || background?.closest('[inert]') != null;
+    expect(backgroundOrAncestorInert).toBe(true);
+    // aria-modal alone is insufficient proof of tab-order isolation.
+    expect(panel?.getAttribute('aria-modal')).toBe('true');
+  });
+
+  it('does not re-steal focus when re-rendered with a new onClose identity', async () => {
+    const firstOnClose = vi.fn();
+    const secondOnClose = vi.fn();
+    container = document.createElement('div');
+    document.body.append(container);
+    root = createRoot(container);
+
+    act(() => {
+      root?.render(
+        <WorkspaceOverlayFrame labelledBy="overlay-title" onClose={firstOnClose}>
+          <WorkspaceModal
+            title="盘点弹窗"
+            titleId="overlay-title"
+            description="测试描述"
+            closeLabel="关闭"
+            closeAriaLabel="关闭弹窗"
+            onClose={firstOnClose}
+          >
+            <button type="button" id="inside-action">
+              弹窗内按钮
+            </button>
+            <input id="draft-input" type="text" defaultValue="草稿" />
+          </WorkspaceModal>
+        </WorkspaceOverlayFrame>,
+      );
+    });
+
+    await act(async () => {
+      await new Promise((resolve) => requestAnimationFrame(() => resolve(undefined)));
+    });
+
+    const draftInput = container.querySelector<HTMLInputElement>('#draft-input');
+    expect(draftInput).not.toBeNull();
+    act(() => {
+      draftInput?.focus();
+    });
+    expect(document.activeElement).toBe(draftInput);
+
+    // Parent re-render with a fresh onClose identity must not re-run mount focus logic.
+    act(() => {
+      root?.render(
+        <WorkspaceOverlayFrame labelledBy="overlay-title" onClose={secondOnClose}>
+          <WorkspaceModal
+            title="盘点弹窗"
+            titleId="overlay-title"
+            description="测试描述"
+            closeLabel="关闭"
+            closeAriaLabel="关闭弹窗"
+            onClose={secondOnClose}
+          >
+            <button type="button" id="inside-action">
+              弹窗内按钮
+            </button>
+            <input id="draft-input" type="text" defaultValue="草稿" />
+          </WorkspaceModal>
+        </WorkspaceOverlayFrame>,
+      );
+    });
+
+    await act(async () => {
+      await new Promise((resolve) => requestAnimationFrame(() => resolve(undefined)));
+    });
+
+    expect(document.activeElement).toBe(container.querySelector('#draft-input'));
+
+    // Latest onClose must still be used for Escape.
+    act(() => {
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    });
+    expect(firstOnClose).not.toHaveBeenCalled();
+    expect(secondOnClose).toHaveBeenCalledTimes(1);
   });
 
   it('exposes aria-live region content used by inventory dialogs', () => {

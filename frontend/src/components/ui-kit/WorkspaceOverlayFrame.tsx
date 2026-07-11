@@ -50,8 +50,20 @@ export function WorkspaceOverlayFrame({
 }: WorkspaceOverlayFrameProps) {
   const rootRef = useRef<HTMLDivElement>(null);
   const restoreTargetRef = useRef<HTMLElement | null>(null);
+  // Keep latest callbacks/flags in refs so the mount effect does not re-run (and re-steal
+  // focus) when parents pass a new onClose identity on every render.
+  const onCloseRef = useRef(onClose);
+  const busyRef = useRef(busy);
   const generatedLabelId = useId();
   const resolvedLabelledBy = labelledBy ?? generatedLabelId;
+
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
+
+  useEffect(() => {
+    busyRef.current = busy;
+  }, [busy]);
 
   useEffect(() => {
     restoreTargetRef.current =
@@ -85,7 +97,7 @@ export function WorkspaceOverlayFrame({
       if (!panel.getAttribute('aria-labelledby') && resolvedLabelledBy) {
         panel.setAttribute('aria-labelledby', resolvedLabelledBy);
       }
-      panel.setAttribute('data-workspace-overlay-busy', busy ? 'true' : 'false');
+      panel.setAttribute('data-workspace-overlay-busy', busyRef.current ? 'true' : 'false');
     }
 
     const focusNow = () => {
@@ -107,14 +119,14 @@ export function WorkspaceOverlayFrame({
 
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key !== 'Escape') return;
-      if (busy) {
+      if (busyRef.current) {
         event.preventDefault();
         event.stopPropagation();
         return;
       }
       event.preventDefault();
       event.stopPropagation();
-      onClose();
+      onCloseRef.current();
     };
 
     document.addEventListener('keydown', handleKeyDown);
@@ -134,7 +146,8 @@ export function WorkspaceOverlayFrame({
         }
       }
     };
-  }, [busy, initialFocusRef, onClose, resolvedLabelledBy]);
+    // onClose / busy intentionally omitted: read via refs so parent re-renders do not re-steal focus.
+  }, [initialFocusRef, resolvedLabelledBy]);
 
   // Keep busy attribute in sync without remounting inert/focus logic.
   useEffect(() => {
@@ -147,9 +160,9 @@ export function WorkspaceOverlayFrame({
   }, [busy]);
 
   const handleBackdropClick = () => {
-    if (busy) return;
+    if (busyRef.current) return;
     if (!closeOnBackdrop) return;
-    onClose();
+    onCloseRef.current();
   };
 
   return (
