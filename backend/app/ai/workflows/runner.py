@@ -665,7 +665,13 @@ class WorkspaceGraphRunner:
         values: dict[str, Any],
         comment: str | None = None,
     ) -> dict[str, Any]:
-        require_conversation(self.db, family_id=family_id, conversation_id=conversation_id)
+        require_conversation(
+            self.db,
+            family_id=family_id,
+            user_id=user_id,
+            conversation_id=conversation_id,
+            capability="contribute",
+        )
         result = self.service._apply_approval_decision(
             family_id=family_id,
             user_id=user_id,

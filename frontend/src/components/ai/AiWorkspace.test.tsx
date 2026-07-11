@@ -1478,7 +1478,13 @@ describe('AiWorkspace pending approval restore', () => {
     const deleteSpy = vi.spyOn(api, 'deleteAiConversation').mockResolvedValue(undefined);
     const rendered = await renderWithQuery(<AiWorkspace conversations={[conversation()]} isLoading={false} />);
     await act(async () => {
-      rendered.container.querySelector<HTMLButtonElement>('.ai-conversation-delete')?.click();
+      rendered.container.querySelector<HTMLButtonElement>('[aria-label^="管理会话"]')?.click();
+    });
+    await flushAsync();
+    await act(async () => {
+      Array.from(rendered.container.querySelectorAll<HTMLButtonElement>('[role="menuitem"]'))
+        .find((button) => button.textContent?.includes('删除'))
+        ?.click();
     });
     await flushAsync();
     expect(rendered.container.textContent).toContain('删除这条历史？');
@@ -1488,6 +1494,50 @@ describe('AiWorkspace pending approval restore', () => {
     });
     await flushAsync();
     expect(deleteSpy.mock.calls[0]?.[0]).toBe('conversation-1');
+    rendered.unmount();
+  });
+
+  it('shows owner controls only on owned conversations', async () => {
+    const owned = conversation({ visibility: 'private', is_owner: true });
+    const shared = conversation({ id: 'conversation-shared', visibility: 'family', is_owner: false, owner_display_name: '家人' });
+    vi.spyOn(api, 'getAiMessages').mockResolvedValue([]);
+    vi.spyOn(api, 'getPendingAiApprovals').mockResolvedValue([]);
+    const rendered = await renderWithQuery(<AiWorkspace conversations={[owned, shared]} isLoading={false} />);
+    await flushAsync();
+    expect(rendered.container.textContent).toContain('家庭公开');
+    expect(rendered.container.textContent).toContain('家人');
+    expect(rendered.container.querySelectorAll('[aria-label^="管理会话"]')).toHaveLength(1);
+    rendered.unmount();
+  });
+
+  it('closes the manage menu when another conversation is selected', async () => {
+    const first = conversation({ id: 'conversation-1', title: '第一会话', prompt: '第一会话' });
+    const second = conversation({ id: 'conversation-2', title: '第二会话', prompt: '第二会话' });
+    vi.spyOn(api, 'getAiMessages').mockResolvedValue([]);
+    vi.spyOn(api, 'getPendingAiApprovals').mockResolvedValue([]);
+    const rendered = await renderWithQuery(<AiWorkspace conversations={[first, second]} isLoading={false} />);
+    await flushAsync();
+
+    const desktopView = rendered.container.querySelector('.ai-desktop-view') as HTMLElement;
+    const manageButtons = Array.from(desktopView.querySelectorAll<HTMLButtonElement>('[aria-label^="管理会话"]'));
+    expect(manageButtons).toHaveLength(2);
+
+    await act(async () => {
+      manageButtons[0]?.click();
+    });
+    await flushAsync();
+    expect(manageButtons[0]?.getAttribute('aria-expanded')).toBe('true');
+    expect(desktopView.querySelector('.ai-conversation-action-menu')).not.toBeNull();
+
+    const secondMain = Array.from(desktopView.querySelectorAll<HTMLButtonElement>('.ai-conversation-main'))
+      .find((button) => button.textContent?.includes('第二会话'));
+    await act(async () => {
+      secondMain?.click();
+    });
+    await flushAsync();
+
+    expect(manageButtons[0]?.getAttribute('aria-expanded')).toBe('false');
+    expect(desktopView.querySelector('.ai-conversation-action-menu')).toBeNull();
     rendered.unmount();
   });
 

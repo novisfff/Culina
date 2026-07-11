@@ -666,8 +666,8 @@
 .ai-conversation-item {
   position: relative;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 26px;
-  gap: 4px;
+  grid-template-columns: minmax(0, 1fr) 30px;
+  gap: 2px;
   width: 100%;
   max-width: 100%;
   min-width: 0;
@@ -698,8 +698,9 @@
 .ai-conversation-main {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  align-items: center;
-  gap: 0;
+  align-content: center;
+  align-items: start;
+  gap: 2px;
   min-width: 0;
   min-height: 30px;
   border: 0;
@@ -712,7 +713,7 @@
 }
 
 .ai-conversation-main:focus-visible,
-.ai-conversation-delete:focus-visible {
+.ai-conversation-manage:focus-visible {
   outline: 2px solid rgba(227, 92, 36, 0.28);
   outline-offset: 2px;
 }
@@ -791,50 +792,156 @@
   stroke-linecap: round;
 }
 
-.ai-conversation-delete {
+.ai-conversation-actions {
+  position: relative;
   display: inline-grid;
   place-items: center;
   align-self: center;
   justify-self: center;
-  width: 24px;
-  height: 24px;
+}
+
+.ai-conversation-manage {
+  display: inline-grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
   border: 0;
-  border-radius: 8px;
-  background: rgba(247, 235, 230, 0.9);
-  color: #b85b38;
+  border-radius: 999px;
+  background: transparent;
+  color: #a08a79;
   cursor: pointer;
   line-height: 1;
   padding: 0;
   opacity: 0;
-  transform: scale(0.92);
-  transition: opacity 0.14s ease, transform 0.14s ease, background 0.14s ease;
+  transform: scale(0.94);
+  transition:
+    opacity 0.16s ease,
+    transform 0.16s ease,
+    background 0.16s ease,
+    color 0.16s ease,
+    box-shadow 0.16s ease;
 }
 
-.ai-conversation-delete svg {
+.ai-conversation-manage-icon {
   display: block;
   width: 15px;
   height: 15px;
-  fill: none;
-  stroke: currentColor;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  stroke-width: 2;
+  fill: currentColor;
 }
 
-.ai-conversation-item:hover .ai-conversation-delete,
-.ai-conversation-item:focus-within .ai-conversation-delete {
+.ai-conversation-item:hover .ai-conversation-manage,
+.ai-conversation-item:focus-within .ai-conversation-manage,
+.ai-conversation-actions:focus-within .ai-conversation-manage,
+.ai-mobile-conversation:hover .ai-conversation-manage,
+.ai-mobile-conversation:focus-within .ai-conversation-manage {
   opacity: 1;
   transform: scale(1);
 }
 
-.ai-conversation-delete:hover {
-  background: #e35c24;
-  color: #fff;
+.ai-conversation-manage:hover {
+  background: rgba(255, 241, 231, 0.96);
+  color: var(--accent-strong);
+  box-shadow: inset 0 0 0 1px rgba(210, 107, 51, 0.12);
 }
 
-.ai-conversation-delete:disabled {
+.ai-conversation-manage[aria-expanded="true"] {
+  opacity: 1;
+  transform: scale(1);
+  background: #fff1e7;
+  color: var(--accent-strong);
+  box-shadow:
+    inset 0 0 0 1px rgba(210, 107, 51, 0.18),
+    0 4px 12px rgba(210, 107, 51, 0.12);
+}
+
+.ai-conversation-manage:disabled {
   cursor: wait;
-  opacity: 0.5;
+  opacity: 0.45;
+}
+
+.ai-conversation-action-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 20;
+  display: grid;
+  min-width: max-content;
+  gap: 2px;
+  padding: 6px;
+  border: 1px solid rgba(147, 96, 63, 0.12);
+  border-radius: 14px;
+  background: rgba(255, 253, 251, 0.98);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.8) inset,
+    0 12px 28px rgba(74, 54, 40, 0.12);
+  backdrop-filter: blur(8px);
+}
+
+.ai-conversation-action-menu button {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 44px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: #4f4238;
+  padding: 10px 12px;
+  text-align: left;
+  font-size: 0.875rem;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.ai-conversation-action-menu button svg {
+  flex: 0 0 auto;
+  width: 16px;
+  height: 16px;
+  opacity: 0.82;
+}
+
+.ai-conversation-action-menu button:hover {
+  background: rgba(255, 241, 231, 0.96);
+  color: var(--accent-strong);
+}
+
+.ai-conversation-action-menu button:hover svg {
+  opacity: 1;
+}
+
+.ai-history-sharing-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  margin-top: 2px;
+}
+
+.ai-history-shared-badge {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  min-height: 18px;
+  border-radius: 999px;
+  background: rgba(240, 238, 255, 0.95);
+  color: #6d63b8;
+  padding: 0 7px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.ai-history-owner-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #928378;
+  font-size: 0.75rem;
+  font-weight: 500;
+  line-height: 1.2;
 }
 
 .ai-thread-scroll {
@@ -2181,14 +2288,75 @@
   }
 
   .ai-mobile-conversation {
+    position: relative;
     display: grid;
+    grid-template-columns: minmax(0, 1fr) 44px;
     gap: 4px;
+    align-items: center;
     border: 0;
     border-radius: 12px;
     background: transparent;
     color: #2d2925;
     padding: 10px;
     text-align: left;
+  }
+
+  .ai-mobile-conversation-main {
+    display: grid;
+    gap: 4px;
+    min-width: 0;
+    border: 0;
+    border-radius: 10px;
+    background: transparent;
+    color: inherit;
+    padding: 0;
+    text-align: left;
+    cursor: pointer;
+  }
+
+  .ai-mobile-conversation .ai-conversation-actions {
+    width: 44px;
+    height: 44px;
+  }
+
+  .ai-mobile-conversation .ai-conversation-manage {
+    opacity: 0.72;
+    transform: scale(1);
+    width: 44px;
+    height: 44px;
+    min-width: 44px;
+    min-height: 44px;
+    border-radius: 999px;
+    background: transparent;
+    color: #9a8473;
+  }
+
+  .ai-mobile-conversation .ai-conversation-manage-icon {
+    width: 18px;
+    height: 18px;
+  }
+
+  .ai-mobile-conversation:hover .ai-conversation-manage,
+  .ai-mobile-conversation:focus-within .ai-conversation-manage,
+  .ai-mobile-conversation .ai-conversation-manage[aria-expanded="true"] {
+    opacity: 1;
+    background: rgba(255, 245, 238, 0.96);
+    color: var(--accent-strong);
+    box-shadow: inset 0 0 0 1px rgba(210, 107, 51, 0.14);
+  }
+
+  .ai-mobile-conversation.active .ai-conversation-manage {
+    opacity: 0.9;
+    color: #b05a2f;
+  }
+
+  .ai-mobile-conversation .ai-conversation-manage:active {
+    background: #fff1e7;
+    transform: scale(0.96);
+  }
+
+  .ai-mobile-conversation .ai-history-sharing-meta {
+    margin-top: 0;
   }
 
   .ai-mobile-conversation.active {

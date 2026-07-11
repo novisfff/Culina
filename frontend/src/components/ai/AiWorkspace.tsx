@@ -1,13 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ClipboardEvent, type DragEvent, type FormEvent } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { invalidateAfterAiApprovalSettled, invalidateAfterAiMessageSent } from '../../api/cacheInvalidation';
-import { api } from '../../api/client';
+import { api, isApiError } from '../../api/client';
 import { queryKeys } from '../../api/queryKeys';
 import type {
   AiApprovalRequest,
   AiChatAttachment,
   AiChatResponse,
   AiConversation,
+  AiConversationVisibility,
   AiInventoryOperationAction,
   AiInventoryResultItem,
   AiMessage,
@@ -54,8 +55,9 @@ import {
 } from './aiWorkspaceHelpers';
 import { useAiConversationLiveSync } from './useAiConversationLiveSync';
 import { useAiAttachmentState } from './useAiAttachmentState';
+import { NEW_AI_CONVERSATION_SCOPE, useAiConversationComposerState } from './useAiConversationComposerState';
 import { useAiInventoryDraftAction } from './useAiInventoryDraftAction';
-import { useAiStreamMutations } from './useAiStreamMutations';
+import { useAiConversationStreams } from './useAiConversationStreams';
 import { useAiThinkingState } from './useAiThinkingState';
 import { aiThreadAutoScrollKey, latestUserMessageScrollKey, useAiThreadAutoScroll } from './useAiThreadAutoScroll';
 type AiWorkspaceProps = {
@@ -169,7 +171,14 @@ export function AiWorkspace({
   const queryClient = useQueryClient();
   const [activeConversationKey, setActiveConversationKey] = useState<string | null>(conversations[0]?.id ?? null);
   const [isStartingNewConversation, setIsStartingNewConversation] = useState(false);
-  const [draft, setDraft] = useState('');
+  const composerScopeKey = activeConversationKey ?? NEW_AI_CONVERSATION_SCOPE;
+  const {
+    draft,
+    setDraft,
+    selectScope: selectComposerScope,
+    moveScope: moveComposerScope,
+    clearScope: clearComposerScope,
+  } = useAiConversationComposerState(composerScopeKey);
   const draftRef = useRef('');
   const submitAfterVoiceRecognitionRef = useRef(false);
   const [voiceInputStatusByComposer, setVoiceInputStatusByComposer] = useState<{
@@ -177,7 +186,9 @@ export function AiWorkspace({
     mobile: 'idle' | 'recording' | 'recognizing';
   }>({ desktop: 'idle', mobile: 'idle' });
   const voiceInputStatus = voiceInputStatusByComposer.desktop !== 'idle' ? voiceInputStatusByComposer.desktop : voiceInputStatusByComposer.mobile;
-  const attachmentState = useAiAttachmentState();
+  const attachmentState = useAiAttachmentState(composerScopeKey);
+  const moveAttachmentScope = attachmentState.moveScope;
+  const clearAttachmentScope = attachmentState.clearScope;
   const [localMessagesByConversationKey, setLocalMessagesByConversationKey] = useState<Record<string, AiMessage[]>>({});
   const [runEventsById, setRunEventsById] = useState<Record<string, AiRunEvent[]>>({});
   const [recommendationPlanRequest, setRecommendationPlanRequest] = useState<AiRecommendationPlanRequest | null>(null);
@@ -213,6 +224,10 @@ export function AiWorkspace({
       .map(([key, messages]) => ({
         id: key,
         family_id: 'local',
+        owner_user_id: currentUser?.id ?? 'local-user',
+        owner_display_name: currentUser?.display_name ?? '我',
+        visibility: 'private' as const,
+        is_owner: true,
         mode: 'recommendation' as const,
         prompt: getConversationTitleFromMessages(messages),
         response: 'AI 正在后台回复',
@@ -225,7 +240,7 @@ export function AiWorkspace({
         last_message_at: messages[messages.length - 1]?.created_at ?? messages[0]?.created_at ?? new Date().toISOString(),
         last_run_status: 'running',
       }));
-  }, [currentUser?.id, localMessagesByConversationKey]);
+  }, [currentUser?.display_name, currentUser?.id, localMessagesByConversationKey]);
   const historyConversations = useMemo(
     () => [...localPendingConversations, ...conversations],
     [conversations, localPendingConversations],
@@ -233,6 +248,9 @@ export function AiWorkspace({
   useEffect(() => {
     draftRef.current = draft;
   }, [draft]);
+  useEffect(() => {
+    selectComposerScope(composerScopeKey);
+  }, [composerScopeKey, selectComposerScope]);
   useEffect(() => {
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto';
@@ -272,6 +290,7 @@ export function AiWorkspace({
   const requestedRunEventsRef = useRef<Set<string>>(new Set());
   const [activeStreamRunIdsByConversationKey, setActiveStreamRunIdsByConversationKey] = useState<Record<string, string>>({});
   const chatAbortByRunIdRef = useRef<Record<string, AbortController>>({});
+  const clearingInaccessibleConversationRef = useRef<string | null>(null);
   const { thinkingRunIds, startThinking, stopThinking } = useAiThinkingState();
   const [deletingConversationId, setDeletingConversationId] = useState<string | null>(null);
   const [pendingDeleteConversation, setPendingDeleteConversation] = useState<AiConversation | null>(null);
@@ -341,7 +360,58 @@ export function AiWorkspace({
       const matched = migrations.find((migration) => migration.pendingKey === current);
       return matched ? matched.conversationId : current;
     });
-  }, [conversations, localMessagesByConversationKey]);
+    for (const migration of migrations) {
+      moveComposerScope(migration.pendingKey, migration.conversationId);
+      moveAttachmentScope(migration.pendingKey, migration.conversationId);
+    }
+  }, [conversations, localMessagesByConversationKey, moveAttachmentScope, moveComposerScope]);
+  function clearInaccessibleConversation(conversationId: string) {
+    if (clearingInaccessibleConversationRef.current === conversationId) return;
+    clearingInaccessibleConversationRef.current = conversationId;
+    const inaccessibleRunId = activeStreamRunIdsByConversationKey[conversationId];
+    queryClient.removeQueries({ queryKey: queryKeys.aiMessages(conversationId) });
+    queryClient.removeQueries({ queryKey: queryKeys.aiPendingApprovals(conversationId) });
+    setLocalMessagesByConversationKey((current) => {
+      const next = { ...current };
+      delete next[conversationId];
+      return next;
+    });
+    clearComposerScope(conversationId);
+    clearAttachmentScope(conversationId);
+    setActiveStreamRunIdsByConversationKey((current) => {
+      const next = { ...current };
+      delete next[conversationId];
+      return next;
+    });
+    if (inaccessibleRunId) {
+      stopThinking(inaccessibleRunId);
+      setStreamProgressByRunId((current) => {
+        const next = { ...current };
+        delete next[inaccessibleRunId];
+        return next;
+      });
+      setRunEventsById((current) => {
+        const next = { ...current };
+        delete next[inaccessibleRunId];
+        return next;
+      });
+      delete streamMessageTargetRef.current[inaccessibleRunId];
+      // Abort before delete so an in-flight approval/chat stream cannot settle
+      // after access is revoked and rehydrate local messages via applyChatResponse.
+      chatAbortByRunIdRef.current[inaccessibleRunId]?.abort();
+      delete chatAbortByRunIdRef.current[inaccessibleRunId];
+    }
+    const fallbackConversation = conversations.find((item) => item.id !== conversationId) ?? null;
+    setActiveConversationKey(fallbackConversation?.id ?? null);
+    setIsStartingNewConversation(fallbackConversation === null);
+    setPlanFeedback('该会话已取消公开');
+    window.setTimeout(() => {
+      if (clearingInaccessibleConversationRef.current === conversationId) {
+        clearingInaccessibleConversationRef.current = null;
+      }
+    }, 0);
+  }
+
   const {
     serverActiveRunId,
     isActiveConversationServerRunning,
@@ -354,6 +424,8 @@ export function AiWorkspace({
     historyConversations,
     activeStreamRunIdsByConversationKey,
     setRunEventsById,
+    isLoadingConversations: isLoading,
+    onInaccessibleConversation: clearInaccessibleConversation,
   });
   const shouldRefreshActiveConversation = Boolean(
     isActiveConversationServerRunning
@@ -386,6 +458,18 @@ export function AiWorkspace({
     enabled: Boolean(activeConversationId),
     refetchInterval: shouldRefreshActiveConversation ? 1800 : false,
   });
+  useEffect(() => {
+    if (!activeConversationId || !messagesQuery.isError) return;
+    if (isApiError(messagesQuery.error) && messagesQuery.error.status === 404) {
+      clearInaccessibleConversation(activeConversationId);
+    }
+  }, [activeConversationId, messagesQuery.error, messagesQuery.isError]);
+  useEffect(() => {
+    if (!activeConversationId || !pendingApprovalsQuery.isError) return;
+    if (isApiError(pendingApprovalsQuery.error) && pendingApprovalsQuery.error.status === 404) {
+      clearInaccessibleConversation(activeConversationId);
+    }
+  }, [activeConversationId, pendingApprovalsQuery.error, pendingApprovalsQuery.isError]);
   const messages = useMemo(() => {
     const remote = messagesQuery.data ?? [];
     if (activeLocalMessages.length === 0) return remote;
@@ -607,6 +691,10 @@ export function AiWorkspace({
     };
     setActiveConversationKey((current) => (current === conversationKey ? response.conversation_id : current));
     setIsStartingNewConversation(false);
+    if (conversationKey !== response.conversation_id) {
+      moveComposerScope(conversationKey, response.conversation_id);
+      moveAttachmentScope(conversationKey, response.conversation_id);
+    }
     setLocalMessagesByConversationKey((current) => {
       const currentItems = current[conversationKey] ?? [];
       const localStreamMessage = currentItems.find((item) => item.id === messageWithIncludedApprovals.id || item.id === response.message.id || item.run_id === response.run.id);
@@ -859,10 +947,13 @@ export function AiWorkspace({
     }
   }
   const {
-    chatMutation,
-    approvalStreamMutation,
-    humanInputMutation,
-  } = useAiStreamMutations({
+    startChat,
+    startApproval,
+    startHumanInput,
+    submittingApprovalIds,
+    submittingHumanInputRequestIds,
+    submittingHumanInputByRequestId,
+  } = useAiConversationStreams({
     activeStreamRunIdsByConversationKey,
     chatAbortByRunIdRef,
     streamMessageTargetRef,
@@ -878,6 +969,7 @@ export function AiWorkspace({
     applyChatResponse,
     streamFailureMessage,
     markStreamingAssistantStopped,
+    clearInaccessibleConversation,
     refreshAfterApprovalSettled,
     isApprovalDecisionSettledPart,
   });
@@ -895,6 +987,8 @@ export function AiWorkspace({
           return next;
         });
       }
+      clearComposerScope(conversationId);
+      clearAttachmentScope(conversationId);
       await queryClient.invalidateQueries({ queryKey: queryKeys.aiConversations });
       queryClient.removeQueries({ queryKey: queryKeys.aiMessages(conversationId) });
       queryClient.removeQueries({ queryKey: queryKeys.aiPendingApprovals(conversationId) });
@@ -902,29 +996,31 @@ export function AiWorkspace({
     },
     onSettled: () => setDeletingConversationId(null),
   });
-  const chatMutationConversationKey = chatMutation.isPending ? chatMutation.variables?.conversationKey ?? null : null;
-  const chatMutationRunId = chatMutation.isPending ? chatMutation.variables?.client_run_id ?? null : null;
-  const approvalMutationConversationKey = approvalStreamMutation.isPending
-    ? approvalStreamMutation.variables?.approval.conversation_id ?? null
-    : null;
-  const approvalMutationRunId = approvalStreamMutation.isPending
-    ? approvalStreamMutation.variables?.approval.run_id ?? null
-    : null;
-  const submittingApprovalId = approvalStreamMutation.isPending
-    ? approvalStreamMutation.variables?.approval.id ?? null
-    : null;
-  const humanInputMutationConversationKey = humanInputMutation.isPending
-    ? humanInputMutation.variables?.message.conversation_id ?? null
-    : null;
-  const humanInputMutationRunId = humanInputMutation.isPending
-    ? humanInputMutation.variables?.message.run_id ?? null
-    : null;
-  const humanInputMutationMessageId = humanInputMutation.isPending
-    ? humanInputMutation.variables?.message.id ?? null
-    : null;
-  const humanInputMutationRequestId = humanInputMutation.isPending
-    ? humanInputMutation.variables?.request.id ?? null
-    : null;
+  const visibilityMutation = useMutation({
+    mutationFn: ({ conversationId, visibility }: { conversationId: string; visibility: AiConversationVisibility }) =>
+      api.updateAiConversationVisibility(conversationId, visibility),
+    onSuccess: (updated) => {
+      queryClient.setQueryData<AiConversation[]>(queryKeys.aiConversations, (items = []) =>
+        items.map((item) => (item.id === updated.id ? updated : item)));
+    },
+    onError: (error) => {
+      setPlanFeedback(isApiError(error) && error.status === 409
+        ? '会话正在生成回复，请先等待完成或取消当前任务'
+        : error instanceof Error ? error.message : '更新公开状态失败');
+    },
+  });
+  const updatingConversationId = visibilityMutation.isPending
+    ? visibilityMutation.variables?.conversationId ?? null
+    : deletingConversationId;
+  const isCurrentConversationBusy = Boolean(
+    activeConversationKey
+    && (
+      activeStreamRunIdsByConversationKey[activeConversationKey]
+      || isActiveConversationServerRunning
+      || activeApprovalRunId
+      || activeHumanInputRunId
+    ),
+  );
   const activeLocalBusyRunIds = new Set(
     [
       activeStreamRunId,
@@ -933,25 +1029,55 @@ export function AiWorkspace({
       activeHumanInputRunId,
     ].filter((runId): runId is string => Boolean(runId)),
   );
-  const localBusyEntries = [
-    ...Object.entries(activeStreamRunIdsByConversationKey).map(([conversationKey, runId]) => ({ conversationKey, runId })),
-    { conversationKey: chatMutationConversationKey, runId: chatMutationRunId },
-    { conversationKey: approvalMutationConversationKey, runId: approvalMutationRunId },
-    { conversationKey: humanInputMutationConversationKey, runId: humanInputMutationRunId },
-  ].filter((entry): entry is { conversationKey: string; runId: string | null } => Boolean(entry.conversationKey));
-  const isCurrentConversationBusyEntry = (entry: { conversationKey: string; runId: string | null }) =>
-    entry.conversationKey === activeConversationKey || Boolean(entry.runId && activeLocalBusyRunIds.has(entry.runId));
-  const isLocalAssistantBusy = localBusyEntries.some(isCurrentConversationBusyEntry);
-  const isSubmittingActiveApproval = Boolean(
-    approvalStreamMutation.isPending
-    && approvalMutationConversationKey
-    && isCurrentConversationBusyEntry({ conversationKey: approvalMutationConversationKey, runId: approvalMutationRunId }),
-  );
-  const isSubmittingActiveHumanInput = Boolean(
-    humanInputMutation.isPending
-    && humanInputMutationConversationKey
-    && isCurrentConversationBusyEntry({ conversationKey: humanInputMutationConversationKey, runId: humanInputMutationRunId }),
-  );
+  const activeSubmittingHumanInput = useMemo(() => {
+    if (!activeConversationKey) return null;
+    for (const [requestId, meta] of Object.entries(submittingHumanInputByRequestId)) {
+      if (
+        meta.conversationId === activeConversationKey
+        || (meta.runId && activeLocalBusyRunIds.has(meta.runId))
+      ) {
+        return { requestId, ...meta };
+      }
+    }
+    return null;
+  }, [activeConversationKey, activeLocalBusyRunIds, submittingHumanInputByRequestId]);
+  const isSubmittingActiveHumanInput = Boolean(activeSubmittingHumanInput);
+  const humanInputMutationMessageId = activeSubmittingHumanInput?.messageId ?? null;
+  const humanInputMutationRequestId = activeSubmittingHumanInput?.requestId ?? null;
+  const submittingApprovalId = useMemo(() => {
+    if (!activeConversationKey || submittingApprovalIds.size === 0) return null;
+    for (const approvalId of submittingApprovalIds) {
+      const approval = effectivePendingApprovals.find((item) => item.id === approvalId)
+        ?? displayedMessages
+          .flatMap((message) => message.parts)
+          .map((part) => part.approval)
+          .find((item) => item?.id === approvalId);
+      // Only attribute approvals that belong to the active conversation's visible data.
+      // Never fall back to "any sole submitting id" or "any id while a stream is active".
+      if (!approval) continue;
+      if (
+        approval.conversation_id === activeConversationKey
+        || (approval.run_id && (
+          approval.run_id === activeStreamRunId
+          || approval.run_id === activeApprovalRunId
+          || activeLocalBusyRunIds.has(approval.run_id)
+        ))
+      ) {
+        return approvalId;
+      }
+    }
+    return null;
+  }, [
+    activeApprovalRunId,
+    activeConversationKey,
+    activeLocalBusyRunIds,
+    activeStreamRunId,
+    displayedMessages,
+    effectivePendingApprovals,
+    submittingApprovalIds,
+  ]);
+  const isSubmittingActiveApproval = Boolean(submittingApprovalId);
+  const isLocalAssistantBusy = isCurrentConversationBusy;
   const effectiveWaitingConversationKeys = useMemo(() => {
     const keys = new Set(waitingConversationKeys);
     if (!activeConversationKey) return keys;
@@ -971,8 +1097,8 @@ export function AiWorkspace({
     isSubmittingActiveHumanInput,
     waitingConversationKeys,
   ]);
-  const isAnotherConversationRunning = localBusyEntries.some((entry) => !isCurrentConversationBusyEntry(entry));
-  const isAssistantBusy = Boolean(activeVisibleRunId) || Boolean(activeApprovalRunId) || Boolean(activeHumanInputRunId);
+  const effectiveComposerPaused = isComposerPaused;
+  const isAssistantBusy = isCurrentConversationBusy;
   const thinkingMessageIds = useMemo(() => {
     if (!isSubmittingActiveHumanInput || !humanInputMutationMessageId || !humanInputMutationRequestId) {
       return new Set<string>();
@@ -992,14 +1118,11 @@ export function AiWorkspace({
     () => new Set([...thinkingRunIds, ...thinkingMessageIds]),
     [thinkingMessageIds, thinkingRunIds],
   );
-  const effectiveComposerPaused = isComposerPaused || isAnotherConversationRunning;
   const effectiveComposerPauseMessage = isSubmittingActiveHumanInput
     ? '正在提交你的回答，AI 会接着处理当前任务。'
     : isSubmittingActiveApproval
       ? '正在提交确认结果，AI 会接着处理当前任务。'
-      : isAnotherConversationRunning
-        ? '另一个会话正在后台回复，可以切回历史查看进度。'
-        : composerPauseMessage;
+      : composerPauseMessage;
   const activeCancellableRunId = activeStreamRunId ?? activeApprovalRunId ?? activeHumanInputRunId ?? (isActiveConversationServerRunning ? serverActiveRunId : null);
   const readyAttachments = attachmentState.readyAttachments;
   const hasReadyAttachments = readyAttachments.length > 0;
@@ -1035,6 +1158,10 @@ export function AiWorkspace({
     if (deleteConversationMutation.isPending) return;
     setPendingDeleteConversation(conversation);
   }
+  function changeConversationVisibility(conversation: AiConversation, visibility: AiConversationVisibility) {
+    if (visibilityMutation.isPending) return;
+    visibilityMutation.mutate({ conversationId: conversation.id, visibility });
+  }
   function confirmDeleteConversation() {
     if (!pendingDeleteConversation || deleteConversationMutation.isPending) return;
     const conversation = pendingDeleteConversation;
@@ -1068,6 +1195,7 @@ export function AiWorkspace({
     const clientMessageId = `client-${Date.now()}-${Math.random().toString(36).slice(2)}`;
     const clientRunId = `agent_run-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
     const conversationKey = activeConversationId ?? createPendingConversationKey(clientRunId);
+    const sourceComposerScope = activeConversationId ?? NEW_AI_CONVERSATION_SCOPE;
     const messageSummary = text || `上传了 ${sendableAttachments.length} 张图片`;
     const localParts: AiMessagePart[] = [];
     if (text) {
@@ -1107,15 +1235,19 @@ export function AiWorkspace({
     const assistantMessage = createLocalAssistantMessage(clientRunId, conversationKey);
     updateLocalMessages(conversationKey, (items) => [...items, tempMessage, assistantMessage]);
     streamProgressRef.current = { ...streamProgressRef.current, [clientRunId]: [] };
-    streamMessageTargetRef.current = {};
     setStreamProgressByRunId((current) => ({ ...current, [clientRunId]: [] }));
     setActiveStreamRunIdsByConversationKey((current) => ({ ...current, [conversationKey]: clientRunId }));
+    if (sourceComposerScope !== conversationKey) {
+      moveComposerScope(sourceComposerScope, conversationKey);
+      moveAttachmentScope(sourceComposerScope, conversationKey);
+    }
     setActiveConversationKey(conversationKey);
     setIsStartingNewConversation(false);
     if (!options?.preserveDraft) setDraft('');
+    const sendAttachmentScope = conversationKey;
     attachmentState.hideAttachments(sendableAttachments.map((attachment) => attachment.clientAttachmentId));
     try {
-      await chatMutation.mutateAsync({
+      await startChat({
         message: text,
         conversationKey,
         conversation_id: activeConversationId ?? undefined,
@@ -1125,9 +1257,9 @@ export function AiWorkspace({
         subject: options?.subject,
         attachments: requestAttachments,
       });
-      attachmentState.discardHiddenAttachments(sendableAttachments);
+      attachmentState.discardHiddenAttachments(sendableAttachments, sendAttachmentScope);
     } catch {
-      attachmentState.restoreHiddenAttachments(sendableAttachments);
+      attachmentState.restoreHiddenAttachments(sendableAttachments, sendAttachmentScope);
       // Keep request failures out of the form event promise; message-level state already carries visible run feedback.
     }
   }
@@ -1149,22 +1281,20 @@ export function AiWorkspace({
     await submitComposerMessage();
   }
   const submitApprovalDecision: AiApprovalDecisionSubmit = async (approval, decision, values, comment) => {
-    if (approvalStreamMutation.isPending) return;
+    if (submittingApprovalIds.has(approval.id)) return;
     if (approval.run_id) {
       streamProgressRef.current = { ...streamProgressRef.current, [approval.run_id]: [] };
-    }
-    if (approval.run_id) {
       setStreamProgressByRunId((current) => ({ ...current, [approval.run_id as string]: [] }));
     }
-    await approvalStreamMutation.mutateAsync({ approval, decision, values, comment });
+    await startApproval({ approval, decision, values, comment });
   };
   const submitHumanInputResponse: AiHumanInputResponseSubmit = async (message, request, response) => {
-    if (humanInputMutation.isPending) return;
+    if (submittingHumanInputRequestIds.has(request.id)) return;
     if (message.run_id) {
       streamProgressRef.current = { ...streamProgressRef.current, [message.run_id]: [] };
       setStreamProgressByRunId((current) => ({ ...current, [message.run_id as string]: [] }));
     }
-    await humanInputMutation.mutateAsync({ message, request, response });
+    await startHumanInput({ message, request, response });
   };
   function openRecommendationPlan(item: AiTodayRecommendationItem, card: AiResultCard, messageId: string, partId: string) {
     if (!item.foodId || !createFoodPlanItem) return;
@@ -1279,9 +1409,8 @@ export function AiWorkspace({
   const activeThreadOutputKey =
     activeStreamRunId
     ?? (isActiveConversationServerRunning ? serverActiveRunId : null)
-    ?? (chatMutation.isPending ? chatMutationRunId : null)
-    ?? (approvalStreamMutation.isPending ? approvalMutationRunId : null)
-    ?? (humanInputMutation.isPending ? humanInputMutationRunId : null);
+    ?? (isSubmittingActiveApproval ? activeApprovalRunId : null)
+    ?? (isSubmittingActiveHumanInput ? activeSubmittingHumanInput?.runId ?? null : null);
   const threadAutoScroll = useAiThreadAutoScroll({
     contentKey: aiThreadAutoScrollKey(displayedMessages, streamProgress, threadThinkingKeys),
     resetKey: activeConversationKey,
@@ -1304,12 +1433,21 @@ export function AiWorkspace({
         }}
         onSubmit={submitRecommendationPlan}
       />
+      {pendingDeleteConversation && (
+        <AiDeleteConversationDialog
+          conversation={pendingDeleteConversation}
+          isDeleting={deleteConversationMutation.isPending}
+          onCancel={() => setPendingDeleteConversation(null)}
+          onConfirm={confirmDeleteConversation}
+        />
+      )}
       <AiMobilePage
         conversations={historyConversations}
         isLoading={isLoading}
         activeConversationKey={activeConversationKey}
         runningConversationKeys={runningConversationKeys}
         waitingConversationKeys={effectiveWaitingConversationKeys}
+        updatingConversationId={updatingConversationId}
         isMobileHistoryOpen={isMobileHistoryOpen}
         currentUser={currentUser}
         resourceOptionLoader={loadResourceOptions}
@@ -1344,6 +1482,8 @@ export function AiWorkspace({
         onCloseMobileHistory={() => setIsMobileHistoryOpen(false)}
         onStartNewConversation={startNewConversation}
         onSelectConversation={selectConversation}
+        onChangeVisibility={changeConversationVisibility}
+        onDeleteConversation={deleteConversation}
         onDraftChange={setDraft}
         onAttachmentFiles={addAttachmentFiles}
         onRemoveAttachment={attachmentState.removeAttachment}
@@ -1378,20 +1518,13 @@ export function AiWorkspace({
           activeConversationKey={activeConversationKey}
           runningConversationKeys={runningConversationKeys}
           waitingConversationKeys={effectiveWaitingConversationKeys}
-          deletingConversationId={deletingConversationId}
+          updatingConversationId={updatingConversationId}
           onToggleSidebar={toggleSidebar}
           onStartNewConversation={startNewConversation}
           onSelectConversation={selectConversation}
+          onChangeVisibility={changeConversationVisibility}
           onDeleteConversation={deleteConversation}
         />
-        {pendingDeleteConversation && (
-          <AiDeleteConversationDialog
-            conversation={pendingDeleteConversation}
-            isDeleting={deleteConversationMutation.isPending}
-            onCancel={() => setPendingDeleteConversation(null)}
-            onConfirm={confirmDeleteConversation}
-          />
-        )}
         <section className="ai-main-panel">
           <div className="ai-main-head">
             <div className="ai-hero-bar">

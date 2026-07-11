@@ -1,6 +1,6 @@
 import React, { act } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { api } from '../../api/client';
+import { api, ApiError } from '../../api/client';
 import { queryKeys } from '../../api/queryKeys';
 import type { AiApprovalRequest, AiChatResponse, AiConversation, AiMessage, AiResultCard, AiRunEvent, AiTaskDraft } from '../../api/types';
 import { cleanupTestDomAndMocks, flushAsync, renderWithQuery, waitForAsync } from '../../test/renderWithQuery';
@@ -1442,6 +1442,301 @@ describe('AiWorkspace live sync and conversation migration', () => {
       .filter((activity) => activity.textContent?.includes('lint_recipe_draft'));
     expect(scriptActivities).toHaveLength(1);
     expect(textBlock.compareDocumentPosition(scriptActivities[0] as HTMLElement) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    rendered.unmount();
+  });
+
+  async function sendInConversation(
+    rendered: Awaited<ReturnType<typeof renderWithQuery>>,
+    conversationId: string,
+    message: string,
+  ) {
+    const historyButton = Array.from(
+      rendered.container.querySelectorAll<HTMLButtonElement>('.ai-desktop-view .ai-conversation-main'),
+    ).find((button) => button.closest('.ai-conversation-item')?.getAttribute('data-conversation-id') === conversationId);
+    await act(async () => historyButton?.click());
+    const textarea = rendered.container.querySelector<HTMLTextAreaElement>('.ai-desktop-view textarea.text-input');
+    if (!textarea) throw new Error(`missing composer for ${conversationId}`);
+    changeInput(textarea, message);
+    await act(async () => {
+      rendered.container.querySelector<HTMLFormElement>('.ai-desktop-view form.ai-composer')
+        ?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    });
+    await flushAsync();
+  }
+
+  function concurrentResponse(conversationId: string, text: string): AiChatResponse {
+    return {
+      conversation_id: conversationId,
+      message: {
+        id: `message-${conversationId}`,
+        conversation_id: conversationId,
+        role: 'assistant',
+        content: text,
+        content_type: 'parts',
+        parts: [{ id: `part-${conversationId}`, type: 'text', text }],
+        run_id: `run-${conversationId}`,
+        status: 'completed',
+        metadata: {},
+        created_at: '2026-07-11T12:00:00Z',
+      },
+      run: {
+        id: `run-${conversationId}`,
+        agent_key: 'workspace_orchestrator',
+        intent: 'general_chat',
+        status: 'completed',
+        model: 'fake-model',
+        created_at: '2026-07-11T12:00:00Z',
+      },
+      events: [],
+      included: { result_cards: [], drafts: [], approvals: [] },
+    };
+  }
+
+  async function resolveConversationStream(
+    pending: Map<string, (response: AiChatResponse) => void>,
+    conversationId: string,
+    text: string,
+  ) {
+    await act(async () => pending.get(conversationId)?.(concurrentResponse(conversationId, text)));
+    await flushAsync();
+  }
+
+  it('sends and completes two different conversations concurrently', async () => {
+    vi.spyOn(api, 'getAiMessages').mockResolvedValue([]);
+    vi.spyOn(api, 'getPendingAiApprovals').mockResolvedValue([]);
+    const pending = new Map<string, (response: AiChatResponse) => void>();
+    vi.spyOn(api, 'streamChatAi').mockImplementation((payload) => new Promise((resolve) => {
+      pending.set(payload.conversation_id as string, resolve);
+    }));
+    const rendered = await renderWithQuery(
+      <AiWorkspace
+        conversations={[conversation({ id: 'conversation-a' }), conversation({ id: 'conversation-b' })]}
+        isLoading={false}
+      />,
+    );
+    await sendInConversation(rendered, 'conversation-a', '问题 A');
+    await sendInConversation(rendered, 'conversation-b', '问题 B');
+    expect(api.streamChatAi).toHaveBeenCalledTimes(2);
+    expect(rendered.container.querySelectorAll('.ai-conversation-item.is-running')).toHaveLength(2);
+    await resolveConversationStream(pending, 'conversation-b', '回答 B');
+    expect(rendered.container.querySelectorAll('.ai-conversation-item.is-running')).toHaveLength(1);
+    await resolveConversationStream(pending, 'conversation-a', '回答 A');
+    expect(rendered.container.querySelectorAll('.ai-conversation-item.is-running')).toHaveLength(0);
+    rendered.unmount();
+  });
+
+  it('cancels one conversation stream without aborting another concurrent stream', async () => {
+    vi.spyOn(api, 'getAiMessages').mockResolvedValue([]);
+    vi.spyOn(api, 'getPendingAiApprovals').mockResolvedValue([]);
+    const signals = new Map<string, AbortSignal>();
+    const pending = new Map<string, (response: AiChatResponse) => void>();
+    vi.spyOn(api, 'streamChatAi').mockImplementation((payload, handlers) => new Promise((resolve, reject) => {
+      const conversationId = payload.conversation_id as string;
+      if (handlers?.signal) {
+        signals.set(conversationId, handlers.signal);
+        handlers.signal.addEventListener('abort', () => {
+          reject(new Error('BodyStreamBuffer was aborted'));
+        });
+      }
+      pending.set(conversationId, resolve);
+    }));
+    vi.spyOn(api, 'cancelAiRun').mockResolvedValue({
+      run: { id: 'run-cancelled', status: 'cancelled' },
+      events: [],
+    });
+
+    const rendered = await renderWithQuery(
+      <AiWorkspace
+        conversations={[conversation({ id: 'conversation-a' }), conversation({ id: 'conversation-b' })]}
+        isLoading={false}
+      />,
+    );
+    await sendInConversation(rendered, 'conversation-a', '问题 A');
+    await sendInConversation(rendered, 'conversation-b', '问题 B');
+    expect(api.streamChatAi).toHaveBeenCalledTimes(2);
+    expect(rendered.container.querySelectorAll('.ai-conversation-item.is-running')).toHaveLength(2);
+
+    await act(async () => {
+      const historyButton = Array.from(
+        rendered.container.querySelectorAll<HTMLButtonElement>('.ai-desktop-view .ai-conversation-main'),
+      ).find((button) => button.closest('.ai-conversation-item')?.getAttribute('data-conversation-id') === 'conversation-a');
+      historyButton?.click();
+    });
+    await flushAsync();
+    await act(async () => {
+      rendered.container.querySelector<HTMLButtonElement>('.ai-desktop-view .ai-send-button')?.click();
+    });
+    await flushAsync();
+
+    expect(signals.get('conversation-a')?.aborted).toBe(true);
+    expect(signals.get('conversation-b')?.aborted).toBe(false);
+    expect(rendered.container.querySelectorAll('.ai-conversation-item.is-running')).toHaveLength(1);
+
+    await resolveConversationStream(pending, 'conversation-b', '回答 B');
+    expect(rendered.container.querySelectorAll('.ai-conversation-item.is-running')).toHaveLength(0);
+    rendered.unmount();
+  });
+
+  it('does not treat another conversation\'s submitting approval as active while streaming', async () => {
+    const pendingB = approval({
+      id: 'approval-b',
+      conversation_id: 'conversation-b',
+      message_id: 'message-b-approval',
+      run_id: 'run-b-approval',
+      title: '确认创建菜谱 B',
+    });
+    vi.spyOn(api, 'getAiMessages').mockImplementation(async (conversationId) => {
+      if (conversationId === 'conversation-b') {
+        return [
+          {
+            id: 'message-b-approval',
+            conversation_id: 'conversation-b',
+            role: 'assistant',
+            content: '菜谱草稿 B 已生成，请确认。',
+            content_type: 'parts',
+            parts: [
+              { id: 'text-b', type: 'text', text: '菜谱草稿 B 已生成，请确认。' },
+              { id: 'approval-part-b', type: 'approval_request', approval: pendingB },
+            ],
+            run_id: 'run-b-approval',
+            status: 'waiting_approval',
+            metadata: {},
+            created_at: '2026-07-11T12:00:00Z',
+          },
+        ];
+      }
+      return [];
+    });
+    vi.spyOn(api, 'getPendingAiApprovals').mockImplementation(async (conversationId) => {
+      if (conversationId === 'conversation-b') return [pendingB];
+      return [];
+    });
+    vi.spyOn(api, 'streamChatAi').mockImplementation(() => new Promise(() => undefined));
+    vi.spyOn(api, 'streamAiApprovalDecision').mockImplementation(() => new Promise(() => undefined));
+
+    const rendered = await renderWithQuery(
+      <AiWorkspace
+        conversations={[
+          conversation({ id: 'conversation-a', title: '会话 A', prompt: '会话 A' }),
+          conversation({
+            id: 'conversation-b',
+            title: '会话 B',
+            prompt: '会话 B',
+            last_run_status: 'waiting_approval',
+          }),
+        ]}
+        isLoading={false}
+      />,
+    );
+    await flushAsync();
+
+    // Start submitting B's approval.
+    await act(async () => {
+      const historyButton = Array.from(
+        rendered.container.querySelectorAll<HTMLButtonElement>('.ai-desktop-view .ai-conversation-main'),
+      ).find((button) => button.closest('.ai-conversation-item')?.getAttribute('data-conversation-id') === 'conversation-b');
+      historyButton?.click();
+    });
+    await flushAsync();
+    await act(async () => {
+      rendered.container.querySelector<HTMLButtonElement>('.ai-desktop-view .ai-approval-actions .solid-button')?.click();
+    });
+    await flushAsync();
+    expect(api.streamAiApprovalDecision).toHaveBeenCalled();
+    expect(rendered.container.textContent).toContain('正在提交确认结果，AI 会接着处理当前任务。');
+
+    // Switch to A and start a stream. A must not inherit B's submitting approval UI.
+    await sendInConversation(rendered, 'conversation-a', '问题 A');
+    const desktopView = rendered.container.querySelector('.ai-desktop-view') as HTMLElement;
+    expect(desktopView.textContent).not.toContain('正在提交确认结果，AI 会接着处理当前任务。');
+    expect(desktopView.querySelector<HTMLButtonElement>('.ai-send-button')?.getAttribute('aria-label')).toBe('中止生成');
+    rendered.unmount();
+  });
+
+  it('marks the local assistant failed when startChat rejects with a non-abort error', async () => {
+    vi.spyOn(api, 'getAiMessages').mockResolvedValue([]);
+    vi.spyOn(api, 'getPendingAiApprovals').mockResolvedValue([]);
+    vi.spyOn(api, 'streamChatAi').mockRejectedValue(new Error('AI 服务暂时不可用，请稍后重试。'));
+
+    const rendered = await renderWithQuery(
+      <AiWorkspace conversations={[conversation({ id: 'conversation-a' })]} isLoading={false} />,
+    );
+    await sendInConversation(rendered, 'conversation-a', '问题 A');
+    await flushAsync();
+
+    const desktopView = rendered.container.querySelector('.ai-desktop-view') as HTMLElement;
+    expect(desktopView.textContent).toContain('AI 后续处理失败：AI 服务暂时不可用，请稍后重试。');
+    expect(desktopView.querySelectorAll('.ai-conversation-item.is-running')).toHaveLength(0);
+    expect(desktopView.querySelector<HTMLButtonElement>('.ai-send-button')?.getAttribute('aria-label')).toBe('发送消息');
+    rendered.unmount();
+  });
+
+  it('clears only an unpublished shared conversation after a 404', async () => {
+    const shared = conversation({ id: 'shared', visibility: 'family', is_owner: false, owner_display_name: '家人' });
+    const mine = conversation({ id: 'mine', visibility: 'private', is_owner: true });
+    vi.spyOn(api, 'getAiMessages').mockImplementation(async (conversationId) => {
+      if (conversationId === 'shared') {
+        throw new ApiError({ status: 404, detail: '会话不存在', path: `/api/ai/conversations/${conversationId}/messages`, payload: {} });
+      }
+      return [];
+    });
+    vi.spyOn(api, 'getPendingAiApprovals').mockResolvedValue([]);
+    const rendered = await renderWithQuery(<AiWorkspace conversations={[shared, mine]} isLoading={false} />);
+    await flushAsync();
+    expect(rendered.container.textContent).toContain('该会话已取消公开');
+    expect(rendered.container.querySelector('.ai-conversation-item.active')?.textContent).toContain('帮我生成菜谱');
+    expect(rendered.queryClient.getQueryData(queryKeys.aiMessages('shared'))).toBeUndefined();
+    rendered.unmount();
+  });
+
+  it('aborts an in-flight stream when conversation access is revoked via 404', async () => {
+    const shared = conversation({
+      id: 'shared',
+      visibility: 'family',
+      is_owner: false,
+      owner_display_name: '家人',
+      title: '共享会话',
+      prompt: '共享会话',
+    });
+    const mine = conversation({ id: 'mine', visibility: 'private', is_owner: true });
+    let sharedMessageCalls = 0;
+    let streamSignal: AbortSignal | undefined;
+    vi.spyOn(api, 'getAiMessages').mockImplementation(async (conversationId) => {
+      if (conversationId === 'shared') {
+        sharedMessageCalls += 1;
+        if (sharedMessageCalls > 1) {
+          throw new ApiError({
+            status: 404,
+            detail: '会话不存在',
+            path: `/api/ai/conversations/${conversationId}/messages`,
+            payload: {},
+          });
+        }
+      }
+      return [];
+    });
+    vi.spyOn(api, 'getPendingAiApprovals').mockResolvedValue([]);
+    vi.spyOn(api, 'streamChatAi').mockImplementation((_payload, handlers) => new Promise((_resolve, reject) => {
+      streamSignal = handlers?.signal;
+      handlers?.signal?.addEventListener('abort', () => {
+        reject(new Error('BodyStreamBuffer was aborted'));
+      });
+    }));
+
+    const rendered = await renderWithQuery(<AiWorkspace conversations={[shared, mine]} isLoading={false} />);
+    await flushAsync();
+    await sendInConversation(rendered, 'shared', '继续处理共享会话');
+    expect(streamSignal).toBeDefined();
+    expect(streamSignal?.aborted).toBe(false);
+
+    await act(async () => {
+      await rendered.queryClient.invalidateQueries({ queryKey: queryKeys.aiMessages('shared') });
+    });
+    await flushAsync();
+
+    expect(streamSignal?.aborted).toBe(true);
+    expect(rendered.container.textContent).toContain('该会话已取消公开');
+    expect(rendered.queryClient.getQueryData(queryKeys.aiMessages('shared'))).toBeUndefined();
     rendered.unmount();
   });
 });

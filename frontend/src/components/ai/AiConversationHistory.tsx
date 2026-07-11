@@ -1,7 +1,7 @@
 import { useMemo } from 'react';
-import type { AiConversation, AiMessage } from '../../api/types';
+import type { AiConversation, AiConversationVisibility, AiMessage } from '../../api/types';
 import { EmptyState } from '../ui-kit';
-import { TrashIcon } from './aiWorkspaceHelpers';
+import { AiConversationActions, AiConversationSharingMeta } from './AiConversationActions';
 
 export function createPendingConversationKey(runId: string) {
   return `pending-conversation-${runId}`;
@@ -72,10 +72,11 @@ export function AiDesktopConversationHistory(props: {
   activeConversationKey: string | null;
   runningConversationKeys: Set<string>;
   waitingConversationKeys: Set<string>;
-  deletingConversationId: string | null;
+  updatingConversationId: string | null;
   onToggleSidebar: (collapsed: boolean) => void;
   onStartNewConversation: () => void;
   onSelectConversation: (conversationKey: string) => void;
+  onChangeVisibility: (conversation: AiConversation, visibility: AiConversationVisibility) => void;
   onDeleteConversation: (conversation: AiConversation) => void;
 }) {
   const groupedConversations = useMemo(() => groupConversationsByDate(props.conversations), [props.conversations]);
@@ -113,6 +114,7 @@ export function AiDesktopConversationHistory(props: {
                   return (
                     <div
                       key={conversation.id}
+                      data-conversation-id={conversation.id}
                       className={[
                         'ai-conversation-item',
                         conversation.id === props.activeConversationKey ? 'active' : '',
@@ -125,17 +127,15 @@ export function AiDesktopConversationHistory(props: {
                           {isWaiting ? <AiHistoryStatusIcon status="waiting" /> : isRunning ? <AiHistoryStatusIcon status="running" /> : null}
                           <span className="ai-history-title-text">{conversation.title || conversation.prompt || 'AI 会话'}</span>
                         </strong>
+                        <AiConversationSharingMeta conversation={conversation} />
                       </button>
-                      <button
-                        className="ai-conversation-delete"
-                        type="button"
-                        aria-label={`删除会话：${conversation.title || conversation.prompt || 'AI 会话'}`}
-                        title="删除"
-                        disabled={props.deletingConversationId === conversation.id}
-                        onClick={() => props.onDeleteConversation(conversation)}
-                      >
-                        <TrashIcon />
-                      </button>
+                      <AiConversationActions
+                        conversation={conversation}
+                        isUpdating={props.updatingConversationId === conversation.id}
+                        activeConversationKey={props.activeConversationKey}
+                        onChangeVisibility={props.onChangeVisibility}
+                        onDelete={props.onDeleteConversation}
+                      />
                     </div>
                   );
                 })}

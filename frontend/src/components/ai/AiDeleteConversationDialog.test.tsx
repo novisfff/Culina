@@ -3,8 +3,8 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { AiConversation } from '../../api/types';
 import { AiDeleteConversationDialog } from './AiDeleteConversationDialog';
+import { conversation } from './aiWorkspaceTestFixtures';
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -18,22 +18,6 @@ afterEach(() => {
   container = null;
   vi.clearAllMocks();
 });
-
-function conversation(): AiConversation {
-  return {
-    id: 'conversation-1',
-    family_id: 'family-1',
-    mode: 'recommendation',
-    title: '帮我生成菜谱',
-    prompt: '今晚吃什么',
-    response: '',
-    context: {},
-    summary: '',
-    status: 'completed',
-    last_run_status: 'completed',
-    created_at: '2026-07-07T12:00:00Z',
-  };
-}
 
 function renderDialog() {
   const onCancel = vi.fn();

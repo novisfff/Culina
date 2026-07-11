@@ -746,6 +746,8 @@ class AIWorkspaceStreamingTestCase(AIAgentInfraTestCase):
                 conversation = AIConversation(
                     id=conversation_id,
                     family_id=self.family.id,
+                    owner_user_id=self.user.id,
+                    visibility=AIConversationVisibility.PRIVATE,
                     mode=AiMode.RECOMMENDATION,
                     prompt="更新食材档案",
                     response="",
@@ -850,6 +852,8 @@ class AIWorkspaceStreamingTestCase(AIAgentInfraTestCase):
                 conversation = AIConversation(
                     id=conversation_id,
                     family_id=self.family.id,
+                    owner_user_id=self.user.id,
+                    visibility=AIConversationVisibility.PRIVATE,
                     mode=AiMode.RECOMMENDATION,
                     prompt="生成菜谱",
                     response="",
@@ -971,6 +975,8 @@ class AIWorkspaceStreamingTestCase(AIAgentInfraTestCase):
                 conversation = AIConversation(
                     id=conversation_id,
                     family_id=self.family.id,
+                    owner_user_id=self.user.id,
+                    visibility=AIConversationVisibility.PRIVATE,
                     mode=AiMode.RECOMMENDATION,
                     prompt="已完成会话",
                     response="已完成",
@@ -1104,6 +1110,8 @@ class AIWorkspaceStreamingTestCase(AIAgentInfraTestCase):
                 older_active = AIConversation(
                     id="conversation-older-active",
                     family_id=self.family.id,
+                    owner_user_id=self.user.id,
+                    visibility=AIConversationVisibility.PRIVATE,
                     mode=AiMode.RECOMMENDATION,
                     prompt="旧会话刚回复",
                     response="",
@@ -1118,6 +1126,8 @@ class AIWorkspaceStreamingTestCase(AIAgentInfraTestCase):
                 newer_inactive = AIConversation(
                     id="conversation-newer-inactive",
                     family_id=self.family.id,
+                    owner_user_id=self.user.id,
+                    visibility=AIConversationVisibility.PRIVATE,
                     mode=AiMode.RECOMMENDATION,
                     prompt="新建但无新消息",
                     response="",
@@ -1692,6 +1702,8 @@ class AIWorkspaceStreamingTestCase(AIAgentInfraTestCase):
                 conversation = AIConversation(
                     id="conversation-cancel",
                     family_id=self.family.id,
+                    owner_user_id=self.user.id,
+                    visibility=AIConversationVisibility.PRIVATE,
                     mode=AiMode.RECOMMENDATION,
                     prompt="安排三天晚餐",
                     response="",
@@ -1737,6 +1749,8 @@ class AIWorkspaceStreamingTestCase(AIAgentInfraTestCase):
                 conversation = AIConversation(
                     id="conversation-empty-followup",
                     family_id=self.family.id,
+                    owner_user_id=self.user.id,
+                    visibility=AIConversationVisibility.PRIVATE,
                     mode=AiMode.RECOMMENDATION,
                     prompt="确认更新菜谱",
                     response="",
@@ -1837,6 +1851,8 @@ class AIWorkspaceStreamingTestCase(AIAgentInfraTestCase):
                 conversation = AIConversation(
                     id="conversation-finalize-stale-active",
                     family_id=self.family.id,
+                    owner_user_id=self.user.id,
+                    visibility=AIConversationVisibility.PRIVATE,
                     mode=AiMode.RECOMMENDATION,
                     prompt="确认更新菜谱",
                     response="",
@@ -1921,6 +1937,8 @@ class AIWorkspaceStreamingTestCase(AIAgentInfraTestCase):
                 conversation = AIConversation(
                     id="conversation-cancel-finalize",
                     family_id=self.family.id,
+                    owner_user_id=self.user.id,
+                    visibility=AIConversationVisibility.PRIVATE,
                     mode=AiMode.RECOMMENDATION,
                     prompt="安排三天晚餐",
                     response="",

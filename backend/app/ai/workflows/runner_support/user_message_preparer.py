@@ -70,6 +70,7 @@ class UserMessagePreparer:
         existing = find_idempotent_run(
             self.db,
             family_id=family_id,
+            user_id=user_id,
             client_message_id=client_message_id,
             client_run_id=client_run_id,
         )
@@ -130,6 +131,7 @@ class UserMessagePreparer:
             existing = find_idempotent_run(
                 self.db,
                 family_id=family_id,
+                user_id=user_id,
                 client_message_id=client_message_id,
                 client_run_id=client_run_id,
             )

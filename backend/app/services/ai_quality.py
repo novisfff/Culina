@@ -4,12 +4,13 @@ from collections import Counter, defaultdict
 from datetime import timedelta
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import and_, or_, select
 from sqlalchemy.orm import Session
 
+from app.core.enums import AIConversationVisibility
 from app.core.utils import utcnow
 from app.ai.evals.scoring import build_rate
-from app.models.domain import AIAgentRun, AIApprovalRequest, AIRunLLMExchange, AIRunTraceSpan
+from app.models.domain import AIAgentRun, AIApprovalRequest, AIConversation, AIRunLLMExchange, AIRunTraceSpan
 
 
 QUALITY_METRIC_KEYS = (
@@ -31,6 +32,19 @@ QUALITY_METRIC_KEYS = (
     "continuationCompletedCount",
     "continuationRejectedCount",
 )
+
+
+def accessible_ai_run_clause(user_id: str):
+    return or_(
+        AIAgentRun.conversation_id.is_(None),
+        and_(
+            AIConversation.owner_user_id.is_not(None),
+            or_(
+                AIConversation.owner_user_id == user_id,
+                AIConversation.visibility == AIConversationVisibility.FAMILY,
+            ),
+        ),
+    )
 
 
 def canonicalize_approval_value(value: Any) -> Any:
@@ -74,13 +88,21 @@ def build_ai_quality_metrics(
     db: Session,
     *,
     family_id: str,
+    user_id: str,
     limit: int = 50,
     days: int | None = None,
 ) -> dict[str, Any]:
     """Aggregate recent AI run diagnostics for a single family."""
 
     normalized_limit = max(1, min(int(limit or 50), 200))
-    query = select(AIAgentRun).where(AIAgentRun.family_id == family_id)
+    query = (
+        select(AIAgentRun)
+        .outerjoin(AIConversation, AIConversation.id == AIAgentRun.conversation_id)
+        .where(
+            AIAgentRun.family_id == family_id,
+            accessible_ai_run_clause(user_id),
+        )
+    )
     if days is not None and days > 0:
         query = query.where(AIAgentRun.created_at >= utcnow() - timedelta(days=days))
     run_ids = list(db.scalars(query.with_only_columns(AIAgentRun.id).order_by(AIAgentRun.created_at.desc(), AIAgentRun.id.desc()).limit(normalized_limit)))
@@ -185,7 +207,7 @@ def build_ai_quality_metrics(
         for approval in resolved_approved
     )
     trace_metrics = _build_trace_quality_metrics(db, family_id=family_id, run_ids=[run.id for run in runs], run_error_codes=run_error_codes)
-    token_usage = _build_token_usage_metrics(db, family_id=family_id)
+    token_usage = _build_token_usage_metrics(db, family_id=family_id, user_id=user_id)
     return {
         "family_id": family_id,
         "window": {"limit": normalized_limit, "days": days},
@@ -276,7 +298,7 @@ def _coerce_aware_utc(value: Any):
     return value
 
 
-def _build_token_usage_metrics(db: Session, *, family_id: str) -> dict[str, Any]:
+def _build_token_usage_metrics(db: Session, *, family_id: str, user_id: str) -> dict[str, Any]:
     """Aggregate provider token usage across fixed rolling windows."""
 
     now = _coerce_aware_utc(utcnow())
@@ -287,9 +309,13 @@ def _build_token_usage_metrics(db: Session, *, family_id: str) -> dict[str, Any]
     max_hours = max(hours for _, hours in TOKEN_USAGE_WINDOWS)
     exchanges = list(
         db.scalars(
-            select(AIRunLLMExchange).where(
+            select(AIRunLLMExchange)
+            .join(AIAgentRun, AIAgentRun.id == AIRunLLMExchange.run_id)
+            .outerjoin(AIConversation, AIConversation.id == AIAgentRun.conversation_id)
+            .where(
                 AIRunLLMExchange.family_id == family_id,
                 AIRunLLMExchange.started_at >= now - timedelta(hours=max_hours),
+                accessible_ai_run_clause(user_id),
             )
         )
     )

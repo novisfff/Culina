@@ -24,22 +24,72 @@ function revokePreview(url: string) {
   }
 }
 
-export function useAiAttachmentState() {
-  const [attachments, setAttachments] = useState<AiComposerAttachment[]>([]);
-  const attachmentsRef = useRef<AiComposerAttachment[]>([]);
-  const hiddenAttachmentsRef = useRef<AiComposerAttachment[]>([]);
+function revokeAttachments(items: AiComposerAttachment[]) {
+  items.forEach((item) => revokePreview(item.previewUrl));
+}
+
+function mapScopeRecord(
+  current: Record<string, AiComposerAttachment[]>,
+  scopeKey: string,
+  updater: (items: AiComposerAttachment[]) => AiComposerAttachment[],
+) {
+  const nextItems = updater(current[scopeKey] ?? []);
+  if (nextItems === (current[scopeKey] ?? []) && scopeKey in current) return current;
+  return { ...current, [scopeKey]: nextItems };
+}
+
+function commitAttachmentsByScope(
+  current: Record<string, AiComposerAttachment[]>,
+  next: Record<string, AiComposerAttachment[]>,
+  attachmentsByScopeRef: { current: Record<string, AiComposerAttachment[]> },
+) {
+  if (next === current) return current;
+  attachmentsByScopeRef.current = next;
+  return next;
+}
+
+export function useAiAttachmentState(scopeKey: string) {
+  const [attachmentsByScope, setAttachmentsByScope] = useState<Record<string, AiComposerAttachment[]>>({});
+  const attachmentsByScopeRef = useRef<Record<string, AiComposerAttachment[]>>({});
+  const hiddenAttachmentsByScopeRef = useRef<Record<string, AiComposerAttachment[]>>({});
+  const scopeKeyRef = useRef(scopeKey);
 
   useEffect(() => {
-    attachmentsRef.current = attachments;
-  }, [attachments]);
+    scopeKeyRef.current = scopeKey;
+  }, [scopeKey]);
+
+  useEffect(() => {
+    attachmentsByScopeRef.current = attachmentsByScope;
+  }, [attachmentsByScope]);
+
+  const attachments = attachmentsByScope[scopeKey] ?? [];
+
+  const updateAttachmentsByScope = useCallback((
+    updater: (current: Record<string, AiComposerAttachment[]>) => Record<string, AiComposerAttachment[]>,
+  ) => {
+    setAttachmentsByScope((current) => {
+      const next = updater(current);
+      return commitAttachmentsByScope(current, next, attachmentsByScopeRef);
+    });
+  }, []);
+
+  const updateScopeAttachments = useCallback((
+    targetScope: string,
+    updater: (items: AiComposerAttachment[]) => AiComposerAttachment[],
+  ) => {
+    updateAttachmentsByScope((current) => mapScopeRecord(current, targetScope, updater));
+  }, [updateAttachmentsByScope]);
 
   const uploadFiles = useCallback((files: File[]) => {
     const imageFiles = files.filter((file) => ACCEPTED_IMAGE_TYPES.has(file.type));
     if (imageFiles.length === 0) return;
+    const uploadScopeKey = scopeKeyRef.current;
 
-    setAttachments((current) => {
-      const remainingSlots = Math.max(0, MAX_ATTACHMENTS - current.length);
+    updateAttachmentsByScope((current) => {
+      const existing = current[uploadScopeKey] ?? [];
+      const remainingSlots = Math.max(0, MAX_ATTACHMENTS - existing.length);
       const acceptedFiles = imageFiles.slice(0, remainingSlots);
+      if (acceptedFiles.length === 0) return current;
       const pendingAttachments = acceptedFiles.map((file) => ({
         clientAttachmentId: createAttachmentId(),
         status: 'uploading' as const,
@@ -50,82 +100,205 @@ export function useAiAttachmentState() {
       for (const [index, attachment] of pendingAttachments.entries()) {
         const file = acceptedFiles[index];
         void api.uploadMedia(file, 'upload', file.name || 'AI 对话图片').then((asset) => {
-          setAttachments((items) => items.map((item) => (
-            item.clientAttachmentId === attachment.clientAttachmentId
-              ? { ...item, status: 'ready', asset, errorMessage: undefined }
-              : item
+          updateAttachmentsByScope((itemsByScope) => mapScopeRecord(itemsByScope, uploadScopeKey, (items) => (
+            items.map((item) => (
+              item.clientAttachmentId === attachment.clientAttachmentId
+                ? { ...item, status: 'ready', asset, errorMessage: undefined }
+                : item
+            ))
           )));
         }).catch((reason) => {
           const errorMessage = reason instanceof Error && reason.message.trim() ? reason.message : '图片上传失败';
-          setAttachments((items) => items.map((item) => (
-            item.clientAttachmentId === attachment.clientAttachmentId
-              ? { ...item, status: 'failed', errorMessage }
-              : item
+          updateAttachmentsByScope((itemsByScope) => mapScopeRecord(itemsByScope, uploadScopeKey, (items) => (
+            items.map((item) => (
+              item.clientAttachmentId === attachment.clientAttachmentId
+                ? { ...item, status: 'failed', errorMessage }
+                : item
+            ))
           )));
         });
       }
 
-      return [...current, ...pendingAttachments];
+      return {
+        ...current,
+        [uploadScopeKey]: [...existing, ...pendingAttachments],
+      };
     });
-  }, []);
+  }, [updateAttachmentsByScope]);
 
   const removeAttachment = useCallback((clientAttachmentId: string) => {
-    setAttachments((current) => {
+    const targetScope = scopeKeyRef.current;
+    updateScopeAttachments(targetScope, (current) => {
       const removed = current.find((item) => item.clientAttachmentId === clientAttachmentId);
       if (removed) revokePreview(removed.previewUrl);
       return current.filter((item) => item.clientAttachmentId !== clientAttachmentId);
     });
-  }, []);
+  }, [updateScopeAttachments]);
 
   const clearAttachments = useCallback(() => {
-    setAttachments((current) => {
-      current.forEach((item) => revokePreview(item.previewUrl));
+    const targetScope = scopeKeyRef.current;
+    updateScopeAttachments(targetScope, (current) => {
+      revokeAttachments(current);
       return [];
     });
-  }, []);
+  }, [updateScopeAttachments]);
 
   const hideAttachments = useCallback((clientAttachmentIds: string[]) => {
     if (clientAttachmentIds.length === 0) return;
+    const targetScope = scopeKeyRef.current;
     const hiddenIds = new Set(clientAttachmentIds);
-    setAttachments((current) => {
-      const hidden = current.filter((item) => hiddenIds.has(item.clientAttachmentId));
-      if (hidden.length > 0) {
-        hiddenAttachmentsRef.current = [
-          ...hiddenAttachmentsRef.current.filter((item) => !hiddenIds.has(item.clientAttachmentId)),
-          ...hidden,
-        ];
-      }
-      return current.filter((item) => !hiddenIds.has(item.clientAttachmentId));
+    const scopeAttachments = attachmentsByScopeRef.current[targetScope] ?? [];
+    const hidden = scopeAttachments.filter((item) => hiddenIds.has(item.clientAttachmentId));
+    if (hidden.length === 0) return;
+    const existingHidden = hiddenAttachmentsByScopeRef.current[targetScope] ?? [];
+    hiddenAttachmentsByScopeRef.current = {
+      ...hiddenAttachmentsByScopeRef.current,
+      [targetScope]: [
+        ...existingHidden.filter((item) => !hiddenIds.has(item.clientAttachmentId)),
+        ...hidden,
+      ],
+    };
+    updateAttachmentsByScope((current) => {
+      const currentScopeAttachments = current[targetScope] ?? [];
+      return {
+        ...current,
+        [targetScope]: currentScopeAttachments.filter((item) => !hiddenIds.has(item.clientAttachmentId)),
+      };
     });
-  }, []);
+  }, [updateAttachmentsByScope]);
 
-  const restoreHiddenAttachments = useCallback((items: AiComposerAttachment[]) => {
+  const restoreHiddenAttachments = useCallback((items: AiComposerAttachment[], scopeKey?: string) => {
     if (items.length === 0) return;
+    const preferredScope = scopeKey ?? scopeKeyRef.current;
     const itemIds = new Set(items.map((item) => item.clientAttachmentId));
-    hiddenAttachmentsRef.current = hiddenAttachmentsRef.current.filter((item) => !itemIds.has(item.clientAttachmentId));
-    setAttachments((current) => {
+    // After pending→server remaps, hidden items live under the remapped key. Prefer that owner.
+    let targetScope = preferredScope;
+    if (!(preferredScope in hiddenAttachmentsByScopeRef.current)
+      || !(hiddenAttachmentsByScopeRef.current[preferredScope] ?? []).some((item) => itemIds.has(item.clientAttachmentId))) {
+      for (const key of Object.keys(hiddenAttachmentsByScopeRef.current)) {
+        if ((hiddenAttachmentsByScopeRef.current[key] ?? []).some((item) => itemIds.has(item.clientAttachmentId))) {
+          targetScope = key;
+          break;
+        }
+      }
+    }
+    // Remove matching hidden items from every scope (handles post-send scope remaps).
+    const nextHidden = { ...hiddenAttachmentsByScopeRef.current };
+    for (const key of Object.keys(nextHidden)) {
+      const remaining = (nextHidden[key] ?? []).filter((item) => !itemIds.has(item.clientAttachmentId));
+      if (remaining.length === 0) {
+        delete nextHidden[key];
+      } else {
+        nextHidden[key] = remaining;
+      }
+    }
+    hiddenAttachmentsByScopeRef.current = nextHidden;
+    updateScopeAttachments(targetScope, (current) => {
       const currentIds = new Set(current.map((item) => item.clientAttachmentId));
       return [
         ...items.filter((item) => !currentIds.has(item.clientAttachmentId)),
         ...current,
       ];
     });
-  }, []);
+  }, [updateScopeAttachments]);
 
-  const discardHiddenAttachments = useCallback((items: AiComposerAttachment[]) => {
+  const discardHiddenAttachments = useCallback((items: AiComposerAttachment[], scopeKey?: string) => {
     if (items.length === 0) return;
     const itemIds = new Set(items.map((item) => item.clientAttachmentId));
-    hiddenAttachmentsRef.current = hiddenAttachmentsRef.current.filter((item) => {
-      if (!itemIds.has(item.clientAttachmentId)) return true;
-      revokePreview(item.previewUrl);
-      return false;
-    });
+    const preferredScope = scopeKey ?? scopeKeyRef.current;
+    const nextHidden = { ...hiddenAttachmentsByScopeRef.current };
+    // Prefer the send scope, then fall back across scopes so remaps / conversation switches still revoke.
+    const scopes = preferredScope in nextHidden
+      ? [preferredScope, ...Object.keys(nextHidden).filter((key) => key !== preferredScope)]
+      : Object.keys(nextHidden);
+    for (const key of scopes) {
+      const existingHidden = nextHidden[key] ?? [];
+      if (!existingHidden.some((item) => itemIds.has(item.clientAttachmentId))) continue;
+      const remaining = existingHidden.filter((item) => {
+        if (!itemIds.has(item.clientAttachmentId)) return true;
+        revokePreview(item.previewUrl);
+        return false;
+      });
+      if (remaining.length === 0) {
+        delete nextHidden[key];
+      } else {
+        nextHidden[key] = remaining;
+      }
+    }
+    hiddenAttachmentsByScopeRef.current = nextHidden;
   }, []);
+
+  const moveScope = useCallback((from: string, to: string) => {
+    if (from === to) return;
+    // Remap active scope key even when data already moved (e.g. double pending→server).
+    if (scopeKeyRef.current === from) {
+      scopeKeyRef.current = to;
+    }
+
+    const hasFromVisible = from in attachmentsByScopeRef.current;
+    const hasFromHidden = from in hiddenAttachmentsByScopeRef.current;
+    // Mirror draft moveScope: no-op when `from` has no data so we never revoke `to`.
+    if (!hasFromVisible && !hasFromHidden) {
+      return;
+    }
+
+    if (hasFromVisible) {
+      updateAttachmentsByScope((current) => {
+        if (!(from in current)) return current;
+        const next = { ...current };
+        const moving = next[from] ?? [];
+        const superseded = next[to] ?? [];
+        if (superseded.length > 0) {
+          revokeAttachments(superseded);
+        }
+        delete next[from];
+        if (moving.length > 0 || to in current) {
+          next[to] = moving;
+        }
+        return next;
+      });
+    }
+
+    if (hasFromHidden) {
+      const hiddenFrom = hiddenAttachmentsByScopeRef.current[from] ?? [];
+      const hiddenTo = hiddenAttachmentsByScopeRef.current[to] ?? [];
+      if (hiddenTo.length > 0) {
+        revokeAttachments(hiddenTo);
+      }
+      const nextHidden = { ...hiddenAttachmentsByScopeRef.current };
+      delete nextHidden[from];
+      if (hiddenFrom.length > 0 || to in hiddenAttachmentsByScopeRef.current) {
+        nextHidden[to] = hiddenFrom;
+      } else {
+        delete nextHidden[to];
+      }
+      hiddenAttachmentsByScopeRef.current = nextHidden;
+    }
+  }, [updateAttachmentsByScope]);
+
+  const clearScope = useCallback((key: string) => {
+    updateAttachmentsByScope((current) => {
+      if (!(key in current)) return current;
+      revokeAttachments(current[key] ?? []);
+      const next = { ...current };
+      delete next[key];
+      return next;
+    });
+    const hidden = hiddenAttachmentsByScopeRef.current[key] ?? [];
+    if (hidden.length > 0) {
+      revokeAttachments(hidden);
+    }
+    if (key in hiddenAttachmentsByScopeRef.current) {
+      const nextHidden = { ...hiddenAttachmentsByScopeRef.current };
+      delete nextHidden[key];
+      hiddenAttachmentsByScopeRef.current = nextHidden;
+    }
+  }, [updateAttachmentsByScope]);
 
   useEffect(() => {
     return () => {
-      attachmentsRef.current.forEach((item) => revokePreview(item.previewUrl));
-      hiddenAttachmentsRef.current.forEach((item) => revokePreview(item.previewUrl));
+      Object.values(attachmentsByScopeRef.current).forEach(revokeAttachments);
+      Object.values(hiddenAttachmentsByScopeRef.current).forEach(revokeAttachments);
     };
   }, []);
 
@@ -141,5 +314,7 @@ export function useAiAttachmentState() {
     hideAttachments,
     restoreHiddenAttachments,
     discardHiddenAttachments,
+    moveScope,
+    clearScope,
   };
 }

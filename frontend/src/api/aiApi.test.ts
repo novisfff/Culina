@@ -297,6 +297,22 @@ describe('aiApi', () => {
     expect(doneSpy).toHaveBeenCalledWith(audioDone);
   });
 
+
+  it('patches AI conversation visibility', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
+      id: 'conversation-1',
+      owner_user_id: 'user-1',
+      owner_display_name: '小林',
+      visibility: 'family',
+      is_owner: true,
+    }), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+    await aiApi.updateAiConversationVisibility('conversation-1', 'family');
+    expect(fetchSpy).toHaveBeenCalledWith(
+      expect.stringContaining('/api/ai/conversations/conversation-1/visibility'),
+      expect.objectContaining({ method: 'PATCH', body: JSON.stringify({ visibility: 'family' }) }),
+    );
+  });
+
   it('streams human input responses through the shared SSE parser', async () => {
     const response: AiChatResponse = {
       conversation_id: 'conversation-1',

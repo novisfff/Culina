@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
-import type { AiConversation } from '../../api/types';
+import type { AiConversation, AiConversationVisibility } from '../../api/types';
 import { EmptyState } from '../ui-kit';
+import { AiConversationActions, AiConversationSharingMeta } from './AiConversationActions';
 import { AiHistoryStatusIcon } from './AiConversationHistory';
 
 export function AiMobileChrome(props: {
@@ -9,12 +10,15 @@ export function AiMobileChrome(props: {
   activeConversationKey: string | null;
   runningConversationKeys: Set<string>;
   waitingConversationKeys: Set<string>;
+  updatingConversationId: string | null;
   isMobileHistoryOpen: boolean;
   onBackHome?: () => void;
   onOpenMobileHistory: () => void;
   onCloseMobileHistory: () => void;
   onStartNewConversation: () => void;
   onSelectConversation: (conversationId: string) => void;
+  onChangeVisibility: (conversation: AiConversation, visibility: AiConversationVisibility) => void;
+  onDeleteConversation: (conversation: AiConversation) => void;
 }) {
   const groupedConversations = useMemo(() => {
     const today: AiConversation[] = [];
@@ -89,23 +93,36 @@ export function AiMobileChrome(props: {
                         const isWaiting = props.waitingConversationKeys.has(conversation.id);
                         const isRunning = !isWaiting && props.runningConversationKeys.has(conversation.id);
                         return (
-                          <button
+                          <div
                             key={conversation.id}
+                            data-conversation-id={conversation.id}
                             className={[
                               'ai-mobile-conversation',
                               conversation.id === props.activeConversationKey ? 'active' : '',
                               isRunning ? 'is-running' : '',
                               isWaiting ? 'is-waiting' : '',
                             ].filter(Boolean).join(' ')}
-                            type="button"
-                            onClick={() => props.onSelectConversation(conversation.id)}
                           >
-                            <strong>
-                              {isWaiting ? <AiHistoryStatusIcon status="waiting" /> : isRunning ? <AiHistoryStatusIcon status="running" /> : null}
-                              <span className="ai-history-title-text">{conversation.title || conversation.prompt || 'AI 会话'}</span>
-                            </strong>
-                            <span>{conversation.summary || conversation.response || '等待继续对话'}</span>
-                          </button>
+                            <button
+                              className="ai-mobile-conversation-main"
+                              type="button"
+                              onClick={() => props.onSelectConversation(conversation.id)}
+                            >
+                              <strong>
+                                {isWaiting ? <AiHistoryStatusIcon status="waiting" /> : isRunning ? <AiHistoryStatusIcon status="running" /> : null}
+                                <span className="ai-history-title-text">{conversation.title || conversation.prompt || 'AI 会话'}</span>
+                              </strong>
+                              <AiConversationSharingMeta conversation={conversation} />
+                              <span>{conversation.summary || conversation.response || '等待继续对话'}</span>
+                            </button>
+                            <AiConversationActions
+                              conversation={conversation}
+                              isUpdating={props.updatingConversationId === conversation.id}
+                              activeConversationKey={props.activeConversationKey}
+                              onChangeVisibility={props.onChangeVisibility}
+                              onDelete={props.onDeleteConversation}
+                            />
+                          </div>
                         );
                       })}
                     </div>

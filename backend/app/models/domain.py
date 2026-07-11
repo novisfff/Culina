@@ -11,6 +11,7 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 from app.core.enums import (
     ActivityAction,
     AiMode,
+    AIConversationVisibility,
     Difficulty,
     FoodType,
     ImageGenerationMode,
@@ -534,9 +535,19 @@ class SearchIndexJob(Base):
 
 class AIConversation(Base):
     __tablename__ = "ai_conversations"
+    __table_args__ = (
+        Index("ix_ai_conversations_family_owner_recent", "family_id", "owner_user_id", "last_message_at", "created_at"),
+        Index("ix_ai_conversations_family_visibility_recent", "family_id", "visibility", "last_message_at", "created_at"),
+    )
 
     id: Mapped[str] = mapped_column(String(64), primary_key=True, default=lambda: create_id("conversation"))
     family_id: Mapped[str] = mapped_column(ForeignKey("families.id", ondelete="CASCADE"), nullable=False, index=True)
+    owner_user_id: Mapped[str | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    visibility: Mapped[AIConversationVisibility] = mapped_column(
+        SqlEnum(AIConversationVisibility, native_enum=False),
+        default=AIConversationVisibility.PRIVATE,
+        nullable=False,
+    )
     mode: Mapped[AiMode] = mapped_column(SqlEnum(AiMode, native_enum=False), nullable=False)
     prompt: Mapped[str] = mapped_column(Text, nullable=False)
     response: Mapped[str] = mapped_column(Text, nullable=False)

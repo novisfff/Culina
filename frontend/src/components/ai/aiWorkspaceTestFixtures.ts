@@ -94,10 +94,14 @@ export function mealPlanApproval(overrides: Partial<AiApprovalRequest> = {}, dra
   });
 }
 
-export function conversation(): AiConversation {
+export function conversation(overrides: Partial<AiConversation> = {}): AiConversation {
   return {
     id: 'conversation-1',
     family_id: 'family-1',
+    owner_user_id: 'user-1',
+    owner_display_name: '小林',
+    visibility: 'private',
+    is_owner: true,
     mode: 'recommendation',
     prompt: '帮我生成菜谱',
     response: '',
@@ -109,6 +113,7 @@ export function conversation(): AiConversation {
     status: 'active',
     last_message_at: '2026-05-30T00:00:00Z',
     last_run_status: 'completed',
+    ...overrides,
   };
 }
 

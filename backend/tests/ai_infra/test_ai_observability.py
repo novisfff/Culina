@@ -17,6 +17,7 @@ from app.ai.runtime.provider import (
 )
 from app.ai.workflows.orchestrator.skill_runtime import _record_skill_injection_trace
 from app.core.config import Settings
+from app.core.enums import AIConversationVisibility
 from app.core.utils import create_id, utcnow
 from app.models.domain import AIRunLLMExchange, AIRunTraceSpan
 from app.ai.workspace_service import AIApplicationService
@@ -1220,3 +1221,12 @@ class AIObservabilityTestCase(AIAgentInfraTestCase):
                 if span.trace_id != "ai_trace-retention-old"
             ]
             self.assertTrue(remaining_current_spans)
+
+    def test_family_owner_cannot_open_another_members_private_trace(self) -> None:
+        private_run = self._seed_visibility_run(
+            "other-private-trace",
+            owner_user_id="user-ai-two",
+            visibility=AIConversationVisibility.PRIVATE,
+        )
+        response = self.client.get(f"/api/ai/runs/{private_run.id}/trace")
+        self.assertEqual(response.status_code, 404, response.text)

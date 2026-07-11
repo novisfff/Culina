@@ -20,6 +20,11 @@ from app.ai.observability.tracer import AIRunTracer
 from app.ai.runtime.provider import BaseChatProvider, get_chat_provider
 from app.ai.skills import build_workspace_skill_registry
 from app.ai.tools import ToolContext, ToolExecutor, build_workspace_tool_registry
+from app.ai.workflows.conversation_access import (
+    ConversationCapability,
+    require_ai_message_access,
+    require_ai_run_access,
+)
 from app.ai.workflows.conversations import (
     find_active_conversation_run,
     find_idempotent_run,
@@ -125,12 +130,14 @@ class AIApplicationService:
         self,
         *,
         family_id: str,
+        user_id: str,
         client_message_id: str | None,
         client_run_id: str | None,
     ) -> AIAgentRun | None:
         return find_idempotent_run(
             self.db,
             family_id=family_id,
+            user_id=user_id,
             client_message_id=client_message_id,
             client_run_id=client_run_id,
         )
@@ -280,6 +287,13 @@ class AIApplicationService:
         entity_id: str,
         food_plan_item_id: str,
     ) -> AIMessage:
+        require_ai_message_access(
+            self.db,
+            family_id=family_id,
+            user_id=user_id,
+            message_id=message_id,
+            capability="contribute",
+        )
         return record_recommendation_selection_for_card(
             self.db,
             family_id=family_id,
@@ -302,6 +316,13 @@ class AIApplicationService:
         item_id: str,
         action: str,
     ) -> AIMessage:
+        require_ai_message_access(
+            self.db,
+            family_id=family_id,
+            user_id=user_id,
+            message_id=message_id,
+            capability="contribute",
+        )
         return create_inventory_quick_draft_from_card(
             self.db,
             family_id=family_id,
@@ -314,8 +335,13 @@ class AIApplicationService:
             create_draft_approval=self._create_draft_approval,
         )
 
-    def pending_approvals(self, *, family_id: str, conversation_id: str) -> list[dict[str, Any]]:
-        self._require_conversation(family_id=family_id, conversation_id=conversation_id)
+    def pending_approvals(self, *, family_id: str, user_id: str, conversation_id: str) -> list[dict[str, Any]]:
+        self._require_conversation(
+            family_id=family_id,
+            user_id=user_id,
+            conversation_id=conversation_id,
+            capability="view",
+        )
         approvals = list(
             self.db.scalars(
                 select(AIApprovalRequest)
@@ -330,10 +356,24 @@ class AIApplicationService:
         return [serialize_ai_approval_request(item) for item in approvals]
 
     def cancel_run(self, *, family_id: str, user_id: str, run_id: str) -> dict[str, Any]:
+        require_ai_run_access(
+            self.db,
+            family_id=family_id,
+            user_id=user_id,
+            run_id=run_id,
+            capability="contribute",
+        )
         run, event = cancel_workspace_run(self.db, family_id=family_id, user_id=user_id, run_id=run_id)
         return {"run": serialize_ai_run(run), "events": [serialize_ai_run_event(event)]}
 
     def retry_run(self, *, family_id: str, user_id: str, run_id: str) -> dict[str, Any]:
+        require_ai_run_access(
+            self.db,
+            family_id=family_id,
+            user_id=user_id,
+            run_id=run_id,
+            capability="contribute",
+        )
         retry_request = build_retry_chat_request(self.db, family_id=family_id, run_id=run_id)
         return self.chat(
             family_id=family_id,
@@ -346,6 +386,13 @@ class AIApplicationService:
         )
 
     def regenerate_part(self, *, family_id: str, user_id: str, message_id: str, part_id: str) -> dict[str, Any]:
+        require_ai_message_access(
+            self.db,
+            family_id=family_id,
+            user_id=user_id,
+            message_id=message_id,
+            capability="contribute",
+        )
         regenerate_request = build_regenerate_part_chat_request(
             self.db,
             family_id=family_id,
@@ -376,6 +423,12 @@ class AIApplicationService:
     ) -> dict[str, Any]:
         from app.ai.workflows.runner import WorkspaceGraphRunner
 
+        self._require_conversation(
+            family_id=family_id,
+            user_id=user_id,
+            conversation_id=conversation_id,
+            capability="contribute",
+        )
         return WorkspaceGraphRunner(self).apply_approval_decision_fast(
             family_id=family_id,
             user_id=user_id,
@@ -401,6 +454,12 @@ class AIApplicationService:
     ) -> Iterator[tuple[str, dict[str, Any]]]:
         from app.ai.workflows.runner import WorkspaceGraphRunner
 
+        self._require_conversation(
+            family_id=family_id,
+            user_id=user_id,
+            conversation_id=conversation_id,
+            capability="contribute",
+        )
         return WorkspaceGraphRunner(self).stream_resume_approval(
             family_id=family_id,
             user_id=user_id,
@@ -424,6 +483,12 @@ class AIApplicationService:
     ) -> dict[str, Any]:
         from app.ai.workflows.runner import WorkspaceGraphRunner
 
+        self._require_conversation(
+            family_id=family_id,
+            user_id=user_id,
+            conversation_id=conversation_id,
+            capability="contribute",
+        )
         return WorkspaceGraphRunner(self).resume_human_input(
             family_id=family_id,
             user_id=user_id,
@@ -445,6 +510,12 @@ class AIApplicationService:
     ) -> Iterator[tuple[str, dict[str, Any]]]:
         from app.ai.workflows.runner import WorkspaceGraphRunner
 
+        self._require_conversation(
+            family_id=family_id,
+            user_id=user_id,
+            conversation_id=conversation_id,
+            capability="contribute",
+        )
         return WorkspaceGraphRunner(self).stream_resume_human_input(
             family_id=family_id,
             user_id=user_id,
@@ -497,8 +568,21 @@ class AIApplicationService:
             quick_task=quick_task,
         )
 
-    def _require_conversation(self, *, family_id: str, conversation_id: str) -> AIConversation:
-        return require_conversation(self.db, family_id=family_id, conversation_id=conversation_id)
+    def _require_conversation(
+        self,
+        *,
+        family_id: str,
+        user_id: str,
+        conversation_id: str,
+        capability: ConversationCapability = "view",
+    ) -> AIConversation:
+        return require_conversation(
+            self.db,
+            family_id=family_id,
+            user_id=user_id,
+            conversation_id=conversation_id,
+            capability=capability,
+        )
 
     def _resolve_conversation_user_id(self, conversation_id: str) -> str | None:
         return resolve_conversation_user_id(self.db, conversation_id)
