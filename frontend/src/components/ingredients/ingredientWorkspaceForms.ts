@@ -60,8 +60,10 @@ export type InventoryDrawerFormState = {
   notes: string;
 };
 
+export type ShoppingTargetType = 'ingredient' | 'food' | 'free_text';
+
 export type ShoppingDialogFormState = {
-  targetType: 'ingredient' | 'food' | '';
+  targetType: ShoppingTargetType;
   ingredientId: string;
   foodId: string;
   title: string;
@@ -177,14 +179,32 @@ export function buildInventoryForm(
 
 export function buildShoppingForm(ingredient?: Ingredient, reason = '', food?: Food): ShoppingDialogFormState {
   return {
-    targetType: food ? 'food' : ingredient ? 'ingredient' : '',
+    targetType: food ? 'food' : ingredient ? 'ingredient' : 'free_text',
     ingredientId: ingredient?.id ?? '',
     foodId: food?.id ?? '',
     title: food?.name ?? ingredient?.name ?? '',
     quantity: '1',
-    unit: food ? food.stock_unit || '份' : resolvePreferredIngredientUnit(ingredient, ingredient?.default_unit) || '个',
+    unit: food
+      ? food.stock_unit || '份'
+      : ingredient
+        ? resolvePreferredIngredientUnit(ingredient, ingredient?.default_unit) || '个'
+        : '份',
     reason: reason || (food ? '补充成品库存' : ''),
   };
+}
+
+export function resolveShoppingTargetType(item: Pick<ShoppingListItem, 'target_type' | 'ingredient_id' | 'food_id'>): ShoppingTargetType {
+  if (item.target_type === 'food' || item.food_id) {
+    return 'food';
+  }
+  if (item.target_type === 'ingredient' || item.ingredient_id) {
+    return 'ingredient';
+  }
+  if (item.target_type === 'free_text') {
+    return 'free_text';
+  }
+  // Never infer Ingredient merely because food_id is null.
+  return item.ingredient_id ? 'ingredient' : 'free_text';
 }
 
 export function buildShoppingFormFromItem(
@@ -192,7 +212,7 @@ export function buildShoppingFormFromItem(
   ingredient?: Ingredient | null,
   food?: Food | null
 ): ShoppingDialogFormState {
-  const targetType = item.target_type === 'food' || item.food_id ? 'food' : 'ingredient';
+  const targetType = resolveShoppingTargetType(item);
   return {
     targetType,
     ingredientId: item.ingredient_id ?? ingredient?.id ?? '',
@@ -202,7 +222,9 @@ export function buildShoppingFormFromItem(
     unit:
       targetType === 'food'
         ? item.unit || food?.stock_unit || '份'
-        : resolvePreferredIngredientUnit(ingredient ?? undefined, item.unit) || item.unit || ingredient?.default_unit || '个',
+        : targetType === 'ingredient'
+          ? resolvePreferredIngredientUnit(ingredient ?? undefined, item.unit) || item.unit || ingredient?.default_unit || '个'
+          : item.unit || '份',
     reason: item.reason,
   };
 }

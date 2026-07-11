@@ -247,7 +247,7 @@ export interface ShoppingListItem {
   family_id: string;
   ingredient_id?: string | null;
   food_id?: string | null;
-  target_type?: 'ingredient' | 'food';
+  target_type?: 'ingredient' | 'food' | 'free_text';
   title: string;
   quantity: number;
   unit: string;

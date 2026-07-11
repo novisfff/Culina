@@ -226,12 +226,18 @@ def serialize_ingredient_inventory_state(state: IngredientInventoryState) -> dic
 
 
 def serialize_shopping_item(item: ShoppingListItem) -> dict:
+    if item.food_id:
+        target_type = "food"
+    elif item.ingredient_id:
+        target_type = "ingredient"
+    else:
+        target_type = "free_text"
     return {
         "id": item.id,
         "family_id": item.family_id,
         "ingredient_id": item.ingredient_id,
         "food_id": item.food_id,
-        "target_type": "food" if item.food_id else "ingredient",
+        "target_type": target_type,
         "title": item.title,
         "quantity": _to_float(item.quantity),
         "unit": item.unit,

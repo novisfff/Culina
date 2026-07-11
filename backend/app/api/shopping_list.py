@@ -44,8 +44,11 @@ def _resolve_shopping_target(
     family_id: str,
     db: Session,
 ) -> tuple[Ingredient | None, Food | None]:
-    if bool(ingredient_id) == bool(food_id):
+    # At most one target: both non-null is invalid; both null is intentional free_text.
+    if ingredient_id and food_id:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="采购项必须且只能选择一个采购对象")
+    if not ingredient_id and not food_id:
+        return None, None
     if ingredient_id:
         ingredient = db.scalar(select(Ingredient).where(Ingredient.id == ingredient_id, Ingredient.family_id == family_id))
         if ingredient is None:
@@ -94,9 +97,15 @@ def create_shopping_item(
         payload.quantity_mode = IngredientQuantityTrackingMode.TRACK_QUANTITY
         payload.unit = payload.unit or food.stock_unit or "份"
         payload.display_label = None
+    else:
+        # Free-text defaults when omitted.
+        payload.unit = payload.unit or "份"
+        if payload.quantity is None:
+            payload.quantity = 1
     if payload.quantity_mode.value == "not_track_quantity":
         payload.display_label = payload.display_label or "需要补充"
         payload.quantity = payload.quantity or 1
+        payload.unit = payload.unit or "份"
     if payload.quantity is None or payload.quantity <= 0:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="采购数量必须大于 0")
     if not payload.unit:
@@ -155,14 +164,22 @@ def update_shopping_item(
         )
     except InventoryConflictError as exc:
         raise _shopping_conflict_http(exc) from exc
+
+    content_fields = payload.model_fields_set - {"done", "expected_row_version"}
+    has_target_field = "ingredient_id" in payload.model_fields_set or "food_id" in payload.model_fields_set
     ingredient = None
     food = None
-    content_fields = payload.model_fields_set - {"done", "expected_row_version"}
     target_changed = False
+
     if content_fields:
-        has_target_field = "ingredient_id" in payload.model_fields_set or "food_id" in payload.model_fields_set
-        ingredient_id = payload.ingredient_id if "ingredient_id" in payload.model_fields_set else (None if has_target_field else item.ingredient_id)
-        food_id = payload.food_id if "food_id" in payload.model_fields_set else (None if has_target_field else item.food_id)
+        # Omitted target fields preserve the current binding.
+        # Explicit nulls (including both null) intentionally unbind to free_text.
+        if has_target_field:
+            ingredient_id = payload.ingredient_id if "ingredient_id" in payload.model_fields_set else None
+            food_id = payload.food_id if "food_id" in payload.model_fields_set else None
+        else:
+            ingredient_id = item.ingredient_id
+            food_id = item.food_id
         ingredient, food = _resolve_shopping_target(
             ingredient_id=ingredient_id,
             food_id=food_id,
@@ -171,27 +188,37 @@ def update_shopping_item(
         )
         target_changed = ingredient_id != item.ingredient_id or food_id != item.food_id
 
-    if ingredient is not None:
-        item.title = ingredient.name
-    elif food is not None:
-        item.title = food.name
+        if ingredient is not None:
+            item.title = ingredient.name
+        elif food is not None:
+            item.title = food.name
+        elif "title" in payload.model_fields_set and payload.title is not None:
+            item.title = payload.title
+
+        if has_target_field:
+            if ingredient is not None:
+                item.ingredient_id = ingredient.id
+                item.food_id = None
+            elif food is not None:
+                item.food_id = food.id
+                item.ingredient_id = None
+            else:
+                # Explicit unbind to free_text.
+                item.ingredient_id = None
+                item.food_id = None
+
+        if ingredient is not None:
+            item.quantity_mode = ingredient.quantity_tracking_mode
+            item.unit = payload.unit or (item.unit if not target_changed else None) or ingredient.default_unit
+        elif food is not None:
+            item.quantity_mode = IngredientQuantityTrackingMode.TRACK_QUANTITY
+            item.unit = payload.unit or (item.unit if not target_changed else None) or food.stock_unit or "份"
+            item.display_label = None
+        elif "quantity_mode" in payload.model_fields_set and payload.quantity_mode is not None:
+            item.quantity_mode = payload.quantity_mode
     elif "title" in payload.model_fields_set and payload.title is not None:
         item.title = payload.title
-    if ingredient is not None:
-        item.ingredient_id = ingredient.id
-        item.food_id = None
-    elif food is not None:
-        item.food_id = food.id
-        item.ingredient_id = None
-    if ingredient is not None:
-        item.quantity_mode = ingredient.quantity_tracking_mode
-        item.unit = payload.unit or (item.unit if not target_changed else None) or ingredient.default_unit
-    elif food is not None:
-        item.quantity_mode = IngredientQuantityTrackingMode.TRACK_QUANTITY
-        item.unit = payload.unit or (item.unit if not target_changed else None) or food.stock_unit or "份"
-        item.display_label = None
-    elif "quantity_mode" in payload.model_fields_set and payload.quantity_mode is not None:
-        item.quantity_mode = payload.quantity_mode
+
     if "quantity" in payload.model_fields_set and payload.quantity is not None:
         item.quantity = payload.quantity
     if "unit" in payload.model_fields_set and payload.unit is not None:
@@ -211,8 +238,12 @@ def update_shopping_item(
         if item.quantity is None or item.quantity <= 0:
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="采购数量必须大于 0")
         if not item.unit:
-            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="采购单位不能为空")
-        item.display_label = None
+            if item.ingredient_id is None and item.food_id is None:
+                item.unit = "份"
+            else:
+                raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="采购单位不能为空")
+        if item.ingredient_id is not None or item.food_id is not None:
+            item.display_label = None
 
     item.updated_by = user.id
     mutation_fields = payload.model_fields_set - {"expected_row_version"}

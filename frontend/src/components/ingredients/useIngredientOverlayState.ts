@@ -333,16 +333,13 @@ export function useIngredientOverlayState(args: UseIngredientOverlayStateArgs) {
     setPendingShoppingToComplete(null);
     clearInventoryActionSelection();
     if (options?.shoppingItem) {
-      const matchedIngredient =
-        (options.shoppingItem.ingredient_id
-          ? args.ingredientOptions.find((ingredient) => ingredient.id === options.shoppingItem?.ingredient_id) ?? null
-          : null) ??
-        args.ingredientOptions.find((ingredient) => ingredient.name === options.shoppingItem?.title.trim()) ??
-        null;
-      const matchedFood =
-        options.shoppingItem.food_id
-          ? args.foodOptions.find((food) => food.id === options.shoppingItem?.food_id) ?? null
-          : null;
+      // Only resolve bound targets by stable IDs. Free-text rows must not auto-bind by title.
+      const matchedIngredient = options.shoppingItem.ingredient_id
+        ? args.ingredientOptions.find((ingredient) => ingredient.id === options.shoppingItem?.ingredient_id) ?? null
+        : null;
+      const matchedFood = options.shoppingItem.food_id
+        ? args.foodOptions.find((food) => food.id === options.shoppingItem?.food_id) ?? null
+        : null;
       setEditingShoppingItemId(options.shoppingItem.id);
       setShoppingForm(buildShoppingFormFromItem(options.shoppingItem, matchedIngredient, matchedFood));
     } else {

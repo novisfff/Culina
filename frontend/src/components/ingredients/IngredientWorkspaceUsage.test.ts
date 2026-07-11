@@ -187,3 +187,29 @@ describe('IngredientWorkspace navigation consumption', () => {
     expect(overlaysSource).toContain('InventoryActionDialog');
   });
 });
+
+describe('IngredientWorkspace free-text shopping contract', () => {
+  it('starts blank shopping forms as free_text and never auto-binds by title', () => {
+    const formsSource = readFileSync(resolve(__dirname, 'ingredientWorkspaceForms.ts'), 'utf8');
+    const actionSource = readFileSync(resolve(__dirname, 'useIngredientActionState.ts'), 'utf8');
+    const overlayStateSource = readFileSync(resolve(__dirname, 'useIngredientOverlayState.ts'), 'utf8');
+
+    expect(formsSource).toContain("export type ShoppingTargetType = 'ingredient' | 'food' | 'free_text'");
+    expect(formsSource).toContain("targetType: food ? 'food' : ingredient ? 'ingredient' : 'free_text'");
+    expect(formsSource).toContain('resolveShoppingTargetType');
+    expect(formsSource).toContain("return item.ingredient_id ? 'ingredient' : 'free_text'");
+    expect(formsSource).not.toContain("const targetType = item.target_type === 'food' || item.food_id ? 'food' : 'ingredient'");
+
+    expect(actionSource).toContain('// Explicit binding only');
+    expect(actionSource).not.toContain("args.ingredientOptions.find((item) => item.name === args.shoppingForm.title.trim())");
+    expect(actionSource).not.toContain("title: '先选择采购对象', message: '采购清单只能从已有食材或成品速食档案创建。'");
+    expect(actionSource).toContain("ingredient_id: selectedShoppingIngredient?.id ?? null");
+    expect(actionSource).toContain("food_id: selectedShoppingFood?.id ?? null");
+
+    expect(overlayStateSource).toContain('// Only resolve bound targets by stable IDs');
+    expect(overlayStateSource).not.toContain(
+      "args.ingredientOptions.find((ingredient) => ingredient.name === options.shoppingItem?.title.trim())",
+    );
+  });
+});
+

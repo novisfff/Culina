@@ -108,3 +108,82 @@ describe('ingredientsApi versioned expiry actions', () => {
       });
   });
 });
+
+describe('ingredientsApi free-text shopping items', () => {
+  it('creates a free-text shopping item with null target ids', async () => {
+    const fetchSpy = mockJsonFetch({
+      id: 'shopping-1',
+      family_id: 'family-1',
+      ingredient_id: null,
+      food_id: null,
+      target_type: 'free_text',
+      title: '厨房纸',
+      quantity: 1,
+      unit: '份',
+      reason: '家用',
+      done: false,
+      created_at: '2026-07-12T00:00:00Z',
+      updated_at: '2026-07-12T00:00:00Z',
+      row_version: 1,
+    }, 201);
+
+    await ingredientsApi.createShoppingItem({
+      title: '厨房纸',
+      quantity: 1,
+      unit: '份',
+      ingredient_id: null,
+      food_id: null,
+      reason: '家用',
+    });
+
+    expect(String(fetchSpy.mock.calls[0]?.[0])).toContain('/api/shopping-list');
+    expect(fetchSpy.mock.calls[0]?.[1]).toMatchObject({ method: 'POST' });
+    expect(JSON.parse(String(fetchSpy.mock.calls[0]?.[1]?.body))).toEqual({
+      title: '厨房纸',
+      quantity: 1,
+      unit: '份',
+      ingredient_id: null,
+      food_id: null,
+      reason: '家用',
+    });
+  });
+
+  it('patches a shopping item with explicit null targets to unbind', async () => {
+    const fetchSpy = mockJsonFetch({
+      id: 'shopping-1',
+      family_id: 'family-1',
+      ingredient_id: null,
+      food_id: null,
+      target_type: 'free_text',
+      title: '临时采购',
+      quantity: 1,
+      unit: '盒',
+      reason: '改成自由文本',
+      done: false,
+      created_at: '2026-07-12T00:00:00Z',
+      updated_at: '2026-07-12T00:00:00Z',
+      row_version: 2,
+    });
+
+    await ingredientsApi.updateShoppingItem('shopping-1', {
+      title: '临时采购',
+      quantity: 1,
+      unit: '盒',
+      ingredient_id: null,
+      food_id: null,
+      reason: '改成自由文本',
+    });
+
+    expect(String(fetchSpy.mock.calls[0]?.[0])).toContain('/api/shopping-list/shopping-1');
+    expect(fetchSpy.mock.calls[0]?.[1]).toMatchObject({ method: 'PATCH' });
+    expect(JSON.parse(String(fetchSpy.mock.calls[0]?.[1]?.body))).toEqual({
+      title: '临时采购',
+      quantity: 1,
+      unit: '盒',
+      ingredient_id: null,
+      food_id: null,
+      reason: '改成自由文本',
+    });
+  });
+});
+

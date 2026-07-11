@@ -14,3 +14,18 @@ describe('IngredientWorkspaceOverlays shared overlay usage', () => {
     expect(source).not.toContain('<div className="workspace-overlay-backdrop"');
   });
 });
+
+describe('IngredientShoppingOverlay free-text option', () => {
+  it('exposes an explicit free-text/other-purchase path without title auto-binding', () => {
+    const shoppingOverlay = readFileSync(resolve(__dirname, 'IngredientShoppingOverlay.tsx'), 'utf8');
+
+    expect(shoppingOverlay).toContain('其他采购');
+    expect(shoppingOverlay).toContain("targetType: 'free_text'");
+    expect(shoppingOverlay).toContain("id: 'free_text:other'");
+    expect(shoppingOverlay).toContain('// Typing never auto-binds by title');
+    expect(shoppingOverlay).not.toContain('ingredientSearch.findIngredientByName(nextTitle)');
+    expect(shoppingOverlay).not.toContain('采购清单只能选择已有档案');
+    expect(shoppingOverlay).toContain('primaryDisabled={!canSubmit}');
+  });
+});
+
