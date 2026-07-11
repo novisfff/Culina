@@ -11,16 +11,34 @@ from app.db.session import get_db
 from app.db.transactions import commit_session
 from app.models.domain import Ingredient
 from app.repos.media import build_media_map, get_media_assets_for_entities
-from app.schemas.ingredients import CreateIngredientRequest, IngredientOut, UpdateIngredientRequest
+from app.schemas.ingredients import (
+    CreateIngredientRequest,
+    IngredientOut,
+    IngredientTrackingModeTransitionRequest,
+    UpdateIngredientRequest,
+)
 from app.services.activity import log_activity
 from app.ai.images.jobs import attach_image_generation_job_to_entity
+from app.services.ingredient_inventory_state import (
+    TRACKING_TRANSITION_REQUIRED_MESSAGE,
+    tracking_transition_required_detail,
+    transition_ingredient_tracking_mode,
+)
 from app.services.ingredient_units import UnitConversionError, validate_unit_conversions
+from app.services.inventory_versions import InventoryConflictError, conflict_detail
 from app.services.media import bind_media_assets, replace_media_assets
 from app.services.search.hybrid import hybrid_search
 from app.services.search.jobs import enqueue_search_index_job
 from app.services.serializers import serialize_ingredient
 
 router = APIRouter(tags=["ingredients"])
+
+
+def _inventory_conflict_http(exc: InventoryConflictError) -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_409_CONFLICT,
+        detail=conflict_detail(exc),
+    )
 
 
 @router.get("/api/ingredients", response_model=list[IngredientOut])
@@ -159,12 +177,16 @@ def update_ingredient(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="已有库存记录时暂不支持直接修改主单位，请保留当前主单位或新建食材。",
         )
+    if payload.quantity_tracking_mode != ingredient.quantity_tracking_mode:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=tracking_transition_required_detail(TRACKING_TRANSITION_REQUIRED_MESSAGE),
+        )
 
     ingredient.name = payload.name
     ingredient.category = payload.category
     ingredient.default_unit = payload.default_unit
     ingredient.unit_conversions = unit_conversions
-    ingredient.quantity_tracking_mode = payload.quantity_tracking_mode
     ingredient.default_storage = payload.default_storage
     ingredient.default_expiry_mode = payload.default_expiry_mode
     ingredient.default_expiry_days = payload.default_expiry_days
@@ -201,4 +223,45 @@ def update_ingredient(
     enqueue_search_index_job(db, family_id=membership.family_id, user_id=user.id, entity_type="ingredient", entity_id=ingredient.id, target_name=ingredient.name)
     commit_session(db)
     media_map = build_media_map(get_media_assets_for_entities(db, family_id=membership.family_id, entity_type="ingredient", entity_ids=[ingredient.id]))
+    return serialize_ingredient(ingredient, media_map)
+
+
+@router.patch("/api/ingredients/{ingredient_id}/tracking-mode", response_model=IngredientOut)
+def patch_ingredient_tracking_mode(
+    ingredient_id: str,
+    payload: IngredientTrackingModeTransitionRequest,
+    auth: tuple = Depends(get_current_auth),
+    db: Session = Depends(get_db),
+) -> dict:
+    user, membership = auth
+    try:
+        ingredient = transition_ingredient_tracking_mode(
+            db,
+            family_id=membership.family_id,
+            user_id=user.id,
+            ingredient_id=ingredient_id,
+            request=payload,
+        )
+    except InventoryConflictError as exc:
+        raise _inventory_conflict_http(exc) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+    enqueue_search_index_job(
+        db,
+        family_id=membership.family_id,
+        user_id=user.id,
+        entity_type="ingredient",
+        entity_id=ingredient.id,
+        target_name=ingredient.name,
+    )
+    commit_session(db)
+    media_map = build_media_map(
+        get_media_assets_for_entities(
+            db,
+            family_id=membership.family_id,
+            entity_type="ingredient",
+            entity_ids=[ingredient.id],
+        )
+    )
     return serialize_ingredient(ingredient, media_map)

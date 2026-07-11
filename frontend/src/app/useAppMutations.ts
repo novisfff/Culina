@@ -32,6 +32,19 @@ export function useAppMutations() {
       await invalidateAfterIngredientChanged(queryClient);
     },
   });
+  const transitionIngredientTrackingModeMutation = useMutation({
+    mutationFn: ({
+      ingredientId,
+      payload,
+    }: {
+      ingredientId: string;
+      payload: Parameters<typeof api.transitionIngredientTrackingMode>[1];
+    }) => api.transitionIngredientTrackingMode(ingredientId, payload),
+    retry: false,
+    onSuccess: async () => {
+      await invalidateAfterInventoryOperation(queryClient);
+    },
+  });
   const createInventoryMutation = useMutation({
     mutationFn: api.createInventory,
     onSuccess: async () => {
@@ -277,6 +290,7 @@ export function useAppMutations() {
   return {
     createIngredientMutation,
     updateIngredientMutation,
+    transitionIngredientTrackingModeMutation,
     createInventoryMutation,
     consumeInventoryMutation,
     disposeExpiredInventoryMutation,

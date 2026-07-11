@@ -31,3 +31,22 @@ describe('IngredientEditorView style usage', () => {
     }
   });
 });
+
+
+describe('IngredientEditorView tracking transition guard', () => {
+  it('renders a blocking confirmation surface for tracking mode changes', () => {
+    const editorSource = readFileSync(editorSourcePath, 'utf8');
+    const editorStateSource = readFileSync(resolve(__dirname, 'useIngredientEditorState.ts'), 'utf8');
+
+    expect(editorSource).toContain('ingredients-tracking-transition-modal');
+    expect(editorSource).toContain('切换为只记录有无');
+    expect(editorSource).toContain('切换为记录数量');
+    expect(editorSource).toContain('onConfirmTrackingTransition');
+    expect(editorStateSource).toContain('transitionIngredientTrackingMode');
+    expect(editorStateSource).toContain('trackingTransitionDraft');
+    expect(editorStateSource).toContain('expected_ingredient_row_version');
+    expect(editorStateSource).toContain('presence_resolution');
+    expect(editorStateSource).toContain('exact_resolution');
+    expect(editorStateSource).toContain('// Transition first; never silently submit the generic profile update for mode changes.');
+  });
+});

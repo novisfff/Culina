@@ -346,6 +346,7 @@ function App() {
   const {
     createIngredientMutation,
     updateIngredientMutation,
+    transitionIngredientTrackingModeMutation,
     createInventoryMutation,
     upsertInventoryStateMutation,
     consumeInventoryMutation,
@@ -1142,6 +1143,7 @@ function App() {
               navigationRequest={ingredientNavigationRequest}
               createIngredient={(payload) => createIngredientMutation.mutateAsync(payload)}
               updateIngredient={(ingredientId, payload) => updateIngredientMutation.mutateAsync({ ingredientId, payload })}
+              transitionIngredientTrackingMode={(ingredientId, payload) => transitionIngredientTrackingModeMutation.mutateAsync({ ingredientId, payload })}
               createInventory={(payload) => createInventoryMutation.mutateAsync(payload)}
               upsertInventoryState={(ingredientId, payload) =>
                 upsertInventoryStateMutation.mutateAsync({ ingredientId, payload })

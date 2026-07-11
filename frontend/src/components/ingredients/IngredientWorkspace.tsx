@@ -154,6 +154,10 @@ type IngredientWorkspaceProps = {
       media_ids: string[];
     }
   ) => Promise<Ingredient>;
+  transitionIngredientTrackingMode?: (
+    ingredientId: string,
+    payload: import('../../api/types').IngredientTrackingModeTransitionRequest
+  ) => Promise<Ingredient>;
   createInventory: (payload: {
     ingredient_id: string;
     quantity?: number | null;
@@ -1877,6 +1881,8 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
     ingredientForm,
     setIngredientForm,
     ingredientOptions,
+    inventoryItems: props.inventoryItems,
+    inventoryStates: props.inventoryStates,
     setTransientIngredient,
     setSelectedIngredientId,
     setWorkspaceView,
@@ -1887,6 +1893,7 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
     isUpdatingIngredient: props.isUpdatingIngredient,
     createIngredient: props.createIngredient,
     updateIngredient: props.updateIngredient,
+    transitionIngredientTrackingMode: props.transitionIngredientTrackingMode,
     showNotice,
     resolveErrorMessage,
   });
@@ -2712,6 +2719,13 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
               createChecklistItems={createChecklistItems}
               createCanSubmit={createCanSubmit}
               ingredientImageState={ingredientImageComposer.state}
+              trackingTransitionDraft={editorState.trackingTransitionDraft}
+              trackingTransitionBusy={editorState.trackingTransitionBusy}
+              trackingTransitionError={editorState.trackingTransitionError}
+              onCancelTrackingTransition={editorState.cancelTrackingTransition}
+              onUpdatePresenceResolution={editorState.updatePresenceResolution}
+              onUpdateExactResolution={editorState.updateExactResolution}
+              onConfirmTrackingTransition={() => void editorState.confirmTrackingTransition()}
               onUploadImage={(files) => void ingredientImageComposer.upload(files)}
               onGenerateImage={(mode) => void ingredientImageComposer.generate(mode)}
               onResetImage={ingredientImageComposer.reset}

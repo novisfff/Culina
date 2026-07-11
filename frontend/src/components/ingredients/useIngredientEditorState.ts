@@ -1,8 +1,18 @@
-import { useState, type Dispatch, type FormEvent, type SetStateAction } from 'react';
+import { useMemo, useState, type Dispatch, type FormEvent, type SetStateAction } from 'react';
 import { IDLE_IMAGE_GENERATION_STATE, useImageComposer } from '../../hooks/useImageComposer';
 import { getMediaIds, getPendingImageJobId, type AiRenderPayload } from '../../lib/aiImages';
 import { getImagePreview } from '../../lib/ui';
-import type { Ingredient, IngredientExpiryMode, IngredientUnitConversion } from '../../api/types';
+import type {
+  ExactTransitionResolution,
+  Ingredient,
+  IngredientExpiryMode,
+  IngredientInventoryState,
+  IngredientTrackingModeTransitionRequest,
+  IngredientUnitConversion,
+  InventoryItem,
+  InventoryStatus,
+  PresenceTransitionResolution,
+} from '../../api/types';
 import { getIngredientCategoryPreset, getIngredientEditorCategoryPresets, type IngredientWorkspaceView } from './workspaceModel';
 import {
   buildIngredientForm,
@@ -25,12 +35,35 @@ import {
 
 type NoticeTone = 'success' | 'warning' | 'danger';
 
+type TrackingTransitionDraft = {
+  targetMode: NonNullable<Ingredient['quantity_tracking_mode']>;
+  profilePayload: {
+    name: string;
+    category: string;
+    default_unit: string;
+    quantity_tracking_mode?: Ingredient['quantity_tracking_mode'];
+    unit_conversions: IngredientUnitConversion[];
+    default_storage: string;
+    default_expiry_mode: IngredientExpiryMode;
+    default_expiry_days?: number | null;
+    default_low_stock_threshold?: number | null;
+    notes: string;
+    media_ids: string[];
+    pending_image_job_id?: string | null;
+  };
+  restockAfterSave: boolean;
+  presenceResolution: PresenceTransitionResolution;
+  exactResolution: ExactTransitionResolution;
+};
+
 type UseIngredientEditorStateArgs = {
   editingIngredientId: string | null;
   setEditingIngredientId: Dispatch<SetStateAction<string | null>>;
   ingredientForm: IngredientCreateFormState;
   setIngredientForm: Dispatch<SetStateAction<IngredientCreateFormState>>;
   ingredientOptions: Ingredient[];
+  inventoryItems?: InventoryItem[];
+  inventoryStates?: IngredientInventoryState[];
   setTransientIngredient: Dispatch<SetStateAction<Ingredient | null>>;
   setSelectedIngredientId: Dispatch<SetStateAction<string | null>>;
   setWorkspaceView: Dispatch<SetStateAction<IngredientWorkspaceView>>;
@@ -68,6 +101,10 @@ type UseIngredientEditorStateArgs = {
       media_ids: string[];
     }
   ) => Promise<Ingredient>;
+  transitionIngredientTrackingMode?: (
+    ingredientId: string,
+    payload: IngredientTrackingModeTransitionRequest
+  ) => Promise<Ingredient>;
   showNotice: (notice: { tone: NoticeTone; title: string; message: string }) => void;
   resolveErrorMessage: (reason: unknown, fallback: string) => string;
 };
@@ -81,15 +118,86 @@ function buildIngredientImagePayload(form: IngredientCreateFormState): AiRenderP
   };
 }
 
+function remainingQuantity(item: InventoryItem): number {
+  if (typeof item.remaining_quantity === 'number') {
+    return Math.max(item.remaining_quantity, 0);
+  }
+  return Math.max(
+    Number(item.quantity || 0) - Number(item.consumed_quantity || 0) - Number(item.disposed_quantity || 0),
+    0
+  );
+}
+
+function buildDefaultPresenceResolution(
+  ingredient: Ingredient,
+  inventoryItems: InventoryItem[]
+): PresenceTransitionResolution {
+  const physical = inventoryItems.filter(
+    (item) => item.ingredient_id === ingredient.id && remainingQuantity(item) > 0
+  );
+  if (physical.length === 0) {
+    return {
+      availability_level: 'absent',
+      inventory_status: 'fresh',
+      purchase_date: null,
+      expiry_date: null,
+      storage_location: null,
+      notes: '',
+      mark_inventory_confirmed: false,
+    };
+  }
+  const representative = [...physical].sort((left, right) => {
+    const leftExpiry = left.expiry_date || '9999-12-31';
+    const rightExpiry = right.expiry_date || '9999-12-31';
+    if (leftExpiry !== rightExpiry) return leftExpiry.localeCompare(rightExpiry);
+    return left.id.localeCompare(right.id);
+  })[0];
+  return {
+    availability_level: 'present_unknown',
+    inventory_status: (representative.status as InventoryStatus) || 'fresh',
+    purchase_date: representative.purchase_date || null,
+    expiry_date: representative.expiry_date || null,
+    storage_location: representative.storage_location || ingredient.default_storage || '常温',
+    notes: representative.notes || '',
+    mark_inventory_confirmed: false,
+  };
+}
+
+function buildDefaultExactResolution(
+  ingredient: Ingredient,
+  state: IngredientInventoryState | null
+): ExactTransitionResolution {
+  return {
+    confirm_absent: true,
+    quantity: null,
+    unit: ingredient.default_unit || '个',
+    inventory_status: null,
+    purchase_date: null,
+    expiry_date: null,
+    storage_location: state?.storage_location || ingredient.default_storage || '常温',
+    notes: '',
+  };
+}
+
 export function useIngredientEditorState(args: UseIngredientEditorStateArgs) {
   const [ingredientUnitAdvancedOpen, setIngredientUnitAdvancedOpen] = useState(false);
   const [ingredientCustomCategoryOpen, setIngredientCustomCategoryOpen] = useState(false);
+  const [trackingTransitionDraft, setTrackingTransitionDraft] = useState<TrackingTransitionDraft | null>(null);
+  const [trackingTransitionBusy, setTrackingTransitionBusy] = useState(false);
+  const [trackingTransitionError, setTrackingTransitionError] = useState<string | null>(null);
 
   const ingredientImageComposer = useImageComposer({
     value: args.ingredientForm.images,
     payload: buildIngredientImagePayload(args.ingredientForm),
     onChange: (next) => args.setIngredientForm((current) => ({ ...current, images: next })),
   });
+
+  const editingIngredient = useMemo(
+    () => args.ingredientOptions.find((item) => item.id === args.editingIngredientId) ?? null,
+    [args.editingIngredientId, args.ingredientOptions]
+  );
+  const inventoryItems = args.inventoryItems ?? [];
+  const inventoryStates = args.inventoryStates ?? [];
 
   function openCreateView() {
     args.setEditingIngredientId(null);
@@ -132,8 +240,32 @@ export function useIngredientEditorState(args: UseIngredientEditorStateArgs) {
     }));
   }
 
+  function finishIngredientSave(saved: Ingredient, restockAfterSave: boolean) {
+    if (!args.editingIngredientId) {
+      args.setTransientIngredient(saved);
+    }
+    ingredientImageComposer.setState(IDLE_IMAGE_GENERATION_STATE);
+    args.setIngredientForm(defaultIngredientForm());
+    setIngredientUnitAdvancedOpen(false);
+    setIngredientCustomCategoryOpen(false);
+    setTrackingTransitionDraft(null);
+    setTrackingTransitionError(null);
+    args.setEditingIngredientId(null);
+    args.setSelectedIngredientId(saved.id);
+    args.setWorkspaceView('detail');
+    if (restockAfterSave) {
+      args.setInventoryForm(
+        buildInventoryForm([saved, ...args.ingredientOptions], saved.id, {
+          ingredientLocked: true,
+        })
+      );
+      args.setInventoryAdvancedOpen(false);
+      args.setOverlayMode('inventory');
+    }
+  }
+
   async function submitIngredient(restockAfterSave: boolean) {
-    if (args.isCreatingIngredient || args.isUpdatingIngredient) {
+    if (args.isCreatingIngredient || args.isUpdatingIngredient || trackingTransitionBusy) {
       return;
     }
     if (!args.ingredientForm.name.trim()) {
@@ -162,53 +294,217 @@ export function useIngredientEditorState(args: UseIngredientEditorStateArgs) {
       return;
     }
 
+    const unitConversions = sanitizeIngredientUnitConversions(
+      args.ingredientForm.defaultUnit,
+      args.ingredientForm.unitConversions
+    );
+    const payload = {
+      name: args.ingredientForm.name.trim(),
+      category: args.ingredientForm.category.trim() || '未分类',
+      default_unit: args.ingredientForm.defaultUnit.trim() || '个',
+      quantity_tracking_mode: args.ingredientForm.quantityTrackingMode,
+      unit_conversions: unitConversions,
+      default_storage: args.ingredientForm.defaultStorage.trim() || '冷藏',
+      default_expiry_mode: args.ingredientForm.defaultExpiryMode,
+      default_expiry_days: defaultExpiryDays,
+      default_low_stock_threshold: lowStockThreshold,
+      notes: args.ingredientForm.notes.trim(),
+      media_ids: getMediaIds(args.ingredientForm.images),
+      pending_image_job_id: getPendingImageJobId(args.ingredientForm.images),
+    };
+
+    if (args.editingIngredientId && editingIngredient) {
+      const currentMode = editingIngredient.quantity_tracking_mode ?? 'track_quantity';
+      const nextMode = args.ingredientForm.quantityTrackingMode;
+      if (currentMode !== nextMode) {
+        const currentState =
+          inventoryStates.find((item) => item.ingredient_id === editingIngredient.id) ?? null;
+        setTrackingTransitionDraft({
+          targetMode: nextMode,
+          profilePayload: payload,
+          restockAfterSave,
+          presenceResolution: buildDefaultPresenceResolution(editingIngredient, inventoryItems),
+          exactResolution: buildDefaultExactResolution(editingIngredient, currentState),
+        });
+        setTrackingTransitionError(null);
+        return;
+      }
+    }
+
     try {
-      const unitConversions = sanitizeIngredientUnitConversions(
-        args.ingredientForm.defaultUnit,
-        args.ingredientForm.unitConversions
-      );
-      const payload = {
-        name: args.ingredientForm.name.trim(),
-        category: args.ingredientForm.category.trim() || '未分类',
-        default_unit: args.ingredientForm.defaultUnit.trim() || '个',
-        quantity_tracking_mode: args.ingredientForm.quantityTrackingMode,
-        unit_conversions: unitConversions,
-        default_storage: args.ingredientForm.defaultStorage.trim() || '冷藏',
-        default_expiry_mode: args.ingredientForm.defaultExpiryMode,
-        default_expiry_days: defaultExpiryDays,
-        default_low_stock_threshold: lowStockThreshold,
-        notes: args.ingredientForm.notes.trim(),
-        media_ids: getMediaIds(args.ingredientForm.images),
-        pending_image_job_id: getPendingImageJobId(args.ingredientForm.images),
-      };
       const saved = args.editingIngredientId
         ? await args.updateIngredient(args.editingIngredientId, payload)
         : await args.createIngredient(payload);
-      if (!args.editingIngredientId) {
-        args.setTransientIngredient(saved);
-      }
-      ingredientImageComposer.setState(IDLE_IMAGE_GENERATION_STATE);
-      args.setIngredientForm(defaultIngredientForm());
-      setIngredientUnitAdvancedOpen(false);
-      setIngredientCustomCategoryOpen(false);
-      args.setEditingIngredientId(null);
-      args.setSelectedIngredientId(saved.id);
-      args.setWorkspaceView('detail');
-      if (restockAfterSave) {
-        args.setInventoryForm(
-          buildInventoryForm([saved, ...args.ingredientOptions], saved.id, {
-            ingredientLocked: true,
-          })
-        );
-        args.setInventoryAdvancedOpen(false);
-        args.setOverlayMode('inventory');
-      }
+      finishIngredientSave(saved, restockAfterSave);
     } catch (reason) {
       args.showNotice({
         tone: 'danger',
         title: args.editingIngredientId ? '更新食材失败' : '新增食材失败',
         message: args.resolveErrorMessage(reason, args.editingIngredientId ? '更新食材失败' : '新增食材失败'),
       });
+    }
+  }
+
+  function cancelTrackingTransition() {
+    if (trackingTransitionBusy) return;
+    setTrackingTransitionDraft(null);
+    setTrackingTransitionError(null);
+  }
+
+  function updatePresenceResolution(patch: Partial<PresenceTransitionResolution>) {
+    setTrackingTransitionDraft((current) => {
+      if (!current) return current;
+      const next = { ...current.presenceResolution, ...patch };
+      if (next.availability_level === 'absent') {
+        next.purchase_date = null;
+        next.expiry_date = null;
+        next.storage_location = null;
+      } else if (!next.storage_location) {
+        next.storage_location = editingIngredient?.default_storage || '常温';
+      }
+      if (patch.availability_level !== undefined) {
+        next.mark_inventory_confirmed = true;
+      }
+      return { ...current, presenceResolution: next };
+    });
+  }
+
+  function updateExactResolution(patch: Partial<ExactTransitionResolution>) {
+    setTrackingTransitionDraft((current) => {
+      if (!current) return current;
+      const next = { ...current.exactResolution, ...patch };
+      if (patch.confirm_absent === true) {
+        next.quantity = null;
+        next.unit = null;
+        next.inventory_status = null;
+        next.purchase_date = null;
+        next.expiry_date = null;
+        next.storage_location = null;
+      } else if (patch.confirm_absent === false) {
+        next.unit = next.unit || editingIngredient?.default_unit || '个';
+        next.inventory_status = next.inventory_status || 'fresh';
+        next.storage_location =
+          next.storage_location || editingIngredient?.default_storage || '常温';
+      }
+      return { ...current, exactResolution: next };
+    });
+  }
+
+  async function confirmTrackingTransition() {
+    if (!trackingTransitionDraft || !args.editingIngredientId || !editingIngredient) {
+      return;
+    }
+    if (!args.transitionIngredientTrackingMode) {
+      setTrackingTransitionError('当前版本暂不支持切换数量记录方式，请刷新后重试。');
+      return;
+    }
+    if (trackingTransitionBusy || args.isUpdatingIngredient) {
+      return;
+    }
+
+    const draft = trackingTransitionDraft;
+    const targetMode = draft.targetMode ?? 'track_quantity';
+    let transitionPayload: IngredientTrackingModeTransitionRequest;
+    if (targetMode === 'not_track_quantity') {
+      const resolution = { ...draft.presenceResolution };
+      if (resolution.availability_level === 'absent') {
+        resolution.purchase_date = null;
+        resolution.expiry_date = null;
+        resolution.storage_location = null;
+      } else if (!resolution.storage_location?.trim()) {
+        setTrackingTransitionError('有库存时请填写存放位置。');
+        return;
+      }
+      if (!resolution.mark_inventory_confirmed) {
+        // Mode-only defaults must not claim a human confirmation.
+        resolution.mark_inventory_confirmed = false;
+      }
+      const physical = inventoryItems.filter(
+        (item) => item.ingredient_id === editingIngredient.id && remainingQuantity(item) > 0
+      );
+      transitionPayload = {
+        expected_ingredient_row_version: editingIngredient.row_version ?? 1,
+        target_mode: 'not_track_quantity',
+        expected_state_row_version:
+          inventoryStates.find((item) => item.ingredient_id === editingIngredient.id)?.row_version ?? null,
+        observed_batches: physical.map((item) => ({
+          inventory_item_id: item.id,
+          expected_row_version: item.row_version,
+        })),
+        presence_resolution: resolution,
+      };
+    } else {
+      const resolution = { ...draft.exactResolution };
+      if (resolution.confirm_absent) {
+        resolution.quantity = null;
+        resolution.unit = null;
+        resolution.inventory_status = null;
+        resolution.purchase_date = null;
+        resolution.expiry_date = null;
+        resolution.storage_location = null;
+      } else {
+        const quantity = Number(resolution.quantity);
+        if (!(quantity > 0)) {
+          setTrackingTransitionError('请填写大于 0 的初始库存数量。');
+          return;
+        }
+        if (!resolution.unit?.trim()) {
+          setTrackingTransitionError('请填写初始库存单位。');
+          return;
+        }
+        if (!resolution.inventory_status) {
+          setTrackingTransitionError('请选择初始库存状态。');
+          return;
+        }
+        if (!resolution.purchase_date) {
+          setTrackingTransitionError('请填写采购日期。');
+          return;
+        }
+        if (!resolution.storage_location?.trim()) {
+          setTrackingTransitionError('请填写存放位置。');
+          return;
+        }
+        resolution.quantity = quantity;
+      }
+      const currentState =
+        inventoryStates.find((item) => item.ingredient_id === editingIngredient.id) ?? null;
+      transitionPayload = {
+        expected_ingredient_row_version: editingIngredient.row_version ?? 1,
+        target_mode: 'track_quantity',
+        expected_state_row_version: currentState?.row_version ?? null,
+        observed_batches: [],
+        exact_resolution: resolution,
+      };
+    }
+
+    setTrackingTransitionBusy(true);
+    setTrackingTransitionError(null);
+    try {
+      // Transition first; never silently submit the generic profile update for mode changes.
+      const transitioned = await args.transitionIngredientTrackingMode(
+        args.editingIngredientId,
+        transitionPayload
+      );
+      const profilePayload = {
+        ...draft.profilePayload,
+        quantity_tracking_mode: transitioned.quantity_tracking_mode ?? targetMode,
+      };
+      const saved = await args.updateIngredient(args.editingIngredientId, profilePayload);
+      finishIngredientSave(saved, draft.restockAfterSave);
+      args.showNotice({
+        tone: 'success',
+        title: '已切换数量记录方式',
+        message:
+          targetMode === 'not_track_quantity'
+            ? '之后会按家庭级有无状态维护这道食材。'
+            : '之后会按精确库存批次维护这道食材。',
+      });
+    } catch (reason) {
+      setTrackingTransitionError(
+        args.resolveErrorMessage(reason, '切换数量记录方式失败，请刷新后重试。')
+      );
+    } finally {
+      setTrackingTransitionBusy(false);
     }
   }
 
@@ -251,7 +547,8 @@ export function useIngredientEditorState(args: UseIngredientEditorStateArgs) {
     Boolean(trimmedIngredientName) &&
     ingredientRulesValid &&
     !args.isCreatingIngredient &&
-    !args.isUpdatingIngredient;
+    !args.isUpdatingIngredient &&
+    !trackingTransitionBusy;
   const createSummaryItems = [
     { label: '名称', value: trimmedIngredientName || '未填写食材名称' },
     { label: '分类', value: trimmedIngredientCategory || '未设置分类' },
@@ -303,6 +600,13 @@ export function useIngredientEditorState(args: UseIngredientEditorStateArgs) {
     applyIngredientCategoryPreset,
     submitIngredient,
     handleCreateSubmit,
+    trackingTransitionDraft,
+    trackingTransitionBusy,
+    trackingTransitionError,
+    cancelTrackingTransition,
+    updatePresenceResolution,
+    updateExactResolution,
+    confirmTrackingTransition,
     isEditingIngredient,
     trimmedIngredientName,
     trimmedIngredientCategory,

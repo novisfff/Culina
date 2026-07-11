@@ -187,3 +187,46 @@ describe('ingredientsApi free-text shopping items', () => {
   });
 });
 
+
+
+describe('ingredientsApi tracking mode transition', () => {
+  it('sends tracking-mode transition payload', async () => {
+    const fetchSpy = mockJsonFetch({
+      id: 'ingredient-1',
+      quantity_tracking_mode: 'not_track_quantity',
+      row_version: 2,
+    });
+
+    await ingredientsApi.transitionIngredientTrackingMode('ingredient-1', {
+      expected_ingredient_row_version: 1,
+      target_mode: 'not_track_quantity',
+      observed_batches: [{ inventory_item_id: 'inventory-1', expected_row_version: 3 }],
+      presence_resolution: {
+        availability_level: 'present_unknown',
+        inventory_status: 'fresh',
+        purchase_date: '2026-07-01',
+        expiry_date: null,
+        storage_location: '冷藏',
+        notes: '',
+        mark_inventory_confirmed: true,
+      },
+    });
+
+    expect(String(fetchSpy.mock.calls[0]?.[0])).toContain('/api/ingredients/ingredient-1/tracking-mode');
+    expect(fetchSpy.mock.calls[0]?.[1]).toMatchObject({ method: 'PATCH' });
+    expect(JSON.parse(String(fetchSpy.mock.calls[0]?.[1]?.body))).toEqual({
+      expected_ingredient_row_version: 1,
+      target_mode: 'not_track_quantity',
+      observed_batches: [{ inventory_item_id: 'inventory-1', expected_row_version: 3 }],
+      presence_resolution: {
+        availability_level: 'present_unknown',
+        inventory_status: 'fresh',
+        purchase_date: '2026-07-01',
+        expiry_date: null,
+        storage_location: '冷藏',
+        notes: '',
+        mark_inventory_confirmed: true,
+      },
+    });
+  });
+});

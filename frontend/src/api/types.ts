@@ -1710,6 +1710,36 @@ export type VersionedInventoryItemRef = {
   expected_row_version: number;
 };
 
+export type PresenceTransitionResolution = {
+  availability_level: InventoryAvailabilityLevel;
+  inventory_status: InventoryStatus;
+  purchase_date?: string | null;
+  expiry_date?: string | null;
+  storage_location?: string | null;
+  notes?: string;
+  mark_inventory_confirmed?: boolean;
+};
+
+export type ExactTransitionResolution = {
+  confirm_absent: boolean;
+  quantity?: number | null;
+  unit?: string | null;
+  inventory_status?: InventoryStatus | null;
+  purchase_date?: string | null;
+  expiry_date?: string | null;
+  storage_location?: string | null;
+  notes?: string;
+};
+
+export type IngredientTrackingModeTransitionRequest = {
+  expected_ingredient_row_version: number;
+  target_mode: IngredientQuantityTrackingMode;
+  expected_state_row_version?: number | null;
+  observed_batches?: VersionedInventoryItemRef[];
+  presence_resolution?: PresenceTransitionResolution | null;
+  exact_resolution?: ExactTransitionResolution | null;
+};
+
 export type DisposeExpiredInventoryRequest = {
   ingredient_id: string;
   items: VersionedInventoryItemRef[];

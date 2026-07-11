@@ -6,12 +6,21 @@ import {
   ActionButton,
   Badge,
   ComboboxField,
+  FormActions,
   ImageComposer,
   OptionChipGroup,
   TouchRangeField,
   TouchStepperField,
+  WorkspaceModal,
+  WorkspaceOverlayFrame,
   WorkspaceSubpageShell,
 } from '../ui-kit';
+import type {
+  ExactTransitionResolution,
+  InventoryAvailabilityLevel,
+  InventoryStatus,
+  PresenceTransitionResolution,
+} from '../../api/types';
 import {
   createIngredientUnitConversionDraft,
   formatNumericString,
@@ -109,6 +118,12 @@ export function IngredientCategoryIcon(props: { name: string }) {
   }
 }
 
+type TrackingTransitionDraftView = {
+  targetMode: IngredientCreateFormState['quantityTrackingMode'];
+  presenceResolution: PresenceTransitionResolution;
+  exactResolution: ExactTransitionResolution;
+};
+
 type IngredientEditorViewProps = {
   activePanelBackLabel: string;
   isEditingIngredient: boolean;
@@ -138,6 +153,13 @@ type IngredientEditorViewProps = {
     isGenerating: boolean;
     errorMessage: string | null;
   };
+  trackingTransitionDraft?: TrackingTransitionDraftView | null;
+  trackingTransitionBusy?: boolean;
+  trackingTransitionError?: string | null;
+  onCancelTrackingTransition?: () => void;
+  onUpdatePresenceResolution?: (patch: Partial<PresenceTransitionResolution>) => void;
+  onUpdateExactResolution?: (patch: Partial<ExactTransitionResolution>) => void;
+  onConfirmTrackingTransition?: () => void;
   onUploadImage: (files: FileList | null) => void;
   onGenerateImage: (mode: 'reference' | 'text') => void;
   onResetImage: () => void;
@@ -659,7 +681,278 @@ export function IngredientEditorView(props: IngredientEditorViewProps) {
     </WorkspaceSubpageShell>
   );
 
-  return props.embedded
+  const draft = props.trackingTransitionDraft ?? null;
+  const transitionBusy = Boolean(props.trackingTransitionBusy);
+  const toPresence = draft?.targetMode === 'not_track_quantity';
+  const presence = draft?.presenceResolution;
+  const exact = draft?.exactResolution;
+
+  const trackingTransitionDialog = draft ? (
+    <WorkspaceOverlayFrame
+      rootClassName="ingredient-workspace-overlay-root ingredients-tracking-transition-root"
+      closeOnBackdrop={!transitionBusy}
+      onClose={() => {
+        if (!transitionBusy) props.onCancelTrackingTransition?.();
+      }}
+    >
+      <WorkspaceModal
+        eyebrow="数量记录方式"
+        title={toPresence ? '切换为只记录有无' : '切换为记录数量'}
+        description={
+          toPresence
+            ? '切换后会按家庭级有无状态维护这道食材。历史精确批次会保留，但不再参与当前库存。'
+            : '切换后会按精确库存批次维护这道食材。请明确确认当前没有库存，或登记真实初始数量。'
+        }
+        closeLabel="取消"
+        className="ingredients-tracking-transition-modal"
+        onClose={() => {
+          if (!transitionBusy) props.onCancelTrackingTransition?.();
+        }}
+        footerActions={
+          <FormActions
+            primaryLabel={transitionBusy ? '切换中...' : '确认切换'}
+            secondaryLabel="取消"
+            isSubmitting={transitionBusy}
+            onPrimary={() => props.onConfirmTrackingTransition?.()}
+            onSecondary={() => props.onCancelTrackingTransition?.()}
+          />
+        }
+      >
+        <div className="ingredients-tracking-transition-body">
+          {toPresence && presence ? (
+            <>
+              <div className="ingredients-restock-field-group">
+                <div className="ingredients-restock-field-head">
+                  <span>当前家里情况</span>
+                  <p className="subtle">只有你明确点选后，才会记为人工确认。</p>
+                </div>
+                <OptionChipGroup
+                  ariaLabel="有无状态"
+                  options={[
+                    { value: 'present_unknown', label: '还在' },
+                    { value: 'low', label: '少量' },
+                    { value: 'sufficient', label: '充足' },
+                    { value: 'absent', label: '没有了' },
+                  ]}
+                  value={presence.availability_level}
+                  onChange={(value) =>
+                    props.onUpdatePresenceResolution?.({
+                      availability_level: value as InventoryAvailabilityLevel,
+                      mark_inventory_confirmed: true,
+                    })
+                  }
+                />
+              </div>
+              {presence.availability_level !== 'absent' ? (
+                <div className="form-grid compact-grid">
+                  <label>
+                    <span>存放位置</span>
+                    <input
+                      className="text-input"
+                      value={presence.storage_location || ''}
+                      disabled={transitionBusy}
+                      onChange={(event) =>
+                        props.onUpdatePresenceResolution?.({
+                          storage_location: event.target.value,
+                          mark_inventory_confirmed: true,
+                        })
+                      }
+                    />
+                  </label>
+                  <label>
+                    <span>库存状态</span>
+                    <select
+                      className="text-input"
+                      value={presence.inventory_status}
+                      disabled={transitionBusy}
+                      onChange={(event) =>
+                        props.onUpdatePresenceResolution?.({
+                          inventory_status: event.target.value as InventoryStatus,
+                          mark_inventory_confirmed: true,
+                        })
+                      }
+                    >
+                      <option value="fresh">新鲜</option>
+                      <option value="opened">已开封</option>
+                      <option value="frozen">冷冻</option>
+                      <option value="expiring">临期</option>
+                    </select>
+                  </label>
+                  <label>
+                    <span>采购日</span>
+                    <input
+                      className="text-input"
+                      type="date"
+                      value={presence.purchase_date || ''}
+                      disabled={transitionBusy}
+                      onChange={(event) =>
+                        props.onUpdatePresenceResolution?.({
+                          purchase_date: event.target.value || null,
+                          mark_inventory_confirmed: true,
+                        })
+                      }
+                    />
+                  </label>
+                  <label>
+                    <span>到期日</span>
+                    <input
+                      className="text-input"
+                      type="date"
+                      value={presence.expiry_date || ''}
+                      disabled={transitionBusy}
+                      onChange={(event) =>
+                        props.onUpdatePresenceResolution?.({
+                          expiry_date: event.target.value || null,
+                          mark_inventory_confirmed: true,
+                        })
+                      }
+                    />
+                  </label>
+                </div>
+              ) : (
+                <div className="ingredients-create-rule-note">
+                  <span>没有库存</span>
+                  <p>确认后会清空家庭级位置和日期，并保留历史精确批次作为证据。</p>
+                </div>
+              )}
+            </>
+          ) : null}
+
+          {!toPresence && exact ? (
+            <>
+              <div className="ingredients-restock-field-group">
+                <div className="ingredients-restock-field-head">
+                  <span>初始库存处理</span>
+                  <p className="subtle">不会把旧的占位数量 1 当成真实库存。</p>
+                </div>
+                <OptionChipGroup
+                  ariaLabel="初始库存处理"
+                  options={[
+                    { value: 'absent', label: '当前没有' },
+                    { value: 'stock', label: '登记真实库存' },
+                  ]}
+                  value={exact.confirm_absent ? 'absent' : 'stock'}
+                  onChange={(value) =>
+                    props.onUpdateExactResolution?.({
+                      confirm_absent: value === 'absent',
+                    })
+                  }
+                />
+              </div>
+              {!exact.confirm_absent ? (
+                <div className="form-grid compact-grid">
+                  <label>
+                    <span>数量</span>
+                    <input
+                      className="text-input"
+                      type="number"
+                      min="0.01"
+                      step="0.01"
+                      value={exact.quantity ?? ''}
+                      disabled={transitionBusy}
+                      onChange={(event) =>
+                        props.onUpdateExactResolution?.({
+                          quantity: event.target.value ? Number(event.target.value) : null,
+                        })
+                      }
+                    />
+                  </label>
+                  <label>
+                    <span>单位</span>
+                    <input
+                      className="text-input"
+                      value={exact.unit || ''}
+                      disabled={transitionBusy}
+                      onChange={(event) => props.onUpdateExactResolution?.({ unit: event.target.value })}
+                    />
+                  </label>
+                  <label>
+                    <span>状态</span>
+                    <select
+                      className="text-input"
+                      value={exact.inventory_status || 'fresh'}
+                      disabled={transitionBusy}
+                      onChange={(event) =>
+                        props.onUpdateExactResolution?.({
+                          inventory_status: event.target.value as InventoryStatus,
+                        })
+                      }
+                    >
+                      <option value="fresh">新鲜</option>
+                      <option value="opened">已开封</option>
+                      <option value="frozen">冷冻</option>
+                      <option value="expiring">临期</option>
+                    </select>
+                  </label>
+                  <label>
+                    <span>采购日</span>
+                    <input
+                      className="text-input"
+                      type="date"
+                      value={exact.purchase_date || ''}
+                      disabled={transitionBusy}
+                      onChange={(event) =>
+                        props.onUpdateExactResolution?.({
+                          purchase_date: event.target.value || null,
+                        })
+                      }
+                    />
+                  </label>
+                  <label>
+                    <span>存放位置</span>
+                    <input
+                      className="text-input"
+                      value={exact.storage_location || ''}
+                      disabled={transitionBusy}
+                      onChange={(event) =>
+                        props.onUpdateExactResolution?.({
+                          storage_location: event.target.value,
+                        })
+                      }
+                    />
+                  </label>
+                  <label>
+                    <span>到期日</span>
+                    <input
+                      className="text-input"
+                      type="date"
+                      value={exact.expiry_date || ''}
+                      disabled={transitionBusy}
+                      onChange={(event) =>
+                        props.onUpdateExactResolution?.({
+                          expiry_date: event.target.value || null,
+                        })
+                      }
+                    />
+                  </label>
+                </div>
+              ) : (
+                <div className="ingredients-create-rule-note">
+                  <span>明确没有库存</span>
+                  <p>不会创建新的精确批次，原有无状态会清空并退出当前读取。</p>
+                </div>
+              )}
+            </>
+          ) : null}
+
+          {props.trackingTransitionError ? (
+            <p className="form-error" role="alert">
+              {props.trackingTransitionError}
+            </p>
+          ) : null}
+        </div>
+      </WorkspaceModal>
+    </WorkspaceOverlayFrame>
+  ) : null;
+
+  const content = props.embedded
     ? <div className="ingredients-create-embedded">{editorContent}</div>
     : editorContent;
+
+  return (
+    <>
+      {content}
+      {trackingTransitionDialog}
+    </>
+  );
 }

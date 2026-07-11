@@ -6,6 +6,7 @@ import type {
   DisposeInventoryResponse,
   DisposeExpiredInventoryResponse,
   Ingredient,
+  IngredientTrackingModeTransitionRequest,
   InventoryOverview,
   InventoryOverviewScope,
   InventoryItem,
@@ -71,6 +72,11 @@ export const ingredientsApi = {
     }
   ) =>
     request<Ingredient>(`/api/ingredients/${ingredientId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    }),
+  transitionIngredientTrackingMode: (ingredientId: string, payload: IngredientTrackingModeTransitionRequest) =>
+    request<Ingredient>(`/api/ingredients/${ingredientId}/tracking-mode`, {
       method: 'PATCH',
       body: JSON.stringify(payload),
     }),

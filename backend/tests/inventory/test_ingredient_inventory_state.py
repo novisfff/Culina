@@ -1307,3 +1307,157 @@ def test_state_set_absent_rejects_non_expired(state_api_context) -> None:
         state = db.get(IngredientInventoryState, seed["state_id"])
         assert state is not None
         assert state.availability_level == InventoryAvailabilityLevel.PRESENT_UNKNOWN
+
+
+def test_transition_service_exact_to_presence_matrix(db: Session) -> None:
+    from app.schemas.ingredients import IngredientTrackingModeTransitionRequest
+    from app.services.ingredient_inventory_state import transition_ingredient_tracking_mode
+
+    exact = Ingredient(
+        id="ingredient-egg",
+        family_id="family-1",
+        name="鸡蛋",
+        category="蛋奶",
+        default_unit="个",
+        default_storage="冷藏",
+        default_expiry_mode=IngredientExpiryMode.NONE,
+        unit_conversions=[],
+        quantity_tracking_mode=IngredientQuantityTrackingMode.TRACK_QUANTITY,
+        notes="",
+        created_by="user-1",
+        updated_by="user-1",
+    )
+    batch = InventoryItem(
+        id="inventory-egg-1",
+        family_id="family-1",
+        ingredient_id=exact.id,
+        quantity=Decimal("6"),
+        consumed_quantity=Decimal("0"),
+        disposed_quantity=Decimal("0"),
+        unit="个",
+        status=InventoryStatus.FRESH,
+        purchase_date=date(2026, 7, 1),
+        storage_location="冷藏",
+        notes="",
+        low_stock_threshold=Decimal("0"),
+        created_by="user-1",
+        updated_by="user-1",
+    )
+    db.add_all([exact, batch])
+    db.commit()
+    db.refresh(exact)
+    db.refresh(batch)
+
+    request = IngredientTrackingModeTransitionRequest(
+        expected_ingredient_row_version=exact.row_version,
+        target_mode=IngredientQuantityTrackingMode.NOT_TRACK_QUANTITY,
+        observed_batches=[{"inventory_item_id": batch.id, "expected_row_version": batch.row_version}],
+        presence_resolution={
+            "availability_level": InventoryAvailabilityLevel.SUFFICIENT,
+            "inventory_status": InventoryStatus.FRESH,
+            "purchase_date": date(2026, 7, 1),
+            "expiry_date": date(2026, 7, 10),
+            "storage_location": "冷藏",
+            "notes": "service",
+            "mark_inventory_confirmed": False,
+        },
+    )
+    transition_ingredient_tracking_mode(
+        db,
+        family_id="family-1",
+        user_id="user-1",
+        ingredient_id=exact.id,
+        request=request,
+    )
+    db.commit()
+    db.refresh(exact)
+    db.refresh(batch)
+    state = db.scalar(
+        select(IngredientInventoryState).where(IngredientInventoryState.ingredient_id == exact.id)
+    )
+    assert exact.quantity_tracking_mode == IngredientQuantityTrackingMode.NOT_TRACK_QUANTITY
+    assert batch.quantity == Decimal("6")
+    assert state is not None
+    assert state.availability_level == InventoryAvailabilityLevel.SUFFICIENT
+    assert state.last_confirmed_at is None
+
+
+def test_transition_service_presence_to_exact_never_reuses_placeholder(db: Session) -> None:
+    from app.schemas.ingredients import IngredientTrackingModeTransitionRequest
+    from app.services.ingredient_inventory_state import transition_ingredient_tracking_mode
+
+    ingredient = db.get(Ingredient, "ingredient-salt")
+    assert ingredient is not None
+    legacy = InventoryItem(
+        id="inventory-salt-placeholder",
+        family_id="family-1",
+        ingredient_id=ingredient.id,
+        quantity=Decimal("1"),
+        consumed_quantity=Decimal("0"),
+        disposed_quantity=Decimal("0"),
+        unit="袋",
+        status=InventoryStatus.FRESH,
+        purchase_date=date(2026, 7, 1),
+        storage_location="常温",
+        notes="placeholder",
+        low_stock_threshold=Decimal("0"),
+        created_by="user-1",
+        updated_by="user-1",
+    )
+    state = IngredientInventoryState(
+        id="inventory-state-salt-transition",
+        family_id="family-1",
+        ingredient_id=ingredient.id,
+        availability_level=InventoryAvailabilityLevel.PRESENT_UNKNOWN,
+        inventory_status=InventoryStatus.FRESH,
+        storage_location="常温",
+        notes="presence",
+        row_version=1,
+        created_by="user-1",
+        updated_by="user-1",
+    )
+    db.add_all([legacy, state])
+    db.commit()
+    db.refresh(ingredient)
+    db.refresh(state)
+
+    request = IngredientTrackingModeTransitionRequest(
+        expected_ingredient_row_version=ingredient.row_version,
+        target_mode=IngredientQuantityTrackingMode.TRACK_QUANTITY,
+        expected_state_row_version=state.row_version,
+        exact_resolution={
+            "confirm_absent": False,
+            "quantity": Decimal("250"),
+            "unit": "袋",
+            "inventory_status": InventoryStatus.FRESH,
+            "purchase_date": date(2026, 7, 12),
+            "expiry_date": None,
+            "storage_location": "常温",
+            "notes": "real",
+        },
+    )
+    transition_ingredient_tracking_mode(
+        db,
+        family_id="family-1",
+        user_id="user-1",
+        ingredient_id=ingredient.id,
+        request=request,
+    )
+    db.commit()
+    db.refresh(ingredient)
+    db.refresh(legacy)
+    db.refresh(state)
+    new_items = list(
+        db.scalars(
+            select(InventoryItem).where(
+                InventoryItem.ingredient_id == ingredient.id,
+                InventoryItem.id != legacy.id,
+            )
+        )
+    )
+    assert ingredient.quantity_tracking_mode == IngredientQuantityTrackingMode.TRACK_QUANTITY
+    assert legacy.quantity == Decimal("1")
+    assert len(new_items) == 1
+    assert new_items[0].quantity == Decimal("250")
+    assert state.availability_level == InventoryAvailabilityLevel.ABSENT
+    assert state.storage_location is None

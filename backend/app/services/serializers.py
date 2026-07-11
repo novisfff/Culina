@@ -158,6 +158,7 @@ def serialize_ingredient(ingredient: Ingredient, media_map: dict[tuple[str, str]
         "default_low_stock_threshold": _to_optional_float(ingredient.default_low_stock_threshold),
         "notes": ingredient.notes,
         "image": serialize_media(media[0]) if media else None,
+        "row_version": int(ingredient.row_version),
         "created_at": _utc_datetime(ingredient.created_at),
         "updated_at": _utc_datetime(ingredient.updated_at),
         "created_by": ingredient.created_by,
