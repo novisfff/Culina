@@ -6,8 +6,6 @@ import type {
   InventoryActionGroup,
 } from '../../features/inventory/inventoryActionModel';
 import { calendarDaysBetweenDateKeys } from '../../lib/date';
-import { resolvePreferredIngredientUnit } from '../../lib/ingredientUnits';
-import type { PendingShoppingCompletion } from './IngredientWorkspaceOverlayTypes';
 import {
   buildConsumeUnitOptions,
   buildInventoryForm,
@@ -37,7 +35,7 @@ type UseIngredientOverlayStateArgs = {
   inventoryActionGroups: InventoryActionGroup[];
   referenceDate: string;
   onRequireCreate: () => void;
-  onOpenFoodStockFromShopping?: (item: ShoppingListItem) => void;
+  onOpenShoppingIntake?: (item: ShoppingListItem) => void;
 };
 
 function formatQuantityValue(value: number) {
@@ -192,7 +190,6 @@ export function useIngredientOverlayState(args: UseIngredientOverlayStateArgs) {
   const [consumeForm, setConsumeForm] = useState<ConsumeDialogFormState>(defaultConsumeForm());
   const [shoppingForm, setShoppingForm] = useState<ShoppingDialogFormState>(buildShoppingForm());
   const [editingShoppingItemId, setEditingShoppingItemId] = useState<string | null>(null);
-  const [pendingShoppingToComplete, setPendingShoppingToComplete] = useState<PendingShoppingCompletion | null>(null);
   const [inventoryActionIngredientId, setInventoryActionIngredientId] = useState<string | null>(null);
   const [inventoryActionBusy, setInventoryActionBusy] = useState(false);
   const [inventoryActionError, setInventoryActionError] = useState<string | null>(null);
@@ -252,12 +249,10 @@ export function useIngredientOverlayState(args: UseIngredientOverlayStateArgs) {
 
   function openInventoryOverlay(ingredientId?: string, quantity = '1') {
     if (args.ingredientOptions.length === 0) {
-      setPendingShoppingToComplete(null);
       clearInventoryActionSelection();
       args.onRequireCreate();
       return;
     }
-    setPendingShoppingToComplete(null);
     setEditingShoppingItemId(null);
     clearInventoryActionSelection();
     setInventoryForm(
@@ -292,7 +287,6 @@ export function useIngredientOverlayState(args: UseIngredientOverlayStateArgs) {
     if (!summary || summary.availableInventoryItems.length === 0) {
       return;
     }
-    setPendingShoppingToComplete(null);
     setEditingShoppingItemId(null);
     clearInventoryActionSelection();
     setConsumeForm(buildConsumeFormForIngredient(ingredientId));
@@ -300,44 +294,19 @@ export function useIngredientOverlayState(args: UseIngredientOverlayStateArgs) {
   }
 
   function openInventoryFromShopping(item: ShoppingListItem) {
-    if (item.target_type === 'food' || item.food_id) {
-      args.onOpenFoodStockFromShopping?.(item);
+    // Shopping-origin restock always opens the shared atomic intake workflow.
+    if (args.onOpenShoppingIntake) {
+      args.onOpenShoppingIntake(item);
       return;
     }
+    // Fallback: keep form closed and require create when no intake composition is wired.
     if (args.ingredientOptions.length === 0) {
-      setPendingShoppingToComplete(null);
       clearInventoryActionSelection();
       args.onRequireCreate();
-      return;
     }
-    const normalizedTitle = item.title.trim();
-    const matchedIngredient =
-      (item.ingredient_id ? args.ingredientOptions.find((ingredient) => ingredient.id === item.ingredient_id) ?? null : null) ??
-      args.ingredientOptions.find((ingredient) => ingredient.name === normalizedTitle) ?? null;
-    const tracksQuantity = matchedIngredient?.quantity_tracking_mode !== 'not_track_quantity';
-
-    setPendingShoppingToComplete({
-      itemId: item.id,
-      title: normalizedTitle || item.title,
-    });
-    setInventoryForm(
-      buildInventoryForm(args.ingredientOptions, matchedIngredient?.id, {
-        ingredientQuery: matchedIngredient?.name ?? normalizedTitle,
-        ingredientLocked: Boolean(matchedIngredient),
-        quantity: tracksQuantity ? formatNumericString(item.quantity) : '',
-        unit:
-          resolvePreferredIngredientUnit(matchedIngredient, item.unit) ||
-          matchedIngredient?.default_unit ||
-          item.unit.trim() ||
-          '个',
-      })
-    );
-    setInventoryAdvancedOpen(false);
-    setOverlayMode('inventory');
   }
 
   function openShoppingOverlay(options?: { ingredient?: Ingredient; food?: Food; reason?: string; shoppingItem?: ShoppingListItem }) {
-    setPendingShoppingToComplete(null);
     clearInventoryActionSelection();
     if (options?.shoppingItem) {
       // Only resolve bound targets by stable IDs. Free-text rows must not auto-bind by title.
@@ -370,7 +339,6 @@ export function useIngredientOverlayState(args: UseIngredientOverlayStateArgs) {
     if (!group) {
       return;
     }
-    setPendingShoppingToComplete(null);
     setEditingShoppingItemId(null);
     setInventoryActionIngredientId(ingredientId);
     setInventoryActionBusy(false);
@@ -384,7 +352,6 @@ export function useIngredientOverlayState(args: UseIngredientOverlayStateArgs) {
 
   function closeOverlay() {
     setOverlayMode(null);
-    setPendingShoppingToComplete(null);
     setEditingShoppingItemId(null);
     clearInventoryActionSelection();
     setInventoryAdvancedOpen(false);
@@ -414,7 +381,6 @@ export function useIngredientOverlayState(args: UseIngredientOverlayStateArgs) {
     shoppingForm,
     setShoppingForm,
     editingShoppingItemId,
-    pendingShoppingToComplete,
     inventoryActionIngredientId,
     inventoryActionGroup,
     inventoryActionBusy,

@@ -15,11 +15,6 @@ import type {
   ShoppingDialogFormState,
 } from './ingredientWorkspaceForms';
 
-export type PendingShoppingCompletion = {
-  itemId: string;
-  title: string;
-};
-
 export type InventoryActionConflictState = 'none' | 'review_again';
 
 export type OverlayLayerProps = {
@@ -57,7 +52,6 @@ export type OverlayLayerProps = {
     expectedRowVersion: number;
     expiryDate: string;
   }) => Promise<void>;
-  pendingShoppingToComplete: PendingShoppingCompletion | null;
   isCreatingInventory?: boolean;
   isConsumingInventory?: boolean;
   isCreatingShopping?: boolean;

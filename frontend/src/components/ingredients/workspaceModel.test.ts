@@ -215,7 +215,7 @@ describe('ingredient workspace model', () => {
       ingredients: manyIngredients,
       inventoryItems: [],
       recipes: [],
-      today: '2026-03-20',
+      referenceDate: '2026-03-20',
     });
 
     const mobileCatalogSummaries = filterMobileCatalogSummaries({
@@ -248,7 +248,7 @@ describe('ingredient workspace model', () => {
       ingredients: [ingredients[0], saltIngredient, oysterSauceIngredient],
       inventoryItems: [],
       recipes: [],
-      today: '2026-03-20',
+      referenceDate: '2026-03-20',
     });
 
     expect(
@@ -267,7 +267,7 @@ describe('ingredient workspace model', () => {
       ingredients,
       inventoryItems,
       recipes,
-      today: '2026-03-20',
+      referenceDate: '2026-03-20',
     });
 
     expect(
@@ -423,7 +423,7 @@ describe('ingredient workspace model', () => {
         },
       ],
       recipes: [],
-      today: '2026-03-20',
+      referenceDate: '2026-03-20',
     });
 
     const expiredSummary = summaries.find((item) => item.ingredient.id === expiredIngredient.id)!;
@@ -507,7 +507,7 @@ describe('ingredient workspace model', () => {
         },
       ],
       recipes: [],
-      today: '2026-03-20',
+      referenceDate: '2026-03-20',
       shoppingItems: [],
     });
 
@@ -531,7 +531,7 @@ describe('ingredient workspace model', () => {
     expect(metricsDecl).toBeLessThan(metricsUsage);
   });
 
-  it('shows presence status instead of fake quantities for not-tracked ingredients', () => {
+  it('shows presence status from State instead of fake quantities for not-tracked ingredients', () => {
     const saltIngredient: Ingredient = {
       id: 'ingredient-salt',
       family_id: 'family-1',
@@ -549,25 +549,46 @@ describe('ingredient workspace model', () => {
       created_at: '2026-03-20T10:00:00Z',
       updated_at: '2026-03-20T10:00:00Z',
     };
+    // Legacy presence placeholder says available, but State is the only truth source.
     const saltInventory: InventoryItem = {
-      id: 'inventory-salt',
+      id: 'inventory-salt-legacy',
       family_id: 'family-1',
       ingredient_id: 'ingredient-salt',
       ingredient_name: '盐',
       quantity: 1,
-      consumed_quantity: 1,
+      consumed_quantity: 0,
       disposed_quantity: 0,
-      remaining_quantity: 0,
+      remaining_quantity: 1,
       unit: 'g',
       status: 'fresh',
       purchase_date: '2026-03-18',
       expiry_date: null,
-      storage_location: '常温',
-      notes: '',
+      storage_location: '冷藏',
+      notes: 'legacy placeholder',
       low_stock_threshold: 0,
       created_at: '2026-03-18T10:00:00Z',
       updated_at: '2026-03-20T09:00:00Z',
       row_version: 1,
+    };
+    const saltState = {
+      id: 'state-salt',
+      family_id: 'family-1',
+      ingredient_id: 'ingredient-salt',
+      availability_level: 'sufficient' as const,
+      inventory_status: 'fresh' as const,
+      purchase_date: '2026-03-18',
+      expiry_date: null,
+      storage_location: '常温',
+      notes: '',
+      expiry_alert_snoozed_until: null,
+      expiry_reviewed_at: null,
+      expiry_reviewed_by: null,
+      last_confirmed_at: null,
+      last_confirmed_by: null,
+      last_confirmation_source: null,
+      row_version: 1,
+      created_at: '2026-03-18T10:00:00Z',
+      updated_at: '2026-03-20T09:00:00Z',
     };
     const saltShopping: ShoppingListItem = {
       id: 'shopping-salt',
@@ -587,11 +608,15 @@ describe('ingredient workspace model', () => {
     const summaries = buildIngredientSummaries({
       ingredients: [saltIngredient],
       inventoryItems: [saltInventory],
+      inventoryStates: [saltState],
       recipes,
-      today: '2026-03-20',
+      referenceDate: '2026-03-20',
     });
     const salt = summaries.find((item) => item.ingredient.id === 'ingredient-salt');
     expect(salt?.quantitySummaries.map((item) => item.label)).toEqual(['已有']);
+    expect(salt?.primaryStorage).toBe('常温');
+    expect(salt?.inventoryItems).toEqual([]);
+    expect(salt?.availableInventoryItems).toEqual([]);
 
     const cards = buildShoppingCards([saltShopping], summaries);
     const saltCard = cards.find((item) => item.shoppingItem.id === 'shopping-salt');
@@ -599,6 +624,134 @@ describe('ingredient workspace model', () => {
     expect(saltCard?.headline).toBe('需要补充');
     expect(saltCard?.quantityLabel).toBe('需要补充');
     expect(saltCard?.inventoryLabel).toBe('已有');
+  });
+
+  it('follows State when legacy presence InventoryItem disagrees', () => {
+    const saltIngredient: Ingredient = {
+      id: 'ingredient-salt',
+      family_id: 'family-1',
+      name: '盐',
+      category: '调料',
+      default_unit: 'g',
+      unit_conversions: [],
+      quantity_tracking_mode: 'not_track_quantity',
+      default_storage: '常温',
+      default_expiry_mode: 'none',
+      default_expiry_days: null,
+      default_low_stock_threshold: 1,
+      notes: '',
+      image: null,
+      created_at: '2026-03-20T10:00:00Z',
+      updated_at: '2026-03-20T10:00:00Z',
+    };
+    const legacyPresent: InventoryItem = {
+      id: 'inventory-salt-legacy',
+      family_id: 'family-1',
+      ingredient_id: 'ingredient-salt',
+      ingredient_name: '盐',
+      quantity: 1,
+      remaining_quantity: 1,
+      unit: 'g',
+      status: 'fresh',
+      purchase_date: '2026-03-18',
+      expiry_date: null,
+      storage_location: '冷藏',
+      notes: '',
+      low_stock_threshold: 0,
+      created_at: '2026-03-18T10:00:00Z',
+      updated_at: '2026-03-20T09:00:00Z',
+      row_version: 1,
+    };
+    const absentState = {
+      id: 'state-salt-absent',
+      family_id: 'family-1',
+      ingredient_id: 'ingredient-salt',
+      availability_level: 'absent' as const,
+      inventory_status: 'fresh' as const,
+      purchase_date: null,
+      expiry_date: null,
+      storage_location: null,
+      notes: '',
+      expiry_alert_snoozed_until: null,
+      expiry_reviewed_at: null,
+      expiry_reviewed_by: null,
+      last_confirmed_at: null,
+      last_confirmed_by: null,
+      last_confirmation_source: null,
+      row_version: 2,
+      created_at: '2026-03-18T10:00:00Z',
+      updated_at: '2026-03-20T09:00:00Z',
+    };
+    const summaries = buildIngredientSummaries({
+      ingredients: [saltIngredient],
+      inventoryItems: [legacyPresent],
+      inventoryStates: [absentState],
+      recipes: [],
+      referenceDate: '2026-03-20',
+    });
+    const salt = summaries[0]!;
+    expect(salt.quantitySummaries).toEqual([]);
+    expect(salt.inventoryItems).toEqual([]);
+    expect(salt.availableInventoryItems).toEqual([]);
+    expect(buildInventoryCardStatus(salt).label).toBe('已空或未登记');
+    expect(buildInventoryCardPresentation(salt, '2026-03-20').headline).toBe('没有');
+    expect(buildStorageGroups(summaries)[0]?.label).toBe('常温');
+  });
+
+  it('projects low State without any current InventoryItem', () => {
+    const oilIngredient: Ingredient = {
+      id: 'ingredient-oil',
+      family_id: 'family-1',
+      name: '食用油',
+      category: '调料',
+      default_unit: '瓶',
+      unit_conversions: [],
+      quantity_tracking_mode: 'not_track_quantity',
+      default_storage: '常温',
+      default_expiry_mode: 'none',
+      default_expiry_days: null,
+      default_low_stock_threshold: null,
+      notes: '',
+      image: null,
+      created_at: '2026-03-20T10:00:00Z',
+      updated_at: '2026-03-20T10:00:00Z',
+    };
+    const lowState = {
+      id: 'state-oil-low',
+      family_id: 'family-1',
+      ingredient_id: 'ingredient-oil',
+      availability_level: 'low' as const,
+      inventory_status: 'opened' as const,
+      purchase_date: '2026-03-01',
+      expiry_date: '2026-03-25',
+      storage_location: '常温',
+      notes: '',
+      expiry_alert_snoozed_until: null,
+      expiry_reviewed_at: null,
+      expiry_reviewed_by: null,
+      last_confirmed_at: null,
+      last_confirmed_by: null,
+      last_confirmation_source: null,
+      row_version: 1,
+      created_at: '2026-03-01T10:00:00Z',
+      updated_at: '2026-03-20T09:00:00Z',
+    };
+    const summaries = buildIngredientSummaries({
+      ingredients: [oilIngredient],
+      inventoryItems: [],
+      inventoryStates: [lowState],
+      recipes: [],
+      referenceDate: '2026-03-20',
+    });
+    const oil = summaries[0]!;
+    expect(oil.quantitySummaries.map((item) => item.label)).toEqual(['少量']);
+    expect(oil.inventoryItems).toEqual([]);
+    expect(buildInventoryCardStatus(oil).label).toBe('库存偏低');
+    expect(buildInventoryCardPresentation(oil, '2026-03-20')).toMatchObject({
+      headline: '少量',
+      expiryLabel: '距到期 5 天',
+    });
+    expect(buildSeasoningSummaries(summaries)[0]?.statusLabel).toBe('已有');
   });
 
   it('builds seasoning summaries from seasoning categories and not-tracked ingredients', () => {
@@ -619,22 +772,32 @@ describe('ingredient workspace model', () => {
       default_unit: '瓶',
       quantity_tracking_mode: 'track_quantity',
     };
-    const saltInventory: InventoryItem = {
-      ...inventoryItems[1],
-      id: 'inventory-salt',
+    const saltState = {
+      id: 'state-salt-seasoning',
+      family_id: 'family-1',
       ingredient_id: 'ingredient-salt',
-      ingredient_name: '盐',
-      quantity: 1,
-      consumed_quantity: 1,
-      remaining_quantity: 0,
-      unit: 'g',
+      availability_level: 'sufficient' as const,
+      inventory_status: 'fresh' as const,
+      purchase_date: '2026-03-18',
+      expiry_date: null,
       storage_location: '常温',
+      notes: '',
+      expiry_alert_snoozed_until: null,
+      expiry_reviewed_at: null,
+      expiry_reviewed_by: null,
+      last_confirmed_at: null,
+      last_confirmed_by: null,
+      last_confirmation_source: null,
+      row_version: 1,
+      created_at: '2026-03-18T10:00:00Z',
+      updated_at: '2026-03-20T09:00:00Z',
     };
     const summaries = buildIngredientSummaries({
       ingredients: [ingredients[0], saltIngredient, oysterSauceIngredient],
-      inventoryItems: [inventoryItems[0], saltInventory],
+      inventoryItems: [inventoryItems[0]],
+      inventoryStates: [saltState],
       recipes: [],
-      today: '2026-03-20',
+      referenceDate: '2026-03-20',
     });
     const seasoningSummaries = buildSeasoningSummaries(summaries);
 
@@ -657,7 +820,7 @@ describe('ingredient workspace model', () => {
       ingredients: [ingredients[0], soySauceIngredient],
       inventoryItems: [inventoryItems[0]],
       recipes: [],
-      today: '2026-03-20',
+      referenceDate: '2026-03-20',
     });
     const cards = buildShoppingCards(
       [
@@ -744,7 +907,7 @@ describe('ingredient workspace model', () => {
       ingredients,
       inventoryItems,
       recipes,
-      today: '2026-03-20',
+      referenceDate: '2026-03-20',
     });
     const flour = summaries.find((item) => item.ingredient.id === 'ingredient-flour');
 
@@ -771,7 +934,7 @@ describe('ingredient workspace model', () => {
         inventoryItems[2],
       ],
       recipes,
-      today: '2026-03-20',
+      referenceDate: '2026-03-20',
     });
 
     const tomato = summaries.find((item) => item.ingredient.id === 'ingredient-tomato');
@@ -803,7 +966,7 @@ describe('ingredient workspace model', () => {
         },
       ],
       recipes,
-      today: '2026-03-20',
+      referenceDate: '2026-03-20',
     });
 
     expect(summaries[0]?.inventoryItems.map((item) => item.id)).toEqual([
@@ -819,7 +982,7 @@ describe('ingredient workspace model', () => {
       ingredients,
       inventoryItems,
       recipes,
-      today: '2026-03-20',
+      referenceDate: '2026-03-20',
     });
     const groups = buildStorageGroups(summaries);
 
@@ -833,7 +996,7 @@ describe('ingredient workspace model', () => {
       ingredients,
       inventoryItems,
       recipes,
-      today: '2026-03-20',
+      referenceDate: '2026-03-20',
     });
     const overview = buildInventoryStorageOverview(summaries);
 
@@ -863,7 +1026,7 @@ describe('ingredient workspace model', () => {
       ingredients,
       inventoryItems,
       recipes,
-      today: '2026-03-20',
+      referenceDate: '2026-03-20',
     });
     const tomato = baseSummaries.find((item) => item.ingredient.id === 'ingredient-tomato');
     const flour = baseSummaries.find((item) => item.ingredient.id === 'ingredient-flour');
@@ -912,7 +1075,7 @@ describe('ingredient workspace model', () => {
         },
       ],
       recipes: [],
-      today: '2026-03-20',
+      referenceDate: '2026-03-20',
     });
 
     expect(buildInventoryCardStatus(lowStockSummaries[0]!)).toMatchObject({
@@ -925,7 +1088,7 @@ describe('ingredient workspace model', () => {
       ingredients,
       inventoryItems: [],
       recipes,
-      today: '2026-03-20',
+      referenceDate: '2026-03-20',
     });
 
     expect(buildInventoryCardStatus(emptySummaries[0]!)).toMatchObject({
@@ -939,7 +1102,7 @@ describe('ingredient workspace model', () => {
       ingredients,
       inventoryItems,
       recipes,
-      today: '2026-03-20',
+      referenceDate: '2026-03-20',
     });
     const tomato = baseSummaries.find((item) => item.ingredient.id === 'ingredient-tomato');
     const flour = baseSummaries.find((item) => item.ingredient.id === 'ingredient-flour');
@@ -969,7 +1132,7 @@ describe('ingredient workspace model', () => {
       ingredients,
       inventoryItems: [],
       recipes,
-      today: '2026-03-20',
+      referenceDate: '2026-03-20',
     });
 
     expect(buildInventoryCardPresentation(emptySummaries[0]!, '2026-03-20')).toMatchObject({
@@ -988,7 +1151,7 @@ describe('ingredient workspace model', () => {
       ingredients,
       inventoryItems,
       recipes,
-      today: '2026-03-20',
+      referenceDate: '2026-03-20',
     });
 
     expect(sortInventorySummariesByExpiry(summaries).map((item) => item.ingredient.id)).toEqual([
@@ -1002,7 +1165,7 @@ describe('ingredient workspace model', () => {
       ingredients,
       inventoryItems,
       recipes,
-      today: '2026-03-20',
+      referenceDate: '2026-03-20',
     });
     const alertedSummaries = summaries.filter((item) => item.alerts.length > 0);
     const overview = buildInventoryStorageOverview(alertedSummaries);
@@ -1049,7 +1212,7 @@ describe('ingredient workspace model', () => {
         },
       ],
       recipes: [],
-      today: '2026-03-20',
+      referenceDate: '2026-03-20',
     });
 
     expect(buildInventoryCardPresentation(overdueSummaries[0]!, '2026-03-20')).toMatchObject({
@@ -1083,7 +1246,7 @@ describe('ingredient workspace model', () => {
         },
       ],
       recipes: [],
-      today: '2026-03-20',
+      referenceDate: '2026-03-20',
     });
 
     expect(buildInventoryCardPresentation(todaySummaries[0]!, '2026-03-20')).toMatchObject({
@@ -1117,7 +1280,7 @@ describe('ingredient workspace model', () => {
         },
       ],
       recipes: [],
-      today: '2026-03-20',
+      referenceDate: '2026-03-20',
     });
 
     expect(buildInventoryCardPresentation(upcomingSummaries[0]!, '2026-03-20')).toMatchObject({
@@ -1186,7 +1349,7 @@ describe('ingredient workspace model', () => {
         },
       ],
       recipes: [],
-      today: '2026-03-20',
+      referenceDate: '2026-03-20',
     });
 
     expect(buildDisposableExpiredInventoryItems(summaries[0]!, '2026-03-20')).toEqual([
@@ -1270,7 +1433,7 @@ describe('ingredient workspace model', () => {
       ingredients,
       inventoryItems,
       recipes,
-      today: '2026-03-20',
+      referenceDate: '2026-03-20',
     });
 
     expect(filterIngredientSummaries(summaries, '', '蔬菜').map((item) => item.ingredient.name)).toEqual(['番茄']);
@@ -1283,7 +1446,7 @@ describe('ingredient workspace model', () => {
       ingredients,
       inventoryItems,
       recipes,
-      today: '2026-03-20',
+      referenceDate: '2026-03-20',
     });
 
     expect(filterIngredientSummaries(summaries, '西红柿', 'all')).toEqual([]);
@@ -1325,7 +1488,7 @@ describe('ingredient workspace model', () => {
       ingredients: searchIngredients,
       inventoryItems: searchInventoryItems,
       recipes: [],
-      today: '2026-03-20',
+      referenceDate: '2026-03-20',
     });
 
     expect(summaries.map((item) => item.ingredient.name)[0]).toBe('番茄');
@@ -1343,7 +1506,7 @@ describe('ingredient workspace model', () => {
       ingredients,
       inventoryItems,
       recipes,
-      today: '2026-03-20',
+      referenceDate: '2026-03-20',
     });
 
     expect(filterIngredientSummariesForInventory(summaries, '西红柿')).toEqual([]);
@@ -1359,7 +1522,7 @@ describe('ingredient workspace model', () => {
       ingredients,
       inventoryItems,
       recipes,
-      today: '2026-03-20',
+      referenceDate: '2026-03-20',
     });
     const cards = buildShoppingCards(shoppingItems.filter((item) => !item.done), summaries);
 
@@ -1397,7 +1560,7 @@ describe('ingredient workspace model', () => {
       ingredients,
       inventoryItems,
       recipes,
-      today: '2026-03-20',
+      referenceDate: '2026-03-20',
     });
     const yogurt: Food = {
       id: 'food-yogurt',
@@ -1465,7 +1628,7 @@ describe('ingredient workspace model', () => {
       ingredients,
       inventoryItems,
       recipes,
-      today: '2026-03-20',
+      referenceDate: '2026-03-20',
     });
     const cards = buildShoppingCards(shoppingItems.filter((item) => !item.done), summaries);
     const overview = buildShoppingOverview(cards);
@@ -1705,7 +1868,7 @@ describe('ingredient workspace model', () => {
         },
       ],
       recipes: [],
-      today: '2026-03-20',
+      referenceDate: '2026-03-20',
     });
     const summary = summaries[0]!;
     const status = buildInventoryCardStatus(summary);

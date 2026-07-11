@@ -26,7 +26,7 @@ import {
   type InventoryDrawerFormState,
   type ShoppingDialogFormState,
 } from './ingredientWorkspaceForms';
-import type { InventoryActionConflictState, PendingShoppingCompletion } from './IngredientWorkspaceOverlayTypes';
+import type { InventoryActionConflictState } from './IngredientWorkspaceOverlayTypes';
 import { tracksIngredientQuantity } from '../../lib/ingredientTracking';
 
 type UseIngredientActionStateArgs = {
@@ -40,7 +40,6 @@ type UseIngredientActionStateArgs = {
   shoppingForm: ShoppingDialogFormState;
   setShoppingForm: Dispatch<SetStateAction<ShoppingDialogFormState>>;
   editingShoppingItemId: string | null;
-  pendingShoppingToComplete: PendingShoppingCompletion | null;
   inventoryActionIngredientId: string | null;
   inventoryActionGroup: ExpiryInventoryActionGroup | null;
   selectedInventoryIngredient: Ingredient | null;
@@ -108,73 +107,6 @@ function messageOf(reason: unknown, fallback: string) {
 }
 
 export function useIngredientActionState(args: UseIngredientActionStateArgs) {
-  async function submitInventory(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!args.inventoryForm.ingredientId) {
-      args.showNotice({ tone: 'warning', title: '还不能录入库存', message: '先选中这次补的是哪种食材，再保存这批库存。' });
-      return;
-    }
-    const tracksQuantity = tracksIngredientQuantity(args.selectedInventoryIngredient);
-    const quantity = tracksQuantity ? parsePositiveNumber(args.inventoryForm.quantity) : null;
-    if (tracksQuantity && quantity === null) {
-      args.showNotice({ tone: 'warning', title: '库存数量无效', message: '数量要大于 0，才能把这批库存记进系统。' });
-      return;
-    }
-    if (!args.inventoryForm.purchaseDate) {
-      args.showNotice({ tone: 'warning', title: '缺少购买日期', message: '请确认这批食材的购买日期。' });
-      return;
-    }
-    if (!args.inventoryForm.storageLocation.trim()) {
-      args.showNotice({ tone: 'warning', title: '缺少存放位置', message: '请确认这批食材放在哪里，后面的提醒才会更准确。' });
-      return;
-    }
-    if (args.inventoryForm.expiryInputMode === 'days' && parsePositiveNumber(args.inventoryForm.expiryDays) === null) {
-      args.showNotice({ tone: 'warning', title: '缺少保质期', message: '请填写这批食材大概几天后到期，系统才能自动算出到期日。' });
-      return;
-    }
-    if (args.inventoryForm.expiryInputMode === 'manual_date' && !args.inventoryForm.expiryDate) {
-      args.showNotice({ tone: 'warning', title: '缺少到期日期', message: '请填写包装上的到期日期，系统才能继续帮你监控临期。' });
-      return;
-    }
-    try {
-      await args.createInventory({
-        ingredient_id: args.inventoryForm.ingredientId,
-        quantity,
-        unit: tracksQuantity
-          ? args.inventoryForm.unit.trim() || args.selectedInventoryIngredient?.default_unit || '个'
-          : args.selectedInventoryIngredient?.default_unit || args.inventoryForm.unit.trim() || '份',
-        status: args.inventoryForm.status,
-        purchase_date: args.inventoryForm.purchaseDate,
-        expiry_date: args.inventoryForm.expiryDate || undefined,
-        storage_location: args.inventoryForm.storageLocation.trim(),
-        notes: args.inventoryForm.notes.trim(),
-      });
-      if (args.pendingShoppingToComplete) {
-        try {
-          await args.updateShoppingItem({
-            itemId: args.pendingShoppingToComplete.itemId,
-            payload: { done: true },
-          });
-        } catch (reason) {
-          args.showNotice({
-            tone: 'warning',
-            title: '库存已登记',
-            message:
-              reason instanceof Error
-                ? `待买项仍未标记完成：${reason.message}`
-                : '待买项仍未标记为已买，请稍后再试。',
-          });
-        }
-      }
-      args.setSelectedIngredientId(args.inventoryForm.ingredientId);
-      args.setInventoryForm(buildInventoryForm(args.ingredientOptions, args.inventoryForm.ingredientId));
-      args.setInventoryAdvancedOpen(false);
-      args.closeOverlay();
-    } catch (reason) {
-      args.showNotice({ tone: 'danger', title: '录入库存失败', message: args.resolveErrorMessage(reason, '录入库存失败') });
-    }
-  }
-
   async function submitShopping(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const title = args.shoppingForm.title.trim();
@@ -245,6 +177,57 @@ export function useIngredientActionState(args: UseIngredientActionStateArgs) {
         title: args.editingShoppingItemId ? '修改采购项失败' : '加入购物清单失败',
         message: args.resolveErrorMessage(reason, args.editingShoppingItemId ? '修改采购项失败' : '加入购物清单失败'),
       });
+    }
+  }
+
+  async function submitInventory(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!args.inventoryForm.ingredientId) {
+      args.showNotice({ tone: 'warning', title: '还不能录入库存', message: '先选中这次补的是哪种食材，再保存这批库存。' });
+      return;
+    }
+    const tracksQuantity = tracksIngredientQuantity(args.selectedInventoryIngredient);
+    const quantity = tracksQuantity ? parsePositiveNumber(args.inventoryForm.quantity) : null;
+    if (tracksQuantity && quantity === null) {
+      args.showNotice({ tone: 'warning', title: '库存数量无效', message: '数量要大于 0，才能把这批库存记进系统。' });
+      return;
+    }
+    if (!args.inventoryForm.purchaseDate) {
+      args.showNotice({ tone: 'warning', title: '缺少购买日期', message: '请确认这批食材的购买日期。' });
+      return;
+    }
+    if (!args.inventoryForm.storageLocation.trim()) {
+      args.showNotice({ tone: 'warning', title: '缺少存放位置', message: '请确认这批食材放在哪里，后面的提醒才会更准确。' });
+      return;
+    }
+    if (args.inventoryForm.expiryInputMode === 'days' && parsePositiveNumber(args.inventoryForm.expiryDays) === null) {
+      args.showNotice({ tone: 'warning', title: '缺少保质期', message: '请填写这批食材大概几天后到期，系统才能自动算出到期日。' });
+      return;
+    }
+    if (args.inventoryForm.expiryInputMode === 'manual_date' && !args.inventoryForm.expiryDate) {
+      args.showNotice({ tone: 'warning', title: '缺少到期日期', message: '请填写包装上的到期日期，系统才能继续帮你监控临期。' });
+      return;
+    }
+    try {
+      // Ordinary manual restock only. Shopping-origin writes must use shared shopping intake.
+      await args.createInventory({
+        ingredient_id: args.inventoryForm.ingredientId,
+        quantity,
+        unit: tracksQuantity
+          ? args.inventoryForm.unit.trim() || args.selectedInventoryIngredient?.default_unit || '个'
+          : args.selectedInventoryIngredient?.default_unit || args.inventoryForm.unit.trim() || '份',
+        status: args.inventoryForm.status,
+        purchase_date: args.inventoryForm.purchaseDate,
+        expiry_date: args.inventoryForm.expiryDate || undefined,
+        storage_location: args.inventoryForm.storageLocation.trim(),
+        notes: args.inventoryForm.notes.trim(),
+      });
+      args.setSelectedIngredientId(args.inventoryForm.ingredientId);
+      args.setInventoryForm(buildInventoryForm(args.ingredientOptions, args.inventoryForm.ingredientId));
+      args.setInventoryAdvancedOpen(false);
+      args.closeOverlay();
+    } catch (reason) {
+      args.showNotice({ tone: 'danger', title: '录入库存失败', message: args.resolveErrorMessage(reason, '录入库存失败') });
     }
   }
 

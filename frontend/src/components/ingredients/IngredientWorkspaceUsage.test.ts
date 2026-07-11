@@ -213,3 +213,29 @@ describe('IngredientWorkspace free-text shopping contract', () => {
   });
 });
 
+describe('IngredientWorkspace atomic shopping intake cutover', () => {
+  it('routes shopping-origin restock to openShoppingIntake and drops double mutation state', () => {
+    const workspaceSource = readFileSync(sourcePath, 'utf8');
+    const actionSource = readFileSync(resolve(__dirname, 'useIngredientActionState.ts'), 'utf8');
+    const overlayStateSource = readFileSync(resolve(__dirname, 'useIngredientOverlayState.ts'), 'utf8');
+    const overlaysSource = readFileSync(resolve(__dirname, 'IngredientWorkspaceOverlays.tsx'), 'utf8');
+    const homeActionsSource = readFileSync(resolve(__dirname, '../../features/home/useHomeDashboardActions.ts'), 'utf8');
+    const appSource = readFileSync(resolve(__dirname, '../../App.tsx'), 'utf8');
+
+    expect(workspaceSource).not.toContain('pendingShoppingToComplete');
+    expect(actionSource).not.toContain('pendingShoppingToComplete');
+    expect(overlayStateSource).not.toContain('pendingShoppingToComplete');
+    expect(overlaysSource).not.toContain('pendingShoppingToComplete');
+    expect(homeActionsSource).not.toContain('库存已登记');
+    expect(homeActionsSource).not.toContain('待买项仍未标记');
+    expect(homeActionsSource).not.toMatch(/createInventory[\s\S]*updateShoppingDone/);
+    expect(actionSource).not.toMatch(/await args\.createInventory[\s\S]*await args\.updateShoppingItem/);
+    expect(actionSource).not.toContain('pendingShoppingToComplete');
+    expect(workspaceSource).not.toMatch(/await api\.restockFoodStock[\s\S]{0,400}await props\.updateShoppingItem/);
+    expect(workspaceSource).toContain('openShoppingIntake');
+    expect(appSource).toContain('InventoryMaintenanceDialogs');
+    expect(appSource).toContain('openShoppingIntake');
+    expect(appSource).toContain('useShoppingIntakeState');
+  });
+});
+

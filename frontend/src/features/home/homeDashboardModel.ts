@@ -98,9 +98,17 @@ export function parsePositiveNumber(value: string) {
 }
 
 export function findShoppingIngredient(item: ShoppingListItem, ingredients: Ingredient[]) {
+  // Prefer stable target binding. Food/free-text rows never resolve to an ingredient.
+  if (item.target_type === 'food' || item.target_type === 'free_text' || item.food_id) {
+    return null;
+  }
+  if (item.target_type === 'ingredient' && item.ingredient_id) {
+    return ingredients.find((ingredient) => ingredient.id === item.ingredient_id) ?? null;
+  }
   if (item.ingredient_id) {
     return ingredients.find((ingredient) => ingredient.id === item.ingredient_id) ?? null;
   }
+  // Legacy title-only rows: normalized exact-name equality only, never includes/substring.
   const title = item.title.trim();
   if (!title) {
     return null;

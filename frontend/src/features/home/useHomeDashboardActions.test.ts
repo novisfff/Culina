@@ -218,15 +218,10 @@ function createActions(overrides: {
   const actions = useHomeDashboardActions({
     showNotice,
     selectedActionGroup: overrides.selectedActionGroup === undefined ? tomatoGroup : overrides.selectedActionGroup,
-    homeRestockShoppingItem: null,
-    homeRestockForm: null,
-    homeRestockIngredient: null,
     homePlanDetailItem: null,
     homePlanDetailForm: { planDate: '2026-07-11', mealType: 'dinner', note: '' },
     homePlanAddFood: null,
     homePlanAddForm: { planDate: '2026-07-11', mealType: 'dinner', note: '' },
-    createInventory: vi.fn(async () => undefined),
-    updateShoppingDone: vi.fn(async () => undefined),
     disposeExpiredInventory,
     snoozeInventoryExpiryAlerts,
     correctInventoryExpiryDate,
@@ -245,7 +240,6 @@ function createActions(overrides: {
     quickAddMeal: vi.fn(async () => {
       throw new Error('unused');
     }),
-    closeHomeRestock: vi.fn(),
     closeHomePlanDetail: vi.fn(),
     closeHomePlanAddDialog: vi.fn(),
     setIsHomePlanDetailEditing: vi.fn(),

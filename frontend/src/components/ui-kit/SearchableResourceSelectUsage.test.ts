@@ -73,7 +73,7 @@ describe('SearchableResourceSelect usages', () => {
     ];
     const source = files.map((file) => readFileSync(resolve(repoRoot, file), 'utf8')).join('\n');
 
-    expect(source.match(/useIngredientResourceSearch/g)?.length ?? 0).toBeGreaterThanOrEqual(6);
+    expect(source.match(/useIngredientResourceSearch/g)?.length ?? 0).toBeGreaterThanOrEqual(5);
     expect(source).not.toContain('api.getIngredients');
     expect(source).not.toContain('ingredientPickerSearch');
     expect(source).not.toContain('.slice(0, 8)');
@@ -89,7 +89,8 @@ describe('SearchableResourceSelect usages', () => {
     ];
     const source = files.map((file) => readFileSync(resolve(repoRoot, file), 'utf8')).join('\n');
 
-    expect(source.match(/SearchableResourceSelect/g)?.length ?? 0).toBeGreaterThanOrEqual(3);
+    // Home restock picker was removed in atomic shopping intake; food/recipe plan pickers remain.
+    expect(source.match(/SearchableResourceSelect/g)?.length ?? 0).toBeGreaterThanOrEqual(2);
     expect(source.match(/useFoodResourceSearch/g)?.length ?? 0).toBeGreaterThanOrEqual(2);
     expect(source.match(/useRecipeResourceSearch/g)?.length ?? 0).toBeGreaterThanOrEqual(1);
     expect(source).toContain('hasMore={');

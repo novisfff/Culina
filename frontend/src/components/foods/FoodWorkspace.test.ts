@@ -640,3 +640,13 @@ describe('food workspace helpers', () => {
     expect(relation.detail).toContain('楼下咖喱');
   });
 });
+
+describe('FoodWorkspace shopping-origin restock cutover', () => {
+  it('does not chain restockFoodStock with updateShoppingItem', () => {
+    const source = readFileSync('src/components/foods/FoodWorkspace.tsx', 'utf8');
+    const ingredientWorkspace = readFileSync('src/components/ingredients/IngredientWorkspace.tsx', 'utf8');
+    expect(source).not.toMatch(/await api\.restockFoodStock[\s\S]{0,400}await props\.updateShoppingItem/);
+    expect(ingredientWorkspace).not.toMatch(/await api\.restockFoodStock[\s\S]{0,400}await props\.updateShoppingItem/);
+    expect(ingredientWorkspace).toContain('openShoppingIntake');
+  });
+});

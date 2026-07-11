@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type Dispatch, type FormEvent, type SetStateAction } from 'react';
+import { type Dispatch, type FormEvent, type SetStateAction } from 'react';
 import type {
   Food,
   FoodPlanItem,
@@ -6,8 +6,8 @@ import type {
   MealLog,
   Member,
   Recipe,
-  ShoppingListItem,
   UpdateMealLogPayload,
+  VersionedInventoryItemRef,
 } from '../../api/types';
 import { MediaWithPlaceholder } from '../../components/MediaPlaceholder';
 import { FoodPlanDetailModal, type FoodPlanDetailFormState } from '../../components/foods/FoodPlanDetailModal';
@@ -17,33 +17,15 @@ import {
   FoodPlanSelectedHero,
 } from '../../components/foods/FoodPlanDialogParts';
 import {
-  IngredientRestockAdvancedSection,
-  IngredientRestockExpirySection,
-  IngredientRestockPurchaseSection,
-  IngredientRestockQuantitySection,
-  IngredientRestockStorageSection,
-  resolvePurchaseDatePatch,
-} from '../../components/ingredients/IngredientRestockSections';
-import {
-  parsePositiveNumber,
-  resolveClampedDaysValue,
-  type InventoryPurchasePreset,
-} from '../../components/ingredients/ingredientWorkspaceForms';
-import {
   InventoryActionDialog,
 } from '../inventory/InventoryActionDialog';
 import type {
   ExpiryInventoryActionGroup,
   InventoryActionGroup,
 } from '../inventory/inventoryActionModel';
-import type { VersionedInventoryItemRef } from '../../api/types';
-import type { HomeActionCompletionSummary } from './useHomeDashboardState';
-import { Avatar, Badge, FormActions, SearchableResourceSelect, WorkspaceModal, WorkspaceOverlayFrame } from '../../components/ui-kit';
-import { resolveMediaUrl } from '../../lib/assets';
-import { addDateKeyDays } from '../../lib/date';
-import { convertQuantityToDefaultUnit, getIngredientUnitOptions } from '../../lib/ingredientUnits';
+import type { HomeActionCompletionSummary, HomePlanAddFormState } from './useHomeDashboardState';
+import { Avatar, Badge, FormActions, WorkspaceModal, WorkspaceOverlayFrame } from '../../components/ui-kit';
 import { useFoodResourceSearch } from '../../hooks/useFoodResourceSearch';
-import { useIngredientResourceSearch } from '../../hooks/useIngredientResourceSearch';
 import {
   FOOD_TYPE_LABELS,
   formatDate,
@@ -54,13 +36,8 @@ import {
 } from '../../lib/ui';
 import {
   DASHBOARD_PLAN_MEAL_TYPES,
-  matchIngredientByExactName,
-  resolveExpiryDateFromDays,
-  resolveInventoryStatusForStorage,
   type DashboardPlanDay,
-  type HomeRestockFormState,
 } from './homeDashboardModel';
-import type { HomePlanAddFormState } from './useHomeDashboardState';
 import { MealEnrichmentModal } from '../meals/MealEnrichmentModal';
 import type { MealSource } from '../meals/MealLogEnrichment';
 
@@ -105,14 +82,6 @@ type Props = {
   homeMealDetail: MealLog | null;
   homeMealDetailParticipants: Member[];
   closeHomeMealDetail: () => void;
-  homeRestockShoppingItem: ShoppingListItem | null;
-  homeRestockForm: HomeRestockFormState | null;
-  homeRestockIngredient: Ingredient | null;
-  homeRestockIngredientImageUrl?: string;
-  updateHomeRestockForm: (next: HomeRestockFormState) => void;
-  closeHomeRestock: () => void;
-  submitHomeRestock: (event: FormEvent<HTMLFormElement>) => Promise<void>;
-  isCreatingInventory: boolean;
   selectedActionGroup: InventoryActionGroup | null;
   businessDateKey: string;
   actionDialogBusy: boolean;
@@ -142,120 +111,21 @@ type Props = {
 export function HomeDashboardDialogs(props: Props) {
   const today = todayKey();
   const homePlanDetailItem = props.homePlanDetailItem;
-  const homeRestockShoppingItem = props.homeRestockShoppingItem;
   const selectedExpiryGroup =
     props.selectedActionGroup && props.selectedActionGroup.kind === 'expiry'
       ? (props.selectedActionGroup as ExpiryInventoryActionGroup)
       : null;
-  const homeRestockForm = props.homeRestockForm;
   const homePlanAddFormId = 'home-plan-add-overlay-form';
-  const homeRestockFormId = 'home-restock-overlay-form';
 
-  const [showIngredientSelector, setShowIngredientSelector] = useState(false);
-  const homeRestockIngredientSearch = useIngredientResourceSearch(homeRestockForm?.ingredientQuery ?? '', {
-    enabled: Boolean(homeRestockShoppingItem && homeRestockForm && showIngredientSelector),
-    fallbackIngredients: props.ingredients,
-  });
   const homePlanFoodSearch = useFoodResourceSearch(props.homePlanAddFoodSearch, {
     enabled: props.isHomePlanAddDialogOpen && !props.homePlanAddFood,
     fallbackFoods: props.homePlanAddFoodOptions,
   });
-  const homeRestockUnitOptions = useMemo(() => {
-    const currentUnit = homeRestockForm?.unit || props.homeRestockIngredient?.default_unit || '个';
-    const units = props.homeRestockIngredient
-      ? [currentUnit, ...getIngredientUnitOptions(props.homeRestockIngredient).map((option) => option.unit)]
-      : [currentUnit];
-    return units
-      .filter((unit, index, list) => unit && list.indexOf(unit) === index)
-      .map((unit) => ({ value: unit, label: unit }));
-  }, [homeRestockForm?.unit, props.homeRestockIngredient]);
-  const homeRestockSelectedUnit =
-    props.homeRestockIngredient && homeRestockForm
-      ? getIngredientUnitOptions(props.homeRestockIngredient).find((item) => item.unit === homeRestockForm.unit) ??
-        { unit: homeRestockForm.unit || props.homeRestockIngredient.default_unit || '个' }
-      : null;
-  const homeRestockNormalizedQuantity =
-    props.homeRestockIngredient && homeRestockForm
-      ? (() => {
-          const parsedQuantity = parsePositiveNumber(homeRestockForm.quantity);
-          return parsedQuantity !== null
-            ? convertQuantityToDefaultUnit(props.homeRestockIngredient, parsedQuantity, homeRestockForm.unit)
-            : null;
-        })()
-      : null;
-  const homePurchaseDatePreset: InventoryPurchasePreset =
-    homeRestockForm?.purchaseDate === today
-      ? 'today'
-      : homeRestockForm?.purchaseDate === addDateKeyDays(today, -1)
-        ? 'yesterday'
-        : 'custom';
-  const homeRestockExpiryDaysValue = homeRestockForm
-    ? resolveClampedDaysValue(homeRestockForm.expiryDays, props.homeRestockIngredient?.default_expiry_days ?? 3)
-    : 3;
-
-  useEffect(() => {
-    setShowIngredientSelector(false);
-  }, [homeRestockShoppingItem?.id]);
-
   const closeHomePlanAddDialogIfAllowed = () => {
     if (!props.isCreatingFoodPlanItem) {
       props.closeHomePlanAddDialog();
     }
   };
-
-  const closeHomeRestockIfAllowed = () => {
-    if (!props.isCreatingInventory) {
-      props.closeHomeRestock();
-    }
-  };
-
-  function updateHomeRestockIngredientQuery(query: string) {
-    if (!homeRestockForm) return;
-    const normalizedQuery = query.trim();
-    const match = normalizedQuery
-      ? homeRestockIngredientSearch.findIngredientByName(normalizedQuery)
-        ?? matchIngredientByExactName(normalizedQuery, props.ingredients)
-      : null;
-    props.updateHomeRestockForm({
-      ...homeRestockForm,
-      ingredientQuery: query,
-      ingredientId: match?.id ?? '',
-      unit: match?.default_unit || homeRestockForm.unit,
-      storageLocation: match?.default_storage || homeRestockForm.storageLocation,
-      expiryInputMode: match?.default_expiry_mode ?? homeRestockForm.expiryInputMode,
-      expiryDays:
-        match?.default_expiry_mode === 'days' && match.default_expiry_days
-          ? String(match.default_expiry_days)
-          : homeRestockForm.expiryDays,
-      expiryDate:
-        match?.default_expiry_mode === 'days' && match.default_expiry_days
-          ? resolveExpiryDateFromDays(homeRestockForm.purchaseDate, String(match.default_expiry_days))
-          : homeRestockForm.expiryDate,
-      status: resolveInventoryStatusForStorage(match?.default_storage || homeRestockForm.storageLocation),
-    });
-  }
-
-  function selectHomeRestockIngredient(ingredient: Ingredient) {
-    if (!homeRestockForm) return;
-    props.updateHomeRestockForm({
-      ...homeRestockForm,
-      ingredientId: ingredient.id,
-      ingredientQuery: ingredient.name,
-      unit: ingredient.default_unit || homeRestockForm.unit,
-      storageLocation: ingredient.default_storage || homeRestockForm.storageLocation,
-      expiryInputMode: ingredient.default_expiry_mode,
-      expiryDays:
-        ingredient.default_expiry_mode === 'days' && ingredient.default_expiry_days
-          ? String(ingredient.default_expiry_days)
-          : '',
-      expiryDate:
-        ingredient.default_expiry_mode === 'days' && ingredient.default_expiry_days
-          ? resolveExpiryDateFromDays(homeRestockForm.purchaseDate, String(ingredient.default_expiry_days))
-          : '',
-      status: resolveInventoryStatusForStorage(ingredient.default_storage || homeRestockForm.storageLocation),
-    });
-    setShowIngredientSelector(false);
-  }
 
   return (
     <>
@@ -480,197 +350,6 @@ export function HomeDashboardDialogs(props: Props) {
               )}
 
             </div>
-          </WorkspaceModal>
-        </WorkspaceOverlayFrame>
-      )}
-
-      {homeRestockShoppingItem && homeRestockForm && (
-        <WorkspaceOverlayFrame
-          rootClassName="home-dashboard-overlay-root"
-          onClose={closeHomeRestockIfAllowed}
-          closeOnBackdrop={!props.isCreatingInventory}
-        >
-          <WorkspaceModal
-            title="登记这批库存"
-            description="从首页采购提醒快速入库，保存后会把这条采购项标记完成。"
-            closeLabel="关闭"
-            closeAriaLabel="关闭"
-            className="workspace-modal-wide inventory-restock-modal"
-            onClose={closeHomeRestockIfAllowed}
-            footerActions={
-              <FormActions
-                className="ingredients-restock-actions"
-                primaryLabel="补入库存"
-                primaryType="submit"
-                primaryForm={homeRestockFormId}
-                primaryDisabled={!props.homeRestockIngredient}
-                isSubmitting={props.isCreatingInventory}
-                secondaryLabel="取消"
-                onSecondary={closeHomeRestockIfAllowed}
-              />
-            }
-          >
-            <form id={homeRestockFormId} className="ingredients-restock-form" onSubmit={(event) => void props.submitHomeRestock(event)}>
-              <div className="ingredients-restock-scroll">
-                <div className="ingredients-restock-source-note">
-                  <Badge>来自采购提醒</Badge>
-                  <span>{homeRestockShoppingItem.title}</span>
-                </div>
-
-                <section className="ingredients-restock-field-group">
-                  <div className="ingredients-restock-field-head">
-                    <span>识别食材</span>
-                    <p className="subtle">优先匹配已有档案，也可以更换为其他已有食材。</p>
-                  </div>
-                  {props.homeRestockIngredient ? (
-                    <div className="ingredients-restock-matched-card">
-                      <div className="ingredients-restock-matched-media">
-                        <MediaWithPlaceholder
-                          src={props.homeRestockIngredientImageUrl}
-                          alt={props.homeRestockIngredient.name}
-                        />
-                      </div>
-                      <div className="ingredients-restock-matched-info">
-                        <strong>{props.homeRestockIngredient.name}</strong>
-                        <span>
-                          {props.homeRestockIngredient.category || '未分类'} · 默认存放在 {props.homeRestockIngredient.default_storage || '未设置'}
-                        </span>
-                      </div>
-                      <button
-                        type="button"
-                        className="ingredients-restock-change-btn"
-                        onClick={() => setShowIngredientSelector(!showIngredientSelector)}
-                      >
-                        {showIngredientSelector ? '收起' : '更换'}
-                      </button>
-                    </div>
-                  ) : (
-                    <div className="ingredients-restock-matched-card is-empty">
-                      <div className="ingredients-restock-matched-media">
-                        <span>?</span>
-                      </div>
-                      <div className="ingredients-restock-matched-info">
-                        <strong>未选择食材</strong>
-                        <span>请选择对应食材以继续登记</span>
-                      </div>
-                      <button
-                        type="button"
-                        className="ingredients-restock-change-btn is-action"
-                        onClick={() => setShowIngredientSelector(!showIngredientSelector)}
-                      >
-                        {showIngredientSelector ? '收起' : '选择食材'}
-                      </button>
-                    </div>
-                  )}
-
-                  {showIngredientSelector && (
-                    <div className="ingredients-restock-search-field ingredients-restock-selector-panel">
-                      <span>食材</span>
-                      <SearchableResourceSelect
-                        ariaLabel="选择食材"
-                        placeholder="搜索现有食材..."
-                        value={homeRestockForm.ingredientId}
-                        query={homeRestockForm.ingredientQuery}
-                        loading={homeRestockIngredientSearch.isSearching}
-                        loadingMore={homeRestockIngredientSearch.isFetchingNextPage}
-                        hasMore={homeRestockIngredientSearch.hasMore}
-                        loadMoreText="加载更多食材"
-                        loadingMoreText="正在加载更多食材..."
-                        options={homeRestockIngredientSearch.ingredients
-                          .map((ingredient) => ({
-                            id: ingredient.id,
-                            label: ingredient.name,
-                            description: `${ingredient.category || '食材'} · 默认 ${ingredient.default_unit || '个'}`,
-                            image: <MediaWithPlaceholder src={resolveMediaUrl(ingredient.image, 'thumb')} alt="" />,
-                          }))}
-                        emptyText={homeRestockIngredientSearch.isSearching ? '正在搜索...' : '没有找到匹配的食材'}
-                        onSearchCompositionStart={homeRestockIngredientSearch.onCompositionStart}
-                        onSearchCompositionEnd={homeRestockIngredientSearch.onCompositionEnd}
-                        onQueryChange={updateHomeRestockIngredientQuery}
-                        onLoadMore={() => {
-                          if (homeRestockIngredientSearch.hasMore && !homeRestockIngredientSearch.isFetchingNextPage) {
-                            void homeRestockIngredientSearch.fetchNextPage();
-                          }
-                        }}
-                        onChange={(ingredientId) => {
-                          const ingredient = homeRestockIngredientSearch.findIngredientById(ingredientId);
-                          if (ingredient) selectHomeRestockIngredient(ingredient);
-                        }}
-                      />
-                    </div>
-                  )}
-                </section>
-
-                <IngredientRestockQuantitySection
-                  ingredient={props.homeRestockIngredient}
-                  quantity={homeRestockForm.quantity}
-                  unit={homeRestockForm.unit || props.homeRestockIngredient?.default_unit || '个'}
-                  unitOptions={homeRestockUnitOptions}
-                  selectedUnit={homeRestockSelectedUnit}
-                  normalizedQuantity={homeRestockNormalizedQuantity}
-                  onQuantityChange={(quantity) => props.updateHomeRestockForm({ ...homeRestockForm, quantity })}
-                  onUnitChange={(unit) => props.updateHomeRestockForm({ ...homeRestockForm, unit })}
-                />
-
-                <IngredientRestockPurchaseSection
-                  purchaseDate={homeRestockForm.purchaseDate}
-                  purchaseDatePreset={homePurchaseDatePreset}
-                  onChange={(patch) => {
-                    const resolvedPatch = resolvePurchaseDatePatch(patch);
-                    const purchaseDate = resolvedPatch.purchaseDate ?? homeRestockForm.purchaseDate;
-                    props.updateHomeRestockForm({
-                      ...homeRestockForm,
-                      purchaseDate,
-                      expiryDate:
-                        homeRestockForm.expiryInputMode === 'days'
-                          ? resolveExpiryDateFromDays(purchaseDate, homeRestockForm.expiryDays)
-                          : homeRestockForm.expiryDate,
-                    });
-                  }}
-                />
-
-                <IngredientRestockStorageSection
-                  storageLocation={homeRestockForm.storageLocation}
-                  onChange={(storageLocation) =>
-                    props.updateHomeRestockForm({
-                      ...homeRestockForm,
-                      storageLocation,
-                      status: resolveInventoryStatusForStorage(storageLocation),
-                    })
-                  }
-                />
-
-                <IngredientRestockExpirySection
-                  expiryInputMode={homeRestockForm.expiryInputMode}
-                  expiryDays={homeRestockForm.expiryDays}
-                  expiryDate={homeRestockForm.expiryDate}
-                  purchaseDate={homeRestockForm.purchaseDate}
-                  defaultExpiryDays={props.homeRestockIngredient?.default_expiry_days}
-                  expiryDaysValue={homeRestockExpiryDaysValue}
-                  onChange={(patch) => {
-                    const expiryDays = patch.expiryDays ?? homeRestockForm.expiryDays;
-                    props.updateHomeRestockForm({
-                      ...homeRestockForm,
-                      ...patch,
-                      expiryDate:
-                        patch.expiryDays && homeRestockForm.expiryInputMode === 'days'
-                          ? resolveExpiryDateFromDays(homeRestockForm.purchaseDate, expiryDays)
-                          : patch.expiryDate ?? homeRestockForm.expiryDate,
-                    });
-                  }}
-                />
-
-                <IngredientRestockAdvancedSection
-                  open
-                  showToggle={false}
-                  status={homeRestockForm.status}
-                  notes={homeRestockForm.notes}
-                  onOpenChange={() => undefined}
-                  onChange={(patch) => props.updateHomeRestockForm({ ...homeRestockForm, ...patch })}
-                />
-              </div>
-
-            </form>
           </WorkspaceModal>
         </WorkspaceOverlayFrame>
       )}

@@ -156,7 +156,6 @@ function baseOverlayProps(overrides: Partial<OverlayLayerProps> = {}): OverlayLa
     disposeSelectedInventoryBatches: vi.fn(async () => undefined),
     snoozeSelectedInventoryAlerts: vi.fn(async () => undefined),
     correctSelectedInventoryExpiryDate: vi.fn(async () => undefined),
-    pendingShoppingToComplete: null,
     ...overrides,
   };
 }
@@ -285,8 +284,7 @@ describe('useIngredientActionState inventory action mutations', () => {
       shoppingForm: emptyShoppingForm,
       setShoppingForm: vi.fn(),
       editingShoppingItemId: null,
-      pendingShoppingToComplete: null,
-      inventoryActionIngredientId:
+        inventoryActionIngredientId:
         overrides.inventoryActionIngredientId === undefined
           ? 'ingredient-tomato'
           : overrides.inventoryActionIngredientId,

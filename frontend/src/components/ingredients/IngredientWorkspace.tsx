@@ -23,6 +23,7 @@ import type {
   Food,
   Ingredient,
   IngredientExpiryMode,
+  IngredientInventoryState,
   IngredientUnitConversion,
   InventoryItem,
   InventoryOverviewItem,
@@ -108,8 +109,11 @@ type IngredientWorkspaceProps = {
   ingredients: Ingredient[];
   foods: Food[];
   inventoryItems: InventoryItem[];
+  inventoryStates?: IngredientInventoryState[];
   recipes: Recipe[];
   shoppingItems: ShoppingListItem[];
+  /** Shared shopping intake entry. Shopping-origin restock must open this, not local create+done. */
+  openShoppingIntake?: (args?: { selectedItemId?: string }) => void;
   notificationCenter?: ReactNode;
   navigationRequest?:
     | { target: 'catalog'; requestId: number }
@@ -212,7 +216,6 @@ type FoodStockMealDialogState = {
 
 type FoodStockAdjustDialogState = {
   item: InventoryOverviewItem;
-  shoppingItemId?: string;
   quantity: string;
   unit: string;
   expiryDate: string;
@@ -1093,7 +1096,7 @@ type InventoryIngredientCardProps = {
 function InventoryIngredientCard(props: InventoryIngredientCardProps) {
   const { summary } = props;
   const status = buildInventoryCardStatus(summary);
-  const presentation = buildInventoryCardPresentation(summary);
+  const presentation = buildInventoryCardPresentation(summary, businessDateKey());
   const canDestroyExpired = countDisposableExpiredInventoryItems(summary, businessDateKey()) > 0;
   const alertTone = summary.alerts.length > 0 ? getIngredientAlertTone(summary) : null;
   const imageUrl = resolveMediaUrl(summary.ingredient.image, 'card');
@@ -1817,6 +1820,7 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
   } = useIngredientWorkspaceData({
     ingredients: searchAwareIngredients,
     inventoryItems: searchAwareInventoryItems,
+    inventoryStates: props.inventoryStates ?? [],
     recipes: props.recipes,
     foods: readyFoodOptions,
     shoppingItems: props.shoppingItems,
@@ -1891,7 +1895,6 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
     shoppingForm,
     setShoppingForm,
     editingShoppingItemId,
-    pendingShoppingToComplete,
     inventoryActionIngredientId,
     inventoryActionGroup,
     inventoryActionBusy,
@@ -1918,7 +1921,12 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
       setActivePanel('catalog');
       editorState.openCreateView();
     },
-    onOpenFoodStockFromShopping: (item) => handleOpenFoodStockFromInventory(item.food_id || item.title, item),
+    onOpenShoppingIntake: (item) => {
+      if (props.openShoppingIntake) {
+        props.openShoppingIntake({ selectedItemId: item.id });
+        return;
+      }
+    },
   });
 
   // Consume shopping/priority navigation once by requestId; do not keep shopping form state in home.
@@ -2004,10 +2012,14 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
   async function refreshInventoryActionGroup(ingredientId: string): Promise<ExpiryInventoryActionGroup | null> {
     await invalidateAfterInventoryChanged(queryClient);
     await queryClient.invalidateQueries({ queryKey: queryKeys.shoppingList });
-    const [freshInventory, freshIngredients, freshShopping] = await Promise.all([
+    const [freshInventory, freshStates, freshIngredients, freshShopping] = await Promise.all([
       queryClient.fetchQuery({
         queryKey: queryKeys.inventory,
         queryFn: () => api.getInventory(),
+      }),
+      queryClient.fetchQuery({
+        queryKey: queryKeys.inventoryStates,
+        queryFn: () => api.listInventoryStates(),
       }),
       queryClient.fetchQuery({
         queryKey: queryKeys.ingredients,
@@ -2022,13 +2034,15 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
       inventoryItems: freshInventory,
       ingredients: freshIngredients,
       shoppingItems: freshShopping,
+      inventoryStates: freshStates,
       referenceDate: inventoryActionReferenceDate,
     });
     const freshSummaries = buildIngredientSummaries({
       ingredients: freshIngredients,
       inventoryItems: freshInventory,
+      inventoryStates: freshStates,
       recipes: props.recipes,
-      today: inventoryActionReferenceDate,
+      referenceDate: inventoryActionReferenceDate,
       shoppingItems: freshShopping,
     });
     // Include dispose-only (future-snoozed expired) batches so 409 recovery does not
@@ -2059,7 +2073,6 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
     shoppingForm,
     setShoppingForm,
     editingShoppingItemId,
-    pendingShoppingToComplete,
     inventoryActionIngredientId,
     inventoryActionGroup,
     selectedInventoryIngredient,
@@ -2097,9 +2110,18 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
         </ActionButton>
       )}
       {activePanel === 'shopping' && (
-        <ActionButton tone="primary" type="button" onClick={() => openShoppingOverlay()}>
-          新增采购
-        </ActionButton>
+        <>
+          <ActionButton
+            tone="primary"
+            type="button"
+            onClick={() => props.openShoppingIntake?.()}
+          >
+            登记本次购买
+          </ActionButton>
+          <ActionButton tone="secondary" type="button" onClick={() => openShoppingOverlay()}>
+            新增采购
+          </ActionButton>
+        </>
       )}
     </div>
   );
@@ -2183,7 +2205,6 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
     disposeSelectedInventoryBatches,
     snoozeSelectedInventoryAlerts,
     correctSelectedInventoryExpiryDate,
-    pendingShoppingToComplete,
     isCreatingInventory: props.isCreatingInventory,
     isConsumingInventory: props.isConsumingInventory,
     isCreatingShopping: props.isCreatingShopping,
@@ -2193,12 +2214,11 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
     return unifiedInventoryItems.find((item) => item.source_id === sourceId);
   }
 
-  function handleOpenFoodStockFromInventory(foodId: string, shoppingItem?: ShoppingListItem) {
+  function handleOpenFoodStockFromInventory(foodId: string) {
     const item = findUnifiedInventoryItemBySourceId(foodId);
     if (item) {
       setFoodStockAdjustDialog({
         item,
-        shoppingItemId: shoppingItem?.id,
         quantity: '1',
         unit: item.unit || '份',
         expiryDate: item.expiry_date ?? '',
@@ -2382,16 +2402,10 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
     try {
       await api.restockFoodStock(foodStockAdjustDialog.item.source_id, payload);
       invalidateAfterFoodChanged(queryClient);
-      if (foodStockAdjustDialog.shoppingItemId) {
-        await props.updateShoppingItem({
-          itemId: foodStockAdjustDialog.shoppingItemId,
-          payload: { done: true },
-        });
-      }
       setFoodStockAdjustDialog(null);
       showNotice({
         tone: 'success',
-        title: foodStockAdjustDialog.shoppingItemId ? '已补库存并完成采购' : '已补库存',
+        title: '已补库存',
         message: `${foodStockAdjustDialog.item.title} 已补入 ${parsedQuantity.quantity}${payload.unit}。`,
       });
     } catch (error) {
@@ -2461,7 +2475,14 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
         openShoppingOverlay={openShoppingOverlay}
         openDestroyExpiredOverlay={openDestroyExpiredOverlay}
         openCreateView={openCreateView}
-        openInventoryFromShopping={openInventoryFromShopping}
+        openInventoryFromShopping={(item) => {
+          if (props.openShoppingIntake) {
+            props.openShoppingIntake({ selectedItemId: item.id });
+            return;
+          }
+          openInventoryFromShopping(item);
+        }}
+        openShoppingIntake={props.openShoppingIntake}
         openFoodStockMeal={handleRecordFoodStockMeal}
         openFoodStockEditor={handleOpenFoodStockFromInventory}
         openFoodShopping={handleAddFoodShopping}
@@ -2969,7 +2990,7 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
               <section className="ingredients-food-stock-restock-section">
                 <div className="ingredients-food-stock-restock-section-head">
                   <strong>购买来源</strong>
-                  <span>{foodStockAdjustDialog.shoppingItemId ? '补入成功后会完成这条采购' : '方便下次复购和回看'}</span>
+                  <span>方便下次复购和回看</span>
                 </div>
                 <label className="ingredients-food-stock-field">
                   <span>购买来源</span>

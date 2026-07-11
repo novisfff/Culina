@@ -29,3 +29,11 @@ describe('IngredientShoppingOverlay free-text option', () => {
   });
 });
 
+
+describe('IngredientWorkspaceOverlays shopping intake cutover', () => {
+  it('does not plumb pendingShoppingToComplete into inventory overlay', () => {
+    const source = readFileSync(sourcePath, 'utf8');
+    expect(source).not.toContain('pendingShoppingToComplete');
+    expect(source).not.toContain('PendingShoppingCompletion');
+  });
+});

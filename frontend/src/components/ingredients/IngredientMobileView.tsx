@@ -107,6 +107,7 @@ type IngredientMobileViewProps = {
   openDestroyExpiredOverlay: (ingredientId: string) => void;
   openCreateView: () => void;
   openInventoryFromShopping: (item: ShoppingListItem) => void;
+  openShoppingIntake?: (args?: { selectedItemId?: string }) => void;
   openFoodStockMeal: (foodId: string) => void;
   openFoodStockEditor: (foodId: string) => void;
   openFoodShopping: (foodId: string) => void;
@@ -677,10 +678,17 @@ export function IngredientMobileView(props: IngredientMobileViewProps) {
       <section id="mobile-ingredient-shopping" className="mobile-ingredient-panel">
         <div className="mobile-ingredient-section-head">
           <h2>采购待办 <span>{props.pendingShoppingCount} 项</span></h2>
-          <button type="button" onClick={() => props.openShoppingOverlay()}>
-            新增
-            {props.renderIcon('plus')}
-          </button>
+          <div className="mobile-ingredient-section-actions">
+            {props.openShoppingIntake ? (
+              <button type="button" onClick={() => props.openShoppingIntake?.()}>
+                登记本次购买
+              </button>
+            ) : null}
+            <button type="button" onClick={() => props.openShoppingOverlay()}>
+              新增
+              {props.renderIcon('plus')}
+            </button>
+          </div>
         </div>
         {props.mobileShoppingCards.length > 0 ? (
           <div className="mobile-ingredient-shopping-list">

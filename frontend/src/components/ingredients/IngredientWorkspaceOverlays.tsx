@@ -29,9 +29,8 @@ import { IngredientInventoryOverlay } from './IngredientInventoryOverlay';
 import { IngredientConsumeOverlay } from './IngredientConsumeOverlay';
 import { InventoryActionDialog } from '../../features/inventory/InventoryActionDialog';
 import { IngredientShoppingOverlay } from './IngredientShoppingOverlay';
-import type { OverlayLayerProps, PendingShoppingCompletion } from './IngredientWorkspaceOverlayTypes';
+import type { OverlayLayerProps } from './IngredientWorkspaceOverlayTypes';
 
-export type { PendingShoppingCompletion } from './IngredientWorkspaceOverlayTypes';
 
 const INGREDIENT_WORKSPACE_OVERLAY_ROOT_CLASS = 'ingredient-workspace-overlay-root';
 
@@ -260,7 +259,6 @@ export function IngredientWorkspaceOverlays(props: OverlayLayerProps) {
           setInventoryForm={props.setInventoryForm}
           inventoryAdvancedOpen={props.inventoryAdvancedOpen}
           setInventoryAdvancedOpen={props.setInventoryAdvancedOpen}
-          pendingShoppingToComplete={props.pendingShoppingToComplete}
           quickRestockIngredients={props.quickRestockIngredients}
           ingredients={props.ingredients}
           selectedInventoryIngredient={selectedInventoryIngredient}

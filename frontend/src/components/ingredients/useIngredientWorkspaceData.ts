@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import type { Food, Ingredient, InventoryItem, Recipe, ShoppingListItem } from '../../api/types';
+import type { Food, Ingredient, IngredientInventoryState, InventoryItem, Recipe, ShoppingListItem } from '../../api/types';
 import {
   buildIngredientPriorityActionGroups,
   buildInventoryCardStatus,
@@ -34,6 +34,7 @@ type UseIngredientWorkspaceDataArgs = {
   recipes: Recipe[];
   foods: Food[];
   shoppingItems: ShoppingListItem[];
+  inventoryStates?: IngredientInventoryState[];
   ingredientOptions: Ingredient[];
   selectedIngredientId: string | null;
   catalogSearch: string;
@@ -115,10 +116,12 @@ function filterInventorySummariesByQuickFilter(
 export function useIngredientWorkspaceData(args: UseIngredientWorkspaceDataArgs) {
   return useMemo(() => {
     const referenceDate = args.referenceDate ?? businessDateKey();
+    const inventoryStates = args.inventoryStates ?? [];
     const inventoryActionGroups = buildIngredientPriorityActionGroups({
       ingredients: args.ingredients,
       inventoryItems: args.inventoryItems,
       shoppingItems: args.shoppingItems,
+      inventoryStates,
       referenceDate,
     });
     const priorityActionCount = inventoryActionGroups.length;
@@ -127,8 +130,9 @@ export function useIngredientWorkspaceData(args: UseIngredientWorkspaceDataArgs)
       ingredients: args.ingredients,
       inventoryItems: args.inventoryItems,
       recipes: args.recipes,
-      today: referenceDate,
+      referenceDate,
       shoppingItems: args.shoppingItems,
+      inventoryStates,
     });
     const catalogCategories = buildIngredientCategoryFilters(args.ingredients);
     const catalogBaseSummaries = filterIngredientSummaries(
@@ -275,6 +279,7 @@ export function useIngredientWorkspaceData(args: UseIngredientWorkspaceDataArgs)
     args.ingredientOptions,
     args.ingredients,
     args.inventoryItems,
+    args.inventoryStates,
     args.inventoryQuickFilter,
     args.inventorySearch,
     args.inventorySearchMatchedIngredientIds,

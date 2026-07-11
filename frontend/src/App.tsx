@@ -1,7 +1,7 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { api } from './api/client';
-import { invalidateAfterInventoryChanged } from './api/cacheInvalidation';
+import { invalidateAfterInventoryChanged, invalidateAfterInventoryOperation } from './api/cacheInvalidation';
 import { queryKeys } from './api/queryKeys';
 import { AppNotificationCenter, AppShell, type TabKey } from './app/AppShell';
 import { useAppGlobalSearchNavigation } from './app/useAppGlobalSearchNavigation';
@@ -17,6 +17,7 @@ import { useAuth } from './auth/AuthContext';
 import { AuthStatusScreen, LoginScreen } from './components/LoginScreen';
 import { addDateKeyDays, getRecipeWeekRange } from './components/recipes/workspaceModel';
 import { businessDateKey } from './lib/date';
+import { tracksIngredientQuantity } from './lib/ingredientTracking';
 import {
   buildInventoryActionGroups,
   selectHomeEligibleInventoryActionGroups,
@@ -32,12 +33,18 @@ import {
 import { MealLogWorkspace } from './features/meals/MealLogWorkspace';
 import type { FamilyStatCard } from './features/family/FamilySettings';
 import { useFamilySettingsState } from './features/family/useFamilySettingsState';
-import {
-  type HomeRestockFormState,
-} from './features/home/homeDashboardModel';
 import { useHomeDashboardState } from './features/home/useHomeDashboardState';
 import { useHomeDashboardActions } from './features/home/useHomeDashboardActions';
 import type { HomeMealEnrichmentOpenRequest } from './features/home/useHomeDashboardActions';
+import { InventoryMaintenanceDialogs } from './features/inventory/InventoryMaintenanceDialogs';
+import { useShoppingIntakeState } from './features/inventory/useShoppingIntakeState';
+import { useShoppingIntakeActions } from './features/inventory/useShoppingIntakeActions';
+import {
+  linkFreeTextDraft,
+  suggestFreeTextLinkCandidates,
+  type FreeTextLinkCandidate,
+  type FreeTextLinkTarget,
+} from './features/inventory/shoppingIntakeModel';
 import { resolveMealSource } from './features/meals/MealLogEnrichmentModel';
 import { useNotice } from './hooks/useNotice';
 import { useAiImageJobMonitor } from './hooks/useAiImageJobMonitor';
@@ -303,6 +310,7 @@ function App() {
     createShoppingMutation,
     updateShoppingMutation,
     deleteShoppingMutation,
+    submitShoppingIntakeMutation,
     createRecipeMutation,
     updateRecipeMutation,
     deleteRecipeMutation,
@@ -322,6 +330,65 @@ function App() {
     updateMealMutation,
     quickAddMealMutation,
   } = useAppMutations();
+
+  const shoppingIntakeState = useShoppingIntakeState();
+  const shoppingIntakeActions = useShoppingIntakeActions({
+    state: shoppingIntakeState,
+    submitShoppingIntake: (payload) => submitShoppingIntakeMutation.mutateAsync(payload),
+    invalidateAfterInventoryOperation: async () => {
+      await invalidateAfterInventoryOperation(queryClient);
+    },
+    showNotice,
+    refreshSources: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: queryKeys.shoppingList }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.inventory }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.inventoryStates }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.ingredients }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.foods }),
+      ]);
+    },
+  });
+
+  function openShoppingIntake(args?: { selectedItemId?: string }) {
+    shoppingIntakeState.openIntake({
+      shoppingItems,
+      ingredients,
+      foods,
+      inventoryStates,
+      referenceDate: homeBusinessDateKey,
+      selectedItemId: args?.selectedItemId,
+    });
+  }
+
+  function resolveFreeTextLinkTarget(candidate: FreeTextLinkCandidate): FreeTextLinkTarget | null {
+    if (candidate.kind === 'food') {
+      const food = foods.find((item) => item.id === candidate.id);
+      return food ? { kind: 'food', food } : null;
+    }
+    const ingredient = ingredients.find((item) => item.id === candidate.id);
+    if (!ingredient) return null;
+    const state = inventoryStates.find((item) => item.ingredient_id === ingredient.id) ?? null;
+    return tracksIngredientQuantity(ingredient)
+      ? { kind: 'exact_ingredient', ingredient, state }
+      : { kind: 'presence_ingredient', ingredient, state };
+  }
+
+  const freeTextCandidatesByItemId = (() => {
+    const draft = shoppingIntakeState.draft;
+    if (!draft) return {} as Record<string, FreeTextLinkCandidate[]>;
+    const map: Record<string, FreeTextLinkCandidate[]> = {};
+    for (const item of draft.items) {
+      if (item.kind !== 'free_text') continue;
+      map[item.shoppingItemId] = suggestFreeTextLinkCandidates({
+        title: item.title,
+        ingredients,
+        foods,
+      });
+    }
+    return map;
+  })();
+
   const {
     overlayMode: familyOverlayMode,
     setOverlayMode: setFamilyOverlayMode,
@@ -487,9 +554,15 @@ function App() {
     setHomeRestockForm,
     setHomeMealDetailId,
     ingredients,
+    openShoppingIntake,
   });
   void openIngredientsCatalog;
   void openIngredientDetail;
+  void closeHomeRestock;
+  void updateHomeRestockForm;
+  void homeRestockShoppingItem;
+  void homeRestockIngredient;
+  void homeRestockIngredientImageUrl;
 
   function handleOpenNextActionGroup() {
     const group = openNextActionGroup();
@@ -537,7 +610,6 @@ function App() {
     disposeSelectedInventoryBatches,
     snoozeSelectedInventoryAlerts,
     correctSelectedInventoryExpiryDate,
-    submitHomeRestock,
     submitHomePlanDetail,
     supplementHomePlanDetailRecord,
     deleteHomePlanDetail,
@@ -545,15 +617,10 @@ function App() {
   } = useHomeDashboardActions({
     showNotice,
     selectedActionGroup,
-    homeRestockShoppingItem,
-    homeRestockForm,
-    homeRestockIngredient,
     homePlanDetailItem,
     homePlanDetailForm,
     homePlanAddFood,
     homePlanAddForm,
-    createInventory: (payload) => createInventoryMutation.mutateAsync(payload),
-    updateShoppingDone: (itemId, done) => updateShoppingMutation.mutateAsync({ itemId, payload: { done } }),
     disposeExpiredInventory: (payload) => disposeExpiredInventoryMutation.mutateAsync(payload),
     snoozeInventoryExpiryAlerts: (payload) => snoozeInventoryExpiryAlertsMutation.mutateAsync(payload),
     correctInventoryExpiryDate: (inventoryItemId, payload) =>
@@ -571,7 +638,6 @@ function App() {
     deleteFoodPlanItem: (itemId) => deleteFoodPlanItemMutation.mutateAsync(itemId),
     createFoodPlanItem: (payload) => createFoodPlanItemMutation.mutateAsync(payload),
     quickAddMeal: (payload) => quickAddMealMutation.mutateAsync(payload),
-    closeHomeRestock,
     closeHomePlanDetail,
     closeHomePlanAddDialog,
     setIsHomePlanDetailEditing,
@@ -869,8 +935,10 @@ function App() {
               ingredients={ingredients}
               foods={foods}
               inventoryItems={inventoryItems}
+              inventoryStates={inventoryStates}
               shoppingItems={shoppingItems}
               recipes={recipes}
+              openShoppingIntake={openShoppingIntake}
               notificationCenter={mobileNotificationCenter}
               navigationRequest={ingredientNavigationRequest}
               createIngredient={(payload) => createIngredientMutation.mutateAsync(payload)}
@@ -1019,14 +1087,6 @@ function App() {
             homeMealDetail={homeMealDetail}
             homeMealDetailParticipants={homeMealDetailParticipants}
             closeHomeMealDetail={closeHomeMealDetail}
-            homeRestockShoppingItem={homeRestockShoppingItem}
-            homeRestockForm={homeRestockForm}
-            homeRestockIngredient={homeRestockIngredient}
-            homeRestockIngredientImageUrl={homeRestockIngredientImageUrl}
-            updateHomeRestockForm={updateHomeRestockForm}
-            closeHomeRestock={closeHomeRestock}
-            submitHomeRestock={submitHomeRestock}
-            isCreatingInventory={createInventoryMutation.isPending}
             selectedActionGroup={selectedActionGroup}
             businessDateKey={today}
             actionDialogBusy={actionDialogBusy}
@@ -1045,6 +1105,53 @@ function App() {
             resolveAssetUrl={resolveDashboardAssetUrl}
           />
         </Suspense>
+
+        <InventoryMaintenanceDialogs
+          shoppingIntake={
+            shoppingIntakeState.open
+              ? {
+                  open: shoppingIntakeState.open,
+                  step: shoppingIntakeState.step,
+                  draft: shoppingIntakeState.draft,
+                  busy: shoppingIntakeState.busy,
+                  errorMessage: shoppingIntakeState.errorMessage,
+                  fieldErrors: shoppingIntakeState.fieldErrors,
+                  focusFieldKey: shoppingIntakeState.focusFieldKey,
+                  conflictState: shoppingIntakeState.conflictState,
+                  result: shoppingIntakeState.result,
+                  expandedExceptionIds: shoppingIntakeState.expandedExceptionIds,
+                  freeTextCandidatesByItemId,
+                  onClose: shoppingIntakeState.closeIntake,
+                  onGoReview: () => {
+                    shoppingIntakeState.goToReview();
+                  },
+                  onGoSelect: shoppingIntakeState.goToSelect,
+                  onToggleItem: shoppingIntakeState.toggleItemSelected,
+                  onPatchItem: shoppingIntakeState.patchItem,
+                  onCompleteFreeText: shoppingIntakeState.completeFreeText,
+                  onLinkFreeText: (shoppingItemId, candidate) => {
+                    const target = resolveFreeTextLinkTarget(candidate);
+                    if (!target || !shoppingIntakeState.draft) return;
+                    shoppingIntakeState.replaceDraft(
+                      linkFreeTextDraft(
+                        shoppingIntakeState.draft,
+                        shoppingItemId,
+                        target,
+                        shoppingIntakeState.draft.purchaseDate,
+                      ),
+                    );
+                  },
+                  onToggleException: shoppingIntakeState.toggleExceptionExpanded,
+                  onSubmit: () => {
+                    void shoppingIntakeActions.submitDraft();
+                  },
+                  onRetry: () => {
+                    void shoppingIntakeActions.retryLatest();
+                  },
+                }
+              : null
+          }
+        />
 
     </AppShell>
   );
