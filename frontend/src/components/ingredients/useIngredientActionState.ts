@@ -345,9 +345,19 @@ export function useIngredientActionState(args: UseIngredientActionStateArgs) {
     }
 
     try {
-      await args.refreshInventoryActionGroup(mutationArgs.ingredientId);
+      const remaining = await args.refreshInventoryActionGroup(mutationArgs.ingredientId);
       args.setInventoryActionConflict('none');
       args.setSelectedIngredientId(mutationArgs.ingredientId);
+      if (remaining && remaining.batches.length > 0) {
+        // Partial success: keep dialog open so the user can continue remaining batches.
+        args.setInventoryActionError(null);
+        args.showNotice({
+          tone: 'success',
+          title: `已处理${mutationArgs.ingredientName}`,
+          message: '还有批次需要处理，请继续选择。',
+        });
+        return;
+      }
       args.closeOverlay();
     } catch (reason) {
       args.setInventoryActionConflict('none');

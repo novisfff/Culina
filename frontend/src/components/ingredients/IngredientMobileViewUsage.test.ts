@@ -69,4 +69,13 @@ describe('IngredientMobileView shared overlay usage', () => {
     expect(workspaceSource).toContain("() => unifiedInventoryItems.filter((item) => item.source_type === 'food')");
     expect(workspaceSource).not.toContain("() => filteredUnifiedInventoryItems.filter((item) => item.source_type === 'food')");
   });
+
+  it('opens inventory action dialog for any expiry priority group, not only expired batches', () => {
+    const mobileSource = readFileSync(sourcePath, 'utf8');
+    // Primary action for non-low-stock priority rows always opens the shared action dialog.
+    expect(mobileSource).toContain('props.openDestroyExpiredOverlay(group.ingredientId)');
+    // Must not gate priority primary action on expiredBatchCount > 0.
+    expect(mobileSource).not.toContain('group.expiredBatchCount > 0');
+  });
+
 });

@@ -277,7 +277,7 @@ describe('AppNotificationCenter', () => {
 
     const badge = view.querySelector('.app-notification-count');
     expect(badge?.textContent).toBe('3');
-    expect(view.querySelector('.app-notification-trigger')?.getAttribute('aria-label')).toBe('查看后台任务');
+    expect(view.querySelector('.app-notification-trigger')?.getAttribute('aria-label')).toBe('查看后台任务，1 个失败，2 个进行中');
 
     click(view.querySelector('.app-notification-trigger'));
     const popover = view.querySelector('.app-notification-popover');

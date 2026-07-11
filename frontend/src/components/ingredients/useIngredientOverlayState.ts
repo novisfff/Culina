@@ -64,9 +64,9 @@ function buildDisposeOnlyExpiryGroup(
       purchaseDate: item.purchaseDate,
       expiryDate,
       daysLeft: calendarDaysBetweenDateKeys(expiryDate, referenceDate),
-      expiryAlertSnoozedUntil: null,
-      expiryReviewedAt: null,
-      expiryReviewedBy: null,
+      expiryAlertSnoozedUntil: item.expiryAlertSnoozedUntil,
+      expiryReviewedAt: item.expiryReviewedAt,
+      expiryReviewedBy: item.expiryReviewedBy,
     };
   });
 
@@ -112,6 +112,69 @@ function buildDisposeOnlyExpiryGroup(
     detail: `${batches.length} 批已过期`,
     primaryAction: 'manage_expiry',
   };
+}
+
+
+export function resolveExpiryInventoryActionGroup(args: {
+  ingredientId: string;
+  inventoryActionGroups: InventoryActionGroup[];
+  summaries: IngredientSummaryViewModel[];
+  referenceDate: string;
+}): ExpiryInventoryActionGroup | null {
+  const shared = args.inventoryActionGroups.find(
+    (item): item is ExpiryInventoryActionGroup => item.kind === 'expiry' && item.ingredientId === args.ingredientId,
+  );
+  const summary = args.summaries.find((item) => item.ingredient.id === args.ingredientId) ?? null;
+  const disposeOnly = summary ? buildDisposeOnlyExpiryGroup(summary, args.referenceDate) : null;
+
+  if (shared && disposeOnly) {
+    const byId = new Map(shared.batches.map((batch) => [batch.inventoryItemId, batch]));
+    for (const batch of disposeOnly.batches) {
+      if (!byId.has(batch.inventoryItemId)) {
+        byId.set(batch.inventoryItemId, batch);
+      }
+    }
+    const batches = [...byId.values()].sort(
+      (left, right) =>
+        left.daysLeft - right.daysLeft ||
+        left.expiryDate.localeCompare(right.expiryDate) ||
+        left.inventoryItemId.localeCompare(right.inventoryItemId),
+    );
+    if (batches.length === shared.batches.length) {
+      return shared;
+    }
+    const expiredBatchCount = batches.filter((batch) => batch.daysLeft < 0).length;
+    const todayBatchCount = batches.filter((batch) => batch.daysLeft === 0).length;
+    const soonBatchCount = batches.filter((batch) => batch.daysLeft >= 1 && batch.daysLeft <= 3).length;
+    const laterBatchCount = batches.filter((batch) => batch.daysLeft >= 4 && batch.daysLeft <= 7).length;
+    const severity =
+      expiredBatchCount > 0
+        ? 'expired'
+        : todayBatchCount > 0
+          ? 'expires_today'
+          : soonBatchCount > 0
+            ? 'expires_soon'
+            : 'expires_later';
+    const earliest = batches[0] ?? null;
+    return {
+      ...shared,
+      severity,
+      batches,
+      expiredBatchCount,
+      todayBatchCount,
+      soonBatchCount,
+      laterBatchCount,
+      totalBatchCount: batches.length,
+      earliestExpiryDate: earliest?.expiryDate ?? shared.earliestExpiryDate,
+      earliestDaysLeft: earliest?.daysLeft ?? shared.earliestDaysLeft,
+      detail:
+        expiredBatchCount > 0 && todayBatchCount + soonBatchCount + laterBatchCount === 0
+          ? `${expiredBatchCount} 批已过期`
+          : shared.detail,
+    };
+  }
+
+  return shared ?? disposeOnly;
 }
 
 export function useIngredientOverlayState(args: UseIngredientOverlayStateArgs) {
@@ -290,17 +353,12 @@ export function useIngredientOverlayState(args: UseIngredientOverlayStateArgs) {
   }
 
   function resolveInventoryActionGroup(ingredientId: string): ExpiryInventoryActionGroup | null {
-    const shared = args.inventoryActionGroups.find(
-      (item): item is ExpiryInventoryActionGroup => item.kind === 'expiry' && item.ingredientId === ingredientId,
-    );
-    if (shared) {
-      return shared;
-    }
-    const summary = args.summaries.find((item) => item.ingredient.id === ingredientId) ?? null;
-    if (!summary) {
-      return null;
-    }
-    return buildDisposeOnlyExpiryGroup(summary, args.referenceDate);
+    return resolveExpiryInventoryActionGroup({
+      ingredientId,
+      inventoryActionGroups: args.inventoryActionGroups,
+      summaries: args.summaries,
+      referenceDate: args.referenceDate,
+    });
   }
 
   function openInventoryActionOverlay(ingredientId: string) {

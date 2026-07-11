@@ -323,7 +323,19 @@ export function AppNotificationCenter(props: {
         type="button"
         onClick={() => setIsOpen((current) => !current)}
         aria-expanded={isOpen}
-        aria-label="查看后台任务"
+        aria-label={(() => {
+          if (attentionCount <= 0) {
+            return '查看后台任务';
+          }
+          const parts: string[] = [];
+          if (failedCount > 0) {
+            parts.push(`${failedCount} 个失败`);
+          }
+          if (activeCount > 0) {
+            parts.push(`${activeCount} 个进行中`);
+          }
+          return `查看后台任务，${parts.join('，')}`;
+        })()}
       >
         <span className="app-notification-icon" aria-hidden="true">
           <DashboardIcon name="bell" />

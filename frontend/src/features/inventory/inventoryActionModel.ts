@@ -1,6 +1,9 @@
 import type { Ingredient, InventoryItem, ShoppingListItem } from '../../api/types';
 import { calendarDaysBetweenDateKeys } from '../../lib/date';
-import { getInventoryRemainingQuantity } from '../../lib/ingredientUnits';
+import {
+  getIngredientAvailableQuantityInDefault,
+  getInventoryRemainingQuantity,
+} from '../../lib/ingredientUnits';
 import { tracksIngredientQuantity } from '../../lib/ingredientTracking';
 
 export type InventoryActionBatch = {
@@ -163,18 +166,12 @@ function sumPositiveNonExpiredAvailableQuantity(
   inventoryItems: InventoryItem[],
   referenceDate: string
 ) {
-  return inventoryItems
-    .filter((item) => item.ingredient_id === ingredient.id)
-    .reduce((total, item) => {
-      const remaining = getInventoryRemainingQuantity(item);
-      if (remaining <= 0) {
-        return total;
-      }
-      if (item.expiry_date && item.expiry_date.slice(0, 10) < referenceDate) {
-        return total;
-      }
-      return total + remaining;
-    }, 0);
+  // Convert unlike units into the ingredient default unit before threshold compare.
+  return getIngredientAvailableQuantityInDefault(
+    ingredient,
+    inventoryItems.filter((item) => item.ingredient_id === ingredient.id),
+    { excludeExpiredAt: referenceDate },
+  );
 }
 
 function buildExpiryDetail(args: {

@@ -92,6 +92,9 @@ export type DisposableExpiredInventoryItemViewModel = {
   status: InventoryItem['status'];
   createdAt: string;
   rowVersion: number;
+  expiryAlertSnoozedUntil: string | null;
+  expiryReviewedAt: string | null;
+  expiryReviewedBy: string | null;
 };
 
 export type InventoryStorageOverviewTone = 'stable' | 'warning' | 'danger' | 'muted';
@@ -689,14 +692,15 @@ export function buildDisposableExpiredInventoryItems(
   summary: IngredientSummaryViewModel,
   referenceDate = todayKey()
 ): DisposableExpiredInventoryItemViewModel[] {
-  const referenceTime = new Date(referenceDate).getTime();
+  // Calendar-key compare keeps dispose eligibility aligned with Shanghai businessDateKey.
+  const referenceKey = referenceDate.slice(0, 10);
 
   return summary.inventoryItems
     .filter((item) => {
       if (!item.expiry_date) {
         return false;
       }
-      if (new Date(item.expiry_date).getTime() >= referenceTime) {
+      if (item.expiry_date.slice(0, 10) >= referenceKey) {
         return false;
       }
       return getInventoryRemainingQuantity(item) > 0;
@@ -723,6 +727,9 @@ export function buildDisposableExpiredInventoryItems(
         status: item.status,
         createdAt: item.created_at,
         rowVersion: item.row_version,
+        expiryAlertSnoozedUntil: item.expiry_alert_snoozed_until ?? null,
+        expiryReviewedAt: item.expiry_reviewed_at ?? null,
+        expiryReviewedBy: item.expiry_reviewed_by ?? null,
       };
     });
 }
@@ -731,13 +738,13 @@ export function countDisposableExpiredInventoryItems(
   summary: IngredientSummaryViewModel,
   referenceDate = todayKey()
 ) {
-  const referenceTime = new Date(referenceDate).getTime();
+  const referenceKey = referenceDate.slice(0, 10);
 
   return summary.inventoryItems.reduce((count, item) => {
     if (!item.expiry_date) {
       return count;
     }
-    if (new Date(item.expiry_date).getTime() >= referenceTime) {
+    if (item.expiry_date.slice(0, 10) >= referenceKey) {
       return count;
     }
     return getInventoryRemainingQuantity(item) > 0 ? count + 1 : count;

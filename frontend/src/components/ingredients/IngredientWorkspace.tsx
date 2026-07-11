@@ -50,6 +50,7 @@ import { getIngredientAvailableQuantityInDefault } from '../../lib/ingredientUni
 import { tracksIngredientQuantity } from '../../lib/ingredientTracking';
 import type { ExpiryInventoryActionGroup } from '../../features/inventory/inventoryActionModel';
 import {
+  buildIngredientSummaries,
   buildIngredientPriorityActionGroups,
   buildInventoryCardPresentation,
   buildInventoryCardStatus,
@@ -82,7 +83,10 @@ import { useIngredientWorkspaceEffects } from './useIngredientWorkspaceEffects';
 import { useIngredientWorkspaceData } from './useIngredientWorkspaceData';
 import { useIngredientEditorState } from './useIngredientEditorState';
 import { useIngredientActionState } from './useIngredientActionState';
-import { useIngredientOverlayState } from './useIngredientOverlayState';
+import {
+  resolveExpiryInventoryActionGroup,
+  useIngredientOverlayState,
+} from './useIngredientOverlayState';
 import {
   readPersistedIngredientWorkspaceState,
   STORAGE_SHELF_IDEAL_WIDTH,
@@ -1090,7 +1094,7 @@ function InventoryIngredientCard(props: InventoryIngredientCardProps) {
   const { summary } = props;
   const status = buildInventoryCardStatus(summary);
   const presentation = buildInventoryCardPresentation(summary);
-  const canDestroyExpired = countDisposableExpiredInventoryItems(summary) > 0;
+  const canDestroyExpired = countDisposableExpiredInventoryItems(summary, businessDateKey()) > 0;
   const alertTone = summary.alerts.length > 0 ? getIngredientAlertTone(summary) : null;
   const imageUrl = resolveMediaUrl(summary.ingredient.image, 'card');
   const hasCustomImage = Boolean(summary.ingredient.image?.url);
@@ -1291,7 +1295,7 @@ function IngredientCatalogCard(props: IngredientCatalogCardProps) {
   const status = buildCatalogCardStatus(summary);
   const tracksQuantity = tracksIngredientQuantity(summary.ingredient);
   const canConsume = tracksQuantity && summary.availableInventoryItems.length > 0;
-  const canDestroyExpired = countDisposableExpiredInventoryItems(summary) > 0;
+  const canDestroyExpired = countDisposableExpiredInventoryItems(summary, businessDateKey()) > 0;
   const metaLine = [
     summary.ingredient.category || '未分类',
     summary.primaryStorage || summary.ingredient.default_storage || '常温',
@@ -2020,12 +2024,21 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
       shoppingItems: freshShopping,
       referenceDate: inventoryActionReferenceDate,
     });
-    return (
-      groups.find(
-        (group): group is ExpiryInventoryActionGroup =>
-          group.kind === 'expiry' && group.ingredientId === ingredientId,
-      ) ?? null
-    );
+    const freshSummaries = buildIngredientSummaries({
+      ingredients: freshIngredients,
+      inventoryItems: freshInventory,
+      recipes: props.recipes,
+      today: inventoryActionReferenceDate,
+      shoppingItems: freshShopping,
+    });
+    // Include dispose-only (future-snoozed expired) batches so 409 recovery does not
+    // mis-close dialogs that were opened from inventory detail disposal.
+    return resolveExpiryInventoryActionGroup({
+      ingredientId,
+      inventoryActionGroups: groups,
+      summaries: freshSummaries,
+      referenceDate: inventoryActionReferenceDate,
+    });
   }
 
   const {
@@ -2456,7 +2469,7 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
         buildCatalogStatus={buildCatalogCardStatus}
         buildInventorySummaryLine={buildInventorySummaryLine}
         buildShoppingReason={resolveShoppingReason}
-        countDisposableExpiredItems={countDisposableExpiredInventoryItems}
+        countDisposableExpiredItems={(summary) => countDisposableExpiredInventoryItems(summary, businessDateKey())}
         renderStorageIllustration={InventoryStorageIllustration}
         renderIcon={(name) => <IngredientWorkspaceIcon name={name as IngredientWorkspaceIconName} />}
         isUpdatingShopping={props.isUpdatingShopping}
