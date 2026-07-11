@@ -55,14 +55,17 @@ function makeLowStockGroup(ingredientId: string, name: string): InventoryActionG
 
 function Harness({
   groups,
+  businessDateKey,
   onState,
 }: {
   groups: InventoryActionGroup[];
+  businessDateKey?: string;
   onState: (state: UseHomeDashboardStateResult) => void;
 }) {
   const state = useHomeDashboardState({
     foodPlanWeekRange: { start: '2026-07-06', end: '2026-07-12' },
     homeEligibleInventoryActionGroups: groups,
+    businessDateKey,
   });
 
   useEffect(() => {
@@ -81,11 +84,12 @@ function Harness({
 
 let latest: UseHomeDashboardStateResult | null = null;
 
-function renderHarness(groups: InventoryActionGroup[]) {
+function renderHarness(groups: InventoryActionGroup[], businessDateKey?: string) {
   act(() => {
     root?.render(
       <Harness
         groups={groups}
+        businessDateKey={businessDateKey}
         onState={(state) => {
           latest = state;
         }}
@@ -185,5 +189,55 @@ describe('useHomeDashboardState', () => {
     expect('homeExpiredDisposalIngredientId' in state!).toBe(false);
     expect('homeExpiryReviewItemId' in state!).toBe(false);
     expect('resetVisibleExpiryCount' in state!).toBe(false);
+  });
+
+  it('routes openNextActionGroup: expiry selects dialog, low_stock returns group without selection', () => {
+    const tomato = makeExpiryGroup('ingredient-tomato', '番茄');
+    const egg = makeLowStockGroup('ingredient-egg', '鸡蛋');
+    const milk = makeExpiryGroup('ingredient-milk', '牛奶');
+
+    // Complete tomato so next is low_stock egg.
+    let state = renderHarness([tomato, egg]);
+    act(() => {
+      state!.completeActionGroup({
+        ingredientId: tomato.ingredientId,
+        summary: { title: '已处理番茄', message: 'done' },
+      });
+    });
+    state = renderHarness([egg]);
+    expect(state!.nextGroupId).toBe(egg.id);
+
+    let opened: InventoryActionGroup | null = null;
+    act(() => {
+      opened = state!.openNextActionGroup();
+    });
+    state = latest!;
+    expect(opened).toMatchObject({ kind: 'low_stock', ingredientId: egg.ingredientId });
+    expect(state.selectedActionGroupId).toBeNull();
+    expect(state.nextGroupId).toBeNull();
+    expect(state.completionSummary).toBeNull();
+
+    // Complete egg so next is expiry milk.
+    state = renderHarness([egg, milk]);
+    act(() => {
+      state!.completeActionGroup({
+        ingredientId: egg.ingredientId,
+        summary: { title: '已处理鸡蛋', message: 'done' },
+      });
+    });
+    state = renderHarness([milk]);
+    expect(state!.nextGroupId).toBe(milk.id);
+
+    act(() => {
+      opened = state!.openNextActionGroup();
+    });
+    state = latest!;
+    expect(opened).toMatchObject({ kind: 'expiry', id: milk.id });
+    expect(state.selectedActionGroupId).toBe(milk.id);
+  });
+
+  it('uses injected businessDateKey for selectedDashboardPlanDate defaults', () => {
+    const state = renderHarness([], '2026-07-11');
+    expect(state!.selectedDashboardPlanDate).toBe('2026-07-11');
   });
 });

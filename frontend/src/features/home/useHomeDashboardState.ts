@@ -20,24 +20,24 @@ export type HomeActionCompletionSummary = {
 
 export type ActionDialogConflictState = 'none' | 'review_again';
 
-function createDefaultPlanAddForm(): HomePlanAddFormState {
+function createDefaultPlanAddForm(businessDateKey: string): HomePlanAddFormState {
   return {
-    planDate: todayKey(),
+    planDate: businessDateKey,
     mealType: 'dinner',
     note: '',
   };
 }
 
-function createPlanDetailForm(item?: FoodPlanItem | null): FoodPlanDetailFormState {
+function createPlanDetailForm(businessDateKey: string, item?: FoodPlanItem | null): FoodPlanDetailFormState {
   if (!item) {
     return {
-      planDate: todayKey(),
+      planDate: businessDateKey,
       mealType: 'dinner',
       note: '',
     };
   }
   return {
-    planDate: item.plan_date < todayKey() ? todayKey() : item.plan_date,
+    planDate: item.plan_date < businessDateKey ? businessDateKey : item.plan_date,
     mealType: item.meal_type,
     note: item.note ?? '',
   };
@@ -56,15 +56,22 @@ const EMPTY_ACTION_GROUPS: InventoryActionGroup[] = [];
 export function useHomeDashboardState(input: {
   foodPlanWeekRange: { start: string; end: string };
   homeEligibleInventoryActionGroups?: InventoryActionGroup[];
+  /** Shanghai business date key for home plan/date defaults. Falls back to device today only if omitted. */
+  businessDateKey?: string;
 }) {
+  const businessDateKey = input.businessDateKey ?? todayKey();
   const [dashboardRecommendationPage, setDashboardRecommendationPage] = useState(0);
-  const [selectedDashboardPlanDate, setSelectedDashboardPlanDate] = useState(todayKey());
+  const [selectedDashboardPlanDate, setSelectedDashboardPlanDate] = useState(businessDateKey);
   const [homePlanDetailItemId, setHomePlanDetailItemId] = useState<string | null>(null);
   const [isHomePlanAddDialogOpen, setIsHomePlanAddDialogOpen] = useState(false);
   const [homePlanAddFoodId, setHomePlanAddFoodId] = useState<string | null>(null);
   const [homePlanAddFoodSearch, setHomePlanAddFoodSearch] = useState('');
-  const [homePlanAddForm, setHomePlanAddForm] = useState<HomePlanAddFormState>(createDefaultPlanAddForm);
-  const [homePlanDetailForm, setHomePlanDetailForm] = useState<FoodPlanDetailFormState>(() => createPlanDetailForm());
+  const [homePlanAddForm, setHomePlanAddForm] = useState<HomePlanAddFormState>(() =>
+    createDefaultPlanAddForm(businessDateKey),
+  );
+  const [homePlanDetailForm, setHomePlanDetailForm] = useState<FoodPlanDetailFormState>(() =>
+    createPlanDetailForm(businessDateKey),
+  );
   const [isHomePlanDetailEditing, setIsHomePlanDetailEditing] = useState(false);
   const [selectedActionGroupId, setSelectedActionGroupId] = useState<string | null>(null);
   const [completionSummary, setCompletionSummary] = useState<HomeActionCompletionSummary | null>(null);
@@ -82,13 +89,12 @@ export function useHomeDashboardState(input: {
   const groupsKey = useMemo(() => groupsKeyOf(eligibleGroups), [eligibleGroups]);
 
   useEffect(() => {
-    const defaultDate = todayKey();
-    if (defaultDate >= input.foodPlanWeekRange.start && defaultDate <= input.foodPlanWeekRange.end) {
-      setSelectedDashboardPlanDate(defaultDate);
+    if (businessDateKey >= input.foodPlanWeekRange.start && businessDateKey <= input.foodPlanWeekRange.end) {
+      setSelectedDashboardPlanDate(businessDateKey);
       return;
     }
     setSelectedDashboardPlanDate(input.foodPlanWeekRange.start);
-  }, [input.foodPlanWeekRange.end, input.foodPlanWeekRange.start]);
+  }, [businessDateKey, input.foodPlanWeekRange.end, input.foodPlanWeekRange.start]);
 
   useEffect(() => {
     if (!completedIngredientId || groupsKeyAtCompletion === null) {
@@ -132,11 +138,16 @@ export function useHomeDashboardState(input: {
     setNextGroupId(null);
   }
 
-  function openNextActionGroup() {
+  /**
+   * Opens the next household action after completion.
+   * Expiry groups select the inventory dialog; low_stock does not (caller should route to shopping).
+   * Returns the next group so App can mirror list primary-action routing.
+   */
+  function openNextActionGroup(): InventoryActionGroup | null {
     if (!nextGroupId) {
-      return;
+      return null;
     }
-    setSelectedActionGroupId(nextGroupId);
+    const group = eligibleGroups.find((item) => item.id === nextGroupId) ?? null;
     setCompletionSummary(null);
     setCompletedIngredientId(null);
     setGroupsKeyAtCompletion(null);
@@ -144,6 +155,13 @@ export function useHomeDashboardState(input: {
     setActionDialogBusy(false);
     setActionDialogError(null);
     setActionDialogConflict('none');
+    if (group?.kind === 'expiry') {
+      setSelectedActionGroupId(group.id);
+    } else {
+      // low_stock (or missing): never leave a non-expiry selection that mounts no dialog.
+      setSelectedActionGroupId(null);
+    }
+    return group;
   }
 
   function dismissCompletionSummary() {
@@ -155,7 +173,7 @@ export function useHomeDashboardState(input: {
 
   function openHomePlanDetail(item: FoodPlanItem) {
     setHomePlanDetailItemId(item.id);
-    setHomePlanDetailForm(createPlanDetailForm(item));
+    setHomePlanDetailForm(createPlanDetailForm(businessDateKey, item));
     setIsHomePlanDetailEditing(false);
   }
 
@@ -166,7 +184,7 @@ export function useHomeDashboardState(input: {
 
   function resetHomePlanDetailForm(item?: FoodPlanItem | null) {
     if (!item) return;
-    setHomePlanDetailForm(createPlanDetailForm(item));
+    setHomePlanDetailForm(createPlanDetailForm(businessDateKey, item));
     setIsHomePlanDetailEditing(false);
   }
 
@@ -197,7 +215,7 @@ export function useHomeDashboardState(input: {
     setIsHomePlanAddDialogOpen(false);
     setHomePlanAddFoodId(null);
     setHomePlanAddFoodSearch('');
-    setHomePlanAddForm(createDefaultPlanAddForm());
+    setHomePlanAddForm(createDefaultPlanAddForm(businessDateKey));
   }
 
   return {

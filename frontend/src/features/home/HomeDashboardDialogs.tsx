@@ -54,6 +54,7 @@ import {
 } from '../../lib/ui';
 import {
   DASHBOARD_PLAN_MEAL_TYPES,
+  matchIngredientByExactName,
   resolveExpiryDateFromDays,
   resolveInventoryStatusForStorage,
   type DashboardPlanDay,
@@ -213,8 +214,7 @@ export function HomeDashboardDialogs(props: Props) {
     const normalizedQuery = query.trim();
     const match = normalizedQuery
       ? homeRestockIngredientSearch.findIngredientByName(normalizedQuery)
-        ?? props.ingredients.find((item) => item.name.includes(normalizedQuery) || normalizedQuery.includes(item.name))
-        ?? null
+        ?? matchIngredientByExactName(normalizedQuery, props.ingredients)
       : null;
     props.updateHomeRestockForm({
       ...homeRestockForm,

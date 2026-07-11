@@ -246,6 +246,7 @@ function App() {
   } = useHomeDashboardState({
     foodPlanWeekRange,
     homeEligibleInventoryActionGroups: homeEligibleInventoryActionGroupsForState,
+    businessDateKey: homeBusinessDateKey,
   });
 
   const {
@@ -486,6 +487,12 @@ function App() {
   void openIngredientsCatalog;
   void openIngredientDetail;
 
+  function handleOpenNextActionGroup() {
+    const group = openNextActionGroup();
+    if (group?.kind === 'low_stock') {
+      openIngredientShopping(group.ingredientId);
+    }
+  }
 
   async function refreshInventoryActions() {
     // Await canonical inventory (and shopping) refetch so completion/conflict branches
@@ -1020,7 +1027,7 @@ function App() {
             completionSummary={completionSummary}
             nextGroupId={nextGroupId}
             nextGroupLabel={nextGroupLabel}
-            openNextActionGroup={openNextActionGroup}
+            openNextActionGroup={handleOpenNextActionGroup}
             dismissCompletionSummary={dismissCompletionSummary}
             onCompletionSecondaryAction={openIngredientShopping}
             resolveAssetUrl={resolveDashboardAssetUrl}

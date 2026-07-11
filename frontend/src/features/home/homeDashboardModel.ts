@@ -108,6 +108,15 @@ export function findShoppingIngredient(item: ShoppingListItem, ingredients: Ingr
   return ingredients.find((ingredient) => ingredient.name.trim() === title) ?? null;
 }
 
+/** Exact normalized name match for restock free-text binding (no substring). */
+export function matchIngredientByExactName(query: string, ingredients: Ingredient[]) {
+  const title = query.trim();
+  if (!title) {
+    return null;
+  }
+  return ingredients.find((ingredient) => ingredient.name.trim() === title) ?? null;
+}
+
 export function buildHomeRestockForm(item: ShoppingListItem, ingredients: Ingredient[]): HomeRestockFormState {
   const ingredient = findShoppingIngredient(item, ingredients);
   const purchaseDate = todayKey();

@@ -5,6 +5,7 @@ import {
   buildHomeDashboardViewModel,
   buildHomeRestockForm,
   findShoppingIngredient,
+  matchIngredientByExactName,
   formatDashboardPlanRange,
   parsePositiveNumber,
   resolveExpiryDateFromDays,
@@ -118,6 +119,22 @@ describe('homeDashboardModel', () => {
         [oil, soy]
       )?.id
     ).toBe(oil.id);
+  });
+
+  it('matches restock free-text with exact normalized name only (no substring)', () => {
+    const milk = { ...ingredient, id: 'ingredient-milk', name: '牛奶' };
+    const cereal = { ...ingredient, id: 'ingredient-cereal', name: '牛奶麦片' };
+    const oil = { ...ingredient, id: 'ingredient-oil', name: '油' };
+    const soy = { ...ingredient, id: 'ingredient-soy', name: '酱油' };
+
+    expect(matchIngredientByExactName('牛奶', [milk, cereal])?.id).toBe(milk.id);
+    expect(matchIngredientByExactName(' 牛奶 ', [milk, cereal])?.id).toBe(milk.id);
+    expect(matchIngredientByExactName('牛奶麦片', [milk, cereal])?.id).toBe(cereal.id);
+    expect(matchIngredientByExactName('牛', [milk, cereal])).toBeNull();
+    expect(matchIngredientByExactName('有机牛奶', [milk, cereal])).toBeNull();
+    expect(matchIngredientByExactName('油', [oil, soy])?.id).toBe(oil.id);
+    expect(matchIngredientByExactName('酱油', [oil, soy])?.id).toBe(soy.id);
+    expect(matchIngredientByExactName('', [milk])).toBeNull();
   });
 
   it('builds dashboard view model from prepared inventory action groups', () => {
