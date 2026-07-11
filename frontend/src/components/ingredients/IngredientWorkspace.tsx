@@ -49,6 +49,7 @@ import {
   buildInventoryCardPresentation,
   buildInventoryCardStatus,
   countDisposableExpiredInventoryItems,
+  filterIngredientSummariesByCatalogStatus,
   type IngredientSummaryViewModel,
   type IngredientWorkspacePanel,
   type InventoryStorageOverviewViewModel,
@@ -737,8 +738,8 @@ function buildCatalogCardStatus(summary: IngredientSummaryViewModel): {
   stockLine: string;
   hint: string;
 } {
-  const expiredAlert = summary.alerts.find((item) => item.kind === 'expiry' && item.title.includes('已经过期'));
-  const expiringAlert = summary.alerts.find((item) => item.kind === 'expiry' && !item.title.includes('已经过期'));
+  const expiredAlert = summary.alerts.find((item) => item.kind === 'expiry' && item.severity === 'expired');
+  const expiringAlert = summary.alerts.find((item) => item.kind === 'expiry' && item.severity !== 'expired');
   const firstWarningAlert = summary.alerts.find((item) => item.tone === 'warning');
   const availableLabel = summary.quantitySummaries[0]?.label ?? `0 ${summary.ingredient.default_unit || '个'}`;
   const batchLabel = `${summary.inventoryItems.length} 批次`;
@@ -756,7 +757,7 @@ function buildCatalogCardStatus(summary: IngredientSummaryViewModel): {
   if (expiringAlert) {
     return {
       label: '临期',
-      tone: 'warning',
+      tone: expiringAlert.tone === 'danger' ? 'danger' : 'warning',
       stockLine,
       hint: '建议优先安排使用',
     };
@@ -786,32 +787,6 @@ function buildCatalogCardStatus(summary: IngredientSummaryViewModel): {
     stockLine,
     hint: summary.latestPurchaseDate ? `最近补货 ${formatDate(summary.latestPurchaseDate)}` : '可按需消费或补货',
   };
-}
-
-function matchesCatalogStatusFilter(summary: IngredientSummaryViewModel, filter: CatalogStatusFilter) {
-  if (filter === 'all') {
-    return true;
-  }
-  const hasExpiredAlert = summary.alerts.some((item) => item.kind === 'expiry' && item.title.includes('已经过期'));
-  const hasExpiringAlert = summary.alerts.some((item) => item.kind === 'expiry' && !item.title.includes('已经过期'));
-  const hasLowStockAlert = summary.alerts.some((item) => item.kind === 'lowStock');
-  if (filter === 'expired') {
-    return hasExpiredAlert;
-  }
-  if (filter === 'expiring') {
-    return hasExpiringAlert;
-  }
-  if (filter === 'lowStock') {
-    return hasLowStockAlert;
-  }
-  return summary.quantitySummaries.length > 0 && summary.alerts.length === 0;
-}
-
-function filterIngredientSummariesByCatalogStatus(
-  summaries: IngredientSummaryViewModel[],
-  filter: CatalogStatusFilter
-) {
-  return summaries.filter((summary) => matchesCatalogStatusFilter(summary, filter));
 }
 
 function buildCatalogExpandedNote(summary: IngredientSummaryViewModel) {

@@ -64,6 +64,7 @@ export function filterMobileCatalogSummaries(args: {
   mobileIngredientFilter: MobileIngredientFilter;
   mobileInventoryEntryFilter: InventoryEntryFilter;
   mobileStorageFocus: InventoryStorageFocus;
+  actionableIngredientIds?: ReadonlySet<string>;
 }) {
   return filterIngredientSummaries(
     args.summaries,
@@ -74,10 +75,12 @@ export function filterMobileCatalogSummaries(args: {
     if (args.mobileStorageFocus !== 'all' && summary.primaryStorage !== args.mobileStorageFocus) {
       return false;
     }
+    const isActionable =
+      args.actionableIngredientIds?.has(summary.ingredient.id) ?? summary.alerts.length > 0;
     const quickMatches =
       args.mobileIngredientFilter === 'all' ||
       args.mobileIngredientFilter === 'ingredient' ||
-      (args.mobileIngredientFilter === 'alerted' && summary.alerts.length > 0) ||
+      (args.mobileIngredientFilter === 'alerted' && isActionable) ||
       (args.mobileIngredientFilter === 'expiring' && summary.alerts.some((alert) => alert.kind === 'expiry')) ||
       (args.mobileIngredientFilter === 'seasoning' && isSeasoningIngredient(summary.ingredient));
     const entryMatches =
@@ -90,10 +93,11 @@ export function filterMobileCatalogSummaries(args: {
 
 function filterInventorySummariesByQuickFilter(
   summaries: IngredientSummaryViewModel[],
-  quickFilter: InventoryQuickFilter
+  quickFilter: InventoryQuickFilter,
+  actionableIngredientIds: ReadonlySet<string>
 ) {
   if (quickFilter === 'alerted') {
-    return summaries.filter((item) => item.alerts.length > 0);
+    return summaries.filter((item) => actionableIngredientIds.has(item.ingredient.id));
   }
   if (quickFilter === 'food') {
     return [];
@@ -116,6 +120,7 @@ export function useIngredientWorkspaceData(args: UseIngredientWorkspaceDataArgs)
       shoppingItems: args.shoppingItems,
       referenceDate,
     });
+    const priorityActionCount = inventoryActionGroups.length;
     const actionableIngredientIds = new Set(inventoryActionGroups.map((group) => group.ingredientId));
     const summaries = buildIngredientSummaries({
       ingredients: args.ingredients,
@@ -144,7 +149,11 @@ export function useIngredientWorkspaceData(args: UseIngredientWorkspaceDataArgs)
       lowStock: args.filterIngredientSummariesByCatalogStatus(catalogBaseSummaries, 'lowStock').length,
       stable: args.filterIngredientSummariesByCatalogStatus(catalogBaseSummaries, 'stable').length,
     } as const;
-    const inventorySourceSummaries = filterInventorySummariesByQuickFilter(summaries, args.inventoryQuickFilter);
+    const inventorySourceSummaries = filterInventorySummariesByQuickFilter(
+      summaries,
+      args.inventoryQuickFilter,
+      actionableIngredientIds
+    );
     const filteredInventorySummaries = filterIngredientSummariesForInventory(
       inventorySourceSummaries,
       args.inventorySearch,
@@ -183,7 +192,6 @@ export function useIngredientWorkspaceData(args: UseIngredientWorkspaceDataArgs)
       .map((group) => summaryByIngredientId.get(group.ingredientId))
       .filter((summary): summary is IngredientSummaryViewModel => Boolean(summary))
       .slice(0, 6);
-    const priorityActionCount = inventoryActionGroups.length;
     const mobileStorageCards = buildInventoryStorageOverview(summaries).filter((item) =>
       ['冷藏', '冷冻', '常温'].includes(item.key)
     );
@@ -194,6 +202,7 @@ export function useIngredientWorkspaceData(args: UseIngredientWorkspaceDataArgs)
       mobileIngredientFilter: args.mobileIngredientFilter,
       mobileInventoryEntryFilter: args.mobileInventoryEntryFilter,
       mobileStorageFocus: args.mobileStorageFocus,
+      actionableIngredientIds,
     });
     const mobileShoppingCards = pendingShoppingCards.slice(0, 4);
     const mobileShoppingGroups = buildShoppingCardGroups(mobileShoppingCards);

@@ -1,6 +1,7 @@
 import type { Food, Ingredient, InventoryItem, Recipe, ShoppingListItem } from '../../api/types';
 import {
   buildInventoryActionGroups,
+  type ExpiryInventoryActionGroup,
   type InventoryActionGroup,
 } from '../../features/inventory/inventoryActionModel';
 import { formatDate, todayKey } from '../../lib/ui';
@@ -23,6 +24,8 @@ export type IngredientAlertViewModel = {
   detail: string;
   tone: 'warning' | 'danger';
   kind: 'lowStock' | 'expiry';
+  /** Present for expiry alerts; sourced from shared inventory action severity. */
+  severity?: ExpiryInventoryActionGroup['severity'];
   storageLocation: string;
 };
 
@@ -365,6 +368,7 @@ export function inventoryActionGroupsToAlerts(
         detail: group.detail,
         tone: group.severity === 'expires_later' ? 'warning' : 'danger',
         kind: 'expiry',
+        severity: group.severity,
         storageLocation: batch.storageLocation || ingredient?.default_storage || '',
       });
     }
@@ -946,6 +950,40 @@ export function filterIngredientSummariesForInventory(
       summary.alerts.some((alert) => alert.title.includes(normalized) || alert.detail.includes(normalized))
     );
   });
+}
+
+export function hasExpiredCatalogAlert(summary: IngredientSummaryViewModel) {
+  return summary.alerts.some((item) => item.kind === 'expiry' && item.severity === 'expired');
+}
+
+export function hasExpiringCatalogAlert(summary: IngredientSummaryViewModel) {
+  return summary.alerts.some((item) => item.kind === 'expiry' && item.severity !== 'expired');
+}
+
+export function matchesCatalogStatusFilter(
+  summary: IngredientSummaryViewModel,
+  filter: 'all' | 'expired' | 'expiring' | 'lowStock' | 'stable'
+) {
+  if (filter === 'all') {
+    return true;
+  }
+  if (filter === 'expired') {
+    return hasExpiredCatalogAlert(summary);
+  }
+  if (filter === 'expiring') {
+    return hasExpiringCatalogAlert(summary);
+  }
+  if (filter === 'lowStock') {
+    return summary.alerts.some((item) => item.kind === 'lowStock');
+  }
+  return summary.quantitySummaries.length > 0 && summary.alerts.length === 0;
+}
+
+export function filterIngredientSummariesByCatalogStatus(
+  summaries: IngredientSummaryViewModel[],
+  filter: 'all' | 'expired' | 'expiring' | 'lowStock' | 'stable'
+) {
+  return summaries.filter((summary) => matchesCatalogStatusFilter(summary, filter));
 }
 
 export function buildShoppingCards(
