@@ -1,10 +1,17 @@
 from __future__ import annotations
 
+import importlib.util
 from collections.abc import Iterator
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
+from decimal import Decimal
+from pathlib import Path
+from types import ModuleType
 
 import pytest
-from sqlalchemy import create_engine, inspect
+import sqlalchemy as sa
+from alembic.migration import MigrationContext
+from alembic.operations import Operations
+from sqlalchemy import create_engine, inspect, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
@@ -34,6 +41,25 @@ from app.models.domain import (
     ShoppingListItem,
     User,
 )
+
+
+MIGRATION_PATH = (
+    Path(__file__).resolve().parents[2]
+    / "alembic"
+    / "versions"
+    / "3f4a5b6c7d8e_add_inventory_reconciliation.py"
+)
+
+
+def _load_migration_module() -> ModuleType:
+    spec = importlib.util.spec_from_file_location(
+        "inventory_reconciliation_migration",
+        MIGRATION_PATH,
+    )
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 @pytest.fixture()
@@ -302,3 +328,331 @@ def test_mapper_version_columns_configured() -> None:
     assert "expiry_alert_snoozed_until" in state_columns
     assert "expiry_reviewed_at" in state_columns
     assert "expiry_reviewed_by" in state_columns
+
+
+def test_representative_key_orders_by_earliest_expiry_then_recent_update() -> None:
+    migration = _load_migration_module()
+    older = {
+        "id": "inventory-a",
+        "expiry_date": date(2026, 7, 20),
+        "updated_at": datetime(2026, 7, 1, tzinfo=timezone.utc),
+    }
+    newer_same_expiry = {
+        "id": "inventory-b",
+        "expiry_date": date(2026, 7, 20),
+        "updated_at": datetime(2026, 7, 5, tzinfo=timezone.utc),
+    }
+    later_expiry = {
+        "id": "inventory-c",
+        "expiry_date": date(2026, 8, 1),
+        "updated_at": datetime(2026, 7, 10, tzinfo=timezone.utc),
+    }
+    null_expiry = {
+        "id": "inventory-d",
+        "expiry_date": None,
+        "updated_at": datetime(2026, 7, 12, tzinfo=timezone.utc),
+    }
+
+    ordered = sorted(
+        [null_expiry, later_expiry, older, newer_same_expiry],
+        key=migration._representative_key,
+    )
+    assert [row["id"] for row in ordered] == [
+        "inventory-b",
+        "inventory-a",
+        "inventory-c",
+        "inventory-d",
+    ]
+    assert migration._representative_key(older) == (
+        False,
+        date(2026, 7, 20),
+        -datetime(2026, 7, 1, tzinfo=timezone.utc).timestamp(),
+        "inventory-a",
+    )
+    assert migration._representative_key(null_expiry) == (
+        True,
+        date.max,
+        -datetime(2026, 7, 12, tzinfo=timezone.utc).timestamp(),
+        "inventory-d",
+    )
+
+
+def test_backfill_ingredient_inventory_states_selection_rules() -> None:
+    migration = _load_migration_module()
+    engine = create_engine(
+        "sqlite+pysqlite:///:memory:",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+        future=True,
+    )
+    metadata = sa.MetaData()
+    sa.Table(
+        "ingredients",
+        metadata,
+        sa.Column("id", sa.String(64), primary_key=True),
+        sa.Column("family_id", sa.String(64), nullable=False),
+        sa.Column("quantity_tracking_mode", sa.String(32), nullable=False),
+    )
+    sa.Table(
+        "inventory_items",
+        metadata,
+        sa.Column("id", sa.String(64), primary_key=True),
+        sa.Column("family_id", sa.String(64), nullable=False),
+        sa.Column("ingredient_id", sa.String(64), nullable=False),
+        sa.Column("quantity", sa.Numeric(10, 2), nullable=False),
+        sa.Column("disposed_quantity", sa.Numeric(10, 2), nullable=False),
+        sa.Column("status", sa.String(32), nullable=False),
+        sa.Column("purchase_date", sa.Date(), nullable=True),
+        sa.Column("expiry_date", sa.Date(), nullable=True),
+        sa.Column("storage_location", sa.String(120), nullable=True),
+        sa.Column("notes", sa.Text(), nullable=True),
+        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=True),
+        sa.Column("created_at", sa.DateTime(timezone=True), nullable=True),
+        sa.Column("created_by", sa.String(64), nullable=True),
+        sa.Column("updated_by", sa.String(64), nullable=True),
+        sa.Column("expiry_alert_snoozed_until", sa.Date(), nullable=True),
+        sa.Column("expiry_reviewed_at", sa.DateTime(timezone=True), nullable=True),
+        sa.Column("expiry_reviewed_by", sa.String(64), nullable=True),
+    )
+    sa.Table(
+        "ingredient_inventory_states",
+        metadata,
+        sa.Column("id", sa.String(64), primary_key=True),
+        sa.Column("family_id", sa.String(64), nullable=False),
+        sa.Column("ingredient_id", sa.String(64), nullable=False),
+        sa.Column("availability_level", sa.String(32), nullable=False),
+        sa.Column("inventory_status", sa.String(32), nullable=False),
+        sa.Column("purchase_date", sa.Date(), nullable=True),
+        sa.Column("expiry_date", sa.Date(), nullable=True),
+        sa.Column("storage_location", sa.String(120), nullable=True),
+        sa.Column("notes", sa.Text(), nullable=False),
+        sa.Column("expiry_alert_snoozed_until", sa.Date(), nullable=True),
+        sa.Column("expiry_reviewed_at", sa.DateTime(timezone=True), nullable=True),
+        sa.Column("expiry_reviewed_by", sa.String(64), nullable=True),
+        sa.Column("last_confirmed_at", sa.DateTime(timezone=True), nullable=True),
+        sa.Column("last_confirmed_by", sa.String(64), nullable=True),
+        sa.Column("last_confirmation_source", sa.String(32), nullable=True),
+        sa.Column("row_version", sa.Integer(), nullable=False),
+        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("created_by", sa.String(64), nullable=True),
+        sa.Column("updated_by", sa.String(64), nullable=True),
+    )
+    metadata.create_all(engine)
+
+    ingredients = metadata.tables["ingredients"]
+    inventory_items = metadata.tables["inventory_items"]
+    states = metadata.tables["ingredient_inventory_states"]
+    seed_now = datetime(2026, 7, 12, 1, 0, tzinfo=timezone.utc)
+
+    with engine.begin() as connection:
+        connection.execute(
+            ingredients.insert(),
+            [
+                {
+                    "id": "ingredient-salt",
+                    "family_id": "family-1",
+                    "quantity_tracking_mode": "not_track_quantity",
+                },
+                {
+                    "id": "ingredient-oil",
+                    "family_id": "family-1",
+                    "quantity_tracking_mode": "not_track_quantity",
+                },
+                {
+                    "id": "ingredient-sugar",
+                    "family_id": "family-1",
+                    "quantity_tracking_mode": "track_quantity",
+                },
+                {
+                    "id": "ingredient-pepper",
+                    "family_id": "family-1",
+                    "quantity_tracking_mode": "not_track_quantity",
+                },
+            ],
+        )
+        connection.execute(
+            inventory_items.insert(),
+            [
+                {
+                    "id": "inv-salt-null",
+                    "family_id": "family-1",
+                    "ingredient_id": "ingredient-salt",
+                    "quantity": Decimal("1"),
+                    "disposed_quantity": Decimal("0"),
+                    "status": "opened",
+                    "purchase_date": date(2026, 6, 1),
+                    "expiry_date": None,
+                    "storage_location": "常温",
+                    "notes": "null expiry",
+                    "updated_at": datetime(2026, 7, 12, tzinfo=timezone.utc),
+                    "created_at": seed_now,
+                    "created_by": "user-1",
+                    "updated_by": "user-1",
+                    "expiry_alert_snoozed_until": None,
+                    "expiry_reviewed_at": None,
+                    "expiry_reviewed_by": None,
+                },
+                {
+                    "id": "inv-salt-later",
+                    "family_id": "family-1",
+                    "ingredient_id": "ingredient-salt",
+                    "quantity": Decimal("1"),
+                    "disposed_quantity": Decimal("0"),
+                    "status": "fresh",
+                    "purchase_date": date(2026, 6, 10),
+                    "expiry_date": date(2026, 8, 1),
+                    "storage_location": "常温",
+                    "notes": "later expiry",
+                    "updated_at": datetime(2026, 7, 11, tzinfo=timezone.utc),
+                    "created_at": seed_now,
+                    "created_by": "user-1",
+                    "updated_by": "user-1",
+                    "expiry_alert_snoozed_until": date(2026, 7, 20),
+                    "expiry_reviewed_at": datetime(2026, 7, 10, tzinfo=timezone.utc),
+                    "expiry_reviewed_by": "user-1",
+                },
+                {
+                    "id": "inv-salt-early-new",
+                    "family_id": "family-1",
+                    "ingredient_id": "ingredient-salt",
+                    "quantity": Decimal("2"),
+                    "disposed_quantity": Decimal("0.5"),
+                    "status": "fresh",
+                    "purchase_date": date(2026, 6, 5),
+                    "expiry_date": date(2026, 7, 20),
+                    "storage_location": "冷藏",
+                    "notes": "representative",
+                    "updated_at": datetime(2026, 7, 9, tzinfo=timezone.utc),
+                    "created_at": seed_now,
+                    "created_by": "user-1",
+                    "updated_by": "user-1",
+                    "expiry_alert_snoozed_until": date(2026, 7, 15),
+                    "expiry_reviewed_at": datetime(2026, 7, 8, tzinfo=timezone.utc),
+                    "expiry_reviewed_by": "user-2",
+                },
+                {
+                    "id": "inv-salt-early-old",
+                    "family_id": "family-1",
+                    "ingredient_id": "ingredient-salt",
+                    "quantity": Decimal("1"),
+                    "disposed_quantity": Decimal("0"),
+                    "status": "opened",
+                    "purchase_date": date(2026, 6, 4),
+                    "expiry_date": date(2026, 7, 20),
+                    "storage_location": "常温",
+                    "notes": "same expiry older update",
+                    "updated_at": datetime(2026, 7, 1, tzinfo=timezone.utc),
+                    "created_at": seed_now,
+                    "created_by": "user-1",
+                    "updated_by": "user-1",
+                    "expiry_alert_snoozed_until": None,
+                    "expiry_reviewed_at": None,
+                    "expiry_reviewed_by": None,
+                },
+                {
+                    "id": "inv-oil-disposed",
+                    "family_id": "family-1",
+                    "ingredient_id": "ingredient-oil",
+                    "quantity": Decimal("1"),
+                    "disposed_quantity": Decimal("1"),
+                    "status": "fresh",
+                    "purchase_date": date(2026, 5, 1),
+                    "expiry_date": date(2026, 7, 1),
+                    "storage_location": "常温",
+                    "notes": "fully disposed",
+                    "updated_at": seed_now,
+                    "created_at": seed_now,
+                    "created_by": "user-1",
+                    "updated_by": "user-1",
+                    "expiry_alert_snoozed_until": None,
+                    "expiry_reviewed_at": None,
+                    "expiry_reviewed_by": None,
+                },
+                {
+                    "id": "inv-sugar-tracked",
+                    "family_id": "family-1",
+                    "ingredient_id": "ingredient-sugar",
+                    "quantity": Decimal("3"),
+                    "disposed_quantity": Decimal("0"),
+                    "status": "fresh",
+                    "purchase_date": date(2026, 6, 1),
+                    "expiry_date": date(2026, 9, 1),
+                    "storage_location": "常温",
+                    "notes": "tracked",
+                    "updated_at": seed_now,
+                    "created_at": seed_now,
+                    "created_by": "user-1",
+                    "updated_by": "user-1",
+                    "expiry_alert_snoozed_until": None,
+                    "expiry_reviewed_at": None,
+                    "expiry_reviewed_by": None,
+                },
+                {
+                    "id": "inv-pepper",
+                    "family_id": "family-1",
+                    "ingredient_id": "ingredient-pepper",
+                    "quantity": Decimal("1"),
+                    "disposed_quantity": Decimal("0"),
+                    "status": "fresh",
+                    "purchase_date": date(2026, 6, 12),
+                    "expiry_date": None,
+                    "storage_location": "常温",
+                    "notes": "pepper",
+                    "updated_at": seed_now,
+                    "created_at": seed_now,
+                    "created_by": "user-1",
+                    "updated_by": "user-1",
+                    "expiry_alert_snoozed_until": None,
+                    "expiry_reviewed_at": None,
+                    "expiry_reviewed_by": None,
+                },
+            ],
+        )
+
+        context = MigrationContext.configure(connection)
+        with Operations.context(context):
+            migration._backfill_ingredient_inventory_states()
+
+        state_rows = connection.execute(
+            select(states).order_by(states.c.ingredient_id)
+        ).mappings().all()
+        inventory_count = connection.execute(
+            select(sa.func.count()).select_from(inventory_items)
+        ).scalar_one()
+
+    assert inventory_count == 7
+    assert len(state_rows) == 2
+
+    salt_state = next(row for row in state_rows if row["ingredient_id"] == "ingredient-salt")
+    pepper_state = next(row for row in state_rows if row["ingredient_id"] == "ingredient-pepper")
+
+    assert salt_state["availability_level"] == "present_unknown"
+    assert salt_state["inventory_status"] == "fresh"
+    assert salt_state["purchase_date"] == date(2026, 6, 5)
+    assert salt_state["expiry_date"] == date(2026, 7, 20)
+    assert salt_state["storage_location"] == "冷藏"
+    assert salt_state["notes"] == "representative"
+    assert salt_state["expiry_alert_snoozed_until"] == date(2026, 7, 15)
+    assert salt_state["expiry_reviewed_at"] is not None
+    assert salt_state["expiry_reviewed_at"].replace(tzinfo=timezone.utc) == datetime(
+        2026, 7, 8, tzinfo=timezone.utc
+    )
+    assert salt_state["expiry_reviewed_by"] == "user-2"
+    assert salt_state["last_confirmed_at"] is None
+    assert salt_state["last_confirmed_by"] is None
+    assert salt_state["last_confirmation_source"] is None
+    assert salt_state["row_version"] == 1
+
+    assert pepper_state["availability_level"] == "present_unknown"
+    assert pepper_state["expiry_date"] is None
+    assert pepper_state["last_confirmed_at"] is None
+    assert pepper_state["last_confirmed_by"] is None
+    assert pepper_state["last_confirmation_source"] is None
+
+    ingredient_ids = {row["ingredient_id"] for row in state_rows}
+    assert ingredient_ids == {"ingredient-salt", "ingredient-pepper"}
+    assert "ingredient-oil" not in ingredient_ids
+    assert "ingredient-sugar" not in ingredient_ids
+
+    engine.dispose()

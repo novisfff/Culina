@@ -8,7 +8,7 @@ Create Date: 2026-07-12 12:00:00.000000
 from __future__ import annotations
 
 from collections import defaultdict
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from typing import Any
 from uuid import uuid4
 
@@ -179,7 +179,7 @@ def _backfill_ingredient_inventory_states() -> None:
     for row in rows:
         grouped[(row["family_id"], row["ingredient_id"])].append(row)
 
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     payloads: list[dict[str, Any]] = []
     for (family_id, ingredient_id), presence_rows in grouped.items():
         representative = min(presence_rows, key=_representative_key)
