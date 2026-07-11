@@ -14,7 +14,7 @@ import type {
   InventoryActionGroup,
   LowStockInventoryActionGroup,
 } from '../inventory/inventoryActionModel';
-import { useHomeDashboardActions } from './useHomeDashboardActions';
+import { useHomeDashboardActions, homeLongUnconfirmedReconciliationTarget } from './useHomeDashboardActions';
 import type { HomeActionCompletionSummary } from './useHomeDashboardState';
 
 const tomatoGroup: ExpiryInventoryActionGroup = {
@@ -572,6 +572,12 @@ describe('useHomeDashboardActions inventory workflow', () => {
         summary: expect.objectContaining({ message: '到期日已更正' }),
       }),
     );
+  });
+});
+
+describe('home long-unconfirmed reconciliation navigation', () => {
+  it('routes long-unconfirmed home actions to reconciliation scope=suggested', () => {
+    expect(homeLongUnconfirmedReconciliationTarget()).toEqual({ scope: 'suggested' });
   });
 });
 

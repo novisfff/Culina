@@ -284,16 +284,20 @@ export function InventoryReconciliationDialog(props: InventoryReconciliationDial
         .filter(Boolean)
         .join(' ')}
       closeOnBackdrop={!busy}
+      busy={busy}
+      labelledBy="inventory-reconciliation-title"
       onClose={closeIfAllowed}
     >
       <WorkspaceModal
         title={title}
+        titleId="inventory-reconciliation-title"
         description={description}
         eyebrow="快速盘点"
         closeLabel="关闭"
         closeAriaLabel="关闭快速盘点"
         className="workspace-modal-wide inventory-maintenance-modal inventory-reconciliation-modal"
         onClose={closeIfAllowed}
+        busy={busy}
         footerInfo={footerInfo}
         footerActions={
           <>
@@ -501,7 +505,11 @@ function GroupCard(props: {
       <div className="inventory-maintenance-item-copy">
         <div className="inventory-maintenance-item-title-row">
           <strong>{headline.title}</strong>
-          <span className="inventory-maintenance-chip">{headline.confirmationLabel}</span>
+          <span
+            className={`inventory-maintenance-chip is-confirmation is-${props.group.confirmation_status === 'current' ? 'current' : props.group.confirmation_status === 'stale' ? 'stale' : 'neutral'}`}
+          >
+            {headline.confirmationLabel}
+          </span>
           {actionLabel ? <span className="inventory-maintenance-chip is-action">{actionLabel}</span> : null}
           {headline.hasExpiredPhysicalBatch ? (
             <span className="inventory-maintenance-chip is-warning">含过期批次</span>

@@ -19,6 +19,16 @@ import type { NoticeState } from '../../hooks/useNotice';
 import type { InventoryActionGroup } from '../inventory/inventoryActionModel';
 import type { HomeActionCompletionSummary, HomePlanAddFormState } from './useHomeDashboardState';
 
+/**
+ * Home long-unconfirmed inventory actions should open reconciliation with scope=suggested.
+ * This pure helper keeps the navigation target stable for callers/tests.
+ */
+export function homeLongUnconfirmedReconciliationTarget(): {
+  scope: 'suggested';
+} {
+  return { scope: 'suggested' };
+}
+
 
 export type HomeMealEnrichmentOpenRequest = {
   mealLogId?: string;

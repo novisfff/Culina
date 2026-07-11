@@ -139,16 +139,20 @@ export function InventoryOperationHistoryDialog(props: InventoryOperationHistory
         .filter(Boolean)
         .join(' ')}
       closeOnBackdrop={!busy}
+      busy={busy}
+      labelledBy="inventory-operation-history-title"
       onClose={closeIfAllowed}
     >
       <WorkspaceModal
         title="库存操作历史"
+        titleId="inventory-operation-history-title"
         description="查看最近 20 次家庭库存操作；撤销会回退整次操作。"
         eyebrow="操作历史"
         closeLabel="关闭"
         closeAriaLabel="关闭操作历史"
         className="workspace-modal-wide inventory-maintenance-modal inventory-operation-history-modal"
         onClose={closeIfAllowed}
+        busy={busy}
         footerInfo={
           <div className="inventory-maintenance-footer-summary">
             <span>最近记录</span>

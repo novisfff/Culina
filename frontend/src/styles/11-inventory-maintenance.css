@@ -492,6 +492,29 @@
   color: var(--text);
 }
 
+/* Confirmation freshness: never/current/stale — neutral / soft green / amber. */
+.inventory-maintenance-chip.is-confirmation {
+  font-weight: 700;
+}
+
+.inventory-maintenance-chip.is-confirmation.is-neutral {
+  border-color: color-mix(in srgb, var(--text-soft, #6a5b51) 24%, var(--line-soft));
+  background: color-mix(in srgb, var(--surface-muted, #f6f0ea) 70%, var(--surface-2));
+  color: var(--text-soft, #6a5b51);
+}
+
+.inventory-maintenance-chip.is-confirmation.is-current {
+  border-color: color-mix(in srgb, var(--success, #5f8f63) 40%, var(--line-soft));
+  background: color-mix(in srgb, var(--success-soft, #e8f3e9) 80%, var(--surface-2));
+  color: var(--success, #517a58);
+}
+
+.inventory-maintenance-chip.is-confirmation.is-stale {
+  border-color: color-mix(in srgb, var(--warning, #d2a24c) 45%, var(--line-soft));
+  background: color-mix(in srgb, var(--warning, #d2a24c) 14%, var(--surface-2));
+  color: var(--text);
+}
+
 .inventory-reconciliation-layout {
   display: grid;
   gap: 12px;

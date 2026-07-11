@@ -18,12 +18,15 @@ import {
   buildSeasoningSummaries,
   buildShoppingCardGroups,
   buildStorageGroups,
+  buildFoodConfirmation,
+  confirmationStatusFromLastConfirmedAt,
   countDisposableExpiredInventoryItems,
   filterShoppingCards,
   filterIngredientSummariesForInventory,
   filterIngredientSummaries,
   getIngredientCategoryPreset,
   sortInventorySummariesByExpiry,
+  CONFIRMATION_STATUS_LABELS,
 } from './workspaceModel';
 import { filterMobileCatalogSummaries } from './useIngredientWorkspaceData';
 import { readFileSync } from 'node:fs';
@@ -696,6 +699,116 @@ describe('ingredient workspace model', () => {
     expect(buildInventoryCardStatus(salt).label).toBe('已空或未登记');
     expect(buildInventoryCardPresentation(salt, '2026-03-20').headline).toBe('没有');
     expect(buildStorageGroups(summaries)[0]?.label).toBe('常温');
+    // Phase 1 disagreement regression keeps State as the sole truth source while exposing confirmation labels.
+    expect(salt.confirmationStatus).toBe('never_confirmed');
+    expect(salt.confirmationLabel).toBe('从未确认');
+    expect(buildInventoryCardPresentation(salt, '2026-03-20').confirmationLabel).toBe('从未确认');
+  });
+
+  it('projects never/current/stale confirmation labels from last_confirmed_at only', () => {
+    expect(CONFIRMATION_STATUS_LABELS).toEqual({
+      never_confirmed: '从未确认',
+      current: '刚确认过',
+      stale: '建议再确认',
+    });
+    expect(
+      confirmationStatusFromLastConfirmedAt(null, {
+        referenceDate: '2026-07-12',
+        staleAfterDays: 30,
+      }),
+    ).toBe('never_confirmed');
+    expect(
+      confirmationStatusFromLastConfirmedAt('2026-07-10T00:00:00.000Z', {
+        referenceDate: '2026-07-12',
+        staleAfterDays: 30,
+      }),
+    ).toBe('current');
+    expect(
+      confirmationStatusFromLastConfirmedAt('2026-06-01T00:00:00.000Z', {
+        referenceDate: '2026-07-12',
+        staleAfterDays: 30,
+      }),
+    ).toBe('stale');
+
+    const presenceIngredient: Ingredient = {
+      id: 'ingredient-oil',
+      family_id: 'family-1',
+      name: '食用油',
+      category: '调料',
+      default_unit: '瓶',
+      unit_conversions: [],
+      quantity_tracking_mode: 'not_track_quantity',
+      default_storage: '常温',
+      default_expiry_mode: 'none',
+      default_expiry_days: null,
+      default_low_stock_threshold: null,
+      notes: '',
+      image: null,
+      created_at: '2026-03-20T10:00:00Z',
+      updated_at: '2026-03-20T10:00:00Z',
+    };
+    const currentState = {
+      id: 'state-oil-current',
+      family_id: 'family-1',
+      ingredient_id: 'ingredient-oil',
+      availability_level: 'sufficient' as const,
+      inventory_status: 'fresh' as const,
+      purchase_date: '2026-07-01',
+      expiry_date: null,
+      storage_location: '常温',
+      notes: '',
+      expiry_alert_snoozed_until: null,
+      expiry_reviewed_at: null,
+      expiry_reviewed_by: null,
+      last_confirmed_at: '2026-07-10T00:00:00.000Z',
+      last_confirmed_by: 'user-1',
+      last_confirmation_source: 'reconciliation' as const,
+      row_version: 1,
+      created_at: '2026-07-01T00:00:00.000Z',
+      // updated_at is intentionally much newer and must not affect confirmation freshness.
+      updated_at: '2026-07-12T09:00:00.000Z',
+    };
+    const summaries = buildIngredientSummaries({
+      ingredients: [presenceIngredient],
+      inventoryItems: [],
+      inventoryStates: [currentState],
+      recipes: [],
+      referenceDate: '2026-07-12',
+    });
+    const oil = summaries[0]!;
+    expect(oil.confirmationStatus).toBe('current');
+    expect(oil.confirmationLabel).toBe('刚确认过');
+    expect(oil.confirmationTone).toBe('current');
+    expect(buildInventoryCardPresentation(oil, '2026-07-12')).toMatchObject({
+      confirmationStatus: 'current',
+      confirmationLabel: '刚确认过',
+      confirmationTone: 'current',
+    });
+
+    const exactSummaries = buildIngredientSummaries({
+      ingredients,
+      inventoryItems: [
+        {
+          ...inventoryItems[0]!,
+          last_confirmed_at: '2026-06-01T00:00:00.000Z',
+        },
+      ],
+      recipes: [],
+      referenceDate: '2026-07-12',
+    });
+    const tomato = exactSummaries.find((item) => item.ingredient.id === 'ingredient-tomato')!;
+    expect(tomato.confirmationStatus).toBe('stale');
+    expect(tomato.confirmationLabel).toBe('建议再确认');
+    expect(buildInventoryCardPresentation(tomato, '2026-07-12').confirmationLabel).toBe('建议再确认');
+
+    const foodConfirmation = buildFoodConfirmation({
+      food: {
+        inventory_last_confirmed_at: null,
+        storage_location: '冷藏',
+      },
+      referenceDate: '2026-07-12',
+    });
+    expect(foodConfirmation.confirmationLabel).toBe('从未确认');
   });
 
   it('projects low State without any current InventoryItem', () => {

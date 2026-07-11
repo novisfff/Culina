@@ -265,16 +265,20 @@ export function ShoppingIntakeDialog(props: ShoppingIntakeDialogProps) {
         .filter(Boolean)
         .join(' ')}
       closeOnBackdrop={!busy}
+      busy={busy}
+      labelledBy="shopping-intake-title"
       onClose={closeIfAllowed}
     >
       <WorkspaceModal
         title={title}
+        titleId="shopping-intake-title"
         description={description}
         eyebrow="采购入库"
         closeLabel="关闭"
         closeAriaLabel="关闭采购入库"
         className="workspace-modal-wide inventory-maintenance-modal"
         onClose={closeIfAllowed}
+        busy={busy}
         footerInfo={footerInfo}
         footerActions={
           <>

@@ -1163,6 +1163,16 @@ function InventoryIngredientCard(props: InventoryIngredientCardProps) {
           <div className="ingredient-visual-body inventory-ingredient-card-body">
             <div className="ingredient-visual-title-row inventory-ingredient-card-title-row">
               <h3>{summary.ingredient.name}</h3>
+              <span
+                className={`inventory-maintenance-chip is-confirmation is-${presentation.confirmationTone}`}
+                title={
+                  presentation.lastConfirmedAt
+                    ? `上次确认 ${formatDate(presentation.lastConfirmedAt.slice(0, 10))}`
+                    : '还没有人工确认过库存'
+                }
+              >
+                {presentation.confirmationLabel}
+              </span>
             </div>
             <p className="ingredient-visual-meta" title={metaLine}>
               {metaLine}

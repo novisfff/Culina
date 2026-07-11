@@ -86,6 +86,7 @@ import {
   getFoodSceneTags,
   describeExpiry,
   getFoodStatus,
+  getFoodInventoryConfirmation,
   getMealUsage,
   getDefaultMealType,
   getPrimaryFoodActionLabel,
@@ -1493,6 +1494,9 @@ export function FoodWorkspace(props: Props) {
             const normalizedType = normalizeFoodType(food);
             const defaultMealType = getDefaultMealType(food);
             const status = getFoodStatus(food, usage, expiry, props.recipes);
+            const inventoryConfirmation = isReadyLikeFood(food)
+              ? getFoodInventoryConfirmation(food, todayDate)
+              : null;
             const governanceIssueLabels = getFoodGovernanceIssueLabels(food, props.recipes);
             const compactLabels = governanceIssueLabels.length > 0
               ? governanceIssueLabels.slice(0, 2)
@@ -1532,6 +1536,18 @@ export function FoodWorkspace(props: Props) {
                       <strong>{status.label}</strong>
                       <small>{status.detail}</small>
                     </span>
+                    {inventoryConfirmation ? (
+                      <span
+                        className={`inventory-maintenance-chip is-confirmation is-${inventoryConfirmation.confirmationTone}`}
+                        title={
+                          inventoryConfirmation.lastConfirmedAt
+                            ? `上次确认 ${inventoryConfirmation.lastConfirmedAt.slice(0, 10)}`
+                            : '还没有人工确认过成品库存'
+                        }
+                      >
+                        {inventoryConfirmation.confirmationLabel}
+                      </span>
+                    ) : null}
                     {food.suitable_meal_types.length > 0 && (
                       <span className="food-card-meal-summary">
                         {food.suitable_meal_types.map((meal) => MEAL_TYPE_LABELS[meal]).join(' / ')}

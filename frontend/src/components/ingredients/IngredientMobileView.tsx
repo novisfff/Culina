@@ -602,6 +602,16 @@ export function IngredientMobileView(props: IngredientMobileViewProps) {
                           <div className="mobile-ingredient-meta-row">
                             <span>{status.label}</span>
                             <span>{props.buildInventorySummaryLine(summary)}</span>
+                            <span
+                              className={`inventory-maintenance-chip is-confirmation is-${summary.confirmationTone}`}
+                              title={
+                                summary.lastConfirmedAt
+                                  ? `上次确认 ${summary.lastConfirmedAt.slice(0, 10)}`
+                                  : '还没有人工确认过库存'
+                              }
+                            >
+                              {summary.confirmationLabel}
+                            </span>
                           </div>
                           <div className="mobile-ingredient-library-actions">
                             {canDestroyExpired ? (

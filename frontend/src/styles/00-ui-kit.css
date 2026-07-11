@@ -605,6 +605,18 @@
   pointer-events: none;
 }
 
+.workspace-overlay-root[data-busy='true'] {
+  cursor: progress;
+}
+
+.workspace-overlay-root[data-busy='true'] .workspace-overlay-backdrop {
+  pointer-events: auto;
+}
+
+.workspace-overlay-panel[role='dialog'] {
+  outline: none;
+}
+
 .workspace-overlay-backdrop {
   position: absolute;
   inset: 0;

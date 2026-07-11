@@ -121,8 +121,9 @@ const result: InventoryOperationResult = {
   operation_id: 'op-1',
   operation_type: 'reconciliation',
   status: 'applied',
-  applied_at: '2026-07-11T08:01:00.000Z',
-  revertible_until: '2026-07-11T08:16:00.000Z',
+  applied_at: '2026-07-12T08:01:00.000Z',
+  // Keep revertible window in the future relative to the suite wall clock.
+  revertible_until: '2099-07-12T08:16:00.000Z',
   can_revert: true,
   summary: {
     title: '本次盘点已完成',
