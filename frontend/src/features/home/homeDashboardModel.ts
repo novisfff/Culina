@@ -16,11 +16,10 @@ import {
   selectHomeInventoryActionGroups,
   type InventoryActionGroup,
 } from '../inventory/inventoryActionModel';
-import { addDateKeyDays, calendarDaysBetweenDateKeys, todayKey } from '../../lib/date';
+import { addDateKeyDays, todayKey } from '../../lib/date';
 import { formatDate, getFoodCover } from '../../lib/ui';
 
 export const DASHBOARD_PLAN_MEAL_TYPES: MealType[] = ['breakfast', 'lunch', 'dinner', 'snack'];
-export const DASHBOARD_TODO_PAGE_SIZE = 4;
 
 export type HomeRestockFormState = {
   ingredientId: string;
@@ -72,60 +71,6 @@ export type DashboardPlanSummaryItem = {
   icon: DashboardIconName;
   tone: string;
 };
-
-export type DashboardExpiryTodoInventoryItem = InventoryItem & { daysLeft: number };
-
-export type DashboardTodoItem =
-  | {
-      type: 'expiry';
-      id: string;
-      title: string;
-      description: string;
-      status: string;
-      done: false;
-      dateLabel: string;
-      icon: DashboardIconName;
-      item: DashboardExpiryTodoInventoryItem;
-    }
-  | {
-      type: 'shopping';
-      id: string;
-      title: string;
-      description: string;
-      status: string;
-      done: false;
-      dateLabel: string;
-      icon: DashboardIconName;
-      item: ShoppingListItem;
-    }
-  | {
-      type: 'meal';
-      id: string;
-      title: string;
-      description: string;
-      status: string;
-      done: true;
-      dateLabel: string;
-      icon: DashboardIconName;
-      item: MealLog;
-    };
-
-export function getExpiryDaysLeft(expiryDate: string, referenceDate: string) {
-  return calendarDaysBetweenDateKeys(expiryDate.slice(0, 10), referenceDate.slice(0, 10));
-}
-
-export function getDashboardExpiryBadge(daysLeft: number) {
-  if (daysLeft < 0) {
-    return { label: `已过期${Math.abs(daysLeft)}天`, className: 'dashboard-expiry-badge dashboard-expiry-badge-expired' };
-  }
-  if (daysLeft === 0) {
-    return { label: '今日过期', className: 'dashboard-expiry-badge dashboard-expiry-badge-today' };
-  }
-  if (daysLeft <= 3) {
-    return { label: `还有${daysLeft}天过期`, className: 'dashboard-expiry-badge dashboard-expiry-badge-soon' };
-  }
-  return { label: `还有${daysLeft}天过期`, className: 'dashboard-expiry-badge dashboard-expiry-badge-later' };
-}
 
 export function formatDashboardPlanRange(range: { start: string; end: string }) {
   const format = (dateKey: string) => {
@@ -209,16 +154,6 @@ export function buildHomeDashboardViewModel(input: {
   );
   const hasFullListInventoryActionGroups = input.inventoryActionGroups.length > homeInventoryActionGroups.length;
   const availableInventoryCount = input.availableIngredientCount;
-  // Legacy raw lists retained for pre-Task-7 UI wiring; no longer feed home stats/action counts.
-  const expiringInventoryItems = input.inventoryItems
-    .filter((item) => (item.remaining_quantity ?? item.quantity) > 0 && item.expiry_date)
-    .map((item) => ({
-      ...item,
-      daysLeft: item.expiry_date ? getExpiryDaysLeft(item.expiry_date, input.today) : 99,
-    }))
-    .filter((item) => item.daysLeft <= 7)
-    .sort((left, right) => left.daysLeft - right.daysLeft);
-  const visibleExpiringInventoryItems = expiringInventoryItems;
   const activeFoodPlanItems = input.foodPlanItems.filter((item) => item.status !== 'skipped');
   const pendingShoppingPreview = input.shoppingItems.filter((item) => !item.done);
   const pendingShoppingCount = pendingShoppingPreview.length;
@@ -266,11 +201,6 @@ export function buildHomeDashboardViewModel(input: {
     (input.dashboardRecommendationPage % dashboardRecommendationPageCount) * 3,
     (input.dashboardRecommendationPage % dashboardRecommendationPageCount) * 3 + 3
   );
-  // Keep empty todo lists for legacy UI until Task 7 replaces rendering.
-  const dashboardTodoItems: DashboardTodoItem[] = [];
-  const visibleDashboardTodoItems = dashboardTodoItems;
-  const hasMoreDashboardTodoItems = false;
-  const dashboardCompletedCount = 0;
   const dashboardWeekMealCapacity = 7 * DASHBOARD_PLAN_MEAL_TYPES.length;
   const completedFoodPlanCount = activeFoodPlanItems.filter((item) => item.status === 'cooked').length;
   const pendingFoodPlanSlots = Math.max(0, dashboardWeekMealCapacity - activeFoodPlanItems.length);
@@ -310,8 +240,6 @@ export function buildHomeDashboardViewModel(input: {
     homeInventoryActionCount,
     hasLaterInventoryActionGroups,
     hasFullListInventoryActionGroups,
-    expiringInventoryItems,
-    visibleExpiringInventoryItems,
     activeFoodPlanItems,
     pendingShoppingPreview,
     pendingShoppingCount,
@@ -320,10 +248,6 @@ export function buildHomeDashboardViewModel(input: {
     dashboardRecommendationItems,
     dashboardRecommendationPageCount,
     dashboardRecommendations,
-    dashboardTodoItems,
-    visibleDashboardTodoItems,
-    hasMoreDashboardTodoItems,
-    dashboardCompletedCount,
     dashboardWeekMealCapacity,
     dashboardPlanSummary,
     dashboardPlanDays,

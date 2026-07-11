@@ -2,7 +2,6 @@ import type { Dispatch, MutableRefObject, SetStateAction } from 'react';
 import type { ShoppingListItem } from '../api/types';
 import {
   buildHomeRestockForm,
-  type DashboardTodoItem,
   type HomeRestockFormState,
 } from '../features/home/homeDashboardModel';
 import type { TabKey } from './AppShell';
@@ -72,20 +71,6 @@ export function useAppHomeHandlers(args: UseAppHomeHandlersArgs) {
     args.setHomeMealDetailId(null);
   }
 
-  function handleDashboardTodoClick(item: DashboardTodoItem) {
-    // Legacy todo path retained until Task 7B replaces the home surface.
-    // Shopping/meal remain; expiry rows will be driven by inventory action groups.
-    if (item.type === 'expiry') {
-      openIngredientDetail(item.item.ingredient_id);
-      return;
-    }
-    if (item.type === 'shopping') {
-      openHomeRestock(item.item);
-      return;
-    }
-    args.setHomeMealDetailId(item.item.id);
-  }
-
   function updateHomeRestockForm(next: HomeRestockFormState) {
     args.setHomeRestockForm(next);
   }
@@ -98,7 +83,6 @@ export function useAppHomeHandlers(args: UseAppHomeHandlersArgs) {
     openHomeRestock,
     closeHomeRestock,
     closeHomeMealDetail,
-    handleDashboardTodoClick,
     updateHomeRestockForm,
   };
 }

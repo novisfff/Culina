@@ -400,8 +400,6 @@ function App() {
     hasLaterInventoryActionGroups,
     hasFullListInventoryActionGroups,
     availableInventoryCount,
-    expiringInventoryItems,
-    visibleExpiringInventoryItems,
     activeFoodPlanItems,
     pendingShoppingPreview,
     todaysMeals,
@@ -409,10 +407,6 @@ function App() {
     dashboardRecommendationItems,
     dashboardRecommendationPageCount,
     dashboardRecommendations,
-    dashboardTodoItems,
-    visibleDashboardTodoItems,
-    hasMoreDashboardTodoItems,
-    dashboardCompletedCount,
     dashboardWeekMealCapacity,
     dashboardPlanSummary,
     dashboardPlanDays,
@@ -479,7 +473,6 @@ function App() {
     openHomeRestock,
     closeHomeRestock,
     closeHomeMealDetail,
-    handleDashboardTodoClick,
     updateHomeRestockForm,
   } = useAppHomeHandlers({
     ingredientNavigationRequestIdRef,
@@ -492,13 +485,7 @@ function App() {
   });
   void openIngredientsCatalog;
   void openIngredientDetail;
-  void handleDashboardTodoClick;
-  void dashboardTodoItems;
-  void visibleDashboardTodoItems;
-  void hasMoreDashboardTodoItems;
-  void dashboardCompletedCount;
-  void expiringInventoryItems;
-  void visibleExpiringInventoryItems;
+
 
   async function refreshInventoryActions() {
     // Await canonical inventory (and shopping) refetch so completion/conflict branches

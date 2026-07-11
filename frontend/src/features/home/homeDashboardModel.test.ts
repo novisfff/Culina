@@ -6,8 +6,6 @@ import {
   buildHomeRestockForm,
   findShoppingIngredient,
   formatDashboardPlanRange,
-  getDashboardExpiryBadge,
-  getExpiryDaysLeft,
   parsePositiveNumber,
   resolveExpiryDateFromDays,
   resolveInventoryStatusForStorage,
@@ -45,18 +43,6 @@ const shoppingItem: ShoppingListItem = {
 };
 
 describe('homeDashboardModel', () => {
-  it('formats expiry distance and badges', () => {
-    expect(getExpiryDaysLeft('2026-06-04', '2026-06-01')).toBe(3);
-    expect(getExpiryDaysLeft('2026-05-30', '2026-06-01')).toBe(-2);
-    expect(getDashboardExpiryBadge(-2)).toEqual({
-      label: '已过期2天',
-      className: 'dashboard-expiry-badge dashboard-expiry-badge-expired',
-    });
-    expect(getDashboardExpiryBadge(0).label).toBe('今日过期');
-    expect(getDashboardExpiryBadge(3).className).toContain('soon');
-    expect(getDashboardExpiryBadge(8).className).toContain('later');
-  });
-
   it('builds restock defaults from matched ingredient', () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-06-01T08:00:00.000Z'));
@@ -280,7 +266,7 @@ describe('homeDashboardModel', () => {
     expect(model.homeInventoryActionGroups.map((group) => group.kind)).toEqual(['expiry', 'expiry']);
     expect(model.homeInventoryActionGroups.map((group) => group.ingredientName)).toEqual(['鸡蛋', '牛奶']);
     expect(model.homeInventoryActionCount).toBe(2);
-    expect(model.dashboardTodoItems).toEqual([]);
+    expect('dashboardTodoItems' in model).toBe(false);
     expect(model.dashboardStats.find((stat) => stat.label === '需处理食材')).toMatchObject({
       value: '2',
       unit: '种',
