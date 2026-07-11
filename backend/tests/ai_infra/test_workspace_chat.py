@@ -475,7 +475,7 @@ class AIWorkspaceChatTestCase(AIAgentInfraTestCase):
             self.assertEqual(response.status_code, 409, response.text)
 
         def test_ai_workspace_rejects_new_message_when_conversation_has_active_run(self) -> None:
-            for status in ("running", "waiting_input"):
+            for status in ("pending", "running", "waiting_input", "waiting_approval"):
                 with self.subTest(status=status):
                     conversation_id = f"conversation-active-run-{status}"
                     with self.SessionLocal() as db:

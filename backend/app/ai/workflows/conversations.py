@@ -12,7 +12,8 @@ from app.core.utils import create_id, utcnow
 from app.models.domain import AIAgentRun, AIConversation, AIMessage, Food, Ingredient, Recipe
 
 
-ACTIVE_CONVERSATION_RUN_STATUSES = {"pending", "running", "waiting_input"}
+ACTIVE_CONVERSATION_RUN_STATUSES = {"pending", "running", "waiting_input", "waiting_approval"}
+
 
 
 def normalize_workspace_subject(db: Session, *, family_id: str, subject: dict[str, Any] | None) -> dict[str, Any]:

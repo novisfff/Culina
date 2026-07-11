@@ -246,3 +246,53 @@ class AIConversationAccessTestCase(AIAgentInfraTestCase):
         self.assertEqual(messages.status_code, 200, messages.text)
         approvals = self.client.get(f"/api/ai/conversations/{seeded.conversation_id}/approvals/pending")
         self.assertEqual(approvals.status_code, 200, approvals.text)
+
+    def test_published_conversation_rejects_collaborator_message_while_waiting_approval(self) -> None:
+        other_user, other_membership = self.create_family_member()
+        conversation = self._persist_conversation(
+            "conversation-waiting-approval-collab",
+            self.user.id,
+            AIConversationVisibility.FAMILY,
+        )
+        with self.SessionLocal() as db:
+            run = AIAgentRun(
+                id="run-waiting-approval-collab",
+                family_id=self.family.id,
+                conversation_id=conversation.id,
+                message_id=None,
+                agent_key="workspace_orchestrator",
+                feature_key="ai_workspace_chat",
+                intent="general_chat",
+                input_summary="等待审批",
+                context_summary={},
+                output_summary="",
+                status="waiting_approval",
+                model="fake-model",
+                input={"prompt": "等待审批", "subject": {}},
+                output={},
+                tool_calls=[],
+                duration_ms=0,
+                created_by=self.user.id,
+            )
+            db.add(run)
+            db.commit()
+
+        self.authenticate_as(other_user.id, other_membership.id)
+        response = self.client.post(
+            "/api/ai/chat",
+            json={"message": "协作者新消息", "conversation_id": conversation.id},
+        )
+        self.assertEqual(response.status_code, 409, response.text)
+        self.assertIn("当前会话已有 AI 任务", response.text)
+
+        with self.SessionLocal() as db:
+            statuses = list(
+                db.scalars(
+                    select(AIAgentRun.status).where(
+                        AIAgentRun.conversation_id == conversation.id,
+                        AIAgentRun.family_id == self.family.id,
+                    )
+                )
+            )
+        self.assertEqual(statuses, ["waiting_approval"])
+
