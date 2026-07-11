@@ -84,6 +84,7 @@ export type DisposableExpiredInventoryItemViewModel = {
   notes: string;
   status: InventoryItem['status'];
   createdAt: string;
+  rowVersion: number;
 };
 
 export type InventoryStorageOverviewTone = 'stable' | 'warning' | 'danger' | 'muted';
@@ -651,6 +652,7 @@ export function buildDisposableExpiredInventoryItems(
         notes: item.notes,
         status: item.status,
         createdAt: item.created_at,
+        rowVersion: item.row_version ?? 1,
       };
     });
 }

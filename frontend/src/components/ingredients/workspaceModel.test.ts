@@ -78,6 +78,7 @@ const inventoryItems: InventoryItem[] = [
     low_stock_threshold: 3,
     created_at: '2026-03-20T10:00:00Z',
     updated_at: '2026-03-20T11:00:00Z',
+    row_version: 4,
   },
   {
     id: 'inventory-2',
@@ -924,6 +925,7 @@ describe('ingredient workspace model', () => {
         remainingQuantity: 3,
         remainingLabel: '3个',
         expiryDate: '2026-03-18',
+        rowVersion: 4,
       }),
     ]);
     expect(countDisposableExpiredInventoryItems(summaries[0]!, '2026-03-20')).toBe(1);

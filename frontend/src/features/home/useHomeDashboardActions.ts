@@ -48,7 +48,10 @@ export function useHomeDashboardActions(input: {
   homePlanAddForm: HomePlanAddFormState;
   createInventory: (payload: CreateInventoryPayload) => Promise<unknown>;
   updateShoppingDone: (itemId: string, done: boolean) => Promise<unknown>;
-  disposeExpiredInventory: (payload: { ingredient_id: string; inventory_item_ids: string[] }) => Promise<unknown>;
+  disposeExpiredInventory: (payload: {
+    ingredient_id: string;
+    items: Array<{ inventory_item_id: string; expected_row_version: number }>;
+  }) => Promise<unknown>;
   updateFoodPlanItem: (itemId: string, payload: UpdateFoodPlanItemPayload) => Promise<unknown>;
   deleteFoodPlanItem: (itemId: string) => Promise<unknown>;
   createFoodPlanItem: (payload: CreateFoodPlanItemPayload) => Promise<unknown>;
@@ -131,7 +134,10 @@ export function useHomeDashboardActions(input: {
     try {
       await input.disposeExpiredInventory({
         ingredient_id: input.homeExpiredDisposalSummary.ingredient.id,
-        inventory_item_ids: input.homeExpiredDisposalItems.map((item) => item.id),
+        items: input.homeExpiredDisposalItems.map((item) => ({
+          inventory_item_id: item.id,
+          expected_row_version: item.rowVersion,
+        })),
       });
       input.closeHomeExpiredDisposal();
     } catch (reason) {

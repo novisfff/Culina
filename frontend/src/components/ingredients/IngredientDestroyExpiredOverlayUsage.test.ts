@@ -20,3 +20,20 @@ describe('IngredientDestroyExpiredOverlay style usage', () => {
     expect(mobileStyleSource).not.toContain('destroy-expired-item');
   });
 });
+
+describe('IngredientDestroyExpiredOverlay disposal contract', () => {
+  it('carries actual row versions through disposal callers and never sends inventory_item_ids', () => {
+    const workspaceModelSource = readFileSync(resolve(__dirname, 'workspaceModel.ts'), 'utf8');
+    const actionStateSource = readFileSync(resolve(__dirname, 'useIngredientActionState.ts'), 'utf8');
+    const homeActionsSource = readFileSync(
+      resolve(__dirname, '../../features/home/useHomeDashboardActions.ts'),
+      'utf8',
+    );
+
+    expect(workspaceModelSource).toContain('rowVersion: item.row_version ?? 1');
+    expect(actionStateSource).toContain('expected_row_version: item.rowVersion');
+    expect(actionStateSource).not.toContain('inventory_item_ids');
+    expect(homeActionsSource).toContain('expected_row_version: item.rowVersion');
+    expect(homeActionsSource).not.toContain('inventory_item_ids');
+  });
+});

@@ -53,6 +53,31 @@ def require_inventory_item(
     return item
 
 
+def lock_inventory_items_by_ids(
+    db: Session,
+    *,
+    family_id: str,
+    item_ids: list[str] | set[str] | tuple[str, ...],
+) -> dict[str, InventoryItem]:
+    """Lock family-owned inventory rows in stable ID order for mutation."""
+    ordered_ids = sorted({item_id for item_id in item_ids if item_id})
+    if not ordered_ids:
+        return {}
+    locked_items = list(
+        db.scalars(
+            select(InventoryItem)
+            .where(
+                InventoryItem.family_id == family_id,
+                InventoryItem.id.in_(ordered_ids),
+            )
+            .options(selectinload(InventoryItem.ingredient))
+            .order_by(InventoryItem.id.asc())
+            .with_for_update()
+        )
+    )
+    return {item.id: item for item in locked_items}
+
+
 def create_inventory_batch(
     db: Session,
     *,
@@ -260,6 +285,7 @@ def dispose_inventory_quantity(
     quantity: Decimal | None,
     unit: str | None,
     reason: str,
+    record_activity: bool = True,
 ) -> dict:
     reason = reason.strip()
     if not reason:
@@ -274,15 +300,16 @@ def dispose_inventory_quantity(
             raise ValueError("不记录数量的食材只能整批移除或重新补充")
         item.disposed_quantity = item.quantity
         item.updated_by = user_id
-        log_activity(
-            db,
-            family_id=family_id,
-            actor_id=user_id,
-            action=ActivityAction.UPDATE,
-            entity_type="InventoryItem",
-            entity_id=item.id,
-            summary=f"移除库存 {ingredient.name}：{reason}",
-        )
+        if record_activity:
+            log_activity(
+                db,
+                family_id=family_id,
+                actor_id=user_id,
+                action=ActivityAction.UPDATE,
+                entity_type="InventoryItem",
+                entity_id=item.id,
+                summary=f"移除库存 {ingredient.name}：{reason}",
+            )
         return {
             "operation": "dispose",
             "ingredient_id": ingredient.id,
@@ -335,15 +362,16 @@ def dispose_inventory_quantity(
     item.disposed_quantity += disposed_in_item_unit
     item.updated_by = user_id
     remaining = remaining_quantity(item)
-    log_activity(
-        db,
-        family_id=family_id,
-        actor_id=user_id,
-        action=ActivityAction.UPDATE,
-        entity_type="InventoryItem",
-        entity_id=item.id,
-        summary=f"销毁库存 {ingredient.name} {float(requested_quantity):g}{requested_unit}：{reason}",
-    )
+    if record_activity:
+        log_activity(
+            db,
+            family_id=family_id,
+            actor_id=user_id,
+            action=ActivityAction.UPDATE,
+            entity_type="InventoryItem",
+            entity_id=item.id,
+            summary=f"销毁库存 {ingredient.name} {float(requested_quantity):g}{requested_unit}：{reason}",
+        )
     return {
         "operation": "dispose",
         "ingredient_id": ingredient.id,

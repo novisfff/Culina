@@ -56,6 +56,7 @@ const item: DisposableExpiredInventoryItemViewModel = {
   notes: '表面变软',
   status: 'expiring',
   createdAt: '2026-06-20T00:00:00Z',
+  rowVersion: 5,
 };
 
 afterEach(() => {

@@ -5,6 +5,7 @@ from decimal import Decimal
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
+from sqlalchemy.orm.exc import StaleDataError
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from app.core.deps import get_current_auth
@@ -13,6 +14,8 @@ from app.core.utils import create_id, utcnow
 from app.db.session import get_db
 from app.db.transactions import commit_session
 from app.models.domain import Food, FoodPlanItem, MealLog, MealLogFood, Recipe, RecipeCookLog, RecipeIngredient, RecipeStep
+from app.services.inventory_expiry_actions import STALE_INVENTORY_DETAIL
+from app.services.inventory_operations import lock_inventory_items_by_ids
 from app.repos.media import build_media_map, get_media_assets_for_entities
 from app.schemas.recipes import (
     CookRecipePreviewResponse,
@@ -537,11 +540,27 @@ def cook_recipe(
             "meal_log_id": None,
         }
 
+    planned_item_ids = [
+        deduction.item.id
+        for plan in consumption_plan
+        for deduction in plan.deductions
+    ]
+    locked_items = lock_inventory_items_by_ids(
+        db,
+        family_id=membership.family_id,
+        item_ids=planned_item_ids,
+    )
+
     consumed_items: list[dict] = []
     for plan in consumption_plan:
         affected_item_ids: list[str] = []
         for deduction in plan.deductions:
-            item = deduction.item
+            item = locked_items.get(deduction.item.id)
+            if item is None:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail=STALE_INVENTORY_DETAIL,
+                )
             item.consumed_quantity = item.consumed_quantity + deduction.quantity
             item.updated_by = user.id
             affected_item_ids.append(item.id)
@@ -636,7 +655,14 @@ def cook_recipe(
         entity_id=recipe.id,
         summary=f"完成菜谱 {recipe.title}，扣减 {len(consumed_items)} 项食材",
     )
-    commit_session(db)
+    try:
+        commit_session(db)
+    except StaleDataError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=STALE_INVENTORY_DETAIL,
+        ) from exc
 
     return {
         "recipe_id": recipe.id,

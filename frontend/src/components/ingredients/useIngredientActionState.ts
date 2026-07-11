@@ -56,7 +56,7 @@ type UseIngredientActionStateArgs = {
   }) => Promise<ConsumeInventoryResponse>;
   disposeExpiredInventory: (payload: {
     ingredient_id: string;
-    inventory_item_ids: string[];
+    items: Array<{ inventory_item_id: string; expected_row_version: number }>;
   }) => Promise<DisposeExpiredInventoryResponse>;
   createShoppingItem: (payload: {
     title: string;
@@ -291,7 +291,10 @@ export function useIngredientActionState(args: UseIngredientActionStateArgs) {
     try {
       await args.disposeExpiredInventory({
         ingredient_id: selectedSummary.ingredient.id,
-        inventory_item_ids: expiredItems.map((item) => item.id),
+        items: expiredItems.map((item) => ({
+          inventory_item_id: item.id,
+          expected_row_version: item.rowVersion,
+        })),
       });
       args.setSelectedIngredientId(selectedSummary.ingredient.id);
       args.closeOverlay();

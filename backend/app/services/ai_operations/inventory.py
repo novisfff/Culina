@@ -7,13 +7,16 @@ from typing import Any
 from fastapi.encoders import jsonable_encoder
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
+from sqlalchemy.orm.exc import StaleDataError
 
+from app.ai.errors import AIConflictError
 from app.core.enums import InventoryStatus
 from app.core.utils import utcnow
 from app.ai.tools.catalog.common import entity_media_map
 from app.models.domain import AIMessage, InventoryItem
 from app.ai.tools.catalog.inventory import inventory_record
 from app.services.clock import today_for_family
+from app.services.inventory_expiry_actions import STALE_INVENTORY_DETAIL
 from app.services.inventory_operations import consume_ingredient_inventory, create_inventory_batch, dispose_inventory_quantity, require_ingredient, require_inventory_item
 from app.services.serializers import serialize_inventory_item
 
@@ -28,74 +31,78 @@ def execute_inventory_operation_draft(
     results: list[dict[str, Any]] = []
     entity_ids: list[str] = []
     today = today_for_family(family_id)
-    for operation in payload.get("operations") or []:
-        action = str(operation["action"])
-        ingredient = require_ingredient(
-            db,
-            family_id=family_id,
-            ingredient_id=str(operation["ingredientId"]),
-        )
-        if action == "restock":
-            item = create_inventory_batch(
+    try:
+        for operation in payload.get("operations") or []:
+            action = str(operation["action"])
+            ingredient = require_ingredient(
                 db,
                 family_id=family_id,
-                user_id=user_id,
-                ingredient=ingredient,
-                quantity=Decimal(str(operation["quantity"])) if operation.get("quantity") is not None else None,
-                unit=str(operation.get("unit") or ingredient.default_unit),
-                status=InventoryStatus(str(operation["status"])),
-                purchase_date=date.fromisoformat(str(operation["purchaseDate"])),
-                expiry_date=date.fromisoformat(str(operation["expiryDate"])) if operation.get("expiryDate") else None,
-                storage_location=str(operation["storageLocation"]),
-                notes=str(operation.get("notes") or ""),
-                low_stock_threshold=(
-                    Decimal(str(operation["lowStockThreshold"]))
-                    if operation.get("lowStockThreshold") is not None
-                    else None
-                ),
+                ingredient_id=str(operation["ingredientId"]),
             )
-            result = {
-                "operation": "restock",
-                "ingredient_id": ingredient.id,
-                "ingredient_name": ingredient.name,
-                "inventory_item_id": item.id,
-                "quantity": float(operation["quantity"]) if operation.get("quantity") is not None else None,
-                "unit": str(operation.get("unit") or ingredient.default_unit),
-                "inventory_item": serialize_inventory_item(item),
-            }
-            entity_ids.append(item.id)
-        elif action == "consume":
-            result = consume_ingredient_inventory(
-                db,
-                family_id=family_id,
-                user_id=user_id,
-                ingredient=ingredient,
-                quantity=Decimal(str(operation["quantity"])) if operation.get("quantity") is not None else None,
-                unit=str(operation.get("unit") or ingredient.default_unit),
-                today=today,
-                inventory_item_id=operation.get("inventoryItemId"),
-            )
-            entity_ids.extend(result["affected_item_ids"])
-        elif action == "dispose":
-            item = require_inventory_item(
-                db,
-                family_id=family_id,
-                inventory_item_id=str(operation["inventoryItemId"]),
-                for_update=True,
-            )
-            result = dispose_inventory_quantity(
-                db,
-                family_id=family_id,
-                user_id=user_id,
-                item=item,
-                quantity=Decimal(str(operation["quantity"])) if operation.get("quantity") is not None else None,
-                unit=str(operation.get("unit") or item.unit),
-                reason=str(operation["reason"]),
-            )
-            entity_ids.append(item.id)
-        else:
-            raise ValueError("不支持的库存操作")
-        results.append(result)
+            if action == "restock":
+                item = create_inventory_batch(
+                    db,
+                    family_id=family_id,
+                    user_id=user_id,
+                    ingredient=ingredient,
+                    quantity=Decimal(str(operation["quantity"])) if operation.get("quantity") is not None else None,
+                    unit=str(operation.get("unit") or ingredient.default_unit),
+                    status=InventoryStatus(str(operation["status"])),
+                    purchase_date=date.fromisoformat(str(operation["purchaseDate"])),
+                    expiry_date=date.fromisoformat(str(operation["expiryDate"])) if operation.get("expiryDate") else None,
+                    storage_location=str(operation["storageLocation"]),
+                    notes=str(operation.get("notes") or ""),
+                    low_stock_threshold=(
+                        Decimal(str(operation["lowStockThreshold"]))
+                        if operation.get("lowStockThreshold") is not None
+                        else None
+                    ),
+                )
+                result = {
+                    "operation": "restock",
+                    "ingredient_id": ingredient.id,
+                    "ingredient_name": ingredient.name,
+                    "inventory_item_id": item.id,
+                    "quantity": float(operation["quantity"]) if operation.get("quantity") is not None else None,
+                    "unit": str(operation.get("unit") or ingredient.default_unit),
+                    "inventory_item": serialize_inventory_item(item),
+                }
+                entity_ids.append(item.id)
+            elif action == "consume":
+                result = consume_ingredient_inventory(
+                    db,
+                    family_id=family_id,
+                    user_id=user_id,
+                    ingredient=ingredient,
+                    quantity=Decimal(str(operation["quantity"])) if operation.get("quantity") is not None else None,
+                    unit=str(operation.get("unit") or ingredient.default_unit),
+                    today=today,
+                    inventory_item_id=operation.get("inventoryItemId"),
+                )
+                entity_ids.extend(result["affected_item_ids"])
+            elif action == "dispose":
+                item = require_inventory_item(
+                    db,
+                    family_id=family_id,
+                    inventory_item_id=str(operation["inventoryItemId"]),
+                    for_update=True,
+                )
+                result = dispose_inventory_quantity(
+                    db,
+                    family_id=family_id,
+                    user_id=user_id,
+                    item=item,
+                    quantity=Decimal(str(operation["quantity"])) if operation.get("quantity") is not None else None,
+                    unit=str(operation.get("unit") or item.unit),
+                    reason=str(operation["reason"]),
+                )
+                entity_ids.append(item.id)
+            else:
+                raise ValueError("不支持的库存操作")
+            results.append(result)
+        db.flush()
+    except StaleDataError as exc:
+        raise AIConflictError(STALE_INVENTORY_DETAIL) from exc
     return {"operations": results}, list(dict.fromkeys(entity_ids))
 
 

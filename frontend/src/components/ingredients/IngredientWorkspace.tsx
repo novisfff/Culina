@@ -153,7 +153,7 @@ type IngredientWorkspaceProps = {
   }) => Promise<ConsumeInventoryResponse>;
   disposeExpiredInventory: (payload: {
     ingredient_id: string;
-    inventory_item_ids: string[];
+    items: Array<{ inventory_item_id: string; expected_row_version: number }>;
   }) => Promise<DisposeExpiredInventoryResponse>;
   createShoppingItem: (payload: {
     title: string;

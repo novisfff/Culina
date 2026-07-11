@@ -20,78 +20,96 @@ export function useAppMutations() {
 
   const createIngredientMutation = useMutation({
     mutationFn: api.createIngredient,
-    onSuccess: () => {
-      invalidateAfterIngredientChanged(queryClient);
+    onSuccess: async () => {
+      await invalidateAfterIngredientChanged(queryClient);
     },
   });
   const updateIngredientMutation = useMutation({
     mutationFn: ({ ingredientId, payload }: { ingredientId: string; payload: Parameters<typeof api.updateIngredient>[1] }) =>
       api.updateIngredient(ingredientId, payload),
-    onSuccess: () => {
-      invalidateAfterIngredientChanged(queryClient);
+    onSuccess: async () => {
+      await invalidateAfterIngredientChanged(queryClient);
     },
   });
   const createInventoryMutation = useMutation({
     mutationFn: api.createInventory,
-    onSuccess: () => {
-      invalidateAfterInventoryChanged(queryClient);
+    onSuccess: async () => {
+      await invalidateAfterInventoryChanged(queryClient);
     },
   });
   const consumeInventoryMutation = useMutation({
     mutationFn: api.consumeInventory,
-    onSuccess: () => {
-      invalidateAfterInventoryChanged(queryClient);
+    onSuccess: async () => {
+      await invalidateAfterInventoryChanged(queryClient);
     },
   });
   const disposeExpiredInventoryMutation = useMutation({
     mutationFn: api.disposeExpiredInventory,
-    onSuccess: () => {
-      invalidateAfterInventoryChanged(queryClient);
+    onSuccess: async () => {
+      await invalidateAfterInventoryChanged(queryClient);
+    },
+  });
+  const snoozeInventoryExpiryAlertsMutation = useMutation({
+    mutationFn: api.snoozeInventoryExpiryAlerts,
+    onSuccess: async () => {
+      await invalidateAfterInventoryChanged(queryClient);
+    },
+  });
+  const correctInventoryExpiryDateMutation = useMutation({
+    mutationFn: ({
+      inventoryItemId,
+      payload,
+    }: {
+      inventoryItemId: string;
+      payload: Parameters<typeof api.correctInventoryExpiryDate>[1];
+    }) => api.correctInventoryExpiryDate(inventoryItemId, payload),
+    onSuccess: async () => {
+      await invalidateAfterInventoryChanged(queryClient);
     },
   });
   const createShoppingMutation = useMutation({
     mutationFn: api.createShoppingItem,
-    onSuccess: () => {
-      invalidateAfterShoppingChanged(queryClient);
+    onSuccess: async () => {
+      await invalidateAfterShoppingChanged(queryClient);
     },
   });
   const updateShoppingMutation = useMutation({
     mutationFn: ({ itemId, payload }: { itemId: string; payload: Parameters<typeof api.updateShoppingItem>[1] }) =>
       api.updateShoppingItem(itemId, payload),
-    onSuccess: () => {
-      invalidateAfterShoppingChanged(queryClient);
+    onSuccess: async () => {
+      await invalidateAfterShoppingChanged(queryClient);
     },
   });
   const deleteShoppingMutation = useMutation({
     mutationFn: api.deleteShoppingItem,
-    onSuccess: () => {
-      invalidateAfterShoppingChanged(queryClient);
+    onSuccess: async () => {
+      await invalidateAfterShoppingChanged(queryClient);
     },
   });
   const createRecipeMutation = useMutation({
     mutationFn: api.createRecipe,
-    onSuccess: () => {
-      invalidateAfterRecipeChanged(queryClient);
+    onSuccess: async () => {
+      await invalidateAfterRecipeChanged(queryClient);
     },
   });
   const updateRecipeMutation = useMutation({
     mutationFn: ({ recipeId, payload }: { recipeId: string; payload: Parameters<typeof api.updateRecipe>[1] }) =>
       api.updateRecipe(recipeId, payload),
-    onSuccess: () => {
-      invalidateAfterRecipeChanged(queryClient);
+    onSuccess: async () => {
+      await invalidateAfterRecipeChanged(queryClient);
     },
   });
   const deleteRecipeMutation = useMutation({
     mutationFn: api.deleteRecipe,
-    onSuccess: () => {
-      invalidateAfterRecipeDeleted(queryClient);
+    onSuccess: async () => {
+      await invalidateAfterRecipeDeleted(queryClient);
     },
   });
   const cookRecipeMutation = useMutation({
     mutationFn: ({ recipeId, payload }: { recipeId: string; payload: Parameters<typeof api.cookRecipe>[1] }) =>
       api.cookRecipe(recipeId, payload),
-    onSuccess: () => {
-      invalidateAfterRecipeCooked(queryClient);
+    onSuccess: async () => {
+      await invalidateAfterRecipeCooked(queryClient);
     },
   });
   const previewCookRecipeMutation = useMutation({
@@ -100,85 +118,85 @@ export function useAppMutations() {
   });
   const addRecipeFavoriteMutation = useMutation({
     mutationFn: api.addRecipeFavorite,
-    onSuccess: () => {
-      invalidateAfterRecipeFavoriteChanged(queryClient);
+    onSuccess: async () => {
+      await invalidateAfterRecipeFavoriteChanged(queryClient);
     },
   });
   const removeRecipeFavoriteMutation = useMutation({
     mutationFn: api.removeRecipeFavorite,
-    onSuccess: () => {
-      invalidateAfterRecipeFavoriteChanged(queryClient);
+    onSuccess: async () => {
+      await invalidateAfterRecipeFavoriteChanged(queryClient);
     },
   });
   const createFoodPlanItemMutation = useMutation({
     mutationFn: api.createFoodPlanItem,
-    onSuccess: () => {
-      invalidateAfterFoodPlanChanged(queryClient);
+    onSuccess: async () => {
+      await invalidateAfterFoodPlanChanged(queryClient);
     },
   });
   const updateFoodPlanItemMutation = useMutation({
     mutationFn: ({ itemId, payload }: { itemId: string; payload: Parameters<typeof api.updateFoodPlanItem>[1] }) =>
       api.updateFoodPlanItem(itemId, payload),
-    onSuccess: () => {
-      invalidateAfterFoodPlanChanged(queryClient);
+    onSuccess: async () => {
+      await invalidateAfterFoodPlanChanged(queryClient);
     },
   });
   const deleteFoodPlanItemMutation = useMutation({
     mutationFn: api.deleteFoodPlanItem,
-    onSuccess: () => {
-      invalidateAfterFoodPlanChanged(queryClient);
+    onSuccess: async () => {
+      await invalidateAfterFoodPlanChanged(queryClient);
     },
   });
   const createFoodSceneMutation = useMutation({
     mutationFn: api.createFoodScene,
-    onSuccess: () => {
-      invalidateAfterFoodSceneChanged(queryClient);
+    onSuccess: async () => {
+      await invalidateAfterFoodSceneChanged(queryClient);
     },
   });
   const updateFoodSceneMutation = useMutation({
     mutationFn: ({ sceneId, payload }: { sceneId: string; payload: Parameters<typeof api.updateFoodScene>[1] }) =>
       api.updateFoodScene(sceneId, payload),
-    onSuccess: () => {
-      invalidateAfterFoodSceneChanged(queryClient);
+    onSuccess: async () => {
+      await invalidateAfterFoodSceneChanged(queryClient);
     },
   });
   const deleteFoodSceneMutation = useMutation({
     mutationFn: api.deleteFoodScene,
-    onSuccess: () => {
-      invalidateAfterFoodSceneChanged(queryClient);
+    onSuccess: async () => {
+      await invalidateAfterFoodSceneChanged(queryClient);
     },
   });
   const createFoodMutation = useMutation({
     mutationFn: api.createFood,
-    onSuccess: () => {
-      invalidateAfterFoodChanged(queryClient);
+    onSuccess: async () => {
+      await invalidateAfterFoodChanged(queryClient);
     },
   });
   const updateFoodMutation = useMutation({
     mutationFn: ({ foodId, payload }: { foodId: string; payload: Parameters<typeof api.updateFood>[1] }) =>
       api.updateFood(foodId, payload),
-    onSuccess: () => {
-      invalidateAfterFoodChanged(queryClient);
+    onSuccess: async () => {
+      await invalidateAfterFoodChanged(queryClient);
     },
   });
   const toggleFavoriteMutation = useMutation({
     mutationFn: ({ foodId, favorite }: { foodId: string; favorite: boolean }) =>
       api.updateFoodFavorite(foodId, favorite),
-    onSuccess: () => {
-      invalidateAfterFoodChanged(queryClient);
+    onSuccess: async () => {
+      await invalidateAfterFoodChanged(queryClient);
     },
   });
   const updateMealMutation = useMutation({
     mutationFn: ({ mealLogId, payload }: { mealLogId: string; payload: Parameters<typeof api.updateMealLog>[1] }) =>
       api.updateMealLog(mealLogId, payload),
-    onSuccess: () => {
-      invalidateAfterMealLogChanged(queryClient);
+    onSuccess: async () => {
+      await invalidateAfterMealLogChanged(queryClient);
     },
   });
   const quickAddMealMutation = useMutation({
     mutationFn: api.quickAddMealLog,
-    onSuccess: () => {
-      invalidateAfterQuickMealAdded(queryClient);
+    onSuccess: async () => {
+      await invalidateAfterQuickMealAdded(queryClient);
     },
   });
 
@@ -188,6 +206,8 @@ export function useAppMutations() {
     createInventoryMutation,
     consumeInventoryMutation,
     disposeExpiredInventoryMutation,
+    snoozeInventoryExpiryAlertsMutation,
+    correctInventoryExpiryDateMutation,
     createShoppingMutation,
     updateShoppingMutation,
     deleteShoppingMutation,

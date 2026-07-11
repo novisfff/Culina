@@ -129,6 +129,10 @@ export interface InventoryItem {
   updated_at: string;
   created_by?: string | null;
   updated_by?: string | null;
+  row_version?: number;
+  expiry_alert_snoozed_until?: string | null;
+  expiry_reviewed_at?: string | null;
+  expiry_reviewed_by?: string | null;
 }
 
 export type InventoryOverviewScope = 'all' | 'ingredient' | 'food';
@@ -1383,10 +1387,37 @@ export interface DisposeInventoryResponse {
   remaining_quantity: number;
 }
 
-export interface DisposeExpiredInventoryRequest {
+export type VersionedInventoryItemRef = {
+  inventory_item_id: string;
+  expected_row_version: number;
+};
+
+export type DisposeExpiredInventoryRequest = {
   ingredient_id: string;
-  inventory_item_ids: string[];
-}
+  items: VersionedInventoryItemRef[];
+};
+
+export type SnoozeExpiryAlertsAction = 'retain_expired' | 'snooze_upcoming';
+
+export type SnoozeExpiryAlertsRequest = {
+  action: SnoozeExpiryAlertsAction;
+  ingredient_id: string;
+  items: VersionedInventoryItemRef[];
+  snoozed_until: string;
+};
+
+export type SnoozeExpiryAlertsResponse = {
+  ingredient_id: string;
+  snoozed_item_ids: string[];
+  snoozed_count: number;
+  reviewed_expired_count: number;
+  snoozed_until: string;
+};
+
+export type CorrectInventoryExpiryDateRequest = {
+  expiry_date: string;
+  expected_row_version: number;
+};
 
 export interface DisposeExpiredInventoryResponse {
   ingredient_id: string;

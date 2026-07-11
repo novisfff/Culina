@@ -3,57 +3,55 @@ import { queryKeys } from './queryKeys';
 import type { AiImageTargetEntityType, SearchEntityType } from './types';
 
 function invalidateMany(queryClient: QueryClient, keys: QueryKey[]) {
-  keys.forEach((queryKey) => {
-    void queryClient.invalidateQueries({ queryKey });
-  });
+  return Promise.all(keys.map((queryKey) => queryClient.invalidateQueries({ queryKey })));
 }
 
-export function invalidateAfterSearchIndexJobChanged(
+export async function invalidateAfterSearchIndexJobChanged(
   queryClient: QueryClient,
   target?: { entity_type?: SearchEntityType | null; entity_id?: string | null }
 ) {
-  invalidateMany(queryClient, [queryKeys.searchIndexJobs, queryKeys.searchRoot]);
+  await invalidateMany(queryClient, [queryKeys.searchIndexJobs, queryKeys.searchRoot]);
   switch (target?.entity_type) {
     case 'food':
-      invalidateAfterFoodChanged(queryClient);
+      await invalidateAfterFoodChanged(queryClient);
       break;
     case 'ingredient':
-      invalidateAfterIngredientChanged(queryClient);
+      await invalidateAfterIngredientChanged(queryClient);
       break;
     case 'recipe':
-      invalidateAfterRecipeChanged(queryClient);
+      await invalidateAfterRecipeChanged(queryClient);
       break;
     default:
       break;
   }
 }
 
-export function invalidateAfterMemberChanged(queryClient: QueryClient) {
-  invalidateMany(queryClient, [queryKeys.members, queryKeys.activityLogs]);
+export async function invalidateAfterMemberChanged(queryClient: QueryClient) {
+  await invalidateMany(queryClient, [queryKeys.members, queryKeys.activityLogs]);
 }
 
-export function invalidateAfterProfileChanged(queryClient: QueryClient) {
-  invalidateMany(queryClient, [queryKeys.authMe, queryKeys.members, queryKeys.activityLogs]);
+export async function invalidateAfterProfileChanged(queryClient: QueryClient) {
+  await invalidateMany(queryClient, [queryKeys.authMe, queryKeys.members, queryKeys.activityLogs]);
 }
 
-export function invalidateAfterFamilyChanged(queryClient: QueryClient) {
-  invalidateMany(queryClient, [queryKeys.family, queryKeys.authMe, queryKeys.activityLogs]);
+export async function invalidateAfterFamilyChanged(queryClient: QueryClient) {
+  await invalidateMany(queryClient, [queryKeys.family, queryKeys.authMe, queryKeys.activityLogs]);
 }
 
-export function invalidateAfterIngredientChanged(queryClient: QueryClient) {
-  invalidateMany(queryClient, [queryKeys.ingredients, queryKeys.activityLogs]);
+export async function invalidateAfterIngredientChanged(queryClient: QueryClient) {
+  await invalidateMany(queryClient, [queryKeys.ingredients, queryKeys.activityLogs]);
 }
 
-export function invalidateAfterInventoryChanged(queryClient: QueryClient) {
-  invalidateMany(queryClient, [queryKeys.inventory, queryKeys.inventoryOverviewRoot, queryKeys.foodRecommendations, queryKeys.activityLogs]);
+export async function invalidateAfterInventoryChanged(queryClient: QueryClient) {
+  await invalidateMany(queryClient, [queryKeys.inventory, queryKeys.inventoryOverviewRoot, queryKeys.foodRecommendations, queryKeys.activityLogs]);
 }
 
-export function invalidateAfterShoppingChanged(queryClient: QueryClient) {
-  invalidateMany(queryClient, [queryKeys.shoppingList, queryKeys.activityLogs]);
+export async function invalidateAfterShoppingChanged(queryClient: QueryClient) {
+  await invalidateMany(queryClient, [queryKeys.shoppingList, queryKeys.activityLogs]);
 }
 
-export function invalidateAfterRecipeChanged(queryClient: QueryClient) {
-  invalidateMany(queryClient, [
+export async function invalidateAfterRecipeChanged(queryClient: QueryClient) {
+  await invalidateMany(queryClient, [
     queryKeys.recipes,
     queryKeys.recipeDiscovery,
     queryKeys.recipeStats,
@@ -63,8 +61,8 @@ export function invalidateAfterRecipeChanged(queryClient: QueryClient) {
   ]);
 }
 
-export function invalidateAfterRecipeDeleted(queryClient: QueryClient) {
-  invalidateMany(queryClient, [
+export async function invalidateAfterRecipeDeleted(queryClient: QueryClient) {
+  await invalidateMany(queryClient, [
     queryKeys.recipes,
     queryKeys.recipeDiscovery,
     queryKeys.recipeStats,
@@ -76,8 +74,8 @@ export function invalidateAfterRecipeDeleted(queryClient: QueryClient) {
   ]);
 }
 
-export function invalidateAfterRecipeCooked(queryClient: QueryClient) {
-  invalidateMany(queryClient, [
+export async function invalidateAfterRecipeCooked(queryClient: QueryClient) {
+  await invalidateMany(queryClient, [
     queryKeys.inventory,
     queryKeys.inventoryOverviewRoot,
     queryKeys.recipeDiscovery,
@@ -90,28 +88,28 @@ export function invalidateAfterRecipeCooked(queryClient: QueryClient) {
   ]);
 }
 
-export function invalidateAfterRecipeFavoriteChanged(queryClient: QueryClient) {
-  invalidateMany(queryClient, [queryKeys.recipeFavorites, queryKeys.activityLogs]);
+export async function invalidateAfterRecipeFavoriteChanged(queryClient: QueryClient) {
+  await invalidateMany(queryClient, [queryKeys.recipeFavorites, queryKeys.activityLogs]);
 }
 
-export function invalidateAfterFoodPlanChanged(queryClient: QueryClient) {
-  invalidateMany(queryClient, [queryKeys.foodPlanRoot, queryKeys.activityLogs]);
+export async function invalidateAfterFoodPlanChanged(queryClient: QueryClient) {
+  await invalidateMany(queryClient, [queryKeys.foodPlanRoot, queryKeys.activityLogs]);
 }
 
-export function invalidateAfterFoodSceneChanged(queryClient: QueryClient) {
-  invalidateMany(queryClient, [queryKeys.foodScenes, queryKeys.activityLogs]);
+export async function invalidateAfterFoodSceneChanged(queryClient: QueryClient) {
+  await invalidateMany(queryClient, [queryKeys.foodScenes, queryKeys.activityLogs]);
 }
 
-export function invalidateAfterFoodChanged(queryClient: QueryClient) {
-  invalidateMany(queryClient, [queryKeys.foods, queryKeys.inventoryOverviewRoot, queryKeys.foodRecommendations, queryKeys.activityLogs]);
+export async function invalidateAfterFoodChanged(queryClient: QueryClient) {
+  await invalidateMany(queryClient, [queryKeys.foods, queryKeys.inventoryOverviewRoot, queryKeys.foodRecommendations, queryKeys.activityLogs]);
 }
 
-export function invalidateAfterMealLogChanged(queryClient: QueryClient) {
-  invalidateMany(queryClient, [queryKeys.mealLogs, queryKeys.foodRecommendations, queryKeys.activityLogs]);
+export async function invalidateAfterMealLogChanged(queryClient: QueryClient) {
+  await invalidateMany(queryClient, [queryKeys.mealLogs, queryKeys.foodRecommendations, queryKeys.activityLogs]);
 }
 
-export function invalidateAfterQuickMealAdded(queryClient: QueryClient) {
-  invalidateMany(queryClient, [
+export async function invalidateAfterQuickMealAdded(queryClient: QueryClient) {
+  await invalidateMany(queryClient, [
     queryKeys.mealLogs,
     queryKeys.foodPlanRoot,
     queryKeys.foods,
@@ -121,8 +119,8 @@ export function invalidateAfterQuickMealAdded(queryClient: QueryClient) {
   ]);
 }
 
-export function invalidateAfterAiApprovalSettled(queryClient: QueryClient, conversationId: string) {
-  invalidateMany(queryClient, [
+export async function invalidateAfterAiApprovalSettled(queryClient: QueryClient, conversationId: string) {
+  await invalidateMany(queryClient, [
     queryKeys.aiMessages(conversationId),
     queryKeys.aiPendingApprovals(conversationId),
     queryKeys.aiConversations,
@@ -139,8 +137,8 @@ export function invalidateAfterAiApprovalSettled(queryClient: QueryClient, conve
   ]);
 }
 
-export function invalidateAfterAiMessageSent(queryClient: QueryClient, conversationId: string) {
-  invalidateMany(queryClient, [
+export async function invalidateAfterAiMessageSent(queryClient: QueryClient, conversationId: string) {
+  await invalidateMany(queryClient, [
     queryKeys.aiConversations,
     queryKeys.aiQualityMetrics,
     queryKeys.aiMessages(conversationId),
@@ -148,32 +146,32 @@ export function invalidateAfterAiMessageSent(queryClient: QueryClient, conversat
   ]);
 }
 
-export function invalidateAfterAiImageJobChanged(
+export async function invalidateAfterAiImageJobChanged(
   queryClient: QueryClient,
   target?: { target_entity_type?: AiImageTargetEntityType | null; target_entity_id?: string | null }
 ) {
-  invalidateMany(queryClient, [queryKeys.aiImageJobs]);
+  await invalidateMany(queryClient, [queryKeys.aiImageJobs]);
   switch (target?.target_entity_type) {
     case 'food':
-      invalidateAfterFoodChanged(queryClient);
+      await invalidateAfterFoodChanged(queryClient);
       break;
     case 'ingredient':
-      invalidateAfterIngredientChanged(queryClient);
+      await invalidateAfterIngredientChanged(queryClient);
       break;
     case 'recipe':
-      invalidateAfterRecipeChanged(queryClient);
+      await invalidateAfterRecipeChanged(queryClient);
       break;
     case 'food_scene':
-      invalidateAfterFoodSceneChanged(queryClient);
+      await invalidateAfterFoodSceneChanged(queryClient);
       break;
     case 'meal_log':
-      invalidateAfterMealLogChanged(queryClient);
+      await invalidateAfterMealLogChanged(queryClient);
       break;
     case 'family':
-      invalidateAfterFamilyChanged(queryClient);
+      await invalidateAfterFamilyChanged(queryClient);
       break;
     case 'user':
-      invalidateAfterProfileChanged(queryClient);
+      await invalidateAfterProfileChanged(queryClient);
       break;
     default:
       break;

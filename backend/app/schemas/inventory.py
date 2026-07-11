@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import date as date_type, datetime
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -61,15 +62,40 @@ class ConsumeInventoryResponse(BaseModel):
     affected_item_ids: list[str] = Field(default_factory=list)
 
 
+class VersionedInventoryItemRef(BaseModel):
+    inventory_item_id: str
+    expected_row_version: int = Field(ge=1)
+
+
 class DisposeExpiredInventoryRequest(BaseModel):
     ingredient_id: str
-    inventory_item_ids: list[str] = Field(default_factory=list, min_length=1)
+    items: list[VersionedInventoryItemRef] = Field(min_length=1)
 
 
 class DisposeExpiredInventoryResponse(BaseModel):
     ingredient_id: str
     disposed_item_ids: list[str] = Field(default_factory=list)
     disposed_count: int
+
+
+class SnoozeExpiryAlertsRequest(BaseModel):
+    action: Literal["retain_expired", "snooze_upcoming"]
+    ingredient_id: str
+    items: list[VersionedInventoryItemRef] = Field(min_length=1)
+    snoozed_until: date_type
+
+
+class SnoozeExpiryAlertsResponse(BaseModel):
+    ingredient_id: str
+    snoozed_item_ids: list[str] = Field(default_factory=list)
+    snoozed_count: int
+    reviewed_expired_count: int
+    snoozed_until: date_type
+
+
+class CorrectInventoryExpiryDateRequest(BaseModel):
+    expiry_date: date_type
+    expected_row_version: int = Field(ge=1)
 
 
 class DisposeInventoryRequest(BaseModel):
