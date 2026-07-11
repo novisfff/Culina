@@ -1,8 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
 import type {
   CorrectInventoryExpiryDateRequest,
+  CorrectStateExpiryDateRequest,
   DisposeExpiredInventoryRequest,
+  SetInventoryStateAbsentRequest,
   SnoozeExpiryAlertsRequest,
+  SnoozeStateExpiryAlertRequest,
   VersionedInventoryItemRef,
 } from '../../api/types';
 import { ApiError } from '../../api/request';
@@ -85,11 +88,59 @@ const milkGroup: ExpiryInventoryActionGroup = {
       ...tomatoGroup.batches[0],
       inventoryItemId: 'inventory-milk-1',
       rowVersion: 1,
+      target: {
+        targetKind: 'inventory_item',
+        inventoryItemId: 'inventory-milk-1',
+        expectedRowVersion: 1,
+      },
     },
   ],
   expiredBatchCount: 1,
   totalBatchCount: 1,
   quantityLabels: ['2 个'],
+};
+
+const saltStateGroup: ExpiryInventoryActionGroup = {
+  kind: 'expiry',
+  id: 'expiry:ingredient-salt',
+  ingredientId: 'ingredient-salt',
+  ingredientName: '盐',
+  severity: 'expired',
+  batches: [
+    {
+      inventoryItemId: 'state:inventory-state-salt',
+      rowVersion: 2,
+      remainingQuantity: 1,
+      unit: '',
+      storageLocation: '常温',
+      purchaseDate: '2026-06-01',
+      expiryDate: '2026-07-09',
+      daysLeft: -2,
+      expiryAlertSnoozedUntil: null,
+      expiryReviewedAt: null,
+      expiryReviewedBy: null,
+      presenceOnly: true,
+      target: {
+        targetKind: 'ingredient_inventory_state',
+        ingredientId: 'ingredient-salt',
+        stateId: 'inventory-state-salt',
+        expectedRowVersion: 2,
+      },
+    },
+  ],
+  expiredBatchCount: 1,
+  todayBatchCount: 0,
+  soonBatchCount: 0,
+  laterBatchCount: 0,
+  totalBatchCount: 1,
+  quantityLabels: ['只记录整体有无'],
+  storageLocations: ['常温'],
+  earliestExpiryDate: '2026-07-09',
+  earliestDaysLeft: -2,
+  title: '盐需要处理',
+  detail: '只记录整体有无 · 已过期 · 常温',
+  primaryAction: 'manage_expiry',
+  targetKind: 'ingredient_inventory_state',
 };
 
 const tomatoLowStock: LowStockInventoryActionGroup = {
@@ -110,6 +161,10 @@ const versionedItems: VersionedInventoryItemRef[] = [
   { inventory_item_id: 'inventory-expired-2', expected_row_version: 3 },
 ];
 
+const stateSelectionItems: VersionedInventoryItemRef[] = [
+  { inventory_item_id: 'state:inventory-state-salt', expected_row_version: 2 },
+];
+
 function createActions(overrides: {
   selectedActionGroup?: InventoryActionGroup | null;
   disposeExpiredInventory?: (payload: DisposeExpiredInventoryRequest) => Promise<unknown>;
@@ -118,9 +173,18 @@ function createActions(overrides: {
     inventoryItemId: string,
     payload: CorrectInventoryExpiryDateRequest,
   ) => Promise<unknown>;
-  snoozeStateExpiryAlert?: (ingredientId: string, payload: unknown) => Promise<unknown>;
-  correctStateExpiryDate?: (ingredientId: string, payload: unknown) => Promise<unknown>;
-  setInventoryStateAbsent?: (ingredientId: string, payload: unknown) => Promise<unknown>;
+  snoozeStateExpiryAlert?: (
+    ingredientId: string,
+    payload: SnoozeStateExpiryAlertRequest,
+  ) => Promise<unknown>;
+  correctStateExpiryDate?: (
+    ingredientId: string,
+    payload: CorrectStateExpiryDateRequest,
+  ) => Promise<unknown>;
+  setInventoryStateAbsent?: (
+    ingredientId: string,
+    payload: SetInventoryStateAbsentRequest,
+  ) => Promise<unknown>;
   refreshInventoryActions?: () => Promise<InventoryActionGroup[]>;
   completeActionGroup?: (args: {
     ingredientId: string;
@@ -198,6 +262,9 @@ function createActions(overrides: {
     disposeExpiredInventory,
     snoozeInventoryExpiryAlerts,
     correctInventoryExpiryDate,
+    snoozeStateExpiryAlert,
+    correctStateExpiryDate,
+    setInventoryStateAbsent,
     setActionDialogBusy,
     setActionDialogError,
     setActionDialogConflict,
@@ -508,6 +575,103 @@ describe('useHomeDashboardActions inventory workflow', () => {
     });
     expect(completeActionGroup).toHaveBeenLastCalledWith(
       expect.objectContaining({
+        summary: expect.objectContaining({ message: '到期日已更正' }),
+      }),
+    );
+  });
+});
+
+describe('useHomeDashboardActions state-target routing', () => {
+  it('disposes presence State via setInventoryStateAbsent and skips batch dispose', async () => {
+    const setInventoryStateAbsent = vi.fn(async () => undefined);
+    const disposeExpiredInventory = vi.fn(async () => undefined);
+    const refreshInventoryActions = vi.fn(async () => [] as InventoryActionGroup[]);
+    const completeActionGroup = vi.fn();
+    const { actions } = createActions({
+      selectedActionGroup: saltStateGroup,
+      setInventoryStateAbsent,
+      disposeExpiredInventory,
+      refreshInventoryActions,
+      completeActionGroup,
+    });
+
+    await actions.disposeSelectedInventoryBatches(stateSelectionItems);
+
+    expect(setInventoryStateAbsent).toHaveBeenCalledWith('ingredient-salt', {
+      state_id: 'inventory-state-salt',
+      expected_row_version: 2,
+    });
+    expect(disposeExpiredInventory).not.toHaveBeenCalled();
+    expect(completeActionGroup).toHaveBeenCalledWith(
+      expect.objectContaining({
+        ingredientId: 'ingredient-salt',
+        summary: expect.objectContaining({ message: '已标记为没有' }),
+      }),
+    );
+  });
+
+  it('retains/snoozes presence State via snoozeStateExpiryAlert and skips batch snooze', async () => {
+    const snoozeStateExpiryAlert = vi.fn(async () => undefined);
+    const snoozeInventoryExpiryAlerts = vi.fn(async () => undefined);
+    const refreshInventoryActions = vi.fn(async () => [] as InventoryActionGroup[]);
+    const completeActionGroup = vi.fn();
+    const { actions } = createActions({
+      selectedActionGroup: saltStateGroup,
+      snoozeStateExpiryAlert,
+      snoozeInventoryExpiryAlerts,
+      refreshInventoryActions,
+      completeActionGroup,
+    });
+
+    await actions.snoozeSelectedInventoryAlerts({
+      action: 'retain_expired',
+      items: stateSelectionItems,
+      snoozedUntil: '2026-07-15',
+    });
+
+    expect(snoozeStateExpiryAlert).toHaveBeenCalledWith('ingredient-salt', {
+      action: 'retain_expired',
+      state_id: 'inventory-state-salt',
+      expected_row_version: 2,
+      snoozed_until: '2026-07-15',
+    });
+    expect(snoozeInventoryExpiryAlerts).not.toHaveBeenCalled();
+    expect(completeActionGroup).toHaveBeenCalledWith(
+      expect.objectContaining({
+        ingredientId: 'ingredient-salt',
+        summary: expect.objectContaining({ message: '已暂时保留，到提醒日会再出现' }),
+      }),
+    );
+  });
+
+  it('corrects presence State expiry via correctStateExpiryDate and skips batch correct', async () => {
+    const correctStateExpiryDate = vi.fn(async () => undefined);
+    const correctInventoryExpiryDate = vi.fn(async () => undefined);
+    const refreshInventoryActions = vi.fn(async () => [] as InventoryActionGroup[]);
+    const completeActionGroup = vi.fn();
+    const { actions } = createActions({
+      selectedActionGroup: saltStateGroup,
+      correctStateExpiryDate,
+      correctInventoryExpiryDate,
+      refreshInventoryActions,
+      completeActionGroup,
+    });
+
+    await actions.correctSelectedInventoryExpiryDate({
+      inventoryItemId: 'state:inventory-state-salt',
+      expectedRowVersion: 2,
+      expiryDate: '2026-08-01',
+    });
+
+    expect(correctStateExpiryDate).toHaveBeenCalledWith('ingredient-salt', {
+      state_id: 'inventory-state-salt',
+      expected_row_version: 2,
+      expiry_date: '2026-08-01',
+    });
+    expect(correctInventoryExpiryDate).not.toHaveBeenCalled();
+    expect(completeActionGroup).toHaveBeenCalledWith(
+      expect.objectContaining({
+        ingredientId: 'ingredient-salt',
         summary: expect.objectContaining({ message: '到期日已更正' }),
       }),
     );

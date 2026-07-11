@@ -302,7 +302,8 @@ export function useHomeDashboardActions(input: {
       return;
     }
     if (items.length === 0) {
-      input.setActionDialogError('请先选择要销毁的过期批次。');
+      const presenceOnly = group.targetKind === 'ingredient_inventory_state';
+      input.setActionDialogError(presenceOnly ? '请先确认这份食材是否还在。' : '请先选择要销毁的过期批次。');
       return;
     }
 
