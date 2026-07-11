@@ -273,8 +273,6 @@ describe('homeDashboardModel', () => {
       mealLogs: [meal, { ...meal, id: 'meal-old', date: '2026-05-31' }],
       today,
       dashboardRecommendationPage: 0,
-      visibleDashboardTodoCount: 2,
-      visibleExpiryCount: 1,
       selectedDashboardPlanDate: '2026-06-01',
       foodPlanWeekRange: { start: '2026-06-01', end: '2026-06-07' },
     });
@@ -460,8 +458,6 @@ describe('homeDashboardModel', () => {
       mealLogs: [],
       today,
       dashboardRecommendationPage: 0,
-      visibleDashboardTodoCount: 4,
-      visibleExpiryCount: 3,
       selectedDashboardPlanDate: today,
       foodPlanWeekRange: { start: '2026-07-06', end: '2026-07-12' },
     });

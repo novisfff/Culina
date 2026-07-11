@@ -102,11 +102,12 @@ type IngredientWorkspaceProps = {
   recipes: Recipe[];
   shoppingItems: ShoppingListItem[];
   notificationCenter?: ReactNode;
-  navigationRequest?: {
-    view: 'catalog' | 'detail';
-    ingredientId?: string;
-    requestId: number;
-  } | null;
+  navigationRequest?:
+    | { target: 'catalog'; requestId: number }
+    | { target: 'detail'; ingredientId: string; requestId: number }
+    | { target: 'shopping'; ingredientId: string; requestId: number }
+    | { target: 'priority'; requestId: number }
+    | null;
   createIngredient: (payload: {
     name: string;
     category: string;
@@ -1893,6 +1894,19 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
     },
     onOpenFoodStockFromShopping: (item) => handleOpenFoodStockFromInventory(item.food_id || item.title, item),
   });
+
+  // Consume shopping navigation once by requestId; do not keep shopping form state in home.
+  useEffect(() => {
+    const request = props.navigationRequest;
+    if (!request || request.target !== 'shopping') {
+      return;
+    }
+    const ingredient = props.ingredients.find((item) => item.id === request.ingredientId);
+    if (!ingredient) {
+      return;
+    }
+    openShoppingOverlay({ ingredient, reason: '库存不足' });
+  }, [props.navigationRequest?.requestId]);
   const selectedInventoryIngredient =
     ingredientOptions.find((item) => item.id === inventoryForm.ingredientId) ?? null;
 

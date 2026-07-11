@@ -34,11 +34,13 @@ export type PersistedIngredientWorkspaceState = {
   ingredientForm?: IngredientCreateFormState;
 };
 
-type NavigationRequest = {
-  view: 'catalog' | 'detail';
-  ingredientId?: string;
-  requestId: number;
-} | null | undefined;
+type NavigationRequest =
+  | { target: 'catalog'; requestId: number }
+  | { target: 'detail'; ingredientId: string; requestId: number }
+  | { target: 'shopping'; ingredientId: string; requestId: number }
+  | { target: 'priority'; requestId: number }
+  | null
+  | undefined;
 
 type UseIngredientWorkspaceStateArgs = {
   persistedWorkspaceState: PersistedIngredientWorkspaceState;
@@ -133,23 +135,42 @@ export function useIngredientWorkspaceState(args: UseIngredientWorkspaceStateArg
       return;
     }
 
-    setActivePanel('catalog');
+    const request = args.navigationRequest;
     setCatalogSearch('');
     setCatalogCategoryFilter('all');
-    setCatalogStatusFilter('all');
 
-    if (args.navigationRequest.ingredientId) {
-      setSelectedIngredientId(args.navigationRequest.ingredientId);
-      setExpandedCatalogIngredientId(
-        args.navigationRequest.view === 'catalog' ? args.navigationRequest.ingredientId : null
-      );
-    } else {
+    if (request.target === 'priority') {
+      // Desktop: activate shared 需处理 filter and land on the hub priority surface.
+      // Mobile focus of 今天先处理 is handled by workspace/layout consumers of catalogStatusFilter.
+      setActivePanel('catalog');
+      setCatalogStatusFilter('expired');
       setExpandedCatalogIngredientId(null);
+      setWorkspaceView('hub');
+      return;
     }
 
-    setWorkspaceView(
-      args.navigationRequest.view === 'detail' && args.navigationRequest.ingredientId ? 'detail' : 'hub'
-    );
+    if (request.target === 'shopping') {
+      setActivePanel('catalog');
+      setCatalogStatusFilter('all');
+      setSelectedIngredientId(request.ingredientId);
+      setExpandedCatalogIngredientId(null);
+      setWorkspaceView('hub');
+      return;
+    }
+
+    setActivePanel('catalog');
+    setCatalogStatusFilter('all');
+
+    if (request.target === 'detail') {
+      setSelectedIngredientId(request.ingredientId);
+      setExpandedCatalogIngredientId(null);
+      setWorkspaceView('detail');
+      return;
+    }
+
+    // catalog
+    setExpandedCatalogIngredientId(null);
+    setWorkspaceView('hub');
   }, [args.navigationRequest?.requestId]);
 
   useEffect(() => {

@@ -198,8 +198,6 @@ export function buildHomeDashboardViewModel(input: {
   mealLogs: MealLog[];
   today: string;
   dashboardRecommendationPage: number;
-  visibleDashboardTodoCount: number;
-  visibleExpiryCount: number;
   selectedDashboardPlanDate: string;
   foodPlanWeekRange: { start: string; end: string };
 }) {
@@ -220,7 +218,7 @@ export function buildHomeDashboardViewModel(input: {
     }))
     .filter((item) => item.daysLeft <= 7)
     .sort((left, right) => left.daysLeft - right.daysLeft);
-  const visibleExpiringInventoryItems = expiringInventoryItems.slice(0, input.visibleExpiryCount);
+  const visibleExpiringInventoryItems = expiringInventoryItems;
   const activeFoodPlanItems = input.foodPlanItems.filter((item) => item.status !== 'skipped');
   const pendingShoppingPreview = input.shoppingItems.filter((item) => !item.done);
   const pendingShoppingCount = pendingShoppingPreview.length;
@@ -270,7 +268,7 @@ export function buildHomeDashboardViewModel(input: {
   );
   // Keep empty todo lists for legacy UI until Task 7 replaces rendering.
   const dashboardTodoItems: DashboardTodoItem[] = [];
-  const visibleDashboardTodoItems = dashboardTodoItems.slice(0, input.visibleDashboardTodoCount);
+  const visibleDashboardTodoItems = dashboardTodoItems;
   const hasMoreDashboardTodoItems = false;
   const dashboardCompletedCount = 0;
   const dashboardWeekMealCapacity = 7 * DASHBOARD_PLAN_MEAL_TYPES.length;

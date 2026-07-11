@@ -1,13 +1,21 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { Food, FoodPlanItem, MealType } from '../../api/types';
 import type { FoodPlanDetailFormState } from '../../components/foods/FoodPlanDetailModal';
+import type { InventoryActionGroup } from '../inventory/inventoryActionModel';
 import { todayKey } from '../../lib/ui';
-import { DASHBOARD_TODO_PAGE_SIZE, type HomeRestockFormState } from './homeDashboardModel';
+import type { HomeRestockFormState } from './homeDashboardModel';
 
 export type HomePlanAddFormState = {
   planDate: string;
   mealType: MealType;
   note: string;
+};
+
+export type HomeActionCompletionSummary = {
+  title: string;
+  message: string;
+  secondaryActionLabel?: string;
+  secondaryActionIngredientId?: string;
 };
 
 function createDefaultPlanAddForm(): HomePlanAddFormState {
@@ -37,8 +45,15 @@ export function getDefaultHomePlanMealType(food: Food, fallback: MealType = 'din
   return food.suitable_meal_types[0] ?? fallback;
 }
 
+function groupsKeyOf(groups: InventoryActionGroup[]) {
+  return groups.map((group) => group.id).join('\0');
+}
+
+const EMPTY_ACTION_GROUPS: InventoryActionGroup[] = [];
+
 export function useHomeDashboardState(input: {
   foodPlanWeekRange: { start: string; end: string };
+  homeEligibleInventoryActionGroups?: InventoryActionGroup[];
 }) {
   const [dashboardRecommendationPage, setDashboardRecommendationPage] = useState(0);
   const [selectedDashboardPlanDate, setSelectedDashboardPlanDate] = useState(todayKey());
@@ -49,13 +64,17 @@ export function useHomeDashboardState(input: {
   const [homePlanAddForm, setHomePlanAddForm] = useState<HomePlanAddFormState>(createDefaultPlanAddForm);
   const [homePlanDetailForm, setHomePlanDetailForm] = useState<FoodPlanDetailFormState>(() => createPlanDetailForm());
   const [isHomePlanDetailEditing, setIsHomePlanDetailEditing] = useState(false);
-  const [visibleExpiryCount, setVisibleExpiryCount] = useState(10);
-  const [visibleDashboardTodoCount, setVisibleDashboardTodoCount] = useState(DASHBOARD_TODO_PAGE_SIZE);
-  const [homeExpiredDisposalIngredientId, setHomeExpiredDisposalIngredientId] = useState<string | null>(null);
-  const [homeExpiryReviewItemId, setHomeExpiryReviewItemId] = useState<string | null>(null);
+  const [selectedActionGroupId, setSelectedActionGroupId] = useState<string | null>(null);
+  const [completionSummary, setCompletionSummary] = useState<HomeActionCompletionSummary | null>(null);
+  const [completedIngredientId, setCompletedIngredientId] = useState<string | null>(null);
+  const [nextGroupId, setNextGroupId] = useState<string | null>(null);
+  const [groupsKeyAtCompletion, setGroupsKeyAtCompletion] = useState<string | null>(null);
   const [homeRestockShoppingItemId, setHomeRestockShoppingItemId] = useState<string | null>(null);
   const [homeRestockForm, setHomeRestockForm] = useState<HomeRestockFormState | null>(null);
   const [homeMealDetailId, setHomeMealDetailId] = useState<string | null>(null);
+
+  const eligibleGroups = input.homeEligibleInventoryActionGroups ?? EMPTY_ACTION_GROUPS;
+  const groupsKey = useMemo(() => groupsKeyOf(eligibleGroups), [eligibleGroups]);
 
   useEffect(() => {
     const defaultDate = todayKey();
@@ -66,8 +85,55 @@ export function useHomeDashboardState(input: {
     setSelectedDashboardPlanDate(input.foodPlanWeekRange.start);
   }, [input.foodPlanWeekRange.end, input.foodPlanWeekRange.start]);
 
-  function resetVisibleExpiryCount() {
-    setVisibleExpiryCount(10);
+  useEffect(() => {
+    if (!completedIngredientId || groupsKeyAtCompletion === null) {
+      return;
+    }
+    // Offer next only after query invalidation produces a refreshed projection.
+    if (groupsKey === groupsKeyAtCompletion) {
+      setNextGroupId(null);
+      return;
+    }
+    const next = eligibleGroups.find((group) => group.ingredientId !== completedIngredientId) ?? null;
+    setNextGroupId(next?.id ?? null);
+  }, [completedIngredientId, eligibleGroups, groupsKey, groupsKeyAtCompletion]);
+
+  function openActionGroup(groupId: string) {
+    setSelectedActionGroupId(groupId);
+  }
+
+  function closeActionGroup() {
+    setSelectedActionGroupId(null);
+  }
+
+  function completeActionGroup(args: {
+    ingredientId: string;
+    summary: HomeActionCompletionSummary;
+  }) {
+    setSelectedActionGroupId(null);
+    setCompletedIngredientId(args.ingredientId);
+    setCompletionSummary(args.summary);
+    setGroupsKeyAtCompletion(groupsKey);
+    // nextGroupId is chosen only after eligible groups refresh via the effect above.
+    setNextGroupId(null);
+  }
+
+  function openNextActionGroup() {
+    if (!nextGroupId) {
+      return;
+    }
+    setSelectedActionGroupId(nextGroupId);
+    setCompletionSummary(null);
+    setCompletedIngredientId(null);
+    setGroupsKeyAtCompletion(null);
+    setNextGroupId(null);
+  }
+
+  function dismissCompletionSummary() {
+    setCompletionSummary(null);
+    setCompletedIngredientId(null);
+    setGroupsKeyAtCompletion(null);
+    setNextGroupId(null);
   }
 
   function openHomePlanDetail(item: FoodPlanItem) {
@@ -136,21 +202,22 @@ export function useHomeDashboardState(input: {
     setHomePlanDetailForm,
     isHomePlanDetailEditing,
     setIsHomePlanDetailEditing,
-    visibleExpiryCount,
-    setVisibleExpiryCount,
-    visibleDashboardTodoCount,
-    setVisibleDashboardTodoCount,
-    homeExpiredDisposalIngredientId,
-    setHomeExpiredDisposalIngredientId,
-    homeExpiryReviewItemId,
-    setHomeExpiryReviewItemId,
+    selectedActionGroupId,
+    setSelectedActionGroupId,
+    completionSummary,
+    completedIngredientId,
+    nextGroupId,
+    openActionGroup,
+    closeActionGroup,
+    completeActionGroup,
+    openNextActionGroup,
+    dismissCompletionSummary,
     homeRestockShoppingItemId,
     setHomeRestockShoppingItemId,
     homeRestockForm,
     setHomeRestockForm,
     homeMealDetailId,
     setHomeMealDetailId,
-    resetVisibleExpiryCount,
     openHomePlanDetail,
     closeHomePlanDetail,
     resetHomePlanDetailForm,
@@ -160,3 +227,5 @@ export function useHomeDashboardState(input: {
     closeHomePlanAddDialog,
   };
 }
+
+export type UseHomeDashboardStateResult = ReturnType<typeof useHomeDashboardState>;

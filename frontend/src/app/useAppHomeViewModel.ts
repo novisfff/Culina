@@ -12,10 +12,10 @@ import type {
   ShoppingListItem,
   UserSummary,
 } from '../api/types';
-import { buildDisposableExpiredInventoryItems, buildIngredientSummaries } from '../components/ingredients/workspaceModel';
 import {
   buildInventoryActionGroups,
   countUniqueAvailableIngredients,
+  type InventoryActionGroup,
 } from '../features/inventory/inventoryActionModel';
 import { getFoodCover } from '../lib/ui';
 import { businessDateKey } from '../lib/date';
@@ -41,18 +41,16 @@ type UseAppHomeViewModelArgs = {
   mealLogs: MealLog[];
   activityLogs: ActivityLog[];
   dashboardRecommendationPage: number;
-  visibleDashboardTodoCount: number;
-  visibleExpiryCount: number;
   selectedDashboardPlanDate: string;
   foodPlanWeekRange: { start: string; end: string };
   homePlanDetailItemId: string | null;
   homePlanAddFoodId: string | null;
   homePlanAddFoodSearch: string;
   homeRestockShoppingItemId: string | null;
-  homeExpiryReviewItemId: string | null;
   homeMealDetailId: string | null;
   homeRestockForm: HomeRestockFormState | null;
-  homeExpiredDisposalIngredientId: string | null;
+  /** Optional prebuilt groups so App can share one projection with home state. */
+  inventoryActionGroups?: InventoryActionGroup[];
   resolveDashboardAssetUrl: (url?: string) => string | undefined;
   now?: Date;
 };
@@ -80,7 +78,7 @@ export function useAppHomeViewModel(args: UseAppHomeViewModelArgs) {
   const currentUser = args.user;
   const isOwner = args.membershipRole === 'Owner';
   const businessDate = businessDateKey(args.now ?? new Date(), 'Asia/Shanghai');
-  const inventoryActionGroups = buildInventoryActionGroups({
+  const inventoryActionGroups = args.inventoryActionGroups ?? buildInventoryActionGroups({
     inventoryItems: args.inventoryItems,
     ingredients: args.ingredients,
     shoppingItems: args.shoppingItems,
@@ -153,7 +151,6 @@ export function useAppHomeViewModel(args: UseAppHomeViewModelArgs) {
     ? `${args.family.location} · ${sidebarFamilyName}`
     : sidebarFamilyName;
   const today = businessDate;
-  const ingredientById = new Map(args.ingredients.map((ingredient) => [ingredient.id, ingredient]));
   const dashboardViewModel = buildHomeDashboardViewModel({
     inventoryItems: args.inventoryItems,
     inventoryActionGroups,
@@ -165,19 +162,11 @@ export function useAppHomeViewModel(args: UseAppHomeViewModelArgs) {
     mealLogs: args.mealLogs,
     today,
     dashboardRecommendationPage: args.dashboardRecommendationPage,
-    visibleDashboardTodoCount: args.visibleDashboardTodoCount,
-    visibleExpiryCount: args.visibleExpiryCount,
     selectedDashboardPlanDate: args.selectedDashboardPlanDate,
     foodPlanWeekRange: args.foodPlanWeekRange,
   });
   const homeRestockShoppingItem = args.homeRestockShoppingItemId
     ? args.shoppingItems.find((item) => item.id === args.homeRestockShoppingItemId) ?? null
-    : null;
-  const homeExpiryReviewItem = args.homeExpiryReviewItemId
-    ? dashboardViewModel.expiringInventoryItems.find((item) => item.id === args.homeExpiryReviewItemId) ?? null
-    : null;
-  const homeExpiryReviewIngredient = homeExpiryReviewItem
-    ? ingredientById.get(homeExpiryReviewItem.ingredient_id) ?? null
     : null;
   const homeMealDetail = args.homeMealDetailId
     ? args.mealLogs.find((item) => item.id === args.homeMealDetailId) ?? null
@@ -192,25 +181,7 @@ export function useAppHomeViewModel(args: UseAppHomeViewModelArgs) {
   const homeRestockIngredientImageUrl =
     homeRestockIngredient?.image?.url ? args.resolveDashboardAssetUrl(homeRestockIngredient.image.url) : undefined;
 
-  const homeExpiredDisposalIngredient = args.homeExpiredDisposalIngredientId
-    ? args.ingredients.find((item) => item.id === args.homeExpiredDisposalIngredientId) ?? null
-    : null;
-  const ingredientSummaries = homeExpiredDisposalIngredient
-    ? buildIngredientSummaries({
-        ingredients: [homeExpiredDisposalIngredient],
-        inventoryItems: args.inventoryItems.filter((item) => item.ingredient_id === homeExpiredDisposalIngredient.id),
-        recipes: args.recipes,
-        today: businessDate,
-        shoppingItems: args.shoppingItems,
-      })
-    : [];
-  const homeExpiredDisposalSummary =
-    ingredientSummaries[0] ?? null;
-  const homeExpiredDisposalItems = homeExpiredDisposalSummary
-    ? buildDisposableExpiredInventoryItems(homeExpiredDisposalSummary, businessDate)
-    : [];
-
-  // Temporary compatibility for pre-Task-7 home UI props; badge/count use grouped actions.
+  // Temporary compatibility for pre-Task-7B home UI props; badge/count use grouped actions.
   const inventoryAlerts = dashboardViewModel.homeEligibleInventoryActionGroups.map((group) => ({
     id: group.id,
     title: group.title,
@@ -248,13 +219,9 @@ export function useAppHomeViewModel(args: UseAppHomeViewModelArgs) {
     today,
     ...dashboardViewModel,
     homeRestockShoppingItem,
-    homeExpiryReviewItem,
-    homeExpiryReviewIngredient,
     homeMealDetail,
     homeMealDetailParticipants,
     homeRestockIngredient,
     homeRestockIngredientImageUrl,
-    homeExpiredDisposalSummary,
-    homeExpiredDisposalItems,
   };
 }
